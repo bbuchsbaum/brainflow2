@@ -36,6 +36,41 @@ export interface SliceLayer {
    * transparent, and the intensity window / threshold do not apply.
    */
   labelLut?: Uint8Array;
+  /**
+   * Label boundary outline (the GPU's `sampleSelectedLabelOutline`): every
+   * region boundary when `selectedLabelId` is 0, else that region's; drawn
+   * over the layer in `color` at `thicknessPx` screen pixels.
+   */
+  outline?: { color: [number, number, number, number]; thicknessPx: number; selectedLabelId: number };
+}
+
+/** Label id at a world point (nearest voxel; 0 outside), as the GPU outline samples it. */
+function labelAt(layer: SliceLayer, wx: number, wy: number, wz: number): number {
+  const m = layer.worldToVoxel;
+  const vx = m[0][0] * wx + m[0][1] * wy + m[0][2] * wz + m[0][3];
+  const vy = m[1][0] * wx + m[1][1] * wy + m[1][2] * wz + m[1][3];
+  const vz = m[2][0] * wx + m[2][1] * wy + m[2][2] * wz + m[2][3];
+  const [nx, ny, nz] = layer.dims;
+  const i = Math.floor(vx + 0.5);
+  const j = Math.floor(vy + 0.5);
+  const k = Math.floor(vz + 0.5);
+  if (i < 0 || j < 0 || k < 0 || i >= nx || j >= ny || k >= nz) return 0;
+  return Math.max(Math.round(layer.data[i + nx * (j + ny * k)]), 0);
+}
+
+function outlineHit(layer: SliceLayer, w: Vec3, du: Vec3, dv: Vec3): boolean {
+  const o = layer.outline!;
+  const centre = labelAt(layer, w[0], w[1], w[2]);
+  if (centre === 0 || (o.selectedLabelId > 0 && centre !== o.selectedLabelId)) return false;
+  for (const [sx, d] of [
+    [1, du],
+    [-1, du],
+    [1, dv],
+    [-1, dv],
+  ] as Array<[number, Vec3]>) {
+    if (labelAt(layer, w[0] + sx * d[0], w[1] + sx * d[1], w[2] + sx * d[2]) !== centre) return true;
+  }
+  return false;
 }
 
 export interface SliceFrame {
@@ -125,6 +160,10 @@ export function renderSlice(frame: SliceFrame, layers: SliceLayer[]): Uint8Array
   const n: Vec3 = [U[1] * V[2] - U[2] * V[1], U[2] * V[0] - U[0] * V[2], U[0] * V[1] - U[1] * V[0]];
   const nn = Math.hypot(n[0], n[1], n[2]) || 1;
   const visibleAxis = n.map((c) => Math.abs(c / nn) < 0.9);
+  const step = (t: number): [Vec3, Vec3] => [
+    [(U[0] / W) * t, (U[1] / W) * t, (U[2] / W) * t],
+    [(V[0] / H) * t, (V[1] / H) * t, (V[2] / H) * t],
+  ];
 
   for (let y = 0; y < H; y++) {
     const ty = (y + 0.5) / H;
@@ -144,6 +183,10 @@ export function renderSlice(frame: SliceFrame, layers: SliceLayer[]): Uint8Array
         const vy = m[1][0] * wx + m[1][1] * wy + m[1][2] * wz + m[1][3];
         const vz = m[2][0] * wx + m[2][1] * wy + m[2][2] * wz + m[2][3];
         const [nx, ny, nz] = layer.dims;
+        // Edge rule split (documented, intentional): the slicer draws voxel
+        // coordinates in [0, n) like the GPU texture lookup, while value
+        // queries (sample_layer_value_at_world, volume_queries::nearest_voxel)
+        // answer for [-0.5, n - 0.5). The half-voxel rim at each face differs.
         if (vx < 0 || vy < 0 || vz < 0 || vx >= nx || vy >= ny || vz >= nz) continue;
         const value = sample(layer, vx, vy, vz);
         if (!Number.isFinite(value)) continue;
@@ -190,6 +233,19 @@ export function renderSlice(frame: SliceFrame, layers: SliceLayer[]): Uint8Array
           g = (sg * sa + g * a * (1 - sa)) / oa;
           b = (sb * sa + b * a * (1 - sa)) / oa;
           a = oa;
+        }
+        if (layer.outline) {
+          const [du, dv] = step(Math.max(layer.outline.thicknessPx, 1));
+          if (outlineHit(layer, [wx, wy, wz], du, dv)) {
+            const [cr, cg, cb, ca] = layer.outline.color;
+            const oa = ca + a * (1 - ca);
+            if (oa > 1e-5) {
+              r = (cr * ca + r * a * (1 - ca)) / oa;
+              g = (cg * ca + g * a * (1 - ca)) / oa;
+              b = (cb * ca + b * a * (1 - ca)) / oa;
+              a = oa;
+            }
+          }
         }
       }
       const ch = frame.crosshair;

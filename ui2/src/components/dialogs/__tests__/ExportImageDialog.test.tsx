@@ -196,6 +196,57 @@ describe('ExportImageDialog mount', () => {
     await act(async () => {
       useExportDialogStore.getState().open();
     });
-    expect(await screen.findByRole('dialog', { name: 'Export active view' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Export view' })).toBeInTheDocument();
   });
 });
+
+describe('ExportImageDialog v1 critiques', () => {
+  beforeEach(() => {
+    captureActiveViewMock.mockReset();
+    saveImageBytesMock.mockReset();
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: vi.fn() });
+    useExportDialogStore.setState({
+      isOpen: false, isCapturing: false, error: null, format: 'png', transparentBackground: false,
+      suggestedName: '', nameEdited: false, viewType: null, target: null, bytes: null, mime: null, imageUrl: null,
+    });
+    captureActiveViewMock.mockImplementation(async ({ format, viewType }: { format: string; viewType?: string }) => ({
+      bytes: new Uint8Array([1]),
+      mime: format === 'jpg' ? 'image/jpeg' : 'image/png',
+      suggestedName: `zmap_${viewType ?? 'axial'}_50.5mm.${format}`,
+      componentType: 'slice',
+      componentState: null,
+      target: { label: `${viewType === 'coronal' ? 'Coronal' : 'Axial'} · Orthogonal`, viewType: viewType ?? 'axial', aspect: 2 },
+    }));
+  });
+
+  it('shows a plain-string save rejection in the options column as an alert', async () => {
+    saveImageBytesMock.mockImplementation(() => Promise.reject('Permission denied: /Volumes/ro/out.png'));
+    useExportDialogStore.getState().open();
+    render(<ExportImageDialog />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save…' })).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save…' }));
+    });
+    const alert = await screen.findByTestId('export-error');
+    expect(alert).toHaveTextContent('Permission denied: /Volumes/ro/out.png');
+    expect(screen.getByTestId('export-preview')).not.toContainElement(alert);
+  });
+
+  it('names the exported view, switches planes, and keeps a typed name when the format changes', async () => {
+    useExportDialogStore.getState().open();
+    render(<ExportImageDialog />);
+    expect(await screen.findByText('Axial · Orthogonal')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('zmap_axial_50.5mm.png')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('File name'), { target: { value: 'figure2a.png' } });
+    await act(async () => {
+      useExportDialogStore.getState().setFormat('jpg');
+    });
+    await waitFor(() => expect(screen.getByDisplayValue('figure2a.jpg')).toBeInTheDocument());
+    await act(async () => {
+      useExportDialogStore.getState().setViewType('coronal');
+    });
+    await waitFor(() => expect(captureActiveViewMock).toHaveBeenLastCalledWith(expect.objectContaining({ viewType: 'coronal' })));
+    expect(screen.getByDisplayValue('figure2a.jpg')).toBeInTheDocument();
+  });
+});
+

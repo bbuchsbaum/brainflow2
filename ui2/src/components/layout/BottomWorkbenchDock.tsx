@@ -29,6 +29,8 @@ export interface BottomWorkbenchDockProps {
   activity: ReactNode;
   /** Log slot content. */
   log: ReactNode;
+  /** Clusters slot content (P3.5 cluster table). */
+  clusters?: ReactNode;
   /** Controlled active tab. When provided, the dock reflects it (and external
    *  changes, e.g. the inspector's "Open in dock") rather than only its own
    *  local state. */
@@ -62,6 +64,7 @@ export function BottomWorkbenchDock({
   plot,
   activity,
   log,
+  clusters = null,
   activeTab: controlledTab,
   defaultActiveTab = DEFAULT_DOCK_TAB,
   onActiveTabChange,
@@ -89,7 +92,7 @@ export function BottomWorkbenchDock({
     [activeTab, isControlled, onActiveTabChange, minimized, onRestore],
   );
 
-  const slots: Record<DockTabId, ReactNode> = { activity, plot, log };
+  const slots: Record<DockTabId, ReactNode> = { activity, plot, clusters, log };
 
   return (
     <div

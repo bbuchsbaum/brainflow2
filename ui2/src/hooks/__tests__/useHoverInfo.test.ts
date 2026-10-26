@@ -86,7 +86,7 @@ describe('useHoverInfo', () => {
   });
 
   describe('handleMouseMove', () => {
-    it('does not query providers when layer hover output is disabled', async () => {
+    it('does not query providers when layer hover output is disabled, but still tracks the pointer', async () => {
       const provider = hoverInfoService.getProvider('test');
       const { result } = renderHook(() =>
         useHoverInfo({ ...defaultOptions, enabled: false })
@@ -100,9 +100,15 @@ describe('useHoverInfo', () => {
       expect(result.current.hoverValue).toBeNull();
       expect(result.current.hoverEntries).toEqual([]);
       expect(provider?.getInfo).not.toHaveBeenCalled();
-      expect(useStatusBarStore.getState().values.mouse).toBe('--');
+      // P3.6: the status Mouse slot and the per-layer readout follow the
+      // pointer without the opt-in hover providers or the tooltip.
+      expect(useStatusBarStore.getState().values.mouse).toBe('(100.0, 100.0, 0.0)');
+      expect(useMouseCoordinateStore.getState().worldCoordinates).toEqual([100, 100, 0]);
       expect(useStatusBarStore.getState().values.value).toBe('--');
       expect(useTooltipStore.getState().tooltip).toBeNull();
+
+      act(() => result.current.handleMouseLeave());
+      expect(useMouseCoordinateStore.getState().worldCoordinates).toBeNull();
     });
 
     it('calls canvasToWorld with canvas coordinates', async () => {
@@ -124,7 +130,7 @@ describe('useHoverInfo', () => {
         await new Promise((r) => setTimeout(r, 100));
       });
 
-      expect(canvasToWorld).toHaveBeenCalledWith(50, 100); // clientX - left, clientY - top
+      expect(canvasToWorld).toHaveBeenCalledWith(50, 100, 100, 150); // clientX - left, clientY - top
     });
 
     it('updates hoverEntries when provider returns entries', async () => {

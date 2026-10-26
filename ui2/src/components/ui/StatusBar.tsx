@@ -25,6 +25,8 @@ import { Button, KeyValue } from "@/components/ui/bf";
 import { statisticSignAssumed, statisticUnits } from "@/utils/statistic";
 import { hasRegionSource } from "@/services/atlasRegionLookup";
 import { transformWorldToVoxelColumnMajor } from "@/utils/voxelTransform";
+import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
+import { formatWorldMm } from "@/utils/valueFormat";
 import { StatSymbol } from "./StatSymbol";
 import {
   formatVoxelIndex,
@@ -65,7 +67,7 @@ const WIDTHS: Record<string, [string, string]> = {
   coordSys: ["22ch", "22ch"],
   crosshair: ["32ch", "32ch"],
   voxel: ["19ch", "19ch"],
-  mouse: ["32ch", "12ch"],
+  mouse: ["40ch", "12ch"],
   layer: ["40ch", "16ch"],
   value: ["19ch", "15ch"],
   region: ["30ch", "12ch"],
@@ -287,14 +289,47 @@ const StatusVoxelSlot = React.memo(() => {
       valueClassName={inside && fractional ? "status-value--warning" : undefined}
       title={
         fractional
-          ? `Voxel coordinate (i j k) in ${reference.name}: between voxel centres (snapping off)`
-          : `Voxel index (i j k) in ${reference.name}`
+          ? `Voxel coordinate (i j k) of ${reference.name}, the reference grid: between voxel centres (snapping off)`
+          : `Voxel index (i j k) of ${reference.name}, the reference grid`
       }
     />
   );
 });
 
 StatusVoxelSlot.displayName = "StatusVoxelSlot";
+
+/**
+ * "Mouse" slot (P3.6): the pointer's position while it is over a slice, mm
+ * then the voxel index on the reference grid ("(−37.5, −17.5, 50.5) 29 57
+ * 64"), compact. Per-layer values live in the Inspector Scene rows.
+ */
+const StatusMouseSlot = React.memo(() => {
+  const pointer = useMouseCoordinateStore((state) => state.worldCoordinates);
+  const layers = useLayerStore((state) => state.layers);
+  const layerMetadata = useLayerStore((state) => state.layerMetadata);
+  const reference = React.useMemo(
+    () => resolveVoxelGridReference(layers, layerMetadata),
+    [layers, layerMetadata],
+  );
+  if (!pointer) return <SlotFrame id="mouse" value={EMPTY_VALUE} />;
+  const mm = `(${pointer.map((v) => formatWorldMm(v)).join(", ")})`;
+  const index = reference ? worldToVoxelIndex([pointer[0], pointer[1], pointer[2]], reference) : null;
+  const ijk = index && voxelIndexInBounds(index, reference?.dims) ? formatVoxelIndex(index) : null;
+  return (
+    <SlotFrame
+      id="mouse"
+      value={
+        <>
+          {mm}
+          {ijk ? <span className="status-value__ijk"> {ijk}</span> : null}
+        </>
+      }
+      title={`Pointer${ijk && reference ? `, voxel (i j k) of ${reference.name}` : ""}`}
+    />
+  );
+});
+
+StatusMouseSlot.displayName = "StatusMouseSlot";
 
 /**
  * "Region" slot: the atlas/label region at the crosshair (StatusBarService
@@ -422,7 +457,12 @@ export function StatusBar({
 
   return (
     // Copying a readout puts ASCII minus on the clipboard.
-    <div className={`status-bar ${className}`} onCopy={asciiCopyHandler}>
+    <div
+      className={`status-bar ${className}`}
+      onCopy={asciiCopyHandler}
+      role="contentinfo"
+      aria-label="Status"
+    >
       {slots
         .filter(
           (id) =>
@@ -435,6 +475,8 @@ export function StatusBar({
             <StatusValueSlot key={id} />
           ) : id === "voxel" ? (
             <StatusVoxelSlot key={id} />
+          ) : id === "mouse" ? (
+            <StatusMouseSlot key={id} />
           ) : id === "region" ? (
             <StatusRegionSlot key={id} />
           ) : (

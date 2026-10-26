@@ -6,6 +6,9 @@
  */
 
 import { getTransport } from "./transport";
+import { useLayerStore } from "@/stores/layerStore";
+import { formatTauriError } from "@/utils/formatTauriError";
+import { labelRenderFields } from "@/utils/labelDisplay";
 import { getEventBus } from "@/events/EventBus";
 import { useActivePanelStore } from "@/stores/activePanelStore";
 import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
@@ -27,6 +30,50 @@ export type ExportFormat = "png" | "jpg";
 export interface ExportOptions {
   format?: ExportFormat;
   transparentBackground?: boolean;
+  /** Export this slice view instead of the last interacted view. */
+  viewType?: ViewType;
+}
+
+/** What a capture shows, for the export dialog's "View" line. */
+export interface CaptureTarget {
+  /** "Axial · Orthogonal", "Mosaic", "Surface". */
+  label: string;
+  /** Set when the capture is a slice view (the dialog can switch planes). */
+  viewType: ViewType | null;
+  /** Width / height of the captured image (preview aspect). */
+  aspect: number | null;
+}
+
+const PLANE_LABEL: Record<ViewType, string> = {
+  axial: "Axial",
+  sagittal: "Sagittal",
+  coronal: "Coronal",
+};
+const PLANE_AXIS: Record<ViewType, number> = { sagittal: 0, coronal: 1, axial: 2 };
+
+/**
+ * Default export file name: "<layer>_<plane>_<position>mm.<ext>", e.g.
+ * "zmap_synthetic_axial_50.5mm.png" (the top visible layer, the plane and
+ * the slice's world position). Safe characters only.
+ */
+export function sliceExportFileName(
+  layerName: string | null,
+  viewType: ViewType,
+  positionMm: number,
+  format: ExportFormat,
+): string {
+  const base = (layerName ?? "view")
+    .replace(/\.(nii\.gz|nii|gii|mgz|mgh)$/i, "")
+    .replace(/[^A-Za-z0-9_.-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const pos = Number.isFinite(positionMm) ? positionMm.toFixed(1) : "0.0";
+  return `${base}_${viewType}_${pos === "-0.0" ? "0.0" : pos}mm.${format}`;
+}
+
+/** Replace a file name's image extension with the format's (keeps typed names). */
+export function withImageExtension(name: string, format: ExportFormat): string {
+  const stem = name.replace(/\.(png|jpe?g)$/i, "");
+  return `${stem}.${format}`;
 }
 
 type NormalizedExportOptions = Required<
@@ -64,6 +111,7 @@ export class ViewExportService {
     suggestedName: string;
     componentType: string;
     componentState: Record<string, unknown> | null;
+    target?: CaptureTarget;
   }> {
     const format: ExportFormat = options.format ?? "png";
     const transparentBackground =
@@ -72,6 +120,11 @@ export class ViewExportService {
       format,
       transparentBackground,
     };
+
+    // An explicit slice view (the dialog's View select) wins.
+    if (options.viewType) {
+      return this.captureSlice(options.viewType, normalized);
+    }
 
     // Prefer the last interacted renderable (slice/mosaic/surface) over layout focus.
     const activeRenderableRaw = useActiveRenderContextStore.getState().activeId;
@@ -86,22 +139,7 @@ export class ViewExportService {
         activeRenderable === "sagittal" ||
         activeRenderable === "coronal"
       ) {
-        const bytes = await this.renderSliceToBytes(
-          activeRenderable as ViewType,
-          normalized,
-        );
-        const suggestedName = this.suggestFileNameForActiveId(
-          activeRenderable,
-          format,
-        );
-        const mime = format === "jpg" ? "image/jpeg" : "image/png";
-        return {
-          bytes,
-          mime,
-          suggestedName,
-          componentType: "slice",
-          componentState: { viewType: activeRenderable },
-        };
+        return this.captureSlice(activeRenderable as ViewType, normalized);
       }
 
       const customExporter = this.exporters.get(activeRenderable);
@@ -147,6 +185,34 @@ export class ViewExportService {
     return { bytes, mime, suggestedName, componentType, componentState };
   }
 
+  /** Capture one slice view, named "<layer>_<plane>_<position>mm". */
+  private async captureSlice(viewType: ViewType, options: NormalizedExportOptions) {
+    const bytes = await this.renderSliceToBytes(viewType, options);
+    const viewState = useViewStateStore.getState().viewState;
+    const top = [...viewState.layers].reverse().find((l) => l.visible && l.opacity > 0);
+    const layerName =
+      (top && useLayerStore.getState().layers.find((l) => l.id === top.id)?.name) ?? top?.name ?? null;
+    const position = viewState.crosshair.world_mm[PLANE_AXIS[viewType]];
+    const dims = viewState.views[viewType]?.dim_px;
+    const workspaceType = useWorkspaceStore.getState().getActiveWorkspace?.()?.type;
+    const workspaceLabel =
+      typeof workspaceType === "string" && workspaceType.toLowerCase().startsWith("orthogonal")
+        ? "Orthogonal"
+        : null;
+    return {
+      bytes,
+      mime: options.format === "jpg" ? "image/jpeg" : "image/png",
+      suggestedName: sliceExportFileName(layerName, viewType, position, options.format),
+      componentType: "slice",
+      componentState: { viewType } as Record<string, unknown>,
+      target: {
+        label: workspaceLabel ? `${PLANE_LABEL[viewType]} · ${workspaceLabel}` : PLANE_LABEL[viewType],
+        viewType,
+        aspect: dims && dims[1] > 0 ? dims[0] / dims[1] : null,
+      },
+    };
+  }
+
   registerExporter(key: string, exporter: ExporterFn): void {
     this.exporters.set(key.toLowerCase(), exporter);
   }
@@ -183,7 +249,7 @@ export class ViewExportService {
       await this.saveImageBytes(bytes, suggestedName);
     } catch (err) {
       console.error("[ViewExportService] Export failed:", err);
-      this.notify("error", (err as Error).message || "Export failed");
+      this.notify("error", formatTauriError(err) || "Export failed");
     }
   }
 
@@ -299,13 +365,14 @@ export class ViewExportService {
         id: layer.id,
         volumeId: layer.volumeId,
         colormap: layer.colormap,
+        // Categorical label palettes are registered slots (as in apiService).
+        colormapId: layer.colormapId,
         blendMode: layer.blendMode || "alpha",
-        opacity: layer.opacity,
+        ...labelRenderFields(layer),
         intensity: layer.intensity,
         threshold: layer.threshold,
         interpolation: layer.interpolation || "linear",
         layerMode: layer.layerMode ?? "scalar",
-        outline: layer.outline,
         visible: true,
       })),
       timepoint: viewState.timepoint,

@@ -29,7 +29,13 @@ function readNumberMeta(
 /** Pull the rich {@link HistogramData} from meta, or rebuild it from columns. */
 export function frameToHistogramData(frame: SampleFrame): HistogramData | null {
   const stashed = frame.meta?.histogram as HistogramData | undefined;
-  if (stashed && Array.isArray(stashed.bins)) return stashed;
+  if (stashed && Array.isArray(stashed.bins)) {
+    return {
+      ...stashed,
+      zerosExcluded: frame.meta?.zerosExcluded === true,
+      integerValued: frame.meta?.integerValued === true,
+    };
+  }
 
   if (!getColumn(frame, "count") || frame.rows.length === 0) return null;
   const counts = numericColumn(frame, "count");
@@ -69,6 +75,8 @@ export function frameToHistogramData(frame: SampleFrame): HistogramData | null {
     std: readNumberMeta(frame, "std", 0),
     binCount: readNumberMeta(frame, "binCount", counts.length),
     layerId: (frame.meta?.datasetId as string) ?? "",
+    zerosExcluded: frame.meta?.zerosExcluded === true,
+    integerValued: frame.meta?.integerValued === true,
   };
 }
 

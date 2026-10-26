@@ -46,6 +46,8 @@ export interface ViewLayer {
   interpolation?: "nearest" | "linear"; // Texture sampling mode
   layerMode?: "scalar" | "label" | "mask";
   outline?: LayerOutlineConfig;
+  /** Label layers: regions filled, outlined, or both (utils/labelDisplay.ts). */
+  labelDisplay?: "fill" | "outline" | "both";
   alphaMod?: AlphaModConfig;
   atlasConfig?: AtlasConfig;
   atlasPaletteKind?: AtlasPaletteKind;

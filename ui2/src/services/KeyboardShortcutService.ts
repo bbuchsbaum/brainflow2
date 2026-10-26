@@ -18,6 +18,12 @@ export interface ShortcutRegistration {
   handler: () => void;
   priority?: number;
   when?: () => boolean;
+  /**
+   * Also fire while a text field has focus (e.g. Cmd+K for the command
+   * palette). A field that uses the same chord itself opts out with
+   * `data-own-shortcuts`.
+   */
+  allowInInputs?: boolean;
   category: string;
   description: string;
 }
@@ -115,7 +121,14 @@ class KeyboardShortcutService {
 
   private handleKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented) return;
-    if (isInputTarget(event.target)) return;
+    const inInput = isInputTarget(event.target);
+    if (
+      inInput &&
+      event.target instanceof HTMLElement &&
+      event.target.closest('[data-own-shortcuts]')
+    ) {
+      return;
+    }
     if (isSpaceKey(event) && isSpaceOwnerTarget(event.target)) return;
 
     const eventKey = normalizeKey(event.key);
@@ -126,6 +139,7 @@ class KeyboardShortcutService {
       if (regKey !== eventKey) continue;
       if (!modifiersMatch(event, reg.modifiers)) continue;
       if (reg.when && !reg.when()) continue;
+      if (inInput && !reg.allowInInputs) continue;
 
       const priority = reg.priority ?? 0;
       if (!best || priority > (best.priority ?? 0)) {

@@ -32,6 +32,12 @@ interface MosaicToolbarProps {
   currentSlice: number;
   totalSlices: number;
   onSliceChange: (slice: number) => void;
+  /**
+   * Label for a slider position (0-based within the shown range): the
+   * slice's world position, "z 50.5", as on the tiles. Without it the slider
+   * shows the 0-based index, like the ijk readout.
+   */
+  sliceLabel?: (slice: number) => string;
   className?: string;
 }
 
@@ -49,8 +55,10 @@ export function MosaicToolbar({
   currentSlice,
   totalSlices,
   onSliceChange,
+  sliceLabel,
   className
 }: MosaicToolbarProps) {
+  const label = (v: number) => (sliceLabel ? sliceLabel(Math.round(v)) : String(Math.round(v)));
   return (
     <header
       className={cn(
@@ -103,9 +111,10 @@ export function MosaicToolbar({
           value={currentSlice}
           disabled={totalSlices <= 1}
           showValue
-          // Same form as the pager: "Slice 49 of 96" / "Page 4 of 6".
-          format={(v) => `${Math.round(v) + 1} of ${totalSlices}`}
-          valueText={(v) => `${AXIS_LABEL[axis]} slice ${Math.round(v) + 1} of ${totalSlices}`}
+          // The slice's world position ("z 50.5"), as on the tiles: no 1-based
+          // index next to the 0-based ijk readout.
+          format={(v) => label(v)}
+          valueText={(v) => `${AXIS_LABEL[axis]} slice at ${label(v)} mm`}
           onValueChange={(v) => {
             const next = Math.round(v);
             if (next !== currentSlice) onSliceChange(next);

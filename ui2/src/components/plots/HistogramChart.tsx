@@ -10,9 +10,9 @@ import { BarRounded } from '@visx/shape';
 import { Group } from '@visx/group';
 import { useTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
 import { localPoint } from '@visx/event';
-import type { HistogramChartProps, HistogramBin } from '@/types/histogram';
+import { histogramAxisTicks, type HistogramChartProps, type HistogramBin } from '@/types/histogram';
 import { FilterChip } from '@/components/ui/bf';
-import { displayMinus, formatRange } from '@/utils/valueFormat';
+import { displayMinus, formatLayerValue, formatRange } from '@/utils/valueFormat';
 
 // The plot well matches the plot body ground (one step below the panel).
 const surfaceColor = 'var(--bf-bg-app)';
@@ -191,6 +191,8 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   });
 
   // Create scales
+  // Label maps: integer, non-repeating ticks.
+  const integerData = !!data?.integerValued;
   const xScale = useMemo(() => {
     if (!data || data.bins.length === 0) {
       return scaleLinear<number>({
@@ -203,6 +205,10 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
       range: [0, innerWidth],
     });
   }, [data, innerWidth]);
+  const xTicks = useMemo(
+    () => histogramAxisTicks(xScale.ticks(Math.max(2, Math.floor(innerWidth / 60))), integerData),
+    [xScale, innerWidth, integerData],
+  );
 
   const yScale = useMemo(() => {
     if (!data || data.bins.length === 0) {
@@ -470,8 +476,8 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
               top={innerHeight}
               scale={xScale}
               tickLength={4}
-              numTicks={Math.max(2, Math.floor(innerWidth / 60))}
-              tickFormat={(value) => Number(value).toFixed(0)}
+              tickValues={xTicks.values}
+              tickFormat={(value) => xTicks.format(Number(value))}
               stroke={axisStroke}
               tickStroke={axisStroke}
               tickLabelProps={() => ({
@@ -497,7 +503,8 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
           textAnchor="end"
           style={{ fontVariantNumeric: 'tabular-nums' }}
         >
-          μ={displayMinus(data.mean.toFixed(1))}  σ={data.std.toFixed(1)}
+          μ={formatLayerValue(data.mean)}  σ={formatLayerValue(data.std)}
+          {data.zerosExcluded ? ' · zeros excluded' : ''}
         </text>
         )}
 

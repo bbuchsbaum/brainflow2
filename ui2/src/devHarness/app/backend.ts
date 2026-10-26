@@ -5,7 +5,13 @@
  * core/api_bridge/src/lib.rs and the generated bindings in
  * packages/api/src/generated. IDs come from counters, never clocks/RNG.
  */
-import type { StatisticInfo, StatisticKind } from '@brainflow/api';
+import type { ExtremumKind, StatisticInfo, StatisticKind } from '@brainflow/api';
+import { findClusters, findExtremum, nonzeroBbox, type ClusterQuery } from './volumeQueries';
+
+interface QueryTarget {
+  volumeId?: string | null;
+  layerId?: string | null;
+}
 import type { HarnessFixtures, VolumeFixture } from './fixtures';
 import type { Handler } from './harnessTransport';
 import {
@@ -285,6 +291,13 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     return entry;
   };
 
+  /** resolve_volume: an explicit volume id wins, else the layer's volume. */
+  const targetVolume = (target: QueryTarget): VolumeEntry => {
+    if (target.volumeId && volumes.has(target.volumeId)) return volumeFor(target.volumeId);
+    if (target.layerId) return volumeForLayer(target.layerId);
+    throw new Error('Specify a volumeId or layerId');
+  };
+
   const volumeForLayer = (layerId: string): VolumeEntry => {
     const layer = layers.get(layerId);
     if (layer) return volumeFor(layer.volumeId);
@@ -293,8 +306,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const toSliceLayers = (payloadLayers: any[]): SliceLayer[] =>
-    (payloadLayers ?? [])
+  const toSliceLayers = (payloadLayers: any[]): SliceLayer[] => {
+    let outlineTaken = 0;
+    return (payloadLayers ?? [])
       .filter((l) => l && l.visible !== false && (l.opacity ?? 1) > 0)
       .flatMap((l) => {
         const vol = volumes.get(l.volumeId ?? l.volume_id);
@@ -335,9 +349,20 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
             nearest: l.interpolation === 'nearest' || mode !== 'scalar',
             blend,
             labelLut,
+            // The renderer draws one outline: the first visible label layer with
+            // it enabled (render_bridge_adapter slice_features).
+            outline:
+              mode === 'label' && l.outline?.enabled && !outlineTaken++
+                ? {
+                    color: l.outline.color,
+                    thicknessPx: Number(l.outline.thicknessPx ?? 1),
+                    selectedLabelId: Number(l.outline.selectedLabelId ?? 0),
+                  }
+                : undefined,
           },
         ];
       });
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const renderRequested = (state: any, view: any): Uint8Array => {
@@ -583,7 +608,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       excludeZeros?: boolean;
     }) => {
       const vol = volumeForLayer(args.layerId).fixture;
-      const s = stats(vol.data);
+      // histogram.rs filters before everything: excluded zeros leave the
+      // bins, the range and mean/std alike.
+      const s = stats(args.excludeZeros ? vol.data.filter((v) => v !== 0) : vol.data);
       const binCount = args.binCount ?? 256;
       const lo = args.range ? args.range[0] : s.min;
       const hi = args.range ? args.range[1] : s.max;
@@ -739,6 +766,14 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
         },
       };
     },
+    // Volume queries (clusters.rs / volume_queries.rs), computed on the
+    // fixture arrays by the mirrors in volumeQueries.ts.
+    compute_clusters: ({ request }: { request: ClusterQuery & QueryTarget }) =>
+      findClusters(targetVolume(request).fixture, request),
+    volume_extremum: ({ request }: { request: QueryTarget & { kind: ExtremumKind } }) =>
+      findExtremum(targetVolume(request).fixture, request.kind),
+    volume_nonzero_bbox: ({ request }: { request: QueryTarget & { threshold?: number | null } }) =>
+      nonzeroBbox(targetVolume(request).fixture, request.threshold ?? 0),
     // No catalogue atlases in the harness: like the backend, ROI search refuses
     // volumes without a parcel dictionary.
     get_atlas_roi_locations: () => {

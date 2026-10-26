@@ -1,4 +1,6 @@
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
+import { statisticUnits, statisticVariable } from "@/utils/statistic";
+import { DEFAULT_LABEL_OUTLINE, labelDisplayOf, type LabelDisplay } from "@/utils/labelDisplay";
 import React, { useEffect, useId, useState } from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
@@ -12,6 +14,7 @@ import { useDisplayOptionsStore } from "@/stores/displayOptionsStore";
 import type { SceneItem } from "@/types/sceneItem";
 import {
   Button,
+  ColorInput,
   FieldRow,
   KeyValue,
   RangeSlider,
@@ -24,7 +27,6 @@ import {
   ValueChip,
   ValueChipError,
 } from "@/components/ui/bf";
-import { sampleLayerAtWorld } from "@/services/SamplingService";
 import { AtlasPaletteService } from "@/services/AtlasPaletteService";
 import {
   ATLAS_PALETTE_OPTIONS,
@@ -98,9 +100,6 @@ function VolumeRenderRows({
   const viewLayer = useViewStateStore((s) =>
     layerId ? (s.viewState.layers.find((l) => l.id === layerId) ?? null) : null,
   );
-  const crosshairWorld = useViewStateStore(
-    (s) => s.viewState.crosshair.world_mm,
-  );
   const [paletteApplying, setPaletteApplying] = useState(false);
   const showColorbar = useDisplayOptionsStore((s) =>
     layerId ? s.options.get(layerId)?.showColorbar !== false : true,
@@ -124,6 +123,8 @@ function VolumeRenderRows({
   if (!layer || !layerId || !viewLayer) return null;
 
   const dataRange = metadata?.dataRange ?? null;
+  // Threshold wording names the statistic ("|z| ≤ 3.1 hidden").
+  const statSymbol = statisticVariable(statisticUnits(layer?.statistic, dataRange));
   const dataMin = dataRange?.min ?? viewLayer.intensity[0];
   const dataMax = dataRange?.max ?? viewLayer.intensity[1];
   const intensity = viewLayer.intensity;
@@ -226,6 +227,7 @@ function VolumeRenderRows({
         <InspectorRange
           label="Threshold"
           mode="hidden"
+          symbol={statSymbol}
           low={threshold[0]}
           high={threshold[1]}
           min={ruler.min}
@@ -358,9 +360,17 @@ function VolumeRenderRows({
       {layerMode === "label" ? (
         <LabelOutlineBlock
           outline={outline}
+          display={labelDisplayOf(viewLayer)}
           layerId={layerId}
-          crosshairWorld={crosshairWorld}
           onChange={(next) => setLayerField("outline", next)}
+          onDisplayChange={(next) => {
+            setViewState((draft) => {
+              const target = draft.layers.find((l) => l.id === layerId);
+              if (!target) return;
+              target.labelDisplay = next;
+              target.outline = { ...(target.outline ?? DEFAULT_LABEL_OUTLINE), enabled: next !== "fill" };
+            });
+          }}
         />
       ) : null}
 
@@ -402,6 +412,7 @@ function InspectorRange({
   max,
   dataRange = null,
   mode = "shown",
+  symbol = "value",
   onInteraction,
   onChange,
 }: {
@@ -412,10 +423,12 @@ function InspectorRange({
   max: number;
   dataRange?: readonly [number, number] | null;
   mode?: "shown" | "hidden";
+  /** Variable named in the hidden-band wording ("z", default "value"). */
+  symbol?: string;
   onInteraction?: (active: boolean, domain: readonly [number, number]) => void;
   onChange: (low: number, high: number) => void;
 }) {
-  const wording = mode === "hidden" ? thresholdWording([low, high]) : null;
+  const wording = mode === "hidden" ? thresholdWording([low, high], symbol) : null;
   // An invalid chip draft reports here; its message renders in flow UNDER
   // the slider (never floated over the track and thumbs).
   const [invalidEnds, setInvalidEnds] = useState<{ low: boolean; high: boolean }>({
@@ -495,12 +508,7 @@ function InspectorRange({
   );
 }
 
-const DEFAULT_OUTLINE = {
-  enabled: false,
-  selectedLabelId: 0,
-  color: [1, 1, 0, 1] as [number, number, number, number],
-  thicknessPx: 1,
-};
+const DEFAULT_OUTLINE = DEFAULT_LABEL_OUTLINE;
 
 function rgbaToHex(rgba: [number, number, number, number]): string {
   const toHex = (value: number) =>
@@ -523,18 +531,30 @@ function hexToRgbaTuple(
   ];
 }
 
+const LABEL_DISPLAY_OPTIONS = [
+  { value: "fill", label: "Fill", title: "Regions filled with their table colours" },
+  { value: "outline", label: "Outline", title: "Region boundaries only" },
+  { value: "both", label: "Both", title: "Filled regions with boundaries" },
+] as const;
+
+/**
+ * Label-layer display: Fill / Outline / Both (utils/labelDisplay.ts), the
+ * catalogue ROI search, and the outline's thickness and colour while an
+ * outline is drawn. Regions are picked from the Regions legend.
+ */
 function LabelOutlineBlock({
   outline,
+  display,
   layerId,
-  crosshairWorld,
   onChange,
+  onDisplayChange,
 }: {
   outline: typeof DEFAULT_OUTLINE;
+  display: LabelDisplay;
   layerId: string;
-  crosshairWorld: [number, number, number];
   onChange: (next: typeof DEFAULT_OUTLINE) => void;
+  onDisplayChange: (next: LabelDisplay) => void;
 }) {
-  const [sampling, setSampling] = useState(false);
   // ROI search (get_atlas_roi_locations) needs a catalogue atlas's parcel
   // dictionary; a user-loaded label volume (label-table sidecar) has none.
   // Same catalogue rule as ParcelValuesSection.
@@ -555,32 +575,18 @@ function LabelOutlineBlock({
     });
   };
 
-  const useCrosshairLabel = async () => {
-    if (sampling) return;
-    setSampling(true);
-    try {
-      const result = await sampleLayerAtWorld({
-        layerId,
-        world: crosshairWorld,
-      });
-      if (result.value !== null) {
-        update({
-          selectedLabelId: Math.max(0, Math.round(result.value)),
-          enabled: true,
-        });
-      }
-    } finally {
-      setSampling(false);
-    }
-  };
-
   return (
     <>
-      <FieldRow label="Outline">
-        <Switch
-          checked={outline.enabled}
-          onCheckedChange={(enabled) => update({ enabled })}
-        />
+      <FieldRow label="Display">
+        {(control) => (
+          <SegmentedControl
+            id={control.id}
+            aria-labelledby={`${control.id}-label`}
+            value={display}
+            onValueChange={(value) => onDisplayChange(value as LabelDisplay)}
+            options={LABEL_DISPLAY_OPTIONS}
+          />
+        )}
       </FieldRow>
 
       {isCatalogueAtlas ? (
@@ -588,47 +594,41 @@ function LabelOutlineBlock({
           key={layerId}
           layerId={layerId}
           selectedId={outline.selectedLabelId}
-          onSelect={(id) => update({ selectedLabelId: id, enabled: id !== 0 })}
+          onSelect={(id) => update({ selectedLabelId: id })}
         />
       ) : null}
-      <FieldRow label="Pick from view">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={useCrosshairLabel}
-          disabled={sampling}
-        >
-          {sampling ? "Sampling…" : "Use crosshair ROI"}
-        </Button>
-      </FieldRow>
 
-      <FieldRow label="Thickness">
-        <BfSlider
-          label="Outline thickness"
-          value={outline.thicknessPx}
-          min={1}
-          max={8}
-          step={1}
-          snap={1}
-          format={formatPx}
-          valueText={formatPx}
-          showValue
-          className="flex-1"
-          onValueChange={(v) => update({ thicknessPx: Math.round(v) })}
-        />
-      </FieldRow>
+      {display !== "fill" ? (
+        <>
+          <FieldRow label="Thickness">
+            <BfSlider
+              label="Outline thickness"
+              value={outline.thicknessPx}
+              min={1}
+              max={8}
+              step={1}
+              snap={1}
+              format={formatPx}
+              valueText={formatPx}
+              showValue
+              className="flex-1"
+              onValueChange={(v) => update({ thicknessPx: Math.round(v) })}
+            />
+          </FieldRow>
 
-      <FieldRow label="Color">
-        <input
-          type="color"
-          value={rgbaToHex(outline.color)}
-          onChange={(e) =>
-            update({ color: hexToRgbaTuple(e.target.value, outline.color[3]) })
-          }
-          className="h-5 w-8 cursor-pointer rounded-sm border border-border bg-transparent p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--bf-border-focus)]"
-          aria-label="Outline color"
-        />
-      </FieldRow>
+          <FieldRow label="Outline color" controlId={`label-outline-color-${layerId}`}>
+            {({ id }) => (
+              <ColorInput
+                id={id}
+                showValue
+                value={rgbaToHex(outline.color)}
+                onValueChange={(v) => update({ color: hexToRgbaTuple(v, outline.color[3]) })}
+                aria-label="Outline color"
+              />
+            )}
+          </FieldRow>
+        </>
+      ) : null}
     </>
   );
 }

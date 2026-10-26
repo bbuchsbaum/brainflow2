@@ -87,6 +87,9 @@ export const useMouseCoordinateStore = create<MouseCoordinateStore>()(
         setMousePositionThrottled: throttledUpdate,
         
         clearMousePosition: () => {
+          // Drop a pending throttled update so it cannot re-set the position
+          // after the pointer left.
+          throttledUpdate.cancel();
           set({
             worldCoordinates: null,
             activeView: null,

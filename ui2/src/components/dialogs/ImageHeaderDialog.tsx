@@ -202,8 +202,9 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
                     },
                     { label: 'Orientation', value: info.orientation_string },
                     { label: 'Spatial units', value: info.spatial_units },
-                    { label: 'World min', value: formatWorldPoint(info.world_bounds_min), unit: 'mm' },
-                    { label: 'World max', value: formatWorldPoint(info.world_bounds_max), unit: 'mm' },
+                    // Corner voxel CENTRES (the field of view extends half a voxel further).
+                    { label: 'Voxel centres, min', value: formatWorldPoint(info.world_bounds_min), unit: 'mm' },
+                    { label: 'Voxel centres, max', value: formatWorldPoint(info.world_bounds_max), unit: 'mm' },
                     { label: 'Sform code', value: String(info.sform_code) },
                     { label: 'Qform code', value: String(info.qform_code) },
                   ]}

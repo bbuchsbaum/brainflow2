@@ -13,13 +13,15 @@ export const DOCK_COLLAPSED_LOG_WIDTH = 24;
 /**
  * Bottom-dock tabs. The dock is a single tabbed container (Design.md §11.1 /
  * §20: "Bottom dock uses `Activity | Plot | Log`"), one panel full-width at a
- * time. Order and labels follow the spec exactly.
+ * time. Phase 3 (P3.5) adds "Clusters" beside Plot: the cluster table is an
+ * analysis readout like the plot, never a centre-stack or side-column panel.
  */
-export type DockTabId = 'activity' | 'plot' | 'log';
+export type DockTabId = 'activity' | 'plot' | 'clusters' | 'log';
 
 export const DOCK_TABS: ReadonlyArray<{ id: DockTabId; label: string }> = [
   { id: 'activity', label: 'Activity' },
   { id: 'plot', label: 'Plot' },
+  { id: 'clusters', label: 'Clusters' },
   { id: 'log', label: 'Log' },
 ] as const;
 

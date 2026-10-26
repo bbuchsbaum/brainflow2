@@ -132,3 +132,34 @@ describe('LabelTableService.applySidecar', () => {
   });
 });
 
+
+describe('applyLabelDisplayDefault', () => {
+  it('outlines a label map loaded above a statistic map, and leaves it filled otherwise', async () => {
+    const { applyLabelDisplayDefault } = await import('../LabelTableService');
+    useViewStateStore.getState().resetToDefaults();
+    const view = (id: string, extra: Record<string, unknown> = {}) => ({
+      id, name: id, volumeId: id, visible: true, opacity: 1, colormap: 'gray', intensity: [0, 1], threshold: [0, 0], ...extra,
+    });
+    useLayerStore.setState({
+      layers: [
+        { id: 't', name: 't', volumeId: 't', type: 'volume', visible: true, order: 0,
+          statistic: { kind: 't', intentCode: 3, intentParams: [24, 0, 0], intentName: '', dof: [24], label: 't(24)', fromDescription: false, positiveDataLabel: null } },
+        { id: 'atlas', name: 'atlas', volumeId: 'atlas', type: 'label', visible: true, order: 1 },
+        { id: 'plain', name: 'plain', volumeId: 'plain', type: 'label', visible: true, order: 2 },
+      ] as never,
+    });
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [view('t'), view('atlas', { layerMode: 'label' })] as never;
+    });
+    applyLabelDisplayDefault('atlas');
+    expect(useViewStateStore.getState().viewState.layers[1]).toMatchObject({
+      labelDisplay: 'outline',
+      outline: { enabled: true, selectedLabelId: 0 },
+    });
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [view('plain', { layerMode: 'label' })] as never;
+    });
+    applyLabelDisplayDefault('plain');
+    expect(useViewStateStore.getState().viewState.layers[0].labelDisplay).toBeUndefined();
+  });
+});

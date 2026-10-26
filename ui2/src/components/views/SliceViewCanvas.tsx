@@ -51,6 +51,7 @@ import {
 } from "./temporalHeatmapState";
 import { useActiveLayer } from "@/utils/activeLayer";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
+import { clientPointToWorld } from "@brainflow/visualization/slice";
 import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
 import {
   OrientationLabels,
@@ -100,6 +101,7 @@ function SliceViewCanvasRaw({
     primaryLayer,
     primaryOptions,
     hoverEnabled,
+    hoverLayerIds,
   } = model;
 
   // Access setter without subscribing to it (stable reference)
@@ -229,41 +231,25 @@ function SliceViewCanvasRaw({
   }, [layers]);
   const markActive = useActiveRenderable(viewId);
 
+  // Pointer -> world through the shared viewer's click-to-world path
+  // (clientPointToWorld: client point -> canvas pixels -> image -> world), so
+  // the hover readout, the status Mouse slot and a click at the same pixel
+  // agree. Measuring from the hovered container instead of the canvas put
+  // the readout about a pixel off (P3 v1 fidelity critique).
   const canvasToWorld = useCallback(
-    (canvasX: number, canvasY: number): [number, number, number] | null => {
-      if (!canvasRef.current || !imagePlacementRef.current) return null;
-
-      const currentView = viewPlaneRef.current;
-      if (!currentView) return null;
-
+    (
+      _canvasX: number,
+      _canvasY: number,
+      clientX: number,
+      clientY: number,
+    ): [number, number, number] | null => {
       const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-
-      const scaledX = canvasX * scaleX;
-      const scaledY = canvasY * scaleY;
       const placement = imagePlacementRef.current;
-      if (!placement) return null;
-
-      if (
-        scaledX < placement.x ||
-        scaledX > placement.x + placement.width ||
-        scaledY < placement.y ||
-        scaledY > placement.y + placement.height
-      ) {
-        return null;
-      }
-
-      const imageX =
-        ((scaledX - placement.x) / placement.width) * placement.imageWidth;
-      const imageY =
-        ((scaledY - placement.y) / placement.height) * placement.imageHeight;
-      return CoordinateTransform.screenToWorld(imageX, imageY, currentView) as [
-        number,
-        number,
-        number,
-      ];
+      const currentView = viewPlaneRef.current;
+      if (!canvas || !placement || !currentView) return null;
+      return clientPointToWorld(clientX, clientY, canvas, placement, currentView) as
+        | [number, number, number]
+        | null;
     },
     [],
   );
@@ -273,6 +259,7 @@ function SliceViewCanvasRaw({
     enabled: showHover,
     activeLayerId: primaryLayer?.id,
     activeAtlasId,
+    layerIds: hoverLayerIds,
     canvasToWorld,
     onHoverStart: markActive,
   });
@@ -589,8 +576,12 @@ function SliceViewCanvasRaw({
   return (
     <div
       ref={containerRef}
-      className={`h-full w-full relative ${className}`}
+      className={`h-full w-full relative outline-none ${className}`}
       data-view-id={viewId}
+      // Programmatic focus target only (not in the Tab order): dialogs opened
+      // by a shortcut return focus here instead of <body> (Modal).
+      tabIndex={-1}
+      data-focus-return="viewport"
       onPointerDown={markActive}
       onMouseEnter={markActive}
       onContextMenu={handleContextMenu}

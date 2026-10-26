@@ -21,6 +21,8 @@
 import { getTransport, type BackendTransport } from './transport';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { statisticUnits } from '@/utils/statistic';
+import { DEFAULT_LABEL_OUTLINE } from '@/utils/labelDisplay';
 import {
   buildLabelPalette,
   labelSidecarCandidates,
@@ -157,7 +159,37 @@ export class LabelTableService {
       isLabelMap: true,
       atlasPaletteLegend: palette.legend,
     });
+    if (colormapId !== null) applyLabelDisplayDefault(layerId);
     return { path, regions: palette.legend.length, colormapId };
+  }
+}
+
+/**
+ * Default display of a label layer drawn above a statistic map (v1 critics):
+ * outline only, so a region's fill colour never covers or recolours the
+ * statistic (a blue LUT region over a positive blob read as deactivation).
+ * Elsewhere the label layer keeps its fill. Applied once, when the layer's
+ * colours are set; the user can switch Fill / Outline / Both afterwards.
+ */
+export function applyLabelDisplayDefault(layerId: string): void {
+  const { layers, layerMetadata } = useLayerStore.getState();
+  const isStatistic = (id: string) => {
+    const info = layers.find((l) => l.id === id);
+    return !!info && statisticUnits(info.statistic, layerMetadata.get(id)?.dataRange) !== null;
+  };
+  const viewStore = useViewStateStore.getState();
+  for (const workspaceId of viewStore.workspaceViewStates.keys()) {
+    const ws = viewStore.getWorkspaceViewState(workspaceId);
+    const index = ws.layers.findIndex((l) => l.id === layerId);
+    if (index < 0 || ws.layers[index].labelDisplay) continue;
+    const aboveStatistic = ws.layers.slice(0, index).some((l) => isStatistic(l.id));
+    if (!aboveStatistic) continue;
+    viewStore.setViewState((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (!layer) return;
+      layer.labelDisplay = 'outline';
+      layer.outline = { ...(layer.outline ?? DEFAULT_LABEL_OUTLINE), enabled: true, selectedLabelId: 0 };
+    }, workspaceId);
   }
 }
 

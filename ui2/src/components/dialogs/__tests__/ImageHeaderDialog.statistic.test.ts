@@ -21,7 +21,7 @@ describe('statisticFacts', () => {
     expect(rows(statisticFacts(base))).toEqual([
       ['Shown as', 't(24)'],
       ['Intent code', '3 (t-stat)'],
-      ['Intent params', '24.00, 0.00, 0.00'],
+      ['Intent params', '24, 0, 0'],
       ['Degrees of freedom', '24'],
     ]);
   });

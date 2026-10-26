@@ -16,6 +16,7 @@ import { getViewPlaneService } from '@/services/ViewPlaneService';
 import { createDebugLogger } from '@/utils/debug';
 import { slicePositionAtIndex } from '@/services/mosaic/sliceGeometry';
 import { decodeBatchRenderBuffer } from '@/services/mosaic/decodeBatchRenderBuffer';
+import { brainFraming, getNonzeroBbox } from '@/services/mosaic/brainBounds';
 
 const debug = createDebugLogger('mosaic-render');
 
@@ -58,15 +59,26 @@ export class MosaicRenderService {
         const reference = base.layers.find(layer => layer.visible && layer.opacity > 0 && layer.volumeId);
         if (!reference?.volumeId) throw new Error('No reference volume for montage');
         const volumeIds = [...new Set(base.layers.filter(layer => layer.visible && layer.opacity > 0 && layer.volumeId).map(layer => layer.volumeId!))];
-        const [allBounds, meta] = await Promise.all([
+        const [allBounds, meta, brain] = await Promise.all([
           Promise.all(volumeIds.map(id => this.apiService.getVolumeBounds(id))),
           this.apiService.querySliceAxisMeta(reference.volumeId, axis),
+          getNonzeroBbox(reference.volumeId),
         ]);
         const bounds = allBounds[0];
-        const framing = {
-          min: [0, 1, 2].map(d => Math.min(...allBounds.map(b => b.min[d]))),
-          max: [0, 1, 2].map(d => Math.max(...allBounds.map(b => b.max[d]))),
-        };
+        // Frame the reference brain (its non-zero voxels, padded to voxel
+        // edges) so it fills the tile (P3.7); without a box, the union of the
+        // visible volumes. Only the in-plane framing changes: slice positions
+        // and spacing still come from the reference sampling below.
+        const voxelSize = [0, 1, 2].map(d => {
+          const n = bounds.dims?.[d] ?? 0;
+          return n > 1 ? Math.abs(bounds.max[d] - bounds.min[d]) / (n - 1) : 0;
+        }) as [number, number, number];
+        const framing = brain
+          ? brainFraming(brain, voxelSize)
+          : {
+              min: [0, 1, 2].map(d => Math.min(...allBounds.map(b => b.min[d]))),
+              max: [0, 1, 2].map(d => Math.max(...allBounds.map(b => b.max[d]))),
+            };
         const dimension = axis === 'sagittal' ? 0 : axis === 'coronal' ? 1 : 2;
         const sampling = { min: bounds.min[dimension], max: bounds.max[dimension], count: meta.sliceCount, bounds: framing };
         slicePositionAtIndex(sampling, 0); // Validate before caching usable geometry.

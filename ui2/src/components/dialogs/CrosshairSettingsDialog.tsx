@@ -23,6 +23,7 @@ import { useCrosshairSettings } from '@/contexts/CrosshairContext';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';
 import { DEFAULT_SETTINGS, MEDICAL_COLOR_PRESETS } from '@/stores/crosshairSettingsStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { alignPlaneToCrosshair } from '@/stores/viewStateGeometry';
 
 interface CrosshairSettingsDialogProps {
   onClose: () => void;
@@ -64,6 +65,11 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
   const visibleSwitchRef = useRef<HTMLButtonElement | null>(null);
   // Store the initial settings to revert on cancel
   const initialSettingsRef = useRef<CrosshairSettings>(currentSettings);
+  // And the crosshair position: turning snapping on re-centres it, which
+  // Cancel undoes too.
+  const initialCrosshairRef = useRef<[number, number, number]>([
+    ...useViewStateStore.getState().viewState.crosshair.world_mm,
+  ] as [number, number, number]);
 
   const updateLocalSetting = <K extends keyof CrosshairSettings>(
     key: K,
@@ -82,6 +88,15 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
   const handleCancel = useCallback(() => {
     // Revert to the original settings that were active when dialog opened
     updateSettings(initialSettingsRef.current);
+    // Restore the position exactly (written directly, so it is not re-snapped).
+    const before = initialCrosshairRef.current;
+    const { viewState, setViewState } = useViewStateStore.getState();
+    if (!viewState.crosshair.world_mm.every((v, i) => v === before[i])) {
+      setViewState((state) => {
+        state.crosshair.world_mm = [...before] as [number, number, number];
+        for (const plane of Object.values(state.views)) alignPlaneToCrosshair(plane, before);
+      });
+    }
     onClose();
   }, [updateSettings, onClose]);
 

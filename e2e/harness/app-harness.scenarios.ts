@@ -62,7 +62,11 @@ export const P3_SCENARIOS = [
 ];
 
 /** Phase 3 viewport variants (capture-only): `files` exists only at 1280x800. */
-export const P3_VARIANTS: Array<[string, number, number]> = [['files', 1280, 800]];
+export const P3_VARIANTS: Array<[string, number, number]> = [
+  ['files', 1280, 800],
+  // Label map over a t map at the narrow width: the status bar must fit.
+  ['region-at-crosshair', 1280, 800],
+];
 
 /** Gallery pages of ui/bf primitives (primitives-harness.html): [query page, file]. */
 export const PRIMITIVE_PAGES: Array<[string, string]> = [

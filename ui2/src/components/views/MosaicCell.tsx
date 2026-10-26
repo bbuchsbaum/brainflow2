@@ -117,8 +117,11 @@ export function MosaicCell({
     );
     
     // Draw crosshair if visible and we have screen coordinates
+    // One crosshair style across the montage (P3 v1 visual): only the tile
+    // holding the crosshair draws it; its label wears the crosshair colour.
+    // No mirror crosshairs in the other tiles.
     if (crosshairSettings.visible && crosshair.visible && crosshairInfo.screenCoord && 
-        (crosshairInfo.isActive || crosshairSettings.showMirror)) {
+        crosshairInfo.isActive) {
       const [screenX, screenY] = crosshairInfo.screenCoord;
       
       

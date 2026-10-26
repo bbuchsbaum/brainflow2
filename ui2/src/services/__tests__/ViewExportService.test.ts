@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ViewExportService } from "@/services/ViewExportService";
+import { ViewExportService, sliceExportFileName, withImageExtension } from "@/services/ViewExportService";
 import { useActivePanelStore } from "@/stores/activePanelStore";
 import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
 import { useSurfaceStore } from "@/stores/surfaceStore";
@@ -33,6 +33,7 @@ vi.mock("@/services/transport", () => ({
 vi.mock("@/events/EventBus", () => ({
   getEventBus: () => ({
     emit: emitMock,
+    on: vi.fn(() => () => {}),
   }),
 }));
 
@@ -188,3 +189,17 @@ describe("ViewExportService", () => {
     expect(emitMock).not.toHaveBeenCalled();
   });
 });
+
+describe("export file names", () => {
+  it("names a slice export by layer, plane and position", () => {
+    expect(sliceExportFileName("zmap_synthetic.nii.gz", "axial", 50.5, "png")).toBe("zmap_synthetic_axial_50.5mm.png");
+    expect(sliceExportFileName("my map (v2).nii", "coronal", -19.5, "jpg")).toBe("my_map_v2_coronal_-19.5mm.jpg");
+    expect(sliceExportFileName(null, "sagittal", -0.04, "png")).toBe("view_sagittal_0.0mm.png");
+  });
+
+  it("swaps only the extension of a typed name", () => {
+    expect(withImageExtension("figure2a.png", "jpg")).toBe("figure2a.jpg");
+    expect(withImageExtension("figure2a", "png")).toBe("figure2a.png");
+  });
+});
+

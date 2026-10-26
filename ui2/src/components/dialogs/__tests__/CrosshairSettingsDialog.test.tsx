@@ -201,4 +201,25 @@ describe('CrosshairSettingsDialog', () => {
       useViewStateStore.setState({ setCrosshair: original } as never);
     }
   });
+
+  it('Cancel restores a crosshair that turning snapping on re-centred', async () => {
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    useViewStateStore.getState().setViewState((state) => {
+      state.crosshair.world_mm = [-0.5, -18.5, 17.5];
+    });
+    mockUseCrosshairSettings.mockReturnValue({
+      settings: { ...baseSettings, snapToVoxel: false },
+      updateSettings: vi.fn(),
+    });
+    render(<CrosshairSettingsDialog onClose={vi.fn()} />);
+    // Simulate the snap having moved the crosshair.
+    useViewStateStore.getState().setViewState((state) => {
+      state.crosshair.world_mm = [0.5, -17.5, 18.5];
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([-0.5, -18.5, 17.5]);
+  });
 });
+

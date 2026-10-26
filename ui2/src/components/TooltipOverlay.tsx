@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { useTooltipStore } from '@/stores/tooltipStore';
+import { formatWorldMm } from '@/utils/valueFormat';
 
 export const TooltipOverlay: React.FC = () => {
   const tooltip = useTooltipStore(state => state.tooltip);
@@ -14,14 +15,10 @@ export const TooltipOverlay: React.FC = () => {
   const content = useMemo(() => {
     if (!tooltip) return null;
     const { entries, world } = tooltip;
-
-    const coordEntry = entries.find(e => e.kind === 'coord');
-    const otherEntries = entries.filter(e => e.kind !== 'coord');
-
-    const coordLabel =
-      coordEntry?.value ??
-      `(${world[0].toFixed(1)}, ${world[1].toFixed(1)}, ${world[2].toFixed(1)})`;
-
+    // One position line (U+2212 minus): the coordinates provider's "World"
+    // entry repeats it, so it is dropped.
+    const coordLabel = `(${world.map((v) => formatWorldMm(v)).join(', ')}) mm`;
+    const otherEntries = entries.filter((e) => e.kind !== 'coord' && e.label !== 'World');
     return { coordLabel, otherEntries };
   }, [tooltip]);
 
@@ -56,8 +53,7 @@ export const TooltipOverlay: React.FC = () => {
         }}
       >
         <div style={{ marginBottom: otherEntries.length ? 4 : 0 }}>
-          <span style={{ opacity: 0.75 }}>Coord:</span>{' '}
-          <span style={{ fontFamily: 'monospace' }}>{coordLabel}</span>
+          <span className="font-mono tabular-nums">{coordLabel}</span>
         </div>
         {otherEntries.map((entry, idx) => (
           <div key={`${entry.kind}-${idx}`}>

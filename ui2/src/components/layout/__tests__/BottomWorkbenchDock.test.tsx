@@ -17,16 +17,17 @@ function renderDock(overrides: Partial<React.ComponentProps<typeof BottomWorkben
 }
 
 describe('BottomWorkbenchDock', () => {
-  it('renders a single tablist with Activity | Plot | Log in spec order', () => {
+  it('renders a single tablist with Activity | Plot | Clusters | Log in spec order', () => {
     renderDock();
 
     const tablist = screen.getByTestId('bottom-dock-tablist');
     expect(tablist).toHaveAttribute('role', 'tablist');
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Activity', 'Plot', 'Log']);
+    // P3.5 adds Clusters beside Plot.
+    expect(tabs.map((t) => t.textContent)).toEqual(['Activity', 'Plot', 'Clusters', 'Log']);
     // Sanity: matches the shared constant order.
-    expect(DOCK_TABS.map((t) => t.label)).toEqual(['Activity', 'Plot', 'Log']);
+    expect(DOCK_TABS.map((t) => t.label)).toEqual(['Activity', 'Plot', 'Clusters', 'Log']);
   });
 
   it('defaults to the Plot tab and shows only the active panel full-width', () => {

@@ -1,4 +1,5 @@
 import { StatSymbol } from '@/components/ui/StatSymbol';
+import { statisticVariable } from '@/utils/statistic';
 import type { CSSProperties } from 'react';
 import {
   HIDDEN_BAND_BACKGROUND,
@@ -65,7 +66,7 @@ const LABEL_H = 10; // tick label box (text-bf-2xs, leading-none)
 const CAP_H = 4; // clipped-end swatch outside the bar
 const CAP_GAP = 2;
 const MIN_BAR_H = 48;
-const NAME_GAP = 3; // name caption → bar group
+const NAME_GAP = 6; // name caption → bar group (clears the peak value label)
 const MAX_BAR_H = 160;
 /**
  * Below this canvas-area width the colorbar is not drawn. It differs from the
@@ -125,7 +126,7 @@ export function ViewportColorbar({
   value = null,
 }: ViewportColorbarProps) {
   const cmap = colormapVerticalGradient(layer.colormap);
-  const exprParts = thresholdExpressionParts(layer.threshold);
+  const exprParts = thresholdExpressionParts(layer.threshold, statisticVariable(layer.units));
   const [wMin, wMax] = layer.intensity;
   const band = hiddenBand(layer.intensity, layer.threshold);
   const capTop = !!band && band[1] >= 1 && !!layer.dataRange && layer.dataRange.max > wMax;
@@ -152,15 +153,13 @@ export function ViewportColorbar({
     const lines = colorbarCaptionLines(exprParts, Math.max(groupW, 7 * CHAR_W));
     // The name caption ("z · zmap_synthetic") may widen the box up to
     // NAME_MAX_CHARS; longer names middle-truncate.
+    // The name caption starts at the bar's left edge and may widen the box
+    // to the right, up to NAME_MAX_CHARS; longer names middle-truncate.
     const nameChars = (layer.units ? layer.units.length + 3 : 0) + (layer.nameLabel?.length ?? 0);
-    const captionW = Math.ceil(
-      Math.max(
-        0,
-        Math.min(nameChars, NAME_MAX_CHARS) * NAME_CHAR_W,
-        ...lines.map((l) => l.length * CHAR_W),
-      ),
-    );
-    const boxW = Math.max(groupW, captionW) + PAD_X;
+    const barLeft = valueW + VALUE_GAP + CARET_W;
+    const nameW = Math.ceil(Math.min(nameChars, NAME_MAX_CHARS) * NAME_CHAR_W);
+    const captionW = Math.ceil(Math.max(0, ...lines.map((l) => l.length * CHAR_W)));
+    const boxW = Math.max(groupW, captionW, nameChars ? barLeft + nameW : 0) + PAD_X;
     return { ticks, labelW, valueW, boxW, lines };
   };
   const nominal = measure(MAX_BAR_H);
@@ -268,6 +267,9 @@ export function ViewportColorbar({
     return order[col];
   };
   const groupW = valueW + VALUE_GAP + CARET_W + BAR_W + MARK_W + LABEL_GAP + labelW;
+  // Caption indent: the bar's left edge. The group sits at the box's left
+  // content edge, so a wider caption extends the box to the right of the bar.
+  const nameIndent = colLeft('bar');
   const swatch = (where: 'top' | 'bottom') => (
     <div
       aria-hidden
@@ -301,8 +303,9 @@ export function ViewportColorbar({
         // variable), then the muted, middle-truncated layer name.
         <div
           data-testid="viewport-colorbar-name"
-          className="truncate whitespace-nowrap text-right leading-none"
-          style={{ height: LINE_H, marginBottom: NAME_GAP }}
+          className="truncate whitespace-nowrap text-left leading-none"
+          // Left-aligned to the bar (the group is right-aligned in the box).
+          style={{ height: LINE_H, marginBottom: NAME_GAP, paddingLeft: nameIndent }}
           title={layer.units ? `${layer.units} · ${layer.name}` : layer.name}
         >
           {layer.units && (
@@ -316,7 +319,7 @@ export function ViewportColorbar({
                 Math.max(
                   1,
                   Math.floor(
-                    (boxW - PAD_X - (layer.units ? (layer.units.length + 3) * NAME_CHAR_W : 0)) /
+                    (boxW - PAD_X - nameIndent - (layer.units ? (layer.units.length + 3) * NAME_CHAR_W : 0)) /
                       NAME_CHAR_W,
                   ),
                 ),
@@ -327,7 +330,7 @@ export function ViewportColorbar({
         </div>
       )}
       <div
-        className="relative ml-auto font-mono tabular-nums"
+        className="relative font-mono tabular-nums"
         style={{ width: groupW, height: groupH }}
       >
         {capTop && swatch('top')}

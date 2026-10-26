@@ -47,7 +47,8 @@ import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
 // Import side panel components
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
-import { ClusterPanel } from '@/components/panels/ClusterPanel';
+import { ClusterPanelMoved } from '@/components/panels/ClusterPanelMoved';
+import { openDockTab } from './openDockTab';
 // Right-rail Inspector — single tab; mode-aware via InspectorRouter.
 import { InspectorRouter } from '@/components/inspector/InspectorRouter';
 
@@ -353,7 +354,9 @@ export function GoldenLayoutRoot() {
     registerSidePanelComponent('FileBrowser', FileBrowserPanel);
     registerSidePanelComponent('StudioDesignPanel', StudioDesignPanel);
     registerSidePanelComponent('PlotPanel', PlotPanel);
-    registerSidePanelComponent('ClusterPanel', ClusterPanel);
+    // Clusters live in the bottom dock (P3.5). A saved layout that still holds
+    // a ClusterPanel tab gets a pointer there instead of a second table.
+    registerSidePanelComponent('ClusterPanel', ClusterPanelMoved);
     // Right-rail Inspector — single canonical tab. Legacy componentTypes
     // (LayerPanel / SurfacePanel / AtlasPanel / StudioInspectorPanel) alias
     // to the same InspectorRouter so saved layouts and existing menu / preset
@@ -520,6 +523,11 @@ export function GoldenLayoutRoot() {
       const customEvent = event as CustomEvent<{ panelType?: string }>;
       const panelType = customEvent.detail?.panelType;
       if (!panelType) {
+        return;
+      }
+      // Clusters are a bottom-dock tab (P3.5), never a centre or side pane.
+      if (panelType === 'ClusterPanel') {
+        openDockTab('clusters');
         return;
       }
       console.log(`[GoldenLayoutRoot] Adding panel: ${panelType}`);

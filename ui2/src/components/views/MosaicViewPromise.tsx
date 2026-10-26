@@ -17,7 +17,10 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
 import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
 import { createMosaicRenderService } from '@/services/MosaicRenderService';
-import { calculateInitialPage } from '@/utils/mosaicUtils';
+import { getNonzeroBbox } from '@/services/mosaic/brainBounds';
+import { formatWorldMm } from '@/utils/valueFormat';
+import { sliceIndexRange, slicePositionAtIndex } from '@/services/mosaic/sliceGeometry';
+import { MosaicTileLabel, MosaicColorbar } from './MosaicFrame';
 import { getApiService } from '@/services/apiService';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { Notice } from '@/components/ui/bf';
@@ -26,6 +29,21 @@ import { getFileLoadingService } from '@/services/FileLoadingService';
 import { readFileDragData } from '@/utils/layerDrag';
 import { resolveDropOpenIntent } from '@/types/loadIntent';
 import './MosaicView.css';
+
+const AXIS_DIMENSION = { sagittal: 0, coronal: 1, axial: 2 } as const;
+const AXIS_LETTER = { sagittal: 'x', coronal: 'y', axial: 'z' } as const;
+
+/** Reference slicing for one axis, cropped to the brain's slices [first, last]. */
+interface MosaicSliceRange {
+  volumeId: string;
+  axis: string;
+  count: number;
+  first: number;
+  last: number;
+  /** World positions of slice 0 and slice count-1 (voxel centres). */
+  min: number;
+  max: number;
+}
 
 interface MosaicViewPromiseProps {
   workspaceId?: string; // Optional workspace ID for generating unique cell tags
@@ -47,10 +65,13 @@ function MosaicViewPromiseRaw({
     state => state.getWorkspaceViewStateRevisions(workspaceId).timepoint
   );
   const setCrosshair = useViewStateStore(state => state.setCrosshair);
+  const crosshairWorld = useViewStateStore(
+    state => state.getWorkspaceViewState(workspaceId).crosshair.world_mm
+  );
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
-  const [sliceMetadata, setSliceMetadata] = useState<{ volumeId: string; axis: string; count: number } | null>(null);
+  const [sliceMetadata, setSliceMetadata] = useState<MosaicSliceRange | null>(null);
   const [cellSize, setCellSize] = useState({ width: 128, height: 128 }); // Start with minimum size
   const [currentSlice, setCurrentSlice] = useState(0);
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -118,7 +139,12 @@ function MosaicViewPromiseRaw({
   
   // Get primary volume for metadata
   const primaryVolumeId = visibleLayers[0]?.volumeId;
-  const totalSlices = sliceMetadata?.volumeId === primaryVolumeId && sliceMetadata?.axis === sliceAxis ? sliceMetadata.count : 0;
+  const range =
+    sliceMetadata?.volumeId === primaryVolumeId && sliceMetadata?.axis === sliceAxis ? sliceMetadata : null;
+  // Paging runs over the brain's slices only (P3.7 crop); indices stay the
+  // reference volume's own, so positions and spacing are unchanged.
+  const firstSlice = range?.first ?? 0;
+  const totalSlices = range ? range.last - range.first + 1 : 0;
   
   // Fetch slice metadata and calculate initial page based on crosshair
   useEffect(() => {
@@ -146,26 +172,39 @@ function MosaicViewPromiseRaw({
           return;
         }
         
-        // Get current crosshair position
-        const crosshairPosition = useViewStateStore.getState().getWorkspaceViewState(workspaceId).crosshair.world_mm;
+        // Crop the slice range to the brain (non-zero voxels of the reference).
+        const brain = await getNonzeroBbox(primaryVolumeId);
+        if (cancelled) return;
+        const d = AXIS_DIMENSION[sliceAxis];
+        const sampling = { min: volumeBounds.min[d], max: volumeBounds.max[d], count: meta.sliceCount };
+        const { first, last } = brain
+          ? sliceIndexRange(sampling, brain.worldMinMm[d], brain.worldMaxMm[d])
+          : { first: 0, last: meta.sliceCount - 1 };
 
-        // Calculate initial page based on crosshair position
-        const initialPage = calculateInitialPage(
-          crosshairPosition,
-          volumeBounds,
-          sliceAxis,
-          meta.sliceCount,
-          gridSize.rows,
-          gridSize.cols
+        // Initial page: the one holding the crosshair's slice.
+        const crosshairPosition = useViewStateStore.getState().getWorkspaceViewState(workspaceId).crosshair.world_mm;
+        const step = meta.sliceCount > 1 ? (sampling.max - sampling.min) / (meta.sliceCount - 1) : 1;
+        const crossIndex = Math.min(
+          last,
+          Math.max(first, Math.round((crosshairPosition[d] - sampling.min) / step)),
         );
-        
-        // Ensure page is within valid range
-        const maxPage = Math.ceil(meta.sliceCount / (gridSize.rows * gridSize.cols)) - 1;
-        const validPage = Math.max(0, Math.min(initialPage, maxPage));
-        
-        setSliceMetadata(previous => previous?.volumeId === primaryVolumeId &&
-          previous.axis === sliceAxis && previous.count === meta.sliceCount
-          ? previous : { volumeId: primaryVolumeId, axis: sliceAxis, count: meta.sliceCount });
+        const validPage = Math.floor((crossIndex - first) / (gridSize.rows * gridSize.cols));
+
+        const next: MosaicSliceRange = {
+          volumeId: primaryVolumeId,
+          axis: sliceAxis,
+          count: meta.sliceCount,
+          first,
+          last,
+          min: sampling.min,
+          max: sampling.max,
+        };
+        setSliceMetadata(previous =>
+          previous &&
+          (Object.keys(next) as Array<keyof MosaicSliceRange>).every((k) => previous[k] === next[k])
+            ? previous
+            : next,
+        );
         setCurrentPage(validPage);
         
       } catch (error) {
@@ -194,7 +233,7 @@ function MosaicViewPromiseRaw({
       }
       
       // Account for gaps and padding
-      const gap = 4;
+      const gap = 1; // hairline between tiles (MosaicView.css)
       const padding = 16;
       const availableWidth = containerRect.width - padding - (gap * (cols - 1));
       const availableHeight = containerRect.height - padding - (gap * (rows - 1));
@@ -260,14 +299,14 @@ function MosaicViewPromiseRaw({
     for (let i = 0; i < slicesPerPage; i++) {
       const idx = startIdx + i;
       if (idx < totalSlices) {
-        indices.push(idx);
+        indices.push(firstSlice + idx);
       }
     }
     
     console.log('[MosaicViewPromise] DEBUG - Calculated indices:', indices);
     
     return indices;
-  }, [currentPage, gridSize, totalSlices]);
+  }, [currentPage, gridSize, totalSlices, firstSlice]);
   
   // Generate cell IDs for each mosaic cell
   // These are used as tags for MosaicCell and for the render service
@@ -426,34 +465,51 @@ function MosaicViewPromiseRaw({
         currentSlice={currentSlice}
         totalSlices={totalSlices}
         onSliceChange={handleSliceChange}
+        sliceLabel={(rel) =>
+          range
+            ? `${AXIS_LETTER[sliceAxis]} ${formatWorldMm(slicePositionAtIndex(range, firstSlice + rel))}`
+            : String(rel)
+        }
       />
       
-      <div 
-        ref={gridRef}
-        className="mosaic-grid flex-1 p-2 overflow-auto"
-        style={{
-          display: 'grid',
-          gridTemplateRows: `repeat(${gridSize.rows}, minmax(0, 1fr))`,
-          gridTemplateColumns: `repeat(${gridSize.cols}, minmax(0, 1fr))`,
-          gap: '4px'
-        }}
-      >
-        {sliceIndices.map((sliceIndex, i) => (
-          <div key={cellIds[i]} className="mosaic-cell">
-            <MosaicCellErrorBoundary cellId={cellIds[i]} sliceIndex={sliceIndex}>
-              <MosaicCell
+      <div className="flex min-h-0 flex-1">
+        <div
+          ref={gridRef}
+          className="mosaic-grid min-w-0 flex-1 p-2 overflow-auto"
+          style={{
+            display: 'grid',
+            gridTemplateRows: `repeat(${gridSize.rows}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${gridSize.cols}, minmax(0, 1fr))`,
+            gap: '1px'
+          }}
+        >
+          {sliceIndices.map((sliceIndex, i) => {
+            const position = range ? slicePositionAtIndex(range, sliceIndex) : null;
+            const step = range && range.count > 1 ? (range.max - range.min) / (range.count - 1) : 1;
+            const atCrosshair =
+              position !== null &&
+              Math.abs(crosshairWorld[AXIS_DIMENSION[sliceAxis]] - position) < step / 2;
+            return (
+              <div key={cellIds[i]} className="mosaic-cell">
+                <MosaicCellErrorBoundary cellId={cellIds[i]} sliceIndex={sliceIndex}>
+                  <MosaicCell
                     workspaceId={workspaceId}
                     renderService={mosaicRenderService}
-                width={cellSize.width}
-                height={cellSize.height}
-                tag={cellIds[i]}  // Pass tag for this cell
-                sliceIndex={sliceIndex}
-                axis={sliceAxis}
-                onCrosshairClick={handleCrosshairClick}
-              />
-            </MosaicCellErrorBoundary>
-          </div>
-        ))}
+                    width={cellSize.width}
+                    height={cellSize.height}
+                    tag={cellIds[i]}  // Pass tag for this cell
+                    sliceIndex={sliceIndex}
+                    axis={sliceAxis}
+                    onCrosshairClick={handleCrosshairClick}
+                  />
+                </MosaicCellErrorBoundary>
+                <MosaicTileLabel axis={sliceAxis} position={position} atCrosshair={atCrosshair} />
+              </div>
+            );
+          })}
+        </div>
+        {/* One colorbar for the whole grid, outside the tiles (P3.7). */}
+        <MosaicColorbar workspaceId={workspaceId} />
       </div>
     </div>
   );

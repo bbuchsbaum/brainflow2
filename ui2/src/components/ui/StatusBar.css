@@ -85,6 +85,11 @@
   font-family: var(--app-font-sans);
 }
 
+/* Mouse slot: the voxel index after the mm position, muted. */
+.status-value__ijk {
+  color: var(--app-text-secondary);
+}
+
 /* Region LUT colour (data colour, not chrome). */
 .status-region-swatch {
   display: inline-block;

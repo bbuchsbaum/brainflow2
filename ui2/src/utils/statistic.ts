@@ -5,7 +5,6 @@
  * file names.
  */
 import type { StatisticInfo } from '@brainflow/api';
-import { formatFixed } from './valueFormat';
 
 /** Kinds whose values carry a statistic unit worth printing next to numbers. */
 function hasValueUnit(statistic: StatisticInfo): boolean {
@@ -118,12 +117,12 @@ export function statisticFacts(
     { label: 'Intent code', value: intent, mono: !statistic.fromDescription },
     {
       label: 'Intent params',
-      value: statistic.intentParams.map((p) => formatFixed(p, 2)).join(', '),
+      value: statistic.intentParams.map((p) => formatParam(p).replace('-', '\u2212')).join(', '),
     },
     statistic.dof.length > 0
       ? {
           label: 'Degrees of freedom',
-          value: statistic.dof.map((d) => (Number.isInteger(d) ? String(d) : formatFixed(d, 2))).join(', '),
+          value: statistic.dof.map(formatParam).join(', '),
         }
       : null,
   ];
@@ -156,4 +155,88 @@ export function splitStatisticSymbol(label: string): SymbolPart[] {
     ];
   }
   return [{ text: label, italic: false }];
+}
+
+/** A degrees-of-freedom number: integers plain, else up to 2 decimals ("24", "23.5"). */
+function formatParam(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+}
+
+const DOF_KINDS = new Set(['t', 'f', 'chi2', 'correlation']);
+const VARIABLE_WORD: Partial<Record<string, string>> = { z: 'score', p: 'value' };
+
+/**
+ * The Inspector Data card's statistic phrase (v1 visual critic): the
+ * variable plus a word or its degrees of freedom: "z score", "t, df 24",
+ * "F, df 2, 30", "p value". Returned split so the variable can be set in
+ * italic. Log-p and named estimates fall back to their display label.
+ */
+export function statisticPhrase(
+  statistic: StatisticInfo,
+  dataRange?: ValueRange,
+): { variable: string; rest: string } | null {
+  const units = statisticUnits(statistic, dataRange);
+  if (!units) return null;
+  const variable = units.replace(/\(.*\)$/, '');
+  if (DOF_KINDS.has(statistic.kind)) {
+    const df = statistic.dof.map(formatParam).join(', ');
+    return { variable, rest: df ? `, df ${df}` : '' };
+  }
+  const word = VARIABLE_WORD[statistic.kind];
+  return word && variable === statistic.label ? { variable, rest: ` ${word}` } : { variable: units, rest: '' };
+}
+
+/** Accessible long form of a statistic symbol: "t statistic, 24 degrees of freedom". */
+export function statisticLongName(label: string): string {
+  const guessed = /^([zt])\?$/.exec(label);
+  if (guessed) {
+    return `${guessed[1] === 'z' ? 'z score' : 't statistic'}, guessed from the file name`;
+  }
+  const m = /^([ztFrpχ])²?(?:\((.*)\))?$/.exec(label);
+  if (!m) {
+    const logp = /^(−?)(log10|ln)\(p\)$/.exec(label);
+    if (logp) return `${logp[1] ? 'negative ' : ''}${logp[2] === 'ln' ? 'natural log' : 'log 10'} p value`;
+    return label;
+  }
+  const names: Record<string, string> = {
+    z: 'z score',
+    t: 't statistic',
+    F: 'F statistic',
+    r: 'correlation r',
+    p: 'p value',
+    χ: 'chi-squared statistic',
+  };
+  const base = names[m[1]] ?? label;
+  if (!m[2]) return base;
+  const dof = m[2].split(',').map((d) => d.trim());
+  return `${base}, ${dof.join(' and ')} degrees of freedom`;
+}
+
+/** The variable of a statistic label without its df ("t(24)" -> "t"); "value" for none. */
+export function statisticVariable(units: string | null | undefined): string {
+  return units ? units.replace(/\(.*\)$/, '') : 'value';
+}
+
+/** intent_name of a statistic guessed from the file name (no NIfTI intent). */
+export const INFERRED_FROM_NAME = 'inferred from file name';
+
+/**
+ * A modest guess for FSL-style maps without an intent code: "zstat1" -> z,
+ * "tstat2" -> t (no df). Marked as a guess in its label ("z?", "t?") and
+ * intent name; nothing else is inferred.
+ */
+export function inferStatisticFromName(fileName: string): StatisticInfo | null {
+  const lower = fileName.toLowerCase();
+  const kind = /(^|[^a-z])zstat\d*/.test(lower) ? 'z' : /(^|[^a-z])tstat\d*/.test(lower) ? 't' : null;
+  if (!kind) return null;
+  return {
+    kind,
+    intentCode: 0,
+    intentParams: [0, 0, 0],
+    intentName: INFERRED_FROM_NAME,
+    dof: [],
+    label: `${kind}?`,
+    fromDescription: false,
+    positiveDataLabel: null,
+  };
 }

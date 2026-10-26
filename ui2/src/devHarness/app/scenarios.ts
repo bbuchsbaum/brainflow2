@@ -384,8 +384,11 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await until(() => !!document.querySelector('[role="dialog"]'), 'image header dialog');
   },
   // P3.4: user-loaded label volume with a TSV LUT sidecar; crosshair in region 2.
+  // P3.4 + v1 critics: the label map above a statistic (t map), so the
+  // label layer's default display (outline) is judged at 1600 and 1280.
   'region-at-crosshair': async () => {
     await p3Base();
+    await loadStat(TMAP_PATH, [-7, 7], [-3.5, 3.5]);
     await loadVolume(ATLAS_PATH, 'add-layer');
     await navigateTo(REGION_2);
     await selectLayer(ATLAS_PATH);
@@ -407,22 +410,43 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
       "coordinate space 'Voxel'",
     );
   },
-  // P3.5: Clusters panel opened through the panel-menu event (no menu entry reaches it).
-  // Compute is not pressed: compute_alpha_mask does not exist in the backend (v0).
+  // P3.5: the Clusters dock tab, opened through the panel-menu event (View >
+  // Panels > Clusters), computed at the z map's display threshold (|z| > 3.1,
+  // 26-connected) with row 1 selected (crosshair at its peak).
   'cluster-table': async () => {
     await p3Base();
     await loadZ();
-    await navigateTo(Z_PEAK);
+    // The atlas names the region at each peak (Region column) but stays
+    // hidden, so the viewports show the z map only.
+    await loadVolume(ATLAS_PATH, 'add-layer');
+    const atlasId = await layerIdForPath(ATLAS_PATH);
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    useViewStateStore.getState().setViewState((state) => {
+      const atlas = state.layers.find((l) => l.id === atlasId);
+      if (atlas) {
+        atlas.visible = false;
+        atlas.opacity = 0;
+      }
+    });
+    noteStep('atlas loaded and hidden (region lookup only)');
     await selectLayer(ZMAP_PATH);
     window.dispatchEvent(
       new CustomEvent('golden-layout-add-panel', { detail: { panelType: 'ClusterPanel' } }),
     );
-    await until(
-      () =>
-        Array.from(document.querySelectorAll('.lm_tab .lm_title')).some(
-          (el) => el.textContent?.trim() === 'Clusters',
-        ),
-      'Clusters panel tab',
+    await until(() => !!document.querySelector('[data-testid="cluster-panel"]'), 'Clusters dock tab');
+    await clickWhere(
+      '[data-testid="cluster-panel"] button',
+      (el) => el.textContent?.trim() === 'Compute',
+      'Compute',
+    );
+    await until(() => !!document.querySelector('[data-testid="cluster-row-1"]'), 'cluster rows');
+    (document.querySelector('[data-testid="cluster-row-1"]') as HTMLElement).click();
+    const { useClusterStore } = await import('@/stores/clusterStore');
+    await until(() => useClusterStore.getState().selectedId === 1, 'cluster row 1 selected');
+    noteStep(
+      `clusters: ${document.querySelector('[data-testid="cluster-layer"]')?.textContent} · ${
+        document.querySelector('[data-testid="cluster-methods"]')?.textContent
+      }`,
     );
     await frames(5);
   },
@@ -432,20 +456,42 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await loadZ();
     await loadVolume(ATLAS_PATH, 'add-layer');
     await navigateTo(Z_PEAK);
-    const zId = await selectLayer(ZMAP_PATH);
-    // Hover readout is opt-in per layer (Inspector "Show value on hover").
-    const { useDisplayOptionsStore } = await import('@/stores/displayOptionsStore');
-    useDisplayOptionsStore.getState().setOptions(zId, { showValueOnHover: true });
-    noteStep('show value on hover: z map');
+    await selectLayer(ZMAP_PATH);
     await frames(5);
-    // Inside z blob 1 and atlas region 1, off voxel boundaries (fidelity
-    // critic): T1 167, z 5.431, atlas 1 at voxel (29, 57, 64).
+    // Default readout (P3.6): no tooltip; the Inspector's Scene rows read every
+    // visible layer at the pointer, and the status Mouse slot shows where.
+    // Inside z blob 1 and atlas region 1, at voxel (29, 57, 64) (fidelity
+    // critic): T1 167, z 5.43, atlas L_sensorimotor.
     await hoverWorld('axial', [-37.5, -17.5, 50.5]);
     const { useStatusBarStore } = await import('@/stores/statusBarStore');
     await until(
       () => useStatusBarStore.getState().values.mouse !== '--',
       'status mouse slot updated by hover',
     );
+    await until(
+      () =>
+        document
+          .querySelector('[data-testid="scene-readout-caption"]')
+          ?.textContent?.startsWith('At pointer') === true,
+      'scene readout at the pointer',
+    );
+    await until(
+      () =>
+        Array.from(document.querySelectorAll('[data-testid^="layer-readout-"]')).every(
+          (el) => el.textContent !== '—',
+        ),
+      'per-layer readout values',
+    );
+    const readout = Array.from(document.querySelectorAll('[data-testid^="layer-readout-"]')).map(
+      (el) => el.textContent ?? '',
+    );
+    noteStep(`readout: ${readout.join(' | ')}`);
+    // Fixture truth at voxel (29, 57, 64): fail loudly if any layer misreads
+    // (v1 user critique: the tooltip once reported the T1 for the z map).
+    const expected = ['167', 'z 5.43', 'L_sensorimotor'];
+    if (readout.join('|') !== expected.join('|')) {
+      throw new Error(`multi-layer readout ${JSON.stringify(readout)} != ${JSON.stringify(expected)}`);
+    }
   },
   // P3.7: mosaic with the z overlay.
   'mosaic-labelled': async () => {

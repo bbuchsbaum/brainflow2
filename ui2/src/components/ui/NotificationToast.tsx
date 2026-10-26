@@ -83,10 +83,18 @@ export function NotificationToast() {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 space-y-2">
+    // A persistent polite live region, so screen readers announce toasts
+    // ("Saved image to …"); errors are assertive alerts.
+    <div
+      className="fixed bottom-4 right-4 z-50 space-y-2"
+      role="status"
+      aria-live="polite"
+      aria-label="Notifications"
+    >
       {notifications.map(notification => (
         <div
           key={notification.id}
+          role={notification.type === 'error' ? 'alert' : undefined}
           className="px-4 py-3 shadow-lg animate-slide-in-right"
           style={getNotificationStyle(notification.type)}
         >

@@ -2,6 +2,7 @@
  * Atlas Service - TypeScript wrapper for atlas Tauri commands
  */
 
+import { applyLabelDisplayDefault } from "./LabelTableService";
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { invoke } from "@tauri-apps/api/core";
 import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
@@ -693,6 +694,8 @@ export class AtlasService {
         // (the palette and colormapId would then land on the wrong view state
         // and the atlas would keep rendering through the grayscale LUT).
         await AtlasPaletteService.applyToVolumeLayer(layer.id, config, { workspaceId });
+        // Above a statistic map: outline by default (LabelTableService).
+        applyLabelDisplayDefault(layer.id);
         console.log(
           "[AtlasService] Applied categorical atlas palette for layer",
           layer.id,

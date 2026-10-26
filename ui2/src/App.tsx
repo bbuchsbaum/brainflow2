@@ -19,6 +19,11 @@ import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
 import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
 import { useExportMenuListener } from '@/hooks/useExportMenuListener';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
+import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
+import { openDockTab } from '@/components/layout/openDockTab';
+import { getClusterService } from '@/services/ClusterService';
+import { copyValuesAtCrosshair } from '@/services/readoutCopy';
+import { activeVolumeLayerId } from '@/utils/activeLayer';
 import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuListener';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { ProgressDebug } from '@/components/ui/ProgressDebug';
@@ -215,6 +220,72 @@ function AppContent() {
         },
       },
       {
+        id: 'crosshair.settings',
+        title: 'Crosshair Settings…',
+        subtitle: 'Colour, style, mirror lines and voxel snapping.',
+        keywords: ['crosshair', 'settings', 'snap', 'voxel', 'colour', 'color'],
+        group: 'Navigation',
+        run: () => setShowCrosshairSettings(true),
+      },
+      {
+        id: 'crosshair.toggleSnap',
+        title: 'Toggle Snap to Voxel',
+        subtitle: 'Place the crosshair on voxel centres of the bottom image layer.',
+        keywords: ['snap', 'voxel', 'crosshair', 'centre', 'center'],
+        group: 'Navigation',
+        run: () => {
+          const { settings, updateSettings } = useCrosshairSettingsStore.getState();
+          const next = !settings.snapToVoxel;
+          updateSettings({ snapToVoxel: next });
+          if (next) {
+            const { viewState, setCrosshair } = useViewStateStore.getState();
+            void setCrosshair([...viewState.crosshair.world_mm], true);
+          }
+          getEventBus().emit('ui.notification', {
+            type: 'info',
+            message: next ? 'Snap to voxel on' : 'Snap to voxel off',
+          });
+        },
+      },
+      {
+        id: 'statistics.copyValues',
+        title: 'Copy Values at Crosshair',
+        subtitle: 'Every visible layer at the crosshair, as tab-separated text.',
+        keywords: ['copy', 'values', 'crosshair', 'tsv', 'readout'],
+        group: 'Statistics',
+        run: () => copyValuesAtCrosshair(),
+      },
+      {
+        id: 'statistics.clusters',
+        title: 'Show Clusters',
+        subtitle: 'Open the cluster table in the bottom dock.',
+        keywords: ['clusters', 'peaks', 'table', 'threshold', 'statistics'],
+        group: 'Statistics',
+        run: () => openDockTab('clusters'),
+      },
+      {
+        id: 'statistics.goToMax',
+        title: 'Go to Max',
+        subtitle: 'Move the crosshair to the active layer\u2019s largest value.',
+        keywords: ['maximum', 'peak', 'max', 'statistics'],
+        group: 'Statistics',
+        run: async () => {
+          const layerId = activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
+          if (layerId) await getClusterService().goToExtremum(layerId, 'max');
+        },
+      },
+      {
+        id: 'statistics.goToMin',
+        title: 'Go to Min',
+        subtitle: 'Move the crosshair to the active layer\u2019s smallest value.',
+        keywords: ['minimum', 'min', 'statistics'],
+        group: 'Statistics',
+        run: async () => {
+          const layerId = activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
+          if (layerId) await getClusterService().goToExtremum(layerId, 'min');
+        },
+      },
+      {
         id: 'command.exportViewImage',
         title: 'Export View as Image…',
         subtitle: 'Save the active view as PNG or JPEG.',
@@ -370,6 +441,7 @@ function AppContent() {
       id: 'app.commandPalette.meta',
       key: 'k',
       modifiers: { meta: true },
+      allowInInputs: true,
       category: 'General',
       description: 'Open command palette',
       handler: openCommandPalette,
@@ -379,6 +451,7 @@ function AppContent() {
       id: 'app.commandPalette.ctrl',
       key: 'k',
       modifiers: { ctrl: true },
+      allowInInputs: true,
       category: 'General',
       description: 'Open command palette',
       handler: openCommandPalette,

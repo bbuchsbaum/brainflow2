@@ -585,6 +585,12 @@ fn main() {
                                         .accelerator("CmdOrCtrl+P")
                                         .build(app)?,
                                 )
+                                .item(
+                                    // Opens the bottom dock's Clusters tab (ui2 GoldenLayoutRoot).
+                                    &MenuItemBuilder::new("Clusters")
+                                        .id("panel_clusters")
+                                        .build(app)?,
+                                )
                                 .build()?,
                         )
                         .separator()
@@ -715,6 +721,7 @@ fn main() {
                             "panel_layer_manager" => "LayerPanel",
                             "panel_atlas_browser" => "AtlasPanel",
                             "panel_plot" => "PlotPanel",
+                            "panel_clusters" => "ClusterPanel",
                             _ => return,
                         };
 

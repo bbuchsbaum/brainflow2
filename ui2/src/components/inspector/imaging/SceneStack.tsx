@@ -1,5 +1,6 @@
 import React, { useCallback, useId } from "react";
-import { GripVertical } from "lucide-react";
+import { Copy, GripVertical } from "lucide-react";
+import { copyValuesAtCrosshair } from "@/services/readoutCopy";
 import {
   DndContext,
   PointerSensor,
@@ -17,16 +18,25 @@ import {
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
 import { useSceneStack } from "@/hooks/useSceneStack";
+import { useLayerStore } from "@/stores/layerStore";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
 import type { SceneItem } from "@/types/sceneItem";
 import {
+  IconButton,
   Notice,
   Section,
   useRovingFocus,
   type RovingItemProps,
 } from "@/components/ui/bf";
 import { SceneStackItem } from "./SceneStackItem";
+import { useReadoutPoint } from "@/hooks/useReadoutPoint";
+import {
+  formatVoxelIndex,
+  resolveVoxelGridReference,
+  voxelIndexInBounds,
+  worldToVoxelIndex,
+} from "@/utils/voxelSnap";
 
 /**
  * Scene section of the imaging Inspector. Three subgroups:
@@ -112,9 +122,50 @@ type RovingFor = (id: string) => RovingItemProps;
 
 function GroupTitle({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <div id={id} className="mb-1 px-2 text-bf-xs text-muted-foreground">
+    <div id={id} className="mb-1 flex items-baseline gap-2 px-2 text-bf-xs text-muted-foreground">
       {children}
     </div>
+  );
+}
+
+/**
+ * Right-aligned caption naming where the row values are read (P3.6): "At
+ * pointer · ijk 29 57 64" while hovering a slice, else "At crosshair".
+ */
+function ReadoutCaption() {
+  const { source, world } = useReadoutPoint();
+  const layers = useLayerStore((s) => s.layers);
+  const layerMetadata = useLayerStore((s) => s.layerMetadata);
+  const reference = React.useMemo(
+    () => resolveVoxelGridReference(layers, layerMetadata),
+    [layers, layerMetadata],
+  );
+  let text = "At crosshair";
+  if (source === "pointer") {
+    const index = reference ? worldToVoxelIndex(world, reference) : null;
+    text =
+      index && voxelIndexInBounds(index, reference?.dims)
+        ? `At pointer · ijk ${formatVoxelIndex(index)}`
+        : "At pointer";
+  }
+  return (
+    <>
+      <span
+        className="ml-auto font-mono tabular-nums"
+        data-testid="scene-readout-caption"
+        title={reference ? `Voxel of ${reference.name}` : undefined}
+      >
+        {text}
+      </span>
+      <IconButton
+        size="xs"
+        variant="ghost"
+        icon={<Copy />}
+        aria-label="Copy values at crosshair"
+        title="Copy every visible layer's value at the crosshair (TSV)"
+        onClick={() => void copyValuesAtCrosshair()}
+      />
+    </>
   );
 }
 
@@ -202,7 +253,10 @@ function VolumeSceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <GroupTitle id={titleId}>Volume view</GroupTitle>
+      <GroupTitle id={titleId}>
+        Volume view
+        {items.length > 0 ? <ReadoutCaption /> : null}
+      </GroupTitle>
       {items.length === 0 ? (
         <Notice role={undefined}>No volumes loaded · use Load</Notice>
       ) : items.length === 1 ? (

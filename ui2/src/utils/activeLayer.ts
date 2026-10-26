@@ -90,3 +90,16 @@ export function useActiveLayer<T extends ViewLayerLike>(viewLayers: ReadonlyArra
   const selection = useActiveLayerSelection();
   return useMemo(() => resolveActiveLayer(viewLayers, selection), [viewLayers, selection]);
 }
+
+/**
+ * The active layer's id read from the stores outside React (commands, menus):
+ * the same rule as `useActiveLayer` over the given (active workspace) view layers.
+ */
+export function activeVolumeLayerId(viewLayers: ReadonlyArray<ViewLayerLike>): string | null {
+  const { activeItemId, activeItemKind } = useInspectorSelectionStore.getState();
+  const selection: ActiveLayerSelection = {
+    inspectorLayerId: inspectorVolumeLayerId(activeItemId, activeItemKind),
+    selectedLayerId: useLayerStore.getState().selectedLayerId,
+  };
+  return resolveActiveLayer(viewLayers, selection)?.id ?? null;
+}

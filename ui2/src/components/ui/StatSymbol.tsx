@@ -5,11 +5,21 @@
  * symbol (an `intent_name` such as "beta") render upright.
  */
 import React from 'react';
-import { splitStatisticSymbol } from '@/utils/statistic';
+import { splitStatisticSymbol, statisticLongName } from '@/utils/statistic';
+import { cn } from '@/utils/cn';
 
 export function StatSymbol({ label, className }: { label: string; className?: string }) {
+  // Always the sans face (so the statistic z never reads as the mono plane
+  // "z"), with a spoken long form ("t statistic, 24 degrees of freedom").
+  const longName = statisticLongName(label);
   return (
-    <span className={className} data-testid="stat-symbol">
+    <span
+      className={cn('font-sans', className)}
+      data-testid="stat-symbol"
+      role="img"
+      aria-label={longName}
+      title={longName}
+    >
       {splitStatisticSymbol(label).map((part, i) =>
         part.italic ? (
           <i key={i} className="italic">

@@ -35,6 +35,8 @@
   position: relative;
   overflow: hidden;
   background-color: var(--bf-bg-canvas); /* Image cells sit on the black canvas, not the app ground */
+  /* Tiles are frames separated by a 1px hairline (P3.7), not by app ground. */
+  box-shadow: 0 0 0 1px var(--bf-border-subtle);
   /* border removed - canvas already has border for consistency with SliceView */
   display: flex;
   align-items: center;
@@ -43,8 +45,10 @@
 }
 
 .mosaic-cell canvas {
-  /* Hairline frame; keep 1px width so canvas geometry and click mapping are unchanged. */
-  border: 1px solid var(--bf-border-subtle);
+  /* No inner slice-bounds box (P3.7): the tile itself carries the hairline.
+     The border keeps its 1px width (transparent) so canvas geometry and
+     click mapping are unchanged. */
+  border: 1px solid transparent;
   image-rendering: pixelated; /* Prevent blurring of medical images */
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
@@ -132,4 +136,8 @@
   height: 4px;
   background: var(--app-bg-active);
   border-radius: 2px;
+}
+/* The grid is one black canvas; tiles sit 1px apart on it. */
+.mosaic-container .mosaic-grid {
+  background-color: var(--bf-bg-canvas);
 }

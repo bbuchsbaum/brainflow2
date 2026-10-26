@@ -18,6 +18,7 @@ import type { VolumeBounds } from '@brainflow/api';
 import { alignPlaneToCrosshair } from '@/stores/viewStateGeometry';
 import { getLabelTableService } from './LabelTableService';
 import { looksLikeSegmentation } from '@/utils/labelTable';
+import { inferStatisticFromName } from '@/utils/statistic';
 
 /**
  * Volumes worth checking for a label-table sidecar: label layers (by name or
@@ -220,7 +221,13 @@ export class VolumeLoadingService {
             }
           : undefined,
         currentTimepoint: volumeHandle.current_timepoint || 0,
-        statistic: volumeHandle.statistic,
+        // No intent in the header: FSL-style names (zstat/tstat) give a
+        // marked guess ("z?"), never a silent statistic.
+        statistic:
+          volumeHandle.statistic ??
+          (source === 'file' && sourcePath
+            ? (inferStatisticFromName(sourcePath.split(/[\\/]/).pop() ?? '') ?? undefined)
+            : undefined),
         isLabelMap: volumeHandle.is_label_map === true ? true : undefined,
       };
 

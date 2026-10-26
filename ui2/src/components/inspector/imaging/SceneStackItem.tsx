@@ -1,6 +1,13 @@
 import React, { forwardRef } from "react";
 import type { SceneItem, SceneItemKind } from "@/types/sceneItem";
 import { SelectableRow, type RovingItemProps } from "@/components/ui/bf";
+import { LayerReadoutValue } from "./LayerReadoutValue";
+import { useReadoutPoint } from "@/hooks/useReadoutPoint";
+
+function VolumeRowReadout({ layerId }: { layerId: string }) {
+  const point = useReadoutPoint();
+  return <LayerReadoutValue layerId={layerId} point={point} />;
+}
 
 interface SceneStackItemProps {
   item: SceneItem;
@@ -140,9 +147,18 @@ export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
               {item.subtitle}
             </span>
           </span>
-          <span className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground">
-            {opacityPct}%
-          </span>
+          {/* Volume rows read their layer's value at the pointer / crosshair
+              (P3.6, FSLeyes-style location readout); opacity lives in Render.
+              Surfaces keep the opacity figure. */}
+          {item.ref.type === "volume" ? (
+            item.visible ? (
+              <VolumeRowReadout layerId={item.ref.layerId} />
+            ) : null
+          ) : (
+            <span className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground">
+              {opacityPct}%
+            </span>
+          )}
         </span>
       </SelectableRow>
     );

@@ -5,6 +5,7 @@
  * The single-view render path uses `render_view`.
  */
 
+import { labelRenderFields } from '@/utils/labelDisplay';
 import type { BackendTransport } from './transport';
 import { getTransport } from './transport';
 import type { ViewState } from '@/types/viewState';
@@ -101,12 +102,12 @@ export class ApiService {
         // The backend prefers this over name-based resolution for label layers.
         colormapId: layer.colormapId,
         blendMode: layer.blendMode || 'alpha',
-        opacity: layer.opacity,
+        // Label layers: fill / outline / both (utils/labelDisplay.ts).
+        ...labelRenderFields(layer),
         intensity: layer.intensity,
         threshold: layer.threshold,
         interpolation: layer.interpolation || 'linear',
         layerMode: layer.layerMode ?? 'scalar',
-        outline: layer.outline,
         alphaMod: layer.alphaMod,
         visible: true,
       };

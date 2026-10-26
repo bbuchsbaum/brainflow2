@@ -1,3 +1,4 @@
+import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import React, { useEffect, useId, useRef } from 'react';
 import { IconButton } from './IconButton';
 import { getFocusableElements } from '@/utils/dialogFocus';
@@ -18,6 +19,26 @@ interface ModalProps {
   bodyClassName?: string;
   overlayClassName?: string;
   className?: string;
+}
+
+/**
+ * Return focus to the element that opened the dialog. When there is none
+ * (opened by a shortcut while <body> had focus) or it is gone, focus the
+ * active viewport (`data-focus-return="viewport"`, the last interacted one
+ * first) so keyboard users do not land on <body>.
+ */
+function returnFocus(previous: HTMLElement | null): void {
+  if (previous?.isConnected && previous !== document.body) {
+    previous.focus();
+    return;
+  }
+  const activeId = useActiveRenderContextStore.getState().activeId;
+  const viewports = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-focus-return="viewport"]'),
+  );
+  const target =
+    viewports.find((el) => el.dataset.viewId === activeId) ?? viewports[0] ?? null;
+  target?.focus();
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -101,9 +122,7 @@ export const Modal: React.FC<ModalProps> = ({
       wasOpenRef.current = false;
       const previousFocusedElement = previousFocusedElementRef.current;
       previousFocusedElementRef.current = null;
-      if (previousFocusedElement?.isConnected) {
-        previousFocusedElement.focus();
-      }
+      returnFocus(previousFocusedElement);
     }
   }, [isOpen]);
 
@@ -114,10 +133,7 @@ export const Modal: React.FC<ModalProps> = ({
       }
 
       document.body.style.overflow = previousBodyOverflowRef.current;
-      const previousFocusedElement = previousFocusedElementRef.current;
-      if (previousFocusedElement?.isConnected) {
-        previousFocusedElement.focus();
-      }
+      returnFocus(previousFocusedElementRef.current);
     };
   }, []);
 

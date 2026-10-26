@@ -32,6 +32,28 @@ export interface HistogramData {
   binCount: number;
   /** Layer ID this histogram belongs to */
   layerId: string;
+  /** Exact zeros were left out of the bins and of mean/std (stated in the caption). */
+  zerosExcluded?: boolean;
+  /** Integer-valued data (label maps): integer x ticks. */
+  integerValued?: boolean;
+}
+
+/**
+ * Tick values and their labels for a histogram x axis: no repeated labels
+ * (a 0..3 label map used to read "0 0 0 1 1 1 …"). Integer-valued data
+ * (label maps) gets integer ticks only; otherwise labels carry as many
+ * decimals as the tick step needs.
+ */
+export function histogramAxisTicks(
+  ticks: number[],
+  integerData: boolean,
+): { values: number[]; format: (v: number) => string } {
+  const values = integerData
+    ? Array.from(new Set(ticks.filter((t) => Number.isInteger(t))))
+    : ticks;
+  const step = values.length > 1 ? Math.abs(values[1] - values[0]) : 1;
+  const decimals = integerData || step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step)));
+  return { values, format: (v: number) => v.toFixed(decimals).replace('-', '\u2212') };
 }
 
 export interface HistogramRequest {
