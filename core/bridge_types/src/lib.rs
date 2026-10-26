@@ -727,6 +727,9 @@ impl StatisticInfo {
             code::NONE => {
                 if let Some((kind, dof)) = parse_spm_description(description) {
                     let mut info = Self::labelled(kind, dof, intent_params, intent_name, 0);
+                    if kind == StatisticKind::Other {
+                        info.label = "PPM".into();
+                    }
                     info.from_description = true;
                     return info;
                 }
@@ -834,10 +837,13 @@ fn parse_spm_description(description: &str) -> Option<(StatisticKind, Vec<f32>)>
         .collect();
     match (letter.trim(), dof.len()) {
         ("T", 0 | 1) => Some((StatisticKind::T, dof)),
-        ("F", 0) => Some((StatisticKind::F, dof)),
         ("F", 2) => Some((StatisticKind::F, dof)),
+        // F needs both dofs; anything else is a bare "F".
+        ("F", _) => Some((StatisticKind::F, vec![])),
         ("Z", _) => Some((StatisticKind::Z, vec![])),
         ("X", 0 | 1) => Some((StatisticKind::Chi2, dof)),
+        // SPM{P}: a posterior probability map (PPM).
+        ("P", _) => Some((StatisticKind::Other, vec![])),
         _ => None,
     }
 }
@@ -2009,6 +2015,17 @@ mod statistic_info_tests {
         assert_eq!(f.label, "F(2,30)");
         let z = StatisticInfo::from_intent(0, [0.0; 3], "", "SPM{Z} map");
         assert_eq!(z.kind, StatisticKind::Z);
+        let f1 = StatisticInfo::from_intent(0, [0.0; 3], "", "SPM{F_[2.0]}");
+        assert_eq!(
+            (f1.kind, f1.label.as_str(), f1.dof.len()),
+            (StatisticKind::F, "F", 0)
+        );
+        let ppm = StatisticInfo::from_intent(0, [0.0; 3], "", "SPM{P} - posterior");
+        assert_eq!(
+            (ppm.kind, ppm.label.as_str()),
+            (StatisticKind::Other, "PPM")
+        );
+        assert!(ppm.is_statistic() && ppm.from_description);
         // An explicit intent wins over the description.
         let explicit = StatisticInfo::from_intent(5, [0.0; 3], "", "SPM{T_[10.0]}");
         assert_eq!(

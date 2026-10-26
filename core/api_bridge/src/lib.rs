@@ -2907,6 +2907,9 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
         load_start.elapsed().as_millis()
     );
 
+    // Statistic/label intent from one header read, off the async runtime.
+    let intent = stat_metadata::read_volume_intent(file_path.clone()).await;
+
     // Return the handle
     Ok(VolumeHandleInfo {
         id: handle_id,
@@ -2917,8 +2920,8 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
         num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
         current_timepoint: None,
         time_series_info,
-        statistic: stat_metadata::statistic_for_path(&file_path),
-        is_label_map: stat_metadata::label_map_for_path(&file_path),
+        statistic: intent.statistic,
+        is_label_map: intent.is_label_map,
     })
 }
 
@@ -3516,11 +3519,19 @@ async fn get_volume_info(
             .map(|ts| ts.num_timepoints),
         current_timepoint: entry.current_timepoint,
         time_series_info: entry.metadata.time_series_info.clone(),
-        statistic: stat_metadata::statistic_for_path(Path::new(&entry.metadata.path)),
-        is_label_map: stat_metadata::label_map_for_path(Path::new(&entry.metadata.path)),
+        statistic: None,
+        is_label_map: None,
     };
+    // Read the header after releasing the registry lock.
+    let path = PathBuf::from(&entry.metadata.path);
+    drop(registry);
+    let intent = stat_metadata::read_volume_intent(path).await;
 
-    Ok(handle_info)
+    Ok(VolumeHandleInfo {
+        statistic: intent.statistic,
+        is_label_map: intent.is_label_map,
+        ..handle_info
+    })
 }
 
 /// Derive an orientation string (e.g. "RAS", "LPI") from the voxel-to-world affine.
@@ -6487,8 +6498,10 @@ async fn sample_world_coordinate_impl(
     // Get current timepoint for 4D volumes
     let timepoint = registry.get_timepoint(handle_id).unwrap_or(0);
 
-    // Nearest voxel, matching the renderer: voxel i covers [i - 0.5, i + 0.5).
-    let value = volume_queries::sample_nearest(volume_data, voxel_coords, timepoint);
+    // Nearest voxel: voxel i covers [i - 0.5, i + 0.5). Matches the renderer
+    // for interior voxels only; see the edge-mismatch note in volume_queries.rs
+    // (mote bd-01M5WG08FCQG23AMQBQH1CD97X). Out-of-range 4D timepoints error.
+    let value = volume_queries::sample_nearest(volume_data, voxel_coords, timepoint)?;
 
     info!(
         "Sampled value: {} at voxel coords {:?}",
@@ -8916,9 +8929,14 @@ async fn render_frontend_view_with_diagnostics(
         let png_encode_start = std::time::Instant::now();
         let png_data = image_export::encode_still_frame(format, width, height, rgba_data)?;
         let png_encode_time = png_encode_start.elapsed();
-        info!("⏱️  PNG encoding took: {:?}", png_encode_time);
         info!(
-            "Backend: Encoded RGBA to PNG - {} bytes ({}x{})",
+            "⏱️  {} encoding took: {:?}",
+            format.label(),
+            png_encode_time
+        );
+        info!(
+            "Backend: Encoded RGBA to {} - {} bytes ({}x{})",
+            format.label(),
             png_data.len(),
             width,
             height

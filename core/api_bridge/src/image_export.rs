@@ -24,7 +24,9 @@ pub(crate) fn encode_still_frame(
     }
 }
 
-/// JPEG has no alpha: composite onto black (the viewer background) first.
+/// JPEG has no alpha channel: alpha is dropped. View frames are opaque (the
+/// pass clears to opaque black), and dropping alpha stays correct if the
+/// renderer ever produces premultiplied RGB.
 pub(crate) fn encode_jpeg_frame(width: u32, height: u32, rgba: &[u8]) -> BridgeResult<Vec<u8>> {
     let expected = width as usize * height as usize * 4;
     if rgba.len() != expected || width == 0 || height == 0 {
@@ -38,10 +40,7 @@ pub(crate) fn encode_jpeg_frame(width: u32, height: u32, rgba: &[u8]) -> BridgeR
     }
     let rgb: Vec<u8> = rgba
         .chunks_exact(4)
-        .flat_map(|px| {
-            let a = u16::from(px[3]);
-            [0, 1, 2].map(|c| ((u16::from(px[c]) * a + 127) / 255) as u8)
-        })
+        .flat_map(|px| [px[0], px[1], px[2]])
         .collect();
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY)
@@ -133,14 +132,20 @@ pub(crate) fn resolve_target(path: &Path, kind: ImageKind) -> BridgeResult<PathB
     }
 }
 
-/// Write via a sibling temporary file and rename, so a failed write never
-/// leaves a truncated image. `overwrite = false` refuses an existing target.
+/// Write via a sibling temporary file, so a failed write never leaves a
+/// truncated image. `overwrite = true` publishes with `rename`; otherwise the
+/// temporary file is hard-linked into place, which fails atomically if the
+/// target (or a dangling symlink) exists. Filesystems without hard links fall
+/// back to a no-follow existence check followed by `rename`.
 pub(crate) fn write_image(target: &Path, bytes: &[u8], overwrite: bool) -> BridgeResult<()> {
-    if !overwrite && target.exists() {
-        return Err(invalid(format!(
+    let exists_error = || {
+        invalid(format!(
             "{} already exists. Choose a new file name.",
             target.display()
-        )));
+        ))
+    };
+    if !overwrite && target.symlink_metadata().is_ok() {
+        return Err(exists_error());
     }
     let parent = target
         .parent()
@@ -154,10 +159,21 @@ pub(crate) fn write_image(target: &Path, bytes: &[u8], overwrite: bool) -> Bridg
             .open(&temp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        std::fs::rename(&temp, target)
+        if overwrite {
+            return std::fs::rename(&temp, target);
+        }
+        match std::fs::hard_link(&temp, target) {
+            Ok(()) => std::fs::remove_file(&temp),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(error),
+            Err(_) if target.symlink_metadata().is_err() => std::fs::rename(&temp, target),
+            Err(error) => Err(error),
+        }
     })();
     if let Err(error) = result {
         let _ = std::fs::remove_file(&temp);
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            return Err(exists_error());
+        }
         return Err(BridgeError::Io {
             code: 6462,
             details: format!("Could not save {}: {error}", target.display()),
@@ -166,47 +182,52 @@ pub(crate) fn write_image(target: &Path, bytes: &[u8], overwrite: bool) -> Bridg
     Ok(())
 }
 
-/// Save an exported PNG/JPEG. Without `path`, a native save dialog asks for
-/// the destination (the dialog confirms overwrites); with `path`, the file must
-/// not exist yet. Returns the saved path, or `null` when the dialog is
-/// cancelled.
+/// Write `bytes` to the destination picked in the save dialog. The dialog
+/// confirmed overwriting `picked` only, so an existing file is replaced only
+/// when the resolved target is that same path; if an extension had to be
+/// appended (e.g. a bare name typed on Linux), an existing target is refused.
+pub(crate) fn save_to_picked(
+    picked: &Path,
+    kind: ImageKind,
+    bytes: &[u8],
+) -> BridgeResult<PathBuf> {
+    let target = resolve_target(picked, kind)?;
+    let overwrite = target == picked;
+    write_image(&target, bytes, overwrite)?;
+    Ok(target)
+}
+
+/// Save an exported PNG/JPEG to a destination chosen in a native save dialog.
+/// Returns the saved path, or `null` when the dialog is cancelled. There is
+/// deliberately no path argument: writes always go through the dialog.
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.save_image_bytes")]
 pub(crate) async fn save_image_bytes<R: Runtime>(
     app: tauri::AppHandle<R>,
     bytes: Vec<u8>,
     suggested_name: Option<String>,
-    path: Option<String>,
 ) -> BridgeResult<Option<String>> {
     let kind = validate_image_bytes(&bytes)?;
-    let (chosen, overwrite) = match path {
-        Some(path) => (PathBuf::from(path), false),
-        None => {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            app.dialog()
-                .file()
-                .set_title("Export view")
-                .set_file_name(default_file_name(suggested_name.as_deref(), kind))
-                .add_filter(kind.filter_name(), &[kind.extension()])
-                .save_file(move |picked| {
-                    let _ = tx.send(picked);
-                });
-            let picked = rx.await.map_err(|_| BridgeError::Internal {
-                code: 6463,
-                details: "Save dialog closed without a response".into(),
-            })?;
-            let Some(picked) = picked else {
-                return Ok(None);
-            };
-            let picked = picked
-                .into_path()
-                .map_err(|e| invalid(format!("Unsupported save location: {e}")))?;
-            (picked, true)
-        }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Export view")
+        .set_file_name(default_file_name(suggested_name.as_deref(), kind))
+        .add_filter(kind.filter_name(), &[kind.extension()])
+        .save_file(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let picked = rx.await.map_err(|_| BridgeError::Internal {
+        code: 6463,
+        details: "Save dialog closed without a response".into(),
+    })?;
+    let Some(picked) = picked else {
+        return Ok(None);
     };
-    let target = resolve_target(&chosen, kind)?;
-    let write_target = target.clone();
-    tokio::task::spawn_blocking(move || write_image(&write_target, &bytes, overwrite))
+    let picked = picked
+        .into_path()
+        .map_err(|e| invalid(format!("Unsupported save location: {e}")))?;
+    let target = tokio::task::spawn_blocking(move || save_to_picked(&picked, kind, &bytes))
         .await
         .map_err(|e| BridgeError::Internal {
             code: 6464,
@@ -281,6 +302,43 @@ mod tests {
         // Only the target remains: no temporary files left behind.
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         assert!(write_image(&dir.join("missing/view.png"), b"x", false).is_err());
+        // A dangling symlink counts as an existing target without overwrite.
+        #[cfg(unix)]
+        {
+            let link = dir.join("dangling.png");
+            std::os::unix::fs::symlink(dir.join("nowhere.png"), &link).unwrap();
+            assert!(write_image(&link, b"x", false).is_err());
+            assert!(!dir.join("nowhere.png").exists());
+        }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn dialog_overwrite_applies_only_to_the_confirmed_path() {
+        let dir = std::env::temp_dir().join(format!("bf-export-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let existing = dir.join("figure.png");
+        std::fs::write(&existing, b"original").unwrap();
+        // Bare name: the dialog confirmed "figure", not "figure.png".
+        assert!(save_to_picked(&dir.join("figure"), ImageKind::Png, b"new").is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"original");
+        // The exact confirmed path may be replaced.
+        let saved = save_to_picked(&existing, ImageKind::Png, b"new").unwrap();
+        assert_eq!(saved, existing);
+        assert_eq!(std::fs::read(&existing).unwrap(), b"new");
+        // A bare name with no conflict gets the extension appended.
+        let fresh = save_to_picked(&dir.join("other"), ImageKind::Jpeg, b"jpg").unwrap();
+        assert_eq!(fresh, dir.join("other.jpg"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn jpeg_drops_alpha_instead_of_darkening() {
+        // Half-transparent white must stay white (alpha ignored).
+        let jpeg = encode_jpeg_frame(8, 8, &[255, 255, 255, 128].repeat(64)).unwrap();
+        let decoded = image::load_from_memory_with_format(&jpeg, image::ImageFormat::Jpeg)
+            .unwrap()
+            .to_rgb8();
+        assert!(decoded.pixels().all(|p| p.0.iter().all(|&c| c > 245)));
     }
 }

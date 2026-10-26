@@ -63,12 +63,58 @@ fn spatial_dims(volume: &VolumeSendable) -> [usize; 3] {
     ]
 }
 
+/// Validate a 4D frame index; the shared policy for sampling and frame queries
+/// is an input error (never a silent clamp), so a stale timepoint is visible.
+pub(crate) fn check_timepoint(timepoint: usize, frames: usize) -> BridgeResult<usize> {
+    if timepoint < frames {
+        Ok(timepoint)
+    } else {
+        Err(BridgeError::Input {
+            code: 4071,
+            details: format!(
+                "Timepoint {timepoint} is out of range: the volume has {frames} frame(s) \
+                 (valid 0..={})",
+                frames.saturating_sub(1)
+            ),
+        })
+    }
+}
+
+/// Number of frames along the 4th axis; `None` for 3D volumes.
+fn frame_count(volume: &VolumeSendable) -> Option<usize> {
+    macro_rules! frames {
+        ($vec:expr) => {
+            Some($vec.data.dim().3)
+        };
+    }
+    match volume {
+        VolumeSendable::Vec4DF32(v) => frames!(v),
+        VolumeSendable::Vec4DF64(v) => frames!(v),
+        VolumeSendable::Vec4DI16(v) => frames!(v),
+        VolumeSendable::Vec4DI32(v) => frames!(v),
+        VolumeSendable::Vec4DU8(v) => frames!(v),
+        VolumeSendable::Vec4DU16(v) => frames!(v),
+        VolumeSendable::Vec4DU32(v) => frames!(v),
+        VolumeSendable::Vec4DI8(v) => frames!(v),
+        _ => None,
+    }
+}
+
 /// Nearest-voxel value at continuous voxel coordinate `voxel`; 0 outside the
-/// volume (the `sample_world_coordinate` contract). 4D volumes read `timepoint`
-/// (clamped to the last frame).
-pub(crate) fn sample_nearest(volume: &VolumeSendable, voxel: [f32; 3], timepoint: usize) -> f32 {
+/// volume (the `sample_world_coordinate` contract). 4D volumes read
+/// `timepoint`, which must be in range ([`check_timepoint`]); 3D volumes
+/// ignore it.
+pub(crate) fn sample_nearest(
+    volume: &VolumeSendable,
+    voxel: [f32; 3],
+    timepoint: usize,
+) -> BridgeResult<f32> {
+    let t = match frame_count(volume) {
+        Some(frames) => check_timepoint(timepoint, frames)?,
+        None => 0,
+    };
     let Some([x, y, z]) = nearest_voxel(voxel, spatial_dims(volume)) else {
-        return 0.0;
+        return Ok(0.0);
     };
     macro_rules! at_3d {
         ($vol:expr) => {
@@ -78,12 +124,11 @@ pub(crate) fn sample_nearest(volume: &VolumeSendable, voxel: [f32; 3], timepoint
         };
     }
     macro_rules! at_4d {
-        ($vec:expr) => {{
-            let t = timepoint.min($vec.data.dim().3.saturating_sub(1));
+        ($vec:expr) => {
             $vec.data[[x, y, z, t]] as f32
-        }};
+        };
     }
-    match volume {
+    Ok(match volume {
         VolumeSendable::VolF32(v, _) => at_3d!(v),
         VolumeSendable::VolF64(v, _) => at_3d!(v),
         VolumeSendable::VolI16(v, _) => at_3d!(v),
@@ -100,7 +145,7 @@ pub(crate) fn sample_nearest(volume: &VolumeSendable, voxel: [f32; 3], timepoint
         VolumeSendable::Vec4DU16(v) => at_4d!(v),
         VolumeSendable::Vec4DU32(v) => at_4d!(v),
         VolumeSendable::Vec4DI8(v) => at_4d!(v),
-    }
+    })
 }
 
 /// One spatial frame as f32 in x-fastest (NIfTI) order, with its grid.
@@ -154,13 +199,7 @@ pub(crate) fn extract_frame(volume: &VolumeSendable, timepoint: usize) -> Bridge
     }
     macro_rules! from_4d {
         ($vec:expr) => {{
-            let frames = $vec.data.dim().3;
-            if timepoint >= frames {
-                return Err(BridgeError::Input {
-                    code: 4071,
-                    details: format!("Timepoint {timepoint} is outside 0..{frames}"),
-                });
-            }
+            check_timepoint(timepoint, $vec.data.dim().3)?;
             let mut values = Vec::with_capacity(dims.iter().product());
             for k in 0..dims[2] {
                 for j in 0..dims[1] {
@@ -547,12 +586,12 @@ mod tests {
             ramp(dims).iter().map(|v| v + 1.0).collect(),
         );
         // Voxel (0,0,0) holds 1.0 over [-0.5, 0.5).
-        assert_eq!(sample_nearest(&volume, [-0.4, -0.4, -0.4], 0), 1.0);
+        assert_eq!(sample_nearest(&volume, [-0.4, -0.4, -0.4], 0).unwrap(), 1.0);
         // x-fastest: (1,2,1) -> 1 + 4*(2 + 3*1) = 21 -> value 22.
-        assert_eq!(sample_nearest(&volume, [1.2, 1.6, 0.9], 0), 22.0);
+        assert_eq!(sample_nearest(&volume, [1.2, 1.6, 0.9], 0).unwrap(), 22.0);
         // Last voxel up to n - 0.5 and nothing beyond.
-        assert_eq!(sample_nearest(&volume, [3.4, 2.4, 1.4], 0), 24.0);
-        assert_eq!(sample_nearest(&volume, [3.5, 0.0, 0.0], 0), 0.0);
+        assert_eq!(sample_nearest(&volume, [3.4, 2.4, 1.4], 0).unwrap(), 24.0);
+        assert_eq!(sample_nearest(&volume, [3.5, 0.0, 0.0], 0).unwrap(), 0.0);
     }
 
     #[test]
@@ -563,11 +602,38 @@ mod tests {
         let mut vec4d = DenseNeuroVec::<f32>::zeros(space).unwrap();
         vec4d.data[[1, 1, 1, 2]] = 7.0;
         let volume = VolumeSendable::Vec4DF32(vec4d);
-        assert_eq!(sample_nearest(&volume, [1.3, 1.3, 1.3], 2), 7.0);
+        assert_eq!(sample_nearest(&volume, [1.3, 1.3, 1.3], 2).unwrap(), 7.0);
         // Used to round to index 2 and panic on the 4D array index.
-        assert_eq!(sample_nearest(&volume, [1.7, 1.0, 1.0], 2), 0.0);
-        // Timepoint clamps to the last frame.
-        assert_eq!(sample_nearest(&volume, [1.0, 1.0, 1.0], 9), 7.0);
+        assert_eq!(sample_nearest(&volume, [1.7, 1.0, 1.0], 2).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn out_of_range_timepoint_is_the_same_error_for_sampling_and_frames() {
+        let space = NeuroSpace::new(
+            vec![2, 2, 2, 3],
+            Some(vec![1.0; 4]),
+            Some(vec![0.0; 4]),
+            None,
+            None,
+        )
+        .unwrap();
+        let volume = VolumeSendable::Vec4DF32(DenseNeuroVec::<f32>::zeros(space).unwrap());
+        let code = |result: BridgeResult<()>| match result {
+            Err(BridgeError::Input { code, details }) => {
+                assert!(details.contains("3 frame(s)"), "{details}");
+                code
+            }
+            other => panic!("expected an input error, got {other:?}"),
+        };
+        // Even outside the volume, a bad frame index is reported, not masked.
+        let sample = code(sample_nearest(&volume, [9.0, 9.0, 9.0], 3).map(|_| ()));
+        let frame = code(extract_frame(&volume, 3).map(|_| ()));
+        assert_eq!((sample, frame), (4071, 4071));
+        assert!(sample_nearest(&volume, [0.0; 3], 2).is_ok());
+        // 3D volumes ignore the timepoint.
+        let flat = volume_3d([2, 2, 2], [1.0; 3], [0.0; 3], vec![1.0; 8]);
+        assert_eq!(sample_nearest(&flat, [0.0; 3], 7).unwrap(), 1.0);
+        assert!(extract_frame(&flat, 7).is_ok());
     }
 
     #[test]
