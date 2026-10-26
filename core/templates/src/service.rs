@@ -418,6 +418,7 @@ impl TemplateService {
             current_timepoint: None,
             time_series_info,
             statistic: None,
+            is_label_map: None,
         })
     }
 

@@ -4,7 +4,14 @@
 //! Voxel convention: the affine maps a voxel *index* to the world position of
 //! that voxel's centre, and voxel `i` covers continuous coordinates
 //! `[i - 0.5, i + 0.5)`. Nearest-voxel lookup is therefore `floor(v + 0.5)`,
-//! which matches nearest texture sampling at `(v + 0.5) / n` in the renderer.
+//! which matches nearest texture sampling at `(v + 0.5) / n` in the renderer
+//! for interior voxels.
+//!
+//! Edge mismatch (known, tracked separately): the masked slice shaders treat
+//! `[0, n)` as inside (`voxel_coord < 0 || voxel_coord >= dim` is outside), so
+//! the GPU drops the lower half of voxel 0 and, through ClampToEdge, extends
+//! voxel `n - 1` over `[n - 1.5, n)`. This CPU path keeps the voxel-centre
+//! convention `[-0.5, n - 0.5)`; the two disagree only in the outer half-voxel.
 use crate::{get_affine_from_volume, get_spatial_dims_from_volume, BridgeState};
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 use nalgebra::{Affine3, Point3};

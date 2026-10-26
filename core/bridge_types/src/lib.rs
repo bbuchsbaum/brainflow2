@@ -592,6 +592,11 @@ pub struct VolumeHandleInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub statistic: Option<StatisticInfo>,
+    /// `true` when the NIfTI header declares a label map (`intent_code` 1002,
+    /// `NIFTI_INTENT_LABEL`); absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub is_label_map: Option<bool>,
 }
 
 /// Statistic family declared by a NIfTI `intent_code`.
@@ -613,12 +618,19 @@ pub enum StatisticKind {
     LogP,
     /// log10 p-value.
     Log10P,
-    /// Parameter estimate (`NIFTI_INTENT_ESTIMATE`).
+    /// Parameter estimate (`NIFTI_INTENT_ESTIMATE`) with an `intent_name`.
     Estimate,
-    /// Label/parcellation index (`NIFTI_INTENT_LABEL`).
+    /// Label/parcellation index (`NIFTI_INTENT_LABEL`). Not a statistic.
     Label,
-    /// Any other declared intent; see `intentCode` and `intentName`.
+    /// Another statistical distribution (codes 7-21: beta, binomial, gamma,
+    /// Poisson, normal, non-central F/chi2/t, logistic, Laplace, uniform,
+    /// Weibull, chi, inverse Gaussian, extreme value).
     Other,
+    /// A declared non-statistical intent: an unnamed estimate (1001), 1003-1011
+    /// (neuroname, matrices, vectors, pointset, triangle, quaternion,
+    /// dimensionless), 2001-2005 (time series, node index, RGB/RGBA, shape) or
+    /// an unknown code. Not a statistic; `label` is empty.
+    Data,
 }
 
 /// Statistic metadata decoded from a NIfTI header, for display units such as
@@ -642,6 +654,12 @@ pub struct StatisticInfo {
     /// True when the kind came from an SPM-style `descrip` such as
     /// `SPM{T_[24.0]}` because `intent_code` was unset.
     pub from_description: bool,
+    /// Label to show instead of `label` when every finite value is >= 0, with
+    /// a warning that the sign convention is assumed: "−log10(p)" for intent
+    /// 24 and "−ln(p)" for intent 23. nifti1.h defines these intents as
+    /// log(p) <= 0, but many pipelines store positive −log(p) under them.
+    /// `null` for every other kind.
+    pub positive_data_label: Option<String>,
 }
 
 /// NIfTI-1 intent codes used by [`StatisticInfo::from_intent`].
@@ -657,6 +675,26 @@ mod nifti_intent {
     pub const LOG10PVAL: i16 = 24;
     pub const ESTIMATE: i16 = 1001;
     pub const LABEL: i16 = 1002;
+    /// Codes 7-21 are further distributions (beta ... extreme value).
+    pub const FIRST_DISTRIBUTION: i16 = 7;
+    pub const LAST_DISTRIBUTION: i16 = 21;
+    pub const DISTRIBUTION_NAMES: [&str; 15] = [
+        "beta",
+        "binomial",
+        "gamma",
+        "Poisson",
+        "normal",
+        "noncentral F",
+        "noncentral χ²",
+        "logistic",
+        "Laplace",
+        "uniform",
+        "noncentral t",
+        "Weibull",
+        "χ",
+        "inverse Gaussian",
+        "extreme value",
+    ];
 }
 
 fn format_dof(df: f32) -> String {
@@ -705,9 +743,10 @@ impl StatisticInfo {
             code::PVAL => (StatisticKind::P, vec![]),
             code::LOGPVAL => (StatisticKind::LogP, vec![]),
             code::LOG10PVAL => (StatisticKind::Log10P, vec![]),
-            code::ESTIMATE => (StatisticKind::Estimate, vec![]),
+            code::ESTIMATE if !intent_name.is_empty() => (StatisticKind::Estimate, vec![]),
             code::LABEL => (StatisticKind::Label, vec![]),
-            _ => (StatisticKind::Other, vec![]),
+            code::FIRST_DISTRIBUTION..=code::LAST_DISTRIBUTION => (StatisticKind::Other, vec![]),
+            _ => (StatisticKind::Data, vec![]),
         };
         Self::labelled(kind, dof, intent_params, intent_name, intent_code)
     }
@@ -737,11 +776,19 @@ impl StatisticInfo {
             StatisticKind::P => "p".into(),
             StatisticKind::LogP => "ln(p)".into(),
             StatisticKind::Log10P => "log10(p)".into(),
-            StatisticKind::Estimate if !intent_name.is_empty() => intent_name.clone(),
-            StatisticKind::Estimate => "estimate".into(),
+            StatisticKind::Estimate => intent_name.clone(),
             StatisticKind::Label => "label".into(),
             StatisticKind::Other if !intent_name.is_empty() => intent_name.clone(),
-            StatisticKind::Other => format!("intent {intent_code}"),
+            StatisticKind::Other => usize::try_from(intent_code - nifti_intent::FIRST_DISTRIBUTION)
+                .ok()
+                .and_then(|i| nifti_intent::DISTRIBUTION_NAMES.get(i))
+                .map_or_else(|| format!("intent {intent_code}"), |name| name.to_string()),
+            StatisticKind::Data => String::new(),
+        };
+        let positive_data_label = match kind {
+            StatisticKind::LogP => Some("−ln(p)".to_string()),
+            StatisticKind::Log10P => Some("−log10(p)".to_string()),
+            _ => None,
         };
         Self {
             kind,
@@ -751,12 +798,22 @@ impl StatisticInfo {
             dof,
             label,
             from_description: false,
+            positive_data_label,
         }
     }
 
-    /// True for kinds that carry a statistic worth labelling in the UI.
+    /// True for statistical kinds worth labelling as units in the UI. Label
+    /// maps and declared non-statistical intents are excluded.
     pub fn is_statistic(&self) -> bool {
-        !matches!(self.kind, StatisticKind::None)
+        !matches!(
+            self.kind,
+            StatisticKind::None | StatisticKind::Label | StatisticKind::Data
+        )
+    }
+
+    /// True when the header declares a label map (`NIFTI_INTENT_LABEL`).
+    pub fn is_label_map(&self) -> bool {
+        self.kind == StatisticKind::Label
     }
 }
 
@@ -1875,7 +1932,9 @@ mod statistic_info_tests {
         assert_eq!(info(2, [18.0, 0.0, 0.0]).label, "r(18)");
         assert_eq!(info(22, [0.0; 3]).kind, StatisticKind::P);
         assert_eq!(info(24, [0.0; 3]).kind, StatisticKind::Log10P);
-        assert_eq!(info(1002, [0.0; 3]).kind, StatisticKind::Label);
+        let label = info(1002, [0.0; 3]);
+        assert_eq!(label.kind, StatisticKind::Label);
+        assert!(!label.is_statistic() && label.is_label_map());
         let none = info(0, [0.0; 3]);
         assert_eq!(none.kind, StatisticKind::None);
         assert!(!none.is_statistic());
@@ -1898,11 +1957,45 @@ mod statistic_info_tests {
             (named.kind, named.label.as_str()),
             (StatisticKind::Other, "normal")
         );
-        assert_eq!(info(11, [0.0; 3]).label, "intent 11");
+        assert_eq!(info(11, [0.0; 3]).label, "normal");
+        assert_eq!(info(21, [0.0; 3]).label, "extreme value");
+        assert!(info(7, [0.0; 3]).is_statistic());
         let beta = StatisticInfo::from_intent(1001, [0.0; 3], "beta", "");
         assert_eq!(
             (beta.kind, beta.label.as_str()),
             (StatisticKind::Estimate, "beta")
+        );
+        assert!(beta.is_statistic());
+    }
+
+    #[test]
+    fn non_statistical_intents_are_data_not_statistics() {
+        // Unnamed estimate, neuroname..dimless, time series..shape, unknown codes.
+        for code in [1001, 1003, 1007, 1011, 2001, 2003, 2005, 25, 3000, -1] {
+            let data = info(code, [0.0; 3]);
+            assert_eq!(data.kind, StatisticKind::Data, "intent {code}");
+            assert!(
+                !data.is_statistic() && !data.is_label_map(),
+                "intent {code}"
+            );
+            assert_eq!(data.label, "", "intent {code} must not be labelled");
+        }
+    }
+
+    #[test]
+    fn log_p_intents_offer_positive_data_label() {
+        let log10 = info(24, [0.0; 3]);
+        assert_eq!(log10.label, "log10(p)");
+        assert_eq!(log10.positive_data_label.as_deref(), Some("−log10(p)"));
+        assert_eq!(
+            info(23, [0.0; 3]).positive_data_label.as_deref(),
+            Some("−ln(p)")
+        );
+        assert_eq!(info(5, [0.0; 3]).positive_data_label, None);
+        assert_eq!(info(22, [0.0; 3]).positive_data_label, None);
+        assert_eq!(
+            serde_json::to_value(log10).unwrap()["positiveDataLabel"],
+            "−log10(p)"
         );
     }
 

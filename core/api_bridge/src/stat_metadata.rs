@@ -13,6 +13,14 @@ pub(crate) fn statistic_for_path(path: &Path) -> Option<StatisticInfo> {
         .filter(StatisticInfo::is_statistic)
 }
 
+/// `Some(true)` when the NIfTI header at `path` declares a label map
+/// (`intent_code` 1002); `None` otherwise or when unreadable.
+pub(crate) fn label_map_for_path(path: &Path) -> Option<bool> {
+    nifti_loader::read_statistic_metadata(path)
+        .filter(|meta| meta.statistic.is_label_map())
+        .map(|_| true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,5 +69,23 @@ mod tests {
         assert!(statistic_for_path(&path).is_none());
         std::fs::remove_file(&path).ok();
         assert!(statistic_for_path(Path::new("<memory>")).is_none());
+        assert!(label_map_for_path(Path::new("<memory>")).is_none());
+    }
+
+    #[test]
+    fn label_maps_and_time_series_are_not_statistics() {
+        let label = write_nifti(1002, 0.0, "");
+        assert!(statistic_for_path(&label).is_none());
+        assert_eq!(label_map_for_path(&label), Some(true));
+        std::fs::remove_file(&label).ok();
+
+        let series = write_nifti(2001, 0.0, "");
+        assert!(statistic_for_path(&series).is_none());
+        assert_eq!(label_map_for_path(&series), None);
+        std::fs::remove_file(&series).ok();
+
+        let z = write_nifti(5, 0.0, "");
+        assert_eq!(label_map_for_path(&z), None);
+        std::fs::remove_file(&z).ok();
     }
 }

@@ -2918,6 +2918,7 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
         current_timepoint: None,
         time_series_info,
         statistic: stat_metadata::statistic_for_path(&file_path),
+        is_label_map: stat_metadata::label_map_for_path(&file_path),
     })
 }
 
@@ -3516,6 +3517,7 @@ async fn get_volume_info(
         current_timepoint: entry.current_timepoint,
         time_series_info: entry.metadata.time_series_info.clone(),
         statistic: stat_metadata::statistic_for_path(Path::new(&entry.metadata.path)),
+        is_label_map: stat_metadata::label_map_for_path(Path::new(&entry.metadata.path)),
     };
 
     Ok(handle_info)
@@ -10148,6 +10150,7 @@ async fn load_atlas<R: Runtime>(
         current_timepoint: None,
         time_series_info,
         statistic: None,
+        is_label_map: None,
     };
 
     Ok(AtlasLoadResult {

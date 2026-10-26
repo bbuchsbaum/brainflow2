@@ -62,6 +62,7 @@ mod tests {
             current_timepoint: None,
             time_series_info: None,
             statistic: None,
+            is_label_map: None,
         };
 
         assert_eq!(handle.dims[0], 256);
