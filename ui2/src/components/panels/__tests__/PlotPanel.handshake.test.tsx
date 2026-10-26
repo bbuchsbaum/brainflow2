@@ -145,7 +145,9 @@ describe('PlotPanel ↔ plotModeStore handshake (6c)', () => {
 
     render(<PlotPanel defaultMode="histogram" />);
 
-    expect(screen.getByTestId('plot-host').getAttribute('data-mode')).toBe('population');
+    // No layer and no Studio population: nothing is offered (no empty
+    // Population tab, P3.11); the manual pick is kept for later.
+    expect(screen.getByTestId('plot-host').getAttribute('data-state')).toBe('no-modes');
     expect(usePlotModeStore.getState().activePlotModeId).toBe('crosshair-time-series');
     expect(usePlotModeStore.getState().selectionSource).toBe('user');
 

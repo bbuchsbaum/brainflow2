@@ -54,6 +54,6 @@ it('opens the clicked folder in Studio even when browser selection points elsewh
     </>,
   );
   fireEvent.contextMenu(screen.getByText('1002'));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Set Studio…' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Set studio…' }));
   expect(m.studio).toHaveBeenCalledWith({ discoveryRoot: '/mount/1002' });
 });

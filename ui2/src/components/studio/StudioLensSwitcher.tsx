@@ -38,7 +38,7 @@ export function StudioLensSwitcher({
         Lens
       </span>
       <SegmentedControl
-        aria-label="Set Studio lens"
+        aria-label="Set studio lens"
         options={LENS_OPTIONS.map((option) => {
           const disabled = !option.available || (populationOnly && option.id !== 'population');
           return {

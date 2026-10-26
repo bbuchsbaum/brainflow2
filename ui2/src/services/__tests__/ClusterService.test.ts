@@ -116,6 +116,15 @@ describe('cluster methods sentence and CSV', () => {
     );
   });
 
+  it('leaves the weighted COG empty when the backend did not send it (v3 fidelity)', () => {
+    const noCog = { ...TABLE, clusters: [{ ...TABLE.clusters[0], weightedCentroidMm: undefined as never, centroidMm: [-39.913, -19.5, 50.5] as [number, number, number] }] };
+    const row = clusterTableCsv(noCog, ['L_sensorimotor'], { layerName: 'zmap', symbol: 'z' }).split('\n')[2].split(',');
+    const header = clusterTableCsv(noCog, [null], { layerName: 'zmap', symbol: 'z' }).split('\n')[1].split(',');
+    const at = (name: string) => row[header.indexOf(name)];
+    expect(at('centroid_x_mm')).toBe('-39.91');
+    expect([at('cog_abs_weighted_x_mm'), at('cog_abs_weighted_y_mm'), at('cog_abs_weighted_z_mm')]).toEqual(['', '', '']);
+  });
+
   it('writes an ASCII CSV with a parameter comment line', () => {
     const csv = clusterTableCsv(TABLE, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }).split('\n');
     expect(csv[0]).toBe('# zmap: 26-connected clusters of |z| > 3.1, two-sided, uncorrected, >= 1 voxel; 2 clusters, 757 voxels');

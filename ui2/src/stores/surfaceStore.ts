@@ -135,8 +135,9 @@ export const DEFAULT_SURFACE_LIGHTING_SETTINGS: SurfaceLightingSettings = {
 
 export const DEFAULT_SURFACE_MATERIAL_SETTINGS: SurfaceMaterialSettings = {
   surfaceColor: '#CCCCCC',
-  shininess: 30,
-  specularColor: '#ffffff',
+  // Matte by default: specular streaks read as high data values (v3 critic).
+  shininess: 4,
+  specularColor: '#1a1a1a',
   emissiveColor: '#000000',
   emissiveIntensity: 0.0,
 };

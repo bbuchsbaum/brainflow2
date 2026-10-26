@@ -2,7 +2,6 @@ import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
-import { NotificationToast } from '@/components/ui/NotificationToast';
 import { TooltipOverlay } from '@/components/TooltipOverlay';
 import { StatusBar } from '@/components/ui/StatusBar';
 import { GlobalProgressBar } from '@/components/ui/GlobalProgressBar';
@@ -321,7 +320,7 @@ function AppContent() {
       },
       {
         id: 'studio.open',
-        title: 'Open Set Studio',
+        title: 'Open Set studio',
         subtitle: 'Switch into the Studio workspace.',
         keywords: ['studio', 'set', 'cohort', 'compare'],
         group: 'Studio',
@@ -332,7 +331,7 @@ function AppContent() {
       },
       {
         id: 'studio.importTable',
-        title: 'Set Studio: Import Table',
+        title: 'Set studio: Import Table',
         subtitle: 'Open the quick TSV/CSV table import flow.',
         keywords: ['studio', 'table', 'tsv', 'csv', 'import'],
         group: 'Studio',
@@ -342,7 +341,7 @@ function AppContent() {
       },
       {
         id: 'studio.importManifest',
-        title: 'Set Studio: Import NeuroTabs Manifest',
+        title: 'Set studio: Import NeuroTabs Manifest',
         subtitle: 'Open manifest preview and import for Studio.',
         keywords: ['studio', 'manifest', 'neurotabs', 'import'],
         group: 'Studio',
@@ -352,7 +351,7 @@ function AppContent() {
       },
       {
         id: 'studio.discoverFiles',
-        title: 'Set Studio: Discover Files',
+        title: 'Set studio: Discover Files',
         subtitle: 'Open regex-based file discovery for Studio.',
         keywords: ['studio', 'discover', 'regex', 'files'],
         group: 'Studio',
@@ -722,7 +721,6 @@ function AppContent() {
         <GoldenLayoutRoot />
       </div>
       <StatusBar onCrosshairClick={() => setShowGoToCoordinate(true)} />
-      <NotificationToast />
       <ContextMenu />
       <TooltipOverlay />
       <ConfirmationDialogHost />

@@ -29,6 +29,7 @@ vi.mock('@/services/export/compositeCapture', () => ({
   captureComposite: captureCompositeMock,
   currentMosaicExportSource: () => null,
   MAX_EXPORT_TILES: 100,
+  clampMosaicRange: (_s: unknown, spec: unknown) => spec,
 }));
 
 describe('ExportImageDialog composited export (P3.8)', () => {
@@ -51,6 +52,7 @@ describe('ExportImageDialog composited export (P3.8)', () => {
         width: Math.round(520 * scale),
         height: Math.round(300 * scale),
         dpi: request.size.kind === 'print' ? request.size.dpi : null,
+        warning: null,
         target: { label: target, viewType: target, aspect: 1 },
       };
     });
@@ -66,6 +68,8 @@ describe('ExportImageDialog composited export (P3.8)', () => {
       size: { kind: 'screen', scale: 2 },
       provenance: false,
       mosaicTiles: { kind: 'page' },
+      cropToBrain: true,
+      mosaicColumns: null,
       outputSize: null,
       bytes: null,
       mime: null,
@@ -82,6 +86,8 @@ describe('ExportImageDialog composited export (P3.8)', () => {
         size: { kind: 'screen', scale: 2 },
         provenance: false,
         mosaicTiles: { kind: 'page' },
+        cropToBrain: true,
+        mosaicColumns: null,
       }),
     );
     expect(captureActiveViewMock).not.toHaveBeenCalled();

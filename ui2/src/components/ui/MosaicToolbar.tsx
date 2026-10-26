@@ -22,6 +22,8 @@ interface MosaicToolbarProps {
   onAxisChange: (v: 'axial' | 'sagittal' | 'coronal') => void;
   grid: string;
   onGridChange: (v: string) => void;
+  /** Label of the Auto option, naming the grid it chose ("Auto (3×6)"). */
+  autoGridLabel?: string;
   page: number;
   pageCount: number;
   canPrev: boolean;
@@ -47,6 +49,7 @@ export function MosaicToolbar({
   onAxisChange,
   grid,
   onGridChange,
+  autoGridLabel = 'Auto',
   page,
   pageCount,
   canPrev,
@@ -84,13 +87,15 @@ export function MosaicToolbar({
       />
       <Select
         aria-label="Mosaic grid"
-        className="w-[72px]"
+        className="w-auto"
         value={grid}
-        options={
-          GRID_OPTIONS.some((o) => o.value === grid)
+        options={[
+          // Auto (default): the grid with the largest tiles for the pane.
+          { value: 'auto', label: autoGridLabel },
+          ...(GRID_OPTIONS.some((o) => o.value === grid) || grid === 'auto'
             ? GRID_OPTIONS
-            : [...GRID_OPTIONS, { value: grid, label: grid.replace('x', '×') }]
-        }
+            : [...GRID_OPTIONS, { value: grid, label: grid.replace('x', '×') }]),
+        ]}
         onValueChange={onGridChange}
       />
 
@@ -126,7 +131,8 @@ export function MosaicToolbar({
 
       {pageRange ? (
         <span
-          className="whitespace-nowrap font-mono text-bf-xs tabular-nums text-muted-foreground"
+          // Clear of the slider's own value.
+          className="ml-3 whitespace-nowrap border-l border-bf-border-subtle pl-3 font-mono text-bf-xs tabular-nums text-muted-foreground"
           data-testid="mosaic-page-range"
         >
           {pageRange}

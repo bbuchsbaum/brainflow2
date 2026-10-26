@@ -14,6 +14,7 @@ import { histogramAxisTicks, type HistogramChartProps, type HistogramBin } from 
 import { FilterChip } from '@/components/ui/bf';
 import { displayMinus, formatLayerValue, formatRange } from '@/utils/valueFormat';
 import { useLayerStore } from '@/stores/layerStore';
+import { isThresholdActive } from '@/components/views/viewportFrame/frameFormat';
 
 // The plot well matches the plot body ground (one step below the panel).
 const surfaceColor = 'var(--bf-bg-app)';
@@ -41,6 +42,10 @@ const tooltipBorder = 'hsl(var(--border))';
 // overprints the bars. The bottom margin fits the x-axis ticks and labels.
 const BASE_MARGIN = { top: 28, right: 12, bottom: 22, left: 12 };
 const HEADER_BASELINE = 16;
+/** Room the Log Y toggle takes at the header's right end. */
+const LOG_TOGGLE_WIDTH = 56;
+/** Extra bottom margin for the x-axis title (the statistic symbol). */
+const AXIS_TITLE_HEIGHT = 12;
 /** Below these sizes the chart cannot draw meaningful bars. */
 const MIN_CHART_WIDTH = 120;
 const MIN_CHART_HEIGHT = 64;
@@ -104,6 +109,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   onLogScaleChange,
   loading = false,
   error = null,
+  xTitle = null,
 }) => {
   // Label maps are categorical: a mean / SD of label ids means nothing.
   const isLabelMap = useLayerStore((s) => {
@@ -174,17 +180,26 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   // Log Y draws a y axis at powers of ten (1, 10, 100, …): without it a log
   // histogram is easy to misread as linear. The left margin grows to fit the
   // widest tick label; linear keeps its axis-free layout.
+  // Count ticks on the y axis in both scales (v3 user critic: a linear
+  // histogram without y ticks has no magnitude): decades in log, 3 nice
+  // ticks in linear.
+  const maxCount = data && data.bins.length > 0 ? Math.max(1, ...data.bins.map((b) => b.count)) : 0;
   const logTicks =
-    useLogScale && showAxes && data && data.bins.length > 0
-      ? logDecadeTicks(Math.max(1, ...data.bins.map((b) => b.count)))
+    showAxes && maxCount > 0
+      ? useLogScale
+        ? logDecadeTicks(maxCount)
+        : scaleLinear<number>({ domain: [0, maxCount], nice: false })
+            .ticks(3)
+            .filter((t) => t > 0 && t <= maxCount)
       : [];
+  const baseMargin = xTitle ? { ...BASE_MARGIN, bottom: BASE_MARGIN.bottom + AXIS_TITLE_HEIGHT } : BASE_MARGIN;
   const margin =
     logTicks.length > 0
       ? {
-          ...BASE_MARGIN,
+          ...baseMargin,
           left: BASE_MARGIN.left + 6 + Math.max(...logTicks.map((t) => formatCountTick(t).length)) * 6,
         }
-      : BASE_MARGIN;
+      : baseMargin;
   const innerWidth = Math.max(width - margin.left - margin.right, 1);
   const innerHeight = Math.max(height - margin.top - margin.bottom, 1);
   
@@ -391,29 +406,31 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
             />
           )}
 
-          {/* Threshold lines */}
-          {threshold && (
-            <>
-              <line
-              x1={xScale(threshold[0])}
-              y1={0}
-              x2={xScale(threshold[0])}
-              y2={innerHeight}
-              stroke={thresholdColor}
-              strokeWidth={1}
-              strokeDasharray="2,2"
-            />
-            <line
-              x1={xScale(threshold[1])}
-              y1={0}
-              x2={xScale(threshold[1])}
-              y2={innerHeight}
-              stroke={thresholdColor}
-              strokeWidth={1}
-              strokeDasharray="2,2"
-            />
-          </>
-          )}
+          {/* Threshold lines: solid 1px with their value in mono at the
+              top (the colorbar's grammar), not dashed. */}
+          {threshold &&
+            isThresholdActive(threshold) &&
+            [threshold[0], threshold[1]].map((t, k) => {
+              const tx = Math.round(xScale(t) as number) + 0.5;
+              if (!(tx >= 0 && tx <= innerWidth)) return null;
+              return (
+                <g key={k} data-testid="histogram-threshold">
+                  <line x1={tx} y1={0} x2={tx} y2={innerHeight} stroke={thresholdColor} strokeWidth={1} />
+                  <text
+                    // Inside the plot's top, beside its line (clear of the
+                    // header caption and summary).
+                    x={k === 0 ? tx - 3 : tx + 3}
+                    y={10}
+                    fill={axisLabelColor}
+                    fontSize={10}
+                    textAnchor={k === 0 ? 'end' : 'start'}
+                    style={{ fontFamily: 'var(--bf-font-mono)', fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {formatLayerValue(t)}
+                  </text>
+                </g>
+              );
+            })}
 
           {/* Single rectangle clipped to the bar shapes. Bars are neutral
               light grey (as in the Inspector mini histogram) at a moderate
@@ -501,6 +518,21 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
             />
           )}
 
+          {/* Axis title: the statistic's variable, italic (P3.12). */}
+          {showAxes && xTitle ? (
+            <text
+              data-testid="histogram-x-title"
+              x={innerWidth / 2}
+              y={innerHeight + 22 + AXIS_TITLE_HEIGHT - 2}
+              fill={axisLabelColor}
+              fontSize={10}
+              textAnchor="middle"
+              style={{ fontStyle: 'italic' }}
+            >
+              {xTitle}
+            </text>
+          ) : null}
+
         </Group>
 
         {/* Header line (inside the top margin, outside the plot area). The
@@ -508,7 +540,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         {width >= 180 && (
         <text
           data-testid="histogram-stats"
-          x={width - margin.right}
+          x={width - margin.right - LOG_TOGGLE_WIDTH}
           y={HEADER_BASELINE}
           fill={statsTextColor}
           fontSize={10}
@@ -533,7 +565,9 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         pressed={useLogScale}
         onPressedChange={(next) => onLogScaleChange?.(next)}
         className="absolute"
-        style={{ left: BASE_MARGIN.left, top: 2 }}
+        // Top-right corner, after the summary (the encoding caption takes
+        // the top-left).
+        style={{ right: margin.right, top: 2 }}
         title={useLogScale ? 'Y axis: log scale' : 'Y axis: linear scale'}
       >
         Log Y

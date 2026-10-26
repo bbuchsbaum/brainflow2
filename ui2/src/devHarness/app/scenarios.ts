@@ -549,6 +549,26 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await loadZ();
     await navigateTo(Z_PEAK);
     await enterDisplayMode('Mosaic');
+    await until(() => document.querySelectorAll('[data-testid="mosaic-tile-label"]').length > 0, 'mosaic tiles');
+    await frames(10);
+    // The user's "cramped" check: the share of the pane (minus the colorbar
+    // column) the tiles (image + label strip) cover, measured in the DOM.
+    const grid = document.querySelector<HTMLElement>('[data-testid="mosaic-tile-grid"]');
+    const area = document.querySelector<HTMLElement>('.mosaic-grid');
+    const cells = Array.from(document.querySelectorAll<HTMLElement>('.mosaic-cell'));
+    if (grid && area) {
+      const a = area.getBoundingClientRect();
+      const tiles = cells.reduce((sum, c) => {
+        const r = c.getBoundingClientRect();
+        return sum + r.width * r.height;
+      }, 0);
+      const usable = (a.width - 16 - 112 - 6) * (a.height - 16);
+      noteStep(
+        `mosaic fill: ${(tiles / usable).toFixed(3)} (layout ${grid.dataset.fill}), grid ${
+          getComputedStyle(grid).gridTemplateColumns.split(' ').length
+        }×${getComputedStyle(grid).gridTemplateRows.split(' ').length}`,
+      );
+    }
   },
   // P3.1/P3.8: "Export View as Image…" from the axial view's context menu.
   'export-dialog': async () => {
@@ -702,6 +722,13 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await servicesReady();
     await enterDisplayMode('Mosaic');
   },
+  // P3.11: the Clusters tab with nothing loaded.
+  'empty-clusters': async () => {
+    await servicesReady();
+    const { openDockTab } = await import('@/components/layout/openDockTab');
+    openDockTab('clusters');
+    await until(() => !!document.querySelector('[data-testid="cluster-panel"] [data-testid="empty-pane"]'), 'clusters empty state');
+  },
   'empty-plot-dock': async () => {
     await servicesReady();
     await openPlotDock(null);
@@ -712,6 +739,36 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await loadZ();
     await selectLayer(ZMAP_PATH);
     await openPlotDock('histogram');
+  },
+  // P3.12: a label map in the plot dock: voxels per region in LUT colours,
+  // the crosshair's region marked (not an id histogram).
+  'plot-dock-labels': async () => {
+    await p3Base();
+    await loadVolume(ATLAS_PATH, 'add-layer');
+    await navigateTo([-39.5, -19.5, 50.5]);
+    await selectLayer(ATLAS_PATH);
+    await openPlotDock('histogram');
+    await until(() => !!document.querySelector('[data-testid="region-count-bars"]'), 'region count bars');
+    await until(
+      () => !!document.querySelector('[data-testid="region-count-bars"] [data-at-crosshair="true"]'),
+      'crosshair region marked',
+    );
+    noteStep(
+      `regions: ${Array.from(document.querySelectorAll('[data-testid="region-count-bars"] li'))
+        .map((li) => li.getAttribute('title'))
+        .join(' | ')}`,
+    );
+  },
+  // P3.11: Clusters with only a T1 loaded and a statistical map loaded but
+  // not selected: the empty state offers that map.
+  'clusters-no-stat': async () => {
+    await p3Base();
+    await loadZ();
+    await selectLayer(MNI_PATH);
+    const { openDockTab } = await import('@/components/layout/openDockTab');
+    openDockTab('clusters');
+    await until(() => !!document.querySelector('[data-testid="cluster-panel"] [data-testid="empty-pane"]'), 'clusters empty state');
+    noteStep(`clusters: ${document.querySelector('[data-testid="cluster-panel"] [data-testid="empty-pane"]')?.textContent}`);
   },
   // P3.10: the surface view pane itself (frame, header, info card).
   'surface-frame': async () => {
@@ -809,7 +866,7 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await mountStudy();
     const { getSetStudioService } = await import('@/services/studio/SetStudioService');
     await getSetStudioService().openDemoInStudio();
-    noteStep('Set Studio demo session opened');
+    noteStep('Set studio demo session opened');
   },
   'dialog-goto': async () => {
     await baseVolume();

@@ -1,6 +1,7 @@
 import { StatSymbol } from '@/components/ui/StatSymbol';
 import { statisticVariable } from '@/utils/statistic';
-import { Fragment, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
+import { ThresholdText } from '@/components/ui/ThresholdText';
 import {
   HIDDEN_BAND_BACKGROUND,
   colorbarTicks,
@@ -52,8 +53,10 @@ interface ViewportColorbarProps {
   topReserve?: number;
   /** The layer's value at the crosshair: drawn as a caret with its number. */
   value?: number | null;
-  /** Muted tag after the caption name, e.g. "unlinked" (Compare, P3.9). */
+  /** Muted note on its own line under the caption, e.g. "threshold unlinked" (Compare). */
   tag?: string | null;
+  /** Force the corner placement at the top-right (clear of the image's centre). */
+  corner?: 'top' | null;
 }
 
 const EDGE = 8; // px from the canvas-area edges
@@ -83,6 +86,7 @@ export const COLORBAR_MIN_WIDTH = 160;
 const CHAR_W = 6.2; // Plex Mono at 10px, approx.
 const NAME_CHAR_W = 5.6; // Plex Sans at 10px, average
 const NAME_MAX_CHARS = 28;
+const COLORBAR_TEXT_HALO = '0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.5)';
 /** Caption note for a statistic guessed from the file name. */
 const FROM_NAME = ' (from name)'; // widest name caption before it truncates
 const PAD_X = 8; // scrim px-1 both sides
@@ -93,38 +97,6 @@ const PAD_Y = 8; // scrim pt-1.5 + pb-0.5
  * expression and "hidden" (the box widens to the expression rather than
  * breaking it into a third line).
  */
-/**
- * One footer line ("|z| ≤ 3.1 hidden"): numbers mono, "hidden" in sans and
- * the statistic variable italic like StatSymbol, so |z| reads the same in the
- * toolbar, the Inspector and here.
- */
-function ThresholdLine({ line, variable }: { line: string; variable: string }) {
-  const hidden = line.endsWith('hidden');
-  const expr = hidden ? line.slice(0, -'hidden'.length).trimEnd() : line;
-  const parts =
-    variable && variable !== 'value' ? expr.split(
-          new RegExp(`(?<![\\w])(${variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![\\w(])`),
-        ) : [expr];
-  return (
-    <>
-      {expr && (
-        <span className="font-mono tabular-nums">
-          {parts.map((part, i) =>
-            i % 2 === 1 ? (
-              <i key={i} className="font-sans italic">
-                {part}
-              </i>
-            ) : (
-              <Fragment key={i}>{part}</Fragment>
-            ),
-          )}
-        </span>
-      )}
-      {hidden && <span>{expr ? ' hidden' : 'hidden'}</span>}
-    </>
-  );
-}
-
 export function colorbarCaptionLines(
   parts: [string, string] | null,
   maxW: number,
@@ -163,8 +135,10 @@ export function ViewportColorbar({
   topReserve = 0,
   value = null,
   tag = null,
+  corner = null,
 }: ViewportColorbarProps) {
-  const tagChars = tag ? tag.length + 3 : 0;
+  // The tag has its own line: it never squeezes the layer name.
+  const tagChars = 0;
   const fromNameChars = layer.units && layer.unitsFromName ? FROM_NAME.length : 0;
   const cmap = colormapVerticalGradient(layer.colormap);
   const exprParts = thresholdExpressionParts(layer.threshold, statisticVariable(layer.units));
@@ -215,11 +189,12 @@ export function ViewportColorbar({
     capBottomH +
     (nominal.lines.length ? CAPTION_GAP + nominal.lines.length * LINE_H : 0) +
     PAD_Y +
-    (layer.nameLabel || layer.units ? LINE_H + NAME_GAP : 0);
+    (layer.nameLabel || layer.units ? LINE_H + NAME_GAP : 0) +
+    (tag ? LINE_H : 0);
 
   // ── beside the image ──
   let layout: { style: CSSProperties; barH: number; beside: boolean } | null = null;
-  if (imageRect && imageRect.bottom > imageRect.top) {
+  if (corner !== 'top' && imageRect && imageRect.bottom > imageRect.top) {
     const imgH = imageRect.bottom - imageRect.top;
     const barH = Math.min(MAX_BAR_H, Math.floor(Math.min(imgH * 0.6, height - 2 * EDGE - chromeH)));
     const { boxW } = measure(barH);
@@ -249,9 +224,10 @@ export function ViewportColorbar({
       );
     };
     const placeTop =
-      barTop >= MIN_BAR_H &&
+      corner === 'top' ||
+      (barTop >= MIN_BAR_H &&
       covers(height - EDGE - barBottom - chromeH, barBottom) &&
-      !covers(flipTop, barTop);
+      !covers(flipTop, barTop));
     layout = placeTop
       ? { style: { right: EDGE, top: flipTop }, barH: barTop, beside: false }
       : { style: { right: EDGE, bottom: EDGE }, barH: barBottom, beside: false };
@@ -341,8 +317,11 @@ export function ViewportColorbar({
       data-placement={beside ? 'beside' : 'corner'}
       role="img"
       aria-label={ariaLabel}
-      className="pointer-events-none absolute z-10 select-none rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 pb-0.5 pt-1.5 text-bf-2xs text-bf-text-secondary"
-      style={{ ...layout.style, width: boxW }}
+      // No box: over the image (Compare's corner placement) a scrim read as a
+      // grey block behind the value; a text halo, like the orientation
+      // letters, keeps the labels legible on any ground.
+      className="pointer-events-none absolute z-10 select-none px-1 pb-0.5 pt-1.5 text-bf-2xs text-bf-text-secondary"
+      style={{ ...layout.style, width: boxW, textShadow: COLORBAR_TEXT_HALO }}
       onCopy={asciiCopyHandler}
     >
       {(layer.nameLabel || layer.units) && (
@@ -381,12 +360,15 @@ export function ViewportColorbar({
               ) ?? layer.nameLabel}
             </span>
           )}
-          {tag && (
-            <span className="text-bf-text-muted" data-testid="viewport-colorbar-tag">
-              {' · '}
-              {tag}
-            </span>
-          )}
+        </div>
+      )}
+      {tag && (
+        <div
+          className="truncate whitespace-nowrap text-left leading-none text-bf-text-muted"
+          style={{ height: LINE_H, marginTop: -NAME_GAP + 2, marginBottom: NAME_GAP, paddingLeft: nameIndent }}
+          data-testid="viewport-colorbar-tag"
+        >
+          {tag}
         </div>
       )}
       <div
@@ -479,7 +461,7 @@ export function ViewportColorbar({
         >
           {lines.map((line) => (
             <div key={line} className="leading-none" style={{ height: LINE_H }}>
-              <ThresholdLine line={line} variable={statisticVariable(layer.units)} />
+              <ThresholdText line={line} variable={statisticVariable(layer.units)} />
             </div>
           ))}
         </div>

@@ -4,7 +4,15 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { panelLetter, type CompareLinkMode } from '@/types/comparison';
-import { linkModeOf, panelLayerIdOf, resolveActivePanel } from '@/utils/compareDisplay';
+import {
+  linkModeOf,
+  panelLayerIdOf,
+  resolveActivePanel,
+  thresholdMismatch,
+} from '@/utils/compareDisplay';
+import { thresholdWording } from '@/components/views/viewportFrame/frameFormat';
+import { statisticUnits, statisticVariable } from '@/utils/statistic';
+import { ThresholdText } from '@/components/ui/ThresholdText';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
 
 const LINK_OPTIONS = [
@@ -39,6 +47,7 @@ export function CompareEditBar() {
     workspaceId ? s.getWorkspaceViewState(workspaceId).layers : s.viewState.layers,
   );
   const layerInfos = useLayerStore((s) => s.layers);
+  const layerMetadata = useLayerStore((s) => s.layerMetadata);
   if (!workspaceId || !panels || panels.length === 0) return null;
 
   const letters = panels.map((_, i) => panelLetter(i));
@@ -51,6 +60,13 @@ export function CompareEditBar() {
   const activeLayerName = activeLayerId
     ? shortLayerLabel(layerInfos.find((l) => l.id === activeLayerId)?.name ?? activeLayerId)
     : null;
+  // Panels thresholding the same layer differently: a neutral fact in the
+  // scope line (the user chose it), not a warning banner.
+  const mismatch = thresholdMismatch(panels, viewLayers, mode);
+  const mismatchInfo = mismatch ? layerInfos.find((l) => l.id === mismatch.layerId) : undefined;
+  const mismatchVariable = statisticVariable(
+    statisticUnits(mismatchInfo?.statistic, mismatch ? layerMetadata.get(mismatch.layerId)?.dataRange : undefined),
+  );
   const options = [
     ...letters.map((l) => ({ value: l, label: l, 'aria-label': `Panel ${l}` })),
     { value: '*', label: everyLabel, 'aria-label': `${everyLabel} panels` },
@@ -92,6 +108,25 @@ export function CompareEditBar() {
             store.setEditScope(workspaceId, 'panel');
           }}
         />
+      ) : null}
+      {mismatch ? (
+        <p
+          className="w-full text-bf-2xs text-bf-text-muted"
+          data-testid="compare-threshold-mismatch"
+          role="note"
+        >
+          Thresholds differ:{' '}
+          {mismatch.thresholds.map(({ letter, threshold }, i) => (
+            <span key={letter}>
+              {i > 0 ? ' · ' : ''}
+              {letter}{' '}
+              <ThresholdText
+                line={thresholdWording(threshold, mismatchVariable) ?? 'none'}
+                variable={mismatchVariable}
+              />
+            </span>
+          ))}
+        </p>
       ) : null}
     </div>
   );

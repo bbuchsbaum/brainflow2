@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SURFACE_MATERIAL_SETTINGS,
   type SurfaceLightingSettings,
   type SurfaceMaterialSettings,
 } from '@/stores/surfaceStore';
@@ -61,10 +60,16 @@ export const MATERIAL_PRESETS: Array<SurfaceAppearancePreset<SurfaceMaterialSett
     },
   },
   {
-    // Mirrors the store default so the out-of-the-box material always reports
-    // as this preset (and stays in sync if the default ever changes).
+    // The former default; the out-of-the-box material is now Matte
+    // (specular streaks read as high data values, v3 user critic).
     name: 'Gray glossy',
-    values: { ...DEFAULT_SURFACE_MATERIAL_SETTINGS },
+    values: {
+      surfaceColor: '#CCCCCC',
+      shininess: 30,
+      specularColor: '#ffffff',
+      emissiveColor: '#000000',
+      emissiveIntensity: 0,
+    },
   },
   {
     name: 'White matte',

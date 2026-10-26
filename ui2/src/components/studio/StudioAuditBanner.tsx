@@ -33,7 +33,7 @@ export function StudioAuditBanner({ activeSet, readiness }: StudioAuditBannerPro
 
   return (
     <section
-      aria-label="Set Studio audit summary"
+      aria-label="Set studio audit summary"
       className={`mx-3 mt-3 flex flex-wrap items-center gap-2 rounded-sm border px-3 py-1.5 text-bf-sm ${tone.container}`}
     >
       <StatusPill status={readinessStatus(readiness.state)}>{readiness.eyebrow}</StatusPill>

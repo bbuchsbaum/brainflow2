@@ -284,7 +284,7 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       const dirItems: ContextMenuItem[] = [
         {
           id: 'open-folder-studio',
-          label: 'Open in Set Studio…',
+          label: 'Open in Set studio…',
           onClick: () => void getSetStudioService().openFolderOntologyInStudio({ discoveryRoot: dirPath }),
         },
         {

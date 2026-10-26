@@ -1,9 +1,38 @@
 import React, { forwardRef, useId } from "react";
 import { useViewStateStore } from "@/stores/viewStateStore";
+import { useSurfaceValueAtCrosshair } from "@/hooks/useSurfaceValueAtCrosshair";
+import { EMPTY_VALUE, formatLayerValue } from "@/utils/valueFormat";
 import type { SceneItem, SceneItemKind } from "@/types/sceneItem";
 import { SelectableRow, type RovingItemProps } from "@/components/ui/bf";
 import { LayerReadoutValue } from "./LayerReadoutValue";
 import { useReadoutPoint } from "@/hooks/useReadoutPoint";
+
+/** A surface overlay's value at its vertex nearest the crosshair (within 3 mm). */
+function SurfaceRowReadout({
+  surfaceId,
+  surfaceLayerId,
+  id,
+}: {
+  surfaceId: string;
+  surfaceLayerId: string;
+  id: string;
+}) {
+  const reading = useSurfaceValueAtCrosshair(surfaceId, surfaceLayerId);
+  return (
+    <span
+      id={id}
+      className="max-w-[14ch] shrink-0 truncate text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
+      title={
+        reading
+          ? `Vertex ${reading.vertex}, ${reading.distanceMm.toFixed(1)} mm from the crosshair`
+          : "No vertex within 3 mm of the crosshair"
+      }
+      data-testid={`surface-readout-${surfaceLayerId}`}
+    >
+      {reading ? formatLayerValue(reading.value) : EMPTY_VALUE}
+    </span>
+  );
+}
 
 function VolumeRowReadout({ layerId, id }: { layerId: string; id: string }) {
   const point = useReadoutPoint();
@@ -171,6 +200,12 @@ export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
               Surface rows have no sampled value here: "—", consistently. */}
           {item.ref.type === "volume" ? (
             <VolumeRowReadout layerId={item.ref.layerId} id={valueId} />
+          ) : item.ref.type === "surface-overlay" ? (
+            <SurfaceRowReadout
+              surfaceId={item.ref.surfaceId}
+              surfaceLayerId={item.ref.surfaceLayerId}
+              id={valueId}
+            />
           ) : (
             <span
               id={valueId}

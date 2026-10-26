@@ -102,7 +102,8 @@ describe('ExportImageDialog', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+      // aria-disabled, not disabled: focus stays on it during the save (v3 function critic).
+      expect(screen.getByRole('button', { name: 'Saving…' })).toHaveAttribute('aria-disabled', 'true');
       expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Close modal' })).toBeDisabled();
     });

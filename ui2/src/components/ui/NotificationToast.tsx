@@ -1,122 +1,120 @@
 /**
- * NotificationToast - Simple notification display
- * Shows temporary toast messages for user feedback
+ * NotificationToast: transient feedback ("Loaded …", "Saved image to …",
+ * errors), shown as ONE line inside the status bar (UI redesign phase 3, v3
+ * critic: floating toasts covered the Inspector and dock content). It never
+ * overlaps a panel: it takes the status bar's free space between the
+ * readouts and Diagnostics, newest message first.
+ *
+ * Info / success / warning messages expire after 5 s (or `durationMs`); an
+ * error stays until dismissed (or replaced) and is an assertive alert. Every
+ * message is announced in a polite live region.
  */
 
 import React, { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import { useEvent } from '@/events/EventBus';
+import { IconButton } from './IconButton';
 
 interface Notification {
   id: string;
   type: 'info' | 'warning' | 'error' | 'success';
   message: string;
-  timestamp: number;
 }
 
 /** Unique per toast (two toasts in the same millisecond must not share an id). */
 let nextNotificationId = 0;
+
+const DEFAULT_DURATION_MS = 5000;
+
+/** The loaded item of a "Loaded …: name" info message (null for others). */
+function loadedItem(n: Pick<Notification, 'type' | 'message'>): string | null {
+  if (n.type !== 'info' && n.type !== 'success') return null;
+  const m = /^(?:loaded(?: overlay)?|surface loaded):\s*(.+)$/i.exec(n.message.trim());
+  return m ? m[1] : null;
+}
+
+const DOT_CLASS: Record<Notification['type'], string> = {
+  info: 'bg-bf-text-muted',
+  success: 'bg-bf-success',
+  warning: 'bg-bf-warning',
+  error: 'bg-bf-danger',
+};
 
 export function NotificationToast() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   useEvent('ui.notification.clear', () => setNotifications([]));
 
-  // Listen for notification events
-  useEvent('ui.notification', ({ type, message }) => {
-    const notification: Notification = {
-      id: `toast-${(nextNotificationId += 1)}`,
-      type,
-      message,
-      timestamp: Date.now()
-    };
-    
-    setNotifications(prev => [...prev, notification]);
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== notification.id));
-    }, 5000);
+  useEvent('ui.notification', ({ type, message, durationMs }) => {
+    const notification: Notification = { id: `toast-${(nextNotificationId += 1)}`, type, message };
+    // Several loads become ONE message ("Loaded: a, b, c"), not a stack.
+    const item = loadedItem(notification);
+    setNotifications((prev) => {
+      const last = prev[prev.length - 1];
+      const lastItem = last ? loadedItem(last) : null;
+      if (item && lastItem) {
+        const merged = { ...notification, message: `Loaded: ${lastItem}, ${item}` };
+        return [...prev.slice(0, -1), merged];
+      }
+      return [...prev, notification];
+    });
+    // Errors wait for the user; the rest expire.
+    if (type !== 'error') {
+      setTimeout(() => {
+        setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      }, durationMs ?? DEFAULT_DURATION_MS);
+    }
   });
-  
-  if (notifications.length === 0) return null;
-  
-  // Bauhaus-themed notification styles
-  const getNotificationStyle = (type: Notification['type']) => {
-    const base = {
-      borderRadius: '2px',
-      border: '1px solid',
-    };
-    switch (type) {
-      case 'info':
-        return {
-          ...base,
-          backgroundColor: 'var(--bf-bg-panel-raised)',
-          borderColor: 'var(--bf-border)',
-          color: 'hsl(var(--foreground))',
-        };
-      case 'warning':
-        return {
-          ...base,
-          backgroundColor: 'var(--bf-bg-panel-raised)',
-          borderColor: 'var(--app-warning)',
-          color: 'hsl(var(--foreground))',
-        };
-      case 'error':
-        return {
-          ...base,
-          backgroundColor: 'hsl(var(--destructive) / 0.1)',
-          borderColor: 'hsl(var(--destructive))',
-          color: 'hsl(var(--foreground))',
-        };
-      case 'success':
-        return {
-          ...base,
-          backgroundColor: 'var(--bf-bg-panel-raised)',
-          borderColor: 'var(--app-success)',
-          color: 'hsl(var(--foreground))',
-        };
-    }
-  };
 
-  const getIndicatorColor = (type: Notification['type']) => {
-    switch (type) {
-      case 'info': return 'hsl(var(--primary))';
-      case 'warning': return 'var(--app-warning)';
-      case 'error': return 'hsl(var(--destructive))';
-      case 'success': return 'var(--app-success)';
-    }
-  };
+  const current = notifications[notifications.length - 1] ?? null;
+  const earlier = notifications.length - 1;
+
+  // Keep the live region mounted so the first message is announced.
+  const [announced, setAnnounced] = useState('');
+  useEffect(() => {
+    if (current) setAnnounced(current.message);
+  }, [current]);
 
   return (
-    // A persistent polite live region, so screen readers announce toasts
-    // ("Saved image to …"); errors are assertive alerts.
-    <div
-      // Above the 28px status bar, never over its readouts.
-      className="fixed bottom-10 right-4 z-50 space-y-2"
-      role="status"
-      aria-live="polite"
-      aria-label="Notifications"
-    >
-      {notifications.map(notification => (
+    <div className="status-notification" data-testid="status-notification-slot">
+      <span className="sr-only" role="status" aria-live="polite">
+        {announced}
+      </span>
+      {current ? (
         <div
-          key={notification.id}
-          role={notification.type === 'error' ? 'alert' : undefined}
-          className="px-4 py-3 shadow-lg motion-safe:animate-slide-in-right"
-          style={getNotificationStyle(notification.type)}
+          key={current.id}
+          role={current.type === 'error' ? 'alert' : undefined}
+          className="flex min-w-0 items-center gap-2"
+          data-testid="status-notification"
+          data-type={current.type}
+          title={current.message}
         >
-          <div className="flex items-center gap-3">
-            {/* Geometric status indicator - replaces circular icons */}
-            <div
-              className="w-2 h-2 shrink-0"
-              style={{
-                backgroundColor: getIndicatorColor(notification.type),
-                borderRadius: '1px'
-              }}
-            />
-            <span className="text-bf-sm">{notification.message}</span>
-          </div>
+          <span
+            aria-hidden
+            className={`h-2 w-2 shrink-0 rounded-bf-xs ${DOT_CLASS[current.type]}`}
+          />
+          <span
+            className={`min-w-0 truncate text-bf-xs ${
+              current.type === 'error' ? 'text-bf-text-primary' : 'text-bf-text-secondary'
+            }`}
+          >
+            {current.message}
+          </span>
+          {earlier > 0 ? (
+            <span className="shrink-0 font-mono text-bf-2xs tabular-nums text-bf-text-muted">
+              +{earlier}
+            </span>
+          ) : null}
+          <IconButton
+            size="xs"
+            variant="ghost"
+            icon={<X />}
+            aria-label="Dismiss message"
+            title="Dismiss"
+            onClick={() => setNotifications((prev) => prev.filter((n) => n.id !== current.id))}
+          />
         </div>
-      ))}
+      ) : null}
     </div>
   );
 }

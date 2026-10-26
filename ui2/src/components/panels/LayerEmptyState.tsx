@@ -57,7 +57,7 @@ export const LayerEmptyState: React.FC<LayerEmptyStateProps> = ({
       {onOpenSetStudio ? (
         <div className="mt-4">
           <Button variant="ghost" size="sm" onClick={onOpenSetStudio}>
-            Open Set Studio
+            Open Set studio
           </Button>
           <div className="mt-2 text-bf-2xs text-muted-foreground">
             Shortcut Cmd/Ctrl+5

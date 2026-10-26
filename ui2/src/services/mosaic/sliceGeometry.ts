@@ -52,3 +52,69 @@ export function sliceIndexRange(
 
 /** Width (px) of the mosaic's shared colorbar column beside the tiles. */
 export const MOSAIC_COLORBAR_COLUMN_PX = 112;
+
+/** Height (px) of the label strip under each mosaic tile (labels never sit on tissue). */
+export const MOSAIC_LABEL_STRIP_PX = 14;
+/** Gap (px) between mosaic tiles. */
+export const MOSAIC_TILE_GAP_PX = 6;
+
+export interface MosaicFit {
+  rows: number;
+  cols: number;
+  /** Image size of one tile (the label strip is extra). */
+  tileWidth: number;
+  tileHeight: number;
+  /** Tiles (image + strip) over the available area. */
+  fill: number;
+}
+
+/** Tile size for a fixed grid in an area, following the brain's aspect (w/h). */
+export function fitMosaicGrid(
+  width: number,
+  height: number,
+  rows: number,
+  cols: number,
+  aspect: number,
+  gap = MOSAIC_TILE_GAP_PX,
+  strip = MOSAIC_LABEL_STRIP_PX,
+): MosaicFit {
+  const cellW = (width - gap * (cols - 1)) / cols;
+  const cellH = (height - gap * (rows - 1)) / rows - strip;
+  const tileWidth = Math.max(1, Math.floor(Math.min(cellW, cellH * aspect)));
+  const tileHeight = Math.max(1, Math.floor(tileWidth / aspect));
+  const fill = width > 0 && height > 0 ? (rows * cols * tileWidth * (tileHeight + strip)) / (width * height) : 0;
+  return { rows, cols, tileWidth, tileHeight, fill };
+}
+
+/**
+ * "Auto" grid (the default): the rows × cols that make tiles LARGEST in the
+ * area for the cropped brain's aspect, showing at least `minTiles` slices
+ * (fewer when the range is shorter) and at most the range. The page holds
+ * rows × cols tiles.
+ */
+export function autoMosaicGrid(
+  width: number,
+  height: number,
+  aspect: number,
+  sliceCount: number,
+  minTiles = 12,
+  maxSide = 8,
+): MosaicFit {
+  const want = Math.max(1, Math.min(minTiles, sliceCount || minTiles));
+  let best: MosaicFit | null = null;
+  for (let cols = 1; cols <= maxSide; cols += 1) {
+    for (let rows = 1; rows <= maxSide; rows += 1) {
+      const n = rows * cols;
+      if (n < want || (sliceCount > 0 && n - Math.max(cols, rows) >= sliceCount)) continue;
+      const fit = fitMosaicGrid(width, height, rows, cols, aspect);
+      if (
+        !best ||
+        fit.tileWidth > best.tileWidth ||
+        (fit.tileWidth === best.tileWidth && fit.fill > best.fill)
+      ) {
+        best = fit;
+      }
+    }
+  }
+  return best ?? fitMosaicGrid(width, height, 4, 4, aspect);
+}

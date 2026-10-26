@@ -120,7 +120,7 @@ export async function waitForQuiescence(): Promise<void> {
  * so readiness waits until every toast has expired (messages are logged first).
  */
 export async function waitForToastsToExpire(timeoutMs = 8000): Promise<void> {
-  const selector = '.fixed.bottom-4.right-4 .animate-slide-in-right';
+  const selector = '[data-testid="status-notification"]';
   const log = harnessLog();
   const seen = new Set<string>();
   const start = performance.now();

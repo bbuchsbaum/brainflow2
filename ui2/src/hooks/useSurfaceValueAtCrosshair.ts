@@ -1,0 +1,60 @@
+/**
+ * A surface overlay's value at the crosshair: the nearest mesh vertex to the
+ * crosshair (vertices are world mm, transform applied), when it lies within
+ * `maxDistanceMm`. Used by the Scene rows of surface overlays (P3.10).
+ */
+import { useMemo } from 'react';
+import { useSurfaceStore } from '@/stores/surfaceStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
+
+export interface SurfaceReading {
+  vertex: number;
+  value: number;
+  distanceMm: number;
+}
+
+/** Nearest vertex of a flat xyz array to a point (null when empty). */
+export function nearestVertex(
+  vertices: ArrayLike<number>,
+  point: readonly [number, number, number],
+): { index: number; distanceMm: number } | null {
+  let best = -1;
+  let bestD2 = Infinity;
+  for (let i = 0, v = 0; i + 2 < vertices.length; i += 3, v += 1) {
+    const dx = vertices[i] - point[0];
+    const dy = vertices[i + 1] - point[1];
+    const dz = vertices[i + 2] - point[2];
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = v;
+    }
+  }
+  return best < 0 ? null : { index: best, distanceMm: Math.sqrt(bestD2) };
+}
+
+export function useSurfaceValueAtCrosshair(
+  surfaceId: string,
+  surfaceLayerId: string,
+  maxDistanceMm = 3,
+): SurfaceReading | null {
+  const surface = useSurfaceStore((s) => s.surfaces.get(surfaceId));
+  const crosshair = useViewStateStore((s) => s.viewState.crosshair.world_mm);
+  return useMemo(() => {
+    const layer = surface?.layers.get(surfaceLayerId);
+    const vertices = surface?.geometry?.vertices;
+    if (!layer || !vertices || !layer.values?.length) return null;
+    const hit = nearestVertex(vertices, [crosshair[0], crosshair[1], crosshair[2]]);
+    if (!hit || hit.distanceMm > maxDistanceMm) return null;
+    // Sparse layers carry their vertex indices.
+    let value: number | undefined;
+    if (layer.indices) {
+      const k = Array.prototype.indexOf.call(layer.indices, hit.index);
+      value = k >= 0 ? layer.values[k] : undefined;
+    } else {
+      value = layer.values[hit.index];
+    }
+    if (value === undefined || !Number.isFinite(value)) return null;
+    return { vertex: hit.index, value, distanceMm: hit.distanceMm };
+  }, [surface, surfaceLayerId, crosshair, maxDistanceMm]);
+}

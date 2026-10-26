@@ -21,9 +21,15 @@ import { usePlotSpecStore } from "@/stores/plotSpecStore";
 import { PlotEncoder } from "./encoder/PlotEncoder";
 import type { EncoderContext } from "./encoder/types";
 import { PlotEncodingPanel } from "./PlotEncodingPanel";
+import { MARK_LABELS } from "./encoder/markLabels";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/shadcn/popover";
 
-/** Estimated panel-strip height (px) used until the area is measured. */
-const ESTIMATED_PANEL_HEIGHT = 30;
+/** Height (px) of the caption row for marks without a header line. */
+const CAPTION_ROW_HEIGHT = 20;
 const MIN_ENCODER_HEIGHT = 40;
 
 export interface EncodedPlotViewProps {
@@ -79,10 +85,51 @@ export function EncodedPlotView({
     return () => ro.disconnect();
   }, []);
 
+  // The histogram has a header line of its own (top margin): the caption
+  // sits in it, over the chart. Other marks get a slim caption row.
+  const overlayCaption = spec.mark === "hist";
   const encoderWidth = measured?.width ?? width;
   const encoderHeight =
     measured?.height ??
-    Math.max(height - ESTIMATED_PANEL_HEIGHT, MIN_ENCODER_HEIGHT);
+    Math.max(height - (overlayCaption ? 0 : CAPTION_ROW_HEIGHT), MIN_ENCODER_HEIGHT);
+  const caption = [
+    MARK_LABELS[spec.mark] ?? spec.mark,
+    [spec.encoding.x, spec.encoding.y].filter(Boolean).join(" × "),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  // Data first (P3.12): the encoding is a one-line mono caption; clicking it
+  // opens the Mark / X / Y (and sampling) selects in a popover.
+  const captionButton = (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-5 max-w-full items-center gap-1 truncate rounded-bf-xs px-1 font-mono text-bf-2xs text-bf-text-muted hover:bg-accent hover:text-bf-text-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
+          aria-label={`Plot encoding: ${caption}. Change`}
+          data-testid="plot-encoding-caption"
+        >
+          <span className="truncate">{caption}</span>
+          <span aria-hidden>▾</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={4}
+        className="w-auto max-w-[480px] p-1"
+        aria-label="Plot encoding"
+      >
+        <PlotEncodingPanel
+          modeId={modeId}
+          frame={frame}
+          showLocus={showLocus}
+          showReduce={showReduce}
+        />
+      </PopoverContent>
+    </Popover>
+  );
 
   return (
     <div
@@ -95,16 +142,20 @@ export function EncodedPlotView({
         minHeight: 0,
       }}
     >
-      <PlotEncodingPanel
-        modeId={modeId}
-        frame={frame}
-        showLocus={showLocus}
-        showReduce={showReduce}
-      />
+      {overlayCaption ? null : (
+        <div style={{ height: CAPTION_ROW_HEIGHT, display: "flex", alignItems: "center" }}>
+          {captionButton}
+        </div>
+      )}
       <div
         ref={areaRef}
         style={{ flex: "1 1 auto", minHeight: 0, position: "relative" }}
       >
+        {overlayCaption ? (
+          <div style={{ position: "absolute", left: 8, top: 2, zIndex: 2, maxWidth: "50%" }}>
+            {captionButton}
+          </div>
+        ) : null}
         <PlotEncoder
           frame={frame}
           spec={spec}

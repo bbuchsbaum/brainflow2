@@ -59,4 +59,18 @@ describe('LayerReadoutValue', () => {
     expect(screen.getByTestId('layer-readout-out')).toHaveTextContent('—');
     expect(screen.getByTestId('layer-readout-z')).toHaveAttribute('title', 'z: z 5.43 at the pointer');
   });
+
+  it('a long region name ends in an ellipsis (truncate on the name, room for the swatch), never a hard cut', () => {
+    render(<LayerReadoutValue layerId="atlas" point={point} />);
+    const cell = screen.getByTestId('layer-readout-atlas');
+    const name = screen.getByTestId('scene-region-name');
+    // The name span carries the ellipsis (min-w-0 + truncate) inside a
+    // shrinkable flex row; the cell allows a region name (24ch) before it.
+    expect(name).toHaveClass('truncate');
+    expect(name).toHaveClass('min-w-0');
+    expect(cell).toHaveClass('max-w-[24ch]');
+    expect(cell).toHaveClass('min-w-0');
+    expect(cell).not.toHaveClass('truncate');
+  });
 });
+

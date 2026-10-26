@@ -81,10 +81,17 @@ interface OrientationLabelsProps {
   refs: React.MutableRefObject<Array<HTMLElement | null>>;
   /** Extra distance of the bottom letter from the container bottom (e.g. a rail strip). */
   bottomInset?: number;
+  /** Extra distance of the top letter from the top (a header row it must clear). */
+  topInset?: number;
 }
 
 /** Anatomical letters at the four edge midpoints, derived from the signed view basis. */
-export function OrientationLabels({ viewPlane, refs, bottomInset = 0 }: OrientationLabelsProps) {
+export function OrientationLabels({
+  viewPlane,
+  refs,
+  bottomInset = 0,
+  topInset = 0,
+}: OrientationLabelsProps) {
   const labels = anatomicalLabels(viewPlane);
   if (!labels) return null;
   const set = (i: number) => (el: HTMLSpanElement | null) => {
@@ -95,7 +102,7 @@ export function OrientationLabels({ viewPlane, refs, bottomInset = 0 }: Orientat
       <span
         className={`${PILL_CLASS} left-1/2 -translate-x-1/2`}
         ref={set(0)}
-        style={{ top: ORIENTATION_LABEL_OFFSET, ...LABEL_SHADOW }}
+        style={{ top: topInset + ORIENTATION_LABEL_OFFSET, ...LABEL_SHADOW }}
       >
         {labels.top}
       </span>

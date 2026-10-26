@@ -74,7 +74,7 @@ describe('InspectorRouter', () => {
   });
 
   it('renders the studio body for set-studio', () => {
-    setMode('set-studio', 'Set Studio');
+    setMode('set-studio', 'Set studio');
     render(<InspectorRouter />);
     expect(screen.getByTestId('studio-body')).toBeInTheDocument();
   });

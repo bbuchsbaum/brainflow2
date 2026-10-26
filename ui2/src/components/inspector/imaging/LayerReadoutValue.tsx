@@ -44,7 +44,7 @@ export function LayerReadoutValue({
     // Region names are text, not numbers: sans with the region's LUT
     // swatch, like the status Region slot.
     content = (
-      <span className="inline-flex min-w-0 items-center gap-1 font-sans">
+      <span className="flex min-w-0 items-center gap-1 font-sans">
         {entry ? (
           <span
             aria-hidden
@@ -53,19 +53,25 @@ export function LayerReadoutValue({
             style={{ background: `rgb(${entry.color[0]}, ${entry.color[1]}, ${entry.color[2]})` }}
           />
         ) : null}
-        <span className="truncate">{name}</span>
+        <span className="min-w-0 truncate" data-testid="scene-region-name">
+          {name}
+        </span>
       </span>
     );
     title = `${layer.name}: ${entry ? `${formatRegionLabel(entry)} (label ${id})` : id > 0 ? `label ${id}` : 'background'} ${at}`;
   } else if (value !== null) {
     const units = statisticUnits(layer?.statistic, dataRange);
     const number = formatLayerValue(value);
-    content = units ? (
-      <>
-        <StatSymbol label={units} className="font-sans text-bf-text-muted" /> {number}
-      </>
-    ) : (
-      number
+    content = (
+      <span className="min-w-0 truncate">
+        {units ? (
+          <>
+            <StatSymbol label={units} className="font-sans text-bf-text-muted" /> {number}
+          </>
+        ) : (
+          number
+        )}
+      </span>
     );
     title = `${layer?.name ?? layerId}: ${units ? `${units} ` : ''}${number} ${at}`;
   }
@@ -73,7 +79,9 @@ export function LayerReadoutValue({
   return (
     <span
       id={id}
-      className="max-w-[14ch] shrink-0 truncate text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
+      // Room for a region name ("R_occipitotemporal"): the layer name column
+      // gives way first; a longer value ends in an ellipsis, never a hard cut.
+      className="flex min-w-0 max-w-[24ch] shrink-0 justify-end overflow-hidden text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
       title={title}
       data-testid={`layer-readout-${layerId}`}
     >

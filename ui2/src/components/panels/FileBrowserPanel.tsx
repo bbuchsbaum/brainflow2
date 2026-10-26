@@ -454,7 +454,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "create-set-from-folder",
-              label: "Open in Set Studio…",
+              label: "Open in Set studio…",
               onClick: () => {
                 if (!selectedFolderForSet) return;
                 void getSetStudioService().openFolderOntologyInStudio({

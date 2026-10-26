@@ -394,6 +394,19 @@ export function ComparisonPanel({
     };
   }, [sharedColorbarLayer, colorbarOverride, linkMode]);
   const edited = panelHasOverrides(panel, linkMode);
+  // What this panel sets for itself ("threshold unlinked", "window, colormap unlinked").
+  const unlinkedTag = useMemo(() => {
+    if (!colorbarOverride || linkMode === 'all') return null;
+    const names: Record<PanelOverrideField, string> = {
+      intensity: 'window',
+      threshold: 'threshold',
+      colormap: 'colormap',
+    };
+    const fields = (Object.keys(names) as PanelOverrideField[]).filter(
+      (f) => colorbarOverride[f] !== undefined && !isFieldLinked(linkMode, f),
+    );
+    return fields.length ? `${fields.map((f) => names[f]).join(', ')} unlinked` : null;
+  }, [colorbarOverride, linkMode]);
   const colorbarReading = useLayerValueAtWorld(colorbarLayer?.layerId ?? null, crosshair.world_mm);
   const [placement, setPlacement] = useState<SliceViewportPlacement | null>(null);
   const handlePlacementChange = useCallback((next: SliceViewportPlacement) => {
@@ -425,10 +438,9 @@ export function ComparisonPanel({
 
   return (
     <div
-      className={`group/panel relative h-full overflow-hidden bg-[var(--bf-bg-canvas)] ${
-        // The panel the Inspector edits: the amber selection edge.
-        active ? 'shadow-[inset_2px_0_0_0_hsl(var(--ring))]' : ''
-      }`}
+      // The panel the Inspector edits is marked on its header badge (amber
+      // edge) only: a full-height edge read as a divider (v3 visual critic).
+      className="group/panel relative h-full overflow-hidden bg-[var(--bf-bg-canvas)]"
       style={{ minHeight: `${height}px`, height: `${height}px` }}
       data-testid="comparison-panel"
       data-panel-id={panel.id}
@@ -478,6 +490,7 @@ export function ComparisonPanel({
             showPlane={false}
             requireName
             letter={letter || null}
+            letterActive={active}
           />
         ) : (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-bf-xs text-bf-text-muted">
@@ -491,11 +504,18 @@ export function ComparisonPanel({
             height={canvasSize.height}
             imageRect={imageRect}
             topReserve={PANEL_ACTIONS_RESERVE}
+            // Top-right corner, clear of the cortex (the bottom-right sat on
+            // the brain in Compare's wide panes).
+            corner="top"
             value={colorbarReading?.value ?? null}
-            tag={edited && colorbarOverride ? 'unlinked' : null}
+            tag={unlinkedTag}
           />
         )}
-        {viewPlane && hasLayers && <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} />}
+        {viewPlane && hasLayers && (
+          // The top letter sits under the header row (the badge and the
+          // value), never in it.
+          <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} topInset={18} />
+        )}
 
         {/* Header right slot: the pane's value (always shown, mono) and the
             panel actions, revealed on hover / keyboard focus. */}

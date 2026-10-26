@@ -82,11 +82,12 @@ describe('HistogramChart: Log Y axis ticks', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('draws y ticks at 1, 10, 100, 1k under Log Y and none in linear mode', () => {
+  it('draws y ticks at 1, 10, 100, 1k under Log Y and three count ticks in linear mode', () => {
     const { container } = render(<Host />);
     const yLabels = () =>
       Array.from(container.querySelectorAll('.visx-axis-left .visx-axis-tick text')).map((t) => t.textContent);
-    expect(yLabels()).toEqual([]);
+    // Linear: a magnitude on the y axis too (v3 user critic). Max count 3000.
+    expect(yLabels()).toEqual(['1k', '2k', '3k']);
     fireEvent.click(screen.getByRole('button', { name: 'Log Y' }));
     // Max bin count is 3000: decades 1 … 1000.
     expect(yLabels()).toEqual(['1', '10', '100', '1k']);

@@ -38,6 +38,7 @@ import {
   defaultExportTarget,
   EXPORT_TARGET_LABEL,
   MAX_EXPORT_TILES,
+  clampMosaicRange,
   type ExportTarget,
 } from '@/services/export/compositeCapture';
 import {
@@ -115,6 +116,8 @@ export function ExportImageDialog() {
   const size = useExportDialogStore((state) => state.size);
   const provenance = useExportDialogStore((state) => state.provenance);
   const mosaicTiles = useExportDialogStore((state) => state.mosaicTiles);
+  const cropToBrain = useExportDialogStore((state) => state.cropToBrain);
+  const mosaicColumns = useExportDialogStore((state) => state.mosaicColumns);
   const outputSize = useExportDialogStore((state) => state.outputSize);
 
   const store = useExportDialogStore.getState;
@@ -127,6 +130,8 @@ export function ExportImageDialog() {
     setSize,
     setProvenance,
     setMosaicTiles,
+    setCropToBrain,
+    setMosaicColumns,
     applyPreset,
     setOutputSize,
     setCapturing,
@@ -138,8 +143,10 @@ export function ExportImageDialog() {
   const bytesRef = useRef<Uint8Array | null>(null);
   const captureSeqRef = useRef(0);
   const fileNameInputRef = useRef<HTMLInputElement | null>(null);
+  const errorRef = useRef<HTMLDivElement | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [outputDpi, setOutputDpi] = useState<number | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   // What can be composited here (slices + layout, or the mosaic). Empty for
   // views without a composited exporter (surface, Compare): plain capture.
@@ -168,10 +175,13 @@ export function ExportImageDialog() {
           size,
           provenance,
           mosaicTiles,
+          cropToBrain,
+          mosaicColumns,
         }).then((result) => {
           if (seq === captureSeqRef.current) {
             setOutputSize({ width: result.width, height: result.height });
             setOutputDpi(result.dpi);
+            setWarning(result.warning);
           }
           return result;
         })
@@ -203,6 +213,8 @@ export function ExportImageDialog() {
     size,
     provenance,
     mosaicTiles,
+    cropToBrain,
+    mosaicColumns,
     transparentBackground,
     viewType,
     setCapturing,
@@ -213,7 +225,7 @@ export function ExportImageDialog() {
 
   const handleSave = async () => {
     const bytes = bytesRef.current;
-    if (!bytes) return;
+    if (!bytes || isSaving) return;
 
     setIsSaving(true);
     setError(null);
@@ -223,8 +235,10 @@ export function ExportImageDialog() {
       const savedPath = await getViewExportService().saveImageBytes(bytes, suggestedName);
       if (savedPath) close();
     } catch (err) {
-      // Tauri rejects with a plain string: keep the backend's reason.
+      // Tauri rejects with a plain string: keep the backend's reason, and
+      // take focus to it (the user just pressed Save; focus must not drop).
       setError(formatTauriError(err) || 'Failed to save image');
+      requestAnimationFrame(() => errorRef.current?.focus());
     } finally {
       setIsSaving(false);
     }
@@ -327,7 +341,7 @@ export function ExportImageDialog() {
 
               {exportTarget === 'mosaic' && mosaicSource?.sampling ? (
                 <>
-                  <FieldRow label="Slices" controlId="export-tiles">
+                  <FieldRow label="Slices" layout="stacked" controlId="export-tiles">
                     {(control) => (
                       <SegmentedControl
                         id={control.id}
@@ -348,7 +362,7 @@ export function ExportImageDialog() {
                           unit="mm"
                           value={mosaicTiles.fromMm}
                           onValueChange={(v) =>
-                            v !== null && setMosaicTiles({ ...mosaicTiles, fromMm: v })
+                            v !== null && setMosaicTiles(clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, fromMm: v }))
                           }
                         />
                       </FieldRow>
@@ -358,7 +372,7 @@ export function ExportImageDialog() {
                           unit="mm"
                           value={mosaicTiles.toMm}
                           onValueChange={(v) =>
-                            v !== null && setMosaicTiles({ ...mosaicTiles, toMm: v })
+                            v !== null && setMosaicTiles(clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, toMm: v }))
                           }
                         />
                       </FieldRow>
@@ -390,10 +404,22 @@ export function ExportImageDialog() {
                       At most {MAX_EXPORT_TILES} slices; positions snap to the reference grid.
                     </p>
                   ) : null}
+                  <FieldRow label="Columns" layout="stacked" hint="Default: 6 at 183 mm, 4 at 89 mm, else the grid's.">
+                    <NumberField
+                      step={1}
+                      min={1}
+                      max={12}
+                      value={mosaicColumns ?? ''}
+                      placeholder="Auto"
+                      onValueChange={(v) =>
+                        setMosaicColumns(v === null ? null : Math.max(1, Math.min(12, Math.round(v))))
+                      }
+                    />
+                  </FieldRow>
                 </>
               ) : null}
 
-              <FieldRow label="Preset" controlId="export-preset">
+              <FieldRow label="Preset" layout="stacked" controlId="export-preset">
                 {(control) => (
                   <SegmentedControl
                     id={control.id}
@@ -405,7 +431,7 @@ export function ExportImageDialog() {
                 )}
               </FieldRow>
 
-              <FieldRow label="Size" controlId="export-size-kind">
+              <FieldRow label="Size" layout="stacked" controlId="export-size-kind">
                 {(control) => (
                   <SegmentedControl
                     id={control.id}
@@ -423,7 +449,7 @@ export function ExportImageDialog() {
                 )}
               </FieldRow>
               {size.kind === 'screen' ? (
-                <FieldRow label="Scale" controlId="export-scale">
+                <FieldRow label="Scale" layout="stacked" controlId="export-scale">
                   {(control) => (
                     <SegmentedControl
                       id={control.id}
@@ -436,7 +462,7 @@ export function ExportImageDialog() {
                 </FieldRow>
               ) : (
                 <>
-                  <FieldRow label="Width" controlId="export-width">
+                  <FieldRow label="Width" layout="stacked" controlId="export-width">
                     {(control) => (
                       <Select
                         {...control}
@@ -446,7 +472,7 @@ export function ExportImageDialog() {
                       />
                     )}
                   </FieldRow>
-                  <FieldRow label="Resolution" controlId="export-dpi">
+                  <FieldRow label="Resolution" layout="stacked" controlId="export-dpi">
                     {(control) => (
                       <SegmentedControl
                         id={control.id}
@@ -472,6 +498,9 @@ export function ExportImageDialog() {
                       {label}
                     </Checkbox>
                   ))}
+                  <Checkbox checked={cropToBrain} onCheckedChange={(checked) => setCropToBrain(checked)}>
+                    Crop to brain
+                  </Checkbox>
                 </div>
               </fieldset>
 
@@ -539,8 +568,19 @@ export function ExportImageDialog() {
             />
           </FieldRow>
 
+          {warning && !error ? (
+            <Notice severity="warning" data-testid="export-warning">
+              {warning}
+            </Notice>
+          ) : null}
           {error && (
-            <Notice severity="danger" role="alert" data-testid="export-error">
+            <Notice
+              ref={errorRef}
+              tabIndex={-1}
+              severity="danger"
+              role="alert"
+              data-testid="export-error"
+            >
               {error}
             </Notice>
           )}
@@ -559,11 +599,14 @@ export function ExportImageDialog() {
         <Button variant="secondary" size="sm" onClick={close} disabled={isSaving}>
           Cancel
         </Button>
+        {/* While saving, Save stays focusable (aria-disabled), so focus
+            does not fall to <body> under the native save dialog. */}
         <Button
           variant="primary"
           size="sm"
           onClick={handleSave}
-          disabled={isCapturing || isSaving || !hasBytes}
+          disabled={isCapturing || !hasBytes}
+          aria-disabled={isSaving || undefined}
         >
           {isSaving ? 'Saving…' : 'Save…'}
         </Button>

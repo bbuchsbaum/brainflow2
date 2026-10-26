@@ -26,7 +26,7 @@ export function StudioEmptyState({
   return (
     <div className="flex h-full items-center justify-center bg-background p-6">
       <div className="w-full max-w-lg rounded-sm border border-border bg-card p-6 shadow-sm">
-        <div className="text-bf-sm font-medium text-muted-foreground">Set Studio</div>
+        <div className="text-bf-sm font-medium text-muted-foreground">Set studio</div>
         <h1 className="mt-2 text-bf-lg font-semibold text-foreground">Open a set</h1>
         <p className="mt-2 text-bf-md leading-6 text-muted-foreground">
           Browse images together, organize members, and compare compatible data.

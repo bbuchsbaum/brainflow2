@@ -6,7 +6,7 @@
   align-items: center;
   flex-shrink: 0;
   margin-right: var(--bf-space-1);
-  padding: 0 5px;
+  padding: 0 3px; /* narrow: the rail at 1280 needs the name width */
   height: 16px;
   border-radius: var(--bf-radius-sm);
   border: 1px solid var(--bf-border-subtle);

@@ -126,6 +126,15 @@ describe('MosaicViewPromise render scheduling', () => {
     await waitFor(() => {
       expect(renderMosaicGridMock).toHaveBeenCalled();
     });
+    // Let the layout settle first (the Auto grid and the brain-aspect tiles
+    // re-render once the slicing and crop box arrive), then count.
+    let settled = -1;
+    while (settled !== renderMosaicGridMock.mock.calls.length) {
+      settled = renderMosaicGridMock.mock.calls.length;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+    }
 
     const initialCalls = renderMosaicGridMock.mock.calls.length;
 

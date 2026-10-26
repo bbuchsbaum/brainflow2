@@ -1,5 +1,5 @@
 /**
- * Pure state machine for the Set Studio "NeuroTabs import" dialog.
+ * Pure state machine for the Set studio "NeuroTabs import" dialog.
  *
  * This module owns the entire import-dialog behaviour as a hand-rolled reducer:
  * `importReducer(context, event) -> { context, effects }`. It is intentionally

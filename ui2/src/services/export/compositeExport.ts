@@ -19,10 +19,10 @@ import {
   hiddenBand,
   middleTruncate,
   shortLayerLabel,
-  thresholdExpressionParts,
   formatSlicePosition,
   PLANE_NAME,
   type FramePlane,
+  colorbarBlockModel,
 } from '@/components/views/viewportFrame/frameFormat';
 import { anatomicalLabels } from '@/utils/anatomicalLabels';
 import {
@@ -33,7 +33,6 @@ import {
 } from '@/utils/crosshairUtils';
 import { colormaps } from '@/components/ui/colormapOptions';
 import { formatLayerValue } from '@/utils/valueFormat';
-import { splitStatisticSymbol, statisticVariable } from '@/utils/statistic';
 import { formatRegionLabel } from '@/services/atlasRegionLookup';
 
 export type ExportBackground = 'black' | 'white' | 'transparent';
@@ -51,8 +50,29 @@ export interface FrameIncludes {
 }
 
 export interface CompositeOptions extends FrameIncludes {
-  /** Device pixels per on-screen CSS pixel (resolved from the size). */
-  scale: number;
+  /**
+   * Chrome unit: output pixels per CSS pixel at 96 dpi (dpi / 96). Text,
+   * strokes and margins are sized from it, so their POINT size depends on
+   * the output (its dpi), never on the source pane (v3 user critic).
+   */
+  unit: number;
+  /** Align each row's panes left (montages) instead of centring them. */
+  alignRows?: 'center' | 'start';
+  /** Gap between panes in CSS px at 96 dpi. */
+  paneGap?: number;
+}
+
+/** Figure text sizes in points. */
+export const TEXT_PT = { label: 8, tick: 7, header: 8, letter: 8, tile: 7 } as const;
+
+/** Output pixels for a size in points at the composition's chrome unit. */
+export function ptToPx(pt: number, unit: number): number {
+  return (pt / 72) * 96 * unit;
+}
+
+/** Chrome unit for a size: dpi / 96 for print, the screen multiple otherwise. */
+export function chromeUnit(size: SizeSpec): number {
+  return size.kind === 'print' ? size.dpi / 96 : size.scale;
 }
 
 export type ExportPreset = 'shown' | 'figure';
@@ -110,13 +130,6 @@ export function printWidthPx(size: SizeSpec): number | null {
   return size.kind === 'print' ? Math.round((size.widthMm / 25.4) * size.dpi) : null;
 }
 
-/** Scale that makes a composition `baseWidth` CSS px wide come out at the size. */
-export function resolveScale(size: SizeSpec, baseWidth: number): number {
-  const target = printWidthPx(size);
-  if (target === null) return size.kind === 'screen' ? size.scale : 1;
-  return baseWidth > 0 ? target / baseWidth : 1;
-}
-
 /** Scale bar length (mm) and its length in device pixels for a pane's plane. */
 export const SCALE_BAR_MM = 10;
 export function scaleBarPx(plane: Pick<ViewPlane, 'u_mm'>, mm = SCALE_BAR_MM): number {
@@ -152,12 +165,14 @@ export interface ExportSideBar {
   legend?: AtlasPaletteLegendEntry[] | null;
 }
 
-interface Theme {
+/** Colours for text drawn on the page (header band, colorbar column). */
+interface PageTheme {
   ground: string | null;
   text: string;
   muted: string;
-  scrim: string;
   rule: string;
+  /** Ground under the colorbar's hidden band. */
+  bandGround: string;
 }
 
 function cssVar(name: string, fallback: string): string {
@@ -166,33 +181,30 @@ function cssVar(name: string, fallback: string): string {
   return value || fallback;
 }
 
-function themeFor(background: ExportBackground): Theme {
+function pageTheme(background: ExportBackground): PageTheme {
   if (background === 'white') {
-    return {
-      ground: '#ffffff',
-      text: '#16171a',
-      muted: '#5b5e66',
-      scrim: 'rgba(255,255,255,0.8)',
-      rule: '#c9cbd0',
-    };
+    return { ground: '#ffffff', text: '#16171a', muted: '#5b5e66', rule: '#9a9da4', bandGround: '#ffffff' };
   }
   return {
     ground: background === 'black' ? cssVar('--bf-bg-canvas', '#000000') : null,
     text: cssVar('--bf-text-secondary', '#c4c6cb'),
     muted: cssVar('--bf-text-muted', '#a4a7ad'),
-    scrim: 'rgba(0,0,0,0.8)',
     rule: cssVar('--bf-border-strong', '#55585e'),
+    bandGround: '#000000',
   };
 }
+
+/**
+ * Text drawn ON an image pane (letters, tile labels, scale bar): always light
+ * with a dark halo, because image panes stay black (also on a white page:
+ * no alpha rim around the brain, v3 visual critic).
+ */
+const ON_IMAGE = { text: '#e6e7ea', halo: 'rgba(0,0,0,0.85)', scrim: 'rgba(0,0,0,0.7)' };
 
 const SANS = '"IBM Plex Sans", system-ui, sans-serif';
 const MONO = '"IBM Plex Mono", ui-monospace, monospace';
 
-/** The frame's text sizes (theme.css --bf-text-xs / --bf-text-2xs). */
-const TEXT_XS = 11;
-const TEXT_2XS = 10;
-
-/** Width / height of the colorbar column at scale 1 (bar + ticks + caption). */
+/** Width of the colorbar column in CSS px at 96 dpi (bar + ticks + caption). */
 export const SIDEBAR_W = 120;
 const BAR_W = 10;
 const MAX_BAR_H = 160;
@@ -207,6 +219,37 @@ function colormapStops(name: string): string[] {
   return option?.gradient.match(/#[0-9a-f]{3,8}/gi) ?? ['#000000', '#ffffff'];
 }
 
+/** Header band height above a pane (CSS px at 96 dpi). */
+export function headerBandPx(unit: number): number {
+  return Math.round(ptToPx(TEXT_PT.header, unit) * 1.9);
+}
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/** Fill text with a halo, returning its box (for crosshair knockouts). */
+function haloText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  u: number,
+): Rect {
+  ctx.save();
+  ctx.shadowColor = ON_IMAGE.halo;
+  ctx.shadowBlur = 3 * u;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+  const m = ctx.measureText(text);
+  const w = m.width;
+  const h = (m.actualBoundingBoxAscent ?? 0) + (m.actualBoundingBoxDescent ?? 0) || ptToPx(8, u);
+  const left =
+    ctx.textAlign === 'center' ? x - w / 2 : ctx.textAlign === 'right' || ctx.textAlign === 'end' ? x - w : x;
+  const top =
+    ctx.textBaseline === 'top' ? y : ctx.textBaseline === 'bottom' ? y - h : y - h / 2;
+  const pad = 2 * u;
+  return { x: left - pad, y: top - pad, width: w + 2 * pad, height: h + 2 * pad };
+}
+
 // ── pane ───────────────────────────────────────────────────────────────────
 
 function drawPane(
@@ -216,86 +259,97 @@ function drawPane(
   pane: ExportPane,
   options: CompositeOptions,
   settings: ActiveCrosshairSettings,
-  theme: Theme,
+  theme: PageTheme,
 ): void {
-  const s = options.scale;
-  ctx.drawImage(pane.image, x, y, pane.width, pane.height);
-
-  if (options.crosshair && pane.crosshairWorld) {
-    const point = projectToImage(pane.crosshairWorld, pane.plane);
-    if (point) {
-      // The on-screen stroke, scaled (style at the frame's CSS size).
-      const base = adaptCrosshairStyleToViewport(
-        buildActiveCrosshairStyle(settings),
-        pane.width / s,
-        pane.height / s,
-      );
-      const style = {
-        ...base,
-        lineWidth: base.lineWidth * s,
-        lineDash: base.lineDash?.map((d) => d * s),
-        centerGap: base.centerGap ? base.centerGap * s : base.centerGap,
-      };
-      drawCrosshair({
-        ctx,
-        canvasX: x + point[0],
-        canvasY: y + point[1],
-        bounds: { x, y, width: pane.width, height: pane.height },
-        style,
-      });
-    }
+  const u = options.unit;
+  // Header band above the image: plane, position and layer never cover the
+  // image or its top letter (v3: "A" and "S" were hidden under the header).
+  const band = options.header && !pane.tileLabel ? headerBandPx(u) : 0;
+  if (band) drawHeaderBand(ctx, x, y, pane, u, band, theme);
+  const iy = y + band;
+  // Image panes are black (also on a white page): an alpha edge composited
+  // onto white leaves a dark stair-stepped rim around the brain.
+  if (options.background !== 'transparent') {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x, iy, pane.width, pane.height);
   }
+  ctx.drawImage(pane.image, x, iy, pane.width, pane.height);
+
+  // Everything on the image first, collecting boxes the crosshair skips.
+  const knockouts: Rect[] = [];
 
   if (options.orientation && pane.orientation !== false) {
     const labels = anatomicalLabels(pane.plane);
     if (labels) {
       ctx.save();
-      ctx.font = font(TEXT_XS * s, SANS, 600);
-      ctx.fillStyle = theme.text;
-      ctx.shadowColor = options.background === 'white' ? 'transparent' : 'rgba(0,0,0,0.8)';
-      ctx.shadowBlur = 2 * s;
-      const off = 6 * s;
+      ctx.font = font(ptToPx(TEXT_PT.letter, u), SANS, 600);
+      ctx.fillStyle = ON_IMAGE.text;
+      const off = 5 * u;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText(labels.top, x + pane.width / 2, y + off);
+      knockouts.push(haloText(ctx, labels.top, x + pane.width / 2, iy + off, u));
       ctx.textBaseline = 'bottom';
       // A montage tile keeps its position label bottom-left: the bottom
       // letter sits above that row so the two never touch.
-      const labelRow = pane.tileLabel ? TEXT_2XS * s * 1.5 + 4 * s : 0;
-      ctx.fillText(labels.bottom, x + pane.width / 2, y + pane.height - off - labelRow);
+      const labelRow = pane.tileLabel ? ptToPx(TEXT_PT.tile, u) * 1.6 + 4 * u : 0;
+      knockouts.push(haloText(ctx, labels.bottom, x + pane.width / 2, iy + pane.height - off - labelRow, u));
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
-      ctx.fillText(labels.left, x + off, y + pane.height / 2);
+      knockouts.push(haloText(ctx, labels.left, x + off, iy + pane.height / 2, u));
       ctx.textAlign = 'right';
-      ctx.fillText(labels.right, x + pane.width - off, y + pane.height / 2);
+      knockouts.push(haloText(ctx, labels.right, x + pane.width - off, iy + pane.height / 2, u));
       ctx.restore();
     }
   }
 
-  if (options.header) {
-    drawHeader(ctx, x, y, pane, s, theme);
-  }
-
   if (options.scaleBar && pane.scaleBar !== false) {
-    drawScaleBar(ctx, x, y, pane, s, theme);
+    const box = drawScaleBar(ctx, x, iy, pane, u);
+    if (box) knockouts.push(box);
   }
 
   if (pane.tileLabel) {
     ctx.save();
-    ctx.font = font(TEXT_2XS * s, MONO);
+    ctx.font = font(ptToPx(TEXT_PT.tile, u), MONO, pane.tileLabel.emphasis ? 600 : 400);
     const text = pane.tileLabel.text;
-    const w = ctx.measureText(text).width + 8 * s;
-    const h = TEXT_2XS * s * 1.5;
-    ctx.fillStyle = theme.scrim;
-    ctx.fillRect(x + 4 * s, y + pane.height - 4 * s - h, w, h);
-    // The crosshair's tile: the crosshair colour on a dark ground (as on
-    // screen); on white that colour may not read, so weight carries it.
-    const onWhite = options.background === 'white';
-    if (pane.tileLabel.emphasis && onWhite) ctx.font = font(TEXT_2XS * s, MONO, 600);
-    ctx.fillStyle = pane.tileLabel.emphasis && !onWhite ? settings.activeColor : theme.text;
+    const w = ctx.measureText(text).width + 6 * u;
+    const h = ptToPx(TEXT_PT.tile, u) * 1.5;
+    const bx = x + 3 * u;
+    const by = iy + pane.height - 3 * u - h;
+    ctx.fillStyle = ON_IMAGE.scrim;
+    ctx.fillRect(bx, by, w, h);
+    // The crosshair's tile: the crosshair colour (images stay dark).
+    ctx.fillStyle = pane.tileLabel.emphasis ? settings.activeColor : ON_IMAGE.text;
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, x + 8 * s, y + pane.height - 4 * s - h / 2);
+    ctx.fillText(text, bx + 3 * u, by + h / 2);
+    knockouts.push({ x: bx, y: by, width: w, height: h });
     ctx.restore();
+  }
+
+  if (options.crosshair && pane.crosshairWorld) {
+    const point = projectToImage(pane.crosshairWorld, pane.plane);
+    if (point) {
+      // The user's stroke at the frame's CSS size, in chrome units; it
+      // skips the letters, labels and scale bar like on screen.
+      const base = adaptCrosshairStyleToViewport(
+        buildActiveCrosshairStyle(settings),
+        pane.width / u,
+        pane.height / u,
+      );
+      const style = {
+        ...base,
+        lineWidth: base.lineWidth * u,
+        lineDash: base.lineDash?.map((d) => d * u),
+        centerGap: base.centerGap ? base.centerGap * u : base.centerGap,
+      };
+      drawCrosshair({
+        ctx,
+        canvasX: x + point[0],
+        canvasY: iy + point[1],
+        bounds: { x, y: iy, width: pane.width, height: pane.height },
+        style,
+        knockouts,
+      });
+    }
   }
 }
 
@@ -305,71 +359,74 @@ function drawScaleBar(
   x: number,
   y: number,
   pane: ExportPane,
-  s: number,
-  theme: Theme,
-): void {
+  u: number,
+): Rect | null {
   const length = scaleBarPx(pane.plane);
-  if (!(length > 4) || length > pane.width * 0.6) return;
-  const right = x + pane.width - 10 * s;
-  const base = y + pane.height - 10 * s;
+  if (!(length > 4) || length > pane.width * 0.6) return null;
+  const right = x + pane.width - 8 * u;
+  const base = y + pane.height - 8 * u;
   ctx.save();
-  ctx.fillStyle = theme.text;
-  ctx.shadowColor = theme.ground === '#ffffff' ? 'transparent' : 'rgba(0,0,0,0.8)';
-  ctx.shadowBlur = 2 * s;
-  ctx.fillRect(right - length, base - 2 * s, length, 2 * s);
-  ctx.font = font(TEXT_2XS * s, MONO);
+  ctx.fillStyle = ON_IMAGE.text;
+  ctx.shadowColor = ON_IMAGE.halo;
+  ctx.shadowBlur = 3 * u;
+  ctx.fillRect(right - length, base - 2 * u, length, 2 * u);
+  ctx.font = font(ptToPx(TEXT_PT.tick, u), MONO);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(`${SCALE_BAR_MM} mm`, right - length / 2, base - 4 * s);
+  ctx.fillText(`${SCALE_BAR_MM} mm`, right - length / 2, base - 4 * u);
   ctx.restore();
+  const h = ptToPx(TEXT_PT.tick, u) * 1.4 + 6 * u;
+  return { x: right - length - 2 * u, y: base - h, width: length + 4 * u, height: h + 2 * u };
 }
 
-function drawHeader(
+function drawHeaderBand(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   pane: ExportPane,
-  s: number,
-  theme: Theme,
+  u: number,
+  band: number,
+  theme: PageTheme,
 ): void {
-  // "Axial  z 50.5 mm  zmap_synthetic" (frame header: plane, mono position, muted name).
+  // "Axial  z = 50.5 mm  zmap_synthetic" (plane, mono position, muted layer).
+  const px = ptToPx(TEXT_PT.header, u);
+  const gap = 6 * u;
   const parts: Array<{ text: string; font: string; color: string }> = [
-    { text: PLANE_NAME[pane.framePlane], font: font(TEXT_XS * s, SANS), color: theme.text },
+    { text: PLANE_NAME[pane.framePlane], font: font(px, SANS), color: theme.text },
     {
-      // Figure style: "z = 50.5 mm".
       text: formatSlicePosition(pane.framePlane, pane.positionMm).replace(/^([xyz]) /, '$1 = '),
-      font: font(TEXT_XS * s, MONO),
+      font: font(px, MONO),
       color: theme.text,
     },
   ];
-  if (pane.layerName) {
-    const name =
-      middleTruncate(shortLayerLabel(pane.layerName), 40, 7) ?? shortLayerLabel(pane.layerName);
-    parts.push({ text: name, font: font(TEXT_XS * s, SANS), color: theme.muted });
-  }
   ctx.save();
-  const gap = 8 * s;
-  const widths = parts.map((p) => {
-    ctx.font = p.font;
-    return ctx.measureText(p.text).width;
-  });
-  const total = widths.reduce((a, b) => a + b, 0) + gap * (parts.length - 1) + 8 * s;
-  const h = TEXT_XS * s * 1.6;
-  const left = x + 6 * s;
-  const top = y + 4 * s;
-  ctx.fillStyle = theme.scrim;
-  ctx.fillRect(left, top, Math.min(total, pane.width - 12 * s), h);
-  ctx.beginPath();
-  ctx.rect(left, top, pane.width - 12 * s, h);
-  ctx.clip();
-  let cx = left + 4 * s;
+  const measure = (list: typeof parts) =>
+    list.reduce((sum, p, i) => {
+      ctx.font = p.font;
+      return sum + ctx.measureText(p.text).width + (i > 0 ? gap : 0);
+    }, 0);
+  // The band spans the pane: the layer name gets what is left, middle-
+  // truncated (never clipped to a stub; dropped below 8 characters).
+  if (pane.layerName) {
+    const label = shortLayerLabel(pane.layerName);
+    for (let chars = label.length; chars >= 8; chars -= 1) {
+      const text = middleTruncate(label, chars, 8) ?? label;
+      const candidate = [...parts, { text, font: font(px, SANS), color: theme.muted }];
+      if (measure(candidate) <= pane.width) {
+        parts.push(candidate[candidate.length - 1]);
+        break;
+      }
+    }
+  }
+  if (measure(parts) > pane.width) parts.shift();
   ctx.textBaseline = 'middle';
-  parts.forEach((p, i) => {
+  let cx = x;
+  for (const p of parts) {
     ctx.font = p.font;
     ctx.fillStyle = p.color;
-    ctx.fillText(p.text, cx, top + h / 2);
-    cx += widths[i] + gap;
-  });
+    ctx.fillText(p.text, cx, y + band / 2);
+    cx += ctx.measureText(p.text).width + gap;
+  }
   ctx.restore();
 }
 
@@ -389,22 +446,34 @@ function projectToImage(
   ];
 }
 
-// ── side bar: colorbar or legend ───────────────────────────────────────────
+// ── side bar: colorbar or legend (one ColorbarBlock model with the frame) ──
 
-function drawCaptionSymbol(
+/** Draw runs of [text, italic, mono] left to right; returns the advance. */
+function drawRuns(
   ctx: CanvasRenderingContext2D,
-  label: string,
+  runs: Array<{ text: string; italic?: boolean; mono?: boolean }>,
   x: number,
   y: number,
   px: number,
 ): number {
   let cx = x;
-  for (const part of splitStatisticSymbol(label)) {
-    ctx.font = font(px, SANS, 400, part.italic);
-    ctx.fillText(part.text, cx, y);
-    cx += ctx.measureText(part.text).width;
+  for (const r of runs) {
+    ctx.font = font(px, r.mono ? MONO : SANS, 400, !!r.italic);
+    ctx.fillText(r.text, cx, y);
+    cx += ctx.measureText(r.text).width;
   }
   return cx - x;
+}
+
+function measureRuns(
+  ctx: CanvasRenderingContext2D,
+  runs: Array<{ text: string; italic?: boolean; mono?: boolean }>,
+  px: number,
+): number {
+  return runs.reduce((w, r) => {
+    ctx.font = font(px, r.mono ? MONO : SANS, 400, !!r.italic);
+    return w + ctx.measureText(r.text).width;
+  }, 0);
 }
 
 function drawColorbar(
@@ -413,39 +482,41 @@ function drawColorbar(
   y: number,
   height: number,
   side: ExportSideBar,
-  s: number,
-  theme: Theme,
+  u: number,
+  theme: PageTheme,
 ): void {
   const layer = side.colorbar!;
-  const barH = Math.min(MAX_BAR_H * s, height - 80 * s);
-  const top = y + (height - barH) / 2;
-  const barX = x + 34 * s; // room for the caret value at the left
+  const block = colorbarBlockModel(layer);
+  const labelPx = ptToPx(TEXT_PT.label, u);
+  const tickPx = ptToPx(TEXT_PT.tick, u);
+  const colW = SIDEBAR_W * u;
+  const barH = Math.max(24 * u, Math.min(MAX_BAR_H * u, height - 4 * labelPx - 16 * u));
+  const top = y + Math.max(labelPx * 2, (height - barH) / 2);
+  const caretRoom = side.value != null ? 30 * u : 4 * u;
+  const barX = x + caretRoom;
   const [wMin, wMax] = layer.intensity;
+  const room = x + colW - barX - 2 * u;
 
   ctx.save();
-  // Caption: "z · zmap_synthetic", left-aligned to the bar.
+  // Caption: the statistic symbol; the layer name only when it fits whole
+  // enough to identify the layer (>= 8 characters), never a stub ("Mo.").
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = theme.text;
-  let cx = barX;
-  const captionY = top - 10 * s;
-  if (layer.units) cx += drawCaptionSymbol(ctx, layer.units, cx, captionY, TEXT_2XS * s);
-  if (layer.units && layer.unitsFromName) {
-    ctx.font = font(TEXT_2XS * s, SANS);
-    ctx.fillStyle = theme.muted;
-    ctx.fillText(' (from name)', cx, captionY);
-    cx += ctx.measureText(' (from name)').width;
-    ctx.fillStyle = theme.text;
-  }
-  if (layer.nameLabel) {
-    ctx.font = font(TEXT_2XS * s, SANS);
-    ctx.fillStyle = theme.muted;
-    const room = x + SIDEBAR_W * s - cx;
-    const prefix = layer.units ? ' · ' : '';
-    let name = layer.nameLabel;
-    while (name.length > 4 && ctx.measureText(prefix + name).width > room) {
-      name = middleTruncate(layer.nameLabel, name.length - 1, 4) ?? name.slice(0, -1);
+  const captionY = top - 6 * u;
+  const symbolRuns = block.symbol;
+  let cx = barX + drawRuns(ctx, symbolRuns, barX, captionY, labelPx);
+  if (block.name) {
+    const prefix = symbolRuns.length ? ' · ' : '';
+    ctx.font = font(labelPx, SANS);
+    for (let chars = block.name.length; chars >= 8; chars -= 1) {
+      const text = prefix + (middleTruncate(block.name, chars, 8) ?? block.name);
+      if (ctx.measureText(text).width <= room - (cx - barX)) {
+        ctx.fillStyle = theme.muted;
+        ctx.fillText(text, cx, captionY);
+        cx += ctx.measureText(text).width;
+        break;
+      }
     }
-    ctx.fillText(prefix + name, cx, captionY);
   }
 
   // Bar: the colormap gradient, min at the bottom.
@@ -454,75 +525,76 @@ function drawColorbar(
   stops.forEach((c, i) =>
     gradient.addColorStop(stops.length === 1 ? 0 : i / (stops.length - 1), c),
   );
+  const bw = BAR_W * u;
   ctx.fillStyle = gradient;
-  ctx.fillRect(barX, top, BAR_W * s, barH);
+  ctx.fillRect(barX, top, bw, barH);
 
-  // Hidden threshold band: canvas ground with a faint hatch (the frame's cut-out).
+  // Hidden threshold band: the ground with a faint hatch (the frame's cut-out).
   const band = hiddenBand(layer.intensity, layer.threshold);
   if (band) {
     const y0 = top + (1 - band[1]) * barH;
     const y1 = top + (1 - band[0]) * barH;
-    ctx.fillStyle = theme.ground ?? '#000000';
-    ctx.fillRect(barX, y0, BAR_W * s, y1 - y0);
+    ctx.fillStyle = theme.bandGround;
+    ctx.fillRect(barX, y0, bw, y1 - y0);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(barX, y0, BAR_W * s, y1 - y0);
+    ctx.rect(barX, y0, bw, y1 - y0);
     ctx.clip();
     ctx.strokeStyle = theme.rule;
-    ctx.lineWidth = 1 * s;
-    for (let k = -BAR_W * s; k < y1 - y0 + BAR_W * s; k += 4 * s) {
+    ctx.lineWidth = 1 * u;
+    for (let k = -bw; k < y1 - y0 + bw; k += 4 * u) {
       ctx.beginPath();
-      ctx.moveTo(barX, y0 + k + BAR_W * s);
-      ctx.lineTo(barX + BAR_W * s, y0 + k);
+      ctx.moveTo(barX, y0 + k + bw);
+      ctx.lineTo(barX + bw, y0 + k);
       ctx.stroke();
     }
     ctx.restore();
   }
   ctx.strokeStyle = theme.rule;
-  ctx.lineWidth = 1 * s;
-  ctx.strokeRect(barX, top, BAR_W * s, barH);
+  ctx.lineWidth = 1 * u;
+  ctx.strokeRect(barX, top, bw, barH);
 
-  // Ticks and labels (the frame's own tick selection and wording).
-  const ticks = colorbarTicks(layer.intensity, layer.threshold, barH / s, 12, layer.dataRange);
-  ctx.font = font(TEXT_2XS * s, MONO);
+  // Ticks and labels (the frame's own tick selection and wording), close
+  // to their marks.
+  const ticks = colorbarTicks(layer.intensity, layer.threshold, barH / u, 12, layer.dataRange);
+  ctx.font = font(tickPx, MONO);
   ctx.fillStyle = theme.text;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   for (const t of ticks) {
     const ty = top + (1 - t.fraction) * barH;
-    ctx.fillRect(barX + BAR_W * s, ty - 0.5 * s, 4 * s, 1 * s);
-    ctx.fillText(t.label, barX + BAR_W * s + 7 * s, ty);
+    ctx.fillRect(barX + bw, ty - 0.5 * u, 3 * u, 1 * u);
+    ctx.fillText(t.label, barX + bw + 5 * u, ty);
   }
 
   // Crosshair value as a caret, clamped to the bar.
-  if (
-    side.value !== null &&
-    side.value !== undefined &&
-    Number.isFinite(side.value) &&
-    wMax > wMin
-  ) {
+  if (side.value != null && Number.isFinite(side.value) && wMax > wMin) {
     const f = Math.max(0, Math.min(1, (side.value - wMin) / (wMax - wMin)));
     const cy = top + (1 - f) * barH;
     ctx.beginPath();
-    ctx.moveTo(barX - 1 * s, cy);
-    ctx.lineTo(barX - 6 * s, cy - 4 * s);
-    ctx.lineTo(barX - 6 * s, cy + 4 * s);
+    ctx.moveTo(barX - 1 * u, cy);
+    ctx.lineTo(barX - 5 * u, cy - 3.5 * u);
+    ctx.lineTo(barX - 5 * u, cy + 3.5 * u);
     ctx.closePath();
     ctx.fill();
     ctx.textAlign = 'right';
-    ctx.fillText(formatLayerValue(side.value), barX - 8 * s, cy);
+    ctx.fillText(formatLayerValue(side.value), barX - 7 * u, cy);
   }
 
-  // Threshold wording under the bar ("|z| ≤ 3.1 hidden").
-  const expr = thresholdExpressionParts(layer.threshold, statisticVariable(layer.units));
-  if (expr) {
+  // Footer: one line, the variable italic, numbers mono ("|z| ≤ 3.1 hidden").
+  if (block.footer.length) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = font(TEXT_2XS * s, MONO);
     ctx.fillStyle = theme.muted;
-    // Two lines like the frame: the expression, then "hidden".
-    ctx.fillText(expr.join(' '), barX, top + barH + 8 * s);
-    ctx.fillText('hidden', barX, top + barH + 8 * s + TEXT_2XS * s * 1.4);
+    const fy = top + barH + 6 * u;
+    if (measureRuns(ctx, block.footer, tickPx) <= colW - (barX - x)) {
+      drawRuns(ctx, block.footer, barX, fy, tickPx);
+    } else {
+      // Too narrow for one line: expression, then "hidden".
+      const cut = block.footer.length - 1;
+      drawRuns(ctx, block.footer.slice(0, cut), barX, fy, tickPx);
+      drawRuns(ctx, [{ text: block.footer[cut].text.trim() }], barX, fy + tickPx * 1.4, tickPx);
+    }
   }
   ctx.restore();
 }
@@ -533,21 +605,28 @@ function drawLegend(
   y: number,
   height: number,
   legend: AtlasPaletteLegendEntry[],
-  s: number,
-  theme: Theme,
+  u: number,
+  theme: PageTheme,
 ): void {
-  const line = TEXT_2XS * s * 1.6;
-  const rows = legend.slice(0, Math.max(1, Math.floor((height - 16 * s) / line)));
+  const px = ptToPx(TEXT_PT.label, u);
+  const line = px * 1.6;
+  const rows = legend.slice(0, Math.max(1, Math.floor((height - 16 * u) / line)));
   let ty = y + (height - rows.length * line) / 2;
+  const room = SIDEBAR_W * u - 26 * u;
   ctx.save();
-  ctx.font = font(TEXT_2XS * s, SANS);
+  ctx.font = font(px, SANS);
   ctx.textBaseline = 'middle';
   for (const entry of rows) {
     ctx.fillStyle = `rgb(${entry.color[0]}, ${entry.color[1]}, ${entry.color[2]})`;
-    ctx.fillRect(x + 8 * s, ty + line / 2 - 3 * s, 6 * s, 6 * s);
+    ctx.fillRect(x + 8 * u, ty + line / 2 - 3 * u, 6 * u, 6 * u);
     ctx.fillStyle = theme.text;
-    const name = formatRegionLabel(entry);
-    ctx.fillText(name, x + 20 * s, ty + line / 2, SIDEBAR_W * s - 24 * s);
+    // Truncated with an ellipsis, never squashed to fit.
+    const full = formatRegionLabel(entry);
+    let name = full;
+    for (let chars = full.length; chars >= 4 && ctx.measureText(name).width > room; chars -= 1) {
+      name = middleTruncate(full, chars, 4) ?? full;
+    }
+    ctx.fillText(name, x + 20 * u, ty + line / 2);
     ty += line;
   }
   ctx.restore();
@@ -555,7 +634,7 @@ function drawLegend(
 
 // ── composition ────────────────────────────────────────────────────────────
 
-/** Where each pane goes: rows of panes, each row centred. */
+/** Where each pane goes: rows of panes. */
 export type PaneLayout = ExportPane[][];
 
 export interface Composition {
@@ -564,8 +643,24 @@ export interface Composition {
   height: number;
 }
 
-/** Gap between panes (device px at scale 1): the frame's 1 px hairline. */
-const PANE_GAP = 1;
+/** Composition size for a layout (the capture solves pane sizes with it). */
+export function compositionSize(
+  rows: Array<Array<{ width: number; height: number; tile?: boolean }>>,
+  options: Pick<CompositeOptions, 'unit' | 'header' | 'colorbar' | 'paneGap'>,
+  hasSide: boolean,
+): { width: number; height: number; gridW: number } {
+  const u = options.unit;
+  const gap = (options.paneGap ?? 4) * u;
+  const band = (p: { tile?: boolean }) => (options.header && !p.tile ? headerBandPx(u) : 0);
+  const rowWidths = rows.map(
+    (r) => r.reduce((w, p) => w + p.width, 0) + gap * Math.max(0, r.length - 1),
+  );
+  const rowHeights = rows.map((r) => Math.max(0, ...r.map((p) => p.height + band(p))));
+  const gridW = Math.max(0, ...rowWidths);
+  const gridH = rowHeights.reduce((a, b) => a + b, 0) + gap * Math.max(0, rows.length - 1);
+  const sideW = hasSide ? SIDEBAR_W * u + gap : 0;
+  return { width: Math.max(1, Math.round(gridW + sideW)), height: Math.max(1, Math.round(gridH)), gridW };
+}
 
 export function compose(
   rows: PaneLayout,
@@ -573,20 +668,21 @@ export function compose(
   options: CompositeOptions,
   settings: ActiveCrosshairSettings,
 ): Composition {
-  const s = options.scale;
-  const theme = themeFor(options.background);
-  const gap = PANE_GAP * s;
+  const u = options.unit;
+  const theme = pageTheme(options.background);
+  const gap = (options.paneGap ?? 4) * u;
+  const hasSide =
+    options.colorbar && (!!side.colorbar || (!!side.legend && side.legend.length > 0));
+  const band = (p: ExportPane) => (options.header && !p.tileLabel ? headerBandPx(u) : 0);
   const rowWidths = rows.map(
     (r) => r.reduce((w, p) => w + p.width, 0) + gap * Math.max(0, r.length - 1),
   );
-  const rowHeights = rows.map((r) => Math.max(0, ...r.map((p) => p.height)));
-  const gridW = Math.max(0, ...rowWidths);
-  const gridH = rowHeights.reduce((a, b) => a + b, 0) + gap * Math.max(0, rows.length - 1);
-  const hasSide =
-    options.colorbar && (!!side.colorbar || (!!side.legend && side.legend.length > 0));
-  const sideW = hasSide ? SIDEBAR_W * s : 0;
-  const width = Math.max(1, Math.round(gridW + sideW));
-  const height = Math.max(1, Math.round(gridH));
+  const rowHeights = rows.map((r) => Math.max(0, ...r.map((p) => p.height + band(p))));
+  const { width, height, gridW } = compositionSize(
+    rows.map((r) => r.map((p) => ({ width: p.width, height: p.height, tile: !!p.tileLabel }))),
+    options,
+    hasSide,
+  );
 
   const canvas = makeCanvas(width, height);
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
@@ -598,23 +694,24 @@ export function compose(
 
   let y = 0;
   rows.forEach((row, r) => {
-    let x = (gridW - rowWidths[r]) / 2;
+    let x = options.alignRows === 'start' ? 0 : (gridW - rowWidths[r]) / 2;
     for (const pane of row) {
-      drawPane(ctx, x, y + (rowHeights[r] - pane.height) / 2, pane, options, settings, theme);
+      drawPane(ctx, x, y, pane, options, settings, theme);
       x += pane.width + gap;
     }
     y += rowHeights[r] + gap;
   });
 
   if (hasSide) {
+    const sx = gridW + gap;
     const legend = side.legend && side.legend.length > 0 ? side.legend : null;
     if (side.colorbar && legend) {
       // A statistic over a label map: the colorbar above, the regions below.
       const split = Math.round(height * 0.6);
-      drawColorbar(ctx, gridW, 0, split, side, s, theme);
-      drawLegend(ctx, gridW, split, height - split, legend, s, theme);
-    } else if (side.colorbar) drawColorbar(ctx, gridW, 0, height, side, s, theme);
-    else if (legend) drawLegend(ctx, gridW, 0, height, legend, s, theme);
+      drawColorbar(ctx, sx, 0, split, side, u, theme);
+      drawLegend(ctx, sx, split, height - split, legend, u, theme);
+    } else if (side.colorbar) drawColorbar(ctx, sx, 0, height, side, u, theme);
+    else if (legend) drawLegend(ctx, sx, 0, height, legend, u, theme);
   }
   return { canvas, width, height };
 }
@@ -776,10 +873,13 @@ export function withJpegMetadata(jpeg: Uint8Array, meta: EncodeMeta): Uint8Array
     segment[2] = (text.length + 2) >> 8;
     segment[3] = (text.length + 2) & 0xff;
     segment.set(text, 4);
+    // After the APP0 JFIF segment (JFIF requires APP0 to follow SOI).
+    let at = 2;
+    if (out[2] === 0xff && out[3] === 0xe0) at = 4 + ((out[4] << 8) | out[5]);
     const merged = new Uint8Array(out.length + segment.length);
-    merged.set(out.subarray(0, 2), 0);
-    merged.set(segment, 2);
-    merged.set(out.subarray(2), 2 + segment.length);
+    merged.set(out.subarray(0, at), 0);
+    merged.set(segment, at);
+    merged.set(out.subarray(at), at + segment.length);
     out = merged;
   }
   return out;

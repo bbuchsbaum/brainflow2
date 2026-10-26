@@ -55,7 +55,10 @@ export function statisticUnits(
   const label = (
     statisticSignAssumed(statistic, dataRange) ? statistic.positiveDataLabel! : statistic.label
   ).trim();
-  return label.length > 0 ? label : null;
+  if (label.length === 0) return null;
+  // A statistic guessed from the file name is marked wherever it is shown:
+  // "z*" (long name "z score, inferred from file name").
+  return isInferredStatistic(statistic) ? `${label}${INFERRED_MARK}` : label;
 }
 
 /** A formatted value with its statistic symbol first: "t(24) 3.42"; the bare value otherwise. */
@@ -152,10 +155,10 @@ export interface SymbolPart {
  * "χ²(3)" -> [χ]²(3). Unknown labels come back as one upright part.
  */
 export function splitStatisticSymbol(label: string): SymbolPart[] {
-  const variable = /^([ztFrpχ])(²?)(\(.*\))?$/.exec(label);
+  const variable = /^([ztFrpχ])(²?)(\(.*\))?(\*)?$/.exec(label);
   if (variable) {
     const parts: SymbolPart[] = [{ text: variable[1], italic: true }];
-    const rest = `${variable[2]}${variable[3] ?? ''}`;
+    const rest = `${variable[2]}${variable[3] ?? ''}${variable[4] ?? ''}`;
     if (rest) parts.push({ text: rest, italic: false });
     return parts;
   }
@@ -199,9 +202,8 @@ export function statisticPhrase(
 
 /** Accessible long form of a statistic symbol: "t statistic, 24 degrees of freedom". */
 export function statisticLongName(label: string): string {
-  const guessed = /^([zt])\?$/.exec(label);
-  if (guessed) {
-    return `${guessed[1] === 'z' ? 'z score' : 't statistic'}, guessed from the file name`;
+  if (label.endsWith(INFERRED_MARK)) {
+    return `${statisticLongName(label.slice(0, -INFERRED_MARK.length))}, inferred from file name`;
   }
   const m = /^([ztFrpχ])²?(?:\((.*)\))?$/.exec(label);
   if (!m) {
@@ -231,6 +233,9 @@ export function statisticVariable(units: string | null | undefined): string {
 /** intent_name of a statistic guessed from the file name (no NIfTI intent). */
 export const INFERRED_FROM_NAME = 'inferred from file name';
 
+/** Suffix marking a statistic inferred from the file name ("z*"). */
+export const INFERRED_MARK = '*';
+
 /** True for a statistic guessed from the file name ("z (from name)"). */
 export function isInferredStatistic(statistic: StatisticInfo | null | undefined): boolean {
   return statistic?.intentName === INFERRED_FROM_NAME;
@@ -242,6 +247,7 @@ export function isInferredStatistic(statistic: StatisticInfo | null | undefined)
  * and mask images (`cluster_mask_zstat1`), and the like.
  */
 const NOT_THE_STATISTIC = new Set([
+  'rendered',
   'p',
   'corrp',
   'tfce',

@@ -1,78 +1,111 @@
 /**
- * Hover, click and the drawn overlay share one placement (v2 fidelity
- * critique): in a letterboxed pane (the axial view of the P3 fixture: a
- * 282×335 image in a 948×311 canvas), the world under a client pixel is the
- * same for the hover readout and a click, and projecting that world back
- * lands on the same pixel the overlay draws at.
+ * Hover, click and the drawn crosshair agree on a letterboxed pane (v2/v3
+ * fidelity critics), through the real code paths:
+ * - hover: SliceViewCanvas's mapping (utils/slicePointer.pointerToWorld);
+ * - click: the viewer controller (useSliceViewerController.handleMouseDown);
+ * - overlay: ui2's ReusableSliceViewport render callback, which projects the
+ *   crosshair and calls drawCrosshair.
+ * A fractional-pixel pointer (a trackpad reports sub-pixel positions) must
+ * give the same world point for hover and click, and the overlay must draw
+ * that point at the pointer's canvas pixel.
  */
-import { describe, expect, it } from 'vitest';
-import {
-  calculateImagePlacement,
-  clientPointToWorld,
-  projectWorldToCanvas,
-} from '@brainflow/visualization/slice';
+import React from 'react';
+import { render, renderHook, act } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { calculateImagePlacement, useSliceViewerController } from '@brainflow/visualization/slice';
+import { pointerToWorld } from '@/utils/slicePointer';
+import type { ViewPlane } from '@/types/coordinates';
 
-const plane = {
-  origin_mm: [-95.5, 94.5, 50.5] as [number, number, number],
-  u_mm: [0.674626886844635, 0, 0] as [number, number, number],
-  v_mm: [0, -0.674626886844635, 0] as [number, number, number],
-  dim_px: [282, 335] as [number, number],
-};
+const drawn: Array<{ canvasX: number; canvasY: number }> = [];
+let customRender: ((ctx: CanvasRenderingContext2D, placement: unknown) => void) | null = null;
 
-function canvasAt(left: number, top: number, width: number, height: number): HTMLCanvasElement {
+vi.mock('@/utils/crosshairUtils', async (orig) => ({
+  ...(await orig<typeof import('@/utils/crosshairUtils')>()),
+  drawCrosshair: (opts: { canvasX: number; canvasY: number }) => {
+    drawn.push({ canvasX: opts.canvasX, canvasY: opts.canvasY });
+  },
+}));
+
+vi.mock('@brainflow/visualization/slice', async (orig) => {
+  const actual = await orig<typeof import('@brainflow/visualization/slice')>();
   return {
-    width,
-    height,
-    getBoundingClientRect: () => ({
-      left,
-      top,
-      width,
-      height,
-      right: left + width,
-      bottom: top + height,
-    }),
-  } as unknown as HTMLCanvasElement;
-}
+    ...actual,
+    // Capture the render callback ui2's viewport hands to the shared one.
+    ReusableSliceViewport: (props: { customRender?: typeof customRender }) => {
+      customRender = props.customRender ?? null;
+      return null;
+    },
+  };
+});
 
-describe('slice placement agreement (letterboxed pane)', () => {
-  const canvas = canvasAt(281, 69, 948, 311);
-  const placement = calculateImagePlacement(282, 335, 948, 311);
+const plane: ViewPlane = {
+  origin_mm: [-95.5, 94.5, 50.5],
+  u_mm: [0.674626886844635, 0, 0],
+  v_mm: [0, -0.674626886844635, 0],
+  dim_px: [282, 335],
+} as ViewPlane;
 
-  it('letterboxes in x only', () => {
-    expect(placement).toMatchObject({ x: 343, y: 0, width: 262, height: 311 });
+const RECT = { left: 281, top: 69, width: 948, height: 311 };
+const canvas = {
+  width: 948,
+  height: 311,
+  getBoundingClientRect: () => ({
+    ...RECT,
+    right: RECT.left + RECT.width,
+    bottom: RECT.top + RECT.height,
+  }),
+} as unknown as HTMLCanvasElement;
+const placement = calculateImagePlacement(282, 335, 948, 311);
+const ctx = { canvas } as unknown as CanvasRenderingContext2D;
+
+describe('hover == click == drawn crosshair (letterboxed pane)', () => {
+  beforeEach(() => {
+    drawn.length = 0;
+    customRender = null;
   });
 
-  it('hover world == click world, and the overlay draws it back at the same pixel', () => {
-    for (const [cx, cy] of [
-      [703, 223],
-      [624, 69],
-      [860, 300],
-    ]) {
-      // Hover (SliceViewCanvas.canvasToWorld) and click (the viewer
-      // controller's handleMouseDown) both call clientPointToWorld with the
-      // render's placement and the store plane.
-      const hover = clientPointToWorld(cx, cy, canvas, placement, plane)!;
-      const click = clientPointToWorld(cx, cy, canvas, placement, plane)!;
-      expect(hover).toEqual(click);
-      const drawn = projectWorldToCanvas(hover, plane, placement)!;
-      expect(drawn.canvasX + 281).toBeCloseTo(cx, 6);
-      expect(drawn.canvasY + 69).toBeCloseTo(cy, 6);
-    }
-  });
+  it.each([
+    [703.9, 223.1],
+    [624.37, 69.5],
+    [860.25, 300.75],
+  ])('pointer at (%f, %f)', async (clientX, clientY) => {
+    // Click: the viewer controller with the render's placement.
+    const clicks: Array<[number, number, number]> = [];
+    const { result } = renderHook(() =>
+      useSliceViewerController({ viewPlane: plane, onWorldClick: (w) => clicks.push(w) }),
+    );
+    act(() => {
+      result.current.handleCanvasReady(canvas);
+      result.current.handleRender(ctx, placement);
+      result.current.handleMouseDown({
+        clientX,
+        clientY,
+        button: 0,
+        defaultPrevented: false,
+      } as unknown as React.MouseEvent<HTMLDivElement>);
+    });
+    expect(clicks).toHaveLength(1);
+    const click = clicks[0];
 
-  it('reads whole client pixels: the fixture point (−37.5, −17.5) is at x 703.9, read at 703', () => {
-    const exact = projectWorldToCanvas([-37.5, -17.5, 50.5], plane, placement)!;
-    expect(exact.canvasX + 281).toBeCloseTo(703.88, 1);
-    // A mouse event reports 703: 0.88 px × 282/262 image px × 0.6746 mm.
-    const read = clientPointToWorld(703, 223, canvas, placement, plane)!;
-    expect(read[0]).toBeCloseTo(-38.14, 2);
-    const rounded = clientPointToWorld(
-      Math.round(exact.canvasX + 281),
-      223,
-      canvas,
-      placement,
-      plane,
-    )!;
-    expect(Math.abs(rounded[0] - -37.5)).toBeLessThan(0.4);
+    // Hover: SliceViewCanvas's mapping, same placement and plane.
+    const hover = pointerToWorld(clientX, clientY, canvas, placement, plane)!;
+    for (let a = 0; a < 3; a += 1) expect(hover[a]).toBeCloseTo(click[a], 9);
+
+    // Overlay: ui2's viewport draws the crosshair at that world point.
+    const { ReusableSliceViewport } = await import('../sliceViewer/ReusableSliceViewport');
+    render(
+      React.createElement(ReusableSliceViewport, {
+        width: 948,
+        height: 311,
+        viewPlane: plane,
+        crosshair: { visible: true, world_mm: hover },
+        crosshairStyle: { color: '#0f0', lineWidth: 1 },
+      } as never),
+    );
+    expect(customRender).not.toBeNull();
+    customRender!(ctx, placement);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].canvasX + RECT.left).toBeCloseTo(clientX, 6);
+    expect(drawn[0].canvasY + RECT.top).toBeCloseTo(clientY, 6);
   });
 });

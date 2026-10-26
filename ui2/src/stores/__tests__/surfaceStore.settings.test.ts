@@ -171,7 +171,8 @@ describe('surfaceStore surface view settings', () => {
     expect(state.materialSettings).toMatchObject({
       surfaceColor: '#112233',
       shininess: 88,
-      specularColor: '#ffffff',
+      // Untouched fields keep the (matte) default.
+      specularColor: '#1a1a1a',
     });
     expect(state.displaySettings).toEqual(DEFAULT_SURFACE_VIEW_SETTINGS.displaySettings);
     expect(state.projectionSettings).toEqual(DEFAULT_SURFACE_VIEW_SETTINGS.projectionSettings);

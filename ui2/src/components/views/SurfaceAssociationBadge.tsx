@@ -9,8 +9,8 @@
  *   loaded-unlinked → warning-toned unlinked indicator + the reason.
  *   loaded-linked   → quiet linked indicator naming the source volume.
  *
- * Colour policy: the unlinked state and the pial/white coordinate-linking
- * caveat are warnings (`--bf-warning`). The template note is neutral guidance; the linked
+ * Colour policy: the unlinked state is a warning (`--bf-warning`); the
+ * pial/white coordinate-linking note is neutral (an optional surface). The template note is neutral guidance; the linked
  * state carries `--bf-success` on its icon only. Amber is reserved for the
  * accent, so none of these states use it.
  *
@@ -119,11 +119,13 @@ export const SurfaceAssociationBadge: React.FC<{
       <BadgeNotice
         inline={inline}
         state="cursor-unavailable"
-        severity="warning"
-        icon={<Link2Off className={ICON} />}
+        // An optional surface is missing, not a fault: a muted note, no
+        // warning bar (P3.10, v0 visual critic).
+        severity="neutral"
+        icon={<Link2Off className={`${ICON} text-muted-foreground`} />}
         title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates."
       >
-        Load matching pial/white surface to link coordinates
+        <span className="text-muted-foreground">Load matching pial/white surface to link coordinates</span>
       </BadgeNotice>
     );
   }

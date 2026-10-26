@@ -21,14 +21,22 @@ import { unionNonzeroBbox } from '@/services/mosaic/brainBounds';
 import { formatWorldMm } from '@/utils/valueFormat';
 import {
   MOSAIC_COLORBAR_COLUMN_PX,
+  MOSAIC_LABEL_STRIP_PX,
+  MOSAIC_TILE_GAP_PX,
+  autoMosaicGrid,
+  fitMosaicGrid,
   sliceIndexRange,
   slicePositionAtIndex,
 } from '@/services/mosaic/sliceGeometry';
 import { MosaicTileLabel, MosaicColorbar } from './MosaicFrame';
 import { getApiService } from '@/services/apiService';
+import { useActiveLayer } from '@/utils/activeLayer';
+import { useLayerStore } from '@/stores/layerStore';
+import { shortLayerLabel } from './viewportFrame/frameFormat';
 import { registerMosaicExportSource } from '@/services/export/compositeCapture';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
-import { Notice } from '@/components/ui/bf';
+import { EmptyPane } from '@/components/ui/bf';
+import { openFileDialog, openFileShortcut } from '@/services/fileActions';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
 import { getFileLoadingService } from '@/services/FileLoadingService';
 import { readFileDragData } from '@/utils/layerDrag';
@@ -78,11 +86,16 @@ function MosaicViewPromiseRaw({
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
+  const gridSizeRef = useRef(gridSize);
+  // "auto" (the default) sizes the grid to the pane; "RxC" is a manual pick.
+  const [gridChoice, setGridChoice] = useState<string>('auto');
   const [sliceMetadata, setSliceMetadata] = useState<MosaicSliceRange | null>(null);
   const [cellSize, setCellSize] = useState({ width: 128, height: 128 }); // Start with minimum size
   // In-plane aspect (width / height) of the cropped brain: tiles take this
   // shape so the brain fills them instead of floating in a landscape cell.
   const [brainAspect, setBrainAspect] = useState<number | null>(null);
+  // Share of the pane the tiles cover (the harness reports it).
+  const [mosaicFill, setMosaicFill] = useState(0);
   const [currentSlice, setCurrentSlice] = useState(0);
   const [hasInitialized, setHasInitialized] = useState(false);
   
@@ -150,6 +163,12 @@ function MosaicViewPromiseRaw({
   // Reference volume for slice sampling: the bottom volume layer, visible or
   // not (the voxel-snapping / ijk rule, utils/voxelSnap.ts).
   const primaryVolumeId = layers.find(layer => layer.volumeId)?.volumeId;
+  // The frame header names the active layer (the header / colorbar rule).
+  const activeHeaderLayer = useActiveLayer(layers);
+  const headerLayerName = useLayerStore((s) => {
+    const info = activeHeaderLayer ? s.layers.find((l) => l.id === activeHeaderLayer.id) : undefined;
+    return info ? shortLayerLabel(info.name) : null;
+  });
   const visibleVolumeKey = visibleLayers.map(layer => layer.volumeId).filter(Boolean).join('|');
   const range =
     sliceMetadata?.volumeId === primaryVolumeId && sliceMetadata?.axis === sliceAxis ? sliceMetadata : null;
@@ -209,7 +228,8 @@ function MosaicViewPromiseRaw({
           last,
           Math.max(first, Math.round((crosshairPosition[d] - sampling.min) / step)),
         );
-        const validPage = Math.floor((crossIndex - first) / (gridSize.rows * gridSize.cols));
+        const grid = gridSizeRef.current;
+        const validPage = Math.floor((crossIndex - first) / (grid.rows * grid.cols));
 
         const next: MosaicSliceRange = {
           volumeId: primaryVolumeId,
@@ -235,7 +255,21 @@ function MosaicViewPromiseRaw({
     
     void fetchMetadataAndSetInitialPage();
     return () => { cancelled = true; };
-  }, [primaryVolumeId, visibleVolumeKey, sliceAxis, gridSize.rows, gridSize.cols, apiService, workspaceId]);
+  }, [primaryVolumeId, visibleVolumeKey, sliceAxis, apiService, workspaceId]);
+
+  // A grid change (Auto re-fits on resize) keeps the crosshair's slice on
+  // screen: recompute the page at once (no refetch of the slicing).
+  useEffect(() => {
+    gridSizeRef.current = gridSize;
+    if (!range) return;
+    const d = AXIS_DIMENSION[sliceAxis];
+    const step = range.count > 1 ? (range.max - range.min) / (range.count - 1) : 1;
+    const crossAt = useViewStateStore.getState().getWorkspaceViewState(workspaceId).crosshair.world_mm[d];
+    const crossIndex = Math.min(range.last, Math.max(range.first, Math.round((crossAt - range.min) / step)));
+    const page = Math.floor((crossIndex - range.first) / (gridSize.rows * gridSize.cols));
+    setCurrentPage((prev) => (prev === page ? prev : page));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridSize.rows, gridSize.cols]);
   
   // Calculate cell dimensions based on container size
   useEffect(() => {
@@ -253,30 +287,29 @@ function MosaicViewPromiseRaw({
         return;
       }
       
-      // Account for gaps and padding
-      const gap = 1; // hairline between tiles (MosaicView.css)
+      // The area tiles may use: minus padding and the colorbar column.
       const padding = 16;
-      // The shared colorbar column sits beside the grid.
-      const availableWidth = containerRect.width - padding - MOSAIC_COLORBAR_COLUMN_PX - (gap * (cols - 1));
-      const availableHeight = containerRect.height - padding - (gap * (rows - 1));
-      
-      // Tiles take the cropped brain's shape (square until it is known),
-      // as large as the grid allows, capped at 512 px on the long side.
-      const cellWidth = Math.floor(availableWidth / cols);
-      const cellHeight = Math.floor(availableHeight / rows);
+      const availableWidth = containerRect.width - padding - MOSAIC_COLORBAR_COLUMN_PX - MOSAIC_TILE_GAP_PX;
+      const availableHeight = containerRect.height - padding;
       const aspect = brainAspect && Number.isFinite(brainAspect) ? brainAspect : 1;
-      let tileHeight = Math.min(cellHeight, cellWidth / aspect);
-      let tileWidth = tileHeight * aspect;
-      const longSide = Math.max(tileWidth, tileHeight);
-      if (longSide > 512) {
-        tileWidth *= 512 / longSide;
-        tileHeight *= 512 / longSide;
+      // Auto: the grid with the largest tiles for this pane and the brain's
+      // aspect; manual: the chosen grid. Tiles follow the brain's aspect,
+      // with a label strip under each image and a gap between tiles.
+      const fit =
+        gridChoice === 'auto'
+          ? autoMosaicGrid(availableWidth, availableHeight, aspect, totalSlices)
+          : fitMosaicGrid(availableWidth, availableHeight, rows, cols, aspect);
+      if (gridChoice === 'auto' && (fit.rows !== rows || fit.cols !== cols)) {
+        setGridSize({ rows: fit.rows, cols: fit.cols });
       }
+      const cellWidth = fit.tileWidth;
+      const cellHeight = fit.tileHeight;
       const finalSize = {
-        width: Math.max(64, Math.floor(tileWidth)),
-        height: Math.max(64, Math.floor(tileHeight)),
+        width: Math.max(48, fit.tileWidth),
+        height: Math.max(48, fit.tileHeight),
       };
-      
+      setMosaicFill(fit.fill);
+
       console.log('[MosaicViewPromise] Calculating cell dimensions:', {
         containerSize: { width: containerRect.width, height: containerRect.height },
         gridSize: { rows, cols },
@@ -312,7 +345,7 @@ function MosaicViewPromiseRaw({
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateCellDimensions);
     };
-  }, [gridSize, hasInitialized, brainAspect]);
+  }, [gridSize, gridChoice, hasInitialized, brainAspect, totalSlices]);
   
   // Calculate slice indices for current page
   const sliceIndices = useMemo(() => {
@@ -472,26 +505,70 @@ function MosaicViewPromiseRaw({
   );
 
   if (!primaryVolumeId || totalSlices === 0) {
-    console.log('[MosaicViewPromise] No volume to display:', { primaryVolumeId, totalSlices });
+    // Empty (or slicing not known yet): the toolbar stays, so the grid
+    // control works and the ghost grid shows its effect (P3.11).
     return (
-      <div
-        className="flex items-center justify-center h-full text-bf-sm text-muted-foreground relative"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+      <div className="mosaic-container relative">
+        <MosaicToolbar
+          axis={sliceAxis}
+          onAxisChange={setSliceAxis}
+          grid={gridChoice === 'auto' ? 'auto' : `${gridSize.rows}x${gridSize.cols}`}
+          onGridChange={(value) => {
+            setGridChoice(value);
+            if (value === 'auto') return;
+            const [rows, cols] = value.split('x').map(Number);
+            setGridSize({ rows, cols });
+          }}
+          page={0}
+          pageCount={0}
+          canPrev={false}
+          canNext={false}
+          onPrev={goToPreviousPage}
+          onNext={goToNextPage}
+          currentSlice={0}
+          totalSlices={0}
+          onSliceChange={() => undefined}
+        />
+        <div
+          className="relative flex min-h-0 flex-1 items-center justify-center bg-bf-bg-canvas text-bf-sm text-muted-foreground"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
         {isDragging ? (
           <div className="rounded-sm border border-border bg-popover px-6 py-4 shadow-2xl">
             <div className="text-primary font-semibold text-bf-lg">Drop to load volume</div>
             <div className="text-muted-foreground text-bf-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
           </div>
-        ) : (
-          <Notice role={undefined}>No volume loaded. Drag a file here.</Notice>
+        ) : primaryVolumeId ? null : (
+          // P3.11: the one empty state, over a ghost of the selected grid so
+          // the rows × cols control's effect is visible.
+          <EmptyPane
+            title="Load a volume to tile its slices"
+            hint="Double-click a file in Files, or drop one here."
+            primary={{ label: 'Open file…', onClick: () => void openFileDialog(), shortcut: openFileShortcut() }}
+            messageGround="canvas"
+            backdrop={
+              <div
+                className="grid h-full w-full gap-px p-2 opacity-20"
+                style={{
+                  gridTemplateRows: `repeat(${gridSize.rows}, minmax(0, 1fr))`,
+                  gridTemplateColumns: `repeat(${gridSize.cols}, minmax(0, 1fr))`,
+                }}
+                data-testid="mosaic-ghost-grid"
+              >
+                {Array.from({ length: gridSize.rows * gridSize.cols }, (_, i) => (
+                  <div key={i} className="border border-bf-border-strong bg-bf-bg-canvas" />
+                ))}
+              </div>
+            }
+          />
         )}
+        </div>
       </div>
     );
   }
-  
+
   // Log what we're about to render
   console.log('[MosaicViewPromise] Rendering mosaic grid:', {
     sliceCount: sliceIndices.length,
@@ -523,8 +600,11 @@ function MosaicViewPromiseRaw({
       <MosaicToolbar
         axis={sliceAxis}
         onAxisChange={setSliceAxis}
-        grid={`${gridSize.rows}x${gridSize.cols}`}
+        grid={gridChoice === 'auto' ? 'auto' : `${gridSize.rows}x${gridSize.cols}`}
+        autoGridLabel={`Auto (${gridSize.rows}×${gridSize.cols})`}
         onGridChange={(value) => {
+          setGridChoice(value);
+          if (value === 'auto') return;
           const [rows, cols] = value.split('x').map(Number);
           setGridSize({ rows, cols });
         }}
@@ -555,16 +635,39 @@ function MosaicViewPromiseRaw({
           together in its centre (the bar beside the tiles, top-aligned). */}
       <div
         ref={gridRef}
-        className="mosaic-grid flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto p-2"
+        className="mosaic-grid relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto p-2"
       >
+        {/* One frame header for the pane (P3.10): plane, layer, page range. */}
+        {range && sliceIndices.length > 0 ? (
+          <div
+            className="pointer-events-none absolute left-1.5 top-1 z-10 flex select-none items-baseline gap-2 whitespace-nowrap rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 text-bf-xs text-bf-text-secondary"
+            data-testid="mosaic-frame-header"
+          >
+            {/* "Axial · zmap_synthetic · z 24.5–54.5 mm" */}
+            <span>{sliceAxis.charAt(0).toUpperCase() + sliceAxis.slice(1)}</span>
+            {headerLayerName ? (
+              <>
+                <span aria-hidden className="text-bf-text-muted">·</span>
+                <span className="max-w-[28ch] truncate text-bf-text-muted">{headerLayerName}</span>
+              </>
+            ) : null}
+            <span aria-hidden className="text-bf-text-muted">·</span>
+            <span className="font-mono tabular-nums">
+              {AXIS_LETTER[sliceAxis]} {formatWorldMm(slicePositionAtIndex(range, sliceIndices[0]))}–
+              {formatWorldMm(slicePositionAtIndex(range, sliceIndices[sliceIndices.length - 1]))} mm
+            </span>
+          </div>
+        ) : null}
         <div className="flex">
         <div
           style={{
             display: 'grid',
-            gridTemplateRows: `repeat(${gridSize.rows}, ${cellSize.height}px)`,
+            gridTemplateRows: `repeat(${gridSize.rows}, ${cellSize.height + MOSAIC_LABEL_STRIP_PX}px)`,
             gridTemplateColumns: `repeat(${gridSize.cols}, ${cellSize.width}px)`,
-            gap: '1px'
+            gap: `${MOSAIC_TILE_GAP_PX}px`
           }}
+          data-fill={mosaicFill.toFixed(3)}
+          data-testid="mosaic-tile-grid"
         >
           {sliceIndices.map((sliceIndex, i) => {
             const position = range ? slicePositionAtIndex(range, sliceIndex) : null;
@@ -573,7 +676,12 @@ function MosaicViewPromiseRaw({
               position !== null &&
               Math.abs(crosshairWorld[AXIS_DIMENSION[sliceAxis]] - position) < step / 2;
             return (
-              <div key={cellIds[i]} className="mosaic-cell">
+              <div
+                key={cellIds[i]}
+                className="mosaic-cell"
+                // A strip under the image holds the position label.
+                style={{ paddingBottom: MOSAIC_LABEL_STRIP_PX }}
+              >
                 <MosaicCellErrorBoundary cellId={cellIds[i]} sliceIndex={sliceIndex}>
                   <MosaicCell
                     workspaceId={workspaceId}
@@ -586,7 +694,7 @@ function MosaicViewPromiseRaw({
                     onCrosshairClick={handleCrosshairClick}
                   />
                 </MosaicCellErrorBoundary>
-                <MosaicTileLabel axis={sliceAxis} position={position} atCrosshair={atCrosshair} />
+                <MosaicTileLabel axis={sliceAxis} position={position} atCrosshair={atCrosshair} inStrip />
               </div>
             );
           })}

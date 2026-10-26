@@ -41,8 +41,8 @@ describe('surfaceAppearancePresets', () => {
     ).toBeNull();
   });
 
-  it('matches the default material to Gray glossy', () => {
-    expect(matchMaterialPreset(DEFAULT_SURFACE_MATERIAL_SETTINGS)).toBe('Gray glossy');
+  it('matches the default material to Matte (no specular streaks on data)', () => {
+    expect(matchMaterialPreset(DEFAULT_SURFACE_MATERIAL_SETTINGS)).toBe('Matte');
   });
 
   it('matches material case-insensitively on colors', () => {

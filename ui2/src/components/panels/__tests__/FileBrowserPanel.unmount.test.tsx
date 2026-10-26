@@ -176,7 +176,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     expect(openImageSetMock).toHaveBeenCalledWith(root);
   });
 
-  it('opens Set Studio folder ontology from the selected folder', () => {
+  it('opens Set studio folder ontology from the selected folder', () => {
     const invokeMock = vi.fn().mockResolvedValue({ success: true });
     setTransport({ invoke: invokeMock } as BackendTransportLike);
 
@@ -193,7 +193,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Set Studio…' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Set studio…' }));
 
     expect(openFolderOntologyInStudioMock).toHaveBeenCalledWith({
       discoveryRoot: localRoot,
@@ -208,12 +208,12 @@ describe('FileBrowserPanel unmount overflow action', () => {
     resetStore([root], null);
     render(<FileBrowserPanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    expect(screen.getByRole('menuitem', { name: 'Open in Set Studio…' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Open in Set studio…' })).toBeDisabled();
     expect(screen.getByRole('menuitem', { name: 'Open as switchable layer…' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
     act(() => useFileBrowserStore.getState().selectFile(root.children![0].path));
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    expect(screen.getByRole('menuitem', { name: 'Open in Set Studio…' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Open in Set studio…' })).toBeDisabled();
     expect(screen.getByRole('menuitem', { name: 'Open as switchable layer…' })).toBeDisabled();
     expect(openFolderOntologyInStudioMock).not.toHaveBeenCalled();
     expect(openImageSetMock).not.toHaveBeenCalled();

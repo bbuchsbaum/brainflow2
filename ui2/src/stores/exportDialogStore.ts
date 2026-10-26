@@ -40,6 +40,10 @@ interface ExportDialogState {
   provenance: boolean;
   /** Mosaic: this page, or a slice range. */
   mosaicTiles: MosaicTileSpec;
+  /** Crop panes to the brain (+6%); on for the Figure preset. */
+  cropToBrain: boolean;
+  /** Montage columns (null: the default for the size). */
+  mosaicColumns: number | null;
   /** Device-pixel size of the last composition. */
   outputSize: { width: number; height: number } | null;
 
@@ -58,6 +62,8 @@ interface ExportDialogState {
   setSize: (size: SizeSpec) => void;
   setProvenance: (value: boolean) => void;
   setMosaicTiles: (spec: MosaicTileSpec) => void;
+  setCropToBrain: (value: boolean) => void;
+  setMosaicColumns: (value: number | null) => void;
   applyPreset: (preset: ExportPreset) => void;
   setOutputSize: (size: { width: number; height: number } | null) => void;
 
@@ -89,6 +95,8 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   size: { kind: 'screen', scale: 2 },
   provenance: false,
   mosaicTiles: { kind: 'page' },
+  cropToBrain: true,
+  mosaicColumns: null,
   outputSize: null,
 
   bytes: null,
@@ -120,7 +128,11 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   setViewType: (viewType) => set({ viewType }),
   setExportTarget: (exportTarget) => set({ exportTarget }),
   setComposite: (patch) => set((state) => ({ composite: { ...state.composite, ...patch } })),
-  applyPreset: (preset) => set({ composite: { ...EXPORT_PRESETS[preset] } }),
+  // A figure is cropped to the brain; "As shown" keeps the view's field.
+  applyPreset: (preset) =>
+    set({ composite: { ...EXPORT_PRESETS[preset] }, cropToBrain: preset === 'figure' }),
+  setCropToBrain: (cropToBrain) => set({ cropToBrain }),
+  setMosaicColumns: (mosaicColumns) => set({ mosaicColumns }),
   setSize: (size) => set({ size }),
   setProvenance: (provenance) => set({ provenance }),
   setMosaicTiles: (mosaicTiles) => set({ mosaicTiles }),

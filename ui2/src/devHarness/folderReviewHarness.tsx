@@ -71,7 +71,7 @@ function Harness() {
             className="mt-3"
             onClick={() => void getSetIngestionService().openFolderReview(fixture.root)}
           >
-            Open selected folder in Set Studio…
+            Open selected folder in Set studio…
           </Button>
         </div>
       )}

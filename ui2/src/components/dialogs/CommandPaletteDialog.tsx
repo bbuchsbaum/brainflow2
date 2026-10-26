@@ -5,6 +5,17 @@ import { IconButton, SELECTED_EDGE } from '@/components/ui/bf';
 import { getEventBus } from '@/events/EventBus';
 import { formatTauriError } from '@/utils/formatTauriError';
 
+/** Two frames: the closing Modal has unmounted and returned focus. */
+function afterFocusReturn(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') {
+      setTimeout(resolve, 0);
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
 export interface CommandPaletteCommand {
   id: string;
   title: string;
@@ -82,19 +93,22 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
       return;
     }
 
+    // Close first and let the palette restore focus, THEN run the command:
+    // a command that opens a dialog (Export, Go to, Crosshair settings) or
+    // moves focus (Show Clusters) must not have its focus undone by the
+    // palette's own focus return (v3 function critic).
+    setRunningCommandId(command.id);
+    onClose();
+    await afterFocusReturn();
     try {
-      setRunningCommandId(command.id);
       await Promise.resolve(command.run());
-      onClose();
     } catch (error) {
       console.error('[CommandPaletteDialog] Command failed:', command.id, error);
-      // Failures are shown (toast, role=alert), not only logged, and the
-      // palette closes like after a success.
+      // Failures are shown (status message, role=alert), not only logged.
       getEventBus().emit('ui.notification', {
         type: 'error',
         message: `${command.title}: ${formatTauriError(error) || 'failed'}`,
       });
-      onClose();
     } finally {
       setRunningCommandId(null);
     }

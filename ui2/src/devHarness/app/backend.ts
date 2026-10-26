@@ -813,6 +813,8 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     // tauri-plugin-fs read_text_file (scope: capabilities/default.json
     // fs:read-files). Only the atlas LUT sidecar exists; anything else fails
     // like a missing file.
+    // tauri app version (export provenance): a fixed stub in the harness.
+    'plugin:app|version': () => '0.0.0-harness',
     'plugin:fs|read_text_file': ({ path }: { path: string }) => {
       if (path === ATLAS_LUT_PATH) return new TextEncoder().encode(fixtures.atlasLut).buffer;
       throw new Error(`failed to open file at path: ${path} with error: No such file or directory (os error 2)`);

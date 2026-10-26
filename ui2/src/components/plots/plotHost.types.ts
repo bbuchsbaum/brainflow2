@@ -58,6 +58,8 @@ export interface PlotModeContext {
   readonly atlasLayerId?: string | undefined;
   /** Whether a sampleable Set-Studio cohort is active. */
   readonly hasCohort?: boolean;
+  /** Whether a Studio population (an active set) exists; undefined = unknown. */
+  readonly hasPopulation?: boolean;
 }
 
 /** A registered plot mode. The host treats this as opaque content. */
@@ -95,6 +97,8 @@ export interface PlotHostProps {
   readonly atlasLayerId?: string;
   /** Whether a sampleable cohort is active; passed through to mode contexts. */
   readonly hasCohort?: boolean;
+  /** Whether a Studio population exists; passed through to mode contexts. */
+  readonly hasPopulation?: boolean;
 
   /** When true, the host renders its loading state and skips mode rendering. */
   readonly loading?: boolean;

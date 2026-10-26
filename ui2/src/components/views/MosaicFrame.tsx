@@ -23,16 +23,23 @@ export function MosaicTileLabel({
   axis,
   position,
   atCrosshair,
+  inStrip = false,
 }: {
   axis: 'axial' | 'sagittal' | 'coronal';
   position: number | null;
   atCrosshair: boolean;
+  /** In the label strip under the image (no scrim needed; never on tissue). */
+  inStrip?: boolean;
 }) {
   const crosshairColor = useCrosshairSettingsStore((s) => s.settings.activeColor);
   if (position === null || !Number.isFinite(position)) return null;
   return (
     <span
-      className="pointer-events-none absolute bottom-1 left-1 z-10 select-none rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 font-mono text-bf-2xs tabular-nums leading-tight text-bf-text-secondary"
+      className={`pointer-events-none absolute z-10 select-none font-mono text-bf-2xs tabular-nums leading-tight text-bf-text-secondary ${
+        inStrip
+          ? 'bottom-0 left-0.5'
+          : 'bottom-1 left-1 rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1'
+      }`}
       // Crosshair tile: the crosshair's own colour (user-selectable), as data.
       style={atCrosshair ? { color: crosshairColor } : undefined}
       data-testid="mosaic-tile-label"

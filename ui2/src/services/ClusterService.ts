@@ -28,7 +28,6 @@ import {
   formatLayerValue,
   formatLayerValueAscii,
   formatWorldMm,
-  formatWorldMmAscii,
 } from '@/utils/valueFormat';
 import { statisticUnits } from '@/utils/statistic';
 import { announce } from '@/utils/announce';
@@ -209,7 +208,8 @@ export function clusterTableCsv(
   regions: ReadonlyArray<string | null>,
   meta: { layerName: string; symbol: string | null },
 ): string {
-  const mm = (v: readonly number[]) => v.map((x) => formatWorldMmAscii(x));
+  // Coordinates at 2 decimals (ASCII minus): centroids are not on voxel centres.
+  const mm = (v: readonly number[]) => v.map((x) => Number(x.toFixed(2)));
   const header = [
     'cluster',
     'sign',
@@ -240,7 +240,8 @@ export function clusterTableCsv(
     ...mm(c.peakMm),
     ...c.peakIjk,
     ...mm(c.centroidMm),
-    ...mm(c.weightedCentroidMm ?? c.centroidMm),
+    // Missing weighted COG: empty cells, never the unweighted values.
+    ...(c.weightedCentroidMm ? mm(c.weightedCentroidMm) : [null, null, null]),
     Number(c.meanValue.toFixed(4)),
     regions[i] ?? null,
   ]);

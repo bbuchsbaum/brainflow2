@@ -36,6 +36,7 @@ import { setTracePlot } from '@/components/plots/setTracePlot.mode';
 import { useAtlasLayerId } from '@/components/plots/regionStatsPlot.helpers';
 import { useActiveCohort } from '@/components/plots/cohortPlot.helpers';
 import { usePlotModeSelection } from '@/components/plots/plotMode.helpers';
+import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { PlotMode, PlotModeContext } from '@/components/plots/plotHost.types';
 
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
@@ -78,6 +79,7 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({
   // than non-reactively from the stores).
   const atlasLayerId = useAtlasLayerId();
   const hasCohort = useActiveCohort() !== null;
+  const hasPopulation = useSetStudioStore((state) => state.selection.activeSetId !== null);
 
   // Build the same ctx the host will see. `supports()` checks in the policy
   // never read `width`/`height`, so passing 0 here is fine — the actual
@@ -89,10 +91,11 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({
       crosshairMm,
       atlasLayerId,
       hasCohort,
+      hasPopulation,
       width: 0,
       height: 0,
     }),
-    [selectedLayerId, selectedLayerName, crosshairMm, atlasLayerId, hasCohort],
+    [selectedLayerId, selectedLayerName, crosshairMm, atlasLayerId, hasCohort, hasPopulation],
   );
 
   // Context-sensitive tabs: only surface modes the active data/view actually
@@ -119,6 +122,7 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({
       crosshairMm={crosshairMm}
       atlasLayerId={atlasLayerId}
       hasCohort={hasCohort}
+      hasPopulation={hasPopulation}
     />
   );
 };

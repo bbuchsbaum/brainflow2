@@ -105,15 +105,22 @@ describe('formatName balanced mode is word-aware', () => {
 describe("formatName keep: 'auto' (Files tree)", () => {
   const mask = 'MNI152_T1_2mm_brain_mask.nii.gz';
   const brain = 'MNI152_T1_2mm_brain.nii.gz';
-  it('14 chars: whole trailing tokens only, never a mid-token cut', () => {
-    expect(formatName(mask, 14, { keep: 'auto' })).toBe('…mask.nii.gz');
-    expect(formatName(brain, 14, { keep: 'auto' })).toBe('…brain.nii.gz');
+  it('14 chars: the head stays, the extension goes first (v2 critics)', () => {
+    expect(formatName(mask, 14, { keep: 'auto' })).toBe('MNI152_T1…mask');
+    expect(formatName(brain, 14, { keep: 'auto' })).toBe('MNI152_T…brain');
     // The two siblings stay distinct and keep their distinguishing word.
     expect(formatName(mask, 14, { keep: 'auto' })).not.toBe(formatName(brain, 14, { keep: 'auto' }));
   });
-  it('16 chars: still tail-only, the longest whole-token run that fits', () => {
-    expect(formatName(mask, 16, { keep: 'auto' })).toBe('…mask.nii.gz');
-    expect(formatName('sub-01_task-rest_bold.nii.gz', 16, { keep: 'auto' })).toBe('…bold.nii.gz');
+  it('16 chars: head token + tail token, with the extension when it fits', () => {
+    expect(formatName('tmap_synthetic_df24.nii.gz', 16, { keep: 'auto' })).toBe('tmap…df24.nii.gz');
+    expect(formatName('sub-01_task-rest_bold.nii.gz', 16, { keep: 'auto' })).toBe('sub…bold.nii.gz');
+    // No room for the extension: as much head as fits, then the tail token.
+    expect(formatName('atlas-synth3_dseg.nii.gz', 16, { keep: 'auto' })).toBe('atlas-synth…dseg');
+    // A stem that fits whole drops only the extension.
+    expect(formatName('atlas_dseg.nii.gz', 12, { keep: 'auto' })).toBe('atlas_dseg');
+    // Siblings that differ only at the head stay distinct.
+    expect(formatName('zmap_synthetic.nii.gz', 12, { keep: 'auto' })).toBe('zmap_synthe…');
+    expect(formatName('tmap_synthetic.nii.gz', 12, { keep: 'auto' })).toBe('tmap_synthe…');
   });
   it('18 chars: middle mode, word-aware (head kept, cut on separators)', () => {
     const out = formatName(mask, 18, { keep: 'auto' });
@@ -122,18 +129,17 @@ describe("formatName keep: 'auto' (Files tree)", () => {
     expect(out.startsWith('MNI')).toBe(true);
     expect(out.endsWith('mask.nii.gz')).toBe(true);
   });
-  it('18 chars: a middle cut that would split a word falls back to whole tokens', () => {
-    // Balanced gives "MNI15…brain.nii.gz" (head cut inside "MNI152").
+  it('18 chars: auto keeps the head even when the cut splits a word (v2 critics)', () => {
     expect(formatName(brain, 18)).toBe('MNI15…brain.nii.gz');
-    expect(formatName(brain, 18, { keep: 'auto' })).toBe('…2mm_brain.nii.gz');
+    expect(formatName(brain, 18, { keep: 'auto' })).toBe('MNI15…brain.nii.gz');
   });
   it('24 chars: middle mode keeps "MNI152…brain_mask.nii.gz"', () => {
     expect(formatName(mask, 24, { keep: 'auto' })).toBe('MNI152…brain_mask.nii.gz');
   });
-  it('falls back to a character tail only when not even the last token fits', () => {
+  it('keeps the head when not even the last token fits', () => {
     const out = formatName('subject_verylongtokenname.nii.gz', 12, { keep: 'auto' });
     expect(Array.from(out).length).toBeLessThanOrEqual(12);
-    expect(out.startsWith('…')).toBe(true);
-    expect(out.endsWith('.nii.gz')).toBe(true);
+    expect(out.startsWith('subject')).toBe(true);
+    expect(out.endsWith('…')).toBe(true);
   });
 });

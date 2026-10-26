@@ -22,7 +22,7 @@ export const setTracePlot: PlotMode = {
       return {
         supported: false,
         reason: 'unsupported-layer',
-        message: 'Open a Set Studio cohort to trace member values with a band.',
+        message: 'Open a Set studio cohort to trace member values with a band.',
       };
     }
     if (!ctx.crosshairMm) {

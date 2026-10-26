@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { SegmentedControl, Select } from '@/components/ui/bf';
+import { EmptyPane, SegmentedControl, Select } from '@/components/ui/bf';
 
 import type { PlotHostProps, PlotMode, PlotModeContext, PlotModeSupport } from './plotHost.types';
 
@@ -43,6 +43,28 @@ interface EmptyStateProps {
   title: string;
   detail?: string;
   testid: string;
+}
+
+/**
+ * The empty dock (P3.11): the plot frame with empty axes and one line, not
+ * a second "No volume" message (the panes already say that).
+ */
+function EmptyAxes({ testid }: { testid: string }) {
+  return (
+    <div data-testid={testid} style={{ position: 'absolute', inset: 0 }}>
+      <EmptyPane
+        title="Load a volume to see its histogram"
+        hint="The selected layer's histogram appears here."
+        backdrop={
+          // Axes: the loaded histogram's frame (same margins), empty.
+          <div
+            className="absolute border-b border-l border-bf-border"
+            style={{ left: 12, right: 12, top: 28, bottom: 22 }}
+          />
+        }
+      />
+    </div>
+  );
 }
 
 function EmptyState({ title, detail, testid }: EmptyStateProps) {
@@ -87,9 +109,26 @@ interface ModeSelectorProps {
  * modes, a bf Select beyond that. A single mode still shows its name, so the
  * pane says which plot it holds.
  */
+/** The empty dock keeps the loaded chrome: the Histogram tab, disabled. */
+const EMPTY_MODE_OPTIONS = [{ value: 'histogram', label: 'Histogram' }] as const;
+
 function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
   const options = useMemo(() => modes.map((m) => ({ value: m.id, label: m.label })), [modes]);
-  if (modes.length === 0) return null;
+  // Nothing to plot yet: the same chrome as a loaded dock, the default mode
+  // named but inert (P3.11).
+  if (modes.length === 0) {
+    return (
+      <SegmentedControl
+        aria-label="Plot mode"
+        data-testid="plot-host-mode-empty"
+        options={EMPTY_MODE_OPTIONS}
+        value="histogram"
+        onValueChange={() => undefined}
+        disabled
+        hideWhenSingle={false}
+      />
+    );
+  }
 
   if (modes.length > 4) {
     return (
@@ -126,6 +165,7 @@ export function PlotHost({
   crosshairMm,
   atlasLayerId,
   hasCohort,
+  hasPopulation,
   loading = false,
   error = null,
   className,
@@ -189,10 +229,11 @@ export function PlotHost({
       crosshairMm,
       atlasLayerId,
       hasCohort,
+      hasPopulation,
       width: bodySize.width,
       height: bodySize.height,
     }),
-    [layerId, layerName, crosshairMm, atlasLayerId, hasCohort, bodySize.width, bodySize.height],
+    [layerId, layerName, crosshairMm, atlasLayerId, hasCohort, hasPopulation, bodySize.width, bodySize.height],
   );
 
   const { mode, support } = useMemo(
@@ -204,13 +245,7 @@ export function PlotHost({
   let bodyState: string;
   if (modes.length === 0) {
     bodyState = 'no-modes';
-    body = (
-      <EmptyState
-        title="No plot yet"
-        detail="Load a volume to see its histogram."
-        testid="plot-host-empty-no-modes"
-      />
-    );
+    body = <EmptyAxes testid="plot-host-empty-no-modes" />;
   } else if (loading) {
     bodyState = 'loading';
     body = <EmptyState title="Loading…" testid="plot-host-loading" />;
@@ -230,11 +265,7 @@ export function PlotHost({
         testid="plot-host-empty-no-mode"
       />
     ) : (
-      <EmptyState
-        title="No plot yet"
-        detail="Load a volume to see its histogram."
-        testid="plot-host-empty-no-mode"
-      />
+      <EmptyAxes testid="plot-host-empty-no-mode" />
     );
   } else if (support && support.supported === false) {
     bodyState = support.reason;

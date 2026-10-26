@@ -23,11 +23,10 @@ import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import type { ComparisonPanelConfig } from '@/types/comparison';
-import { Button, Notice, SegmentedControl } from '@/components/ui/bf';
+import { Button, EmptyPane, SegmentedControl } from '@/components/ui/bf';
+import { openFileDialog } from '@/services/fileActions';
 import { panelLetter, type CompareLinkMode } from '@/types/comparison';
-import { linkModeOf, resolveActivePanel, thresholdMismatch } from '@/utils/compareDisplay';
-import { thresholdExpression } from './viewportFrame/frameFormat';
-import { statisticUnits, statisticVariable } from '@/utils/statistic';
+import { linkModeOf, resolveActivePanel } from '@/utils/compareDisplay';
 import { CompareSharedColorbar } from './CompareSharedColorbar';
 import { panelLayerIdOf } from '@/utils/compareDisplay';
 
@@ -96,17 +95,6 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
     const info = layerInfos.find(l => l.id === first);
     return info && info.type !== 'label' ? first : null;
   }, [linked, panels, layers, layerInfos]);
-  // Same statistic thresholded differently across panels: say so.
-  const mismatch = useMemo(() => thresholdMismatch(panels, layers, linkMode), [panels, layers, linkMode]);
-  const mismatchText = useMemo(() => {
-    if (!mismatch) return null;
-    const info = layerInfos.find(l => l.id === mismatch.layerId);
-    const variable = statisticVariable(statisticUnits(info?.statistic));
-    const parts = mismatch.thresholds.map(
-      ({ letter, threshold }) => `${letter}: ${thresholdExpression(threshold, variable) ?? 'none'} hidden`,
-    );
-    return `Panels threshold ${info?.name ?? 'the same layer'} differently (${parts.join('; ')}).`;
-  }, [mismatch, layerInfos]);
   // The plane all panels share (null when per-panel overrides mix them).
   const commonViewType = useMemo(
     () => resolveCommonViewType(panels, globalViewType),
@@ -256,14 +244,34 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
   });
 
   if (panels.length === 0 && visibleLayerIds.length === 0) {
+    // P3.11: the one empty state, over two dashed panel placeholders at the
+    // panels' real arrangement (each a drop target for a volume).
     return (
-      <div className="flex h-full items-center justify-center bg-background px-6">
-        <div className="rounded-appsm border border-border bg-card px-6 py-5 text-center shadow-sm">
-          <p className="bf-role-section text-foreground">Comparison View</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Load or drag volumes to start comparing.
-          </p>
-        </div>
+      <div
+        className="relative flex h-full w-full flex-col bg-bf-bg-canvas"
+        onDragOver={handleWorkspaceDragOver}
+        onDrop={handleWorkspaceDrop}
+        data-testid="compare-empty"
+      >
+        <EmptyPane
+          title="Add a panel to compare"
+          hint="Each panel shows its own layers side by side; drop a volume on a placeholder."
+          primary={{ label: '+ Panel', onClick: handleAddEmptyPanel, testId: 'compare-empty-add' }}
+          secondary={{ label: 'Open file…', onClick: () => void openFileDialog() }}
+          messageGround="canvas"
+          backdrop={
+            <div className="grid h-full w-full grid-cols-2 gap-2 p-2">
+              {['A', 'B'].map((letter) => (
+                <div
+                  key={letter}
+                  className="flex items-start rounded-bf-xs border border-dashed border-bf-border-strong p-2 text-bf-xs text-bf-text-muted"
+                >
+                  Panel {letter} · drop a volume
+                </div>
+              ))}
+            </div>
+          }
+        />
       </div>
     );
   }
@@ -320,13 +328,6 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
         </Button>
       </div>
 
-      {mismatchText ? (
-        <div className="shrink-0 border-b border-bf-border-subtle px-2 py-1">
-          <Notice severity="warning" role="status" data-testid="compare-threshold-mismatch">
-            {mismatchText}
-          </Notice>
-        </div>
-      ) : null}
 
       <div className="flex min-h-0 flex-1">
       {/* Panel grid */}

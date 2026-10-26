@@ -51,7 +51,7 @@ import {
 } from "./temporalHeatmapState";
 import { useActiveLayer } from "@/utils/activeLayer";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
-import { clientPointToWorld } from "@brainflow/visualization/slice";
+import { pointerToWorld } from "@/utils/slicePointer";
 import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
 import {
   OrientationLabels,
@@ -243,13 +243,13 @@ function SliceViewCanvasRaw({
       clientX: number,
       clientY: number,
     ): [number, number, number] | null => {
-      const canvas = canvasRef.current;
-      const placement = imagePlacementRef.current;
-      const currentView = viewPlaneRef.current;
-      if (!canvas || !placement || !currentView) return null;
-      return clientPointToWorld(clientX, clientY, canvas, placement, currentView) as
-        | [number, number, number]
-        | null;
+      return pointerToWorld(
+        clientX,
+        clientY,
+        canvasRef.current,
+        imagePlacementRef.current,
+        viewPlaneRef.current,
+      );
     },
     [],
   );
@@ -624,7 +624,9 @@ function SliceViewCanvasRaw({
           enableDragDrop={true}
           showLoading={false}
           showError={true}
-          showNoLayers={!hasLayers && !isLoadingAnyLayer}
+          // The stack shows one empty state (EmptyStackOverlay); the pane
+          // keeps its frame and plane word.
+          showNoLayers={false}
           showLoadingVolume={isLoadingAnyLayer}
           className="w-full h-full"
         />
@@ -643,6 +645,16 @@ function SliceViewCanvasRaw({
         )}
 
         {/* Viewport frame overlays (no layout height) */}
+        {!hasLayers && (
+          // Empty pane: just the plane word in the header position, so the
+          // layout reads before data arrives (P3.11).
+          <span
+            className="pointer-events-none absolute left-1.5 top-1 select-none text-bf-xs text-bf-text-muted"
+            data-testid="viewport-empty-plane"
+          >
+            {viewId.charAt(0).toUpperCase() + viewId.slice(1)}
+          </span>
+        )}
         {hasLayers && (
           <ViewportHeader
             plane={viewId}

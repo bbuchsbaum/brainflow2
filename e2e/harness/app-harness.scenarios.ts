@@ -60,6 +60,9 @@ export const P3_SCENARIOS = [
   'empty-mosaic',
   'empty-plot-dock',
   'plot-dock',
+  'plot-dock-labels',
+  'clusters-no-stat',
+  'empty-clusters',
   'surface-frame',
 ];
 
@@ -70,6 +73,8 @@ export const P3_VARIANTS: Array<[string, number, number]> = [
   ['region-at-crosshair', 1280, 800],
   // The cluster table and the status bar at the narrow width (v2 critics).
   ['cluster-table', 1280, 800],
+  // The mosaic's Auto grid at the narrow width (user: tiles were cramped).
+  ['mosaic-labelled', 1280, 800],
 ];
 
 /** Gallery pages of ui/bf primitives (primitives-harness.html): [query page, file]. */

@@ -642,7 +642,7 @@ describe('StudioImportDialog', () => {
     expect(screen.getByText('Dup')).toBeInTheDocument();
   });
 
-  it('confirms a clean discovery candidate into the Set Studio store', () => {
+  it('confirms a clean discovery candidate into the Set studio store', () => {
     const candidate = makeDiscoveryCandidate();
     openDialog('regex');
     useSetStudioStore.getState().setImportPreviewResult('regex', [candidate], 'backend');

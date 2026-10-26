@@ -21,10 +21,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getEventBus } from "@/events/EventBus";
 import { sampleProvider } from "@/services/SampleProvider";
 import { useViewStateStore } from "@/stores/viewStateStore";
+import { useLayerStore } from "@/stores/layerStore";
+import { statisticUnits, statisticVariable } from "@/utils/statistic";
 import { column } from "@/plotting";
 import type { SampleFrame } from "@/plotting";
 
 import { EncodedPlotView } from "./EncodedPlotView";
+import { RegionCountBars } from "./RegionCountBars";
 import type { EncoderContext } from "./encoder/types";
 import type { PlotModeContext } from "./plotHost.types";
 
@@ -83,6 +86,27 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
     };
   }, [viewStateLayer]);
 
+  // Axis title: the statistic's variable ("z") for statistic maps.
+  const statistic = useLayerStore((state) =>
+    layerId ? state.layers.find((l) => l.id === layerId)?.statistic : undefined,
+  );
+  const dataRange = useLayerStore((state) =>
+    layerId ? state.layerMetadata.get(layerId)?.dataRange : undefined,
+  );
+  const units = statisticUnits(statistic, dataRange);
+  // Label maps get per-region counts (one histogram bin per id), not an id histogram.
+  const labelInfo = useLayerStore((state) =>
+    layerId ? state.layers.find((l) => l.id === layerId) : undefined,
+  );
+  const isLabelMap =
+    !!labelInfo && (labelInfo.type === "label" || labelInfo.isLabelMap === true);
+  const legend = labelInfo?.atlasPaletteLegend;
+  const labelBins =
+    isLabelMap && dataRange && Number.isFinite(dataRange.max) && Number.isFinite(dataRange.min)
+      ? Math.min(4096, Math.max(1, Math.round(dataRange.max - dataRange.min) + 1))
+      : null;
+  const xTitle = units ? statisticVariable(units) : null;
+
   const [frame, setFrame] = useState<SampleFrame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -104,7 +128,7 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
       .sample({
         datasetId: layerId,
         locus: { kind: "wholeVolume" },
-        binCount: 256,
+        binCount: labelBins ?? 256,
       })
       .then((result) => {
         if (cancelled) return;
@@ -124,7 +148,7 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
     return () => {
       cancelled = true;
     };
-  }, [layerId]);
+  }, [layerId, labelBins]);
 
   // Subscribe per-layer, do NOT recompute (parity with prior behaviour).
   useEffect(() => {
@@ -186,18 +210,32 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
       onIntensityChange: handleIntensityChange,
       onThresholdChange: handleThresholdChange,
       onLogScaleChange: setUseLogScale,
+      xTitle,
       loading,
       error,
     }),
     [
       layerRender,
       useLogScale,
+      xTitle,
       handleIntensityChange,
       handleThresholdChange,
       loading,
       error,
     ],
   );
+
+  if (isLabelMap && layerId) {
+    return (
+      <div data-testid="histogram-plot-body" style={{ position: "absolute", inset: 0 }}>
+        {frame ? (
+          <RegionCountBars layerId={layerId} frame={frame} legend={legend} />
+        ) : (
+          <p className="p-3 text-bf-xs text-bf-text-muted">{loading ? "Counting voxels…" : null}</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

@@ -3,6 +3,7 @@
  * Manages layout with Axial on top, Sagittal and Coronal on bottom
  */
 
+import { EmptyStackOverlay } from './EmptyStackOverlay';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Lock, Unlock } from 'lucide-react';
 import { IconButton } from '@/components/ui/bf';
@@ -160,6 +161,7 @@ export function OrthogonalViewContainer({
           coronal={<FlexibleSlicePanel viewId="coronal" title="Coronal" />}
         />
       </div>
+      <EmptyStackOverlay />
 
       {/* Container-level drag overlay */}
       {isDragging && (

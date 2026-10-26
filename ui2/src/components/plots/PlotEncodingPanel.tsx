@@ -20,20 +20,12 @@ import { usePlotSpecStore } from '@/stores/plotSpecStore';
 import { Select, Toolbar, ToolbarField } from '@/components/ui/bf';
 
 import { SUPPORTED_MARKS } from './encoder/registry';
+import { MARK_LABELS } from './encoder/markLabels';
 
 /** Sphere radii (mm) offered for spatial sampling. 0 == single voxel. */
 const RADIUS_PRESETS_MM = [0, 2, 4, 6, 8, 10] as const;
 const REDUCERS: ReduceOp[] = ['mean', 'median', 'min', 'max', 'sum'];
-const MARK_LABELS: Record<Mark, string> = {
-  line: 'Line',
-  area: 'Area',
-  point: 'Points',
-  bar: 'Bars',
-  hist: 'Histogram',
-  box: 'Box',
-  violin: 'Violin',
-  heatmap: 'Heatmap',
-};
+
 
 /** One labelled toolbar select ("Mark [Line ▾]"); the select keeps its own accessible name. */
 function LabeledSelect({

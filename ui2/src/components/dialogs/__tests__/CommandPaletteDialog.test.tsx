@@ -95,3 +95,44 @@ describe('CommandPaletteDialog', () => {
     });
   });
 });
+
+describe('CommandPaletteDialog focus (v3 function critic)', () => {
+  // A host that closes the palette like App does and restores focus to the
+  // previously focused element when it closes (the Modal's focus return).
+  function Host({ commands }: { commands: React.ComponentProps<typeof CommandPaletteDialog>['commands'] }) {
+    const [open, setOpen] = React.useState(true);
+    return (
+      <>
+        <button data-testid="trigger">trigger</button>
+        <input aria-label="Dialog field opened by the command" data-testid="target" />
+        <CommandPaletteDialog open={open} onClose={() => setOpen(false)} commands={commands} />
+      </>
+    );
+  }
+
+  it.each(['Export View as Image…', 'Go to Coordinate…', 'Crosshair Settings…', 'Show Clusters'])(
+    'runs "%s" after the palette has closed, so the focus it sets is kept',
+    async (title) => {
+      const order: string[] = [];
+      render(
+        <Host
+          commands={[
+            {
+              id: 'cmd',
+              title,
+              run: () => {
+                order.push(document.querySelector('[role="dialog"]') ? 'run-while-open' : 'run-after-close');
+                (document.querySelector('[data-testid="target"]') as HTMLElement).focus();
+              },
+            },
+          ]}
+        />,
+      );
+      fireEvent.keyDown(screen.getByLabelText('Command search'), { key: 'Enter' });
+      await waitFor(() => expect(order).toEqual(['run-after-close']));
+      // Nothing moves focus back after the command ran.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(document.activeElement).toBe(screen.getByTestId('target'));
+    },
+  );
+});

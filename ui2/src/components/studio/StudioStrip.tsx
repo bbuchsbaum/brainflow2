@@ -55,7 +55,7 @@ export function StudioStrip({
 
   return (
     <section
-      aria-label="Set Studio strip"
+      aria-label="Set studio strip"
       className="col-span-3 flex flex-col gap-2 rounded-sm border border-border bg-card p-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">

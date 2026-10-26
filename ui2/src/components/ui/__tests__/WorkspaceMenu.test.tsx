@@ -145,7 +145,7 @@ describe("WorkspaceMenu", () => {
       "Explore",
       "Analyze",
       "Compare",
-      "Set Studio",
+      "Set studio",
       "BIDS",
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();

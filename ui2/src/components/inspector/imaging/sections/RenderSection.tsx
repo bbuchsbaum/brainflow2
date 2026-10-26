@@ -1,3 +1,5 @@
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { ThresholdText } from "@/components/ui/ThresholdText";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import { statisticUnits, statisticVariable } from "@/utils/statistic";
 import { DEFAULT_LABEL_OUTLINE, labelDisplayOf, type LabelDisplay } from "@/utils/labelDisplay";
@@ -111,6 +113,10 @@ function VolumeRenderRows({
   // Linked Compare (P3.9): unlinked, window / threshold / colormap edits go to
   // the active panel (its overrides) unless the scope is "Both".
   const compare = useCompareEditTarget();
+  const inComparison = useWorkspaceStore((s) => {
+    const ws = s.activeWorkspaceId ? s.getWorkspace(s.activeWorkspaceId) : null;
+    return ws?.type === "comparison";
+  });
   const showColorbar = useDisplayOptionsStore((s) =>
     layerId ? s.options.get(layerId)?.showColorbar !== false : true,
   );
@@ -189,10 +195,20 @@ function VolumeRenderRows({
       // "Both": the shared value, and no panel keeps its own.
       store.clearPanelOverride(compare.workspaceId, null, layerId, field);
     }
+    // Compare with a shared window: two maps of the same statistic kind
+    // (two z maps) share one colour range, so panels compare like with like.
+    const sharedRangeIds =
+      field === "intensity" && inComparison && (!compare || isFieldLinked(compare.mode, "intensity"))
+        ? sameStatisticLayerIds(layerId)
+        : [];
     setViewState((draft) => {
       const target = draft.layers.find((l) => l.id === layerId);
       if (!target) return;
       (target as unknown as Record<string, unknown>)[field as string] = value as unknown;
+      for (const id of sharedRangeIds) {
+        const other = draft.layers.find((l) => l.id === id);
+        if (other) (other as unknown as Record<string, unknown>).intensity = value as unknown;
+      }
     });
   };
 
@@ -532,9 +548,9 @@ function InspectorRange({
           wording ? (
             <span
               data-testid="threshold-caption"
-              className="block text-right font-mono tabular-nums"
+              className="block text-right"
             >
-              {wording}
+              <ThresholdText line={wording} variable={symbol ?? 'value'} />
             </span>
           ) : undefined
         }
@@ -760,6 +776,14 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
 
 // ── linked compare ───────────────────────────────────────────────────────────
 
+/** Other loaded layers with the same statistic kind (z with z, t with t). */
+function sameStatisticLayerIds(layerId: string): string[] {
+  const layers = useLayerStore.getState().layers;
+  const kind = layers.find((l) => l.id === layerId)?.statistic?.kind;
+  if (!kind || kind === "none" || kind === "label" || kind === "data") return [];
+  return layers.filter((l) => l.id !== layerId && l.statistic?.kind === kind).map((l) => l.id);
+}
+
 const OVERRIDE_FIELDS = new Set<string>(["intensity", "threshold", "colormap"]);
 
 function isOverrideField(field: string | number | symbol): field is PanelOverrideField {
@@ -798,11 +822,17 @@ function OverrideMark({
         variant="link"
         size="sm"
         className="min-h-6"
-        onClick={() =>
+        onClick={() => {
           useComparisonStore
             .getState()
-            .clearPanelOverride(compare.workspaceId, compare.panel.id, layerId, field)
-        }
+            .clearPanelOverride(compare.workspaceId, compare.panel.id, layerId, field);
+          // The button goes away: focus the field it reset, not <body>.
+          requestAnimationFrame(() =>
+            document
+              .querySelector<HTMLElement>(`[aria-label^="${label}"]`)
+              ?.focus(),
+          );
+        }}
         aria-label={`Reset ${label.toLowerCase()} of panel ${compare.letter} to the shared value`}
       >
         Reset to shared

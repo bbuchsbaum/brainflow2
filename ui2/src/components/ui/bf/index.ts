@@ -27,6 +27,8 @@ export type { StatusPillProps } from './StatusPill';
 export { Chip, FilterChip } from './Chip';
 export type { ChipProps, FilterChipProps } from './Chip';
 export { Notice } from './Notice';
+export { EmptyPane } from './EmptyPane';
+export type { EmptyPaneProps, EmptyPaneAction } from './EmptyPane';
 export type { NoticeProps, NoticeSeverity } from './Notice';
 export { TextField, NumberField, Select, Switch, TextArea, Checkbox, ColorInput } from './Fields';
 export type {

@@ -20,7 +20,7 @@ export const cohortPlot: PlotMode = {
       return {
         supported: false,
         reason: "unsupported-layer",
-        message: "Open a Set Studio cohort to plot member values by factor.",
+        message: "Open a Set studio cohort to plot member values by factor.",
       };
     }
     if (!ctx.crosshairMm) {

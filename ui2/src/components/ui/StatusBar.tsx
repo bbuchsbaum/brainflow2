@@ -10,6 +10,7 @@ import { useLayerStore } from "@/stores/layerStore";
 import { useCrosshairSettingsStore } from "@/stores/crosshairSettingsStore";
 import { Popover, PopoverContent, PopoverTrigger } from "./shadcn/popover";
 import { StatusBarProgress } from "./StatusBarProgress";
+import { NotificationToast } from "./NotificationToast";
 import { TimeSlider } from "./TimeSlider";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import {
@@ -63,28 +64,21 @@ const LABELS: Record<string, string> = {
   gpu: "GPU",
 };
 
+/**
+ * Every readout is content-sized and never truncates (v3 critics: a fixed
+ * Value width cut "t(24) …" and the Mouse ijk). Only the free-text Layer
+ * name gives way under pressure (min 8ch, then ellipsis); the Region keeps
+ * its content width up to a cap.
+ */
 const WIDTHS: Record<string, [string, string]> = {
-  coordSys: ["22ch", "22ch"],
-  crosshair: ["32ch", "32ch"],
-  voxel: ["19ch", "19ch"],
-  // Fixed so the bar does not jitter while the pointer moves.
-  mouse: ["34ch", "12ch"],
-  // Free text: content-sized (no reserved blank), capped.
-  layer: ["auto", "10ch"],
-  // "t(24) −10.25" fits; no wide empty reserve.
-  value: ["13ch", "11ch"],
-  region: ["auto", "16ch"],
+  layer: ["auto", "8ch"],
 };
 
 /** Content-sized slots stop growing here (a long file name). */
 const MAX_WIDTHS: Record<string, string> = { layer: "40ch", region: "32ch" };
 
-/**
- * Shrink priority when the bar is narrow (v2 critics): the layer name
- * truncates first, then the mouse readout; the region keeps its content
- * width (up to its cap) once the empty time slot has been hidden (`StatusBar`).
- */
-const SHRINK: Record<string, number> = { layer: 12, mouse: 3 };
+/** Only the layer name shrinks. */
+const SHRINK: Record<string, number> = { layer: 1 };
 
 /** Below this bar width an empty ("No time axis") time slot is hidden. */
 const HIDE_EMPTY_TIME_BELOW_PX = 1440;
@@ -112,14 +106,14 @@ interface SlotFrameProps {
 }
 
 const SlotFrame = ({ id, value, title, onClick, valueStyle, valueClassName }: SlotFrameProps) => {
-  const [basis, min] = WIDTHS[id] ?? ["22ch", "12ch"];
+  const [basis, min] = WIDTHS[id] ?? ["auto", "auto"];
   const isClickable = !!onClick;
   return (
     <div
       className={`status-slot${isClickable ? " cursor-pointer hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring" : ""}`}
       style={{
         width: basis === "auto" ? undefined : basis,
-        minWidth: min,
+        minWidth: min === "auto" ? undefined : min,
         maxWidth: MAX_WIDTHS[id],
         flex: `0 ${SHRINK[id] ?? 0} ${basis}`,
       }}
@@ -523,6 +517,9 @@ export function StatusBar({
       {/* Time slider: disabled without a 4D volume, and hidden then on a
           narrow bar (the readouts keep their room). */}
       {showTime ? <TimeSlider className="flex-1 max-w-sm" disabled={!has4DVolume} /> : null}
+
+      {/* Messages ("Loaded …", errors) in the bar's free space: never over a panel. */}
+      <NotificationToast />
 
       {/* Progress indicator */}
       <StatusBarProgress />

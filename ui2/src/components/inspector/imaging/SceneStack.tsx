@@ -29,6 +29,7 @@ import {
   Section,
   useRovingFocus,
   type RovingItemProps,
+  EmptyPane,
 } from "@/components/ui/bf";
 import { SceneStackItem } from "./SceneStackItem";
 import { useReadoutPoint } from "@/hooks/useReadoutPoint";
@@ -268,7 +269,14 @@ function VolumeSceneGroup({
         {items.length > 0 ? <ReadoutCaption /> : null}
       </div>
       {items.length === 0 ? (
-        <Notice role={undefined}>No volumes loaded · use Load</Notice>
+        // No glyph (the Notice's ring read as loading): the one empty state,
+        // left-aligned in the rail.
+        <EmptyPane
+          align="start"
+          className="h-auto p-0 px-2"
+          title="No volumes loaded"
+          hint="Use + Load above, or double-click a file in Files."
+        />
       ) : items.length === 1 ? (
         <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
           <SceneStackItem

@@ -15,6 +15,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { ClusterSign, ClusterSummary } from '@brainflow/api';
 import {
   Button,
+  EmptyPane,
   Notice,
   NumberField,
   SegmentedControl,
@@ -28,6 +29,8 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useClusterStore, type ClusterConnectivity } from '@/stores/clusterStore';
 import { useActiveLayer } from '@/utils/activeLayer';
+import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
+import { buildSceneStack } from '@/hooks/useSceneStack';
 import { statisticUnits } from '@/utils/statistic';
 import { formatLayerValue, formatWorldMm } from '@/utils/valueFormat';
 import { trueMinus } from '@/components/views/viewportFrame/frameFormat';
@@ -148,6 +151,13 @@ function MethodsSentence({ text, variable }: { text: string; variable: string })
   );
 }
 
+/** Make a layer the active one (the Scene selection), as a click on its row does. */
+function selectStatLayer(layerId: string): void {
+  const stack = buildSceneStack(useLayerStore.getState().layers, new Map(), null);
+  const item = stack.volumes.find((v) => v.ref.type === 'volume' && v.ref.layerId === layerId);
+  if (item) useInspectorSelectionStore.getState().setActive(item);
+}
+
 export function ClusterPanel() {
   const viewLayers = useViewStateStore((s) => s.viewState.layers);
   const active = useActiveLayer(viewLayers);
@@ -159,6 +169,18 @@ export function ClusterPanel() {
     target ? s.layerMetadata.get(target.id)?.dataRange : undefined,
   );
   const symbol = statisticUnits(layer?.statistic, dataRange);
+  // A loaded statistical map to offer when the active layer is not one.
+  const layerMetadata = useLayerStore((s) => s.layerMetadata);
+  const allLayers = useLayerStore((s) => s.layers);
+  const statLayer = useMemo(
+    () =>
+      symbol
+        ? null
+        : (allLayers.find(
+            (l) => l.volumeId && statisticUnits(l.statistic, layerMetadata.get(l.id)?.dataRange),
+          ) ?? null),
+    [symbol, allLayers, layerMetadata],
+  );
   const variable = symbol ? symbol.replace(/\(.*\)$/, '') : 'value';
 
   const params = useClusterStore((s) => s.params);
@@ -365,8 +387,26 @@ export function ClusterPanel() {
               {error}
             </Notice>
           </div>
-        ) : !target ? (
-          <p className="p-3 text-bf-text-muted">Select a volume layer to compute clusters.</p>
+        ) : !target || !symbol ? (
+          // P3.11: say what clusters need, and offer the loaded statistical
+          // map when there is one.
+          <EmptyPane
+            title={
+              statLayer
+                ? 'Clusters need a statistical layer'
+                : 'Load a statistical map to find clusters'
+            }
+            hint={
+              statLayer
+                ? `${shortLayerLabel(statLayer.name)} is loaded; select it to find its clusters.`
+                : 'A z, t or F map (a NIfTI statistic, or a zstat/tstat file).'
+            }
+            primary={
+              statLayer
+                ? { label: `Select ${shortLayerLabel(statLayer.name)}`, onClick: () => selectStatLayer(statLayer.id) }
+                : null
+            }
+          />
         ) : !result ? (
           <p className="p-3 text-bf-text-muted" data-testid="cluster-empty">
             Compute clusters for {shortLayerLabel(layer?.name ?? target.name)}.

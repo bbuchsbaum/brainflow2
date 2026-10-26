@@ -54,7 +54,7 @@ export function SetPanel() {
             <div className="mt-1 text-xs text-muted-foreground">
               {activeSetId
                 ? `${activeSet?.memberCount ?? 0} members · ${activeSet?.supportLabel ?? 'Unknown support'}`
-                : 'Open Set Studio or import a NeuroTabs manifest to begin.'}
+                : 'Open Set studio or import a NeuroTabs manifest to begin.'}
             </div>
             {activeSet ? (
               <>
@@ -134,7 +134,7 @@ export function SetPanel() {
                 onClick={handleOpenStudio}
                 className="rounded-sm border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
-                Open Set Studio
+                Open Set studio
               </button>
               <button
                 type="button"

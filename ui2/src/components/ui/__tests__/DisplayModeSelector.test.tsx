@@ -174,8 +174,18 @@ describe("DisplayModeSelector", () => {
           .getAllByRole("radio")
           .every((tab) => tab.getAttribute("aria-checked") === "false"),
       ).toBe(true);
+      // ...and says which tool is open (P3.13).
+      const label = { "set-studio": "Studio", "bids-explorer": "BIDS", "analysis-workbench": "Analysis" }[toolType];
+      expect(screen.getByTestId("display-mode-tool")).toHaveTextContent(`In${label}`);
     },
   );
+
+  it("shows no tool pill in a view workspace", () => {
+    workspaceStoreState.workspaces.set("w-2", makeWorkspace("w-2", "mosaic"));
+    workspaceStoreState.activeWorkspaceId = "w-2";
+    render(<DisplayModeSelector />);
+    expect(screen.queryByTestId("display-mode-tool")).toBeNull();
+  });
 
   it("returns from a tool to the latest view in the clicked mode without reconfiguring the tool tab", () => {
     const older = makeWorkspace("view-old", "mosaic");

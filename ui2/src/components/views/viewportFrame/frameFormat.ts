@@ -2,6 +2,7 @@
  * Pure helpers for the viewport frame: header text, threshold wording and
  * colorbar ticks. No React, no stores — unit-tested directly.
  */
+import { splitStatisticSymbol, statisticVariable } from '@/utils/statistic';
 import { colormaps } from '@/components/ui/colormapOptions';
 import {
   asciiMinus as asciiMinusShared,
@@ -387,4 +388,55 @@ export function colormapVerticalGradient(name: string | null | undefined): {
   const option = colormaps.find((c) => c.name === name);
   if (!option) return null;
   return { gradient: option.gradient.replace('to right', 'to top'), label: option.label };
+}
+
+// ── colorbar block (one model for the frame and the exporter) ─────────────
+
+/** A run of colorbar text: the statistic variable italic, numbers mono. */
+export interface TextRun {
+  text: string;
+  italic?: boolean;
+  mono?: boolean;
+}
+
+export interface ColorbarBlockModel {
+  /** The statistic symbol ("z", "t(24)", "z*"); empty for plain images. */
+  symbol: TextRun[];
+  /** Short layer name for the caption (shown when it fits). */
+  name: string | null;
+  /** One-line threshold footer ("|z| ≤ 3.1 hidden"); empty without a threshold. */
+  footer: TextRun[];
+}
+
+/**
+ * The colorbar block's words, shared by the viewport colorbar and the
+ * export composer so both read the same: caption = symbol (+ name), footer
+ * = threshold expression with the variable italic, numbers mono, "hidden".
+ */
+export function colorbarBlockModel(layer: {
+  units?: string | null;
+  nameLabel?: string | null;
+  threshold: readonly [number, number];
+}): ColorbarBlockModel {
+  const symbol: TextRun[] = layer.units
+    ? splitStatisticSymbol(layer.units).map((p) => ({ text: p.text, italic: p.italic }))
+    : [];
+  const variable = statisticVariable(layer.units ?? null);
+  const parts = thresholdExpressionParts(layer.threshold, variable);
+  const footer: TextRun[] = [];
+  if (parts) {
+    const expr = parts.join(' ');
+    if (variable !== 'value') {
+      const escaped = variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pieces = expr.split(new RegExp(`(?<![\\w])(${escaped})(?![\\w(])`));
+      pieces.forEach((piece, i) => {
+        if (!piece) return;
+        footer.push(i % 2 === 1 ? { text: piece, italic: true } : { text: piece, mono: true });
+      });
+    } else {
+      footer.push({ text: expr, mono: true });
+    }
+    footer.push({ text: ' hidden' });
+  }
+  return { symbol, name: layer.nameLabel ?? null, footer };
 }

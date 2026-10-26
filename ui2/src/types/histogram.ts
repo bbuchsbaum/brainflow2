@@ -86,6 +86,8 @@ export interface HistogramChartProps {
   showTooltips?: boolean;
   /** Whether to use log scale for Y axis */
   useLogScale?: boolean;
+  /** X-axis title: the statistic's variable ("z"), drawn italic; none for plain images. */
+  xTitle?: string | null;
   /** Callback when intensity window is changed by dragging */
   onIntensityChange?: (window: [number, number]) => void;
   /** Callback when threshold is changed by dragging */

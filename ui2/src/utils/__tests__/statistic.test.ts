@@ -6,6 +6,7 @@ import {
   statisticSignAssumed,
   splitStatisticSymbol,
   statisticPhrase,
+  splitStatisticSymbol,
   isInferredStatistic,
   statisticLongName,
   inferStatisticFromName,
@@ -103,7 +104,8 @@ describe('statistic wording (v1 critics)', () => {
     expect(statisticLongName('F(2,30)')).toBe('F statistic, 2 and 30 degrees of freedom');
     expect(statisticLongName('z')).toBe('z score');
     expect(statisticLongName('\u2212log10(p)')).toBe('negative log 10 p value');
-    expect(statisticLongName('z?')).toBe('z score, guessed from the file name');
+    expect(statisticLongName('z*')).toBe('z score, inferred from file name');
+    expect(statisticLongName('t*')).toBe('t statistic, inferred from file name');
   });
 
   it('guesses z / t from FSL names only, and marks the guess', () => {
@@ -125,6 +127,7 @@ describe('statistic wording (v1 critics)', () => {
       'cluster_mask_zstat1.nii.gz',
       'cluster_index_zstat1.nii.gz',
       'zstat1_mask.nii.gz',
+      'rendered_thresh_zstat1.nii.gz',
     ]) {
       expect(inferStatisticFromName(name, 'f32'), name).toBeNull();
     }
@@ -136,11 +139,21 @@ describe('statistic wording (v1 critics)', () => {
   it('drops a name-guessed t whose values lie in [0, 1]', () => {
     const t = inferStatisticFromName('tstat1.nii.gz', 'f32');
     expect(statisticUnits(t, { min: 0, max: 0.998 })).toBeNull();
-    expect(statisticUnits(t, { min: -3.2, max: 5.1 })).toBe('t');
+    expect(statisticUnits(t, { min: -3.2, max: 5.1 })).toBe('t*');
   });
 
   it('names the threshold variable', () => {
     expect(statisticVariable('t(24)')).toBe('t');
     expect(statisticVariable(null)).toBe('value');
+  });
+
+  it('marks a guessed statistic on every surface: "z*" with its long name', () => {
+    const z = inferStatisticFromName('zstat1.nii.gz', 'f32');
+    expect(statisticUnits(z)).toBe('z*');
+    expect(statisticVariable(statisticUnits(z))).toBe('z*');
+    expect(splitStatisticSymbol('z*')).toEqual([
+      { text: 'z', italic: true },
+      { text: '*', italic: false },
+    ]);
   });
 });

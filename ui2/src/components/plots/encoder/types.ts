@@ -30,6 +30,8 @@ export interface EncoderContext {
   readonly onIntensityChange?: (window: [number, number]) => void;
   readonly onThresholdChange?: (threshold: [number, number]) => void;
   readonly onLogScaleChange?: (useLogScale: boolean) => void;
+  /** Histogram x-axis title (the statistic's variable). */
+  readonly xTitle?: string | null;
   readonly loading?: boolean;
   readonly error?: Error | null;
 }

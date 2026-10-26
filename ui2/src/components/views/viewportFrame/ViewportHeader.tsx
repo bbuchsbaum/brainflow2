@@ -106,11 +106,14 @@ export function ViewportHeader({
       }}
     >
       {letter && (
+        // A boxed badge names the panel; the panel the Inspector edits gets
+        // the amber selection edge on its badge (the header only, not a
+        // full-height edge that reads as a divider).
         <span
           data-testid="viewport-header-letter"
           data-active={letterActive ? 'true' : undefined}
-          className={`shrink-0 font-semibold text-bf-text-primary ${
-            letterActive ? 'border-b-2 border-bf-accent' : 'border-b-2 border-transparent'
+          className={`inline-flex h-4 min-w-4 shrink-0 items-center justify-center self-center rounded-bf-xs border px-1 font-semibold leading-none text-bf-text-primary ${
+            letterActive ? 'border-bf-accent shadow-[inset_0_-2px_0_0_hsl(var(--ring))]' : 'border-bf-border-strong'
           }`}
         >
           {letter}

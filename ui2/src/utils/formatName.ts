@@ -116,6 +116,35 @@ function wholeTokenTail(stem: string[], budget: number): string | null {
 }
 
 /**
+ * Narrow fits that keep the stem's first token: "tmap…df24.nii.gz", then
+ * without the extension ("tmap_synthetic…df24", "atlas-synth3_dseg"), then
+ * the head alone ("zmap_synthe…"). Null when even a 3-character head does
+ * not fit.
+ */
+function headAndTail(stem: string[], ext: string[], maxChars: number, ellipsis: string): string | null {
+  const text = stem.join('');
+  const tokens = text.split(/[_\-.\s]+/).filter(Boolean);
+  const headTok = tokens[0] ?? '';
+  const tailTok = tokens[tokens.length - 1] ?? '';
+  const e = ext.join('');
+  const fits = (s: string) => Array.from(s).length <= maxChars;
+  if (tokens.length > 1 && headTok !== tailTok) {
+    const withExt = `${headTok}${ellipsis}${tailTok}${e}`;
+    if (fits(withExt)) return withExt;
+  }
+  if (fits(text)) return text;
+  if (tokens.length > 1 && headTok !== tailTok) {
+    // As much of the stem's start as fits, then the tail token.
+    const room = maxChars - 1 - Array.from(tailTok).length;
+    if (room >= Array.from(headTok).length) {
+      return `${stem.slice(0, room).join('').replace(/[_\-.\s]+$/, '')}${ellipsis}${tailTok}`;
+    }
+  }
+  if (maxChars - 1 >= 3) return `${stem.slice(0, maxChars - 1).join('').replace(/[_\-.\s]+$/, '')}${ellipsis}`;
+  return null;
+}
+
+/**
  * Fit `name` into `maxChars` characters (code points) with a middle ellipsis
  * that keeps the extension whole and the distinctive end of the stem.
  *
@@ -146,20 +175,20 @@ export function formatName(
     return `${chars.slice(0, maxChars - 1).join('')}${ellipsis}`;
   }
   if (options.keep === 'auto' && maxChars <= AUTO_TAIL_MAX_CHARS) {
-    const tokens = wholeTokenTail(stem, budget);
-    if (tokens !== null) return `${ellipsis}${tokens}${ext.join('')}`;
-    // Not even the last token fits: fall through to the character tail.
+    // Narrow rail (v0/v2 visual critics): siblings differ at the HEAD
+    // ("zmap_…", "tmap_…", "atlas-…") as often as at the tail, so keep the
+    // head token with the tail token, and give up the extension (the type
+    // badge states it) before giving up the head.
+    const narrow = headAndTail(stem, ext, maxChars, ellipsis);
+    if (narrow !== null) return narrow;
+    // Not even the head fits: fall through to the character tail.
   }
   const tailBias = options.keep === 'tail' || (options.keep === 'auto' && maxChars <= AUTO_TAIL_MAX_CHARS);
   if (!tailBias) {
     const snapped = snapToWords(stem, budget, Math.max(Math.min(3, budget - 1), Math.round(budget * 0.4)));
     if (snapped) {
-      // `auto`: a middle cut that still splits a word ("MNI15…brain") loses
-      // to whole trailing tokens ("…brain.nii.gz") when those fit.
-      if (options.keep === 'auto' && snapped.score < 2) {
-        const tokens = wholeTokenTail(stem, budget);
-        if (tokens !== null) return `${ellipsis}${tokens}${ext.join('')}`;
-      }
+      // `auto` keeps the head even when the cut splits a word: siblings
+      // often differ only at the start ("zmap_…" / "tmap_…", v2 critics).
       return `${snapped.head}${ellipsis}${snapped.tail}${ext.join('')}`;
     }
   }

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { formatName, type FormatNameOptions } from '@/utils/formatName';
 
 let measureCtx: CanvasRenderingContext2D | null | undefined;
@@ -38,6 +38,21 @@ export function useFittedName<T extends HTMLElement>(
   const [el, ref] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
   const [font, setFont] = useState('');
+  // Canvas text metrics use the fallback face until the web font loads: fit
+  // again then, or the fitted name overflows and CSS clips it a second time.
+  const [fontsReady, setFontsReady] = useState(
+    () => typeof document === 'undefined' || document.fonts?.status === 'loaded',
+  );
+  useEffect(() => {
+    if (fontsReady || typeof document === 'undefined' || !document.fonts?.ready) return;
+    let alive = true;
+    void document.fonts.ready.then(() => {
+      if (alive) setFontsReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [fontsReady]);
 
   useLayoutEffect(() => {
     if (!el || !enabled || typeof ResizeObserver === 'undefined') return;
@@ -55,12 +70,16 @@ export function useFittedName<T extends HTMLElement>(
 
   let text = name;
   if (enabled && width > 0 && font) {
+    // Canvas metrics and laid-out text differ by a pixel or two (rounding,
+    // the ellipsis glyph): keep that margin, or CSS clips the fitted name
+    // a second time ("atlas-synt…ds…").
+    const room = width - 2;
     const full = textWidth(name, font);
-    if (full !== null && full > width) {
+    if (full !== null && full > room) {
       // Start from the average-glyph estimate, then step down until it fits.
-      let budget = Math.max(1, Math.floor((width / full) * Array.from(name).length));
+      let budget = Math.max(1, Math.floor((room / full) * Array.from(name).length));
       text = formatName(name, budget, { isDir, keep });
-      while (budget > 1 && (textWidth(text, font) ?? 0) > width) {
+      while (budget > 1 && (textWidth(text, font) ?? 0) > room) {
         budget -= 1;
         text = formatName(name, budget, { isDir, keep });
       }

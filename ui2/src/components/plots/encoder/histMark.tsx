@@ -98,6 +98,7 @@ export const histMark: MarkRenderer = ({ frame, width, height, context }) => {
       onLogScaleChange={context?.onLogScaleChange}
       loading={context?.loading}
       error={context?.error}
+      xTitle={context?.xTitle ?? null}
     />
   );
 };

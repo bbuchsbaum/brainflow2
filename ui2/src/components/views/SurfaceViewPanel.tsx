@@ -3,6 +3,8 @@
  * Main panel for 3D brain surface visualization using neurosurface library
  */
 
+import { SurfaceFrame } from './surfaceFrame/SurfaceFrame';
+import { cssLengthPx } from './surfaceFrame/surfaceColorbar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SURFACE_VIEW_ID, useSurfaceStore } from '@/stores/surfaceStore';
 import { SurfaceViewCanvas } from './SurfaceViewCanvas';
@@ -291,43 +293,15 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         </div>
       )}
 
-      {/* Surface info overlay - Technical readout style */}
+      {/* Viewport frame (P3.10): header + counts disclosure, camera presets
+          and the overlay colorbar, the slice panes' grammar. */}
       {activeSurface && activeSurface.metadata && (
-        <div
-          className="absolute left-3 px-2 py-1.5 border font-mono text-bf-2xs leading-[1.55]"
-          style={{
-            top: infoOverlayTop,
-            backgroundColor: 'hsl(var(--card) / 0.92)',
-            borderColor: 'var(--bf-border-subtle)',
-            borderRadius: '2px',
-          }}
-        >
-          <div>
-            <div className="truncate max-w-[220px]" style={{ color: 'var(--bf-text-secondary)' }}>
-              {activeSurface.name}
-            </div>
-            {activeSurface.metadata.vertexCount !== undefined && (
-              <div className="text-muted-foreground">
-                {activeSurface.metadata.vertexCount.toLocaleString()} vertices
-              </div>
-            )}
-            {activeSurface.metadata.faceCount !== undefined && (
-              <div className="text-muted-foreground">
-                {activeSurface.metadata.faceCount.toLocaleString()} faces
-              </div>
-            )}
-            {activeSurface.metadata.hemisphere && (
-              <div className="text-muted-foreground">
-                {activeSurface.metadata.hemisphere}
-              </div>
-            )}
-            {activeSurface.metadata.surfaceType && (
-              <div className="text-muted-foreground">
-                {activeSurface.metadata.surfaceType}
-              </div>
-            )}
-          </div>
-        </div>
+        <SurfaceFrame
+          surface={activeSurface}
+          width={dimensions.width}
+          height={dimensions.height}
+          topInset={cssLengthPx(infoOverlayTop) - 12}
+        />
       )}
     </div>
   );
