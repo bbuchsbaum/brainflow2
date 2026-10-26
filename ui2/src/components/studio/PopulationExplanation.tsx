@@ -1,4 +1,4 @@
-import { Button, Notice, Select } from '@/components/ui/bf';
+import { Button, Notice, Select, Slider } from '@/components/ui/bf';
 import { ReusableSliceViewport, SliceViewerImageSurface } from '@/components/views/sliceViewer';
 import {
   populationAxisLabel,
@@ -142,20 +142,23 @@ export function PopulationExplanation({
             </>
           )}
           {kind === 'reconstruction' && (
-            <label className="flex items-center gap-2">
-              Components
-              <input
-                aria-label="Reconstruction components"
-                type="range"
+            <div className="flex items-center gap-2">
+              <span aria-hidden>Components</span>
+              <Slider
+                className="w-32"
+                label="Reconstruction components"
                 min={0}
                 max={available}
+                step={1}
+                snap={1}
                 value={components}
-                onChange={(e) => setComponents(Number(e.target.value))}
+                valueText={(v) => `${Math.round(v)} of ${available} components`}
+                onValueChange={(v) => setComponents(Math.round(v))}
               />
               <span>
                 {components} / {available}
               </span>
-            </label>
+            </div>
           )}
           <Select className="w-auto max-w-full"
             aria-label="Explanation orientation"

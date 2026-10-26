@@ -1,4 +1,4 @@
-import { IconButton } from '@/components/ui/bf';
+import { IconButton, Slider } from '@/components/ui/bf';
 import React, { useEffect, useRef, useState } from 'react';
 import type { StudioMemberSummary } from '@/types/studio';
 
@@ -122,15 +122,21 @@ export function StudioTimeRow({
         </TransportButton>
       </div>
 
-      <input
-        type="range"
+      <Slider
+        className="min-w-0 flex-1"
+        label="Frame index"
         min={0}
         max={Math.max(0, total - 1)}
+        step={1}
+        snap={1}
+        fill={false}
         value={safeFrame}
         disabled={!isFourD}
-        onChange={(event) => onFrameChange(Number.parseInt(event.target.value, 10) || 0)}
-        aria-label="Frame index"
-        className="h-1 flex-1 cursor-pointer appearance-none rounded-sm bg-border accent-primary disabled:cursor-not-allowed"
+        valueText={(v) => `Frame ${Math.round(v)} of ${Math.max(0, total - 1)}`}
+        onValueChange={(v) => {
+          const next = Math.round(v);
+          if (next !== safeFrame) onFrameChange(next);
+        }}
       />
 
       <div

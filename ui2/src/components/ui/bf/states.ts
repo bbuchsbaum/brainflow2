@@ -101,7 +101,17 @@ export const FORCED_BOTTOM_EDGE =
   "forced-colors:after:absolute forced-colors:after:inset-x-0 forced-colors:after:bottom-0 forced-colors:after:h-[3px] forced-colors:after:bg-[Highlight] forced-colors:after:content-[''] forced-colors:after:[forced-color-adjust:none]";
 
 /** Selection: the selected fill + 2px inset amber left edge (+ forced-colors bar). */
-export const SELECTED = `${SELECTED_FILL} text-foreground shadow-[inset_2px_0_0_var(--bf-accent)] ${FORCED_LEFT_EDGE}`;
+/**
+ * The 2px amber selected-row edge on its own, for composites (menus, listbox
+ * options, command-palette rows) that keep their own fill. `_FOCUS` draws it
+ * only for the keyboard-focused item (menus whose focus IS the selection).
+ */
+/** The selection-edge colour, for SVG marks that draw the edge as a stroke. */
+export const SELECTED_EDGE_COLOR = 'var(--bf-accent)';
+export const SELECTED_EDGE = 'shadow-[inset_2px_0_0_var(--bf-accent)]';
+export const SELECTED_EDGE_FOCUS = 'focus-visible:shadow-[inset_2px_0_0_var(--bf-accent)]';
+
+export const SELECTED = `${SELECTED_FILL} text-foreground ${SELECTED_EDGE} ${FORCED_LEFT_EDGE}`;
 
 /** Neutral active bottom edge: stays visible under focus (grey edge, amber ring). */
 export const EDGE_NEUTRAL = `shadow-[inset_0_-2px_0_var(--bf-text-muted)] ${FORCED_BOTTOM_EDGE}`;

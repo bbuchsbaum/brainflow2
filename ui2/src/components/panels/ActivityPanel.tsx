@@ -98,7 +98,7 @@ function StatusIcon({ status }: { status: LoadingStatus }) {
     case 'queued':
       return <Hourglass {...common} style={{ color: 'var(--app-text-muted)' }} />;
     case 'loading':
-      return <Loader2 {...common} style={{ color: 'var(--bf-accent)' }} />;
+      return <Loader2 {...common} style={{ color: 'var(--bf-text-secondary)' }} />;
     case 'complete':
       return <CheckCircle2 {...common} style={{ color: 'var(--bf-success)' }} />;
     case 'error':
@@ -164,7 +164,7 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ item, testid }) => {
               style={{
                 width: `${Math.min(100, Math.max(0, item.progress ?? 0))}%`,
                 height: '100%',
-                background: 'var(--bf-accent)',
+                background: 'var(--bf-text-secondary)',
                 transition: 'width 120ms linear',
               }}
             />

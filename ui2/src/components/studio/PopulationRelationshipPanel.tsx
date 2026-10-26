@@ -1,4 +1,4 @@
-import { Button, Notice, NumberField, Select } from '@/components/ui/bf';
+import { Button, Notice, NumberField, Select, SELECTED_EDGE_COLOR } from '@/components/ui/bf';
 import { PopulationExplanation } from './PopulationExplanation';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -169,7 +169,7 @@ export function PopulationRelationshipPanel() {
                     // Selected marks are light neutral (chrome is achromatic;
                     // amber is never a data colour). The active member gets
                     // the accent as a thin state edge, not a fill.
-                    stroke={member.memberId === state.selection.activeMemberId ? 'var(--bf-accent)' : 'none'}
+                    stroke={member.memberId === state.selection.activeMemberId ? SELECTED_EDGE_COLOR : 'none'}
                     strokeWidth="2"
                     role="button"
                     tabIndex={0}

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
-import { IconButton } from '@/components/ui/bf';
+import { IconButton, SELECTED_EDGE } from '@/components/ui/bf';
 
 export interface CommandPaletteCommand {
   id: string;
@@ -165,7 +165,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? 'bg-accent shadow-[inset_2px_0_0_var(--bf-accent)]' : 'hover:bg-accent'}`}
+                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? `bg-accent ${SELECTED_EDGE}` : 'hover:bg-accent'}`}
                   onMouseEnter={() => setSelectedIndex(index)}
                   onClick={() => {
                     void executeCommand(command);

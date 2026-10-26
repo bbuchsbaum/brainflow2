@@ -1,4 +1,4 @@
-import { Button, Select } from '@/components/ui/bf';
+import { Button, Select, Slider } from '@/components/ui/bf';
 import { useEffect, useState } from 'react';
 
 
@@ -107,16 +107,24 @@ export function PopulationNavigation({
           <option value={10}>10 observations/s</option>
         </Select>
       </div>
-      <input
-        className="block w-full accent-primary"
-        aria-label="Focus observation"
-        type="range"
+      <Slider
+        className="w-full"
+        label="Focus observation"
         min={0}
         max={Math.max(0, ids.length - 1)}
+        step={1}
+        snap={1}
+        fill={false}
         value={Math.max(0, index)}
         disabled={!ids.length}
-        onPointerDown={() => setPlaying(false)}
-        onChange={(e) => move(Number(e.target.value))}
+        valueText={(v) => `Observation ${Math.round(v) + 1} of ${ids.length}`}
+        onDragChange={(dragging) => {
+          if (dragging) setPlaying(false);
+        }}
+        onValueChange={(v) => {
+          const next = Math.round(v);
+          if (next !== index) move(next);
+        }}
       />
       <p className="text-bf-sm text-muted-foreground" title={label}>
         {label} · Show every observation{playing && !ready ? ' · Buffering…' : ''}

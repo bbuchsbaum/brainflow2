@@ -15,53 +15,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-
-const SCENARIOS = [
-  'empty',
-  'volume',
-  'volume-surface',
-  'inspector-layer',
-  'overlay',
-  'overlay-colorbar',
-  'compare',
-  'keyboard-focus',
-  'keyboard-focus-switcher',
-  'plots',
-  'mosaic',
-  'analysis',
-  'bids',
-  'studio',
-  'dialog-goto',
-  'dialog-header',
-  'dialog-crosshair',
-  'surface-settings',
-  'dialog-remote-mount',
-];
-
-/**
- * Extra viewport variants: [scenario, width, height]. `integrated` runs the
- * volume-surface driver and exists only here, so its file is
- * `integrated@1280x800` (staged as `integrated-1280`).
- */
-const VARIANTS: Array<[string, number, number]> = [
-  ['volume', 1280, 800],
-  ['inspector-layer', 1280, 800],
-  ['integrated', 1280, 800],
-];
+import { FREEZE_CSS, PRIMITIVE_PAGES, SCENARIOS, VARIANTS, installStyleScript } from './app-harness.scenarios';
 
 const OUT = process.env.APP_HARNESS_OUT;
 const DIRECTION = process.env.APP_HARNESS_DIRECTION;
 const ONLY = process.env.APP_HARNESS_SCENARIOS?.split(',').map((s) => s.trim()).filter(Boolean);
-
-const FREEZE_CSS = `
-  *, *::before, *::after {
-    animation-duration: 0s !important;
-    animation-delay: 0s !important;
-    animation-iteration-count: 1 !important;
-    transition: none !important;
-    caret-color: transparent !important;
-  }
-`;
 
 test.beforeAll(() => {
   if (!OUT) throw new Error('APP_HARNESS_OUT (absolute output directory) is required');
@@ -69,16 +27,7 @@ test.beforeAll(() => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript((css: string) => {
-    const install = () => {
-      const style = document.createElement('style');
-      style.setAttribute('data-app-harness', 'freeze');
-      style.textContent = css;
-      document.head.appendChild(style);
-    };
-    if (document.head) install();
-    else document.addEventListener('DOMContentLoaded', install, { once: true });
-  }, FREEZE_CSS);
+  await page.addInitScript(installStyleScript, [FREEZE_CSS, 'freeze'] as [string, string]);
 });
 
 async function capture(page: Page, scenario: string, file: string): Promise<void> {
@@ -134,14 +83,6 @@ for (const [scenario, width, height] of VARIANTS) {
   });
 }
 
-/** Gallery pages of ui/bf primitives: [query page, output file]. */
-const PRIMITIVE_PAGES: Array<[string, string]> = [
-  ['1', 'primitives'],
-  ['2', 'primitives-2'],
-  ['3', 'primitives-3'],
-  ['4', 'primitives-4'],
-];
-
 if (ONLY?.includes('primitives')) {
   for (const [pageNo, file] of PRIMITIVE_PAGES) {
     test(`capture ${file}`, async ({ page }) => {
@@ -165,19 +106,5 @@ if (ONLY?.includes('primitives')) {
         caret: 'hide',
       });
     });
-  }
-}
-
-declare global {
-  interface Window {
-    __harnessReady?: boolean;
-    __harnessFailed?: string;
-    __harnessLog: {
-      calls: Array<{ cmd: string }>;
-      unknown: string[];
-      errors: Array<{ cmd: string; message: string }>;
-      fallbacks: string[];
-      pageErrors: string[];
-    };
   }
 }

@@ -27,7 +27,7 @@ it('waits for each completed image, pauses on scrubbing and cancels a pending dw
   expect(onFocus).toHaveBeenCalledTimes(1);
   act(() => vi.advanceTimersByTime(1));
   expect(onFocus).toHaveBeenLastCalledWith('c');
-  fireEvent.change(screen.getByLabelText('Focus observation'), { target: { value: '0' } });
+  fireEvent.keyDown(screen.getByRole('slider', { name: 'Focus observation' }), { key: 'Home' });
   expect(screen.getByText('Play')).toBeTruthy();
   fireEvent.click(screen.getByText('Play'));
   view.unmount();

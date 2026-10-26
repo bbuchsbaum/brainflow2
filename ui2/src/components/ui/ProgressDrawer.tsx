@@ -147,7 +147,7 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
   function getStatusColor(status: ProgressTask['status']) {
     switch (status) {
       case 'active':
-        return 'var(--bf-accent)';
+        return 'var(--bf-text-secondary)';
       case 'completed':
         return 'var(--bf-success)';
       case 'error':
@@ -324,8 +324,8 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                       disabled={task.retrying}
                       className="inline-flex items-center gap-1 px-2 py-1 rounded-sm text-bf-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{
-                        backgroundColor: 'var(--bf-accent-soft)',
-                        color: 'var(--bf-accent)',
+                        backgroundColor: 'var(--bf-bg-hover)',
+                        color: 'var(--bf-text-primary)',
                       }}
                       title="Retry task"
                       aria-label="Retry task"

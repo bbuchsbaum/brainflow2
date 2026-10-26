@@ -1,3 +1,4 @@
+import { SELECTED_EDGE_FOCUS } from "@/components/ui/bf";
 import React, { useMemo, useState } from "react";
 import {
   Popover,
@@ -109,7 +110,8 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({
             type="button"
             role="menuitem"
             className={cn(
-              "flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-left text-bf-sm transition-colors outline-none focus-visible:bg-accent focus-visible:shadow-[inset_2px_0_0_var(--bf-accent)]",
+              "flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-left text-bf-sm transition-colors outline-none focus-visible:bg-accent",
+              SELECTED_EDGE_FOCUS,
               toneClass,
             )}
             disabled={item.disabled}

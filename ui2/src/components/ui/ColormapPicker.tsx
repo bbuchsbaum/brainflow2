@@ -1,3 +1,4 @@
+import { SELECTED_EDGE_FOCUS } from '@/components/ui/bf';
 import React, { useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
 import { cn } from '@/utils/cn';
@@ -220,7 +221,8 @@ export function ColormapPicker({
                   role="option"
                   aria-selected={isSelected}
                   className={cn(
-                    'flex w-full items-center gap-2 px-3 py-2 text-left text-bf-sm text-foreground focus:outline-none focus-visible:bg-accent focus-visible:shadow-[inset_2px_0_0_var(--bf-accent)]',
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-bf-sm text-foreground focus:outline-none focus-visible:bg-accent',
+                    SELECTED_EDGE_FOCUS,
                     isSelected ? 'bg-bf-bg-selected' : 'hover:bg-accent'
                   )}
                   onClick={() => {

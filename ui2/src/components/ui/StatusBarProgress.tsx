@@ -69,7 +69,7 @@ export function StatusBarProgress() {
               />
               <path 
                 d="M12 2a10 10 0 0 1 10 10" 
-                stroke="var(--bf-accent)"
+                stroke="var(--bf-text-secondary)"
                 strokeWidth="2"
                 strokeLinecap="round"
               />
@@ -91,7 +91,7 @@ export function StatusBarProgress() {
                 cy="12"
                 r="10"
                 fill="none"
-                stroke="var(--bf-accent)"
+                stroke="var(--bf-text-secondary)"
                 strokeWidth="2"
                 strokeDasharray={`${2 * Math.PI * 10}`}
                 strokeDashoffset={`${2 * Math.PI * 10 * (1 - overallProgress / 100)}`}
