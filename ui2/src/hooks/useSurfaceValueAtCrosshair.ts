@@ -2,10 +2,16 @@
  * A surface overlay's value at the crosshair: the nearest mesh vertex to the
  * crosshair (vertices are world mm, transform applied), when it lies within
  * `maxDistanceMm`. Used by the Scene rows of surface overlays (P3.10).
+ *
+ * An inflated or spherical mesh is not in the crosshair's space: its vertex
+ * is found on the matching anatomical (pial / white) mesh of the same
+ * topology (surfaceLink's cursor anatomy), and with none loaded there is no
+ * reading (`anatomical: false`) rather than a wrong one (v4 function critic).
  */
 import { useMemo } from 'react';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { resolveCursorAnatomy } from '@/components/views/surfaceLink';
 
 export interface SurfaceReading {
   vertex: number;
@@ -33,16 +39,27 @@ export function nearestVertex(
   return best < 0 ? null : { index: best, distanceMm: Math.sqrt(bestD2) };
 }
 
+export interface SurfaceCrosshairReading {
+  reading: SurfaceReading | null;
+  /** False: no anatomical mesh to place the crosshair on (inflated / sphere alone). */
+  anatomical: boolean;
+}
+
 export function useSurfaceValueAtCrosshair(
   surfaceId: string,
   surfaceLayerId: string,
   maxDistanceMm = 3,
-): SurfaceReading | null {
+): SurfaceCrosshairReading {
   const surface = useSurfaceStore((s) => s.surfaces.get(surfaceId));
+  const surfaces = useSurfaceStore((s) => s.surfaces);
   const crosshair = useViewStateStore((s) => s.viewState.crosshair.world_mm);
-  return useMemo(() => {
+  const anatomy = useMemo(
+    () => (surface ? (resolveCursorAnatomy([surface], surfaces.values()).get(surface.handle) ?? null) : null),
+    [surface, surfaces],
+  );
+  const reading = useMemo(() => {
     const layer = surface?.layers.get(surfaceLayerId);
-    const vertices = surface?.geometry?.vertices;
+    const vertices = anatomy;
     if (!layer || !vertices || !layer.values?.length) return null;
     const hit = nearestVertex(vertices, [crosshair[0], crosshair[1], crosshair[2]]);
     if (!hit || hit.distanceMm > maxDistanceMm) return null;
@@ -56,5 +73,6 @@ export function useSurfaceValueAtCrosshair(
     }
     if (value === undefined || !Number.isFinite(value)) return null;
     return { vertex: hit.index, value, distanceMm: hit.distanceMm };
-  }, [surface, surfaceLayerId, crosshair, maxDistanceMm]);
+  }, [surface, anatomy, surfaceLayerId, crosshair, maxDistanceMm]);
+  return { reading, anatomical: anatomy !== null };
 }

@@ -2,6 +2,7 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { ThresholdText } from "@/components/ui/ThresholdText";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import { statisticUnits, statisticVariable } from "@/utils/statistic";
+import { sameStatisticLayerIds } from "@/utils/compareSharedWindow";
 import { DEFAULT_LABEL_OUTLINE, labelDisplayOf, type LabelDisplay } from "@/utils/labelDisplay";
 import React, { useEffect, useId, useState } from "react";
 import { useLayerStore } from "@/stores/layerStore";
@@ -21,6 +22,7 @@ import {
   KeyValue,
   RangeSlider,
   Section,
+  focusFallback,
   SegmentedControl,
   Select,
   Slider as BfSlider,
@@ -197,10 +199,18 @@ function VolumeRenderRows({
     }
     // Compare with a shared window: two maps of the same statistic kind
     // (two z maps) share one colour range, so panels compare like with like.
-    const sharedRangeIds =
+    const shared =
       field === "intensity" && inComparison && (!compare || isFieldLinked(compare.mode, "intensity"))
-        ? sameStatisticLayerIds(layerId)
-        : [];
+        ? sameStatisticLayerIds(layerId, useWorkspaceStore.getState().activeWorkspaceId)
+        : { ids: [], held: [] };
+    const sharedRangeIds = shared.ids;
+    if (shared.held.length > 0) {
+      // A panel's own window is kept, and said so (never silently masked).
+      getEventBus().emit("ui.notification", {
+        type: "info",
+        message: `Shared window not applied to ${shared.held.join(", ")}: that panel keeps its own window`,
+      });
+    }
     setViewState((draft) => {
       const target = draft.layers.find((l) => l.id === layerId);
       if (!target) return;
@@ -776,13 +786,6 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
 
 // ── linked compare ───────────────────────────────────────────────────────────
 
-/** Other loaded layers with the same statistic kind (z with z, t with t). */
-function sameStatisticLayerIds(layerId: string): string[] {
-  const layers = useLayerStore.getState().layers;
-  const kind = layers.find((l) => l.id === layerId)?.statistic?.kind;
-  if (!kind || kind === "none" || kind === "label" || kind === "data") return [];
-  return layers.filter((l) => l.id !== layerId && l.statistic?.kind === kind).map((l) => l.id);
-}
 
 const OVERRIDE_FIELDS = new Set<string>(["intensity", "threshold", "colormap"]);
 
@@ -827,11 +830,7 @@ function OverrideMark({
             .getState()
             .clearPanelOverride(compare.workspaceId, compare.panel.id, layerId, field);
           // The button goes away: focus the field it reset, not <body>.
-          requestAnimationFrame(() =>
-            document
-              .querySelector<HTMLElement>(`[aria-label^="${label}"]`)
-              ?.focus(),
-          );
+          focusFallback([`[aria-label^="${label}"]`]);
         }}
         aria-label={`Reset ${label.toLowerCase()} of panel ${compare.letter} to the shared value`}
       >

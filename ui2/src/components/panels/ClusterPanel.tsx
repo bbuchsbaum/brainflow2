@@ -16,6 +16,7 @@ import type { ClusterSign, ClusterSummary } from '@brainflow/api';
 import {
   Button,
   EmptyPane,
+  focusFallback,
   Notice,
   NumberField,
   SegmentedControl,
@@ -200,7 +201,14 @@ export function ClusterPanel() {
   const minInvalid =
     params.minVoxels === null || !Number.isInteger(params.minVoxels) || params.minVoxels < 1;
   const computing = status === 'computing';
-  const canCompute = !!target && !thresholdInvalid && !minInvalid && !computing;
+  // Clusters need a statistical layer: a T1 at |value| > 0 is one 100k-voxel
+  // "cluster" (v4 user critic). Disabled controls say why.
+  const notStatReason = !target
+    ? 'Select a layer to find clusters'
+    : !symbol
+      ? 'Clusters need a statistical layer (a z, t or F map)'
+      : null;
+  const canCompute = !notStatReason && !thresholdInvalid && !minInvalid && !computing;
 
   const compute = useCallback(() => {
     if (!target || threshold === null || params.minVoxels === null) return;
@@ -212,6 +220,19 @@ export function ClusterPanel() {
       minVoxels: params.minVoxels,
     });
   }, [target, threshold, params.sign, params.connectivity, params.minVoxels]);
+
+  // The table's own statistic (its layer may no longer be the active one):
+  // headers, the empty line and the methods sentence use it, never the
+  // active layer's units (v4 function critic: a z table headed "Peak t").
+  const resultSymbol = useLayerStore((s) =>
+    result
+      ? statisticUnits(
+          s.layers.find((l) => l.id === result.layerId)?.statistic,
+          s.layerMetadata.get(result.layerId)?.dataRange,
+        )
+      : null,
+  );
+  const resultVariable = resultSymbol ? resultSymbol.replace(/\(.*\)$/, '') : 'value';
 
   // Stale: the table no longer describes the target layer or the parameters.
   const stale = useMemo(() => {
@@ -303,10 +324,10 @@ export function ClusterPanel() {
           {target ? shortLayerLabel(layer?.name ?? target.name) : 'No layer'}
         </span>
         <label
-          className="inline-flex items-center gap-1 text-bf-text-secondary"
+          className="inline-flex items-center whitespace-pre text-bf-text-secondary"
           htmlFor="cluster-threshold"
         >
-          |{symbol ? <StatSymbol label={variable} /> : variable}| &gt;
+          |{symbol ? <StatSymbol label={variable} /> : variable}|{' >'}
         </label>
         <NumberField
           ref={thresholdRef}
@@ -366,6 +387,7 @@ export function ClusterPanel() {
           size="sm"
           onClick={compute}
           disabled={!canCompute}
+          title={notStatReason ?? undefined}
           className="ml-auto"
         >
           {computing ? 'Computing…' : 'Compute'}
@@ -403,7 +425,14 @@ export function ClusterPanel() {
             }
             primary={
               statLayer
-                ? { label: `Select ${shortLayerLabel(statLayer.name)}`, onClick: () => selectStatLayer(statLayer.id) }
+                ? {
+                    label: `Select ${shortLayerLabel(statLayer.name)}`,
+                    onClick: () => {
+                      selectStatLayer(statLayer.id);
+                      // The message goes away: focus the threshold it seeds.
+                      focusFallback(['#cluster-threshold']);
+                    },
+                  }
                 : null
             }
           />
@@ -413,7 +442,7 @@ export function ClusterPanel() {
           </p>
         ) : clusters.length === 0 ? (
           <p className="p-3 text-bf-text-muted" data-testid="cluster-none">
-            No clusters above |{variable}| &gt; {formatLayerValue(result.table.threshold)} with ≥{' '}
+            No clusters above |{resultVariable}| &gt; {formatLayerValue(result.table.threshold)} with ≥{' '}
             {result.table.minVoxels} voxel{result.table.minVoxels === 1 ? '' : 's'}.
           </p>
         ) : (
@@ -433,7 +462,7 @@ export function ClusterPanel() {
                   mm³
                 </th>
                 <SortHeader
-                  label={<>Peak {symbol ? <StatSymbol label={symbol} /> : ''}</>}
+                  label={<>Peak {resultSymbol ? <StatSymbol label={resultSymbol} /> : ''}</>}
                   sortKey="peak"
                   sort={sort}
                   onSort={setSort}
@@ -531,8 +560,8 @@ export function ClusterPanel() {
             title="Rows sorted by |peak|"
           >
             <MethodsSentence
-              text={clusterMethodsSentence(result.table, statisticUnits(layer?.statistic, dataRange))}
-              variable={variable}
+              text={clusterMethodsSentence(result.table, resultSymbol)}
+              variable={resultVariable}
             />
             {result.table.truncated ? ` (first ${result.table.clusters.length} shown)` : ''}
           </span>
@@ -541,15 +570,29 @@ export function ClusterPanel() {
           <Button
             variant="secondary"
             size="sm"
-            disabled={!result || clusters.length === 0}
+            // A stale table is not copied as if current: recompute first.
+            disabled={!result || clusters.length === 0 || !!stale}
+            title={stale ? `${stale} Compute to copy.` : undefined}
             onClick={copyCsv}
           >
             Copy CSV
           </Button>
-          <Button variant="secondary" size="sm" disabled={!target} onClick={() => void goTo('max')}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={!!notStatReason}
+            title={notStatReason ?? undefined}
+            onClick={() => void goTo('max')}
+          >
             Go to max
           </Button>
-          <Button variant="secondary" size="sm" disabled={!target} onClick={() => void goTo('min')}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={!!notStatReason}
+            title={notStatReason ?? undefined}
+            onClick={() => void goTo('min')}
+          >
             Go to min
           </Button>
         </span>

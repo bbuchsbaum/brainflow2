@@ -33,6 +33,7 @@ import {
 } from '@/utils/crosshairUtils';
 import { colormaps } from '@/components/ui/colormapOptions';
 import { formatLayerValue } from '@/utils/valueFormat';
+import { INFERRED_MARK } from '@/utils/statistic';
 import { formatRegionLabel } from '@/services/atlasRegionLookup';
 
 export type ExportBackground = 'black' | 'white' | 'transparent';
@@ -60,6 +61,11 @@ export interface CompositeOptions extends FrameIncludes {
   alignRows?: 'center' | 'start';
   /** Gap between panes in CSS px at 96 dpi. */
   paneGap?: number;
+  /**
+   * Exact output width (print): the composition is centred in it, so integer
+   * pane widths never make the file a pixel wider or narrower than asked.
+   */
+  targetWidth?: number;
 }
 
 /** Figure text sizes in points. */
@@ -208,6 +214,14 @@ const MONO = '"IBM Plex Mono", ui-monospace, monospace';
 export const SIDEBAR_W = 120;
 const BAR_W = 10;
 const MAX_BAR_H = 160;
+/**
+ * Tick mark length and the clear gap from its end to the label, in chrome
+ * units: a 2-unit gap made "3.1" read "-3.1" and "0" read "-0" (v4 visual).
+ */
+export const TICK_LEN = 4;
+export const TICK_LABEL_GAP = 5;
+/** Inset of page text (header) and on-image text (scale bar) from a pane edge. */
+export const EDGE_INSET = 4;
 
 function font(px: number, family: string, weight = 400, italic = false): string {
   return `${italic ? 'italic ' : ''}${weight} ${px}px ${family}`;
@@ -217,6 +231,14 @@ function font(px: number, family: string, weight = 400, italic = false): string 
 function colormapStops(name: string): string[] {
   const option = colormaps.find((c) => c.name === name);
   return option?.gradient.match(/#[0-9a-f]{3,8}/gi) ?? ['#000000', '#ffffff'];
+}
+
+/**
+ * Label strip under a mosaic tile (output px): the "z 50.5" label sits on
+ * the page, never on tissue, as on screen (v4 user critic).
+ */
+export function tileStripPx(unit: number): number {
+  return Math.round(ptToPx(TEXT_PT.tile, unit) * 1.6 + 2 * unit);
 }
 
 /** Header band height above a pane (CSS px at 96 dpi). */
@@ -289,10 +311,7 @@ function drawPane(
       ctx.textBaseline = 'top';
       knockouts.push(haloText(ctx, labels.top, x + pane.width / 2, iy + off, u));
       ctx.textBaseline = 'bottom';
-      // A montage tile keeps its position label bottom-left: the bottom
-      // letter sits above that row so the two never touch.
-      const labelRow = pane.tileLabel ? ptToPx(TEXT_PT.tile, u) * 1.6 + 4 * u : 0;
-      knockouts.push(haloText(ctx, labels.bottom, x + pane.width / 2, iy + pane.height - off - labelRow, u));
+      knockouts.push(haloText(ctx, labels.bottom, x + pane.width / 2, iy + pane.height - off, u));
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       knockouts.push(haloText(ctx, labels.left, x + off, iy + pane.height / 2, u));
@@ -308,20 +327,13 @@ function drawPane(
   }
 
   if (pane.tileLabel) {
+    // In the strip under the tile, on the page (left-aligned with the tile).
     ctx.save();
     ctx.font = font(ptToPx(TEXT_PT.tile, u), MONO, pane.tileLabel.emphasis ? 600 : 400);
-    const text = pane.tileLabel.text;
-    const w = ctx.measureText(text).width + 6 * u;
-    const h = ptToPx(TEXT_PT.tile, u) * 1.5;
-    const bx = x + 3 * u;
-    const by = iy + pane.height - 3 * u - h;
-    ctx.fillStyle = ON_IMAGE.scrim;
-    ctx.fillRect(bx, by, w, h);
-    // The crosshair's tile: the crosshair colour (images stay dark).
-    ctx.fillStyle = pane.tileLabel.emphasis ? settings.activeColor : ON_IMAGE.text;
+    ctx.fillStyle = theme.text;
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, bx + 3 * u, by + h / 2);
-    knockouts.push({ x: bx, y: by, width: w, height: h });
+    ctx.fillText(pane.tileLabel.text, x + 1 * u, iy + pane.height + tileStripPx(u) / 2);
     ctx.restore();
   }
 
@@ -371,12 +383,18 @@ function drawScaleBar(
   ctx.shadowBlur = 3 * u;
   ctx.fillRect(right - length, base - 2 * u, length, 2 * u);
   ctx.font = font(ptToPx(TEXT_PT.tick, u), MONO);
-  ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(`${SCALE_BAR_MM} mm`, right - length / 2, base - 4 * u);
+  // Centred over the bar, but never past the pane edge: a short bar (a
+  // mosaic tile) right-aligns its label to the bar's end instead.
+  const text = `${SCALE_BAR_MM} mm`;
+  const textW = ctx.measureText(text).width;
+  const textRight = Math.min(right - length / 2 + textW / 2, x + pane.width - EDGE_INSET * u);
+  ctx.textAlign = 'right';
+  ctx.fillText(text, textRight, base - 4 * u);
   ctx.restore();
   const h = ptToPx(TEXT_PT.tick, u) * 1.4 + 6 * u;
-  return { x: right - length - 2 * u, y: base - h, width: length + 4 * u, height: h + 2 * u };
+  const left = Math.min(right - length, textRight - textW) - 2 * u;
+  return { x: left, y: base - h, width: right + 2 * u - left, height: h + 2 * u };
 }
 
 function drawHeaderBand(
@@ -391,19 +409,24 @@ function drawHeaderBand(
   // "Axial  z = 50.5 mm  zmap_synthetic" (plane, mono position, muted layer).
   const px = ptToPx(TEXT_PT.header, u);
   const gap = 6 * u;
-  const parts: Array<{ text: string; font: string; color: string }> = [
+  // Sans throughout, the axis variable italic ("Axial  z = 50.5 mm"), as in
+  // the frame's typography for symbols.
+  const position = formatSlicePosition(pane.framePlane, pane.positionMm);
+  const axis = /^([xyz]) /.exec(position)?.[1] ?? null;
+  const parts: Array<{ text: string; font: string; color: string; gap?: number }> = [
     { text: PLANE_NAME[pane.framePlane], font: font(px, SANS), color: theme.text },
-    {
-      text: formatSlicePosition(pane.framePlane, pane.positionMm).replace(/^([xyz]) /, '$1 = '),
-      font: font(px, MONO),
-      color: theme.text,
-    },
+    ...(axis
+      ? [
+          { text: axis, font: font(px, SANS, 400, true), color: theme.text },
+          { text: `= ${position.slice(2)}`, font: font(px, SANS), color: theme.text, gap: px * 0.3 },
+        ]
+      : [{ text: position, font: font(px, SANS), color: theme.text }]),
   ];
   ctx.save();
   const measure = (list: typeof parts) =>
     list.reduce((sum, p, i) => {
       ctx.font = p.font;
-      return sum + ctx.measureText(p.text).width + (i > 0 ? gap : 0);
+      return sum + ctx.measureText(p.text).width + (i > 0 ? (p.gap ?? gap) : 0);
     }, 0);
   // The band spans the pane: the layer name gets what is left, middle-
   // truncated (never clipped to a stub; dropped below 8 characters).
@@ -412,21 +435,23 @@ function drawHeaderBand(
     for (let chars = label.length; chars >= 8; chars -= 1) {
       const text = middleTruncate(label, chars, 8) ?? label;
       const candidate = [...parts, { text, font: font(px, SANS), color: theme.muted }];
-      if (measure(candidate) <= pane.width) {
+      if (measure(candidate) <= pane.width - EDGE_INSET * u) {
         parts.push(candidate[candidate.length - 1]);
         break;
       }
     }
   }
-  if (measure(parts) > pane.width) parts.shift();
+  if (measure(parts) > pane.width - EDGE_INSET * u) parts.shift();
   ctx.textBaseline = 'middle';
-  let cx = x;
-  for (const p of parts) {
+  // Inset from the pane's left edge (the header is page text, not flush).
+  let cx = x + EDGE_INSET * u;
+  parts.forEach((p, i) => {
+    if (i > 0) cx += p.gap ?? gap;
     ctx.font = p.font;
     ctx.fillStyle = p.color;
     ctx.fillText(p.text, cx, y + band / 2);
-    cx += ctx.measureText(p.text).width + gap;
-  }
+    cx += ctx.measureText(p.text).width;
+  });
   ctx.restore();
 }
 
@@ -502,7 +527,8 @@ function drawColorbar(
   // enough to identify the layer (>= 8 characters), never a stub ("Mo.").
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = theme.text;
-  const captionY = top - 6 * u;
+  // Clear of the top tick label, which is centred on the bar's top edge.
+  const captionY = top - tickPx / 2 - 5 * u;
   const symbolRuns = block.symbol;
   let cx = barX + drawRuns(ctx, symbolRuns, barX, captionY, labelPx);
   if (block.name) {
@@ -563,8 +589,8 @@ function drawColorbar(
   ctx.textAlign = 'left';
   for (const t of ticks) {
     const ty = top + (1 - t.fraction) * barH;
-    ctx.fillRect(barX + bw, ty - 0.5 * u, 3 * u, 1 * u);
-    ctx.fillText(t.label, barX + bw + 5 * u, ty);
+    ctx.fillRect(barX + bw, ty - 0.5 * u, TICK_LEN * u, 1 * u);
+    ctx.fillText(t.label, barX + bw + (TICK_LEN + TICK_LABEL_GAP) * u, ty);
   }
 
   // Crosshair value as a caret, clamped to the bar.
@@ -596,7 +622,42 @@ function drawColorbar(
       drawRuns(ctx, [{ text: block.footer[cut].text.trim() }], barX, fy + tickPx * 1.4, tickPx);
     }
   }
+
+  // A statistic guessed from the file name is explained on the figure: on
+  // paper "z*" usually means a critical value (v4 fidelity critic).
+  const note = inferredStatisticNote(layer.units);
+  if (note) {
+    const lines = block.footer.length ? 2 : 0;
+    const ny = top + barH + 6 * u + lines * tickPx * 1.4 + 2 * u;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = theme.muted;
+    ctx.font = font(tickPx, SANS);
+    wrapWords(ctx, note, colW - (barX - x)).forEach((line, i) =>
+      ctx.fillText(line, barX, ny + i * tickPx * 1.3),
+    );
+  }
   ctx.restore();
+}
+
+/** "z* inferred from file name" for a guessed statistic, else null. */
+export function inferredStatisticNote(units: string | null | undefined): string | null {
+  return units && units.endsWith(INFERRED_MARK) ? `${units} inferred from file name` : null;
+}
+
+/** Greedy word wrap to `width` with the context's current font. */
+function wrapWords(ctx: CanvasRenderingContext2D, text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > width) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 function drawLegend(
@@ -646,12 +707,13 @@ export interface Composition {
 /** Composition size for a layout (the capture solves pane sizes with it). */
 export function compositionSize(
   rows: Array<Array<{ width: number; height: number; tile?: boolean }>>,
-  options: Pick<CompositeOptions, 'unit' | 'header' | 'colorbar' | 'paneGap'>,
+  options: Pick<CompositeOptions, 'unit' | 'header' | 'colorbar' | 'paneGap' | 'targetWidth'>,
   hasSide: boolean,
-): { width: number; height: number; gridW: number } {
+): { width: number; height: number; gridW: number; offsetX: number } {
   const u = options.unit;
   const gap = (options.paneGap ?? 4) * u;
-  const band = (p: { tile?: boolean }) => (options.header && !p.tile ? headerBandPx(u) : 0);
+  const band = (p: { tile?: boolean }) =>
+    p.tile ? tileStripPx(u) : options.header ? headerBandPx(u) : 0;
   const rowWidths = rows.map(
     (r) => r.reduce((w, p) => w + p.width, 0) + gap * Math.max(0, r.length - 1),
   );
@@ -659,7 +721,14 @@ export function compositionSize(
   const gridW = Math.max(0, ...rowWidths);
   const gridH = rowHeights.reduce((a, b) => a + b, 0) + gap * Math.max(0, rows.length - 1);
   const sideW = hasSide ? SIDEBAR_W * u + gap : 0;
-  return { width: Math.max(1, Math.round(gridW + sideW)), height: Math.max(1, Math.round(gridH)), gridW };
+  const natural = Math.max(1, Math.round(gridW + sideW));
+  const width = options.targetWidth && options.targetWidth > 0 ? Math.round(options.targetWidth) : natural;
+  return {
+    width,
+    height: Math.max(1, Math.round(gridH)),
+    gridW,
+    offsetX: Math.max(0, Math.floor((width - (gridW + sideW)) / 2)),
+  };
 }
 
 export function compose(
@@ -673,12 +742,13 @@ export function compose(
   const gap = (options.paneGap ?? 4) * u;
   const hasSide =
     options.colorbar && (!!side.colorbar || (!!side.legend && side.legend.length > 0));
-  const band = (p: ExportPane) => (options.header && !p.tileLabel ? headerBandPx(u) : 0);
+  const band = (p: ExportPane) =>
+    p.tileLabel ? tileStripPx(u) : options.header ? headerBandPx(u) : 0;
   const rowWidths = rows.map(
     (r) => r.reduce((w, p) => w + p.width, 0) + gap * Math.max(0, r.length - 1),
   );
   const rowHeights = rows.map((r) => Math.max(0, ...r.map((p) => p.height + band(p))));
-  const { width, height, gridW } = compositionSize(
+  const { width, height, gridW, offsetX } = compositionSize(
     rows.map((r) => r.map((p) => ({ width: p.width, height: p.height, tile: !!p.tileLabel }))),
     options,
     hasSide,
@@ -691,6 +761,8 @@ export function compose(
     ctx.fillStyle = theme.ground;
     ctx.fillRect(0, 0, width, height);
   }
+  // Centred in an exact target width (a pixel either side at most).
+  if (offsetX) ctx.translate(offsetX, 0);
 
   let y = 0;
   rows.forEach((row, r) => {

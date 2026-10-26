@@ -1,6 +1,7 @@
 import type { LoadedSurface } from '@/stores/surfaceStore';
 import type { ColorbarLayer } from '../viewportFrame/ViewportColorbar';
 import { shortLayerLabel } from '../viewportFrame/frameFormat';
+import { inferStatisticFromName, statisticUnits } from '@/utils/statistic';
 
 /** The overlay the colorbar describes: the topmost visible scalar data layer. */
 export function surfaceColorbarLayer(
@@ -19,7 +20,13 @@ export function surfaceColorbarLayer(
     intensity: top.range,
     threshold: top.threshold ?? [0, 0],
     dataRange: { min: top.dataRange[0], max: top.dataRange[1] },
-    units: null,
+    // Statistic grammar like a volume colorbar: a z / t map named as one
+    // ("lh.zstat1.func.gii") gets its symbol, marked as inferred ("z*").
+    units: statisticUnits(inferStatisticFromName(top.name), {
+      min: top.dataRange[0],
+      max: top.dataRange[1],
+    }),
+    unitsFromName: !!inferStatisticFromName(top.name),
     nameLabel: shortLayerLabel(top.name),
   };
 }

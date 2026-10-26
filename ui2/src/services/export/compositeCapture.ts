@@ -49,7 +49,8 @@ import {
   type PaneLayout,
   type SizeSpec,
 } from './compositeExport';
-import { unionNonzeroBbox } from '@/services/mosaic/brainBounds';
+import { brainFraming, unionNonzeroBbox } from '@/services/mosaic/brainBounds';
+import { getApiService } from '@/services/apiService';
 
 export type ExportTarget =
   | 'axial'
@@ -182,12 +183,30 @@ export function clampMosaicRange(
   const hi = sampling.min + sampling.last * sampling.step;
   const snap = (mm: number) =>
     sampling.min + Math.round((Math.min(hi, Math.max(lo, mm)) - sampling.min) / sampling.step) * sampling.step;
-  return {
+  const fromMm = snap(spec.fromMm);
+  const every = Math.max(1, Math.round(spec.every));
+  // "To" is the last slice actually taken (from + k × every slices), so
+  // the field never names a slice the figure leaves out.
+  const stride = sampling.step * every;
+  const span = snap(spec.toMm) - fromMm;
+  const toMm = stride > 0 ? fromMm + Math.round(Math.floor(span / stride + 1e-9) * stride * 1e6) / 1e6 : fromMm;
+  return { kind: 'range', fromMm, toMm, every };
+}
+
+/**
+ * The dialog's default range: the whole cropped brain (the mosaic's own
+ * slices), every n-th slice so the figure stays near 24 tiles.
+ */
+export function defaultMosaicRange(
+  sampling: NonNullable<MosaicExportSource['sampling']>,
+): Extract<MosaicTileSpec, { kind: 'range' }> {
+  const count = sampling.last - sampling.first + 1;
+  return clampMosaicRange(sampling, {
     kind: 'range',
-    fromMm: snap(spec.fromMm),
-    toMm: snap(spec.toMm),
-    every: Math.max(1, Math.round(spec.every)),
-  };
+    fromMm: sampling.min + sampling.first * sampling.step,
+    toMm: sampling.min + sampling.last * sampling.step,
+    every: Math.max(1, Math.ceil(count / 24)),
+  });
 }
 
 /** Export source of the active mosaic (null when none is shown). */
@@ -563,8 +582,20 @@ export async function captureComposite(
   // Crop to the brain: the reference volume's non-zero voxels (the bottom
   // volume layer, the snapping / ijk rule), then one mm/px for all panes.
   const reference = viewState.layers.find((l) => l.volumeId);
-  const bbox =
+  const centres =
     request.cropToBrain && reference?.volumeId ? await unionNonzeroBbox([reference.volumeId]) : null;
+  // The margin is measured from the voxel EDGES, as the mosaic frames the
+  // brain (brainFraming), not from the voxel-centre envelope (v4 fidelity).
+  let bbox = centres;
+  if (centres && reference?.volumeId) {
+    const bounds = await getApiService().getVolumeBounds(reference.volumeId);
+    const voxel = [0, 1, 2].map((d) => {
+      const n = bounds.dims?.[d] ?? 0;
+      return n > 1 ? Math.abs(bounds.max[d] - bounds.min[d]) / (n - 1) : 0;
+    }) as [number, number, number];
+    const edges = brainFraming(centres, voxel);
+    bbox = { worldMinMm: edges.min, worldMaxMm: edges.max } as typeof centres;
+  }
   const rects = specRows.map((row) => row.map((p) => paneRect(p.plane, bbox)));
   const mmPerPx = solveMmPerPx(
     specRows.map((row, r) => row.map((p, c) => ({ plane: p.plane, rect: rects[r][c] }))),
@@ -585,6 +616,9 @@ export async function captureComposite(
     unit,
     alignRows,
     paneGap,
+    // Print: exactly the column width (89 mm at 300 dpi is 1051 px, not the
+    // 1052 that integer pane widths can sum to).
+    targetWidth: printWidthPx(request.size) ?? undefined,
   };
   const composition = compose(rows, side, options, settings);
   const dpi = request.size.kind === 'print' ? request.size.dpi : null;

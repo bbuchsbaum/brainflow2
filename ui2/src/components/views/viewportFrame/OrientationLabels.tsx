@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { anatomicalLabels } from '@/utils/anatomicalLabels';
 import type { CrosshairRect } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
@@ -92,11 +92,20 @@ export function OrientationLabels({
   bottomInset = 0,
   topInset = 0,
 }: OrientationLabelsProps) {
+  // Stable ref callbacks: new ones each render make React detach the letters
+  // (null) and re-attach them in tree order, AFTER the canvas (an earlier
+  // sibling) has drawn in its layout effect, so the crosshair was never
+  // knocked out around them (v4 fidelity: "P" read as "R").
+  const setters = useMemo(
+    () =>
+      [0, 1, 2, 3].map((i) => (el: HTMLSpanElement | null) => {
+        refs.current[i] = el;
+      }),
+    [refs],
+  );
   const labels = anatomicalLabels(viewPlane);
   if (!labels) return null;
-  const set = (i: number) => (el: HTMLSpanElement | null) => {
-    refs.current[i] = el;
-  };
+  const set = (i: number) => setters[i];
   return (
     <>
       <span

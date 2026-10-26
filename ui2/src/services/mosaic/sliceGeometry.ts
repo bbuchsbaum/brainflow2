@@ -87,11 +87,16 @@ export function fitMosaicGrid(
 }
 
 /**
- * "Auto" grid (the default): the rows × cols that make tiles LARGEST in the
- * area for the cropped brain's aspect, showing at least `minTiles` slices
- * (fewer when the range is shorter) and at most the range. The page holds
- * rows × cols tiles.
+ * "Auto" grid (the default) for the cropped brain's aspect, showing at least
+ * `minTiles` slices (fewer when the range is shorter) and at most the range.
+ * Among the grids whose tiles are within 80% of the largest possible, take
+ * the one that fills the area best: largest tiles alone can leave a third of
+ * a short, wide pane empty (6×2 where 6×3 fits). The page holds rows × cols
+ * tiles.
  */
+/** Auto never shrinks tiles below this share of the largest possible. */
+const AUTO_MIN_TILE_SHARE = 0.8;
+
 export function autoMosaicGrid(
   width: number,
   height: number,
@@ -101,20 +106,26 @@ export function autoMosaicGrid(
   maxSide = 8,
 ): MosaicFit {
   const want = Math.max(1, Math.min(minTiles, sliceCount || minTiles));
-  let best: MosaicFit | null = null;
+  const fits: MosaicFit[] = [];
   for (let cols = 1; cols <= maxSide; cols += 1) {
     for (let rows = 1; rows <= maxSide; rows += 1) {
       const n = rows * cols;
       if (n < want || (sliceCount > 0 && n - Math.max(cols, rows) >= sliceCount)) continue;
-      const fit = fitMosaicGrid(width, height, rows, cols, aspect);
-      if (
-        !best ||
-        fit.tileWidth > best.tileWidth ||
-        (fit.tileWidth === best.tileWidth && fit.fill > best.fill)
-      ) {
-        best = fit;
-      }
+      fits.push(fitMosaicGrid(width, height, rows, cols, aspect));
     }
   }
-  return best ?? fitMosaicGrid(width, height, 4, 4, aspect);
+  if (fits.length === 0) return fitMosaicGrid(width, height, 4, 4, aspect);
+  const largest = Math.max(...fits.map((f) => f.tileWidth));
+  let best: MosaicFit | null = null;
+  for (const fit of fits) {
+    if (fit.tileWidth < AUTO_MIN_TILE_SHARE * largest) continue;
+    if (
+      !best ||
+      fit.fill > best.fill + 1e-9 ||
+      (Math.abs(fit.fill - best.fill) <= 1e-9 && fit.tileWidth > best.tileWidth)
+    ) {
+      best = fit;
+    }
+  }
+  return best!;
 }

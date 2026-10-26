@@ -12,7 +12,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useLayerValueAtWorld } from '@/hooks/useLayerValueAtWorld';
 import { formatRegionLabel } from '@/services/atlasRegionLookup';
 import { StatSymbol } from '@/components/ui/StatSymbol';
-import { statisticUnits } from '@/utils/statistic';
+import { statisticLongName, statisticUnits } from '@/utils/statistic';
 import { EMPTY_VALUE, formatLayerValue } from '@/utils/valueFormat';
 import type { ReadoutPoint } from '@/hooks/useReadoutPoint';
 
@@ -73,7 +73,8 @@ export function LayerReadoutValue({
         )}
       </span>
     );
-    title = `${layer?.name ?? layerId}: ${units ? `${units} ` : ''}${number} ${at}`;
+    // The description is read aloud: the long name, not "z*".
+    title = `${layer?.name ?? layerId}: ${units ? `${statisticLongName(units)} ` : ''}${number} ${at}`;
   }
 
   return (

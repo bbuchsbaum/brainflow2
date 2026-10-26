@@ -103,6 +103,16 @@ describe('ClusterPanel', () => {
     expect(compute).toHaveBeenCalledWith({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
   });
 
+  it('disables Compute and Go to max / min, with the reason, when the layer is not a statistic', () => {
+    useLayerStore.setState({ selectedLayerId: 't1' });
+    render(<ClusterPanel />);
+    for (const name of ['Compute', 'Go to max', 'Go to min']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('title', 'Clusters need a statistical layer (a z, t or F map)');
+    }
+  });
+
   it('disables Compute for an invalid minimum size, without console errors', () => {
     const error = vi.spyOn(console, 'error');
     render(<ClusterPanel />);
@@ -134,6 +144,37 @@ describe('ClusterPanel', () => {
     expect(screen.getByTestId('cluster-methods')).toHaveTextContent(
       '26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 30 voxels',
     );
+  });
+
+  it('a table from another statistical layer keeps its own units and is not copied as current', () => {
+    useClusterStore.getState().setResult({
+      layerId: 'z',
+      layerName: 'zmap_synthetic.nii.gz',
+      table: TABLE,
+      regions: [null, null],
+      computedAt: 0,
+    });
+    // A t map becomes the active layer.
+    const T = { ...Z, kind: 't' as const, intentCode: 3, label: 't(24)', dof: [24] };
+    useLayerStore.setState((st) => ({
+      layers: [
+        ...st.layers,
+        { id: 't', name: 'tmap.nii.gz', volumeId: 't', type: 'volume', visible: true, order: 2, statistic: T } as never,
+      ],
+      selectedLayerId: 't',
+    }));
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [
+        ...state.layers,
+        { id: 't', name: 't', volumeId: 't', visible: true, opacity: 1, colormap: 'fmri', intensity: [-6, 6], threshold: [-3.1, 3.1] } as never,
+      ];
+    });
+    render(<ClusterPanel />);
+    expect(screen.getByTestId('cluster-stale')).toHaveTextContent('Table is for zmap_synthetic');
+    // Headed by the table's statistic (z), not the active layer's (t).
+    expect(screen.getByRole('columnheader', { name: /^Peak z/ })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^Peak t/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy CSV' })).toBeDisabled();
   });
 
   it('says the table is stale when the display threshold changes', () => {

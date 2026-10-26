@@ -17,15 +17,17 @@ function SurfaceRowReadout({
   surfaceLayerId: string;
   id: string;
 }) {
-  const reading = useSurfaceValueAtCrosshair(surfaceId, surfaceLayerId);
+  const { reading, anatomical } = useSurfaceValueAtCrosshair(surfaceId, surfaceLayerId);
   return (
     <span
       id={id}
       className="max-w-[14ch] shrink-0 truncate text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
       title={
-        reading
-          ? `Vertex ${reading.vertex}, ${reading.distanceMm.toFixed(1)} mm from the crosshair`
-          : "No vertex within 3 mm of the crosshair"
+        !anatomical
+          ? "Load the matching pial or white surface for an anatomical readout"
+          : reading
+            ? `Vertex ${reading.vertex}, ${reading.distanceMm.toFixed(1)} mm from the crosshair`
+            : "No vertex within 3 mm of the crosshair"
       }
       data-testid={`surface-readout-${surfaceLayerId}`}
     >

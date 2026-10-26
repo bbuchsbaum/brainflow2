@@ -12,7 +12,8 @@
  * getBoundingClientRect is 0) it falls back to an estimate.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { focusFallback } from "@/components/ui/bf";
 
 import { resolveSpec } from "@/plotting";
 import type { SampleFrame } from "@/plotting";
@@ -57,6 +58,16 @@ export function EncodedPlotView({
   const spec = useMemo(() => resolveSpec(frame, override), [frame, override]);
 
   const areaRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Changing the mark moves the caption (over the plot for a histogram, in
+  // its own row otherwise), which closes the popover with focus on <body>:
+  // put it back on the caption.
+  const lastMark = useRef(spec.mark);
+  useEffect(() => {
+    if (lastMark.current === spec.mark) return;
+    lastMark.current = spec.mark;
+    focusFallback([() => rootRef.current?.querySelector<HTMLElement>('[data-testid="plot-encoding-caption"]')]);
+  }, [spec.mark]);
   // null until a real (>0) measurement arrives; before that we use a live
   // estimate derived from the current props (so it never goes stale).
   const [measured, setMeasured] = useState<{
@@ -133,6 +144,7 @@ export function EncodedPlotView({
 
   return (
     <div
+      ref={rootRef}
       data-testid="encoded-plot-view"
       style={{
         display: "flex",

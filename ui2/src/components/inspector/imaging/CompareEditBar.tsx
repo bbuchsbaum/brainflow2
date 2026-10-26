@@ -113,7 +113,9 @@ export function CompareEditBar() {
         <p
           className="w-full text-bf-2xs text-bf-text-muted"
           data-testid="compare-threshold-mismatch"
-          role="note"
+          // Announced when it appears or changes (a threshold edit in one panel).
+          role="status"
+          aria-live="polite"
         >
           Thresholds differ:{' '}
           {mismatch.thresholds.map(({ letter, threshold }, i) => (

@@ -362,6 +362,20 @@ export function colorbarTicks(
   return accepted.sort((a, b) => b.fraction - a.fraction);
 }
 
+/**
+ * Label centres for ticks drawn top to bottom: each label at least `minGap`
+ * below the previous one, all within [lo, hi]. The marks stay at their true
+ * positions; only crowded labels move ("6" over "4.5", v4 visual critic).
+ */
+export function spreadLabelCenters(ys: readonly number[], minGap: number, lo: number, hi: number): number[] {
+  const out = ys.map((y) => Math.max(lo, Math.min(hi, y)));
+  for (let i = 1; i < out.length; i += 1) out[i] = Math.max(out[i], out[i - 1] + minGap);
+  if (out.length) out[out.length - 1] = Math.min(out[out.length - 1], hi);
+  for (let i = out.length - 2; i >= 0; i -= 1) out[i] = Math.min(out[i], out[i + 1] - minGap);
+  if (out.length) out[0] = Math.max(out[0], lo);
+  return out;
+}
+
 /** Hidden threshold band as bar fractions [from, to] (bottom-up), clipped to the window. */
 export function hiddenBand(
   window: readonly [number, number],

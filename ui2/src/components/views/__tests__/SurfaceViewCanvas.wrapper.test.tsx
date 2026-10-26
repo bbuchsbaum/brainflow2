@@ -197,4 +197,34 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
 
     expect(neuroSurfaceCanvasState.latestProps.markerWorldPosition).toBeNull();
   });
+
+  it('applies the preset after the viewer centres on the mesh, and re-applies it when pressed again', async () => {
+    const surface = makeSurface('lh');
+    render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
+    // Before the viewer is up: the plain name.
+    expect(neuroSurfaceCanvasState.latestProps.viewpoint).toBe('lateral');
+    const seen: string[] = [];
+    const waitFrames = async (n: number) => {
+      for (let i = 0; i < n; i += 1) {
+        await act(async () => {
+          await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+        });
+      }
+    };
+    // The viewer reports ready (its exporter): after it has framed the mesh
+    // (a few frames), the prop changes to the qualified name, so the viewer
+    // moves the camera from its top-down fit to the lateral view.
+    act(() => {
+      neuroSurfaceCanvasState.latestProps.onExporterChange({ exportImage: vi.fn() });
+    });
+    await waitFrames(5);
+    seen.push(neuroSurfaceCanvasState.latestProps.viewpoint);
+    expect(seen[0]).toBe('left_lateral');
+    // Pressing the checked preset again: a new value for the same view.
+    act(() => useSurfaceStore.getState().reapplyViewpoint());
+    seen.push(neuroSurfaceCanvasState.latestProps.viewpoint);
+    act(() => useSurfaceStore.getState().reapplyViewpoint());
+    seen.push(neuroSurfaceCanvasState.latestProps.viewpoint);
+    expect(seen).toEqual(['left_lateral', 'lateral', 'left_lateral']);
+  });
 });

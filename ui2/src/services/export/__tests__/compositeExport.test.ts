@@ -15,6 +15,7 @@ import {
   boundedProvenance,
   clampMosaicRange,
   defaultMosaicColumns,
+  defaultMosaicRange,
   mosaicRangePositions,
   paneRect,
   rectPlane,
@@ -162,6 +163,13 @@ describe('composited export (P3.8)', () => {
       toMm: 30.5,
       every: 1,
     });
+    // "To" is the last slice taken: every 3rd 2 mm slice from -65.5.
+    expect(clampMosaicRange(sampling, { kind: 'range', fromMm: -65.5, toMm: 28.5, every: 3 }).toMm).toBeCloseTo(24.5, 9);
+    // Default: the whole cropped brain, about 24 tiles.
+    const def = defaultMosaicRange(sampling);
+    expect(def.fromMm).toBe(-65.5);
+    expect(def.every).toBe(Math.ceil(78 / 24));
+    expect(Math.round((def.toMm - def.fromMm) / (2 * def.every)) + 1).toBeLessThanOrEqual(24);
     expect(defaultMosaicColumns({ kind: 'print', widthMm: 183, dpi: 300 }, 4)).toBe(6);
     expect(defaultMosaicColumns({ kind: 'screen', scale: 2 }, 5)).toBe(5);
   });

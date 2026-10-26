@@ -42,7 +42,7 @@ describe('SurfaceFrame (P3.10)', () => {
 
   it('camera presets set the viewpoint', () => {
     render(<SurfaceFrame surface={surface(false)} width={600} height={400} />);
-    fireEvent.click(screen.getByRole('radio', { name: 'M' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Medial' }));
     expect(useSurfaceStore.getState().viewpoint).toBe('medial');
   });
 

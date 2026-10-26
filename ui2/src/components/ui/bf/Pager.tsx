@@ -85,9 +85,11 @@ export const Pager = forwardRef<HTMLDivElement, PagerProps>(function Pager(
       ref={ref}
       role="group"
       aria-label={
-        label
-          ? `${label}, ${noun} ${page} of ${count}`
-          : `${noun.charAt(0).toUpperCase()}${noun.slice(1)} ${page} of ${count}`
+        !has
+          ? `${label ? `${label}, ` : ''}no ${noun}s`
+          : label
+            ? `${label}, ${noun} ${page} of ${count}`
+            : `${noun.charAt(0).toUpperCase()}${noun.slice(1)} ${page} of ${count}`
       }
       className={cn('inline-flex items-center gap-0.5', H_CONTROL, className)}
       {...rest}
@@ -109,9 +111,16 @@ export const Pager = forwardRef<HTMLDivElement, PagerProps>(function Pager(
             {`${noun.charAt(0).toUpperCase()}${noun.slice(1)} `}
           </span>
         ) : null}
-        {has ? page : 0}
-        <span className="text-muted-foreground"> of </span>
-        {count}
+        {/* Nothing to page: a dash, never "Page 0 of 0" (read or announced). */}
+        {has ? (
+          <>
+            {page}
+            <span className="text-muted-foreground"> of </span>
+            {count}
+          </>
+        ) : (
+          '—'
+        )}
       </span>
       <IconButton
         ref={nextRef}

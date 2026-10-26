@@ -119,13 +119,17 @@ function VolumeFacts({ item }: { item: SceneItem }) {
     facts.push({
       label: "Statistic",
       value: (
-        <span title={description}>
+        // A statistic guessed from the file name is marked "z*" (the symbol
+        // says it); the tooltip spells it out, no "(from name)" repeat.
+        <span
+          title={
+            isInferredStatistic(layer.statistic)
+              ? `${description} · inferred from file name`
+              : description
+          }
+        >
           <StatSymbol label={phrase.variable} />
           {phrase.rest}
-          {/* A statistic guessed from the file name says so (no intent code). */}
-          {isInferredStatistic(layer.statistic) ? (
-            <span className="text-bf-text-muted"> (from name)</span>
-          ) : null}
         </span>
       ),
     });

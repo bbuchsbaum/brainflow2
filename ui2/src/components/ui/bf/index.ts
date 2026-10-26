@@ -21,6 +21,8 @@ export { SelectableRow } from './SelectableRow';
 export { rowVariants } from './rowVariants';
 export type { SelectableRowProps } from './SelectableRow';
 export { useRovingFocus } from './useRovingFocus';
+export { focusFallback, focusIsLost } from './focusFallback';
+export type { FocusCandidate } from './focusFallback';
 export type { RovingFocusOptions, RovingItemProps } from './useRovingFocus';
 export { StatusPill, JobStatusPill } from './StatusPill';
 export type { StatusPillProps } from './StatusPill';

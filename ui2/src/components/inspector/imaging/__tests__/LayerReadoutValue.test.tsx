@@ -57,7 +57,7 @@ describe('LayerReadoutValue', () => {
     expect(screen.getByTestId('layer-readout-z').querySelector('i')).toHaveTextContent('z');
     expect(screen.getByTestId('layer-readout-atlas')).toHaveTextContent('L_sensorimotor');
     expect(screen.getByTestId('layer-readout-out')).toHaveTextContent('—');
-    expect(screen.getByTestId('layer-readout-z')).toHaveAttribute('title', 'z: z 5.43 at the pointer');
+    expect(screen.getByTestId('layer-readout-z')).toHaveAttribute('title', 'z: z score 5.43 at the pointer');
   });
 
   it('a long region name ends in an ellipsis (truncate on the name, room for the swatch), never a hard cut', () => {

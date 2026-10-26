@@ -103,12 +103,13 @@ export function MosaicToolbar({
       <div className="flex-1" />
 
       {/* Slice slider: bf Slider (index 0..n-1, one step per slice). */}
-      <div className="flex min-w-0 max-w-[300px] flex-1 items-center gap-2">
+      {/* Never collapses to a stub: the slider keeps a usable track. */}
+      <div className="flex min-w-[176px] max-w-[300px] flex-1 items-center gap-2">
         <span className="whitespace-nowrap text-bf-xs text-muted-foreground" aria-hidden>
           Crosshair
         </span>
         <Slider
-          className="min-w-0 flex-1"
+          className="min-w-[72px] flex-1"
           label="Crosshair slice"
           min={0}
           max={Math.max(0, totalSlices - 1)}

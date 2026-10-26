@@ -13,6 +13,7 @@ import { localPoint } from '@visx/event';
 import { histogramAxisTicks, type HistogramChartProps, type HistogramBin } from '@/types/histogram';
 import { FilterChip } from '@/components/ui/bf';
 import { displayMinus, formatLayerValue, formatRange } from '@/utils/valueFormat';
+import { statisticLongName } from '@/utils/statistic';
 import { useLayerStore } from '@/stores/layerStore';
 import { isThresholdActive } from '@/components/views/viewportFrame/frameFormat';
 
@@ -528,6 +529,10 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
               fontSize={10}
               textAnchor="middle"
               style={{ fontStyle: 'italic' }}
+              // Spoken as the long name ("z score, inferred from file
+              // name"), never "z star".
+              role="img"
+              aria-label={statisticLongName(xTitle)}
             >
               {xTitle}
             </text>

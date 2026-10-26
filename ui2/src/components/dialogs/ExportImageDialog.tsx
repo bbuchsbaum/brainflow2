@@ -39,6 +39,7 @@ import {
   EXPORT_TARGET_LABEL,
   MAX_EXPORT_TILES,
   clampMosaicRange,
+  defaultMosaicRange,
   type ExportTarget,
 } from '@/services/export/compositeCapture';
 import {
@@ -257,17 +258,19 @@ export function ExportImageDialog() {
     ? composite.background === 'transparent'
     : transparentBackground;
 
-  // Mosaic range defaults: the page on screen, every slice.
+  // Mosaic range default: the whole cropped brain, about 24 tiles.
   const pageTiles = mosaicSource?.tiles ?? [];
   const rangeSpec =
     mosaicTiles.kind === 'range'
       ? mosaicTiles
-      : {
-          kind: 'range' as const,
-          fromMm: pageTiles[0]?.positionMm ?? 0,
-          toMm: pageTiles[pageTiles.length - 1]?.positionMm ?? 0,
-          every: 1,
-        };
+      : mosaicSource?.sampling
+        ? defaultMosaicRange(mosaicSource.sampling)
+        : {
+            kind: 'range' as const,
+            fromMm: pageTiles[0]?.positionMm ?? 0,
+            toMm: pageTiles[pageTiles.length - 1]?.positionMm ?? 0,
+            every: 1,
+          };
 
   const summary =
     exportTarget && outputSize
@@ -289,12 +292,39 @@ export function ExportImageDialog() {
       closeOnOverlayClick={!isSaving}
       closeOnEscape={!isSaving}
       closeButtonDisabled={isSaving}
-      bodyClassName="p-0"
+      // The settings column scrolls; the preview and the ruled footer
+      // (format summary, Cancel / Save) stay in view at any window height.
+      bodyClassName="flex flex-col overflow-hidden p-0"
+      footer={
+  <div className="flex items-center justify-end gap-2 border-t border-bf-border-subtle px-3 py-3">
+    {/* Format summary: what Save writes. */}
+    <p
+      className="mr-auto min-w-0 truncate font-mono text-bf-2xs tabular-nums text-bf-text-muted"
+      data-testid="export-size"
+    >
+      {summary}
+    </p>
+    <Button variant="secondary" size="sm" onClick={close} disabled={isSaving}>
+      Cancel
+    </Button>
+    {/* While saving, Save stays focusable (aria-disabled), so focus
+        does not fall to <body> under the native save dialog. */}
+    <Button
+      variant="primary"
+      size="sm"
+      onClick={handleSave}
+      disabled={isCapturing || !hasBytes}
+      aria-disabled={isSaving || undefined}
+    >
+      {isSaving ? 'Saving…' : 'Save…'}
+    </Button>
+  </div>
+      }
       className="!max-w-4xl rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
-      <div className="flex flex-col gap-4 p-4 md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 md:flex-row md:overflow-hidden">
         {/* Preview: exactly the composited image that will be saved. */}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 md:self-start">
           <div
             className={`flex w-full items-center justify-center overflow-hidden rounded-sm ${
               transparentPreview ? 'bf-checkerboard' : 'bg-bf-bg-canvas'
@@ -320,7 +350,10 @@ export function ExportImageDialog() {
         </div>
 
         {/* Options */}
-        <div className="w-full space-y-2 md:w-80">
+        <div
+          className="w-full space-y-2 md:min-h-0 md:w-80 md:overflow-y-auto md:pr-1"
+          data-testid="export-settings"
+        >
           {exportTarget ? (
             <>
               <FieldRow
@@ -380,12 +413,14 @@ export function ExportImageDialog() {
                         <NumberField
                           step={1}
                           min={1}
-                          unit="th"
+                          aria-label="Every n-th slice"
                           value={mosaicTiles.every}
                           onValueChange={(v) =>
                             v !== null &&
                             v >= 1 &&
-                            setMosaicTiles({ ...mosaicTiles, every: Math.round(v) })
+                            setMosaicTiles(
+                              clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, every: Math.round(v) }),
+                            )
                           }
                         />
                       </FieldRow>
@@ -587,30 +622,6 @@ export function ExportImageDialog() {
         </div>
       </div>
 
-      {/* Ruled footer: format summary at left; Cancel / Save at right. */}
-      <div className="flex items-center justify-end gap-2 border-t border-bf-border-subtle px-3 py-3">
-        {/* Format summary: what Save writes. */}
-        <p
-          className="mr-auto min-w-0 truncate font-mono text-bf-2xs tabular-nums text-bf-text-muted"
-          data-testid="export-size"
-        >
-          {summary}
-        </p>
-        <Button variant="secondary" size="sm" onClick={close} disabled={isSaving}>
-          Cancel
-        </Button>
-        {/* While saving, Save stays focusable (aria-disabled), so focus
-            does not fall to <body> under the native save dialog. */}
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={handleSave}
-          disabled={isCapturing || !hasBytes}
-          aria-disabled={isSaving || undefined}
-        >
-          {isSaving ? 'Saving…' : 'Save…'}
-        </Button>
-      </div>
     </Modal>
   );
 }

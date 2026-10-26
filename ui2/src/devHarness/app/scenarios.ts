@@ -562,7 +562,20 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
         const r = c.getBoundingClientRect();
         return sum + r.width * r.height;
       }, 0);
-      const usable = (a.width - 16 - 112 - 6) * (a.height - 16);
+      const column = document.querySelector<HTMLElement>('[data-testid="mosaic-colorbar"]');
+      const columnW = column ? column.getBoundingClientRect().width : 112;
+      const usable = (a.width - 16 - columnW - 6) * (a.height - 16);
+      // The colorbar (caption and footer) must end inside the pane.
+      const bar = column?.querySelector<HTMLElement>('[data-testid="viewport-colorbar"]');
+      if (bar) {
+        let right = 0;
+        bar.querySelectorAll<HTMLElement>('*').forEach((c) => {
+          right = Math.max(right, c.getBoundingClientRect().right);
+        });
+        noteStep(`mosaic colorbar right ${right.toFixed(1)} / pane right ${a.right.toFixed(1)}`);
+        noteStep(`mosaic area scroll ${area.scrollWidth}x${area.scrollHeight} / client ${area.clientWidth}x${area.clientHeight}`);
+        if (right > a.right + 0.5) throw new Error('mosaic colorbar clipped at the pane edge');
+      }
       noteStep(
         `mosaic fill: ${(tiles / usable).toFixed(3)} (layout ${grid.dataset.fill}), grid ${
           getComputedStyle(grid).gridTemplateColumns.split(' ').length
@@ -610,6 +623,25 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
       "export preset 'Figure'",
     );
     await clickWhere('[role="dialog"] [role="radio"]', (el) => el.textContent?.trim() === 'Print', "size 'Print'");
+    await exportSettled();
+    noteStep(`export: ${document.querySelector('[data-testid="export-size"]')?.textContent}`);
+  },
+  // P3.8 (v4 user critic): the orthogonal "Figure row" export (axial |
+  // coronal | sagittal, one mm/px, cropped to the brain) at 183 mm, 300 dpi.
+  'export-orthogonal': async () => {
+    await p3Base();
+    await loadZ();
+    await navigateTo(Z_PEAK);
+    const { useExportDialogStore } = await import('@/stores/exportDialogStore');
+    const store = useExportDialogStore.getState();
+    store.applyPreset('figure');
+    store.setSize({ kind: 'print', widthMm: 183, dpi: 300 });
+    store.open();
+    // open() clears the target; the dialog picks its default, then we switch.
+    await exportSettled();
+    const before = useExportDialogStore.getState().imageUrl;
+    useExportDialogStore.getState().setExportTarget('orthogonal-row');
+    await until(() => useExportDialogStore.getState().imageUrl !== before, 'figure row composed');
     await exportSettled();
     noteStep(`export: ${document.querySelector('[data-testid="export-size"]')?.textContent}`);
   },
@@ -784,6 +816,75 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     );
     await until(() => !!document.querySelector('.lm_content canvas'), 'surface canvas');
     await frames(10);
+  },
+  // v4 user critic: each camera preset must give its named view.
+  'surface-preset-lateral': async (ctx) => {
+    await P3_DRIVERS['surface-frame'](ctx);
+    await clickWhere(
+      '[data-testid="surface-camera-presets"] [role="radio"], [data-testid="surface-camera-presets"] button',
+      (el) => el.textContent?.trim() === 'Lateral',
+      "surface preset 'Lateral'",
+    );
+    await frames(20);
+  },
+  // v4 user critic: each camera preset must give its named view.
+  'surface-preset-medial': async (ctx) => {
+    await P3_DRIVERS['surface-frame'](ctx);
+    await clickWhere(
+      '[data-testid="surface-camera-presets"] [role="radio"], [data-testid="surface-camera-presets"] button',
+      (el) => el.textContent?.trim() === 'Medial',
+      "surface preset 'Medial'",
+    );
+    await frames(20);
+  },
+  // v4 user critic: each camera preset must give its named view.
+  'surface-preset-dorsal': async (ctx) => {
+    await P3_DRIVERS['surface-frame'](ctx);
+    await clickWhere(
+      '[data-testid="surface-camera-presets"] [role="radio"], [data-testid="surface-camera-presets"] button',
+      (el) => el.textContent?.trim() === 'Dorsal',
+      "surface preset 'Dorsal'",
+    );
+    await frames(20);
+  },
+  // v4 user critic: each camera preset must give its named view.
+  'surface-preset-anterior': async (ctx) => {
+    await P3_DRIVERS['surface-frame'](ctx);
+    await clickWhere(
+      '[data-testid="surface-camera-presets"] [role="radio"], [data-testid="surface-camera-presets"] button',
+      (el) => el.textContent?.trim() === 'Anterior',
+      "surface preset 'Anterior'",
+    );
+    await frames(20);
+  },
+  // v4 fidelity critic: the live crosshair must not run through the
+  // orientation letters (it bisected "P", which read as "R"). Fails when any
+  // crosshair-green pixel lies under a letter of the axial view.
+  'crosshair-letter-knockout': async () => {
+    await DRIVERS['overlay-colorbar']({} as never);
+    await frames(10);
+    const view = document.querySelector<HTMLElement>('[data-view-id="axial"]')!;
+    const canvases = Array.from(view.querySelectorAll('canvas'));
+    const letters = Array.from(view.querySelectorAll<HTMLElement>('span.absolute.font-mono')).filter((e) => /^[APLRSI]$/.test(e.textContent ?? ''));
+    for (const c of canvases) {
+      const r = c.getBoundingClientRect();
+      noteStep(`canvas ${c.width}x${c.height} at ${r.left.toFixed(1)},${r.top.toFixed(1)} css ${r.width.toFixed(1)}x${r.height.toFixed(1)}`);
+      const ctx = c.getContext('2d');
+      for (const l of letters) {
+        const lr = l.getBoundingClientRect();
+        if (!ctx) continue;
+        const sx = c.width / r.width, sy = c.height / r.height;
+        const x0 = Math.round((lr.left - r.left) * sx), y0 = Math.round((lr.top - r.top) * sy);
+        const w = Math.max(1, Math.round(lr.width * sx)), h = Math.max(1, Math.round(lr.height * sy));
+        let green = 0;
+        try {
+          const d = ctx.getImageData(x0, y0, w, h).data;
+          for (let i = 0; i < d.length; i += 4) if (d[i + 1] > 150 && d[i] < 120) green += 1;
+        } catch { /* */ }
+        noteStep(`letter ${l.textContent} rect ${lr.left.toFixed(1)},${lr.top.toFixed(1)} ${lr.width.toFixed(1)}x${lr.height.toFixed(1)} green px in canvas box: ${green}`);
+        if (green > 0) throw new Error(`crosshair drawn under the orientation letter ${l.textContent}`);
+      }
+    }
   },
   // P3.13: Files tree with every folder expanded (captured at 1280x800 only).
   files: async () => {

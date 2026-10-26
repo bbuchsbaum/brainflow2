@@ -23,7 +23,7 @@ import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import type { ComparisonPanelConfig } from '@/types/comparison';
-import { Button, EmptyPane, SegmentedControl } from '@/components/ui/bf';
+import { Button, EmptyPane, focusFallback, SegmentedControl } from '@/components/ui/bf';
 import { openFileDialog } from '@/services/fileActions';
 import { panelLetter, type CompareLinkMode } from '@/types/comparison';
 import { linkModeOf, resolveActivePanel } from '@/utils/compareDisplay';
@@ -256,7 +256,15 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
         <EmptyPane
           title="Add a panel to compare"
           hint="Each panel shows its own layers side by side; drop a volume on a placeholder."
-          primary={{ label: '+ Panel', onClick: handleAddEmptyPanel, testId: 'compare-empty-add' }}
+          primary={{
+            label: '+ Panel',
+            onClick: () => {
+              handleAddEmptyPanel();
+              // The empty state goes away: focus the toolbar's "+ Panel".
+              focusFallback(['[data-testid="compare-add-panel"]']);
+            },
+            testId: 'compare-empty-add',
+          }}
           secondary={{ label: 'Open file…', onClick: () => void openFileDialog() }}
           messageGround="canvas"
           backdrop={
@@ -323,6 +331,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
           size="sm"
           onClick={handleAddEmptyPanel}
           title="Add empty panel"
+          data-testid="compare-add-panel"
         >
           + Panel
         </Button>

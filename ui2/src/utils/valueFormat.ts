@@ -56,7 +56,10 @@ export function formatLayerValueAscii(value: number): string {
   if (!Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
   if (abs === 0) return "0";
-  if (abs >= 10000 || (abs > 0 && abs < 0.01)) return value.toExponential(1);
+  // Large values read as whole numbers with digit grouping ("59,000"), not
+  // "5.9e+4" (v4 user critic, surface ticks); exponents only past a million.
+  if (abs >= 10000 && abs < 1e6) return Math.round(value).toLocaleString('en-US');
+  if (abs >= 1e6 || (abs > 0 && abs < 0.01)) return value.toExponential(1);
   // Strip trailing zeros from fixed-2 (e.g. 100.00 → 100, 3.13 → 3.13).
   const fixed = value.toFixed(2);
   const trimmed = fixed.replace(/\.?0+$/, "");

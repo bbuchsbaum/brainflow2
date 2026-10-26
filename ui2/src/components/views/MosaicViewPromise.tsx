@@ -29,6 +29,7 @@ import {
   slicePositionAtIndex,
 } from '@/services/mosaic/sliceGeometry';
 import { MosaicTileLabel, MosaicColorbar } from './MosaicFrame';
+import { chooseColorbarLayerId } from './viewportFrame';
 import { getApiService } from '@/services/apiService';
 import { useActiveLayer } from '@/utils/activeLayer';
 import { useLayerStore } from '@/stores/layerStore';
@@ -86,6 +87,7 @@ function MosaicViewPromiseRaw({
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
+  const [colorbarColumnPx, setColorbarColumnPx] = useState(MOSAIC_COLORBAR_COLUMN_PX);
   const gridSizeRef = useRef(gridSize);
   // "auto" (the default) sizes the grid to the pane; "RxC" is a manual pick.
   const [gridChoice, setGridChoice] = useState<string>('auto');
@@ -163,10 +165,16 @@ function MosaicViewPromiseRaw({
   // Reference volume for slice sampling: the bottom volume layer, visible or
   // not (the voxel-snapping / ijk rule, utils/voxelSnap.ts).
   const primaryVolumeId = layers.find(layer => layer.volumeId)?.volumeId;
-  // The frame header names the active layer (the header / colorbar rule).
+  // The frame header names the layer the colorbar describes (the stat map
+  // over a T1), else the active layer: header, colorbar and export agree.
   const activeHeaderLayer = useActiveLayer(layers);
+  const layerInfos = useLayerStore((s) => s.layers);
+  const headerLayerId = useMemo(
+    () => chooseColorbarLayerId(layerInfos, layers, activeHeaderLayer?.id ?? null) ?? activeHeaderLayer?.id ?? null,
+    [layerInfos, layers, activeHeaderLayer?.id],
+  );
   const headerLayerName = useLayerStore((s) => {
-    const info = activeHeaderLayer ? s.layers.find((l) => l.id === activeHeaderLayer.id) : undefined;
+    const info = headerLayerId ? s.layers.find((l) => l.id === headerLayerId) : undefined;
     return info ? shortLayerLabel(info.name) : null;
   });
   const visibleVolumeKey = visibleLayers.map(layer => layer.volumeId).filter(Boolean).join('|');
@@ -289,7 +297,9 @@ function MosaicViewPromiseRaw({
       
       // The area tiles may use: minus padding and the colorbar column.
       const padding = 16;
-      const availableWidth = containerRect.width - padding - MOSAIC_COLORBAR_COLUMN_PX - MOSAIC_TILE_GAP_PX;
+      // The column is the colorbar's measured extent (caption and footer
+      // included), so the bar is never pushed past the pane edge.
+      const availableWidth = containerRect.width - padding - colorbarColumnPx - MOSAIC_TILE_GAP_PX;
       const availableHeight = containerRect.height - padding;
       const aspect = brainAspect && Number.isFinite(brainAspect) ? brainAspect : 1;
       // Auto: the grid with the largest tiles for this pane and the brain's
@@ -345,7 +355,7 @@ function MosaicViewPromiseRaw({
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateCellDimensions);
     };
-  }, [gridSize, gridChoice, hasInitialized, brainAspect, totalSlices]);
+  }, [gridSize, gridChoice, hasInitialized, brainAspect, totalSlices, colorbarColumnPx]);
   
   // Calculate slice indices for current page
   const sliceIndices = useMemo(() => {
@@ -631,33 +641,33 @@ function MosaicViewPromiseRaw({
         }
       />
       
+      {/* One frame header for the pane (P3.10): plane, layer, page range, in its own row above the tiles (never over them). */}
+      {range && sliceIndices.length > 0 ? (
+        <div
+          className="flex h-5 shrink-0 select-none items-center gap-2 whitespace-nowrap px-2 text-bf-xs text-bf-text-secondary"
+          data-testid="mosaic-frame-header"
+        >
+          {/* "Axial · zmap_synthetic · z 24.5–54.5 mm" */}
+          <span>{sliceAxis.charAt(0).toUpperCase() + sliceAxis.slice(1)}</span>
+          {headerLayerName ? (
+            <>
+              <span aria-hidden className="text-bf-text-muted">·</span>
+              <span className="max-w-[28ch] truncate text-bf-text-muted">{headerLayerName}</span>
+            </>
+          ) : null}
+          <span aria-hidden className="text-bf-text-muted">·</span>
+          <span className="font-mono tabular-nums">
+            {AXIS_LETTER[sliceAxis]} {formatWorldMm(slicePositionAtIndex(range, sliceIndices[0]))}–
+            {formatWorldMm(slicePositionAtIndex(range, sliceIndices[sliceIndices.length - 1]))} mm
+          </span>
+        </div>
+      ) : null}
       {/* The measured area; the brain-shaped grid and its colorbar sit
           together in its centre (the bar beside the tiles, top-aligned). */}
       <div
         ref={gridRef}
         className="mosaic-grid relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto p-2"
       >
-        {/* One frame header for the pane (P3.10): plane, layer, page range. */}
-        {range && sliceIndices.length > 0 ? (
-          <div
-            className="pointer-events-none absolute left-1.5 top-1 z-10 flex select-none items-baseline gap-2 whitespace-nowrap rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 text-bf-xs text-bf-text-secondary"
-            data-testid="mosaic-frame-header"
-          >
-            {/* "Axial · zmap_synthetic · z 24.5–54.5 mm" */}
-            <span>{sliceAxis.charAt(0).toUpperCase() + sliceAxis.slice(1)}</span>
-            {headerLayerName ? (
-              <>
-                <span aria-hidden className="text-bf-text-muted">·</span>
-                <span className="max-w-[28ch] truncate text-bf-text-muted">{headerLayerName}</span>
-              </>
-            ) : null}
-            <span aria-hidden className="text-bf-text-muted">·</span>
-            <span className="font-mono tabular-nums">
-              {AXIS_LETTER[sliceAxis]} {formatWorldMm(slicePositionAtIndex(range, sliceIndices[0]))}–
-              {formatWorldMm(slicePositionAtIndex(range, sliceIndices[sliceIndices.length - 1]))} mm
-            </span>
-          </div>
-        ) : null}
         <div className="flex">
         <div
           style={{
@@ -700,7 +710,11 @@ function MosaicViewPromiseRaw({
           })}
         </div>
         {/* One colorbar for the whole grid, outside the tiles (P3.7). */}
-        <MosaicColorbar workspaceId={workspaceId} />
+        <MosaicColorbar
+          workspaceId={workspaceId}
+          columnPx={colorbarColumnPx}
+          onColumnPx={setColorbarColumnPx}
+        />
         </div>
       </div>
     </div>

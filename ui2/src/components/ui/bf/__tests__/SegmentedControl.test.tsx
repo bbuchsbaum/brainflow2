@@ -199,4 +199,21 @@ describe('bf SegmentedControl per-option hooks', () => {
     expect(screen.getByTestId('mode-b')).toHaveAttribute('data-active', 'false');
     expect(screen.getByTestId('mode-a')).toHaveAttribute('data-state', 'on');
   });
+
+  it('reports a click on the checked item through onReselect (not onValueChange)', () => {
+    const onValueChange = vi.fn();
+    const onReselect = vi.fn();
+    render(
+      <SegmentedControl
+        aria-label="Line"
+        options={OPTIONS}
+        value="dashed"
+        onValueChange={onValueChange}
+        onReselect={onReselect}
+      />,
+    );
+    fireEvent.click(screen.getByRole('radio', { name: 'Dashed' }));
+    expect(onReselect).toHaveBeenCalledWith('dashed');
+    expect(onValueChange).not.toHaveBeenCalled();
+  });
 });

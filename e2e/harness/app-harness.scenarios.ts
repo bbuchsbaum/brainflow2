@@ -54,6 +54,7 @@ export const P3_SCENARIOS = [
   'mosaic-labelled',
   'export-dialog',
   'export-mosaic',
+  'export-orthogonal',
   'export-error',
   'compare-linked',
   'empty-compare',
@@ -64,6 +65,12 @@ export const P3_SCENARIOS = [
   'clusters-no-stat',
   'empty-clusters',
   'surface-frame',
+  // Each camera preset gives its named view (v4 user critic).
+  'surface-preset-lateral',
+  'surface-preset-medial',
+  'surface-preset-dorsal',
+  'surface-preset-anterior',
+  'crosshair-letter-knockout',
 ];
 
 /** Phase 3 viewport variants (capture-only): `files` exists only at 1280x800. */
@@ -75,6 +82,9 @@ export const P3_VARIANTS: Array<[string, number, number]> = [
   ['cluster-table', 1280, 800],
   // The mosaic's Auto grid at the narrow width (user: tiles were cramped).
   ['mosaic-labelled', 1280, 800],
+  // The export modal must fit the window (title and Save visible).
+  ['export-dialog', 1280, 800],
+  ['export-mosaic', 1280, 800],
 ];
 
 /** Gallery pages of ui/bf primitives (primitives-harness.html): [query page, file]. */

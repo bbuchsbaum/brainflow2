@@ -79,6 +79,7 @@ export function EmptyPane({
                 onClick={primary.onClick}
                 disabled={primary.disabled}
                 data-testid={primary.testId}
+                aria-keyshortcuts={ariaKeyShortcut(primary.shortcut)}
               >
                 {primary.label}
                 {primary.shortcut ? (
@@ -93,6 +94,7 @@ export function EmptyPane({
                 onClick={secondary.onClick}
                 disabled={secondary.disabled}
                 data-testid={secondary.testId}
+                aria-keyshortcuts={ariaKeyShortcut(secondary.shortcut)}
               >
                 {secondary.label}
                 {secondary.shortcut ? (
@@ -105,4 +107,13 @@ export function EmptyPane({
       </div>
     </div>
   );
+}
+
+/** "Cmd+Shift+O" -> "Meta+Shift+O" (aria-keyshortcuts key names). */
+function ariaKeyShortcut(shortcut: string | undefined): string | undefined {
+  if (!shortcut) return undefined;
+  return shortcut
+    .split('+')
+    .map((k) => ({ Cmd: 'Meta', '⌘': 'Meta', Ctrl: 'Control', Opt: 'Alt', '⌥': 'Alt' })[k.trim()] ?? k.trim())
+    .join('+');
 }

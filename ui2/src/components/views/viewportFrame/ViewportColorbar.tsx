@@ -1,10 +1,11 @@
 import { StatSymbol } from '@/components/ui/StatSymbol';
-import { statisticVariable } from '@/utils/statistic';
+import { statisticLongName, statisticVariable } from '@/utils/statistic';
 import type { CSSProperties } from 'react';
 import { ThresholdText } from '@/components/ui/ThresholdText';
 import {
   HIDDEN_BAND_BACKGROUND,
   colorbarTicks,
+  spreadLabelCenters,
   colormapVerticalGradient,
   hiddenBand,
   thresholdExpressionParts,
@@ -87,8 +88,13 @@ const CHAR_W = 6.2; // Plex Mono at 10px, approx.
 const NAME_CHAR_W = 5.6; // Plex Sans at 10px, average
 const NAME_MAX_CHARS = 28;
 const COLORBAR_TEXT_HALO = '0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.5)';
+/**
+ * A faint ground behind the caption and footer text only (not a box): over
+ * white cortex the halo alone left "|z| ≤ 4.5 hidden" unreadable (v4).
+ */
+const TEXT_BACKING =
+  'rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_60%,transparent)] px-0.5 -mx-0.5';
 /** Caption note for a statistic guessed from the file name. */
-const FROM_NAME = ' (from name)'; // widest name caption before it truncates
 const PAD_X = 8; // scrim px-1 both sides
 const PAD_Y = 8; // scrim pt-1.5 + pb-0.5
 
@@ -139,7 +145,8 @@ export function ViewportColorbar({
 }: ViewportColorbarProps) {
   // The tag has its own line: it never squeezes the layer name.
   const tagChars = 0;
-  const fromNameChars = layer.units && layer.unitsFromName ? FROM_NAME.length : 0;
+  // "z*" already marks a guessed statistic; the tooltip spells it out.
+  const fromNameChars = 0;
   const cmap = colormapVerticalGradient(layer.colormap);
   const exprParts = thresholdExpressionParts(layer.threshold, statisticVariable(layer.units));
   const [wMin, wMax] = layer.intensity;
@@ -250,6 +257,13 @@ export function ViewportColorbar({
     return yOfFraction(t.fraction);
   };
   const labelTop = (y: number) => Math.max(0, Math.min(groupH - LABEL_H, y - LABEL_H / 2));
+  // Crowded labels move apart (3 px clear); their marks stay put.
+  const labelYs = spreadLabelCenters(
+    ticks.map(yOfTick),
+    LABEL_H + 3,
+    LABEL_H / 2,
+    groupH - LABEL_H / 2,
+  );
 
   let caretY: number | null = null;
   if (hasValue) {
@@ -332,13 +346,11 @@ export function ViewportColorbar({
           className="truncate whitespace-nowrap text-left leading-none"
           // Left-aligned to the bar (the group is right-aligned in the box).
           style={{ height: LINE_H, marginBottom: NAME_GAP, paddingLeft: nameIndent }}
-          title={layer.units ? `${layer.units} · ${layer.name}` : layer.name}
+          title={layer.units ? `${statisticLongName(layer.units)} · ${layer.name}` : layer.name}
         >
+          <span className={TEXT_BACKING}>
           {layer.units && (
             <StatSymbol label={layer.units} className="text-bf-text-secondary" />
-          )}
-          {layer.units && layer.unitsFromName && (
-            <span className="text-bf-text-muted">{FROM_NAME}</span>
           )}
           {layer.units && layer.nameLabel && <span className="text-bf-text-muted"> · </span>}
           {layer.nameLabel && (
@@ -360,6 +372,7 @@ export function ViewportColorbar({
               ) ?? layer.nameLabel}
             </span>
           )}
+          </span>
         </div>
       )}
       {tag && (
@@ -368,7 +381,7 @@ export function ViewportColorbar({
           style={{ height: LINE_H, marginTop: -NAME_GAP + 2, marginBottom: NAME_GAP, paddingLeft: nameIndent }}
           data-testid="viewport-colorbar-tag"
         >
-          {tag}
+          <span className={TEXT_BACKING}>{tag}</span>
         </div>
       )}
       <div
@@ -402,7 +415,7 @@ export function ViewportColorbar({
             />
           )}
         </div>
-        {ticks.map((t) => {
+        {ticks.map((t, i) => {
           const y = yOfTick(t);
           return (
             <div key={`${t.kind}-${t.value}`} data-tick-kind={t.kind}>
@@ -416,7 +429,7 @@ export function ViewportColorbar({
                 style={{
                   left: colLeft('label'),
                   width: labelW,
-                  top: labelTop(y),
+                  top: labelTop(labelYs[i]),
                   height: LABEL_H,
                 }}
               >
@@ -461,7 +474,9 @@ export function ViewportColorbar({
         >
           {lines.map((line) => (
             <div key={line} className="leading-none" style={{ height: LINE_H }}>
-              <ThresholdText line={line} variable={statisticVariable(layer.units)} />
+              <span className={TEXT_BACKING}>
+                <ThresholdText line={line} variable={statisticVariable(layer.units)} />
+              </span>
             </div>
           ))}
         </div>

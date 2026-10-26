@@ -1,8 +1,8 @@
 /**
- * The orthogonal stack's empty state (P3.11): ONE message centred across the
- * three panes, not one per pane. The panes keep their black frames and plane
- * words, so the layout reads before data arrives; drops still reach the
- * panes (only the buttons take the pointer).
+ * The orthogonal stack's empty state (P3.11): ONE empty surface over the
+ * whole stack, with no pane dividers or plane labels showing through the
+ * message. The panes stay mounted underneath (no GPU remount on first load),
+ * and drops still reach them: only the buttons take the pointer.
  */
 import { EmptyPane } from '@/components/ui/bf';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -15,7 +15,7 @@ export function EmptyStackOverlay() {
   if (hasVolume || loading) return null;
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-[5] [&_button]:pointer-events-auto"
+      className="pointer-events-none absolute inset-0 z-[5] bg-bf-bg-canvas [&_button]:pointer-events-auto"
       data-testid="orthogonal-empty"
     >
       <EmptyPane

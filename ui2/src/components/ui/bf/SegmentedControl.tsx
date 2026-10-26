@@ -74,6 +74,11 @@ interface SegmentedControlBaseProps
   /** `sm` (default): 24px group. `md`: 28px group, `text-bf-sm` (top-bar switcher only). */
   size?: 'sm' | 'md';
   disabled?: boolean;
+  /**
+   * Called when the already-checked item is clicked: for choices that are
+   * also actions (a camera preset re-applied after the user orbits).
+   */
+  onReselect?: (value: string) => void;
 }
 
 /** A radiogroup must be named: `aria-label` or `aria-labelledby` is required. */
@@ -124,6 +129,7 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
       activation = 'automatic',
       size = 'sm',
       disabled = false,
+      onReselect,
       className,
       ...rest
     },
@@ -231,6 +237,7 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
               tabIndex={option.value === stop ? 0 : -1}
               onClick={() => {
                 if (!checked) onValueChange(option.value);
+                else onReselect?.(option.value);
               }}
               onKeyDown={onKeyDown(option.value)}
               className={itemVariants({ checked, edge, fullWidth, size })}

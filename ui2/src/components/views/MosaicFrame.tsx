@@ -63,7 +63,17 @@ const COLORBAR_COLUMN_PX = MOSAIC_COLORBAR_COLUMN_PX;
  */
 const VIRTUAL_IMAGE_PX = 268;
 
-export function MosaicColorbar({ workspaceId }: { workspaceId: string }) {
+export function MosaicColorbar({
+  workspaceId,
+  columnPx = COLORBAR_COLUMN_PX,
+  onColumnPx,
+}: {
+  workspaceId: string;
+  /** The column width the grid reserved. */
+  columnPx?: number;
+  /** Reports the width the bar needs (its caption and footer included). */
+  onColumnPx?: (px: number) => void;
+}) {
   const layers = useLayerStore((s) => s.layers);
   const viewLayers = useViewStateStore((s) => s.getWorkspaceViewState(workspaceId).layers);
   const activeLayerId = useActiveLayer(viewLayers)?.id ?? null;
@@ -88,12 +98,33 @@ export function MosaicColorbar({ workspaceId }: { workspaceId: string }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, [colorbar !== null]);
+  // Measure the rendered bar (content-sized) and ask for that column, so the
+  // grid fit leaves room for "z · zmap_synthetic" and "|z| ≤ 3.1 hidden".
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !onColumnPx) return;
+    const measure = () => {
+      const box = el.querySelector<HTMLElement>('[data-testid="viewport-colorbar"]');
+      if (!box) return;
+      let right = box.getBoundingClientRect().right;
+      box.querySelectorAll<HTMLElement>('*').forEach((child) => {
+        right = Math.max(right, child.getBoundingClientRect().right);
+      });
+      const need = Math.max(COLORBAR_COLUMN_PX, Math.ceil(right - el.getBoundingClientRect().left) + 4);
+      if (Math.abs(need - columnPx) > 1) onColumnPx(need);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    const box = el.querySelector('[data-testid="viewport-colorbar"]');
+    if (box) observer.observe(box);
+    return () => observer.disconnect();
+  });
   if (!colorbar) return <MosaicLegend workspaceId={workspaceId} />;
   return (
     <div
       ref={ref}
       className="relative shrink-0 self-stretch bg-bf-bg-canvas"
-      style={{ width: COLORBAR_COLUMN_PX }}
+      style={{ width: columnPx }}
       data-testid="mosaic-colorbar"
     >
       {/* Top-aligned with the grid, left edge 12 px from the tiles. */}

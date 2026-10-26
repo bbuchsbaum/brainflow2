@@ -19,13 +19,14 @@ import { ViewportColorbar } from '../viewportFrame/ViewportColorbar';
 import { surfaceColorbarLayer } from './surfaceColorbar';
 import { shortLayerLabel } from '../viewportFrame/frameFormat';
 
+// Full words: "L" means left elsewhere in the app (orientation letters).
 const CAMERA_PRESETS = [
-  { value: 'lateral', label: 'L', title: 'Lateral' },
-  { value: 'medial', label: 'M', title: 'Medial' },
-  { value: 'dorsal', label: 'D', title: 'Dorsal' },
-  { value: 'ventral', label: 'V', title: 'Ventral' },
-  { value: 'anterior', label: 'A', title: 'Anterior' },
-  { value: 'posterior', label: 'P', title: 'Posterior' },
+  { value: 'lateral', label: 'Lateral', title: 'View from the lateral side' },
+  { value: 'medial', label: 'Medial', title: 'View from the medial side' },
+  { value: 'dorsal', label: 'Dorsal', title: 'View from above' },
+  { value: 'ventral', label: 'Ventral', title: 'View from below' },
+  { value: 'anterior', label: 'Anterior', title: 'View from the front' },
+  { value: 'posterior', label: 'Posterior', title: 'View from the back' },
 ] as const;
 
 const SCRIM = 'bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)]';
@@ -41,6 +42,7 @@ export interface SurfaceFrameProps {
 export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFrameProps) {
   const viewpoint = useSurfaceStore((s) => s.viewpoint);
   const setViewpoint = useSurfaceStore((s) => s.setViewpoint);
+  const reapplyViewpoint = useSurfaceStore((s) => s.reapplyViewpoint);
   const [open, setOpen] = useState(false);
   const colorbar = useMemo(() => surfaceColorbarLayer(surface), [surface]);
   const overlayName = colorbar?.name ?? null;
@@ -99,6 +101,8 @@ export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFr
           options={CAMERA_PRESETS}
           value={viewpoint}
           onValueChange={(v) => setViewpoint(v)}
+          // Pressing the checked preset again (after an orbit) re-applies it.
+          onReselect={() => reapplyViewpoint()}
           data-testid="surface-camera-presets"
         />
       </div>

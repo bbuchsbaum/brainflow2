@@ -8,12 +8,19 @@
  * Info / success / warning messages expire after 5 s (or `durationMs`); an
  * error stays until dismissed (or replaced) and is an assertive alert. Every
  * message is announced in a polite live region.
+ *
+ * The line is a button (v4 function critic: an error cut to a stub, its
+ * reason only in a hover title): it opens every current message in full.
+ * A long line is shortened in the MIDDLE, so the cause at its end stays.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
+import { middleTruncate } from '@/components/views/viewportFrame/frameFormat';
 import { X } from 'lucide-react';
 import { useEvent } from '@/events/EventBus';
 import { IconButton } from './IconButton';
+import { focusFallback } from './bf/focusFallback';
 
 interface Notification {
   id: string;
@@ -39,6 +46,47 @@ const DOT_CLASS: Record<Notification['type'], string> = {
   warning: 'bg-bf-warning',
   error: 'bg-bf-danger',
 };
+
+/** Fit `text` to `el`'s width by middle truncation (its own font, measured). */
+function useMiddleFit(text: string, el: React.RefObject<HTMLElement | null>): string {
+  const [fitted, setFitted] = useState(text);
+  useLayoutEffect(() => {
+    const node = el.current;
+    if (!node) return;
+    let canvas: HTMLCanvasElement | null = null;
+    const fit = () => {
+      const width = node.clientWidth;
+      if (!(width > 0)) {
+        setFitted(text);
+        return;
+      }
+      canvas ??= document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        setFitted(text);
+        return;
+      }
+      ctx.font = getComputedStyle(node).font;
+      if (ctx.measureText(text).width <= width) {
+        setFitted(text);
+        return;
+      }
+      let chars = Array.from(text).length - 1;
+      let candidate = middleTruncate(text, chars, 8);
+      while (candidate && chars > 8 && ctx.measureText(candidate).width > width) {
+        chars -= 1;
+        candidate = middleTruncate(text, chars, 8);
+      }
+      setFitted(candidate ?? text);
+    };
+    fit();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(fit);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text, el]);
+  return fitted;
+}
 
 export function NotificationToast() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -68,6 +116,12 @@ export function NotificationToast() {
 
   const current = notifications[notifications.length - 1] ?? null;
   const earlier = notifications.length - 1;
+  const textRef = useRef<HTMLSpanElement>(null);
+  const shown = useMiddleFit(current?.message ?? '', textRef);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!current) setOpen(false);
+  }, [current]);
 
   // Keep the live region mounted so the first message is announced.
   const [announced, setAnnounced] = useState('');
@@ -87,31 +141,74 @@ export function NotificationToast() {
           className="flex min-w-0 items-center gap-2"
           data-testid="status-notification"
           data-type={current.type}
-          title={current.message}
         >
-          <span
-            aria-hidden
-            className={`h-2 w-2 shrink-0 rounded-bf-xs ${DOT_CLASS[current.type]}`}
-          />
-          <span
-            className={`min-w-0 truncate text-bf-xs ${
-              current.type === 'error' ? 'text-bf-text-primary' : 'text-bf-text-secondary'
-            }`}
-          >
-            {current.message}
-          </span>
-          {earlier > 0 ? (
-            <span className="shrink-0 font-mono text-bf-2xs tabular-nums text-bf-text-muted">
-              +{earlier}
-            </span>
-          ) : null}
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-bf-xs px-0.5 text-left hover:bg-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
+                aria-label={`${current.type === 'error' ? 'Error' : 'Message'}: ${current.message}. Show ${
+                  earlier > 0 ? `all ${earlier + 1} messages` : 'in full'
+                }`}
+                data-testid="status-notification-open"
+              >
+                <span
+                  aria-hidden
+                  className={`h-2 w-2 shrink-0 rounded-bf-xs ${DOT_CLASS[current.type]}`}
+                />
+                <span
+                  ref={textRef}
+                  className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap text-bf-xs ${
+                    current.type === 'error' ? 'text-bf-text-primary' : 'text-bf-text-secondary'
+                  }`}
+                  data-testid="status-notification-text"
+                >
+                  {shown}
+                </span>
+                {earlier > 0 ? (
+                  <span className="shrink-0 font-mono text-bf-2xs tabular-nums text-bf-text-muted">
+                    +{earlier}
+                  </span>
+                ) : null}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="start"
+              sideOffset={6}
+              className="w-[min(560px,90vw)] p-2"
+              aria-label="Messages"
+              data-testid="status-notification-list"
+            >
+              <ol className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+                {[...notifications].reverse().map((n) => (
+                  <li key={n.id} className="flex items-start gap-2 text-bf-xs">
+                    <span
+                      aria-hidden
+                      className={`mt-1 h-2 w-2 shrink-0 rounded-bf-xs ${DOT_CLASS[n.type]}`}
+                    />
+                    <span className="min-w-0 select-text whitespace-pre-wrap break-words text-bf-text-primary">
+                      {n.message}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </PopoverContent>
+          </Popover>
           <IconButton
             size="xs"
             variant="ghost"
             icon={<X />}
             aria-label="Dismiss message"
             title="Dismiss"
-            onClick={() => setNotifications((prev) => prev.filter((n) => n.id !== current.id))}
+            onClick={() => {
+              setNotifications((prev) => prev.filter((n) => n.id !== current.id));
+              // The next message's Dismiss, else the status bar's Diagnostics.
+              focusFallback([
+                '[data-testid="status-notification"] button[aria-label="Dismiss message"]',
+                '[data-testid="status-diagnostics-trigger"]',
+              ]);
+            }}
           />
         </div>
       ) : null}

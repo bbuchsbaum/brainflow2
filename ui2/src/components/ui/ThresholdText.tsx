@@ -5,6 +5,7 @@
  * "hidden" in sans (v3 visual critic: |z| was written three ways).
  */
 import { Fragment } from 'react';
+import { statisticLongName } from '@/utils/statistic';
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -21,7 +22,9 @@ export function ThresholdText({ line, variable }: { line: string; variable: stri
         <span className="font-mono tabular-nums" data-testid="threshold-text">
           {parts.map((part, i) =>
             i % 2 === 1 ? (
-              <i key={i} className="font-sans italic">
+              // Spoken as the long name: "z*" is "z score, inferred from
+              // file name", never "z star".
+              <i key={i} className="font-sans italic" role="img" aria-label={statisticLongName(part)}>
                 {part}
               </i>
             ) : (
