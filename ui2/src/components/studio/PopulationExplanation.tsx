@@ -1,3 +1,4 @@
+import { Button, Notice, Select } from '@/components/ui/bf';
 import { ReusableSliceViewport, SliceViewerImageSurface } from '@/components/views/sliceViewer';
 import {
   populationAxisLabel,
@@ -9,8 +10,7 @@ import type { RelationshipFit } from '@/services/studio/PopulationRelationshipSe
 import { explainRelationship } from '@/services/studio/PopulationRelationshipService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
-const control =
-  'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm max-w-full disabled:opacity-40';
+import { formatWorldPoint } from '@/utils/valueFormat';
 export function PopulationExplanation({
   fit,
   current,
@@ -84,7 +84,7 @@ export function PopulationExplanation({
       }
       setPreview({ image, plane: result.plane });
       setMessage(
-        `${kind === 'pair' ? `${a} vs ${b}` : kind === 'reconstruction' ? `Reconstruction of ${a}` : `Component ${Number(kind) + 1}`} · ${result.label} · ${orientation} ${crosshair.map((v) => v.toFixed(1)).join(', ')} mm${kind === 'pair' ? ` · squared distance ${result.total.toPrecision(5)}` : ''} · display limit ${result.limit.toPrecision(4)}`,
+        `${kind === 'pair' ? `${a} vs ${b}` : kind === 'reconstruction' ? `Reconstruction of ${a}` : `Component ${Number(kind) + 1}`} · ${result.label} · ${orientation} ${formatWorldPoint(crosshair)} mm${kind === 'pair' ? ` · squared distance ${result.total.toPrecision(5)}` : ''} · display limit ${result.limit.toPrecision(4)}`,
       );
     } catch (e) {
       if (!controller.signal.aborted) setError((e as Error).message);
@@ -104,8 +104,7 @@ export function PopulationExplanation({
       <summary className="cursor-pointer">Explain in the brain</summary>
       <div className="mt-2 space-y-2">
         <div className="flex flex-wrap gap-2">
-          <select
-            className={control}
+          <Select className="w-auto max-w-full"
             aria-label="Relationship explanation"
             value={kind}
             onChange={(e) => setKind(e.target.value)}
@@ -117,11 +116,10 @@ export function PopulationExplanation({
               </option>
             ))}
             {available > 0 && <option value="reconstruction">Reconstruct an observation</option>}
-          </select>
+          </Select>
           {(kind === 'pair' || kind === 'reconstruction') && (
             <>
-              <select
-                className={control}
+              <Select className="w-auto max-w-full"
                 aria-label="First comparison map"
                 value={a}
                 onChange={(e) => setA(e.target.value)}
@@ -129,10 +127,9 @@ export function PopulationExplanation({
                 {ids.map((id) => (
                   <option key={id}>{id}</option>
                 ))}
-              </select>
+              </Select>
               {kind === 'pair' && (
-                <select
-                  className={control}
+                <Select className="w-auto max-w-full"
                   aria-label="Second comparison map"
                   value={b}
                   onChange={(e) => setB(e.target.value)}
@@ -140,7 +137,7 @@ export function PopulationExplanation({
                   {ids.map((id) => (
                     <option key={id}>{id}</option>
                   ))}
-                </select>
+                </Select>
               )}
             </>
           )}
@@ -160,8 +157,7 @@ export function PopulationExplanation({
               </span>
             </label>
           )}
-          <select
-            className={control}
+          <Select className="w-auto max-w-full"
             aria-label="Explanation orientation"
             value={orientation}
             onChange={(e) => setOrientation(e.target.value as typeof orientation)}
@@ -169,24 +165,26 @@ export function PopulationExplanation({
             <option value="axial">Axial</option>
             <option value="sagittal">Sagittal</option>
             <option value="coronal">Coronal</option>
-          </select>
-          <button className={control} disabled={!current || busy} onClick={() => void show()}>
+          </Select>
+          <Button variant="secondary" size="sm" disabled={!current || busy} onClick={() => void show()}>
             {busy ? 'Computing…' : 'Show current slice'}
-          </button>
+          </Button>
         </div>
         {kind !== 'pair' && kind !== 'reconstruction' && (
           <p>
             Actual observations along this component:{' '}
             {[ordered[0], ordered[Math.floor(ordered.length / 2)], ordered[ordered.length - 1]].map(
               (m, i) => (
-                <button
-                  className={`${control} m-1`}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="m-1"
                   key={`${m.id}-${i}`}
                   disabled={!current}
                   onClick={() => populationProbeActions.focus(m.id)}
                 >
                   {['Low', 'Middle', 'High'][i]} · {m.id}
-                </button>
+                </Button>
               ),
             )}
             These buttons focus original maps. Loadings describe the fitted space, not reconstructed
@@ -197,13 +195,12 @@ export function PopulationExplanation({
           <p className="text-muted-foreground">
             This is a model reconstruction, not an original observation. Zero components shows the
             population center.{' '}
-            <button
-              className={control}
+            <Button variant="secondary" size="sm"
               disabled={!current}
               onClick={() => populationProbeActions.focus(a)}
             >
               Focus original {a}
-            </button>
+            </Button>
           </p>
         )}
         <div
@@ -253,9 +250,9 @@ export function PopulationExplanation({
           {message || 'Choose a comparison and display the slice. The fit stays fixed.'}
         </p>
         {error && (
-          <p role="alert" className="text-destructive">
+          <Notice role="alert" severity="danger">
             {error}
-          </p>
+          </Notice>
         )}
       </div>
     </details>

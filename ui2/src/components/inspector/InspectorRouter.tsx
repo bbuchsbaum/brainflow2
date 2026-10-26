@@ -10,10 +10,13 @@ import { LoadSheet } from './imaging/LoadSheet';
 import { BidsInspector } from './bids/BidsInspector';
 import { AnalysisInspector } from './analysis/AnalysisInspector';
 import { ImagingInspector } from './imaging/ImagingInspector';
+import { Button, TabPanel, Tabs } from '@/components/ui/bf';
 
 /**
  * Right-rail Inspector shell. Owns the chrome:
- *   - a thin context toolbar (`+ Load` action + `Annotate` mode toggle)
+ *   - a thin context toolbar: flat `Inspect | Annotate` tabs (they switch the
+ *     pane's content, so they are tabs by the V5 taxonomy, not a segmented
+ *     value choice) + the `+ Load` action
  *   - the scrollable body (Inspector or Annotate)
  *   - the footer (`N scene items` / `M selected`)
  *
@@ -29,6 +32,9 @@ import { ImagingInspector } from './imaging/ImagingInspector';
  *   - bids → `<BidsInspector />` placeholder
  *   - analysis → `<AnalysisInspector />` placeholder
  */
+/** Id base of the Inspect / Annotate tabs and their panels. */
+const MODE_TABS_ID = 'inspector-mode';
+
 export function InspectorRouter() {
   const [topLevelMode, setTopLevelMode] = useState<'inspector' | 'annotate'>('inspector');
   const [loadOpen, setLoadOpen] = useState(false);
@@ -47,7 +53,12 @@ export function InspectorRouter() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {topLevelMode === 'inspector' ? <InspectorBody /> : <AnnotateBody />}
+        <TabPanel idBase={MODE_TABS_ID} value="inspector" selected={topLevelMode} focusable={false}>
+          <InspectorBody />
+        </TabPanel>
+        <TabPanel idBase={MODE_TABS_ID} value="annotate" selected={topLevelMode} focusable={false}>
+          <AnnotateBody />
+        </TabPanel>
       </div>
 
       <InspectorFooter />
@@ -68,7 +79,6 @@ function ContextToolbar({
   loadOpen: boolean;
   onCloseLoad: () => void;
 }) {
-  const annotateActive = topLevelMode === 'annotate';
   const [dialog, setDialog] = useState<'atlas' | 'projection' | null>(null);
   const openFile = () => {
     void getTransport().invoke('open_file_dialog').catch((error: unknown) => {
@@ -77,32 +87,30 @@ function ContextToolbar({
   };
 
   return (
-    <header className="relative flex items-center justify-end gap-1.5 border-b border-border/60 bg-card/40 px-3 py-2">
-      <button
-        type="button"
+    <header className="relative flex h-10 items-end justify-between gap-1.5 border-b border-border/60 bg-card/40 pl-1 pr-3">
+      <Tabs
+        aria-label="Inspector mode"
+        idBase={MODE_TABS_ID}
+        value={topLevelMode}
+        onValueChange={(value) => onSelectMode(value as 'inspector' | 'annotate')}
+        items={[
+          { value: 'inspector', label: 'Inspect' },
+          { value: 'annotate', label: 'Annotate', title: 'Toggle annotate mode' },
+        ]}
+      />
+      <Button
+        variant="secondary"
+        size="sm"
+        className="mb-2 self-end"
         onClick={onOpenLoad}
-        className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-card px-2 text-bf-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
         aria-label="Load"
         title="Load"
         aria-haspopup="menu"
         aria-expanded={loadOpen}
+        icon={<span aria-hidden>+</span>}
       >
-        <span aria-hidden>+</span>
-        <span>Load</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => onSelectMode(annotateActive ? 'inspector' : 'annotate')}
-        aria-pressed={annotateActive}
-        className={`inline-flex h-6 items-center rounded-sm border px-2 text-bf-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
-          annotateActive
-            ? 'border-border bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
-            : 'border-border bg-card text-foreground hover:bg-accent hover:text-accent-foreground'
-        }`}
-        title="Toggle annotate mode"
-      >
-        Annotate
-      </button>
+        Load
+      </Button>
 
       <LoadSheet
         open={loadOpen}

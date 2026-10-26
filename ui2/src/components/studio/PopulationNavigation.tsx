@@ -1,6 +1,6 @@
+import { Button, Select } from '@/components/ui/bf';
 import { useEffect, useState } from 'react';
 
-const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 
 /** Discrete observations, never interpolated frames. Each completed display
  * receives its full dwell time; a cache miss slows playback rather than skipping. */
@@ -64,34 +64,30 @@ export function PopulationNavigation({
       }}
     >
       <div className="flex flex-wrap items-center gap-2 text-bf-sm">
-        <button
-          className={control}
+        <Button variant="secondary" size="sm"
           aria-label="Previous observation"
           disabled={index <= 0}
           onClick={() => move(index - 1)}
         >
           ←
-        </button>
-        <button
-          className={control}
+        </Button>
+        <Button variant="secondary" size="sm"
           disabled={!ids.length || failed}
           onClick={() => setPlaying((value) => !value)}
         >
           {playing ? 'Pause' : 'Play'}
-        </button>
-        <button
-          className={control}
+        </Button>
+        <Button variant="secondary" size="sm"
           aria-label="Next observation"
           disabled={index + 1 >= ids.length}
           onClick={() => move(index + 1)}
         >
           →
-        </button>
+        </Button>
         <span className="min-w-[130px] flex-1 tabular-nums">
           {focusedId ?? 'No focus'} · {index + 1} / {ids.length}
         </span>
-        <select
-          className={control}
+        <Select className="w-auto max-w-full"
           aria-label="Playback direction"
           value={direction}
           onChange={(e) => {
@@ -101,16 +97,15 @@ export function PopulationNavigation({
         >
           <option value={1}>Forward</option>
           <option value={-1}>Reverse</option>
-        </select>
-        <select
-          className={control}
+        </Select>
+        <Select className="w-auto max-w-full"
           aria-label="Playback speed"
           value={speed}
           onChange={(e) => setSpeed(Number(e.target.value))}
         >
           <option value={5}>5 observations/s</option>
           <option value={10}>10 observations/s</option>
-        </select>
+        </Select>
       </div>
       <input
         className="block w-full accent-primary"

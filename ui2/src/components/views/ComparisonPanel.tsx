@@ -12,6 +12,8 @@ import { useCallback, useEffect, useRef, useMemo, useState, type FocusEvent } fr
 import { SliceViewport, type SliceViewportPlacement } from './SliceViewport';
 import { SLIDER_HEIGHT } from './constants';
 import { SliceSlider } from '@/components/ui/SliceSlider';
+import { X } from 'lucide-react';
+import { IconButton, Select } from '@/components/ui/bf';
 import { useLayerStore } from '@/stores/layerStore';
 import { sliceRangeForMetadata } from '@/services/SliceNavigationService';
 import { useLayerValueAtWorld } from '@/hooks/useLayerValueAtWorld';
@@ -37,6 +39,12 @@ import {
 } from './viewportFrame';
 
 const debug = createDebugLogger('comparison-render');
+
+const PANEL_PLANE_OPTIONS = [
+  { value: 'axial', label: 'Axial' },
+  { value: 'sagittal', label: 'Sagittal' },
+  { value: 'coronal', label: 'Coronal' },
+] as const;
 
 interface ComparisonPanelProps {
   workspaceId: string;
@@ -82,9 +90,6 @@ export function volumeEdgeBounds(
   }
   return { min, max };
 }
-
-const PANEL_FOCUS =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--bf-border-focus)]';
 
 export function ComparisonPanel({
   workspaceId,
@@ -451,36 +456,30 @@ export function ComparisonPanel({
                 title={layerNames.get(lid) ?? lid}
               >
                 <span className="truncate">{layerNames.get(lid) ?? lid}</span>
-                <button
-                  type="button"
-                  className={`ml-0.5 inline-flex h-6 min-w-6 shrink-0 items-center justify-center text-bf-text-muted hover:text-bf-text-primary ${PANEL_FOCUS}`}
+                <IconButton
+                  size="xs"
+                  icon={<X />}
+                  className="-mr-1 ml-0.5"
                   onClick={() => onRemoveLayer(panel.id, lid)}
                   title="Remove layer"
                   aria-label={`Remove ${layerNames.get(lid) ?? lid} from panel ${panelLabel}`}
-                >
-                  ×
-                </button>
+                />
               </span>
             ))}
-            <select
-              className={`bf-select h-6 py-0 text-bf-2xs ${PANEL_FOCUS}`}
+            <Select
+              className="w-auto"
               aria-label={`Panel orientation, ${panelLabel}`}
               value={panel.viewType}
-              onChange={e => onViewTypeChange(panel.id, e.target.value as 'axial' | 'sagittal' | 'coronal')}
-            >
-              <option value="axial">Axial</option>
-              <option value="sagittal">Sagittal</option>
-              <option value="coronal">Coronal</option>
-            </select>
-            <button
-              type="button"
-              className={`inline-flex h-6 w-6 items-center justify-center rounded-bf-xs text-bf-sm text-bf-text-muted hover:bg-accent hover:text-bf-text-primary ${PANEL_FOCUS}`}
+              options={PANEL_PLANE_OPTIONS}
+              onValueChange={v => onViewTypeChange(panel.id, v as 'axial' | 'sagittal' | 'coronal')}
+            />
+            <IconButton
+              size="xs"
+              icon={<X />}
               onClick={() => onRemovePanel(panel.id)}
               title="Remove panel"
               aria-label={`Remove panel ${panelLabel}`}
-            >
-              ×
-            </button>
+            />
           </div>
           {panelValueText !== null && hasLayers && (
             <span
@@ -488,8 +487,12 @@ export function ComparisonPanel({
               // Same top, size and line height as the header on the left, so
               // the two sit on one baseline.
               className="pointer-events-none rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 font-mono text-bf-xs tabular-nums text-bf-text-secondary"
-              title={`Nearest-voxel value of ${panelLayerName}`}
+              title={`Value at crosshair: nearest-voxel value of ${panelLayerName}`}
+              role="note"
+              aria-label={`Value at crosshair, ${panelLayerName}: ${panelValueText}`}
             >
+              {/* Named on screen, like the status bar's "Value". */}
+              <span className="mr-1 font-sans text-bf-text-muted">Value</span>
               {panelValueText}
             </span>
           )}

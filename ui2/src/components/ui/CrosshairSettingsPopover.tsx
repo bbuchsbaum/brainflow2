@@ -33,7 +33,7 @@ export function CrosshairSettingsPopover({ className }: CrosshairSettingsPopover
         <Button
           variant="ghost"
           size="icon"
-          className={cn("h-8 w-8", className)}
+          className={cn("h-6 w-6", className)}
           aria-label="Crosshair settings"
         >
           <Settings className="h-4 w-4" />

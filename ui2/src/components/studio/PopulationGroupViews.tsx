@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/bf';
 import type { ComponentProps } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -7,7 +8,6 @@ import {
   type PopulationSliceDisplay,
 } from '@/services/studio/PopulationSliceService';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
-const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationGroupViews({
   display,
   width,
@@ -71,8 +71,7 @@ export function PopulationGroupViews({
               />
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                className={control}
+              <Button variant="secondary" size="sm"
                 disabled={!current}
                 onClick={() =>
                   populationProbeActions.select(
@@ -84,9 +83,8 @@ export function PopulationGroupViews({
                 }
               >
                 Use as A
-              </button>
-              <button
-                className={control}
+              </Button>
+              <Button variant="secondary" size="sm"
                 disabled={!current}
                 onClick={() => {
                   const id = state.createSavedCohort({
@@ -104,9 +102,8 @@ export function PopulationGroupViews({
                 }}
               >
                 Use as B
-              </button>
-              <button
-                className={control}
+              </Button>
+              <Button variant="secondary" size="sm"
                 disabled={!current}
                 onClick={() =>
                   state.setPopulationPresentation({
@@ -117,7 +114,7 @@ export function PopulationGroupViews({
                 }
               >
                 Show contributors
-              </button>
+              </Button>
             </div>
           </section>
         );

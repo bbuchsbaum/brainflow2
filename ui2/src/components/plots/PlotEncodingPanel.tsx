@@ -17,7 +17,7 @@ import { resolveSpec } from '@/plotting';
 import type { Encoding, Mark, ReduceOp, SampleFrame, Transform } from '@/plotting';
 import { usePlotSpecStore } from '@/stores/plotSpecStore';
 
-import { PLOT_FOCUS_RING } from './PlotHost';
+import { Select, Toolbar, ToolbarField } from '@/components/ui/bf';
 
 import { SUPPORTED_MARKS } from './encoder/registry';
 
@@ -35,22 +35,7 @@ const MARK_LABELS: Record<Mark, string> = {
   heatmap: 'Heatmap',
 };
 
-const labelStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 4,
-  fontSize: 11,
-  color: 'var(--bf-text-muted)',
-  whiteSpace: 'nowrap',
-};
-// Chrome (flat surface, border, chevron, focus) comes from the shared
-// `bf-select` class in theme.css; only the compact toolbar sizing is local.
-const selectStyle: React.CSSProperties = {
-  fontSize: 11,
-  height: 20,
-  maxWidth: 130,
-};
-
+/** One labelled toolbar select ("Mark [Line ▾]"); the select keeps its own accessible name. */
 function LabeledSelect({
   label,
   value,
@@ -65,18 +50,16 @@ function LabeledSelect({
   children: React.ReactNode;
 }) {
   return (
-    <label style={labelStyle}>
-      {label}
-      <select
+    <ToolbarField label={label}>
+      <Select
         aria-label={ariaLabel}
         value={value}
-        onChange={(e) => onChange(e.currentTarget.value)}
-        style={selectStyle}
-        className={`bf-select ${PLOT_FOCUS_RING}`}
+        onValueChange={onChange}
+        className="w-auto max-w-[130px]"
       >
         {children}
-      </select>
-    </label>
+      </Select>
+    </ToolbarField>
   );
 }
 
@@ -168,16 +151,10 @@ export function PlotEncodingPanel({
   );
 
   return (
-    <div
+    <Toolbar
+      aria-label="Plot encoding"
       data-testid="plot-encoding-panel"
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 10,
-        padding: '4px 8px',
-        borderBottom: '1px solid var(--bf-border)',
-      }}
+      className="border-b border-bf-border"
     >
       <LabeledSelect
         label="Mark"
@@ -240,7 +217,7 @@ export function PlotEncodingPanel({
           ))}
         </LabeledSelect>
       )}
-    </div>
+    </Toolbar>
   );
 }
 

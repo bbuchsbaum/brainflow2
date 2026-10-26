@@ -2,6 +2,8 @@ import React from 'react';
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileTreeRow, splitDisplayName } from '../files/FileTreeRow';
+import { formatName } from '@/utils/formatName';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -64,30 +66,30 @@ function cssBlock(selector: string): string {
   return match[1];
 }
 
-describe('FileTreeRow narrow-width truncation contract', () => {
-  // jsdom has no layout, so the narrow-column behaviour is pinned by the
-  // flex contract that produces it: head shrinks first (end ellipsis), then
-  // the stem (start ellipsis via an RTL box), and the extension never shrinks.
-  it('never shrinks or ellipsizes the extension', () => {
-    const ext = cssBlock('.file-tree-item .file-name-ext');
-    expect(ext).toMatch(/flex:\s*0 0 auto/);
-    expect(ext).not.toMatch(/text-overflow/);
-    expect(ext).not.toMatch(/overflow:\s*hidden/);
+// The tree now renders names through utils/formatName (middle truncation,
+// extension kept whole) fitted to the measured name column by useFittedName.
+// This replaces the earlier three-run (head / stem / extension) flex contract,
+// whose head-first shrink produced "MN… _2mm_brain.nii.gz" at 1280px.
+describe('FileTreeRow name truncation (formatName)', () => {
+  it('keeps the extension and the distinctive end of the stem when cut', () => {
+    const cut = formatName('MNI152_T1_2mm_brain_mask.nii.gz', 22);
+    expect(cut.endsWith('.nii.gz')).toBe(true);
+    expect(cut).toContain('…');
+    expect(cut).toMatch(/^MNI/);
+    expect(cut).toMatch(/mask\.nii\.gz$/);
+    expect(Array.from(cut).length).toBeLessThanOrEqual(22);
+    // Siblings that differ near the end stay distinguishable.
+    expect(formatName('MNI152_T1_2mm_brain.nii.gz', 20)).not.toEqual(cut);
   });
 
-  it('shrinks the head before the stem, and ellipsizes the stem at its start', () => {
-    const head = cssBlock('.file-tree-item .file-name-head');
-    const stem = cssBlock('.file-tree-item .file-name-stem');
-    const headShrink = Number(head.match(/flex:\s*0 (\d+) auto/)?.[1]);
-    const stemShrink = Number(stem.match(/flex:\s*0 (\d+) auto/)?.[1]);
-    expect(headShrink).toBeGreaterThan(stemShrink * 1000);
-    expect(head).toMatch(/min-width:\s*0/);
-    expect(head).toMatch(/text-overflow:\s*ellipsis/);
-    expect(stem).toMatch(/text-overflow:\s*ellipsis/);
-    expect(stem).toMatch(/direction:\s*rtl/);
+  it('gives the name column a width independent of its text (so fitting cannot feed back)', () => {
+    const text = cssBlock('.file-tree-item .file-name-text');
+    expect(text).toMatch(/flex:\s*1 1 0/);
+    expect(text).toMatch(/min-width:\s*0/);
+    expect(text).toMatch(/text-overflow:\s*ellipsis/);
   });
 
-  it('renders head, stem and extension as separate runs with a stem minimum width', () => {
+  it('renders the full name without layout (jsdom) and marks file names mono', () => {
     const name = 'MNI152_T1_2mm_brain_mask.nii.gz';
     const node = {
       data: { id: `/d/${name}`, path: `/d/${name}`, name, type: 'file' },
@@ -99,12 +101,38 @@ describe('FileTreeRow narrow-width truncation contract', () => {
       <FileTreeRow node={node as never} style={{}} tree={{} as never} dragHandle={() => {}} />,
     );
     const text = container.querySelector('.file-name-text') as HTMLElement;
-    const runs = Array.from(text.children).map((el) => el.className);
-    expect(runs).toEqual(['file-name-head', 'file-name-stem', 'file-name-ext']);
-    const stem = text.querySelector('.file-name-stem') as HTMLElement;
-    expect(stem.style.minWidth).toBe('3ch');
-    expect(stem.querySelector('bdi')?.getAttribute('dir')).toBe('ltr');
-    expect(text.querySelector('.file-name-ext')?.textContent).toBe('.nii.gz');
+    expect(text.textContent).toBe(name);
+    expect(text.className).toMatch(/font-mono/);
+    expect(text.getAttribute('data-full-name')).toBe(name);
+  });
+});
+
+describe('FileTreeRow state geometry (SelectableRow vocabulary)', () => {
+  it('gates the inset focus ring on keyboard navigation, 2px clear of the selection edge', () => {
+    const rule = cssBlock(
+      ".fb-tree-container[data-kbd-nav='true'] [role='treeitem']:focus > .file-tree-item",
+    );
+    expect(rule).toMatch(/outline:\s*2px solid var\(--bf-border-focus\)/);
+    expect(rule).toMatch(/outline-offset:\s*-6px/);
+  });
+
+  it('selected rows carry the shared selected fill and amber left edge', () => {
+    const name = 'a.nii.gz';
+    const node = {
+      data: { id: `/d/${name}`, path: `/d/${name}`, name, type: 'file' },
+      level: 2,
+      isOpen: false,
+      toggle: vi.fn(),
+    };
+    useFileBrowserStore.setState({ selectedPath: `/d/${name}` });
+    const { container } = render(
+      <FileTreeRow node={node as never} style={{ paddingLeft: 24 }} tree={{} as never} dragHandle={() => {}} />,
+    );
+    const row = container.querySelector('.file-tree-item') as HTMLElement;
+    expect(row.className).toContain('bg-bf-bg-active');
+    expect(row.className).toContain('shadow-[inset_2px_0_0_var(--bf-accent)]');
+    expect(row.style.paddingLeft).toBe('32px');
+    useFileBrowserStore.setState({ selectedPath: null });
   });
 });
 

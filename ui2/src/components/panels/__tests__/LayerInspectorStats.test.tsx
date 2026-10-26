@@ -347,7 +347,7 @@ describe('PlotPanel ↔ plotModeStore handshake (6c)', () => {
 
     render(<PlotPanel defaultMode="histogram" />);
 
-    const tab = screen.getByTestId('plot-host-mode-crosshair-time-series');
+    const tab = screen.getByRole('radio', { name: 'Time series' });
     act(() => {
       fireEvent.click(tab);
     });

@@ -60,7 +60,20 @@ export function formatSlicePosition(plane: FramePlane, mm: number): string {
   return `${PLANE_AXIS[plane]} ${trueMinus(formatMm(mm))} mm`;
 }
 
-/** Compact position: "z 17.5" — same 0.1 mm digits, only the unit dropped. */
+/**
+ * Narrowest position: "17.5mm" — the axis letter goes before the unit does
+ * (a coordinate without a unit is the one thing a header must not show; the
+ * pane's plane already implies the axis). The unit is set solid so the
+ * narrowest panes (a 137px coronal pane, "−131.5mm") keep a header at all.
+ */
+export function formatSlicePositionUnitOnly(mm: number): string {
+  return `${trueMinus(formatMm(mm))}mm`;
+}
+
+/**
+ * Unit-less position "z 17.5". No longer used by the header (it keeps "mm"
+ * under width pressure); kept for callers that state the unit elsewhere.
+ */
 export function formatSlicePositionCompact(plane: FramePlane, mm: number): string {
   return `${PLANE_AXIS[plane]} ${trueMinus(formatMm(mm))}`;
 }
@@ -166,7 +179,8 @@ export interface HeaderOptions {
 /**
  * Header content for a `maxWidth` budget. Two forms only:
  *   full     "Axial  z −0.5 mm  <name>"  (name middle-truncated or dropped)
- *   compact  "z −0.5"                    (plane and unit dropped, same digits)
+ *   compact  "z −0.5 mm", then "−0.5mm" (plane word, then axis letter
+ *            dropped; same digits; the unit is never dropped)
  * The position is never truncated or rounded. Which form is used, whether the
  * header shows at all, and the name budget are decided from the RESERVED
  * position width (`reservedPositionChars`), so they are stable while
@@ -187,7 +201,10 @@ export function headerParts(
   const planeWidth = showPlane ? PLANE_NAME[plane].length * SANS_CH + PART_GAP : 0;
   // "z " + number + " mm"
   const fullPosWidth = (2 + posChars + 3) * MONO_CH;
-  const compactPosWidth = (2 + posChars) * MONO_CH;
+  // Compact keeps the unit: "z " + number + " mm"; minimal drops the axis
+  // letter, never the unit: number + "mm".
+  const compactPosWidth = fullPosWidth;
+  const minimalPosWidth = (posChars + 2) * MONO_CH;
   const fullUsed = PAD + fullPosWidth + planeWidth;
   const nameFor = (used: number) => {
     if (!label) return null;
@@ -196,6 +213,8 @@ export function headerParts(
     return middleTruncate(label, chars, requireName ? 7 : MIN_NAME_CHARS);
   };
 
+  // Width pressure drops parts in a fixed order: the layer name, then the
+  // plane word, then the axis letter. The unit is never dropped.
   const fullSlack = previous === 'compact' ? hysteresis : 0;
   if (fullUsed + fullSlack <= maxWidth) {
     const name = nameFor(fullUsed);
@@ -209,20 +228,22 @@ export function headerParts(
       };
     }
   }
-  const compactUsed = PAD_COMPACT + compactPosWidth;
   // 3px tolerance: the budget (half width − 14) already keeps ~5px clear of
   // the top letter, so the compact form still clears it by ≥2px.
-  if (compactUsed <= maxWidth + 3) {
-    const name = requireName ? nameFor(compactUsed) : null;
-    return {
-      plane: null,
-      position: formatSlicePositionCompact(plane, mm),
-      name,
-      fullName,
-      density: 'compact',
-    };
+  const tiers = [
+    [PAD_COMPACT + compactPosWidth, formatSlicePosition(plane, mm)],
+    [PAD_COMPACT + minimalPosWidth, formatSlicePositionUnitOnly(mm)],
+  ] as const;
+  const fitting = tiers.filter(([w]) => w <= maxWidth + 3);
+  if (fitting.length === 0) return null;
+  if (requireName && label) {
+    // A required name (Compare panel identity) outranks the axis letter.
+    for (const [w, position] of fitting) {
+      const name = nameFor(w);
+      if (name) return { plane: null, position, name, fullName, density: 'compact' };
+    }
   }
-  return null;
+  return { plane: null, position: fitting[0][1], name: null, fullName, density: 'compact' };
 }
 
 // ── threshold ───────────────────────────────────────────────────────────────

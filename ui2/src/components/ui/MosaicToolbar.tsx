@@ -1,16 +1,22 @@
 import React from 'react';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from '@/components/ui/shadcn/select';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { Pager, Select, Slider } from '@/components/ui/bf';
 import { cn } from '@/utils/cn';
 
 // Export toolbar height for consistent spacing
 export const MOSAIC_TOOLBAR_HEIGHT = 40; // px
+
+const AXIS_LABEL = { axial: 'Axial', sagittal: 'Sagittal', coronal: 'Coronal' } as const;
+const AXIS_OPTIONS = [
+  { value: 'axial', label: 'Axial' },
+  { value: 'sagittal', label: 'Sagittal' },
+  { value: 'coronal', label: 'Coronal' },
+] as const;
+const GRID_OPTIONS = [
+  { value: '2x2', label: '2×2' },
+  { value: '3x3', label: '3×3' },
+  { value: '4x4', label: '4×4' },
+  { value: '5x5', label: '5×5' },
+] as const;
 
 interface MosaicToolbarProps {
   axis: 'axial' | 'sagittal' | 'coronal';
@@ -58,93 +64,71 @@ export function MosaicToolbar({
       )}
       style={{ height: MOSAIC_TOOLBAR_HEIGHT }}
     >
-      {/* Axis Selector */}
-      <Select value={axis} onValueChange={onAxisChange}>
-        <SelectTrigger className="h-8 w-[100px] text-xs bg-[var(--app-bg-tertiary)] border border-[var(--app-border)] text-[var(--app-text-primary)]">
-          <SelectValue>
-            {axis.charAt(0).toUpperCase() + axis.slice(1)}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent className="bg-[var(--app-bg-secondary)] border border-[var(--app-border)] shadow-[var(--app-shadow-md)]">
-          <SelectItem value="axial" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">Axial</SelectItem>
-          <SelectItem value="sagittal" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">Sagittal</SelectItem>
-          <SelectItem value="coronal" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">Coronal</SelectItem>
-        </SelectContent>
-      </Select>
-
-      {/* Grid Selector */}
-      <Select value={grid} onValueChange={onGridChange}>
-        <SelectTrigger className="h-8 w-[72px] text-xs bg-[var(--app-bg-tertiary)] border border-[var(--app-border)] text-[var(--app-text-primary)]">
-          <SelectValue>{grid}</SelectValue>
-        </SelectTrigger>
-        <SelectContent className="bg-[var(--app-bg-secondary)] border border-[var(--app-border)] shadow-[var(--app-shadow-md)]">
-          <SelectItem value="2x2" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">2×2</SelectItem>
-          <SelectItem value="3x3" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">3×3</SelectItem>
-          <SelectItem value="4x4" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">4×4</SelectItem>
-          <SelectItem value="5x5" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">5×5</SelectItem>
-        </SelectContent>
-      </Select>
+      {/* Axis and grid: bf Select (native, 24px control height). */}
+      <Select
+        aria-label="Mosaic plane"
+        className="w-[100px]"
+        value={axis}
+        options={AXIS_OPTIONS}
+        onValueChange={(v) => onAxisChange(v as MosaicToolbarProps['axis'])}
+      />
+      <Select
+        aria-label="Mosaic grid"
+        className="w-[72px]"
+        value={grid}
+        options={
+          GRID_OPTIONS.some((o) => o.value === grid)
+            ? GRID_OPTIONS
+            : [...GRID_OPTIONS, { value: grid, label: grid.replace('x', '×') }]
+        }
+        onValueChange={onGridChange}
+      />
 
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Slice Slider */}
-      <div className="flex items-center flex-1 max-w-[300px]">
-        <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap" style={{ color: 'var(--app-text-secondary)', marginRight: '16px' }}>
-          Slice:
+      {/* Slice slider: bf Slider (index 0..n-1, one step per slice). */}
+      <div className="flex min-w-0 max-w-[300px] flex-1 items-center gap-2">
+        <span className="whitespace-nowrap text-bf-xs text-muted-foreground" aria-hidden>
+          Slice
         </span>
-        <input
-          type="range"
+        <Slider
+          className="min-w-0 flex-1"
+          label="Mosaic slice position"
           min={0}
           max={Math.max(0, totalSlices - 1)}
+          step={1}
+          snap={1}
+          fill={false}
           value={currentSlice}
-          onChange={(e) => onSliceChange(parseInt(e.target.value))}
-          className="mosaic-slider flex-1"
-          style={{
-            WebkitAppearance: 'none',
-            appearance: 'none',
-            width: '100%',
-            height: '4px',
-            background: 'transparent',
-            outline: 'none',
-            marginRight: '16px'
+          disabled={totalSlices <= 1}
+          showValue
+          // Same form as the pager: "Slice 49 of 96" / "Page 4 of 6".
+          format={(v) => `${Math.round(v) + 1} of ${totalSlices}`}
+          valueText={(v) => `${AXIS_LABEL[axis]} slice ${Math.round(v) + 1} of ${totalSlices}`}
+          onValueChange={(v) => {
+            const next = Math.round(v);
+            if (next !== currentSlice) onSliceChange(next);
           }}
-          aria-label="Slice navigation slider"
         />
-        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right" style={{ color: 'var(--app-text-primary)' }}>
-          {currentSlice + 1}/{totalSlices}
-        </span>
       </div>
 
-      {/* Spacer */}
-      <div className="ml-2" />
-
-      {/* Navigation Controls */}
-      <div className="flex items-center">
-        <button
-          type="button"
-          disabled={!canPrev}
-          onClick={onPrev}
-          className="inline-flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none text-[var(--app-text-secondary)] rounded-[var(--app-radius-sm)] cursor-pointer transition-all duration-[var(--app-transition-fast)] hover:bg-[var(--app-bg-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--app-text-secondary)]"
-          aria-label="Previous page"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </button>
-        
-        <span className="mx-2 text-center text-xs font-medium text-[var(--app-text-primary)] tabular-nums">
-          {page + 1} / {pageCount}
-        </span>
-        
-        <button
-          type="button"
-          disabled={!canNext}
-          onClick={onNext}
-          className="inline-flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none text-[var(--app-text-secondary)] rounded-[var(--app-radius-sm)] cursor-pointer transition-all duration-[var(--app-transition-fast)] hover:bg-[var(--app-bg-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--app-text-secondary)]"
-          aria-label="Next page"
-        >
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {/* Page navigation: bf Pager ("Previous page" / "Next page"). */}
+      <Pager
+        className="ml-2"
+        noun="page"
+        showNoun
+        page={page + 1}
+        count={pageCount}
+        disabled={!canPrev && !canNext}
+        onPageChange={(next) => {
+          if (next < page + 1) {
+            if (canPrev) onPrev();
+          } else if (canNext) {
+            onNext();
+          }
+        }}
+      />
     </header>
   );
 }

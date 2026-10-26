@@ -4,7 +4,7 @@ import {
   type PinnedPopulationPlot,
 } from '@/services/studio/PopulationPlotService';
 import { formatTauriError } from '@/utils/formatTauriError';
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs';
+import { Button, Checkbox, FieldRow, Notice, NumberField, TextField } from '@/components/ui/bf';
 export function PopulationTimeCourseControls({
   plot,
   onCreated,
@@ -39,36 +39,31 @@ export function PopulationTimeCourseControls({
             ['Time step', step, setStep, 0],
           ] as const
         ).map(([label, value, set, min]) => (
-          <label key={label} className="flex flex-col gap-1">
-            {label}
-            <input
+          <FieldRow key={label} label={label} layout="stacked" className="w-24">
+            <NumberField
               aria-label={label}
-              type="number"
-              className={`${control} w-24`}
               value={value}
               min={min}
               step={label.includes('frame') || label === 'Frame count' ? 1 : 'any'}
               onChange={(e) => set(Number(e.target.value))}
             />
-          </label>
+          </FieldRow>
         ))}
-        <label className="flex flex-col gap-1">
-          Time units
-          <input
-            aria-label="Time units"
-            className={`${control} w-20`}
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-          />
-        </label>
+        <FieldRow label="Time units" layout="stacked" className="w-20">
+          <TextField aria-label="Time units" value={unit} onChange={(e) => setUnit(e.target.value)} />
+        </FieldRow>
       </div>
-      <label className="my-2 flex items-start gap-2">
-        <input type="checkbox" checked={aligned} onChange={(e) => setAligned(e.target.checked)} />
+      <Checkbox
+        className="my-2 flex"
+        checked={aligned}
+        onCheckedChange={setAligned}
+      >
         These sources share this time axis and frame alignment.
-      </label>
+      </Checkbox>
       <div className="flex gap-2">
-        <button
-          className={control}
+        <Button
+          variant="secondary"
+          size="sm"
           disabled={!aligned || busy || !populationPlotService.canLink(plot)}
           onClick={async () => {
             request.current?.abort();
@@ -98,23 +93,24 @@ export function PopulationTimeCourseControls({
           }}
         >
           {busy ? 'Sampling frames…' : 'Create time courses'}
-        </button>
+        </Button>
         {busy && (
-          <button
-            className={control}
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => {
               request.current?.abort();
               setBusy(false);
             }}
           >
             Cancel
-          </button>
+          </Button>
         )}
       </div>
       {error && (
-        <p role="alert" className="mt-2 text-destructive">
+        <Notice severity="danger" role="alert" className="mt-2">
           {error}
-        </p>
+        </Notice>
       )}
     </details>
   );

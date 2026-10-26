@@ -68,6 +68,7 @@ export default {
           'border-subtle': withAlpha('--bf-border-subtle'),
           border: withAlpha('--bf-border'),
           'border-strong': withAlpha('--bf-border-strong'),
+          'border-field': withAlpha('--bf-border-field'),
           'border-focus': withAlpha('--bf-border-focus'),
           divider: withAlpha('--bf-divider'),
           // Text

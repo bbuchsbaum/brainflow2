@@ -4,6 +4,8 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Lock, Unlock } from 'lucide-react';
+import { IconButton } from '@/components/ui/bf';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
 import { ResizableOrthoGrid } from './ResizableOrthoGrid';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
@@ -138,39 +140,15 @@ export function OrthogonalViewContainer({
       className={`orthogonal-view-container ${className} h-full w-full relative bg-background`}
     >
       {/* Toggle button - minimal design */}
-      <button
-        className="absolute top-3 right-3 z-20 p-2
-                   bg-card/60 hover:bg-accent
-                   text-bf-text-secondary hover:text-foreground
-                   rounded-sm border border-border
-                   transition-all duration-150"
+      <IconButton
+        variant="secondary"
+        size="sm"
+        className="absolute top-3 right-3 z-20 bg-card/60"
+        icon={isLocked() ? <Lock /> : <Unlock />}
         onClick={toggleMode}
         aria-label={isLocked() ? 'Unlock views' : 'Lock views together'}
         title={isLocked() ? 'Unlock views for flexible layout (⌘L)' : 'Lock views together (⌘L)'}
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          {isLocked() ? (
-            // Lock icon
-            <>
-              <rect x="5" y="11" width="14" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0110 0v4" />
-            </>
-          ) : (
-            // Unlock icon
-            <>
-              <rect x="5" y="11" width="14" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0110 0" />
-            </>
-          )}
-        </svg>
-      </button>
+      />
 
       {/* Layout: Axial on top, Sagittal | Coronal below — with draggable
           resize gutters (ResizableOrthoGrid). */}

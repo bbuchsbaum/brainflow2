@@ -1,3 +1,4 @@
+import { Button, Notice, NumberField, Select } from '@/components/ui/bf';
 import { PopulationExplanation } from './PopulationExplanation';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -10,7 +11,6 @@ import {
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import { PopulationBrush } from './PopulationBrush';
-const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationRelationshipPanel() {
   const state = useSetStudioStore();
   useViewStateStore((s) => s.activeWorkspaceKey);
@@ -48,25 +48,22 @@ export function PopulationRelationshipPanel() {
         <div className="flex flex-wrap items-center gap-2">
           <label>
             Distance{' '}
-            <select
-              className={control}
+            <Select className="w-auto max-w-full"
               aria-label="Spatial distance"
               value={distance}
               onChange={(e) => setDistance(e.target.value as typeof distance)}
             >
               <option value="effect">Effect · RMS difference</option>
               <option value="pattern-shape">Pattern shape · centered, unit norm</option>
-            </select>
+            </Select>
           </label>
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             disabled={!source || snapshot.pending}
             onClick={() => void service.fit(distance)}
           >
             Fit on current support
-          </button>
-          <button
-            className={control}
+          </Button>
+          <Button variant="secondary" size="sm"
             disabled={
               !source ||
               snapshot.pending ||
@@ -76,21 +73,21 @@ export function PopulationRelationshipPanel() {
             onClick={() => void service.fit(distance, true)}
           >
             Compare maps in pinned region
-          </button>
+          </Button>
           {snapshot.pending && (
-            <button className={control} onClick={service.cancel}>
+            <Button variant="secondary" size="sm" onClick={service.cancel}>
               Cancel fit
-            </button>
+            </Button>
           )}
         </div>
         {snapshot.pending && (
           <p role="status">Computing spatial relationships… Previous fit retained.</p>
         )}
         {(issue || snapshot.error) && (
-          <p role="alert" className="text-destructive">
+          <Notice role="alert" severity="danger">
             {issue || snapshot.error}
             {fit && snapshot.error && ' Previous fit retained below.'}
-          </p>
+          </Notice>
         )}
         {fit && (
           <>
@@ -114,9 +111,9 @@ export function PopulationRelationshipPanel() {
             </p>
             <PopulationExplanation key={fit.fitId} fit={fit} current={current} />
             {snapshot.stale && (
-              <p role="alert">
+              <Notice role="alert" severity="danger">
                 Inputs changed since this fit. Refit to order or group current observations.
-              </p>
+              </Notice>
             )}
             {!fit.geometry.orderable && (
               <p className="text-muted-foreground">
@@ -197,27 +194,24 @@ export function PopulationRelationshipPanel() {
               </svg>
             </PopulationBrush>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                className={control}
+              <Button variant="secondary" size="sm"
                 disabled={!current || !fit.geometry.orderable}
                 onClick={() => service.order()}
               >
                 Order movie by MDS axis 1
-              </button>
+              </Button>
               <label>
                 Groups{' '}
-                <input
-                  className={`${control} w-16`}
+                <NumberField
+                  fieldClassName="w-16"
                   aria-label="Similarity group count"
-                  type="number"
                   min={2}
                   max={fit.request.members.length}
                   value={Number.isFinite(count) ? count : ''}
                   onChange={(e) => setCount(e.target.valueAsNumber)}
                 />
               </label>
-              <button
-                className={control}
+              <Button variant="secondary" size="sm"
                 disabled={
                   !current ||
                   !Number.isInteger(count) ||
@@ -227,7 +221,7 @@ export function PopulationRelationshipPanel() {
                 onClick={() => service.group(count)}
               >
                 Create similarity groups
-              </button>
+              </Button>
             </div>
             <p className="text-muted-foreground">
               Average linkage uses the original distances, not the 2D picture. Groups and selections

@@ -25,7 +25,8 @@ import React, { useCallback } from "react";
 import { useFeatureFlagStore } from "@/stores/featureFlagStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import type { DisplayModeMetadata } from "@/types/displayModes";
+import type { DisplayMode, DisplayModeMetadata } from "@/types/displayModes";
+import { SegmentedControl } from "@/components/ui/bf";
 
 import {
   findLatestViewInMode,
@@ -119,9 +120,21 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
   // Studio) is active: no segment is marked active (the tool is not a view
   // mode), and a click returns to a view in that mode (see handleClick).
 
+  const options = visibleModes.map((mode) => ({
+    value: mode.id,
+    label: mode.label,
+    title: mode.description,
+    testId: `display-mode-${mode.id}`,
+    data: { "data-active": mode.id === activeMode ? "true" : "false" },
+  }));
+
+  // bf SegmentedControl (V5 joined group, radio semantics) with the amber
+  // edge reserved for this switcher. Manual activation: a mode switch mounts
+  // a whole layout, so arrows only move focus and Enter/Space switch. The
+  // `md` size keeps app-level navigation a step above in-panel controls. In a tool workspace `value` is "" so no
+  // segment is checked and the tab stop falls on the first segment.
   return (
-    <div
-      role="tablist"
+    <SegmentedControl
       aria-label="Display mode"
       data-testid="display-mode-selector"
       data-active-mode={activeMode ?? ""}
@@ -130,52 +143,17 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
           ? `bf-display-mode-selector ${className}`
           : "bf-display-mode-selector"
       }
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        height: "24px",
-        border: "1px solid var(--app-border)",
-        borderRadius: "var(--app-radius-sm)",
+      edge="accent"
+      size="md"
+      activation="manual"
+      hideWhenSingle={false}
+      options={options}
+      value={activeMode ?? ""}
+      onValueChange={(id) => {
+        const mode = visibleModes.find((m) => m.id === (id as DisplayMode));
+        if (mode) handleClick(mode);
       }}
-    >
-      {visibleModes.map((mode, index) => {
-        const isActive = activeMode === mode.id;
-        const isLast = index === visibleModes.length - 1;
-
-        return (
-          <button
-            key={mode.id}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            title={mode.description}
-            data-testid={`display-mode-${mode.id}`}
-            data-active={isActive ? "true" : "false"}
-            onClick={() => handleClick(mode)}
-            // Active = raised neutral fill + 2px accent bottom edge (a state
-            // edge, never an area fill); inactive = muted text; hover = the
-            // neutral accent fill. Focus is a separate 2px amber ring with a
-            // 1px offset; the group does not clip, and the focused segment is
-            // lifted above its neighbours so the ring is never cut off.
-            className={[
-              "relative h-full whitespace-nowrap px-3 text-bf-sm transition-colors",
-              "focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-              isActive
-                ? "bg-bf-bg-active font-medium text-foreground shadow-[inset_0_-2px_0_var(--bf-accent)]"
-                : "bg-transparent font-medium text-muted-foreground hover:bg-accent hover:text-foreground",
-            ].join(" ")}
-            style={{
-              appearance: "none",
-              border: 0,
-              borderRight: isLast ? 0 : "1px solid var(--app-border-subtle)",
-              cursor: "pointer",
-            }}
-          >
-            {mode.label}
-          </button>
-        );
-      })}
-    </div>
+    />
   );
 };
 

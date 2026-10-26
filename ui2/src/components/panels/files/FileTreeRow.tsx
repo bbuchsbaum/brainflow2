@@ -1,7 +1,11 @@
 import { getSetStudioService } from '@/services/studio/SetStudioService';
+import { fileExtension } from "@/utils/formatName";
 import React from "react";
+import { cn } from "@/utils/cn";
+import { Chip, SelectableRow } from "@/components/ui/bf";
+import { useFittedName } from "./shared/useFittedName";
 import "./FileTreeRow.css";
-import type { NodeRendererProps } from "react-arborist";
+import type { NodeRendererProps, RowRendererProps } from "react-arborist";
 import {
   VscChevronRight,
   VscChevronDown,
@@ -123,18 +127,8 @@ export function splitDisplayName(
   const whole = { head: name, tail: null, stem: null, extension: null };
   if (isDir || name.length <= 16) return whole;
 
-  const lowerName = name.toLowerCase();
-  const knownCompoundExtensions = [".nii.gz", ".tar.gz", ".csv.gz", ".tsv.gz"];
-  const compoundMatch = knownCompoundExtensions.find((ext) =>
-    lowerName.endsWith(ext),
-  );
-  const extensionLength = (() => {
-    if (compoundMatch) return compoundMatch.length;
-    const lastDot = name.lastIndexOf(".");
-    if (lastDot > 0 && name.length - lastDot <= 10)
-      return name.length - lastDot;
-    return 0;
-  })();
+  // Shared with formatName: compound extensions (".nii.gz") stay whole.
+  const extensionLength = fileExtension(name).length;
 
   // Extension plus up to ten characters of the stem, always leaving at least
   // four leading characters in the head.
@@ -169,6 +163,32 @@ function highlightText(text: string, query: string): React.ReactNode {
   const parts = text.split(new RegExp(`(${escaped})`, "gi"));
   return parts.map((part, index) =>
     index % 2 === 1 ? <mark key={index}>{part}</mark> : part,
+  );
+}
+
+/**
+ * react-arborist row (`renderRow`): the treeitem wrapper, named with the FULL
+ * file name. The visible name is middle-truncated to fit, so without this the
+ * accessible name would be the fitted string ("…2mm_brain_mask.nii.gz") and a
+ * screen-reader user would lose the distinctive head (the subject prefix).
+ * Same behaviour as arborist's DefaultRow otherwise.
+ */
+export function FileTreeItemRow({
+  node,
+  attrs,
+  innerRef,
+  children,
+}: RowRendererProps<FileNodeData>) {
+  return (
+    <div
+      {...attrs}
+      aria-label={node.data.name}
+      ref={innerRef}
+      onFocus={(e) => e.stopPropagation()}
+      onClick={node.handleClick}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -351,13 +371,38 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
     contextMenu.open(event.clientX, event.clientY, items);
   }
 
-  const displayName = splitDisplayName(data.name, isDirectory);
   const isSearchActive = searchQuery.trim().length > 0;
+  // formatName middle truncation (word-aware), fitted to the measured name
+  // column: the stem's head and its distinctive end both stay visible and the
+  // extension stays whole ("MNI152…brain_mask.nii.gz"). The full name is the
+  // treeitem's accessible name and the row's tooltip.
+  const fitted = useFittedName<HTMLSpanElement>(data.name, {
+    isDir: isDirectory,
+    enabled: !isSearchActive,
+    // Narrow rail (<= 16 chars): whole trailing tokens + extension
+    // ("…mask.nii.gz"), never a mid-token cut; middle cut when wider.
+    keep: 'auto',
+  });
+  // Tree indentation (arborist's level * indent) on top of the row's 8px inset,
+  // the SelectableRow geometry (selection edge at x 0-1, content from x 8).
+  const levelPadding = Number.parseFloat(String(style.paddingLeft ?? 0)) || 0;
 
+  // SelectableRow as presentational chrome: react-arborist's treeitem wrapper
+  // owns focus, selection and keys (focusable={false}, role="none"); the
+  // keyboard ring is drawn from that wrapper's :focus in FileTreeRow.css.
   return (
-    <div
-      style={{ ...style, paddingLeft: `${style.paddingLeft || 0}px` }}
-      className={`file-tree-item ${isSelected ? "selected" : ""} ${isDirectory ? "font-medium" : ""}`}
+    <SelectableRow
+      focusable={false}
+      role="none"
+      selected={isSelected}
+      style={{ ...style, paddingLeft: `${8 + levelPadding}px` }}
+      className={cn(
+        // The row's children space themselves (CSS margins): no flex gap or
+        // vertical padding, so the 24px arborist row geometry is unchanged.
+        "file-tree-item gap-0 py-0 cursor-pointer",
+        isSelected && "selected",
+        isDirectory && "font-medium",
+      )}
       title={remoteMountRowTooltip || data.name}
       draggable={!isDirectory}
       onDragStart={!isDirectory ? handleDragStart : undefined}
@@ -371,9 +416,14 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       }
     >
       {isDirectory ? (
+        // Pointer affordance only: the treeitem owns keyboard expansion
+        // (ArrowRight/Left) and announces aria-expanded, so the chevron is
+        // neither a tab stop inside the tree nor part of the row's name.
         <button
           type="button"
           className="expand-button"
+          tabIndex={-1}
+          aria-hidden
           aria-label={`${node.isOpen ? "Collapse" : "Expand"} ${data.name}`}
           onClick={(e) => {
             e.stopPropagation();
@@ -413,47 +463,23 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       {!isDirectory && <FileTypeBadge info={typeInfo} />}
 
       <div className="file-name" title={remoteMountRowTooltip || data.name}>
-        <span className="file-name-text">
-          {isSearchActive ? (
-            <span className="file-name-head">
-              {highlightText(data.name, searchQuery)}
-            </span>
-          ) : (
-            <>
-              <span className="file-name-head">{displayName.head}</span>
-              {displayName.stem && (
-                <span
-                  className="file-name-stem"
-                  style={{
-                    minWidth: `${Math.min(3, displayName.stem.length)}ch`,
-                  }}
-                >
-                  {/* RTL box puts the ellipsis at the start; the isolated LTR
-                      run keeps neutral characters (_ - .) in reading order. */}
-                  <bdi dir="ltr">{displayName.stem}</bdi>
-                </span>
-              )}
-              {displayName.extension && (
-                <span className="file-name-ext">{displayName.extension}</span>
-              )}
-            </>
-          )}
+        <span
+          ref={fitted.ref}
+          aria-hidden
+          className={cn("file-name-text", !isDirectory && "font-mono text-bf-xs")}
+          data-full-name={data.name}
+        >
+          {isSearchActive ? highlightText(data.name, searchQuery) : fitted.text}
         </span>
         {remoteHostLabel && (
-          <span
-            className="remote-origin-badge"
-            title={remoteOriginTooltip || remoteHostLabel}
-          >
+          <Chip mono className="remote-origin-badge" title={remoteOriginTooltip || remoteHostLabel}>
             {remoteHostLabel}
-          </span>
+          </Chip>
         )}
         {remoteRootPath && (
-          <span
-            className="remote-root-badge"
-            title={remoteRootTooltip || remoteRootPath}
-          >
+          <Chip mono className="remote-root-badge" title={remoteRootTooltip || remoteRootPath}>
             {remoteRootPath}
-          </span>
+          </Chip>
         )}
       </div>
 
@@ -462,6 +488,6 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
           <span className="file-size">{formatFileSize(data.size)}</span>
         )}
       </div>
-    </div>
+    </SelectableRow>
   );
 };

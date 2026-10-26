@@ -1,6 +1,5 @@
 /* Flat list shared by Images / Loaded views. */
 .fb-flat-list {
-  list-style: none;
   margin: 0;
   padding: 4px 0;
   overflow-y: auto;
@@ -8,23 +7,8 @@
   min-height: 0;
 }
 
-.fb-flat-row {
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-1);
-  width: 100%;
-  padding: 4px var(--bf-space-3);
-  background: transparent;
-  border: none;
-  border-left: 2px solid transparent;
-  text-align: left;
-  cursor: pointer;
-  font-size: var(--app-role-body-size);
-  color: var(--bf-text-primary);
-  transition: background-color var(--bf-motion-fast) ease;
-  min-width: 0;
-}
-
+/* Rows are bf SelectableRows (fill, edge, hover and inset focus ring come from
+   the primitive); only drag cursors and the name/meta columns are local. */
 .fb-flat-row[draggable='true'] {
   cursor: grab;
 }
@@ -33,35 +17,14 @@
   cursor: grabbing;
 }
 
-.fb-flat-row:hover {
-  background: var(--bf-bg-hover);
-}
-
-.fb-flat-row.is-selected {
-  background: var(--bf-bg-selected);
-  border-left-color: var(--bf-accent);
-  color: var(--bf-text-primary);
-}
-
-/* Focus = 2px ring with a 1px gap INSIDE it (inset shadows, since rows span
-   the full scroll width), so the ring never touches the row fill; selection =
-   fill + left edge. Distinct in form. */
-.fb-flat-row:focus-visible {
-  outline: none;
-  box-shadow:
-    inset 0 0 0 2px var(--bf-border-focus),
-    inset 0 0 0 3px var(--bf-bg-panel);
-}
-
 .fb-flat-row-name {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.fb-flat-row-dir,
 .fb-flat-row-meta {
   flex-shrink: 0;
   font-family: var(--bf-font-mono);
@@ -100,7 +63,6 @@
 }
 
 @media (max-width: 320px) {
-  .fb-flat-row-dir,
   .fb-flat-row-meta {
     display: none;
   }

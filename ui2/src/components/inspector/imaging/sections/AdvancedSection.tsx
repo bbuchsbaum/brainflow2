@@ -1,6 +1,6 @@
 import React from 'react';
 import type { SceneItem } from '@/types/sceneItem';
-import { InspectorSection } from '../InspectorSection';
+import { Notice, Section } from '@/components/ui/bf';
 
 interface AdvancedSectionProps {
   item: SceneItem;
@@ -12,11 +12,9 @@ interface AdvancedSectionProps {
  */
 export function AdvancedSection({ item: _item }: AdvancedSectionProps) {
   return (
-    <InspectorSection label="Advanced" icon={<GearIcon />} defaultOpen={false}>
-      <div className="rounded-sm border border-dashed border-border/60 bg-card/30 px-3 py-2 text-bf-xs text-muted-foreground">
-        No advanced settings yet for this item kind.
-      </div>
-    </InspectorSection>
+    <Section title="Advanced" icon={<GearIcon />} defaultOpen={false}>
+      <Notice role={undefined}>No advanced settings yet for this item kind.</Notice>
+    </Section>
   );
 }
 

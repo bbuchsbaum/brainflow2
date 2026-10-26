@@ -73,7 +73,7 @@ describe('BidsValidationPanel', () => {
 
     render(<BidsValidationPanel />);
 
-    // CollapsibleSection renders its title as button text including severity label
+    // Section renders its title as the header button text including severity label
     expect(screen.getByText(/Critical \(1\)/)).toBeInTheDocument();
     expect(screen.getByText('Missing sidecar')).toBeInTheDocument();
   });

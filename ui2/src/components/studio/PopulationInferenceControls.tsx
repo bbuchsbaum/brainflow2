@@ -1,3 +1,4 @@
+import { Button, Notice, NumberField, Select, TextField } from '@/components/ui/bf';
 import { buildPopulationDesign } from '@/services/studio/populationDesign';
 import {
   inferenceMethods,
@@ -10,7 +11,6 @@ import { useEffect, useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { PopulationInferenceSpec } from '@/types/population';
 import { configureInference, selectInferenceChannel } from '@/services/studio/populationInference';
-const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationInferenceControls() {
   const state = useSetStudioStore();
   const feature = state.features[state.selection.activeFeatureId ?? ''];
@@ -53,8 +53,7 @@ export function PopulationInferenceControls() {
       <div className="mt-3 space-y-3">
         <label className="block">
           Method{' '}
-          <select
-            className={`${control} max-w-full`}
+          <Select className="w-auto max-w-full"
             aria-label="Statistical method"
             value={method}
             onChange={(e) => setMethod(e.target.value as typeof method)}
@@ -64,7 +63,7 @@ export function PopulationInferenceControls() {
                 {m.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <p>
           {descriptor.description} Declare the meaning of the feature; filenames do not establish
@@ -108,8 +107,7 @@ export function PopulationInferenceControls() {
             </div>
             <label>
               Coefficient{' '}
-              <select
-                className={control}
+              <Select className="w-auto max-w-full"
                 aria-label="Model coefficient"
                 value={coefficient}
                 onChange={(e) => setCoefficient(e.target.value)}
@@ -117,12 +115,11 @@ export function PopulationInferenceControls() {
                 {['(intercept)', ...covariates].map((c) => (
                   <option key={c}>{c}</option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="block">
               Coefficient units{' '}
-              <input
-                className={control}
+              <TextField className="w-40"
                 aria-label="Coefficient units"
                 placeholder="e.g. % signal change / year"
                 value={contrastUnits}
@@ -139,8 +136,7 @@ export function PopulationInferenceControls() {
         <div className="flex flex-wrap gap-2 items-center">
           <label>
             Feature values{' '}
-            <select
-              className={control}
+            <Select className="w-auto max-w-full"
               aria-label="Feature value role"
               disabled={!!feature?.valueRole}
               value={role}
@@ -153,12 +149,12 @@ export function PopulationInferenceControls() {
               <option value="t">t statistic</option>
               <option value="z">z statistic</option>
               <option value="label">Labels</option>
-            </select>
+            </Select>
           </label>
           <label>
             Units{' '}
-            <input
-              className={`${control} w-36`}
+            <TextField
+              className="w-36"
               aria-label="Effect units"
               readOnly={!!feature?.units}
               value={units}
@@ -168,10 +164,9 @@ export function PopulationInferenceControls() {
           </label>
           <label>
             Null effect{' '}
-            <input
-              className={`${control} w-24`}
+            <NumberField
+              fieldClassName="w-24"
               aria-label="Null effect"
-              type="number"
               step="any"
               value={Number.isFinite(nullValue) ? nullValue : ''}
               onChange={(e) => setNull(e.target.valueAsNumber)}
@@ -187,8 +182,7 @@ export function PopulationInferenceControls() {
           I declare comparable effects from independent participants.
         </label>
         <div className="flex flex-wrap gap-2 items-center">
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             onClick={() => {
               try {
                 setError(
@@ -214,16 +208,15 @@ export function PopulationInferenceControls() {
             }}
           >
             {method === 'oneSample' ? 'Apply one-sample test' : `Apply ${descriptor.label}`}
-          </button>
+          </Button>
           {current && (
             <>
-              <button className={control} onClick={() => configureInference(null)}>
+              <Button variant="secondary" size="sm" onClick={() => configureInference(null)}>
                 Return to descriptive view
-              </button>
+              </Button>
               <label>
                 Channel{' '}
-                <select
-                  className={control}
+                <Select className="w-auto max-w-full"
                   aria-label="Test result channel"
                   value={current.channel}
                   onChange={(e) =>
@@ -235,15 +228,15 @@ export function PopulationInferenceControls() {
                       {name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
             </>
           )}
         </div>
         {error && (
-          <p role="alert" className="text-destructive">
+          <Notice role="alert" severity="danger">
             {error}
-          </p>
+          </Notice>
         )}
         {current && (
           <p role="status">

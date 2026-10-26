@@ -1,7 +1,7 @@
+import { Button, Notice, Select } from '@/components/ui/bf';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import type { PopulationSelectionOrigin } from '@/types/population';
-const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm';
 /** Uses rendered target geometry, not an assumed scale or array position. A
  * completed gesture submits stable IDs once; cancel never changes membership. */
 export function PopulationBrush({
@@ -55,8 +55,7 @@ export function PopulationBrush({
       }}
     >
       <div className="mb-2 flex flex-wrap items-center gap-2 text-bf-sm">
-        <button
-          className={control}
+        <Button variant="secondary" size="sm"
           aria-pressed={enabled}
           onClick={() => {
             cancel();
@@ -70,11 +69,10 @@ export function PopulationBrush({
               : horizontal
                 ? 'Brush response plot'
                 : 'Brush montage'}
-        </button>
+        </Button>
         {enabled && (
           <>
-            <select
-              className={control}
+            <Select className="w-auto max-w-full"
               aria-label="Brush operation"
               value={operation}
               onChange={(e) => setOperation(e.target.value as typeof operation)}
@@ -83,13 +81,13 @@ export function PopulationBrush({
               <option value="union">Add</option>
               <option value="intersection">Intersect</option>
               <option value="difference">Remove</option>
-            </select>
+            </Select>
             <span className="text-muted-foreground">
               Drag to select · release to apply · Esc cancels
             </span>
           </>
         )}
-        {error && <p role="alert">{error}</p>}
+        {error && <Notice role="alert" severity="danger">{error}</Notice>}
       </div>
       <div ref={host} className="relative min-w-0">
         {children}

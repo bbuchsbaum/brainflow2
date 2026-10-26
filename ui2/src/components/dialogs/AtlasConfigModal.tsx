@@ -3,9 +3,9 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { AtlasService } from '@/services/AtlasService';
-import { Button } from '@/components/ui/shadcn/button';
+import { Button } from '@/components/ui/bf';
 import { Modal } from '@/components/ui/Modal';
 import type {
   AtlasCatalogEntry,
@@ -431,18 +431,16 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
           </div>
 
           <div className="flex gap-3">
-            <Button
-              onClick={onClose}
-              variant="outline"
-            >
+            <Button onClick={onClose} variant="secondary" size="sm">
               Cancel
             </Button>
             <Button
               onClick={handleLoadAtlas}
+              variant="primary"
+              size="sm"
+              loading={isLoading}
               disabled={isLoading || !!validationError}
-              className="flex items-center gap-2"
             >
-              {isLoading && <Loader size={14} className="animate-spin" />}
               {isLoading ? 'Loading...' : 'Load Atlas'}
             </Button>
           </div>

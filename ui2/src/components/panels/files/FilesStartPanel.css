@@ -34,54 +34,7 @@
   gap: var(--bf-space-1);
 }
 
-.files-start-command {
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-2);
-  width: 100%;
-  min-height: var(--bf-control-h);
-  padding: 0 10px;
-  background: var(--bf-bg-panel-raised);
-  border: 1px solid var(--bf-border);
-  border-radius: var(--bf-radius-xs);
-  color: var(--bf-text-primary);
-  font-size: var(--app-role-body-size);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color var(--bf-motion-fast) ease,
-    border-color var(--bf-motion-fast) ease,
-    color var(--bf-motion-fast) ease;
-}
-
-.files-start-command:hover:not(:disabled) {
-  background: var(--bf-bg-hover);
-  border-color: var(--bf-border-strong);
-  color: var(--bf-text-primary);
-}
-
-.files-start-command:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-.files-start-command:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: var(--app-focus-ring-offset);
-}
-
-.files-start-command--primary {
-  background: hsl(var(--primary));
-  color: var(--bf-text-inverse);
-  border-color: transparent;
-}
-
-.files-start-command--primary:hover:not(:disabled) {
-  background: hsl(var(--primary) / 0.88);
-  border-color: transparent;
-  color: var(--bf-text-inverse);
-}
-
+/* Commands are bf Buttons (24px; primary + secondary), stretched by Tailwind classes. */
 .files-start-command-icon {
   width: 14px;
   height: 14px;
@@ -104,12 +57,6 @@
 
 .files-start-error {
   margin: 0;
-  padding: var(--bf-space-1) var(--bf-space-2);
-  border: 1px solid color-mix(in srgb, var(--bf-danger) 32%, transparent);
-  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
-  color: var(--bf-danger);
-  font-size: var(--app-role-label-size);
-  border-radius: var(--bf-radius-xs);
 }
 
 .files-start-section {
@@ -130,19 +77,6 @@
   font-size: var(--app-role-section-size);
   font-weight: 400;
   color: var(--bf-text-muted);
-}
-
-.files-start-section-link {
-  background: none;
-  border: none;
-  color: var(--bf-text-muted);
-  font-size: var(--app-role-label-size);
-  cursor: pointer;
-  padding: 0;
-}
-
-.files-start-section-link:hover {
-  color: var(--bf-text-secondary);
 }
 
 .files-start-empty {
@@ -166,26 +100,7 @@
   gap: 2px;
 }
 
-.files-start-row-main {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-2);
-  padding: 4px var(--bf-space-2);
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: var(--bf-radius-xs);
-  color: var(--bf-text-primary);
-  font-size: var(--app-role-body-size);
-  text-align: left;
-  cursor: pointer;
-  min-width: 0;
-}
-
-.files-start-row-main:hover {
-  background: var(--bf-bg-hover);
-}
-
+/* Row openers are ghost bf Buttons; pin / unpin is a 24px IconButton. */
 .files-start-row-icon {
   width: 14px;
   height: 14px;
@@ -208,32 +123,7 @@
   flex-shrink: 0;
 }
 
-.files-start-row-action {
-  flex: 0 0 auto;
-  width: var(--app-control-height-sm);
-  height: var(--app-control-height-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--bf-text-muted);
-  border-radius: var(--bf-radius-xs);
-  cursor: pointer;
-  transition:
-    color var(--bf-motion-fast) ease,
-    background-color var(--bf-motion-fast) ease;
-}
 
-.files-start-row-action:hover:not(:disabled) {
-  background: var(--bf-bg-hover);
-  color: var(--bf-text-secondary);
-}
-
-.files-start-row-action:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
 
 .files-start-drop {
   margin-top: auto;

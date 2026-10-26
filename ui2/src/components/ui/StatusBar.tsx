@@ -21,6 +21,7 @@ import { useStatusReadoutStore } from "@/stores/statusReadoutStore";
 import { EMPTY_VALUE, formatLayerValue } from "@/utils/valueFormat";
 import { asciiCopyHandler } from "@/utils/numericInput";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
+import { Button, KeyValue } from "@/components/ui/bf";
 
 interface StatusBarProps {
   className?: string;
@@ -243,9 +244,10 @@ const DiagnosticsButton = () => {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="status-diagnostics-trigger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="status-diagnostics-trigger data-[state=open]:bg-accent data-[state=open]:text-foreground"
           aria-label={
             severity ? `Diagnostics (atlas ${severity})` : "Diagnostics"
           }
@@ -259,7 +261,7 @@ const DiagnosticsButton = () => {
             />
           )}
           Diagnostics
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         side="top"
@@ -269,14 +271,11 @@ const DiagnosticsButton = () => {
         aria-label="Diagnostics"
         data-testid="status-diagnostics-popover"
       >
-        <dl className="status-diagnostics-list">
-          {rows.map(([label, value]) => (
-            <div key={label} className="status-diagnostics-row">
-              <dt>{label}</dt>
-              <dd title={value}>{value}</dd>
-            </div>
-          ))}
-        </dl>
+        <KeyValue
+          layout="rows"
+          className="status-diagnostics-list"
+          items={rows.map(([label, value]) => ({ key: label, label, value }))}
+        />
       </PopoverContent>
     </Popover>
   );

@@ -1,11 +1,11 @@
-import { displayMinus, formatRange } from "@/utils/valueFormat";
+import { formatDataRange, formatDims, formatVoxelSize } from "@/utils/valueFormat";
 import { asciiCopyHandler } from "@/utils/numericInput";
 import React from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import { useSurfaceStore } from "@/stores/surfaceStore";
 import type { SceneItem } from "@/types/sceneItem";
-import { InspectorSection, FactGrid } from "../InspectorSection";
+import { Button, KeyValue, Notice, Section } from "@/components/ui/bf";
 import { InlineHistogramPreview } from "./InlineHistogramPreview";
 
 interface DataSectionProps {
@@ -56,7 +56,7 @@ export function DataSection({ item }: DataSectionProps) {
       : null;
 
   return (
-    <InspectorSection label="Data" icon={<DataIcon />} defaultOpen>
+    <Section title="Data" icon={<DataIcon />} defaultOpen>
       {(() => {
         switch (item.kind) {
           case "volume-base":
@@ -74,7 +74,7 @@ export function DataSection({ item }: DataSectionProps) {
         <InlineHistogramPreview layerId={previewLayerId} onOpen={handleOpen} />
       )}
       <OpenInDockLink item={item} onOpen={handleOpen} />
-    </InspectorSection>
+    </Section>
   );
 }
 
@@ -93,23 +93,23 @@ function VolumeFacts({ item }: { item: SceneItem }) {
   const dim = metadata?.dimensions;
   const ts = layer.timeSeriesInfo;
   if (dim) {
-    const shape = ts
-      ? `${dim[0]}×${dim[1]}×${dim[2]}×${ts.num_timepoints}`
-      : `${dim[0]}×${dim[1]}×${dim[2]}`;
+    const shape = formatDims(
+      ts ? [dim[0], dim[1], dim[2], ts.num_timepoints] : [dim[0], dim[1], dim[2]],
+    );
     facts.push({ label: "Shape", value: shape });
   }
   if (metadata?.dataRange) {
     const { min, max } = metadata.dataRange;
     facts.push({
       label: "Range",
-      value: formatRange(min, max, formatNum),
+      value: formatDataRange(min, max),
     });
   }
   if (metadata?.spacing) {
     const [sx, sy, sz] = metadata.spacing;
     facts.push({
       label: "Voxel size",
-      value: `${formatNum(sx)}×${formatNum(sy)}×${formatNum(sz)} mm`,
+      value: `${formatVoxelSize([sx, sy, sz])} mm`,
     });
   }
   if (ts?.tr != null) {
@@ -124,7 +124,7 @@ function VolumeFacts({ item }: { item: SceneItem }) {
   return facts.length > 0 ? (
     // Copying a fact puts ASCII minus on the clipboard.
     <div className="contents" onCopy={asciiCopyHandler}>
-      <FactGrid facts={facts} />
+      <KeyValue boxed items={facts} />
     </div>
   ) : (
     <EmptyFacts />
@@ -159,7 +159,7 @@ function SurfaceFacts({ item }: { item: SceneItem }) {
   if (surface.metadata.surfaceType) {
     facts.push({ label: "Type", value: surface.metadata.surfaceType });
   }
-  return facts.length > 0 ? <FactGrid facts={facts} /> : <EmptyFacts />;
+  return facts.length > 0 ? <KeyValue boxed items={facts} /> : <EmptyFacts />;
 }
 
 function OpenInDockLink({
@@ -177,50 +177,40 @@ function OpenInDockLink({
   if (!showsPlot) return null;
 
   return (
-    <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-bf-xs">
+    <div className="mt-2 flex items-center justify-between border-t border-bf-border-subtle pt-2 text-bf-xs">
       <span className="text-muted-foreground">Full plot</span>
-      <button
-        type="button"
+      <Button
+        variant="link"
+        size="sm"
         onClick={onOpen}
         data-testid="open-in-dock"
-        className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-foreground underline underline-offset-2 decoration-[var(--bf-border-strong)] transition-colors hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
         title="Open this layer's plot in the bottom dock"
+        iconPosition="right"
+        icon={
+          <svg
+            viewBox="0 0 16 16"
+            className="min-h-6 h-3 w-3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden
+          >
+            <path
+              d="M5 8h6M8 5l3 3-3 3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        }
       >
-        <span>Open in dock</span>
-        <svg
-          viewBox="0 0 16 16"
-          className="h-3 w-3"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          aria-hidden
-        >
-          <path
-            d="M5 8h6M8 5l3 3-3 3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+        Open in dock
+      </Button>
     </div>
   );
 }
 
 function EmptyFacts() {
-  return (
-    <div className="rounded-sm border border-dashed border-border/60 bg-card/30 px-3 py-2 text-bf-xs text-muted-foreground">
-      No metadata yet.
-    </div>
-  );
-}
-
-function formatNum(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  const abs = Math.abs(value);
-  if (abs === 0) return "0";
-  // True minus for display, like every other readout (utils/valueFormat).
-  if (abs >= 1000 || abs < 0.01) return displayMinus(value.toExponential(2));
-  return displayMinus(value.toFixed(2));
+  return <Notice role={undefined}>No metadata yet.</Notice>;
 }
 
 function DataIcon() {

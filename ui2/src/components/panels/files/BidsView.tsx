@@ -5,6 +5,7 @@ import { getTransport } from '@/services/transport';
 import { useBidsStore, type BidsDatasetSummary } from '@/stores/bidsStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { FileTreeNode } from '@/types/filesystem';
+import { Button, Notice, SelectableRow, useRovingFocus } from '@/components/ui/bf';
 
 interface BidsViewProps {
   rootNode: FileTreeNode | null;
@@ -60,6 +61,47 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
     () => buildSubjectTaskMap(summaryForRoot),
     [summaryForRoot]
   );
+
+  // Visible rows in tree order: a subject, then its tasks while expanded.
+  const visibleRows = useMemo(() => {
+    const rows: Array<{ id: string; subjectId: string; task: string | null }> = [];
+    for (const subjectId of subjects) {
+      rows.push({ id: `s:${subjectId}`, subjectId, task: null });
+      if (expandedSubjects.has(subjectId)) {
+        for (const task of tasksBySubject.get(subjectId) ?? []) {
+          rows.push({ id: `t:${subjectId}:${task}`, subjectId, task });
+        }
+      }
+    }
+    return rows;
+  }, [subjects, tasksBySubject, expandedSubjects]);
+  const rowIds = useMemo(() => visibleRows.map((r) => r.id), [visibleRows]);
+  const roving = useRovingFocus({
+    ids: rowIds,
+    activeId: selectedSubjectId ? `s:${selectedSubjectId}` : null,
+    onExpand: (id) => {
+      if (!id.startsWith('s:')) return;
+      const subjectId = id.slice(2);
+      if (!expandedSubjects.has(subjectId) && (tasksBySubject.get(subjectId)?.length ?? 0) > 0) {
+        setExpandedSubjects((prev) => new Set(prev).add(subjectId));
+      }
+    },
+    onCollapse: (id) => {
+      const row = visibleRows.find((r) => r.id === id);
+      if (!row) return;
+      if (row.task !== null) {
+        roving.focus(`s:${row.subjectId}`);
+        return;
+      }
+      if (expandedSubjects.has(row.subjectId)) {
+        setExpandedSubjects((prev) => {
+          const next = new Set(prev);
+          next.delete(row.subjectId);
+          return next;
+        });
+      }
+    },
+  });
 
   useEffect(() => {
     setDetection('unknown');
@@ -132,40 +174,40 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
   return (
     <div className="fb-bids-view" role="region" aria-label="BIDS view">
       {detection === 'checking' && (
-        <p className="fb-bids-status fb-bids-status--pending">Checking for BIDS layout…</p>
+        <Notice severity="neutral" className="fb-bids-status">Checking for BIDS layout…</Notice>
       )}
 
       {detection === 'no' && (
-        <p className="fb-bids-status">
+        <Notice severity="info" className="fb-bids-status">
           This folder doesn't look like a BIDS dataset (no <code>dataset_description.json</code>).
-        </p>
+        </Notice>
       )}
 
       {detection === 'unknown' && detectionError && (
-        <p className="fb-bids-status fb-bids-status--error">
+        <Notice severity="danger" className="fb-bids-status">
           BIDS check failed: {detectionError}
-        </p>
+        </Notice>
       )}
 
       {detection === 'yes' && !summaryForRoot && (
         <div className="fb-bids-yes">
-          <p className="fb-bids-status fb-bids-status--ok">BIDS dataset detected.</p>
+          <Notice severity="success" className="fb-bids-status">BIDS dataset detected.</Notice>
           <p className="fb-bids-hint">
             Scan the dataset to populate the subject/task tree, or open the BIDS Explorer for the
             full coverage matrix.
           </p>
           <div className="fb-bids-actions">
-            <button
-              type="button"
-              className="fb-bids-cta"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={startScan}
               disabled={scanStatus === 'scanning'}
             >
               {scanStatus === 'scanning' ? 'Scanning…' : 'Scan Dataset'}
-            </button>
-            <button type="button" className="fb-bids-cta-secondary" onClick={openInWorkspace}>
+            </Button>
+            <Button variant="secondary" size="sm" onClick={openInWorkspace}>
               Open BIDS Explorer
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -176,72 +218,70 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
             <span className="fb-bids-tree-label">
               {subjects.length} subject{subjects.length === 1 ? '' : 's'}
             </span>
-            <button
-              type="button"
-              className="fb-bids-cta-secondary"
-              onClick={openInWorkspace}
-            >
+            <Button variant="secondary" size="sm" onClick={openInWorkspace}>
               Open BIDS Explorer
-            </button>
+            </Button>
           </div>
-          <ul className="fb-bids-tree" role="tree">
-            {subjects.map((subjectId) => {
+          <div
+            className="fb-bids-tree"
+            role="tree"
+            aria-label="BIDS subjects"
+            onKeyDown={roving.onKeyDown}
+          >
+            {visibleRows.map((row) => {
+              const { ref, ...itemProps } = roving.getItemProps(row.id);
+              if (row.task !== null) {
+                return (
+                  <SelectableRow
+                    key={row.id}
+                    ref={ref}
+                    {...itemProps}
+                    role="treeitem"
+                    aria-level={2}
+                    indent={1}
+                    onSelect={() => handleTaskClick(row.subjectId, row.task as string)}
+                    className="fb-bids-tree-row fb-bids-tree-row--task"
+                  >
+                    <span className="fb-bids-tree-chevron-spacer" aria-hidden />
+                    <span className="fb-bids-tree-name">task-{row.task}</span>
+                  </SelectableRow>
+                );
+              }
+              const subjectId = row.subjectId;
               const tasks = tasksBySubject.get(subjectId) ?? [];
               const isExpanded = expandedSubjects.has(subjectId);
-              const isSelected = selectedSubjectId === subjectId;
               return (
-                <li
-                  key={subjectId}
-                  className="fb-bids-tree-item"
+                <SelectableRow
+                  key={row.id}
+                  ref={ref}
+                  {...itemProps}
                   role="treeitem"
-                  aria-expanded={isExpanded}
+                  aria-level={1}
+                  aria-expanded={tasks.length > 0 ? isExpanded : undefined}
+                  selected={selectedSubjectId === subjectId}
+                  onSelect={() => handleSubjectClick(subjectId)}
+                  className="fb-bids-tree-row"
                 >
-                  <button
-                    type="button"
-                    className={`fb-bids-tree-row${isSelected ? ' is-selected' : ''}`}
-                    onClick={() => handleSubjectClick(subjectId)}
-                  >
-                    <span className="fb-bids-tree-chevron" aria-hidden>
-                      {tasks.length > 0 ? (
-                        isExpanded ? <VscChevronDown /> : <VscChevronRight />
-                      ) : (
-                        <span className="fb-bids-tree-chevron-spacer" />
-                      )}
-                    </span>
-                    <span className="fb-bids-tree-name">{subjectId}</span>
-                    <span className="fb-bids-tree-meta">
-                      {tasks.length} task{tasks.length === 1 ? '' : 's'}
-                    </span>
-                  </button>
-                  {isExpanded && tasks.length > 0 && (
-                    <ul className="fb-bids-tree-children" role="group">
-                      {tasks.map((task) => (
-                        <li
-                          key={`${subjectId}-${task}`}
-                          className="fb-bids-tree-task"
-                          role="treeitem"
-                        >
-                          <button
-                            type="button"
-                            className="fb-bids-tree-row fb-bids-tree-row--task"
-                            onClick={() => handleTaskClick(subjectId, task)}
-                          >
-                            <span className="fb-bids-tree-chevron-spacer" aria-hidden />
-                            <span className="fb-bids-tree-name">task-{task}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
+                  <span className="fb-bids-tree-chevron" aria-hidden>
+                    {tasks.length > 0 ? (
+                      isExpanded ? <VscChevronDown /> : <VscChevronRight />
+                    ) : (
+                      <span className="fb-bids-tree-chevron-spacer" />
+                    )}
+                  </span>
+                  <span className="fb-bids-tree-name">{subjectId}</span>
+                  <span className="fb-bids-tree-meta">
+                    {tasks.length} task{tasks.length === 1 ? '' : 's'}
+                  </span>
+                </SelectableRow>
               );
             })}
-          </ul>
+          </div>
         </>
       )}
 
       {scanError && (
-        <p className="fb-bids-status fb-bids-status--error">Scan failed: {scanError}</p>
+        <Notice severity="danger" className="fb-bids-status">Scan failed: {scanError}</Notice>
       )}
     </div>
   );

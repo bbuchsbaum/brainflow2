@@ -40,7 +40,8 @@ interface ViewportHeaderProps {
  * white matter; over the black margin it is invisible.
  *
  * Two forms, chosen by width (`headerParts`): full "Axial  z −0.5 mm  name"
- * and compact "z −0.5"; hidden below 90px of height. The whole header is
+ * and compact "z −0.5 mm" / "−0.5mm" (name, then plane, then axis letter
+ * dropped; never the unit); hidden below 90px of height. The whole header is
  * `pointer-events: none`, so a click on any part of it (name included) reaches
  * the image and sets the crosshair; the untruncated name is in the header's
  * accessible label and in the status bar's Layer slot.

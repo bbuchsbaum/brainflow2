@@ -162,7 +162,7 @@ button {
   border-bottom: 0 !important;
   /* Hairline drawn as an inset shadow so the active tab can sit flush over it */
   box-shadow: inset 0 -1px 0 var(--bf-border-subtle);
-  height: 32px !important;
+  height: 28px !important; /* = ui/bf H_TAB */
   padding-left: 0 !important;
   overflow: visible !important;
   z-index: 1;
@@ -174,13 +174,13 @@ button {
   border: none !important;
   box-shadow: none !important;
   margin: 0 !important;
-  padding: 0 22px 0 14px !important; /* Extra right padding for close button */
-  height: 32px !important;
+  padding: 0 28px 0 12px !important; /* room for the 24px close target (ui/bf Tabs) */
+  height: 28px !important;
   display: flex;
   align-items: center;
   font-family: var(--bf-font-sans) !important;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--bf-text-muted) !important;
   transition: color 0.15s ease;
   border-radius: 0 !important;
@@ -200,6 +200,7 @@ button {
  * focused stack is tracked by components/layout/glStackFocus.ts. */
 .lm_tab.lm_active {
   color: var(--bf-text-primary) !important;
+  font-weight: 500;
   position: relative;
   background: var(--bf-bg-active) !important;
   box-shadow: inset 0 -2px 0 var(--bf-text-muted) !important;
@@ -382,22 +383,26 @@ button {
 
 /* Tab close button - refined hairline style */
 .lm_header .lm_tab .lm_close_tab {
-  width: 12px !important;
-  height: 12px !important;
+  width: 24px !important;
+  height: 24px !important;
   top: 50% !important;
   transform: translateY(-50%);
-  right: 4px !important;
-  opacity: 0;
+  right: 2px !important;
+  opacity: 0; /* inactive tabs: no glyph at rest (contrast floor); see active/hover rules */
   background: none !important;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a4a7ad' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
   background-position: center center !important;
   background-repeat: no-repeat !important;
-  background-size: 8px 8px;
+  background-size: 8px 8px !important;
   transition: opacity 0.15s ease;
 }
 
+.lm_header .lm_tab.lm_active .lm_close_tab {
+  opacity: 1; /* muted glyph at full strength: ~5:1 on the active tab fill */
+}
+
 .lm_header .lm_tab:hover .lm_close_tab {
-  opacity: 0.5;
+  opacity: 1;
 }
 
 .lm_header .lm_tab .lm_close_tab:hover {

@@ -6,11 +6,19 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { ChevronDown, Copy, Check } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import { getApiService } from '@/services/apiService';
 import type { NiftiHeaderInfo } from '@/services/apiService';
-import { Button } from '@/components/ui/shadcn/button';
 import { Modal } from '@/components/ui/Modal';
+import { Button, KeyValue, Notice, Section, type KeyValueItem } from '@/components/ui/bf';
+import {
+  asciiMinus,
+  formatDims,
+  formatFixed,
+  formatDataRange,
+  formatVoxelSize,
+  formatWorldPoint,
+} from '@/utils/valueFormat';
 
 interface ImageHeaderDialogProps {
   open: boolean;
@@ -20,15 +28,18 @@ interface ImageHeaderDialogProps {
 
 // ---- small helpers --------------------------------------------------------
 
+/** Display number at fixed decimals (U+2212 minus, see utils/valueFormat). */
 function fmt(n: number, decimals = 4): string {
-  return n.toFixed(decimals);
+  return formatFixed(n, decimals);
 }
 
-function CopyValue({ value }: { value: string }) {
+/** A fact value that copies itself on click (the whole value is the target). */
+function CopyValue({ value, unit }: { value: string; unit?: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = useCallback(() => {
-    navigator.clipboard.writeText(value).catch(() => {});
+    // The clipboard gets ASCII minus (parsers and other apps read "-95.5").
+    navigator.clipboard.writeText(asciiMinus(value)).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [value]);
@@ -36,61 +47,40 @@ function CopyValue({ value }: { value: string }) {
   return (
     <button
       type="button"
-      className="group flex items-center gap-1 cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--bf-border-focus)]"
       onClick={copy}
-      title="Copy value"
+      title={`${value} (click to copy)`}
       aria-label={copied ? `${value} (copied)` : `${value}, copy`}
     >
-      <span className="font-mono tabular-nums text-sm text-foreground">{value}</span>
-      <span className="opacity-0 group-hover:opacity-60 group-focus-visible:opacity-60 transition-opacity" aria-hidden>
-        {copied ? <Check className="w-3 h-3 text-bf-success" /> : <Copy className="w-3 h-3" />}
+      <span className="min-w-0 truncate">{value}</span>
+      {unit ? <span className="shrink-0 text-muted-foreground">{unit}</span> : null}
+      <span className="shrink-0 opacity-0 transition-opacity group-hover:opacity-60 group-focus-visible:opacity-60" aria-hidden>
+        {copied ? <Check className="h-3 w-3 text-bf-success" /> : <Copy className="h-3 w-3" />}
       </span>
     </button>
   );
 }
 
-interface FieldRowProps {
+interface Fact {
   label: string;
   value: string;
+  unit?: string;
+  mono?: boolean;
 }
 
-function FieldRow({ label, value }: FieldRowProps) {
-  return (
-    <div className="grid grid-cols-[140px_1fr] items-start gap-2 py-1">
-      <span className="text-bf-sm text-muted-foreground pt-0.5">{label}</span>
-      <CopyValue value={value} />
-    </div>
-  );
-}
-
-interface SectionProps {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}
-
-function Section({ title, defaultOpen = true, children }: SectionProps) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <section className="border-b" style={{ borderColor: 'var(--bf-border-subtle)' }}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(o => !o)}
-        className="w-full px-6 py-3 flex items-center justify-between hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <h3 className="m-0 border-0 p-0 text-bf-sm font-semibold text-foreground">{title}</h3>
-        <ChevronDown
-          className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {open && (
-        <div className="px-6 pb-4 space-y-0.5">
-          {children}
-        </div>
-      )}
-    </section>
-  );
+/** Image-header facts: the wide (148px) label column, values copy on click. */
+function Facts({ items }: { items: ReadonlyArray<Fact | false | null | undefined | ''> }) {
+  const rows: KeyValueItem[] = items
+    .filter((f): f is Fact => Boolean(f))
+    .map(f => ({
+      key: f.label,
+      label: f.label,
+      // The unit sits inside the copy target (before the copy glyph) and is
+      // not copied: the clipboard gets the number(s) only.
+      value: <CopyValue value={f.value} unit={f.unit} />,
+      mono: f.mono,
+    }));
+  return <KeyValue layout="rows" labelWidth="wide" items={rows} />;
 }
 
 // ---- main component -------------------------------------------------------
@@ -148,68 +138,69 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
       <div className="max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex-1 overflow-y-auto">
           {loading && (
-            <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
-              Loading header info…
+            <div className="flex items-center justify-center py-12">
+              <Notice role={undefined}>Loading header info…</Notice>
             </div>
           )}
 
           {error && (
-            <div className="px-6 py-4 text-bf-danger text-sm">
-              Error: {error}
+            <div className="px-3 py-3">
+              <Notice severity="danger" role="alert">
+                Error: {error}
+              </Notice>
             </div>
           )}
 
           {info && (
             <>
-              {/* File */}
-              <Section title="File">
-                <FieldRow label="Filename" value={info.filename} />
-                <FieldRow label="Format" value="NIfTI" />
-                {info.description && <FieldRow label="Description" value={info.description} />}
+              <Section title="File" divider={false}>
+                <Facts
+                  items={[
+                    { label: 'Filename', value: info.filename },
+                    { label: 'Format', value: 'NIfTI', mono: false },
+                    info.description ? { label: 'Description', value: info.description, mono: false } : null,
+                  ]}
+                />
               </Section>
 
-              {/* Dimensions */}
               <Section title="Dimensions">
-                <FieldRow
-                  label="Voxel dims"
-                  value={info.dimensions.slice(0, 3).join(' × ')}
+                <Facts
+                  items={[
+                    { label: 'Voxel dims', value: formatDims(info.dimensions.slice(0, 3)) },
+                    {
+                      label: 'Total voxels',
+                      value: info.dimensions
+                        .slice(0, 3)
+                        .reduce((a, b) => a * b, 1)
+                        .toLocaleString(),
+                    },
+                    { label: 'Data type', value: info.data_type },
+                    info.data_range && {
+                      label: 'Data range',
+                      value: formatDataRange(info.data_range.min, info.data_range.max),
+                    },
+                  ]}
                 />
-                <FieldRow
-                  label="Total voxels"
-                  value={info.dimensions.slice(0, 3)
-                    .reduce((a, b) => a * b, 1)
-                    .toLocaleString()}
-                />
-                <FieldRow label="Data type" value={info.data_type} />
-                {info.data_range && (
-                  <FieldRow
-                    label="Data range"
-                    value={`${fmt(info.data_range.min, 4)} – ${fmt(info.data_range.max, 4)}`}
-                  />
-                )}
               </Section>
 
-              {/* Spatial */}
               <Section title="Spatial">
-                <FieldRow
-                  label="Voxel size (mm)"
-                  value={info.voxel_spacing.map(v => fmt(v, 4)).join(' × ')}
+                <Facts
+                  items={[
+                    {
+                      label: 'Voxel size',
+                      value: formatVoxelSize(info.voxel_spacing),
+                      unit: 'mm',
+                    },
+                    { label: 'Orientation', value: info.orientation_string },
+                    { label: 'Spatial units', value: info.spatial_units },
+                    { label: 'World min', value: formatWorldPoint(info.world_bounds_min), unit: 'mm' },
+                    { label: 'World max', value: formatWorldPoint(info.world_bounds_max), unit: 'mm' },
+                    { label: 'Sform code', value: String(info.sform_code) },
+                    { label: 'Qform code', value: String(info.qform_code) },
+                  ]}
                 />
-                <FieldRow label="Orientation" value={info.orientation_string} />
-                <FieldRow label="Spatial units" value={info.spatial_units} />
-                <FieldRow
-                  label="World min"
-                  value={info.world_bounds_min.map(v => fmt(v, 2)).join(', ')}
-                />
-                <FieldRow
-                  label="World max"
-                  value={info.world_bounds_max.map(v => fmt(v, 2)).join(', ')}
-                />
-                <FieldRow label="Sform code" value={String(info.sform_code)} />
-                <FieldRow label="Qform code" value={String(info.qform_code)} />
               </Section>
 
-              {/* Transform */}
               <Section title="Transform (voxel → world)" defaultOpen={false}>
                 <div className="overflow-x-auto py-1">
                   <pre className="font-mono text-xs tabular-nums text-bf-text-secondary whitespace-pre leading-relaxed">
@@ -218,27 +209,27 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
                 </div>
               </Section>
 
-              {/* Temporal (4D only) */}
               {is4D && (
                 <Section title="Temporal">
-                  <FieldRow label="Timepoints" value={String(info.num_timepoints)} />
-                  {info.tr_seconds != null && (
-                    <FieldRow label="TR (s)" value={fmt(info.tr_seconds, 4)} />
-                  )}
-                  {info.temporal_units && (
-                    <FieldRow label="Temporal units" value={info.temporal_units} />
-                  )}
+                  <Facts
+                    items={[
+                      { label: 'Timepoints', value: String(info.num_timepoints) },
+                      info.tr_seconds != null && {
+                        label: 'TR',
+                        value: fmt(info.tr_seconds, 4),
+                        unit: 's',
+                      },
+                      info.temporal_units && { label: 'Temporal units', value: info.temporal_units },
+                    ]}
+                  />
                 </Section>
               )}
             </>
           )}
         </div>
 
-        <div
-          className="px-6 py-3 border-t flex justify-end flex-shrink-0"
-          style={{ borderColor: 'var(--bf-border-subtle)' }}
-        >
-          <Button onClick={onClose} variant="outline" size="sm">
+        <div className="flex flex-shrink-0 justify-end border-t border-bf-border-subtle px-3 py-3">
+          <Button onClick={onClose} variant="secondary" size="sm">
             Close
           </Button>
         </div>

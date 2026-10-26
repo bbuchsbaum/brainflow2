@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import { Button, Chip, FieldRow, Notice, SelectableRow, Tabs, TextField, tabIds, useRovingFocus } from '@/components/ui/bf';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
 import { canImportCandidate } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -13,6 +13,8 @@ import type {
   StudioImportMode,
 } from '@/types/studio';
 import { TsvImportWizard } from './TsvImportWizard';
+
+const IMPORT_TABS_ID = 'studio-import';
 
 const IMPORT_TABS: Array<{ mode: StudioImportMode; label: string; description: string }> = [
   { mode: 'table', label: 'From table', description: 'TSV or CSV with file paths and design variables' },
@@ -67,6 +69,11 @@ export function StudioImportDialog() {
   );
   const selectedCandidate =
     (selectedCandidateId ? importCandidates[selectedCandidateId] ?? null : null) ?? candidates[0] ?? null;
+  const candidateIds = useMemo(() => candidates.map((candidate) => candidate.id), [candidates]);
+  const candidateRoving = useRovingFocus({
+    ids: candidateIds,
+    activeId: selectedCandidate?.id ?? null,
+  });
   const readiness = selectedCandidate ? deriveStudioReadiness(selectedCandidate) : null;
   const importBlocked = selectedCandidate ? !canImportCandidate(selectedCandidate) : false;
   const liveCaptureNames = useMemo(() => extractCaptureNames(filePattern), [filePattern]);
@@ -96,27 +103,20 @@ export function StudioImportDialog() {
       className="max-w-4xl rounded-sm"
     >
       <div style={{ maxHeight: 'calc(85vh - 4rem)' }} className="flex flex-col">
-        {/* Tab bar */}
-        <div className="flex border-b border-border bg-background px-4">
-          {IMPORT_TABS.map((tab) => (
-            <button
-              key={tab.mode}
-              type="button"
-              onClick={() => openImportDialog(tab.mode)}
-              className={`relative px-4 py-2.5 text-bf-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
-                mode === tab.mode
-                  ? 'text-foreground font-medium'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tab.label}
-              {mode === tab.mode ? (
-                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-[var(--bf-text-muted)] rounded-sm" />
-              ) : null}
-            </button>
-          ))}
-        </div>
-
+        <Tabs
+          idBase={IMPORT_TABS_ID}
+          aria-label="Import source"
+          items={IMPORT_TABS.map((tab) => ({ value: tab.mode, label: tab.label }))}
+          value={mode}
+          onValueChange={(value) => openImportDialog(value as StudioImportMode)}
+          className="border-b border-border bg-background px-4"
+        />
+        <div
+          role="tabpanel"
+          id={tabIds(IMPORT_TABS_ID, mode).panel}
+          aria-labelledby={tabIds(IMPORT_TABS_ID, mode).tab}
+          className="flex min-h-0 flex-1 flex-col"
+        >
         {/* TSV wizard (load + map steps) */}
         {showTsvWizard ? (
           <div className="flex-1 overflow-y-auto p-5">
@@ -129,25 +129,27 @@ export function StudioImportDialog() {
           <div className="flex-1 grid gap-0 md:grid-cols-[240px_minmax(0,1fr)] overflow-hidden">
             <div className="border-r border-border bg-background p-4 overflow-y-auto">
               <div className="text-bf-md font-medium text-foreground">Preview candidates</div>
-              <div className="mt-3 space-y-2">
+              <div
+                role="listbox"
+                aria-label="Preview candidates"
+                onKeyDown={candidateRoving.onKeyDown}
+                className="mt-3 space-y-2"
+              >
                 {candidates.map((candidate) => {
                   const isSelected = candidate.id === selectedCandidate?.id;
                   return (
-                    <button
+                    <SelectableRow
                       key={candidate.id}
-                      type="button"
-                      onClick={() => selectImportCandidate(candidate.id)}
-                      className={`w-full rounded-sm border px-3 py-3 text-left transition-colors ${
-                        isSelected
-                          ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)] text-foreground'
-                          : 'border-border bg-card text-foreground hover:bg-accent hover:text-accent-foreground'
-                      }`}
+                      variant="card"
+                      {...candidateRoving.getItemProps(candidate.id)}
+                      selected={isSelected}
+                      onSelect={() => selectImportCandidate(candidate.id)}
                     >
                       <div className="text-bf-md font-medium">{candidate.label}</div>
                       <div className="mt-1 text-bf-sm leading-5 text-muted-foreground">
                         {candidate.description}
                       </div>
-                    </button>
+                    </SelectableRow>
                   );
                 })}
               </div>
@@ -180,72 +182,62 @@ export function StudioImportDialog() {
                   </div>
 
                   {error ? (
-                    <div role="alert" className="mb-4 rounded-sm border border-destructive/40 bg-bf-danger-soft px-3 py-2 text-bf-md text-foreground">
+                    <Notice role="alert" severity="danger" className="mb-4">
                       {error}
-                    </div>
+                    </Notice>
                   ) : null}
 
                   <div className="mb-4 rounded-sm border border-border bg-card p-4">
                     <div className="text-bf-md font-medium text-foreground">Preview request</div>
                     {mode === 'manifest' ? (
                       <div className="mt-3">
-                        <label className="mb-1 block text-bf-sm text-muted-foreground">
-                          Manifest path
-                        </label>
-                        <input
-                          className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        <FieldRow layout="stacked" label="Manifest path">
+                          <TextField
                           value={manifestPath}
                           onChange={(event) => setManifestPath(event.target.value)}
                           placeholder="/path/to/study.neurotabs.yaml"
                         />
+                        </FieldRow>
                       </div>
                     ) : (
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         <div>
-                          <label className="mb-1 block text-bf-sm text-muted-foreground">
-                            Discovery root
-                          </label>
-                          <input
-                            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          <FieldRow layout="stacked" label="Discovery root">
+                            <TextField
                             value={discoveryRoot}
                             onChange={(event) => setDiscoveryRoot(event.target.value)}
                             placeholder="."
                           />
+                          </FieldRow>
                         </div>
                         <div>
-                          <label className="mb-1 block text-bf-sm text-muted-foreground">
-                            File pattern
-                          </label>
-                          <input
-                            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          <FieldRow layout="stacked" label="File pattern">
+                            <TextField
                             value={filePattern}
                             onChange={(event) => setFilePattern(event.target.value)}
                             placeholder=".*_statmap\\.nii(\\.gz)?$"
                           />
+                          </FieldRow>
                         </div>
                         <div>
-                          <label className="mb-1 block text-bf-sm text-muted-foreground">
-                            Max depth
-                          </label>
-                          <input
-                            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          <FieldRow layout="stacked" label="Max depth">
+                            <TextField
                             value={discoveryMaxDepth}
                             onChange={(event) => setDiscoveryMaxDepth(event.target.value)}
                             inputMode="numeric"
                             placeholder="4"
                           />
+                          </FieldRow>
                         </div>
                         <div>
-                          <label className="mb-1 block text-bf-sm text-muted-foreground">
-                            Max files
-                          </label>
-                          <input
-                            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          <FieldRow layout="stacked" label="Max files">
+                            <TextField
                             value={discoveryMaxFiles}
                             onChange={(event) => setDiscoveryMaxFiles(event.target.value)}
                             inputMode="numeric"
                             placeholder="500"
                           />
+                          </FieldRow>
                         </div>
                       </div>
                     )}
@@ -265,12 +257,9 @@ export function StudioImportDialog() {
                           <div className="mt-2 flex flex-wrap gap-2">
                             {liveCaptureNames.length > 0 ? (
                               liveCaptureNames.map((name) => (
-                                <span
-                                  key={name}
-                                  className="rounded-sm border border-border bg-background px-2.5 py-1 text-bf-sm text-muted-foreground"
-                                >
+                                <Chip key={name} mono>
                                   {name}
-                                </span>
+                                </Chip>
                               ))
                             ) : (
                               <span className="text-bf-sm text-muted-foreground">No named captures</span>
@@ -333,9 +322,9 @@ export function StudioImportDialog() {
                   </div>
 
                   {error ? (
-                    <div role="alert" className="mb-4 rounded-sm border border-destructive/40 bg-bf-danger-soft px-3 py-2 text-bf-md text-foreground">
+                    <Notice role="alert" severity="danger" className="mb-4">
                       {error}
-                    </div>
+                    </Notice>
                   ) : null}
                 </>
               ) : null}
@@ -366,6 +355,7 @@ export function StudioImportDialog() {
             </div>
           </div>
         ) : null}
+        </div>
       </div>
     </Modal>
   );
@@ -404,9 +394,9 @@ function FolderOntologyPreviewPanel({
       ) : null}
 
       {error ? (
-        <div role="alert" className="mt-2 rounded-sm border border-destructive/40 bg-bf-danger-soft px-3 py-2 text-bf-md text-foreground">
+        <Notice role="alert" severity="danger" className="mt-2">
           {error}
-        </div>
+        </Notice>
       ) : null}
 
       {summary?.warnings.length ? (
@@ -455,9 +445,7 @@ function FolderOntologyCandidateRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-bf-md font-medium text-foreground">{candidate.label}</div>
-          <span className="rounded-sm bg-muted px-2 py-0.5 text-bf-sm text-muted-foreground">
-            {formatPercent(candidate.score)}
-          </span>
+          <Chip mono>{formatPercent(candidate.score)}</Chip>
         </div>
         <div className="mt-1 text-bf-sm text-muted-foreground">
           {candidate.matchedFiles} matched · {candidate.groups.length} groups · {candidate.duplicateKeys} dup · {candidate.missingRoleBindings} missing
@@ -714,8 +702,9 @@ function DiscoveryRoleMappingControls({
             >
               <div className="text-bf-md font-medium text-foreground">{entry.role}</div>
               <div className="flex min-w-0 gap-2">
-                <input
-                  className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1.5 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                <TextField
+                  aria-label={`${entry.role} patterns`}
+                  className="min-w-0 flex-1"
                   value={entry.patterns.join(', ')}
                   onChange={(event) => onPatternChange(entry.role, splitPatternText(event.target.value))}
                 />
@@ -742,8 +731,9 @@ function DiscoveryRoleMappingControls({
         })}
       </div>
       <div className="mt-3 flex gap-2">
-        <input
-          className="min-w-0 flex-1 rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        <TextField
+          aria-label="Custom role"
+          className="min-w-0 flex-1"
           value={customRole}
           onChange={(event) => onCustomRoleChange(event.target.value)}
           placeholder="custom_role"

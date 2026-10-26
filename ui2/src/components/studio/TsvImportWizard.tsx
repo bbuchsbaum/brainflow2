@@ -1,5 +1,5 @@
 import React, { useCallback, useRef } from 'react';
-import { Button } from '@/components/ui/Button';
+import { Button, Chip, FieldRow, FilterChip, Select } from '@/components/ui/bf';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 
@@ -179,11 +179,8 @@ function TsvMapStep({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-sm border border-border bg-card p-4">
-          <label className="mb-2 block text-bf-sm font-medium text-muted-foreground">
-            File path column
-          </label>
-          <select
-            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          <FieldRow layout="stacked" label="File path column">
+            <Select
             value={columnMapping.filePathColumn ?? ''}
             onChange={(e) => onMappingChange({ filePathColumn: e.target.value || null })}
           >
@@ -193,15 +190,13 @@ function TsvMapStep({
                 {h}
               </option>
             ))}
-          </select>
+          </Select>
+          </FieldRow>
         </div>
 
         <div className="rounded-sm border border-border bg-card p-4">
-          <label className="mb-2 block text-bf-sm font-medium text-muted-foreground">
-            Subject ID Column
-          </label>
-          <select
-            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          <FieldRow layout="stacked" label="Subject ID Column">
+            <Select
             value={columnMapping.subjectIdColumn ?? ''}
             onChange={(e) => onMappingChange({ subjectIdColumn: e.target.value || null })}
           >
@@ -211,7 +206,8 @@ function TsvMapStep({
                 {h}
               </option>
             ))}
-          </select>
+          </Select>
+          </FieldRow>
         </div>
       </div>
 
@@ -227,29 +223,23 @@ function TsvMapStep({
             .map((h) => {
               const excluded = columnMapping.excludedColumns.includes(h);
               const isSubjectId = h === columnMapping.subjectIdColumn;
-              return (
-                <button
-                  key={h}
-                  type="button"
-                  onClick={() => {
-                    if (isSubjectId) return;
-                    const next = excluded
-                      ? columnMapping.excludedColumns.filter((c) => c !== h)
-                      : [...columnMapping.excludedColumns, h];
-                    onMappingChange({ excludedColumns: next });
-                  }}
-                  className={`rounded-sm border px-2.5 py-1 text-bf-sm transition-colors ${
-                    isSubjectId
-                      ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)] text-foreground cursor-default'
-                      : excluded
-                        ? 'border-border bg-background text-muted-foreground line-through opacity-50'
-                        : 'border-border bg-background text-muted-foreground hover:bg-accent'
-                  }`}
-                >
-                  {h}
-                  {isSubjectId ? ' (ID)' : ''}
-                </button>
-              );
+              return isSubjectId ? (
+                  <Chip key={h}>{h} (ID)</Chip>
+                ) : (
+                  <FilterChip
+                    key={h}
+                    pressed={!excluded}
+                    onPressedChange={() => {
+                      const next = excluded
+                        ? columnMapping.excludedColumns.filter((c) => c !== h)
+                        : [...columnMapping.excludedColumns, h];
+                      onMappingChange({ excludedColumns: next });
+                    }}
+                    className={excluded ? 'line-through' : undefined}
+                  >
+                    {h}
+                  </FilterChip>
+                );
             })}
         </div>
         <div className="mt-2 text-bf-sm text-muted-foreground">

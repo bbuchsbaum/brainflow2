@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/shadcn/button';
+import { Button } from '@/components/ui/bf';
 import { useConfirmationDialogStore } from '@/stores/confirmationDialogStore';
 import { getFocusableElements } from '@/utils/dialogFocus';
 
@@ -216,7 +216,7 @@ export function ConfirmationDialogHost() {
 
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           {activeRequest.kind !== 'alert' && (
-            <Button type="button" variant="secondary" onClick={handleCancel}>
+            <Button type="button" variant="secondary" size="sm" onClick={handleCancel}>
               {activeRequest.cancelLabel ?? 'Cancel'}
             </Button>
           )}
@@ -224,7 +224,8 @@ export function ConfirmationDialogHost() {
             type="button"
             onClick={handleConfirm}
             ref={confirmButtonRef}
-            variant={isDestructive ? 'destructive' : 'default'}
+            variant={isDestructive ? 'danger' : 'primary'}
+            size="sm"
           >
             {activeRequest.confirmLabel ?? (activeRequest.kind === 'alert' ? 'OK' : 'Confirm')}
           </Button>

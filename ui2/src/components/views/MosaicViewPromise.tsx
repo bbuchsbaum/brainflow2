@@ -20,6 +20,7 @@ import { createMosaicRenderService } from '@/services/MosaicRenderService';
 import { calculateInitialPage } from '@/utils/mosaicUtils';
 import { getApiService } from '@/services/apiService';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
+import { Notice } from '@/components/ui/bf';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
 import { getFileLoadingService } from '@/services/FileLoadingService';
 import { readFileDragData } from '@/utils/layerDrag';
@@ -374,7 +375,7 @@ function MosaicViewPromiseRaw({
             <div className="text-muted-foreground text-bf-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
           </div>
         ) : (
-          'No volume loaded — drag a file here'
+          <Notice role={undefined}>No volume loaded. Drag a file here.</Notice>
         )}
       </div>
     );

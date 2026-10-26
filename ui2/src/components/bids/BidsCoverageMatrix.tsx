@@ -3,6 +3,8 @@ import { useBidsStore } from '@/stores/bidsStore';
 import type { BidsCoverageCell, BidsCoverageColumn } from '@/stores/bidsStore';
 import { formatSubjectId } from '@/utils/bids';
 import { getFileLoadingService } from '@/services/FileLoadingService';
+import { ChevronDown } from 'lucide-react';
+import { Button } from '@/components/ui/bf';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,23 +82,35 @@ const CELL_HEIGHT = 24;
 const HEADER_HEIGHT = 40;
 const SESSION_HEADER_HEIGHT = 20;
 
-/** Single data cell */
+/** Focus ring for a coverage cell (outer 2px amber ring, lifted above neighbours). */
+const CELL_FOCUS =
+  'outline-none focus-visible:relative focus-visible:z-[4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--bf-border-focus)]';
+
+/** Single data cell: a gridcell in the roving-focus grid. */
 const DataCell = React.memo(function DataCell({
   cell,
   col,
   subject,
   selected,
+  tabStop,
+  cellRef,
   onMouseEnter,
   onMouseLeave,
   onClick,
+  onFocus,
+  onKeyDown,
 }: {
   cell: BidsCoverageCell;
   col: BidsCoverageColumn;
   subject: string;
   selected: boolean;
+  tabStop: boolean;
+  cellRef: (el: HTMLDivElement | null) => void;
   onMouseEnter: (e: React.MouseEvent, cell: BidsCoverageCell, col: BidsCoverageColumn, subject: string) => void;
   onMouseLeave: () => void;
   onClick: () => void;
+  onFocus: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
 }) {
   const handleEnter = useCallback(
     (e: React.MouseEvent) => onMouseEnter(e, cell, col, subject),
@@ -108,10 +122,10 @@ const DataCell = React.memo(function DataCell({
     minWidth: 40,
     borderRadius: 'var(--app-radius-sm)',
     cursor: 'pointer',
-    transition: 'outline var(--app-transition-fast)',
   };
 
-  if (cell.present && cell.run_count > 0) {
+  const present = cell.present && cell.run_count > 0;
+  if (present) {
     // Neutral data tone: amber stays reserved for the selected cell.
     style.background = `hsl(var(--muted-foreground) / ${(0.55 * runCountOpacity(cell.run_count)).toFixed(3)})`;
   } else {
@@ -126,19 +140,31 @@ const DataCell = React.memo(function DataCell({
   }
 
   if (selected) {
-    style.outline = '1px solid hsl(var(--primary))';
-    style.outlineOffset = '-1px';
+    // Selection is an inset frame; the outline stays free for the focus ring.
+    style.boxShadow = 'inset 0 0 0 1px hsl(var(--primary))';
   }
 
   return (
     <div
+      ref={cellRef}
       role="gridcell"
-      aria-label={`${formatSubjectId(subject)} ${col.label} — ${cell.present ? `${cell.run_count} run(s)` : 'missing'}`}
+      tabIndex={tabStop ? 0 : -1}
+      aria-selected={selected}
+      aria-label={`${formatSubjectId(subject)} ${col.label}: ${cell.present ? `${cell.run_count} run${cell.run_count === 1 ? '' : 's'}` : 'missing'}`}
+      className={`${CELL_FOCUS} flex items-center justify-center font-mono text-bf-xs tabular-nums`}
       style={style}
       onMouseEnter={handleEnter}
       onMouseLeave={onMouseLeave}
       onClick={onClick}
-    />
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
+    >
+      {/* State is text, not fill alone: the run count, or an em dash for a
+          missing cell (the cell's accessible name already says it in words). */}
+      <span aria-hidden className={present ? 'text-foreground' : 'text-muted-foreground'}>
+        {present ? cell.run_count : '\u2014'}
+      </span>
+    </div>
   );
 });
 
@@ -234,22 +260,22 @@ function CellActionBar({
 
       <div className="relative" ref={dropdownRef}>
         {cell.file_paths.length === 1 ? (
-          <button
-            type="button"
-            className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-bf-xs font-medium text-primary transition-colors hover:border-primary"
-            onClick={() => handleOpen(cell.file_paths[0])}
-          >
+          <Button variant="secondary" size="sm" onClick={() => handleOpen(cell.file_paths[0])}>
             Open in viewer
-          </button>
+          </Button>
         ) : (
           <>
-            <button
-              type="button"
-              className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-bf-xs font-medium text-primary transition-colors hover:border-primary"
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-haspopup="true"
+              aria-expanded={dropdownOpen}
+              icon={<ChevronDown className="h-3 w-3" />}
+              iconPosition="right"
               onClick={() => setDropdownOpen((v) => !v)}
             >
-              Open in viewer &#x25BE;
-            </button>
+              Open in viewer
+            </Button>
             {dropdownOpen && (
               <div
                 className="absolute bottom-full left-0 mb-1 rounded-appsm border border-border bg-card"
@@ -289,6 +315,9 @@ export function BidsCoverageMatrix() {
   const setHoveredCell = useBidsStore((state) => state.setHoveredCell);
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  // Roving focus: the one tabbable cell (row = subject index, col = column index).
+  const [focusPos, setFocusPos] = useState<{ row: number; col: number } | null>(null);
+  const cellRefs = useRef(new Map<string, HTMLDivElement>());
 
   // Derive session groups for multi-session datasets
   const sessionGroups = useMemo(() => {
@@ -336,6 +365,69 @@ export function BidsCoverageMatrix() {
   if (!summary) return null;
 
   const { coverage } = summary;
+  const rowCount = coverage.subjects.length;
+  const dataColCount = coverage.columns.length;
+
+  // The tab stop: the focused cell if still valid, else the selected cell,
+  // else the first cell.
+  const selectedPos = selectedCellData
+    ? {
+        row: coverage.subjects.indexOf(selectedCellData.subject),
+        col: coverage.columns.indexOf(selectedCellData.col),
+      }
+    : null;
+  const stop =
+    focusPos && focusPos.row < rowCount && focusPos.col < dataColCount
+      ? focusPos
+      : (selectedPos ?? { row: 0, col: 0 });
+
+  const focusCell = (row: number, col: number) => {
+    setFocusPos({ row, col });
+    cellRefs.current.get(`${row}:${col}`)?.focus();
+  };
+
+  const handleCellKeyDown = (row: number, col: number) => (e: React.KeyboardEvent<HTMLDivElement>) => {
+    let next: { row: number; col: number } | null = null;
+    switch (e.key) {
+      case 'ArrowRight':
+        next = { row, col: Math.min(dataColCount - 1, col + 1) };
+        break;
+      case 'ArrowLeft':
+        next = { row, col: Math.max(0, col - 1) };
+        break;
+      case 'ArrowDown':
+        next = { row: Math.min(rowCount - 1, row + 1), col };
+        break;
+      case 'ArrowUp':
+        next = { row: Math.max(0, row - 1), col };
+        break;
+      case 'Home':
+        next = e.ctrlKey ? { row: 0, col: 0 } : { row, col: 0 };
+        break;
+      case 'End':
+        next = e.ctrlKey
+          ? { row: rowCount - 1, col: dataColCount - 1 }
+          : { row, col: dataColCount - 1 };
+        break;
+      case 'PageDown':
+        next = { row: Math.min(rowCount - 1, row + 10), col };
+        break;
+      case 'PageUp':
+        next = { row: Math.max(0, row - 10), col };
+        break;
+      case 'Enter':
+      case ' ': {
+        e.preventDefault();
+        const column = coverage.columns[col];
+        selectCell(coverage.subjects[row], column.session ?? null, column.modality);
+        return;
+      }
+      default:
+        return;
+    }
+    e.preventDefault();
+    focusCell(next.row, next.col);
+  };
   const colCount = coverage.columns.length;
 
   // Build grid template columns:
@@ -358,7 +450,8 @@ export function BidsCoverageMatrix() {
   }
 
   const gridTemplateColumns = gridColumns.join(' ');
-  const totalGridCols = gridColumns.length; // includes subject label column
+  /** Every row lays out its cells on the same column template. */
+  const rowGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns, gap: '2px' };
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -367,12 +460,18 @@ export function BidsCoverageMatrix() {
         className="flex-1 min-h-0 overflow-auto"
         style={{ contain: 'strict' }}
       >
+        {/* A real grid: rows of column headers / a row header + gridcells.
+            Each row is its own CSS grid with the same template, so columns
+            line up while the DOM keeps row semantics. One roving tab stop;
+            arrows, Home/End (Ctrl: whole grid), PageUp/Down move; Enter or
+            Space selects the run (the action bar then opens it). */}
         <div
           role="grid"
           aria-label="BIDS coverage matrix"
+          aria-rowcount={rowCount + (hasMultipleSessions ? 2 : 1)}
           style={{
-            display: 'grid',
-            gridTemplateColumns,
+            display: 'flex',
+            flexDirection: 'column',
             gap: '2px',
             padding: '4px',
             minWidth: 'min-content',
@@ -380,13 +479,22 @@ export function BidsCoverageMatrix() {
         >
           {/* ---- Session group header row (if multi-session) ---- */}
           {hasMultipleSessions && (
-            <>
+            <div
+              role="row"
+              style={{
+                ...rowGridStyle,
+                position: 'sticky',
+                top: 0,
+                zIndex: 3,
+                background: 'hsl(var(--background))',
+              }}
+            >
               {/* Corner cell for session row */}
               <div
+                aria-hidden
                 style={{
                   position: 'sticky',
                   left: 0,
-                  top: 0,
                   zIndex: 3,
                   height: SESSION_HEADER_HEIGHT,
                   background: 'hsl(var(--background))',
@@ -397,13 +505,8 @@ export function BidsCoverageMatrix() {
                   return (
                     <div
                       key={`sess-spacer-${i}`}
-                      style={{
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 2,
-                        height: SESSION_HEADER_HEIGHT,
-                        background: 'hsl(var(--background))',
-                      }}
+                      aria-hidden
+                      style={{ height: SESSION_HEADER_HEIGHT }}
                     />
                   );
                 }
@@ -412,17 +515,16 @@ export function BidsCoverageMatrix() {
                   (g) => entry.colIdx >= g.startIdx && entry.colIdx < g.startIdx + g.count,
                 );
                 const isGroupStart = group && entry.colIdx === group.startIdx;
+                const sessionName = group?.session ? `ses-${group.session}` : 'no session';
                 if (!isGroupStart) {
+                  // Every column names its session for AT; only the group's
+                  // first column shows it.
                   return (
                     <div
                       key={`sess-empty-${i}`}
-                      style={{
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 2,
-                        height: SESSION_HEADER_HEIGHT,
-                        background: 'hsl(var(--background))',
-                      }}
+                      role="columnheader"
+                      aria-label={sessionName}
+                      style={{ height: SESSION_HEADER_HEIGHT }}
                     />
                   );
                 }
@@ -431,11 +533,9 @@ export function BidsCoverageMatrix() {
                 return (
                   <div
                     key={`sess-label-${i}`}
+                    role="columnheader"
                     className="bf-role-label text-muted-foreground"
                     style={{
-                      position: 'sticky',
-                      top: 0,
-                      zIndex: 2,
                       height: SESSION_HEADER_HEIGHT,
                       background: 'hsl(var(--background))',
                       borderBottom: '1px solid hsl(var(--border))',
@@ -445,49 +545,48 @@ export function BidsCoverageMatrix() {
                       overflow: 'visible',
                     }}
                   >
-                    {group.session ? `ses-${group.session}` : 'no session'}
+                    {sessionName}
                   </div>
                 );
               })}
-            </>
+            </div>
           )}
 
           {/* ---- Column header row ---- */}
-          {/* Corner cell */}
           <div
+            role="row"
+            style={{
+              ...rowGridStyle,
+              position: 'sticky',
+              top: hasMultipleSessions ? SESSION_HEADER_HEIGHT + 2 : 0,
+              zIndex: 3,
+              background: 'hsl(var(--background))',
+            }}
+          >
+          {/* Corner cell: names the row-header column */}
+          <div
+            role="columnheader"
             style={{
               position: 'sticky',
               left: 0,
-              top: hasMultipleSessions ? SESSION_HEADER_HEIGHT + 2 : 0,
               zIndex: 3,
               height: HEADER_HEIGHT,
               background: 'hsl(var(--background))',
             }}
-          />
+          >
+            <span className="sr-only">Subject</span>
+          </div>
           {flatMapping.map((entry, i) => {
             if (entry.type === 'spacer') {
-              return (
-                <div
-                  key={`hdr-spacer-${i}`}
-                  style={{
-                    position: 'sticky',
-                    top: hasMultipleSessions ? SESSION_HEADER_HEIGHT + 2 : 0,
-                    zIndex: 2,
-                    height: HEADER_HEIGHT,
-                    background: 'hsl(var(--background))',
-                  }}
-                />
-              );
+              return <div key={`hdr-spacer-${i}`} aria-hidden style={{ height: HEADER_HEIGHT }} />;
             }
             const col = coverage.columns[entry.colIdx];
             return (
               <div
                 key={`hdr-${entry.colIdx}`}
+                role="columnheader"
                 className="bf-role-section text-muted-foreground"
                 style={{
-                  position: 'sticky',
-                  top: hasMultipleSessions ? SESSION_HEADER_HEIGHT + 2 : 0,
-                  zIndex: 2,
                   height: HEADER_HEIGHT,
                   background: 'hsl(var(--background))',
                   display: 'flex',
@@ -513,12 +612,14 @@ export function BidsCoverageMatrix() {
               </div>
             );
           })}
+          </div>
 
           {/* ---- Data rows ---- */}
           {coverage.subjects.map((subject, rowIdx) => (
-            <React.Fragment key={subject}>
+            <div key={subject} role="row" style={rowGridStyle}>
               {/* Subject label — sticky left */}
               <div
+                role="rowheader"
                 className="bf-role-mono text-foreground/80"
                 style={{
                   position: 'sticky',
@@ -540,25 +641,38 @@ export function BidsCoverageMatrix() {
               {/* Data cells */}
               {flatMapping.map((entry, i) => {
                 if (entry.type === 'spacer') {
-                  return <div key={`spacer-${rowIdx}-${i}`} />;
+                  return <div key={`spacer-${rowIdx}-${i}`} aria-hidden />;
                 }
-                const col = coverage.columns[entry.colIdx];
-                const cell = coverage.cells[rowIdx][entry.colIdx];
+                const colIdx = entry.colIdx;
+                const col = coverage.columns[colIdx];
+                const cell = coverage.cells[rowIdx][colIdx];
                 const selected = isCellSelected(subject, col, selection);
+                const key = `${rowIdx}:${colIdx}`;
                 return (
                   <DataCell
-                    key={`cell-${rowIdx}-${entry.colIdx}`}
+                    key={`cell-${rowIdx}-${colIdx}`}
                     cell={cell}
                     col={col}
                     subject={subject}
                     selected={selected}
+                    tabStop={stop.row === rowIdx && stop.col === colIdx}
+                    cellRef={(el) => {
+                      if (el) cellRefs.current.set(key, el);
+                      else cellRefs.current.delete(key);
+                    }}
                     onMouseEnter={handleMouseEnter}
                     onMouseLeave={handleMouseLeave}
                     onClick={() => selectCell(subject, col.session ?? null, col.modality)}
+                    onFocus={() =>
+                      setFocusPos((prev) =>
+                        prev && prev.row === rowIdx && prev.col === colIdx ? prev : { row: rowIdx, col: colIdx },
+                      )
+                    }
+                    onKeyDown={handleCellKeyDown(rowIdx, colIdx)}
                   />
                 );
               })}
-            </React.Fragment>
+            </div>
           ))}
         </div>
       </div>

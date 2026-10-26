@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { Notice } from '@/components/ui/bf';
 
 interface LoadingOverlayProps {
   message?: string;
@@ -33,14 +34,15 @@ export function ErrorOverlay({ error }: ErrorOverlayProps) {
     // fell to ~3.5:1 over black and lower over tissue. At 85% black the worst
     // case (scrim over white matter) is #262626, where the danger title is
     // ~6.3:1 and primary text ~13:1.
+    // The message itself is the canvas Notice (danger, boxed on black).
     <div
       role="alert"
-      className="absolute inset-0 bg-black/[0.85] flex items-center justify-center"
+      className="absolute inset-0 bg-black/[0.85] flex items-center justify-center p-2"
     >
-      <div className="text-center p-2 max-w-full">
+      <Notice severity="danger" surface="canvas" role={undefined} className="max-w-full">
         <div className="text-bf-danger text-bf-sm font-medium">Render error</div>
         <div className="text-bf-text-primary text-bf-sm break-words">{errorMessage}</div>
-      </div>
+      </Notice>
     </div>
   );
 }

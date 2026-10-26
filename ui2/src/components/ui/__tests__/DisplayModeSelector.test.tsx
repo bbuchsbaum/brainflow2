@@ -84,7 +84,7 @@ describe("DisplayModeSelector", () => {
   it("renders only the available modes (Surface/Integrated hidden) in order when the integrated flag is off", () => {
     render(<DisplayModeSelector />);
 
-    const tabs = screen.getAllByRole("tab");
+    const tabs = screen.getAllByRole("radio");
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Orthogonal",
       "Mosaic",
@@ -97,7 +97,7 @@ describe("DisplayModeSelector", () => {
 
     render(<DisplayModeSelector />);
 
-    const tabs = screen.getAllByRole("tab");
+    const tabs = screen.getAllByRole("radio");
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Orthogonal",
       "Integrated",
@@ -113,7 +113,7 @@ describe("DisplayModeSelector", () => {
     expect(selector.getAttribute("data-active-mode")).toBe("");
     for (const id of ["orthogonal", "mosaic", "compare"]) {
       expect(
-        screen.getByTestId(`display-mode-${id}`).getAttribute("data-active"),
+        screen.getByRole("radio", { name: new RegExp(`^${id}$`, "i") }).getAttribute("aria-checked"),
       ).toBe("false");
     }
   });
@@ -133,11 +133,16 @@ describe("DisplayModeSelector", () => {
         .getAttribute("data-active-mode"),
     ).toBe("orthogonal");
     expect(
-      screen.getByTestId("display-mode-orthogonal").getAttribute("data-active"),
+      screen.getByRole("radio", { name: "Orthogonal" }).getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      screen.getByTestId("display-mode-mosaic").getAttribute("data-active"),
+      screen.getByRole("radio", { name: "Mosaic" }).getAttribute("aria-checked"),
     ).toBe("false");
+    // Per-segment hooks: display-mode-<id> + data-active.
+    const orthogonal = screen.getByTestId("display-mode-orthogonal");
+    expect(orthogonal).toBe(screen.getByRole("radio", { name: "Orthogonal" }));
+    expect(orthogonal).toHaveAttribute("data-active", "true");
+    expect(screen.getByTestId("display-mode-mosaic")).toHaveAttribute("data-active", "false");
   });
 
   it("marks the orthogonal pill active for orthogonal-flexible workspaces too (both types belong to one mode)", () => {
@@ -150,7 +155,7 @@ describe("DisplayModeSelector", () => {
     render(<DisplayModeSelector />);
 
     expect(
-      screen.getByTestId("display-mode-orthogonal").getAttribute("data-active"),
+      screen.getByRole("radio", { name: "Orthogonal" }).getAttribute("aria-checked"),
     ).toBe("true");
   });
 
@@ -166,8 +171,8 @@ describe("DisplayModeSelector", () => {
       expect(selector.getAttribute("data-active-mode")).toBe("");
       expect(
         screen
-          .getAllByRole("tab")
-          .every((tab) => tab.getAttribute("aria-selected") === "false"),
+          .getAllByRole("radio")
+          .every((tab) => tab.getAttribute("aria-checked") === "false"),
       ).toBe(true);
     },
   );
@@ -186,7 +191,7 @@ describe("DisplayModeSelector", () => {
     workspaceStoreState.activeWorkspaceId = "tool";
 
     render(<DisplayModeSelector />);
-    fireEvent.click(screen.getByTestId("display-mode-mosaic"));
+    fireEvent.click(screen.getByRole("radio", { name: "Mosaic" }));
 
     expect(workspaceStoreState.activateWorkspace).toHaveBeenCalledWith(
       "view-new",
@@ -203,7 +208,7 @@ describe("DisplayModeSelector", () => {
     workspaceStoreState.activeWorkspaceId = "tool";
 
     render(<DisplayModeSelector />);
-    fireEvent.click(screen.getByTestId("display-mode-orthogonal"));
+    fireEvent.click(screen.getByRole("radio", { name: "Orthogonal" }));
 
     expect(workspaceStoreState.createWorkspace).toHaveBeenCalledWith(
       "orthogonal-locked",
@@ -214,7 +219,7 @@ describe("DisplayModeSelector", () => {
   it("does not render the surface pill (no workspace mapping yet)", () => {
     render(<DisplayModeSelector />);
 
-    expect(screen.queryByTestId("display-mode-surface")).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Surface" })).toBeNull();
   });
 
   it("does not render the integrated pill when the integratedWorkspaceV1 flag is off", () => {
@@ -222,7 +227,7 @@ describe("DisplayModeSelector", () => {
 
     render(<DisplayModeSelector />);
 
-    expect(screen.queryByTestId("display-mode-integrated")).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Integrated" })).toBeNull();
   });
 
   it("renders an enabled integrated pill when the integratedWorkspaceV1 flag is on", () => {
@@ -230,15 +235,15 @@ describe("DisplayModeSelector", () => {
 
     render(<DisplayModeSelector />);
 
-    const integratedPill = screen.getByTestId("display-mode-integrated");
+    const integratedPill = screen.getByRole("radio", { name: "Integrated" });
     expect(integratedPill).not.toBeDisabled();
-    expect(integratedPill.getAttribute("data-active")).toBe("false");
+    expect(integratedPill.getAttribute("aria-checked")).toBe("false");
   });
 
   it("creates the first workspace when a pill is clicked with no active workspace (cold start)", () => {
     render(<DisplayModeSelector />);
 
-    fireEvent.click(screen.getByTestId("display-mode-mosaic"));
+    fireEvent.click(screen.getByRole("radio", { name: "Mosaic" }));
 
     expect(workspaceStoreState.createWorkspace).toHaveBeenCalledTimes(1);
     expect(workspaceStoreState.createWorkspace).toHaveBeenCalledWith("mosaic");
@@ -255,7 +260,7 @@ describe("DisplayModeSelector", () => {
 
     render(<DisplayModeSelector />);
 
-    fireEvent.click(screen.getByTestId("display-mode-mosaic"));
+    fireEvent.click(screen.getByRole("radio", { name: "Mosaic" }));
 
     expect(workspaceStoreState.setActiveWorkspaceMode).toHaveBeenCalledTimes(1);
     expect(workspaceStoreState.setActiveWorkspaceMode).toHaveBeenCalledWith(
@@ -270,7 +275,7 @@ describe("DisplayModeSelector", () => {
 
     render(<DisplayModeSelector />);
 
-    fireEvent.click(screen.getByTestId("display-mode-integrated"));
+    fireEvent.click(screen.getByRole("radio", { name: "Integrated" }));
 
     expect(workspaceStoreState.createWorkspace).toHaveBeenCalledTimes(1);
     expect(workspaceStoreState.createWorkspace).toHaveBeenCalledWith(
@@ -281,7 +286,7 @@ describe("DisplayModeSelector", () => {
   it("targets the orthogonal-locked workspace type when the orthogonal pill is clicked from no-active-workspace", () => {
     render(<DisplayModeSelector />);
 
-    fireEvent.click(screen.getByTestId("display-mode-orthogonal"));
+    fireEvent.click(screen.getByRole("radio", { name: "Orthogonal" }));
 
     expect(workspaceStoreState.createWorkspace).toHaveBeenCalledWith(
       "orthogonal-locked",
@@ -302,7 +307,7 @@ describe("DisplayModeSelector", () => {
 
     render(<DisplayModeSelector />);
 
-    fireEvent.click(screen.getByTestId("display-mode-orthogonal"));
+    fireEvent.click(screen.getByRole("radio", { name: "Orthogonal" }));
 
     expect(workspaceStoreState.setActiveWorkspaceMode).toHaveBeenCalledTimes(1);
     expect(workspaceStoreState.setActiveWorkspaceMode).toHaveBeenCalledWith(
@@ -311,7 +316,10 @@ describe("DisplayModeSelector", () => {
     expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
   });
 
-  it("routes a click on the already-active mode through setActiveWorkspaceMode (store no-ops internally)", () => {
+  it("treats a click on the already-active segment as a no-op (radio semantics; the store would no-op anyway)", () => {
+    // bf SegmentedControl does not re-fire onValueChange for the checked
+    // segment. Before the migration the click reached setActiveWorkspaceMode,
+    // which no-ops for the same mode inside the store.
     workspaceStoreState.workspaces.set(
       "view-1",
       makeWorkspace("view-1", "orthogonal-locked"),
@@ -320,11 +328,20 @@ describe("DisplayModeSelector", () => {
 
     render(<DisplayModeSelector />);
 
-    fireEvent.click(screen.getByTestId("display-mode-orthogonal"));
+    fireEvent.click(screen.getByRole("radio", { name: "Orthogonal" }));
 
-    expect(workspaceStoreState.setActiveWorkspaceMode).toHaveBeenCalledWith(
-      "orthogonal",
-    );
+    expect(workspaceStoreState.setActiveWorkspaceMode).not.toHaveBeenCalled();
     expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("is one tab stop (radio group); in a tool workspace the stop is the first segment", () => {
+    workspaceStoreState.workspaces.set("tool", makeWorkspace("tool", "bids-explorer"));
+    workspaceStoreState.activeWorkspaceId = "tool";
+
+    render(<DisplayModeSelector />);
+
+    const radios = screen.getAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1", "-1"]);
+    expect(screen.getByRole("radiogroup", { name: "Display mode" })).toBeInTheDocument();
   });
 });

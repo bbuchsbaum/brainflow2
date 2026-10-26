@@ -1,17 +1,17 @@
 /* FileTreeRow — chrome rendered for each react-arborist row. */
+/* Row geometry and states come from the bf SelectableRow vocabulary (classes
+   applied in FileTreeRow.tsx): 24px row, 8px inset + 12px per level, selected
+   = #36383d fill + 2px inset amber left edge (x 0-1), hover = neutral hover
+   fill on unselected rows. This file keeps only what Tailwind cannot express:
+   the keyboard-gated focus ring on react-arborist's treeitem wrapper. */
 .file-tree-item {
   user-select: none;
   cursor: pointer;
-  display: flex;
-  align-items: center;
   width: 100%;
   height: 100%;
-  padding: var(--bf-space-1) var(--bf-space-3);
-  font-size: var(--app-text-base);
-  color: var(--bf-text-primary);
-  transition: background-color var(--bf-motion-fast) ease;
-  position: relative;
+  padding-right: var(--bf-space-2);
   white-space: nowrap;
+  transition: background-color var(--bf-motion-fast) ease;
 }
 
 .file-tree-item[draggable='true'] {
@@ -22,52 +22,19 @@
   cursor: grabbing;
 }
 
-.file-tree-item:hover {
-  background-color: var(--bf-bg-hover);
-}
-
-/* Selection is a tinted ground with a 2px amber inset edge, not a solid
-   accent fill: the selected row must stay readable and must not be the
-   loudest element on screen. Hover stays the neutral fill. */
-.file-tree-item.selected {
-  background-color: var(--bf-bg-selected);
-  box-shadow: inset 2px 0 0 var(--bf-accent);
-  color: var(--bf-text-primary);
-}
-
-.file-tree-item.selected:hover {
-  background-color: var(--bf-bg-active);
-}
-
-/* Keyboard focus (react-arborist focuses the treeitem wrapper). Focus is a
-   different FORM from selection (HYBRID rule 4): a full 2px ring with a 1px
-   gap INSIDE it, so the ring never touches the row fill, versus selection's
-   fill + 2px left edge. Rows span the full scroll width, so an outside
-   outline would be clipped at the panel edges; the ring is drawn as stacked
-   inset shadows instead (2px ring at the row edge, then a 1px panel-coloured
-   gap). On a selected row the 2px selection edge sits inside the gap, so
-   ring | gap | edge | fill all stay distinct.
-
-   The ring is gated on [data-kbd-nav] (set by useKeyboardNavWithin while the
-   user keyboard-navigates inside the tree, cleared on pointerdown / blur):
+/* Keyboard focus (react-arborist focuses the treeitem wrapper, not this row).
+   Same geometry as SelectableRow's FOCUS_RING_INSET: a 2px amber outline at
+   outline-offset -6px, i.e. edge (x 0-1) · gap (2-3) · ring (4-5), so focus
+   and selection never fuse. Gated on [data-kbd-nav] (useKeyboardNavWithin):
    react-arborist keeps DOM focus on a row after pointer or programmatic
-   selection, and :focus-visible alone leaves that parked row ringed. */
-.fb-tree-container[data-kbd-nav='true'] [role='treeitem']:focus > .file-tree-item {
+   selection, and :focus-visible alone would leave that parked row ringed. */
+.fb-tree-container [role='treeitem']:focus {
   outline: none;
-  box-shadow:
-    inset 0 0 0 2px var(--bf-border-focus),
-    inset 0 0 0 3px var(--bf-bg-panel);
 }
 
-.fb-tree-container[data-kbd-nav='true'] [role='treeitem']:focus > .file-tree-item.selected {
-  box-shadow:
-    inset 0 0 0 2px var(--bf-border-focus),
-    inset 0 0 0 3px var(--bf-bg-panel),
-    inset 5px 0 0 var(--bf-accent);
-}
-
-.file-tree-item:active {
-  background-color: var(--bf-bg-active);
+.fb-tree-container[data-kbd-nav='true'] [role='treeitem']:focus > .file-tree-item {
+  outline: 2px solid var(--bf-border-focus);
+  outline-offset: -6px;
 }
 
 .file-tree-item.font-medium {
@@ -132,87 +99,27 @@
   min-width: 0;
 }
 
-/* Middle truncation in one flex row: head | stem | extension.
-   1. The head (start of the name) shrinks first, ellipsis at its end. Its
-      huge flex-shrink weight means it absorbs the whole deficit until it
-      reaches zero width.
-   2. Only then does the stem (last stem characters) shrink, down to ~3ch,
-      with the ellipsis at its START (RTL box + isolated LTR text), so the
-      characters next to the extension stay visible.
-   3. The extension (.nii.gz) never shrinks.
-   So at most one run shows an ellipsis at a time, and the extension is
-   never hidden. */
+/* The name column: its width never depends on its text (flex 1, min-width
+   0), so useFittedName can measure it and render formatName's middle
+   truncation (extension kept whole). The end ellipsis is only a fallback for
+   search highlighting and the first frame before measurement. */
 .file-tree-item .file-name-text {
-  display: flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.file-tree-item .file-name-head {
-  flex: 0 100000 auto;
+  display: block;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-tree-item .file-name-stem {
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-}
-
-.file-tree-item .file-name-stem > bdi {
-  unicode-bidi: isolate;
-  direction: ltr;
-}
-
-.file-tree-item .file-name-ext {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
+/* Remote provenance tags are bf Chips (static tag form); only their share of
+   the name column is set here. */
 .file-tree-item .remote-origin-badge {
-  font-size: var(--app-text-xs);
-  font-family: var(--bf-font-mono);
-  color: var(--bf-text-secondary);
-  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
-  border: 1px solid var(--bf-border-subtle);
-  border-radius: var(--bf-radius-sm);
-  padding: 1px 6px;
   max-width: 36%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-item.selected .remote-origin-badge {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary));
 }
 
 .file-tree-item .remote-root-badge {
-  font-size: var(--app-text-xs);
-  font-family: var(--bf-font-mono);
-  color: var(--bf-text-secondary);
-  background: var(--bf-bg-panel-raised);
-  border: 1px solid var(--bf-border);
-  border-radius: var(--bf-radius-sm);
-  padding: 1px 6px;
   max-width: 52%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-item.selected .remote-root-badge {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary));
 }
 
 .file-tree-item .file-meta {
@@ -224,6 +131,8 @@
 }
 
 .file-tree-item .file-size {
+  font-family: var(--bf-font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--app-text-xs);
   color: var(--bf-text-muted);
   white-space: nowrap;

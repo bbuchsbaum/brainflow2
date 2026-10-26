@@ -14,6 +14,10 @@
  * state carries `--bf-success` on its icon only. Amber is reserved for the
  * accent, so none of these states use it.
  *
+ * Form: a bf `Notice`. Inline (the Integrated surface pane's top strip) it is
+ * the panel form (left hairline + icon + text, no box); as an overlay on the
+ * canvas it is the boxed canvas form.
+ *
  * The badge is **non-blocking** — it sits in the top-left of the surface
  * canvas at low opacity until hovered. Surface canvas interactions
  * continue to work behind it (pointer-events on the inner card only).
@@ -24,6 +28,7 @@ import { useSurfaceStore } from "@/stores/surfaceStore";
 import { collectRenderSurfaces } from "./surfaceRenderSurfaces";
 import { resolveCursorAnatomy } from "./surfaceLink";
 import { Brain, Link, Link2Off } from "lucide-react";
+import { Notice, type NoticeSeverity } from "@/components/ui/bf";
 
 import { useSurfaceAssociationState } from "./surfaceAssociation.helpers";
 
@@ -34,12 +39,12 @@ const ABS_OVERLAY_STYLE: React.CSSProperties = {
   zIndex: 4,
   pointerEvents: "none",
   display: "flex",
+  maxWidth: "320px",
 };
 
 // Inline: the badge is the surface pane's top-margin status strip. It sits
 // over the pane's top 28px (the surface panel keeps the full pane so its
-// camera framing is unchanged) and has no fill: HYBRID status rule, a
-// warning reads as icon + hairline edge + text, never as a filled chip.
+// camera framing is unchanged).
 const INLINE_STRIP_STYLE: React.CSSProperties = {
   position: "absolute",
   top: 0,
@@ -54,68 +59,44 @@ const INLINE_STRIP_STYLE: React.CSSProperties = {
   minWidth: 0,
 };
 
-/** Unfilled status line: hairline edge in the state colour, neutral text. */
-function inlineStatusStyle(edge: string): React.CSSProperties {
-  return {
-    pointerEvents: "auto",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    height: "16px",
-    padding: "0 0 0 6px",
-    background: "transparent",
-    border: "none",
-    borderLeft: `1px solid ${edge}`,
-    borderRadius: 0,
-    color: "var(--bf-text-secondary)",
-    fontSize: "var(--bf-text-xs)",
-    fontWeight: 450,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    minWidth: 0,
-    maxWidth: "100%",
-  };
+const ICON = "mt-px h-3 w-3 shrink-0";
+
+interface BadgeNoticeProps {
+  inline: boolean;
+  state: string;
+  severity: NoticeSeverity;
+  icon: React.ReactNode;
+  title: string;
+  reason?: string;
+  children: React.ReactNode;
 }
 
-const DETAIL_STYLE: React.CSSProperties = {
-  color: "var(--bf-text-muted)",
-  fontWeight: 450,
-};
-
-const CARD_BASE_STYLE: React.CSSProperties = {
-  pointerEvents: "auto",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "6px",
-  padding: "0 8px",
-  height: "22px",
-  background: "hsl(var(--card) / 0.92)",
-  border: "1px solid var(--bf-border)",
-  borderRadius: "var(--bf-radius-sm)",
-  color: "var(--bf-text-secondary)",
-  fontSize: "var(--bf-text-xs)",
-  fontWeight: 500,
-  backdropFilter: "blur(6px)",
-  whiteSpace: "nowrap",
-  maxWidth: "320px",
-};
-
-// Coordinate-linking caveat: a scientific caution, so it uses the warning
-// token (text/icon, soft fill, hairline border) rather than neutral grey or
-// the amber selection accent.
-const CAVEAT_STYLE: React.CSSProperties = {
-  ...CARD_BASE_STYLE,
-  color: "var(--bf-warning)",
-  background: "var(--bf-warning-soft)",
-  border: "1px solid color-mix(in srgb, var(--bf-warning) 40%, transparent)",
-};
+function BadgeNotice({ inline, state, severity, icon, title, reason, children }: BadgeNoticeProps) {
+  return (
+    <div
+      style={inline ? INLINE_STRIP_STYLE : ABS_OVERLAY_STYLE}
+      data-placement={inline ? "strip" : "overlay"}
+    >
+      <Notice
+        data-testid="surface-association-badge"
+        data-state={state}
+        data-reason={reason}
+        severity={severity}
+        surface={inline ? "panel" : "canvas"}
+        icon={icon}
+        title={title}
+        className="pointer-events-auto min-w-0 max-w-full whitespace-nowrap"
+      >
+        <span className="block truncate">{children}</span>
+      </Notice>
+    </div>
+  );
+}
 
 export const SurfaceAssociationBadge: React.FC<{
   /** Render as a top-margin strip instead of an overlay on the canvas. */
   inline?: boolean;
 }> = ({ inline = false }) => {
-  const wrapperStyle = inline ? INLINE_STRIP_STYLE : ABS_OVERLAY_STYLE;
   const association = useSurfaceAssociationState();
   const surfaces = useSurfaceStore(state => state.surfaces);
   const activeSurfaceId = useSurfaceStore(state => state.activeSurfaceId);
@@ -135,17 +116,15 @@ export const SurfaceAssociationBadge: React.FC<{
 
   if (missingAnatomy) {
     return (
-      <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
-        <div data-testid="surface-association-badge" data-state="cursor-unavailable"
-          style={inline ? inlineStatusStyle("var(--bf-warning)") : CAVEAT_STYLE}
-          title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates.">
-          <Link2Off width={12} height={12} aria-hidden="true"
-            style={inline ? { color: "var(--bf-warning)", flex: "0 0 auto" } : undefined} />
-          <span style={inline ? { overflow: "hidden", textOverflow: "ellipsis" } : undefined}>
-            Load matching pial/white surface to link coordinates
-          </span>
-        </div>
-      </div>
+      <BadgeNotice
+        inline={inline}
+        state="cursor-unavailable"
+        severity="warning"
+        icon={<Link2Off className={ICON} />}
+        title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates."
+      >
+        Load matching pial/white surface to link coordinates
+      </BadgeNotice>
     );
   }
 
@@ -155,77 +134,53 @@ export const SurfaceAssociationBadge: React.FC<{
         ? "Source volume not loaded"
         : "No source volume";
     return (
-      <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
-        <div
-          data-testid="surface-association-badge"
-          data-state="loaded-unlinked"
-          data-reason={association.reason}
-          style={
-            inline
-              ? inlineStatusStyle("var(--bf-warning)")
-              : { ...CARD_BASE_STYLE, color: "var(--bf-warning)" }
-          }
-          title={`${association.surfaceName}: ${reasonLabel}`}
-        >
-          <Link2Off width={12} height={12} aria-hidden="true"
-            style={inline ? { color: "var(--bf-warning)", flex: "0 0 auto" } : undefined} />
-          <span data-testid="surface-association-state">Source unlinked</span>
-          <span
-            data-testid="surface-association-detail"
-            style={DETAIL_STYLE}
-          >
-            · {reasonLabel}
-          </span>
-        </div>
-      </div>
+      <BadgeNotice
+        inline={inline}
+        state="loaded-unlinked"
+        reason={association.reason}
+        severity="warning"
+        icon={<Link2Off className={ICON} />}
+        title={`${association.surfaceName}: ${reasonLabel}`}
+      >
+        <span data-testid="surface-association-state">Source unlinked</span>
+        <span data-testid="surface-association-detail" className="text-muted-foreground">
+          {" "}· {reasonLabel}
+        </span>
+      </BadgeNotice>
     );
   }
 
   if (association.kind === "template-underlay") {
     return (
-      <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
-        <div
-          data-testid="surface-association-badge"
-          data-state="template-underlay"
-          style={inline ? inlineStatusStyle("var(--bf-border-strong)") : CARD_BASE_STYLE}
-          title={`${association.surfaceName}: Template surface; coordinate linking requires a volume in the same world space`}
-        >
-          <Brain width={12} height={12} aria-hidden="true" style={{ color: "var(--bf-text-muted)" }} />
-          <span data-testid="surface-association-state">Template surface</span>
-          <span
-            data-testid="surface-association-detail"
-            style={DETAIL_STYLE}
-          >
-            · template surface
-          </span>
-        </div>
-      </div>
+      <BadgeNotice
+        inline={inline}
+        state="template-underlay"
+        severity="neutral"
+        icon={<Brain className={`${ICON} text-muted-foreground`} />}
+        title={`${association.surfaceName}: Template surface; coordinate linking requires a volume in the same world space`}
+      >
+        <span data-testid="surface-association-state">Template surface</span>
+        <span data-testid="surface-association-detail" className="text-muted-foreground">
+          {" "}· template surface
+        </span>
+      </BadgeNotice>
     );
   }
 
-  // loaded-linked
+  // loaded-linked: success colour on the icon only; the text stays neutral.
   return (
-    <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
-      <div
-        data-testid="surface-association-badge"
-        data-state="loaded-linked"
-        style={inline ? inlineStatusStyle("var(--bf-border-strong)") : CARD_BASE_STYLE}
-        title={`${association.surfaceName} ↔ ${association.volumeName}`}
-      >
-        <Link width={12} height={12} aria-hidden="true" style={{ color: "var(--bf-success)" }} />
-        <span data-testid="surface-association-state">Source linked</span>
-        <span
-          data-testid="surface-association-volume"
-          style={{
-            ...DETAIL_STYLE,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          · {association.volumeName}
-        </span>
-      </div>
-    </div>
+    <BadgeNotice
+      inline={inline}
+      state="loaded-linked"
+      severity="neutral"
+      icon={<Link className={`${ICON} text-bf-success`} />}
+      title={`${association.surfaceName} ↔ ${association.volumeName}`}
+    >
+      <span data-testid="surface-association-state">Source linked</span>
+      <span data-testid="surface-association-volume" className="text-muted-foreground">
+        {" "}· {association.volumeName}
+      </span>
+    </BadgeNotice>
   );
 };
 

@@ -33,7 +33,7 @@ describe('BottomWorkbenchDock', () => {
     renderDock();
 
     expect(screen.getByTestId('bottom-workbench-dock')).toHaveAttribute('data-active-tab', 'plot');
-    expect(screen.getByTestId('bottom-dock-tab-plot')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Plot' })).toHaveAttribute('aria-selected', 'true');
 
     // Only the active tab's content is mounted — the dock is one panel at a time.
     expect(screen.getByTestId('plot-content')).toBeInTheDocument();
@@ -45,6 +45,7 @@ describe('BottomWorkbenchDock', () => {
     const onActiveTabChange = vi.fn();
     renderDock({ onActiveTabChange });
 
+    expect(screen.getByTestId('bottom-dock-tab-log')).toBe(screen.getByRole('tab', { name: 'Log' }));
     fireEvent.click(screen.getByTestId('bottom-dock-tab-log'));
 
     expect(onActiveTabChange).toHaveBeenCalledTimes(1);
@@ -52,14 +53,14 @@ describe('BottomWorkbenchDock', () => {
     expect(screen.getByTestId('bottom-workbench-dock')).toHaveAttribute('data-active-tab', 'log');
     expect(screen.getByTestId('log-content')).toBeInTheDocument();
     expect(screen.queryByTestId('plot-content')).not.toBeInTheDocument();
-    expect(screen.getByTestId('bottom-dock-tab-log')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Log' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('does not re-notify when the already-active tab is clicked', () => {
     const onActiveTabChange = vi.fn();
     renderDock({ onActiveTabChange });
 
-    fireEvent.click(screen.getByTestId('bottom-dock-tab-plot')); // already active
+    fireEvent.click(screen.getByRole('tab', { name: 'Plot' })); // already active
     expect(onActiveTabChange).not.toHaveBeenCalled();
   });
 
@@ -115,7 +116,7 @@ describe('BottomWorkbenchDock', () => {
     expect(screen.queryByTestId('log-content')).not.toBeInTheDocument();
 
     // Clicking a tab in controlled mode notifies the parent (which owns state).
-    fireEvent.click(screen.getByTestId('bottom-dock-tab-activity'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Activity' }));
     expect(onActiveTabChange).toHaveBeenLastCalledWith('activity');
   });
 
@@ -151,7 +152,7 @@ describe('BottomWorkbenchDock', () => {
     const onRestore = vi.fn();
     renderDock({ minimized: true, onRestore });
 
-    fireEvent.click(screen.getByTestId('bottom-dock-tab-log'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Log' }));
     expect(onRestore).toHaveBeenCalledTimes(1);
   });
 });

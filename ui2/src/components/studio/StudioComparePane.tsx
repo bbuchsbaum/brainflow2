@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
+import { Button, Chip, IconButton, StatusPill, type StatusKind } from '@/components/ui/bf';
 import type {
   SpatialFieldSetSummary,
   StudioComparePaneSpec,
@@ -133,42 +135,35 @@ export function StudioComparePane({
       {/* Footer provenance chips */}
       <footer className="flex flex-wrap items-center gap-1.5 border-t border-border bg-card/80 px-3 py-2 text-bf-xs text-muted-foreground">
         {letter !== 'A' && cohortId && onDrillToCohort ? (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={onDrillToCohort}
-            className={`inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 transition-colors border-border hover:bg-accent hover:text-accent-foreground`}
             aria-label={`Drill to ${cohortLabel ?? 'cohort'} members`}
-          >
-            <span className="tabular-nums" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {memberCountText}
-            </span>
-            <DrillIcon />
-          </button>
-        ) : (
-          <span
-            className="inline-flex items-center rounded-sm border border-border bg-background/60 px-2 py-0.5 tabular-nums"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
+            icon={<DrillIcon />}
+            iconPosition="right"
+            className="font-mono tabular-nums"
           >
             {memberCountText}
-          </span>
+          </Button>
+        ) : (
+          <Chip mono>{memberCountText}</Chip>
         )}
-        {reducer ? <Chip label="Reducer" value={reducer} /> : null}
-        {normalization ? <Chip label="Norm" value={normalization} /> : null}
-        {threshold ? <Chip label="Threshold" value={threshold} /> : null}
-        {supportLabel ? <Chip label="Support" value={supportLabel} /> : null}
+        {reducer ? <FactChip label="Reducer" value={reducer} /> : null}
+        {normalization ? <FactChip label="Norm" value={normalization} /> : null}
+        {threshold ? <FactChip label="Threshold" value={threshold} /> : null}
+        {supportLabel ? <FactChip label="Support" value={supportLabel} /> : null}
       </footer>
     </article>
   );
 }
 
-function Chip({ label, value }: { label: string; value: string }) {
+function FactChip({ label, value }: { label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-sm border border-border bg-background/60 px-2 py-0.5">
-      <span className="text-bf-2xs text-muted-foreground">
-        {label}
-      </span>
+    <Chip title={`${label} ${value}`}>
+      <span className="text-muted-foreground">{label}</span>{' '}
       <span className="text-foreground">{value}</span>
-    </span>
+    </Chip>
   );
 }
 
@@ -201,64 +196,22 @@ function paneStatus(
   return 'pending';
 }
 
-function StatusBadge({ status }: { status: PaneStatus }) {
-  const { className, glyph, label } = describeStatus(status);
-  return (
-    <span
-      role="status"
-      aria-label={label}
-      title={label}
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-sm border text-bf-2xs ${className}`}
-    >
-      {glyph}
-    </span>
-  );
-}
+const PANE_STATUS: Record<PaneStatus, { status: StatusKind; label: string }> = {
+  ready: { status: 'success', label: 'Ready' },
+  recomputing: { status: 'running', label: 'Recomputing' },
+  computing: { status: 'running', label: 'Computing' },
+  stale: { status: 'warning', label: 'Stale' },
+  failed: { status: 'failed', label: 'Failed' },
+  pending: { status: 'queued', label: 'Pending' },
+};
 
-function describeStatus(status: PaneStatus): {
-  className: string;
-  glyph: string;
-  label: string;
-} {
-  switch (status) {
-    case 'ready':
-      return {
-        className: 'border-bf-success/40 text-bf-success',
-        glyph: '✓',
-        label: 'Ready',
-      };
-    case 'recomputing':
-      return {
-        className: 'border-border bg-bf-bg-active text-bf-text-secondary',
-        glyph: '↻',
-        label: 'Recomputing',
-      };
-    case 'computing':
-      return {
-        className: 'border-border bg-bf-bg-active text-bf-text-secondary',
-        glyph: '⏳',
-        label: 'Computing',
-      };
-    case 'stale':
-      return {
-        className: 'border-bf-warning/50 text-bf-warning',
-        glyph: '⚠',
-        label: 'Stale',
-      };
-    case 'failed':
-      return {
-        className: 'border-destructive/50 text-bf-danger',
-        glyph: '!',
-        label: 'Failed',
-      };
-    case 'pending':
-    default:
-      return {
-        className: 'border-border bg-background text-muted-foreground',
-        glyph: '·',
-        label: 'Pending',
-      };
-  }
+function StatusBadge({ status }: { status: PaneStatus }) {
+  const { status: kind, label } = PANE_STATUS[status] ?? PANE_STATUS.pending;
+  return (
+    <StatusPill role="status" status={kind}>
+      {label}
+    </StatusPill>
+  );
 }
 
 function PaneActionsMenu({
@@ -319,21 +272,16 @@ function PaneActionsMenu({
 
   return (
     <div ref={wrapRef} className="relative">
-      <button
-        type="button"
+      <IconButton
+        size="xs"
+        variant="secondary"
+        icon={<MoreHorizontal />}
         aria-haspopup="menu"
         aria-expanded={open}
         title="More actions"
         aria-label="More actions"
         onClick={() => setOpen((p) => !p)}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-sm border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden>
-          <circle cx="3" cy="8" r="1.4" />
-          <circle cx="8" cy="8" r="1.4" />
-          <circle cx="13" cy="8" r="1.4" />
-        </svg>
-      </button>
+      />
       {open ? (
         <div
           role="menu"

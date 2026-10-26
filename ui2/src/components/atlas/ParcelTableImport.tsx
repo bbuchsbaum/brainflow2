@@ -397,7 +397,11 @@ export function ParcelTableImport({
           )}
         </div>
       )}
+      {/* Footer convention: Cancel (secondary) left of the primary action. */}
       <div className="flex gap-2 border-t border-border/60 pt-3">
+        <button type="button" className="bf-control-button" disabled={creating} onClick={onClose}>
+          Cancel
+        </button>
         <button
           type="button"
           className="bf-control-button bf-control-button-primary flex-1"
@@ -418,9 +422,6 @@ export function ParcelTableImport({
           }}
         >
           {creating ? 'Creating…' : 'Create overlay'}
-        </button>
-        <button type="button" className="bf-control-button" disabled={creating} onClick={onClose}>
-          Cancel
         </button>
       </div>
     </section>

@@ -1,7 +1,7 @@
+import { Button, Notice, NumberField, Select } from '@/components/ui/bf';
 import { useEffect, useState } from 'react';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import type { PopulationSelectionOrigin } from '@/types/population';
-const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 /** Keyboard-accessible range gesture with explicit commit/cancel. Until Apply,
  * neither pointer previews nor numeric edits change the scientific selection. */
 export function PopulationSelectionRange({
@@ -48,10 +48,9 @@ export function PopulationSelectionRange({
       >
         <label>
           From{' '}
-          <input
-            className={`${control} w-16`}
+          <NumberField
+            fieldClassName="w-16"
             aria-label="Selection range start"
-            type="number"
             min={1}
             max={ids.length}
             value={Number.isFinite(from) ? from : ''}
@@ -60,18 +59,16 @@ export function PopulationSelectionRange({
         </label>
         <label>
           to{' '}
-          <input
-            className={`${control} w-16`}
+          <NumberField
+            fieldClassName="w-16"
             aria-label="Selection range end"
-            type="number"
             min={from}
             max={ids.length}
             value={Number.isFinite(to) ? to : ''}
             onChange={(e) => setTo(e.target.valueAsNumber)}
           />
         </label>
-        <select
-          className={control}
+        <Select className="w-auto max-w-full"
           aria-label="Selection operation"
           value={operation}
           onChange={(e) => setOperation(e.target.value as typeof operation)}
@@ -80,9 +77,8 @@ export function PopulationSelectionRange({
           <option value="union">Add</option>
           <option value="intersection">Intersect</option>
           <option value="difference">Remove</option>
-        </select>
-        <button
-          className={control}
+        </Select>
+        <Button variant="secondary" size="sm"
           disabled={!valid}
           onClick={() => {
             const result = populationProbeActions.select(
@@ -95,12 +91,12 @@ export function PopulationSelectionRange({
           }}
         >
           Apply selection
-        </button>
+        </Button>
         <span className="text-muted-foreground">
           {valid ? `${to - from + 1} original observations` : 'Choose a valid range'} · focus
           retained
         </span>
-        {error && <p role="alert">{error}</p>}
+        {error && <Notice role="alert" severity="danger">{error}</Notice>}
       </div>
     </details>
   );

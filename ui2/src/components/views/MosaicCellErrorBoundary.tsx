@@ -7,6 +7,7 @@
 
 import React, { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { Notice } from '@/components/ui/bf';
 
 interface Props {
   children: ReactNode;
@@ -36,12 +37,13 @@ export class MosaicCellErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex flex-col items-center justify-center h-full bg-bf-bg-panel-sunken border border-bf-border-subtle text-bf-text-secondary">
-          <div className="text-sm font-medium">Slice {this.props.sliceIndex}</div>
-          <div className="text-bf-xs text-bf-danger">Render error</div>
-          <div className="text-bf-xs text-muted-foreground mt-1">
-            {this.state.error?.message || 'Unknown error'}
-          </div>
+        <div className="flex h-full items-center justify-center bg-bf-bg-canvas p-2">
+          <Notice severity="danger" surface="canvas" role="alert" className="max-w-full">
+            <div className="font-medium">Slice {this.props.sliceIndex}: render error</div>
+            <div className="break-words text-bf-text-secondary">
+              {this.state.error?.message || 'Unknown error'}
+            </div>
+          </Notice>
         </div>
       );
     }

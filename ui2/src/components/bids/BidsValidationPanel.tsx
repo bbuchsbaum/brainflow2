@@ -1,18 +1,18 @@
 import React from 'react';
 import { useBidsStore } from '@/stores/bidsStore';
 import type { BidsValidationIssue } from '@/stores/bidsStore';
-import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { getEventBus } from '@/events/EventBus';
+import { Button, Notice, Section, StatusPill, type NoticeSeverity } from '@/components/ui/bf';
 
 type Severity = 'critical' | 'high' | 'medium' | 'low';
 
 const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low'];
 
-const SEVERITY_COLORS: Record<Severity, string> = {
-  critical: 'var(--bf-danger)',
-  high: 'var(--bf-danger)',
-  medium: 'var(--bf-warning)',
-  low: 'hsl(var(--muted-foreground))',
+const SEVERITY_NOTICE: Record<Severity, NoticeSeverity> = {
+  critical: 'danger',
+  high: 'danger',
+  medium: 'warning',
+  low: 'neutral',
 };
 
 const SEVERITY_LABELS: Record<Severity, string> = {
@@ -22,22 +22,7 @@ const SEVERITY_LABELS: Record<Severity, string> = {
   low: 'Low',
 };
 
-function SeverityDot({ severity }: { severity: Severity }) {
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        width: '8px',
-        height: '8px',
-        borderRadius: '50%',
-        backgroundColor: SEVERITY_COLORS[severity],
-        flexShrink: 0,
-      }}
-    />
-  );
-}
-
-function IssueItem({ issue }: { issue: BidsValidationIssue }) {
+function IssueItem({ issue, severity }: { issue: BidsValidationIssue; severity: Severity }) {
   const handleFileClick = () => {
     if (issue.file) {
       getEventBus().emit('filebrowser.file.open', { path: issue.file, intent: 'default' });
@@ -45,43 +30,47 @@ function IssueItem({ issue }: { issue: BidsValidationIssue }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-      <span className="bf-role-body text-foreground">{issue.description}</span>
-      {issue.file && (
-        <button
-          onClick={handleFileClick}
-          className="text-left text-muted-foreground hover:text-foreground transition-colors"
-          style={{ fontFamily: 'monospace', fontSize: '0.75rem', background: 'none', border: 'none', padding: 0, cursor: 'pointer', wordBreak: 'break-all' }}
-        >
-          {issue.file}
-        </button>
-      )}
-      <span className="bf-role-body text-muted-foreground" style={{ fontSize: '0.7rem' }}>
-        [{issue.rule}]
-      </span>
-    </div>
+    <Notice severity={SEVERITY_NOTICE[severity]} role={undefined}>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-bf-sm text-foreground">{issue.description}</span>
+        {issue.file && (
+          <Button
+            variant="link"
+            size="sm"
+            wrap
+            className="min-h-6 font-mono"
+            onClick={handleFileClick}
+          >
+            {issue.file}
+          </Button>
+        )}
+        <span className="font-mono text-bf-2xs text-muted-foreground">[{issue.rule}]</span>
+      </div>
+    </Notice>
   );
 }
 
-function SeverityGroup({ severity, issues }: { severity: Severity; issues: BidsValidationIssue[] }) {
-  const label = (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-      <SeverityDot severity={severity} />
-      {SEVERITY_LABELS[severity]} ({issues.length})
-    </span>
-  );
-
+function SeverityGroup({
+  severity,
+  issues,
+  divider,
+}: {
+  severity: Severity;
+  issues: BidsValidationIssue[];
+  divider: boolean;
+}) {
   return (
-    <CollapsibleSection
+    <Section
+      divider={divider}
       title={`${SEVERITY_LABELS[severity]} (${issues.length})`}
-      defaultExpanded={severity === 'critical'}
+      defaultOpen={severity === 'critical'}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '4px' }}>
+      <div className="flex flex-col gap-2">
         {issues.map((issue, idx) => (
-          <IssueItem key={idx} issue={issue} />
+          <IssueItem key={idx} issue={issue} severity={severity} />
         ))}
       </div>
-    </CollapsibleSection>
+    </Section>
   );
 }
 
@@ -92,19 +81,11 @@ export function BidsValidationPanel() {
   const { validation } = summary;
 
   if (validation.passed) {
+    // The pill carries the status word; the sentence is plain text beside it.
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span
-          style={{
-            display: 'inline-block',
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: 'var(--bf-success)',
-            flexShrink: 0,
-          }}
-        />
-        <span className="bf-role-body text-foreground">Passed — no issues found</span>
+      <div className="flex items-center gap-2 text-bf-xs text-muted-foreground" data-testid="bids-validation-passed">
+        <StatusPill status="success">Passed</StatusPill>
+        <span>No issues found.</span>
       </div>
     );
   }
@@ -114,10 +95,11 @@ export function BidsValidationPanel() {
     return acc;
   }, { critical: [], high: [], medium: [], low: [] });
 
+  const visible = SEVERITY_ORDER.filter(sev => grouped[sev].length > 0);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      {SEVERITY_ORDER.filter(sev => grouped[sev].length > 0).map(sev => (
-        <SeverityGroup key={sev} severity={sev} issues={grouped[sev]} />
+    <div className="flex flex-col">
+      {visible.map((sev, i) => (
+        <SeverityGroup key={sev} severity={sev} issues={grouped[sev]} divider={i > 0} />
       ))}
     </div>
   );

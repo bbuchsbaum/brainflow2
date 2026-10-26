@@ -262,7 +262,8 @@ export function ViewportColorbar({
     <div
       aria-hidden
       data-testid={`viewport-colorbar-cap-${where}`}
-      className="absolute outline outline-1 outline-[var(--bf-border)]"
+      // Data colour: forced-colors mode must not strip the gradient.
+      className="absolute outline outline-1 outline-[var(--bf-border)] [forced-color-adjust:none]"
       style={{
         left: colLeft('bar'),
         width: BAR_W,
@@ -304,7 +305,8 @@ export function ViewportColorbar({
         {capBottom && swatch('bottom')}
         <div
           data-testid="viewport-colorbar-bar"
-          className="absolute outline outline-1 outline-[var(--bf-border)]"
+          // Data colour (and its hatched cut-out): kept in forced-colors mode.
+          className="absolute outline outline-1 outline-[var(--bf-border)] [forced-color-adjust:none]"
           style={{
             left: colLeft('bar'),
             top: barTop,

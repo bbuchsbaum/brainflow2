@@ -8,7 +8,8 @@ import {
   clearActiveDragData,
 } from '@/utils/layerDrag';
 import { inferFileType, type FileKind } from './shared/inferFileType';
-import { FileTypeBadge } from './shared/FileTypeBadge';
+import { FlatFileRow } from './FlatFileRow';
+import { useRovingFocus } from '@/components/ui/bf';
 
 interface ImagesViewProps {
   rootNode: FileTreeNode | null;
@@ -69,13 +70,16 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
   const fourDPaths = useFileBrowserStore((state) => state.fourDPaths);
   const selectFile = useFileBrowserStore((state) => state.selectFile);
 
-  const rows = useMemo<FlatImageRow[]>(() => {
+  const rowsMemo = useMemo<FlatImageRow[]>(() => {
     if (!rootNode) return [];
     const out: FlatImageRow[] = [];
     flattenImages(rootNode.path, rootNode.children ?? [], fourDPaths, out);
     out.sort((a, b) => a.name.localeCompare(b.name));
     return out;
   }, [rootNode, fourDPaths]);
+  const rows = rowsMemo;
+  const ids = useMemo(() => rows.map((r) => r.path), [rows]);
+  const roving = useRovingFocus({ ids, activeId: selectedPath });
 
   if (!rootNode) {
     return null;
@@ -115,30 +119,26 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
   }
 
   return (
-    <ul className="fb-flat-list" role="list">
-      {rows.map((row) => {
-        const info = inferFileType(row.path, false, { isFourD: row.isFourD });
-        const isSelected = row.path === selectedPath;
-        return (
-          <li key={row.path}>
-            <button
-              type="button"
-              className={`fb-flat-row${isSelected ? ' is-selected' : ''}`}
-              onClick={() => selectFile(row.path)}
-              title={row.path}
-              draggable
-              onDragStart={(event) => handleDragStart(event, row)}
-              onDragEnd={() => clearActiveDragData()}
-            >
-              <FileTypeBadge info={info} />
-              <span className="fb-flat-row-name">{row.name}</span>
-              {row.relativeDir && (
-                <span className="fb-flat-row-dir">{row.relativeDir}</span>
-              )}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <div
+      className="fb-flat-list"
+      role="listbox"
+      aria-label="Imaging files"
+      onKeyDown={roving.onKeyDown}
+    >
+      {rows.map((row) => (
+        <FlatFileRow
+          key={row.path}
+          roving={roving.getItemProps(row.path)}
+          selected={row.path === selectedPath}
+          onSelect={() => selectFile(row.path)}
+          info={inferFileType(row.path, false, { isFourD: row.isFourD })}
+          name={row.name}
+          meta={row.relativeDir || undefined}
+          title={row.path}
+          onDragStart={(event) => handleDragStart(event, row)}
+          onDragEnd={() => clearActiveDragData()}
+        />
+      ))}
+    </div>
   );
 };

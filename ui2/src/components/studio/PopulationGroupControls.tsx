@@ -1,3 +1,4 @@
+import { Button, Notice, Select, TextField } from '@/components/ui/bf';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -6,8 +7,6 @@ import { partitionPopulation } from '@/services/studio/populationGroups';
 import { studioMetadata } from '@/services/studio/studioMetadata';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 
-const control =
-  'w-full min-w-0 rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationGroupControls() {
   const state = useSetStudioStore();
   const population = resolvePopulation(state);
@@ -43,8 +42,7 @@ export function PopulationGroupControls() {
     >
       <label className="block space-y-1">
         <span>Group context by factor</span>
-        <select
-          className={control}
+        <Select
           aria-label="Group by factor"
           value={factor}
           onChange={(e) => setColumn(e.target.value)}
@@ -55,22 +53,20 @@ export function PopulationGroupControls() {
               {c}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="block space-y-1">
         <span>Split each group by (optional)</span>
-        <select
-          className={control}
+        <Select
           aria-label="Second grouping factor"
           value={secondColumn}
           onChange={(e) => setSecondColumn(e.target.value)}
         >
           <option value="">No second factor</option>
           {metadata?.columns.filter((c) => c !== factor).map((c) => <option key={c}>{c}</option>)}
-        </select>
+        </Select>
       </label>
-      <button
-        className={control}
+      <Button variant="secondary" size="sm"
         disabled={!factor || !!metadata?.issue}
         onClick={() => {
           try {
@@ -89,7 +85,7 @@ export function PopulationGroupControls() {
         }}
       >
         Show factor groups
-      </button>
+      </Button>
       {state.population.partition && (
         <details className="rounded-sm border border-border p-2">
           <summary className="cursor-pointer">Choose comparison groups</summary>
@@ -99,8 +95,7 @@ export function PopulationGroupControls() {
           {(['A', 'B'] as const).map((operand) => (
             <label key={operand} className="block space-y-1 mt-2">
               <span>Population {operand}</span>
-              <select
-                className={control}
+              <Select
                 aria-label={`Assign group to ${operand}`}
                 value=""
                 onChange={(event) => {
@@ -130,29 +125,27 @@ export function PopulationGroupControls() {
                     {group.label} · {group.memberIds.length} observations
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           ))}
         </details>
       )}
       {metadata?.issue && <p className="text-muted-foreground">{metadata.issue}</p>}
       {!!state.population.partitionPast.length && (
-        <button className={control} onClick={state.undoPopulationPartition}>
+        <Button variant="secondary" size="sm" onClick={state.undoPopulationPartition}>
           Undo grouping
-        </button>
+        </Button>
       )}
       <label className="block space-y-1">
         <span>Name the working selection</span>
-        <input
-          className={control}
+        <TextField
           aria-label="Selection name"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="e.g. High response"
         />
       </label>
-      <button
-        className={control}
+      <Button variant="secondary" size="sm"
         disabled={!label.trim() || !a.size}
         onClick={() => {
           save(population.workingMemberIds, label.trim());
@@ -160,11 +153,10 @@ export function PopulationGroupControls() {
         }}
       >
         Save selection as set
-      </button>
+      </Button>
       <label className="block space-y-1">
         <span>Reference B</span>
-        <select
-          className={control}
+        <Select
           aria-label="Reference B"
           value={
             state.population.referenceMode === 'complement'
@@ -188,7 +180,7 @@ export function PopulationGroupControls() {
                 </option>
               ),
           )}
-        </select>
+        </Select>
       </label>
       <p className="text-muted-foreground">
         B: {population.referenceMemberIds.length} observations
@@ -198,10 +190,9 @@ export function PopulationGroupControls() {
         · {overlap} observations shared with A
         {participantOverlap !== null ? ` · ${participantOverlap} participants shared` : ''}
       </p>
-      {population.referenceIssue && <p role="alert">{population.referenceIssue}</p>}
+      {population.referenceIssue && <Notice role="alert" severity="danger">{population.referenceIssue}</Notice>}
       {state.population.referenceMode === 'complement' && (
-        <button
-          className={control}
+        <Button variant="secondary" size="sm"
           disabled={!population.referenceMemberIds.length || !!population.referenceIssue}
           onClick={() => {
             const id = save(population.referenceMemberIds, 'Pinned reference');
@@ -212,10 +203,9 @@ export function PopulationGroupControls() {
           }}
         >
           Pin reference membership
-        </button>
+        </Button>
       )}
-      <button
-        className={control}
+      <Button variant="secondary" size="sm"
         disabled={!a.size || !population.referenceMemberIds.length || !!population.referenceIssue}
         onClick={() =>
           state.setPopulationPresentation({
@@ -225,11 +215,11 @@ export function PopulationGroupControls() {
         }
       >
         Compare A and B
-      </button>
+      </Button>
       {error && (
-        <p role="alert" className="text-destructive">
+        <Notice role="alert" severity="danger">
           {error}
-        </p>
+        </Notice>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import React from 'react';
-import { Button } from '@/components/ui/Button';
-import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
+import { Button, KeyValue, Notice, SELECTED, Section } from '@/components/ui/bf';
+import { cn } from '@/utils/cn';
 import { getEventBus } from '@/events/EventBus';
 import { getConfirmationService } from '@/services/ConfirmationService';
 import { StudioPane } from './StudioPane';
@@ -240,46 +240,61 @@ export function InspectorPane({
     >
       <div className="space-y-4 text-bf-md text-foreground">
         {!activeArtifact && !activeMemberId ? (
-          <div className="rounded-sm border border-border bg-background px-3 py-3">
-            <div className="text-bf-md font-medium text-foreground">Nothing selected</div>
-            <div className="mt-1 text-bf-sm leading-5 text-muted-foreground">
-              Select a member or compare result to inspect it here.
-            </div>
-          </div>
+          <Notice role={undefined} severity="neutral">
+            <div className="font-medium text-foreground">Nothing selected</div>
+            <div>Select a member or compare result to inspect it here.</div>
+          </Notice>
         ) : (
-          <div className="space-y-4 divide-y divide-border rounded-sm border border-border bg-background px-3 py-3">
-            <DetailSection title="Current">
-              <InfoRow label="Active" value={activeArtifact?.title ?? activeMemberId ?? 'No member selected'} />
-              <InfoRow label="Source" value={activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No bound file path'} />
-              <InfoRow label="Expression" value={activeArtifact?.recipe ?? activeExpression?.recipe ?? 'Deck(member)'} />
-              <InfoRow label="Compare" value={activeCompareLabel} />
-              <InfoRow label="Scope" value={scopeCohort?.label ?? 'All members'} />
-              <InfoRow label="Cache" value={cacheLabel(activeArtifact)} />
-              <InfoRow
-                label="Provenance"
-                value={activeArtifact?.provenancePath ?? 'No manifest-backed provenance path'}
+          <div className="rounded-sm border border-border bg-background">
+            <Section variant="static" divider={false} title="Current">
+              <KeyValue
+                columns={1}
+                items={[
+                  { label: 'Active', value: activeArtifact?.title ?? activeMemberId ?? 'No member selected' },
+                  {
+                    label: 'Source',
+                    value: activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No bound file path',
+                  },
+                  {
+                    label: 'Expression',
+                    value: activeArtifact?.recipe ?? activeExpression?.recipe ?? 'Deck(member)',
+                  },
+                  { label: 'Compare', value: activeCompareLabel, mono: false },
+                  { label: 'Scope', value: scopeCohort?.label ?? 'All members', mono: false },
+                  { label: 'Cache', value: cacheLabel(activeArtifact), mono: false },
+                  {
+                    label: 'Provenance',
+                    value: activeArtifact?.provenancePath ?? 'No manifest-backed provenance path',
+                  },
+                ]}
               />
-            </DetailSection>
+            </Section>
 
             {activeSet ? (
-              <DetailSection title="Dataset">
-                <InfoRow label="Support" value={activeSet.supportLabel} />
-                <InfoRow label="Alignment" value={activeSet.alignmentClass} />
-                <InfoRow
-                  label="Import"
-                  value={`${activeSet.ingestAudit.join.matchedRows} matched · ${activeSet.ingestAudit.join.unmatchedRows} unmatched`}
+              <Section variant="static" title="Dataset">
+                <KeyValue
+                  columns={1}
+                  items={[
+                    { label: 'Support', value: activeSet.supportLabel },
+                    { label: 'Alignment', value: activeSet.alignmentClass },
+                    {
+                      label: 'Import',
+                      value: `${activeSet.ingestAudit.join.matchedRows} matched · ${activeSet.ingestAudit.join.unmatchedRows} unmatched`,
+                    },
+                    {
+                      label: 'Cache',
+                      value: `warm ${materialization.warm} · preview ${materialization.preview} · pending ${materialization.pending}`,
+                    },
+                  ]}
                 />
-                <InfoRow
-                  label="Cache"
-                  value={`warm ${materialization.warm} · preview ${materialization.preview} · pending ${materialization.pending}`}
-                />
-              </DetailSection>
+              </Section>
             ) : null}
 
-            <DetailSection title="Actions">
+            <Section variant="static" title="Actions">
               <div className="flex flex-wrap gap-x-4 gap-y-2">
                 <Button
                   variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.recipe ?? activeExpression?.recipe ?? null, 'Recipe');
@@ -289,6 +304,7 @@ export function InspectorPane({
                 </Button>
                 <Button
                   variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? null, 'Source path');
@@ -298,6 +314,7 @@ export function InspectorPane({
                 </Button>
                 <Button
                   variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.provenancePath ?? null, 'Provenance path');
@@ -307,6 +324,7 @@ export function InspectorPane({
                 </Button>
                 <Button
                   variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(provenanceJson, 'Provenance JSON');
@@ -316,6 +334,7 @@ export function InspectorPane({
                 </Button>
                 <Button
                   variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void saveCurrentRecipe();
@@ -324,12 +343,11 @@ export function InspectorPane({
                   Save recipe
                 </Button>
               </div>
-            </DetailSection>
+            </Section>
           </div>
         )}
 
-        <div className="rounded-sm border border-border bg-background p-3">
-          <CollapsibleSection title={`Saved recipes (${savedRecipes.length})`} defaultExpanded={false}>
+        <Section title="Saved recipes" meta={String(savedRecipes.length)} defaultOpen={false}>
             {savedRecipes.length === 0 ? (
               <div className="text-bf-sm text-muted-foreground">No saved recipes yet.</div>
             ) : (
@@ -402,10 +420,8 @@ export function InspectorPane({
                 ))}
               </div>
             )}
-          </CollapsibleSection>
-        </div>
-        <div className="rounded-sm border border-border bg-background p-3">
-          <CollapsibleSection title={`Recent artifacts (${artifactHistory.length})`} defaultExpanded={false}>
+        </Section>
+        <Section title="Recent artifacts" meta={String(artifactHistory.length)} defaultOpen={false}>
             {artifactHistory.length === 0 ? (
               <div className="text-bf-sm text-muted-foreground">No artifact history yet.</div>
             ) : (
@@ -415,7 +431,7 @@ export function InspectorPane({
                     key={artifact.id}
                     className={`rounded-sm border px-3 py-2 transition-colors ${
                       activeArtifact?.id === artifact.id
-                        ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)]'
+                        ? cn('border-border', SELECTED)
                         : 'border-border bg-card'
                     }`}
                   >
@@ -456,28 +472,9 @@ export function InspectorPane({
                 ))}
               </div>
             )}
-          </CollapsibleSection>
-        </div>
+        </Section>
       </div>
     </StudioPane>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-bf-sm text-muted-foreground">{label}</div>
-      <div className="mt-1 text-bf-md text-foreground">{value}</div>
-    </div>
-  );
-}
-
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="pt-4 first:pt-0">
-      <div className="text-bf-md font-medium text-foreground">{title}</div>
-      <div className="mt-2 space-y-2">{children}</div>
-    </section>
   );
 }
 

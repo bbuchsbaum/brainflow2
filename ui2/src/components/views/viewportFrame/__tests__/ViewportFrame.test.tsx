@@ -39,7 +39,8 @@ describe('ViewportHeader', () => {
     const { rerender } = render(
       <ViewportHeader plane="sagittal" positionMm={-0.5} layerName="x" width={136} height={300} rangeMm={[-95.5, 94.5]} />,
     );
-    expect(screen.getByTestId('viewport-header').textContent).toBe('x \u22120.5');
+    // The unit is never dropped: the axis letter goes first.
+    expect(screen.getByTestId('viewport-header').textContent).toBe('\u22120.5mm');
     rerender(<ViewportHeader plane="sagittal" positionMm={-0.5} layerName="x" width={80} height={300} />);
     expect(screen.queryByTestId('viewport-header')).toBeNull();
     rerender(<ViewportHeader plane="sagittal" positionMm={-0.5} layerName="x" width={600} height={89} />);

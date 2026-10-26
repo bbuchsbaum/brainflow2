@@ -11,7 +11,11 @@ import { composePopulationPlot, type PopulationPlotRecipe } from '@/services/stu
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { PlotEncoder } from './encoder/PlotEncoder';
 import type { PlotModeContext } from './plotHost.types';
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs max-w-full';
+import { Button, Checkbox, Notice, Select, TextField, Toolbar, ToolbarField } from '@/components/ui/bf';
+
+/** "Open plot": a file input dressed as a secondary bf Button (a label, so the picker opens). */
+const FILE_BUTTON =
+  'inline-flex h-6 cursor-pointer items-center rounded-sm border border-border bg-bf-bg-panel-raised px-2 text-bf-xs font-medium text-foreground transition-colors hover:bg-accent focus-within:outline focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-[var(--bf-border-focus)]';
 export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
   const plots = useSyncExternalStore(
     populationPlotService.subscribe,
@@ -72,13 +76,12 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
   const composed = p && visibleFrame ? composePopulationPlot(visibleFrame, p.recipe) : null;
   const select = (label: string, key: 'x' | 'color' | 'facet' | 'detail', optional = false) =>
     p && (
-      <label>
-        {label}{' '}
-        <select
+      <ToolbarField label={label}>
+        <Select
           aria-label={`Plot ${label}`}
-          className={control}
+          className="w-auto max-w-[160px]"
           value={p.recipe[key] ?? ''}
-          onChange={(e) => apply({ [key]: e.target.value || null })}
+          onValueChange={(v) => apply({ [key]: v || null })}
         >
           {optional && <option value="">None</option>}
           {p.frame.columns.map((c) => (
@@ -86,8 +89,8 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
               {c.label ?? c.name}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </ToolbarField>
     );
   return (
     <div
@@ -96,36 +99,32 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
     >
       {p && <PopulationTimeCourseControls key={p.id} plot={p} onCreated={setActive} />}
       <div className="flex flex-wrap gap-2 items-center">
-        <select
-          className={control}
+        <Select
+          className="w-auto max-w-full"
           aria-label="Pinned plot"
           value={p?.id ?? ''}
-          onChange={(e) => setActive(e.target.value)}
-        >
-          {plots.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+          onValueChange={(v) => setActive(v)}
+          options={plots.map((plot) => ({ value: plot.id, label: plot.label }))}
+        />
         {p && (
           <>
-            <button className={control} disabled={saving} onClick={() => void download()}>
+            <Button variant="secondary" size="sm" disabled={saving} onClick={() => void download()}>
               Save plot + samples
-            </button>
-            <button
-              className={control}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={saving || !composed}
               onClick={() => void download('png')}
             >
               Export PNG
-            </button>
-            <button className={control} onClick={() => populationPlotService.close(p.id)}>
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => populationPlotService.close(p.id)}>
               Close plot
-            </button>
+            </Button>
           </>
         )}
-        <label className={`${control} cursor-pointer`}>
+        <label className={FILE_BUTTON}>
           Open plot
           <input
             className="sr-only"
@@ -152,21 +151,22 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
             {plots
               .filter((plot) => !plot.origins)
               .map((plot) => (
-                <label key={plot.id} className="flex items-center gap-1 max-w-full">
-                  <input
-                    type="checkbox"
-                    checked={combineIds.includes(plot.id)}
-                    onChange={(e) =>
-                      setCombineIds((ids) =>
-                        e.target.checked ? [...ids, plot.id] : ids.filter((id) => id !== plot.id),
-                      )
-                    }
-                  />
-                  <span className="truncate">{plot.label}</span>
-                </label>
+                <Checkbox
+                  key={plot.id}
+                  className="max-w-full"
+                  checked={combineIds.includes(plot.id)}
+                  onCheckedChange={(checked) =>
+                    setCombineIds((ids) =>
+                      checked ? [...ids, plot.id] : ids.filter((id) => id !== plot.id),
+                    )
+                  }
+                >
+                  <span className="block truncate">{plot.label}</span>
+                </Checkbox>
               ))}
-            <button
-              className={control}
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={combineIds.length < 2}
               onClick={() => {
                 try {
@@ -178,7 +178,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
               }}
             >
               Combine samples
-            </button>
+            </Button>
             <p className="w-full text-muted-foreground">
               Matching units are required. Identical observation/source/frame/probe samples appear
               once; set memberships are retained. Participant identity across sets must be declared
@@ -188,8 +188,9 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
         </details>
       )}
       {p && !p.origins && !populationPlotService.canLink(p) && (
-        <button
-          className={control}
+        <Button
+          variant="secondary"
+          size="sm"
           disabled={verifying}
           onClick={async () => {
             const controller = new AbortController();
@@ -212,7 +213,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
           {verifying
             ? 'Checking source hashes and sampled values…'
             : 'Verify and link to current population'}
-        </button>
+        </Button>
       )}
       {!p && (
         <p>
@@ -220,15 +221,14 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
         </p>
       )}
       {p && (
-        <label className="flex items-center gap-2">
-          Membership
-          <select
-            className={control}
+        <ToolbarField label="Membership">
+          <Select
+            className="w-auto"
             aria-label="Plot membership binding"
             value={p.selectionBinding ?? 'snapshot'}
-            onChange={(e) => {
+            onValueChange={(v) => {
               try {
-                populationPlotService.bindSelection(p.id, e.target.value as 'snapshot' | 'working');
+                populationPlotService.bindSelection(p.id, v as 'snapshot' | 'working');
                 setError(null);
               } catch (e) {
                 setError((e as Error).message);
@@ -239,8 +239,8 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
             <option value="working" disabled={!populationPlotService.canLink(p)}>
               Follow working selection
             </option>
-          </select>
-        </label>
+          </Select>
+        </ToolbarField>
       )}
       {p && !visibleFrame && (
         <p role="status">
@@ -250,88 +250,82 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
       )}
       {p && composed && (
         <>
-          <div className="flex flex-wrap gap-2 items-center">
+          <Toolbar aria-label="Population plot encoding" className="px-0">
             {select('X', 'x')}
             {select('Color', 'color', true)}
             {select('Facet', 'facet', true)}
             {select('Participant / line', 'detail', true)}
-            <label>
-              Axis{' '}
-              <select
-                className={control}
+            <ToolbarField label="Axis">
+              <Select
+                className="w-auto max-w-[200px]"
                 aria-label="Plot axis"
                 value={p.recipe.axis}
-                onChange={(e) => apply({ axis: e.target.value as PopulationPlotRecipe['axis'] })}
+                onValueChange={(v) => apply({ axis: v as PopulationPlotRecipe['axis'] })}
               >
                 <option value="category">Categories</option>
                 <option value="number">Measured number</option>
                 <option value="time">Measured time</option>
-              </select>
-            </label>
-            <label>
-              Axis units{' '}
-              <input
-                className={`${control} w-20`}
+              </Select>
+            </ToolbarField>
+            <ToolbarField label="Axis units">
+              <TextField
+                className="w-20"
                 aria-label="Plot axis units"
                 value={p.recipe.axisUnit}
                 onChange={(e) => apply({ axisUnit: e.target.value })}
               />
-            </label>
-            <label>
-              Mark{' '}
-              <select
-                className={control}
+            </ToolbarField>
+            <ToolbarField label="Mark">
+              <Select
+                className="w-auto max-w-[200px]"
                 aria-label="Plot mark"
                 value={p.recipe.mark}
-                onChange={(e) => apply({ mark: e.target.value as PopulationPlotRecipe['mark'] })}
+                onValueChange={(v) => apply({ mark: v as PopulationPlotRecipe['mark'] })}
               >
                 <option value="point">Points</option>
                 <option value="box">Distribution</option>
                 <option value="line">Trajectories</option>
-              </select>
-            </label>
-            <label>
-              Summary{' '}
-              <select
-                className={control}
+              </Select>
+            </ToolbarField>
+            <ToolbarField label="Summary">
+              <Select
+                className="w-auto max-w-[200px]"
                 aria-label="Plot summary"
                 value={p.recipe.summary}
-                onChange={(e) =>
-                  apply({ summary: e.target.value as PopulationPlotRecipe['summary'] })
+                onValueChange={(v) =>
+                  apply({ summary: v as PopulationPlotRecipe['summary'] })
                 }
               >
                 <option value="none">Individuals</option>
                 <option value="mean">Participant mean</option>
-              </select>
-            </label>
-            <label>
-              Within participant{' '}
-              <select
-                className={control}
+              </Select>
+            </ToolbarField>
+            <ToolbarField label="Within participant">
+              <Select
+                className="w-auto max-w-[200px]"
                 aria-label="Plot within participant"
                 value={p.recipe.within}
-                onChange={(e) =>
-                  apply({ within: e.target.value as PopulationPlotRecipe['within'] })
+                onValueChange={(v) =>
+                  apply({ within: v as PopulationPlotRecipe['within'] })
                 }
               >
                 <option value="single">One row per position</option>
                 <option value="mean">Mean of repeated rows</option>
-              </select>
-            </label>
-            <label>
-              Band{' '}
-              <select
-                className={control}
+              </Select>
+            </ToolbarField>
+            <ToolbarField label="Band">
+              <Select
+                className="w-auto max-w-[200px]"
                 aria-label="Plot band"
                 value={p.recipe.band}
-                onChange={(e) => apply({ band: e.target.value as PopulationPlotRecipe['band'] })}
+                onValueChange={(v) => apply({ band: v as PopulationPlotRecipe['band'] })}
               >
                 <option value="none">None</option>
                 <option value="sd">Participant SD</option>
                 <option value="sem95">Mean ± 1.96 SE (normal approximation)</option>
-              </select>
-            </label>
-          </div>
+              </Select>
+            </ToolbarField>
+          </Toolbar>
           <p className="text-muted-foreground">
             Pinned samples · {visibleFrame?.rows.length} / {p.frame.rows.length} sample rows{' '}
             {p.frame.columns.find((c) => c.name === 'value')?.unit &&
@@ -414,9 +408,9 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
         </p>
       )}
       {error && (
-        <p role="alert" className="text-destructive">
+        <Notice severity="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
     </div>
   );

@@ -15,6 +15,7 @@ import React, {
 } from "react";
 import { SliceViewport, type SliceViewportPlacement } from "./SliceViewport";
 import { SliceSlider } from "@/components/ui/SliceSlider";
+import { Slider } from "@/components/ui/bf";
 import { getSliceNavigationService } from "@/services/SliceNavigationService";
 import { useTransientOverlay } from "@/components/ui/TransientOverlay";
 import { getTimeNavigationService } from "@/services/TimeNavigationService";
@@ -61,6 +62,7 @@ import {
   useOrientationLabelKnockouts,
   useOverlayColorbar,
 } from "./viewportFrame";
+import { displayMinus } from "@/utils/valueFormat";
 
 /** Top-right space kept for the workspace layout button (OrthogonalViewContainer). */
 const LAYOUT_BUTTON_RESERVE = 48;
@@ -696,16 +698,16 @@ function SliceViewCanvasRaw({
             onChange={setTemporalMetric}
           />
           {temporalMetric !== "none" && (
-            <input
-              type="range"
+            <Slider
+              label="Overlay opacity"
               min={0}
               max={1}
               step={0.05}
               value={heatmapOpacity}
-              onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
-              title="Overlay opacity"
-              aria-label="Overlay opacity"
-              className="w-16 accent-primary"
+              onValueChange={setHeatmapOpacity}
+              format={(v) => `${Math.round(v * 100)}%`}
+              valueText={(v) => `${Math.round(v * 100)}%`}
+              className="w-16"
             />
           )}
         </div>
@@ -729,7 +731,7 @@ function SliceViewCanvasRaw({
             top: headerDensity(width, canvasHeight) === "hidden" ? 4 : 24,
           }}
         >
-          {hoverValue.toFixed(3)}
+          {displayMinus(hoverValue.toFixed(3))}
         </div>
       )}
     </div>

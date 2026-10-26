@@ -1,19 +1,11 @@
 import { displayFolderFile } from '@/services/studio/folderSource';
 import { useEffect, useState } from 'react';
 import { FolderOpen, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/shadcn/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/shadcn/select';
+import { Button, Notice, NumberField, Select, TextField } from '@/components/ui/bf';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
 import { canImportCandidate } from '@/services/studio/importContract';
 
-const inputClass = 'h-9 w-full rounded-sm border border-input bg-background px-3 text-bf-md';
 const PAGE_SIZE = 40;
 
 /** A pending folder draft occupies the center pane; the existing study stays intact. */
@@ -84,12 +76,12 @@ export function StudioFolderReview() {
                 : `${groups.length} members · ${images.length} images`}
           </span>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             disabled={busy}
             onClick={() => void service.scanFolderReview()}
+            icon={<RefreshCw size={14} />}
           >
-            <RefreshCw size={14} className="mr-2" />
             Scan again
           </Button>
         </div>
@@ -97,16 +89,16 @@ export function StudioFolderReview() {
 
       <div className="min-h-0 min-w-0 overflow-auto p-4">
         {(dialog.ontologyError || dialog.error) && (
-          <div role="alert" className="mb-3 rounded-sm border border-destructive/40 p-3 text-bf-md">
+          <Notice role="alert" severity="danger" className="mb-3">
             {dialog.ontologyError || dialog.error} Your current study has not changed. Reconnect the
             source if needed, then scan again.
-          </div>
+          </Notice>
         )}
         {truncated && (
-          <div role="alert" className="mb-3 rounded-sm border border-border p-3 text-bf-md">
+          <Notice role="alert" severity="warning" className="mb-3">
             The scan limit was reached. Some files have not been examined. Narrow the folder or
             increase the limit under Advanced options, then scan again.
-          </div>
+          </Notice>
         )}
         {summary && summary.candidates.length > 0 && (
           <div className="mb-4 space-y-2">
@@ -114,24 +106,26 @@ export function StudioFolderReview() {
               Organize members
             </label>
             <Select
+              id="folder-organization"
               value={proposal?.id ?? ''}
               disabled={busy || !!truncated}
               onValueChange={(value) => {
+                if (!value) return;
                 setPage(0);
                 setPath(null);
                 void service.reviewOrganization(value);
               }}
             >
-              <SelectTrigger id="folder-organization">
-                <SelectValue placeholder="Choose an organization" />
-              </SelectTrigger>
-              <SelectContent>
-                {summary.candidates.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
+              {proposal ? null : (
+                <option value="" disabled>
+                  Choose an organization
+                </option>
+              )}
+              {summary.candidates.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
             </Select>
             <p className="text-bf-sm leading-relaxed text-muted-foreground">
               {proposal?.description ?? 'Choose how the files become members and images.'}
@@ -176,9 +170,10 @@ export function StudioFolderReview() {
                         return (
                           <td key={image} className="p-2">
                             {bindings.length ? (
-                              <button
-                                type="button"
-                                className="rounded-sm px-2 py-1 text-left text-foreground underline decoration-[var(--bf-border-strong)] underline-offset-2 hover:decoration-current hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+                              <Button
+                                variant="link"
+                                className="min-h-6"
+                                size="sm"
                                 onClick={() =>
                                   setPath(
                                     bindings
@@ -193,7 +188,7 @@ export function StudioFolderReview() {
                                 {bindings.length > 1
                                   ? `${bindings.length} files — review`
                                   : 'Available'}
-                              </button>
+                              </Button>
                             ) : (
                               <span className="px-2 text-muted-foreground">Missing</span>
                             )}
@@ -271,8 +266,7 @@ export function StudioFolderReview() {
           <div className="mt-3 grid min-w-0 gap-3">
             <label className="space-y-1 text-bf-sm">
               Folder path
-              <input
-                className={inputClass}
+              <TextField
                 value={dialog.discoveryRoot}
                 onChange={(event) => service.editFolderReview('root', event.target.value)}
               />
@@ -280,20 +274,16 @@ export function StudioFolderReview() {
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-bf-sm">
                 Search depth
-                <input
-                  type="number"
+                <NumberField
                   min="1"
-                  className={inputClass}
                   value={dialog.discoveryMaxDepth}
                   onChange={(event) => service.editFolderReview('depth', event.target.value)}
                 />
               </label>
               <label className="space-y-1 text-bf-sm">
                 Maximum images
-                <input
-                  type="number"
+                <NumberField
                   min="1"
-                  className={inputClass}
                   value={dialog.discoveryMaxFiles}
                   onChange={(event) => service.editFolderReview('limit', event.target.value)}
                 />
@@ -301,14 +291,14 @@ export function StudioFolderReview() {
             </div>
             <label className="space-y-1 text-bf-sm">
               Filename matching (regex)
-              <input
-                className={`${inputClass} font-mono`}
+              <TextField
+                mono
                 value={dialog.filePattern}
                 onChange={(event) => service.editFolderReview('pattern', event.target.value)}
               />
             </label>
             <Button
-              variant="outline"
+              variant="secondary" size="sm"
               disabled={busy || !dialog.discoveryRoot.trim()}
               onClick={() => void service.openImportPreview('regex')}
             >
@@ -328,10 +318,10 @@ export function StudioFolderReview() {
             : 'Open for browsing.'}
         </p>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => service.cancelReview()}>
+          <Button variant="secondary" size="sm" onClick={() => service.cancelReview()}>
             Cancel
           </Button>
-          <Button disabled={!canOpen} onClick={() => void service.confirmReview()}>
+          <Button variant="primary" size="sm" disabled={!canOpen} onClick={() => void service.confirmReview()}>
             Open set
           </Button>
         </div>

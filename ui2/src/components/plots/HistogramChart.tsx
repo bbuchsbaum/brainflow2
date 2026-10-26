@@ -11,6 +11,8 @@ import { Group } from '@visx/group';
 import { useTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
 import { localPoint } from '@visx/event';
 import type { HistogramChartProps, HistogramBin } from '@/types/histogram';
+import { FilterChip } from '@/components/ui/bf';
+import { displayMinus, formatRange } from '@/utils/valueFormat';
 
 // The plot well matches the plot body ground (one step below the panel).
 const surfaceColor = 'var(--bf-bg-app)';
@@ -29,20 +31,15 @@ const axisLabelSize = 'var(--bf-text-2xs)';
 // any blue reads as "negative". The layer's colours belong to the image.
 const barFill = 'var(--bf-text-secondary)';
 const barFillOpacity = 0.45;
-const toggleActiveFill = 'hsl(var(--primary))';
-const toggleInactiveFill = 'hsl(var(--muted))';
-const toggleStroke = 'hsl(var(--border))';
-const toggleTextColor = 'hsl(var(--foreground))';
-const toggleActiveTextColor = 'hsl(var(--primary-foreground))';
 const tooltipBg = 'hsl(var(--card))';
 const tooltipColor = 'hsl(var(--foreground))';
 const tooltipBorder = 'hsl(var(--border))';
 
-// The top margin is a header line that holds the scale toggle (left) and the
-// mean/SD summary (right), so neither overprints the bars. The bottom margin
-// fits the x-axis ticks and labels.
-const margin = { top: 20, right: 12, bottom: 22, left: 12 };
-const HEADER_BASELINE = 13;
+// The top margin is a header line that holds the scale toggle (left, a 24px
+// bf FilterChip over the SVG) and the mean/SD summary (right), so neither
+// overprints the bars. The bottom margin fits the x-axis ticks and labels.
+const BASE_MARGIN = { top: 28, right: 12, bottom: 22, left: 12 };
+const HEADER_BASELINE = 16;
 /** Below these sizes the chart cannot draw meaningful bars. */
 const MIN_CHART_WIDTH = 120;
 const MIN_CHART_HEIGHT = 64;
@@ -58,6 +55,38 @@ const tooltipStyles = {
   fontSize: '12px',
   boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
 };
+
+/** Powers of ten from 1 up to `max` (the log y-axis ticks: 1, 10, 100, …). */
+export function logDecadeTicks(max: number): number[] {
+  const ticks: number[] = [];
+  for (let t = 1; t <= max && ticks.length < 12; t *= 10) ticks.push(t);
+  return ticks;
+}
+
+/** Compact count label: 1, 10, 100, 1k, 10k, 100k, 1M. */
+export function formatCountTick(v: number): string {
+  if (v >= 1e6) return `${v / 1e6}M`;
+  if (v >= 1e3) return `${v / 1e3}k`;
+  return String(v);
+}
+
+/** Log-scale domain floor: below 1 so a single-count bin has visible height. */
+const LOG_DOMAIN_MIN = 0.5;
+
+/**
+ * Bar top and height for one bin. Zero-count (or non-finite) bins draw
+ * nothing in either scale: through a log scale they would be log(0) = NaN.
+ */
+function barGeometry(
+  count: number,
+  yScale: (v: number) => number | undefined,
+  innerHeight: number,
+): { barY: number; barHeight: number } | null {
+  if (!(count > 0) || !Number.isFinite(count)) return null;
+  const barY = yScale(count);
+  if (barY === undefined || !Number.isFinite(barY)) return null;
+  return { barY, barHeight: Math.max(0, innerHeight - barY) };
+}
 
 export const HistogramChart: React.FC<HistogramChartProps> = ({
   data,
@@ -136,6 +165,20 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   // Calculate inner dimensions with minimum size validation
   // Never floor these above the available space: a floor larger than the
   // box makes the SVG overflow and clip the axis.
+  // Log Y draws a y axis at powers of ten (1, 10, 100, …): without it a log
+  // histogram is easy to misread as linear. The left margin grows to fit the
+  // widest tick label; linear keeps its axis-free layout.
+  const logTicks =
+    useLogScale && showAxes && data && data.bins.length > 0
+      ? logDecadeTicks(Math.max(1, ...data.bins.map((b) => b.count)))
+      : [];
+  const margin =
+    logTicks.length > 0
+      ? {
+          ...BASE_MARGIN,
+          left: BASE_MARGIN.left + 6 + Math.max(...logTicks.map((t) => formatCountTick(t).length)) * 6,
+        }
+      : BASE_MARGIN;
   const innerWidth = Math.max(width - margin.left - margin.right, 1);
   const innerHeight = Math.max(height - margin.top - margin.bottom, 1);
   
@@ -171,11 +214,11 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
     const maxCount = Math.max(...data.bins.map(b => b.count));
     
     if (useLogScale) {
-      // For log scale, we need to handle zero counts
-      // Use 1 as the minimum to avoid log(0)
-      const minCount = 1;
+      // log(0) is undefined: zero-count bins are not drawn at all (see
+      // barGeometry), and the domain floor sits at 0.5 so a single-count bin
+      // still has visible height.
       return scaleLog<number>({
-        domain: [minCount, Math.max(maxCount, minCount + 1)],
+        domain: [LOG_DOMAIN_MIN, Math.max(maxCount, 1)],
         range: [innerHeight, 0],
         base: 10,
       });
@@ -280,18 +323,12 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
             key={`clip-${colormap}-${Date.now()}`}
           >
             {data.bins.map((bin, i) => {
-              // For log scale, we need to handle zero counts specially
-              const effectiveCount = useLogScale && bin.count === 0 ? 0 : bin.count;
-              const barY = useLogScale && bin.count > 0 ? yScale(Math.max(1, bin.count)) : yScale(bin.count);
-              const barHeight = useLogScale && bin.count > 0 
-                ? innerHeight - barY
-                : (bin.count === 0 ? 0 : innerHeight - barY);
-              
+              const geom = barGeometry(bin.count, yScale, innerHeight);
+              if (!geom) return null;
+              const { barY, barHeight } = geom;
               // Don't add margins here - the clip path is applied to elements already inside the translated group
               const barX = xScale(bin.x0);
-              
-              if (bin.count === 0 && !useLogScale) return null;
-              
+
               // Only apply corner radius for wider bars to prevent rendering issues
               const cornerRadius = barWidth >= 5 ? 2 : 0;
               
@@ -377,15 +414,12 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
 
           {/* Invisible bars for hover interaction */}
           {data.bins.map((bin, i) => {
-            // Use same calculation as clip path for consistency
-            const barY = useLogScale && bin.count > 0 ? yScale(Math.max(1, bin.count)) : yScale(bin.count);
-            const barHeight = useLogScale && bin.count > 0 
-              ? innerHeight - barY
-              : (bin.count === 0 ? 0 : innerHeight - barY);
+            // Same geometry as the clip path.
+            const geom = barGeometry(bin.count, yScale, innerHeight);
+            if (!geom) return null;
+            const { barY, barHeight } = geom;
             const barX = xScale(bin.x0);
 
-            if (bin.count === 0 && !useLogScale) return null;
-            
             return (
               <rect
                 key={`hover-${i}`}
@@ -411,7 +445,26 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
             );
           })}
 
-          {/* X-axis only - Y-axis removed to save space */}
+          {logTicks.length > 0 && (
+            <AxisLeft
+              scale={yScale}
+              tickValues={logTicks}
+              tickLength={3}
+              tickFormat={(value) => formatCountTick(Number(value))}
+              stroke={axisStroke}
+              tickStroke={axisStroke}
+              tickLabelProps={() => ({
+                fill: axisLabelColor,
+                fontSize: 10,
+                style: { fontSize: axisLabelSize, fontVariantNumeric: 'tabular-nums' },
+                textAnchor: 'end',
+                dx: -2,
+                dy: '0.33em',
+              })}
+            />
+          )}
+
+          {/* X-axis; a y axis only in log mode (above). */}
           {showAxes && (
             <AxisBottom
               top={innerHeight}
@@ -444,38 +497,22 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
           textAnchor="end"
           style={{ fontVariantNumeric: 'tabular-nums' }}
         >
-          μ={data.mean.toFixed(1)}  σ={data.std.toFixed(1)}
+          μ={displayMinus(data.mean.toFixed(1))}  σ={data.std.toFixed(1)}
         </text>
         )}
 
-        {/* Log scale toggle button */}
-        <g
-          transform={`translate(${margin.left}, 2)`}
-          onClick={() => onLogScaleChange?.(!useLogScale)}
-          style={{ cursor: 'pointer' }}
-        >
-          <rect
-            x={0}
-            y={0}
-            width={48}
-            height={15}
-            rx={2}
-            fill={useLogScale ? toggleActiveFill : toggleInactiveFill}
-            stroke={toggleStroke}
-            strokeWidth={1}
-          />
-          <text
-            x={24}
-            y={11}
-            fill={useLogScale ? toggleActiveTextColor : toggleTextColor}
-            fontSize={10}
-            textAnchor="middle"
-            style={{ userSelect: 'none' }}
-          >
-            {useLogScale ? 'Log Y' : 'Linear Y'}
-          </text>
-        </g>
       </svg>
+
+      {/* Log-scale toggle (HTML, so it is a real keyboard-operable button). */}
+      <FilterChip
+        pressed={useLogScale}
+        onPressedChange={(next) => onLogScaleChange?.(next)}
+        className="absolute"
+        style={{ left: BASE_MARGIN.left, top: 2 }}
+        title={useLogScale ? 'Y axis: log scale' : 'Y axis: linear scale'}
+      >
+        Log Y
+      </FilterChip>
 
       {/* Tooltip */}
       {tooltipOpen && tooltipData && (
@@ -487,7 +524,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         >
           <div style={{ fontSize: '12px' }}>
             <div>
-              <strong>Intensity:</strong> {tooltipData.x0.toFixed(0)} - {tooltipData.x1.toFixed(0)}
+              <strong>Intensity:</strong> {formatRange(tooltipData.x0, tooltipData.x1, (v) => displayMinus(v.toFixed(0)))}
             </div>
             <div>
               <strong>Count:</strong> {tooltipData.count.toLocaleString()}

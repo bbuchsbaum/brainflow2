@@ -211,7 +211,7 @@ export function SurfaceMetadataDrawer({
               variant="ghost"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="h-8 w-8"
+              className="h-6 w-6"
               aria-label="Close surface metadata"
             >
               <VscClose className="h-4 w-4" />

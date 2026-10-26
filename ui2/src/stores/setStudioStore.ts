@@ -174,7 +174,7 @@ const DEMO_SET: SpatialFieldSetSummary = {
       severity: 'warning',
       issueDetails: [
         {
-          message: 'One preview row could not be matched to a bindable member source.',
+          message: '1 preview row has no matching member source.',
           memberIds: ['sub006'],
         },
       ],

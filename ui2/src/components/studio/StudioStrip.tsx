@@ -1,4 +1,5 @@
 import React from 'react';
+import { Chip, Notice, SelectableRow, useRovingFocus } from '@/components/ui/bf';
 import type { StudioDesignFilter } from '@/types/studio';
 
 interface StudioStripProps {
@@ -46,6 +47,12 @@ export function StudioStrip({
       }))
     : (filterLabels ?? []).map((label) => ({ filter: null as StudioDesignFilter | null, label }));
 
+  const roving = useRovingFocus({
+    ids: memberIds,
+    activeId: activeMemberId,
+    orientation: 'horizontal',
+  });
+
   return (
     <section
       aria-label="Set Studio strip"
@@ -65,28 +72,25 @@ export function StudioStrip({
         {hasChips ? (
           <div className="flex flex-wrap items-center gap-1.5">
             {scopeLabel ? (
-              <Chip
-                tone="sky"
+              <ContextChip
                 label="Scope"
                 value={scopeLabel}
                 onClear={onClearScope}
               />
             ) : null}
             {issueFocusLabel ? (
-              <Chip tone="amber" label="Issue" value={issueFocusLabel} />
+              <ContextChip label="Issue" value={issueFocusLabel} />
             ) : null}
             {searchLabel ? (
-              <Chip
-                tone="violet"
+              <ContextChip
                 label="Search"
                 value={searchLabel}
                 onClear={onClearSearch}
               />
             ) : null}
             {filterEntries.map(({ filter, label }) => (
-              <Chip
+              <ContextChip
                 key={label}
-                tone="violet"
                 label="Filter"
                 value={label}
                 onClear={
@@ -94,45 +98,41 @@ export function StudioStrip({
                 }
               />
             ))}
-            {sortLabel ? <Chip tone="muted" label="Sort" value={sortLabel} /> : null}
+            {sortLabel ? <ContextChip label="Sort" value={sortLabel} /> : null}
           </div>
         ) : null}
       </div>
 
       {contextIssue ? (
-        <p role="alert" className="text-bf-sm text-destructive">
+        <Notice role="alert" severity="danger">
           {contextIssue}
-        </p>
+        </Notice>
       ) : activeMemberId && !memberIds.includes(activeMemberId) ? (
-        <p role="status" className="text-bf-sm text-muted-foreground">
+        <Notice severity="info">
           Focus: <span className="font-mono">{activeMemberId}</span> · hidden by list filters
-        </p>
+        </Notice>
       ) : null}
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {memberIds.map((memberId) => {
-          const isActive = memberId === activeMemberId;
-          return (
-            <button
-              key={memberId}
-              type="button"
-              onClick={() => onSelectMember(memberId)}
-              title={memberId}
-              className={`min-w-[112px] rounded-sm border px-3 py-2 text-left text-bf-md transition-colors ${
-                isActive
-                  ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)] text-foreground'
-                  : 'border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground'
-              }`}
-            >
-              <span
-                className="block truncate font-mono text-bf-sm tabular-nums"
-                style={{ fontVariantNumeric: 'tabular-nums' }}
-              >
-                {memberId}
-              </span>
-            </button>
-          );
-        })}
+      <div
+        role="listbox"
+        aria-label="Members"
+        aria-orientation="horizontal"
+        onKeyDown={roving.onKeyDown}
+        className="flex gap-2 overflow-x-auto p-0.5 pb-1"
+      >
+        {memberIds.map((memberId) => (
+          <SelectableRow
+            key={memberId}
+            variant="card"
+            {...roving.getItemProps(memberId)}
+            selected={memberId === activeMemberId}
+            onSelect={() => onSelectMember(memberId)}
+            title={memberId}
+            className="min-w-[112px] shrink-0"
+          >
+            <span className="block truncate font-mono text-bf-sm tabular-nums">{memberId}</span>
+          </SelectableRow>
+        ))}
         {memberIds.length === 0 ? (
           <div className="px-3 py-2 text-bf-sm text-muted-foreground">
             No members in scope.
@@ -143,45 +143,24 @@ export function StudioStrip({
   );
 }
 
-type ChipTone = 'sky' | 'amber' | 'violet' | 'muted';
-
-function Chip({
-  tone,
+/** A static context chip ("Scope S001") with an optional remove button. */
+function ContextChip({
   label,
   value,
   onClear,
 }: {
-  tone: ChipTone;
   label: string;
   value: string;
   onClear?: () => void;
 }) {
-  const toneClass =
-    tone === 'sky'
-      ? 'border-border bg-bf-bg-active text-foreground'
-      : tone === 'amber'
-        ? 'border-border bg-bf-bg-active text-foreground'
-        : tone === 'violet'
-          ? 'border-border bg-bf-bg-active text-foreground'
-          : 'border-border bg-background text-bf-text-secondary';
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-bf-xs ${toneClass}`}
+    <Chip
+      title={`${label} ${value}`}
+      className="max-w-[200px]"
+      onRemove={onClear}
+      removeLabel={`${label.toLowerCase()} ${value}`}
     >
-      <span className="text-bf-2xs font-medium text-muted-foreground">
-        {label}
-      </span>
-      <span className="max-w-[160px] truncate">{value}</span>
-      {onClear ? (
-        <button
-          type="button"
-          aria-label={`Clear ${label.toLowerCase()}`}
-          onClick={onClear}
-          className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          ×
-        </button>
-      ) : null}
-    </span>
+      <span className="text-muted-foreground">{label}</span> {value}
+    </Chip>
   );
 }

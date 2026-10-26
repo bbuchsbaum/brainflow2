@@ -23,7 +23,18 @@ import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import type { ComparisonPanelConfig } from '@/types/comparison';
-import { SEGMENTED_GROUP, segmentedItemClass } from '@/components/ui/segmentedGroup';
+import { Button, SegmentedControl } from '@/components/ui/bf';
+
+const PLANE_OPTIONS = [
+  { value: 'axial', label: 'Axial', title: 'Set all panels to axial' },
+  { value: 'sagittal', label: 'Sagittal', title: 'Set all panels to sagittal' },
+  { value: 'coronal', label: 'Coronal', title: 'Set all panels to coronal' },
+] as const;
+
+const LAYOUT_OPTIONS = [
+  { value: 'row', label: 'Row', title: 'Row layout' },
+  { value: 'grid', label: 'Grid', title: 'Grid layout' },
+] as const;
 
 interface ComparisonWorkspaceProps {
   workspaceId?: string;
@@ -218,51 +229,36 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
         className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 select-none"
         style={{ height: 36 }}
       >
-        <span className="bf-role-section text-foreground">Compare</span>
-
+        {/* No leading "Compare" label: the tab and the top-bar switcher already
+            name the workspace. */}
         {/* Set every panel's plane (joined segmented group) */}
         {/* Pressed only while every panel shows that plane: after a per-panel
             override the planes are mixed and no item claims them all. */}
-        <div role="group" aria-label="Set all panels to plane" className={SEGMENTED_GROUP}>
-          {(['axial', 'sagittal', 'coronal'] as const).map(vt => (
-            <button
-              key={vt}
-              type="button"
-              aria-pressed={commonViewType === vt}
-              className={segmentedItemClass(commonViewType === vt)}
-              onClick={() => setGlobalViewType(workspaceId, vt)}
-              title={`Set all panels to ${vt}`}
-            >
-              {vt === 'axial' ? 'Axial' : vt === 'sagittal' ? 'Sagittal' : 'Coronal'}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          aria-label="Set all panels to plane"
+          options={PLANE_OPTIONS}
+          value={commonViewType ?? ''}
+          onValueChange={(vt) => setGlobalViewType(workspaceId, vt as ComparisonPanelConfig['viewType'])}
+        />
 
         {/* Layout (joined segmented group) */}
-        <div role="group" aria-label="Panel layout" className={SEGMENTED_GROUP}>
-          {(['row', 'grid'] as const).map(mode => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={layout === mode}
-              className={segmentedItemClass(layout === mode)}
-              onClick={() => setLayout(workspaceId, mode)}
-              title={mode === 'row' ? 'Row layout' : 'Grid layout'}
-            >
-              {mode === 'row' ? 'Row' : 'Grid'}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          aria-label="Panel layout"
+          options={LAYOUT_OPTIONS}
+          value={layout}
+          onValueChange={(mode) => setLayout(workspaceId, mode as 'row' | 'grid')}
+        />
 
         {/* Add panel */}
-        <button
-          type="button"
-          className="ml-auto inline-flex h-6 items-center rounded-sm border border-bf-border bg-transparent px-2 text-bf-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+        <Button
+          variant="secondary"
+          size="sm"
+          className="ml-auto"
           onClick={handleAddEmptyPanel}
           title="Add empty panel"
         >
           + Panel
-        </button>
+        </Button>
       </div>
 
       {/* Panel grid */}

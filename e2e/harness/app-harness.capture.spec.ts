@@ -8,6 +8,9 @@
  * and save <OUT>/<scenario>.png plus <OUT>/<scenario>.log.json.
  * `APP_HARNESS_SCENARIOS=volume,overlay` restricts the run.
  * `APP_HARNESS_DIRECTION=<id>` captures under a direction palette (see build-direction-tokens.mjs).
+ * `primitives` (opt-in: only when listed in APP_HARNESS_SCENARIOS) captures the
+ * shared-primitives gallery (primitives-harness.html) as primitives.png,
+ * primitives-2.png, primitives-3.png and primitives-4.png, full page.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -31,6 +34,8 @@ const SCENARIOS = [
   'dialog-goto',
   'dialog-header',
   'dialog-crosshair',
+  'surface-settings',
+  'dialog-remote-mount',
 ];
 
 /**
@@ -127,6 +132,40 @@ for (const [scenario, width, height] of VARIANTS) {
     await page.setViewportSize({ width, height });
     await capture(page, scenario, `${scenario}@${width}x${height}`);
   });
+}
+
+/** Gallery pages of ui/bf primitives: [query page, output file]. */
+const PRIMITIVE_PAGES: Array<[string, string]> = [
+  ['1', 'primitives'],
+  ['2', 'primitives-2'],
+  ['3', 'primitives-3'],
+  ['4', 'primitives-4'],
+];
+
+if (ONLY?.includes('primitives')) {
+  for (const [pageNo, file] of PRIMITIVE_PAGES) {
+    test(`capture ${file}`, async ({ page }) => {
+      const pageErrors: string[] = [];
+      const consoleErrors: string[] = [];
+      page.on('pageerror', (err) => pageErrors.push(err.message));
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 500));
+      });
+      await page.goto(`/primitives-harness.html?page=${pageNo}`);
+      await page.waitForFunction(() => window.__harnessReady === true, null, { timeout: 60_000 });
+      writeFileSync(
+        resolve(OUT!, `${file}.log.json`),
+        JSON.stringify({ scenario: 'primitives', page: pageNo, consoleErrors, pageErrors }, null, 2),
+      );
+      expect(pageErrors, `uncaught page errors in ${file}`).toEqual([]);
+      await page.screenshot({
+        path: resolve(OUT!, `${file}.png`),
+        fullPage: true,
+        animations: 'disabled',
+        caret: 'hide',
+      });
+    });
+  }
 }
 
 declare global {

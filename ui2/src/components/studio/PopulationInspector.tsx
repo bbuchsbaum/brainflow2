@@ -3,6 +3,7 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import { PopulationUnitControls } from './PopulationUnitControls';
 import { PopulationMaskControls } from './PopulationMaskControls';
+import { formatWorldPoint } from '@/utils/valueFormat';
 
 /** Population settings live in Brainflow's existing Inspector, across dock roots. */
 export function PopulationInspector() {
@@ -38,7 +39,7 @@ export function PopulationInspector() {
         <div className="text-muted-foreground">Spatial probe</div>
         <p className="mt-1">
           {state.population.pinnedProbe
-            ? `${state.population.pinnedProbe.worldMm.map((value) => value.toFixed(1)).join(', ')} mm · ${state.population.pinnedProbe.radiusMm ? `${state.population.pinnedProbe.radiusMm} mm radius` : 'point'}`
+            ? `${formatWorldPoint(state.population.pinnedProbe.worldMm)} mm · ${state.population.pinnedProbe.radiusMm ? `${state.population.pinnedProbe.radiusMm} mm radius` : 'point'}`
             : 'Pin a location in the brain or the values panel.'}
         </p>
       </div>

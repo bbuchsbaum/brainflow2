@@ -6,7 +6,7 @@
 
 import { usePlotSpecStore } from '@/stores/plotSpecStore';
 
-import { PLOT_FOCUS_RING } from './PlotHost';
+import { Select, ToolbarField } from '@/components/ui/bf';
 import type { TraceBand } from '@/plotting';
 
 import { SET_TRACE_MODE_ID } from './setTracePlot.helpers';
@@ -19,43 +19,19 @@ const BAND_OPTIONS: { value: TraceBand; label: string }[] = [
   { value: 'none', label: 'None' },
 ];
 
-const labelStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 4,
-  fontSize: 11,
-  color: 'var(--bf-text-muted)',
-  whiteSpace: 'nowrap',
-};
-
-// Chrome (flat surface, border, chevron, focus) comes from the shared
-// `bf-select` class in theme.css; only the compact toolbar sizing is local.
-const selectStyle: React.CSSProperties = {
-  fontSize: 11,
-  height: 20,
-  maxWidth: 140,
-};
-
 export function BandToolbar() {
   const band = usePlotSpecStore((s) => s.bandByMode[SET_TRACE_MODE_ID] ?? 'sem95');
   const setBand = usePlotSpecStore((s) => s.setBand);
   return (
-    <label style={labelStyle}>
-      Band
-      <select
+    <ToolbarField label="Band">
+      <Select
         aria-label="Dispersion band"
         value={band}
-        onChange={(e) => setBand(SET_TRACE_MODE_ID, e.currentTarget.value as TraceBand)}
-        style={selectStyle}
-        className={`bf-select ${PLOT_FOCUS_RING}`}
-      >
-        {BAND_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        options={BAND_OPTIONS}
+        onValueChange={(v) => setBand(SET_TRACE_MODE_ID, v as TraceBand)}
+        className="w-auto max-w-[140px]"
+      />
+    </ToolbarField>
   );
 }
 

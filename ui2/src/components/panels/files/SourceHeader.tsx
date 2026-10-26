@@ -1,6 +1,7 @@
 import React from 'react';
 import { VscFolder, VscRemote } from 'react-icons/vsc';
 import type { FileTreeNode, MountSource } from '@/types/filesystem';
+import { Chip } from '@/components/ui/bf';
 import './SourceHeader.css';
 
 interface SourceHeaderProps {
@@ -54,9 +55,9 @@ export const SourceHeader: React.FC<SourceHeaderProps> = ({ rootNode, selectedPa
       <div className="fb-source-body">
         <div className="fb-source-line">
           <span className="fb-source-label">{rootLabel}</span>
-          <span className={`fb-source-kind fb-source-kind--${isRemote ? 'remote' : 'local'}`}>
+          <Chip className={`fb-source-kind fb-source-kind--${isRemote ? 'remote' : 'local'}`}>
             {isRemote ? 'SSH' : 'Local'}
-          </span>
+          </Chip>
         </div>
         {(remoteRoot || crumbs.length > 0) && (
           <div className="fb-source-breadcrumb" aria-label="Path">

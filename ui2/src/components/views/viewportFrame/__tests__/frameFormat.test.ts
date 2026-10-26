@@ -82,17 +82,29 @@ describe('header fit', () => {
     expect(full.plane).toBe('Sagittal');
     expect(full.position).toBe(`x ${M}0.5 mm`);
     expect(full.name).toBeNull();
-    // 157 / 136 / 121 px panes → 64 / 54 / 46 px budgets
+    // Width pressure drops the name, then the plane word, then the axis
+    // letter; never the unit (user critique v2: "x −0.5" with no mm).
+    expect(headerParts('sagittal', -0.5, 'MNI152', headerMaxWidth(200))).toMatchObject({
+      plane: null,
+      position: `x ${M}0.5 mm`,
+      name: null,
+      density: 'compact',
+    });
+    // 157 / 136 px panes → 64 / 54 px budgets: the axis letter goes, "mm" stays.
     expect(headerParts('sagittal', -0.5, 'MNI152', headerMaxWidth(157))).toMatchObject({
       plane: null,
-      position: `x ${M}0.5`,
+      position: `${M}0.5mm`,
       name: null,
       density: 'compact',
     });
     const xRange = [-95.5, 94.5] as const;
     const zRange = [-77.5, 102.5] as const;
-    expect(headerParts('axial', 17.5, null, headerMaxWidth(136), { rangeMm: zRange })?.position).toBe('z 17.5');
-    expect(headerParts('sagittal', -0.5, null, headerMaxWidth(136), { rangeMm: xRange })?.position).toBe(`x ${M}0.5`);
+    expect(headerParts('axial', 17.5, null, headerMaxWidth(136), { rangeMm: zRange })?.position).toBe('17.5mm');
+    expect(headerParts('sagittal', -0.5, null, headerMaxWidth(136), { rangeMm: xRange })?.position).toBe(`${M}0.5mm`);
+    for (const w of [122, 137, 157, 200, 240, 473]) {
+      const p = headerParts('coronal', -131.5, 'MNI152_T1_2mm_brain.nii.gz', headerMaxWidth(w), { rangeMm: [-131.5, 94.5] });
+      if (p) expect(p.position, String(w)).toMatch(/mm$/);
+    }
     expect(headerParts('coronal', -18.5, null, 30)).toBeNull();
   });
 

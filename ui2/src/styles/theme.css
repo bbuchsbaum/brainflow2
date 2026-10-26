@@ -50,6 +50,7 @@
     --bf-border-subtle: rgba(255, 255, 255, 0.08);
     --bf-border: rgba(255, 255, 255, 0.16);
     --bf-border-strong: rgba(255, 255, 255, 0.28);
+    --bf-border-field: rgba(255, 255, 255, 0.38); /* field boundary, >= 3:1 on panel (WCAG 1.4.11) */
     --bf-border-focus: #d4a556;
     --bf-divider: rgba(255, 255, 255, 0.08);
 
@@ -403,7 +404,7 @@ select.bf-select,
   -webkit-appearance: none;
   appearance: none;
   padding: 0 24px 0 9px;
-  border: 1px solid var(--bf-border-subtle);
+  border: 1px solid var(--bf-border-field);
   border-radius: var(--bf-radius-sm);
   background-color: var(--bf-bg-input);
   color: var(--bf-text-primary);
@@ -423,7 +424,7 @@ select:not([multiple]):not([size]) {
 }
 select.bf-select:hover,
 :where(select:not([multiple]):not([size])):hover {
-  border-color: var(--bf-border-strong);
+  border-color: var(--bf-text-muted);
 }
 select.bf-select:focus,
 select.bf-select:focus-visible,

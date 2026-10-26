@@ -1,4 +1,5 @@
 import React from 'react';
+import { SegmentedControl, Select } from '@/components/ui/bf';
 import type { StudioCohortSummary, StudioLensType } from '@/types/studio';
 
 interface LensOption {
@@ -32,50 +33,36 @@ export function StudioLensSwitcher({
   onSelectCompareCohort,
 }: StudioLensSwitcherProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-sm border border-border bg-card px-3 py-2">
+    <div className="flex flex-wrap items-center gap-3 rounded-sm border border-border bg-card px-3 py-1.5">
       <span className="text-bf-xs font-medium text-muted-foreground">
         Lens
       </span>
-      <div
-        role="tablist"
+      <SegmentedControl
         aria-label="Set Studio lens"
-        className="inline-flex items-stretch rounded-sm border border-border bg-background"
-      >
-        {LENS_OPTIONS.map((option) => {
-          const selected = activeLens === option.id;
+        options={LENS_OPTIONS.map((option) => {
           const disabled = !option.available || (populationOnly && option.id !== 'population');
-          return (
-            <button
-              key={option.id}
-              role="tab"
-              aria-selected={selected}
-              aria-disabled={disabled || undefined}
-              type="button"
-              disabled={disabled}
-              title={
-                populationOnly && disabled
-                  ? 'Saved inputs are explored in Population; import a study to use this view.'
-                  : undefined
-              }
-              onClick={() => !disabled && onSelectLens(option.id)}
-              className={`relative inline-flex items-center gap-1.5 border-r border-bf-border-subtle px-3 py-1 text-bf-sm transition-colors last:border-r-0 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
-                selected
-                  ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
-                  : disabled
-                    ? 'text-bf-text-faint'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-              }`}
-            >
-              {option.label}
-              {option.hint ? (
-                <span className="text-bf-2xs text-muted-foreground">
-                  {option.hint}
-                </span>
-              ) : null}
-            </button>
-          );
+          return {
+            value: option.id,
+            label: option.hint ? (
+              <>
+                {option.label}
+                <span className="text-bf-2xs text-muted-foreground">{option.hint}</span>
+              </>
+            ) : (
+              option.label
+            ),
+            'aria-label': option.hint ? option.label : undefined,
+            disabled,
+            title:
+              populationOnly && disabled
+                ? 'Saved inputs are explored in Population; import a study to use this view.'
+                : undefined,
+          };
         })}
-      </div>
+        value={activeLens}
+        onValueChange={(value) => onSelectLens(value as StudioLensType)}
+        hideWhenSingle={false}
+      />
 
       {activeLens === 'compare' ? (
         <>
@@ -84,10 +71,10 @@ export function StudioLensSwitcher({
             <span className="text-bf-xs font-medium">
               Compare mode
             </span>
-            <select
-              className="rounded-sm border border-border bg-background px-2.5 py-1 text-bf-sm text-foreground"
+            <Select
+              className="w-auto"
               value={compareCohort?.id ?? ''}
-              onChange={(event) => onSelectCompareCohort(event.target.value || null)}
+              onValueChange={(value) => onSelectCompareCohort(value || null)}
             >
               <option value="">Current vs … (select cohort)</option>
               {cohorts.map((cohort) => (
@@ -95,7 +82,7 @@ export function StudioLensSwitcher({
                   {`Current vs ${cohort.label} (n=${cohort.memberCount})`}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         </>
       ) : null}

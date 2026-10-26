@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button } from '@/components/ui/Button';
+import { Button, Notice } from '@/components/ui/bf';
 import { getTransport } from '@/services/transport';
 import { useBidsStore } from '@/stores/bidsStore';
 import { safeListen } from '@/utils/eventUtils';
@@ -48,7 +48,7 @@ export function BidsEmptyState() {
     >
       <div className="w-full px-8" style={{ maxWidth: '720px' }}>
         {/* Section eyebrow */}
-        <p className="bf-role-section text-muted-foreground">BIDS explorer</p>
+        <h2 className="bf-role-title text-foreground">BIDS explorer</h2>
 
         {/* Body */}
         <p
@@ -61,30 +61,19 @@ export function BidsEmptyState() {
 
         {/* Error message */}
         {openError && (
-          <p
-            className="bf-role-body mt-3"
-            style={{ color: 'var(--app-error)' }}
-            role="alert"
-          >
+          <Notice severity="danger" role="alert" className="mt-3">
             {openError}
-          </p>
+          </Notice>
         )}
 
         {/* Primary CTA */}
         <div style={{ marginTop: '24px' }}>
           <Button
             variant="primary"
+            size="sm"
             onClick={() => void handleOpen()}
             loading={opening}
             disabled={opening}
-            className="
-              !bg-primary !text-primary-foreground
-              hover:!bg-[hsl(var(--primary)/0.88)]
-              !rounded-appsm
-              !text-bf-xs !font-medium
-              !px-4 !py-2
-              focus:!ring-ring
-            "
           >
             {opening ? 'Opening\u2026' : 'Open dataset'}
           </Button>

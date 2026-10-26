@@ -12,7 +12,7 @@ describe('StudioStrip population feedback', () => {
     );
     expect(screen.getByRole('status').textContent).toContain('S001');
     expect(screen.getByRole('status').textContent).toContain('hidden by list filters');
-    fireEvent.click(screen.getByRole('button', { name: 'S002' }));
+    fireEvent.click(screen.getByRole('option', { name: 'S002' }));
     expect(onSelectMember).toHaveBeenCalledWith('S002');
   });
 

@@ -18,7 +18,15 @@ import {
   type Vec3,
 } from './geometry';
 import { renderSlice, type SliceFrame, type SliceLayer } from './slicer';
-import { ANALYSIS_DESCRIPTORS, BIDS_EVENTS, BIDS_ROOT, BIDS_SUMMARY, completedJob } from './scenarioData';
+import {
+  ANALYSIS_DESCRIPTORS,
+  BIDS_EVENTS,
+  BIDS_ROOT,
+  BIDS_SUMMARY,
+  completedJob,
+  REMOTE_MOUNT_OFFLINE_ERROR,
+  REMOTE_MOUNT_PROFILES,
+} from './scenarioData';
 
 /** Paths the harness "file system" serves. */
 export const HARNESS_ROOT = '/harness/study';
@@ -572,6 +580,23 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
           readback_mode: 'skip',
         },
       };
+    },
+    // Remote mounts: no saved profiles; anything that would reach the network
+    // (only after the user presses Connect / answers a challenge) fails
+    // deterministically instead.
+    list_remote_mount_profiles: () => [...REMOTE_MOUNT_PROFILES],
+    list_remote_mounts: () => [],
+    remote_mount_connect: () => {
+      throw new Error(REMOTE_MOUNT_OFFLINE_ERROR);
+    },
+    remote_mount_respond_host_key: () => {
+      throw new Error(REMOTE_MOUNT_OFFLINE_ERROR);
+    },
+    remote_mount_respond_auth: () => {
+      throw new Error(REMOTE_MOUNT_OFFLINE_ERROR);
+    },
+    remove_remote_mount_profile: () => {
+      throw new Error(REMOTE_MOUNT_OFFLINE_ERROR);
     },
     batch_render_slices: ({
       batchRequest,

@@ -162,3 +162,16 @@ export const BIDS_EVENTS = Array.from({ length: 12 }, (_, i) => ({
   trial_type: ['left_hand', 'rest', 'right_hand', 'rest'][i % 4],
   additional: {},
 }));
+
+/**
+ * Remote-mount dialog scenario. No saved profiles, so the dialog opens on
+ * "New connection…"; the driver types these fixed demo values. The harness
+ * never connects: the remote_mount_* handlers in backend.ts reject.
+ */
+export const REMOTE_MOUNT_PROFILES: never[] = [];
+export const REMOTE_MOUNT_DEMO = {
+  host: 'demo.lab.example',
+  user: 'analyst',
+  remotePath: '/data/study',
+} as const;
+export const REMOTE_MOUNT_OFFLINE_ERROR = 'Harness backend is offline: remote mounts are not available.';

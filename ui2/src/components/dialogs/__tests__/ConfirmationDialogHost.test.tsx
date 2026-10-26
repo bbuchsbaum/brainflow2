@@ -33,7 +33,7 @@ describe('ConfirmationDialogHost', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Remove Volume Layer')).toBeInTheDocument();
     expect(screen.getByText('Remove layer "Layer One"?')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Remove' })).toHaveClass('bg-destructive');
+    expect(screen.getByRole('button', { name: 'Remove' })).toHaveClass('text-bf-danger');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Remove' }));

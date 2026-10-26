@@ -3,11 +3,14 @@ import { useBidsStore } from '@/stores/bidsStore';
 import type { BidsDetailTab, BidsSelection, BidsEventRow } from '@/stores/bidsStore';
 import { BidsValidationPanel } from './BidsValidationPanel';
 import { BidsEventsTimeline } from './BidsEventsTimeline';
+import { Notice, TabPanel, Tabs, type TabItem } from '@/components/ui/bf';
 
-const TABS: { id: BidsDetailTab; label: string }[] = [
-  { id: 'events', label: 'Events' },
-  { id: 'validation', label: 'Validation' },
+const TABS: readonly TabItem[] = [
+  { value: 'events', label: 'Events' },
+  { value: 'validation', label: 'Validation' },
 ];
+
+const TABS_ID = 'bids-detail';
 
 interface EventsTabContentProps {
   selection: BidsSelection;
@@ -60,9 +63,9 @@ function EventsTabContent({ selection }: EventsTabContentProps) {
 
   if (!isFunctional) {
     return (
-      <p className="bf-role-body text-muted-foreground">
+      <Notice severity="neutral" role={undefined}>
         Select a functional run in the coverage matrix to view its event timeline
-      </p>
+      </Notice>
     );
   }
 
@@ -95,9 +98,9 @@ function EventsTabContent({ selection }: EventsTabContentProps) {
 
   if (!task) {
     return (
-      <p className="bf-role-body text-muted-foreground">
+      <Notice severity="neutral" role={undefined}>
         No task identifier found for the selected run
-      </p>
+      </Notice>
     );
   }
 
@@ -115,31 +118,30 @@ export function BidsDetailTabs() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab bar */}
-      <div role="tablist" aria-label="BIDS run details" className="flex border-b border-border px-4 shrink-0">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            onClick={() => setTab(tab.id)}
-            className={`bf-role-section py-2 px-3 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
-              activeTab === tab.id
-                ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        idBase={TABS_ID}
+        aria-label="BIDS run details"
+        items={TABS}
+        value={activeTab}
+        onValueChange={(value) => setTab(value as BidsDetailTab)}
+        className="shrink-0 border-b border-border px-2"
+      />
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto p-4 min-h-0">
-        {activeTab === 'events' && <EventsTabContent selection={selection} />}
-        {activeTab === 'validation' && <ValidationTabContent />}
-      </div>
+      {TABS.map((tab) => (
+        <TabPanel
+          key={tab.value}
+          idBase={TABS_ID}
+          value={tab.value}
+          selected={activeTab}
+          className="min-h-0 flex-1 overflow-auto p-4"
+        >
+          {tab.value === 'events' ? (
+            <EventsTabContent selection={selection} />
+          ) : (
+            <ValidationTabContent />
+          )}
+        </TabPanel>
+      ))}
     </div>
   );
 }

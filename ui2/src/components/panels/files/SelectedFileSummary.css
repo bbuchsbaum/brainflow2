@@ -22,7 +22,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--app-role-body-size);
   font-weight: 500;
   color: var(--bf-text-primary);
 }
@@ -46,8 +45,6 @@
 
 .fb-selected-fallback {
   margin: 0;
-  font-size: var(--app-role-label-size);
-  color: var(--bf-text-muted);
 }
 
 .fb-selected-actions {
@@ -55,45 +52,7 @@
   gap: var(--bf-space-1);
 }
 
-.fb-selected-button {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--app-control-height-sm);
-  padding: 0 var(--bf-space-3);
-  border: 1px solid var(--bf-border-subtle);
-  background: var(--bf-bg-shell);
-  color: var(--bf-text-primary);
-  font-size: var(--app-role-label-size);
-  font-weight: 500;
-  border-radius: var(--bf-radius-xs);
-  cursor: pointer;
-  transition: background-color var(--bf-motion-fast) ease,
-    border-color var(--bf-motion-fast) ease,
-    color var(--bf-motion-fast) ease;
-}
-
-.fb-selected-button:hover:not(:disabled) {
-  background: var(--bf-bg-hover);
-  border-color: var(--bf-border-strong);
-}
-
-.fb-selected-button:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: var(--app-focus-ring-offset);
-}
-
-.fb-selected-button--primary {
-  background: hsl(var(--primary));
-  color: var(--bf-text-inverse);
-  border-color: transparent;
-}
-
-.fb-selected-button--primary:hover:not(:disabled) {
-  background: hsl(var(--primary) / 0.88);
-  color: var(--bf-text-inverse);
-}
+/* Load / Add layer are bf Buttons (24px, primary + secondary). */
 
 @media (max-width: 320px) {
   .fb-selected-meta-item:nth-child(n + 4) {

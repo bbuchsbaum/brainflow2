@@ -8,7 +8,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { parcelOverlayService } from '@/services/ParcelOverlayService';
 import { parcelMetricColumns } from '@/services/parcelTablePresentation';
 import { ParcelTableImport, parcelError } from '@/components/atlas/ParcelTableImport';
-import { InspectorSection } from '../InspectorSection';
+import { Button, FieldRow, Notice, Section, Select } from '@/components/ui/bf';
 
 /** The active Inspector owns the import action, including an atlas used as base. */
 export function ParcelValuesSection({ item }: { item: SceneItem }) {
@@ -30,7 +30,7 @@ export function ParcelValuesSection({ item }: { item: SceneItem }) {
   ) {
     const info = surfaceLayer.parcelOverlay;
     return (
-      <InspectorSection label="Parcel values" defaultOpen>
+      <Section title="Parcel values" defaultOpen keepMounted>
         {info ? (
           <ParcelColumnControl
             tableName={info.tableName}
@@ -56,24 +56,25 @@ export function ParcelValuesSection({ item }: { item: SceneItem }) {
           />
         ) : (
           <div className="space-y-2 py-2">
-            <button
-              type="button"
-              className="bf-control-button w-full"
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full"
               onClick={() => setImporting(true)}
             >
               Add parcel values…
-            </button>
+            </Button>
             <p className="text-bf-xs text-muted-foreground">
               Load a CSV or TSV with one value per ROI.
             </p>
           </div>
         )}
-      </InspectorSection>
+      </Section>
     );
   }
   if (!isAtlas && !overlay) return null;
   return (
-    <InspectorSection label="Parcel values" defaultOpen>
+    <Section title="Parcel values" defaultOpen keepMounted>
       {overlay ? (
         <ParcelColumnControl
           tableName={overlay.tableName}
@@ -89,19 +90,20 @@ export function ParcelValuesSection({ item }: { item: SceneItem }) {
         />
       ) : (
         <div className="space-y-2 py-2">
-          <button
-            type="button"
-            className="bf-control-button w-full"
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full"
             onClick={() => setImporting(true)}
           >
             Add parcel values…
-          </button>
+          </Button>
           <p className="text-bf-xs text-muted-foreground">
             Load a CSV or TSV with one value per ROI.
           </p>
         </div>
       )}
-    </InspectorSection>
+    </Section>
   );
 }
 
@@ -122,33 +124,26 @@ export function ParcelColumnControl({
   return (
     <div className="space-y-2 py-2 text-bf-sm">
       <p className="break-words font-medium">{tableName}</p>
-      <label className="block space-y-1">
-        Display column
-        <select
-          className="bf-select w-full"
+      <FieldRow label="Display column" layout="stacked">
+        <Select
           disabled={busy}
           value={selectedColumn}
-          onChange={async (e) => {
+          onValueChange={async (value) => {
             setBusy(true);
             setError('');
             try {
-              await onSelect(e.target.value);
+              await onSelect(value);
             } catch (e) {
               setError(parcelError(e));
             } finally {
               setBusy(false);
             }
           }}
-        >
-          {parcelMetricColumns(preview.columns, [])
+          options={parcelMetricColumns(preview.columns, [])
             .filter((c) => !c.error && c.range)
-            .map((c) => (
-              <option key={c.name} value={c.name}>
-                {c.name}
-              </option>
-            ))}
-        </select>
-      </label>
+            .map((c) => ({ value: c.name, label: c.name }))}
+        />
+      </FieldRow>
       <p className="text-muted-foreground">
         {preview.matchedParcels}/{preview.atlasParcels} parcels matched ·{' '}
         {column?.missingCount ?? 0} missing cells
@@ -157,9 +152,9 @@ export function ParcelColumnControl({
         Changing columns resets intensity and threshold. Missing values are transparent.
       </p>
       {error && (
-        <p role="alert" className="text-destructive">
+        <Notice severity="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       <details className="text-bf-xs break-all">
         <summary className="cursor-pointer">Table binding</summary>

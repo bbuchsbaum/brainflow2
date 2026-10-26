@@ -12,7 +12,9 @@
  * the other layout preferences.
  */
 
-import { useCallback, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { IconButton, Tabs, tabIds } from '@/components/ui/bf';
 import {
   DEFAULT_DOCK_TAB,
   DOCK_TAB_BAR_HEIGHT,
@@ -49,21 +51,12 @@ export interface BottomWorkbenchDockProps {
 
 const TAB_BAR_HEIGHT = DOCK_TAB_BAR_HEIGHT;
 
-/** Shared style for the tab-bar trailing controls (minimize / restore / close). */
-const iconButtonStyle: CSSProperties = {
-  appearance: 'none',
-  background: 'transparent',
-  border: 'none',
-  padding: '0 4px',
-  cursor: 'pointer',
-  color: 'var(--app-text-muted)',
-  fontSize: 'var(--bf-text-sm)',
-  lineHeight: 1,
-  height: '20px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
+const DOCK_ID_BASE = 'bottom-dock';
+const DOCK_TAB_ITEMS = DOCK_TABS.map(({ id, label }) => ({
+  value: id,
+  label,
+  testId: `bottom-dock-tab-${id}`,
+}));
 
 export function BottomWorkbenchDock({
   plot,
@@ -115,96 +108,55 @@ export function BottomWorkbenchDock({
       }}
     >
       <div
-        role="tablist"
-        aria-label="Bottom dock"
-        data-testid="bottom-dock-tablist"
-        className="bf-bottom-dock-tabbar"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0,
-          padding: '0 6px',
-          borderBottom: '1px solid var(--app-border-subtle)',
-          background: 'var(--app-bg-tertiary)',
-        }}
+        className="bf-bottom-dock-tabbar flex min-w-0 items-stretch border-b border-bf-border-subtle bg-bf-bg-shell px-1.5"
       >
-        {DOCK_TABS.map(({ id, label }) => {
-          const active = id === activeTab;
-          return (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              id={`bottom-dock-tab-${id}`}
-              aria-selected={active}
-              aria-controls={`bottom-dock-panel-${id}`}
-              data-testid={`bottom-dock-tab-${id}`}
-              data-active={active ? 'true' : 'false'}
-              onClick={() => handleSelect(id)}
-              // Same segmented grammar as the top-bar mode switcher: active =
-              // raised neutral fill + 2px neutral bottom edge (a state edge,
-              // never a fill); inactive = muted; hover = neutral accent fill;
-              // focus = separate 2px ring with 1px offset, lifted above
-              // neighbours so it is never clipped.
-              className={[
-                'relative h-full whitespace-nowrap rounded-none border-0 px-2.5 text-bf-sm font-medium transition-colors',
-                'focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-                active
-                  ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
-                  : 'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
-              ].join(' ')}
-              style={{ appearance: 'none', cursor: 'pointer' }}
-            >
-              {label}
-            </button>
-          );
-        })}
+        {/* Flat tabs (bf Tabs, neutral edge): ids `bottom-dock-tab-<id>` /
+            `bottom-dock-panel-<id>`. A click on any tab (even the active one)
+            reaches handleSelect, which restores a minimized dock. */}
+        <Tabs
+          idBase={DOCK_ID_BASE}
+          items={DOCK_TAB_ITEMS}
+          value={activeTab}
+          onValueChange={(tab) => handleSelect(tab as DockTabId)}
+          aria-label="Bottom dock"
+          data-testid="bottom-dock-tablist"
+        />
 
         {(onMinimize || onRestore || onClose) && (
-          <div
-            style={{
-              marginLeft: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '2px',
-            }}
-          >
+          <div className="ml-auto inline-flex items-center gap-0.5">
             {minimized
               ? onRestore && (
-                  <button
-                    type="button"
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
                     aria-label="Restore bottom dock"
                     title="Restore bottom dock"
                     data-testid="bottom-dock-restore"
                     onClick={onRestore}
-                    style={iconButtonStyle}
-                  >
-                    ▴
-                  </button>
+                    icon={<ChevronUp />}
+                  />
                 )
               : onMinimize && (
-                  <button
-                    type="button"
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
                     aria-label="Minimize bottom dock"
                     title="Minimize bottom dock"
                     data-testid="bottom-dock-minimize"
                     onClick={onMinimize}
-                    style={iconButtonStyle}
-                  >
-                    ▾
-                  </button>
+                    icon={<ChevronDown />}
+                  />
                 )}
             {onClose ? (
-              <button
-                type="button"
+              <IconButton
+                size="xs"
+                variant="ghost"
                 aria-label="Hide bottom dock"
                 title="Hide bottom dock"
                 data-testid="bottom-dock-close"
                 onClick={onClose}
-                style={iconButtonStyle}
-              >
-                ✕
-              </button>
+                icon={<X />}
+              />
             ) : null}
           </div>
         )}
@@ -213,8 +165,8 @@ export function BottomWorkbenchDock({
       {!minimized && (
         <div
           role="tabpanel"
-          id={`bottom-dock-panel-${activeTab}`}
-          aria-labelledby={`bottom-dock-tab-${activeTab}`}
+          id={tabIds(DOCK_ID_BASE, activeTab).panel}
+          aria-labelledby={tabIds(DOCK_ID_BASE, activeTab).tab}
           data-testid="bottom-dock-panel"
           style={{
             position: 'relative',

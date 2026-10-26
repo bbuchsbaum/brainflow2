@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useId } from "react";
 import { GripVertical } from "lucide-react";
 import {
   DndContext,
@@ -20,7 +20,12 @@ import { useSceneStack } from "@/hooks/useSceneStack";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
 import type { SceneItem } from "@/types/sceneItem";
-import { InspectorSection } from "./InspectorSection";
+import {
+  Notice,
+  Section,
+  useRovingFocus,
+  type RovingItemProps,
+} from "@/components/ui/bf";
 import { SceneStackItem } from "./SceneStackItem";
 
 /**
@@ -56,36 +61,60 @@ export function SceneStack() {
       });
   }, []);
 
+  // One tab stop for the whole scene list; arrows move across the groups.
+  const ids = React.useMemo(
+    () => [...volumes, ...surfaces, ...mappings].map((item) => item.id),
+    [volumes, surfaces, mappings],
+  );
+  const roving = useRovingFocus({ ids, activeId: activeItemId });
+  const rovingFor = roving.getItemProps;
+
   return (
-    <InspectorSection
-      label="Scene"
+    <Section
+      title="Scene"
       icon={<SceneIcon />}
       defaultOpen
-      meta={summary}
+      meta={summary ?? undefined}
+      divider={false}
     >
-      <VolumeSceneGroup
-        items={volumes}
-        activeItemId={activeItemId}
-        onSelect={setActive}
-        onReorder={handleVolumeReorder}
-      />
-      <SceneGroup
-        title="Surface view"
-        items={surfaces}
-        emptyHint="No surfaces loaded"
-        showWhenEmpty={false}
-        activeItemId={activeItemId}
-        onSelect={setActive}
-      />
-      <SceneGroup
-        title="Mappings"
-        items={mappings}
-        emptyHint="No vol-to-surface mappings yet"
-        showWhenEmpty={false}
-        activeItemId={activeItemId}
-        onSelect={setActive}
-      />
-    </InspectorSection>
+      <div onKeyDown={roving.onKeyDown}>
+        <VolumeSceneGroup
+          items={volumes}
+          activeItemId={activeItemId}
+          onSelect={setActive}
+          onReorder={handleVolumeReorder}
+          rovingFor={rovingFor}
+        />
+        <SceneGroup
+          title="Surface view"
+          items={surfaces}
+          emptyHint="No surfaces loaded"
+          showWhenEmpty={false}
+          activeItemId={activeItemId}
+          onSelect={setActive}
+          rovingFor={rovingFor}
+        />
+        <SceneGroup
+          title="Mappings"
+          items={mappings}
+          emptyHint="No vol-to-surface mappings yet"
+          showWhenEmpty={false}
+          activeItemId={activeItemId}
+          onSelect={setActive}
+          rovingFor={rovingFor}
+        />
+      </div>
+    </Section>
+  );
+}
+
+type RovingFor = (id: string) => RovingItemProps;
+
+function GroupTitle({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <div id={id} className="mb-1 px-2 text-bf-xs text-muted-foreground">
+      {children}
+    </div>
   );
 }
 
@@ -96,6 +125,7 @@ function SceneGroup({
   showWhenEmpty,
   activeItemId,
   onSelect,
+  rovingFor,
 }: {
   title: string;
   items: SceneItem[];
@@ -103,26 +133,25 @@ function SceneGroup({
   showWhenEmpty: boolean;
   activeItemId: string | null;
   onSelect: (item: SceneItem) => void;
+  rovingFor: RovingFor;
 }) {
+  const titleId = `scene-group-${useId().replace(/:/g, "")}`;
   if (items.length === 0 && !showWhenEmpty) return null;
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-2 text-bf-xs text-muted-foreground">
-        {title}
-      </div>
+      <GroupTitle id={titleId}>{title}</GroupTitle>
       {items.length === 0 ? (
-        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-bf-xs text-muted-foreground">
-          {emptyHint}
-        </div>
+        <Notice role={undefined}>{emptyHint}</Notice>
       ) : (
-        <div className="flex flex-col gap-0.5">
+        <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
           {items.map((item) => (
             <SceneStackItem
               key={item.id}
               item={item}
               selected={item.id === activeItemId}
               onSelect={() => onSelect(item)}
+              roving={rovingFor(item.id)}
             />
           ))}
         </div>
@@ -143,12 +172,15 @@ function VolumeSceneGroup({
   activeItemId,
   onSelect,
   onReorder,
+  rovingFor,
 }: {
   items: SceneItem[];
   activeItemId: string | null;
   onSelect: (item: SceneItem) => void;
   onReorder: (orderedIds: string[]) => void;
+  rovingFor: RovingFor;
 }) {
+  const titleId = `scene-group-${useId().replace(/:/g, "")}`;
   const sensors = useSensors(
     // Small activation distance so a click still selects; only a real drag
     // gesture from the grip starts a reorder.
@@ -170,19 +202,16 @@ function VolumeSceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-2 text-bf-xs text-muted-foreground">
-        Volume view
-      </div>
+      <GroupTitle id={titleId}>Volume view</GroupTitle>
       {items.length === 0 ? (
-        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-bf-xs text-muted-foreground">
-          No volumes loaded · use Load
-        </div>
+        <Notice role={undefined}>No volumes loaded · use Load</Notice>
       ) : items.length === 1 ? (
-        <div className="flex flex-col gap-0.5">
+        <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
           <SceneStackItem
             item={items[0]}
             selected={items[0].id === activeItemId}
             onSelect={() => onSelect(items[0])}
+            roving={rovingFor(items[0].id)}
           />
         </div>
       ) : (
@@ -195,13 +224,14 @@ function VolumeSceneGroup({
             items={items.map((item) => item.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div className="flex flex-col gap-0.5">
+            <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
               {items.map((item) => (
                 <SortableSceneStackItem
                   key={item.id}
                   item={item}
                   selected={item.id === activeItemId}
                   onSelect={() => onSelect(item)}
+                  roving={rovingFor(item.id)}
                 />
               ))}
             </div>
@@ -220,10 +250,12 @@ function SortableSceneStackItem({
   item,
   selected,
   onSelect,
+  roving,
 }: {
   item: SceneItem;
   selected: boolean;
   onSelect: () => void;
+  roving: RovingItemProps;
 }) {
   const {
     attributes,
@@ -255,7 +287,7 @@ function SortableSceneStackItem({
       onClick={(event) => event.stopPropagation()}
       aria-label={`Drag to reorder ${item.name}`}
       title="Drag to reorder"
-      className="-ml-1 flex h-5 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-muted-foreground focus-visible:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
+      className="-ml-2 -mr-1 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--bf-border-focus)] group-hover:opacity-100 active:cursor-grabbing"
     >
       <GripVertical className="h-3.5 w-3.5" />
     </button>
@@ -268,6 +300,7 @@ function SortableSceneStackItem({
         selected={selected}
         onSelect={onSelect}
         dragHandle={handle}
+        roving={roving}
       />
     </div>
   );

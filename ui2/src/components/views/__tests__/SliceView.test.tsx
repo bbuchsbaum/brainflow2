@@ -121,7 +121,8 @@ describe('SliceView', () => {
 
     render(<SliceView viewId="sagittal" width={320} height={240} />);
 
-    expect(document.querySelector('input[type="range"]')).toBeTruthy();
+    // The slice rail (bf Slider, variant="rail") exposes a named role=slider thumb.
+    expect(screen.getByRole('slider', { name: /slice position/i })).toBeTruthy();
     expect(screen.queryByText('No volumes loaded')).toBeNull();
   });
 

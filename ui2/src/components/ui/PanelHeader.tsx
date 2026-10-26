@@ -1,6 +1,8 @@
 import React from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { DropdownMenu } from './DropdownMenu';
+import { Button } from './Button';
+import { IconButton } from './IconButton';
 
 export interface PanelHeaderPrimaryAction {
   label: string;
@@ -52,31 +54,28 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
 
       <div className="flex items-center gap-1.5 shrink-0">
         {primaryAction && (
-          <button
-            type="button"
-            className="bf-control-sm rounded-appsm border border-border bg-background px-2.5 text-bf-2xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={primaryAction.onClick}
             disabled={primaryAction.disabled}
             title={primaryAction.title ?? primaryAction.label}
+            icon={primaryAction.icon}
           >
-            <span className="inline-flex items-center gap-1">
-              {primaryAction.icon}
-              {primaryAction.label}
-            </span>
-          </button>
+            {primaryAction.label}
+          </Button>
         )}
 
         {hasOverflow && (
           <DropdownMenu
             position="bottom-right"
             trigger={
-              <button
-                type="button"
-                className="icon-btn rounded-appsm"
+              <IconButton
+                size="xs"
+                variant="ghost"
                 aria-label={`${actionLabelBase} actions`}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
+                icon={<MoreHorizontal />}
+              />
             }
             items={overflowActions.map((action) => ({
               id: action.id,

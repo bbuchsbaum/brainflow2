@@ -55,7 +55,8 @@ beforeEach(() => {
 });
 it('shows position, full filename, and bounded previous/next navigation', () => {
   render(<ImageSetSection item={item} />);
-  expect(screen.getByRole('combobox', { name: 'Image in set' })).toHaveTextContent('z.nii.gz');
+  // Native select (ui/bf Select): the chosen member is its display value.
+  expect(screen.getByRole('combobox', { name: 'Image in set' })).toHaveDisplayValue('z.nii.gz');
   expect(screen.getByRole('button', { name: 'Previous image' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Next image' }));
   expect(m.select).toHaveBeenCalledWith('set', 1);
@@ -66,5 +67,6 @@ it('distinguishes a pending choice from the image that is still visible', () => 
   render(<ImageSetSection item={item} />);
   expect(screen.getByRole('status')).toHaveTextContent('Opening t.nii.gz');
   expect(screen.getByRole('button', { name: 'Next image' })).toBeDisabled();
-  expect(screen.getByText('z.nii.gz')).toBeInTheDocument();
+  // The visible image's full name line (the select also lists it as an option).
+  expect(screen.getByText('z.nii.gz', { selector: 'p' })).toBeInTheDocument();
 });

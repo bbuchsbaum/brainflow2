@@ -111,29 +111,16 @@
 
 /* Diagnostics: developer telemetry (atlas pressure, FPS, GPU) behind one
    compact button + popover, so it never competes with the location readouts. */
-.status-diagnostics-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 20px;
-  padding: 0 8px;
-  background: transparent;
-  border: 1px solid var(--bf-border-subtle);
-  border-radius: var(--bf-radius-xs);
-  color: var(--bf-text-muted);
-  font-family: var(--app-font-sans);
-  font-size: var(--bf-text-xs);
-  cursor: pointer;
-  transition: background-color var(--bf-motion-fast) ease,
-    color var(--bf-motion-fast) ease;
+/* Focus ring: the bar is 28px with overflow hidden (and sits on the window's
+   bottom edge), so the shared OUTER ring (offset 1 + width 2 = 3px outside
+   the 24px button) would lose its top and bottom rows. Draw this trigger's
+   ring inset instead: pixels 0-1 inside the button's own box, clear of the
+   label (8px side padding). */
+.status-bar .status-diagnostics-trigger:focus-visible,
+.status-bar .status-diagnostics-trigger[data-force-focus] {
+  outline-offset: -2px;
 }
-
-.status-diagnostics-trigger:hover,
-.status-diagnostics-trigger[data-state='open'] {
-  background: var(--bf-bg-hover);
-  color: var(--bf-text-primary);
-}
-
+/* The trigger is a ghost bf Button (24px); the list is a bf KeyValue (rows). */
 .status-diagnostics-dot {
   width: 6px;
   height: 6px;
@@ -149,34 +136,7 @@
   background: var(--bf-danger);
 }
 
-.status-diagnostics-list {
-  margin: 0;
-  display: grid;
-  gap: 2px;
-  font-size: var(--bf-text-xs);
-}
 
-.status-diagnostics-row {
-  display: grid;
-  grid-template-columns: 5ch minmax(0, 1fr);
-  gap: 8px;
-  align-items: baseline;
-  padding: 2px 4px;
-}
-
-.status-diagnostics-row dt {
-  color: var(--bf-text-muted);
-}
-
-.status-diagnostics-row dd {
-  margin: 0;
-  font-family: var(--app-font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--bf-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .status-toggle {
   display: inline-flex;

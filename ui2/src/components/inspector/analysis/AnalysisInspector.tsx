@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useAnalysisStore } from '@/stores/analysisStore';
-import { InspectorSection, FieldRow } from '../imaging/InspectorSection';
 import { JobStatusPill } from '@/components/analysis/JobStatusPill';
+import { KeyValue, Notice, Section, type KeyValueItem } from '@/components/ui/bf';
 
 /**
  * Analysis workbench Inspector. Follows the workbench selection
@@ -59,51 +59,47 @@ export function AnalysisInspector() {
         <p className="px-3 py-2 text-bf-xs text-bf-text-secondary">{descriptor.description}</p>
       ) : null}
 
-      <InspectorSection label="Contract" defaultOpen>
-        <FieldRow label="Inputs">
-          <span className="text-foreground">{formatList(descriptor.inputs)}</span>
-        </FieldRow>
-        <FieldRow label="Outputs">
-          <span className="text-foreground">{formatList(descriptor.outputs)}</span>
-        </FieldRow>
-        <FieldRow label="Runner">
-          <span className="text-foreground">{descriptor.runner.type}</span>
-        </FieldRow>
-      </InspectorSection>
+      <Section title="Contract" defaultOpen>
+        <KeyValue
+          layout="rows"
+          items={[
+            { label: 'Inputs', value: formatList(descriptor.inputs), mono: false },
+            { label: 'Outputs', value: formatList(descriptor.outputs), mono: false },
+            { label: 'Runner', value: descriptor.runner.type },
+          ]}
+        />
+      </Section>
 
-      <InspectorSection label="Last job" defaultOpen>
+      <Section title="Last job" defaultOpen>
         {latestJob ? (
           <>
-            <FieldRow label="Job">
-              <span className="font-mono tabular-nums text-foreground">{latestJob.job_id}</span>
-            </FieldRow>
-            <FieldRow label="State">
-              <JobStatusPill state={latestJob.state} />
-            </FieldRow>
-            {latestJob.progress !== null ? (
-              <FieldRow label="Progress">
-                <span className="font-mono tabular-nums text-foreground">
-                  {Math.round(latestJob.progress * 100)}%
-                </span>
-              </FieldRow>
-            ) : null}
-            <FieldRow label="Artifacts">
-              <span className="font-mono tabular-nums text-foreground">
-                {latestJob.artifacts?.length ?? 0}
-              </span>
-            </FieldRow>
+            <KeyValue layout="rows" items={lastJobFacts(latestJob)} />
             {latestJob.error ? (
-              <p className="py-1 text-bf-xs text-bf-danger [overflow-wrap:anywhere]">
+              <Notice severity="danger" role={undefined} className="mt-2 [overflow-wrap:anywhere]">
                 {latestJob.error}
-              </p>
+              </Notice>
             ) : null}
           </>
         ) : (
-          <p className="py-1 text-bf-xs text-muted-foreground">Not run in this session.</p>
+          <Notice role={undefined}>Not run in this session.</Notice>
         )}
-      </InspectorSection>
+      </Section>
     </div>
   );
+}
+
+type AnalysisJob = ReturnType<typeof useAnalysisStore.getState>['jobs'][number];
+
+function lastJobFacts(job: AnalysisJob): KeyValueItem[] {
+  const facts: KeyValueItem[] = [
+    { label: 'Job', value: job.job_id },
+    { label: 'State', value: <JobStatusPill state={job.state} />, mono: false },
+  ];
+  if (job.progress !== null) {
+    facts.push({ label: 'Progress', value: `${Math.round(job.progress * 100)}%` });
+  }
+  facts.push({ label: 'Artifacts', value: String(job.artifacts?.length ?? 0) });
+  return facts;
 }
 
 function formatList(values: readonly string[]): string {

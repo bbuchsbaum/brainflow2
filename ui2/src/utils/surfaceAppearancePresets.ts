@@ -42,7 +42,9 @@ export const LIGHTING_PRESETS: Array<SurfaceAppearancePreset<LightingPresetValue
     values: { ambientLightIntensity: 1.1, directionalLightIntensity: 1.0, fillLightIntensity: 0.8 },
   },
   {
-    name: 'Default',
+    // The out-of-the-box intensities. Not called "Default": the light
+    // Position control already has a "Default" direction, a separate concept.
+    name: 'Balanced',
     values: { ambientLightIntensity: 0.4, directionalLightIntensity: 1.0, fillLightIntensity: 0.5 },
   },
 ];

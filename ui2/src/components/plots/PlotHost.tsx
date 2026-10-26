@@ -18,30 +18,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { SegmentedControl, Select } from '@/components/ui/bf';
+
 import type { PlotHostProps, PlotMode, PlotModeContext, PlotModeSupport } from './plotHost.types';
 
 const HOST_HEADER_HEIGHT = 28;
-
-/** Keyboard focus ring shared by the host's interactive controls. */
-/** Keyboard focus: a 2px ring in the focus token with a 1px offset. */
-export const PLOT_FOCUS_RING =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring';
-
-/**
- * Joined segmented group (V5 navigation kind 2): one bordered group with 1px
- * internal dividers. Active = raised neutral fill + 2px inset neutral bottom
- * edge (amber is reserved for the top-bar switcher and the focused stack's
- * tab); inactive = muted text; hover = the neutral accent fill. Focus is a
- * separate 2px ring with a 1px offset, lifted above its neighbours.
- */
-const MODE_GROUP =
-  'inline-flex h-5 items-stretch rounded-sm border border-bf-border';
-const MODE_CHIP_BASE =
-  'relative px-2 text-bf-xs transition-colors border-r border-bf-border-subtle last:border-r-0 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background';
-const MODE_CHIP_ACTIVE =
-  'bg-bf-bg-active font-medium text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]';
-const MODE_CHIP_INACTIVE =
-  'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground';
 
 interface ResolvedMode {
   mode: PlotMode | undefined;
@@ -100,57 +81,38 @@ interface ModeSelectorProps {
   onChange: (id: string) => void;
 }
 
+/**
+ * Plot modes: a joined segmented group (V5 navigation kind 2, bf
+ * SegmentedControl: radio semantics, arrows move and select) for up to four
+ * modes, a bf Select beyond that. A single mode still shows its name, so the
+ * pane says which plot it holds.
+ */
 function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
+  const options = useMemo(() => modes.map((m) => ({ value: m.id, label: m.label })), [modes]);
   if (modes.length === 0) return null;
 
   if (modes.length > 4) {
     return (
-      <select
+      <Select
         aria-label="Plot mode"
         data-testid="plot-host-mode-select"
-        className={`bf-select ${PLOT_FOCUS_RING}`}
+        className="w-auto"
         value={activeId}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          height: '20px',
-          fontSize: 'var(--app-role-section-size)',
-        }}
-      >
-        {modes.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
+        options={options}
+        onValueChange={onChange}
+      />
     );
   }
 
   return (
-    <div
-      role="tablist"
+    <SegmentedControl
       aria-label="Plot mode"
       data-testid="plot-host-mode-tabs"
-      className={MODE_GROUP}
-    >
-      {modes.map((m) => {
-        const active = m.id === activeId;
-        return (
-          <button
-            key={m.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            data-testid={`plot-host-mode-${m.id}`}
-            data-active={active ? 'true' : 'false'}
-            onClick={() => onChange(m.id)}
-            className={`${MODE_CHIP_BASE} ${active ? MODE_CHIP_ACTIVE : MODE_CHIP_INACTIVE}`}
-            style={{ appearance: 'none', cursor: 'pointer' }}
-          >
-            {m.label}
-          </button>
-        );
-      })}
-    </div>
+      options={options}
+      value={activeId}
+      onValueChange={onChange}
+      singleLabel
+    />
   );
 }
 

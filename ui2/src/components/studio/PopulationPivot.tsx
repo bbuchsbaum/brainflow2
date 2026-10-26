@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/bf';
 import { useState } from 'react';
 import type { SampleFrame } from '@/plotting';
 import type { PopulationPartition } from '@/types/population';
@@ -22,7 +23,6 @@ export function PopulationPivot({
   }
   const rows = pivot.rows.slice(rowPage * 8, rowPage * 8 + 8),
     columns = pivot.columns.slice(columnPage * 8, columnPage * 8 + 8);
-  const control = 'rounded-sm border border-border px-2 py-1 disabled:opacity-40';
   return (
     <details
       className="rounded-sm border border-border p-2 text-bf-sm"
@@ -37,30 +37,27 @@ export function PopulationPivot({
       </p>
       {(pivot.rows.length > 8 || pivot.columns.length > 8) && (
         <div className="flex flex-wrap gap-2 my-2">
-          <button className={control} disabled={!rowPage} onClick={() => setRowPage(rowPage - 1)}>
+          <Button variant="secondary" size="sm" disabled={!rowPage} onClick={() => setRowPage(rowPage - 1)}>
             Previous rows
-          </button>
-          <button
-            className={control}
+          </Button>
+          <Button variant="secondary" size="sm"
             disabled={(rowPage + 1) * 8 >= pivot.rows.length}
             onClick={() => setRowPage(rowPage + 1)}
           >
             Next rows
-          </button>
-          <button
-            className={control}
+          </Button>
+          <Button variant="secondary" size="sm"
             disabled={!columnPage}
             onClick={() => setColumnPage(columnPage - 1)}
           >
             Previous columns
-          </button>
-          <button
-            className={control}
+          </Button>
+          <Button variant="secondary" size="sm"
             disabled={(columnPage + 1) * 8 >= pivot.columns.length}
             onClick={() => setColumnPage(columnPage + 1)}
           >
             Next columns
-          </button>
+          </Button>
         </div>
       )}
       <div className="overflow-x-auto">
@@ -86,8 +83,10 @@ export function PopulationPivot({
                   return (
                     <td className="border-t border-border p-1" key={JSON.stringify(column)}>
                       {cell ? (
-                        <button
-                          className={`${control} w-full text-left`}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-auto w-full flex-col items-start whitespace-normal py-1"
                           disabled={!current}
                           title={cell.group.label}
                           onClick={() =>
@@ -105,7 +104,7 @@ export function PopulationPivot({
                           <span className="text-muted-foreground">
                             {cell.valid} / {cell.count} rows
                           </span>
-                        </button>
+                        </Button>
                       ) : (
                         <span className="text-muted-foreground">No observations</span>
                       )}

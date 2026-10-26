@@ -8,6 +8,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useContextMenuStore } from '@/stores/contextMenuStore';
 import { clampContextMenuPosition } from '@/utils/contextMenuPosition';
 import { cn } from '@/utils/cn';
+import { FOCUS_RING_INSET } from '@/components/ui/bf';
 
 export function ContextMenu() {
   const isOpen = useContextMenuStore((s) => s.isOpen);
@@ -103,12 +104,13 @@ export function ContextMenu() {
               role="menuitem"
               aria-disabled={isDisabled}
               className={cn(
-                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-bf-xs transition-colors',
+                // 24px menu rows (H_CONTROL), neutral hover fill, inset focus ring.
+                cn('flex h-6 w-full items-center gap-2 px-3 text-left text-bf-xs transition-colors', FOCUS_RING_INSET),
                 isDisabled
                   ? 'cursor-not-allowed text-muted-foreground/50'
                   : item.danger
-                    ? 'text-destructive hover:bg-destructive/10'
-                    : 'text-foreground hover:bg-muted/50'
+                    ? 'text-bf-danger hover:bg-accent'
+                    : 'text-foreground hover:bg-accent'
               )}
               disabled={isDisabled}
               onClick={() => {

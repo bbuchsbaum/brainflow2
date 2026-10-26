@@ -1,3 +1,4 @@
+import { Button, Notice } from '@/components/ui/bf';
 import { useEffect, useRef, useState } from 'react';
 import type { PopulationSliceDisplay } from '@/services/studio/PopulationSliceService';
 import {
@@ -81,9 +82,7 @@ export function PopulationExportControls({
         ).toFixed(1)}{' '}
         MiB + mask; 4 GiB limit)
       </label>
-      <button
-        type="button"
-        className="rounded-sm border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
+      <Button variant="secondary" size="sm"
         disabled={!current || !display?.query.request.workingMemberIds.length || busy}
         onClick={() => void save()}
       >
@@ -92,24 +91,20 @@ export function PopulationExportControls({
           : display?.query.request.inference
             ? 'Freeze discovery…'
             : 'Export summary…'}
-      </button>
-      <button
-        type="button"
-        className="rounded-sm border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
+      </Button>
+      <Button variant="secondary" size="sm"
         disabled={busy}
         onClick={() => void save(true)}
         title="Verify and recalculate a saved bundle from its original sources"
       >
         Recalculate saved summary…
-      </button>
+      </Button>
       {busy ? (
-        <button
-          type="button"
-          className="rounded-sm border border-border px-2 py-1"
+        <Button variant="secondary" size="sm"
           onClick={() => active.current?.abort()}
         >
           Cancel export
-        </button>
+        </Button>
       ) : (
         <span className="text-muted-foreground">
           {display?.query.request.inference
@@ -123,9 +118,9 @@ export function PopulationExportControls({
         </p>
       )}
       {error && (
-        <p role="alert" className="w-full text-destructive">
+        <Notice role="alert" severity="danger" className="w-full">
           {error}
-        </p>
+        </Notice>
       )}
     </div>
   );

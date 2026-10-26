@@ -2,7 +2,7 @@ import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { getSetStudioService, selectedStudioFolder } from '@/services/studio/SetStudioService';
 import { PopulationOpenControls } from './PopulationOpenControls';
 import React from 'react';
-import { Button } from '@/components/ui/shadcn/button';
+import { Button } from '@/components/ui/bf';
 
 interface StudioEmptyStateProps {
   onImportTable: () => void;
@@ -34,7 +34,7 @@ export function StudioEmptyState({
 
         {folder && (
           <Button
-            variant="outline"
+            variant="secondary" size="sm"
             className="mt-4 max-w-full"
             title={folder.path}
             onClick={() =>
@@ -47,15 +47,15 @@ export function StudioEmptyState({
         <div className="mt-4">
           <PopulationOpenControls />
         </div>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Button onClick={onImportTable}>Import table…</Button>
-          <Button variant="outline" onClick={onImportManifest}>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button variant="primary" size="sm" onClick={onImportTable}>Import table…</Button>
+          <Button variant="secondary" size="sm" onClick={onImportManifest}>
             Open NeuroTabs manifest…
           </Button>
-          <Button variant="outline" onClick={onDiscoverFiles}>
+          <Button variant="secondary" size="sm" onClick={onDiscoverFiles}>
             Choose a folder…
           </Button>
-          <Button variant="ghost" onClick={onLoadDemo}>
+          <Button variant="ghost" size="sm" onClick={onLoadDemo}>
             Try an example
           </Button>
         </div>

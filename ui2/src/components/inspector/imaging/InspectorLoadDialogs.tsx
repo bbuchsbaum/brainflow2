@@ -6,6 +6,7 @@ import type { AtlasCatalogEntry } from '@/types/atlas';
 import { useLayerStore } from '@/stores/layerStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useVolToSurfProjection } from '@/hooks/useVolToSurfProjection';
+import { Button, FieldRow, Notice, SelectableRow, Select } from '@/components/ui/bf';
 
 export function AtlasPicker({ onClose }: { onClose: () => void }) {
   const [catalog, setCatalog] = useState<AtlasCatalogEntry[] | null>(null);
@@ -35,20 +36,24 @@ export function AtlasPicker({ onClose }: { onClose: () => void }) {
   if (selected) return <AtlasConfigModal isOpen atlas={selected} onClose={onClose} />;
   return (
     <Modal isOpen onClose={onClose} title="Load atlas" size="md">
-      {error && <p role="alert">{error}</p>}
-      {!catalog && !error && <p role="status">Loading atlas catalog…</p>}
-      {catalog?.length === 0 && <p>No atlases are available.</p>}
+      {error && (
+        <Notice severity="danger" role="alert">
+          {error}
+        </Notice>
+      )}
+      {!catalog && !error && <Notice>Loading atlas catalog…</Notice>}
+      {catalog?.length === 0 && <Notice role={undefined}>No atlases are available.</Notice>}
       <div className="space-y-2">
         {catalog?.map((atlas) => (
-          <button
+          <SelectableRow
             key={atlas.id}
-            type="button"
-            className="block w-full rounded border border-border p-3 text-left hover:bg-accent focus-visible:ring-2"
-            onClick={() => setSelected(atlas)}
+            variant="card"
+            role="button"
+            onSelect={() => setSelected(atlas)}
           >
-            <span className="block font-medium">{atlas.name}</span>
-            <span className="text-xs text-muted-foreground">{atlas.description}</span>
-          </button>
+            <span className="block text-bf-sm font-medium text-foreground">{atlas.name}</span>
+            <span className="text-bf-xs text-muted-foreground">{atlas.description}</span>
+          </SelectableRow>
         ))}
       </div>
     </Modal>
@@ -75,15 +80,13 @@ export function ProjectionPicker({ onClose }: { onClose: () => void }) {
       closeOnOverlayClick={!isProjecting}
     >
       <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-bf-sm text-muted-foreground">
           Choose a volume and a surface in the same anatomical space.
         </p>
-        <label className="block">
-          Volume
-          <select
-            className="mt-1 block w-full rounded border bg-background p-2"
+        <FieldRow label="Volume" layout="stacked">
+          <Select
             value={volumeId}
-            onChange={(event) => setVolumeId(event.target.value)}
+            onValueChange={setVolumeId}
             disabled={isProjecting}
           >
             <option value="">Select a volume</option>
@@ -92,14 +95,12 @@ export function ProjectionPicker({ onClose }: { onClose: () => void }) {
                 {layer.name}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="block">
-          Surface
-          <select
-            className="mt-1 block w-full rounded border bg-background p-2"
+          </Select>
+        </FieldRow>
+        <FieldRow label="Surface" layout="stacked">
+          <Select
             value={surfaceId}
-            onChange={(event) => setSurfaceId(event.target.value)}
+            onValueChange={setSurfaceId}
             disabled={isProjecting}
           >
             <option value="">Select a surface</option>
@@ -108,16 +109,20 @@ export function ProjectionPicker({ onClose }: { onClose: () => void }) {
                 {item.name}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </FieldRow>
         {(!layers.length || !surfaces.size) && (
-          <p role="status">Load a volume and surface first.</p>
+          <Notice>Load a volume and surface first.</Notice>
         )}
-        {error && <p role="alert">{error.message}</p>}
-        <button
-          type="button"
+        {error && (
+          <Notice severity="danger" role="alert">
+            {error.message}
+          </Notice>
+        )}
+        <Button
+          variant="primary"
+          size="sm"
           disabled={!valid || isProjecting}
-          className="rounded border border-border px-3 py-2 hover:bg-accent disabled:opacity-50"
           onClick={async () => {
             if (!volume || !surface) return;
             const result = await projectVolume(
@@ -129,7 +134,7 @@ export function ProjectionPicker({ onClose }: { onClose: () => void }) {
           }}
         >
           {isProjecting ? 'Projecting…' : 'Project'}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

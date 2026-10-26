@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CrosshairSettingsDialog } from '../CrosshairSettingsDialog';
+import { CrosshairSettingsDialog, DIALOG_COLOR_PRESETS } from '../CrosshairSettingsDialog';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';
 import { DEFAULT_SETTINGS, MEDICAL_COLOR_PRESETS } from '@/stores/crosshairSettingsStore';
 
@@ -121,26 +121,36 @@ describe('CrosshairSettingsDialog', () => {
 
     const group = await screen.findByRole('group', { name: 'Color presets' });
     const swatches = Array.from(group.querySelectorAll('button'));
+    // The store's presets minus the flagged residue (orange, yellow, #00ff00).
+    expect(swatches.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Green (default)',
+      'Cyan',
+      'Blue',
+      'Magenta',
+      'White',
+    ]);
     expect(swatches.map((b) => b.getAttribute('aria-label'))).toEqual(
-      MEDICAL_COLOR_PRESETS.map((p) => p.name)
+      DIALOG_COLOR_PRESETS.map((p) => p.name)
     );
-    // baseSettings.activeColor is #facc15 = the Yellow preset.
-    expect(screen.getByRole('button', { name: 'Yellow' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Green (default)' })).toHaveAttribute('aria-pressed', 'false');
+    expect(MEDICAL_COLOR_PRESETS.length).toBeGreaterThan(DIALOG_COLOR_PRESETS.length);
+    // baseSettings.activeColor is #facc15: a custom colour now, no swatch pressed.
+    for (const swatch of swatches) expect(swatch).toHaveAttribute('aria-pressed', 'false');
 
     // Selection is an inner ring (box-shadow), focus a separate outline, so
     // both can show at once on a focused selected swatch.
-    const yellow = screen.getByRole('button', { name: 'Yellow' });
-    expect(yellow.style.boxShadow).toContain('inset');
-    expect(yellow.className).toContain('focus-visible:outline-2');
-    expect(yellow.className).toContain('h-5 w-5');
-    expect(screen.queryByRole('button', { name: 'Amber' })).toBeNull();
-
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Orange' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Cyan' }));
     });
-    expect(updateSettings).toHaveBeenLastCalledWith({ activeColor: '#ff7a1a' });
-    expect(screen.getByRole('button', { name: 'Orange' })).toHaveAttribute('aria-pressed', 'true');
+    expect(updateSettings).toHaveBeenLastCalledWith({ activeColor: '#4fd1e8' });
+    const cyan = screen.getByRole('button', { name: 'Cyan' });
+    expect(cyan).toHaveAttribute('aria-pressed', 'true');
+    expect(cyan.style.boxShadow).toContain('inset');
+    expect(cyan.className).toContain('focus-visible:outline-2');
+    expect(cyan.className).toContain('h-5 w-5');
+    // Data colour survives forced-colors mode.
+    expect(cyan.className).toContain('[forced-color-adjust:none]');
+    expect(screen.queryByRole('button', { name: 'Amber' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Green (default)' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('offers a Centre gap switch (on when unset) and names the sliders', async () => {

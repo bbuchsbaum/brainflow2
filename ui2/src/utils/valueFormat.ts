@@ -82,3 +82,55 @@ export function formatWorldMmAscii(value: number): string {
 export function formatWorldMm(value: number): string {
   return displayMinus(formatWorldMmAscii(value));
 }
+
+/** The separator of a shape or per-axis size: "96 × 114 × 96". */
+export const DIM_SEPARATOR = " × ";
+
+/**
+ * A shape (voxel counts) for display: "96 × 114 × 96" (and "… × 200" for a
+ * 4D series). One form for the Inspector Data card and the Image header.
+ */
+export function formatDims(dims: readonly number[]): string {
+  return dims.map((d) => (Number.isFinite(d) ? String(d) : EMPTY_VALUE)).join(DIM_SEPARATOR);
+}
+
+/**
+ * Per-axis sizes for display ("2.00 × 2.00 × 2.00"), each through
+ * `format` (default: fixed 2 decimals with U+2212).
+ */
+export function formatPerAxis(
+  values: readonly number[],
+  format: (value: number) => string = (v) => formatFixed(v, 2),
+): string {
+  return values.map(format).join(DIM_SEPARATOR);
+}
+
+/** Fixed decimals for display with U+2212 ("−95.50"); "—" when not finite. */
+export function formatFixed(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) return EMPTY_VALUE;
+  const fixed = value.toFixed(decimals);
+  return Number(fixed) === 0 ? fixed.replace(/^-/, "") : displayMinus(fixed);
+}
+
+/** A world point for display: "−95.5, −131.5, −77.5" (0.1 mm, U+2212). */
+export function formatWorldPoint(point: readonly number[]): string {
+  return point.map(formatWorldMm).join(", ");
+}
+
+/**
+ * A layer's data range for display: "0 to 255", "−4.58 to 6.15". Auto
+ * precision through `formatLayerValue`. One rule for the Inspector Data card
+ * and the Image header.
+ */
+export function formatDataRange(min: number, max: number): string {
+  return formatRange(min, max, formatLayerValue);
+}
+
+/**
+ * Voxel size for display, without the unit: "2.00 × 2.00 × 2.00" (fixed 2
+ * decimals). One rule for the Inspector Data card and the Image header;
+ * callers append "mm".
+ */
+export function formatVoxelSize(spacing: readonly number[]): string {
+  return formatPerAxis(spacing.slice(0, 3), (v) => formatFixed(v, 2));
+}

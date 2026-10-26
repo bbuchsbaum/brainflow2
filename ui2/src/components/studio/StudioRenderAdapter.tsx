@@ -46,7 +46,7 @@ export function StudioRenderAdapter({
         {actions && actions.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {actions.map((action) => (
-              <Button key={action.label} variant="link" size="sm" onClick={action.onClick}>
+              <Button key={action.label} variant="link" className="min-h-6" size="sm" onClick={action.onClick}>
                 {action.label}
               </Button>
             ))}

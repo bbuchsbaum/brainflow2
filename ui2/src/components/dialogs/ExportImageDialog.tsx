@@ -7,20 +7,16 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Label } from '@/components/ui/shadcn/label';
-import { Switch } from '@/components/ui/shadcn/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/shadcn/select';
-import { Button } from '@/components/ui/shadcn/button';
+import { Button, FieldRow, Notice, Select, Switch, TextField } from '@/components/ui/bf';
 import { Modal } from '@/components/ui/Modal';
 import { getViewExportService } from '@/services/ViewExportService';
 import { getTransport } from '@/services/transport';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
+
+const FORMAT_OPTIONS = [
+  { value: 'png', label: 'PNG' },
+  { value: 'jpg', label: 'JPG' },
+] as const;
 
 export function ExportImageDialog() {
   const isOpen = useExportDialogStore(state => state.isOpen);
@@ -129,63 +125,54 @@ export function ExportImageDialog() {
               <div className="text-sm text-muted-foreground">No preview available</div>
             )}
             {error && (
-              <div className="text-sm text-destructive px-3 py-2">{error}</div>
+              <Notice severity="danger" role="alert" className="px-3 py-2">{error}</Notice>
             )}
           </div>
 
           {/* Options */}
-          <div className="w-full md:w-72 space-y-4">
-            <div className="space-y-1">
-              <Label className="text-sm text-muted-foreground">Format</Label>
+          <div className="w-full md:w-72 space-y-2">
+            <FieldRow label="Format" layout="stacked">
               <Select
                 value={format}
+                options={FORMAT_OPTIONS}
                 onValueChange={(v) => setFormat(v === 'jpg' ? 'jpg' : 'png')}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select format" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="png">PNG</SelectItem>
-                  <SelectItem value="jpg">JPG</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+              />
+            </FieldRow>
 
-            <div className="flex items-center justify-between">
-              <Label className="text-sm text-muted-foreground">Transparent background</Label>
+            <FieldRow label="Transparent background" labelWidth="wide">
               <Switch
                 checked={transparentBackground}
                 onCheckedChange={(checked) => setTransparentBackground(checked)}
                 disabled={format !== 'png'}
               />
-            </div>
+            </FieldRow>
 
-            <div className="space-y-1">
-              <Label className="text-sm text-muted-foreground">File name</Label>
-              <input
+            <FieldRow label="File name" layout="stacked" hint="Location is chosen in the save dialog.">
+              <TextField
                 ref={fileNameInputRef}
-                className="w-full rounded-sm bg-background/60 border border-border px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 value={suggestedName}
                 onChange={(e) => setSuggestedName(e.target.value)}
                 placeholder={`view.${format}`}
               />
-              <p className="text-xs text-muted-foreground">Location is chosen in the save dialog.</p>
-            </div>
+            </FieldRow>
 
-            <div className="pt-2 flex gap-2">
-              <Button
-                className="flex-1"
-                onClick={handleSave}
-                disabled={isCapturing || isSaving || !hasBytes}
-              >
-                {isSaving ? 'Saving…' : 'Save…'}
-              </Button>
+            {/* Footer convention: Cancel (secondary) left of the primary, right-aligned. */}
+            <div className="pt-2 flex justify-end gap-2">
               <Button
                 variant="secondary"
+                size="sm"
                 onClick={close}
                 disabled={isSaving}
               >
                 Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSave}
+                disabled={isCapturing || isSaving || !hasBytes}
+              >
+                {isSaving ? 'Saving…' : 'Save…'}
               </Button>
             </div>
           </div>

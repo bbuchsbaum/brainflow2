@@ -1,5 +1,6 @@
-import React from "react";
+import React, { forwardRef } from "react";
 import type { SceneItem, SceneItemKind } from "@/types/sceneItem";
+import { SelectableRow, type RovingItemProps } from "@/components/ui/bf";
 
 interface SceneStackItemProps {
   item: SceneItem;
@@ -8,10 +9,12 @@ interface SceneStackItemProps {
   /**
    * Optional drag handle, rendered before the kind glyph. Provided by the
    * sortable wrapper for reorderable groups; omitted for static groups. The
-   * row is a `<div role="button">` (not a `<button>`) precisely so this nested
-   * handle button is valid markup.
+   * row is a grid `row` (not a `<button>`) so this nested handle button sits
+   * in its own gridcell as valid markup.
    */
   dragHandle?: React.ReactNode;
+  /** Roving-focus wiring from the scene list (`useRovingFocus`). */
+  roving?: RovingItemProps;
 }
 
 const GLYPH_PROPS = {
@@ -92,59 +95,56 @@ const KIND_GLYPH: Record<SceneItemKind, React.ReactNode> = {
   mapping: <MappingGlyph />,
 };
 
-export function SceneStackItem({
-  item,
-  selected,
-  onSelect,
-  dragHandle,
-}: SceneStackItemProps) {
-  const opacityPct = Math.round(item.opacity * 100);
-
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onSelect();
-    }
-  };
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={handleKeyDown}
-      aria-pressed={selected}
-      // Selection = selected fill + 2px accent leading edge; focus = a
-      // separate 2px ring with a 1px offset (HYBRID rule 4). Tailwind's ring
-      // composes with the inset edge shadow, so both show when both apply.
-      className={`group flex w-full cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
-        selected
-          ? "bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)]"
-          : "hover:bg-accent"
-      }`}
-    >
-      {dragHandle}
-      <span
-        aria-hidden
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
-        style={{ color: "var(--bf-text-secondary)" }}
+/**
+ * One scene row: a {@link SelectableRow} (`role="row"`, selection = selected
+ * fill + amber leading edge, focus = an inset ring; HYBRID rule 4). The row
+ * holds its own control (the drag handle), so it is a grid row with gridcell
+ * children; clicking or pressing keys on the handle never selects the row.
+ */
+export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
+  function SceneStackItem({ item, selected, onSelect, dragHandle, roving }, ref) {
+    const opacityPct = Math.round(item.opacity * 100);
+    const { ref: rovingRef, ...rovingProps } = roving ?? {};
+    return (
+      <SelectableRow
+        {...rovingProps}
+        ref={(el) => {
+          rovingRef?.(el);
+          if (typeof ref === "function") ref(el);
+          else if (ref) ref.current = el;
+        }}
+        role="row"
+        selected={selected}
+        onSelect={() => onSelect()}
+        aria-label={`${item.name}, ${item.subtitle}, opacity ${opacityPct}%`}
+        className="group gap-2.5 rounded-sm py-1.5"
       >
-        {KIND_GLYPH[item.kind]}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-bf-sm text-foreground">
-          {item.name}
+        {dragHandle ? (
+          <span role="gridcell" className="flex shrink-0">
+            {dragHandle}
+          </span>
+        ) : null}
+        <span role="gridcell" className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span
+            aria-hidden
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+            style={{ color: "var(--bf-text-secondary)" }}
+          >
+            {KIND_GLYPH[item.kind]}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-bf-sm text-foreground">
+              {item.name}
+            </span>
+            <span className="block truncate text-bf-xs text-muted-foreground">
+              {item.subtitle}
+            </span>
+          </span>
+          <span className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground">
+            {opacityPct}%
+          </span>
         </span>
-        <span className="block truncate text-bf-xs text-muted-foreground">
-          {item.subtitle}
-        </span>
-      </span>
-      <span
-        className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground"
-        style={{ fontVariantNumeric: "tabular-nums" }}
-      >
-        {opacityPct}%
-      </span>
-    </div>
-  );
-}
+      </SelectableRow>
+    );
+  },
+);

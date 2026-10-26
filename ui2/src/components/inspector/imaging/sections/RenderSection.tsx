@@ -1,5 +1,5 @@
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import { useSurfaceStore } from "@/stores/surfaceStore";
@@ -13,7 +13,20 @@ import {
 } from "@/components/views/viewportFrame/frameFormat";
 import { useDisplayOptionsStore } from "@/stores/displayOptionsStore";
 import type { SceneItem } from "@/types/sceneItem";
-import { InspectorSection, FieldRow } from "../InspectorSection";
+import {
+  Button,
+  FieldRow,
+  KeyValue,
+  RangeSlider,
+  Section,
+  SegmentedControl,
+  Select,
+  Slider as BfSlider,
+  Switch,
+  SLIDER_THUMB_INSET_PX,
+  ValueChip,
+  ValueChipError,
+} from "@/components/ui/bf";
 import { sampleLayerAtWorld } from "@/services/SamplingService";
 import { AtlasPaletteService } from "@/services/AtlasPaletteService";
 import {
@@ -38,7 +51,8 @@ const BLEND_MODES = ["alpha", "additive", "max", "min"] as const;
  */
 export function RenderSection({ item }: RenderSectionProps) {
   return (
-    <InspectorSection label="Render" icon={<RenderIcon />} defaultOpen>
+    // keepMounted: a value chip mid-edit survives collapse / expand.
+    <Section title="Render" icon={<RenderIcon />} defaultOpen keepMounted>
       {(() => {
         switch (item.kind) {
           case "volume-base":
@@ -53,8 +67,17 @@ export function RenderSection({ item }: RenderSectionProps) {
             return null;
         }
       })()}
-    </InspectorSection>
+    </Section>
   );
+}
+
+/** Opacity as the old native range stored it: snapped to the 0.01 grid. */
+const toPercentStep = (v: number) => Math.round(v * 100) / 100;
+const formatPercent = (v: number) => `${Math.round(v * 100)}%`;
+const formatPx = (v: number) => `${Math.round(v)} px`;
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 // ── volume rows ──────────────────────────────────────────────────────────────
@@ -90,6 +113,8 @@ function VolumeRenderRows({
   // the window AT INTERACTION START. Recomputing it from the live window
   // would move the scale under the thumb (the low thumb pinned while its
   // value ran) and ratchet the domain inward so Home could not return.
+  // The sliders freeze their own ruler too; this copy keeps the OTHER range
+  // and the colormap strip on the same frozen ruler.
   const [frozenDomain, setFrozenDomain] = useState<readonly [number, number] | null>(null);
   useEffect(() => setFrozenDomain(null), [layerId]);
   const handleInteraction = React.useCallback(
@@ -109,11 +134,22 @@ function VolumeRenderRows({
   // One ruler for Intensity, Threshold and the colormap strip: the union of
   // the data range and the window. The thumbs, the strip's gradient span and
   // both hidden-band cut-outs then sit at the same x for the same value; the
-  // data range is a faint band on the tracks (see `inspectorRuler`).
-  const liveRuler = inspectorRuler([dataMin, dataMax], intensity, threshold);
-  const ruler = frozenDomain
-    ? inspectorRuler([dataMin, dataMax], intensity, threshold, frozenDomain)
-    : liveRuler;
+  // data range is two marks under each track (see `inspectorRuler`).
+  // Stable ruler between interactions: data ∪ current window ∪ the layer's
+  // default window (the load-time render props) ∪ the window the Inspector
+  // first saw for this layer. Narrowing the window therefore never shrinks
+  // the ruler, so Home / End still reach the original window ends (−6 on the
+  // overlay fixture) after the window has been narrowed and the thumb blurred.
+  const anchors = layerAnchorWindows(layerId, intensity, metadata);
+  const ruler = inspectorRuler(
+    [dataMin, dataMax],
+    intensity,
+    threshold,
+    frozenDomain,
+    anchors,
+  );
+  const dataTicks: readonly [number, number] | null =
+    dataRange && ruler.dataSpan ? [dataRange.min, dataRange.max] : null;
   const opacity = viewLayer.opacity ?? 1;
   const colormap = viewLayer.colormap ?? "";
   const blendMode = viewLayer.blendMode ?? "alpha";
@@ -135,10 +171,9 @@ function VolumeRenderRows({
   return (
     <>
       <FieldRow label="Visible">
-        <Toggle
-          label="Visible"
+        <Switch
           checked={viewLayer.visible}
-          onChange={(v) => {
+          onCheckedChange={(v) => {
             // Visibility is owned by viewState — the renderer reads from
             // `viewStateStore.viewState.layers`. `layerStore.updateLayer`
             // alone writes only to the layer registry and the renderer
@@ -160,38 +195,41 @@ function VolumeRenderRows({
       </FieldRow>
 
       <FieldRow label="Opacity">
-        <Slider
+        <BfSlider
           label="Opacity"
-          valueText={`${Math.round(opacity * 100)}%`}
           value={opacity}
           min={0}
           max={1}
           step={0.01}
-          onChange={(v) => setLayerField("opacity", v)}
+          snap={0.01}
+          format={formatPercent}
+          valueText={formatPercent}
+          showValue
+          className="flex-1"
+          onValueChange={(v) => setLayerField("opacity", toPercentStep(v))}
         />
-        <Pct value={opacity} />
       </FieldRow>
 
-      <RangeBlock
+      <InspectorRange
         label="Intensity"
         low={intensity[0]}
         high={intensity[1]}
-        dataMin={ruler.min}
-        dataMax={ruler.max}
-        dataSpan={ruler.dataSpan}
+        min={ruler.min}
+        max={ruler.max}
+        dataRange={dataTicks}
         onInteraction={handleInteraction}
         onChange={(low, high) => setLayerField("intensity", [low, high])}
       />
 
       {kind === "overlay" ? (
-        <RangeBlock
+        <InspectorRange
           label="Threshold"
           mode="hidden"
           low={threshold[0]}
           high={threshold[1]}
-          dataMin={ruler.min}
-          dataMax={ruler.max}
-          dataSpan={ruler.dataSpan}
+          min={ruler.min}
+          max={ruler.max}
+          dataRange={dataTicks}
           onInteraction={handleInteraction}
           onChange={(low, high) => setLayerField("threshold", [low, high])}
         />
@@ -203,48 +241,50 @@ function VolumeRenderRows({
           the categorical colormap on the backend (takes a few seconds). */}
       {layerMode === "label" ? (
         <FieldRow label="Palette">
-          <div className="flex items-center gap-2">
-            <select
-              aria-label="Palette"
-              value={viewLayer.atlasPaletteKind ?? ""}
-              disabled={!viewLayer.atlasConfig || paletteApplying}
-              onChange={(e) => {
-                const kind = e.target.value as AtlasPaletteKind;
-                const config = viewLayer.atlasConfig;
-                if (!config) return;
-                setPaletteApplying(true);
-                AtlasPaletteService.applyToVolumeLayer(layerId, config, {
-                  kind,
-                })
-                  .catch((err) => {
-                    getEventBus().emit("ui.notification", {
-                      type: "warning",
-                      message: `Failed to apply '${kind}' palette. ${
-                        err instanceof Error ? err.message : String(err)
-                      }`,
-                    });
+          {(control) => (
+            <>
+              <Select
+                {...control}
+                value={viewLayer.atlasPaletteKind ?? ""}
+                disabled={!viewLayer.atlasConfig || paletteApplying}
+                onValueChange={(value) => {
+                  const kind = value as AtlasPaletteKind;
+                  const config = viewLayer.atlasConfig;
+                  if (!config) return;
+                  setPaletteApplying(true);
+                  AtlasPaletteService.applyToVolumeLayer(layerId, config, {
+                    kind,
                   })
-                  .finally(() => setPaletteApplying(false));
-              }}
-              className="bf-select text-bf-xs capitalize"
-            >
-              {viewLayer.atlasPaletteKind ? null : (
-                <option value="" disabled>
-                  Discrete (atlas)
-                </option>
-              )}
-              {ATLAS_PALETTE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            {paletteApplying ? (
-              <span className="text-bf-2xs text-muted-foreground">
-                applying…
-              </span>
-            ) : null}
-          </div>
+                    .catch((err) => {
+                      getEventBus().emit("ui.notification", {
+                        type: "warning",
+                        message: `Failed to apply '${kind}' palette. ${
+                          err instanceof Error ? err.message : String(err)
+                        }`,
+                      });
+                    })
+                    .finally(() => setPaletteApplying(false));
+                }}
+                className="capitalize"
+              >
+                {viewLayer.atlasPaletteKind ? null : (
+                  <option value="" disabled>
+                    Discrete (atlas)
+                  </option>
+                )}
+                {ATLAS_PALETTE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+              {paletteApplying ? (
+                <span className="shrink-0 text-bf-2xs text-muted-foreground">
+                  applying…
+                </span>
+              ) : null}
+            </>
+          )}
         </FieldRow>
       ) : (
         <ColormapBlock
@@ -256,11 +296,10 @@ function VolumeRenderRows({
       )}
 
       {kind === "overlay" && layerMode === "scalar" ? (
-        <FieldRow label="Colorbar on view">
-          <Toggle
-            label="Colorbar on view"
+        <FieldRow label="Colorbar on view" labelWidth="wide">
+          <Switch
             checked={showColorbar}
-            onChange={(v) =>
+            onCheckedChange={(v) =>
               useDisplayOptionsStore
                 .getState()
                 .setOptions(layerId, { showColorbar: v })
@@ -271,20 +310,16 @@ function VolumeRenderRows({
 
       {kind === "overlay" ? (
         <FieldRow label="Blend mode">
-          <select
-            aria-label="Blend mode"
+          <Select
             value={blendMode}
-            onChange={(e) =>
-              setLayerField("blendMode", e.target.value as typeof blendMode)
+            onValueChange={(value) =>
+              setLayerField("blendMode", value as typeof blendMode)
             }
-            className="bf-select text-bf-xs capitalize"
-          >
-            {BLEND_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {mode}
-              </option>
-            ))}
-          </select>
+            options={BLEND_MODES.map((mode) => ({
+              value: mode,
+              label: capitalize(mode),
+            }))}
+          />
         </FieldRow>
       ) : null}
 
@@ -294,20 +329,25 @@ function VolumeRenderRows({
           a higher-res underlay. (Cubic is not yet implemented in the shader.) */}
       {layerMode === "scalar" ? (
         <FieldRow label="Interpolation">
-          <select
-            aria-label="Interpolation"
-            value={interpolation}
-            onChange={(e) =>
-              setLayerField(
-                "interpolation",
-                e.target.value as typeof interpolation,
-              )
-            }
-            className="bf-select text-bf-xs capitalize"
-          >
-            <option value="linear">Linear</option>
-            <option value="nearest">Nearest</option>
-          </select>
+          {(control) => (
+            <SegmentedControl
+              id={control.id}
+              aria-labelledby={`${control.id}-label`}
+              aria-describedby={control["aria-describedby"]}
+              disabled={control.disabled}
+              value={interpolation}
+              onValueChange={(value) =>
+                setLayerField(
+                  "interpolation",
+                  value as typeof interpolation,
+                )
+              }
+              options={[
+                { value: "linear", label: "Linear" },
+                { value: "nearest", label: "Nearest" },
+              ]}
+            />
+          )}
         </FieldRow>
       ) : null}
 
@@ -321,17 +361,133 @@ function VolumeRenderRows({
       ) : null}
 
       {layer.volumeType === "TimeSeries4D" && layer.timeSeriesInfo ? (
-        <FieldRow label="Time frame">
-          <span
-            className="font-mono text-bf-sm tabular-nums text-foreground"
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          >
-            {layer.currentTimepoint ?? 0} /{" "}
-            {layer.timeSeriesInfo.num_timepoints}
-          </span>
-        </FieldRow>
+        <KeyValue
+          layout="rows"
+          className="py-1"
+          items={[
+            {
+              label: "Time frame",
+              value: `${layer.currentTimepoint ?? 0} / ${layer.timeSeriesInfo.num_timepoints}`,
+            },
+          ]}
+        />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Intensity / Threshold: a stacked field row holding the shared RangeSlider
+ * (data-range marks under the track, the threshold's hidden band + colorbar
+ * caption) with a compact "low to high" readout of editable value chips
+ * right-aligned on the label line, above the track.
+ *
+ * Behaviour carried over from the former RangeBlock:
+ * - the value clamp and the ruler are the caller's shared ruler [min, max],
+ *   frozen during an interaction (the slider's own freeze plus
+ *   `onInteraction` for the other range and the colormap strip);
+ * - keyboard steps are span / 200 of that ruler, never snapped (`step="any"`);
+ *   Home / End reach the ruler's exact ends; low ≤ high;
+ * - a change that leaves both ends as they are writes nothing.
+ */
+function InspectorRange({
+  label,
+  low,
+  high,
+  min,
+  max,
+  dataRange = null,
+  mode = "shown",
+  onInteraction,
+  onChange,
+}: {
+  label: string;
+  low: number;
+  high: number;
+  min: number;
+  max: number;
+  dataRange?: readonly [number, number] | null;
+  mode?: "shown" | "hidden";
+  onInteraction?: (active: boolean, domain: readonly [number, number]) => void;
+  onChange: (low: number, high: number) => void;
+}) {
+  const wording = mode === "hidden" ? thresholdWording([low, high]) : null;
+  // An invalid chip draft reports here; its message renders in flow UNDER
+  // the slider (never floated over the track and thumbs).
+  const [invalidEnds, setInvalidEnds] = useState<{ low: boolean; high: boolean }>({
+    low: false,
+    high: false,
+  });
+  const chipErrorId = `${useId().replace(/:/g, "")}-chip-error`;
+  const commit = (nextLow: number, nextHigh: number) => {
+    if (Object.is(nextLow, low) && Object.is(nextHigh, high)) return;
+    onChange(nextLow, nextHigh);
+  };
+  // Compact readout on the label line, right-aligned: "33.51 to 249.35",
+  // both ends editable chips (clamped to the ruler, low ≤ high). Kept off the
+  // track ends so the numbers never read as the ruler's domain.
+  const readout = (
+    <span
+      dir="ltr"
+      data-testid="range-readout"
+      className="flex items-baseline gap-1 [unicode-bidi:isolate]"
+    >
+      <ValueChip
+        value={low}
+        label={`${label} low`}
+        min={min}
+        max={max}
+        align="end"
+        errorId={chipErrorId}
+        onInvalidChange={(bad) =>
+          setInvalidEnds((prev) => (prev.low === bad ? prev : { ...prev, low: bad }))
+        }
+        onCommit={(v) => commit(Math.min(v, high), high)}
+      />
+      <span aria-hidden className="font-sans">to</span>
+      <ValueChip
+        value={high}
+        label={`${label} high`}
+        min={min}
+        max={max}
+        align="end"
+        errorId={chipErrorId}
+        onInvalidChange={(bad) =>
+          setInvalidEnds((prev) => (prev.high === bad ? prev : { ...prev, high: bad }))
+        }
+        onCommit={(v) => commit(low, Math.max(v, low))}
+      />
+    </span>
+  );
+  return (
+    <div>
+    <FieldRow label={label} layout="stacked" meta={readout}>
+      <RangeSlider
+        label={label}
+        value={[low, high]}
+        min={min}
+        max={max}
+        mode={mode}
+        // Same rule as the colorbar: [0, 0] / [0, 100] hide nothing (no hatch).
+        hiddenActive={mode === "hidden" ? isThresholdActive([low, high]) : undefined}
+        dataRange={dataRange}
+        className="flex-1"
+        caption={
+          wording ? (
+            <span
+              data-testid="threshold-caption"
+              className="block text-right font-mono tabular-nums"
+            >
+              {wording}
+            </span>
+          ) : undefined
+        }
+        onInteraction={onInteraction}
+        onValueChange={([nextLow, nextHigh]) => commit(nextLow, nextHigh)}
+      />
+    </FieldRow>
+    <ValueChipError id={chipErrorId} show={invalidEnds.low || invalidEnds.high} />
+    </div>
   );
 }
 
@@ -406,10 +562,9 @@ function LabelOutlineBlock({
   return (
     <>
       <FieldRow label="Outline">
-        <Toggle
-          label="Outline"
+        <Switch
           checked={outline.enabled}
-          onChange={(enabled) => update({ enabled })}
+          onCheckedChange={(enabled) => update({ enabled })}
         />
       </FieldRow>
 
@@ -420,31 +575,30 @@ function LabelOutlineBlock({
         onSelect={(id) => update({ selectedLabelId: id, enabled: id !== 0 })}
       />
       <FieldRow label="Pick from view">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={useCrosshairLabel}
-            disabled={sampling}
-            className="rounded-sm border border-border px-2 py-0.5 text-bf-xs text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {sampling ? 'Sampling…' : 'Use crosshair ROI'}
-          </button>
-        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={useCrosshairLabel}
+          disabled={sampling}
+        >
+          {sampling ? "Sampling…" : "Use crosshair ROI"}
+        </Button>
       </FieldRow>
 
       <FieldRow label="Thickness">
-        <Slider
+        <BfSlider
           label="Outline thickness"
-          valueText={`${Math.round(outline.thicknessPx)} px`}
           value={outline.thicknessPx}
           min={1}
           max={8}
           step={1}
-          onChange={(thicknessPx) => update({ thicknessPx })}
+          snap={1}
+          format={formatPx}
+          valueText={formatPx}
+          showValue
+          className="flex-1"
+          onValueChange={(v) => update({ thicknessPx: Math.round(v) })}
         />
-        <span className="font-mono text-bf-xs tabular-nums text-muted-foreground">
-          {Math.round(outline.thicknessPx)} px
-        </span>
       </FieldRow>
 
       <FieldRow label="Color">
@@ -454,7 +608,7 @@ function LabelOutlineBlock({
           onChange={(e) =>
             update({ color: hexToRgbaTuple(e.target.value, outline.color[3]) })
           }
-          className="h-5 w-8 cursor-pointer rounded-sm border border-border bg-transparent p-0"
+          className="h-5 w-8 cursor-pointer rounded-sm border border-border bg-transparent p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--bf-border-focus)]"
           aria-label="Outline color"
         />
       </FieldRow>
@@ -473,10 +627,9 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
     if (!surface) return null;
     return (
       <FieldRow label="Visible">
-        <Toggle
-          label="Visible"
+        <Switch
           checked={surface.visible}
-          onChange={(v) => setSurfaceVisibility?.(surface.handle, v)}
+          onCheckedChange={(v) => setSurfaceVisibility?.(surface.handle, v)}
         />
       </FieldRow>
     );
@@ -493,66 +646,65 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
       return (
         <>
           <FieldRow label="Visible">
-            <Toggle label="Visible" checked={layer.visible !== false} onChange={(v) => update('visible', v)} />
+            <Switch checked={layer.visible !== false} onCheckedChange={(v) => update('visible', v)} />
           </FieldRow>
           <FieldRow label="Opacity">
-            <Slider
+            <BfSlider
               label="Opacity"
-              valueText={`${Math.round(layer.opacity * 100)}%`}
               value={layer.opacity}
               min={0}
               max={1}
               step={0.01}
-              onChange={(v) => update('opacity', v)}
+              snap={0.01}
+              format={formatPercent}
+              valueText={formatPercent}
+              showValue
+              className="flex-1"
+              onValueChange={(v) => update('opacity', toPercentStep(v))}
             />
-            <Pct value={layer.opacity} />
           </FieldRow>
-          <RangeBlock
+          <InspectorRange
             label="Intensity"
             low={layer.range[0]}
             high={layer.range[1]}
-            dataMin={Math.min(layer.dataRange[0], layer.range[0])}
-            dataMax={Math.max(layer.dataRange[1], layer.range[1])}
+            min={Math.min(layer.dataRange[0], layer.range[0])}
+            max={Math.max(layer.dataRange[1], layer.range[1])}
             onChange={(low, high) => update('range', [low, high])}
           />
           <ColormapBlock value={layer.colormap} onChange={(v) => update('colormap', v)} />
-          <RangeBlock
+          <InspectorRange
             label="Threshold"
             low={layer.threshold?.[0] ?? 0}
             high={layer.threshold?.[1] ?? 0}
-            dataMin={Math.min(0, layer.dataRange[0])}
-            dataMax={Math.max(0, layer.dataRange[1])}
+            min={Math.min(0, layer.dataRange[0])}
+            max={Math.max(0, layer.dataRange[1])}
             onChange={(low, high) => update('threshold', [low, high])}
           />
-          <button type="button" className="text-bf-xs text-foreground underline underline-offset-2 decoration-[var(--bf-border-strong)] hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background" onClick={() => update('threshold', [0, 0])}>
+          <Button variant="link" className="min-h-6" size="sm" onClick={() => update('threshold', [0, 0])}>
             Clear threshold
-          </button>
+          </Button>
         </>
       );
     return (
-      <>
-        <FieldRow label="Visible">
-          <span className="text-bf-sm text-muted-foreground">
-            {layer.visible === false ? "hidden" : "visible"}
-          </span>
-        </FieldRow>
-        <FieldRow label="Opacity">
-          <span
-            className="font-mono text-bf-sm tabular-nums text-foreground"
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          >
-            {Math.round((layer.opacity ?? 1) * 100)}%
-          </span>
-        </FieldRow>
-        <FieldRow label="Colormap">
-          <span className="text-bf-sm text-foreground">{layer.colormap}</span>
-        </FieldRow>
-      </>
+      <KeyValue
+        layout="rows"
+        className="py-1"
+        items={[
+          { label: "Visible", value: layer.visible === false ? "hidden" : "visible", mono: false },
+          { label: "Opacity", value: `${Math.round((layer.opacity ?? 1) * 100)}%` },
+          { label: "Colormap", value: layer.colormap, mono: false },
+        ]}
+      />
     );
   }
 
   return null;
 }
+
+// ── superseded controls ─────────────────────────────────────────────────────
+// Toggle, NativeRangeSlider, Pct, RangeBlock, EditableNumber and DualRangeTrack
+// have no callers since the B2 migration (ui/bf Switch, Slider, RangeSlider,
+// ValueChip). Left in place for the coordinator to delete.
 
 // ── controls ────────────────────────────────────────────────────────────────
 
@@ -586,7 +738,7 @@ function Toggle({
   );
 }
 
-function Slider({
+function NativeRangeSlider({
   value,
   min,
   max,
@@ -1056,8 +1208,20 @@ function ColormapBlock({
   onChange: (next: string) => void;
   hiddenBand?: readonly [number, number] | null;
 }) {
+  // The strip's gradient spans its padding box (inside a 1px border). Inset
+  // the border box so that box lands on the sliders' ruler box, which is
+  // inset by SLIDER_THUMB_INSET_PX: one value, one x on all three.
+  // Forced colors: the strip is data colour, so its trigger (the only button
+  // here; the picker's list portals out) opts out of colour forcing, or the
+  // gradient is dropped and the strip renders as an empty box.
   return (
-    <div className="py-1.5">
+    <div
+      className="py-1 [&>div]:!mb-0 [&_button]:[forced-color-adjust:none]"
+      style={{
+        paddingLeft: SLIDER_THUMB_INSET_PX - 1,
+        paddingRight: SLIDER_THUMB_INSET_PX - 1,
+      }}
+    >
       <ColormapPicker
         value={value}
         onChange={onChange}
@@ -1094,6 +1258,12 @@ export function inspectorRuler(
   threshold: readonly [number, number] | null | undefined,
   /** Domain frozen for an ongoing interaction; the ruler never shrinks inside it. */
   frozen?: readonly [number, number] | null,
+  /**
+   * Further windows the ruler must always contain (the layer's default window
+   * and the window at first selection), so the domain is stable between
+   * interactions and the original window ends stay reachable.
+   */
+  anchors?: ReadonlyArray<readonly [number, number] | null | undefined>,
 ): InspectorRuler {
   const finite = [
     data[0],
@@ -1101,6 +1271,7 @@ export function inspectorRuler(
     window[0],
     window[1],
     ...(frozen ? [frozen[0], frozen[1]] : []),
+    ...(anchors ?? []).flatMap((a) => (a ? [a[0], a[1]] : [])),
   ].filter(Number.isFinite);
   const min = finite.length ? Math.min(...finite) : 0;
   const max = finite.length ? Math.max(...finite) : 1;
@@ -1116,6 +1287,30 @@ export function inspectorRuler(
     windowSpan: span > 0 ? pair(window[0], window[1]) : null,
     hiddenSpan: hidden && hidden[1] > hidden[0] ? hidden : null,
   };
+}
+
+/**
+ * Window the Inspector first saw per layer id (module scope: survives the
+ * Inspector remounting and switching between layers; ids are never reused).
+ */
+const firstSeenWindows = new Map<string, readonly [number, number]>();
+
+/** Anchor windows for {@link inspectorRuler}: default (load-time) and first-seen. */
+function layerAnchorWindows(
+  layerId: string,
+  current: readonly [number, number],
+  metadata: { renderProps?: { intensity?: readonly [number, number] } } | null,
+): Array<readonly [number, number]> {
+  let first = firstSeenWindows.get(layerId);
+  if (!first && Number.isFinite(current[0]) && Number.isFinite(current[1])) {
+    first = [current[0], current[1]];
+    firstSeenWindows.set(layerId, first);
+  }
+  const out: Array<readonly [number, number]> = [];
+  const def = metadata?.renderProps?.intensity;
+  if (def && def.length === 2) out.push(def);
+  if (first) out.push(first);
+  return out;
 }
 
 // ── format helpers ──────────────────────────────────────────────────────────

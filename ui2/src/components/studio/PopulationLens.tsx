@@ -1,3 +1,4 @@
+import { Button, Notice, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
 import { inferenceChannelNames, inferenceChannel } from '@/services/studio/inferenceCatalog';
 import { PopulationInferenceControls } from './PopulationInferenceControls';
 import { selectInferenceChannel } from '@/services/studio/populationInference';
@@ -44,9 +45,8 @@ import {
   type PopulationOrientation,
   type PopulationSummary,
 } from '@/services/studio/PopulationSliceService';
+import { formatWorldPoint } from '@/utils/valueFormat';
 
-const control =
-  'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm text-foreground disabled:opacity-40';
 const names: Record<PopulationSummary, string> = {
   mean: 'Mean',
   median: 'Median',
@@ -379,8 +379,7 @@ export function PopulationLens({
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-bf-sm">
           {activeTest ? 'Channel' : 'Summary'}{' '}
-          <select
-            className={control}
+          <Select className="w-auto max-w-full"
             aria-label={activeTest ? 'Displayed test channel' : 'Summary'}
             disabled={comparing || grouped}
             value={activeTest?.channel ?? (comparing || grouped ? 'mean' : summary)}
@@ -397,12 +396,11 @@ export function PopulationLens({
                 </option>
               ),
             )}
-          </select>
+          </Select>
         </label>
         <label className="text-bf-sm">
           Plane{' '}
-          <select
-            className={control}
+          <Select className="w-auto max-w-full"
             aria-label="Plane"
             value={orientation}
             onChange={(event) => setOrientation(event.target.value as PopulationOrientation)}
@@ -410,12 +408,11 @@ export function PopulationLens({
             <option value="axial">Axial</option>
             <option value="coronal">Coronal</option>
             <option value="sagittal">Sagittal</option>
-          </select>
+          </Select>
         </label>
         <label className="text-bf-sm">
           Zoom{' '}
-          <select
-            className={control}
+          <Select className="w-auto max-w-full"
             aria-label="Zoom"
             value={zoom}
             onChange={(event) => setZoom(Number(event.target.value))}
@@ -427,40 +424,36 @@ export function PopulationLens({
                   {value}×
                 </option>
               ))}
-          </select>
+          </Select>
         </label>
-        <button
-          className={control}
+        <Button variant="secondary" size="sm"
           disabled={!current}
           onClick={() => moveSlice(-1)}
           aria-label="Previous population slice"
         >
           −1 mm
-        </button>
-        <button
-          className={control}
+        </Button>
+        <Button variant="secondary" size="sm"
           disabled={!current}
           onClick={() => moveSlice(1)}
           aria-label="Next population slice"
         >
           +1 mm
-        </button>
-        <button
-          className={control}
+        </Button>
+        <Button variant="secondary" size="sm"
           disabled={!result}
           onClick={() =>
             result && populationSliceActions.navigate(workspaceId, result.data.centerWorld)
           }
         >
           Center brain
-        </button>
-        <button
-          className={control}
+        </Button>
+        <Button variant="secondary" size="sm"
           disabled={!definition.query || snapshot.pending}
           onClick={() => service.request(definition.query, true)}
         >
           Refresh images
-        </button>
+        </Button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-bf-sm">
         {(participants.identity ||
@@ -468,8 +461,7 @@ export function PopulationLens({
           studio.sets[studio.selection.activeSetId ?? '']?.savedCohortIds.length) && (
           <label>
             Preview exclusion{' '}
-            <select
-              className={control}
+            <Select className="w-auto max-w-full"
               aria-label="Preview exclusion unit"
               value={
                 previewSet ? previewTarget! : previewParticipant ? 'participant' : 'observation'
@@ -491,11 +483,10 @@ export function PopulationLens({
                     </option>
                   ),
               )}
-            </select>
+            </Select>
           </label>
         )}
-        <button
-          className={control}
+        <Button variant="secondary" size="sm"
           disabled={
             (!previewSet && !studio.selection.activeMemberId) ||
             (previewParticipant &&
@@ -525,7 +516,7 @@ export function PopulationLens({
           }}
         >
           Hold to preview without {previewLabel}
-        </button>
+        </Button>
         {withoutFocused && (
           <span role="status">
             Temporary preview without{' '}
@@ -539,9 +530,9 @@ export function PopulationLens({
         )}
       </div>
       {issue && (
-        <p role="alert" className="text-bf-sm text-destructive">
+        <Notice role="alert" severity="danger">
           {issue}
-        </p>
+        </Notice>
       )}
       <PopulationInferenceControls />
       <PopulationRelationshipPanel />
@@ -572,41 +563,40 @@ export function PopulationLens({
         className="flex flex-wrap items-center gap-2 text-bf-sm"
         aria-label="Population arrangement"
       >
-        {(
-          [
-            'inspect',
-            'montage',
-            ...(studio.population.partition ? (['groups'] as const) : []),
-          ] as const
-        ).map((value) => (
-          <button
-            key={value}
-            className={`${control} ${presentation.arrangement === value ? '!bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]' : ''}`}
-            aria-pressed={presentation.arrangement === value}
-            onClick={() =>
-              studio.setPopulationPresentation({
-                ...presentation,
-                arrangement: value,
-                contributorsGroupId: undefined,
-              })
-            }
-          >
-            {value === 'inspect' ? 'Inspect' : value === 'groups' ? 'Groups' : 'Montage'}
-          </button>
-        ))}
-        <button className={control} disabled={!canArrange} onClick={() => fitOrder('all')}>
+        <SegmentedControl
+          aria-label="Population view"
+          hideWhenSingle={false}
+          options={(
+            [
+              'inspect',
+              'montage',
+              ...(studio.population.partition ? (['groups'] as const) : []),
+            ] as const
+          ).map((value) => ({
+            value,
+            label: value === 'inspect' ? 'Inspect' : value === 'groups' ? 'Groups' : 'Montage',
+          }))}
+          value={presentation.arrangement}
+          onValueChange={(value) =>
+            studio.setPopulationPresentation({
+              ...presentation,
+              arrangement: value as typeof presentation.arrangement,
+              contributorsGroupId: undefined,
+            })
+          }
+        />
+        <Button variant="secondary" size="sm" disabled={!canArrange} onClick={() => fitOrder('all')}>
           Order observations by pinned response
-        </button>
+        </Button>
         {(savedOrder || arrangement) && (
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             onClick={() => {
               probeController?.clearArrangement();
               studio.setPopulationPresentation({ ...presentation, order: null });
             }}
           >
             Restore source order
-          </button>
+          </Button>
         )}
       </div>
       {comparing && (
@@ -620,8 +610,7 @@ export function PopulationLens({
             {population.referenceMemberIds.filter((id) => selectedIds.has(id)).length} observations.
             Descriptive means; not a t-test.
           </span>
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             onClick={() =>
               studio.setPopulationPresentation({
                 ...presentation,
@@ -630,28 +619,26 @@ export function PopulationLens({
             }
           >
             {difference ? 'Expand A and B' : 'Show A − B'}
-          </button>
+          </Button>
         </div>
       )}
       {grouped && groupPages > 1 && (
         <div className="flex gap-2 text-bf-sm">
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             disabled={currentGroupPage === 0}
             onClick={() => setGroupPage(currentGroupPage - 1)}
           >
             Previous groups
-          </button>
+          </Button>
           <span>
             Groups page {currentGroupPage + 1} / {groupPages}
           </span>
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             disabled={currentGroupPage + 1 === groupPages}
             onClick={() => setGroupPage(currentGroupPage + 1)}
           >
             Next groups
-          </button>
+          </Button>
         </div>
       )}
       <div ref={host} className="min-w-0">
@@ -770,17 +757,16 @@ export function PopulationLens({
       <div className="flex flex-wrap items-center justify-between gap-2 text-bf-sm">
         <p role="status" className="text-muted-foreground">
           {result
-            ? `${result.query.request.orientation} · (${result.query.request.crosshairMm.map((v) => v.toFixed(1)).join(', ')}) mm · nearest voxel`
+            ? `${result.query.request.orientation} · (${formatWorldPoint(result.query.request.crosshairMm)}) mm · nearest voxel`
             : 'Choose an audited volume set.'}
           {result && !current && ' · previous query'}
           {snapshot.pending && ' · updating'}
         </p>
         <label>
           Value scale ±{' '}
-          <input
+          <NumberField
             aria-label="Population value scale limit"
-            className={`${control} w-20`}
-            type="number"
+            fieldClassName="w-20"
             min="0.000001"
             step="any"
             value={result?.effectLimit ?? 1}
@@ -790,10 +776,9 @@ export function PopulationLens({
         {result && !populationSharesEffectScale(result.query.request) && (
           <label>
             Summary maximum{' '}
-            <input
+            <NumberField
               aria-label="Population summary scale maximum"
-              className={`${control} w-20`}
-              type="number"
+              fieldClassName="w-20"
               min="0.000001"
               step="any"
               value={result.summaryLimit}
@@ -801,17 +786,15 @@ export function PopulationLens({
             />
           </label>
         )}
-        <button
-          className={control}
+        <Button variant="secondary" size="sm"
           disabled={!result?.data.contextRange}
           onClick={() => service.fitEffectScale()}
         >
           Fit scale to visible context
-        </button>
+        </Button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-bf-sm">
-        <button
-          className={control}
+        <Button variant="secondary" size="sm"
           hidden={montage}
           aria-expanded={showCutouts}
           disabled={!population.context.memberIds.length}
@@ -821,14 +804,13 @@ export function PopulationLens({
           }}
         >
           {showCutouts ? 'Hide individual cutouts' : 'Show individual cutouts'}
-        </button>
+        </Button>
         {(showCutouts || montage) && (
           <>
             {montage && (
               <label>
                 Preview support{' '}
-                <select
-                  className={control}
+                <Select className="w-auto max-w-full"
                   aria-label="Montage support"
                   value={currentProbe && presentation.montageScope !== 'plane' ? 'probe' : 'plane'}
                   onChange={(e) =>
@@ -842,13 +824,12 @@ export function PopulationLens({
                   <option value="probe" disabled={!currentProbe}>
                     Pinned region
                   </option>
-                </select>
+                </Select>
               </label>
             )}
             <label>
               Cutout width{' '}
-              <select
-                className={control}
+              <Select className="w-auto max-w-full"
                 disabled={montage && (!currentProbe || presentation.montageScope === 'plane')}
                 value={cutoutWidth}
                 onChange={(event) => setCutoutWidth(Number(event.target.value))}
@@ -858,15 +839,14 @@ export function PopulationLens({
                     {mm} mm
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
-            <button className={control} onClick={() => populationProbeActions.pin(0, false)}>
+            <Button variant="secondary" size="sm" onClick={() => populationProbeActions.pin(0, false)}>
               Center cutouts on crosshair
-            </button>
+            </Button>
             {probeController && !montage && (
               <>
-                <button
-                  className={control}
+                <Button variant="secondary" size="sm"
                   disabled={!canArrange}
                   onClick={() => {
                     fitOrder('all');
@@ -874,9 +854,8 @@ export function PopulationLens({
                   }}
                 >
                   Order by pinned response
-                </button>
-                <button
-                  className={control}
+                </Button>
+                <Button variant="secondary" size="sm"
                   disabled={!canArrange || !hasFiniteResponse}
                   onClick={() => {
                     fitOrder('witnesses');
@@ -884,21 +863,19 @@ export function PopulationLens({
                   }}
                 >
                   Show 12 response witnesses
-                </button>
+                </Button>
                 {arrangement?.mode === 'witnesses' && (
-                  <button
-                    className={control}
+                  <Button variant="secondary" size="sm"
                     onClick={() => {
                       probeController.expandWitnesses();
                       setCutoutPage(0);
                     }}
                   >
                     Show all observations
-                  </button>
+                  </Button>
                 )}
                 {arrangement && (
-                  <button
-                    className={control}
+                  <Button variant="secondary" size="sm"
                     onClick={() => {
                       probeController.clearArrangement();
                       studio.setPopulationPresentation({ ...presentation, order: null });
@@ -906,29 +883,27 @@ export function PopulationLens({
                     }}
                   >
                     Use source order
-                  </button>
+                  </Button>
                 )}
               </>
             )}
             {pages > 1 && (
               <>
-                <button
-                  className={control}
+                <Button variant="secondary" size="sm"
                   disabled={page === 0}
                   onClick={() => setCutoutPage(Math.max(0, page - 1))}
                 >
                   Previous observations
-                </button>
+                </Button>
                 <span>
                   {page + 1} / {pages}
                 </span>
-                <button
-                  className={control}
+                <Button variant="secondary" size="sm"
                   disabled={page + 1 >= pages}
                   onClick={() => setCutoutPage(page + 1)}
                 >
                   Next observations
-                </button>
+                </Button>
               </>
             )}
           </>
@@ -948,7 +923,7 @@ export function PopulationLens({
             {result.query.request.cutouts?.wholePlane
               ? 'Whole-plane previews'
               : `${result.query.request.cutouts?.widthMm} mm cutouts`}{' '}
-            at ({result.query.request.cutouts?.centerMm.map((value) => value.toFixed(1)).join(', ')}
+            at ({result.query.request.cutouts ? formatWorldPoint(result.query.request.cutouts.centerMm) : ''}
             ) mm
             {!current && ' · previous query'}
           </p>

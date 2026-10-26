@@ -17,7 +17,7 @@ describe('surfaceAppearancePresets', () => {
   });
 
   it('matches the default lighting settings to the Default preset', () => {
-    expect(matchLightingPreset(DEFAULT_SURFACE_LIGHTING_SETTINGS)).toBe('Default');
+    expect(matchLightingPreset(DEFAULT_SURFACE_LIGHTING_SETTINGS)).toBe('Balanced');
   });
 
   it('matches a named lighting preset by intensities, ignoring light position', () => {

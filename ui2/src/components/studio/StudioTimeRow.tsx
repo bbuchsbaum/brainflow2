@@ -1,3 +1,4 @@
+import { IconButton } from '@/components/ui/bf';
 import React, { useEffect, useRef, useState } from 'react';
 import type { StudioMemberSummary } from '@/types/studio';
 
@@ -161,16 +162,15 @@ function TransportButton({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
+    <IconButton
+      size="xs"
+      variant="secondary"
+      icon={children}
       title={title}
       aria-label={title}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-sm border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      {children}
-    </button>
+    />
   );
 }
 

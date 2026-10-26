@@ -4,7 +4,7 @@
  * `noteFallback` so reviewers can see where the harness departs from the app.
  */
 import type { HarnessBackend } from './backend';
-import { BIDS_ROOT } from './scenarioData';
+import { BIDS_ROOT, REMOTE_MOUNT_DEMO } from './scenarioData';
 import { HARNESS_ROOT, MNI_PATH, STATS_PATH, SURFACE_OVERLAY_PATH, SURFACE_PATH } from './backend';
 import type { HarnessFixtures } from './fixtures';
 import { noteStep } from './harnessLog';
@@ -50,7 +50,10 @@ async function mountStudy(
 async function clickTreeRow(name: string): Promise<void> {
   const find = () =>
     Array.from(document.querySelectorAll<HTMLElement>('.react-arborist [role="treeitem"]')).find(
-      (el) => el.textContent?.trim().startsWith(name),
+      (el) =>
+        (el.querySelector<HTMLElement>('[data-full-name]')?.dataset.fullName ?? el.textContent?.trim())?.startsWith(
+          name,
+        ),
     ) ?? null;
   await until(() => find() !== null, `file tree row '${name}'`);
   const row = find()!;
@@ -153,7 +156,10 @@ async function pressFocused(key: string): Promise<void> {
 function focusedTreeRowText(): string | null {
   const active = document.activeElement as HTMLElement | null;
   if (!active || active.getAttribute('role') !== 'treeitem') return null;
-  return active.textContent?.trim() ?? null;
+  // Rows render a middle-truncated name (formatName); the full name is on
+  // the name element's data-full-name.
+  const full = active.querySelector<HTMLElement>('[data-full-name]')?.dataset.fullName;
+  return full ?? active.textContent?.trim() ?? null;
 }
 
 /** Keyboard navigation into the Files tree: Tab into it, then arrow down to `rowName`. */
@@ -172,6 +178,57 @@ async function keyboardIntoTree(rowName: string): Promise<void> {
     () => document.querySelector('.fb-tree-container')?.getAttribute('data-kbd-nav') === 'true',
     'tree keyboard-nav mark',
   );
+}
+
+/** Click the first element matching `selector` that `predicate` accepts (waits for it). */
+async function clickWhere(
+  selector: string,
+  predicate: (el: HTMLElement) => boolean,
+  label: string,
+): Promise<HTMLElement> {
+  const find = () => Array.from(document.querySelectorAll<HTMLElement>(selector)).find(predicate) ?? null;
+  await until(() => find() !== null, label);
+  const el = find()!;
+  el.click();
+  await frames(3);
+  noteStep(`clicked ${label}`);
+  return el;
+}
+
+/** The form control named by a `<label for>` whose text is `text`, inside `root`. */
+function controlByLabel<T extends HTMLElement>(root: ParentNode, text: string): T | null {
+  const label = Array.from(root.querySelectorAll<HTMLLabelElement>('label')).find(
+    (l) => l.textContent?.trim() === text,
+  );
+  return label?.htmlFor ? (document.getElementById(label.htmlFor) as T | null) : null;
+}
+
+/**
+ * Type into a React-controlled input the way the browser reports it: focus,
+ * set the value through the native setter (so React's value tracker sees a
+ * change), then dispatch a bubbling `input` event.
+ */
+async function typeInto(root: ParentNode, labelText: string, value: string): Promise<void> {
+  await until(() => !!controlByLabel(root, labelText), `field '${labelText}'`);
+  const input = controlByLabel<HTMLInputElement>(root, labelText)!;
+  input.focus();
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await frames(2);
+  noteStep(`typed '${value}' into ${labelText}`);
+}
+
+/** Choose an option of a native `<select>` (focus, set value, bubbling `change`). */
+async function chooseOption(root: ParentNode, labelText: string, value: string): Promise<void> {
+  await until(() => !!controlByLabel(root, labelText), `select '${labelText}'`);
+  const select = controlByLabel<HTMLSelectElement>(root, labelText)!;
+  select.focus();
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!;
+  setter.call(select, value);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await frames(2);
+  noteStep(`chose '${value}' in ${labelText}`);
 }
 
 async function baseVolume(): Promise<void> {
@@ -314,7 +371,9 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     // auto-creates one panel per visible layer (MNI, zstat).
     await clickByText('[data-testid="display-mode-selector"] button', 'Compare');
     await until(
-      () => document.querySelectorAll('[data-testid="display-mode-compare"][data-active="true"]').length === 1,
+      () =>
+        document.querySelector('[data-testid="display-mode-selector"]')?.getAttribute('data-active-mode') ===
+        'compare',
       'compare mode active',
     );
     const { useComparisonStore } = await import('@/stores/comparisonStore');
@@ -331,14 +390,62 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   },
   'keyboard-focus-switcher': async () => {
     await baseVolume();
-    // Tab onto the active segment of the top-bar workspace switcher (the
-    // segments are plain buttons, each a Tab stop; there is no arrow roving).
+    // Tab onto the top-bar workspace switcher: a bf SegmentedControl (radio
+    // group), whose single Tab stop is the checked segment.
     const active = document.querySelector<HTMLElement>(
-      '[data-testid="display-mode-selector"] [data-active="true"]',
+      '[data-testid="display-mode-selector"] [role="radio"][aria-checked="true"]',
     );
     if (!active) throw new Error('active display-mode segment not found');
     await tabInto(active, `display mode '${active.textContent?.trim()}'`);
     await until(() => document.activeElement === active, 'switcher segment focused');
+  },
+  'surface-settings': async (ctx) => {
+    await DRIVERS['volume-surface'](ctx);
+    // Inspector scene stack: click the surface geometry row like a user.
+    await clickWhere(
+      '[role="row"][aria-label]',
+      (el) => el.getAttribute('aria-label')!.startsWith('lh.inflated.gii,'),
+      "scene row 'lh.inflated.gii'",
+    );
+    await clickByText('button', 'Surface settings…');
+    const popover = () => document.querySelector<HTMLElement>('[data-radix-popper-content-wrapper]');
+    await until(() => !!popover(), 'surface settings popover');
+    // Expand the collapsed Appearance section inside the popover.
+    await clickWhere(
+      '[data-radix-popper-content-wrapper] button[aria-expanded="false"]',
+      (el) => el.textContent?.trim() === 'Appearance',
+      "popover section 'Appearance'",
+    );
+    await until(
+      () =>
+        Array.from(popover()?.querySelectorAll('button[aria-expanded="true"]') ?? []).some(
+          (b) => b.textContent?.trim() === 'Appearance',
+        ),
+      'Appearance expanded',
+    );
+  },
+  'dialog-remote-mount': async () => {
+    await servicesReady();
+    // Files panel start state: the "Mount remote (SSH)…" command.
+    await clickWhere(
+      'button',
+      (el) => el.textContent?.trim() === 'Mount remote (SSH)…',
+      "Files command 'Mount remote (SSH)…'",
+    );
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    await until(() => !!dialog() && !!controlByLabel(dialog()!, 'Host'), 'remote mount dialog');
+    // Profiles load asynchronously and reset the form; the profile select is
+    // disabled until they arrive (none saved, so it stays on "New connection…").
+    await until(() => {
+      const select = controlByLabel<HTMLSelectElement>(dialog()!, 'Saved profile');
+      return !!select && !select.disabled && select.value === '';
+    }, 'profiles loaded (none saved)');
+    await frames(3);
+    await typeInto(dialog()!, 'Host', REMOTE_MOUNT_DEMO.host);
+    await typeInto(dialog()!, 'User', REMOTE_MOUNT_DEMO.user);
+    await typeInto(dialog()!, 'Remote folder', REMOTE_MOUNT_DEMO.remotePath);
+    await chooseOption(dialog()!, 'Auth method', 'password');
+    await until(() => !!controlByLabel(dialog()!, 'Password'), 'password field shown');
   },
   // Same driver as volume-surface; captured only as the 1280x800 variant (integrated-1280).
   integrated: async (ctx) => DRIVERS['volume-surface'](ctx),

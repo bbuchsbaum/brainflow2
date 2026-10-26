@@ -1,3 +1,4 @@
+import { Button, Notice, NumberField } from '@/components/ui/bf';
 import { PopulationPivot } from './PopulationPivot';
 import { populationPlotService } from '@/services/studio/PopulationPlotService';
 import { PopulationBrush } from './PopulationBrush';
@@ -23,6 +24,7 @@ import {
 } from '@/services/studio/PopulationProbeController';
 import type { PopulationProbe } from '@/types/population';
 import type { ResolvedPlotSpec } from '@/plotting';
+import { formatWorldPoint } from '@/utils/valueFormat';
 
 const pointSpec: ResolvedPlotSpec = {
   mark: 'point',
@@ -30,10 +32,8 @@ const pointSpec: ResolvedPlotSpec = {
   transforms: [],
   params: {},
 };
-const control =
-  'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm text-foreground hover:bg-accent disabled:opacity-40';
 const coordinates = (probe: PopulationProbe) =>
-  probe.worldMm.map((value) => value.toFixed(1)).join(', ');
+  formatWorldPoint(probe.worldMm);
 
 export function PopulationProbePanel({
   controller: suppliedController,
@@ -174,13 +174,12 @@ export function PopulationProbePanel({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {result && (
-            <button
-              className={control}
+            <Button variant="secondary" size="sm"
               aria-expanded={expanded}
               onClick={() => setExpanded((value) => !value)}
             >
               {expanded ? 'Hide values' : 'Show values'}
-            </button>
+            </Button>
           )}
           <label className="flex items-center gap-1 text-bf-sm">
             <input
@@ -192,42 +191,39 @@ export function PopulationProbePanel({
           </label>
           <label className="flex items-center gap-1 text-bf-sm">
             Radius{' '}
-            <input
+            <NumberField
               aria-label="Probe radius in millimetres"
-              type="number"
               min={0}
               step={1}
               value={radius}
               onChange={(event) => updateRadius(event.target.valueAsNumber)}
-              className="w-14 rounded-sm border border-border bg-background px-1 py-0.5"
-            />{' '}
-            mm
+              fieldClassName="w-20"
+              unit="mm"
+            />
           </label>
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             onClick={() => populationProbeActions.pin(radius, previewHover)}
             disabled={!studio.selection.activeSetId}
           >
             {previewHover && studio.population.hoverProbe ? 'Pin preview' : 'Pin crosshair'}
-          </button>
+          </Button>
           {studio.population.pinnedProbe && (
-            <button className={control} onClick={populationProbeActions.unpin}>
+            <Button variant="secondary" size="sm" onClick={populationProbeActions.unpin}>
               Unpin
-            </button>
+            </Button>
           )}
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             onClick={() => controller.request(definition.query, true)}
             disabled={!definition.query || snapshot.pending}
           >
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
       {issue && (
-        <p role="alert" className="mt-2 text-bf-sm text-destructive">
+        <Notice role="alert" severity="danger" className="mt-2">
           {issue}
-        </p>
+        </Notice>
       )}
       <div className="mt-1 text-bf-sm text-muted-foreground" role="status">
         {result ? (
@@ -254,14 +250,13 @@ export function PopulationProbePanel({
         </p>
       )}
       {pinError && (
-        <p role="alert" className="text-bf-sm text-destructive">
+        <Notice role="alert" severity="danger">
           {pinError}
-        </p>
+        </Notice>
       )}
       <div ref={plotRef} className="min-w-0">
         {result && plotFrame && (
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             disabled={snapshot.pending || result.query.key !== snapshot.requested?.key}
             onClick={() => {
               try {
@@ -273,7 +268,7 @@ export function PopulationProbePanel({
             }}
           >
             Compose in Plot
-          </button>
+          </Button>
         )}
         {result && plotFrame && expanded && (
           <PopulationBrush horizontal scope={definition.query?.key ?? 'no-probe'}>
@@ -312,28 +307,26 @@ export function PopulationProbePanel({
               {unavailable > 0 && ` · ${unavailable} unavailable ${unit}`}
             </p>
             <div className="flex gap-1">
-              <button className={control} onClick={populationProbeActions.selectAll}>
+              <Button variant="secondary" size="sm" onClick={populationProbeActions.selectAll}>
                 All
-              </button>
-              <button className={control} onClick={populationProbeActions.selectNone}>
+              </Button>
+              <Button variant="secondary" size="sm" onClick={populationProbeActions.selectNone}>
                 None
-              </button>
-              <button
-                className={control}
+              </Button>
+              <Button variant="secondary" size="sm"
                 onClick={populationProbeActions.selectFocused}
                 disabled={
                   !population.context.memberIds.includes(studio.selection.activeMemberId ?? '')
                 }
               >
                 Focused only
-              </button>
-              <button
-                className={control}
+              </Button>
+              <Button variant="secondary" size="sm"
                 onClick={populationProbeActions.undoSelection}
                 disabled={!studio.population.selectionPast.length}
               >
                 Undo selection
-              </button>
+              </Button>
             </div>
           </div>
           <div
@@ -344,10 +337,9 @@ export function PopulationProbePanel({
               <span>Observed sign share · {unit} in working selection</span>
               <label>
                 Near zero ±{' '}
-                <input
+                <NumberField
                   aria-label="Near-zero response limit"
-                  className="w-20 rounded-sm border border-border bg-background px-1 py-0.5"
-                  type="number"
+                  fieldClassName="w-20"
                   min={0}
                   step="any"
                   value={nearZeroLimit}
@@ -446,12 +438,14 @@ export function PopulationProbePanel({
                           />
                         </td>
                         <td>
-                          <button
-                            className="underline"
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="min-h-6 font-mono"
                             onClick={() => populationProbeActions.focus(id)}
                           >
                             {id}
-                          </button>
+                          </Button>
                         </td>
                         <td>{typeof row.value === 'number' ? row.value.toPrecision(4) : '—'}</td>
                         <td title={source?.sourceRevision?.sha256}>

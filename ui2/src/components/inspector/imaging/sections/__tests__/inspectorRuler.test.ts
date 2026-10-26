@@ -32,4 +32,12 @@ describe('inspectorRuler (one ruler for Intensity, Threshold and the colormap st
     expect([frozen.min, frozen.max]).toEqual([-6, 6.15]);
     expect(frozen.windowSpan![0]).toBeCloseTo(0.5 / 12.15);
   });
+
+  it('always contains its anchor windows (default and first-seen), so it never shrinks between interactions', () => {
+    // Window narrowed to −4.18…6; data −4.58…6.15; first-seen window −6…6.
+    const r = inspectorRuler([-4.58, 6.15], [-4.18, 6], [-2.3, 2.3], null, [[-6, 6], null]);
+    expect([r.min, r.max]).toEqual([-6, 6.15]);
+    const withDefault = inspectorRuler([0, 255], [30, 200], [0, 0], null, [[-10, 300]]);
+    expect([withDefault.min, withDefault.max]).toEqual([-10, 300]);
+  });
 });
