@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
 import { cn } from '@/utils/cn';
 import { colormaps } from './colormapOptions';
+import { HIDDEN_BAND_BACKGROUND } from '@/components/views/viewportFrame/frameFormat';
 
 export type ColormapPickerVariant = 'default' | 'enhanced';
 
@@ -10,6 +11,69 @@ interface ColormapPickerProps {
   disabled?: boolean;
   onChange: (value: string) => void;
   variant?: ColormapPickerVariant;
+  /**
+   * Hidden (thresholded-out) interval as strip fractions [from, to], left to
+   * right over the intensity window. Drawn as the colorbar's hatched cut-out.
+   */
+  hiddenBand?: readonly [number, number] | null;
+  /**
+   * The intensity window as strip fractions [from, to] when the strip spans a
+   * wider ruler (data ∪ window): the gradient fills the window and the end
+   * colours (what values beyond the window are drawn in) fill the rest.
+   */
+  windowSpan?: readonly [number, number] | null;
+}
+
+/**
+ * Gradient drawn over a sub-span of the strip, with its first / last colour
+ * extended to the strip ends (an oversized copy of the gradient anchored left
+ * or right shows exactly its end colour, so no colour stops are parsed).
+ */
+function WindowedGradient({
+  gradient,
+  span,
+}: {
+  gradient: string;
+  span: readonly [number, number];
+}) {
+  const [a, b] = span;
+  const base = 'pointer-events-none absolute inset-y-0 block';
+  return (
+    <>
+      {a > 0 ? (
+        <span
+          aria-hidden
+          className={base}
+          style={{
+            left: 0,
+            width: `${a * 100}%`,
+            backgroundImage: gradient,
+            backgroundSize: '100000% 100%',
+            backgroundPosition: 'left',
+          }}
+        />
+      ) : null}
+      <span
+        aria-hidden
+        data-testid="colormap-strip-window"
+        className={base}
+        style={{ left: `${a * 100}%`, width: `${Math.max(0, b - a) * 100}%`, backgroundImage: gradient }}
+      />
+      {b < 1 ? (
+        <span
+          aria-hidden
+          className={base}
+          style={{
+            left: `${b * 100}%`,
+            right: 0,
+            backgroundImage: gradient,
+            backgroundSize: '100000% 100%',
+            backgroundPosition: 'right',
+          }}
+        />
+      ) : null}
+    </>
+  );
 }
 
 export function ColormapPicker({
@@ -17,6 +81,8 @@ export function ColormapPicker({
   disabled = false,
   onChange,
   variant = 'default',
+  hiddenBand = null,
+  windowSpan = null,
 }: ColormapPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const selectedColormap = useMemo(
@@ -48,15 +114,31 @@ export function ColormapPicker({
               type="button"
               disabled={disabled}
               className={cn(
-                'h-6 w-full overflow-hidden border transition-colors',
+                'relative h-6 w-full overflow-hidden border transition-colors',
                 'rounded-sm border-border',
                 'hover:border-primary',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
                 'disabled:cursor-not-allowed disabled:opacity-50'
               )}
-              style={{ background: selectedColormap.gradient }}
+              style={{ background: windowSpan ? 'transparent' : selectedColormap.gradient }}
               aria-label={`Select colormap. Current colormap is ${selectedColormap.label}`}
-            />
+            >
+              {windowSpan ? (
+                <WindowedGradient gradient={selectedColormap.gradient} span={windowSpan} />
+              ) : null}
+              {hiddenBand && hiddenBand[1] > hiddenBand[0] ? (
+                <span
+                  aria-hidden
+                  data-testid="colormap-strip-hidden-band"
+                  className="pointer-events-none absolute inset-y-0 block"
+                  style={{
+                    left: `${hiddenBand[0] * 100}%`,
+                    width: `${(hiddenBand[1] - hiddenBand[0]) * 100}%`,
+                    background: HIDDEN_BAND_BACKGROUND,
+                  }}
+                />
+              ) : null}
+            </button>
           ) : (
             <button
               type="button"

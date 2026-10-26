@@ -525,3 +525,11 @@ button.bf-control-button-primary:hover:enabled {
 .bf-parcel-form select.bf-select {
   height: 30px;
 }
+
+/* A numeric field whose pasted text was refused as not a number
+ * (utils/numericInput.ts): shown invalid instead of a different number. */
+input[data-numeric-invalid] {
+  outline: 2px solid var(--bf-danger) !important;
+  outline-offset: 0;
+}
+

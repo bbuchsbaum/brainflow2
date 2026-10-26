@@ -13,6 +13,7 @@ import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { useHoverSettingsPopoverStore } from '@/stores/hoverSettingsPopoverStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
+import { isOverlayLayer } from '@/components/views/viewportFrame/useOverlayColorbar';
 
 export function useViewContextMenu(contextId: string) {
   const markActive = useActiveRenderable(contextId);
@@ -32,6 +33,26 @@ export function useViewContextMenu(contextId: string) {
       const markersOn = primaryLayerId
         ? useDisplayOptionsStore.getState().getOptions(primaryLayerId).showOrientationMarkers
         : true;
+
+      // Colorbar toggle for the selected overlay layer (on-image colorbar).
+      const { layers: allLayers, selectedLayerId } = useLayerStore.getState();
+      const colorbarLayerId =
+        selectedLayerId && isOverlayLayer(allLayers, selectedLayerId) ? selectedLayerId : null;
+      const colorbarOn = colorbarLayerId
+        ? useDisplayOptionsStore.getState().getOptions(colorbarLayerId).showColorbar !== false
+        : false;
+      const colorbarItems = colorbarLayerId
+        ? [
+            {
+              id: 'toggle-colorbar',
+              label: colorbarOn ? 'Hide colorbar' : 'Show colorbar',
+              onClick: () =>
+                useDisplayOptionsStore
+                  .getState()
+                  .setOptions(colorbarLayerId, { showColorbar: !colorbarOn }),
+            },
+          ]
+        : [];
 
       useContextMenuStore.getState().open(clickX, clickY, [
         {
@@ -53,6 +74,7 @@ export function useViewContextMenu(contextId: string) {
             }
           }
         },
+        ...colorbarItems,
         {
           id: 'separator-1',
           label: '',

@@ -36,6 +36,48 @@ const ABS_OVERLAY_STYLE: React.CSSProperties = {
   display: "flex",
 };
 
+// Inline: the badge is the surface pane's top-margin status strip. It sits
+// over the pane's top 28px (the surface panel keeps the full pane so its
+// camera framing is unchanged) and has no fill: HYBRID status rule, a
+// warning reads as icon + hairline edge + text, never as a filled chip.
+const INLINE_STRIP_STYLE: React.CSSProperties = {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: "44px",
+  height: "28px",
+  zIndex: 4,
+  pointerEvents: "none",
+  display: "flex",
+  alignItems: "center",
+  padding: "0 10px",
+  minWidth: 0,
+};
+
+/** Unfilled status line: hairline edge in the state colour, neutral text. */
+function inlineStatusStyle(edge: string): React.CSSProperties {
+  return {
+    pointerEvents: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    height: "16px",
+    padding: "0 0 0 6px",
+    background: "transparent",
+    border: "none",
+    borderLeft: `1px solid ${edge}`,
+    borderRadius: 0,
+    color: "var(--bf-text-secondary)",
+    fontSize: "var(--bf-text-xs)",
+    fontWeight: 450,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    minWidth: 0,
+    maxWidth: "100%",
+  };
+}
+
 const DETAIL_STYLE: React.CSSProperties = {
   color: "var(--bf-text-muted)",
   fontWeight: 450,
@@ -69,7 +111,11 @@ const CAVEAT_STYLE: React.CSSProperties = {
   border: "1px solid color-mix(in srgb, var(--bf-warning) 40%, transparent)",
 };
 
-export const SurfaceAssociationBadge: React.FC = () => {
+export const SurfaceAssociationBadge: React.FC<{
+  /** Render as a top-margin strip instead of an overlay on the canvas. */
+  inline?: boolean;
+}> = ({ inline = false }) => {
+  const wrapperStyle = inline ? INLINE_STRIP_STYLE : ABS_OVERLAY_STYLE;
   const association = useSurfaceAssociationState();
   const surfaces = useSurfaceStore(state => state.surfaces);
   const activeSurfaceId = useSurfaceStore(state => state.activeSurfaceId);
@@ -89,12 +135,15 @@ export const SurfaceAssociationBadge: React.FC = () => {
 
   if (missingAnatomy) {
     return (
-      <div style={ABS_OVERLAY_STYLE}>
+      <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
         <div data-testid="surface-association-badge" data-state="cursor-unavailable"
-          style={CAVEAT_STYLE}
+          style={inline ? inlineStatusStyle("var(--bf-warning)") : CAVEAT_STYLE}
           title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates.">
-          <Link2Off width={12} height={12} aria-hidden="true" />
-          <span>Load matching pial/white surface to link coordinates</span>
+          <Link2Off width={12} height={12} aria-hidden="true"
+            style={inline ? { color: "var(--bf-warning)", flex: "0 0 auto" } : undefined} />
+          <span style={inline ? { overflow: "hidden", textOverflow: "ellipsis" } : undefined}>
+            Load matching pial/white surface to link coordinates
+          </span>
         </div>
       </div>
     );
@@ -106,18 +155,20 @@ export const SurfaceAssociationBadge: React.FC = () => {
         ? "Source volume not loaded"
         : "No source volume";
     return (
-      <div style={ABS_OVERLAY_STYLE}>
+      <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
         <div
           data-testid="surface-association-badge"
           data-state="loaded-unlinked"
           data-reason={association.reason}
-          style={{
-            ...CARD_BASE_STYLE,
-            color: "var(--bf-warning)",
-          }}
+          style={
+            inline
+              ? inlineStatusStyle("var(--bf-warning)")
+              : { ...CARD_BASE_STYLE, color: "var(--bf-warning)" }
+          }
           title={`${association.surfaceName}: ${reasonLabel}`}
         >
-          <Link2Off width={12} height={12} aria-hidden="true" />
+          <Link2Off width={12} height={12} aria-hidden="true"
+            style={inline ? { color: "var(--bf-warning)", flex: "0 0 auto" } : undefined} />
           <span data-testid="surface-association-state">Source unlinked</span>
           <span
             data-testid="surface-association-detail"
@@ -132,13 +183,11 @@ export const SurfaceAssociationBadge: React.FC = () => {
 
   if (association.kind === "template-underlay") {
     return (
-      <div style={ABS_OVERLAY_STYLE}>
+      <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
         <div
           data-testid="surface-association-badge"
           data-state="template-underlay"
-          style={{
-            ...CARD_BASE_STYLE,
-          }}
+          style={inline ? inlineStatusStyle("var(--bf-border-strong)") : CARD_BASE_STYLE}
           title={`${association.surfaceName}: Template surface; coordinate linking requires a volume in the same world space`}
         >
           <Brain width={12} height={12} aria-hidden="true" style={{ color: "var(--bf-text-muted)" }} />
@@ -156,13 +205,11 @@ export const SurfaceAssociationBadge: React.FC = () => {
 
   // loaded-linked
   return (
-    <div style={ABS_OVERLAY_STYLE}>
+    <div style={wrapperStyle} data-placement={inline ? "strip" : "overlay"}>
       <div
         data-testid="surface-association-badge"
         data-state="loaded-linked"
-        style={{
-          ...CARD_BASE_STYLE,
-        }}
+        style={inline ? inlineStatusStyle("var(--bf-border-strong)") : CARD_BASE_STYLE}
         title={`${association.surfaceName} ↔ ${association.volumeName}`}
       >
         <Link width={12} height={12} aria-hidden="true" style={{ color: "var(--bf-success)" }} />

@@ -23,12 +23,23 @@ import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import type { ComparisonPanelConfig } from '@/types/comparison';
+import { SEGMENTED_GROUP, segmentedItemClass } from '@/components/ui/segmentedGroup';
 
 interface ComparisonWorkspaceProps {
   workspaceId?: string;
 }
 
 const EMPTY_PANELS: ComparisonPanelConfig[] = [];
+
+/** The plane every panel shows, or null when panels differ (no panels: the global plane). */
+export function resolveCommonViewType(
+  panels: ReadonlyArray<Pick<ComparisonPanelConfig, 'viewType'>>,
+  globalViewType: ComparisonPanelConfig['viewType'],
+): ComparisonPanelConfig['viewType'] | null {
+  if (panels.length === 0) return globalViewType;
+  const first = panels[0].viewType;
+  return panels.every(p => p.viewType === first) ? first : null;
+}
 
 function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: ComparisonWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,6 +50,11 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
   const layout = useComparisonStore(state => state.layouts.get(workspaceId) ?? 'row');
   const globalViewType = useComparisonStore(state => state.globalViewTypes.get(workspaceId) ?? 'axial');
   const layers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
+  // The plane all panels share (null when per-panel overrides mix them).
+  const commonViewType = useMemo(
+    () => resolveCommonViewType(panels, globalViewType),
+    [panels, globalViewType],
+  );
 
   // Store actions (stable refs)
   const addPanel = useComparisonStore(state => state.addPanel);
@@ -204,53 +220,44 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
       >
         <span className="bf-role-section text-foreground">Compare</span>
 
-        {/* Global orientation */}
-        <div className="ml-1 flex items-center gap-1 rounded-appsm border border-border bg-background p-0.5">
+        {/* Set every panel's plane (joined segmented group) */}
+        {/* Pressed only while every panel shows that plane: after a per-panel
+            override the planes are mixed and no item claims them all. */}
+        <div role="group" aria-label="Set all panels to plane" className={SEGMENTED_GROUP}>
           {(['axial', 'sagittal', 'coronal'] as const).map(vt => (
             <button
               key={vt}
-              className={`bf-control-sm rounded-appsm border px-2 text-bf-2xs font-semibold transition-colors ${
-                globalViewType === vt
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
-              }`}
+              type="button"
+              aria-pressed={commonViewType === vt}
+              className={segmentedItemClass(commonViewType === vt)}
               onClick={() => setGlobalViewType(workspaceId, vt)}
               title={`Set all panels to ${vt}`}
             >
-              {vt === 'axial' ? 'Ax' : vt === 'sagittal' ? 'Sag' : 'Cor'}
+              {vt === 'axial' ? 'Axial' : vt === 'sagittal' ? 'Sagittal' : 'Coronal'}
             </button>
           ))}
         </div>
 
-        {/* Layout toggle */}
-        <div className="flex items-center gap-1 rounded-appsm border border-border bg-background p-0.5">
-          <button
-            className={`bf-control-sm rounded-appsm border px-2 text-bf-2xs font-semibold transition-colors ${
-              layout === 'row'
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
-            }`}
-            onClick={() => setLayout(workspaceId, 'row')}
-            title="Row layout"
-          >
-            Row
-          </button>
-          <button
-            className={`bf-control-sm rounded-appsm border px-2 text-bf-2xs font-semibold transition-colors ${
-              layout === 'grid'
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
-            }`}
-            onClick={() => setLayout(workspaceId, 'grid')}
-            title="Grid layout"
-          >
-            Grid
-          </button>
+        {/* Layout (joined segmented group) */}
+        <div role="group" aria-label="Panel layout" className={SEGMENTED_GROUP}>
+          {(['row', 'grid'] as const).map(mode => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={layout === mode}
+              className={segmentedItemClass(layout === mode)}
+              onClick={() => setLayout(workspaceId, mode)}
+              title={mode === 'row' ? 'Row layout' : 'Grid layout'}
+            >
+              {mode === 'row' ? 'Row' : 'Grid'}
+            </button>
+          ))}
         </div>
 
         {/* Add panel */}
         <button
-          className="bf-control-sm ml-auto rounded-appsm border border-border bg-background px-2.5 text-bf-2xs font-semibold text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
+          type="button"
+          className="ml-auto inline-flex h-6 items-center rounded-sm border border-bf-border bg-transparent px-2 text-bf-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           onClick={handleAddEmptyPanel}
           title="Add empty panel"
         >
@@ -261,7 +268,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
       {/* Panel grid */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto bg-background p-2"
+        className="flex-1 overflow-auto bg-[var(--bf-border)]"
         onDragOver={handleWorkspaceDragOver}
         onDrop={handleWorkspaceDrop}
         style={{

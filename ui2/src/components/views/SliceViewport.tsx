@@ -7,6 +7,7 @@ import type { RenderContext } from '@/types/renderContext';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
 import { useRenderContextRegistration } from './viewport/useRenderContextRegistration';
 import { ReusableSliceViewport } from './sliceViewer';
+import type { CrosshairWorldBounds } from './sliceViewer/ReusableSliceViewport';
 
 export interface SliceViewportPlacement {
   x: number;
@@ -30,6 +31,8 @@ interface SliceViewportProps {
   crosshairStyle?: CrosshairStyle | null;
   /** Client-space boxes (orientation letters) the crosshair stroke avoids. */
   getCrosshairKnockouts?: () => CrosshairRect[];
+  /** Clip the crosshair stroke to this world extent (see ReusableSliceViewport). */
+  crosshairWorldBounds?: CrosshairWorldBounds | null;
   showSliceBorder?: boolean;
   sliceBorderWidth?: number;
   className?: string;
@@ -61,6 +64,7 @@ export function SliceViewport({
   crosshair,
   crosshairStyle,
   getCrosshairKnockouts,
+  crosshairWorldBounds,
   showSliceBorder = false,
   sliceBorderWidth = 1,
   className = '',
@@ -96,6 +100,7 @@ export function SliceViewport({
       crosshair={crosshair}
       crosshairStyle={crosshairStyle}
       getCrosshairKnockouts={getCrosshairKnockouts}
+      crosshairWorldBounds={crosshairWorldBounds}
       showSliceBorder={showSliceBorder}
       sliceBorderWidth={sliceBorderWidth}
       className={className}

@@ -5,27 +5,36 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 vi.mock('../TimeSlider', () => ({ TimeSlider: () => null }));
 vi.mock('../StatusBarProgress', () => ({ StatusBarProgress: () => null }));
 
-import { StatusBar, resolveStatusLayerName } from '../StatusBar';
+import { StatusBar, resolveStatusLayer } from '../StatusBar';
 import { useStatusBarStore } from '@/stores/statusBarStore';
 
-describe('resolveStatusLayerName', () => {
-  const items = [
-    { id: 'base', name: 'MNI152 T1' },
-    { id: 'ov', name: 'Motor zstat1' },
-  ];
-  const layers = [
-    { id: 'base', name: 'MNI152 T1' },
-    { id: 'ov', name: 'Motor zstat1' },
+describe('resolveStatusLayer', () => {
+  const view = [
+    { id: 'base', name: 'MNI152 T1', visible: true },
+    { id: 'ov', name: 'Motor zstat1', visible: true },
   ];
 
-  it('prefers the Inspector selection', () => {
-    expect(resolveStatusLayerName('ov', items, 'base', layers, 'MNI152 T1')).toBe('Motor zstat1');
+  it('uses the shared active-layer rule', () => {
+    expect(
+      resolveStatusLayer(view, { inspectorLayerId: 'base', selectedLayerId: 'ov' }, null)?.id,
+    ).toBe('base');
+    expect(resolveStatusLayer(view, { inspectorLayerId: null, selectedLayerId: 'base' }, null)?.id).toBe(
+      'base',
+    );
+    // Nothing selected: the topmost visible layer, like the viewport header.
+    expect(resolveStatusLayer(view, { inspectorLayerId: null, selectedLayerId: null }, null)?.name).toBe(
+      'Motor zstat1',
+    );
   });
 
-  it('falls back to the selected layer, then to the service value', () => {
-    expect(resolveStatusLayerName(null, items, 'ov', layers, 'MNI152 T1')).toBe('Motor zstat1');
-    expect(resolveStatusLayerName(null, items, null, layers, 'MNI152 T1')).toBe('MNI152 T1');
-    expect(resolveStatusLayerName('gone', items, null, layers, null)).toBeNull();
+  it('follows a Compare panel that claimed the readout', () => {
+    expect(
+      resolveStatusLayer(
+        view,
+        { inspectorLayerId: null, selectedLayerId: 'base' },
+        { layerId: 'ov', name: 'Motor zstat1' },
+      ),
+    ).toEqual({ id: 'ov', name: 'Motor zstat1' });
   });
 });
 
@@ -67,5 +76,37 @@ describe('StatusBar diagnostics', () => {
     const trigger = screen.getByTestId('status-diagnostics-trigger');
     expect(trigger).toHaveAttribute('data-severity', 'warning');
     expect(trigger).toHaveAccessibleName('Diagnostics (atlas warning)');
+  });
+});
+
+describe('StatusBar readout text', () => {
+  it('shows the shared empty glyph for "--" placeholders', () => {
+    const { setValue } = useStatusBarStore.getState();
+    setValue('mouse', '--');
+    setValue('region', '--');
+    const { container } = render(<StatusBar />);
+    const mouse = container.querySelector('[data-slot="mouse"] .status-value');
+    const region = container.querySelector('[data-slot="region"] .status-value');
+    expect(mouse?.textContent).toBe('—');
+    expect(region?.textContent).toBe('—');
+  });
+
+  it('copies coordinates with ASCII minus', () => {
+    useStatusBarStore.getState().setValue('crosshair', '(−37.5, −18.5, 17.5)');
+    const { container } = render(<StatusBar />);
+    const value = container.querySelector('[data-slot="crosshair"] .status-value') as HTMLElement;
+    expect(value.textContent).toBe('(−37.5, −18.5, 17.5)');
+    const range = document.createRange();
+    range.selectNodeContents(value);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const setData = vi.fn();
+    const copy = new Event('copy', { bubbles: true, cancelable: true });
+    Object.defineProperty(copy, 'clipboardData', { value: { setData } });
+    value.dispatchEvent(copy);
+    expect(setData).toHaveBeenCalledWith('text/plain', '(-37.5, -18.5, 17.5)');
+    expect(copy.defaultPrevented).toBe(true);
+    selection.removeAllRanges();
   });
 });

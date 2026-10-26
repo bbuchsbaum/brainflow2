@@ -1,4 +1,3 @@
-import { anatomicalLabels } from '@/utils/anatomicalLabels';
 /**
  * SliceViewCanvas Component
  *
@@ -49,8 +48,22 @@ import {
   computeTemporalHeatmapSliceIndex,
   isTemporalHeatmapEligible,
 } from "./temporalHeatmapState";
+import { useActiveLayer } from "@/utils/activeLayer";
+import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
+import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
+import {
+  OrientationLabels,
+  ViewportColorbar,
+  ViewportHeader,
+  headerDensity,
+  orientationLabelKey as buildOrientationLabelKey,
+  useColorbarHostPlane,
+  useOrientationLabelKnockouts,
+  useOverlayColorbar,
+} from "./viewportFrame";
 
-const LABEL_OFFSET = 6; // px from edge
+/** Top-right space kept for the workspace layout button (OrthogonalViewContainer). */
+const LAYOUT_BUTTON_RESERVE = 48;
 
 function getSliceAxisIndex(viewId: SliceViewCanvasProps["viewId"]): 0 | 1 | 2 {
   if (viewId === "sagittal") return 0;
@@ -335,23 +348,88 @@ function SliceViewCanvasRaw({
 
   // Orientation letters: the crosshair stroke is clipped around them (the
   // letters and the line geometry are unchanged). Measured at draw time.
-  const orientationLabelRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const orientationLabelKey =
-    showMarkers && hasLayers
-      ? JSON.stringify(anatomicalLabels(viewPlane) ?? null)
-      : "";
-  const getCrosshairKnockouts = useCallback((): CrosshairRect[] => {
-    if (!orientationLabelKey) return [];
-    const rects: CrosshairRect[] = [];
-    for (const el of orientationLabelRefs.current) {
-      if (!el || !el.isConnected) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) {
-        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
-      }
+  const orientationLabelKey = buildOrientationLabelKey(
+    viewPlane,
+    showMarkers && hasLayers,
+  );
+  const { refs: orientationLabelRefs, getKnockouts: getCrosshairKnockouts } =
+    useOrientationLabelKnockouts(orientationLabelKey);
+
+  // Viewport frame: header (plane, slice mm, selected layer) and the on-image
+  // colorbar for the selected overlay, hosted by the largest orthogonal view.
+  // The single active-layer rule (utils/activeLayer), shared with the
+  // status bar's Layer/Value slots and the colorbar.
+  const viewStateLayers = useViewStateStore((s) => s.viewState.layers);
+  const headerLayer = useActiveLayer(viewStateLayers);
+  const headerLayerName = headerLayer ? headerLayer.name || headerLayer.id : null;
+  // The scrub range (same as the rail): the header reserves its widest value.
+  const headerRangeMm = useMemo<[number, number]>(
+    () => [sliderBounds.min, sliderBounds.max],
+    [sliderBounds.min, sliderBounds.max],
+  );
+  // The header is clipped out of the crosshair stroke like a letter (slot 4).
+  const setHeaderElement = useCallback(
+    (el: HTMLDivElement | null) => {
+      orientationLabelRefs.current[4] = el;
+    },
+    [orientationLabelRefs],
+  );
+  const colorbarLayer = useOverlayColorbar();
+  const colorbarHost = useColorbarHostPlane();
+  const showColorbar = hasLayers && !!colorbarLayer && colorbarHost === viewId;
+  // Caret on the colorbar: the colorbar layer's value at the crosshair (the
+  // same shared, debounced sample the status bar's Value slot uses).
+  const colorbarReading = useLayerValueAtWorld(
+    showColorbar ? colorbarLayer?.layerId : null,
+    crosshair.world_mm,
+  );
+  const [placementState, setPlacementState] =
+    useState<SliceViewportPlacement | null>(null);
+  // Image rectangle and crosshair centre in canvas-area CSS px, from the
+  // placement the shared viewport computed (read-only; no new fit math).
+  const frameGeometry = useMemo(() => {
+    const canvas = canvasRef.current;
+    const p = placementState;
+    if (!canvas || !p || canvas.width === 0) return null;
+    const rect = canvas.getBoundingClientRect();
+    const k = rect.width > 0 ? rect.width / canvas.width : 1;
+    const imageRect = {
+      left: p.x * k,
+      top: p.y * k,
+      right: (p.x + p.width) * k,
+      bottom: (p.y + p.height) * k,
+    };
+    let crosshairPoint: { x: number; y: number } | null = null;
+    if (crosshair.visible && p.imageWidth > 0 && p.imageHeight > 0) {
+      const [ix, iy] = CoordinateTransform.worldToScreenUnchecked(
+        crosshair.world_mm,
+        viewPlane,
+      );
+      crosshairPoint = {
+        x: (p.x + (ix / p.imageWidth) * p.width) * k,
+        y: (p.y + (iy / p.imageHeight) * p.height) * k,
+      };
     }
-    return rects;
-  }, [orientationLabelKey]);
+    return { imageRect, crosshairPoint };
+  }, [placementState, crosshair, viewPlane, width, canvasHeight]);
+
+  // Publish this view's area and right-margin room for the colorbar host choice.
+  const imageRight = frameGeometry?.imageRect.right ?? null;
+  useEffect(() => {
+    const setSlot = useViewportFrameStore.getState().setSlot;
+    if (!hasLayers || imageRight === null) {
+      setSlot(viewId, null);
+      return;
+    }
+    setSlot(viewId, {
+      area: Math.round(width * canvasHeight),
+      room: Math.max(0, Math.floor(width - imageRight - 24)),
+    });
+  }, [viewId, hasLayers, width, canvasHeight, imageRight]);
+  useEffect(
+    () => () => useViewportFrameStore.getState().setSlot(viewId, null),
+    [viewId],
+  );
 
   // Handle mouse clicks to update crosshair — skip if window/level drag is active
   const isDraggingRef = useRef(isDragging);
@@ -440,6 +518,17 @@ function SliceViewCanvasRaw({
   const handlePlacementChange = useCallback(
     (placement: SliceViewportPlacement) => {
       imagePlacementRef.current = placement;
+      setPlacementState((prev) =>
+        prev &&
+        prev.x === placement.x &&
+        prev.y === placement.y &&
+        prev.width === placement.width &&
+        prev.height === placement.height &&
+        prev.imageWidth === placement.imageWidth &&
+        prev.imageHeight === placement.imageHeight
+          ? prev
+          : placement,
+      );
     },
     [],
   );
@@ -552,6 +641,30 @@ function SliceViewCanvasRaw({
           />
         )}
 
+        {/* Viewport frame overlays (no layout height) */}
+        {hasLayers && (
+          <ViewportHeader
+            plane={viewId}
+            positionMm={crosshair.world_mm[axisIndex]}
+            layerName={headerLayerName}
+            elementRef={setHeaderElement}
+            width={width}
+            height={canvasHeight}
+            rangeMm={headerRangeMm}
+          />
+        )}
+        {showColorbar && colorbarLayer && (
+          <ViewportColorbar
+            layer={colorbarLayer}
+            width={width}
+            height={canvasHeight}
+            imageRect={frameGeometry?.imageRect ?? null}
+            avoidPoint={frameGeometry?.crosshairPoint ?? null}
+            topReserve={LAYOUT_BUTTON_RESERVE}
+            value={colorbarReading?.value ?? null}
+          />
+        )}
+
         {/* Window/level drag overlay */}
         {overlayProps && (
           <div style={overlayProps.style}>{overlayProps.children}</div>
@@ -599,66 +712,23 @@ function SliceViewCanvasRaw({
       )}
 
       {/* Orientation labels */}
-      {showMarkers &&
-        hasLayers &&
-        (() => {
-          const labels = anatomicalLabels(viewPlane);
-          if (!labels) return null;
-          const pillCls =
-            "absolute font-mono text-bf-text-secondary text-bf-xs leading-none select-none pointer-events-none";
-          const labelShadow = {
-            textShadow: "0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.4)",
-          };
-          return (
-            <>
-              <span
-                className={`${pillCls} left-1/2 -translate-x-1/2`}
-                ref={(el) => {
-                  orientationLabelRefs.current[0] = el;
-                }}
-                style={{ top: LABEL_OFFSET, ...labelShadow }}
-              >
-                {labels.top}
-              </span>
-              <span
-                className={`${pillCls} left-1/2 -translate-x-1/2`}
-                ref={(el) => {
-                  orientationLabelRefs.current[1] = el;
-                }}
-                style={{
-                  bottom: hasLayers
-                    ? SLIDER_HEIGHT + LABEL_OFFSET
-                    : LABEL_OFFSET,
-                  ...labelShadow,
-                }}
-              >
-                {labels.bottom}
-              </span>
-              <span
-                className={`${pillCls} top-1/2 -translate-y-1/2`}
-                ref={(el) => {
-                  orientationLabelRefs.current[2] = el;
-                }}
-                style={{ left: LABEL_OFFSET, ...labelShadow }}
-              >
-                {labels.left}
-              </span>
-              <span
-                className={`${pillCls} top-1/2 -translate-y-1/2`}
-                ref={(el) => {
-                  orientationLabelRefs.current[3] = el;
-                }}
-                style={{ right: LABEL_OFFSET, ...labelShadow }}
-              >
-                {labels.right}
-              </span>
-            </>
-          );
-        })()}
+      {showMarkers && hasLayers && (
+        <OrientationLabels
+          viewPlane={viewPlane}
+          refs={orientationLabelRefs}
+          bottomInset={SLIDER_HEIGHT}
+        />
+      )}
 
       {/* Hover value overlay */}
       {hoverValue !== null && showHover && (
-        <div className="absolute top-1 left-1 bg-black/70 text-foreground text-bf-2xs font-mono tabular-nums px-1.5 py-0.5">
+        <div
+          className="absolute left-1.5 bg-black/70 text-foreground text-bf-2xs font-mono tabular-nums px-1.5 py-0.5"
+          style={{
+            // Below the header overlay when it is shown.
+            top: headerDensity(width, canvasHeight) === "hidden" ? 4 : 24,
+          }}
+        >
           {hoverValue.toFixed(3)}
         </div>
       )}

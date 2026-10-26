@@ -8,11 +8,19 @@ import React from "react";
 import { useStatusBarStore } from "@/stores/statusBarStore";
 import { useLayerStore } from "@/stores/layerStore";
 import { useCrosshairSettingsStore } from "@/stores/crosshairSettingsStore";
-import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
-import { useSceneStack } from "@/hooks/useSceneStack";
 import { Popover, PopoverContent, PopoverTrigger } from "./shadcn/popover";
 import { StatusBarProgress } from "./StatusBarProgress";
 import { TimeSlider } from "./TimeSlider";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import {
+  resolveActiveLayer,
+  useActiveLayerSelection,
+  type ActiveLayerSelection,
+} from "@/utils/activeLayer";
+import { useStatusReadoutStore } from "@/stores/statusReadoutStore";
+import { EMPTY_VALUE, formatLayerValue } from "@/utils/valueFormat";
+import { asciiCopyHandler } from "@/utils/numericInput";
+import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 
 interface StatusBarProps {
   className?: string;
@@ -34,6 +42,7 @@ const LABELS: Record<string, string> = {
   crosshair: "Crosshair",
   mouse: "Mouse",
   layer: "Layer",
+  value: "Value",
   region: "Region",
   atlas: "Atlas",
   fps: "FPS",
@@ -45,6 +54,7 @@ const WIDTHS: Record<string, [string, string]> = {
   crosshair: ["32ch", "32ch"],
   mouse: ["32ch", "12ch"],
   layer: ["40ch", "16ch"],
+  value: ["17ch", "15ch"],
   region: ["30ch", "12ch"],
 };
 
@@ -125,8 +135,8 @@ const StatusBarSlot = React.memo(
     return (
       <SlotFrame
         id={id}
-        value={value}
-        title={typeof value === "string" ? value : undefined}
+        value={typeof value === "string" ? displayStatusText(value) : value}
+        title={typeof value === "string" ? displayStatusText(value) : undefined}
         onClick={onClick}
         valueStyle={
           crosshairColor
@@ -143,51 +153,69 @@ const StatusBarSlot = React.memo(
 StatusBarSlot.displayName = "StatusBarSlot";
 
 /**
- * Resolve the name shown in the "Layer" slot: the Inspector's selected scene
- * item, else the selected volume layer, else the service-provided value (the
- * base / first visible layer).
+ * Producers write the legacy "--" placeholder; the bar shows the one empty
+ * glyph every readout uses ("—", as in Value).
  */
-export function resolveStatusLayerName(
-  activeItemId: string | null,
-  sceneItems: ReadonlyArray<{ id: string; name: string }>,
-  selectedLayerId: string | null,
-  layers: ReadonlyArray<{ id: string; name?: string }>,
-  fallback: string | null | undefined,
-): string | null {
-  if (activeItemId) {
-    const item = sceneItems.find((candidate) => candidate.id === activeItemId);
-    if (item?.name) return item.name;
-  }
-  if (selectedLayerId) {
-    const layer = layers.find((candidate) => candidate.id === selectedLayerId);
-    if (layer) return layer.name || layer.id;
-  }
-  return fallback ?? null;
+export function displayStatusText(value: string): string {
+  return value.trim() === "--" ? EMPTY_VALUE : value;
 }
 
-/** "Layer" slot: follows the selection the Inspector uses. */
+/**
+ * The status bar's layer: the single active-layer rule (`resolveActiveLayer`,
+ * shared with the viewport header and the colorbar), unless a Compare panel
+ * has claimed the readout (pointer over it, or last focused): then that
+ * panel's layer, so the status bar and the pane never disagree.
+ */
+export function resolveStatusLayer<T extends { id: string; name?: string; visible: boolean }>(
+  viewLayers: ReadonlyArray<T>,
+  selection: ActiveLayerSelection,
+  override: { layerId: string; name: string } | null,
+): { id: string; name: string } | null {
+  if (override) return { id: override.layerId, name: override.name };
+  const layer = resolveActiveLayer(viewLayers, selection);
+  return layer ? { id: layer.id, name: layer.name || layer.id } : null;
+}
+
+function useStatusLayer(): { id: string; name: string } | null {
+  const viewLayers = useViewStateStore((state) => state.viewState.layers);
+  const selection = useActiveLayerSelection();
+  const override = useStatusReadoutStore((state) => state.override);
+  return React.useMemo(
+    () => resolveStatusLayer(viewLayers, selection, override),
+    [viewLayers, selection, override],
+  );
+}
+
+/** "Layer" slot: the active layer (see `resolveStatusLayer`). */
 const StatusLayerSlot = React.memo(() => {
   const fallback = useStatusBarStore((state) => state.values.layer);
-  const activeItemId = useInspectorSelectionStore((state) => state.activeItemId);
-  const selectedLayerId = useLayerStore((state) => state.selectedLayerId);
-  const layers = useLayerStore((state) => state.layers);
-  const sceneStack = useSceneStack();
-  const sceneItems = React.useMemo(
-    () => [...sceneStack.volumes, ...sceneStack.surfaces, ...sceneStack.mappings],
-    [sceneStack],
-  );
-  const name = resolveStatusLayerName(
-    activeItemId,
-    sceneItems,
-    selectedLayerId,
-    layers,
-    typeof fallback === "string" ? fallback : fallback == null ? null : String(fallback),
-  );
+  const layer = useStatusLayer();
+  const name =
+    layer?.name ??
+    (typeof fallback === "string" ? fallback : fallback == null ? null : String(fallback));
   if (name === null) return null;
   return <SlotFrame id="layer" value={name} title={name} />;
 });
 
 StatusLayerSlot.displayName = "StatusLayerSlot";
+
+/**
+ * "Value" slot: the Layer slot's layer sampled at the crosshair (nearest
+ * voxel, existing `sample_layer_value_at_world`), formatted like the
+ * Inspector and colorbar numbers. "—" outside the volume or when not finite.
+ */
+const StatusValueSlot = React.memo(() => {
+  const crosshair = useViewStateStore((state) => state.viewState.crosshair.world_mm);
+  const layer = useStatusLayer();
+  const layerId = layer?.id ?? null;
+  const reading = useLayerValueAtWorld(layerId, crosshair);
+  if (!layerId || !layer) return null;
+  const text = reading && reading.value !== null ? formatLayerValue(reading.value) : EMPTY_VALUE;
+  const title = `Nearest-voxel value of ${layer.name}`;
+  return <SlotFrame id="value" value={text} title={title} />;
+});
+
+StatusValueSlot.displayName = "StatusValueSlot";
 
 /**
  * Compact "Diagnostics" button: developer telemetry (atlas pressure, FPS, GPU)
@@ -201,9 +229,9 @@ const DiagnosticsButton = () => {
   const fps = useStatusBarStore((state) => state.values.fps);
   const gpu = useStatusBarStore((state) => state.values.gpu);
   const rows: Array<[string, string]> = [
-    ["Atlas", atlas == null ? "--" : String(atlas)],
-    ["FPS", fps == null ? "--" : String(fps)],
-    ["GPU", gpu == null ? "--" : String(gpu)],
+    ["Atlas", atlas == null ? EMPTY_VALUE : displayStatusText(String(atlas))],
+    ["FPS", fps == null ? EMPTY_VALUE : displayStatusText(String(fps))],
+    ["GPU", gpu == null ? EMPTY_VALUE : displayStatusText(String(gpu))],
   ];
   const atlasText = atlas == null ? "" : String(atlas);
   const severity = /CRITICAL/.test(atlasText)
@@ -256,7 +284,7 @@ const DiagnosticsButton = () => {
 
 export function StatusBar({
   className = "",
-  slots = ["coordSys", "crosshair", "mouse", "layer", "region"],
+  slots = ["coordSys", "crosshair", "mouse", "layer", "value", "region"],
   rightContent,
   onCrosshairClick,
 }: StatusBarProps) {
@@ -277,7 +305,8 @@ export function StatusBar({
   }, [layers]);
 
   return (
-    <div className={`status-bar ${className}`}>
+    // Copying a readout puts ASCII minus on the clipboard.
+    <div className={`status-bar ${className}`} onCopy={asciiCopyHandler}>
       {slots
         .filter(
           (id) =>
@@ -286,6 +315,8 @@ export function StatusBar({
         .map((id) =>
           id === "layer" ? (
             <StatusLayerSlot key={id} />
+          ) : id === "value" ? (
+            <StatusValueSlot key={id} />
           ) : (
             <StatusBarSlot
               key={id}

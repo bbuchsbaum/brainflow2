@@ -3,6 +3,7 @@ import {
   ComparisonRenderService,
   comparisonTag,
   padComparisonBounds,
+  resolvePanelUnderlayId,
 } from '@/services/ComparisonRenderService';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -473,5 +474,47 @@ describe('ComparisonRenderService', () => {
     expect(panelState.views.sagittal.dim_px).toEqual([128, 512]);
     expect(panelState.views.sagittal.u_mm).toEqual([0, 2, 0]);
     expect(panelState.views.sagittal.v_mm).toEqual([0, 0, 2]);
+  });
+
+  it('composes the base anatomy under an overlay-only panel', () => {
+    const service = new ComparisonRenderService();
+    const globalViewState = createViewState();
+    globalViewState.layers.push({
+      ...globalViewState.layers[0],
+      id: 'stat',
+      name: 'Stat',
+      volumeId: 'vol-2',
+      colormap: 'fmri',
+    });
+    const overlayPanel = {
+      id: 'panel-2',
+      label: 'Stat',
+      visibleLayerIds: new Set(['stat']),
+      viewType: 'axial' as const,
+    };
+    const layers = [
+      { id: 'layer-1', source: 'file' },
+      { id: 'stat', source: 'file' },
+    ];
+    expect(resolvePanelUnderlayId(overlayPanel, layers)).toBe('layer-1');
+    expect(
+      resolvePanelUnderlayId({ visibleLayerIds: new Set(['layer-1']) }, layers)
+    ).toBeNull();
+    expect(resolvePanelUnderlayId({ visibleLayerIds: new Set() }, layers)).toBeNull();
+
+    const state = service.buildPanelViewState(
+      globalViewState,
+      overlayPanel,
+      globalViewState.views.axial,
+      undefined,
+      'layer-1'
+    );
+    // Same order and display properties as the orthogonal composite.
+    expect(state.layers.map(l => [l.id, l.visible])).toEqual([
+      ['layer-1', true],
+      ['stat', true],
+    ]);
+    const without = service.buildPanelViewState(globalViewState, overlayPanel, globalViewState.views.axial);
+    expect(without.layers.map(l => l.visible)).toEqual([false, true]);
   });
 });

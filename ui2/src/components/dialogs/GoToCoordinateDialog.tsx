@@ -12,6 +12,11 @@ import { Modal } from '@/components/ui/Modal';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { getApiService } from '@/services/apiService';
+import {
+  handleNumericPasteText,
+  parseNumericList,
+  parseNumericText,
+} from '@/utils/numericInput';
 
 interface GoToCoordinateDialogProps {
   open: boolean;
@@ -32,6 +37,19 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
   const [inputs, setInputs] = useState<CoordInputs>({ x: '0', y: '0', z: '0' });
   const [bounds, setBounds] = useState<{ min: [number, number, number]; max: [number, number, number] } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Fields the browser reports as unparseable (`validity.badInput`): their
+  // value reads "" although the user typed something.
+  const [badInput, setBadInput] = useState<Record<'x' | 'y' | 'z', boolean>>({
+    x: false,
+    y: false,
+    z: false,
+  });
+  // Pasted text refused as not a number (the field keeps its previous value).
+  const [refusedPaste, setRefusedPaste] = useState<Record<'x' | 'y' | 'z', boolean>>({
+    x: false,
+    y: false,
+    z: false,
+  });
 
   const crosshair = useViewStateStore(state => state.viewState.crosshair.world_mm);
   const setCrosshair = useViewStateStore(state => state.setCrosshair);
@@ -64,17 +82,55 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
   }, [open]); // Only on open, not on every crosshair change
 
   const parseCoords = (): [number, number, number] | null => {
-    const x = parseFloat(inputs.x);
-    const y = parseFloat(inputs.y);
-    const z = parseFloat(inputs.z);
-    if (isNaN(x) || isNaN(y) || isNaN(z)) return null;
+    if (isUnparseable('x') || isUnparseable('y') || isUnparseable('z')) return null;
+    // Strict parse with minus-like dashes normalised: "−37.5" is -37.5, and
+    // anything that is not a whole number is rejected, never reinterpreted.
+    const x = parseNumericText(inputs.x);
+    const y = parseNumericText(inputs.y);
+    const z = parseNumericText(inputs.z);
+    if (x === null || y === null || z === null) return null;
     return [x, y, z];
+  };
+
+  /** Not a number (shown invalid; an empty field only disables Go). */
+  function isUnparseable(axis: 'x' | 'y' | 'z'): boolean {
+    return (
+      badInput[axis] ||
+      refusedPaste[axis] ||
+      (inputs[axis].trim() !== '' && parseNumericText(inputs[axis]) === null)
+    );
+  }
+
+  /**
+   * Paste: a coordinate triple (e.g. the status bar's "(−37.5, −18.5, 17.5)")
+   * fills X, Y and Z; a single number is normalised into this field; anything
+   * else is refused and the field shows its invalid state.
+   */
+  const handlePaste = (axis: 'x' | 'y' | 'z') => (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const raw = e.clipboardData.getData('text/plain');
+    if (!raw) return;
+    const list = parseNumericList(raw);
+    if (list && list.length === 3) {
+      e.preventDefault();
+      setInputs({ x: String(list[0]), y: String(list[1]), z: String(list[2]) });
+      setBadInput({ x: false, y: false, z: false });
+      setRefusedPaste({ x: false, y: false, z: false });
+      return;
+    }
+    if (parseNumericText(raw) !== null) {
+      // One number: normalised into the field at the caret.
+      handleNumericPasteText(e.currentTarget, raw, e.nativeEvent);
+      return;
+    }
+    // Refused (value unchanged): the field shows invalid until it is edited.
+    e.preventDefault();
+    setRefusedPaste(prev => ({ ...prev, [axis]: true }));
   };
 
   const isOutOfBounds = (axis: 'x' | 'y' | 'z'): boolean => {
     if (!bounds || space !== 'world') return false;
-    const val = parseFloat(inputs[axis]);
-    if (isNaN(val)) return false;
+    const val = parseNumericText(inputs[axis]);
+    if (val === null) return false;
     const idx = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
     return val < bounds.min[idx] || val > bounds.max[idx];
   };
@@ -102,7 +158,7 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
     } finally {
       setIsLoading(false);
     }
-  }, [inputs, space, setCrosshair, onClose, layers]);
+  }, [inputs, badInput, refusedPaste, space, setCrosshair, onClose, layers]);
 
   const handleCurrent = useCallback(() => {
     if (space === 'world') {
@@ -130,12 +186,15 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
 
   const inputClass = (axis: 'x' | 'y' | 'z') => {
     const oob = isOutOfBounds(axis);
+    const bad = isUnparseable(axis);
     return [
       'w-full px-3 py-1.5 rounded-sm text-sm font-mono tabular-nums bg-bf-bg-input text-foreground',
       'border focus:outline-none focus:ring-2',
-      oob
-        ? 'border-bf-warning focus:ring-bf-warning'
-        : 'border-border focus:ring-ring',
+      bad
+        ? 'border-bf-danger focus:ring-bf-danger'
+        : oob
+          ? 'border-bf-warning focus:ring-bf-warning'
+          : 'border-border focus:ring-ring',
     ].join(' ');
   };
 
@@ -191,17 +250,35 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
                 <input
                   id={`goto-${axis}`}
                   aria-label={`${axis.toUpperCase()} ${space === 'world' ? '(mm)' : '(voxel index)'}`}
-                  aria-invalid={isOutOfBounds(axis) || undefined}
+                  aria-invalid={isUnparseable(axis) || isOutOfBounds(axis) || undefined}
+                  aria-describedby={isUnparseable(axis) ? 'goto-invalid' : undefined}
+                  data-numeric-paste="self"
                   ref={axis === 'x' ? firstInputRef : undefined}
                   type="number"
                   value={inputs[axis]}
-                  onChange={e => setInputs(prev => ({ ...prev, [axis]: e.target.value }))}
+                  onChange={e => {
+                    const bad = e.target.validity?.badInput === true;
+                    setBadInput(prev => (prev[axis] === bad ? prev : { ...prev, [axis]: bad }));
+                    setRefusedPaste(prev => (prev[axis] ? { ...prev, [axis]: false } : prev));
+                    setInputs(prev => ({ ...prev, [axis]: e.target.value }));
+                  }}
+                  onPaste={handlePaste(axis)}
                   className={inputClass(axis)}
                   step={space === 'world' ? '0.1' : '1'}
                 />
               </div>
             ))}
           </div>
+
+          {(['x', 'y', 'z'] as const).some(a => isUnparseable(a)) && (
+            <p id="goto-invalid" className="text-xs text-bf-danger" role="alert">
+              {(['x', 'y', 'z'] as const)
+                .filter(a => isUnparseable(a))
+                .map(a => (refusedPaste[a] ? `Pasted ${a.toUpperCase()}` : a.toUpperCase()))
+                .join(', ')}{' '}
+              is not a number.
+            </p>
+          )}
 
           {/* Bounds warning */}
           {bounds && (['x', 'y', 'z'] as const).some(a => isOutOfBounds(a)) && (

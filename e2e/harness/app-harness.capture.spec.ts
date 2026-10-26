@@ -19,6 +19,10 @@ const SCENARIOS = [
   'volume-surface',
   'inspector-layer',
   'overlay',
+  'overlay-colorbar',
+  'compare',
+  'keyboard-focus',
+  'keyboard-focus-switcher',
   'plots',
   'mosaic',
   'analysis',
@@ -29,10 +33,15 @@ const SCENARIOS = [
   'dialog-crosshair',
 ];
 
-/** Extra viewport variants: [scenario, width, height]. */
+/**
+ * Extra viewport variants: [scenario, width, height]. `integrated` runs the
+ * volume-surface driver and exists only here, so its file is
+ * `integrated@1280x800` (staged as `integrated-1280`).
+ */
 const VARIANTS: Array<[string, number, number]> = [
   ['volume', 1280, 800],
   ['inspector-layer', 1280, 800],
+  ['integrated', 1280, 800],
 ];
 
 const OUT = process.env.APP_HARNESS_OUT;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getComparisonGridSpec, getComparisonPanelDimensions } from '@/utils/comparisonLayout';
 
+// p2 v2: panels are separated by a 1px splitter instead of an 8px card gutter.
 describe('comparisonLayout', () => {
   it('sizes row layouts by real panels only', () => {
     expect(getComparisonGridSpec(2, 'row')).toEqual({
@@ -14,7 +15,7 @@ describe('comparisonLayout', () => {
     ).toMatchObject({
       cols: 2,
       rows: 1,
-      width: 446,
+      width: 449,
       height: 300,
     });
   });
@@ -25,8 +26,8 @@ describe('comparisonLayout', () => {
     ).toMatchObject({
       cols: 2,
       rows: 2,
-      width: 296,
-      height: 196,
+      width: 299,
+      height: 199,
     });
   });
 });

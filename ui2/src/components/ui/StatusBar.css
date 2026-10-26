@@ -59,6 +59,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--app-text-primary);
+  /* Readouts can be selected and copied (the bar copies ASCII minus). */
+  user-select: text;
 }
 
 /* Restrained value colors. Only the crosshair readout is chromatic, and it

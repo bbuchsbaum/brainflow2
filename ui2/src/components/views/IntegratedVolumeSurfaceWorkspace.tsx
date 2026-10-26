@@ -94,10 +94,13 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
                     width: '100%',
                   }}
                 >
-                  {/* Offset the panel's metadata card below the top-left
-                      association badge so the two don't overlap. */}
+                  {/* The surface panel fills the pane exactly as before (its
+                      camera fits the full pane at mount: no intermediate flex
+                      sizing). The association status is an unfilled text strip
+                      over the pane's top margin, and the panel's metadata card
+                      is offset below it so the two never overlap. */}
                   <SurfaceViewPanel infoOverlayTop="2.75rem" />
-                  <SurfaceAssociationBadge />
+                  <SurfaceAssociationBadge inline />
                 </div>
               </Allotment.Pane>
             </Allotment>

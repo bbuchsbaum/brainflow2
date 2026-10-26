@@ -4,6 +4,14 @@ import { useLayerStore } from "@/stores/layerStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import { useSurfaceStore } from "@/stores/surfaceStore";
 import { ColormapPicker } from "@/components/ui/ColormapPicker";
+import { formatLayerValue, formatLayerValueAscii } from "@/utils/valueFormat";
+import { asciiCopyHandler, parseNumericText } from "@/utils/numericInput";
+import {
+  HIDDEN_BAND_BACKGROUND,
+  isThresholdActive,
+  thresholdWording,
+} from "@/components/views/viewportFrame/frameFormat";
+import { useDisplayOptionsStore } from "@/stores/displayOptionsStore";
 import type { SceneItem } from "@/types/sceneItem";
 import { InspectorSection, FieldRow } from "../InspectorSection";
 import { sampleLayerAtWorld } from "@/services/SamplingService";
@@ -74,6 +82,22 @@ function VolumeRenderRows({
     (s) => s.viewState.crosshair.world_mm,
   );
   const [paletteApplying, setPaletteApplying] = useState(false);
+  const showColorbar = useDisplayOptionsStore((s) =>
+    layerId ? s.options.get(layerId)?.showColorbar !== false : true,
+  );
+  // Ruler domain frozen for the duration of a slider interaction (pointer
+  // down → up, or keyboard focus → blur): the union of the data range and
+  // the window AT INTERACTION START. Recomputing it from the live window
+  // would move the scale under the thumb (the low thumb pinned while its
+  // value ran) and ratchet the domain inward so Home could not return.
+  const [frozenDomain, setFrozenDomain] = useState<readonly [number, number] | null>(null);
+  useEffect(() => setFrozenDomain(null), [layerId]);
+  const handleInteraction = React.useCallback(
+    (active: boolean, domain: readonly [number, number]) => {
+      setFrozenDomain((cur) => (active ? (cur ?? domain) : null));
+    },
+    [],
+  );
 
   if (!layer || !layerId || !viewLayer) return null;
 
@@ -82,6 +106,14 @@ function VolumeRenderRows({
   const dataMax = dataRange?.max ?? viewLayer.intensity[1];
   const intensity = viewLayer.intensity;
   const threshold = viewLayer.threshold;
+  // One ruler for Intensity, Threshold and the colormap strip: the union of
+  // the data range and the window. The thumbs, the strip's gradient span and
+  // both hidden-band cut-outs then sit at the same x for the same value; the
+  // data range is a faint band on the tracks (see `inspectorRuler`).
+  const liveRuler = inspectorRuler([dataMin, dataMax], intensity, threshold);
+  const ruler = frozenDomain
+    ? inspectorRuler([dataMin, dataMax], intensity, threshold, frozenDomain)
+    : liveRuler;
   const opacity = viewLayer.opacity ?? 1;
   const colormap = viewLayer.colormap ?? "";
   const blendMode = viewLayer.blendMode ?? "alpha";
@@ -144,18 +176,23 @@ function VolumeRenderRows({
         label="Intensity"
         low={intensity[0]}
         high={intensity[1]}
-        dataMin={dataMin}
-        dataMax={dataMax}
+        dataMin={ruler.min}
+        dataMax={ruler.max}
+        dataSpan={ruler.dataSpan}
+        onInteraction={handleInteraction}
         onChange={(low, high) => setLayerField("intensity", [low, high])}
       />
 
       {kind === "overlay" ? (
         <RangeBlock
           label="Threshold"
+          mode="hidden"
           low={threshold[0]}
           high={threshold[1]}
-          dataMin={dataMin}
-          dataMax={dataMax}
+          dataMin={ruler.min}
+          dataMax={ruler.max}
+          dataSpan={ruler.dataSpan}
+          onInteraction={handleInteraction}
           onChange={(low, high) => setLayerField("threshold", [low, high])}
         />
       ) : null}
@@ -212,9 +249,25 @@ function VolumeRenderRows({
       ) : (
         <ColormapBlock
           value={colormap}
+          windowSpan={ruler.windowSpan}
+          hiddenBand={kind === "overlay" ? ruler.hiddenSpan : null}
           onChange={(next) => setLayerField("colormap", next)}
         />
       )}
+
+      {kind === "overlay" && layerMode === "scalar" ? (
+        <FieldRow label="Colorbar on view">
+          <Toggle
+            label="Colorbar on view"
+            checked={showColorbar}
+            onChange={(v) =>
+              useDisplayOptionsStore
+                .getState()
+                .setOptions(layerId, { showColorbar: v })
+            }
+          />
+        </FieldRow>
+      ) : null}
 
       {kind === "overlay" ? (
         <FieldRow label="Blend mode">
@@ -600,9 +653,26 @@ function RangeBlock({
   high,
   dataMin,
   dataMax,
+  dataSpan = null,
   onChange,
+  mode = "shown",
+  onInteraction,
 }: {
+  /**
+   * Slider interaction start (true) / end (false), with the track's domain at
+   * that moment, to freeze a shared ruler.
+   */
+  onInteraction?: (active: boolean, domain: readonly [number, number]) => void;
+  /** Data range as fractions of the track, drawn as a faint band. */
+  dataSpan?: readonly [number, number] | null;
   label: string;
+  /**
+   * "shown": the range between the handles is what is displayed (Intensity),
+   * filled. "hidden": the range is what the threshold hides (lo ≤ v ≤ hi,
+   * inclusive), drawn as the colorbar's hatched cut-out and captioned with
+   * the colorbar's wording ("|value| ≤ 2.3 hidden").
+   */
+  mode?: "shown" | "hidden";
   low: number;
   high: number;
   dataMin: number;
@@ -620,14 +690,16 @@ function RangeBlock({
     const c = Math.max(clamp(next), low);
     if (c !== high) onChange(low, c);
   };
+  const caption = mode === "hidden" ? thresholdWording([low, high]) : null;
 
   return (
     <div className="py-1.5 text-bf-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="text-muted-foreground">{label}</span>
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5" onCopy={asciiCopyHandler}>
           <EditableNumber value={low} onCommit={handleLow} label={`${label} low`} />
-          <span className="text-bf-xs text-muted-foreground">–</span>
+          {/* "to", not a dash: between two U+2212 numbers a dash reads as subtraction. */}
+          <span className="text-bf-xs text-muted-foreground">to</span>
           <EditableNumber value={high} onCommit={handleHigh} label={`${label} high`} />
         </span>
       </div>
@@ -640,7 +712,18 @@ function RangeBlock({
         step={step}
         onLow={handleLow}
         onHigh={handleHigh}
+        mode={mode}
+        dataSpan={dataSpan}
+        onInteraction={onInteraction}
       />
+      {caption ? (
+        <div
+          data-testid="threshold-caption"
+          className="mt-1 px-1 text-right font-mono text-bf-2xs tabular-nums text-muted-foreground"
+        >
+          {caption}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -660,12 +743,15 @@ function EditableNumber({
   label: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(() => formatChip(value));
+  const [draft, setDraft] = useState(() => formatLayerValueAscii(value));
+  // The browser could not parse what was typed (`validity.badInput`), or the
+  // draft is not a whole number: shown invalid, never committed as another value.
+  const [invalid, setInvalid] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync draft when external value changes (e.g. from slider drag) and we're not editing.
   useEffect(() => {
-    if (!editing) setDraft(formatChip(value));
+    if (!editing) setDraft(formatLayerValueAscii(value));
   }, [value, editing]);
 
   // Autofocus the input when entering edit mode.
@@ -676,18 +762,32 @@ function EditableNumber({
     }
   }, [editing]);
 
-  const commit = () => {
-    const parsed = Number.parseFloat(draft);
-    if (Number.isFinite(parsed) && parsed !== value) {
-      onCommit(parsed);
-    } else {
-      setDraft(formatChip(value));
+  const parseDraft = (): number | null => {
+    if (inputRef.current?.validity?.badInput) return null;
+    return parseNumericText(draft);
+  };
+
+  /** Enter: commit a valid number; an invalid one keeps the editor open, marked invalid. */
+  const commit = (): boolean => {
+    const parsed = parseDraft();
+    if (parsed === null) {
+      if (draft.trim() === "" && !inputRef.current?.validity?.badInput) {
+        cancel();
+        return true;
+      }
+      setInvalid(true);
+      return false;
     }
+    if (parsed !== value) onCommit(parsed);
+    else setDraft(formatLayerValueAscii(value));
+    setInvalid(false);
     setEditing(false);
+    return true;
   };
 
   const cancel = () => {
-    setDraft(formatChip(value));
+    setDraft(formatLayerValueAscii(value));
+    setInvalid(false);
     setEditing(false);
   };
 
@@ -698,8 +798,15 @@ function EditableNumber({
         type="number"
         value={draft}
         step="any"
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setInvalid(e.target.validity?.badInput === true);
+        }}
+        // Blur commits a valid number and otherwise reverts (focus has moved
+        // on; an unparseable draft is never applied as some other value).
+        onBlur={() => {
+          if (!commit()) cancel();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -710,7 +817,9 @@ function EditableNumber({
           }
         }}
         aria-label={label}
-        className="w-14 rounded-sm bg-background px-1 text-right font-mono text-bf-xs tabular-nums text-foreground outline-none ring-2 ring-ring"
+        aria-invalid={invalid || undefined}
+        title={invalid ? "Not a number" : undefined}
+        className={`w-14 rounded-sm bg-background px-1 text-right font-mono text-bf-xs tabular-nums text-foreground outline-none ring-2 ${invalid ? "ring-bf-danger" : "ring-ring"}`}
         style={{ fontVariantNumeric: "tabular-nums" }}
       />
     );
@@ -744,16 +853,23 @@ function DualRangeTrack({
   step,
   onLow,
   onHigh,
+  mode = "shown",
+  dataSpan = null,
+  onInteraction,
 }: {
+  onInteraction?: (active: boolean, domain: readonly [number, number]) => void;
   label: string;
   low: number;
   high: number;
   dataMin: number;
   dataMax: number;
+  dataSpan?: readonly [number, number] | null;
   step: number;
   onLow: (n: number) => void;
   onHigh: (n: number) => void;
+  mode?: "shown" | "hidden";
 }) {
+  const hiddenActive = mode === "hidden" && isThresholdActive([low, high]);
   const span = dataMax - dataMin;
   const lowPct =
     span > 0 ? Math.max(0, Math.min(100, ((low - dataMin) / span) * 100)) : 0;
@@ -771,6 +887,77 @@ function DualRangeTrack({
   // auto so each handle stays grabbable even when they overlap.
   const thumbClass = "bf-thumb-circle absolute inset-0 h-3 w-full";
 
+  // Interaction tracking for the frozen ruler: active while a thumb is held
+  // (pointer down until pointerup / cancel anywhere) or has keyboard focus.
+  const pointerHeld = useRef(false);
+  const focused = useRef(false);
+  const activeRef = useRef(false);
+  const notify = () => {
+    const next = pointerHeld.current || focused.current;
+    if (next === activeRef.current) return;
+    activeRef.current = next;
+    onInteraction?.(next, [dataMin, dataMax]);
+  };
+  const latest = useRef({ onInteraction, dataMin, dataMax });
+  useEffect(() => {
+    latest.current = { onInteraction, dataMin, dataMax };
+  });
+  useEffect(
+    () => () => {
+      const { onInteraction: cb, dataMin: lo, dataMax: hi } = latest.current;
+      if (activeRef.current) cb?.(false, [lo, hi]);
+    },
+    [],
+  );
+  const handlePointerDown = () => {
+    pointerHeld.current = true;
+    notify();
+    const release = () => {
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      pointerHeld.current = false;
+      notify();
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+  };
+  const interactionProps = {
+    onPointerDown: handlePointerDown,
+    onFocus: () => {
+      focused.current = true;
+      notify();
+    },
+    onBlur: () => {
+      focused.current = false;
+      notify();
+    },
+  };
+  // Keyboard stepping is done here, and the inputs use step="any": a native
+  // range input snaps its value to `min + k·step`, so a value off that grid
+  // (a typed chip value, `max`, a clamp to the other thumb) would draw the
+  // thumb up to half a step away from it, and End could stop one step short
+  // of `max`. Home / End reach the ruler's exact ends.
+  const stepKeys =
+    (current: number, set: (n: number) => void) =>
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      const big = step * 10;
+      const delta: Record<string, number> = {
+        ArrowRight: step,
+        ArrowUp: step,
+        ArrowLeft: -step,
+        ArrowDown: -step,
+        PageUp: big,
+        PageDown: -big,
+      };
+      let next: number | null = null;
+      if (e.key === "Home") next = dataMin;
+      else if (e.key === "End") next = dataMax;
+      else if (e.key in delta) next = current + delta[e.key];
+      if (next === null) return;
+      e.preventDefault();
+      set(Math.min(dataMax, Math.max(dataMin, next)));
+    };
+
   return (
     <div className="mt-2 px-1">
       <div className="relative h-3">
@@ -778,27 +965,58 @@ function DualRangeTrack({
         <div
           aria-hidden
           className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full"
-          style={{ backgroundColor: "hsl(var(--border) / 0.7)" }}
+          style={{ backgroundColor: dataSpan ? "hsl(var(--border) / 0.35)" : "hsl(var(--border) / 0.7)" }}
         />
-        {/* Active band between thumbs */}
-        <div
-          aria-hidden
-          className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-primary/60"
-          style={{
-            left: `${lowPct}%`,
-            width: `${Math.max(0, highPct - lowPct)}%`,
-          }}
-        />
+        {/* Data range on the shared ruler: a faint band (the track beyond it
+            is window-only extent, where no voxel values lie). */}
+        {dataSpan ? (
+          <div
+            aria-hidden
+            data-testid="range-data-band"
+            className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full"
+            style={{
+              left: `${dataSpan[0] * 100}%`,
+              width: `${Math.max(0, dataSpan[1] - dataSpan[0]) * 100}%`,
+              backgroundColor: "hsl(var(--border) / 0.7)",
+            }}
+          />
+        ) : null}
+        {/* Band between thumbs: the shown range filled (Intensity), or the
+            hidden range as the colorbar's hatched cut-out (Threshold). A
+            threshold that hides nothing ([0, 0]) draws no band. */}
+        {mode === "shown" ? (
+          <div
+            aria-hidden
+            className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-primary/60"
+            style={{
+              left: `${lowPct}%`,
+              width: `${Math.max(0, highPct - lowPct)}%`,
+            }}
+          />
+        ) : hiddenActive ? (
+          <div
+            aria-hidden
+            data-testid="threshold-hidden-band"
+            className="absolute top-1/2 h-[7px] -translate-y-1/2 outline outline-1 outline-[var(--bf-border-strong)]"
+            style={{
+              left: `${lowPct}%`,
+              width: `${Math.max(0, highPct - lowPct)}%`,
+              background: HIDDEN_BAND_BACKGROUND,
+            }}
+          />
+        ) : null}
         {/* Low handle */}
         <input
           type="range"
           min={dataMin}
           max={dataMax}
-          step={step}
+          step="any"
           value={low}
           onChange={(e) => onLow(Number.parseFloat(e.target.value))}
+          onKeyDown={stepKeys(low, onLow)}
+          {...interactionProps}
           aria-label={`${label} low`}
-          aria-valuetext={formatChip(low)}
+          aria-valuetext={formatLayerValueAscii(low)}
           className={thumbClass}
         />
         {/* High handle */}
@@ -806,11 +1024,13 @@ function DualRangeTrack({
           type="range"
           min={dataMin}
           max={dataMax}
-          step={step}
+          step="any"
           value={high}
           onChange={(e) => onHigh(Number.parseFloat(e.target.value))}
+          onKeyDown={stepKeys(high, onHigh)}
+          {...interactionProps}
           aria-label={`${label} high`}
-          aria-valuetext={formatChip(high)}
+          aria-valuetext={formatLayerValueAscii(high)}
           className={thumbClass}
         />
       </div>
@@ -828,28 +1048,79 @@ function DualRangeTrack({
 function ColormapBlock({
   value,
   onChange,
+  hiddenBand: band = null,
+  windowSpan = null,
 }: {
+  windowSpan?: readonly [number, number] | null;
   value: string;
   onChange: (next: string) => void;
+  hiddenBand?: readonly [number, number] | null;
 }) {
   return (
     <div className="py-1.5">
-      <ColormapPicker value={value} onChange={onChange} variant="enhanced" />
+      <ColormapPicker
+        value={value}
+        onChange={onChange}
+        variant="enhanced"
+        hiddenBand={band}
+        windowSpan={windowSpan}
+      />
     </div>
   );
 }
 
+// ── shared ruler ────────────────────────────────────────────────────────────
+
+export interface InspectorRuler {
+  min: number;
+  max: number;
+  /** Data range as fractions of the ruler. */
+  dataSpan: [number, number] | null;
+  /** Intensity window as fractions of the ruler (the strip's gradient span). */
+  windowSpan: [number, number] | null;
+  /** Threshold-hidden interval as fractions of the ruler (clipped), or null. */
+  hiddenSpan: [number, number] | null;
+}
+
+/**
+ * One value→x mapping for the Inspector's Intensity track, Threshold track and
+ * colormap strip: [min(data, window), max(data, window)]. Values beyond the
+ * window draw in the end colours, so the strip shows its gradient over the
+ * window and the clamped end colours outside it.
+ */
+export function inspectorRuler(
+  data: readonly [number, number],
+  window: readonly [number, number],
+  threshold: readonly [number, number] | null | undefined,
+  /** Domain frozen for an ongoing interaction; the ruler never shrinks inside it. */
+  frozen?: readonly [number, number] | null,
+): InspectorRuler {
+  const finite = [
+    data[0],
+    data[1],
+    window[0],
+    window[1],
+    ...(frozen ? [frozen[0], frozen[1]] : []),
+  ].filter(Number.isFinite);
+  const min = finite.length ? Math.min(...finite) : 0;
+  const max = finite.length ? Math.max(...finite) : 1;
+  const span = max - min;
+  const frac = (v: number) => (span > 0 ? Math.max(0, Math.min(1, (v - min) / span)) : 0);
+  const pair = (a: number, b: number): [number, number] | null =>
+    Number.isFinite(a) && Number.isFinite(b) ? [frac(Math.min(a, b)), frac(Math.max(a, b))] : null;
+  const hidden = isThresholdActive(threshold) ? pair(threshold![0], threshold![1]) : null;
+  return {
+    min,
+    max,
+    dataSpan: span > 0 ? pair(data[0], data[1]) : null,
+    windowSpan: span > 0 ? pair(window[0], window[1]) : null,
+    hiddenSpan: hidden && hidden[1] > hidden[0] ? hidden : null,
+  };
+}
+
 // ── format helpers ──────────────────────────────────────────────────────────
 
-function formatChip(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  const abs = Math.abs(value);
-  if (abs === 0) return "0";
-  if (abs >= 10000 || (abs > 0 && abs < 0.01)) return value.toExponential(1);
-  // Strip trailing zeros from fixed-2 (e.g. 100.00 → 100, 3.13 → 3.13).
-  const fixed = value.toFixed(2);
-  return fixed.replace(/\.?0+$/, "");
-}
+const formatChip = formatLayerValue;
 
 function RenderIcon() {
   return (

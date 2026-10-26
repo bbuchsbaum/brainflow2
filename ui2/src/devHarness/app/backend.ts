@@ -8,6 +8,7 @@
 import type { HarnessFixtures, VolumeFixture } from './fixtures';
 import type { Handler } from './harnessTransport';
 import {
+  flatColumnMajor,
   flatRowMajor,
   fullExtent,
   invertAffine,
@@ -362,7 +363,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       const [nx, ny, nz] = vol.fixture.dims;
       return {
         layer_id: spec.id,
-        world_to_voxel: flatRowMajor(vol.worldToVoxel),
+        // Column-major, like the real backend's GPU info (lib.rs flattens
+        // world_to_voxel / voxel_to_world per column for WGSL).
+        world_to_voxel: flatColumnMajor(vol.worldToVoxel),
         dim: [nx, ny, nz],
         pad_slices: 1,
         tex_format: 'R32Float',
@@ -374,7 +377,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
           dimensions: [nx, ny],
         },
         texture_coords: { u_min: 0, v_min: 0, u_max: 1, v_max: 1 },
-        voxel_to_world: flatRowMajor(vol.fixture.affine),
+        voxel_to_world: flatColumnMajor(vol.fixture.affine),
         origin: [vol.fixture.affine[0][3], vol.fixture.affine[1][3], vol.fixture.affine[2][3]],
         center_world: center,
         spacing: [2, 2, 2],
@@ -397,7 +400,25 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       value: 0,
       coordinate: worldCoord,
     }),
-    sample_layer_value_at_world: () => 0,
+    // Mirrors sample_world_coordinate_impl: world -> voxel through the inverse
+    // affine, bounds 0 <= v < dims, nearest voxel by rounding, 0 out of bounds.
+    sample_layer_value_at_world: ({
+      layerId,
+      worldCoords,
+    }: {
+      layerId: string;
+      worldCoords: Vec3;
+    }) => {
+      const vol = volumeForLayer(layerId);
+      const m = vol.worldToVoxel;
+      const [wx, wy, wz] = vec3(worldCoords);
+      const v = [0, 1, 2].map((r) => m[r][0] * wx + m[r][1] * wy + m[r][2] * wz + m[r][3]);
+      const [nx, ny, nz] = vol.fixture.dims;
+      if (v[0] < 0 || v[1] < 0 || v[2] < 0 || v[0] >= nx || v[1] >= ny || v[2] >= nz) return 0;
+      const [i, j, k] = v.map((c) => Math.round(c));
+      if (i >= nx || j >= ny || k >= nz) return 0;
+      return vol.fixture.data[i + nx * (j + ny * k)];
+    },
 
     compute_layer_histogram: (args: {
       layerId: string;

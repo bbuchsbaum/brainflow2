@@ -24,6 +24,57 @@ export interface ReusableSliceViewportProps
    * is clipped around. Read at draw time.
    */
   getCrosshairKnockouts?: () => CrosshairRect[];
+  /**
+   * World-space extent of the image data (voxel-centre bounds). When given,
+   * the crosshair stroke is clipped to that extent inside the bitmap (e.g. a
+   * Compare panel whose bitmap is wider than the volume). Position unchanged.
+   */
+  crosshairWorldBounds?: CrosshairWorldBounds | null;
+}
+
+export interface CrosshairWorldBounds {
+  min: readonly [number, number, number];
+  max: readonly [number, number, number];
+}
+
+type Placement = Parameters<SliceViewerCustomRender>[1];
+
+/**
+ * The part of `placement` covered by the data extent on the crosshair's slice:
+ * the in-plane corners of `bounds` projected with the viewer's own projection
+ * (the slice-normal component is the crosshair's, so both corners lie on the
+ * displayed plane). Falls back to the placement when projection fails.
+ */
+export function clipPlacementToWorldBounds(
+  placement: Placement,
+  viewPlane: NonNullable<ReusableSliceViewportProps['viewPlane']>,
+  crosshairWorld: readonly [number, number, number],
+  bounds: CrosshairWorldBounds,
+): Placement {
+  const u = viewPlane.u_mm;
+  const v = viewPlane.v_mm;
+  const normal = [
+    u[1] * v[2] - u[2] * v[1],
+    u[2] * v[0] - u[0] * v[2],
+    u[0] * v[1] - u[1] * v[0],
+  ];
+  const n = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+  const inPlane = normal.map((c) => Math.abs(c / n) < 0.9);
+  const corner = (pick: 'min' | 'max') =>
+    [0, 1, 2].map((a) => (inPlane[a] ? bounds[pick][a] : crosshairWorld[a])) as [
+      number,
+      number,
+      number,
+    ];
+  const a = projectWorldToCanvas(corner('min'), viewPlane, placement);
+  const b = projectWorldToCanvas(corner('max'), viewPlane, placement);
+  if (!a || !b) return placement;
+  const x0 = Math.max(placement.x, Math.min(a.canvasX, b.canvasX));
+  const x1 = Math.min(placement.x + placement.width, Math.max(a.canvasX, b.canvasX));
+  const y0 = Math.max(placement.y, Math.min(a.canvasY, b.canvasY));
+  const y1 = Math.min(placement.y + placement.height, Math.max(a.canvasY, b.canvasY));
+  if (!(x1 > x0) || !(y1 > y0)) return placement;
+  return { ...placement, x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
 /**
@@ -45,6 +96,7 @@ export function ReusableSliceViewport({
   sliceBorderWidth = 1,
   customRender,
   getCrosshairKnockouts,
+  crosshairWorldBounds,
   ...rest
 }: ReusableSliceViewportProps) {
   const centerGapEnabled = useCrosshairSettingsStore((state) => state.settings.centerGap !== false);
@@ -66,11 +118,14 @@ export function ReusableSliceViewport({
         clientRects.length > 0 && ctx.canvas
           ? clientRectsToCanvas(ctx.canvas, clientRects)
           : undefined;
+      const bounds = crosshairWorldBounds
+        ? clipPlacementToWorldBounds(placement, viewPlane, crosshair.world_mm, crosshairWorldBounds)
+        : placement;
       drawCrosshair({
         ctx,
         canvasX: point.canvasX,
         canvasY: point.canvasY,
-        bounds: placement,
+        bounds,
         style,
         knockouts,
       });
@@ -86,6 +141,7 @@ export function ReusableSliceViewport({
       width,
       height,
       getCrosshairKnockouts,
+      crosshairWorldBounds,
     ],
   );
 

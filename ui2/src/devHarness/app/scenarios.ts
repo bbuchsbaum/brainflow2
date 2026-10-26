@@ -123,6 +123,57 @@ async function clickByText(selector: string, text: string): Promise<void> {
   noteStep(`clicked ${selector} '${text}'`);
 }
 
+/**
+ * Keyboard entry by Tab: a trusted Tab keydown's default action moves focus to
+ * the next tabbable element. Untrusted (dispatched) events have no default
+ * action, so the harness dispatches the keydown (which the app's listeners see,
+ * e.g. useKeyboardNavWithin's Tab detection) and then performs the focus move
+ * itself, followed by the matching keyup.
+ */
+async function tabInto(target: HTMLElement, label: string): Promise<void> {
+  const from = (document.activeElement as HTMLElement | null) ?? document.body;
+  const init = { key: 'Tab', code: 'Tab', bubbles: true, cancelable: true, composed: true };
+  from.dispatchEvent(new KeyboardEvent('keydown', init));
+  target.focus({ focusVisible: true } as FocusOptions);
+  (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keyup', init));
+  await frames(3);
+  noteStep(`Tab -> ${label}`);
+}
+
+/** Key press delivered to the focused element (bubbling, as a real key event does). */
+async function pressFocused(key: string): Promise<void> {
+  const target = (document.activeElement as HTMLElement | null) ?? document.body;
+  const init = { key, code: key, bubbles: true, cancelable: true, composed: true };
+  target.dispatchEvent(new KeyboardEvent('keydown', init));
+  target.dispatchEvent(new KeyboardEvent('keyup', init));
+  await frames(3);
+  noteStep(`pressed ${key} on focused element`);
+}
+
+function focusedTreeRowText(): string | null {
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || active.getAttribute('role') !== 'treeitem') return null;
+  return active.textContent?.trim() ?? null;
+}
+
+/** Keyboard navigation into the Files tree: Tab into it, then arrow down to `rowName`. */
+async function keyboardIntoTree(rowName: string): Promise<void> {
+  const tree = document.querySelector<HTMLElement>('.fb-tree-container [role="tree"]');
+  if (!tree) throw new Error('files tree not found');
+  await tabInto(tree, 'files tree');
+  await until(() => focusedTreeRowText() !== null, 'tree row focused after Tab');
+  noteStep(`tree focus on '${focusedTreeRowText()}'`);
+  for (let i = 0; i < 8 && !focusedTreeRowText()?.includes(rowName); i++) {
+    await pressFocused('ArrowDown');
+    noteStep(`tree focus on '${focusedTreeRowText()}'`);
+  }
+  await until(() => !!focusedTreeRowText()?.includes(rowName), `tree row '${rowName}' focused`);
+  await until(
+    () => document.querySelector('.fb-tree-container')?.getAttribute('data-kbd-nav') === 'true',
+    'tree keyboard-nav mark',
+  );
+}
+
 async function baseVolume(): Promise<void> {
   await servicesReady();
   await mountStudy();
@@ -248,6 +299,49 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await navigateTo([-38, -22, 56]);
     await selectLayer(STATS_PATH);
   },
+  'overlay-colorbar': async () => {
+    await baseVolume();
+    await loadOverlay();
+    // Medial frontal deactivation (negative blob); the axial plane at z=6 also
+    // cuts the positive visual-cortex blobs, so both signs are on screen.
+    await navigateTo([0, 48, 6]);
+    await selectLayer(STATS_PATH);
+  },
+  compare: async () => {
+    await baseVolume();
+    await loadOverlay();
+    // Top-bar display-mode switcher, as a user clicks it. ComparisonWorkspace
+    // auto-creates one panel per visible layer (MNI, zstat).
+    await clickByText('[data-testid="display-mode-selector"] button', 'Compare');
+    await until(
+      () => document.querySelectorAll('[data-testid="display-mode-compare"][data-active="true"]').length === 1,
+      'compare mode active',
+    );
+    const { useComparisonStore } = await import('@/stores/comparisonStore');
+    await until(
+      () => [...useComparisonStore.getState().panels.values()].some((p) => p.length >= 2),
+      'two comparison panels',
+    );
+    // Axial plane through the bilateral motor blobs, so the zstat panel is not empty.
+    await navigateTo([-38, -22, 52]);
+  },
+  'keyboard-focus': async () => {
+    await baseVolume();
+    await keyboardIntoTree('MNI152_T1_2mm_brain_mask.nii.gz');
+  },
+  'keyboard-focus-switcher': async () => {
+    await baseVolume();
+    // Tab onto the active segment of the top-bar workspace switcher (the
+    // segments are plain buttons, each a Tab stop; there is no arrow roving).
+    const active = document.querySelector<HTMLElement>(
+      '[data-testid="display-mode-selector"] [data-active="true"]',
+    );
+    if (!active) throw new Error('active display-mode segment not found');
+    await tabInto(active, `display mode '${active.textContent?.trim()}'`);
+    await until(() => document.activeElement === active, 'switcher segment focused');
+  },
+  // Same driver as volume-surface; captured only as the 1280x800 variant (integrated-1280).
+  integrated: async (ctx) => DRIVERS['volume-surface'](ctx),
 };
 
 export const SCENARIOS = Object.keys(DRIVERS);

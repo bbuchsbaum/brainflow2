@@ -57,6 +57,23 @@ export function padComparisonBounds(
   };
 }
 
+/**
+ * Underlay for a panel that shows only overlays: the base volume (the first
+ * non-atlas layer, as in the Scene stack), composed underneath exactly as the
+ * orthogonal views compose it (same ViewState layer order and display
+ * properties). Null when the panel already shows the base, shows nothing, or
+ * there is no base.
+ */
+export function resolvePanelUnderlayId(
+  panel: Pick<ComparisonPanelConfig, 'visibleLayerIds'>,
+  layers: ReadonlyArray<{ id: string; source?: string }>,
+): string | null {
+  if (panel.visibleLayerIds.size === 0) return null;
+  const base = layers.find((layer) => layer.source !== 'atlas');
+  if (!base || panel.visibleLayerIds.has(base.id)) return null;
+  return base.id;
+}
+
 export class ComparisonRenderService {
   private apiService = getApiService();
   private static readonly MAX_CONCURRENT = 4;
@@ -70,7 +87,8 @@ export class ComparisonRenderService {
     globalViewState: ViewState,
     panel: ComparisonPanelConfig,
     viewPlane: ViewPlane,
-    crosshair?: WorldCoordinates
+    crosshair?: WorldCoordinates,
+    underlayLayerId: string | null = null
   ): ViewState {
     return {
       ...globalViewState,
@@ -86,7 +104,10 @@ export class ComparisonRenderService {
       },
       layers: globalViewState.layers.map(layer => ({
         ...layer,
-        visible: panel.visibleLayerIds.has(layer.id) ? layer.visible : false,
+        visible:
+          panel.visibleLayerIds.has(layer.id) || layer.id === underlayLayerId
+            ? layer.visible
+            : false,
       })),
     };
   }
@@ -291,7 +312,14 @@ export class ComparisonRenderService {
       });
 
       useComparisonStore.getState().setPanelViewPlane(panel.id, panelView);
-      const filteredState = this.buildPanelViewState(globalViewState, panel, panelView, panelCrosshair);
+      const underlayLayerId = resolvePanelUnderlayId(panel, useLayerStore.getState().layers);
+      const filteredState = this.buildPanelViewState(
+        globalViewState,
+        panel,
+        panelView,
+        panelCrosshair,
+        underlayLayerId
+      );
 
       const imageBitmap = await this.apiService.applyAndRenderViewState(
         filteredState,

@@ -18,6 +18,7 @@ describe('displayOptionsStore', () => {
       borderThicknessPx: 1,
       showOrientationMarkers: true,
       showValueOnHover: false,
+      showColorbar: true,
     });
   });
 

@@ -1,3 +1,5 @@
+import { displayMinus, formatRange } from "@/utils/valueFormat";
+import { asciiCopyHandler } from "@/utils/numericInput";
 import React from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
@@ -100,7 +102,7 @@ function VolumeFacts({ item }: { item: SceneItem }) {
     const { min, max } = metadata.dataRange;
     facts.push({
       label: "Range",
-      value: `${formatNum(min)} — ${formatNum(max)}`,
+      value: formatRange(min, max, formatNum),
     });
   }
   if (metadata?.spacing) {
@@ -119,7 +121,14 @@ function VolumeFacts({ item }: { item: SceneItem }) {
     facts.push({ label: "Space", value: metadata.orientation });
   }
 
-  return facts.length > 0 ? <FactGrid facts={facts} /> : <EmptyFacts />;
+  return facts.length > 0 ? (
+    // Copying a fact puts ASCII minus on the clipboard.
+    <div className="contents" onCopy={asciiCopyHandler}>
+      <FactGrid facts={facts} />
+    </div>
+  ) : (
+    <EmptyFacts />
+  );
 }
 
 function SurfaceFacts({ item }: { item: SceneItem }) {
@@ -209,8 +218,9 @@ function formatNum(value: number): string {
   if (!Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
   if (abs === 0) return "0";
-  if (abs >= 1000 || abs < 0.01) return value.toExponential(2);
-  return value.toFixed(2);
+  // True minus for display, like every other readout (utils/valueFormat).
+  if (abs >= 1000 || abs < 0.01) return displayMinus(value.toExponential(2));
+  return displayMinus(value.toFixed(2));
 }
 
 function DataIcon() {

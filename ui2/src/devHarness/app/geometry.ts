@@ -150,3 +150,16 @@ export function invertAffine(m: number[][]): number[][] {
 }
 
 export const flatRowMajor = (m: number[][]): number[] => m.flat().map(f32);
+
+/**
+ * Column-major flattening, the real backend's contract for the GPU-info
+ * matrices (`world_to_voxel` / `voxel_to_world` in
+ * `request_layer_gpu_resources`, core/api_bridge/src/lib.rs): element
+ * (row r, col c) at index c * 4 + r. Read with
+ * `utils/voxelTransform.transformWorldToVoxelColumnMajor`.
+ */
+export const flatColumnMajor = (m: number[][]): number[] => {
+  const out: number[] = [];
+  for (let c = 0; c < 4; c += 1) for (let r = 0; r < 4; r += 1) out.push(f32(m[r][c]));
+  return out;
+};
