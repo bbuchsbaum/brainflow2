@@ -57,6 +57,10 @@ import {
 /** Paths the harness "file system" serves. */
 export const HARNESS_ROOT = '/harness/study';
 export const MNI_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain.nii.gz`;
+/** Simulated native latency of a 4D GPU upload and of a layer patch (ms). */
+const GPU_4D_UPLOAD_MS = 150;
+const PATCH_MS = 15;
+
 /** The MNI brain mask (1 inside the brain, 0 outside): a search mask for clusters. */
 export const MNI_MASK_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain_mask.nii.gz`;
 export const STATS_PATH = `${HARNESS_ROOT}/stats/task-motor_zstat1.nii.gz`;
@@ -847,13 +851,16 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       });
     },
 
-    request_layer_gpu_resources: ({
+    request_layer_gpu_resources: async ({
       layerSpec,
     }: {
       layerSpec: { Volume: { id: string; source_resource_id: string } };
     }) => {
       const spec = layerSpec.Volume;
       const vol = volumeFor(spec.source_resource_id);
+      // Native round 3: a 4D upload takes real time, so loads and GPU promotions
+      // finish after the UI has moved on (run groups form mid-load).
+      if ((vol.fixture.frames?.length ?? 0) > 1) await new Promise((r) => setTimeout(r, GPU_4D_UPLOAD_MS));
       layers.set(spec.id, { layerId: spec.id, volumeId: vol.id });
       const s = fixtureStats(vol.fixture);
       const center = volumeCenter(vol.fixture);
@@ -886,7 +893,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       };
     },
     wait_for_layer_ready: () => true,
-    patch_layer: () => null,
+    // A backend round trip, as natively (visibility toggles await it).
+    patch_layer: async () => {
+      await new Promise((r) => setTimeout(r, PATCH_MS));
+      return null;
+    },
     release_layer_gpu_resources: ({ layerId }: { layerId: string }) => {
       layers.delete(layerId);
       return { success: true, message: 'released' };

@@ -10,6 +10,7 @@ import {
   scaleBarPx,
   withJpegMetadata,
   withPngMetadata,
+  exportDpi,
 } from '../compositeExport';
 import {
   boundedProvenance,
@@ -74,6 +75,18 @@ describe('composited export (P3.8)', () => {
     expect(scaleBarPx({ u_mm: [0.674626886844635, 0, 0] })).toBeCloseTo(14.823, 3);
     expect(scaleBarPx({ u_mm: [0.3373134434223175, 0, 0] })).toBeCloseTo(29.646, 3);
     expect(scaleBarPx({ u_mm: [0, 0.5, 0] }, 20)).toBe(40);
+  });
+
+  it('a screen preset carries a resolution too: 72 dpi per multiple (native R3-4)', () => {
+    expect(exportDpi({ kind: 'screen', scale: 1 })).toBe(72);
+    expect(exportDpi({ kind: 'screen', scale: 2 })).toBe(144);
+    expect(exportDpi({ kind: 'print', widthMm: 89, dpi: 300 })).toBe(300);
+    const png = withPngMetadata(tinyPng(), { dpi: exportDpi({ kind: 'screen', scale: 2 }) });
+    const list = chunks(png);
+    expect(list.map((c) => c.type)).toEqual(['IHDR', 'pHYs', 'IEND']);
+    const phys = new DataView(list[1].data.buffer, list[1].data.byteOffset);
+    expect(phys.getUint32(0)).toBe(5669); // 144 dpi in pixels per metre
+    expect(list[1].data[8]).toBe(1);
   });
 
   it('writes the resolution (pHYs) and provenance (iTXt) into a PNG', () => {

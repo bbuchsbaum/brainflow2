@@ -1,5 +1,6 @@
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { ThresholdText } from "@/components/ui/ThresholdText";
+import { noteUserVisibility } from "@/services/series/visibilityIntent";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import { statisticUnits, statisticVariable } from "@/utils/statistic";
 import { sameStatisticLayerIds } from "@/utils/compareSharedWindow";
@@ -246,6 +247,7 @@ function VolumeRenderRows({
             // `visible && opacity > 0` gate honors the toggle. The
             // `updateLayer` call keeps the layer registry in sync for any
             // surface that still reads from there.
+            noteUserVisibility(layerId);
             setViewState((draft) => {
               const target = draft.layers.find((l) => l.id === layerId);
               if (!target) return;

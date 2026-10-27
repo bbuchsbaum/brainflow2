@@ -347,7 +347,21 @@ async function seriesRuns(): Promise<void> {
   useLayoutSettingsStore.getState().setBottomDockHeight(320);
   usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
   for (const run of [2, 3]) await loadVolume(multirunPath(run), 'add-layer');
-  await selectLayer(multirunPath(1));
+  // Native round 3: whichever run is focused (Inspector selection), only it is drawn.
+  {
+    const { useViewStateStore: vs } = await import('@/stores/viewStateStore');
+    const ids = await Promise.all([1, 2, 3].map((n) => layerIdForPath(multirunPath(n))));
+    const drawn = () => ids.map((id) => !!vs.getState().viewState.layers.find((x) => x.id === id)?.visible);
+    for (const focus of [1, 3, 1]) {
+      await selectLayer(multirunPath(focus));
+      await frames(20);
+      await new Promise((r) => setTimeout(r, 400)); // GPU promotions and patches settle
+      const want = [1, 2, 3].map((n) => n === focus);
+      if (drawn().join() !== want.join())
+        throw new Error(`run ${focus} focused: drawn ${drawn().map((v, i) => `run ${i + 1}=${v}`).join(' ')} (want only run ${focus})`);
+      noteStep(`run ${focus} focused: only run ${focus} drawn`);
+    }
+  }
   await until(() => document.querySelectorAll('[data-testid="plot-x-rule"]').length === 3, 'three run boundaries');
   {
     const { useLayerStore: store } = await import('@/stores/layerStore');

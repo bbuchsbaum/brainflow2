@@ -22,6 +22,7 @@ import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
 import { overlayMapName, pairedOverlayLayers } from '@/utils/hemisphereOverlays';
 import { surfaceFileName } from '@/utils/exportFileName';
 import {
+  exportDpi,
   chromeUnit,
   compose,
   compositionSize,
@@ -272,7 +273,8 @@ export async function captureSurfaceComposite(
   } finally {
     for (const p of images.flat()) (p.image as Partial<ImageBitmap>).close?.();
   }
-  const dpi = request.size.kind === 'print' ? request.size.dpi : null;
+  // Every export carries its resolution (screen presets too, native R3-4).
+  const dpi = exportDpi(request.size);
   const provenance = request.provenance
     ? JSON.stringify(
         {

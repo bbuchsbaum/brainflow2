@@ -508,17 +508,17 @@ describe('composer figure finish (output px)', () => {
     }
   });
 
-  it('shortens a header that does not fit: plane word first, then the "=" and the unit', () => {
+  it('shortens a header that does not fit, never dropping the view name (native R3-3; deliberate change: was plane word first)', () => {
     const variants = headerCandidates('axial', -10, 'zmap_synthetic.nii.gz').map((runs) =>
       runs.map((r) => r.text).join(' '),
     );
     expect(variants).toEqual([
       'Axial z = −10.0 mm zmap_synthetic',
       'Axial z = −10.0 mm',
-      'z = −10.0 mm',
-      'z −10.0 mm',
-      'z −10.0',
-      '',
+      'Axial z −10.0 mm',
+      'Axial z −10.0',
+      'Ax. z −10.0',
+      'Axial',
     ]);
     // A figure row at 89 mm, 300 dpi: each pane shows "z = −10.0 mm" or a
     // shorter form, never three headers run together.
@@ -527,6 +527,9 @@ describe('composer figure finish (output px)', () => {
     const joined = texts.map((t) => t.text).join('|');
     expect(joined).not.toMatch(/mmy|mmx/);
     for (const axis of ['z', 'y', 'x']) expect(texts.some((t) => t.text === axis)).toBe(true);
+    // Each narrow pane still names its view (native R3-3).
+    for (const view of [/^(Ax\.|Axial)$/, /^(Cor\.|Coronal)$/, /^(Sag\.|Sagittal)$/])
+      expect(texts.some((t) => view.test(t.text))).toBe(true);
   });
 
   it('a figure row has one header baseline, however tall each image (native v6 recheck)', () => {

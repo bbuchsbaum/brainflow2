@@ -4,6 +4,7 @@
  */
 
 import { getEventBus } from '@/events/EventBus';
+import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import type { EventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
 import type { Layer, LayerRender } from '@/types/layers';
@@ -157,6 +158,8 @@ export class LayerService {
    * Toggle layer visibility
    */
   toggleVisibility(id: string, visible: boolean): void {
+    // A user toggle unless the Series view makes it (runVisibility runs inside asView).
+    noteUserVisibility(id);
     // Keep local stores in sync immediately for responsive UI.
     useLayerStore.getState().updateLayer(id, { visible });
     useViewStateStore.getState().setViewState((state) => {

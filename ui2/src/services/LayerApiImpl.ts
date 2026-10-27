@@ -15,7 +15,7 @@ import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { colormapNameToId } from '@/components/ui/colormapOptions';
 import { histogramService } from './HistogramService';
 import type { HistogramData } from '@/types/histogram';
-import { shareRunWindow } from './series/runWindow';
+import { pooledWindow, runGroupIds, shareRunWindow } from './series/runWindow';
 import {
   computeAdaptiveIntensityRange,
   computeFallbackIntensityRange,
@@ -519,7 +519,8 @@ export class LayerApiImpl implements LayerApi {
     // grey, a response toward white), pooled across its runs.
     let intensity = rangeResult.intensity;
     if (!statisticRefined && rangeResult.suggestedColormap === 'gray' && isFourDIntensityLayer(layer)) {
-      const epi = await this.epiWindow(layer.id);
+      const ids = runGroupIds(layer.id);
+      const epi = await this.epiWindow(ids);
       if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
       if (epi) {
         intensity = shareRunWindow(
@@ -531,6 +532,7 @@ export class LayerApiImpl implements LayerApi {
               const sibling = state.layers.find((item) => item.id === id);
               if (sibling) sibling.intensity = [window[0], window[1]];
             }),
+          ids,
         );
       }
     }
@@ -554,17 +556,32 @@ export class LayerApiImpl implements LayerApi {
     );
   }
 
-  /** EPI window: robust p2–p98 over all frames, zeros included; widened when degenerate. */
-  private async epiWindow(layerId: string): Promise<[number, number] | null> {
+  /**
+   * EPI window of a run group (native R3-2): every run's all-frame histogram,
+   * zeros included, on the group's common range with the same bins, summed,
+   * then p2–p98 of the sum (runWindow.pooledWindow). One run: its own.
+   */
+  private async epiWindow(ids: readonly string[]): Promise<[number, number] | null> {
+    const BINS = 1024;
     try {
-      const h = await histogramService.computeHistogram({ layerId, binCount: 512, excludeZeros: false, allFrames: true });
-      if (!(h.totalCount > 0) || !h.bins.length) return null;
-      const p2 = computePercentileFromBins(h.bins, h.totalCount, 2);
-      const p98 = computePercentileFromBins(h.bins, h.totalCount, 98);
-      const span = h.maxValue - h.minValue;
-      // A background-dominated p2 is the background itself (0), not a bin edge.
-      const low = p2 - h.minValue < 0.01 * span ? h.minValue : p2;
-      return p98 - low >= 0.05 * span && p98 > low ? [low, p98] : [h.minValue, h.maxValue];
+      const own = await Promise.all(
+        ids.map((layerId) => histogramService.computeHistogram({ layerId, binCount: BINS, excludeZeros: false, allFrames: true })),
+      );
+      const usable = own.filter((h) => h.totalCount > 0 && h.bins.length);
+      if (!usable.length) return null;
+      const range: [number, number] = [
+        Math.min(...usable.map((h) => h.minValue)),
+        Math.max(...usable.map((h) => h.maxValue)),
+      ];
+      const common =
+        ids.length > 1
+          ? await Promise.all(
+              ids.map((layerId) =>
+                histogramService.computeHistogram({ layerId, binCount: BINS, range, excludeZeros: false, allFrames: true }),
+              ),
+            )
+          : usable;
+      return pooledWindow(common, computePercentileFromBins as Parameters<typeof pooledWindow>[1]);
     } catch {
       return null;
     }

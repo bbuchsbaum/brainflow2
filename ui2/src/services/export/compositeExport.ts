@@ -133,6 +133,16 @@ export type SizeSpec =
 export const PRINT_WIDTHS_MM = [89, 183] as const;
 export const PRINT_DPI = [300, 600] as const;
 
+/**
+ * The resolution written into the file (PNG pHYs; native R3-4: a Screen 2×
+ * export carried none). Print: its dpi. Screen: 72 dpi per multiple (1× = 72,
+ * 2× = 144), the convention macOS and most viewers use for a Retina capture,
+ * so a 2× image opens at its on-screen size.
+ */
+export function exportDpi(size: SizeSpec): number {
+  return size.kind === 'print' ? size.dpi : 72 * size.scale;
+}
+
 /** Target width in device pixels for a print size (null for a screen multiple). */
 export function printWidthPx(size: SizeSpec): number | null {
   return size.kind === 'print' ? Math.round((size.widthMm / 25.4) * size.dpi) : null;
@@ -605,9 +615,12 @@ export interface HeaderRun {
  * The slice header, richest first: each candidate is tried in turn and the
  * first that fits the pane is drawn, so headers never run together or past
  * their pane (native check, figure row at 89 mm):
- *   "Axial  z = −10.0 mm  zmap"  →  "Axial  z = −10.0 mm"  →  "z = −10.0 mm"
- *   →  "z −10.0 mm"  →  "z −10.0"  →  nothing.
- * The layer name is whole or absent (never ellipsized, v5 critics).
+ *   "Axial  z = −10.0 mm  zmap"  →  "Axial  z = −10.0 mm"  →  "Axial  z −10.0 mm"
+ *   →  "Axial  z −10.0"  →  "Ax.  z −10.0"  →  "Axial".
+ * The view name is never dropped (native R3-3: a narrow crop read only
+ * "y = −18.0 mm"); when even the shortest form is too wide the header is set
+ * smaller (drawHeaderBand). The layer name is whole or absent (never
+ * ellipsized, v5 critics).
  */
 export function headerCandidates(
   plane: FramePlane,
@@ -619,7 +632,7 @@ export function headerCandidates(
   const planeRun: HeaderRun = { text: PLANE_NAME[plane] };
   if (!match) {
     const plain: HeaderRun[] = [planeRun, { text: position }];
-    return [plain, [{ text: position }], []];
+    return [plain, [planeRun]];
   }
   const [, axis, value] = match;
   const bare = value.replace(/\s*mm$/, '');
@@ -631,12 +644,19 @@ export function headerCandidates(
   const out: HeaderRun[][] = [];
   if (layerName) out.push([...full, { text: shortLayerLabel(layerName), muted: true }]);
   out.push(full);
-  out.push(full.slice(1));
-  out.push([{ text: axis, italic: true }, { text: value, gapEm: 0.3 }]);
-  out.push([{ text: axis, italic: true }, { text: bare, gapEm: 0.3 }]);
-  out.push([]);
+  out.push([planeRun, { text: axis, italic: true }, { text: value, gapEm: 0.3 }]);
+  out.push([planeRun, { text: axis, italic: true }, { text: bare, gapEm: 0.3 }]);
+  // The view abbreviated keeps both the view and the position in a narrow pane.
+  out.push([{ text: PLANE_ABBR[plane] }, { text: axis, italic: true }, { text: bare, gapEm: 0.3 }]);
+  out.push([planeRun]);
   return out;
 }
+
+/** The smallest a header is set (of its point size) before it falls back to the view name alone. */
+export const HEADER_MIN_SCALE = 0.6;
+
+/** Abbreviated view names for narrow panes ("Ax.  z −10.0"). */
+const PLANE_ABBR: Record<FramePlane, string> = { axial: 'Ax.', coronal: 'Cor.', sagittal: 'Sag.' };
 
 function drawHeaderBand(
   ctx: CanvasRenderingContext2D,
@@ -654,12 +674,12 @@ function drawHeaderBand(
   const gap = 6 * u;
   const room = pane.width - 2 * EDGE_INSET * u;
   ctx.save();
-  const styled = (runs: HeaderRun[]) =>
+  const styled = (runs: HeaderRun[], scale = 1) =>
     runs.map((r) => ({
       text: r.text,
-      font: font(px, SANS, 400, !!r.italic),
+      font: font(px * scale, SANS, 400, !!r.italic),
       color: r.muted ? theme.muted : theme.text,
-      gap: r.gapEm != null ? px * r.gapEm : undefined,
+      gap: r.gapEm != null ? px * scale * r.gapEm : scale < 1 ? gap * scale : undefined,
     }));
   const measure = (list: ReturnType<typeof styled>) =>
     list.reduce((sum, p, i) => {
@@ -671,10 +691,21 @@ function drawHeaderBand(
     : pane.framePlane
       ? headerCandidates(pane.framePlane, pane.positionMm, pane.layerName)
       : [];
+  // The first form that fits; else the last two forms set smaller (down to
+  // HEADER_MIN_SCALE) so the view name stays (native R3-3).
+  const fitted = (runs: HeaderRun[]) => {
+    const natural = measure(styled(runs));
+    const scale = natural > 0 ? Math.min(1, room / natural) : 1;
+    return scale >= HEADER_MIN_SCALE ? styled(runs, scale * 0.999) : null;
+  };
   const parts =
     candidates
-      .map(styled)
-      .find((list) => measure(list) <= room) ?? [];
+      .slice(0, -1)
+      .map((c) => styled(c))
+      .find((list) => measure(list) <= room) ??
+    (candidates.length >= 2 ? fitted(candidates[candidates.length - 2]) : null) ??
+    (candidates.length >= 1 ? styled(candidates[candidates.length - 1], Math.max(0.3, room / Math.max(1, measure(styled(candidates[candidates.length - 1]))))) : null) ??
+    [];
   ctx.textBaseline = 'middle';
   // Inset from the pane's left edge (the header is page text, not flush).
   let cx = x + EDGE_INSET * u;

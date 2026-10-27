@@ -34,17 +34,18 @@ describe('harness backend matrix layout', () => {
   const vol = fixture(affine, dims);
   const fixtures = { mni: vol, stats: vol, surface: null } as unknown as HarnessFixtures;
 
-  const setup = () => {
+  // request_layer_gpu_resources is async (round 3 R3-1: the mock simulates a 4D upload's latency).
+  const setup = async () => {
     const backend = createBackend(fixtures);
     const info = backend.handlers.load_file({ path: MNI_PATH }) as { id: string };
-    const gpu = backend.handlers.request_layer_gpu_resources({
+    const gpu = (await backend.handlers.request_layer_gpu_resources({
       layerSpec: { Volume: { id: 'layer-1', source_resource_id: info.id } },
-    }) as { world_to_voxel: number[]; voxel_to_world: number[]; dim: number[] };
+    })) as { world_to_voxel: number[]; voxel_to_world: number[]; dim: number[] };
     return { backend, gpu };
   };
 
-  it('world_to_voxel is column-major: it maps voxel centres back to their indices', () => {
-    const { gpu } = setup();
+  it('world_to_voxel is column-major: it maps voxel centres back to their indices', async () => {
+    const { gpu } = await setup();
     for (const v of [
       [0, 0, 0],
       [19, 29, 39],
@@ -57,8 +58,8 @@ describe('harness backend matrix layout', () => {
     expect(gpu.voxel_to_world.slice(12, 15)).toEqual([-40, -15, -45]);
   });
 
-  it('value bounds from the emitted matrix agree with the backend sample at every face', () => {
-    const { backend, gpu } = setup();
+  it('value bounds from the emitted matrix agree with the backend sample at every face', async () => {
+    const { backend, gpu } = await setup();
     const metadata = { dimensions: dims, worldToVoxel: gpu.world_to_voxel };
     let checked = 0;
     for (let axis = 0; axis < 3; axis += 1) {

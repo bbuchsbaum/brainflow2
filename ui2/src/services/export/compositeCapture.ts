@@ -36,6 +36,7 @@ import {
 import { layoutFileName, mosaicFileName, sliceFileName } from '@/utils/exportFileName';
 import { matteOntoPage } from '@/utils/exportMatte';
 import {
+  exportDpi,
   chromeUnit,
   compose,
   compositionSize,
@@ -510,41 +511,41 @@ function figureLayerName(viewState: ViewState, side: ExportSideBar): string | nu
   return (top && layers.find((l) => l.id === top.id)?.name) ?? layerNameOf(viewState);
 }
 
-/**
- * Volumes whose non-zero voxels "Crop to brain" frames: the union of the
- * visible volume layers (the mosaic's rule), else the reference (bottom
- * volume) layer. The union is order-free, so it is the same whether the
- * anatomy or the statistic was loaded first, and it never cuts into either:
- * the head (anatomy) and every visible statistic voxel stay in the frame.
- * Cropping to one layer picked by stack position cut into the head when that
- * layer was the overlay (native check).
- */
-export function cropVolumeIds(
-  layers: ReadonlyArray<{ volumeId?: string | null; visible: boolean; opacity: number }>,
-): string[] {
-  const visible = layers.filter((l) => l.visible && l.opacity > 0 && l.volumeId).map((l) => l.volumeId!);
-  if (visible.length > 0) return [...new Set(visible)];
-  const reference = layers.find((l) => l.volumeId);
-  return reference?.volumeId ? [reference.volumeId] : [];
-}
+/** What a volume layer is, for choosing the crop's support. */
+export type CropKind = 'mask' | 'anatomical' | 'statistic' | 'label';
 
 /**
- * Per volume, the |value| a voxel must exceed to count for the crop: a
- * statistic layer's display threshold (its hidden band), else 0. A volume
- * shown by several layers takes the smallest.
+ * The volume whose support "Crop to brain" frames (native R3-3: with a z map
+ * as the base the crop shrank to its suprathreshold blobs and the header lost
+ * its view name). The crop follows the head, never the rendered or thresholded
+ * pixels: a loaded brain mask (any visibility) first, else the bottom
+ * anatomical volume, else the bottom volume whatever it is; its finite
+ * non-zero voxels at threshold 0 (cropBox). Statistics and labels never set
+ * the crop when an anatomy or mask is loaded.
  */
-export function cropThresholdsByVolume(
-  layers: ReadonlyArray<{ id: string; volumeId?: string | null; threshold?: readonly [number, number] }>,
-  isStatistic: (layerId: string) => boolean,
-): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const l of layers) {
-    if (!l.volumeId) continue;
-    const t = isStatistic(l.id) && l.threshold ? Math.max(Math.abs(l.threshold[0]), Math.abs(l.threshold[1])) : 0;
-    const cut = Number.isFinite(t) ? t : 0;
-    out.set(l.volumeId, Math.min(out.get(l.volumeId) ?? Infinity, cut));
-  }
-  return out;
+export function cropVolumeIds(
+  layers: ReadonlyArray<{ id?: string; volumeId?: string | null }>,
+  kindOf: (layerId: string | undefined) => CropKind = () => 'anatomical',
+): string[] {
+  const volumes = layers.filter((l) => l.volumeId);
+  const pick =
+    volumes.find((l) => kindOf(l.id) === 'mask') ??
+    volumes.find((l) => kindOf(l.id) === 'anatomical') ??
+    volumes[0];
+  return pick?.volumeId ? [pick.volumeId] : [];
+}
+
+/** A layer's crop kind from its store record (mask name token or binary flag, statistic, label). */
+export function cropKind(
+  layer: { name?: string; sourcePath?: string; type?: string; isLabelMap?: boolean } | undefined,
+  options: { isStatistic: boolean; isBinaryLike?: boolean },
+): CropKind {
+  const base = (p?: string) => (p ?? '').split(/[\\/]/).pop() ?? '';
+  const masky = (n?: string) => /(?:^|[^a-z])(?:brain)?mask(?:[^a-z]|$)/i.test(n ?? '');
+  if (options.isBinaryLike === true || masky(layer?.name) || masky(base(layer?.sourcePath))) return 'mask';
+  if (layer?.type === 'label' || layer?.isLabelMap) return 'label';
+  if (options.isStatistic) return 'statistic';
+  return 'anatomical';
 }
 
 /**
@@ -818,20 +819,22 @@ export async function captureComposite(
   const hasSide = frame.colorbar && (!!side.colorbar || (side.legend?.length ?? 0) > 0);
   const headerName = figureLayerName(viewState, side);
 
-  // Crop to the brain: the visible volumes' non-zero voxels (cropVolumeIds),
-  // measured from the voxel EDGES as the mosaic frames the brain (v4
-  // fidelity), then one mm/px for all panes.
-  // A statistic layer counts only its shown voxels (|v| above its display
-  // threshold): a dense noisy map would otherwise widen the crop to the
-  // whole field of view. Anatomy and labels count every non-zero voxel.
-  const cropThresholds = cropThresholdsByVolume(viewState.layers, (layerId) => {
+  // Crop to the brain: the support (finite non-zero voxels, threshold 0) of a
+  // brain mask, else the bottom anatomy, else the bottom volume (cropVolumeIds,
+  // native R3-3), measured from the voxel EDGES as the mosaic frames the
+  // brain (v4 fidelity), then one mm/px for all panes.
+  const cropKindOf = (layerId: string | undefined): CropKind => {
     const { layers, layerMetadata } = useLayerStore.getState();
     const info = layers.find((l) => l.id === layerId);
-    return statisticUnits(info?.statistic, layerMetadata.get(layerId)?.dataRange) !== null;
-  });
+    const meta = layerId ? layerMetadata.get(layerId) : undefined;
+    return cropKind(info, {
+      isStatistic: statisticUnits(info?.statistic, meta?.dataRange) !== null,
+      isBinaryLike: meta?.isBinaryLike,
+    });
+  };
   const bbox = request.cropToBrain
-    ? await cropBox(cropVolumeIds(viewState.layers), {
-        nonzero: (id) => getNonzeroBbox(id, cropThresholds.get(id) ?? 0),
+    ? await cropBox(cropVolumeIds(viewState.layers, cropKindOf), {
+        nonzero: (id) => getNonzeroBbox(id, 0),
         bounds: (id) => getApiService().getVolumeBounds(id).catch(() => null),
       })
     : null;
@@ -905,7 +908,8 @@ export async function captureComposite(
     // The decoded tiles are drawn: release them (up to ~200 MB at 600 dpi).
     closeImages();
   }
-  const dpi = request.size.kind === 'print' ? request.size.dpi : null;
+  // Every export carries its resolution (screen presets too, native R3-4).
+  const dpi = exportDpi(request.size);
   const provenance = request.provenance
     ? await provenanceRecord(viewState, target, label, request, composition)
     : null;
