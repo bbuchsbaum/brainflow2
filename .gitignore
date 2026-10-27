@@ -25,6 +25,10 @@ claude-instance/
 
 # Archived/scratch files
 cruft/
+/dev_log.txt
+/tauri_dev_log.txt
+/tmp_unreachable_inventory.json
+/mdc-editor-*
 
 # Local agent/tool worktree & cache state (per-machine)
 .lattice/

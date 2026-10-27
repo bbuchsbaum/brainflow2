@@ -343,6 +343,33 @@ Human evaluation asks users to identify what produces the same mean in different
 
 **Historical first work package (superseded by the [next delivery plan](neurotabs-next-delivery-plan.md)):** M0 plus one M1 vertical slice: import an audited 80-map fixture; show its live mean and a focused original; pin a location; display all values; focus from that plot without changing selection; preview the mean without that participant; release to restore. Add the cutout grid and remaining summaries only after that path is correct and meets its measured budget.
 
+## Display ideas retained from the root notes
+
+These are exploratory additions from `GROUP_MAP_DISPLAY_IDEAS.md`, compacted
+on 2026-10-25. They are not added delivery commitments. The preceding population,
+selection and statistical contracts still apply; see the
+[original idea sheet](../../memory-bank/archive/root-cleanup-2026-10-25/GROUP_MAP_DISPLAY_IDEAS.md)
+for the unabridged source.
+
+| Family | Ideas worth retaining |
+| --- | --- |
+| Summaries | Mean/median or trimmed mean; SD/MAD; threshold-exceedance share, threshold-weighted overlap and sign consistency; per-person residuals and standardized deviations. Keep coverage alongside each map. CV was suggested as a variability view, but its behavior near a zero mean needs an explicit policy. |
+| Static figures | Mean, spread and prevalence as three synchronized panels; responder contours at declared levels (for example 50/75/90%) on the mean; subject-by-parcel/slice mosaics; ROI distribution glyphs or rainclouds. An optional color blend maps sign to hue, consistency to saturation and magnitude to brightness, with a readable legend and separate views available. |
+| Subject exploration | Fixed-scale subject flicker (the original suggests 5–10 fps), mean-versus-residual tours, and actual maps with the largest positive/negative regional residuals. Pair each with the complete distribution and visible subject identity. Behavior ordering and tertile markers are optional declared orderings. |
+| Sensitivity displays | Cumulative mean versus sample count, optionally with SD and a final-map outline; a threshold sweep showing the overlap core and fringe; split-half mean comparisons with sign-disagreement marks; a compact stability inset. State ordering, split, threshold, count and the definition of any agreement score. |
+| Relationships | A component scrubber with PCA/ICA maps and subject weights; linked behavior scatterplots; subject embeddings with selection linked back to actual maps. Mixture/prevalence models and alternative embeddings such as UMAP remain separate research ideas, not evidence that subpopulations exist. |
+
+Three reusable figure recipes follow: (1) mean + prevalence contours + spread +
+an ROI distribution; (2) positive/negative residual examples linked to behavior;
+(3) cumulative-mean frames with the ROI response plotted against sample count.
+
+Editorial clarification: the original input was a stack of subject **t-maps**.
+Summaries of those values must retain that value role; do not relabel their mean
+as a population effect estimate or threshold-exceedance share as inferred
+biological prevalence. Definitions, valid denominators and inferential methods
+belong with any implemented view. This consolidation preserves proposals rather
+than validating their scientific use.
+
 ## References and navigation
 
 - [Set Studio PRD](../../memory-bank/Set_Studio_PRD.md), [implementation plan](../../memory-bank/Set_Studio_Implementation_Plan.md), [V1 scope](../../memory-bank/Set_Studio_V1_Scope_Cut.md), [app-mode plan](../../memory-bank/Set_Studio_App_Mode_Plan.md).

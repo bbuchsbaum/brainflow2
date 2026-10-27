@@ -102,3 +102,9 @@ Keep this guide limited to durable, repository-wide instructions. Put detailed
 contracts in scoped guidance or linked docs, and progress/evidence in the existing
 task records. Update the relevant source when behavior changes; keep root
 `CLAUDE.md` as the single import so the two agents share the same guidance.
+
+Keep root files limited to entry points and tool configuration. Product ideas
+live in [docs/vision.md](docs/vision.md) and linked plans; scripts belong in
+`tools/`, fixtures in `test-data/`, and local logs/captures in ignored `cruft/`.
+Retired root notes and scripts are indexed in the
+[2026-10-25 archive](memory-bank/archive/root-cleanup-2026-10-25/README.md).

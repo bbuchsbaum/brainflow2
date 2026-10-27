@@ -16,6 +16,7 @@ Collection of development utilities, scripts, and command-line tools for buildin
 | `validate_rendering.sh` | Validates rendered output against expected results |
 | `check_api_bridge_permissions.mjs` | Checks Tauri API bridge permissions configuration |
 | `setup-test-data.sh` | Verifies test data availability and provides test commands |
+| `create_toy_nifti.py` | Creates `test-data/unit/toy_t1w.nii.gz`; run from repository root with Python, numpy and nibabel |
 | `generate_colormaps.py` | Python script to generate colormap data |
 | `run-typed-shader-check.sh` | Validates typed shader compilation (optional feature) |
 | `make_bundle.sh` | Creates application bundles for distribution |

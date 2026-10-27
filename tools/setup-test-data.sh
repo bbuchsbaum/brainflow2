@@ -22,7 +22,7 @@ else
     echo "⚠️  Test NIfTI file not found: $TEST_FILE"
     echo ""
     echo "You can create a test file using the Python script:"
-    echo "  python create_toy_nifti.py"
+    echo "  python3 tools/create_toy_nifti.py"
 fi
 
 echo ""

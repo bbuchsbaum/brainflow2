@@ -4,6 +4,12 @@ This archive contains the original Phase 1 planning and design documents for the
 
 ## Archive Structure
 
+### root-cleanup-2026-10-25/
+
+Historical root ideas, vision, redesign/IPC notes and retired launch scripts.
+The [index](root-cleanup-2026-10-25/README.md) links to compact maintained
+summaries and records where local logs and captures were retained.
+
 ### phase1-planning/
 Contains all original planning documents from the initial WebGPU v2 architecture design phase:
 
