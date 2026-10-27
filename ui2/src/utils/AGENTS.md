@@ -13,7 +13,6 @@ Utility functions for common operations including coordinate transformations, ca
 | coordinateTransform.ts | Coordinate system transformations - 3KB |
 | crosshairUtils.ts | Crosshair calculation and utilities - 4KB |
 | canvasUtils.ts | Canvas operations and image handling - 3KB |
-| mosaicUtils.ts | Mosaic grid layout calculations - 3KB |
 | dimensions.ts | Dimension calculations and utilities - 1KB |
 | renderDebug.ts | Render debugging utilities - 7KB |
 | validateRenderViewPayload.ts | Validate render view payloads - 6KB |
