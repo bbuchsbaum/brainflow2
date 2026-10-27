@@ -57,6 +57,8 @@ import {
 /** Paths the harness "file system" serves. */
 export const HARNESS_ROOT = '/harness/study';
 export const MNI_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain.nii.gz`;
+/** The MNI brain mask (1 inside the brain, 0 outside): a search mask for clusters. */
+export const MNI_MASK_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain_mask.nii.gz`;
 export const STATS_PATH = `${HARNESS_ROOT}/stats/task-motor_zstat1.nii.gz`;
 export const SURFACE_PATH = `${HARNESS_ROOT}/surf/lh.inflated.gii`;
 export const SURFACE_OVERLAY_PATH = `${HARNESS_ROOT}/surf/lh.sensorimotor.func.gii`;
@@ -441,8 +443,20 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     return out;
   };
 
+  let mask: VolumeFixture | null = null;
+  const mniMask = (): VolumeFixture => {
+    mask ??= {
+      dims: fixtures.mni.dims,
+      affine: fixtures.mni.affine,
+      data: Float32Array.from(fixtures.mni.data, (v) => (v > 0 ? 1 : 0)),
+      range: [0, 1],
+    };
+    return mask;
+  };
+
   const fixtureForPath = (path: string): VolumeFixture | null => {
     if (path === MNI_PATH) return fixtures.mni;
+    if (path === MNI_MASK_PATH) return mniMask();
     if (path === STATS_PATH) return fixtures.stats;
     if (path === ZMAP_PATH) return fixtures.zmap;
     if (path === TMAP_PATH) return fixtures.tmap;

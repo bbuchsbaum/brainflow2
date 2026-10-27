@@ -193,8 +193,16 @@ pub enum SearchVolumeKind {
 pub struct SearchVolume {
     pub kind: SearchVolumeKind,
     pub mask_volume_id: Option<String>,
+    /// Searched voxels. `map-nonzero`: finite non-zero map voxels. `mask`:
+    /// mask ∩ finite map voxels, zeros of the map included (they are searched
+    /// and count toward RFT resels).
     #[ts(type = "number")]
     pub voxels: u64,
+    /// `mask` only: mask voxels where the map is 0 or non-finite, i.e. where
+    /// the map carries no value. Zeros are also counted in `voxels`; the
+    /// non-finite ones are not. `null` for `map-nonzero`.
+    #[ts(type = "number | null")]
+    pub mask_voxels_outside_map: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1021,6 +1029,12 @@ pub(crate) async fn compute_clusters_impl(
             .transpose()?;
         let searched = search_voxels(&frame, search_mask.as_deref());
         let searched_count = searched.iter().filter(|v| **v).count() as u64;
+        let mask_voxels_outside_map = search_mask.as_deref().map(|mask| {
+            mask.iter()
+                .zip(frame.values.iter())
+                .filter(|(inside, v)| **inside && (**v == 0.0 || !v.is_finite()))
+                .count() as u64
+        });
         if search_mask.is_some() && searched_count == 0 {
             return Err(BridgeError::Input {
                 code: 4081,
@@ -1039,6 +1053,7 @@ pub(crate) async fn compute_clusters_impl(
             },
             mask_volume_id: mask_volume.as_ref().map(|(id, _)| id.clone()),
             voxels: searched_count,
+            mask_voxels_outside_map,
         });
         if let Some((fwhm_mm, field)) = extent {
             apply_extent_inference(&mut table, &frame, fwhm_mm, field, search_mask.as_deref())?;
@@ -1848,7 +1863,8 @@ mod tests {
             Some(SearchVolume {
                 kind: SearchVolumeKind::MapNonzero,
                 mask_volume_id: None,
-                voxels: 8000
+                voxels: 8000,
+                mask_voxels_outside_map: None,
             })
         );
         assert_eq!(full.clusters.len(), 2);
@@ -1862,7 +1878,9 @@ mod tests {
             Some(SearchVolume {
                 kind: SearchVolumeKind::Mask,
                 mask_volume_id: Some("mask-half".into()),
-                voxels: 4000
+                voxels: 4000,
+                // Background 0.5 everywhere: every mask voxel has a map value.
+                mask_voxels_outside_map: Some(0),
             })
         );
         assert_eq!(half.clusters.len(), 1);
@@ -1896,6 +1914,8 @@ mod tests {
                 }
             }
         }
+        // One non-finite voxel inside the mask region.
+        values[0] = f32::NAN;
         register_volume(&state, &stat, volume_3d([8; 3], [2.0; 3], [0.0; 3], values)).await;
         // Mask on a 4 mm grid: mask voxels i = 0..=2 (centres 0, 4, 8 mm).
         let coarse: Vec<f32> = (0..64)
@@ -1918,17 +1938,29 @@ mod tests {
         };
         let default = compute_clusters_impl(run(None), &state).await.unwrap();
         // Non-zero map voxels only: the blob.
-        assert_eq!(default.search_volume.unwrap().voxels, 8);
+        let default_volume = default.search_volume.unwrap();
+        assert_eq!(
+            (
+                default_volume.voxels,
+                default_volume.mask_voxels_outside_map
+            ),
+            (8, None)
+        );
         let masked = compute_clusters_impl(run(Some("mask-coarse")), &state)
             .await
             .unwrap();
         // Map voxel centres x = 2i mm map to mask voxel floor(x / 4 + 0.5):
         // along x, i = 0..=4 (x <= 8 mm) land on mask voxels 0..=2; along y and
         // z, j, k = 0..=6 land inside the 4-voxel mask grid (14 mm maps to
-        // index 4, outside) -> 5 x 7 x 7 = 245 voxels, zeros included; the
-        // blob (i, j, k = 2, 3) stays whole.
+        // index 4, outside) -> 5 x 7 x 7 = 245 mask voxels on the map grid;
+        // the blob (i, j, k = 2, 3) stays whole. One of them is NaN, so 244
+        // are searched (zeros included), and 245 - 8 blob = 237 carry no map
+        // value (236 zeros + 1 NaN).
         let volume = masked.search_volume.unwrap();
-        assert_eq!((volume.kind, volume.voxels), (SearchVolumeKind::Mask, 245));
+        assert_eq!(
+            (volume.kind, volume.voxels, volume.mask_voxels_outside_map),
+            (SearchVolumeKind::Mask, 244, Some(237))
+        );
         assert_eq!(masked.clusters.len(), 1);
         assert_eq!(masked.clusters[0].voxel_count, 8);
         // Missing or empty masks are errors.

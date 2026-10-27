@@ -19,7 +19,7 @@
  * The target layer is the active layer (the same rule as the viewport header,
  * colorbar and status bar), when it is a scalar volume.
  */
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClusterSign, ClusterSummary } from '@brainflow/api';
 import {
   SELECTED_EDGE,
@@ -52,6 +52,7 @@ import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
 import {
   clusterCaveats,
   clusterMethodsSentence,
+  isMaskLike,
   clusterTableCsv,
   colormapEnds,
   displayThresholdMagnitude,
@@ -184,6 +185,10 @@ function selectStatLayer(layerId: string): void {
   if (item) useInspectorSelectionStore.getState().setActive(item);
 }
 
+/** How to read the cluster CSV's "#" methods lines (pandas / R default readers do not skip them). */
+const CSV_COMMENT_HINT =
+  "The methods are '#' comment lines: read with pandas.read_csv(…, comment='#') or R read.csv(…, comment.char = '#').";
+
 /** |z| / |t| threshold seeded for a map with no display threshold. */
 const DEFAULT_STAT_THRESHOLD = 3.1;
 
@@ -212,7 +217,8 @@ export function ClusterPanel() {
   );
   const variable = symbol ? symbol.replace(/\(.*\)$/, '') : 'value';
   // Search-volume masks (S3): single-frame, non-statistical volumes other than
-  // the map (a brain mask; any finite non-zero voxel is inside).
+  // the map that are masks (round 3 T2: a mask layer, a "mask" file, or binary
+  // data). Any other volume would set the search to its non-zero support.
   const maskCandidates = useMemo(
     () =>
       allLayers.filter(
@@ -220,7 +226,8 @@ export function ClusterPanel() {
           l.volumeId &&
           l.id !== target?.id &&
           !statisticUnits(l.statistic, layerMetadata.get(l.id)?.dataRange) &&
-          ((l as { timeSeriesInfo?: { num_timepoints: number } }).timeSeriesInfo?.num_timepoints ?? 1) < 2,
+          ((l as { timeSeriesInfo?: { num_timepoints: number } }).timeSeriesInfo?.num_timepoints ?? 1) < 2 &&
+          isMaskLike(l, layerMetadata.get(l.id)),
       ),
     [allLayers, layerMetadata, target?.id],
   );
@@ -233,6 +240,11 @@ export function ClusterPanel() {
   const setParams = useClusterStore((s) => s.setParams);
   const maskLayer = maskCandidates.find((l) => l.id === params.searchMaskLayerId) ?? null;
   const maskVolumeId = maskLayer?.volumeId ?? null;
+  // A chosen mask that was removed (or is no longer a mask): the choice
+  // resets to the map's non-zero voxels, visibly, and its table goes stale.
+  useEffect(() => {
+    if (params.searchMaskLayerId && !maskLayer) setParams({ searchMaskLayerId: null });
+  }, [params.searchMaskLayerId, maskLayer, setParams]);
 
   // f32 thresholds (3.0999999046) shown and used at display precision (3.1).
   const rawLayerThreshold = displayThresholdMagnitude(target?.threshold);
@@ -318,6 +330,8 @@ export function ClusterPanel() {
     if (!result || !target || result.layerId !== target.id) return null;
     const t = result.table;
     const tableMask = t.searchVolume?.kind === 'mask' ? t.searchVolume.maskVolumeId : null;
+    if (tableMask && !allLayers.some((l) => l.volumeId === tableMask))
+      return 'The search mask of this table was removed.';
     const changed =
       threshold === null ||
       !sameValue(t.threshold, threshold) ||
@@ -328,7 +342,7 @@ export function ClusterPanel() {
       tableMask !== maskVolumeId ||
       (t.extentInference !== null && t.extentInference !== undefined && !sameFwhm(t.extentInference.fwhmMm, fwhm));
     return changed ? 'Parameters changed since this table.' : null;
-  }, [result, target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, maskVolumeId]);
+  }, [result, target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, maskVolumeId, allLayers]);
 
   // Sortable by rank (#, = |peak| descending, the backend order), voxels or
   // |peak|. Regions travel with their cluster (indexed by rank).
@@ -419,7 +433,7 @@ export function ClusterPanel() {
       await navigator.clipboard.writeText(csv);
       getEventBus().emit('ui.notification', {
         type: 'info',
-        message: 'Cluster table copied as CSV',
+        message: `Cluster table copied as CSV. ${CSV_COMMENT_HINT}`,
       });
     } catch {
       getEventBus().emit('ui.notification', {
@@ -718,7 +732,7 @@ export function ClusterPanel() {
               </tr>
             </thead>
             <tbody onKeyDown={roving.onKeyDown}>
-              {clusters.map((c: ClusterSummary) => {
+              {clusters.map((c: ClusterSummary, rank: number) => {
                 const selected = c.id === selectedId;
                 const region = regionById.get(c.id) ?? null;
                 const subPeaks = c.subPeaks ?? [];
@@ -739,6 +753,8 @@ export function ClusterPanel() {
                     aria-expanded={subPeaks.length > 0 ? open : undefined}
                     onClick={() => select(String(c.id))}
                     aria-level={1}
+                    aria-posinset={rank + 1}
+                    aria-setsize={clusters.length}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
@@ -944,7 +960,8 @@ export function ClusterPanel() {
             size="sm"
             // A stale table is not copied as if current.
             disabled={!result || clusters.length === 0 || !!stale}
-            title={stale ? `${stale} Compute to copy.` : undefined}
+            title={stale ? `${stale} Compute to copy.` : CSV_COMMENT_HINT}
+            aria-description={stale ? undefined : CSV_COMMENT_HINT}
             onClick={copyCsv}
           >
             Copy CSV

@@ -40,6 +40,43 @@ export function openClusterSeries(): void {
     const id = fourDLayerId();
     if (id) useLayerStore.getState().selectLayer?.(id);
   }
+  // Keyboard focus follows the user into the plot (round 3 S3), never <body>.
+  const from = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
   openDockTab('plot');
   usePlotModeStore.getState().setActivePlotMode(SERIES_MODE_ID);
+  focusSeriesPlot(from);
+}
+
+/** The Series plot's values (its roving tab stop), else its first control. */
+const SERIES_FOCUS = [
+  '[data-testid="set-series-plot"] [data-datum-id][tabindex="0"]',
+  '[data-testid="crosshair-ts-plot-body"] [data-datum-id][tabindex="0"]',
+  '[data-testid="set-series-plot"] button:not([disabled])',
+  '[data-testid="crosshair-ts-plot-body"] button:not([disabled])',
+];
+
+/**
+ * Move focus to the Series plot once it has mounted and sampled (a few
+ * frames, up to ~1 s); if it never appears, return focus to where it was
+ * when focus fell to <body> (the clicked button may unmount with the tab).
+ */
+function focusSeriesPlot(from: HTMLElement | null): void {
+  if (typeof document === 'undefined' || typeof requestAnimationFrame === 'undefined') return;
+  let tries = 0;
+  const attempt = () => {
+    tries += 1;
+    const target = SERIES_FOCUS.map((sel) => document.querySelector<HTMLElement>(sel)).find(Boolean);
+    // A datum stop appears after sampling: wait for it a while before settling for a control.
+    if (target && (target.hasAttribute('data-datum-id') || tries > 30)) {
+      target.focus();
+      return;
+    }
+    if (tries < 60) {
+      requestAnimationFrame(attempt);
+      return;
+    }
+    if (target) target.focus();
+    else if ((!document.activeElement || document.activeElement === document.body) && from?.isConnected) from.focus();
+  };
+  requestAnimationFrame(attempt);
 }

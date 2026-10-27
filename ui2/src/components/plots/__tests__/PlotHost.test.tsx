@@ -26,7 +26,7 @@ describe('PlotHost', () => {
 
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'histogram');
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-state', 'active');
-    expect(screen.getByTestId('plot-host-mode-tabs')).toBeInTheDocument();
+    expect(screen.getByTestId('plot-host-mode-select')).toBeInTheDocument();
     expect(screen.getByTestId('mode-body-histogram')).toBeInTheDocument();
     expect(histogramRender).toHaveBeenCalled();
     expect(tsRender).not.toHaveBeenCalled();
@@ -51,13 +51,13 @@ describe('PlotHost', () => {
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'time-series');
     expect(screen.getByTestId('mode-body-time-series')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Histogram' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Plot mode' }), { target: { value: 'histogram' } });
     expect(onModeChange).toHaveBeenLastCalledWith('histogram');
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'histogram');
     expect(screen.getByTestId('mode-body-histogram')).toBeInTheDocument();
   });
 
-  it('switches to a dropdown selector when more than 4 modes are registered', () => {
+  it('uses the dropdown selector for any number of modes (round 3 S4)', () => {
     const modes: PlotMode[] = [
       makeMode({ id: 'a', label: 'A' }),
       makeMode({ id: 'b', label: 'B' }),
@@ -82,7 +82,7 @@ describe('PlotHost', () => {
     );
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'histogram');
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Time Series' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Plot mode' }), { target: { value: 'time-series' } });
     // Controlled host doesn't update internal selection — caller must rerender.
     expect(onModeChange).toHaveBeenLastCalledWith('time-series');
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'histogram');
@@ -182,7 +182,7 @@ describe('PlotHost', () => {
     expect(screen.getByTestId('hist-toolbar-btn')).toBeInTheDocument();
     expect(screen.queryByTestId('ts-toolbar-btn')).toBeNull();
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Time Series' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Plot mode' }), { target: { value: 'time-series' } });
     expect(screen.getByTestId('ts-toolbar-btn')).toBeInTheDocument();
     expect(screen.queryByTestId('hist-toolbar-btn')).toBeNull();
   });
@@ -229,31 +229,16 @@ describe('PlotHost', () => {
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'histogram');
   });
 
-  it('renders mode chips as the bf segmented control (radio semantics, neutral active edge)', () => {
+  it('two modes use the same dropdown as five (deliberate change, round 3 S4: was segmented chips)', () => {
     const modes: PlotMode[] = [
       makeMode({ id: 'histogram', label: 'Histogram' }),
       makeMode({ id: 'population', label: 'Population' }),
     ];
     render(<PlotHost modes={modes} layerId="vol-1" layerName="vol-1" />);
-
-    expect(screen.getByRole('radiogroup', { name: 'Plot mode' })).toBe(
-      screen.getByTestId('plot-host-mode-tabs'),
-    );
-    const active = screen.getByRole('radio', { name: 'Histogram' });
-    const inactive = screen.getByRole('radio', { name: 'Population' });
-    expect(active).toHaveAttribute('aria-checked', 'true');
-    expect(inactive).toHaveAttribute('aria-checked', 'false');
-    // User decision 2026-10-26: a value choice is "on" with the light primary
-    // fill and NO bottom edge (flat tabs keep the edge), so the two differ in form.
-    expect(active.className.split(/\s+/)).toContain('bg-primary');
-    expect(active.className).not.toContain('inset_0_-2px');
-    expect(active.className).not.toContain('bg-bf-bg-active');
-    expect(inactive.className).toContain('text-muted-foreground');
-    expect(inactive.className).toContain('hover:bg-accent');
-    for (const chip of [active, inactive]) {
-      expect(chip.className).toContain('focus-visible:outline-2');
-      expect(chip.className).toContain('focus-visible:outline-offset-1');
-    }
+    expect(screen.queryByRole('radiogroup', { name: 'Plot mode' })).toBeNull();
+    const select = screen.getByRole('combobox', { name: 'Plot mode' });
+    expect(select).toHaveValue('histogram');
+    expect(Array.from((select as HTMLSelectElement).options).map((o) => o.text)).toEqual(['Histogram', 'Population']);
   });
 
   it('a single mode is named as plain text, not a one-segment group', () => {
@@ -271,14 +256,14 @@ describe('PlotHost', () => {
     expect(screen.queryByRole('radio')).toBeNull();
   });
 
-  it('moves and selects the mode with the arrow keys', () => {
+  it('selects the mode from the dropdown', () => {
     const onModeChange = vi.fn();
     const modes: PlotMode[] = [
       makeMode({ id: 'histogram', label: 'Histogram' }),
       makeMode({ id: 'population', label: 'Population' }),
     ];
     render(<PlotHost modes={modes} onModeChange={onModeChange} layerId="vol-1" />);
-    fireEvent.keyDown(screen.getByRole('radio', { name: 'Histogram' }), { key: 'ArrowRight' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Plot mode' }), { target: { value: 'population' } });
     expect(onModeChange).toHaveBeenLastCalledWith('population');
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'population');
   });

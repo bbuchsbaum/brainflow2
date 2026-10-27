@@ -395,9 +395,9 @@ describe('ClusterPanel', () => {
     }));
     render(<ClusterPanel />);
     const search = screen.getByLabelText('Search');
+    // Only masks are offered (round 3 T2): the T1 would search its own non-zero support.
     expect(Array.from((search as HTMLSelectElement).options).map((o) => o.text)).toEqual([
       'Non-zero voxels of the map',
-      'Brain mask T1',
       'Brain mask brain_mask',
     ]);
     fireEvent.change(search, { target: { value: 'mask' } });
@@ -416,6 +416,27 @@ describe('ClusterPanel', () => {
     expect(screen.getByTestId('cluster-methods')).toHaveTextContent('search volume 2,000 voxels (brain mask brain_mask)');
     fireEvent.change(search, { target: { value: '' } });
     expect(screen.getByTestId('cluster-stale')).toHaveTextContent('Parameters changed since this table.');
+  });
+
+  it('removing the chosen mask resets the choice visibly and marks its table stale (round 3 T2)', () => {
+    useLayerStore.setState((st) => ({
+      layers: [...st.layers, { id: 'mask', name: 'brain_mask.nii.gz', volumeId: 'vol-mask', type: 'volume', visible: true, order: 2 } as never],
+    }));
+    render(<ClusterPanel />);
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'mask' } });
+    act(() =>
+      useClusterStore.getState().setResult({
+        layerId: 'z',
+        layerName: 'zmap_synthetic.nii.gz',
+        table: { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 2000 } },
+        regions: [null, null],
+        computedAt: 0,
+      }),
+    );
+    expect(screen.queryByTestId('cluster-stale')).toBeNull();
+    act(() => useLayerStore.setState((st) => ({ layers: st.layers.filter((l) => l.id !== 'mask') })));
+    expect(useClusterStore.getState().params.searchMaskLayerId).toBeNull();
+    expect(screen.getByTestId('cluster-stale')).toHaveTextContent('The search mask of this table was removed.');
   });
 
   it('arrow keys the table handles never reach window shortcuts (v1 function 6)', () => {

@@ -104,10 +104,8 @@ interface ModeSelectorProps {
 }
 
 /**
- * Plot modes: a joined segmented group (V5 navigation kind 2, bf
- * SegmentedControl: radio semantics, arrows move and select) for up to four
- * modes, a bf Select beyond that. A single mode still shows its name, so the
- * pane says which plot it holds.
+ * Plot modes: a bf Select (one form for any number of modes, round 3 S4). A
+ * single mode still shows its name, so the pane says which plot it holds.
  */
 /** The empty dock keeps the loaded chrome: the Histogram tab, disabled. */
 const EMPTY_MODE_OPTIONS = [{ value: 'histogram', label: 'Histogram' }] as const;
@@ -130,27 +128,30 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
     );
   }
 
-  if (modes.length > 4) {
+  // One mode: its name as plain text (the pane says which plot it holds).
+  if (modes.length === 1) {
     return (
-      <Select
+      <SegmentedControl
         aria-label="Plot mode"
-        data-testid="plot-host-mode-select"
-        className="w-auto"
-        value={activeId}
+        data-testid="plot-host-mode-tabs"
         options={options}
+        value={activeId}
         onValueChange={onChange}
+        singleLabel
       />
     );
   }
 
+  // One form whatever the number of modes (round 3 S4: tabs with two modes
+  // and a dropdown with five read as two different controls).
   return (
-    <SegmentedControl
+    <Select
       aria-label="Plot mode"
-      data-testid="plot-host-mode-tabs"
-      options={options}
+      data-testid="plot-host-mode-select"
+      className="w-auto"
       value={activeId}
+      options={options}
       onValueChange={onChange}
-      singleLabel
     />
   );
 }

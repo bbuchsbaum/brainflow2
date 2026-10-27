@@ -115,11 +115,12 @@ describe('segmented frames (E5b)', () => {
 
   it('concatenates in seconds with labelled boundaries (truth: run 2 starts at 40 s, run 3 at 88 s)', () => {
     const s = segmentedSeriesFrame(samples, 'concatenated');
-    expect(s.xTitle).toBe('Time (s)');
-    expect(s.rules.map((r) => [r.x, r.label])).toEqual([
-      [-1, 'run 1'],
-      [39, 'run 2'],
-      [87, 'run 3'],
+    expect(s.xTitle).toBe('Concatenated time (s)');
+    // Boundaries at the next run's onset; the first run is labelled, not ruled (round 3 T1).
+    expect(s.rules.map((r) => [r.x, r.label, r.line])).toEqual([
+      [0, 'run 1', false],
+      [40, 'run 2', true],
+      [88, 'run 3', true],
     ]);
     const run2peak = s.frame.rows.find((r) => r[SERIES_SEGMENT] === 'run 2' && r[SERIES_T] === 24)!;
     expect(run2peak.t).toBe(64);
@@ -158,22 +159,13 @@ describe('segmented frames (E5b)', () => {
 describe('raw series CSV (X2)', () => {
   it('has one header row with segment and within-run columns, then the locus', () => {
     const csv = rawSeriesCsv({
-      rows: [
-        {
-          segment: 'run-2',
-          volumeIndex: 12,
-          tWithin: 24,
-          t: 64,
-          value: 122,
-          layer: 'Faces BOLD (sub-01, run-2)',
-        },
-      ],
+      rows: [{ segment: 'run-2', volumeIndex: 12, frame: 13, tWithin: 24, t: 64, tr: 2, value: 122, layer: 'Faces BOLD (sub-01, run-2)' }],
       axis: { name: 't', unit: 's' },
-      locus: { kind: 'voxel', label: 'voxel at −40, −20, 48 mm', voxels: 1 },
+      locus: { kind: 'voxel', label: 'voxel ijk 10 23 30 on Faces BOLD (sub-01, run-2) grid (centre −40, −20, 48 mm)', voxels: 1 },
     });
     expect(csv).toBe(
-      'segment,volume_index,t_within_s,t_s,value,locus_kind,locus_label,n_voxels,layer\n' +
-        'run-2,12,24,64,122,voxel,"voxel at -40, -20, 48 mm",1,"Faces BOLD (sub-01, run-2)"\n',
+      'segment,volume_index0,frame,t_within_s,t_s,tr_s,value,locus_kind,locus_label,n_voxels,layer\n' +
+        'run-2,12,13,24,64,2,122,voxel,"voxel ijk 10 23 30 on Faces BOLD (sub-01, run-2) grid (centre -40, -20, 48 mm)",1,"Faces BOLD (sub-01, run-2)"\n',
     );
   });
 });

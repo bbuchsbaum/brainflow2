@@ -10,6 +10,7 @@ vi.mock('../atlasRegionLookup', () => ({
 }));
 
 import {
+  isMaskLike,
   ClusterService,
   clusterMethodsSentence,
   clusterTableCsv,
@@ -127,6 +128,29 @@ describe('cluster methods sentence and CSV', () => {
       '26-connected clusters of |z| > 3.1, two-tailed, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels; ' +
         'search volume 228,483 voxels (brain mask MNI152_T1_2mm_brain_mask).',
     );
+    // Mask voxels with no map data are reported when the backend counts them (round 3 T2).
+    expect(
+      clusterMethodsSentence(
+        { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 228483, maskVoxelsOutsideMap: 1204 } as never },
+        'z',
+        { maskName: 'brain_mask' },
+      ),
+    ).toContain('search volume 228,483 voxels (brain mask brain_mask; 1,204 mask voxels where the map is 0 or non-finite).');
+    expect(
+      clusterMethodsSentence(
+        { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 10, maskVoxelsOutsideMap: 0 } as never },
+        'z',
+        { maskName: 'brain_mask' },
+      ),
+    ).toContain('(brain mask brain_mask).');
+  });
+
+  it('offers only masks as a search volume (round 3 T2)', () => {
+    expect(isMaskLike({ name: 'MNI152_T1_2mm_brain_mask.nii.gz' })).toBe(true);
+    expect(isMaskLike({ name: 'roi', type: 'mask' })).toBe(true);
+    expect(isMaskLike({ name: 'roi' }, { dataRange: { min: 0, max: 1 } })).toBe(true);
+    expect(isMaskLike({ name: 'seg' }, { isBinaryLike: true })).toBe(true);
+    expect(isMaskLike({ name: 'MNI152_T1_2mm_brain.nii.gz' }, { dataRange: { min: 0, max: 8364 } })).toBe(false);
   });
 
   it('leaves the weighted COG empty when the backend did not send it (v3 fidelity)', () => {
@@ -201,6 +225,11 @@ describe('phase 4: sub-peaks, cluster-level p, cancellation', () => {
     const { parseFwhm } = await import('../ClusterService');
     expect(parseFwhm('8')).toBe(8);
     expect(parseFwhm(' 6, 6 x 8 ')).toEqual([6, 6, 8]);
+    // The unit may be typed (round 3 addendum).
+    expect(parseFwhm('8mm')).toBe(8);
+    expect(parseFwhm('8 mm')).toBe(8);
+    expect(parseFwhm('6 x 6 x 8 mm')).toEqual([6, 6, 8]);
+    expect(parseFwhm('mm')).toBeNull();
     for (const bad of ['', '0', '-4', '6 6', 'abc', '6 6 8 8']) expect(parseFwhm(bad)).toBeNull();
   });
 

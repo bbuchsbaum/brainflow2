@@ -264,7 +264,7 @@ export interface SegmentedSeries {
   frame: SampleFrame;
   xTitle: string;
   /** Segment boundaries for the concatenated layout. */
-  rules: { x: number; label: string }[];
+  rules: { x: number; label: string; line: boolean }[];
   /** Half the x step (axis padding). */
   step: number;
   /** A caption clause when the layout needs one (per-segment TR scaling). */
@@ -284,13 +284,13 @@ export function segmentedSeriesFrame(
   const seconds = samples.length > 0 && samples.every((s) => s.segment.tr !== null);
   const trs = [...new Set(samples.map((s) => s.segment.tr))];
   const rows: FrameRow[] = [];
-  const rules: { x: number; label: string }[] = [];
+  const rules: { x: number; label: string; line: boolean }[] = [];
   let offset = 0;
   samples.forEach(({ segment, values }, si) => {
     const step = seconds ? segment.tr! : 1;
     const within = (i: number) => (seconds ? i * step : i + 1);
-    if (layout === 'concatenated')
-      rules.push({ x: offset + within(0) - step / 2, label: segment.label });
+    // The boundary is the next run's onset (truth: run 2 at 40 s, run 3 at 88 s).
+    if (layout === 'concatenated') rules.push({ x: offset + within(0), label: segment.label, line: si > 0 });
     values.forEach((value, i) => {
       rows.push({
         t: layout === 'concatenated' ? offset + within(i) : within(i),
@@ -317,7 +317,8 @@ export function segmentedSeriesFrame(
   const within = layout !== 'concatenated';
   return {
     frame: { columns, rows, meta: { segmented: true, layout } },
-    xTitle: seconds ? (within ? 'Time in run (s)' : 'Time (s)') : within ? 'Frame in run' : 'Frame',
+    // Concatenated: inter-run gaps are not represented, so the axis says so.
+    xTitle: seconds ? (within ? 'Time in run (s)' : 'Concatenated time (s)') : within ? 'Frame in run' : 'Concatenated frame',
     rules,
     step: seconds ? Math.min(...samples.map((s) => s.segment.tr!)) : 1,
     note:
@@ -349,14 +350,19 @@ const csvCell = (v: unknown) => {
 
 /**
  * A raw 4D series as CSV, one header row: segment (when segmented),
- * volume_index (0-based index in the segment's image), t_within_s, t_s, value,
+ * volume_index0 (0-based index in the segment's image), frame (1-based, as
+ * shown), t_within_s, t_s, tr_s, value,
  * then the locus and the layer, so CSVs from several loci stack.
  */
 export function rawSeriesCsv(input: {
   rows: readonly {
     segment: string | null;
     volumeIndex: number;
+    /** 1-based frame within the segment (or the layer). */
+    frame: number;
     tWithin: number | null;
+    /** Seconds per frame, or null when unknown. */
+    tr: number | null;
     t: number | null;
     value: number | null;
     layer: string;
@@ -368,9 +374,11 @@ export function rawSeriesCsv(input: {
   const unit = input.axis.unit ? `_${input.axis.unit}` : '';
   const header = [
     ...(segmented ? ['segment'] : []),
-    'volume_index',
+    'volume_index0',
+    'frame',
     ...(segmented ? [`${input.axis.name}_within${unit}`] : []),
     `${input.axis.name}${unit}`,
+    'tr_s',
     'value',
     'locus_kind',
     'locus_label',
@@ -381,8 +389,10 @@ export function rawSeriesCsv(input: {
     [
       ...(segmented ? [r.segment ?? ''] : []),
       r.volumeIndex,
+      r.frame,
       ...(segmented ? [r.tWithin ?? ''] : []),
       r.t ?? '',
+      r.tr ?? '',
       r.value ?? '',
       input.locus.kind,
       input.locus.label.replace(/[−−–]/g, '-'),

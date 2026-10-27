@@ -172,7 +172,13 @@ describe('harness compute_clusters search mask (S3)', () => {
     const masked = findClusters(zmap, { threshold: 3.1 }, mask, 'vol-mask');
     expect(masked.clusters.map((c) => c.voxelCount)).toEqual(plain.clusters.map((c) => c.voxelCount));
     expect(plain.searchVolume).toEqual({ kind: 'map-nonzero', maskVolumeId: null, voxels: zmap.data.filter((v) => Number.isFinite(v) && v !== 0).length });
-    expect(masked.searchVolume).toEqual({ kind: 'mask', maskVolumeId: 'vol-mask', voxels: zmap.data.filter((v) => Number.isFinite(v)).length });
+    expect(masked.searchVolume).toEqual({
+      kind: 'mask',
+      maskVolumeId: 'vol-mask',
+      voxels: zmap.data.filter((v) => Number.isFinite(v)).length,
+      // Round 3 T2: the whole-grid mask covers every voxel where the map is 0 or non-finite.
+      maskVoxelsOutsideMap: zmap.data.filter((v) => !(Number.isFinite(v) && v !== 0)).length,
+    });
   });
 
   it('clusters form only inside the mask; another grid is resampled by nearest voxel', () => {
@@ -201,5 +207,37 @@ describe('harness compute_clusters search mask (S3)', () => {
     expect(() => findClusters(zmap, { threshold: 3.1 }, resampleMaskNearest(all(zmap, 0), zmap), 'm')).toThrow(
       expect.objectContaining({ code: 4081 }),
     );
+  });
+});
+
+describe('harness masked RFT search matches the p4 truth (round 3 S7)', () => {
+  it('multipeak z map inside the MNI brain mask: search voxels, mask voxels outside the map, E[m], p(FWE)', async () => {
+    const { withBlobs, MULTIPEAK_BLOBS } = await import('../fixtures');
+    const p4 = (await import('../../fixtures/app/p4_fixtures.json')).default as unknown as {
+      clustersMultipeak: {
+        rftBrainMask: {
+          searchVoxels: number;
+          maskVoxelsOutsideMap: number;
+          expectedClusters: number;
+          clusters: { voxels: number; pFweExtent: number }[];
+        };
+      };
+    };
+    const truth = p4.clustersMultipeak.rftBrainMask;
+    const brain: VolumeFixture = { ...zmap, data: Float32Array.from(readFileSync(resolve(dir, 'mni_2mm.u8'))) };
+    const map = withBlobs({ ...zmap, data: new Float32Array(zmap.data) }, MULTIPEAK_BLOBS, brain);
+    const mask = resampleMaskNearest(brain, map);
+    const t = findClusters(
+      map,
+      { threshold: 3.1, connectivity: 26, maxPeaksPerCluster: 3, minPeakDistanceMm: 8, extent: { fwhmMm: 8, statistic: 'z' } },
+      mask,
+      'vol-brain-mask',
+    );
+    expect(t.searchVolume).toMatchObject({ kind: 'mask', voxels: truth.searchVoxels, maskVoxelsOutsideMap: truth.maskVoxelsOutsideMap });
+    expect(t.extentInference!.searchVoxels).toBe(truth.searchVoxels);
+    expect(Math.abs(t.extentInference!.expectedClusters - truth.expectedClusters) / truth.expectedClusters).toBeLessThan(1e-6);
+    expect(t.clusters.map((c) => c.voxelCount)).toEqual(truth.clusters.map((c) => c.voxels));
+    // The truth uses the closed-form extent p; the mirror evaluates spm_P_RF (agrees to ~1e-6).
+    t.clusters.forEach((c, i) => expect(c.pFweExtent!).toBeCloseTo(truth.clusters[i].pFweExtent, 5));
   });
 });

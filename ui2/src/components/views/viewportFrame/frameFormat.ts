@@ -381,10 +381,18 @@ export function spreadLabelCenters(ys: readonly number[], minGap: number, lo: nu
  * most `maxLines` lines of `maxChars`; [] when it does not fit whole that way
  * (the caller then leaves the name out: a caption never prints a fragment).
  */
+/**
+ * A layer name's wrap points: after `_`, `-`, `.` or a space; a parenthetical
+ * ("(lh, rh)") is one piece, never split inside it (v1 visual 9). Shared by
+ * the on-screen colorbar and the export (compositeExport.ts).
+ */
+export function nameWrapPieces(name: string): string[] {
+  return name.match(/\([^)]*\)[_\-.\s]*|[^_\-.\s(]+[_\-.\s]*/g) ?? [name];
+}
+
 export function wrapNameAtBoundaries(name: string, maxChars: number, maxLines: number): string[] {
   if (!(maxChars > 0)) return [];
-  // A parenthetical ("(lh, rh)") is one piece: never split inside it (v1 visual 9).
-  const pieces = name.match(/\([^)]*\)[_\-.\s]*|[^_\-.\s(]+[_\-.\s]*/g) ?? [name];
+  const pieces = nameWrapPieces(name);
   const lines: string[] = [];
   let line = '';
   for (const piece of pieces) {

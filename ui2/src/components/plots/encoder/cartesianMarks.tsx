@@ -32,7 +32,11 @@ import type { EncoderContext, MarkRenderer, MarkRenderProps } from './types';
 export function populationCategoryColor(label: string) {
   let hash = 0;
   for (const c of label) hash = (hash * 31 + c.charCodeAt(0)) | 0;
-  return `hsl(${Math.round((Math.abs(hash) * 137.508) % 360)} 60% 55%)`;
+  let hue = Math.round((Math.abs(hash) * 137.508) % 360);
+  // Keep clear of the crosshair green (~110°) so a condition never reads as
+  // the cursor (round 3 S4).
+  if (hue >= 75 && hue <= 155) hue = (hue + 120) % 360;
+  return `hsl(${hue} 60% 55%)`;
 }
 
 const lineColor = 'var(--app-plot-line)';
@@ -179,7 +183,7 @@ interface AxisOptions {
    * Labelled vertical rules on a numeric x axis (segment boundaries of a
    * concatenated series, E5b): a dashed hairline at `x`, its label at the top.
    */
-  readonly xRules?: readonly { readonly x: number; readonly label: string }[];
+  readonly xRules?: readonly { readonly x: number; readonly label: string; readonly line?: boolean }[];
 }
 
 interface CartesianMarkProps {
@@ -254,7 +258,7 @@ function CartesianMark({
               if (!(x >= 0 && x <= innerWidth)) return null;
               return (
                 <Group key={`${rule.x}-${rule.label}`} data-testid="plot-x-rule" pointerEvents="none">
-                  {x > 0.5 ? (
+                  {rule.line !== false && x > 0.5 ? (
                     <line x1={x} x2={x} y1={0} y2={innerHeight} stroke="var(--bf-border-strong)" strokeWidth={1} strokeDasharray="3 3" />
                   ) : null}
                   <text
@@ -553,7 +557,8 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
 
   const groups = new Map<string, SeriesPoint[]>();
   const colorFor = (p: SeriesPoint) => {
-    if (!spec.encoding.color) return lineColor;
+    // One series coloured as its condition elsewhere (raw 4D member, round 3 S4).
+    if (!spec.encoding.color) return typeof spec.params.seriesColor === 'string' ? spec.params.seriesColor : lineColor;
     const label = String(frame.rows[p.rowIndex!]?.[spec.encoding.color] ?? '(missing)');
     return populationCategoryColor(label);
   };
@@ -732,7 +737,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
           onKeyDown={(event) => moveFrom(event, id)}
         >
           <title>
-            {name} · {selectable ? 'Click to focus; Shift-click to select' : 'Click to focus'}
+            {[name, link.action, selectable ? 'Shift-click to select' : null].filter(Boolean).join(' · ')}
           </title>
         </Circle>
       );

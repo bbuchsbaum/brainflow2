@@ -192,6 +192,10 @@ export function findClusters(
   const searched = Uint8Array.from(values, (v, n) => (mask ? mask[n] && Number.isFinite(v) : Number.isFinite(v) && v !== 0) ? 1 : 0);
   let searchedCount = 0;
   for (const v of searched) searchedCount += v;
+  // Mask voxels with no data (map 0 or non-finite): proposed backend field
+  // searchVolume.maskVoxelsOutsideMap (round 3 T2).
+  let outsideMap = 0;
+  if (mask) values.forEach((v, n) => { if (mask[n] && !(Number.isFinite(v) && v !== 0)) outsideMap += 1; });
   if (mask && searchedCount === 0) throw maskError('The search mask has no finite map voxels on the analysed grid.');
   const polarityAt = (n: number): ClusterPolarity | null => (mask && !mask[n] ? null : polarity(values[n]));
   const polarity = (v: number): ClusterPolarity | null => {
@@ -363,7 +367,12 @@ export function findClusters(
     maxPeaksPerCluster: maxPeaks,
     minPeakDistanceMm: minPeakDistance,
     extentInference: null,
-    searchVolume: { kind: mask ? 'mask' : 'map-nonzero', maskVolumeId, voxels: searchedCount },
+    searchVolume: {
+      kind: mask ? 'mask' : 'map-nonzero',
+      maskVolumeId,
+      voxels: searchedCount,
+      ...(mask ? { maskVoxelsOutsideMap: outsideMap } : {}),
+    } as ClusterTable['searchVolume'],
   };
   if (query.extent) applyExtentInference(table, vol, query.extent, searched);
   return table;

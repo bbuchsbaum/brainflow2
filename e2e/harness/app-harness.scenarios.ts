@@ -91,6 +91,7 @@ export const P4_SCENARIOS = [
   'surface-folding',
   'surface-vertex',
   'cluster-subpeaks-rft',
+  'cluster-search-mask',
   'series-fir-sphere',
   'series-fir-sem95',
   'series-fir-diff',

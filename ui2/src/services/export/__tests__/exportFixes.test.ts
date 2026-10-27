@@ -135,3 +135,13 @@ describe('crop thresholds (a dense noisy statistic must not widen the crop)', ()
     expect(map.get('v-atlas')).toBe(0);
   });
 });
+
+describe('export colorbar title wrap (round 3 S1)', () => {
+  it('never breaks inside "(lh, rh)"', async () => {
+    const { wrapAtBoundaries } = await import('../compositeExport');
+    // One unit per character.
+    const ctx = { measureText: (t: string) => ({ width: t.length }) as TextMetrics };
+    expect(wrapAtBoundaries(ctx, 'sensorimotor.func (lh, rh)', 20, 2)).toEqual(['sensorimotor.func ', '(lh, rh)']);
+    expect(wrapAtBoundaries(ctx, 'sensorimotor.func (lh, rh)', 23, 2)).toEqual(['sensorimotor.func ', '(lh, rh)']);
+  });
+});

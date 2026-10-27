@@ -43,6 +43,14 @@ function EncoderMessage({ children }: { children: ReactNode }) {
   );
 }
 
+/** A facet's encoder context: datum labels take the row's index in the whole frame. */
+function facetContext(context: EncoderContext | undefined, globalIndex: readonly number[]): EncoderContext | undefined {
+  const link = context?.datumLink;
+  if (!link?.label) return context;
+  const label = link.label;
+  return { ...context, datumLink: { ...link, label: (i: number) => label(globalIndex[i] ?? i) } };
+}
+
 export function PlotEncoder({ frame, spec, width, height, context }: PlotEncoderProps) {
   const Mark = MARK_RENDERERS[spec.mark];
   // The hist mark owns its own loading/empty/error states (via HistogramChart),
@@ -59,9 +67,13 @@ export function PlotEncoder({ frame, spec, width, height, context }: PlotEncoder
   if (spec.encoding.facet) {
     const facet = spec.encoding.facet;
     const groups = new Map<string, typeof renderFrame.rows>();
-    renderFrame.rows.forEach((row) => {
+    // Each facet's rows by their index in the whole frame: datum labels are
+    // looked up in the caller's frame, not the facet's (round 3 F2).
+    const globalIndex = new Map<string, number[]>();
+    renderFrame.rows.forEach((row, i) => {
       const name = String(row[facet] ?? '(missing)');
       groups.set(name, [...(groups.get(name) ?? []), row]);
+      globalIndex.set(name, [...(globalIndex.get(name) ?? []), i]);
     });
     if (groups.size > 12)
       return (
@@ -87,47 +99,74 @@ export function PlotEncoder({ frame, spec, width, height, context }: PlotEncoder
       });
       return !values.length ? [0, 1] : min === max ? [min - 1, max + 1] : [min, max];
     };
-    const n = width >= 640 ? 2 : 1;
+    // A caller may fix the columns (segments: one row up to four, round 3 T3);
+    // otherwise two columns on a wide plot.
+    const fixed = typeof spec.params.facetColumns === 'number' && spec.params.facetColumns > 0;
+    const n = fixed ? Number(spec.params.facetColumns) : width >= 640 ? 2 : 1;
+    const HEADER = 20;
+    const facetHeight = fixed
+      ? Math.max(120, height - HEADER)
+      : Math.max(180, height / Math.ceil(groups.size / n) - 24);
+    const hidden = fixed ? Math.max(0, groups.size - n) : 0;
+    const facetLabel =
+      typeof spec.params.facetLabel === 'string'
+        ? null
+        : (renderFrame.columns.find((column) => column.name === facet)?.label ?? facet);
     return (
-      <div
-        data-testid="plot-facets"
-        style={{
-          width,
-          height,
-          overflow: 'auto',
-          display: 'grid',
-          gridTemplateColumns: `repeat(${n}, minmax(0,1fr))`,
-          gap: 8,
-        }}
-      >
-        {[...groups].map(([name, rows]) => (
-          <div key={name}>
-            <div style={{ fontSize: 11, padding: 4 }}>
-              {renderFrame.columns.find((column) => column.name === facet)?.label ?? facet}: {name}
+      <div style={{ position: 'relative', width, height }}>
+        <div
+          data-testid="plot-facets"
+          style={{
+            width,
+            height,
+            overflow: 'auto',
+            display: 'grid',
+            gridTemplateColumns: `repeat(${n}, minmax(0,1fr))`,
+            columnGap: 8,
+          }}
+        >
+          {[...groups].map(([name, rows]) => (
+            <div key={name} role="group" aria-label={facetLabel ? `${facetLabel}: ${name}` : name}>
+              <div
+                role="heading"
+                aria-level={3}
+                className="truncate px-1 text-bf-xs font-medium text-bf-text-secondary"
+                style={{ height: HEADER, lineHeight: `${HEADER}px` }}
+              >
+                {facetLabel ? `${facetLabel}: ${name}` : name}
+              </div>
+              <PlotEncoder
+                frame={{ ...renderFrame, rows }}
+                spec={{
+                  ...spec,
+                  encoding: { ...spec.encoding, facet: undefined },
+                  transforms: [],
+                  params: {
+                    ...spec.params,
+                    yDomain: domain(ys),
+                    xCategories: [
+                      ...new Set(
+                        renderFrame.rows.map((row) => String(row[spec.encoding.x ?? ''] ?? '')),
+                      ),
+                    ],
+                    ...(xs.length ? { xDomain: domain(xs) } : {}),
+                  },
+                }}
+                width={(width - 8 * (n - 1)) / n}
+                height={facetHeight}
+                context={facetContext(context, globalIndex.get(name) ?? [])}
+              />
             </div>
-            <PlotEncoder
-              frame={{ ...renderFrame, rows }}
-              spec={{
-                ...spec,
-                encoding: { ...spec.encoding, facet: undefined },
-                transforms: [],
-                params: {
-                  ...spec.params,
-                  yDomain: domain(ys),
-                  xCategories: [
-                    ...new Set(
-                      renderFrame.rows.map((row) => String(row[spec.encoding.x ?? ''] ?? '')),
-                    ),
-                  ],
-                  ...(xs.length ? { xDomain: domain(xs) } : {}),
-                },
-              }}
-              width={(width - 8 * (n - 1)) / n}
-              height={Math.max(180, height / Math.ceil(groups.size / n) - 24)}
-              context={context}
-            />
+          ))}
+        </div>
+        {hidden > 0 ? (
+          <div
+            data-testid="plot-facets-more"
+            className="pointer-events-none absolute bottom-1 right-2 text-bf-2xs text-bf-text-muted"
+          >
+            {hidden} more below · scroll
           </div>
-        ))}
+        ) : null}
       </div>
     );
   }

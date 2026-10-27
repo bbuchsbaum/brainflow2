@@ -395,6 +395,7 @@ export function PopulationProbePanel({
                   selectedIds: selected,
                   onFocus: populationProbeActions.focus,
                   onToggleSelection: populationProbeActions.toggle,
+                  action: 'Click to make this the active member',
                 },
               }}
             />

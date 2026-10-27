@@ -25,6 +25,8 @@ export interface RawSeriesAxis {
   member: string | null;
   /** The measure the dataset names ("FIR beta"), for the y title. */
   measure: string | null;
+  /** The member's condition ("faces"): its line takes the condition's colour. */
+  condition?: string | null;
 }
 
 type StudioState = ReturnType<typeof useSetStudioStore.getState>;
@@ -73,6 +75,7 @@ export function datasetAxisFor(
       describe: (i) => `${name} ${at(i)}${binding.unit ? ` ${binding.unit}` : ''}`,
       member: memberLabel || null,
       measure: feature?.label ?? null,
+      condition: binding.conditionColumn ? (design[binding.conditionColumn] ?? null) : null,
     };
   }
   return null;

@@ -5,5 +5,16 @@ import type { SearchVolumeKind } from "./SearchVolumeKind";
 export type SearchVolume = {
     kind: SearchVolumeKind;
     maskVolumeId: string | null;
+    /**
+     * Searched voxels. `map-nonzero`: finite non-zero map voxels. `mask`:
+     * mask ∩ finite map voxels, zeros of the map included (they are searched
+     * and count toward RFT resels).
+     */
     voxels: number;
+    /**
+     * `mask` only: mask voxels where the map is 0 or non-finite, i.e. where
+     * the map carries no value. Zeros are also counted in `voxels`; the
+     * non-finite ones are not. `null` for `map-nonzero`.
+     */
+    maskVoxelsOutsideMap: number | null;
 };

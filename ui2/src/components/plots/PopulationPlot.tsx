@@ -418,6 +418,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
                         ),
                         onFocus: (id) => populationPlotService.focus(p, id),
                         onToggleSelection: (id) => populationPlotService.select(p, id),
+                        action: 'Click to make this the active member',
                       },
                     }
                   : undefined

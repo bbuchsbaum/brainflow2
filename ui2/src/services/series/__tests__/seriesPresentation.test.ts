@@ -74,6 +74,8 @@ describe('series CSV (round 2 X1)', () => {
     const faces0 = csv.find((l) => l.startsWith('faces,0,'))!.split(',');
     expect(faces0.slice(0, 6)).toEqual(['faces', '0', '3', '2', '1', String(1 / Math.sqrt(3))]);
     expect(csv.at(-1)).toContain('sphere,"6 mm sphere at -39.5, -19.5, 50.5 mm",123,');
+    // Round 3 S2: "SD / sqrt(n)", not "sqrtn".
+    expect(csv[1]).toContain('SD / sqrt(n)');
     expect(csv.every((l) => !l.startsWith('#') && /^[\x20-\x7e]*$/.test(l))).toBe(true);
   });
 

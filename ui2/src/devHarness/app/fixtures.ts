@@ -74,7 +74,7 @@ export const MULTIPEAK_BLOBS = [
   { c: [-30, -28, 42], amp: 4, sd: 4 },
 ] as const;
 
-function withBlobs(fixture: VolumeFixture, blobs: typeof MULTIPEAK_BLOBS, brain: VolumeFixture): VolumeFixture {
+export function withBlobs(fixture: VolumeFixture, blobs: typeof MULTIPEAK_BLOBS, brain: VolumeFixture): VolumeFixture {
   const [nx, ny, nz] = fixture.dims;
   const a = fixture.affine;
   const data = new Float32Array(fixture.data);

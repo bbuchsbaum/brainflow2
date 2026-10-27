@@ -704,60 +704,73 @@ export class LayerApiImpl implements LayerApi {
 }
 
 /**
- * A 4D, non-statistic, non-label volume added ON TOP of another volume
- * (phase 4 v1 user 6: a FIR / BOLD series over the anatomy) is shown as an
- * intensity overlay: the "hot" ramp with everything below its window hidden,
- * so the anatomy shows through, instead of an opaque grayscale slab. The base
- * volume and statistics keep their own rules.
- *
- * The ramp starts above black (v2 R3: the lowest visible values drew a
- * near-black ring over the anatomy) and does not saturate at the robust high
- * (its core was flat white): the robust window [a, b] maps to
- * [HOT_VISIBLE_FROM, HOT_ROBUST_HIGH] of the hot LUT, dark red to yellow, and
- * values above b fade to white. There is no red–yellow LUT, so this is the
- * hot LUT windowed, not a new colormap. With the all-frame histogram the
- * window runs from p90 + 10% of (high − p90) to high = max(p99.9, 80% of the
- * maximum) of the non-zero values: the bulk of a series (the brain at baseline, a FIR map's near-zero
- * lags) is hidden and the response keeps its shape, not a flat white core.
+ * The display of a 4D, non-statistic, non-label series (phase 4 v1 user 6,
+ * round 3 F1). Two kinds:
+ * - BOLD-like (positive with a large baseline: robust p2 > 0 and
+ *   (p98 − p2) / p98 < 0.5, or a BIDS `_bold` name): an EPI image, greyscale
+ *   with a robust p2–p98 window over all frames;
+ * - signed / zero-centred maps (FIR betas) added ON TOP of another volume: an
+ *   intensity overlay, the hot ramp with the bulk (≤ p90 + 10% of the way to
+ *   the robust high) hidden so the anatomy shows through. The window keeps to
+ *   the data (round 3: no LUT ends outside it): from max(data min, a − ¼ of
+ *   the visible span), so the lowest visible value sits above black, to the
+ *   series maximum, so a focal peak is not a flat white core.
+ * A window narrower than 5% of the data span (a near-constant series, a
+ * sub-bin window) widens to the data span. The base volume and statistics
+ * keep their own rules.
  */
 export function overlayDisplay<T extends { intensity: [number, number]; threshold: [number, number]; suggestedColormap?: string }>(
-  layer: { id: string; type?: string; volumeType?: string; timeSeriesInfo?: { num_timepoints: number } | null },
+  layer: {
+    id: string;
+    type?: string;
+    volumeType?: string;
+    timeSeriesInfo?: { num_timepoints: number } | null;
+    name?: string;
+    sourcePath?: string;
+  },
   range: T,
   dataRange: { min: number; max: number },
   isStatistic: boolean,
-  histogram?: { bins: HistogramData['bins']; totalCount: number; maxValue?: number },
+  histogram?: { bins: HistogramData['bins']; totalCount: number; minValue?: number; maxValue?: number },
 ): T {
   if (isStatistic || layer.type === 'label' || layer.type === 'mask') return range;
   const fourD = (layer.timeSeriesInfo?.num_timepoints ?? 0) >= 2 || layer.volumeType === 'TimeSeries4D';
   if (!fourD) return range;
+  const has = histogram && histogram.totalCount > 0 && histogram.bins.length > 0;
+  const pct = (q: number) => computePercentileFromBins(histogram!.bins, histogram!.totalCount, q);
+  const lo = has && Number.isFinite(histogram!.minValue) ? histogram!.minValue! : dataRange.min;
+  const hi = has && Number.isFinite(histogram!.maxValue) ? histogram!.maxValue! : dataRange.max;
+  const floor = (a: number, b: number): [number, number] =>
+    b - a >= 0.05 * (hi - lo) || !(hi > lo) ? [a, b] : [lo, hi];
+
+  const named = /_bold(\.nii(\.gz)?)?$/i.test(layer.sourcePath ?? '') || /\bBOLD\b/.test(layer.name ?? '');
+  const p2 = has ? pct(2) : null;
+  const p98 = has ? pct(98) : null;
+  const boldLike = named || (p2 !== null && p98 !== null && p2 > 0 && p98 > 0 && (p98 - p2) / p98 < 0.5);
+  if (boldLike) {
+    const intensity = p2 !== null && p98 !== null ? floor(p2, p98) : range.intensity;
+    return { ...range, intensity, threshold: [0, 0], suggestedColormap: 'gray' };
+  }
+
   const below = useLayerStore
     .getState()
     .layers.some((l) => l.id !== layer.id && l.type !== 'label' && (l.order ?? 0) < (useLayerStore.getState().getLayer(layer.id)?.order ?? Infinity));
   if (!below) return range;
-  const robust =
-    histogram && histogram.totalCount > 0 && histogram.bins.length
-      ? ([
-          computePercentileFromBins(histogram.bins, histogram.totalCount, 90),
-          // A focal response is a tiny share of all voxels × frames: the high
-          // edge is at least 80% of the series maximum, so its peak is not clipped.
-          Math.max(
-            computePercentileFromBins(histogram.bins, histogram.totalCount, 99.9),
-            Number.isFinite(histogram.maxValue) ? 0.8 * histogram.maxValue! : -Infinity,
-          ),
-        ] as const)
-      : null;
-  // Visible from a tenth of the way above the bulk (p90) to the robust high.
-  const [a, b] =
-    robust && robust[1] > robust[0] ? [robust[0] + 0.1 * (robust[1] - robust[0]), robust[1]] : range.intensity;
-  const low = Math.min(dataRange.min, a);
+  // A focal response is a tiny share of all voxels × frames: the robust high
+  // is at least 80% of the series maximum.
+  const robust = has ? ([pct(90), Math.max(pct(99.9), 0.8 * hi)] as const) : null;
+  const [a, b] = floor(
+    ...((robust && robust[1] > robust[0] ? [robust[0] + 0.1 * (robust[1] - robust[0]), robust[1]] : range.intensity) as [number, number]),
+  );
   const span = b > a ? (b - a) / (HOT_ROBUST_HIGH - HOT_VISIBLE_FROM) : 0;
-  const intensity: [number, number] = span > 0 ? [a - HOT_VISIBLE_FROM * span, a + (1 - HOT_VISIBLE_FROM) * span] : [a, b];
-  return { ...range, intensity, suggestedColormap: 'hot', threshold: [low, a] };
+  const intensity: [number, number] =
+    span > 0 ? [Math.max(lo, a - HOT_VISIBLE_FROM * span), Math.max(b, Math.min(hi, a + (1 - HOT_VISIBLE_FROM) * span))] : [a, b];
+  return { ...range, intensity, suggestedColormap: 'hot', threshold: [Math.min(lo, a), a] };
 }
 
-/** Hot LUT position of the lowest visible value: dark red (~105, 0, 0), not black. */
+/** Hot LUT position of the lowest visible value when the data reach below it: dark red, not black. */
 export const HOT_VISIBLE_FROM = 0.15;
-/** Hot LUT position of the robust high: yellow; values above it fade to white. */
+/** Hot LUT position of the robust high: yellow; values above it fade towards white at the maximum. */
 export const HOT_ROBUST_HIGH = 0.75;
 
 /** A layer whose display window should come from all its frames (4D, not a statistic). */

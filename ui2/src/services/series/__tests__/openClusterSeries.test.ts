@@ -62,4 +62,22 @@ describe('Series for this cluster (E3)', () => {
     expect(useSeriesStore.getState()).toMatchObject({ locus: 'cluster', source: 'layer' });
     expect(useLayerStore.getState().selectedLayerId).toBe('bold');
   });
+
+  it('keeps keyboard focus: moves it to the Series plot once it shows values (round 3 S3)', async () => {
+    useSetStudioStore.getState().bootstrapStudio({ set: firSet('3d'), features: [{ id: 'fir', label: 'FIR', kind: 'volume' }], cohorts: [], expressions: [] } as never);
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap', table: table('labels-1'), regions: [], computedAt: 0 });
+    useClusterStore.getState().select(1);
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    button.focus();
+    openClusterSeries();
+    // The plot mounts and samples later: its values' tab stop takes focus.
+    const plot = document.createElement('div');
+    plot.setAttribute('data-testid', 'set-series-plot');
+    plot.innerHTML = '<svg><circle data-datum-id="r0" tabindex="0"></circle></svg>';
+    document.body.appendChild(plot);
+    await vi.waitFor(() => expect(document.activeElement).toBe(plot.querySelector('[data-datum-id]')));
+    plot.remove();
+    button.remove();
+  });
 });

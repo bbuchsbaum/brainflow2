@@ -157,6 +157,18 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     expect(screen.getByTestId('series-caption')).not.toHaveTextContent('data-driven');
   });
 
+  it('a window partly outside the axis is invalid and not committed (round 3 T5)', async () => {
+    render(<SetSeriesPlot ctx={ctx} />);
+    await waitFor(() => expect(screen.getByTestId('series-legend')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Transforms/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Mean over window' }));
+    fireEvent.change(screen.getByLabelText('Window from'), { target: { value: '-3' } });
+    fireEvent.change(screen.getByLabelText('Window to'), { target: { value: '4' } });
+    expect(screen.getByLabelText('Window from')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/must lie within the axis \(0–7/)).toBeInTheDocument();
+    expect(useSeriesStore.getState().transforms).toEqual([]);
+  });
+
   it('a from > to pair marks both fields with one message and is not committed (round 2 A3)', async () => {
     render(<SetSeriesPlot ctx={ctx} />);
     await waitFor(() => expect(screen.getByTestId('series-legend')).toBeInTheDocument());

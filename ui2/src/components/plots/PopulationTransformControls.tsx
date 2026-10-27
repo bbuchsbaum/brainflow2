@@ -266,8 +266,9 @@ function pairProblem(
   if (from === null || to === null) return null;
   if (from > to) return `${label}: from must be ≤ to`;
   const u = unit ? ` ${unit}` : '';
-  if (axisRange && (to < axisRange[0] || from > axisRange[1]))
-    return `${label} ${from}–${to}${u} is outside the axis (${axisRange[0]}–${axisRange[1]}${u})`;
+  // Partly outside counts too (round 3 T5): {−3, 4} on a 0–7 axis is not a 0–4 window.
+  if (axisRange && (from < axisRange[0] || to > axisRange[1]))
+    return `${label} ${from}–${to}${u} must lie within the axis (${axisRange[0]}–${axisRange[1]}${u})`;
   return null;
 }
 

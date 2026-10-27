@@ -28,6 +28,8 @@ export interface EncoderContext {
     readonly activateOnMove?: boolean;
     /** Accessible name of a point (row index into the frame). */
     readonly label?: (rowIndex: number) => string;
+    /** What a click does, concretely ("Click to show this frame"); omitted: the tooltip is the label. */
+    readonly action?: string;
   };
   readonly intensityWindow?: [number, number];
   readonly threshold?: [number, number];

@@ -23,6 +23,7 @@ import {
   PLANE_NAME,
   type FramePlane,
   colorbarBlockModel,
+  nameWrapPieces,
 } from '@/components/views/viewportFrame/frameFormat';
 import { anatomicalLabels } from '@/utils/anatomicalLabels';
 import { END_ON, projectGizmoAxes, type CameraBasis } from '@/utils/orientationGizmo';
@@ -886,13 +887,15 @@ export function inferredStatisticNote(units: string | null | undefined): string 
  * A name broken at its own boundaries (after _ - . or a space) into at most
  * `maxLines` lines of `width`; [] when it does not fit whole that way.
  */
-function wrapAtBoundaries(
-  ctx: CanvasRenderingContext2D,
+/** Wrap a layer name at its boundaries to `width` px (null-free: [] when it does not fit). */
+export function wrapAtBoundaries(
+  ctx: Pick<CanvasRenderingContext2D, 'measureText'>,
   text: string,
   width: number,
   maxLines: number,
 ): string[] {
-  const pieces = text.match(/[^_\-.\s]+[_\-.\s]*/g) ?? [text];
+  // The same wrap points as the on-screen colorbar: "(lh, rh)" stays whole (round 3 S1).
+  const pieces = nameWrapPieces(text);
   const lines: string[] = [];
   let line = '';
   for (const piece of pieces) {

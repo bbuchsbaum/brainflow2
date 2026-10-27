@@ -2369,7 +2369,39 @@
         "pFweExtentPerTail": 0.9810096573452407,
         "pFweExtent": 0.9996393668858549
       }
-    ]
+    ],
+    "rftBrainMask": {
+      "mask": "mni_2mm.u8 > 0 (the MNI brain; MNI152_T1_2mm_brain_mask)",
+      "searchVoxels": 244022,
+      "maskVoxelsOutsideMap": 204105,
+      "resels": [
+        1,
+        66.5,
+        998.4375,
+        3559.0625
+      ],
+      "expectedClusters": 33.95130743429981,
+      "clusters": [
+        {
+          "id": 1,
+          "voxels": 607,
+          "pUncorrectedExtent": 1.5324035024341908e-10,
+          "pFweExtent": 1.0405420414194566e-8
+        },
+        {
+          "id": 2,
+          "voxels": 359,
+          "pUncorrectedExtent": 1.2153488834260677e-7,
+          "pFweExtent": 0.000008252502664118921
+        },
+        {
+          "id": 3,
+          "voxels": 114,
+          "pUncorrectedExtent": 0.0006043240263942753,
+          "pFweExtent": 0.040204637801998455
+        }
+      ]
+    }
   },
   "raw4dVoxel": {
     "member": "s01 faces",
@@ -2388,5 +2420,178 @@
       0.16077318787574768,
       0.09906073659658432
     ]
+  },
+  "multirun": {
+    "source": "ui2/src/devHarness/app/multirun.ts (mirrors .hillclimb/native-check/p4/truth.json d2_multirun)",
+    "grid": {
+      "dims": [
+        41,
+        49,
+        40
+      ],
+      "voxelMm": 4,
+      "originMm": [
+        -80,
+        -112,
+        -72
+      ]
+    },
+    "trS": 2,
+    "voxelIjk": [
+      10,
+      23,
+      30
+    ],
+    "voxelMm": [
+      -40,
+      -20,
+      48
+    ],
+    "block": "3x3x3 voxels around voxelIjk carry each run course; the rest of the brain ellipsoid is flat at the run baseline; zero outside",
+    "brainVoxels": 31632,
+    "blockVoxels": 27,
+    "runs": [
+      {
+        "label": "run-1",
+        "file": "/harness/multirun/sub-01_task-faces_run-1_bold.nii",
+        "frames": 20,
+        "trS": 2,
+        "baseline": 100,
+        "courseFormula": "100 + 10 * exp(-((t - 5) / 2)^2), t = 0-based frame in the run",
+        "course": [
+          100.01930236816406,
+          100.18315887451172,
+          101.05399322509766,
+          103.67879486083984,
+          107.78800964355469,
+          110,
+          107.78800964355469,
+          103.67879486083984,
+          101.05399322509766,
+          100.18315887451172,
+          100.01930236816406,
+          100.00123596191406,
+          100.00004577636719,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "peak": {
+          "frameWithin": 5,
+          "tWithinS": 10,
+          "value": 110,
+          "concatFrame": 5,
+          "concatTS": 10
+        },
+        "concatFirstFrame": 0,
+        "concatFirstTS": 0,
+        "allFrameNonZero": {
+          "p2": 100,
+          "p90": 100,
+          "p98": 100,
+          "p999": 100,
+          "max": 110
+        }
+      },
+      {
+        "label": "run-2",
+        "file": "/harness/multirun/sub-01_task-faces_run-2_bold.nii",
+        "frames": 24,
+        "trS": 2,
+        "baseline": 102,
+        "courseFormula": "102 + 20 * exp(-((t - 12) / 2)^2), t = 0-based frame in the run",
+        "course": [
+          102,
+          102,
+          102,
+          102,
+          102,
+          102.0000991821289,
+          102.00247192382812,
+          102.03861236572266,
+          102.3663101196289,
+          104.10798645019531,
+          109.35758972167969,
+          117.57601928710938,
+          122,
+          117.57601928710938,
+          109.35758972167969,
+          104.10798645019531,
+          102.3663101196289,
+          102.03861236572266,
+          102.00247192382812,
+          102.0000991821289,
+          102,
+          102,
+          102,
+          102
+        ],
+        "peak": {
+          "frameWithin": 12,
+          "tWithinS": 24,
+          "value": 122,
+          "concatFrame": 32,
+          "concatTS": 64
+        },
+        "concatFirstFrame": 20,
+        "concatFirstTS": 40,
+        "allFrameNonZero": {
+          "p2": 102,
+          "p90": 102,
+          "p98": 102,
+          "p999": 102,
+          "max": 122
+        }
+      },
+      {
+        "label": "run-3",
+        "file": "/harness/multirun/sub-01_task-faces_run-3_bold.nii",
+        "frames": 18,
+        "trS": 2,
+        "baseline": 98,
+        "courseFormula": "98 + 15 * exp(-((t - 9) / 2)^2), t = 0-based frame in the run",
+        "course": [
+          98,
+          98,
+          98.00006866455078,
+          98.0018539428711,
+          98.0289535522461,
+          98.27473449707031,
+          99.58098602294922,
+          103.5181884765625,
+          109.68201446533203,
+          113,
+          109.68201446533203,
+          103.5181884765625,
+          99.58098602294922,
+          98.27473449707031,
+          98.0289535522461,
+          98.0018539428711,
+          98.00006866455078,
+          98
+        ],
+        "peak": {
+          "frameWithin": 9,
+          "tWithinS": 18,
+          "value": 113,
+          "concatFrame": 53,
+          "concatTS": 106
+        },
+        "concatFirstFrame": 44,
+        "concatFirstTS": 88,
+        "allFrameNonZero": {
+          "p2": 98,
+          "p90": 98,
+          "p98": 98,
+          "p999": 98,
+          "max": 113
+        }
+      }
+    ],
+    "percentiles": "nearest-rank over every non-zero voxel of every frame of the run"
   }
 }

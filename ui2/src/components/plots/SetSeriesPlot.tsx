@@ -308,7 +308,9 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
             }
           />
         </ToolbarField>
-        <SeriesLocusControls />
+        <SeriesLocusControls
+          resolvedRegion={settings.locus === 'region' && !settings.regionPick ? (result?.regionLabel ?? null) : null}
+        />
         {binding?.segmentColumn ? (
           <ToolbarField label="Runs">
             <Select
@@ -341,7 +343,9 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
       {/* The body scrolls; the caption and export row below never do (v1 function 4). */}
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         {result && transformsOpen ? (
-          <div id="series-transforms" className="shrink-0">
+          // The transforms scroll in their own box, so the plot (axis and its
+          // title) keeps its height above the footer at 1280 too (round 3 S6).
+          <div id="series-transforms" className="max-h-[45%] shrink-0 overflow-y-auto">
             <PopulationTransformControls
               frame={result.frame}
               recipe={recipe!}
@@ -371,6 +375,10 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
                 spec={seriesSpec(composed.ok.spec, recipe, {
                   ...seriesPlotParams(binding, composed.ok.frame, recipe, yTitle),
                   ...(legend.length ? { topInset: FRAME_LEGEND_INSET } : {}),
+                  // Faceted by run: one row up to four panels, shared y (round 3 T3).
+                  ...(recipe.facet
+                    ? { facetColumns: Math.min(4, new Set(composed.ok.frame.rows.map((r) => r[recipe.facet!])).size) }
+                    : {}),
                 })}
                 width={plotWidth}
                 height={plotHeight}
@@ -388,6 +396,7 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
                           },
                           onToggleSelection: () => undefined,
                           selectable: false,
+                          action: 'Click to make this the active member',
                           label: (i) => {
                             const row = composed.ok!.frame.rows[i];
                             const v = Number(row?.value);

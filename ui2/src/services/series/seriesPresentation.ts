@@ -75,7 +75,7 @@ const csvCell = (v: unknown) => {
 };
 
 const ascii = (t: string) =>
-  t.replace(/[−\u2212–]/g, '-').replace(/±/g, '+/-').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/√/g, 'sqrt').replace(/·/g, '*');
+  t.replace(/[−\u2212–]/g, '-').replace(/±/g, '+/-').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/√\(?(\w+)\)?/g, 'sqrt($1)').replace(/·/g, '*');
 
 /** The locus a series was sampled at, as CSV columns (stackable across loci). */
 export interface SeriesCsvLocus {

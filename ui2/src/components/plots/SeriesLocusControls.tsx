@@ -19,7 +19,7 @@ const LOCUS_OPTIONS = [
 
 const AT_CROSSHAIR = 'crosshair';
 
-export function SeriesLocusControls() {
+export function SeriesLocusControls({ resolvedRegion = null }: { resolvedRegion?: string | null } = {}) {
   const locus = useSeriesStore((s) => s.locus);
   const radiusMm = useSeriesStore((s) => s.radiusMm);
   const regionPick = useSeriesStore((s) => s.regionPick);
@@ -56,13 +56,15 @@ export function SeriesLocusControls() {
         <ToolbarField label="Region">
           <Select
             aria-label="Series region"
-            className="w-auto max-w-[220px]"
+            // A fixed slot: the toolbar row never reflows with the region's name (round 3 S5).
+            className="w-[26ch]"
             value={pickValue}
             onValueChange={(v) =>
               update({ regionPick: v === AT_CROSSHAIR ? null : { layerId: atlas.id, labelId: Number(v) } })
             }
             options={[
-              { value: AT_CROSSHAIR, label: 'At the crosshair' },
+              // Names the region the crosshair resolved to.
+              { value: AT_CROSSHAIR, label: resolvedRegion ? `At the crosshair: ${resolvedRegion}` : 'At the crosshair' },
               ...legend.map((e) => ({
                 value: String(e.label_id),
                 label: e.displayName ?? e.roi,

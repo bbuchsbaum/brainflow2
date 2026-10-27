@@ -247,13 +247,40 @@ const thousands = (n: number) => n.toLocaleString('en-US');
 const fixedThousands = (n: number, digits: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
+/**
+ * Mask voxels where the map is 0 or non-finite (round 3 T2): searched but
+ * with no data. `maskVoxelsOutsideMap` is not in the generated bindings yet
+ * (asked of p3-backend); read it when present.
+ */
+export function maskVoxelsOutsideMap(table: ClusterTable): number | null {
+  const n = (table.searchVolume as { maskVoxelsOutsideMap?: unknown } | undefined)?.maskVoxelsOutsideMap;
+  return table.searchVolume?.kind === 'mask' && typeof n === 'number' && Number.isFinite(n) ? n : null;
+}
+
 /** "non-zero voxels of the map" / "brain mask T1" (what the backend searched). */
 function searchDescription(table: ClusterTable, label?: ClusterSearchLabel): string {
   if (table.searchVolume?.kind === 'mask') {
     const name = label?.maskName ?? table.searchVolume.maskVolumeId ?? 'a mask';
-    return `brain mask ${name}`;
+    const outside = maskVoxelsOutsideMap(table);
+    return `brain mask ${name}${outside ? `; ${thousands(outside)} mask voxel${outside === 1 ? '' : 's'} where the map is 0 or non-finite` : ''}`;
   }
   return 'non-zero voxels of the map';
+}
+
+/**
+ * A volume the cluster search may use as a brain mask (round 3 T2): a mask
+ * layer, a file named as a mask, or binary data ({0, 1}). Any other volume
+ * would silently set the search volume to its non-zero support.
+ */
+export function isMaskLike(
+  layer: { name?: string; type?: string; sourcePath?: string },
+  metadata?: { isBinaryLike?: boolean; dataRange?: { min: number; max: number } } | null,
+): boolean {
+  if (layer.type === 'mask') return true;
+  if (/mask/i.test(`${layer.name ?? ''} ${layer.sourcePath ?? ''}`)) return true;
+  if (metadata?.isBinaryLike) return true;
+  const range = metadata?.dataRange;
+  return !!range && range.min === 0 && range.max === 1;
 }
 
 /**
@@ -352,7 +379,9 @@ export function fwhmDescription(inference: Pick<ClusterExtentInference, 'fwhmMm'
  * k), separated by spaces, commas or "x". Null when it is not that.
  */
 export function parseFwhm(text: string): FwhmMm | null {
+  // The unit may be typed: "8mm", "8 mm", "6 x 6 x 8 mm".
   const parts = text
+    .replace(/mm\b/gi, ' ')
     .trim()
     .split(/[\s,x×]+/i)
     .filter(Boolean)

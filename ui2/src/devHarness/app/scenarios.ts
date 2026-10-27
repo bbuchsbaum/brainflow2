@@ -14,6 +14,7 @@ import {
   FIG_RH_PATH,
   HARNESS_ROOT,
   MNI_PATH,
+  MNI_MASK_PATH,
   STATS_PATH,
   SURFACE_OVERLAY_PATH,
   SURFACE_PATH,
@@ -356,6 +357,27 @@ async function seriesRuns(): Promise<void> {
   const peak = document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="1:12"]')?.getAttribute('aria-label');
   noteStep(`runs: ${Array.from(document.querySelectorAll('[data-testid="plot-x-rule"]')).map((e) => e.textContent).join(' | ')}; peak ${peak}`);
   noteStep(`caption: ${document.querySelector('[data-testid="raw-series-caption"]')?.textContent}`);
+  // Round 3 F1: an EPI view of the focused run only, windowed over its data.
+  const { useViewStateStore } = await import('@/stores/viewStateStore');
+  await until(() => {
+    const l = useViewStateStore.getState().viewState.layers.find((x) => x.id === run2);
+    return !!l && l.colormap === 'gray' && l.intensity[1] - l.intensity[0] > 1;
+  }, 'run 2 EPI window');
+  const view = useViewStateStore.getState().viewState.layers;
+  noteStep(
+    `runs display: ${[1, 2, 3]
+      .map((n) => view.find((l) => l.id === useLayerStore.getState().layers.find((x) => x.sourcePath === multirunPath(n))?.id))
+      .map((l, i) => `run ${i + 1} ${l?.visible ? 'shown' : 'hidden'} ${l?.colormap} [${l?.intensity.map((v) => v.toFixed(2)).join(', ')}]`)
+      .join(' | ')}`,
+  );
+}
+
+/** The series caption has settled (no "sampling…"), round 3 T4. */
+async function seriesSettled(): Promise<void> {
+  await until(() => {
+    const text = document.querySelector('[data-testid="raw-series-caption"]')?.textContent ?? '';
+    return text.length > 0 && !/sampling/.test(text);
+  }, 'series sampled');
 }
 
 async function p3Base(expand: string[] = ['anat', 'stats']): Promise<void> {
@@ -752,6 +774,38 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   },
   // Phase 4 C1/C2: the same table with cluster p (RFT, a stated 8 mm FWHM)
   // and cluster 1's sub-peaks open (region per sub-peak).
+  // Round 3 T2: the same map searched inside the MNI brain mask (truth:
+  // p4_fixtures.json clustersMultipeak.rftBrainMask): the methods name the mask
+  // and the mask voxels where the map is 0.
+  'cluster-search-mask': async () => {
+    await p3Base();
+    await loadStat(ZMAP_MULTIPEAK_PATH, [-6, 6], [-3.1, 3.1]);
+    await loadVolume(MNI_MASK_PATH, 'add-layer');
+    const maskId = await layerIdForPath(MNI_MASK_PATH);
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    useViewStateStore.getState().setViewState((state) => {
+      const mask = state.layers.find((l) => l.id === maskId);
+      if (mask) {
+        mask.visible = false;
+        mask.opacity = 0;
+      }
+    });
+    await selectLayer(ZMAP_MULTIPEAK_PATH);
+    window.dispatchEvent(new CustomEvent('golden-layout-add-panel', { detail: { panelType: 'ClusterPanel' } }));
+    await until(() => !!document.querySelector('[data-testid="cluster-panel"]'), 'Clusters dock tab');
+    const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
+    useLayoutSettingsStore.getState().setBottomDockHeight(360);
+    const { useClusterStore } = await import('@/stores/clusterStore');
+    useClusterStore.getState().setParams({ extentP: true, fwhmText: '8', searchMaskLayerId: maskId });
+    await frames(2);
+    await clickWhere('[data-testid="cluster-panel"] button', (el) => el.textContent?.trim() === 'Compute', 'Compute');
+    await until(() => !!document.querySelector('[data-testid="cluster-pfwe-1"]'), 'p(FWE) column');
+    const table = useClusterStore.getState().result!.table;
+    if (table.searchVolume?.kind !== 'mask') throw new Error(`search volume ${JSON.stringify(table.searchVolume)}`);
+    noteStep(`search ${JSON.stringify(table.searchVolume)}; clusters ${table.clusters.map((c) => c.voxelCount).join(', ')}`);
+    noteStep(`methods: ${document.querySelector('[data-testid="cluster-methods"]')?.textContent}`);
+    await frames(3);
+  },
   'cluster-subpeaks-rft': async () => {
     // The z map with two extra blobs inside cluster 1 (fixtures.ts
     // MULTIPEAK_BLOBS), the atlas hidden for the Region column.
@@ -1359,6 +1413,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   // peak focuses run 2's layer and frame 12 ("run 2 · frame 13/24").
   'series-runs-concat': async () => {
     await seriesRuns();
+    await seriesSettled();
     await frames(5);
   },
   // The same runs faceted: one panel per run on a shared y axis.
@@ -1367,6 +1422,10 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     const { useSeriesStore } = await import('@/stores/seriesStore');
     useSeriesStore.getState().update({ segmentLayout: 'faceted' });
     await until(() => document.querySelectorAll('[data-testid="plot-facets"] [data-testid="plot-mark-line"]').length === 3, 'three run facets');
+    await seriesSettled();
+    const peak = document.querySelector('[data-testid="plot-facets"] [data-datum-id="1:12"]')?.getAttribute('aria-label') ?? '';
+    if (!/^run 2 · frame 13\/24.*122/.test(peak)) throw new Error(`faceted run 2 peak label: ${peak}`);
+    noteStep(`faceted peak: ${peak}`);
     await frames(5);
   },
   // v4 fidelity critic: the live crosshair must not run through the

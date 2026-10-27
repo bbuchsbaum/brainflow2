@@ -22,6 +22,8 @@ import { getTimeNavigationService } from '@/services/TimeNavigationService';
 import { getTransport } from '@/services/transport';
 import { decodeText, isMissingFileError } from '@/services/LabelTableService';
 import { useLayerStore } from '@/stores/layerStore';
+import { getLayerService } from '@/services/LayerService';
+import { transformVoxelToWorldColumnMajor } from '@/utils/voxelTransform';
 import { useClusterStore } from '@/stores/clusterStore';
 import { useSeriesStore, seriesRadiusMm } from '@/stores/seriesStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -85,6 +87,8 @@ interface ThrottleState {
   pending: ReturnType<typeof setTimeout> | null;
   lastDispatch: number;
   inflightToken: number;
+  /** A dispatched request has not settled (a re-run must not dedupe on its key). */
+  inflight: boolean;
 }
 
 /** Sampled values per segment layer, and the locus they came from. */
@@ -226,14 +230,14 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
   const regionIssue = region && !region.region ? region.issue : null;
 
   // --- Sampling ----------------------------------------------------------------
-  const sampleLayerIds = useMemo(
-    () => (group ? [...new Set(group.segments.map((s) => s.layerId))] : layerId ? [layerId] : []),
-    [group, layerId],
-  );
+  // Keyed by value: the group object is rebuilt whenever a layer changes
+  // (each frame step), and must not restart sampling (round 3 T4).
+  const sampleLayerKey = group ? [...new Set(group.segments.map((s) => s.layerId))].join('\n') : (layerId ?? '');
+  const sampleLayerIds = useMemo(() => (sampleLayerKey ? sampleLayerKey.split('\n') : []), [sampleLayerKey]);
   const [sample, setSample] = useState<RawSample | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const throttleRef = useRef<ThrottleState>({ pending: null, lastDispatch: 0, inflightToken: 0 });
+  const throttleRef = useRef<ThrottleState>({ pending: null, lastDispatch: 0, inflightToken: 0, inflight: false });
   const lastKeyRef = useRef<string>('');
 
   useEffect(() => {
@@ -273,6 +277,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       throttleRef.current.pending = null;
       throttleRef.current.lastDispatch = Date.now();
       lastKeyRef.current = key;
+      throttleRef.current.inflight = true;
       setLoading(true);
       setError(null);
       Promise.all(
@@ -284,6 +289,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       )
         .then((frames) => {
           if (token !== throttleRef.current.inflightToken) return;
+          throttleRef.current.inflight = false;
           const values = new Map<string, number[]>();
           for (const [id, frame] of frames)
             values.set(
@@ -298,6 +304,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
         })
         .catch((err) => {
           if (token !== throttleRef.current.inflightToken) return;
+          throttleRef.current.inflight = false;
           lastKeyRef.current = '';
           setSample(null);
           setError(err instanceof Error ? err : new Error(String(err)));
@@ -312,8 +319,13 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
         clearTimeout(throttleHandle.current.pending);
         throttleHandle.current.pending = null;
       }
-      // A late resolve after re-run or unmount is ignored.
+      // A late resolve after re-run or unmount is ignored, so its key must
+      // not count as sampled ("sampling…" stuck, round 3 T4).
       throttleHandle.current.inflightToken += 1;
+      if (throttleHandle.current.inflight) {
+        throttleHandle.current.inflight = false;
+        lastKeyRef.current = '';
+      }
     };
     // `sample` is excluded: including it would refire after each success.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -337,7 +349,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       const series = segmentedSeriesFrame(samples, layout);
       return {
         ...series,
-        integer: series.xTitle.startsWith('Frame'),
+        integer: !series.xTitle.includes('(s)'),
         segments: samples.map((s) => s.segment),
       };
     }
@@ -381,6 +393,8 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
           y: 'value',
           ...(plotted.segments && layout === 'overlaid' ? { color: SERIES_SEGMENT } : {}),
           ...(plotted.segments && layout === 'faceted' ? { facet: SERIES_SEGMENT } : {}),
+          // Concatenated runs are separate paths: no line joins two runs (round 3 T1).
+          ...(plotted.segments && layout === 'concatenated' ? { detail: SERIES_SEGMENT } : {}),
         },
         transforms: [],
         params: {
@@ -390,6 +404,9 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
           xPadHalfStep: plotted.step,
           ...(plotted.rules.length ? { xRules: plotted.rules } : {}),
           ...(legend.length ? { topInset: FRAME_LEGEND_INSET } : {}),
+          // Faceted runs: one row up to four panels on a shared y (round 3 T3).
+          ...(plotted.segments && layout === 'faceted' ? { facetColumns: Math.min(4, plotted.segments.length), facetLabel: 'Run' } : {}),
+          ...(datasetAxis?.condition ? { seriesColor: populationCategoryColor(datasetAxis.condition) } : {}),
           ariaLabel: `${yTitle} by ${plotted.xTitle.toLowerCase()}${layerName ? `, ${shortLayerLabel(layerName)}` : ''}`,
         },
       }
@@ -411,8 +428,17 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
     const segment = group?.segments[si];
     const targetLayer = segment?.layerId ?? layerId;
     if (targetLayer && targetLayer !== layerId) useLayerStore.getState().selectLayer?.(targetLayer);
+    if (group && targetLayer) showOnlyRun(group, targetLayer);
     getTimeNavigationService().setTimepoint(t);
   };
+  // A run group shows the focused run only (round 3 F1): the others overlap it
+  // on the same grid. Applied once when a group of run layers forms.
+  const shownGroup = useRef<string | null>(null);
+  useEffect(() => {
+    if (!group || !layerId || shownGroup.current === group.key) return;
+    shownGroup.current = group.key;
+    showOnlyRun(group, layerId);
+  }, [group, layerId]);
   const datumLabel = (i: number) => {
     const row = plotted?.frame.rows[i];
     if (!row) return '';
@@ -438,16 +464,12 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
         ) ?? regionLabel)
       : regionLabel
     : crosshairMm
-      ? `${radiusMm > 0 ? `${radiusMm} mm sphere at` : 'voxel'} ${crosshairMm.map((v) => formatWorldMm(v)).join(', ')} mm${
-          radiusMm > 0
-            ? ''
-            : (() => {
-                const voxel = resolveTimeseriesVoxel(layerId, crosshairMm);
-                return voxel ? ` (ijk ${voxel.voxel.join(' ')})` : '';
-              })()
-        }`
+      ? radiusMm > 0
+        ? `${radiusMm} mm sphere at ${crosshairMm.map((v) => formatWorldMm(v)).join(', ')} mm`
+        : voxelLocusText(layerId, layerName, crosshairMm)
       : 'no locus';
-  const voxels = locusKind === 'cluster' ? null : (sample?.voxels ?? null);
+  // A voxel locus is one voxel (round 3 S2); regions report their own count.
+  const voxels = locusKind === 'cluster' ? null : radiusMm > 0 || regionLocus ? (sample?.voxels ?? null) : 1;
   const counter = group
     ? here
       ? `${here.segment.label} · frame ${here.frame}/${here.segment.frames}`
@@ -484,7 +506,9 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
             .map((v, i) => ({
               segment: segment.id,
               volumeIndex: segment.frameStart + i,
-              tWithin: segment.tr ? Number((i * segment.tr).toFixed(6)) : i,
+              frame: i + 1,
+              tr: segment.tr,
+              tWithin: segment.tr ? Number((i * segment.tr).toFixed(6)) : i + 1,
               t: null as number | null,
               value: Number.isFinite(v) ? v : null,
               layer: layers.find((l) => l.id === segment.layerId)?.name ?? segment.layerId,
@@ -493,6 +517,8 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       : (sample.values.get(layerId ?? '') ?? []).map((v, i) => ({
           segment: null,
           volumeIndex: i,
+          frame: i + 1,
+          tr,
           tWithin: null,
           t: axis.at(i),
           value: Number.isFinite(v) ? v : null,
@@ -523,7 +549,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       locus: {
         kind: regionLocus ? locusKind : radiusMm > 0 ? 'sphere' : 'voxel',
         label: locusText,
-        voxels: sample.voxels,
+        voxels,
       },
     });
     try {
@@ -580,7 +606,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       {ctx.chrome || full ? (
         <Toolbar aria-label="Series" className="shrink-0 flex-wrap px-0">
           {ctx.chrome}
-          {full ? <SeriesLocusControls /> : null}
+          {full ? <SeriesLocusControls resolvedRegion={locusKind === 'region' && !settings.regionPick ? regionLabel || null : null} /> : null}
           {full && (group || groupable.length > 1) ? (
             <ToolbarField label="Runs">
               <Select
@@ -656,6 +682,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
                   selectable: false,
                   activateOnMove: true,
                   label: datumLabel,
+                  action: group ? "Click to show this run's frame" : 'Click to show this frame',
                 },
               }}
             />
@@ -684,6 +711,38 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       ) : null}
     </div>
   );
+}
+
+/** Show the focused run's layer and hide the group's other run layers (a sidecar group is one layer). */
+function showOnlyRun(group: SegmentGroup, layerId: string): void {
+  if (group.source === 'sidecar') return;
+  const ids = new Set(group.segments.map((s) => s.layerId));
+  if (!ids.has(layerId)) return;
+  const layers = useLayerStore.getState().layers ?? [];
+  const service = getLayerService();
+  for (const id of ids) {
+    const want = id === layerId;
+    if (layers.find((l) => l.id === id)?.visible !== want) service.toggleVisibility(id, want);
+  }
+}
+
+/** "voxel ijk 10 23 30 on <layer> grid (centre −40, −20, 48 mm)": the sampled voxel, not the crosshair (round 3 S2). */
+function voxelLocusText(
+  layerId: string | undefined,
+  layerName: string | undefined,
+  crosshairMm: readonly [number, number, number],
+): string {
+  const voxel = resolveTimeseriesVoxel(layerId, crosshairMm);
+  const vox2world = layerId ? useLayerStore.getState().getLayerMetadata?.(layerId)?.voxelToWorld : undefined;
+  if (!voxel) return `voxel at ${crosshairMm.map((v) => formatWorldMm(v)).join(', ')} mm`;
+  let centre: number[] | null = null;
+  try {
+    centre = vox2world ? transformVoxelToWorldColumnMajor(vox2world, voxel.voxel) : null;
+  } catch {
+    centre = null;
+  }
+  const grid = layerName ? ` on ${shortLayerLabel(layerName)} grid` : '';
+  return `voxel ijk ${voxel.voxel.join(' ')}${grid}${centre ? ` (centre ${centre.map((v) => formatWorldMm(v)).join(', ')} mm)` : ''}`;
 }
 
 export default CrosshairTimeSeriesPlotBody;

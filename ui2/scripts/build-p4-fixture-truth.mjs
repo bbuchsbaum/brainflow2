@@ -329,6 +329,122 @@ const clusters = comps.map((comp, rank) => {
   };
 });
 
+// --- masked search (round 3 T2 / S7): the same map searched inside a brain
+// mask = the MNI brain (mni_2mm.u8 > 0, i.e. MNI152_T1_2mm_brain_mask). The
+// backend searches mask ∩ finite map voxels (zeros included); clusters can
+// only form inside the mask (all multipeak clusters are inside the brain).
+function latticeStats(inside) {
+  let P2 = 0, E2 = 0, F2 = 0, C2 = 0;
+  for (let k = 0; k < nz; k++)
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++) {
+        if (!inside(i, j, k)) continue;
+        P2++;
+        const x = inside(i + 1, j, k), y = inside(i, j + 1, k), zz = inside(i, j, k + 1);
+        const xy = x && y && inside(i + 1, j + 1, k), xz = x && zz && inside(i + 1, j, k + 1), yz = y && zz && inside(i, j + 1, k + 1);
+        E2 += +x + +y + +zz;
+        F2 += +xy + +xz + +yz;
+        C2 += +(xy && xz && yz && inside(i + 1, j + 1, k + 1));
+      }
+  return { voxels: P2, resels: [P2 - E2 + F2 - C2, (E2 - 2 * F2 + 3 * C2) * r, (F2 - 3 * C2) * r * r, C2 * r ** 3] };
+}
+const inBrainMask = (i, j, k) =>
+  i < nx && j < ny && k < nz && brain[i + nx * (j + ny * k)] > 0 && Number.isFinite(mp[i + nx * (j + ny * k)]);
+const masked = latticeStats(inBrainMask);
+let maskOutsideMap = 0;
+for (let n = 0; n < mp.length; n++) if (brain[n] > 0 && !(Number.isFinite(mp[n]) && mp[n] !== 0)) maskOutsideMap++;
+const EmMasked = masked.resels.reduce((sum, Rd, d) => sum + Rd * ec[d], 0);
+const rftBrainMask = {
+  mask: 'mni_2mm.u8 > 0 (the MNI brain; MNI152_T1_2mm_brain_mask)',
+  searchVoxels: masked.voxels,
+  maskVoxelsOutsideMap: maskOutsideMap,
+  resels: masked.resels,
+  expectedClusters: EmMasked,
+  clusters: comps
+    .filter((comp) => comp.members.every((n) => brain[n] > 0))
+    .map((comp, rank) => {
+      const pUnc = Math.exp(-beta * (comp.members.length * reselsPerVoxel) ** (2 / 3));
+      return { id: rank + 1, voxels: comp.members.length, pUncorrectedExtent: pUnc, pFweExtent: 1 - Math.exp(-(EmMasked + Number.EPSILON) * pUnc * TAILS) };
+    }),
+};
+
+// --- multirun (E5b): one subject's three BOLD runs, mirroring
+// ui2/src/devHarness/app/multirun.ts and the native d2_multirun truth.
+const MR_DIMS = [41, 49, 40];
+const MR_ORIGIN = [-80, -112, -72];
+const MR_VOXEL = 4;
+const MR_TR = 2;
+const MR_IJK = [10, 23, 30];
+const MR_RUNS = [
+  { run: 1, frames: 20, baseline: 100, amplitude: 10, centre: 5 },
+  { run: 2, frames: 24, baseline: 102, amplitude: 20, centre: 12 },
+  { run: 3, frames: 18, baseline: 98, amplitude: 15, centre: 9 },
+];
+const mrCourse = (R, t) => R.baseline + R.amplitude * Math.exp(-(((t - R.centre) / 2) ** 2));
+const [mx, my, mz] = MR_DIMS;
+let brainVox = 0;
+let blockVox = 0;
+for (let k = 0; k < mz; k++)
+  for (let j = 0; j < my; j++)
+    for (let i = 0; i < mx; i++) {
+      const inBrain = ((i - mx / 2) / (mx / 2.2)) ** 2 + ((j - my / 2) / (my / 2.2)) ** 2 + ((k - mz / 2) / (mz / 2.2)) ** 2 <= 1;
+      if (!inBrain) continue;
+      brainVox++;
+      if (Math.abs(i - MR_IJK[0]) <= 1 && Math.abs(j - MR_IJK[1]) <= 1 && Math.abs(k - MR_IJK[2]) <= 1) blockVox++;
+    }
+// All-frame non-zero values of one run (float32, as the fixture stores them):
+// (brain − block) voxels at the baseline, the block at the course.
+const percentileOf = (pairs, q) => {
+  // pairs: [value, count], sorted by value; nearest-rank percentile.
+  const total = pairs.reduce((n, [, c]) => n + c, 0);
+  const rank = Math.ceil((q / 100) * total);
+  let seen = 0;
+  for (const [v, c] of pairs) {
+    seen += c;
+    if (seen >= rank) return v;
+  }
+  return pairs[pairs.length - 1][0];
+};
+let concatFrame = 0;
+const multirunRuns = MR_RUNS.map((R) => {
+  const course = Array.from({ length: R.frames }, (_, t) => Math.fround(mrCourse(R, t)));
+  const counts = new Map();
+  const add = (v, c) => counts.set(v, (counts.get(v) ?? 0) + c);
+  for (const v of course) {
+    add(Math.fround(R.baseline), brainVox - blockVox);
+    add(v, blockVox);
+  }
+  const pairs = [...counts].sort((a, b) => a[0] - b[0]);
+  const peakFrame = course.indexOf(Math.max(...course));
+  const out = {
+    label: `run-${R.run}`,
+    file: `/harness/multirun/sub-01_task-faces_run-${R.run}_bold.nii`,
+    frames: R.frames,
+    trS: MR_TR,
+    baseline: R.baseline,
+    courseFormula: `${R.baseline} + ${R.amplitude} * exp(-((t - ${R.centre}) / 2)^2), t = 0-based frame in the run`,
+    course,
+    peak: { frameWithin: peakFrame, tWithinS: peakFrame * MR_TR, value: course[peakFrame], concatFrame: concatFrame + peakFrame, concatTS: (concatFrame + peakFrame) * MR_TR },
+    concatFirstFrame: concatFrame,
+    concatFirstTS: concatFrame * MR_TR,
+    allFrameNonZero: { p2: percentileOf(pairs, 2), p90: percentileOf(pairs, 90), p98: percentileOf(pairs, 98), p999: percentileOf(pairs, 99.9), max: Math.max(...course) },
+  };
+  concatFrame += R.frames;
+  return out;
+});
+const multirun = {
+  source: 'ui2/src/devHarness/app/multirun.ts (mirrors .hillclimb/native-check/p4/truth.json d2_multirun)',
+  grid: { dims: MR_DIMS, voxelMm: MR_VOXEL, originMm: MR_ORIGIN },
+  trS: MR_TR,
+  voxelIjk: MR_IJK,
+  voxelMm: MR_IJK.map((v, a) => MR_ORIGIN[a] + MR_VOXEL * v),
+  block: '3x3x3 voxels around voxelIjk carry each run course; the rest of the brain ellipsoid is flat at the run baseline; zero outside',
+  brainVoxels: brainVox,
+  blockVoxels: blockVox,
+  runs: multirunRuns,
+  percentiles: 'nearest-rank over every non-zero voxel of every frame of the run',
+};
+
 const truth = {
   generatedBy: 'ui2/scripts/build-p4-fixture-truth.mjs',
   model: {
@@ -372,12 +488,14 @@ const truth = {
       beta,
     },
     clusters,
+    rftBrainMask,
   },
   raw4dVoxel: {
     member: 's01 faces',
     voxelMm: nearest[0],
     values: LAGS.map((L) => Math.fround(value(nearest[0], 0, 'faces', L))),
   },
+  multirun,
 };
 
 const out = path.join(fixtures, 'p4_fixtures.json');
