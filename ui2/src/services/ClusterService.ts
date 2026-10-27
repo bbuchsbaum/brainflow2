@@ -11,10 +11,13 @@
  * |value|-weighted mean (CSV).
  */
 import type {
+  ClusterExtentInference,
   ClusterSign,
   ClusterTable,
   ComputeClustersRequest,
+  ExtentStatistic,
   ExtremumKind,
+  FwhmMm,
   VolumeExtremumRequest,
   VoxelLocation,
 } from '@brainflow/api';
@@ -24,7 +27,7 @@ import { useClusterStore, type ClusterConnectivity } from '@/stores/clusterStore
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { formatRegionLabel, resolveAtlasRegionAtWorld } from './atlasRegionLookup';
-import { formatTauriError } from '@/utils/formatTauriError';
+import { formatTauriError, tauriErrorCode } from '@/utils/formatTauriError';
 import {
   formatLayerValue,
   formatLayerValueAscii,
@@ -40,7 +43,12 @@ export interface ComputeClustersInput {
   sign: ClusterSign;
   connectivity: ClusterConnectivity;
   minVoxels: number;
+  /** Opt-in cluster-level p (RFT); the statistic only when the header cannot say it. */
+  extent?: { fwhmMm: FwhmMm; statistic?: ExtentStatistic | null } | null;
 }
+
+/** `compute_clusters` rejected because a newer request superseded it. */
+export const CLUSTERS_CANCELLED_CODE = 4077;
 
 /** Region lookups at cluster peaks are sampled; cap them for very long tables. */
 const MAX_REGION_LOOKUPS = 200;
@@ -77,11 +85,20 @@ export class ClusterService {
       sign: input.sign,
       connectivity: input.connectivity,
       minVoxels: input.minVoxels,
+      ...(input.extent
+        ? {
+            extent: {
+              method: 'rft-extent' as const,
+              fwhmMm: input.extent.fwhmMm,
+              ...(input.extent.statistic ? { statistic: input.extent.statistic } : {}),
+            },
+          }
+        : {}),
     };
     try {
       const table = await this.bridge().invoke<ClusterTable>('compute_clusters', { request: body });
       if (request !== this.seq) return null;
-      const regions = await this.regionsAtPeaks(table);
+      const { regions, subPeakRegions } = await this.regionsAtPeaks(table);
       if (request !== this.seq) return null;
       if (!useLayerStore.getState().layers.some((l) => l.id === input.layerId)) {
         useClusterStore.getState().setError('The layer was removed while clusters were computed');
@@ -92,6 +109,7 @@ export class ClusterService {
         layerName: layer?.name ?? input.layerId,
         table,
         regions,
+        subPeakRegions,
         computedAt: Date.now(),
       });
       const voxels = table.clusters.reduce((n, c) => n + c.voxelCount, 0);
@@ -100,6 +118,12 @@ export class ClusterService {
       );
       return table;
     } catch (error) {
+      // Superseded (a newer request, from here or another view): not an
+      // error to show; the newer request reports its own outcome.
+      if (tauriErrorCode(error) === CLUSTERS_CANCELLED_CODE) {
+        if (request === this.seq) useClusterStore.getState().cancelComputing();
+        return null;
+      }
       if (request === this.seq) {
         useClusterStore
           .getState()
@@ -110,28 +134,47 @@ export class ClusterService {
   }
 
   /**
-   * Atlas/label region at each peak ("—" in the table when null), at most
-   * REGION_LOOKUP_CONCURRENCY lookups in flight (not one IPC per cluster at
-   * once; review R6).
+   * Atlas/label region at each peak and sub-peak ("—" in the table when
+   * null), at most REGION_LOOKUP_CONCURRENCY lookups in flight (not one IPC
+   * per cluster at once; review R6) and MAX_REGION_LOOKUPS in all.
    */
-  private async regionsAtPeaks(table: ClusterTable): Promise<Array<string | null>> {
-    const clusters = table.clusters.slice(0, MAX_REGION_LOOKUPS);
-    const out: Array<string | null> = table.clusters.map(() => null);
+  private async regionsAtPeaks(
+    table: ClusterTable,
+  ): Promise<{ regions: Array<string | null>; subPeakRegions: Array<Array<string | null>> }> {
+    const regions: Array<string | null> = table.clusters.map(() => null);
+    const subPeakRegions = table.clusters.map((c) => (c.subPeaks ?? []).map((): string | null => null));
+    // Main peaks first, then sub-peaks, within the lookup budget.
+    const jobs: Array<{ mm: readonly number[]; put: (region: string | null) => void }> = [];
+    table.clusters.forEach((c, i) => jobs.push({ mm: c.peakMm, put: (r) => (regions[i] = r) }));
+    table.clusters.forEach((c, i) =>
+      (c.subPeaks ?? []).forEach((p, j) => jobs.push({ mm: p.mm, put: (r) => (subPeakRegions[i][j] = r) })),
+    );
+    const budget = jobs.slice(0, MAX_REGION_LOOKUPS);
     let next = 0;
     const worker = async () => {
-      while (next < clusters.length) {
-        const index = next;
+      while (next < budget.length) {
+        const job = budget[next];
         next += 1;
         try {
-          const hit = await resolveAtlasRegionAtWorld(clusters[index].peakMm);
-          out[index] = hit ? formatRegionLabel(hit.entry) : null;
+          const hit = await resolveAtlasRegionAtWorld([job.mm[0], job.mm[1], job.mm[2]]);
+          job.put(hit ? formatRegionLabel(hit.entry) : null);
         } catch {
-          out[index] = null;
+          job.put(null);
         }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(REGION_LOOKUP_CONCURRENCY, clusters.length) }, worker));
-    return out;
+    await Promise.all(Array.from({ length: Math.min(REGION_LOOKUP_CONCURRENCY, budget.length) }, worker));
+    return { regions, subPeakRegions };
+  }
+
+  /** Move the crosshair to a sub-peak exactly (like a cluster's peak; not snapped). */
+  async goToSubPeak(clusterId: number, index: number): Promise<void> {
+    const { result, select } = useClusterStore.getState();
+    const cluster = result?.table.clusters.find((c) => c.id === clusterId);
+    const peak = cluster?.subPeaks?.[index];
+    if (!peak) return;
+    select(clusterId);
+    await useViewStateStore.getState().setCrosshair([...peak.mm], true, false, undefined, { snap: false });
   }
 
   /**
@@ -207,7 +250,42 @@ export function clusterMethodsSentence(table: ClusterTable, symbol: string | nul
       : table.sign === 'positive'
         ? `${variable} > ${t}${df}, one-sided (positive)`
         : `${variable} < \u2212${t}${df}, one-sided (negative)`;
-  return `${table.connectivity}-connected clusters of ${test}, uncorrected, ${minVox}; ${count}, ${voxels} voxels${dropped}`;
+  const peaks =
+    (table.maxPeaksPerCluster ?? 1) > 1
+      ? `; up to ${table.maxPeaksPerCluster} peaks per cluster, ≥ ${formatLayerValueAscii(table.minPeakDistanceMm)} mm apart`
+      : '';
+  const extent = table.extentInference
+    ? `; cluster-level p (FWE) by Gaussian random field theory, assuming ${fwhmDescription(table.extentInference)} FWHM`
+    : '';
+  return `${table.connectivity}-connected clusters of ${test}, uncorrected, ${minVox}; ${count}, ${voxels} voxels${dropped}${peaks}${extent}`;
+}
+
+/** "8 mm" (isotropic) or "6 × 6 × 8 mm" (per voxel axis). */
+export function fwhmDescription(inference: Pick<ClusterExtentInference, 'fwhmMm'>): string {
+  const [x, y, z] = inference.fwhmMm.map((v) => formatLayerValueAscii(v));
+  return x === y && y === z ? `${x} mm` : `${x} × ${y} × ${z} mm`;
+}
+
+/**
+ * The FWHM field: one positive value (isotropic) or three (voxel axes i j
+ * k), separated by spaces, commas or "x". Null when it is not that.
+ */
+export function parseFwhm(text: string): FwhmMm | null {
+  const parts = text
+    .trim()
+    .split(/[\s,x×]+/i)
+    .filter(Boolean)
+    .map(Number);
+  if (!parts.every((v) => Number.isFinite(v) && v > 0)) return null;
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 3) return [parts[0], parts[1], parts[2]];
+  return null;
+}
+
+/** A cluster-level p for the table: "< 0.001" or three decimals. */
+export function formatClusterP(p: number | null | undefined): string {
+  if (p === null || p === undefined || !Number.isFinite(p)) return '—';
+  return p < 0.001 ? '< 0.001' : p.toFixed(3);
 }
 
 function stripDof(symbol: string): string {
@@ -227,14 +305,20 @@ export function clusterTableCsv(
   table: ClusterTable,
   regions: ReadonlyArray<string | null>,
   meta: { layerName: string; symbol: string | null },
+  subPeakRegions?: ReadonlyArray<ReadonlyArray<string | null>>,
 ): string {
   // Coordinates at 2 decimals (ASCII minus): centroids are not on voxel centres.
   const mm = (v: readonly number[]) => v.map((x) => Number(x.toFixed(2)));
+  const extent = !!table.extentInference;
   const header = [
     'cluster',
+    // 1: the cluster's peak (its row); 2.. its sub-peaks (rows with only the
+    // peak columns and the region filled).
+    'peak',
     'sign',
     'voxels',
     'volume_mm3',
+    ...(extent ? ['p_fwe_extent', 'p_unc_extent'] : []),
     'peak_value',
     'peak_x_mm',
     'peak_y_mm',
@@ -251,27 +335,51 @@ export function clusterTableCsv(
     'mean_value',
     'region_at_peak',
   ];
-  const rows = table.clusters.map((c, i) => [
-    c.id,
-    c.sign,
-    c.voxelCount,
-    Number(c.volumeMm3.toFixed(3)),
-    Number(c.peakValue.toFixed(4)),
-    ...mm(c.peakMm),
-    ...c.peakIjk,
-    ...mm(c.centroidMm),
-    // Missing weighted COG: empty cells, never the unweighted values.
-    ...(c.weightedCentroidMm ? mm(c.weightedCentroidMm) : [null, null, null]),
-    Number(c.meanValue.toFixed(4)),
-    regions[i] ?? null,
+  const pCell = (p: number | null | undefined) => (p === null || p === undefined ? null : Number(p.toPrecision(4)));
+  const rows = table.clusters.flatMap((c, i) => [
+    [
+      c.id,
+      1,
+      c.sign,
+      c.voxelCount,
+      Number(c.volumeMm3.toFixed(3)),
+      ...(extent ? [pCell(c.pFweExtent), pCell(c.pUncorrectedExtent)] : []),
+      Number(c.peakValue.toFixed(4)),
+      ...mm(c.peakMm),
+      ...c.peakIjk,
+      ...mm(c.centroidMm),
+      // Missing weighted COG: empty cells, never the unweighted values.
+      ...(c.weightedCentroidMm ? mm(c.weightedCentroidMm) : [null, null, null]),
+      Number(c.meanValue.toFixed(4)),
+      regions[i] ?? null,
+    ],
+    ...(c.subPeaks ?? []).map((p, j) => [
+      c.id,
+      j + 2,
+      c.sign,
+      null,
+      null,
+      ...(extent ? [null, null] : []),
+      Number(p.value.toFixed(4)),
+      ...mm(p.mm),
+      ...p.ijk,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      subPeakRegions?.[i]?.[j] ?? null,
+    ]),
   ]);
-  // The comment line is ASCII too (">=", "-"), like the numbers.
-  const comment = `# ${meta.layerName}: ${clusterMethodsSentence(table, meta.symbol)
-    .replace(/[−\u2212]/g, '-')
-    .replace(/≥/g, '>=')
-    .replace(/≤/g, '<=')}`;
+  // The comment lines are ASCII too (">=", "-"), like the numbers.
+  const ascii = (text: string) =>
+    text.replace(/[−\u2212]/g, '-').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/×/g, 'x');
+  const comments = [`# ${meta.layerName}: ${ascii(clusterMethodsSentence(table, meta.symbol))}`];
+  if (table.extentInference) comments.push(`# ${ascii(table.extentInference.assumption)}`);
   return (
-    [comment, header.join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n') + '\n'
+    [...comments, header.join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n') + '\n'
   );
 }
 

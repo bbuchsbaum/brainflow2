@@ -129,11 +129,11 @@ describe('cluster methods sentence and CSV', () => {
   it('writes an ASCII CSV with a parameter comment line', () => {
     const csv = clusterTableCsv(TABLE, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }).split('\n');
     expect(csv[0]).toBe('# zmap: 26-connected clusters of |z| > 3.1, two-sided, uncorrected, >= 1 voxel; 2 clusters, 757 voxels');
-    expect(csv[1].split(',')[0]).toBe('cluster');
+    expect(csv[1].split(',').slice(0, 2)).toEqual(['cluster', 'peak']);
     expect(csv[1]).toContain('centroid_x_mm,centroid_y_mm,centroid_z_mm,cog_abs_weighted_x_mm');
     expect(csv[1].endsWith('region_at_peak')).toBe(true);
-    expect(csv[2]).toBe('1,positive,398,3184,5.965,-39.5,-19.5,50.5,1,2,3,-39.9,-19.5,50.5,-39.5,-19.5,50.5,2.9825,L_sensorimotor');
-    expect(csv[3].startsWith('2,negative,359,2872,-4.977,0.5,40.5,10.5')).toBe(true);
+    expect(csv[2]).toBe('1,1,positive,398,3184,5.965,-39.5,-19.5,50.5,1,2,3,-39.9,-19.5,50.5,-39.5,-19.5,50.5,2.9825,L_sensorimotor');
+    expect(csv[3].startsWith('2,1,negative,359,2872,-4.977,0.5,40.5,10.5')).toBe(true);
     expect(csv[3].endsWith(',')).toBe(true);
   });
 
@@ -147,5 +147,89 @@ describe('cluster methods sentence and CSV', () => {
     clearResultForRemovedLayer('z');
     expect(useClusterStore.getState().result).toBeNull();
     expect(useClusterStore.getState().params.minVoxels).toBe(7);
+  });
+});
+
+describe('phase 4: sub-peaks, cluster-level p, cancellation', () => {
+  const EXTENT = {
+    method: 'rft-extent',
+    fwhmMm: [6, 6, 8] as [number, number, number],
+    statistic: 'z' as const,
+    df: null,
+    df2: null,
+    statisticSource: 'header',
+    clusterFormingThreshold: 3.1,
+    searchVoxels: 1000,
+    resels: [1, 2, 3, 4] as [number, number, number, number],
+    voxelsPerResel: 64,
+    expectedClusters: 0.42,
+    expectedVoxelsPerCluster: 3.3,
+    assumption: 'Assumes stationary smoothness of 6 x 6 x 8 mm FWHM (user-supplied). Gaussian random field theory.',
+  };
+  const RICH: ClusterTable = {
+    ...TABLE,
+    maxPeaksPerCluster: 3,
+    minPeakDistanceMm: 8,
+    clusters: [
+      { ...TABLE.clusters[0], subPeaks: [{ value: 4.25, ijk: [7, 8, 9], mm: [-30.5, -19.5, 50.5] }], pFweExtent: 0.000123, pUncorrectedExtent: 0.0000456 },
+      { ...TABLE.clusters[1], subPeaks: [], pFweExtent: 0.4321, pUncorrectedExtent: 0.0412 },
+    ],
+    extentInference: EXTENT,
+  } as ClusterTable;
+
+  beforeEach(() => {
+    useClusterStore.getState().reset();
+    useLayerStore.setState({
+      layers: [{ id: 'z', name: 'zmap_synthetic.nii.gz', volumeId: 'vol-z', type: 'volume', visible: true, order: 0 } as never],
+    });
+  });
+
+  it('parses the FWHM field: one value or three, positive', async () => {
+    const { parseFwhm } = await import('../ClusterService');
+    expect(parseFwhm('8')).toBe(8);
+    expect(parseFwhm(' 6, 6 x 8 ')).toEqual([6, 6, 8]);
+    for (const bad of ['', '0', '-4', '6 6', 'abc', '6 6 8 8']) expect(parseFwhm(bad)).toBeNull();
+  });
+
+  it('sends the extent request and region-looks-up every sub-peak', async () => {
+    const t = transport(RICH);
+    await new ClusterService(t).compute({
+      layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1,
+      extent: { fwhmMm: [6, 6, 8], statistic: 'z' },
+    });
+    expect(t.invoke).toHaveBeenCalledWith('compute_clusters', {
+      request: expect.objectContaining({ extent: { method: 'rft-extent', fwhmMm: [6, 6, 8], statistic: 'z' } }),
+    });
+    expect(useClusterStore.getState().result?.subPeakRegions).toEqual([['L_sensorimotor'], []]);
+  });
+
+  it('a cancelled (superseded) request is not an error: back to the last table', async () => {
+    const service = new ClusterService(transport(RICH));
+    await service.compute({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
+    const cancelled = { invoke: vi.fn(async () => Promise.reject({ Input: { code: 4077, details: 'Cluster computation cancelled' } })) } as unknown as BackendTransport;
+    await new ClusterService(cancelled).compute({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
+    expect(useClusterStore.getState().status).toBe('ready');
+    expect(useClusterStore.getState().error).toBeNull();
+  });
+
+  it('the methods sentence states the peaks rule and the RFT assumption; the CSV lists sub-peaks and p', () => {
+    expect(clusterMethodsSentence(RICH, 'z')).toBe(
+      '26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels; ' +
+        'up to 3 peaks per cluster, ≥ 8 mm apart; cluster-level p (FWE) by Gaussian random field theory, assuming 6 × 6 × 8 mm FWHM',
+    );
+    const csv = clusterTableCsv(RICH, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }, [['R_region'], []]).split('\n');
+    expect(csv[0]).toContain('assuming 6 x 6 x 8 mm FWHM');
+    expect(csv[1]).toBe('# Assumes stationary smoothness of 6 x 6 x 8 mm FWHM (user-supplied). Gaussian random field theory.');
+    const header = csv[2].split(',');
+    expect(header.slice(0, 7)).toEqual(['cluster', 'peak', 'sign', 'voxels', 'volume_mm3', 'p_fwe_extent', 'p_unc_extent']);
+    const rows = csv.slice(3, -1).map((r) => r.split(','));
+    expect(rows.map((r) => r.slice(0, 2))).toEqual([['1', '1'], ['1', '2'], ['2', '1']]);
+    const at = (r: string[], name: string) => r[header.indexOf(name)];
+    expect(at(rows[0], 'p_fwe_extent')).toBe('0.000123');
+    expect(at(rows[1], 'peak_value')).toBe('4.25');
+    expect(at(rows[1], 'peak_x_mm')).toBe('-30.5');
+    expect(at(rows[1], 'voxels')).toBe('');
+    expect(at(rows[1], 'region_at_peak')).toBe('R_region');
+    expect(rows.every((r) => r.length === header.length)).toBe(true);
   });
 });

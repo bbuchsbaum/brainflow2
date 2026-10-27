@@ -115,3 +115,50 @@ describe('harness volume_extremum / volume_nonzero_bbox mirrors', () => {
     expect(bbox.ijkMin.every((v, a) => v <= bbox.ijkMax[a])).toBe(true);
   });
 });
+
+// Phase 4 C1: the backend's sub-peak cases (core/api_bridge/src/clusters.rs
+// tests), on the same Gaussian blobs along x (2 mm voxels, origin 0).
+function blobs(list: Array<[number, number]>): VolumeFixture {
+  const [nx, ny, nz] = [40, 13, 13];
+  const data = new Float32Array(nx * ny * nz);
+  for (let k = 0; k < nz; k++)
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++) {
+        const r2 = (j - 6) ** 2 + (k - 6) ** 2;
+        data[i + nx * (j + ny * k)] = list.reduce(
+          (s, [c, a]) => s + Math.fround(a * Math.exp(-((i - c) ** 2 + r2) / 2)),
+          0,
+        );
+      }
+  return { dims: [nx, ny, nz], affine: [[2, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0], [0, 0, 0, 1]], data, range: [0, 0] };
+}
+
+describe('harness sub-peaks mirror the backend (C1)', () => {
+  it('merged blobs closer than the minimum distance report no sub-peak; 5 mm does', () => {
+    const vol = blobs([[10, 10], [13, 8]]);
+    const t8 = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 8 });
+    expect(t8.clusters).toHaveLength(1);
+    expect(t8.clusters[0].peakIjk).toEqual([10, 6, 6]);
+    expect(t8.clusters[0].subPeaks).toEqual([]);
+    const t5 = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 5 });
+    expect(t5.clusters[0].subPeaks.map((p) => [p.ijk, p.mm])).toEqual([[[13, 6, 6], [26, 12, 12]]]);
+  });
+
+  it('three blobs 12 mm apart: sub-peaks strongest first; the count includes the main peak', () => {
+    const vol = blobs([[8, 10], [14, 6], [20, 8]]);
+    const t = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 8 });
+    expect(t.clusters[0].subPeaks.map((p) => p.ijk)).toEqual([[20, 6, 6], [14, 6, 6]]);
+    expect(findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 2 }).clusters[0].subPeaks).toHaveLength(1);
+    const one = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 1 });
+    expect(one.clusters[0].subPeaks).toEqual([]);
+    expect([one.maxPeaksPerCluster, one.minPeakDistanceMm]).toEqual([1, 8]);
+  });
+
+  it('a negative cluster takes its most negative peaks', () => {
+    const t = findClusters(blobs([[8, -10], [14, -7], [30, 4]]), { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 8 });
+    const neg = t.clusters.filter((c) => c.sign === 'negative');
+    expect(neg).toHaveLength(1);
+    expect(neg[0].subPeaks.map((p) => p.ijk)).toEqual([[14, 6, 6]]);
+    expect(t.clusters.find((c) => c.sign === 'positive')!.subPeaks).toEqual([]);
+  });
+});

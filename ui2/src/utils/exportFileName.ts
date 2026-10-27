@@ -67,3 +67,14 @@ export function mosaicFileName(
   const axis = AXIS_OF[viewType];
   return `${exportFileBase(name, 'mosaic')}_mosaic_${viewType}_${axisPositionToken(axis, firstMm)}_to_${axisPositionToken(axis, lastMm)}mm.${format}`;
 }
+
+/** A surface figure: "<layer>_<kind>_<lh|rh|lh_rh>.<ext>" (D4). */
+export function surfaceFileName(
+  name: string | null,
+  kind: 'surface' | 'lat_med',
+  hemispheres: ReadonlyArray<'left' | 'right'>,
+  format: ImageExt,
+): string {
+  const hemi = hemispheres.map((h) => (h === 'left' ? 'lh' : 'rh')).join('_');
+  return `${exportFileBase(name, 'surface')}_${kind}${hemi ? `_${hemi}` : ''}.${format}`;
+}

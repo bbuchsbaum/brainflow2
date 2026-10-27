@@ -36,7 +36,8 @@ interface GeometrySectionProps {
  */
 export function GeometrySection({ item }: GeometrySectionProps) {
   if (item.kind !== 'surface-geometry') return null;
-  return <GeometrySectionBody />;
+  const surfaceId = item.ref.type === 'surface-geometry' ? item.ref.surfaceId : null;
+  return <GeometrySectionBody surfaceId={surfaceId} />;
 }
 
 /** All surface-view ids whose appearance should track the inspector controls. */
@@ -47,7 +48,16 @@ function collectSurfaceViewTargetIds(state: ReturnType<typeof useSurfaceStore.ge
   return Array.from(ids);
 }
 
-function GeometrySectionBody() {
+function GeometrySectionBody({ surfaceId }: { surfaceId: string | null }) {
+  // Where this surface's folding underlay comes from (D2).
+  const curvatureSource = useSurfaceStore((s) =>
+    surfaceId ? (s.surfaces.get(surfaceId)?.curvatureSource ?? null) : null,
+  );
+  const curvatureHint = !curvatureSource
+    ? 'Needs a sulc / curv file next to the mesh, or a matching white or pial surface'
+    : curvatureSource.kind === 'file'
+      ? `From ${curvatureSource.path.split(/[\\/]/).pop()}`
+      : 'Sulcal depth from the matching folded surface';
   // Read from a representative view; writes broadcast to all (kept in sync).
   const readId = useResolvedActiveSurfaceViewId() ?? DEFAULT_SURFACE_VIEW_ID;
 
@@ -145,6 +155,15 @@ function GeometrySectionBody() {
             { value: 'Smooth', label: 'Smooth' },
             { value: 'Flat', label: 'Flat' },
           ]}
+        />
+      </FieldRow>
+
+      <FieldRow label="Folding" hint={curvatureHint}>
+        <Switch
+          aria-label="Folding underlay"
+          checked={display.showCurvature !== false && !!curvatureSource}
+          disabled={!curvatureSource}
+          onCheckedChange={(checked) => applyDisplay({ showCurvature: checked })}
         />
       </FieldRow>
 

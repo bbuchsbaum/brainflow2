@@ -25,6 +25,7 @@ import {
   colorbarBlockModel,
 } from '@/components/views/viewportFrame/frameFormat';
 import { anatomicalLabels } from '@/utils/anatomicalLabels';
+import { END_ON, projectGizmoAxes, type CameraBasis } from '@/utils/orientationGizmo';
 import {
   adaptCrosshairStyleToViewport,
   buildActiveCrosshairStyle,
@@ -149,9 +150,9 @@ export interface ExportPane {
   image: CanvasImageSource;
   width: number;
   height: number;
-  /** The view plane refitted to width x height (u/v per device pixel). */
-  plane: ViewPlane;
-  framePlane: FramePlane;
+  /** The view plane refitted to width x height (u/v per device pixel); null for a surface pane. */
+  plane: ViewPlane | null;
+  framePlane: FramePlane | null;
   /** World position of the slice along its axis (header). */
   positionMm: number;
   layerName: string | null;
@@ -162,6 +163,12 @@ export interface ExportPane {
   orientation?: boolean;
   /** False: no scale bar on this pane (a montage shows one, on its last tile). */
   scaleBar?: boolean;
+  /**
+   * A surface pose (phase 4, D4): its header ("Left lateral  overlay",
+   * richest first) and the camera for the orientation glyph that replaces
+   * the letters. Surface panes have no scale bar and no crosshair.
+   */
+  surface?: { header: HeaderRun[][]; basis: CameraBasis | null } | null;
 }
 
 export interface ExportSideBar {
@@ -316,7 +323,7 @@ function drawPane(
   // Orientation letters, measured first: the scale bar is placed clear of them.
   const letterFont = font(ptToPx(TEXT_PT.letter, u), SANS, 600);
   const letters: Array<{ text: string; x: number; y: number; align: CanvasTextAlign; baseline: CanvasTextBaseline; box: Rect }> = [];
-  if (options.orientation && pane.orientation !== false) {
+  if (options.orientation && pane.orientation !== false && pane.plane) {
     const labels = anatomicalLabels(pane.plane);
     if (labels) {
       const off = 5 * u;
@@ -338,7 +345,7 @@ function drawPane(
   }
 
   const bar =
-    options.scaleBar && pane.scaleBar !== false
+    options.scaleBar && pane.scaleBar !== false && pane.plane
       ? planScaleBar(ctx, x, iy, pane, u, letters.map((l) => l.box))
       : null;
   // A letter the scale bar must cover (a pane too small for both) is left
@@ -372,7 +379,11 @@ function drawPane(
     ctx.restore();
   }
 
-  if (options.crosshair && pane.crosshairWorld) {
+  if (options.orientation && pane.surface?.basis) {
+    drawGizmo(ctx, x + EDGE_INSET * u, iy + pane.height - EDGE_INSET * u, pane.surface.basis, u, onImage);
+  }
+
+  if (options.crosshair && pane.crosshairWorld && pane.plane) {
     const point = projectToImage(pane.crosshairWorld, pane.plane);
     if (point) {
       // The user's stroke at the frame's CSS size, in chrome units; it
@@ -400,6 +411,59 @@ function drawPane(
   }
 }
 
+/** Side of the orientation glyph's box, in chrome units (D5). */
+export const GIZMO_SIZE = 40;
+
+/**
+ * The orientation glyph (D5) in the pane's bottom-left corner (x, bottom):
+ * R / A / S as the pose's camera sees them, back to front, axes pointing
+ * away dimmed. On-image style, like the letters it replaces.
+ */
+function drawGizmo(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  bottom: number,
+  basis: CameraBasis,
+  u: number,
+  style: OnImageStyle,
+): void {
+  const size = GIZMO_SIZE * u;
+  const c = { x: x + size / 2, y: bottom - size / 2 };
+  const r = size * 0.3;
+  ctx.save();
+  ctx.strokeStyle = style.text;
+  ctx.fillStyle = style.text;
+  ctx.shadowColor = style.halo;
+  ctx.shadowBlur = 3 * u;
+  ctx.lineWidth = 1.25 * u;
+  ctx.lineCap = 'round';
+  ctx.font = font(ptToPx(TEXT_PT.tick, u), SANS, 600);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const axis of projectGizmoAxes(basis)) {
+    const away = axis.depth < -0.05;
+    if (Math.hypot(axis.x, axis.y) < END_ON) {
+      // Along the line of sight: a ring (away) or a dot (toward), the letter beside it.
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 2.5 * u, 0, 2 * Math.PI);
+      if (away) ctx.stroke();
+      else ctx.fill();
+      ctx.textAlign = 'left';
+      ctx.fillText(axis.label, c.x + 5 * u, c.y + 6 * u);
+      ctx.textAlign = 'center';
+      continue;
+    }
+    ctx.globalAlpha = away ? 0.55 : 1;
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(c.x + axis.x * r, c.y + axis.y * r);
+    ctx.stroke();
+    ctx.fillText(axis.label, c.x + axis.x * (r + 6 * u), c.y + axis.y * (r + 6 * u));
+  }
+  ctx.restore();
+}
+
 interface ScaleBarPlan {
   barX: number;
   base: number;
@@ -423,6 +487,7 @@ function planScaleBar(
   u: number,
   avoid: readonly Rect[],
 ): ScaleBarPlan | null {
+  if (!pane.plane) return null;
   const length = scaleBarPx(pane.plane);
   if (!(length > 4) || length > pane.width * 0.6) return null;
   const right = x + pane.width - 8 * u;
@@ -538,8 +603,13 @@ function drawHeaderBand(
       ctx.font = p.font;
       return sum + ctx.measureText(p.text).width + (i > 0 ? (p.gap ?? gap) : 0);
     }, 0);
+  const candidates = pane.surface
+    ? pane.surface.header
+    : pane.framePlane
+      ? headerCandidates(pane.framePlane, pane.positionMm, pane.layerName)
+      : [];
   const parts =
-    headerCandidates(pane.framePlane, pane.positionMm, pane.layerName)
+    candidates
       .map(styled)
       .find((list) => measure(list) <= room) ?? [];
   ctx.textBaseline = 'middle';

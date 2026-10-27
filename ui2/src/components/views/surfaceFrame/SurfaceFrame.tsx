@@ -18,6 +18,8 @@ import { useSurfaceStore, type LoadedSurface } from '@/stores/surfaceStore';
 import { ViewportColorbar } from '../viewportFrame/ViewportColorbar';
 import { surfaceColorbarLayer } from './surfaceColorbar';
 import { shortLayerLabel } from '../viewportFrame/frameFormat';
+import { OrientationGizmo } from './OrientationGizmo';
+import { useSurfaceCameraStore } from '@/stores/surfaceCameraStore';
 
 // Full words where they fit ("L" means left elsewhere in the app); in a
 // narrow pane single letters, the full word in the tooltip and accessible
@@ -43,9 +45,12 @@ export interface SurfaceFrameProps {
   height: number;
   /** Space kept clear at the top (e.g. an inline status strip). */
   topInset?: number;
+  /** The view whose camera the orientation glyph follows. */
+  surfaceViewId?: string;
 }
 
-export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFrameProps) {
+export function SurfaceFrame({ surface, width, height, topInset = 0, surfaceViewId }: SurfaceFrameProps) {
+  const cameraBasis = useSurfaceCameraStore((s) => (surfaceViewId ? s.bases.get(surfaceViewId) : undefined));
   const viewpoint = useSurfaceStore((s) => s.viewpoint);
   const setViewpoint = useSurfaceStore((s) => s.setViewpoint);
   const reapplyViewpoint = useSurfaceStore((s) => s.reapplyViewpoint);
@@ -129,6 +134,14 @@ export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFr
           </dl>
         ) : null}
       </div>
+
+      {/* Orientation glyph (D5): bottom-left, clear of the header, presets
+          and colorbar. */}
+      {cameraBasis ? (
+        <div className="pointer-events-none absolute bottom-2 left-2 z-10">
+          <OrientationGizmo basis={cameraBasis} size={64} />
+        </div>
+      ) : null}
 
       {/* Camera presets: the slice frame's top-right corner slot. */}
       <div

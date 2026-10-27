@@ -25,6 +25,11 @@ import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { Button, KeyValue } from "@/components/ui/bf";
 import { statisticSignAssumed, statisticUnits } from "@/utils/statistic";
 import { hasRegionSource } from "@/services/atlasRegionLookup";
+import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
+import { useSurfaceStore } from "@/stores/surfaceStore";
+import { parseSurfaceViewContextId } from "@/utils/surfaceViewContext";
+import { surfaceColorbarLayer } from "@/components/views/surfaceFrame/surfaceColorbar";
+import { useSurfaceNearestVertex, useSurfaceValueAtCrosshair } from "@/hooks/useSurfaceValueAtCrosshair";
 import { transformWorldToVoxelColumnMajor } from "@/utils/voxelTransform";
 import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { formatWorldMm } from "@/utils/valueFormat";
@@ -59,6 +64,7 @@ const LABELS: Record<string, string> = {
   layer: "Layer",
   value: "Value",
   region: "Region",
+  vertex: "Vertex",
   atlas: "Atlas",
   fps: "FPS",
   gpu: "GPU",
@@ -378,6 +384,58 @@ const StatusRegionSlot = React.memo(() => {
 StatusRegionSlot.displayName = "StatusRegionSlot";
 
 /**
+ * "Vertex" slot (phase 4, D1): while a surface pane is the active view, the
+ * vertex nearest the crosshair and the shown overlay's value there, read on
+ * the anatomical mesh (an inflated mesh alone has none: "—" says what to
+ * load). Hidden for volume panes.
+ */
+const StatusVertexSlot = React.memo(() => {
+  const activeId = useActiveRenderContextStore((state) => state.activeId);
+  const context = parseSurfaceViewContextId(activeId);
+  const surfaceId = useSurfaceStore((state) =>
+    context
+      ? ([...state.surfaces.keys()].find((handle) => handle.toLowerCase() === context.surfaceHandle) ?? null)
+      : null,
+  );
+  const overlayId = useSurfaceStore((state) => {
+    const surface = surfaceId ? state.surfaces.get(surfaceId) : undefined;
+    return surface ? (surfaceColorbarLayer(surface)?.layerId ?? null) : null;
+  });
+  if (!surfaceId) return null;
+  return <StatusVertexReadout surfaceId={surfaceId} overlayId={overlayId} />;
+});
+
+StatusVertexSlot.displayName = "StatusVertexSlot";
+
+function StatusVertexReadout({ surfaceId, overlayId }: { surfaceId: string; overlayId: string | null }) {
+  const { reading, anatomical } = useSurfaceValueAtCrosshair(surfaceId, overlayId ?? "");
+  const nearest = useSurfaceNearestVertex(surfaceId);
+  const title = !anatomical
+    ? "Load the matching pial or white surface for an anatomical readout"
+    : nearest
+      ? `Vertex ${nearest.vertex}, ${nearest.distanceMm.toFixed(1)} mm from the crosshair`
+      : "No vertex within 3 mm of the crosshair";
+  return (
+    <SlotFrame
+      id="vertex"
+      title={title}
+      value={
+        anatomical && nearest ? (
+          <span data-testid="status-vertex">
+            {nearest.vertex.toLocaleString("en-US")}
+            {reading ? (
+              <span className="status-value__ijk"> {formatLayerValue(reading.value)}</span>
+            ) : null}
+          </span>
+        ) : (
+          <span data-testid="status-vertex">{EMPTY_VALUE}</span>
+        )
+      }
+    />
+  );
+}
+
+/**
  * Compact "Diagnostics" button: developer telemetry (atlas pressure, FPS, GPU)
  * in a popover so it never competes with the location readouts for width.
  * Radix Popover gives keyboard access, focus return and Escape-to-close. A
@@ -504,7 +562,10 @@ export function StatusBar({
           ) : id === "mouse" ? (
             <StatusMouseSlot key={id} />
           ) : id === "region" ? (
-            <StatusRegionSlot key={id} />
+            <React.Fragment key={id}>
+              <StatusRegionSlot />
+              <StatusVertexSlot />
+            </React.Fragment>
           ) : (
             <StatusBarSlot
               key={id}

@@ -298,6 +298,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       {activeSurface && activeSurface.metadata && (
         <SurfaceFrame
           surface={activeSurface}
+          surfaceViewId={resolvedSurfaceViewId}
           width={dimensions.width}
           height={dimensions.height}
           topInset={cssLengthPx(infoOverlayTop) - 12}

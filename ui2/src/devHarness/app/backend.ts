@@ -26,6 +26,7 @@ import {
 } from './geometry';
 import { renderSlice, type SliceFrame, type SliceLayer } from './slicer';
 import { noteStep } from './harnessLog';
+import { computeSurfaceSulcalDepth } from '@brainflow/visualization/surface';
 import {
   ANALYSIS_DESCRIPTORS,
   BIDS_EVENTS,
@@ -42,6 +43,28 @@ export const MNI_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain.nii.gz`;
 export const STATS_PATH = `${HARNESS_ROOT}/stats/task-motor_zstat1.nii.gz`;
 export const SURFACE_PATH = `${HARNESS_ROOT}/surf/lh.inflated.gii`;
 export const SURFACE_OVERLAY_PATH = `${HARNESS_ROOT}/surf/lh.sensorimotor.func.gii`;
+
+/**
+ * Phase 4 surface-figure fixtures (D2-D4), all derived from the fs_LR 32k
+ * left inflated mesh at load time; not listed in the Files tree (the P3
+ * specimens stay as they were):
+ * - rh.inflated: the lh mesh mirrored in x (face winding flipped);
+ * - lh.midthickness: SYNTHETIC folded stand-in (the lh mesh scaled 0.9 about
+ *   its centroid), same topology: the anatomical mesh for the vertex readout;
+ * - lh/rh.sulc.shape.gii: SYNTHETIC "sulc", the sulcal depth of the inflated
+ *   mesh itself (its residual large-scale concavities: insula, medial wall);
+ * - rh.sensorimotor: the lh overlay × 0.7 (mirrored with the mesh).
+ */
+export const FIG_ROOT = `${HARNESS_ROOT}/fig`;
+export const FIG_LH_PATH = `${FIG_ROOT}/lh.inflated.gii`;
+export const FIG_RH_PATH = `${FIG_ROOT}/rh.inflated.gii`;
+export const FIG_LH_MID_PATH = `${FIG_ROOT}/lh.midthickness.gii`;
+export const FIG_LH_OVERLAY_PATH = `${FIG_ROOT}/lh.sensorimotor.func.gii`;
+export const FIG_RH_OVERLAY_PATH = `${FIG_ROOT}/rh.sensorimotor.func.gii`;
+export const FIG_LH_SULC_PATH = `${FIG_ROOT}/lh.sulc.shape.gii`;
+export const FIG_RH_SULC_PATH = `${FIG_ROOT}/rh.sulc.shape.gii`;
+/** The rh overlay is the lh one scaled by this (a known answer). */
+export const FIG_RH_OVERLAY_SCALE = 0.7;
 /** Phase 3 synthetic statistics (fixtures/app/p3_fixtures.json). Listed under stats/, which
  * the gate scenarios never expand, so the gate baselines do not see them. */
 export const ZMAP_PATH = `${HARNESS_ROOT}/stats/zmap_synthetic.nii.gz`;
@@ -49,6 +72,8 @@ export const TMAP_PATH = `${HARNESS_ROOT}/stats/tmap_synthetic_df24.nii.gz`;
 /** Native-like noisy copies (v6), loadable by path; not listed in the tree. */
 export const ZMAP_NOISY_PATH = `${HARNESS_ROOT}/stats/zmap_native_noise.nii.gz`;
 export const TMAP_NOISY_PATH = `${HARNESS_ROOT}/stats/tmap_native_noise_df24.nii.gz`;
+/** Phase 4 C1: the z map with two extra blobs in cluster 1 (sub-peaks); not listed. */
+export const ZMAP_MULTIPEAK_PATH = `${HARNESS_ROOT}/stats/zmap_multipeak.nii.gz`;
 export const ATLAS_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.nii.gz`;
 export const ATLAS_LUT_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.tsv`;
 
@@ -104,6 +129,17 @@ const VIRTUAL_FS: Record<string, Array<{ name: string; isDir: boolean }>> = {
     { name: 'lh.inflated.gii', isDir: false },
     { name: 'lh.sensorimotor.func.gii', isDir: false },
   ],
+  // Phase 4 figure set (not linked from the study root: listed only for the
+  // curvature service's sidecar lookup).
+  [FIG_ROOT]: [
+    'lh.inflated.gii',
+    'rh.inflated.gii',
+    'lh.midthickness.gii',
+    'lh.sensorimotor.func.gii',
+    'rh.sensorimotor.func.gii',
+    'lh.sulc.shape.gii',
+    'rh.sulc.shape.gii',
+  ].map((name) => ({ name, isDir: false })),
 };
 
 const NO_INTENT: NonNullable<VolumeFixture['header']> = {
@@ -253,6 +289,58 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   let surfaceCounter = 0;
   let overlayCounter = 0;
   const surfaces = new Map<string, string>();
+  const overlays = new Map<string, Float32Array>();
+  // Phase 4 figure meshes and values, derived once (see FIG_ROOT).
+  let figure: {
+    rh: Float32Array;
+    rhFaces: Uint32Array;
+    mid: Float32Array;
+    sulc: Float32Array | null;
+    rhOverlay: Float32Array;
+  } | null = null;
+  const figureData = () => {
+    if (figure) return figure;
+    const { vertices, faces, overlay } = fixtures.surface;
+    const rh = new Float32Array(vertices);
+    for (let i = 0; i < rh.length; i += 3) rh[i] = -rh[i];
+    const rhFaces = new Uint32Array(faces);
+    for (let i = 0; i < rhFaces.length; i += 3) {
+      const b = rhFaces[i + 1];
+      rhFaces[i + 1] = rhFaces[i + 2];
+      rhFaces[i + 2] = b;
+    }
+    const c = [0, 0, 0];
+    const n = vertices.length / 3;
+    for (let i = 0; i < vertices.length; i += 1) c[i % 3] += vertices[i] / n;
+    const mid = new Float32Array(vertices.length);
+    for (let i = 0; i < vertices.length; i += 1) mid[i] = c[i % 3] + 0.9 * (vertices[i] - c[i % 3]);
+    figure = { rh, rhFaces, mid, sulc: null, rhOverlay: overlay.map((v) => v * FIG_RH_OVERLAY_SCALE) };
+    return figure;
+  };
+  const surfaceMeshFor = (path: string) => {
+    const { vertices, faces } = fixtures.surface;
+    if (path === SURFACE_PATH || path === FIG_LH_PATH) {
+      return { vertices, faces, hemisphere: 'left', surfaceType: 'inflated' };
+    }
+    if (path === FIG_RH_PATH) {
+      const f = figureData();
+      return { vertices: f.rh, faces: f.rhFaces, hemisphere: 'right', surfaceType: 'inflated' };
+    }
+    if (path === FIG_LH_MID_PATH) {
+      return { vertices: figureData().mid, faces, hemisphere: 'left', surfaceType: 'midthickness' };
+    }
+    return null;
+  };
+  const overlayValuesFor = (path: string): Float32Array | null => {
+    if (path === SURFACE_OVERLAY_PATH || path === FIG_LH_OVERLAY_PATH) return fixtures.surface.overlay;
+    if (path === FIG_RH_OVERLAY_PATH) return figureData().rhOverlay;
+    if (path === FIG_LH_SULC_PATH || path === FIG_RH_SULC_PATH) {
+      const f = figureData();
+      f.sulc ??= computeSurfaceSulcalDepth(fixtures.surface.vertices, fixtures.surface.faces, 'left');
+      return f.sulc;
+    }
+    return null;
+  };
   let jobCounter = 0;
   const jobs = new Map<string, string>();
   // register_categorical_colormap slots (custom slots follow the builtins).
@@ -265,6 +353,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     if (path === ZMAP_PATH) return fixtures.zmap;
     if (path === TMAP_PATH) return fixtures.tmap;
     if (path === ZMAP_NOISY_PATH) return fixtures.zmapNoisy;
+    if (path === ZMAP_MULTIPEAK_PATH) return fixtures.zmapMultipeak;
     if (path === TMAP_NOISY_PATH) return fixtures.tmapNoisy;
     if (path === ATLAS_PATH) return fixtures.atlas;
     return null;
@@ -641,38 +730,47 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
 
     load_surface: ({ path }: { path: string }) => {
-      if (path !== SURFACE_PATH) throw new Error(`harness: no surface fixture for ${path}`);
+      const mesh = surfaceMeshFor(path);
+      if (!mesh) throw new Error(`harness: no surface fixture for ${path}`);
       surfaceCounter += 1;
       const handle = `surf-${surfaceCounter}`;
       surfaces.set(handle, path);
       return {
         type: 'Surface',
         handle,
-        vertex_count: fixtures.surface.vertices.length / 3,
-        face_count: fixtures.surface.faces.length / 3,
-        hemisphere: 'left',
-        surface_type: 'inflated',
+        vertex_count: mesh.vertices.length / 3,
+        face_count: mesh.faces.length / 3,
+        hemisphere: mesh.hemisphere,
+        surface_type: mesh.surfaceType,
       };
     },
     get_surface_geometry: ({ handle }: { handle: string }) => {
-      if (!surfaces.has(handle)) throw new Error(`Surface '${handle}' not found`);
-      return { vertices: fixtures.surface.vertices, faces: fixtures.surface.faces };
+      const path = surfaces.get(handle);
+      const mesh = path ? surfaceMeshFor(path) : null;
+      if (!mesh) throw new Error(`Surface '${handle}' not found`);
+      return { vertices: mesh.vertices, faces: mesh.faces };
     },
     unload_surface: ({ handle }: { handle: string }) => {
       surfaces.delete(handle);
       return { success: true, message: 'unloaded' };
     },
     load_surface_overlay: ({ path, targetSurfaceId }: { path: string; targetSurfaceId: string }) => {
-      if (path !== SURFACE_OVERLAY_PATH) throw new Error(`harness: no overlay fixture for ${path}`);
+      const values = overlayValuesFor(path);
+      // Like the backend: a missing file is error 2010.
+      if (!values) throw new Error(`Overlay file not found: ${path}`);
       overlayCounter += 1;
+      const kind = path.includes('.sulc.') ? 'sulc' : 'sensorimotor';
+      const handle = `overlay_${targetSurfaceId}_${kind}_${overlayCounter}`;
+      overlays.set(handle, values);
       return {
         type: 'SurfaceData',
-        handle: `overlay_${targetSurfaceId}_sensorimotor_${overlayCounter}`,
-        data_count: fixtures.surface.overlay.length,
-        intent: 'functional',
+        handle,
+        data_count: values.length,
+        intent: kind === 'sulc' ? 'shape' : 'functional',
       };
     },
-    get_surface_overlay_data: () => Array.from(fixtures.surface.overlay),
+    get_surface_overlay_data: ({ handle }: { handle?: string } = {}) =>
+      Array.from((handle ? overlays.get(handle) : undefined) ?? fixtures.surface.overlay),
     unload_surface_overlay: () => ({ success: true, message: 'unloaded' }),
 
     list_analyses: () => ANALYSIS_DESCRIPTORS,
@@ -831,6 +929,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     // like a missing file.
     // tauri app version (export provenance): a fixed stub in the harness.
     'plugin:app|version': () => '0.0.0-harness',
+    // tauri-plugin-fs read_file (FreeSurfer lh.sulc / lh.curv sidecars, D2):
+    // the harness has none, so every read fails like a missing file.
+    'plugin:fs|read_file': ({ path }: { path: string }) => {
+      throw new Error(`failed to open file at path: ${path} with error: No such file or directory (os error 2)`);
+    },
     'plugin:fs|read_text_file': ({ path }: { path: string }) => {
       if (path === ATLAS_LUT_PATH) return new TextEncoder().encode(fixtures.atlasLut).buffer;
       throw new Error(`failed to open file at path: ${path} with error: No such file or directory (os error 2)`);

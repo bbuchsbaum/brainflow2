@@ -215,6 +215,11 @@ export class ViewExportService {
     this.exporters.set(key.toLowerCase(), exporter);
   }
 
+  /** The exporter registered for a render context (the composer's surface figures use it). */
+  getExporter(key: string): ExporterFn | undefined {
+    return this.exporters.get(key.toLowerCase());
+  }
+
   unregisterExporter(key: string): void {
     this.exporters.delete(key.toLowerCase());
   }

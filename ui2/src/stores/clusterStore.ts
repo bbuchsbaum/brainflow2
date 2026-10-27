@@ -18,6 +18,13 @@ export interface ClusterParams {
   connectivity: ClusterConnectivity;
   /** Minimum cluster size in voxels; null while the field is empty. */
   minVoxels: number | null;
+  /**
+   * Opt-in cluster-level p (Gaussian random field theory, phase 4 C2). Off
+   * by default: every p value rests on the user's smoothness assumption.
+   */
+  extentP: boolean;
+  /** FWHM in mm as typed: one value ("8") or one per voxel axis ("6 6 8"). */
+  fwhmText: string;
 }
 
 export interface ClusterResult {
@@ -26,6 +33,8 @@ export interface ClusterResult {
   table: ClusterTable;
   /** Region at each cluster's peak (same order as `table.clusters`); null without an atlas. */
   regions: Array<string | null>;
+  /** Region at each sub-peak (`subPeakRegions[i][j]` for `table.clusters[i].subPeaks[j]`). */
+  subPeakRegions?: Array<Array<string | null>>;
   computedAt: number;
 }
 
@@ -42,6 +51,8 @@ interface ClusterStore {
   setComputing: () => void;
   setResult: (result: ClusterResult) => void;
   setError: (message: string) => void;
+  /** A computation was cancelled (superseded): back to the last table, no error. */
+  cancelComputing: () => void;
   select: (id: number | null) => void;
   reset: () => void;
 }
@@ -53,6 +64,8 @@ export const DEFAULT_CLUSTER_PARAMS: ClusterParams = {
   sign: 'both',
   connectivity: 26,
   minVoxels: 1,
+  extentP: false,
+  fwhmText: '',
 };
 
 export const useClusterStore = create<ClusterStore>((set) => ({
@@ -65,6 +78,10 @@ export const useClusterStore = create<ClusterStore>((set) => ({
   setComputing: () => set({ status: 'computing', error: null }),
   setResult: (result) => set({ status: 'ready', result, error: null, selectedId: null }),
   setError: (message) => set({ status: 'error', error: message }),
+  cancelComputing: () =>
+    set((state) =>
+      state.status === 'computing' ? { status: state.result ? 'ready' : 'idle', error: null } : state,
+    ),
   select: (id) => set((state) => (state.selectedId === id ? state : { selectedId: id })),
   reset: () =>
     set({

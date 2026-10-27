@@ -7,6 +7,11 @@ import type { HarnessBackend } from './backend';
 import { BIDS_ROOT, REMOTE_MOUNT_DEMO } from './scenarioData';
 import {
   ATLAS_PATH,
+  FIG_LH_MID_PATH,
+  FIG_LH_OVERLAY_PATH,
+  FIG_LH_PATH,
+  FIG_RH_OVERLAY_PATH,
+  FIG_RH_PATH,
   HARNESS_ROOT,
   MNI_PATH,
   STATS_PATH,
@@ -14,6 +19,7 @@ import {
   SURFACE_PATH,
   TMAP_PATH,
   TMAP_NOISY_PATH,
+  ZMAP_MULTIPEAK_PATH,
   ZMAP_NOISY_PATH,
   ZMAP_PATH,
 } from './backend';
@@ -474,6 +480,67 @@ async function enterDisplayMode(label: 'Compare' | 'Mosaic'): Promise<void> {
 }
 
 /** The export dialog has composed (and shows) its current options. */
+/**
+ * Phase 4 (D): load the figure set's meshes / overlays (backend FIG_ROOT),
+ * wait for the surface tab named `tab`, its canvas, and every loaded surface's
+ * folding underlay from its sulc file.
+ */
+const FIG_OVERLAY_THRESHOLD = 30000;
+
+async function figureSurfaces(paths: string[], tab: string): Promise<void> {
+  await p3Base(['anat']);
+  const { useSurfaceStore } = await import('@/stores/surfaceStore');
+  for (const path of paths) {
+    await loadVolume(path);
+    await frames(5);
+  }
+  await until(
+    () =>
+      Array.from(document.querySelectorAll('.lm_tab.lm_active .lm_title')).some(
+        (el) => el.textContent?.trim() === tab,
+      ),
+    `surface tab ${tab} active (tabs: ${Array.from(document.querySelectorAll('.lm_tab .lm_title'))
+      .map((el) => el.textContent?.trim())
+      .join(', ')})`,
+  );
+  await until(() => !!document.querySelector('.lm_content canvas'), 'surface canvas');
+  await until(
+    () => [...useSurfaceStore.getState().surfaces.values()].every((s) => s.curvatureSource?.kind === 'file'),
+    'folding underlay from the sulc files',
+  );
+  // A figure's threshold: values below 30000 (about half the overlay's
+  // range) are not drawn, so the folding underlay shows through.
+  for (const surface of useSurfaceStore.getState().surfaces.values()) {
+    for (const layer of surface.layers.values()) {
+      useSurfaceStore.getState().updateLayerProperty(surface.handle, layer.id, 'threshold', [0, FIG_OVERLAY_THRESHOLD]);
+    }
+  }
+  for (const surface of useSurfaceStore.getState().surfaces.values()) {
+    const sorted = Float32Array.from(surface.curvature ?? []).sort();
+    const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]?.toFixed(2);
+    noteStep(
+      `${surface.name} (${surface.metadata.hemisphere}): underlay ${surface.curvatureSource?.kind} ${sorted.length} values, p2 ${q(0.02)} p50 ${q(0.5)} p98 ${q(0.98)}`,
+    );
+  }
+  await dismissLoadToasts();
+  await frames(20);
+}
+
+/** Make the visible surface view the active render context (what pointer entry does). */
+async function activateSurfaceView(): Promise<void> {
+  const canvas = Array.from(document.querySelectorAll<HTMLCanvasElement>('.lm_content canvas')).find(
+    (c) => c.getBoundingClientRect().width > 0,
+  );
+  if (!canvas) throw new Error('no visible surface canvas');
+  canvas.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+  const { useActiveRenderContextStore } = await import('@/stores/activeRenderContextStore');
+  await until(
+    () => String(useActiveRenderContextStore.getState().activeId ?? '').startsWith('surfaceview:'),
+    'surface view active',
+  );
+  noteStep(`active view: ${useActiveRenderContextStore.getState().activeId}`);
+}
+
 async function exportSettled(): Promise<void> {
   const { useExportDialogStore } = await import('@/stores/exportDialogStore');
   await frames(2);
@@ -578,6 +645,60 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
         document.querySelector('[data-testid="cluster-methods"]')?.textContent
       }`,
     );
+    await frames(5);
+  },
+  // Phase 4 C1/C2: the same table with cluster p (RFT, a stated 8 mm FWHM)
+  // and cluster 1's sub-peaks open (region per sub-peak).
+  'cluster-subpeaks-rft': async () => {
+    // The z map with two extra blobs inside cluster 1 (fixtures.ts
+    // MULTIPEAK_BLOBS), the atlas hidden for the Region column.
+    await p3Base();
+    await loadStat(ZMAP_MULTIPEAK_PATH, [-6, 6], [-3.1, 3.1]);
+    await loadVolume(ATLAS_PATH, 'add-layer');
+    const atlasId = await layerIdForPath(ATLAS_PATH);
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    useViewStateStore.getState().setViewState((state) => {
+      const atlas = state.layers.find((l) => l.id === atlasId);
+      if (atlas) {
+        atlas.visible = false;
+        atlas.opacity = 0;
+      }
+    });
+    await selectLayer(ZMAP_MULTIPEAK_PATH);
+    window.dispatchEvent(new CustomEvent('golden-layout-add-panel', { detail: { panelType: 'ClusterPanel' } }));
+    await until(() => !!document.querySelector('[data-testid="cluster-panel"]'), 'Clusters dock tab');
+    // Room for the sub-peak rows (what dragging the dock edge does).
+    const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
+    useLayoutSettingsStore.getState().setBottomDockHeight(360);
+    await clickWhere('[data-testid="cluster-panel"] label', (el) => el.textContent?.trim() === 'Cluster p (RFT)', 'Cluster p (RFT)');
+    const field = document.querySelector<HTMLInputElement>('#cluster-fwhm');
+    if (!field) throw new Error('FWHM field not shown');
+    // As typing does: React's onChange through the native value setter.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, '8');
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    await frames(2);
+    await clickWhere('[data-testid="cluster-panel"] button', (el) => el.textContent?.trim() === 'Compute', 'Compute');
+    await until(() => !!document.querySelector('[data-testid="cluster-pfwe-1"]'), 'p(FWE) column');
+    const { useClusterStore } = await import('@/stores/clusterStore');
+    const table = useClusterStore.getState().result!.table;
+    const firstWithPeaks = table.clusters.find((c) => c.subPeaks.length > 0);
+    if (!firstWithPeaks) throw new Error('no cluster with sub-peaks in the multipeak map');
+    {
+      const row = document.querySelector<HTMLElement>(`[data-testid="cluster-row-${firstWithPeaks.id}"]`)!;
+      row.focus();
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await until(() => !!document.querySelector(`[data-testid="cluster-subpeak-${firstWithPeaks.id}-2"]`), 'sub-peak rows');
+    }
+    for (const c of table.clusters) {
+      noteStep(
+        `cluster ${c.id}: ${c.voxelCount} vox, p(FWE) ${c.pFweExtent?.toExponential(3)}, p(unc) ${c.pUncorrectedExtent?.toExponential(3)}, sub-peaks ${c.subPeaks
+          .map((p) => `${p.value.toFixed(2)}@${p.ijk.join(' ')}`)
+          .join('; ')}`,
+      );
+    }
+    const inf = table.extentInference!;
+    noteStep(`RFT: resels ${inf.resels.map((r) => r.toFixed(2)).join(' ')}, Ec ${inf.expectedClusters.toFixed(3)}, search ${inf.searchVoxels} vox`);
+    noteStep(`assumption: ${document.querySelector('[data-testid="cluster-assumption"]')?.textContent}`);
     await frames(5);
   },
   // P3.6: three visible layers, pointer hovering inside the z blob / region 1.
@@ -946,6 +1067,91 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
       "surface preset 'Anterior'",
     );
     await frames(20);
+  },
+  // Phase 4 D2: the grey folding underlay (synthetic sulc file next to the
+  // mesh) under the thresholded overlay, with the orientation glyph (D5).
+  'surface-curvature': async () => {
+    await figureSurfaces([FIG_LH_PATH, FIG_LH_OVERLAY_PATH], 'lh.inflated.gii');
+    // The mesh's Inspector Geometry section: the "Folding" switch and its source.
+    const { useLayerStore } = await import('@/stores/layerStore');
+    const { useSurfaceStore } = await import('@/stores/surfaceStore');
+    const { useInspectorSelectionStore } = await import('@/stores/inspectorSelectionStore');
+    const { buildSceneStack } = await import('@/hooks/useSceneStack');
+    const stack = buildSceneStack(useLayerStore.getState().layers, useSurfaceStore.getState().surfaces, null);
+    const item = stack.surfaces.find((s) => s.kind === 'surface-geometry');
+    if (!item) throw new Error('no surface geometry scene item');
+    useInspectorSelectionStore.getState().setActive(item);
+    await until(() => !!document.querySelector('[aria-label="Folding underlay"]'), 'Folding switch');
+    noteStep(`Folding: ${document.querySelector('[aria-label="Folding underlay"]')?.getAttribute('aria-checked')}`);
+    await frames(5);
+  },
+  // Phase 4 fixtures: the right hemisphere, lateral preset (camera from +x).
+  'surface-rh-lateral': async () => {
+    await figureSurfaces([FIG_RH_PATH, FIG_RH_OVERLAY_PATH], 'rh.inflated.gii');
+    await clickWhere(
+      '[data-testid="surface-camera-presets"] [role="radio"], [data-testid="surface-camera-presets"] button',
+      (el) => el.textContent?.trim() === 'Lateral',
+      "surface preset 'Lateral'",
+    );
+    await frames(20);
+    const { useSurfaceCameraStore } = await import('@/stores/surfaceCameraStore');
+    for (const [view, basis] of useSurfaceCameraStore.getState().bases) {
+      noteStep(`camera ${view}: forward ${basis.forward.map((v) => v.toFixed(2)).join(' ')}`);
+    }
+  },
+  // Phase 4 D3/D4: "Surface lateral + medial" for both hemispheres at
+  // 183 mm, 300 dpi (Figure preset): four poses, one colorbar, a glyph each.
+  'surface-export-latmed': async () => {
+    await figureSurfaces(
+      [FIG_LH_PATH, FIG_LH_OVERLAY_PATH, FIG_RH_PATH, FIG_RH_OVERLAY_PATH],
+      'lh.inflated.gii',
+    );
+    await activateSurfaceView();
+    const { useExportDialogStore } = await import('@/stores/exportDialogStore');
+    const store = useExportDialogStore.getState();
+    store.applyPreset('figure');
+    store.setSize({ kind: 'print', widthMm: 183, dpi: 300 });
+    store.open();
+    await exportSettled();
+    const before = useExportDialogStore.getState().imageUrl;
+    useExportDialogStore.getState().setExportTarget('surface-lat-med');
+    await until(() => useExportDialogStore.getState().imageUrl !== before, 'lateral + medial composed');
+    await exportSettled();
+    noteStep(`export: ${document.querySelector('[data-testid="export-size"]')?.textContent}`);
+    noteStep(`file: ${useExportDialogStore.getState().suggestedName}`);
+  },
+  // Phase 4 D1: the status bar's Vertex slot on the inflated view, read on
+  // the (synthetic) midthickness: the vertex at the overlay's peak, with an
+  // independent nearest-vertex check of the displayed index and value.
+  'surface-status-vertex': async (ctx) => {
+    await figureSurfaces([FIG_LH_PATH, FIG_LH_OVERLAY_PATH, FIG_LH_MID_PATH], 'lh.midthickness.gii');
+    await clickByText('.lm_tab .lm_title', 'lh.inflated.gii');
+    await frames(10);
+    await activateSurfaceView();
+    const overlay = ctx.fixtures.surface.overlay;
+    let peak = 0;
+    for (let i = 1; i < overlay.length; i += 1) if (overlay[i] > overlay[peak]) peak = i;
+    const { useSurfaceStore } = await import('@/stores/surfaceStore');
+    const mid = [...useSurfaceStore.getState().surfaces.values()].find((s) => s.metadata.surfaceType === 'midthickness')!;
+    const v = mid.geometry.vertices;
+    await navigateTo([v[3 * peak], v[3 * peak + 1], v[3 * peak + 2]]);
+    await frames(5);
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    const c = useViewStateStore.getState().viewState.crosshair.world_mm;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < v.length / 3; i += 1) {
+      const d = (v[3 * i] - c[0]) ** 2 + (v[3 * i + 1] - c[1]) ** 2 + (v[3 * i + 2] - c[2]) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    await until(() => !!document.querySelector('[data-testid="status-vertex"]'), 'status Vertex slot');
+    const shown = document.querySelector('[data-testid="status-vertex"]')?.textContent ?? '';
+    noteStep(`crosshair ${c.map((x) => x.toFixed(1)).join(' ')}; peak vertex ${peak}; nearest ${best} at ${Math.sqrt(bestD).toFixed(2)} mm, value ${overlay[best]}`);
+    noteStep(`status Vertex: ${shown}`);
+    if (shown.replace(/,/g, '').trim().split(/\s+/)[0] !== String(best)) throw new Error(`status shows "${shown}", expected vertex ${best}`);
   },
   // v4 fidelity critic: the live crosshair must not run through the
   // orientation letters (it bisected "P", which read as "R"). Fails when any

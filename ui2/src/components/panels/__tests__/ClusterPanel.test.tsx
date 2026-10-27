@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClusterTable } from '@brainflow/api';
 
+const computeMock = () => compute;
 const { compute, selectCluster, goToExtremum } = vi.hoisted(() => ({
   compute: vi.fn(async () => null),
   selectCluster: vi.fn(async () => undefined),
@@ -100,7 +101,80 @@ describe('ClusterPanel', () => {
   it('computes with the toolbar parameters', () => {
     render(<ClusterPanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
-    expect(compute).toHaveBeenCalledWith({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
+    // Cluster-level p is off by default (phase 4 C2: opt-in).
+    expect(compute).toHaveBeenCalledWith({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1, extent: null });
+  });
+
+  it('cluster p (RFT) is opt-in and needs a stated FWHM, one value or three (C2)', () => {
+    render(<ClusterPanel />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cluster p (RFT)' }));
+    const compute = screen.getByRole('button', { name: 'Compute' });
+    expect(compute).toBeDisabled();
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('Enter the FWHM in mm');
+    fireEvent.change(screen.getByLabelText('FWHM'), { target: { value: '6 6 8' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
+    expect(computeMock()).toHaveBeenLastCalledWith(
+      expect.objectContaining({ extent: { fwhmMm: [6, 6, 8], statistic: null } }),
+    );
+  });
+
+  it('shows sub-peaks behind a disclosure, with their regions, and p columns with the assumption (C1/C2)', () => {
+    const withPeaks: ClusterTable = {
+      ...TABLE,
+      maxPeaksPerCluster: 3,
+      minPeakDistanceMm: 8,
+      clusters: [
+        {
+          ...TABLE.clusters[0],
+          subPeaks: [{ value: 4.25, ijk: [7, 8, 9], mm: [-30.5, -19.5, 50.5] }],
+          pFweExtent: 0.0004,
+          pUncorrectedExtent: 0.00001,
+        },
+        { ...TABLE.clusters[1], subPeaks: [], pFweExtent: 0.4321, pUncorrectedExtent: 0.0412 },
+      ],
+      extentInference: {
+        method: 'rft-extent',
+        fwhmMm: [8, 8, 8],
+        statistic: 'z',
+        df: null,
+        df2: null,
+        statisticSource: 'header',
+        clusterFormingThreshold: 3.1,
+        searchVoxels: 1000,
+        resels: [1, 2, 3, 4],
+        voxelsPerResel: 64,
+        expectedClusters: 0.42,
+        expectedVoxelsPerCluster: 3.3,
+        assumption: 'Assumes stationary smoothness of 8 mm FWHM (user-supplied).',
+      },
+    } as ClusterTable;
+    useClusterStore.getState().setParams({ extentP: true, fwhmText: '8' });
+    act(() =>
+      useClusterStore.getState().setResult({
+        layerId: 'z',
+        layerName: 'zmap_synthetic.nii.gz',
+        table: withPeaks,
+        regions: ['A', null],
+        subPeakRegions: [['B'], []],
+        computedAt: 0,
+      }),
+    );
+    render(<ClusterPanel />);
+    expect(screen.getByTestId('cluster-pfwe-1')).toHaveTextContent('< 0.001');
+    expect(screen.getByTestId('cluster-pfwe-2')).toHaveTextContent('0.432');
+    expect(screen.getByTestId('cluster-assumption')).toHaveTextContent('Assumes stationary smoothness of 8 mm FWHM');
+    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('assuming 8 mm FWHM');
+    expect(screen.queryByTestId('cluster-subpeak-1-2')).toBeNull();
+    const row = screen.getByTestId('cluster-row-1');
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('cluster-row-2')).not.toHaveAttribute('aria-expanded');
+    fireEvent.keyDown(row, { key: 'ArrowRight' });
+    const sub = screen.getByTestId('cluster-subpeak-1-2');
+    expect(sub).toHaveTextContent('1.2');
+    expect(sub).toHaveTextContent('4.25');
+    expect(sub).toHaveTextContent('B');
+    fireEvent.click(screen.getByRole('button', { name: 'Hide 1 sub-peak of cluster 1' }));
+    expect(screen.queryByTestId('cluster-subpeak-1-2')).toBeNull();
   });
 
   it('disables Compute and Go to max / min, with the reason, when the layer is not a statistic', () => {

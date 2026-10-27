@@ -53,6 +53,7 @@ import {
 } from './compositeExport';
 import { brainFraming, getNonzeroBbox } from '@/services/mosaic/brainBounds';
 import { getApiService } from '@/services/apiService';
+import { activeSurfaceFigureExporter } from './surfaceExporter';
 
 export type ExportTarget =
   | 'axial'
@@ -60,7 +61,9 @@ export type ExportTarget =
   | 'coronal'
   | 'orthogonal'
   | 'orthogonal-row'
-  | 'mosaic';
+  | 'mosaic'
+  | 'surface'
+  | 'surface-lat-med';
 
 const SLICE_TARGETS: ViewType[] = ['axial', 'sagittal', 'coronal'];
 
@@ -71,7 +74,14 @@ export const EXPORT_TARGET_LABEL: Record<ExportTarget, string> = {
   orthogonal: 'Orthogonal layout',
   'orthogonal-row': 'Figure row (axial | coronal | sagittal)',
   mosaic: 'Mosaic',
+  surface: 'Surface',
+  'surface-lat-med': 'Surface lateral + medial',
 };
+
+/** Surface figure targets (phase 4, D4: services/export/surfaceCapture.ts). */
+export function isSurfaceExportTarget(target: ExportTarget | null | undefined): target is 'surface' | 'surface-lat-med' {
+  return target === 'surface' || target === 'surface-lat-med';
+}
 
 /** Which mosaic slices to export: the page on screen, or a range. */
 export type MosaicTileSpec =
@@ -129,12 +139,14 @@ function activeMosaicSource(): MosaicExportSource | null {
 /** Targets the current workspace can export. */
 export function availableExportTargets(): ExportTarget[] {
   if (activeMosaicSource()) return ['mosaic'];
-  // Compare panels render their own states, and a surface is not a slice:
-  // those keep the plain capture of the active view.
+  // Compare panels render their own states: those keep the plain capture of
+  // the active view. A surface view composes its own poses (D4).
   const workspaceType = useWorkspaceStore.getState().getActiveWorkspace?.()?.type;
   if (workspaceType === 'comparison' || workspaceType === 'set-studio') return [];
   const active = useActiveRenderContextStore.getState().activeId;
-  if (typeof active === 'string' && active.toLowerCase().startsWith('surface')) return [];
+  if (typeof active === 'string' && active.toLowerCase().startsWith('surface')) {
+    return activeSurfaceFigureExporter() ? ['surface', 'surface-lat-med'] : [];
+  }
   const views = useViewStateStore.getState().viewState;
   const hasVolume = views.layers.some((l) => l.visible && l.volumeId);
   return hasVolume ? [...SLICE_TARGETS, 'orthogonal', 'orthogonal-row'] : [];
@@ -145,6 +157,7 @@ export function defaultExportTarget(): ExportTarget | null {
   const available = availableExportTargets();
   if (available.length === 0) return null;
   if (available.includes('mosaic')) return 'mosaic';
+  if (available.includes('surface')) return 'surface';
   const active = useActiveRenderContextStore.getState().activeId;
   const id = typeof active === 'string' ? active.toLowerCase() : '';
   return (SLICE_TARGETS as string[]).includes(id) ? (id as ExportTarget) : 'axial';
@@ -654,6 +667,10 @@ export async function captureComposite(
   format: ExportFormat,
   request: CompositeRequest,
 ): Promise<CompositeCapture> {
+  if (isSurfaceExportTarget(target)) {
+    const { captureSurfaceComposite } = await import('./surfaceCapture');
+    return captureSurfaceComposite(target, format, request);
+  }
   // Captions are drawn with the app's fonts: wait for them (preview = file).
   if (typeof document !== 'undefined' && document.fonts?.ready) await document.fonts.ready;
   const settings = useCrosshairSettingsStore.getState().settings;

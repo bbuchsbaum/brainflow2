@@ -76,6 +76,14 @@ export const P3_SCENARIOS = [
   'native-export-crop',
   'native-export-crop-zfirst',
   'crosshair-letter-knockout',
+  // Phase 4 D (surface figures): folding underlay, right hemisphere, the
+  // lateral + medial export, the status-bar vertex readout.
+  'surface-curvature',
+  'surface-rh-lateral',
+  'surface-export-latmed',
+  'surface-status-vertex',
+  // Phase 4 C1/C2: sub-peaks open, cluster-level p (RFT) with its assumption.
+  'cluster-subpeaks-rft',
 ];
 
 /** Phase 3 viewport variants (capture-only): `files` exists only at 1280x800. */

@@ -5,7 +5,8 @@
  * the contract the app ships. Same rules: strict thresholds per sign,
  * 6/18/26 neighbours by Manhattan distance, x-fastest seed order, |peak|
  * ties keep the earliest voxel, rows sorted by |peak| desc, then size desc,
- * then first voxel.
+ * then first voxel. Sub-peaks (phase 4 C1) as `local_maxima` + `select_peaks`;
+ * cluster-extent p (C2) through ./rftExtent.ts.
  */
 import type {
   ClusterPolarity,
@@ -17,6 +18,7 @@ import type {
   VoxelLocation,
 } from '@brainflow/api';
 import type { VolumeFixture } from './fixtures';
+import { applyExtentInference, type ExtentRequest } from './rftExtent';
 
 type Vec3 = [number, number, number];
 
@@ -74,6 +76,9 @@ export interface ClusterQuery {
   connectivity?: number | null;
   minVoxels?: number | null;
   maxClusters?: number | null;
+  maxPeaksPerCluster?: number | null;
+  minPeakDistanceMm?: number | null;
+  extent?: ExtentRequest | null;
 }
 
 export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTable {
@@ -88,6 +93,11 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
   const sign: ClusterSign = query.sign ?? 'both';
   const minVoxels = query.minVoxels ?? 1;
   const maxClusters = Math.max(query.maxClusters ?? 500, 1);
+  const maxPeaks = query.maxPeaksPerCluster ?? 3;
+  const minPeakDistance = query.minPeakDistanceMm ?? 8;
+  if (!Number.isInteger(maxPeaks) || maxPeaks < 1 || maxPeaks > 32 || !Number.isFinite(minPeakDistance) || minPeakDistance < 0) {
+    throw Object.assign(new Error('Peaks per cluster must be 1..32 and the peak distance finite and >= 0'), { code: 4079 });
+  }
   const [nx, ny, nz] = vol.dims;
   const values = vol.data;
   const polarity = (v: number): ClusterPolarity | null => {
@@ -97,7 +107,9 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
     return null;
   };
   const offsets = neighbourOffsets(connectivity);
-  const visited = new Uint8Array(values.length);
+  // 0 = unlabelled, else the 1-based component (the backend's `labels`).
+  const visited = new Int32Array(values.length);
+  let nextLabel = 0;
   const stack: number[] = [];
   interface Acc {
     polarity: ClusterPolarity;
@@ -111,6 +123,8 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
     peakValue: number;
     lo: Vec3;
     hi: Vec3;
+    label: number;
+    members: number[];
   }
   const kept: Acc[] = [];
   let discarded = 0;
@@ -119,7 +133,8 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
     if (visited[seed]) continue;
     const pol = polarity(values[seed]);
     if (!pol) continue;
-    visited[seed] = 1;
+    nextLabel += 1;
+    visited[seed] = nextLabel;
     stack.push(seed);
     const acc: Acc = {
       polarity: pol,
@@ -133,6 +148,8 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
       peakValue: values[seed],
       lo: [Infinity, Infinity, Infinity],
       hi: [0, 0, 0],
+      label: nextLabel,
+      members: [],
     };
     while (stack.length) {
       const index = stack.pop()!;
@@ -140,6 +157,7 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
       const j = Math.floor(index / nx) % ny;
       const k = Math.floor(index / (nx * ny));
       const v = values[index];
+      acc.members.push(index);
       acc.count += 1;
       acc.sumValue += v;
       const w = Math.abs(v);
@@ -162,7 +180,7 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
         if (a < 0 || b < 0 || c < 0 || a >= nx || b >= ny || c >= nz) continue;
         const n = a + nx * (b + ny * c);
         if (!visited[n] && polarity(values[n]) === pol) {
-          visited[n] = 1;
+          visited[n] = nextLabel;
           stack.push(n);
         }
       }
@@ -176,6 +194,36 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
       Math.abs(b.peakValue) - Math.abs(a.peakValue) || b.count - a.count || a.first - b.first,
   );
   const vv = voxelVolume(vol.affine);
+  const ijkOf = (n: number): Vec3 => [n % nx, Math.floor(n / nx) % ny, Math.floor(n / (nx * ny))];
+  // local_maxima: strictly above every same-cluster neighbour (ties: lower
+  // index wins), strongest first; then select_peaks: greedy, >= min distance.
+  const subPeaksOf = (acc: { polarity: ClusterPolarity; label: number; members: number[] }) => {
+    const s = acc.polarity === 'positive' ? 1 : -1;
+    const maxima = acc.members.filter((index) => {
+      const value = values[index] * s;
+      const [i, j, k] = ijkOf(index);
+      return offsets.every(([di, dj, dk]) => {
+        const a = i + di;
+        const b = j + dj;
+        const c = k + dk;
+        if (a < 0 || b < 0 || c < 0 || a >= nx || b >= ny || c >= nz) return true;
+        const n = a + nx * (b + ny * c);
+        if (visited[n] !== acc.label) return true;
+        const vn = values[n] * s;
+        return vn < value || (vn === value && index < n);
+      });
+    });
+    maxima.sort((a, b) => values[b] * s - values[a] * s || a - b);
+    const accepted: Array<{ index: number; mm: Vec3 }> = [];
+    for (const index of maxima) {
+      if (accepted.length >= maxPeaks) break;
+      const mm = voxelToWorld(vol.affine, ijkOf(index));
+      if (accepted.every((o) => Math.hypot(mm[0] - o.mm[0], mm[1] - o.mm[1], mm[2] - o.mm[2]) >= minPeakDistance)) {
+        accepted.push({ index, mm });
+      }
+    }
+    return accepted.slice(1).map(({ index, mm }) => ({ value: values[index], ijk: ijkOf(index), mm }));
+  };
   const clusters: ClusterSummary[] = kept.slice(0, maxClusters).map((acc, rank) => {
     const centroidIjk = acc.sumIjk.map((s) => f32(s / acc.count)) as Vec3;
     const weightedIjk =
@@ -201,9 +249,12 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
       bboxIjkMax: [...acc.hi] as Vec3,
       bboxMmMin,
       bboxMmMax,
+      subPeaks: maxPeaks > 1 ? subPeaksOf(acc) : [],
+      pFweExtent: null,
+      pUncorrectedExtent: null,
     };
   });
-  return {
+  const table: ClusterTable = {
     clusters,
     threshold,
     sign,
@@ -215,7 +266,12 @@ export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTa
     totalClusters: kept.length,
     discardedClusters: discarded,
     truncated: kept.length > maxClusters,
+    maxPeaksPerCluster: maxPeaks,
+    minPeakDistanceMm: minPeakDistance,
+    extentInference: null,
   };
+  if (query.extent) applyExtentInference(table, vol, query.extent);
+  return table;
 }
 
 /** First voxel (x-fastest) holding the max / min / largest-|value| finite value. */

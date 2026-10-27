@@ -7,6 +7,9 @@
  * - Table: one row per cluster (rank by |peak|), mono right-aligned numbers,
  *   U+2212 minus. Click / Enter / arrow keys move the crosshair to the peak.
  * - Footer: the methods sentence, Copy CSV, Go to max / min.
+ * - Phase 4 (C1/C2): each cluster's sub-peaks behind a disclosure (region
+ *   per sub-peak too), and opt-in cluster-level p (RFT) from a user-supplied
+ *   FWHM: p(FWE) / p(unc) columns, the assumption under the methods line.
  *
  * The target layer is the active layer (the same rule as the viewport header,
  * colorbar and status bar), when it is a scalar volume.
@@ -15,7 +18,9 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { ClusterSign, ClusterSummary } from '@brainflow/api';
 import {
   Button,
+  Checkbox,
   EmptyPane,
+  TextField,
   focusFallback,
   Notice,
   NumberField,
@@ -32,7 +37,7 @@ import { useClusterStore, type ClusterConnectivity } from '@/stores/clusterStore
 import { useActiveLayer } from '@/utils/activeLayer';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { buildSceneStack } from '@/hooks/useSceneStack';
-import { statisticUnits } from '@/utils/statistic';
+import { isInferredStatistic, statisticUnits } from '@/utils/statistic';
 import { formatLayerValue, formatWorldMm } from '@/utils/valueFormat';
 import { trueMinus } from '@/components/views/viewportFrame/frameFormat';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
@@ -41,7 +46,10 @@ import {
   clusterTableCsv,
   colormapEnds,
   displayThresholdMagnitude,
+  formatClusterP,
+  fwhmDescription,
   getClusterService,
+  parseFwhm,
 } from '@/services/ClusterService';
 import { getEventBus } from '@/events/EventBus';
 import { cn } from '@/utils/cn';
@@ -123,6 +131,13 @@ function SortHeader({
 }
 
 const sameValue = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a));
+
+/** The table's FWHM (per axis) against the field's (one value or three). */
+function sameFwhm(table: readonly number[], field: number | readonly number[] | null): boolean {
+  if (field === null) return false;
+  const axes = typeof field === 'number' ? [field, field, field] : field;
+  return table.every((v, i) => sameValue(v, axes[i]));
+}
 
 const MM = 'inline-block w-[6.5ch] text-right';
 
@@ -208,6 +223,8 @@ export function ClusterPanel() {
   const thresholdInvalid = threshold === null || !Number.isFinite(threshold) || threshold < 0;
   const minInvalid =
     params.minVoxels === null || !Number.isInteger(params.minVoxels) || params.minVoxels < 1;
+  const fwhm = params.extentP ? parseFwhm(params.fwhmText) : null;
+  const fwhmInvalid = params.extentP && fwhm === null;
   const computing = status === 'computing';
   // Clusters need a statistical layer: a T1 at |value| > 0 is one 100k-voxel
   // "cluster" (v4 user critic). Disabled controls say why.
@@ -216,23 +233,35 @@ export function ClusterPanel() {
     : !target || !symbol
       ? 'Clusters need a statistical layer (a z, t or F map)'
       : null;
-  const thresholdReason =
-    !notStatReason && threshold === null ? 'Enter a threshold (the layer has no display threshold)' : null;
-  const canCompute = !notStatReason && !thresholdInvalid && !minInvalid && !computing;
+  const thresholdReason = notStatReason
+    ? null
+    : threshold === null
+      ? 'Enter a threshold (the layer has no display threshold)'
+      : fwhmInvalid
+        ? 'Enter the FWHM in mm (one value, or three for i j k) for cluster p'
+        : null;
+  const canCompute = !notStatReason && !thresholdInvalid && !minInvalid && !fwhmInvalid && !computing;
   // Shown under the toolbar row when the EmptyPane does not already say it.
   const computeReason = notStatReason && target ? notStatReason : thresholdReason;
   const activeName = useLayerStore((s) => (active ? s.layers.find((l) => l.id === active.id)?.name : undefined));
 
   const compute = useCallback(() => {
     if (!target || threshold === null || params.minVoxels === null) return;
+    if (params.extentP && fwhm === null) return;
+    // A statistic known only from the file name is declared to the backend
+    // (it reads the header); a z needs nothing more, a t its df (not known).
+    const statistic = layer?.statistic;
+    const declared =
+      statistic && isInferredStatistic(statistic) && statistic.kind === 'z' ? ('z' as const) : null;
     void getClusterService().compute({
       layerId: target.id,
       threshold,
       sign: params.sign,
       connectivity: params.connectivity,
       minVoxels: params.minVoxels,
+      extent: params.extentP && fwhm !== null ? { fwhmMm: fwhm, statistic: declared } : null,
     });
-  }, [target, threshold, params.sign, params.connectivity, params.minVoxels]);
+  }, [target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, layer?.statistic]);
 
   // The table's own statistic (its layer may no longer be the active one):
   // headers, the empty line and the methods sentence use it, never the
@@ -257,9 +286,11 @@ export function ClusterPanel() {
       !sameValue(t.threshold, threshold) ||
       t.sign !== params.sign ||
       t.connectivity !== params.connectivity ||
-      t.minVoxels !== params.minVoxels;
+      t.minVoxels !== params.minVoxels ||
+      !!t.extentInference !== params.extentP ||
+      (t.extentInference !== null && t.extentInference !== undefined && !sameFwhm(t.extentInference.fwhmMm, fwhm));
     return changed ? 'Parameters changed since this table.' : null;
-  }, [result, target, threshold, params.sign, params.connectivity, params.minVoxels]);
+  }, [result, target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm]);
 
   // Sortable by rank (#, = |peak| descending, the backend order), voxels or
   // |peak|. Regions travel with their cluster (indexed by rank).
@@ -270,6 +301,28 @@ export function ClusterPanel() {
     return map;
   }, [result]);
   const clusters = useMemo(() => sortClusters(result?.table.clusters ?? [], sort), [result, sort]);
+  const subRegionById = useMemo(() => {
+    const map = new Map<number, ReadonlyArray<string | null>>();
+    result?.table.clusters.forEach((c, i) => map.set(c.id, result.subPeakRegions?.[i] ?? []));
+    return map;
+  }, [result]);
+  const hasExtentP = !!result?.table.extentInference;
+  // Clusters whose sub-peaks are shown (reset with each new table).
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
+  const [expandedFor, setExpandedFor] = useState(result);
+  if (expandedFor !== result) {
+    setExpandedFor(result);
+    setExpanded(new Set());
+  }
+  const toggle = useCallback((id: number, open: boolean) => {
+    setExpanded((prev) => {
+      if (prev.has(id) === open) return prev;
+      const next = new Set(prev);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
   const ids = useMemo(() => clusters.map((c) => String(c.id)), [clusters]);
   const select = useCallback((id: string) => {
     void getClusterService().selectCluster(Number(id));
@@ -291,7 +344,7 @@ export function ClusterPanel() {
         useLayerStore.getState().layers.find((l) => l.id === result.layerId)?.statistic,
         useLayerStore.getState().layerMetadata.get(result.layerId)?.dataRange,
       ),
-    });
+    }, result.subPeakRegions);
     try {
       await navigator.clipboard.writeText(csv);
       getEventBus().emit('ui.notification', {
@@ -399,6 +452,35 @@ export function ClusterPanel() {
           invalid={minInvalid}
           onValueChange={(v) => setParams({ minVoxels: v })}
         />
+        {/* Opt-in cluster-level p: off by default, and only with a stated
+            smoothness (never estimated from the map). */}
+        <Checkbox
+          checked={params.extentP}
+          onCheckedChange={(checked) => setParams({ extentP: checked })}
+          title="Cluster-extent p values by Gaussian random field theory, from the smoothness you state"
+        >
+          Cluster p (RFT)
+        </Checkbox>
+        {params.extentP ? (
+          <>
+            <label className="text-bf-text-secondary" htmlFor="cluster-fwhm">
+              FWHM
+            </label>
+            <TextField
+              id="cluster-fwhm"
+              mono
+              className="h-6 w-[11ch]"
+              value={params.fwhmText}
+              invalid={fwhmInvalid && params.fwhmText.trim() !== ''}
+              placeholder="mm"
+              aria-describedby="cluster-fwhm-hint"
+              onChange={(e) => setParams({ fwhmText: e.target.value })}
+            />
+            <span id="cluster-fwhm-hint" className="text-bf-2xs text-bf-text-muted">
+              mm, assumed stationary
+            </span>
+          </>
+        ) : null}
         {/* Why Compute is off, as text (a disabled button's tooltip is out
             of reach without a mouse); the default threshold is said too. */}
         {computeReason || seededDefault !== null ? (
@@ -482,6 +564,9 @@ export function ClusterPanel() {
           >
             <thead className="sticky top-0 bg-bf-bg-panel text-bf-text-muted">
               <tr className="h-6 text-left font-sans">
+                <th scope="col" className="w-6 font-normal">
+                  <span className="sr-only">Sub-peaks</span>
+                </th>
                 <SortHeader label="#" sortKey="rank" sort={sort} onSort={setSort} className="w-8" title="Rank by |peak| (backend order)" />
                 <th scope="col" className="w-6 font-normal">
                   <span className="sr-only">Sign</span>
@@ -490,6 +575,24 @@ export function ClusterPanel() {
                 <th scope="col" className="px-2 text-right font-normal">
                   mm³
                 </th>
+                {hasExtentP ? (
+                  <>
+                    <th
+                      scope="col"
+                      className="px-2 text-right font-normal"
+                      title="Cluster-level p, family-wise corrected (Gaussian random field theory; see the assumption below)"
+                    >
+                      p(FWE)
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-2 text-right font-normal"
+                      title="Cluster-level p, uncorrected: P(a cluster this large or larger)"
+                    >
+                      p(unc)
+                    </th>
+                  </>
+                ) : null}
                 <SortHeader
                   label={<>Peak {resultSymbol ? <StatSymbol label={resultSymbol} /> : ''}</>}
                   sortKey="peak"
@@ -519,9 +622,11 @@ export function ClusterPanel() {
               {clusters.map((c: ClusterSummary) => {
                 const selected = c.id === selectedId;
                 const region = regionById.get(c.id) ?? null;
+                const subPeaks = c.subPeaks ?? [];
+                const open = expanded.has(c.id);
                 return (
+                  <React.Fragment key={c.id}>
                   <tr
-                    key={c.id}
                     {...roving.getItemProps(String(c.id))}
                     aria-selected={selected}
                     data-testid={`cluster-row-${c.id}`}
@@ -530,15 +635,37 @@ export function ClusterPanel() {
                       selected ? SELECTED : `text-bf-text-secondary ${HOVER_FILL}`,
                       FOCUS_RING_INSET,
                     )}
+                    aria-expanded={subPeaks.length > 0 ? open : undefined}
                     onClick={() => select(String(c.id))}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         select(String(c.id));
+                      } else if (subPeaks.length > 0 && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+                        // Tree-grid convention: right opens, left closes.
+                        e.preventDefault();
+                        toggle(c.id, e.key === 'ArrowRight');
                       }
                     }}
                     title={`Cluster ${c.id}: go to peak`}
                   >
+                    <td className="pl-1.5 text-center text-bf-text-muted">
+                      {subPeaks.length > 0 ? (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label={`${open ? 'Hide' : 'Show'} ${subPeaks.length} sub-peak${subPeaks.length === 1 ? '' : 's'} of cluster ${c.id}`}
+                          title={`${subPeaks.length} sub-peak${subPeaks.length === 1 ? '' : 's'}`}
+                          className="rounded-sm px-0.5 hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggle(c.id, !open);
+                          }}
+                        >
+                          {open ? '▾' : '▸'}
+                        </button>
+                      ) : null}
+                    </td>
                     <td className="px-2 text-right text-bf-text-muted">{c.id}</td>
                     <td>
                       <span
@@ -551,6 +678,16 @@ export function ClusterPanel() {
                     </td>
                     <td className="px-2 text-right">{c.voxelCount}</td>
                     <td className="px-2 text-right">{Math.round(c.volumeMm3)}</td>
+                    {hasExtentP ? (
+                      <>
+                        <td className="whitespace-nowrap px-2 text-right" data-testid={`cluster-pfwe-${c.id}`}>
+                          {formatClusterP(c.pFweExtent)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 text-right text-bf-text-muted">
+                          {formatClusterP(c.pUncorrectedExtent)}
+                        </td>
+                      </>
+                    ) : null}
                     {/* Fixed 2 decimals so the column's decimal points align. */}
                     <td className="px-2 text-right">{trueMinus(c.peakValue.toFixed(2))}</td>
                     <td className="px-2 text-right">
@@ -569,6 +706,42 @@ export function ClusterPanel() {
                       {region ?? '—'}
                     </td>
                   </tr>
+                  {open
+                    ? subPeaks.map((p, j) => {
+                        const subRegion = subRegionById.get(c.id)?.[j] ?? null;
+                        return (
+                          <tr
+                            key={`${c.id}-${j}`}
+                            data-testid={`cluster-subpeak-${c.id}-${j + 2}`}
+                            className={cn('h-6 cursor-pointer text-bf-text-muted', HOVER_FILL)}
+                            onClick={() => void getClusterService().goToSubPeak(c.id, j)}
+                            title={`Cluster ${c.id}, peak ${j + 2}: go to it`}
+                          >
+                            <td />
+                            <td className="px-2 text-right">{`${c.id}.${j + 2}`}</td>
+                            <td />
+                            <td />
+                            <td />
+                            {hasExtentP ? (
+                              <>
+                                <td />
+                                <td />
+                              </>
+                            ) : null}
+                            <td className="px-2 text-right">{trueMinus(p.value.toFixed(2))}</td>
+                            <td className="px-2 text-right">
+                              <MmTriple value={p.mm} />
+                            </td>
+                            <td className="whitespace-nowrap px-2 text-right">{formatVoxelIndex(p.ijk)}</td>
+                            <td />
+                            <td className="max-w-[24ch] truncate px-2 font-sans" title={subRegion ?? 'No atlas region'}>
+                              {subRegion ?? '—'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    : null}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -632,6 +805,16 @@ export function ClusterPanel() {
             Go to min
           </Button>
         </span>
+        {!stale && result?.table.extentInference ? (
+          // Every p value rests on this: always visible with them.
+          <span
+            className="basis-full text-bf-2xs text-bf-text-muted"
+            data-testid="cluster-assumption"
+            title={`FWHM ${fwhmDescription(result.table.extentInference)}; ${result.table.extentInference.expectedClusters.toFixed(2)} clusters expected by chance`}
+          >
+            {result.table.extentInference.assumption}
+          </span>
+        ) : null}
       </div>
     </div>
   );
