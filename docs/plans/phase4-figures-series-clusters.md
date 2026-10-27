@@ -282,3 +282,35 @@ between-subject bands. A population mean is never projected.
 A projection stage slots in front of the transforms without changing the population stage. Do
 not add basis evaluation code to Brainflow; coordinate the `project_series` request/response
 schema with the analysis module before building.
+
+## Outcome (2026-10-27)
+
+Shipped on `phase4/figures-series`: Step 0 (adopted shader/readback/transport repairs), A1 voxel-centre edge
+sampling, A2 per-region outline colours with a dark halo, B raw IPC export payloads and cancellable cluster
+compute, C cluster sub-peaks and opt-in RFT cluster-extent p in the new `core/neuro-inference` crate (two-tailed
+when both signs are searched; search volume from the map support or a binary brain mask; p withheld on
+pre-thresholded maps), D surface figures (vertex slot, folding underlay, lateral + medial capture through the
+composer, orientation glyph), and E1-E6 series exploration (typed series axes, region/parcel/cluster loci, cluster
+label volumes, t-based CI and median/IQR bands, baseline / paired difference / window-mean transforms, one Series
+plot mode, FIR fixtures) plus E5b segmented series (runs as concatenated / faceted / overlaid). E7 (coefficients to
+series via basis projection) is recorded above as an interface plan only; the fMRI analysis module owns bases.
+
+- Hill climb `.hillclimb/p4`: baseline v0 + three rounds + a closing round, four fresh-context critics per round.
+  Means v0 -> v4: visual 6.00 -> 7.25, function 6.38 -> 7.12, target user 6.12 -> 8.00, scientific fidelity
+  6.12 -> 8.00 (three fidelity FAILs at v0, two at v2, none at v3/v4). Every plotted, logged and exported number
+  was recomputed independently each round. Monitor: https://claude.ai/artifact/3o6Uzc5n1gQLzjjGPnQS8g.
+- Fresh-context code review (backend with three sub-reviews; frontend): no blockers; majors fixed (cluster label
+  volume leak and lock order, pre-thresholded maps, true binary mask test, R16 fallback without float32 filtering,
+  series-axis validation and a promotion regression, condition difference grouping, stale pinned cluster probes,
+  BOLD classification on real data).
+- Native acceptance in the real app on Metal (`.hillclimb/native-check/p4/`, reports in
+  `~/Documents/brainflow-p4-native/screens/`), four rounds. Round 1 found a long-standing bug: File > Open loaded
+  every 4D NIfTI as frame 0 only (fixed in the native load path). Later rounds fixed voxel-edge view framing,
+  surface threshold and vertex pick, run-group window pooling and visibility ownership, the 4D first frame, and
+  export cropping. Round 4: all items pass.
+
+Follow-ups (not in this PR): plot export through the composer Figure/Print preset (the main blocker for FIR and
+run figures); peak-level p; surface colorbar quantity/unit and a 1x4 layout; a brain-only EPI window option;
+population-slice cutouts framed to voxel edges (sampler reads integer pixels); opening a right-hemisphere surface
+pane; a per-row visibility toggle in the layer list for runs; surface hover updating the vertex slot (needs a
+neurosurface hover event); delete the unused `ui2/src/components/plots/RawSeriesLocus.tsx`.
