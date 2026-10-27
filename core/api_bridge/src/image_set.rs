@@ -38,7 +38,7 @@ pub struct ImageSetMemberLabel {
 }
 
 /// A bounded, ordered set of co-registered 3-D members addressed by a generic
-/// index. Members share a spatial grid and dtype; only the voxel data differs.
+/// index. Members share a spatial grid; their dtypes may differ.
 pub trait ImageSet: Send {
     /// Number of members in the set.
     fn len(&self) -> usize;
@@ -51,7 +51,7 @@ pub trait ImageSet: Send {
     /// Spatial dimensions `[x, y, z]` shared by every member.
     fn spatial_dims(&self) -> [usize; 3];
 
-    /// GPU byte footprint of a single member (used for the VRAM budget).
+    /// Conservative GPU byte bound for any single member (used for the VRAM budget).
     fn bytes_per_member(&self) -> u64;
 
     /// Ontology-aware label for member `index`.
@@ -63,14 +63,17 @@ pub trait ImageSet: Send {
     fn materialize(&self, index: usize) -> BridgeResult<VolumeSendable>;
 }
 
-/// GPU bytes one voxel occupies once uploaded, matching the uploader's format
-/// choice: `U8` scalar data becomes `R8Unorm` (1 byte); everything else (and any
-/// label/atlas volume) becomes `R16Float` (2 bytes). See
-/// `render_loop::RenderLoopService::upload_volume_3d_labelaware`.
+/// Conservative GPU bytes per voxel without inspecting voxel values. U8/I8 fit
+/// R16Float; I16 scalars fit its range, but labels can require R32Float for exact
+/// identifiers. Other types may require R32Float due to precision or range.
 pub fn gpu_bytes_per_voxel(volume: &VolumeSendable, preserve_integer_labels: bool) -> u64 {
     match volume {
-        VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_) if !preserve_integer_labels => 1,
-        _ => 2,
+        VolumeSendable::VolU8(_, _)
+        | VolumeSendable::Vec4DU8(_)
+        | VolumeSendable::VolI8(_, _)
+        | VolumeSendable::Vec4DI8(_) => 2,
+        VolumeSendable::VolI16(_, _) | VolumeSendable::Vec4DI16(_) if !preserve_integer_labels => 2,
+        _ => 4,
     }
 }
 
@@ -120,7 +123,8 @@ impl Raw4DImageSet {
         }
         let spatial_dims = volume_spatial_dims(&volume);
         let voxels = (spatial_dims[0] as u64) * (spatial_dims[1] as u64) * (spatial_dims[2] as u64);
-        let bytes_per_member = voxels * gpu_bytes_per_voxel(&volume, false);
+        // Label preservation is chosen later, so reserve for the larger case.
+        let bytes_per_member = voxels * gpu_bytes_per_voxel(&volume, true);
         Some(Self {
             volume,
             len,
@@ -656,15 +660,19 @@ pub struct SetStudioImageSet {
 }
 
 impl SetStudioImageSet {
-    /// Wrap a non-empty list of pre-loaded cohort members. `spatial_dims` and the
-    /// per-member byte footprint are taken from the first member (members are
-    /// assumed co-registered — the studio import enforces a shared grid). Returns
-    /// `None` for an empty cohort.
+    /// Wrap a non-empty list of pre-loaded cohort members. The spatial grid is
+    /// taken from the first member (the studio import enforces a shared
+    /// grid). The byte bound uses the largest member dtype. Returns `None` for
+    /// an empty cohort.
     pub fn new(members: Vec<SetStudioMember>, preserve_labels: bool) -> Option<Self> {
         let first = members.first()?;
         let spatial_dims = volume_spatial_dims(&first.volume);
         let voxels = (spatial_dims[0] as u64) * (spatial_dims[1] as u64) * (spatial_dims[2] as u64);
-        let bytes_per_member = voxels * gpu_bytes_per_voxel(&first.volume, preserve_labels);
+        let max_bytes_per_voxel = members
+            .iter()
+            .map(|member| gpu_bytes_per_voxel(&member.volume, preserve_labels))
+            .max()?;
+        let bytes_per_member = voxels * max_bytes_per_voxel;
         Some(Self {
             members,
             spatial_dims,
@@ -971,6 +979,61 @@ mod tests {
     }
 
     #[test]
+    fn gpu_byte_bounds_cover_upload_formats_and_mixed_cohorts() {
+        use volmath::{DenseVolume3, NeuroSpace, NeuroSpace3, NeuroSpaceExt};
+        let space = NeuroSpace3::new(
+            NeuroSpace::from_dims_spacing_origin(vec![2, 2, 2], vec![1.0; 3], vec![0.0; 3])
+                .unwrap(),
+        );
+        let u8_volume = std::sync::Arc::new(VolumeSendable::VolU8(
+            DenseVolume3::from_data(space.0.clone(), vec![1u8; 8]),
+            nalgebra::Affine3::identity(),
+        ));
+        let i16_volume = VolumeSendable::VolI16(
+            DenseVolume3::from_data(space.0, vec![1i16; 8]),
+            nalgebra::Affine3::identity(),
+        );
+        let f32_volume = tiny_f32_volume();
+        assert_eq!(gpu_bytes_per_voxel(&u8_volume, false), 2);
+        assert_eq!(gpu_bytes_per_voxel(&u8_volume, true), 2);
+        assert_eq!(gpu_bytes_per_voxel(&i16_volume, false), 2);
+        assert_eq!(gpu_bytes_per_voxel(&i16_volume, true), 4);
+        assert_eq!(gpu_bytes_per_voxel(&f32_volume, false), 4);
+        let cohort = SetStudioImageSet::new(
+            vec![
+                SetStudioMember {
+                    member_id: "u8".into(),
+                    volume: u8_volume,
+                    design_values: vec![],
+                },
+                SetStudioMember {
+                    member_id: "f32".into(),
+                    volume: f32_volume,
+                    design_values: vec![],
+                },
+            ],
+            false,
+        )
+        .unwrap();
+        assert_eq!(cohort.bytes_per_member(), 32);
+    }
+
+    #[test]
+    fn raw_i16_reserves_for_possible_label_preservation() {
+        let space = volmath::NeuroSpace::new(
+            vec![2, 2, 2, 2],
+            Some(vec![1.0; 4]),
+            Some(vec![0.0; 4]),
+            None,
+            None,
+        )
+        .unwrap();
+        let volume = VolumeSendable::Vec4DI16(neuroim::DenseNeuroVec::<i16>::zeros(space).unwrap());
+        let set = Raw4DImageSet::new(std::sync::Arc::new(volume), None).unwrap();
+        assert_eq!(set.bytes_per_member(), 32);
+    }
+
+    #[test]
     fn set_studio_labels_use_design_values_and_dims() {
         let set = SetStudioImageSet::new(
             vec![
@@ -983,8 +1046,8 @@ mod tests {
 
         assert_eq!(set.len(), 2);
         assert_eq!(set.spatial_dims(), [2, 2, 2]);
-        // 8 voxels * 2 bytes/voxel (f32 -> R16Float).
-        assert_eq!(set.bytes_per_member(), 16);
+        // Eight voxels, reserving four bytes each for possible R32Float upload.
+        assert_eq!(set.bytes_per_member(), 32);
 
         let label = set.member_label(0);
         assert_eq!(label.index, 0);

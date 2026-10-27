@@ -4258,31 +4258,40 @@ async fn request_layer_gpu_resources_with_upload_hook(
                 spatial_dims[2] as u32,
             ];
 
-            let gpu_format = match volume_data {
-                VolumeSendable::VolF32(_, _) | VolumeSendable::Vec4DF32(_) => {
-                    GpuTextureFormat::R32Float
+            let gpu_format = if metadata_only_flag {
+                // No allocation exists yet; retain a source-type hint for this
+                // provisional response. Uploaded layers report actual storage.
+                match volume_data {
+                    VolumeSendable::VolF32(_, _) | VolumeSendable::Vec4DF32(_) => {
+                        GpuTextureFormat::R32Float
+                    }
+                    VolumeSendable::VolI16(_, _) | VolumeSendable::Vec4DI16(_) => {
+                        GpuTextureFormat::R16Float
+                    }
+                    VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_) => {
+                        GpuTextureFormat::R8Unorm
+                    }
+                    VolumeSendable::VolI8(_, _) | VolumeSendable::Vec4DI8(_) => {
+                        GpuTextureFormat::R8Unorm
+                    }
+                    VolumeSendable::VolU16(_, _) | VolumeSendable::Vec4DU16(_) => {
+                        GpuTextureFormat::R16Float
+                    }
+                    VolumeSendable::VolI32(_, _) | VolumeSendable::Vec4DI32(_) => {
+                        GpuTextureFormat::R32Float
+                    }
+                    VolumeSendable::VolU32(_, _) | VolumeSendable::Vec4DU32(_) => {
+                        GpuTextureFormat::R32Float
+                    }
+                    VolumeSendable::VolF64(_, _) | VolumeSendable::Vec4DF64(_) => {
+                        GpuTextureFormat::R32Float
+                    }
                 }
-                VolumeSendable::VolI16(_, _) | VolumeSendable::Vec4DI16(_) => {
-                    GpuTextureFormat::R16Float
-                }
-                VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_) => {
-                    GpuTextureFormat::R8Unorm
-                }
-                VolumeSendable::VolI8(_, _) | VolumeSendable::Vec4DI8(_) => {
-                    GpuTextureFormat::R8Unorm
-                }
-                VolumeSendable::VolU16(_, _) | VolumeSendable::Vec4DU16(_) => {
-                    GpuTextureFormat::R16Float
-                }
-                VolumeSendable::VolI32(_, _) | VolumeSendable::Vec4DI32(_) => {
-                    GpuTextureFormat::R32Float
-                }
-                VolumeSendable::VolU32(_, _) | VolumeSendable::Vec4DU32(_) => {
-                    GpuTextureFormat::R32Float
-                }
-                VolumeSendable::VolF64(_, _) | VolumeSendable::Vec4DF64(_) => {
-                    GpuTextureFormat::R32Float
-                }
+            } else {
+                let renderer = render_loop_service.as_ref().ok_or_else(|| {
+                    gpu_allocation_error(&ui_layer_id, "Render service unavailable after upload")
+                })?;
+                uploaded_gpu_format(renderer, atlas_layer_idx)?
             };
 
             // Get the affine transform (voxel to world) and extract space info - clone before dropping the guard
@@ -7795,7 +7804,7 @@ async fn allocate_gpu_resources_for_layer(
         world_to_voxel: [0.0; 16], // Not needed for on-demand allocation
         dim: [1, 1, 1],            // Not needed
         pad_slices: 0,
-        tex_format: GpuTextureFormat::R32Float,
+        tex_format: uploaded_gpu_format(render_service, atlas_idx)?,
         atlas_layer_index: atlas_idx,
         slice_info: SliceInfo {
             // Dummy slice info
@@ -7825,6 +7834,21 @@ async fn allocate_gpu_resources_for_layer(
             .as_secs(),
         is_binary_like: (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0),
     })
+}
+
+/// Report allocated storage, rather than guessing from the source voxel type.
+fn uploaded_gpu_format(service: &RenderLoopService, slot: u32) -> BridgeResult<GpuTextureFormat> {
+    match service.get_volume_texture_format(slot) {
+        Some(wgpu::TextureFormat::R8Unorm) => Ok(GpuTextureFormat::R8Unorm),
+        Some(wgpu::TextureFormat::R16Float) => Ok(GpuTextureFormat::R16Float),
+        Some(wgpu::TextureFormat::R32Float) => Ok(GpuTextureFormat::R32Float),
+        format => Err(BridgeError::Internal {
+            code: 5015,
+            details: format!(
+                "Unsupported or missing uploaded texture format at slot {slot}: {format:?}"
+            ),
+        }),
+    }
 }
 
 /// Robust layer lookup helper that tries multiple strategies
@@ -13487,6 +13511,10 @@ mod tests {
             )
             .await
             .unwrap();
+            assert!(
+                matches!(initial.tex_format, GpuTextureFormat::R16Float),
+                "small f32 source values are stored as half precision and metadata must report it"
+            );
             let service = state
                 .render_loop_service
                 .lock()
