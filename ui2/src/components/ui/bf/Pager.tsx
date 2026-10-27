@@ -1,5 +1,5 @@
 import React, { forwardRef, useId, useLayoutEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { IconButton } from '../IconButton';
 import { wireFieldControl, type FieldControlProps } from './helpers';
@@ -170,11 +170,23 @@ export interface ToolbarFieldProps extends Omit<React.HTMLAttributes<HTMLDivElem
   /** One control element (wired with id/label) or a render function. */
   children: React.ReactElement | ((props: FieldControlProps) => React.ReactNode);
   controlId?: string;
+  /** Disables the control and mutes the label. */
+  disabled?: boolean;
+  /**
+   * Marks the control invalid and describes it with this message. A toolbar
+   * row has no room for an error line, so the message sits behind a danger
+   * glyph after the control (its `title`) and in a polite live region.
+   */
+  error?: string;
 }
 
-/** "Label control" pair inside a {@link Toolbar}; the label is a real `<label for>`. */
+/**
+ * "Label control" pair inside a {@link Toolbar}; the label is a real `<label for>`.
+ * Wires the control like {@link FieldRow}: `id`, `aria-describedby` (merged with
+ * the control's own), `aria-invalid` and `disabled`.
+ */
 export const ToolbarField = forwardRef<HTMLDivElement, ToolbarFieldProps>(function ToolbarField(
-  { label, children, controlId, className, ...rest },
+  { label, children, controlId, disabled = false, error, className, ...rest },
   ref,
 ) {
   const generated = `bf-tool-${useId().replace(/:/g, '')}`;
@@ -183,12 +195,30 @@ export const ToolbarField = forwardRef<HTMLDivElement, ToolbarFieldProps>(functi
       ? ((children.props as { id?: string }).id ?? undefined)
       : undefined;
   const id = controlId ?? ownId ?? generated;
+  const errorId = `${id}-error`;
   return (
     <div ref={ref} className={cn('flex min-w-0 items-center gap-1.5', className)} {...rest}>
-      <label htmlFor={id} className="shrink-0 text-bf-xs text-muted-foreground">
+      <label
+        htmlFor={id}
+        className={cn('shrink-0 text-bf-xs text-muted-foreground', disabled && 'opacity-50')}
+      >
         {label}
       </label>
-      {wireFieldControl(children, { id })}
+      {wireFieldControl(children, {
+        id,
+        'aria-describedby': error ? errorId : undefined,
+        'aria-invalid': error ? true : undefined,
+        disabled: disabled || undefined,
+      })}
+      {error ? (
+        <span title={error} className="inline-flex shrink-0 text-bf-danger">
+          <AlertCircle aria-hidden className="h-3.5 w-3.5" />
+        </span>
+      ) : null}
+      {/* Present from mount, so an error that appears after an edit is announced. */}
+      <span id={errorId} aria-live="polite" aria-atomic="true" className="sr-only">
+        {error}
+      </span>
     </div>
   );
 });

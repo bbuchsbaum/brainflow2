@@ -7,7 +7,10 @@ import {
 import type { ViewPlane } from '@/types/coordinates';
 import { useEffect, useRef, useState } from 'react';
 import type { RelationshipFit } from '@/services/studio/PopulationRelationshipService';
-import { explainRelationship } from '@/services/studio/PopulationRelationshipService';
+import {
+  explainRelationship,
+  relationshipFittedIds,
+} from '@/services/studio/PopulationRelationshipService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { formatWorldPoint } from '@/utils/valueFormat';
@@ -18,7 +21,8 @@ export function PopulationExplanation({
   fit: RelationshipFit;
   current: boolean;
 }) {
-  const ids = fit.request.members.map((m) => m.memberId);
+  // Pairs, reconstructions and component scores use fitted members only.
+  const ids = relationshipFittedIds(fit);
   const [a, setA] = useState(ids[0]);
   const [b, setB] = useState(ids[1]);
   const [kind, setKind] = useState('pair');

@@ -8,6 +8,7 @@ import {
   type PopulationSliceDisplay,
 } from '@/services/studio/PopulationSliceService';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
+import { isUnassignedGroup } from '@/services/studio/populationGroups';
 export function PopulationGroupViews({
   display,
   width,
@@ -37,7 +38,11 @@ export function PopulationGroupViews({
         const definition = operand
           ? { ...operand, label: display.query.groupLabels?.[group.id] ?? group.id }
           : null;
-        if (!definition) return null;
+        const partition = state.population.partition;
+        const unassigned = partition?.groups.find((g) => g.id === group.id);
+        // Unassigned observations of a fit are never a similarity-group tile.
+        if (!definition || (partition && unassigned && isUnassignedGroup(partition, unassigned)))
+          return null;
         return (
           <section
             key={group.id}

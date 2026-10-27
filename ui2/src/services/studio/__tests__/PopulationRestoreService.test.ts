@@ -10,6 +10,12 @@ import { buildPopulationProbeQuery, buildPopulationSource } from '../PopulationP
 import { buildPopulationSliceQuery } from '../PopulationSliceService';
 import { resolvePopulationParticipants } from '../populationParticipants';
 import { studioMetadata } from '../studioMetadata';
+import {
+  explainRelationship,
+  populationRelationshipService,
+  relationshipPartition,
+  type RelationshipFit,
+} from '../PopulationRelationshipService';
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@/services/transport', () => ({ getTransport: () => ({ invoke }) }));
 function opened(): OpenedPopulationCalculation {
@@ -435,4 +441,207 @@ it('retains descriptive imported feature semantics and refuses unknown saved rol
   });
   record.context = { featureContract: { valueRole: 'unknownStatistic' } };
   expect(() => preparePopulationRestore(record, 'workspace', 2)).toThrow('Unknown saved feature');
+});
+
+/** A fit as saved before eligibility existed (the v1 Rust result shape): no
+ * `eligibility`, `fittedMemberIds` or `unassigned`. */
+function savedV1Fit(record: OpenedPopulationCalculation): RelationshipFit {
+  return JSON.parse(
+    JSON.stringify({
+      fitId: 'e'.repeat(64),
+      request: {
+        members: record.calculation.members,
+        mask: record.calculation.mask,
+        region: null,
+        distance: 'effect',
+      },
+      supportSha256: 'd'.repeat(64),
+      candidateVoxels: 100,
+      commonVoxels: 90,
+      finiteCounts: [95, 96, 97],
+      dimensions: [5, 5, 4],
+      affine: [
+        [2, 0, 0, -4],
+        [0, 2, 0, -4],
+        [0, 0, 2, -3],
+        [0, 0, 0, 1],
+      ],
+      geometry: {
+        coordinates: [
+          [-1.25, 0.5],
+          [0.25, -0.75],
+          [1, 0.25],
+        ],
+        componentScores: [
+          [-1.25, 0.5],
+          [0.25, -0.75],
+          [1, 0.25],
+        ],
+        distances: [
+          [0, 2.0155644370746373, 2.2638462845343543],
+          [2.0155644370746373, 0, 1.25],
+          [2.2638462845343543, 1.25, 0],
+        ],
+        eigenvalues: [2.6875, 0.875, 0],
+        explainedFraction: 1,
+        stress: 0,
+        orderable: true,
+        merges: [
+          { left: 1, right: 2, distance: 1.25, count: 2 },
+          { left: 0, right: 3, distance: 2.1397053608044958, count: 3 },
+        ],
+      },
+    }),
+  );
+}
+/** A v2 fit over the same context in which `c` has no finite values. */
+function savedV2Fit(record: OpenedPopulationCalculation): RelationshipFit {
+  const v1 = savedV1Fit(record);
+  return {
+    ...v1,
+    fitId: '7'.repeat(64),
+    request: { ...v1.request, eligibility: { lowCoverageTau: 0.9 } },
+    finiteCounts: [95, 96, 0],
+    fittedMemberIds: ['a', 'b'],
+    unassigned: [
+      { memberId: 'c', reason: { kind: 'allMissing' }, finiteCount: 0, supportLossVoxels: 90 },
+    ],
+    geometry: {
+      coordinates: [
+        [-1, 0],
+        [1, 0],
+      ],
+      componentScores: [[-1], [1]],
+      distances: [
+        [0, 2],
+        [2, 0],
+      ],
+      eigenvalues: [2, 0],
+      explainedFraction: 1,
+      stress: 0,
+      orderable: true,
+      merges: [{ left: 0, right: 1, distance: 2, count: 2 }],
+    },
+  };
+}
+function similarityOrder(
+  record: OpenedPopulationCalculation,
+  fit: RelationshipFit,
+  orderedIds: string[],
+  unavailableIds: string[],
+) {
+  return {
+    featureId: 'old-feature',
+    rule: 'similarity',
+    fitId: fit.fitId,
+    tieRule: 'source',
+    orderedIds,
+    unavailableIds,
+    label: 'MDS axis 1 · effect',
+    probe: null,
+    bindings: structuredClone(record.calculation.members),
+    mask: record.calculation.mask,
+  };
+}
+it('restores a saved v1 similarity order, fit and re-explanation unchanged', async () => {
+  const record = opened();
+  const fit = savedV1Fit(record);
+  const saved = JSON.stringify(fit);
+  record.context = {
+    ...(record.context as object),
+    presentation: { order: similarityOrder(record, fit, ['a', 'b', 'c'], []) },
+    relationship: fit,
+  };
+  const prepared = preparePopulationRestore(record, 'w', 3);
+  expect(prepared.population.presentation?.order).toMatchObject({
+    rule: 'similarity',
+    orderedIds: ['a', 'b', 'c'],
+    unavailableIds: [],
+  });
+  invoke.mockResolvedValueOnce('/bundle/provenance.json').mockResolvedValueOnce(record);
+  expect(await populationRestoreService.chooseAndOpen(new AbortController().signal)).toBe(true);
+  const restored = populationRelationshipService.getSnapshot().fit!;
+  expect(JSON.stringify(restored)).toBe(saved);
+  expect(useSetStudioStore.getState().population.presentation.order?.fitId).toBe(fit.fitId);
+  // Current Rust v1 results also report every member as fitted and none unassigned.
+  invoke.mockImplementationOnce(async (_command: string, args: { request: RelationshipFit }) => ({
+    ...JSON.parse(saved),
+    fittedMemberIds: ['a', 'b', 'c'],
+    unassigned: [],
+    request: args.request,
+    explanation: {
+      values: Array(128 * 128).fill(0.5),
+      total: 4,
+      label: 'Squared distance contribution',
+      plane: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], dim_px: [128, 128] },
+    },
+  }));
+  const shown = await explainRelationship(
+    restored,
+    { field: { kind: 'pair', a: 'a', b: 'c' }, crosshairMm: [3, 4, 5], orientation: 'axial' },
+    new AbortController().signal,
+  );
+  expect(shown.total).toBe(4);
+  const [command, args] = invoke.mock.calls.at(-1)!;
+  expect(command).toBe('fit_population_relationship');
+  // The re-run is the v1 request: no eligibility, identical frozen bindings.
+  const { explanation, ...request } = args.request;
+  expect(explanation.field).toEqual({ kind: 'pair', a: 'a', b: 'c' });
+  expect('eligibility' in request).toBe(false);
+  expect(request).toEqual(JSON.parse(saved).request);
+});
+it('restores a v2 similarity order, partition and fit with unassigned members', async () => {
+  const record = opened();
+  const fit = savedV2Fit(record);
+  const partition = relationshipPartition(fit, 2, 'old-set');
+  expect(partition.groups.map((g) => g.label)).toEqual([
+    'Similarity group 1',
+    'Similarity group 2',
+    'Unassigned',
+  ]);
+  record.context = {
+    ...(record.context as object),
+    presentation: {
+      arrangement: 'groups',
+      order: similarityOrder(record, fit, ['b', 'a', 'c'], ['c']),
+    },
+    relationship: fit,
+    exploration: { version: 1, partition },
+  };
+  const prepared = preparePopulationRestore(record, 'w', 3);
+  expect(prepared.population.presentation?.order).toMatchObject({
+    orderedIds: ['b', 'a', 'c'],
+    unavailableIds: ['c'],
+  });
+  expect(prepared.population.partition?.groups.at(-1)).toMatchObject({
+    id: 'unassigned',
+    memberIds: ['c'],
+    origin: 'unassigned',
+  });
+  expect(prepared.population.presentation?.arrangement).toBe('groups');
+  invoke.mockResolvedValueOnce('/bundle/provenance.json').mockResolvedValueOnce(record);
+  expect(await populationRestoreService.chooseAndOpen(new AbortController().signal)).toBe(true);
+  expect(populationRelationshipService.getSnapshot().fit).toEqual(fit);
+  await expect(
+    explainRelationship(
+      populationRelationshipService.getSnapshot().fit!,
+      { field: { kind: 'pair', a: 'a', b: 'c' }, crosshairMm: [3, 4, 5], orientation: 'axial' },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/unassigned/);
+  // An order whose unavailable members disagree with the fit is refused.
+  for (const [ordered, unavailable] of [
+    [['b', 'a', 'c'], []],
+    [['c', 'b', 'a'], ['c']],
+  ] as const) {
+    const wrong = opened();
+    wrong.context = {
+      ...(wrong.context as object),
+      presentation: { order: similarityOrder(wrong, fit, [...ordered], [...unavailable]) },
+      relationship: fit,
+    };
+    const refused = preparePopulationRestore(wrong, 'w', 4);
+    expect(refused.population.presentation?.order).toBeNull();
+    expect(refused.set.savedPopulation?.notices.join(' ')).toMatch(/order could not be verified/);
+  }
 });

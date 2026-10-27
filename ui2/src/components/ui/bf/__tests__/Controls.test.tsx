@@ -66,6 +66,44 @@ describe('Toolbar', () => {
     expect(screen.getByRole('group', { name: 'Plot' })).toBeInTheDocument();
     expect(screen.getByLabelText('Mark')).toBeInstanceOf(HTMLSelectElement);
   });
+
+  it('wires disabled, aria-invalid and the error description like FieldRow', () => {
+    const { rerender } = render(
+      <Toolbar aria-label="Plot">
+        <ToolbarField label="Mark" disabled>
+          <Select aria-describedby="own" options={[{ value: 'line', label: 'Line' }]} />
+        </ToolbarField>
+      </Toolbar>,
+    );
+    const select = screen.getByLabelText('Mark');
+    expect(select).toBeDisabled();
+    expect(select).not.toHaveAttribute('aria-invalid');
+    expect(select).toHaveAttribute('aria-describedby', 'own');
+    rerender(
+      <Toolbar aria-label="Plot">
+        <ToolbarField label="Mark" error="Choose a numeric column">
+          <Select aria-describedby="own" options={[{ value: 'line', label: 'Line' }]} />
+        </ToolbarField>
+      </Toolbar>,
+    );
+    expect(select).toBeEnabled();
+    expect(select).toHaveAttribute('aria-invalid', 'true');
+    expect(select).toHaveAccessibleDescription(/Choose a numeric column/);
+    expect(select.getAttribute('aria-describedby')?.split(' ')).toContain('own');
+  });
+});
+
+describe('default sizes', () => {
+  it('Button and IconButton default to the 24px control', () => {
+    render(
+      <>
+        <Button>Run</Button>
+        <IconButton icon={<svg />} aria-label="Pin" />
+      </>,
+    );
+    expect(screen.getByRole('button', { name: 'Run' }).className.split(/\s+/)).toContain('h-6');
+    expect(screen.getByRole('button', { name: 'Pin' }).className.split(/\s+/)).toContain('h-6');
+  });
 });
 
 describe('ValueChip', () => {

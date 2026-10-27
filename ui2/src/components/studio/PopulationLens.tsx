@@ -9,6 +9,7 @@ import {
 import { PopulationRelationshipPanel } from './PopulationRelationshipPanel';
 import { populationRelationshipService } from '@/services/studio/PopulationRelationshipService';
 import { PopulationGroupViews } from './PopulationGroupViews';
+import { comparableGroups, unassignedGroup } from '@/services/studio/populationGroups';
 import { PopulationSelectionRange } from './PopulationSelectionRange';
 import { PopulationNavigation } from './PopulationNavigation';
 import { PopulationExportControls } from './PopulationExportControls';
@@ -156,11 +157,16 @@ export function PopulationLens({
     studio.population.inference?.setId === studio.selection.activeSetId
       ? studio.population.inference
       : null;
-  const groupPages = Math.max(1, Math.ceil((studio.population.partition?.groups.length ?? 0) / 4));
+  const partition = studio.population.partition;
+  // A fit's unassigned observations are noted, never tiled or chosen as contributors.
+  const groupPages = Math.max(1, Math.ceil((partition ? comparableGroups(partition).length : 0) / 4));
+  const unassigned = partition ? unassignedGroup(partition) : null;
   const currentGroupPage = Math.min(groupPage, groupPages - 1);
   const contributors =
     presentation.arrangement === 'montage'
-      ? studio.population.partition?.groups.find((g) => g.id === presentation.contributorsGroupId)
+      ? (partition ? comparableGroups(partition) : []).find(
+          (g) => g.id === presentation.contributorsGroupId,
+        )
       : null;
   const savedOrder =
     presentation.order?.featureId === studio.selection.activeFeatureId &&
@@ -642,6 +648,12 @@ export function PopulationLens({
         </div>
       )}
       <div ref={host} className="min-w-0">
+        {grouped && unassigned && (
+          <p className="mb-2 text-bf-sm text-muted-foreground" aria-label="Unassigned observations">
+            Unassigned ({unassigned.memberIds.length}): no position in the similarity fit; not a
+            group and not compared.
+          </p>
+        )}
         {grouped && result && (
           <PopulationGroupViews
             display={result}

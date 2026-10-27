@@ -7,24 +7,51 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { buildPopulationSource } from './PopulationProbeController';
 import { invokeCancelable } from './PopulationExportService';
 import { formatTauriError } from '@/utils/formatTauriError';
+import { UNASSIGNED_GROUP_ID } from './populationGroups';
 import type {
   PopulationMask,
   PopulationMemberSource,
   PopulationPartition,
 } from '@/types/population';
+/** v2 eligibility. Absent: v1, which refuses on any unusable member. */
+export interface RelationshipEligibility {
+  lowCoverageTau: number;
+}
+/** Low-coverage threshold declared by new fits (user decision, 2026-10-26). */
+export const RELATIONSHIP_LOW_COVERAGE_TAU = 0.9;
 export interface RelationshipRequest {
   members: PopulationMemberSource[];
   mask: PopulationMask | null;
   region: { worldMm: [number, number, number]; radiusMm: number } | null;
   distance: 'effect' | 'pattern-shape';
+  eligibility?: RelationshipEligibility;
+}
+export type RelationshipUnassignedReason =
+  | { kind: 'allMissing' }
+  | { kind: 'lowCoverage'; fraction: number }
+  | { kind: 'zeroVarianceOnSupport' };
+export interface RelationshipUnassigned {
+  memberId: string;
+  reason: RelationshipUnassignedReason;
+  /** Finite voxels on the candidate support. */
+  finiteCount: number;
+  /** Common voxels this member would have removed had it been fitted. */
+  supportLossVoxels: number;
 }
 export interface RelationshipFit {
   fitId: string;
+  /** Full context; restore depends on it. */
   request: RelationshipRequest;
   supportSha256: string;
   candidateVoxels: number;
+  /** Common finite voxels of the fitted members. */
   commonVoxels: number;
+  /** Per request member. */
   finiteCounts: number[];
+  /** Geometry is indexed by this list. Absent in saved v1 fits: every request member. */
+  fittedMemberIds?: string[];
+  /** Absent in saved v1 fits: none. */
+  unassigned?: RelationshipUnassigned[];
   dimensions: number[];
   affine: number[][];
   geometry: {
@@ -47,6 +74,31 @@ interface Snapshot {
 }
 const empty: Snapshot = { fit: null, scope: null, pending: false, error: null, stale: false };
 const hash = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
+/** Member IDs indexing the geometry, in fit order. */
+export function relationshipFittedIds(fit: RelationshipFit): string[] {
+  return fit.fittedMemberIds ?? fit.request.members.map((m) => m.memberId);
+}
+/** Context members without a fitted position, in request order. */
+export function relationshipUnassigned(fit: RelationshipFit): RelationshipUnassigned[] {
+  return fit.unassigned ?? [];
+}
+const unassignedKinds = ['allMissing', 'lowCoverage', 'zeroVarianceOnSupport'];
+const unassignedLabels: Record<RelationshipUnassignedReason['kind'], string> = {
+  allMissing: 'no finite values',
+  lowCoverage: 'low coverage',
+  // Judged before the exclusion; the member may vary on the recomputed support.
+  zeroVarianceOnSupport: 'constant on the shared voxels before exclusion',
+};
+/** Interim one-line account of unassigned members; null when there are none. */
+export function relationshipUnassignedSummary(fit: RelationshipFit): string | null {
+  const unassigned = relationshipUnassigned(fit);
+  if (!unassigned.length) return null;
+  const counts = new Map<string, number>();
+  for (const u of unassigned)
+    counts.set(unassignedLabels[u.reason.kind], (counts.get(unassignedLabels[u.reason.kind]) ?? 0) + 1);
+  const reasons = [...counts].map(([label, count]) => `${count} ${label}`).join(', ');
+  return `${unassigned.length} ${unassigned.length === 1 ? 'observation' : 'observations'} unassigned (${reasons}). Coverage is computed over the fitted maps.`;
+}
 export function sameRelationshipBindings(
   a: RelationshipRequest,
   b: Pick<RelationshipRequest, 'members' | 'mask'>,
@@ -77,7 +129,8 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
   try {
     const f = value as RelationshipFit,
       n = f.request.members.length,
-      g = f.geometry;
+      g = f.geometry,
+      ids = f.request.members.map((m) => m.memberId);
     if (
       n < 2 ||
       n > 128 ||
@@ -98,6 +151,38 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
         !f.request.region.worldMm.every(Number.isFinite))
     )
       return false;
+    const eligibility = f.request.eligibility;
+    if (
+      eligibility !== undefined &&
+      (eligibility === null ||
+        typeof eligibility !== 'object' ||
+        Object.keys(eligibility).some((key) => key !== 'lowCoverageTau') ||
+        !Number.isFinite(eligibility.lowCoverageTau) ||
+        eligibility.lowCoverageTau < 0 ||
+        eligibility.lowCoverageTau > 1)
+    )
+      return false;
+    if (
+      (f.fittedMemberIds !== undefined && !Array.isArray(f.fittedMemberIds)) ||
+      (f.unassigned !== undefined && !Array.isArray(f.unassigned))
+    )
+      return false;
+    const fitted = relationshipFittedIds(f),
+      unassigned = relationshipUnassigned(f),
+      m = fitted.length,
+      position = (id: unknown) => ids.indexOf(id as string);
+    // Fitted and unassigned members partition the context, each in request order.
+    const inOrder = (list: unknown[]) =>
+      list.every((id, i) => position(id) >= 0 && (i === 0 || position(id) > position(list[i - 1])));
+    if (
+      m < 2 ||
+      m + unassigned.length !== n ||
+      (eligibility === undefined && unassigned.length > 0) ||
+      !inOrder(fitted) ||
+      !inOrder(unassigned.map((u) => u?.memberId)) ||
+      unassigned.some((u) => fitted.includes(u.memberId))
+    )
+      return false;
     if (
       !Number.isSafeInteger(f.candidateVoxels) ||
       !Number.isSafeInteger(f.commonVoxels) ||
@@ -105,13 +190,40 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
       f.commonVoxels > f.candidateVoxels ||
       f.finiteCounts.length !== n ||
       f.finiteCounts.some(
-        (c) => !Number.isSafeInteger(c) || c < f.commonVoxels || c > f.candidateVoxels,
+        (c, i) =>
+          !Number.isSafeInteger(c) ||
+          c < 0 ||
+          c > f.candidateVoxels ||
+          (fitted.includes(ids[i]) && c < f.commonVoxels),
+      )
+    )
+      return false;
+    const entryKeys = ['memberId', 'reason', 'finiteCount', 'supportLossVoxels'];
+    if (
+      unassigned.some(
+        (u) =>
+          Object.keys(u).some((key) => !entryKeys.includes(key)) ||
+          !unassignedKinds.includes(u.reason?.kind) ||
+          Object.keys(u.reason).some(
+            (key) => key !== 'kind' && !(key === 'fraction' && u.reason.kind === 'lowCoverage'),
+          ) ||
+          (u.reason.kind === 'lowCoverage' &&
+            (!Number.isFinite(u.reason.fraction) ||
+              u.reason.fraction < 0 ||
+              u.reason.fraction >= eligibility!.lowCoverageTau)) ||
+          (u.reason.kind === 'zeroVarianceOnSupport' && f.request.distance === 'effect') ||
+          u.finiteCount !== f.finiteCounts[position(u.memberId)] ||
+          (u.reason.kind === 'allMissing') !== (u.finiteCount === 0) ||
+          !Number.isSafeInteger(u.supportLossVoxels) ||
+          u.supportLossVoxels < 0 ||
+          u.supportLossVoxels > f.commonVoxels ||
+          (u.reason.kind === 'allMissing' && u.supportLossVoxels !== f.commonVoxels),
       )
     )
       return false;
     if (
       (g.componentScores !== undefined &&
-        (g.componentScores.length !== n ||
+        (g.componentScores.length !== m ||
           g.componentScores.some(
             (row) =>
               !Array.isArray(row) ||
@@ -119,12 +231,12 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
               row.length !== g.componentScores![0].length ||
               !row.every(Number.isFinite),
           ))) ||
-      g.coordinates.length !== n ||
+      g.coordinates.length !== m ||
       g.coordinates.some((p) => p.length !== 2 || !p.every(Number.isFinite)) ||
-      g.distances.length !== n ||
+      g.distances.length !== m ||
       g.distances.some(
         (row, i) =>
-          row.length !== n ||
+          row.length !== m ||
           row.some(
             (v, j) =>
               !Number.isFinite(v) ||
@@ -136,7 +248,7 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
     )
       return false;
     if (
-      g.eigenvalues.length !== n ||
+      g.eigenvalues.length !== m ||
       g.eigenvalues.some((v) => !Number.isFinite(v) || v < 0) ||
       !Number.isFinite(g.stress) ||
       g.stress < 0 ||
@@ -144,7 +256,7 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
       g.explainedFraction < 0 ||
       g.explainedFraction > 1 + 1e-8 ||
       typeof g.orderable !== 'boolean' ||
-      g.merges.length !== n - 1
+      g.merges.length !== m - 1
     )
       return false;
     if (
@@ -161,37 +273,47 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
       f.affine.some((row) => row.length !== 4 || !row.every(Number.isFinite))
     )
       return false;
-    const active = new Map(Array.from({ length: n }, (_, i) => [i, 1]));
+    const active = new Map(Array.from({ length: m }, (_, i) => [i, 1]));
     for (let i = 0; i < g.merges.length; i++) {
-      const m = g.merges[i];
+      const merge = g.merges[i];
       if (
-        m.left === m.right ||
-        !active.has(m.left) ||
-        !active.has(m.right) ||
-        m.count !== active.get(m.left)! + active.get(m.right)! ||
-        !Number.isFinite(m.distance) ||
-        m.distance < 0
+        merge.left === merge.right ||
+        !active.has(merge.left) ||
+        !active.has(merge.right) ||
+        merge.count !== active.get(merge.left)! + active.get(merge.right)! ||
+        !Number.isFinite(merge.distance) ||
+        merge.distance < 0
       )
         return false;
-      active.delete(m.left);
-      active.delete(m.right);
-      active.set(n + i, m.count);
+      active.delete(merge.left);
+      active.delete(merge.right);
+      active.set(m + i, merge.count);
     }
     return true;
   } catch {
     return false;
   }
 }
+/** The partition group holding unassigned members. Not a similarity group: it has
+ * no fitted position, is not counted in the requested group count and carries
+ * `origin: 'unassigned'`. Similarity groups carry no per-group origin. */
+export const RELATIONSHIP_UNASSIGNED_GROUP_ID = UNASSIGNED_GROUP_ID;
+export type RelationshipPartitionGroup = PopulationPartition['groups'][number] & {
+  readonly origin?: 'unassigned';
+};
 export function relationshipPartition(
   fit: RelationshipFit,
   count: number,
   setId: string,
 ): PopulationPartition {
-  const ids = fit.request.members.map((m) => m.memberId),
-    n = ids.length;
-  if (!validRelationshipFit(fit) || !Number.isInteger(count) || count < 2 || count > n)
+  const ids = fit.request.members.map((m) => m.memberId);
+  if (!validRelationshipFit(fit)) throw new Error('Choose between two groups and the observation count.');
+  const fitted = relationshipFittedIds(fit),
+    n = fitted.length,
+    unassigned = relationshipUnassigned(fit).map((u) => u.memberId);
+  if (!Number.isInteger(count) || count < 2 || count > n)
     throw new Error('Choose between two groups and the observation count.');
-  const groups = new Map(ids.map((id, i) => [i, [id]]));
+  const groups = new Map(fitted.map((id, i) => [i, [id]]));
   fit.geometry.merges.slice(0, n - count).forEach((merge, i) => {
     groups.set(n + i, [...groups.get(merge.left)!, ...groups.get(merge.right)!]);
     groups.delete(merge.left);
@@ -208,12 +330,27 @@ export function relationshipPartition(
         (a, b) =>
           Math.min(...a.map((id) => ids.indexOf(id))) - Math.min(...b.map((id) => ids.indexOf(id))),
       )
-      .map((members, i) => ({
-        id: `similarity-${i}`,
-        label: `Similarity group ${i + 1}`,
-        value: String(i + 1),
-        memberIds: ids.filter((id) => members.includes(id)),
-      })),
+      .map(
+        (members, i): RelationshipPartitionGroup => ({
+          id: `similarity-${i}`,
+          label: `Similarity group ${i + 1}`,
+          value: String(i + 1),
+          memberIds: ids.filter((id) => members.includes(id)),
+        }),
+      )
+      .concat(
+        unassigned.length
+          ? [
+              {
+                id: RELATIONSHIP_UNASSIGNED_GROUP_ID,
+                label: 'Unassigned',
+                value: null,
+                memberIds: unassigned,
+                origin: 'unassigned',
+              },
+            ]
+          : [],
+      ),
   };
 }
 export function relationshipSource() {
@@ -293,6 +430,7 @@ export class PopulationRelationshipService {
       mask: source.mask ?? null,
       region: regional ? { worldMm: [...probe!.worldMm], radiusMm: probe!.radiusMm } : null,
       distance,
+      eligibility: { lowCoverageTau: RELATIONSHIP_LOW_COVERAGE_TAU },
     };
     this.publish({ ...this.snapshot, pending: true, error: null });
     try {
@@ -307,7 +445,9 @@ export class PopulationRelationshipService {
         !validRelationshipFit(fit) ||
         !sameRelationshipBindings(fit.request, request) ||
         JSON.stringify(fit.request.region) !== JSON.stringify(request.region) ||
-        fit.request.distance !== request.distance
+        fit.request.distance !== request.distance ||
+        JSON.stringify(fit.request.eligibility ?? null) !==
+          JSON.stringify(request.eligibility ?? null)
       )
         throw new Error('Similarity result does not match the requested context/support.');
       this.install(fit, scope!);
@@ -345,7 +485,7 @@ export class PopulationRelationshipService {
     if (
       !fit ||
       scope !== relationshipSource().scope ||
-      !fit.request.members.some((m) => m.memberId === id)
+      !relationshipFittedIds(fit).includes(id)
     )
       return;
     const selected = resolvePopulation(useSetStudioStore.getState()).workingMemberIds.includes(id);
@@ -361,8 +501,11 @@ export class PopulationRelationshipService {
     if (!fit || stale || scope !== relationshipSource().scope || !fit.geometry.orderable) return;
     this.orderFit = fit;
     const state = useSetStudioStore.getState(),
-      scale = Math.max(...fit.geometry.coordinates.map((p) => Math.abs(p[0]))) * 1e-10;
-    const positions = fit.request.members
+      scale = Math.max(...fit.geometry.coordinates.map((p) => Math.abs(p[0]))) * 1e-10,
+      fitted = relationshipFittedIds(fit),
+      unassigned = relationshipUnassigned(fit).map((u) => u.memberId);
+    // Response-order convention: unavailable (unassigned) members follow, in source order.
+    const positions = fitted
       .map((_, i) => i)
       .sort(
         (a, b) =>
@@ -375,9 +518,9 @@ export class PopulationRelationshipService {
         rule: 'similarity',
         fitId: fit.fitId,
         featureId: state.selection.activeFeatureId!,
-        orderedIds: positions.map((i) => fit.request.members[i].memberId),
-        unavailableIds: [],
-        label: `MDS axis 1 · ${fit.request.distance} · fit ${fit.fitId.slice(0, 8)}`,
+        orderedIds: [...positions.map((i) => fitted[i]), ...unassigned],
+        unavailableIds: unassigned,
+        label: `MDS axis 1 · ${fit.request.distance} · fit ${fit.fitId.slice(0, 8)}${unassigned.length ? ` · ${unassigned.length} unassigned last` : ''}`,
         probe: null,
         bindings: fit.request.members,
         mask: fit.request.mask,
@@ -452,6 +595,16 @@ export async function explainRelationship(
   },
   signal: AbortSignal,
 ) {
+  const unassigned = relationshipUnassigned(fit),
+    named =
+      explanation.field.kind === 'pair'
+        ? [explanation.field.a, explanation.field.b]
+        : explanation.field.kind === 'reconstruction'
+          ? [explanation.field.member]
+          : [];
+  const excluded = unassigned.find((u) => named.includes(u.memberId));
+  if (excluded)
+    throw new Error(`${excluded.memberId} is unassigned in this fit; choose a fitted observation.`);
   const source = relationshipSource().source;
   if (
     !source ||
@@ -485,6 +638,7 @@ export async function explainRelationship(
   signal.throwIfAborted();
   if (
     JSON.stringify(result.geometry.coordinates) !== JSON.stringify(fit.geometry.coordinates) ||
+    JSON.stringify(relationshipFittedIds(result)) !== JSON.stringify(relationshipFittedIds(fit)) ||
     (fit.geometry.componentScores !== undefined &&
       JSON.stringify(result.geometry.componentScores) !==
         JSON.stringify(fit.geometry.componentScores)) ||
