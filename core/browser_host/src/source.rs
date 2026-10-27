@@ -1,0 +1,203 @@
+use super::*;
+use async_trait::async_trait;
+use nalgebra::{Affine3, Matrix4, Vector4};
+use nifti::NiftiHeader;
+use std::{
+    collections::HashMap,
+    io::{Cursor, Read},
+    sync::Mutex,
+};
+use volmath::DenseVolume3;
+use volume_service::{PreparedVolume, VolumeMetadataInfo, VolumeSource};
+
+const MAX_SOURCE_BYTES: usize = 256 * 1024 * 1024;
+const MAX_VOXELS: usize = 32 * 1024 * 1024;
+
+pub struct MemorySource {
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub id: String,
+    pub remaining_voxels: usize,
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl VolumeSource for MemorySource {
+    async fn acquire(&self, scope: &LoadScope) -> BridgeResult<PreparedVolume> {
+        scope.check()?;
+        if self.bytes.len() > MAX_SOURCE_BYTES {
+            return Err(input("File exceeds the 256 MiB browser input limit"));
+        }
+        let expanded;
+        let bytes = if self.bytes.starts_with(&[0x1f, 0x8b]) {
+            let mut decoder = flate2::read::GzDecoder::new(self.bytes.as_slice())
+                .take((MAX_SOURCE_BYTES + 1) as u64);
+            let mut data = Vec::new();
+            decoder
+                .read_to_end(&mut data)
+                .map_err(|e| input(e.to_string()))?;
+            if data.len() > MAX_SOURCE_BYTES {
+                return Err(input(
+                    "Expanded file exceeds the 256 MiB browser input limit",
+                ));
+            }
+            expanded = data;
+            expanded.as_slice()
+        } else {
+            self.bytes.as_slice()
+        };
+        // A bounded header preflight prevents hostile dimensions from requesting
+        // unbounded allocations. Voxel decoding/scaling still happens once in neuroim.
+        let header =
+            NiftiHeader::from_reader(Cursor::new(bytes)).map_err(|e| input(e.to_string()))?;
+        if !matches!(header.dim[0], 3 | 4) || (header.dim[0] == 4 && header.dim[4] != 1) {
+            return Err(input(
+                "This browser viewer supports 3D NIfTI; multi-frame files need the desktop host",
+            ));
+        }
+        if header.magic != *b"n+1\0" {
+            return Err(input("Select a single-file NIfTI-1 .nii or .nii.gz"));
+        }
+        if header.intent_code == 1002 {
+            return Err(input(
+                "Label-map display is not yet supported by this browser host",
+            ));
+        }
+        if !matches!(
+            (header.datatype, header.bitpix),
+            (2, 8)
+                | (4, 16)
+                | (8, 32)
+                | (16, 32)
+                | (64, 64)
+                | (256, 8)
+                | (512, 16)
+                | (768, 32)
+                | (1024, 64)
+                | (1280, 64)
+        ) {
+            return Err(input(
+                "This browser viewer requires a real scalar NIfTI datatype",
+            ));
+        }
+        let count = header.dim[1..4]
+            .iter()
+            .try_fold(1usize, |n, &d| n.checked_mul(d as usize));
+        if !matches!(count, Some(n) if n > 0 && n <= MAX_VOXELS) {
+            return Err(input("Volume exceeds the 32 million voxel browser limit"));
+        }
+        if count.unwrap() > self.remaining_voxels {
+            return Err(input(
+                "Workspace exceeds the 64 million resident voxel limit; unload an image first",
+            ));
+        }
+        let decoded = neuroim::io::read_vol_from_reader_as::<f32>(Cursor::new(bytes), 0)
+            .map_err(|e| input(e.to_string()))?;
+        scope.check()?;
+        let volume = DenseVolume3::new(decoded);
+        let transform = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
+        if !transform.iter().all(|v| v.is_finite()) || transform.try_inverse().is_none() {
+            return Err(input("Volume affine must be finite and nonsingular"));
+        }
+        let affine = Affine3::from_matrix_unchecked(transform.cast::<f32>());
+        let handle = VolumeHandleInfo {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            dims: header.dim[1..4].iter().map(|&v| v as usize).collect(),
+            dtype: "f32".into(),
+            volume_type: bridge_types::VolumeType::Volume3D,
+            num_timepoints: None,
+            current_timepoint: None,
+            time_series_info: None,
+            statistic: None,
+            is_label_map: Some(false),
+        };
+        Ok(PreparedVolume {
+            data: VolumeSendable::VolF32(volume, affine),
+            metadata: VolumeMetadataInfo {
+                name: self.name.clone(),
+                path: format!("browser-file:{}", self.id),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+            handle,
+        })
+    }
+}
+
+#[derive(Default)]
+pub struct Repository {
+    pub volumes: Mutex<HashMap<String, PreparedVolume>>,
+}
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl VolumeRepository for Repository {
+    async fn publish(
+        &self,
+        volume: PreparedVolume,
+        scope: &LoadScope,
+    ) -> BridgeResult<VolumeHandleInfo> {
+        let mut volumes = self.volumes.lock().unwrap();
+        scope.commit(|| {
+            let handle = volume.handle.clone();
+            volumes.insert(handle.id.clone(), volume);
+            Ok(handle)
+        })
+    }
+    async fn remove(&self, id: &str) -> BridgeResult<()> {
+        self.volumes
+            .lock()
+            .unwrap()
+            .remove(id)
+            .ok_or_else(|| input("Volume is not loaded"))?;
+        Ok(())
+    }
+}
+
+pub fn describe(
+    handle: &VolumeHandleInfo,
+    volume: &DenseVolume3<f32>,
+) -> Result<BrowserVolume, String> {
+    let m: Matrix4<f64> = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
+    let mut affine = [[0.; 4]; 4];
+    for r in 0..4 {
+        for c in 0..4 {
+            affine[r][c] = m[(r, c)];
+        }
+    }
+    let d = &handle.dims;
+    let center = m * Vector4::new(
+        (d[0] as f64 - 1.) / 2.,
+        (d[1] as f64 - 1.) / 2.,
+        (d[2] as f64 - 1.) / 2.,
+        1.,
+    );
+    let mut bounds = [[f64::INFINITY; 3], [f64::NEG_INFINITY; 3]];
+    for x in [-0.5, d[0] as f64 - 0.5] {
+        for y in [-0.5, d[1] as f64 - 0.5] {
+            for z in [-0.5, d[2] as f64 - 0.5] {
+                let p = m * Vector4::new(x, y, z, 1.);
+                for i in 0..3 {
+                    bounds[0][i] = bounds[0][i].min(p[i]);
+                    bounds[1][i] = bounds[1][i].max(p[i]);
+                }
+            }
+        }
+    }
+    let (min, max) = volume
+        .range()
+        .ok_or("Volume contains no displayable values")?;
+    if !min.is_finite() || !max.is_finite() {
+        return Err("Volume range is not finite".into());
+    }
+    Ok(BrowserVolume {
+        id: handle.id.clone(),
+        name: handle.name.clone(),
+        dims: d.clone(),
+        affine,
+        center: [center.x, center.y, center.z],
+        bounds,
+        range: [min, max],
+    })
+}

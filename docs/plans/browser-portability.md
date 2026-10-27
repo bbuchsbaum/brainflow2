@@ -3,7 +3,8 @@
 Preparation and delivery notes: 2026-10-26, checkout based on `69f1e7b7` with
 substantial existing uncommitted work. Completed slices cover transport ownership,
 native/WASM numerical qualification, published reader APIs and a portable loading
-lifecycle. A browser application remains the later integration milestone.
+lifecycle. The 2026-10-27 browser milestone below adds a working scalar-volume
+viewer and offline PWA shell; desktop feature parity remains a later milestone.
 
 ## Outcome and boundaries
 
@@ -23,12 +24,12 @@ remote-mount and external analysis-process parity is outside that milestone.
 | --- | --- | --- |
 | UI to backend | `ui2/src/services/transport.ts` defines `BackendTransport`; `packages/api/src/renderClient.ts` accepts a transport | Keep backend selection at application setup; injected services must retain that backend |
 | API composition | `ApiService` used injected transport for rendering but global getters for four domain delegates; its constructor changed the global package helper invoker | Fixed in this slice: own delegates per instance; configure legacy helpers when selecting the application default |
-| Direct desktop calls | `AtlasService`, `AtlasPaletteService`, `TemplateService`, `HistogramService`, `TemporalHeatmapService` import Tauri invoke directly | Migrate by service behind the existing transport, with payload/error tests; do not build a second parallel command API |
+| Domain host calls | Atlas, palette, template and histogram services route through `invokeBackend`; temporal-map services own an injected transport | Browser capability failures propagate without a native fallback; further desktop-only services remain |
 | Portable contracts | `render_contracts` depends on serde, ts-rs and `neuro-types` | Preserve this small dependency boundary; its WASM library check passes |
 | Numerical core | `volmath` has a cdylib target and wasm-bindgen, but unconditional neuroim and Rayon dependencies | Explicit `web` feature now builds; selected numerical fixtures execute under Node WASM, with broader API qualification still needed |
 | Loader input | `bridge_types::Loader::load` accepts `&Path`; NIfTI loader invokes neuroim path readers | Separate source acquisition from decoding; preserve streaming/random-access opportunities rather than requiring a full-file copy |
 | Application/host coupling | `api_bridge` depends on Tauri, rendering, loaders, Tokio process support, keyring, remotely and native directories | Extract one tested application operation at a time; native credentials, processes, paths and events stay in adapters |
-| GPU scheduling | `render_loop/src/lib.rs` uses `map_async` followed by `Maintain::Wait` and `pollster::block_on` in readback paths | Split render submission from asynchronous readback completion; retain resource ownership until GPU work is complete |
+| GPU scheduling | Owned async submissions are integrated in `abcda9ea`; native polling runs off the caller and browser callbacks complete without blocking | Synchronous adapters remain native-only; direct canvas presentation and broader readback performance are separate work |
 | Presentation | UI decodes packets into ImageBitmap; surface runtime already uses SurfView | Separate rendered-frame presentation from readback/export; evaluate direct canvas presentation after correctness is established |
 
 `bridge_types` is not currently a lightweight wire-only crate: it includes decoded
@@ -329,3 +330,57 @@ The upstream publication is complete;
 Brainflow changes remain local in its existing dirty checkout. Browser runtime,
 native UI walkthrough, GPU performance and async readback qualification remain
 separate work.
+
+
+## Fifth slice: working browser host and offline viewer (2026-10-27)
+
+Implemented from checkout `851d57f9`, preserving its unrelated dirty work. The
+preceding loading extraction (`13d5b7c`) and async readback (`abcda9ea`) are already
+integrated. The latter's original completion was performed by another session;
+this run independently reruns the renderer regressions on the new sources.
+
+- `render_loop/web` forwards portable entropy configuration. Tokio's multithread
+  runtime, the filesystem shader watcher and the synchronous GPU trait adapter
+  are native-only. Production timers/counters use web-time, which reexports std
+  clocks natively and uses browser clocks on WASM. The complete renderer builds
+  for `wasm32-unknown-unknown`.
+- The active shaders use individual texture bindings, so unused native binding
+  array/nonuniform-indexing device features are no longer requested. Their
+  single-level colormap LUT uses explicit LOD 0. Browser Tint rejected the prior
+  implicit-derivative call inside nonuniform per-pixel branches; the initial
+  failing pixel receipts are retained rather than accepted as blank output.
+- `core/browser_host` composes the published neuroim reader, `volume_service` and
+  the WGPU facade. It bounds compressed/expanded input and resident voxels,
+  preserves source affine/scaling, and rolls back CPU publication on failed GPU
+  upload. Shader/upload/render validation scopes surface browser GPU failures.
+- A dedicated worker owns file reads, WASM data and GPU resources. Browser `File`
+  objects are cloned in, frame buffers transfer out, and IDs/cancellation/late
+  reply cleanup retain ownership. `RenderClient` and the existing RGBA envelope
+  are reused. The minimal browser shell reuses the shared slice viewport,
+  controls/theme, linked crosshair state, window/level, scalar overlay opacity,
+  unload and teardown. It is a separate entry in the same UI package, not a
+  replacement for the desktop workspace.
+- Five previously direct desktop domain clients now use the selected transport.
+  Native-only browser capabilities fail explicitly. The worker also isolates a
+  WGPU 0.20/current-WebGPU descriptor compatibility translation; native APIs and
+  dependency pins stay unchanged.
+- `tools/build-browser.mjs` builds Rust and shared JS sources, creates WASM
+  bindings and a static production bundle, then precaches its exact application
+  assets. User-selected files are not persisted in the service-worker cache.
+  Updates wait for all old viewer windows to close. See
+  [Browser viewer](../browser-viewer.md) for build/run commands, requirements,
+  bounds, ownership and independent-fixture qualification.
+
+Qualification receipts are local in `cruft/browser-portability/`. Native analytic
+geometry/pixel tests, actual Chromium/Metal WASM pixel comparisons and browser UI
+interaction tests are separate from the production offline/installability gate.
+The full UI suite records 2,517 passed, three skipped and one todo. The renderer
+suite records 242 passed and 19 ignored, with no explicit GPU skip lines. This is
+not qualification of every format, browser, adapter or native desktop UI. Hosted
+CI was not executed in this session; its WASM library compile gate is extended to
+`browser_host`.
+
+Remaining product work is broader desktop parity (labels, time series, surfaces,
+atlas/template catalogs and native services), more browsers/adapters, lower-limit
+WebGPU devices, and optional direct canvas presentation. These are outside the
+first volume-viewing milestone and must not be inferred from these checks.

@@ -17,6 +17,13 @@ export interface BackendTransport {
   invoke<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T>;
 }
 
+/** Domain services use the selected host, including explicit unsupported errors
+ * from browser hosts. Native plugin-qualified command names remain compatible.
+ */
+export function invokeBackend<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T> {
+  return getTransport().invoke<T>(cmd, args, options);
+}
+
 /**
  * Request headers for a raw-body command. Values are `encodeURIComponent`
  * encoded (headers must be ASCII; the backend decodes them). `undefined`

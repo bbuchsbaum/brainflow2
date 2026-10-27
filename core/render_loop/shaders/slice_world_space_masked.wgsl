@@ -544,7 +544,9 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
 
     // Apply colormap (continuous: window-normalized sample into the gradient).
     let lut_coord = vec2<f32>(intensity_norm, 0.5);
-    let rgb_color = textureSample(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id)).rgb;
+    // The LUT has one mip level. Explicit LOD preserves its lookup while
+    // avoiding implicit derivatives after per-pixel bounds/threshold branches.
+    let rgb_color = textureSampleLevel(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id), 0.0).rgb;
 
     return vec4<f32>(rgb_color, alpha);
 }

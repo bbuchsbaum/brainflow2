@@ -4,7 +4,7 @@
  */
 
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { invoke } from '@tauri-apps/api/core';
+import { invokeBackend as invoke } from './transport';
 import type { Unlisten } from '@/utils/eventUtils';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import type { VolumeHandle } from './apiService';

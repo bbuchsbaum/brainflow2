@@ -2,7 +2,7 @@
  * HistogramService - Manages histogram data fetching and caching
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invokeBackend as invoke } from './transport';
 import type { HistogramData, HistogramRequest } from '@/types/histogram';
 import { useLayerStore } from '@/stores/layerStore';
 import { getEventBus } from '@/events/EventBus';

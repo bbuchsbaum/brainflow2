@@ -21,9 +21,9 @@ use nalgebra::Matrix4;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle}; // Add for surface creation
 use std::collections::HashMap;
 use std::sync::Arc; // Re-add Arc import
-use std::time::SystemTime;
 use thiserror::Error; // Add for error handling
 use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, NumericType, VoxelData}; // Import DataRange directly
+use web_time::SystemTime;
 use wgpu::util::DeviceExt; // For create_buffer_init helper trait
 
 // --- Modules ---
@@ -40,6 +40,7 @@ pub mod pipeline;
 pub mod render_state;
 pub mod render_target_pool;
 pub mod shader_contract;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod shader_watcher;
 pub mod shaders;
 pub mod slice_adapter;
@@ -59,7 +60,9 @@ pub use ubo::{
 // Re-export render state types for external use
 pub use render_state::{BlendMode, LayerInfo, LayerMode, ThresholdMode};
 // Re-export slice adapter for GPU-CPU differential testing
-pub use slice_adapter::{GpuSliceAdapter, SliceSpecMapper};
+#[cfg(not(target_arch = "wasm32"))]
+pub use slice_adapter::GpuSliceAdapter;
+pub use slice_adapter::SliceSpecMapper;
 // Re-export benchmarking utilities
 pub use benchmarks::{FrameTimeTracker, PerformanceComparison, RenderPassProfiler};
 pub use facade::{
@@ -77,6 +80,7 @@ use render_state::{FrameStats, LayerStateManager, RenderPassManager, RenderState
 #[cfg(feature = "typed-shaders")]
 compile_error!("typed-shaders are temporarily disabled while the alpha-mask pipeline is active.");
 use render_target_pool::RenderTargetPool;
+#[cfg(not(target_arch = "wasm32"))]
 use shader_watcher::{ShaderWatchEvent, ShaderWatcher};
 use shaders::{ShaderManager, SliceShaderDescriptors};
 use texture_manager::TextureManager;
@@ -482,6 +486,7 @@ pub struct RenderLoopService {
     pub surface_config: Option<wgpu::SurfaceConfiguration>,
     // --- Shader management ---
     pub shader_manager: ShaderManager,
+    #[cfg(not(target_arch = "wasm32"))]
     pub shader_watcher: Option<ShaderWatcher>,
     // --- Pipeline management ---
     pub pipeline_manager: PipelineManager,
@@ -576,8 +581,10 @@ impl RenderLoopService {
         }
 
         // 3. Request Device and Queue
-        let mut required_features = wgpu::Features::TEXTURE_BINDING_ARRAY
-            | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+        // The active masked shaders bind each texture separately and select it
+        // with a switch. Binding arrays/non-uniform array indexing are unused
+        // native extensions and cannot be requested from browser WebGPU.
+        let mut required_features = wgpu::Features::empty();
 
         match config.device.float32_filterable {
             RendererFeaturePolicy::RequestIfAvailable if supports_float32_filterable => {
@@ -730,6 +737,7 @@ impl RenderLoopService {
             surface: None,
             surface_config: None,
             shader_manager: ShaderManager::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             shader_watcher: None,
             pipeline_manager: PipelineManager::new(),
             frame_bind_group_layout,
@@ -950,6 +958,7 @@ impl RenderLoopService {
     }
 
     /// Enable shader hot-reload for development
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_shader_hot_reload(&mut self) -> Result<(), RenderLoopError> {
         // Find the shader directory relative to the workspace root
         let shader_dir = if std::path::Path::new("core/render_loop/shaders").exists() {
@@ -977,6 +986,7 @@ impl RenderLoopService {
     }
 
     /// Check for shader updates and reload if necessary
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn check_shader_updates(&mut self) -> Result<bool, RenderLoopError> {
         let mut updated = false;
 
@@ -4659,7 +4669,7 @@ impl RenderLoopService {
         state: ViewState,
         options: FrameRequestOptions,
     ) -> Result<FrameSubmission, RenderLoopError> {
-        let request_start = std::time::Instant::now();
+        let request_start = web_time::Instant::now();
 
         // Validate state
         state.validate().map_err(|e| RenderLoopError::Internal {
@@ -5037,12 +5047,12 @@ impl RenderLoopService {
         self.render_state.record_draw();
 
         // Submit commands
-        let render_start = std::time::Instant::now();
+        let render_start = web_time::Instant::now();
         self.queue.submit(Some(encoder.finish()));
         let render_ms = render_start.elapsed().as_secs_f32() * 1000.0;
         let prepare_ms = request_start.elapsed().as_secs_f32() * 1000.0 - render_ms;
 
-        let readback_start = std::time::Instant::now();
+        let readback_start = web_time::Instant::now();
         let mut image_data = Vec::new();
         let readback = if matches!(options.readback_mode, FrameReadbackMode::Skip) {
             None

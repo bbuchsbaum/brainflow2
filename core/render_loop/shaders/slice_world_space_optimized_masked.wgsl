@@ -554,7 +554,8 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
 
     // Apply colormap (continuous: window-normalized sample into the gradient).
     let lut_coord = vec2<f32>(intensity_norm, 0.5);
-    let rgb_color = textureSample(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id)).rgb;
+    // Single-level LUT: no implicit derivatives in non-uniform control flow.
+    let rgb_color = textureSampleLevel(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id), 0.0).rgb;
 
     return vec4<f32>(rgb_color, alpha);
 }

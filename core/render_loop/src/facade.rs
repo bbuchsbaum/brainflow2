@@ -20,7 +20,18 @@ impl WgpuSliceRenderer {
         let load_shaders = config.load_shaders;
         let mut service = RenderLoopService::new_with_config(config).await?;
         if load_shaders {
-            service.load_shaders()?;
+            service
+                .device
+                .push_error_scope(wgpu::ErrorFilter::Validation);
+            let loaded = service.load_shaders();
+            let validation = service.device.pop_error_scope().await;
+            loaded?;
+            if let Some(error) = validation {
+                return Err(RenderLoopError::Internal {
+                    code: 1712,
+                    details: format!("Shader validation failed: {error}"),
+                });
+            }
         }
         Ok(Self { service })
     }

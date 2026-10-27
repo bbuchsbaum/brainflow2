@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeBackend as invoke } from "./transport";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import { useLayerStore } from "@/stores/layerStore";
 import type { AtlasConfig } from "@/types/atlas";
