@@ -88,6 +88,28 @@ impl WgpuSliceRenderer {
             .await
     }
 
+    /// Submit without retaining a mutable renderer borrow during GPU completion.
+    pub fn submit_frame_with_options(
+        &mut self,
+        view_id: ViewId,
+        state: ViewState,
+        options: FrameRequestOptions,
+    ) -> Result<crate::FrameSubmission, RenderLoopError> {
+        self.service
+            .submit_frame_with_options(view_id, state, options)
+    }
+
+    pub fn submit_views_readback(
+        &self,
+        views: &[(ViewId, [u32; 2])],
+    ) -> Result<crate::PendingReadback, RenderLoopError> {
+        self.service.submit_views_readback(views)
+    }
+
+    pub fn readback_monitor(&self) -> crate::ReadbackMonitor {
+        self.service.readback_monitor()
+    }
+
     /// Render several frame requests sequentially on the same GPU service.
     pub async fn request_frames(
         &mut self,

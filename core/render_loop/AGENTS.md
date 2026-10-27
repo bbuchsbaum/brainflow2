@@ -101,3 +101,21 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
   promotion keeps the slot ID, replaces its binding, and refreshes registry
   metadata. R32 slots stay R32 to avoid churn. Explicit-format slots reject
   unsafe replacements. `get_volume_texture_format` reports actual storage.
+
+## Owned readback
+
+- `submit_frame_with_options`, `submit_views_readback` and the legacy
+  `render_to_buffer` path return owners (`FrameSubmission`/`PendingReadback`) that
+  complete without borrowing the service, so hosts can release the renderer lock
+  before awaiting. A dedicated `brainflow-readback` thread polls the device; no
+  executor thread blocks in `poll(Wait)`.
+- Each view carries a `ViewEpoch`. A newer submission, resize, `release_view` or
+  service teardown makes older completions fail with code 8010. Hosts that reuse
+  cache-target IDs for independent requests call `into_snapshot()` and validate
+  their own request identity instead.
+- Staging is bounded (16 buffers, `max_buffer_size` bytes; code 8013). A dropped
+  owner leaves the buffer with the mapping callback until mapping completes;
+  `ReadbackMonitor` exposes outstanding buffers/bytes for tests.
+- The Y-flip remains in `unpack_gpu_buffer_to_image` at readback. Gate:
+  `cargo test -p render_loop --test async_readback_test --test batch_readback_test`
+  plus `cargo test -p render_loop --lib readback` (all require a GPU).

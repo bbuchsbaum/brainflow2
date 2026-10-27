@@ -8482,9 +8482,12 @@ async fn prepare_frontend_layers_for_render(
     })
 }
 
-// Diagnostics entry point threads many per-render inputs; not worth a params struct.
+type SubmittedFrontendFrame =
+    std::pin::Pin<Box<dyn std::future::Future<Output = BridgeResult<RenderViewTestOutput>> + Send>>;
+
+// Diagnostics entry point threads many per-render inputs.
 #[allow(clippy::too_many_arguments)]
-async fn render_frontend_view_with_diagnostics(
+async fn submit_frontend_view_with_diagnostics(
     frontend_state: &FrontendViewState,
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
@@ -8494,7 +8497,7 @@ async fn render_frontend_view_with_diagnostics(
     service_lock_time: std::time::Duration,
     prepared_layers: Option<&PreparedFrontendLayers>,
     render_view_id: &str,
-) -> BridgeResult<RenderViewTestOutput> {
+) -> BridgeResult<SubmittedFrontendFrame> {
     let total_start = std::time::Instant::now();
     let target = render_bridge_adapter::select_view_target(frontend_state);
     let requested_view = target.requested_view.clone();
@@ -8584,28 +8587,30 @@ async fn render_frontend_view_with_diagnostics(
             };
 
         let total_time = total_start.elapsed() + parse_time + service_lock_time;
-        return Ok(RenderViewTestOutput {
-            data,
-            diagnostics: RenderViewDiagnostics {
-                requested_view,
-                format: format_label,
-                parse_ms: duration_ms(parse_time),
-                service_lock_ms: duration_ms(service_lock_time),
-                target_setup_ms: duration_ms(target_setup_time),
-                layer_processing_ms: duration_ms(layer_processing_time),
-                render_loop_ms: 0.0,
-                encode_ms,
-                total_ms: duration_ms(total_time),
-                visible_layer_count: 0,
-                output_bytes,
-                output_dimensions: [width as u32, height as u32],
-                warnings,
-                frame: render_loop::view_state::FrameDiagnostics {
-                    readback_mode,
-                    ..render_loop::view_state::FrameDiagnostics::default()
+        return Ok(Box::pin(async move {
+            Ok(RenderViewTestOutput {
+                data,
+                diagnostics: RenderViewDiagnostics {
+                    requested_view,
+                    format: format_label,
+                    parse_ms: duration_ms(parse_time),
+                    service_lock_ms: duration_ms(service_lock_time),
+                    target_setup_ms: duration_ms(target_setup_time),
+                    layer_processing_ms: duration_ms(layer_processing_time),
+                    render_loop_ms: 0.0,
+                    encode_ms,
+                    total_ms: duration_ms(total_time),
+                    visible_layer_count: 0,
+                    output_bytes,
+                    output_dimensions: [width as u32, height as u32],
+                    warnings,
+                    frame: render_loop::view_state::FrameDiagnostics {
+                        readback_mode,
+                        ..render_loop::view_state::FrameDiagnostics::default()
+                    },
                 },
-            },
-        });
+            })
+        }));
     }
 
     let backend_view_state =
@@ -8649,156 +8654,169 @@ async fn render_frontend_view_with_diagnostics(
     service.update_slice_feature_ubo(render_bridge_adapter::slice_features_from_frontend_layers(
         &frontend_state.layers,
     ));
-    let frame_result = service
-        .request_frame_with_options(
+    let frame_submission = service
+        .submit_frame_with_options(
             render_loop::view_state::ViewId::new(render_view_id),
             backend_view_state,
             render_loop::view_state::FrameRequestOptions { readback_mode },
         )
-        .await
         .map_err(|e| BridgeError::GpuError {
             code: 8011,
             details: format!("Failed to render frame: {:?}", e),
-        })?;
-    let render_time = render_start.elapsed();
-    info!("⏱️  GPU render (request_frame) took: {:?}", render_time);
+        })?
+        .into_snapshot();
+    Ok(Box::pin(async move {
+        let frame_result =
+            frame_submission
+                .complete()
+                .await
+                .map_err(|error| BridgeError::GpuError {
+                    code: 8011,
+                    details: format!("Failed to complete frame: {error}"),
+                })?;
+        let render_time = render_start.elapsed();
+        info!("⏱️  GPU render (request_frame) took: {:?}", render_time);
 
-    info!(
-        "Frame rendered successfully: {}x{}, {} bytes, {} layers rendered",
-        frame_result.dimensions[0],
-        frame_result.dimensions[1],
-        frame_result.image_data.len(),
-        frame_result.rendered_layers.len()
-    );
+        info!(
+            "Frame rendered successfully: {}x{}, {} bytes, {} layers rendered",
+            frame_result.dimensions[0],
+            frame_result.dimensions[1],
+            frame_result.image_data.len(),
+            frame_result.rendered_layers.len()
+        );
 
-    if !frame_result.warnings.is_empty() {
-        info!("Render warnings: {:?}", frame_result.warnings);
-    }
-
-    if frame_result.image_data.len() >= 400 {
-        let width = frame_result.dimensions[0] as usize;
-        let height = frame_result.dimensions[1] as usize;
-        let center_x = width / 2;
-        let center_y = height / 2;
-        let center_idx = (center_y * width + center_x) * 4;
-
-        if center_idx + 3 < frame_result.image_data.len() {
-            let center_pixel = &frame_result.image_data[center_idx..center_idx + 4];
-            info!(
-                "Center pixel RGBA: [{}, {}, {}, {}]",
-                center_pixel[0], center_pixel[1], center_pixel[2], center_pixel[3]
-            );
+        if !frame_result.warnings.is_empty() {
+            info!("Render warnings: {:?}", frame_result.warnings);
         }
 
-        let mut non_black_count = 0;
-        let mut max_value = 0u8;
-        let sample_step = std::cmp::max(1, width / 10);
+        if frame_result.image_data.len() >= 400 {
+            let width = frame_result.dimensions[0] as usize;
+            let height = frame_result.dimensions[1] as usize;
+            let center_x = width / 2;
+            let center_y = height / 2;
+            let center_idx = (center_y * width + center_x) * 4;
 
-        for y in (0..height).step_by(sample_step) {
-            for x in (0..width).step_by(sample_step) {
-                let idx = (y * width + x) * 4;
-                if idx + 3 < frame_result.image_data.len() {
-                    let r = frame_result.image_data[idx];
-                    let g = frame_result.image_data[idx + 1];
-                    let b = frame_result.image_data[idx + 2];
-                    max_value = max_value.max(r).max(g).max(b);
-                    if r > 0 || g > 0 || b > 0 {
-                        non_black_count += 1;
+            if center_idx + 3 < frame_result.image_data.len() {
+                let center_pixel = &frame_result.image_data[center_idx..center_idx + 4];
+                info!(
+                    "Center pixel RGBA: [{}, {}, {}, {}]",
+                    center_pixel[0], center_pixel[1], center_pixel[2], center_pixel[3]
+                );
+            }
+
+            let mut non_black_count = 0;
+            let mut max_value = 0u8;
+            let sample_step = std::cmp::max(1, width / 10);
+
+            for y in (0..height).step_by(sample_step) {
+                for x in (0..width).step_by(sample_step) {
+                    let idx = (y * width + x) * 4;
+                    if idx + 3 < frame_result.image_data.len() {
+                        let r = frame_result.image_data[idx];
+                        let g = frame_result.image_data[idx + 1];
+                        let b = frame_result.image_data[idx + 2];
+                        max_value = max_value.max(r).max(g).max(b);
+                        if r > 0 || g > 0 || b > 0 {
+                            non_black_count += 1;
+                        }
                     }
                 }
             }
+
+            let total_samples = ((height / sample_step) + 1) * ((width / sample_step) + 1);
+            let non_black_percentage = (non_black_count as f32 / total_samples as f32) * 100.0;
+
+            info!(
+                "Pixel sampling: {}/{} non-black pixels ({:.1}%), max value: {}",
+                non_black_count, total_samples, non_black_percentage, max_value
+            );
+
+            if non_black_percentage < 5.0 {
+                warn!(
+                    "Rendered image appears to be mostly black! Check intensity window settings."
+                );
+            }
         }
 
-        let total_samples = ((height / sample_step) + 1) * ((width / sample_step) + 1);
-        let non_black_percentage = (non_black_count as f32 / total_samples as f32) * 100.0;
+        let width = frame_result.dimensions[0];
+        let height = frame_result.dimensions[1];
+        let visible_layer_count = frame_result.rendered_layers.len();
+        let frame_diagnostics = frame_result.diagnostics.clone();
+        let frame_warnings = frame_result.warnings.clone();
+        let rgba_data = frame_result.image_data;
 
-        info!(
-            "Pixel sampling: {}/{} non-black pixels ({:.1}%), max value: {}",
-            non_black_count, total_samples, non_black_percentage, max_value
-        );
+        let (result, encode_time) = if readback_mode
+            == render_loop::view_state::FrameReadbackMode::Skip
+        {
+            (Vec::new(), std::time::Duration::ZERO)
+        } else if format == RenderFormat::RawRgba {
+            info!("🚀 RAW RGBA: Skipping PNG encoding, returning raw pixel data");
+            let rgba_len = rgba_data.len();
+            let raw_buffer = render_bridge_adapter::encode_raw_rgba_frame(width, height, rgba_data);
 
-        if non_black_percentage < 5.0 {
-            warn!("Rendered image appears to be mostly black! Check intensity window settings.");
-        }
-    }
+            info!(
+                "🚀 RAW RGBA: Returning {} bytes (8 byte header + {} RGBA bytes)",
+                raw_buffer.len(),
+                rgba_len
+            );
 
-    let width = frame_result.dimensions[0];
-    let height = frame_result.dimensions[1];
-    let visible_layer_count = frame_result.rendered_layers.len();
-    let frame_diagnostics = frame_result.diagnostics.clone();
-    let frame_warnings = frame_result.warnings.clone();
-    let rgba_data = frame_result.image_data;
-
-    let (result, encode_time) = if readback_mode == render_loop::view_state::FrameReadbackMode::Skip
-    {
-        (Vec::new(), std::time::Duration::ZERO)
-    } else if format == RenderFormat::RawRgba {
-        info!("🚀 RAW RGBA: Skipping PNG encoding, returning raw pixel data");
-        let rgba_len = rgba_data.len();
-        let raw_buffer = render_bridge_adapter::encode_raw_rgba_frame(width, height, rgba_data);
-
-        info!(
-            "🚀 RAW RGBA: Returning {} bytes (8 byte header + {} RGBA bytes)",
-            raw_buffer.len(),
-            rgba_len
-        );
-
-        (raw_buffer, std::time::Duration::ZERO)
-    } else {
-        let png_encode_start = std::time::Instant::now();
-        let png_data = image_export::encode_still_frame(format, width, height, rgba_data)?;
-        let png_encode_time = png_encode_start.elapsed();
-        info!(
-            "⏱️  {} encoding took: {:?}",
-            format.label(),
-            png_encode_time
-        );
-        info!(
-            "Backend: Encoded RGBA to {} - {} bytes ({}x{})",
-            format.label(),
-            png_data.len(),
-            width,
-            height
-        );
-
-        (png_data, png_encode_time)
-    };
-
-    let total_time = total_start.elapsed() + parse_time + service_lock_time;
-    debug!(
-        "⏱️  TOTAL render_frontend_view_with_diagnostics time: {:?}",
-        total_time
-    );
-    debug!(
-        "⏱️  Mode: {}, Total size: {} bytes",
-        if format == RenderFormat::RawRgba {
-            "RAW RGBA"
+            (raw_buffer, std::time::Duration::ZERO)
         } else {
-            "PNG"
-        },
-        result.len()
-    );
-    let output_bytes = result.len();
+            let png_encode_start = std::time::Instant::now();
+            let png_data = image_export::encode_still_frame(format, width, height, rgba_data)?;
+            let png_encode_time = png_encode_start.elapsed();
+            info!(
+                "⏱️  {} encoding took: {:?}",
+                format.label(),
+                png_encode_time
+            );
+            info!(
+                "Backend: Encoded RGBA to {} - {} bytes ({}x{})",
+                format.label(),
+                png_data.len(),
+                width,
+                height
+            );
 
-    Ok(RenderViewTestOutput {
-        data: result,
-        diagnostics: RenderViewDiagnostics {
-            requested_view,
-            format: format_label,
-            parse_ms: duration_ms(parse_time),
-            service_lock_ms: duration_ms(service_lock_time),
-            target_setup_ms: duration_ms(target_setup_time),
-            layer_processing_ms: duration_ms(layer_processing_time),
-            render_loop_ms: duration_ms(render_time),
-            encode_ms: duration_ms(encode_time),
-            total_ms: duration_ms(total_time),
-            visible_layer_count,
-            output_bytes,
-            output_dimensions: [width, height],
-            warnings: frame_warnings,
-            frame: frame_diagnostics,
-        },
-    })
+            (png_data, png_encode_time)
+        };
+
+        let total_time = total_start.elapsed() + parse_time + service_lock_time;
+        debug!(
+            "⏱️  TOTAL render_frontend_view_with_diagnostics time: {:?}",
+            total_time
+        );
+        debug!(
+            "⏱️  Mode: {}, Total size: {} bytes",
+            if format == RenderFormat::RawRgba {
+                "RAW RGBA"
+            } else {
+                "PNG"
+            },
+            result.len()
+        );
+        let output_bytes = result.len();
+
+        Ok(RenderViewTestOutput {
+            data: result,
+            diagnostics: RenderViewDiagnostics {
+                requested_view,
+                format: format_label,
+                parse_ms: duration_ms(parse_time),
+                service_lock_ms: duration_ms(service_lock_time),
+                target_setup_ms: duration_ms(target_setup_time),
+                layer_processing_ms: duration_ms(layer_processing_time),
+                render_loop_ms: duration_ms(render_time),
+                encode_ms: duration_ms(encode_time),
+                total_ms: duration_ms(total_time),
+                visible_layer_count,
+                output_bytes,
+                output_dimensions: [width, height],
+                warnings: frame_warnings,
+                frame: frame_diagnostics,
+            },
+        })
+    }))
 }
 
 // Internal implementation that supports both PNG and raw RGBA output
@@ -8853,19 +8871,20 @@ async fn render_view_process_with_diagnostics(
     );
 
     let service_lock_start = std::time::Instant::now();
-    let service_guard = bridge_state.render_loop_service.lock().await;
-    let service_arc = service_guard
-        .as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized {
-            code: 5006,
-            details:
-                "GPU rendering service is not initialized. Please initialize the render loop first."
-                    .to_string(),
-        })?;
+    let service_arc = {
+        let service_guard = bridge_state.render_loop_service.lock().await;
+        service_guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| BridgeError::ServiceNotInitialized {
+                code: 5006,
+                details: "GPU rendering service is not initialized".into(),
+            })?
+    };
     let mut service = service_arc.lock().await;
     let service_lock_time = service_lock_start.elapsed();
 
-    render_frontend_view_with_diagnostics(
+    let submitted = submit_frontend_view_with_diagnostics(
         &frontend_state,
         bridge_state,
         &mut service,
@@ -8876,7 +8895,9 @@ async fn render_view_process_with_diagnostics(
         None,
         "frontend_view",
     )
-    .await
+    .await?;
+    drop(service);
+    submitted.await
 }
 
 #[doc(hidden)]
@@ -8994,7 +9015,7 @@ async fn render_views_process_with_diagnostics(
         let mut state_for_view = base_state.clone();
         state_for_view.requested_view = Some(request);
         let view_id = format!("frontend_multi_{index}");
-        let result = render_frontend_view_with_diagnostics(
+        let result = submit_frontend_view_with_diagnostics(
             &state_for_view,
             bridge_state,
             &mut service,
@@ -9005,6 +9026,7 @@ async fn render_views_process_with_diagnostics(
             Some(&prepared_layers),
             &view_id,
         )
+        .await?
         .await?;
         readback_views.push((
             render_loop::view_state::ViewId::new(view_id),
@@ -9014,14 +9036,22 @@ async fn render_views_process_with_diagnostics(
         per_view.push(result.diagnostics);
     }
     let readback_start = std::time::Instant::now();
-    let images = service
-        .read_views_to_images_sized(&readback_views)
+    let pending_readback = service
+        .submit_views_readback(&readback_views)
+        .map_err(|error| BridgeError::GpuError {
+            code: 5021,
+            details: format!("Failed to submit orthogonal readback: {error}"),
+        })?
+        .into_snapshot();
+    drop(service);
+    let images = pending_readback
+        .complete()
+        .await
         .map_err(|error| BridgeError::GpuError {
             code: 5021,
             details: format!("Failed to read orthogonal views: {error}"),
         })?;
     let readback_ms = duration_ms(readback_start.elapsed());
-    drop(service);
     for (index, rgba) in images.into_iter().enumerate() {
         let [width, height] = readback_views[index].1;
         let encode_start = std::time::Instant::now();
@@ -9552,20 +9582,33 @@ async fn batch_render_slices(
             view_ids.push(view_id);
         }
 
-        // Phase 2: one encoder, one submit, one poll(Wait) for all N slices.
-        let images = service
-            .read_views_to_images(
-                &view_ids,
-                [
-                    batch_request.width_per_slice,
-                    batch_request.height_per_slice,
-                ],
-            )
+        let views: Vec<_> = view_ids
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    [
+                        batch_request.width_per_slice,
+                        batch_request.height_per_slice,
+                    ],
+                )
+            })
+            .collect();
+        let pending = service
+            .submit_views_readback(&views)
             .map_err(|e| BridgeError::GpuError {
                 code: 5021,
-                details: format!("Failed to read back batch: {}", e),
-            })?;
+                details: format!("Failed to submit batch readback: {e}"),
+            })?
+            .into_snapshot();
         drop(service);
+        let images = pending
+            .complete()
+            .await
+            .map_err(|e| BridgeError::GpuError {
+                code: 5021,
+                details: format!("Failed to read batch: {e}"),
+            })?;
 
         for (idx, rgba_data) in images.iter().enumerate() {
             if rgba_data.len() != expected_size {
@@ -9585,17 +9628,25 @@ async fn batch_render_slices(
         // Legacy fallback (kill-switch): render + blocking readback per slice.
         for (idx, view_state) in view_states.iter().enumerate() {
             let mut service = service_arc.lock().await;
-            let frame_result = service
-                .request_frame(
+            let submission = service
+                .submit_frame_with_options(
                     render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx)),
                     view_state.clone(),
+                    render_loop::view_state::FrameRequestOptions::default(),
                 )
-                .await
                 .map_err(|e| BridgeError::GpuError {
                     code: 8011,
                     details: format!("Failed to render slice {}: {:?}", idx, e),
-                })?;
+                })?
+                .into_snapshot();
             drop(service);
+            let frame_result = submission
+                .complete()
+                .await
+                .map_err(|e| BridgeError::GpuError {
+                    code: 8011,
+                    details: format!("Failed to complete slice {}: {e}", idx),
+                })?;
 
             let rgba_data = frame_result.image_data;
             if rgba_data.len() != expected_size {
