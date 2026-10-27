@@ -225,4 +225,43 @@ it('keeps an old probe usable without treating its rows as a complete expanded p
   );
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   expect(screen.getByText(/Selected mean:/)).toHaveTextContent('3.833');
+
+});
+
+describe('PopulationProbePanel region locus', () => {
+  it('Region pins a region probe from the legend; the status names it (E2)', async () => {
+    const { useLayerStore } = await import('@/stores/layerStore');
+    useLayerStore.setState({
+      layers: [
+        {
+          id: 'atlas',
+          name: 'atlas',
+          volumeId: 'atlas',
+          type: 'label',
+          visible: true,
+          order: 0,
+          atlasPaletteLegend: [
+            { label_id: 1, roi: 'L_sensorimotor', color: [255, 0, 0] },
+            { label_id: 2, roi: 'R_occipitotemporal', color: [0, 255, 0] },
+          ],
+        },
+      ],
+    } as never);
+    const { sample } = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+    await waitFor(() => expect(sample).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('radio', { name: 'Region' }));
+    // No region under the crosshair (no sampling backend here): pick one.
+    fireEvent.change(await screen.findByLabelText('Probe region'), { target: { value: '2' } });
+    await waitFor(() =>
+      expect(useSetStudioStore.getState().population.pinnedProbe?.region?.locus).toEqual({
+        labelSource: { type: 'layer', layerId: 'atlas' },
+        labelIds: [2],
+      }),
+    );
+    await waitFor(() => expect((sample.mock.calls.at(-1)![0] as SampleRequest).locus).toMatchObject({ region: { labelIds: [2] } }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/region .*occipitotemporal/));
+    fireEvent.click(screen.getByRole('radio', { name: 'Point / sphere' }));
+    await waitFor(() => expect(useSetStudioStore.getState().population.pinnedProbe?.region ?? null).toBeNull());
+  });
 });

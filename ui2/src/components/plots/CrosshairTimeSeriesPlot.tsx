@@ -22,6 +22,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { sampleProvider } from "@/services/SampleProvider";
 import { getTimeNavigationService } from "@/services/TimeNavigationService";
 import { useLayerStore } from "@/stores/layerStore";
+import { useClusterStore } from "@/stores/clusterStore";
+import { useSeriesStore } from "@/stores/seriesStore";
+import { resolveSeriesRegion, type SeriesRegion } from "@/services/series/seriesRegion";
+import { RawSeriesLocus } from "./RawSeriesLocus";
+import { formatWorldMm } from "@/utils/valueFormat";
+import { shortLayerLabel } from "@/components/views/viewportFrame/frameFormat";
 import { usePlotSpecStore } from "@/stores/plotSpecStore";
 import type { Locus, SampleFrame } from "@/plotting";
 
@@ -33,6 +39,10 @@ import {
 import type { PlotModeContext } from "./plotHost.types";
 
 const PLOT_PADDING = 12;
+const formatSeconds = (s: number) => `${Number(s.toFixed(3))} s`;
+const LOCUS_ROW_PX = 32;
+const CAPTION_ROW_PX = 16;
+const MIN_LOCUS_ROW_HOST_PX = 180;
 /** Frame index column (string ids for the plot's datum links). */
 const FRAME_ID = "__frame";
 const MIN_PLOT_W = 80;
@@ -59,6 +69,29 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
   const reduce = usePlotSpecStore(
     (s) => s.reduceByMode[TIME_SERIES_MODE_ID] ?? "mean",
   );
+  // Phase 4 E2/E3: a region / cluster locus (Series locus control) replaces
+  // the crosshair voxel / sphere.
+  const locusKind = useSeriesStore((s) => s.locus);
+  const regionPick = useSeriesStore((s) => s.regionPick);
+  const clusterSelection = useClusterStore((s) => (locusKind === "cluster" ? s.selectedId : null));
+  const clusterTable = useClusterStore((s) => (locusKind === "cluster" ? s.result : null));
+  const [region, setRegion] = useState<SeriesRegion | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!crosshairMm || (locusKind !== "region" && locusKind !== "cluster")) {
+      setRegion(null);
+      return;
+    }
+    void resolveSeriesRegion({ locus: locusKind, regionPick }, [crosshairMm[0], crosshairMm[1], crosshairMm[2]]).then(
+      (next) => live && setRegion(next),
+    );
+    return () => {
+      live = false;
+    };
+  }, [crosshairMm, locusKind, regionPick, clusterSelection, clusterTable]);
+  const regionWanted = locusKind === "region" || locusKind === "cluster";
+  const regionLocus = region && region.region ? region.region : null;
+  const regionKey = regionLocus ? JSON.stringify(regionLocus) : regionWanted ? "pending" : "";
   const [frame, setFrame] = useState<SampleFrame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -71,7 +104,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
 
   useEffect(() => {
     const target = resolveTimeseriesVoxel(layerId, crosshairMm);
-    if (!target || !layerId || !crosshairMm) {
+    if (!target || !layerId || !crosshairMm || regionKey === "pending") {
       // Drop stale data when the target becomes invalid (e.g. crosshair leaves
       // the volume). Bump the inflight token so a request already in flight
       // cannot resurrect stale data over the just-cleared state.
@@ -95,7 +128,9 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
       radiusMm > 0
         ? `s:${worldMm.map((v) => v.toFixed(2)).join(",")}`
         : `v:${target.voxel.join(",")}`;
-    const key = `${target.volumeId}:${locusKey}:${radiusMm}:${reduce}`;
+    const key = regionLocus
+      ? `${target.volumeId}:r:${regionKey}:${reduce}`
+      : `${target.volumeId}:${locusKey}:${radiusMm}:${reduce}`;
     if (key === lastKeyRef.current && frame !== null) {
       // Same locus as the previous successful sample — skip duplicate request.
       return;
@@ -110,8 +145,9 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
     const delay =
       elapsed >= TIMESERIES_THROTTLE_MS ? 0 : TIMESERIES_THROTTLE_MS - elapsed;
 
-    const locus: Locus =
-      radiusMm > 0
+    const locus: Locus = regionLocus
+      ? { kind: "point", worldMm, region: regionLocus }
+      : radiusMm > 0
         ? { kind: "sphere", worldMm, radiusMm }
         : { kind: "point", worldMm };
 
@@ -156,31 +192,70 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
     // `frame` is intentionally excluded — including it would refire the effect
     // after each successful sample. The dedupe above uses a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layerId, crosshairMm, radiusMm, reduce]);
+  }, [layerId, crosshairMm, radiusMm, reduce, regionKey]);
 
   // Phase 4 E5: each sample is a frame of the layer; the current frame is
   // marked, and clicking a sample moves to that frame.
   const currentTimepoint = useLayerStore((s) =>
     layerId ? (s.layers.find((l) => l.id === layerId)?.currentTimepoint ?? 0) : 0,
   );
+  // The x axis states its unit (v0 fidelity 2): seconds when the TR is
+  // known, else the frame number, 1-based like every frame readout.
+  const tr = typeof frame?.meta?.tr === "number" && frame.meta.tr > 0 ? frame.meta.tr : null;
   const linked = useMemo<SampleFrame | null>(
     () =>
       frame && frame.rows.length > 1
         ? {
             ...frame,
             columns: [...frame.columns, { name: FRAME_ID, label: "Frame", role: "index" }],
-            rows: frame.rows.map((row, i) => ({ ...row, [FRAME_ID]: String(i) })),
+            rows: frame.rows.map((row, i) => ({
+              ...row,
+              ...(tr === null ? { t: i + 1 } : {}),
+              [FRAME_ID]: String(i),
+            })),
           }
         : frame,
-    [frame],
+    [frame, tr],
   );
+  const rawLayerName: unknown = useLayerStore((s) =>
+    layerId ? s.layers?.find((l) => l.id === layerId)?.name : undefined,
+  );
+  const layerName = typeof rawLayerName === "string" ? rawLayerName : undefined;
+  const axisParams = useMemo(
+    () => ({
+      xTitle: tr === null ? "Frame" : "Time (s)",
+      yTitle: layerName ? shortLayerLabel(layerName) : "Value",
+      xIntegerTicks: tr === null,
+      xPadHalfStep: tr ?? 1,
+    }),
+    [tr, layerName],
+  );
+  // The locus, named under the plot (v0 fidelity 2).
+  const voxel = resolveTimeseriesVoxel(layerId, crosshairMm);
+  const locusCaption = [
+    regionLocus && region?.region
+      ? region.label
+      : crosshairMm
+        ? `${radiusMm > 0 ? `${radiusMm} mm sphere at` : "voxel"} ${crosshairMm.map((v) => formatWorldMm(v)).join(", ")} mm${
+            radiusMm > 0 || !voxel ? "" : ` (ijk ${voxel.voxel.join(" ")})`
+          }`
+        : null,
+    layerName ? shortLayerLabel(layerName) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const frameIds = useMemo(
     () => new Set((linked?.rows ?? []).map((row) => String(row[FRAME_ID]))),
     [linked],
   );
 
   const plotWidth = Math.max(width - PLOT_PADDING * 2, MIN_PLOT_W);
-  const plotHeight = Math.max(height - PLOT_PADDING * 2, MIN_PLOT_H);
+  // The locus row, above the plot when there is room (not in the pinned time row).
+  const showLocusRow = height >= MIN_LOCUS_ROW_HOST_PX;
+  const plotHeight = Math.max(
+    height - PLOT_PADDING * 2 - (showLocusRow ? LOCUS_ROW_PX + CAPTION_ROW_PX : 0),
+    MIN_PLOT_H,
+  );
 
   return (
     <div
@@ -192,6 +267,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
         overflow: "hidden",
       }}
     >
+      {showLocusRow ? <RawSeriesLocus region={region} /> : null}
       {loading && frame === null && (
         <div
           data-testid="crosshair-ts-loading"
@@ -214,6 +290,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
         <EncodedPlotView
           modeId={TIME_SERIES_MODE_ID}
           frame={linked}
+          params={axisParams}
           context={
             linked.rows.length > 1
               ? {
@@ -223,6 +300,13 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
                     selectedIds: frameIds,
                     onFocus: (id) => getTimeNavigationService().setTimepoint(Number(id)),
                     onToggleSelection: () => undefined,
+                    // Arrow keys step frames (v1 function 3); no selection here.
+                    selectable: false,
+                    activateOnMove: true,
+                    label: (i) => {
+                      const v = Number(linked.rows[i]?.value);
+                      return `${tr === null ? `Frame ${i + 1}` : `Frame ${i + 1}, ${formatSeconds(i * tr)}`}: ${Number.isFinite(v) ? v.toPrecision(4) : 'no value'}`;
+                    },
                   },
                 }
               : undefined
@@ -232,6 +316,11 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
           showLocus
         />
       )}
+      {showLocusRow && linked && locusCaption ? (
+        <p className="text-bf-2xs text-bf-text-muted" data-testid="raw-series-caption">
+          {locusCaption}
+        </p>
+      ) : null}
     </div>
   );
 }

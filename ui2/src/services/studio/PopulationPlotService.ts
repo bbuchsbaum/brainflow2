@@ -137,7 +137,7 @@ class PopulationPlotService {
     const feature = state.features[state.selection.activeFeatureId ?? ''];
     const plot: PinnedPopulationPlot = structuredClone({
       id: crypto.randomUUID(),
-      label: `${state.sets[state.selection.activeSetId!]?.name ?? 'Population'} · ${feature?.label ?? 'Values'} · ${result.query.probe.worldMm.map((v) => v.toFixed(1)).join(', ')}`,
+      label: `${state.sets[state.selection.activeSetId!]?.name ?? 'Population'} · ${feature?.label ?? 'Values'} · ${result.query.probe.region ? result.query.probe.region.label : result.query.probe.worldMm.map((v) => v.toFixed(1)).join(', ')}`,
       datasetKey: result.query.datasetKey,
       setId: state.selection.activeSetId!,
       featureId: state.selection.activeFeatureId ?? undefined,

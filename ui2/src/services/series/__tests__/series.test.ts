@@ -165,3 +165,70 @@ describe('generated fixture truth (p4_fixtures.json) agrees with the app path', 
     expect(diff.value).toBeCloseTo(truth.loci.sphere6mm.series.facesMinusHousesBaseline0[2].mean, 10);
   });
 });
+
+describe('native fir4d shape (backend summary after 05857c47)', () => {
+  it('12 4D members bound to feature `fir` with a declared 6-lag axis sample as 72 frames', async () => {
+    const subjects = ['s01', 's02', 's03', 's04', 's05', 's06'];
+    const members = subjects.flatMap((s) =>
+      ['faces', 'houses'].map((c) => ({
+        id: `${s}_${c}`,
+        sourcePath: null,
+        designValues: { subject: s, condition: c, fir_res: `${s}_${c}` },
+        bindings: [
+          {
+            role: 'feature',
+            featureId: 'fir',
+            sourceLocator: `maps/sub-${s.slice(1)}_task-${c}_fir.nii.gz`,
+            sourcePath: `/fixtures/fir4d/maps/sub-${s.slice(1)}_task-${c}_fir.nii.gz`,
+            relativePath: null,
+            selector: null,
+            supportKind: 'volume',
+            supportLabel: 'mni152-4mm-p4',
+            availability: 'available',
+            isPrimary: true,
+          },
+        ],
+      })),
+    );
+    const set = {
+      ...firSet('4d'),
+      id: 'p4-fir-4d',
+      designColumns: ['subject', 'condition', 'fir_res'],
+      memberSummaries: members,
+      memberIds: members.map((m) => m.id),
+      memberCount: members.length,
+      seriesAxes: [
+        {
+          kind: 'lag',
+          source: { type: 'feature_axis', feature: 'fir', axis: 'lag', position: 3 },
+          unit: 'TR',
+          start: 0,
+          step: 1,
+          count: 6,
+          alignment: 'declared_common_axis',
+        },
+      ],
+    };
+    useSetStudioStore.getState().bootstrapStudio({ set, features: [{ id: 'fir', label: 'fir', kind: 'volume' }], cohorts: [], expressions: [] } as never);
+    const seen: SampleRequest[] = [];
+    const { frame } = await sampleSetSeries(
+      useSetStudioStore.getState(),
+      'ws',
+      { worldMm: [0, 0, 0], radiusMm: 0, reduce: 'mean' },
+      new AbortController().signal,
+      async (request) => {
+        seen.push(request);
+        const locus = request.locus as Extract<SampleRequest['locus'], { kind: 'set' }>;
+        return {
+          columns: [{ name: 'member', role: 'nominal' }, { name: 'value', role: 'quantitative' }],
+          rows: locus.members.map((m) => ({ member: m.memberId, value: m.stackIndex ?? null })),
+        };
+      },
+    );
+    const locus = seen[0].locus as Extract<SampleRequest['locus'], { kind: 'set' }>;
+    expect(locus.members).toHaveLength(72);
+    expect(new Set(locus.members.map((m) => m.sourcePath)).size).toBe(12);
+    expect(locus.members.filter((m) => m.memberId.startsWith('["s01_faces"')).map((m) => m.stackIndex)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(frame.rows.map((r) => r[SERIES_X])).toEqual(frame.rows.map((r) => r.value));
+  });
+});

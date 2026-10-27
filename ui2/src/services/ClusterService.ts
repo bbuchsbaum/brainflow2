@@ -256,10 +256,24 @@ export function clusterMethodsSentence(table: ClusterTable, symbol: string | nul
     (table.maxPeaksPerCluster ?? 1) > 1
       ? `; up to ${table.maxPeaksPerCluster} peaks per cluster, ≥ ${formatLayerValueAscii(table.minPeakDistanceMm)} mm apart`
       : '';
-  const extent = table.extentInference
-    ? `; cluster-level p (FWE) by Gaussian random field theory, assuming ${fwhmDescription(table.extentInference)} FWHM`
+  const inference = table.extentInference;
+  // The search volume decides every p(FWE): state it (v0 fidelity 5).
+  const extent = inference
+    ? `; cluster-level p (FWE, ${inference.tails === 2 ? 'two-tailed: both signs' : 'one-tailed'}) by Gaussian random field theory, assuming ${fwhmDescription(inference)} FWHM` +
+      `${fwhmVoxels(inference, table.voxelVolumeMm3)} (user-supplied)` +
+      `, search ${inference.searchVoxels.toLocaleString('en-US')} voxels (non-zero), ` +
+      `${formatLayerValueAscii(inference.resels[3])} resels, ${inference.expectedClusters.toFixed(1)} clusters expected per tail` +
+      ` (${inference.expectedVoxelsPerCluster.toFixed(1)} voxels each)`
     : '';
   return `${table.connectivity}-connected clusters of ${test}, uncorrected, ${minVox}; ${count}, ${voxels} voxels${dropped}${peaks}${extent}`;
+}
+
+/** " (4.0 voxels)" for an isotropic FWHM on isotropic voxels (SPM's footer states both). */
+function fwhmVoxels(inference: Pick<ClusterExtentInference, 'fwhmMm'>, voxelVolumeMm3: number): string {
+  const [x, y, z] = inference.fwhmMm;
+  const edge = Math.cbrt(voxelVolumeMm3);
+  if (!(edge > 0) || x !== y || y !== z) return '';
+  return ` (${(x / edge).toFixed(1)} voxels)`;
 }
 
 /** "8 mm" (isotropic) or "6 × 6 × 8 mm" (per voxel axis). */

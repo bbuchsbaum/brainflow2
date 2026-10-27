@@ -116,3 +116,57 @@ describe('captureSurfaceComposite (D4)', () => {
     expect(big.capturePose).not.toHaveBeenCalled();
   });
 });
+
+describe('one colorbar for both hemispheres (v1 F1)', () => {
+  const overlay = (id: string, name: string, range: [number, number]) => ({
+    id,
+    name,
+    visible: true,
+    values: new Float32Array([0, 1]),
+    colormap: 'viridis',
+    range,
+    dataRange: range,
+    threshold: [0, 30000] as [number, number],
+    opacity: 1,
+  });
+  const surf = (handle: string, hemi: string, layer: ReturnType<typeof overlay>) => ({
+    handle,
+    name: `${hemi}.inflated.gii`,
+    visible: true,
+    geometry: { vertices: new Float32Array(9), faces: new Uint32Array(3), hemisphere: hemi === 'lh' ? 'left' : 'right' },
+    layers: new Map([[layer.id, layer]]),
+    metadata: { vertexCount: 3, faceCount: 1, path: `/fig/${hemi}.inflated.gii` },
+  });
+
+  beforeEach(() => {
+    composeMock.mockReset();
+    composeMock.mockImplementation((rows: ExportPane[][]) => ({ canvas: {}, width: rows[0].reduce((w, p) => w + p.width, 0), height: 100 }));
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ close: vi.fn() })));
+  });
+
+  it('titles the shared bar with the map, without a hemisphere', async () => {
+    useSurfaceStore.setState({
+      surfaces: new Map([
+        ['lh', surf('lh', 'lh', overlay('a', 'lh.sensorimotor.func.gii', [0, 59412]))],
+        ['rh', surf('rh', 'rh', overlay('b', 'rh.sensorimotor.func.gii', [0, 59412]))],
+      ]) as never,
+    });
+    exporterState.exporter = fakeExporter(['left', 'right']);
+    await captureSurfaceComposite('surface-lat-med', 'png', { frame: EXPORT_PRESETS.figure, size: { kind: 'screen', scale: 1 } });
+    const side = composeMock.mock.calls[0][1] as { colorbar: { name: string } };
+    expect(side.colorbar.name).toBe('sensorimotor.func (lh, rh)');
+  });
+
+  it('refuses one bar over hemispheres drawn on different ranges', async () => {
+    useSurfaceStore.setState({
+      surfaces: new Map([
+        ['lh', surf('lh', 'lh', overlay('a', 'lh.sensorimotor.func.gii', [0, 59412]))],
+        ['rh', surf('rh', 'rh', overlay('b', 'rh.sensorimotor.func.gii', [0, 41588]))],
+      ]) as never,
+    });
+    exporterState.exporter = fakeExporter(['left', 'right']);
+    await expect(
+      captureSurfaceComposite('surface-lat-med', 'png', { frame: EXPORT_PRESETS.figure, size: { kind: 'screen', scale: 1 } }),
+    ).rejects.toThrow(/different colour ranges/);
+  });
+});

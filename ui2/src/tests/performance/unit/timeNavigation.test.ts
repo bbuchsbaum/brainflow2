@@ -360,8 +360,9 @@ describe('Time Navigation with a TR-less 4D volume', () => {
 
     const readout = container.querySelector('[data-testid="time-slider-readout"]') as HTMLElement;
     expect(readout).toBeTruthy();
-    // No fabricated mm:ss separator; frame index over last frame only.
-    expect(readout.textContent).toBe('0/9');
+    // No fabricated mm:ss separator. Phase 4 v1 F8 (deliberate): 1-based
+    // frame of count, like the Inspector ("1/10" for index 0 of 10 frames).
+    expect(readout.textContent).toBe('1/10');
     expect(readout.textContent).not.toContain('·');
   });
 });

@@ -1,0 +1,76 @@
+/**
+ * Series locus (phase 4 E2/E5): the voxel at the crosshair, a sphere, an
+ * atlas / label region (at the crosshair, or a parcel picked from the
+ * legend), or the cluster row selected in the Clusters tab. Shared by the
+ * dataset and the 4D-layer series.
+ */
+import { SegmentedControl, Select, ToolbarField } from '@/components/ui/bf';
+import { ValidatedNumberField } from './ValidatedNumberField';
+import { isRegionSource } from '@/services/atlasRegionLookup';
+import { useLayerStore } from '@/stores/layerStore';
+import { useSeriesStore, type SeriesLocusKind } from '@/stores/seriesStore';
+
+const LOCUS_OPTIONS = [
+  { value: 'point', label: 'Voxel', title: 'The voxel nearest the crosshair' },
+  { value: 'sphere', label: 'Sphere', title: 'A sphere around the crosshair, voxels averaged' },
+  { value: 'region', label: 'Region', title: 'An atlas / label region, voxels averaged' },
+  { value: 'cluster', label: 'Cluster', title: 'The cluster row selected in the Clusters tab, voxels averaged' },
+] as const;
+
+const AT_CROSSHAIR = 'crosshair';
+
+export function SeriesLocusControls() {
+  const locus = useSeriesStore((s) => s.locus);
+  const radiusMm = useSeriesStore((s) => s.radiusMm);
+  const regionPick = useSeriesStore((s) => s.regionPick);
+  const update = useSeriesStore((s) => s.update);
+  // The region source: the first label layer that names regions.
+  const atlas = useLayerStore((s) => s.layers.find(isRegionSource));
+  const legend = atlas?.atlasPaletteLegend ?? [];
+  const pickValue = regionPick && regionPick.layerId === atlas?.id ? String(regionPick.labelId) : AT_CROSSHAIR;
+  return (
+    <>
+      <SegmentedControl
+        aria-label="Series locus"
+        options={LOCUS_OPTIONS}
+        value={locus}
+        onValueChange={(v) => update({ locus: v as SeriesLocusKind })}
+      />
+      {locus === 'sphere' ? (
+        <ToolbarField label="Radius">
+          <ValidatedNumberField
+            aria-label="Series sphere radius"
+            fieldClassName="w-[9ch]"
+            min={0}
+            step={1}
+            unit="mm"
+            value={radiusMm}
+            validate={(v) =>
+              v === null ? 'Enter a radius in mm' : v <= 0 ? 'Radius must be > 0 mm (Voxel samples one voxel)' : null
+            }
+            onCommit={(v) => update({ radiusMm: v })}
+          />
+        </ToolbarField>
+      ) : null}
+      {locus === 'region' && atlas ? (
+        <ToolbarField label="Region">
+          <Select
+            aria-label="Series region"
+            className="w-auto max-w-[220px]"
+            value={pickValue}
+            onValueChange={(v) =>
+              update({ regionPick: v === AT_CROSSHAIR ? null : { layerId: atlas.id, labelId: Number(v) } })
+            }
+            options={[
+              { value: AT_CROSSHAIR, label: 'At the crosshair' },
+              ...legend.map((e) => ({
+                value: String(e.label_id),
+                label: e.displayName ?? e.roi,
+              })),
+            ]}
+          />
+        </ToolbarField>
+      ) : null}
+    </>
+  );
+}

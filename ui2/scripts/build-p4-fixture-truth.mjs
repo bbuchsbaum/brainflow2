@@ -192,6 +192,143 @@ function series(voxels) {
   return { byCondition, facesMinusHouses: diff(false), facesMinusHousesBaseline0: diff(true) };
 }
 
+// --- multipeak z map clusters, sub-peaks and RFT extent p (cluster-subpeaks-rft) ---
+// The map: zmap + two Gaussian blobs inside the brain (MNI u8 > 0), added
+// where ≥ 0.05, float32 (ui2/src/devHarness/app/fixtures.ts MULTIPEAK_BLOBS).
+const MULTIPEAK_BLOBS = [
+  { c: [-40, -2, 50], amp: 4.5, sd: 5 },
+  { c: [-30, -28, 42], amp: 4, sd: 4 },
+];
+const brain = fs.readFileSync(path.join(fixtures, 'mni_2mm.u8'));
+const mp = new Float32Array(z);
+for (let k = 0; k < nz; k++)
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      const n = i + nx * (j + ny * k);
+      if (!(brain[n] > 0)) continue;
+      const w = world(i, j, k);
+      let add = 0;
+      for (const b of MULTIPEAK_BLOBS) {
+        const d2 = (w[0] - b.c[0]) ** 2 + (w[1] - b.c[1]) ** 2 + (w[2] - b.c[2]) ** 2;
+        add += b.amp * Math.exp(-d2 / (2 * b.sd * b.sd));
+      }
+      if (add >= 0.05) mp[n] = Math.fround(mp[n] + add);
+    }
+const ijkOf = (n) => [n % nx, Math.floor(n / nx) % ny, Math.floor(n / (nx * ny))];
+const neighbours = [];
+for (let dk = -1; dk <= 1; dk++) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if (di || dj || dk) neighbours.push([di, dj, dk]);
+const label = new Int32Array(mp.length);
+const comps = [];
+for (let seed = 0; seed < mp.length; seed++) {
+  const v = mp[seed];
+  const pol = v > t ? 1 : v < -t ? -1 : 0;
+  if (!pol || label[seed]) continue;
+  const id = comps.length + 1;
+  const members = [];
+  const st = [seed];
+  label[seed] = id;
+  while (st.length) {
+    const n = st.pop();
+    members.push(n);
+    const [i, j, k] = ijkOf(n);
+    for (const [di, dj, dk] of neighbours) {
+      const a = i + di, b = j + dj, c = k + dk;
+      if (a < 0 || b < 0 || c < 0 || a >= nx || b >= ny || c >= nz) continue;
+      const m = a + nx * (b + ny * c);
+      if (!label[m] && mp[m] * pol > t) {
+        label[m] = id;
+        st.push(m);
+      }
+    }
+  }
+  let peak = members[0];
+  for (const m of members) if (Math.abs(mp[m]) > Math.abs(mp[peak]) || (Math.abs(mp[m]) === Math.abs(mp[peak]) && m < peak)) peak = m;
+  comps.push({ id, pol, members, peak, first: seed });
+}
+comps.sort((a, b) => Math.abs(mp[b.peak]) - Math.abs(mp[a.peak]) || b.members.length - a.members.length || a.first - b.first);
+const subPeaks = (comp) => {
+  const maxima = comp.members.filter((n) => {
+    const s0 = mp[n] * comp.pol;
+    const [i, j, k] = ijkOf(n);
+    return neighbours.every(([di, dj, dk]) => {
+      const a = i + di, b = j + dj, c = k + dk;
+      if (a < 0 || b < 0 || c < 0 || a >= nx || b >= ny || c >= nz) return true;
+      const m = a + nx * (b + ny * c);
+      if (label[m] !== comp.id) return true;
+      const sm = mp[m] * comp.pol;
+      return sm < s0 || (sm === s0 && n < m);
+    });
+  });
+  maxima.sort((a, b) => mp[b] * comp.pol - mp[a] * comp.pol || a - b);
+  const accepted = [];
+  for (const n of maxima) {
+    if (accepted.length >= 3) break;
+    const w = world(...ijkOf(n));
+    if (accepted.every((o) => Math.hypot(w[0] - o.w[0], w[1] - o.w[1], w[2] - o.w[2]) >= 8)) accepted.push({ n, w });
+  }
+  return accepted.slice(1).map(({ n, w }) => ({ value: mp[n], ijk: ijkOf(n), mm: w }));
+};
+// RFT (SPM spm_P_RF, D = 3, z field): resels of the map's finite non-zero voxels.
+const FWHM = 8;
+/** Both signs of a z map are two tails: p(FWE) = 1 − (1 − p_tail)², i.e. twice E[m]. */
+const TAILS = 2;
+const r = 2 / FWHM; // voxel size in FWHM units, each axis
+const inMask = (i, j, k) => i < nx && j < ny && k < nz && Number.isFinite(mp[i + nx * (j + ny * k)]) && mp[i + nx * (j + ny * k)] !== 0;
+let P = 0, E = 0, F = 0, C = 0, search = 0;
+for (let k = 0; k < nz; k++)
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      if (!inMask(i, j, k)) continue;
+      search++;
+      P++;
+      const x = inMask(i + 1, j, k), y = inMask(i, j + 1, k), zz = inMask(i, j, k + 1);
+      const xy = x && y && inMask(i + 1, j + 1, k), xz = x && zz && inMask(i + 1, j, k + 1), yz = y && zz && inMask(i, j + 1, k + 1);
+      E += +x + +y + +zz;
+      F += +xy + +xz + +yz;
+      C += +(xy && xz && yz && inMask(i + 1, j + 1, k + 1));
+    }
+// Isotropic: R1..R3 from the summed edge / face / cube counts.
+const R = [P - E + F - C, (E - 2 * F + 3 * C) * r, (F - 3 * C) * r * r, C * r ** 3];
+const erfcNum = (xv) => {
+  // erfc by continued fraction for x > 0 (Lentz), adequate to 1e-14 at x ≈ 2.2.
+  let f = xv, C0 = xv, D = 0;
+  for (let n = 1; n < 400; n++) {
+    const an = n / 2;
+    D = 1 / (xv + an * D);
+    C0 = xv + an / C0;
+    const del = C0 * D;
+    f *= del;
+    if (Math.abs(del - 1) < 1e-16) break;
+  }
+  return Math.exp(-xv * xv) / Math.sqrt(Math.PI) / f;
+};
+const u = 3.1;
+const a4 = 4 * Math.LN2, tp = 2 * Math.PI, bu = Math.exp((-u * u) / 2);
+const ec = [0.5 * erfcNum(u / Math.SQRT2), (Math.sqrt(a4) / tp) * bu, (a4 / tp ** 1.5) * bu * u, (a4 ** 1.5 / tp ** 2) * bu * (u * u - 1)];
+const Em = R.reduce((sum, Rd, d) => sum + Rd * ec[d], 0);
+const Ek = ec[0] / ec[3];
+const beta = (Math.exp(lnGamma(2.5)) / Ek) ** (2 / 3);
+const reselsPerVoxel = r ** 3;
+const atlasAt = (n) => atlas[n] || null;
+const clusters = comps.map((comp, rank) => {
+  const k = comp.members.length * reselsPerVoxel;
+  const pUnc = Math.exp(-beta * k ** (2 / 3));
+  return {
+    id: rank + 1,
+    sign: comp.pol > 0 ? 'positive' : 'negative',
+    voxels: comp.members.length,
+    peakValue: mp[comp.peak],
+    peakIjk: ijkOf(comp.peak),
+    peakMm: world(...ijkOf(comp.peak)),
+    peakAtlasLabel: atlasAt(comp.peak),
+    subPeaks: subPeaks(comp),
+    pUncorrectedExtent: pUnc,
+    // Per tail, then family-wise over the TAILS searched (both signs: 2).
+    pFweExtentPerTail: 1 - Math.exp(-(Em + Number.EPSILON) * pUnc),
+    pFweExtent: 1 - Math.exp(-(Em + Number.EPSILON) * pUnc * TAILS),
+  };
+});
+
 const truth = {
   generatedBy: 'ui2/scripts/build-p4-fixture-truth.mjs',
   model: {
@@ -218,6 +355,23 @@ const truth = {
       voxels: cluster.length,
       series: series(cluster),
     },
+  },
+  clustersMultipeak: {
+    map: 'zmap_2mm + MULTIPEAK_BLOBS inside the brain (add ≥ 0.05, float32)',
+    rule: '|z| > 3.1, both signs, 26-connected, ≤ 3 peaks per cluster ≥ 8 mm apart',
+    rft: {
+      method: 'SPM spm_P_RF, z field, D = 3; p(FWE) over both tails (sign both): 1 − (1 − p_tail)^2',
+      tails: TAILS,
+      fwhmMm: FWHM,
+      searchVoxels: search,
+      resels: R,
+      ecDensities: ec,
+      expectedClusters: Em,
+      expectedReselsPerCluster: Ek,
+      expectedVoxelsPerCluster: Ek / reselsPerVoxel,
+      beta,
+    },
+    clusters,
   },
   raw4dVoxel: {
     member: 's01 faces',

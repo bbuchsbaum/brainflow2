@@ -19,8 +19,8 @@ use crate::volume_queries::{resolve_volume, with_frame, world_envelope, Frame, R
 use crate::BridgeState;
 use bridge_types::{BridgeError, BridgeResult, StatisticKind};
 use neuro_inference::{
-    ClusterExtent, ClusterInference, ClusterMethod, Diagnostics, FieldKind, InferenceError,
-    RftClusterExtent, Smoothness, StatField,
+    ClusterExtent, ClusterInference, ClusterMethod, ClusterSearch, Diagnostics, FieldKind,
+    InferenceError, RftClusterExtent, Smoothness, StatField, Tails,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -240,6 +240,11 @@ pub struct ClusterExtentInference {
     /// "header" or "request".
     pub statistic_source: String,
     pub cluster_forming_threshold: f32,
+    /// Tails searched (2 when positive and negative clusters of a Z/T map
+    /// were formed). `pFweExtent` is family-wise over these tails;
+    /// `expectedClusters` is per tail.
+    #[ts(type = "1 | 2")]
+    pub tails: u8,
     /// Search volume: finite, non-zero voxels of the analysed frame.
     #[ts(type = "number")]
     pub search_voxels: u64,
@@ -247,7 +252,7 @@ pub struct ClusterExtentInference {
     pub resels: [f64; 4],
     /// Voxels per resel (`FWHM_x · FWHM_y · FWHM_z` in voxels).
     pub voxels_per_resel: f64,
-    /// Expected number of clusters at the threshold.
+    /// Expected number of clusters per tail at the threshold.
     pub expected_clusters: f64,
     /// Expected voxels per cluster at the threshold.
     pub expected_voxels_per_cluster: f64,
@@ -839,8 +844,18 @@ pub(crate) fn apply_extent_inference(
         .iter()
         .map(|c| ClusterExtent::new(c.voxel_count))
         .collect();
+    // Both signs of a symmetric field are two tails; F fields have only one.
+    let tails = if table.sign == ClusterSign::Both && !matches!(field.kind, FieldKind::F { .. }) {
+        Tails::Two
+    } else {
+        Tails::One
+    };
+    let search = ClusterSearch {
+        forming_threshold: f64::from(table.threshold),
+        tails,
+    };
     let result = method
-        .infer(&stat_field, &extents, f64::from(table.threshold))
+        .infer(&stat_field, &extents, &search)
         .map_err(inference_error)?;
     for (cluster, p) in table.clusters.iter_mut().zip(&result.clusters) {
         cluster.p_fwe_extent = Some(p.p_corrected);
@@ -869,6 +884,7 @@ pub(crate) fn apply_extent_inference(
         }
         .into(),
         cluster_forming_threshold: table.threshold,
+        tails: result.summary.tails.count(),
         search_voxels: rft.search_voxels,
         resels: rft.resels,
         voxels_per_resel: 1.0 / rft.resels_per_voxel,
@@ -1405,6 +1421,48 @@ mod tests {
             table.clusters[0].p_uncorrected_extent.unwrap(),
             1.717331890801469e-05,
         );
+    }
+
+    #[test]
+    fn both_signs_report_two_tails_with_sidak_familywise_p() {
+        let frame = extent_frame();
+        let z = ResolvedField {
+            kind: FieldKind::Z,
+            from_request: false,
+        };
+        let mut p = peak_params(3.1, 3, 8.0);
+        p.sign = ClusterSign::Positive;
+        let mut one = find_clusters(&frame, &p);
+        apply_extent_inference(&mut one, &frame, [4.0; 3], z).unwrap();
+        p.sign = ClusterSign::Both;
+        let mut two = find_clusters(&frame, &p);
+        apply_extent_inference(&mut two, &frame, [4.0; 3], z).unwrap();
+        let (a, b) = (
+            one.extent_inference.as_ref().unwrap(),
+            two.extent_inference.as_ref().unwrap(),
+        );
+        assert_eq!((a.tails, b.tails), (1, 2));
+        // E[m] and the search volume are per tail and unchanged.
+        assert_eq!(a.expected_clusters, b.expected_clusters);
+        assert_eq!((a.search_voxels, a.resels), (b.search_voxels, b.resels));
+        assert!(b.assumption.contains("Both tails searched"));
+        assert!(b.assumption.contains("Search volume: 8000 voxels"));
+        for (x, y) in one.clusters.iter().zip(&two.clusters) {
+            let p1 = x.p_fwe_extent.unwrap();
+            close(y.p_fwe_extent.unwrap(), 1.0 - (1.0 - p1).powi(2));
+            assert_eq!(x.p_uncorrected_extent, y.p_uncorrected_extent);
+        }
+        // F maps have one tail even when both signs are requested.
+        let f = ResolvedField {
+            kind: FieldKind::F {
+                df1: 2.0,
+                df2: 30.0,
+            },
+            from_request: true,
+        };
+        let mut table = find_clusters(&frame, &p);
+        apply_extent_inference(&mut table, &frame, [4.0; 3], f).unwrap();
+        assert_eq!(table.extent_inference.unwrap().tails, 1);
     }
 
     #[test]

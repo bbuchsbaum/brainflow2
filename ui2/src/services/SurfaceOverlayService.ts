@@ -4,6 +4,7 @@ import { validateSurfaceOverlayIdentity } from './surfaceOverlayIdentity';
  * Handles loading and management of surface data overlays (functional, shape, label data)
  */
 
+import { pairedOverlayLayers, pairedRangeUpdates } from '@/utils/hemisphereOverlays';
 import { nanoid } from 'nanoid';
 import { getTransport } from './transport';
 import { AtlasService } from './AtlasService';
@@ -410,6 +411,11 @@ export class SurfaceOverlayService {
         mean,
         std,
       });
+      // The same map on the other hemisphere shares one colour range (v1 F1).
+      const store = useSurfaceStore.getState();
+      for (const update of pairedRangeUpdates(pairedOverlayLayers(store.surfaces.values(), dataLayer.name))) {
+        store.updateLayerProperty(update.surfaceId, update.layerId, 'range', update.range);
+      }
       applySurfaceSelectionInContext(
         targetSurfaceId,
         'dataLayer',

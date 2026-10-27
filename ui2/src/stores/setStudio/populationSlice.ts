@@ -82,7 +82,13 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 const MAX_SELECTION_HISTORY = 40;
 
 function copyProbe(probe: PopulationProbe | null): PopulationProbe | null {
-  return probe ? { ...probe, worldMm: [...probe.worldMm] } : null;
+  return probe
+    ? {
+        ...probe,
+        worldMm: [...probe.worldMm],
+        ...(probe.region ? { region: structuredClone(probe.region) } : {}),
+      }
+    : null;
 }
 
 export function createPopulationSlice(
@@ -305,10 +311,14 @@ export function createPopulationSlice(
           !probe.worldMm.every(Number.isFinite) ||
           !Number.isFinite(probe.radiusMm) ||
           probe.radiusMm < 0 ||
-          !['mean', 'median', 'min', 'max', 'sum'].includes(probe.reduce))
+          !['mean', 'median', 'min', 'max', 'sum'].includes(probe.reduce) ||
+          (probe.region != null &&
+            (!probe.region.label.trim() ||
+              probe.region.locus.labelIds.length === 0 ||
+              !probe.region.locus.labelIds.every((id) => Number.isSafeInteger(id) && id > 0))))
       ) {
         return fail(
-          'A probe requires an identified support, finite world coordinates, a nonnegative radius and a supported spatial reducer.',
+          'A probe requires an identified support, finite world coordinates, a nonnegative radius, a supported spatial reducer and a region with at least one positive label id.',
         );
       }
       const { population } = get();

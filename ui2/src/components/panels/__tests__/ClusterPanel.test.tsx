@@ -4,14 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClusterTable } from '@brainflow/api';
 
 const computeMock = () => compute;
-const { compute, selectCluster, goToExtremum } = vi.hoisted(() => ({
+const { compute, selectCluster, goToExtremum, goToSubPeak } = vi.hoisted(() => ({
+  goToSubPeak: vi.fn(async () => undefined),
   compute: vi.fn(async () => null),
   selectCluster: vi.fn(async () => undefined),
   goToExtremum: vi.fn(async () => null),
 }));
 vi.mock('@/services/ClusterService', async (orig) => {
   const actual = await orig<typeof import('@/services/ClusterService')>();
-  return { ...actual, getClusterService: () => ({ compute, selectCluster, goToExtremum }) };
+  return { ...actual, getClusterService: () => ({ compute, selectCluster, goToExtremum, goToSubPeak }) };
 });
 vi.mock('@/services/apiService', () => ({ getApiService: () => ({}) }));
 
@@ -168,12 +169,32 @@ describe('ClusterPanel', () => {
     const row = screen.getByTestId('cluster-row-1');
     expect(row).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByTestId('cluster-row-2')).not.toHaveAttribute('aria-expanded');
+    act(() => row.focus());
     fireEvent.keyDown(row, { key: 'ArrowRight' });
     const sub = screen.getByTestId('cluster-subpeak-1-2');
-    expect(sub).toHaveTextContent('1.2');
+    // Keyboard reaches the sub-peak (treegrid level 2); Enter goes to it.
+    expect(screen.getByRole('treegrid')).toBeInTheDocument();
+    expect(sub).toHaveAttribute('aria-level', '2');
+    fireEvent.keyDown(row, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(sub);
+    fireEvent.keyDown(sub, { key: 'Enter' });
+    expect(goToSubPeak).toHaveBeenCalledWith(1, 0);
+    fireEvent.keyDown(sub, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(row);
+    // Indented under its cluster (v0 visual 5): "↳ 2", named "cluster 1, peak 2".
+    expect(sub).toHaveTextContent('↳ 2');
+    expect(sub.querySelector('[aria-label="cluster 1, peak 2"]')).not.toBeNull();
     expect(sub).toHaveTextContent('4.25');
     expect(sub).toHaveTextContent('B');
     fireEvent.click(screen.getByRole('button', { name: 'Hide 1 sub-peak of cluster 1' }));
+    // Selection stays visible under focus (v0 visual 4): the edge is on the
+    // first cell, the focus ring on the row.
+    act(() => useClusterStore.getState().select(1));
+    const selectedRow = screen.getByTestId('cluster-row-1');
+    selectedRow.focus();
+    expect(selectedRow).toHaveAttribute('aria-selected', 'true');
+    expect(selectedRow.querySelector('[data-testid="cluster-selected-edge"]')?.className).toMatch(/inset_2px_0_0/);
+    expect(screen.getByTestId('cluster-row-2').querySelector('[data-testid="cluster-selected-edge"]')).toBeNull();
     expect(screen.queryByTestId('cluster-subpeak-1-2')).toBeNull();
   });
 
@@ -252,8 +273,13 @@ describe('ClusterPanel', () => {
     expect(screen.getByTestId('cluster-row-2')).toHaveTextContent('—');
     fireEvent.click(row1);
     expect(selectCluster).toHaveBeenCalledWith(1);
+    // Treegrid (v1 function 2, deliberate): arrows move focus only; Enter selects.
     act(() => row1.focus());
+    selectCluster.mockClear();
     fireEvent.keyDown(row1, { key: 'ArrowDown' });
+    expect(selectCluster).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByTestId('cluster-row-2'));
+    fireEvent.keyDown(screen.getByTestId('cluster-row-2'), { key: 'Enter' });
     expect(selectCluster).toHaveBeenLastCalledWith(2);
     expect(screen.getByTestId('cluster-methods')).toHaveTextContent(
       '26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 30 voxels',

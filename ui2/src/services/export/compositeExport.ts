@@ -775,7 +775,8 @@ function drawColorbar(
   const symbolRuns = block.symbol;
   const cx = barX + drawRuns(ctx, symbolRuns, barX, captionY, labelPx);
   ctx.font = font(labelPx, SANS);
-  ctx.fillStyle = theme.muted;
+  // Full ink: a figure's colorbar title must stay ≥ 4.5:1 on white at print size (v1 F1).
+  ctx.fillStyle = theme.text;
   if (nameInline && block.name) {
     ctx.fillText(prefix + block.name, cx, captionY);
   } else {

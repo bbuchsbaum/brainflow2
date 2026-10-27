@@ -154,10 +154,13 @@ export function applyExtentInference(
   if (!(resels[3] > 0)) fail('No resel volume (needs at least one 2x2x2 block of search voxels).');
   const reselsPerVoxel = voxelFwhm[0] * voxelFwhm[1] * voxelFwhm[2];
   const model = extentModel(field!, u, resels);
+  // Mirrors neuro-inference: both signs of a z/t map are two tails, and the
+  // family-wise p is 1 - (1 - p)^tails (expected clusters stay per tail).
+  const tails: 1 | 2 = table.sign === 'both' ? 2 : 1;
   for (const c of table.clusters) {
     const k = c.voxelCount * reselsPerVoxel;
     c.pUncorrectedExtent = model.pUncorrected(k);
-    c.pFweExtent = model.pFwe(k);
+    c.pFweExtent = 1 - (1 - model.pFwe(k)) ** tails;
   }
   const expectedClusters = model.expectedClusters;
   const ek = model.expectedReselsPerCluster;
@@ -168,6 +171,10 @@ export function applyExtentInference(
   const assumptions = [
     `Assumes stationary smoothness of ${describe} (user-supplied).`,
     'Gaussian random field theory (SPM spm_P_RF); approximate unless the cluster-forming threshold is high (e.g. z >= 3.1) and the image is smooth relative to the voxel size.',
+    tails === 2
+      ? 'Both tails searched; p(FWE) is corrected over both tails (1 - (1 - p)^2, i.e. twice the expected cluster count).'
+      : 'One tail searched; p(FWE) covers that tail.',
+    `Search volume: ${searchVoxels} voxels, ${resels[3].toFixed(1)} resels; ${model.expectedClusters.toFixed(2)} clusters expected per tail.`,
   ];
   const minFwhmVoxels = Math.min(...fwhm.map((f, i) => f / voxelSize[i]));
   if (minFwhmVoxels < 3) {
@@ -183,6 +190,7 @@ export function applyExtentInference(
     df2: null,
     statisticSource: request.statistic ? 'request' : 'header',
     clusterFormingThreshold: u,
+    tails,
     searchVoxels,
     resels,
     voxelsPerResel: 1 / reselsPerVoxel,

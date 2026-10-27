@@ -29,9 +29,9 @@ pub mod smoothness;
 pub mod voxel;
 
 pub use cluster::{
-    ClusterExtent, ClusterInference, ClusterInferenceResult, ClusterMethod, ClusterMethodId,
-    ClusterP, Diagnostics, MethodSummary, RftClusterExtent, RftDiagnostics,
-    RFT_MIN_SMOOTH_FWHM_VOXELS,
+    familywise_over_tails, ClusterExtent, ClusterInference, ClusterInferenceResult, ClusterMethod,
+    ClusterMethodId, ClusterP, ClusterSearch, Diagnostics, MethodSummary, RftClusterExtent,
+    RftDiagnostics, Tails, RFT_MIN_SMOOTH_FWHM_VOXELS,
 };
 pub use error::{InferenceError, Result};
 pub use field::{FieldKind, StatField};

@@ -27,6 +27,12 @@ df2: number | null,
  */
 statisticSource: string, clusterFormingThreshold: number, 
 /**
+ * Tails searched (2 when positive and negative clusters of a Z/T map
+ * were formed). `pFweExtent` is family-wise over these tails;
+ * `expectedClusters` is per tail.
+ */
+tails: 1 | 2, 
+/**
  * Search volume: finite, non-zero voxels of the analysed frame.
  */
 searchVoxels: number, 
@@ -39,7 +45,7 @@ resels: [number, number, number, number],
  */
 voxelsPerResel: number, 
 /**
- * Expected number of clusters at the threshold.
+ * Expected number of clusters per tail at the threshold.
  */
 expectedClusters: number, 
 /**

@@ -104,6 +104,9 @@ function applySmoothingToRenderedSurface(
  * crown boundary (FreeSurfer-like), muted enough that data colours above
  * threshold stay the strongest thing on the mesh.
  */
+/** The marker halo's radius, relative to the marker (1.5 px-ish ring at typical zoom). */
+const MARKER_HALO_SCALE = 1.35;
+
 const CURVATURE_STYLE = { brightness: 0.62, contrast: 0.5, smoothness: 0.5 } as const;
 
 function applyCurvature(
@@ -841,6 +844,15 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       mesh.name = 'crosshairMarker';
       mesh.renderOrder = 999;
       mesh.userData.radiusMm = markerRadiusMm;
+      // A dark halo like the slice crosshair's (v1 F10): a larger back-faced
+      // sphere drawn just before the marker, so the green reads on any data colour.
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(markerRadiusMm * MARKER_HALO_SCALE, 20, 20),
+        new THREE.MeshBasicMaterial({ color: 0x0b0c0e, side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }),
+      );
+      halo.name = 'crosshairMarkerHalo';
+      halo.renderOrder = 998;
+      mesh.add(halo);
       viewer.scene.add(mesh);
       markerMeshRef.current = mesh;
     } else {
@@ -849,6 +861,11 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         mesh.geometry.dispose();
         mesh.geometry = new THREE.SphereGeometry(markerRadiusMm, 20, 20);
         mesh.userData.radiusMm = markerRadiusMm;
+        const halo = mesh.getObjectByName('crosshairMarkerHalo') as THREE.Mesh | undefined;
+        if (halo) {
+          halo.geometry.dispose();
+          halo.geometry = new THREE.SphereGeometry(markerRadiusMm * MARKER_HALO_SCALE, 20, 20);
+        }
       }
       const material = mesh.material as any;
       material.color?.set?.(markerColor);
@@ -889,6 +906,9 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         // viewer may already be disposed during teardown
       }
       try {
+        const halo = mesh.getObjectByName?.('crosshairMarkerHalo') as THREE.Mesh | undefined;
+        halo?.geometry?.dispose?.();
+        (halo?.material as any)?.dispose?.();
         mesh.geometry?.dispose?.();
         const material = mesh.material;
         if (Array.isArray(material)) {

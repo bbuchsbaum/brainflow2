@@ -8,7 +8,8 @@
 import { useMemo } from 'react';
 import type { SampleFrame } from '@/plotting';
 import type { PopulationPlotRecipe, PopulationTransform } from '@/services/studio/populationPlot';
-import { Checkbox, NumberField, Select, Toolbar, ToolbarField } from '@/components/ui/bf';
+import { Checkbox, Select, Toolbar, ToolbarField } from '@/components/ui/bf';
+import { ValidatedNumberField } from './ValidatedNumberField';
 
 type Kind = PopulationTransform['kind'];
 const ORDER: Kind[] = ['baseline', 'conditionDifference', 'windowMean'];
@@ -60,27 +61,60 @@ export function PopulationTransformControls({
     t: { from: number; to: number },
     kind: 'baseline' | 'windowMean',
     label: string,
-  ) => (
-    <>
-      <ToolbarField label="From">
-        <NumberField
-          aria-label={`${label} from`}
-          fieldClassName="w-[8ch]"
-          value={t.from}
-          onValueChange={(v) => v !== null && set(kind, { kind, from: v, to: t.to })}
-        />
-      </ToolbarField>
-      <ToolbarField label="To">
-        <NumberField
-          aria-label={`${label} to`}
-          fieldClassName="w-[8ch]"
-          value={t.to}
-          unit={unit.trim() || undefined}
-          onValueChange={(v) => v !== null && set(kind, { kind, from: t.from, to: v })}
-        />
-      </ToolbarField>
-    </>
-  );
+  ) => {
+    // Field-level checks (v1 function 7): from ≤ to, and the window must
+    // overlap the axis (its range is stated).
+    const order = t.from > t.to ? `${label}: from must be ≤ to` : null;
+    const outside =
+      axisRange && (t.to < axisRange[0] || t.from > axisRange[1])
+        ? `${label} ${t.from}–${t.to}${unit} is outside the axis (${axisRange[0]}–${axisRange[1]}${unit})`
+        : null;
+    const finite = (v: number | null) => (v === null ? 'Enter a number' : null);
+    return (
+      <>
+        <ToolbarField label="From">
+          <ValidatedNumberField
+            aria-label={`${label} from`}
+            fieldClassName="w-[8ch]"
+            value={t.from}
+            unit={unit.trim() || undefined}
+            validate={finite}
+            onCommit={(v) => set(kind, { kind, from: v, to: t.to })}
+          />
+        </ToolbarField>
+        <ToolbarField label="To">
+          <ValidatedNumberField
+            aria-label={`${label} to`}
+            fieldClassName="w-[8ch]"
+            value={t.to}
+            unit={unit.trim() || undefined}
+            validate={finite}
+            externalMessage={order ?? outside}
+            onCommit={(v) => set(kind, { kind, from: t.from, to: v })}
+          />
+        </ToolbarField>
+      </>
+    );
+  };
+  // A window mean starts around the population's peak (± 1 step), never the
+  // whole axis (v1 user 3).
+  const peakWindow = (): [number, number] => {
+    if (!axisRange) return [lo, hi];
+    const sums = new Map<number, { s: number; n: number }>();
+    for (const row of frame.rows) {
+      const x = Number(row[recipe.x]);
+      const v = Number(row.value);
+      if (!Number.isFinite(x) || !Number.isFinite(v)) continue;
+      const cell = sums.get(x) ?? { s: 0, n: 0 };
+      cell.s += v;
+      cell.n += 1;
+      sums.set(x, cell);
+    }
+    let peak = axisRange[0];
+    let best = -Infinity;
+    for (const [x, { s, n }] of sums) if (Math.abs(s / n) > best) [best, peak] = [Math.abs(s / n), x];
+    return [Math.max(axisRange[0], peak - 1), Math.min(axisRange[1], peak + 1)];
+  };
   return (
     <Toolbar
       aria-label="Collapse transforms"
@@ -139,11 +173,12 @@ export function PopulationTransformControls({
         checked={!!window}
         disabled={!measured || !recipe.detail}
         title="Each participant line's mean over a window: one value per line"
-        onCheckedChange={(on) =>
-          set('windowMean', on ? { kind: 'windowMean', from: lo, to: hi } : null)
-        }
+        onCheckedChange={(on) => {
+          const [from, to] = peakWindow();
+          set('windowMean', on ? { kind: 'windowMean', from, to } : null);
+        }}
       >
-        Window mean
+        Mean over window
       </Checkbox>
       {window ? range(window, 'windowMean', 'Window') : null}
     </Toolbar>

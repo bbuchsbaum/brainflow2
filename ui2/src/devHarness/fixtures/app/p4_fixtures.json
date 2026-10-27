@@ -2232,6 +2232,145 @@
       }
     }
   },
+  "clustersMultipeak": {
+    "map": "zmap_2mm + MULTIPEAK_BLOBS inside the brain (add ≥ 0.05, float32)",
+    "rule": "|z| > 3.1, both signs, 26-connected, ≤ 3 peaks per cluster ≥ 8 mm apart",
+    "rft": {
+      "method": "SPM spm_P_RF, z field, D = 3; p(FWE) over both tails (sign both): 1 − (1 − p_tail)^2",
+      "tails": 2,
+      "fwhmMm": 8,
+      "searchVoxels": 43051,
+      "resels": [
+        5,
+        65,
+        365.5,
+        577.15625
+      ],
+      "ecDensities": [
+        0.000967603213218357,
+        0.0021700906325709274,
+        0.004468814814939685,
+        0.008244923069552523
+      ],
+      "expectedClusters": 6.53785460240508,
+      "expectedReselsPerCluster": 0.11735745804489013,
+      "expectedVoxelsPerCluster": 7.510877314872968,
+      "beta": 5.0437126621589545
+    },
+    "clusters": [
+      {
+        "id": 1,
+        "sign": "positive",
+        "voxels": 607,
+        "peakValue": 5.965000152587891,
+        "peakIjk": [
+          28,
+          56,
+          64
+        ],
+        "peakMm": [
+          -39.5,
+          -19.5,
+          50.5
+        ],
+        "peakAtlasLabel": 1,
+        "subPeaks": [
+          {
+            "value": 5.087607383728027,
+            "ijk": [
+              32,
+              52,
+              60
+            ],
+            "mm": [
+              -31.5,
+              -27.5,
+              42.5
+            ]
+          },
+          {
+            "value": 4.9711833000183105,
+            "ijk": [
+              28,
+              64,
+              64
+            ],
+            "mm": [
+              -39.5,
+              -3.5,
+              50.5
+            ]
+          }
+        ],
+        "pUncorrectedExtent": 1.5324035024341908e-10,
+        "pFweExtentPerTail": 1.0018631479979945e-9,
+        "pFweExtent": 2.003726295995989e-9
+      },
+      {
+        "id": 2,
+        "sign": "negative",
+        "voxels": 359,
+        "peakValue": -4.9770002365112305,
+        "peakIjk": [
+          48,
+          86,
+          44
+        ],
+        "peakMm": [
+          0.5,
+          40.5,
+          10.5
+        ],
+        "peakAtlasLabel": 3,
+        "subPeaks": [],
+        "pUncorrectedExtent": 1.2153488834260677e-7,
+        "pFweExtentPerTail": 7.945771134387769e-7,
+        "pFweExtent": 0.0000015891535954937197
+      },
+      {
+        "id": 3,
+        "sign": "positive",
+        "voxels": 114,
+        "peakValue": 4.466000080108643,
+        "peakIjk": [
+          69,
+          36,
+          34
+        ],
+        "peakMm": [
+          42.5,
+          -59.5,
+          -9.5
+        ],
+        "peakAtlasLabel": 2,
+        "subPeaks": [],
+        "pUncorrectedExtent": 0.0006043240263942753,
+        "pFweExtentPerTail": 0.003943187754652744,
+        "pFweExtent": 0.007870826779637019
+      },
+      {
+        "id": 4,
+        "sign": "positive",
+        "voxels": 2,
+        "peakValue": 3.5999999046325684,
+        "peakIjk": [
+          20,
+          80,
+          60
+        ],
+        "peakMm": [
+          -55.5,
+          28.5,
+          42.5
+        ],
+        "peakAtlasLabel": null,
+        "subPeaks": [],
+        "pUncorrectedExtent": 0.6062882935488842,
+        "pFweExtentPerTail": 0.9810096573452407,
+        "pFweExtent": 0.9996393668858549
+      }
+    ]
+  },
   "raw4dVoxel": {
     "member": "s01 faces",
     "voxelMm": [

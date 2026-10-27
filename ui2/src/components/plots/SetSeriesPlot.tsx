@@ -10,22 +10,28 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SampleFrame } from '@/plotting';
 import { composePopulationPlot } from '@/services/studio/populationPlot';
 import { sampleSetSeries } from '@/services/series/sampleSetSeries';
-import { regionAtCrosshair, selectedClusterRegion } from '@/services/series/seriesRegion';
+import { resolveSeriesRegion } from '@/services/series/seriesRegion';
 import { useClusterStore } from '@/stores/clusterStore';
 import {
   SERIES_OBSERVATION,
   SERIES_X,
   type SetSeriesBinding,
 } from '@/services/series/seriesBinding';
-import { bandDescription, seriesAxisTitle, seriesRecipe } from '@/services/series/seriesRecipe';
+import { seriesRecipe } from '@/services/series/seriesRecipe';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
-import { seriesRadiusMm, useSeriesStore, type SeriesLocusKind } from '@/stores/seriesStore';
+import { seriesRadiusMm, useSeriesStore } from '@/stores/seriesStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { formatWorldMm } from '@/utils/valueFormat';
+import { formatLayerValue, formatWorldMm } from '@/utils/valueFormat';
+import { trueMinus } from '@/components/views/viewportFrame/frameFormat';
+import { locusVoxels, seriesCaption, seriesCsv, seriesPlotParams, seriesSpec } from '@/services/series/seriesPresentation';
+import { openDockTab } from '@/components/layout/openDockTab';
+import { AtlasPicker } from '@/components/inspector/imaging/InspectorLoadDialogs';
+import { getEventBus } from '@/events/EventBus';
+import { populationPlotPng, savePopulationPlot } from '@/services/studio/PopulationPlotExportService';
 import {
+  Button,
   Notice,
-  NumberField,
   SegmentedControl,
   Select,
   Toolbar,
@@ -34,18 +40,13 @@ import {
 import { PlotEncoder } from './encoder/PlotEncoder';
 import { populationCategoryColor } from './encoder/cartesianMarks';
 import { PopulationTransformControls } from './PopulationTransformControls';
+import { SeriesLocusControls } from './SeriesLocusControls';
 import { numericRange, transformSummary } from './populationTransform.helpers';
 import type { PlotModeContext } from './plotHost.types';
 
 /** Wait this long after the last crosshair move before sampling (ms). */
 const SAMPLE_DEBOUNCE_MS = 120;
 
-const LOCUS_OPTIONS = [
-  { value: 'point', label: 'Voxel', title: 'The voxel nearest the crosshair' },
-  { value: 'sphere', label: 'Sphere', title: 'A sphere around the crosshair, voxels averaged' },
-  { value: 'region', label: 'Region', title: 'The atlas / label region at the crosshair, voxels averaged' },
-  { value: 'cluster', label: 'Cluster', title: 'The cluster row selected in the Clusters tab, voxels averaged' },
-] as const;
 
 const DISPLAY_OPTIONS = [
   {
@@ -67,15 +68,19 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
   const selection = useSetStudioStore((s) => s.selection);
   const population = useSetStudioStore((s) => s.population);
   const settings = useSeriesStore();
+  // The result carries the locus that PRODUCED it (v1 user 1): the caption
+  // never describes settings that were not sampled.
   const [result, setResult] = useState<{
     frame: SampleFrame;
     binding: SetSeriesBinding;
     regionLabel: string | null;
+    locusText: string;
   } | null>(null);
   // A cluster locus follows the Clusters tab's selected row and table.
   const clusterSelection = useClusterStore((s) => (settings.locus === 'cluster' ? s.selectedId : null));
   const clusterTable = useClusterStore((s) => (settings.locus === 'cluster' ? s.result : null));
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; action: 'atlas' | 'clusters' | null } | null>(null);
+  const [atlasPicker, setAtlasPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const crosshair = ctx.crosshairMm;
@@ -92,13 +97,8 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
       setLoading(true);
       const locusKind = useSeriesStore.getState().locus;
       (async () => {
-        const region =
-          locusKind === 'region'
-            ? await regionAtCrosshair(worldMm)
-            : locusKind === 'cluster'
-              ? selectedClusterRegion()
-              : null;
-        if (region && !region.region) throw new Error(region.issue);
+        const region = await resolveSeriesRegion(useSeriesStore.getState(), worldMm);
+        if (region && !region.region) throw Object.assign(new Error(region.issue), { locusKind });
         const regionLabel = region && region.region ? region.label : null;
         const next = await sampleSetSeries(
           useSetStudioStore.getState(),
@@ -106,7 +106,13 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
           { worldMm, radiusMm, reduce: 'mean', region: region?.region ?? null, regionLabel },
           abort.signal,
         );
-        return { ...next, regionLabel };
+        const locusText =
+          regionLabel && locusKind === 'region'
+            ? `region ${regionLabel}`
+            : regionLabel && locusKind === 'cluster'
+              ? `${regionLabel}${clusterDefinition(useClusterStore.getState().result, useClusterStore.getState().selectedId)}`
+              : `${radiusMm > 0 ? `${radiusMm} mm sphere` : 'voxel'} at ${worldMm.map((v) => formatWorldMm(v)).join(', ')} mm`;
+        return { ...next, regionLabel, locusText };
       })()
         .then((next) => {
           if (abort.signal.aborted) return;
@@ -115,7 +121,13 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
         })
         .catch((e) => {
           if (abort.signal.aborted) return;
-          setError((e as Error).message);
+          // No stale curves under a new caption: clear the plot (v1 user 1).
+          setResult(null);
+          const kind = (e as { locusKind?: string }).locusKind;
+          setError({
+            message: (e as Error).message,
+            action: kind === 'region' ? 'atlas' : kind === 'cluster' ? 'clusters' : null,
+          });
         })
         .finally(() => {
           if (!abort.signal.aborted) setLoading(false);
@@ -128,6 +140,7 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
     crosshairKey,
     radiusMm,
     settings.locus,
+    settings.regionPick,
     clusterSelection,
     clusterTable,
     workspaceKey,
@@ -159,19 +172,74 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
     result && binding?.subjectColumn
       ? new Set(result.frame.rows.map((r) => r[binding.subjectColumn!])).size
       : 0;
-  const locus =
-    result?.regionLabel && (settings.locus === 'region' || settings.locus === 'cluster')
-      ? `${settings.locus === 'region' ? 'region ' : ''}${result.regionLabel}`
-      : crosshair
-        ? `${radiusMm > 0 ? `${radiusMm} mm sphere` : 'voxel'} at ${crosshair.map((v) => formatWorldMm(v)).join(', ')} mm`
-        : 'no crosshair';
+  const locus = result?.locusText ?? 'no data';
+  const featureLabel = useSetStudioStore((s) => (s.selection.activeFeatureId ? s.features[s.selection.activeFeatureId]?.label : null));
+  const valueUnit = result?.frame.columns.find((c) => c.name === 'value')?.unit;
+  const difference = (recipe?.transforms ?? []).find((t) => t.kind === 'conditionDifference');
+  const yTitle = `${featureLabel ?? 'Value'}${difference && difference.kind === 'conditionDifference' ? ` (${difference.a} − ${difference.b})` : ''}${valueUnit ? `, ${valueUnit}` : ' (a.u.)'}`;
+  const transformCount = settings.transforms.length;
+  const [transformsOpen, setTransformsOpen] = useState(false);
+  // The plot is sized by its container (v0 visual 1: a fixed reserve overflowed at 1280).
+  const plotBox = useRef<HTMLDivElement>(null);
+  const [plotSize, setPlotSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = plotBox.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (!r) return;
+      const next = { width: Math.floor(r.width), height: Math.floor(r.height) };
+      setPlotSize((prev) => (prev.width === next.width && prev.height === next.height ? prev : next));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const plotWidth = plotSize.width > 0 ? plotSize.width : Math.max(200, ctx.width - 16);
+  const plotHeight = plotSize.height > 0 ? plotSize.height : Math.max(120, ctx.height - 96);
+
+  const captionText =
+    binding && recipe
+      ? seriesCaption({
+          binding,
+          recipe,
+          participants,
+          locus,
+          voxels: result ? locusVoxels(result.frame) : null,
+          transforms: composed?.ok ? transformSummary(composed.ok.frame) : '',
+          bandN: composed?.ok
+            ? Math.max(0, ...composed.ok.frame.rows.map((r) => (typeof r.count === 'number' ? r.count : 0)))
+            : undefined,
+        })
+      : '';
+  const copySeriesCsv = async () => {
+    if (!composed?.ok || !recipe || !binding) return;
+    const csv = seriesCsv(composed.ok.frame, recipe, binding, captionText);
+    try {
+      await navigator.clipboard.writeText(csv);
+      getEventBus().emit('ui.notification', { type: 'info', message: 'Series copied as CSV' });
+    } catch {
+      getEventBus().emit('ui.notification', { type: 'warning', message: 'Could not copy to the clipboard' });
+    }
+  };
+  const exportSeriesImage = async () => {
+    if (!plotBox.current) return;
+    try {
+      const png = await populationPlotPng(
+        plotBox.current,
+        captionText,
+        conditions.map((label) => ({ label, color: populationCategoryColor(label) })),
+      );
+      const saved = await savePopulationPlot(png, 'png');
+      if (saved) getEventBus().emit('ui.notification', { type: 'info', message: `Saved ${saved}` });
+    } catch (e) {
+      getEventBus().emit('ui.notification', { type: 'error', message: `Export failed: ${(e as Error).message}` });
+    }
+  };
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col gap-1 overflow-auto p-2 text-bf-xs"
-      data-testid="set-series-plot"
-    >
-      <Toolbar aria-label="Series" className="flex-wrap px-0">
+    <div className="flex h-full min-h-0 flex-col gap-1 overflow-y-auto p-2 text-bf-xs" data-testid="set-series-plot">
+      {/* Row 1: display, centre, band, locus, transforms disclosure, legend. */}
+      <Toolbar aria-label="Series" className="shrink-0 flex-wrap px-0">
         <SegmentedControl
           aria-label="Series display"
           options={DISPLAY_OPTIONS}
@@ -226,76 +294,80 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
             }
           />
         </ToolbarField>
-        <SegmentedControl
-          aria-label="Series locus"
-          options={LOCUS_OPTIONS}
-          value={settings.locus}
-          onValueChange={(v) => settings.update({ locus: v as SeriesLocusKind })}
-        />
-        {settings.locus === 'sphere' ? (
-          <ToolbarField label="Radius">
-            <NumberField
-              aria-label="Series sphere radius"
-              fieldClassName="w-[9ch]"
-              min={0.5}
-              step={1}
-              unit="mm"
-              value={settings.radiusMm}
-              onValueChange={(v) => v !== null && v > 0 && settings.update({ radiusMm: v })}
-            />
-          </ToolbarField>
+        <SeriesLocusControls />
+        {result ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={transformsOpen}
+            aria-controls="series-transforms"
+            onClick={() => setTransformsOpen((open) => !open)}
+            title="Baseline, condition difference, window mean"
+          >
+            {transformsOpen ? '▾' : '▸'} Transforms{transformCount ? ` (${transformCount})` : ''}
+          </Button>
+        ) : null}
+        {conditions.length > 0 ? (
+          <div className="ml-auto flex flex-wrap gap-3" aria-label="Series legend" data-testid="series-legend">
+            {conditions.map((label) => (
+              <span key={label} className="inline-flex items-center gap-1 text-bf-text-secondary">
+                <span
+                  aria-hidden
+                  className="inline-block h-0.5 w-3"
+                  // Data colour: the condition's line.
+                  style={{ background: populationCategoryColor(label) }}
+                />
+                {label}
+              </span>
+            ))}
+          </div>
         ) : null}
       </Toolbar>
-      {result ? (
-        <PopulationTransformControls
-          frame={result.frame}
-          recipe={recipe!}
-          axisRange={numericRange(result.frame, SERIES_X)}
-          onChange={(transforms) => settings.update({ transforms })}
-        />
+      {/* Row 2 (on demand): the declared transforms. */}
+      {result && transformsOpen ? (
+        <div id="series-transforms" className="shrink-0">
+          <PopulationTransformControls
+            frame={result.frame}
+            recipe={recipe!}
+            axisRange={numericRange(result.frame, SERIES_X)}
+            onChange={(transforms) => settings.update({ transforms })}
+          />
+        </div>
       ) : null}
       {error ? (
-        <Notice severity="danger" role="alert">
-          {error}
+        <Notice severity="danger" role="alert" className="shrink-0">
+          <span>No series: {error.message}</span>
+          {error.action === 'atlas' ? (
+            <Button variant="secondary" size="sm" className="ml-2" onClick={() => setAtlasPicker(true)}>
+              Load atlas…
+            </Button>
+          ) : error.action === 'clusters' ? (
+            <Button variant="secondary" size="sm" className="ml-2" onClick={() => openDockTab('clusters', { focus: true })}>
+              Open Clusters
+            </Button>
+          ) : null}
         </Notice>
       ) : null}
+      {atlasPicker ? <AtlasPicker onClose={() => setAtlasPicker(false)} /> : null}
       {composed?.error ? (
-        <Notice severity="warning" role="status">
+        <Notice severity="warning" role="status" className="shrink-0">
           {composed.error}
         </Notice>
       ) : null}
       {binding && !binding.subjectColumn ? (
-        <Notice severity="warning" role="status">
+        <Notice severity="warning" role="status" className="shrink-0">
           Declare which column identifies participants (Population ▸ Participants) to reduce across
           them.
         </Notice>
       ) : null}
-      {conditions.length > 0 ? (
-        <div
-          className="flex flex-wrap gap-3"
-          aria-label="Series legend"
-          data-testid="series-legend"
-        >
-          {conditions.map((label) => (
-            <span key={label} className="inline-flex items-center gap-1 text-bf-text-secondary">
-              <span
-                aria-hidden
-                className="inline-block h-0.5 w-3"
-                // Data colour: the condition's line.
-                style={{ background: populationCategoryColor(label) }}
-              />
-              {label}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {composed?.ok && recipe ? (
-        <div className="min-h-0 flex-1" data-testid="series-plot">
+      {/* Never squeezed below a usable height (v1 function 5): the panel scrolls instead. */}
+      <div ref={plotBox} className="min-h-[160px] flex-1" data-testid="series-plot">
+        {composed?.ok && recipe && binding ? (
           <PlotEncoder
             frame={composed.ok.frame}
-            spec={composed.ok.spec}
-            width={Math.max(200, ctx.width - 16)}
-            height={Math.max(160, ctx.height - 120)}
+            spec={seriesSpec(composed.ok.spec, recipe, seriesPlotParams(binding, composed.ok.frame, recipe, yTitle))}
+            width={plotWidth}
+            height={plotHeight}
             context={
               settings.display === 'participants'
                 ? {
@@ -306,25 +378,67 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
                       onFocus: (id) => {
                         const row = composed.ok!.frame.rows.find((r) => String(r.member) === id);
                         const observation = row?.[SERIES_OBSERVATION];
-                        if (typeof observation === 'string')
-                          populationProbeActions.focus(observation);
+                        if (typeof observation === 'string') populationProbeActions.focus(observation);
                       },
                       onToggleSelection: () => undefined,
+                      selectable: false,
+                      label: (i) => {
+                        const row = composed.ok!.frame.rows[i];
+                        const v = Number(row?.value);
+                        return [
+                          binding.subjectColumn ? row?.[binding.subjectColumn] : null,
+                          binding.conditionColumn ? row?.[binding.conditionColumn] : null,
+                          `${binding.kind} ${row?.[SERIES_X]}${binding.unit ? ` ${binding.unit}` : ''}: ${Number.isFinite(v) ? v.toPrecision(3) : 'no value'}`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ');
+                      },
                     },
                   }
                 : undefined
             }
           />
-        </div>
-      ) : null}
-      <p className="text-bf-2xs text-bf-text-muted" data-testid="series-caption">
-        {binding
-          ? `${seriesAxisTitle(binding)} · ${bandDescription(recipe!)} · ${participants} participant${participants === 1 ? '' : 's'} · ${locus}${loading ? ' · sampling…' : ''}`
+        ) : null}
+      </div>
+      {/* The caption has its own row below the plot (never over marks). */}
+      <div className="flex shrink-0 items-start gap-2">
+      <p className="min-w-0 flex-1 text-bf-2xs text-bf-text-muted" data-testid="series-caption">
+        {binding && recipe
+          ? seriesCaption({
+              binding,
+              recipe,
+              participants,
+              locus,
+              voxels: result ? locusVoxels(result.frame) : null,
+              transforms: composed?.ok ? transformSummary(composed.ok.frame) : '',
+            }) + (loading ? ' · sampling…' : '')
           : loading
             ? 'Sampling…'
-            : `Locus: ${locus}`}{' '}
-        {composed?.ok ? transformSummary(composed.ok.frame) : ''}
+            : `Locus: ${locus}`}
       </p>
+      {composed?.ok && recipe && binding ? (
+        <span className="inline-flex shrink-0 gap-1">
+          <Button variant="secondary" size="sm" onClick={() => void copySeriesCsv()}>
+            Copy CSV
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => void exportSeriesImage()}>
+            Export image
+          </Button>
+        </span>
+      ) : null}
+      </div>
     </div>
   );
+}
+
+/** "(|z| > 3.1, 26-connected, 398 vox, peak z 5.97 at −39.5, −19.5, 50.5 mm)" for a cluster locus. */
+function clusterDefinition(
+  result: ReturnType<typeof useClusterStore.getState>['result'] | null,
+  id: number | null,
+): string {
+  const cluster = result?.table.clusters.find((c) => c.id === id);
+  if (!result || !cluster) return '';
+  const t = result.table;
+  const test = t.sign === 'both' ? `|value| > ${formatLayerValue(t.threshold)}` : t.sign === 'positive' ? `value > ${formatLayerValue(t.threshold)}` : `value < −${formatLayerValue(t.threshold)}`;
+  return ` (${test}, ${t.connectivity}-connected, ${cluster.voxelCount} vox, peak ${trueMinus(cluster.peakValue.toFixed(2))} at ${cluster.peakMm.map((v) => formatWorldMm(v)).join(', ')} mm)`;
 }

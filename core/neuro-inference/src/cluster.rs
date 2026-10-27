@@ -48,6 +48,61 @@ pub struct ClusterP {
     pub p_uncorrected: Option<f64>,
 }
 
+/// Which tails of the statistic were searched for clusters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+pub enum Tails {
+    /// One sign only (positive, or negative clusters of a symmetric field).
+    One,
+    /// Positive and negative clusters of a symmetric (Z or T) field.
+    Two,
+}
+
+impl Tails {
+    pub fn count(self) -> u8 {
+        match self {
+            Tails::One => 1,
+            Tails::Two => 2,
+        }
+    }
+}
+
+/// Family-wise p over the searched tails from a one-tail family-wise p:
+/// `1 - (1 - p)^tails` (Šidák; the tails of a symmetric field are treated as
+/// independent searches). For random field theory, where
+/// `p = 1 - exp(-E[m] · P(n ≥ k))`, this equals `1 - exp(-tails · E[m] ·
+/// P(n ≥ k))`: the expected cluster count doubles when both tails are searched.
+/// Every cluster method applies this convention.
+pub fn familywise_over_tails(p_one_tail: f64, tails: Tails) -> f64 {
+    1.0 - (1.0 - p_one_tail).powi(i32::from(tails.count()))
+}
+
+/// How clusters were formed: the threshold and the tails searched.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ClusterSearch {
+    /// Cluster-forming threshold (absolute; `v > u` and, for two tails, `v < -u`).
+    pub forming_threshold: f64,
+    pub tails: Tails,
+}
+
+impl ClusterSearch {
+    pub fn one_tailed(forming_threshold: f64) -> Self {
+        Self {
+            forming_threshold,
+            tails: Tails::One,
+        }
+    }
+
+    pub fn two_tailed(forming_threshold: f64) -> Self {
+        Self {
+            forming_threshold,
+            tails: Tails::Two,
+        }
+    }
+}
+
 /// Random-field diagnostics of [`RftClusterExtent`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -58,7 +113,8 @@ pub struct RftDiagnostics {
     pub resels_per_voxel: f64,
     /// FWHM in voxels per axis (when smoothness was given as an FWHM).
     pub fwhm_voxels: Option<[f64; 3]>,
-    /// Expected number of clusters at the forming threshold.
+    /// Expected number of clusters per tail at the forming threshold (`E[m]`);
+    /// with two tails the family-wise expectation is twice this.
     pub expected_clusters: f64,
     /// Expected voxels per cluster at the forming threshold.
     pub expected_voxels_per_cluster: f64,
@@ -79,6 +135,8 @@ pub struct MethodSummary {
     pub method: ClusterMethodId,
     pub field: FieldKind,
     pub forming_threshold: f64,
+    /// Tails searched; `p_corrected` is family-wise over these tails.
+    pub tails: Tails,
     /// Human-readable assumptions; every p value depends on them.
     pub assumptions: Vec<String>,
     pub diagnostics: Diagnostics,
@@ -95,13 +153,14 @@ pub struct ClusterInferenceResult {
 pub trait ClusterInference {
     fn method(&self) -> ClusterMethodId;
 
-    /// p values for `clusters`, all formed at `forming_threshold` on `field`
-    /// (positive and negative clusters alike for symmetric fields).
+    /// p values for `clusters`, all formed by `search` on `field`. With two
+    /// tails, `p_corrected` is family-wise over both tails
+    /// ([`familywise_over_tails`]); uncorrected p stays per cluster.
     fn infer(
         &self,
         field: &StatField,
         clusters: &[ClusterExtent],
-        forming_threshold: f64,
+        search: &ClusterSearch,
     ) -> Result<ClusterInferenceResult>;
 }
 
@@ -179,10 +238,10 @@ impl ClusterInference for ClusterMethod {
         &self,
         field: &StatField,
         clusters: &[ClusterExtent],
-        forming_threshold: f64,
+        search: &ClusterSearch,
     ) -> Result<ClusterInferenceResult> {
         match self {
-            ClusterMethod::RftExtent(m) => m.infer(field, clusters, forming_threshold),
+            ClusterMethod::RftExtent(m) => m.infer(field, clusters, search),
         }
     }
 }
@@ -205,7 +264,22 @@ impl RftClusterExtent {
         Self { smoothness }
     }
 
-    fn assumptions(&self, fwhm_voxels: Option<[f64; 3]>) -> Vec<String> {
+    fn assumptions(
+        &self,
+        fwhm_voxels: Option<[f64; 3]>,
+        search: &ClusterSearch,
+        diagnostics: &RftDiagnostics,
+    ) -> Vec<String> {
+        let tails = match search.tails {
+            Tails::One => "One tail searched; p(FWE) covers that tail.".to_string(),
+            Tails::Two => "Both tails searched; p(FWE) is corrected over both tails \
+                           (1 - (1 - p)^2, i.e. twice the expected cluster count)."
+                .to_string(),
+        };
+        let search_volume = format!(
+            "Search volume: {} voxels, {:.1} resels; {:.2} clusters expected per tail.",
+            diagnostics.search_voxels, diagnostics.resels[3], diagnostics.expected_clusters
+        );
         let mut out = vec![
             format!(
                 "Assumes stationary smoothness of {} (user-supplied).",
@@ -215,6 +289,8 @@ impl RftClusterExtent {
              cluster-forming threshold is high (e.g. z >= 3.1) and the image is smooth \
              relative to the voxel size."
                 .to_string(),
+            tails,
+            search_volume,
         ];
         if let Some(fwhm) = fwhm_voxels {
             let min = fwhm.iter().copied().fold(f64::INFINITY, f64::min);
@@ -238,9 +314,15 @@ impl ClusterInference for RftClusterExtent {
         &self,
         field: &StatField,
         clusters: &[ClusterExtent],
-        forming_threshold: f64,
+        search: &ClusterSearch,
     ) -> Result<ClusterInferenceResult> {
         field.kind.validate()?;
+        let forming_threshold = search.forming_threshold;
+        if search.tails == Tails::Two && matches!(field.kind, FieldKind::F { .. }) {
+            return Err(invalid(
+                "F fields are one-tailed; search positive clusters only",
+            ));
+        }
         if !forming_threshold.is_finite() || forming_threshold <= 0.0 {
             return Err(invalid(
                 "the cluster-forming threshold must be finite and > 0",
@@ -253,28 +335,30 @@ impl ClusterInference for RftClusterExtent {
             .map(|c| {
                 let k = c.voxel_count as f64 * resels.resels_per_voxel;
                 ClusterP {
-                    p_corrected: model.p_fwe(k),
+                    p_corrected: familywise_over_tails(model.p_fwe(k), search.tails),
                     p_uncorrected: Some(model.p_uncorrected(k)),
                 }
             })
             .collect();
         let fwhm_voxels = self.smoothness.fwhm_voxels(field);
+        let diagnostics = RftDiagnostics {
+            search_voxels: field.search_voxels(),
+            resels: resels.counts,
+            resels_per_voxel: resels.resels_per_voxel,
+            fwhm_voxels,
+            expected_clusters: model.expected_clusters,
+            expected_voxels_per_cluster: model.expected_resels_per_cluster
+                / resels.resels_per_voxel,
+        };
         Ok(ClusterInferenceResult {
             clusters,
             summary: MethodSummary {
                 method: self.method(),
                 field: field.kind,
                 forming_threshold,
-                assumptions: self.assumptions(fwhm_voxels),
-                diagnostics: Diagnostics::Rft(RftDiagnostics {
-                    search_voxels: field.search_voxels(),
-                    resels: resels.counts,
-                    resels_per_voxel: resels.resels_per_voxel,
-                    fwhm_voxels,
-                    expected_clusters: model.expected_clusters,
-                    expected_voxels_per_cluster: model.expected_resels_per_cluster
-                        / resels.resels_per_voxel,
-                }),
+                tails: search.tails,
+                assumptions: self.assumptions(fwhm_voxels, search, &diagnostics),
+                diagnostics: Diagnostics::Rft(diagnostics),
             },
         })
     }
@@ -294,6 +378,10 @@ mod tests {
         );
     }
 
+    fn one(u: f64) -> ClusterSearch {
+        ClusterSearch::one_tailed(u)
+    }
+
     fn rft(fwhm: f64) -> RftClusterExtent {
         RftClusterExtent::new(Smoothness::isotropic_fwhm_mm(fwhm))
     }
@@ -306,7 +394,7 @@ mod tests {
         let mask = vec![true; 8000];
         let field = StatField::new(FieldKind::Z, [20; 3], [2.0; 3], &mask).unwrap();
         let clusters = [ClusterExtent::new(27), ClusterExtent::new(8)];
-        let result = rft(4.0).infer(&field, &clusters, 3.1).unwrap();
+        let result = rft(4.0).infer(&field, &clusters, &one(3.1)).unwrap();
         close(result.clusters[0].p_corrected, 9.833494450128821e-05);
         close(
             result.clusters[0].p_uncorrected.unwrap(),
@@ -322,10 +410,13 @@ mod tests {
         assert_eq!(result.summary.method, ClusterMethodId::RftExtent);
         // 2 voxels FWHM: the low-smoothness caveat is attached.
         assert!(result.summary.assumptions[0].contains("4 mm FWHM (user-supplied)"));
-        assert!(result.summary.assumptions[2].contains("only 2.0 voxels FWHM"));
+        assert!(result.summary.assumptions[4].contains("only 2.0 voxels FWHM"));
+        assert!(result.summary.assumptions[2].starts_with("One tail searched"));
+        assert!(result.summary.assumptions[3]
+            .contains("8000 voxels, 857.4 resels; 8.34 clusters expected per tail"));
         // Smooth enough: no caveat.
-        let smooth = rft(8.0).infer(&field, &clusters, 3.1).unwrap();
-        assert_eq!(smooth.summary.assumptions.len(), 2);
+        let smooth = rft(8.0).infer(&field, &clusters, &one(3.1)).unwrap();
+        assert_eq!(smooth.summary.assumptions.len(), 4);
     }
 
     #[test]
@@ -333,12 +424,12 @@ mod tests {
         let mask = vec![true; 8000];
         let field = StatField::new(FieldKind::T { df: 20.0 }, [20; 3], [2.0; 3], &mask).unwrap();
         let clusters = [ClusterExtent::new(27)];
-        let via_fwhm = rft(4.0).infer(&field, &clusters, 3.1).unwrap();
+        let via_fwhm = rft(4.0).infer(&field, &clusters, &one(3.1)).unwrap();
         let via_resels = RftClusterExtent::new(Smoothness::Resels(ReselCounts {
             counts: [1.0, 28.5, 270.75, 857.375],
             resels_per_voxel: 0.125,
         }))
-        .infer(&field, &clusters, 3.1)
+        .infer(&field, &clusters, &one(3.1))
         .unwrap();
         assert_eq!(via_fwhm.clusters, via_resels.clusters);
         // Reference for t(20) at u = 3.1, k = 27 voxels.
@@ -350,12 +441,12 @@ mod tests {
         let mask = vec![true; 8000];
         let field = StatField::new(FieldKind::Z, [20; 3], [2.0; 3], &mask).unwrap();
         let c = [ClusterExtent::new(8)];
-        assert!(rft(4.0).infer(&field, &c, 0.0).is_err());
-        assert!(rft(0.0).infer(&field, &c, 3.1).is_err());
+        assert!(rft(4.0).infer(&field, &c, &one(0.0)).is_err());
+        assert!(rft(0.0).infer(&field, &c, &one(3.1)).is_err());
         let empty = vec![false; 8000];
         let none = StatField::new(FieldKind::Z, [20; 3], [2.0; 3], &empty).unwrap();
         assert!(matches!(
-            rft(4.0).infer(&none, &c, 3.1),
+            rft(4.0).infer(&none, &c, &one(3.1)),
             Err(InferenceError::EmptySearchVolume(_))
         ));
         assert!(StatField::new(FieldKind::T { df: 0.0 }, [20; 3], [2.0; 3], &mask).is_err());
@@ -375,9 +466,69 @@ mod tests {
         let mask = vec![true; 8000];
         let field = StatField::new(FieldKind::Z, [20; 3], [2.0; 3], &mask).unwrap();
         let direct = rft(8.0)
-            .infer(&field, &[ClusterExtent::new(5)], 3.1)
+            .infer(&field, &[ClusterExtent::new(5)], &one(3.1))
             .unwrap();
-        let dispatched = method.infer(&field, &[ClusterExtent::new(5)], 3.1).unwrap();
+        let dispatched = method
+            .infer(&field, &[ClusterExtent::new(5)], &one(3.1))
+            .unwrap();
         assert_eq!(direct, dispatched);
+    }
+
+    #[test]
+    fn two_tails_apply_sidak_to_the_familywise_p_only() {
+        let mask = vec![true; 8000];
+        let field = StatField::new(FieldKind::Z, [20; 3], [2.0; 3], &mask).unwrap();
+        let clusters = [ClusterExtent::new(27), ClusterExtent::new(8)];
+        let one = rft(4.0).infer(&field, &clusters, &one(3.1)).unwrap();
+        let two = rft(4.0)
+            .infer(&field, &clusters, &ClusterSearch::two_tailed(3.1))
+            .unwrap();
+        for (a, b) in one.clusters.iter().zip(&two.clusters) {
+            close(b.p_corrected, 1.0 - (1.0 - a.p_corrected).powi(2));
+            // Uncorrected extent p is per cluster and per sign: unchanged.
+            assert_eq!(a.p_uncorrected, b.p_uncorrected);
+        }
+        // Reference: rft_reference.py p_rf values (Ec, p) for 8 voxels, with Ec doubled:
+        // 1 - exp(-2 * 8.341737714144005 * 6.449758039338495e-3).
+        close(two.clusters[1].p_corrected, 1.020172136758312e-01);
+        // Equivalent to doubling E[m] in the Poisson clumping step.
+        let ec = 8.341737714144005_f64;
+        let p_unc = two.clusters[0].p_uncorrected.unwrap();
+        close(
+            two.clusters[0].p_corrected,
+            1.0 - (-(2.0 * ec) * p_unc).exp(),
+        );
+        assert_eq!(
+            (one.summary.tails, two.summary.tails),
+            (Tails::One, Tails::Two)
+        );
+        assert!(two.summary.assumptions[2].starts_with("Both tails searched"));
+        // E[m] stays per tail.
+        assert_eq!(one.summary.diagnostics, two.summary.diagnostics);
+    }
+
+    #[test]
+    fn f_fields_reject_two_tails_and_helper_is_identity_for_one() {
+        let mask = vec![true; 8000];
+        let f = StatField::new(
+            FieldKind::F {
+                df1: 2.0,
+                df2: 30.0,
+            },
+            [20; 3],
+            [2.0; 3],
+            &mask,
+        )
+        .unwrap();
+        assert!(rft(4.0)
+            .infer(
+                &f,
+                &[ClusterExtent::new(8)],
+                &ClusterSearch::two_tailed(6.0)
+            )
+            .is_err());
+        close(familywise_over_tails(0.3, Tails::One), 0.3);
+        close(familywise_over_tails(0.3, Tails::Two), 0.51);
+        assert_eq!((Tails::One.count(), Tails::Two.count()), (1, 2));
     }
 }

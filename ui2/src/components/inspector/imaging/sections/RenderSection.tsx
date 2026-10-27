@@ -461,7 +461,8 @@ function VolumeRenderRows({
           items={[
             {
               label: "Time frame",
-              value: `${layer.currentTimepoint ?? 0} / ${layer.timeSeriesInfo.num_timepoints}`,
+              // 1-based frame of count, like the status bar and the Scene row.
+              value: `${(layer.currentTimepoint ?? 0) + 1} / ${layer.timeSeriesInfo.num_timepoints}`,
             },
           ]}
         />

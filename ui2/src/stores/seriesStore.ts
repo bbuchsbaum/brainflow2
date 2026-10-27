@@ -19,6 +19,11 @@ export interface SeriesSettings {
   locus: SeriesLocusKind;
   /** Sphere radius (mm) when `locus` is a sphere. */
   radiusMm: number;
+  /**
+   * The region locus: a parcel picked from the atlas / label legend, or null
+   * for the region at the crosshair.
+   */
+  regionPick: { layerId: string; labelId: number } | null;
   summary: 'mean' | 'median';
   band: PopulationPlotRecipe['band'];
   /** Population summary lines, or one line per participant (click focuses). */
@@ -35,6 +40,7 @@ export const DEFAULT_SERIES_SETTINGS: SeriesSettings = {
   source: 'auto',
   locus: 'sphere',
   radiusMm: 6,
+  regionPick: null,
   summary: 'mean',
   band: 'ci95',
   display: 'summary',

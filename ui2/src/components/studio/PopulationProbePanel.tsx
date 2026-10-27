@@ -1,4 +1,7 @@
-import { Button, Notice, NumberField } from '@/components/ui/bf';
+import { Button, Notice, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
+import { isRegionSource } from '@/services/atlasRegionLookup';
+import { resolveSeriesRegion } from '@/services/series/seriesRegion';
+import { useLayerStore } from '@/stores/layerStore';
 import { PopulationPivot } from './PopulationPivot';
 import { populationPlotService } from '@/services/studio/PopulationPlotService';
 import { PopulationBrush } from './PopulationBrush';
@@ -86,6 +89,33 @@ export function PopulationProbePanel({
     if (!previewHover) return;
     return populationProbeActions.followHover(radius, workspaceId);
   }, [previewHover, radius, workspaceId]);
+
+  // Region locus (phase 4 E2/E3): an atlas / label region or a cluster row.
+  const pinnedLocus = population.probe?.region
+    ? population.probe.region.locus.labelSource.type === 'volume'
+      ? 'cluster'
+      : 'region'
+    : 'point';
+  // The requested locus: Region stays chosen (picker shown) even when the
+  // crosshair is outside every region.
+  const [requestedLocus, setRequestedLocus] = useState<'point' | 'region' | 'cluster' | null>(null);
+  const probeLocus = requestedLocus ?? pinnedLocus;
+  const regionAtlas = useLayerStore((s) => s.layers.find(isRegionSource));
+  const chooseProbeLocus = async (
+    kind: 'point' | 'region' | 'cluster',
+    pick: { layerId: string; labelId: number } | null = null,
+  ) => {
+    setRequestedLocus(kind);
+    if (kind === 'point') {
+      setPinError(null);
+      return populationProbeActions.clearRegion();
+    }
+    const crosshair = useViewStateStore.getState().viewState.crosshair.world_mm;
+    const resolved = await resolveSeriesRegion({ locus: kind, regionPick: pick }, crosshair);
+    if (!resolved?.region) return setPinError(resolved?.issue ?? 'No region here.');
+    setPinError(null);
+    populationProbeActions.pinRegion({ locus: resolved.region, label: resolved.label });
+  };
 
   const updateRadius = (next: number) => {
     if (!Number.isFinite(next) || next < 0) return;
@@ -189,18 +219,46 @@ export function PopulationProbePanel({
             />{' '}
             Preview hover
           </label>
-          <label className="flex items-center gap-1 text-bf-sm">
-            Radius{' '}
-            <NumberField
-              aria-label="Probe radius in millimetres"
-              min={0}
-              step={1}
-              value={radius}
-              onChange={(event) => updateRadius(event.target.valueAsNumber)}
-              fieldClassName="w-20"
-              unit="mm"
+          <SegmentedControl
+            aria-label="Probe locus"
+            options={[
+              { value: 'point', label: 'Point / sphere' },
+              { value: 'region', label: 'Region' },
+              { value: 'cluster', label: 'Cluster' },
+            ]}
+            value={probeLocus}
+            onValueChange={(v) => void chooseProbeLocus(v as 'point' | 'region' | 'cluster')}
+          />
+          {probeLocus === 'point' ? (
+            <label className="flex items-center gap-1 text-bf-sm">
+              Radius{' '}
+              <NumberField
+                aria-label="Probe radius in millimetres"
+                min={0}
+                step={1}
+                value={radius}
+                onChange={(event) => updateRadius(event.target.valueAsNumber)}
+                fieldClassName="w-20"
+                unit="mm"
+              />
+            </label>
+          ) : null}
+          {probeLocus === 'region' && regionAtlas ? (
+            <Select
+              aria-label="Probe region"
+              className="w-auto max-w-[220px]"
+              value={
+                population.probe?.region?.locus.labelSource.type === 'layer'
+                  ? String(population.probe.region.locus.labelIds[0])
+                  : ''
+              }
+              onValueChange={(v) => void chooseProbeLocus('region', { layerId: regionAtlas.id, labelId: Number(v) })}
+              options={(regionAtlas.atlasPaletteLegend ?? []).map((e) => ({
+                value: String(e.label_id),
+                label: e.displayName ?? e.roi,
+              }))}
             />
-          </label>
+          ) : null}
           <Button variant="secondary" size="sm"
             onClick={() => populationProbeActions.pin(radius, previewHover)}
             disabled={!studio.selection.activeSetId}
@@ -228,8 +286,11 @@ export function PopulationProbePanel({
       <div className="mt-1 text-bf-sm text-muted-foreground" role="status">
         {result ? (
           <>
-            Showing ({coordinates(result.query.probe)}) mm ·{' '}
-            {result.query.probe.radiusMm ? `${result.query.probe.radiusMm} mm sphere` : 'point'} ·{' '}
+            Showing{' '}
+            {result.query.probe.region
+              ? `region ${result.query.probe.region.label} (${result.query.probe.reduce} over its voxels)`
+              : `(${coordinates(result.query.probe)}) mm · ${result.query.probe.radiusMm ? `${result.query.probe.radiusMm} mm sphere` : 'point'}`}{' '}
+            ·{' '}
             {studio.population.pinnedProbe ? 'pinned' : 'preview'}
             {!current && ' · previous query'}
             {snapshot.pending && ' · updating'}
@@ -396,9 +457,10 @@ export function PopulationProbePanel({
                 . Plot points and cutouts remain original observations.
               </p>
             )}
-            {result.query.probe.radiusMm > 0 && (
+            {(result.query.probe.radiusMm > 0 || result.query.probe.region) && (
               <p className="mt-1 text-muted-foreground">
-                Each response is the {result.query.probe.reduce} within this sphere. These summaries
+                Each response is the {result.query.probe.reduce}{' '}
+                {result.query.probe.region ? "over the region's voxels" : 'within this sphere'}. These summaries
                 combine observation responses; population images summarize each voxel separately.
               </p>
             )}

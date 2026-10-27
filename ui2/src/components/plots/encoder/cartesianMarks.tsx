@@ -167,7 +167,19 @@ type LinearScale = ReturnType<typeof scaleLinear<number>>;
 type BandScale = ReturnType<typeof scaleBand<string>>;
 type PointScale = ReturnType<typeof scalePoint<string>>;
 
+/** Axis craft a series plot asks for (phase 4 v1: titles, integer index ticks, a zero line). */
+interface AxisOptions {
+  readonly xTitle?: string;
+  readonly yTitle?: string;
+  /** Integer ticks (lag / frame axes): every integer when ≤ 12 of them. */
+  readonly xIntegerTicks?: boolean;
+  /** A hairline at y = 0 when the domain spans zero (difference plots). */
+  readonly zeroLine?: boolean;
+}
+
 interface CartesianMarkProps {
+  readonly axes?: AxisOptions;
+  readonly margin?: { top: number; right: number; bottom: number; left: number };
   readonly interactive?: boolean;
   readonly kind: MarkKind;
   readonly width: number;
@@ -195,6 +207,8 @@ const tickLabelProps = () => ({
  * inner dimensions and the geometry children.
  */
 function CartesianMark({
+  axes,
+  margin = MARGIN,
   interactive,
   kind,
   width,
@@ -214,8 +228,42 @@ function CartesianMark({
       role={interactive ? 'group' : 'img'}
       aria-label={`${kind} plot`}
     >
-      <Group left={MARGIN.left} top={MARGIN.top}>
+      <Group left={margin.left} top={margin.top}>
+        {axes?.zeroLine && showAxes && zeroInDomain(yScale) ? (
+          <line
+            data-testid="plot-zero-line"
+            x1={0}
+            x2={innerWidth}
+            y1={yScale(0)}
+            y2={yScale(0)}
+            stroke="var(--bf-border-strong)"
+            strokeWidth={1}
+          />
+        ) : null}
         {children}
+        {showAxes && axes?.xTitle ? (
+          <text
+            data-testid="plot-x-title"
+            x={innerWidth / 2}
+            y={innerHeight + 30}
+            textAnchor="middle"
+            fill={axisLabelColor}
+            style={{ fontSize: axisLabelSize, fontFamily: proseFontFamily }}
+          >
+            {axes.xTitle}
+          </text>
+        ) : null}
+        {showAxes && axes?.yTitle ? (
+          <text
+            data-testid="plot-y-title"
+            transform={`translate(${-margin.left + 10}, ${innerHeight / 2}) rotate(-90)`}
+            textAnchor="middle"
+            fill={axisLabelColor}
+            style={{ fontSize: axisLabelSize, fontFamily: proseFontFamily }}
+          >
+            {axes.yTitle}
+          </text>
+        ) : null}
         {showAxes && (
           <Group pointerEvents="none">
             <AxisLeft
@@ -235,6 +283,7 @@ function CartesianMark({
                 top={innerHeight}
                 scale={xScale as never}
                 numTicks={4}
+                {...((axes?.xIntegerTicks && 'ticks' in xScale ? integerTicks(xScale as LinearScale) : {}) as object)}
                 stroke={gridColor}
                 tickStroke={gridColor}
                 tickLabelProps={tickLabelProps}
@@ -245,6 +294,23 @@ function CartesianMark({
       </Group>
     </svg>
   );
+}
+
+function zeroInDomain(yScale: LinearScale): boolean {
+  const [a, b] = yScale.domain();
+  return Math.min(a, b) < 0 && Math.max(a, b) > 0;
+}
+
+/** Integer tick values (every integer when ≤ 12, else about 6) with integer labels. */
+function integerTicks(xScale: LinearScale) {
+  const [a, b] = xScale.domain();
+  const lo = Math.ceil(Math.min(a, b));
+  const hi = Math.floor(Math.max(a, b));
+  const span = hi - lo;
+  const step = span <= 12 ? 1 : Math.ceil(span / 6);
+  const tickValues: number[] = [];
+  for (let v = lo; v <= hi; v += step) tickValues.push(v);
+  return { tickValues, tickFormat: (v: unknown) => String(Math.round(Number(v))) };
 }
 
 // ---------------------------------------------------------------------------
@@ -273,8 +339,19 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     [frame, xName, yName, catMode, band],
   );
 
-  const innerWidth = Math.max(0, width - MARGIN.left - MARGIN.right);
-  const innerHeight = Math.max(0, height - MARGIN.top - MARGIN.bottom);
+  const axes: AxisOptions = {
+    xTitle: typeof spec.params.xTitle === 'string' ? spec.params.xTitle : undefined,
+    yTitle: typeof spec.params.yTitle === 'string' ? spec.params.yTitle : undefined,
+    xIntegerTicks: spec.params.xIntegerTicks === true,
+    zeroLine: spec.params.zeroLine === true,
+  };
+  const margin = {
+    ...MARGIN,
+    bottom: MARGIN.bottom + (axes.xTitle ? 14 : 0),
+    left: MARGIN.left + (axes.yTitle ? 14 : 0),
+  };
+  const innerWidth = Math.max(0, width - margin.left - margin.right);
+  const innerHeight = Math.max(0, height - margin.top - margin.bottom);
 
   const scales = useMemo(() => {
     // The y-domain spans the values AND the band bounds, so a wide CI ribbon is
@@ -313,10 +390,16 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       });
       return { xScale, yScale, catMode: true as const };
     }
+    // An index axis (lag, frame) pads half a step each side, so the first
+    // and last points sit off the axis lines (v1 visual 6f).
+    const halfStep = typeof spec.params.xPadHalfStep === 'number' ? spec.params.xPadHalfStep / 2 : null;
+    const xs = points.map((p) => p.xNum).filter(Number.isFinite);
     const xScale = scaleLinear<number>({
       domain: Array.isArray(spec.params.xDomain)
         ? (spec.params.xDomain as [number, number])
-        : paddedDomain(points.map((p) => p.xNum)),
+        : halfStep !== null && xs.length
+          ? [Math.min(...xs) - halfStep, Math.max(...xs) + halfStep]
+          : paddedDomain(points.map((p) => p.xNum)),
       range: [0, innerWidth],
     });
     return { xScale, yScale, catMode: false as const };
@@ -370,7 +453,24 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     ]);
     groups.set(key, [...(groups.get(key) ?? []), p]);
   }
-  const ribbon = band
+  // Points carry their band as error bars (a window mean: one value per
+  // condition, v1 user 3); lines and areas as a ribbon.
+  const whiskers =
+    band && kind === 'point'
+      ? points
+          .filter((p) => Number.isFinite(p.lo) && Number.isFinite(p.hi))
+          .map((p, i) => {
+            const x = px(p);
+            return (
+              <Group key={`w${i}`} data-testid="plot-error-bar">
+                <line x1={x} x2={x} y1={py(p.lo)} y2={py(p.hi)} stroke={colorFor(p)} strokeWidth={1.5} />
+                <line x1={x - 4} x2={x + 4} y1={py(p.lo)} y2={py(p.lo)} stroke={colorFor(p)} strokeWidth={1.5} />
+                <line x1={x - 4} x2={x + 4} y1={py(p.hi)} y2={py(p.hi)} stroke={colorFor(p)} strokeWidth={1.5} />
+              </Group>
+            );
+          })
+      : null;
+  const ribbon = band && kind !== 'point'
     ? [...groups].map(([key, data]) => (
         <Group key={key} data-testid="plot-band">
           <Area<SeriesPoint>
@@ -387,15 +487,60 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       ))
     : null;
 
+  // Datum links (phase 4 v1 function 3/6): ONE tab stop for the point set,
+  // roving focus inside (Left/Right along a line, Up/Down across lines,
+  // Home/End), keys kept from the viewer's shortcuts.
+  const link = context?.datumLink;
+  const linkedIds = (p: SeriesPoint) => (link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null);
+  const lines = [...groups.values()].map((g) =>
+    g.filter((p) => Number.isFinite(p.y) && typeof linkedIds(p) === 'string').sort((a, b) => a.xNum - b.xNum),
+  );
+  const allLinked = lines.flat();
+  const tabStopId =
+    link && allLinked.some((p) => linkedIds(p) === link.focusedId)
+      ? link.focusedId
+      : allLinked.length
+        ? (linkedIds(allLinked[0]) as string)
+        : null;
+  const selectable = link?.selectable !== false;
+  const moveFrom = (event: React.KeyboardEvent<SVGElement>, id: string) => {
+    if (!link) return;
+    const li = lines.findIndex((g) => g.some((p) => linkedIds(p) === id));
+    if (li < 0) return;
+    const pi = lines[li].findIndex((p) => linkedIds(p) === id);
+    let target: SeriesPoint | undefined;
+    if (event.key === 'ArrowRight') target = lines[li][pi + 1];
+    else if (event.key === 'ArrowLeft') target = lines[li][pi - 1];
+    else if (event.key === 'Home') target = lines[li][0];
+    else if (event.key === 'End') target = lines[li][lines[li].length - 1];
+    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const g = lines[li + (event.key === 'ArrowDown' ? 1 : -1)];
+      target = g?.[Math.min(pi, g.length - 1)];
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.shiftKey && selectable) link.onToggleSelection(id);
+      else link.onFocus(id);
+      return;
+    } else return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!target) return;
+    const nextId = linkedIds(target) as string;
+    const svg = (event.currentTarget as SVGElement).ownerSVGElement;
+    (svg?.querySelector(`[data-datum-id="${CSS.escape(nextId)}"]`) as SVGElement | null)?.focus();
+    if (link.activateOnMove) link.onFocus(nextId);
+  };
+
   const markers = points
     .filter((p) => Number.isFinite(p.y))
     .map((p, i) => {
-      const link = context?.datumLink;
-      const id = link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null;
+      const id = linkedIds(p);
       if (!link || typeof id !== 'string')
         return <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={colorFor(p)} />;
       const focused = id === link.focusedId;
       const selected = link.selectedIds.has(id);
+      const name = link.label && p.rowIndex !== undefined ? link.label(p.rowIndex) : `${id}: ${p.y}`;
       return (
         <Circle
           key={id}
@@ -407,22 +552,16 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
           stroke={focused ? 'var(--app-text-primary)' : 'none'}
           strokeWidth={1.5}
           role="button"
-          tabIndex={0}
+          tabIndex={id === tabStopId ? 0 : -1}
           data-datum-id={id}
-          aria-label={`${id}: ${p.y}`}
-          aria-pressed={selected}
+          aria-label={name}
+          aria-pressed={selectable ? selected : undefined}
           aria-current={focused ? 'true' : undefined}
-          onClick={(event) => (event.shiftKey ? link.onToggleSelection(id) : link.onFocus(id))}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              if (event.shiftKey) link.onToggleSelection(id);
-              else link.onFocus(id);
-            }
-          }}
+          onClick={(event) => (event.shiftKey && selectable ? link.onToggleSelection(id) : link.onFocus(id))}
+          onKeyDown={(event) => moveFrom(event, id)}
         >
           <title>
-            {id}: {p.y} · Click to focus; Shift-click to select
+            {name} · {selectable ? 'Click to focus; Shift-click to select' : 'Click to focus'}
           </title>
         </Circle>
       );
@@ -493,6 +632,8 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
 
   return (
     <CartesianMark
+      axes={axes}
+      margin={margin}
       interactive={!!context?.datumLink}
       kind={kind}
       width={width}
@@ -503,6 +644,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       innerHeight={innerHeight}
     >
       {ribbon}
+      {whiskers}
       {geometry}
       {kind !== 'point' && context?.datumLink ? markers : null}
     </CartesianMark>

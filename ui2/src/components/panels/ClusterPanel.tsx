@@ -17,6 +17,8 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { ClusterSign, ClusterSummary } from '@brainflow/api';
 import {
+  SELECTED_EDGE,
+  SELECTED_FILL,
   Button,
   Checkbox,
   EmptyPane,
@@ -26,10 +28,10 @@ import {
   NumberField,
   SegmentedControl,
   useRovingFocus,
-  SELECTED,
   HOVER_FILL,
   FOCUS_RING_INSET,
 } from '@/components/ui/bf';
+import { FORCED_LEFT_EDGE } from '@/components/ui/bf/states';
 import { StatSymbol } from '@/components/ui/StatSymbol';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
@@ -52,6 +54,8 @@ import {
   parseFwhm,
 } from '@/services/ClusterService';
 import { getEventBus } from '@/events/EventBus';
+import { clusterSeriesUnavailable, openClusterSeries } from '@/services/series/openClusterSeries';
+import { useSetStudioStore } from '@/stores/setStudioStore';
 import { cn } from '@/utils/cn';
 import { formatVoxelIndex } from '@/utils/voxelSnap';
 
@@ -323,18 +327,46 @@ export function ClusterPanel() {
       return next;
     });
   }, []);
-  const ids = useMemo(() => clusters.map((c) => String(c.id)), [clusters]);
+  // Treegrid rows (v1 function 2): clusters ("1") and, when open, their
+  // sub-peaks ("1.2"). Arrow keys move focus only; Enter / Space selects (and
+  // moves the crosshair), so walking the table never jumps the crosshair.
+  const subPeakId = (clusterId: number, j: number) => `${clusterId}.${j + 2}`;
+  const ids = useMemo(
+    () =>
+      clusters.flatMap((c) => [
+        String(c.id),
+        ...(expanded.has(c.id) ? (c.subPeaks ?? []).map((_, j) => subPeakId(c.id, j)) : []),
+      ]),
+    [clusters, expanded],
+  );
   const select = useCallback((id: string) => {
     void getClusterService().selectCluster(Number(id));
   }, []);
   const roving = useRovingFocus({
     ids,
     activeId: selectedId === null ? null : String(selectedId),
-    selectOnMove: true,
-    onSelect: select,
+    onExpand: (id) => {
+      if (id.includes('.')) return;
+      const c = clusters.find((x) => String(x.id) === id);
+      if (!c || !(c.subPeaks ?? []).length) return;
+      if (!expanded.has(c.id)) toggle(c.id, true);
+      else roving.focus(subPeakId(c.id, 0));
+    },
+    onCollapse: (id) => {
+      if (id.includes('.')) {
+        roving.focus(id.split('.')[0]);
+        return;
+      }
+      const c = clusters.find((x) => String(x.id) === id);
+      if (c && expanded.has(c.id)) toggle(c.id, false);
+    },
   });
 
   const [negColor, posColor] = colormapEnds(target?.colormap);
+  // "Series for this cluster" (E3): reasons are re-read on each render (the
+  // cluster store and the Studio / layer stores it reads change together).
+  useSetStudioStore((st) => st.selection.activeSetId);
+  const seriesReason = clusterSeriesUnavailable();
 
   const copyCsv = useCallback(async () => {
     if (!result) return;
@@ -558,7 +590,7 @@ export function ClusterPanel() {
           </p>
         ) : (
           <table
-            role="grid"
+            role="treegrid"
             aria-label="Clusters"
             className="w-full border-collapse font-mono tabular-nums"
           >
@@ -580,7 +612,7 @@ export function ClusterPanel() {
                     <th
                       scope="col"
                       className="px-2 text-right font-normal"
-                      title="Cluster-level p, family-wise corrected (Gaussian random field theory; see the assumption below)"
+                      title={`Cluster-level p, family-wise corrected${result?.table.extentInference?.tails === 2 ? ' over both tails (both signs)' : ' (one tail)'} (Gaussian random field theory; see the assumption below)`}
                     >
                       p(FWE)
                     </th>
@@ -632,24 +664,29 @@ export function ClusterPanel() {
                     data-testid={`cluster-row-${c.id}`}
                     className={cn(
                       'h-6 cursor-pointer outline-none',
-                      selected ? SELECTED : `text-bf-text-secondary ${HOVER_FILL}`,
+                      // The edge is drawn on the first cell: a box-shadow on a
+                      // collapsed-border <tr> does not paint (v0 visual 4).
+                      selected ? `${SELECTED_FILL} text-foreground` : `text-bf-text-secondary ${HOVER_FILL}`,
                       FOCUS_RING_INSET,
                     )}
                     aria-expanded={subPeaks.length > 0 ? open : undefined}
                     onClick={() => select(String(c.id))}
+                    aria-level={1}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         select(String(c.id));
-                      } else if (subPeaks.length > 0 && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
-                        // Tree-grid convention: right opens, left closes.
-                        e.preventDefault();
-                        toggle(c.id, e.key === 'ArrowRight');
                       }
                     }}
                     title={`Cluster ${c.id}: go to peak`}
                   >
-                    <td className="pl-1.5 text-center text-bf-text-muted">
+                    <td
+                      className={cn(
+                        'relative pl-1.5 text-center text-bf-text-muted',
+                        selected && `${SELECTED_EDGE} ${FORCED_LEFT_EDGE}`,
+                      )}
+                      data-testid={selected ? 'cluster-selected-edge' : undefined}
+                    >
                       {subPeaks.length > 0 ? (
                         <button
                           type="button"
@@ -712,13 +749,29 @@ export function ClusterPanel() {
                         return (
                           <tr
                             key={`${c.id}-${j}`}
+                            {...roving.getItemProps(subPeakId(c.id, j))}
+                            role="row"
+                            aria-level={2}
+                            aria-posinset={j + 1}
+                            aria-setsize={subPeaks.length}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                void getClusterService().goToSubPeak(c.id, j);
+                              }
+                            }}
                             data-testid={`cluster-subpeak-${c.id}-${j + 2}`}
-                            className={cn('h-6 cursor-pointer text-bf-text-muted', HOVER_FILL)}
+                            // Subordinate to their cluster: smaller, muted,
+                            // the id indented under the parent's.
+                            className={cn('h-5 cursor-pointer text-bf-2xs text-bf-text-muted outline-none', HOVER_FILL, FOCUS_RING_INSET)}
                             onClick={() => void getClusterService().goToSubPeak(c.id, j)}
                             title={`Cluster ${c.id}, peak ${j + 2}: go to it`}
                           >
                             <td />
-                            <td className="px-2 text-right">{`${c.id}.${j + 2}`}</td>
+                            <td className="whitespace-nowrap pl-4 pr-2 text-left" aria-label={`cluster ${c.id}, peak ${j + 2}`}>
+                              <span aria-hidden>↳ </span>
+                              {j + 2}
+                            </td>
                             <td />
                             <td />
                             <td />
@@ -756,11 +809,7 @@ export function ClusterPanel() {
             {stale} Compute to update.
           </span>
         ) : result ? (
-          <span
-            className="min-w-0 truncate"
-            data-testid="cluster-methods"
-            title="Rows sorted by |peak|"
-          >
+          <span className="min-w-0 basis-full py-0.5" data-testid="cluster-methods">
             <MethodsSentence
               text={clusterMethodsSentence(result.table, resultSymbol)}
               variable={resultVariable}
@@ -803,6 +852,16 @@ export function ClusterPanel() {
             onClick={() => void goTo('min')}
           >
             Go to min
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            data-testid="cluster-series"
+            disabled={!!seriesReason || !!stale}
+            title={stale ? `${stale} Compute to use it.` : (seriesReason ?? `Series over cluster ${selectedId}`)}
+            onClick={() => openClusterSeries()}
+          >
+            {selectedId !== null ? `Series for cluster ${selectedId}` : 'Series for cluster'}
           </Button>
         </span>
         {!stale && result?.table.extentInference ? (

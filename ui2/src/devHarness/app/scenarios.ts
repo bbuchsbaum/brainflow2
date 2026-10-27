@@ -591,11 +591,10 @@ async function noteSeriesValues(): Promise<void> {
   const { composePopulationPlot } = await import('@/services/studio/populationPlot');
   const settings = useSeriesStore.getState();
   const view = useViewStateStore.getState();
-  const { regionAtCrosshair, selectedClusterRegion } = await import('@/services/series/seriesRegion');
+  const { resolveSeriesRegion } = await import('@/services/series/seriesRegion');
   const { seriesRadiusMm } = await import('@/stores/seriesStore');
   const world = view.viewState.crosshair.world_mm;
-  const region =
-    settings.locus === 'region' ? await regionAtCrosshair(world) : settings.locus === 'cluster' ? selectedClusterRegion() : null;
+  const region = await resolveSeriesRegion(settings, world);
   if (region && !region.region) throw new Error(region.issue);
   if (region?.region) noteStep(`series region: ${region.label} ${JSON.stringify(region.region)}`);
   const { frame, binding } = await sampleSetSeries(
@@ -756,6 +755,9 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     const table = useClusterStore.getState().result!.table;
     const firstWithPeaks = table.clusters.find((c) => c.subPeaks.length > 0);
     if (!firstWithPeaks) throw new Error('no cluster with sub-peaks in the multipeak map');
+    // Select the row (the selection edge shows with and without focus, v1 F5).
+    (document.querySelector(`[data-testid="cluster-row-${firstWithPeaks.id}"]`) as HTMLElement).click();
+    await until(() => useClusterStore.getState().selectedId === firstWithPeaks.id, 'cluster row selected');
     {
       const row = document.querySelector<HTMLElement>(`[data-testid="cluster-row-${firstWithPeaks.id}"]`)!;
       row.focus();
@@ -1229,11 +1231,12 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   // Phase 4 E6: FIR series (3D lag maps), 6 mm sphere, mean ± 95% CI (t).
   'series-fir-sphere': async () => firSeries('3d', { radiusMm: 6, band: 'ci95' }),
   // Phase 4 E6: the same study as 4D lag series, faces − houses (paired) with
-  // a 0–0 TR baseline: one difference line, mean ± 1.96 SE.
+  // a 0–0 TR baseline: one difference line, mean ± 95% CI (t).
   'series-fir-diff': async () =>
     firSeries('4d', {
       radiusMm: 6,
-      band: 'sem95',
+      // v1 F7: the t-based 95% CI is the default everywhere, differences too.
+      band: 'ci95',
       transforms: [
         { kind: 'baseline', from: 0, to: 0 },
         { kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' },

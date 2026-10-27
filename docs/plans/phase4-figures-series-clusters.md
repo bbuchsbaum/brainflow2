@@ -187,3 +187,68 @@ plot↔image linking.
    transforms, one series mode, FIR fixtures), with the FIR estimation plugin deferred?
 3. **Default label outline:** per-region LUT colour with a dark halo whenever a label layer
    sits above a statistic. Fill stays the default when it is alone.
+
+## E7. Coefficients → series: the interface Brainflow offers (user, 2026-10-27; plan only)
+
+**Ownership (user decision).** Bases and model fitting belong to the separate fMRI analysis module
+(FIR/TENT, B-splines, SPM canonical HRF with derivatives, Fourier, informed bases). Brainflow owns
+ingestion and visualization. Brainflow therefore **does not define or evaluate bases**. It offers
+one clean, estimator-neutral interface through which the analysis module (or SPM, FSL, AFNI,
+nilearn output) can hand over coefficients plus the means to project them, and Brainflow handles
+everything downstream. Nothing here is built in phase 4; the phase 4 series code must just not
+preclude it.
+
+**Why a projection stage, not pre-projected files.** y(t) = Σ_k B_k(t) β_k is linear. It
+commutes with the spatial mean and the within-participant mean, so Brainflow can project **per
+participant line, after spatial reduction**: cheap, exact, and with no projected volumes on disk.
+Population bands are then computed on the projected per-participant values, which are the correct
+between-subject bands. A population mean is never projected.
+
+**The interface (three tiers, simplest first).**
+1. **Declared, sampled basis (the default contract).** The producer writes the basis already
+   evaluated on an output grid. This covers every linear basis without Brainflow knowing any of
+   them.
+   - Where it goes: a NeuroTabs `axis_domains.basis` entry with `basis_matrix: <tsv>`. The TSV's
+     rows are grid positions and its columns are coefficients; the grid gives `start`, `step`,
+     `count` and unit.
+   - Descriptive fields that Brainflow only displays: `basis_id` (e.g. `spm-hrf+td`,
+     `bspline(3, 8)`) and a `description` for captions and methods text.
+   - Coefficient layout: either a feature axis `basis` (4D coefficient members) or an observation
+     column with `semantic_role: basis` (one 3D map per coefficient).
+   - Brainflow's only computation is the matrix product with the sampled coefficients.
+2. **Projection provider (on the fly, any grid).** When the grid should be chosen at view time,
+   or the projection is not a fixed matrix, the producer names a provider instead of a matrix.
+   - The provider is an analysis plugin (`docs/analysis_plugins.md`, sidecar protocol) that
+     declares a `project_series` capability.
+   - Brainflow sends `{basis_id, params, coefficients[participant × K], grid}` and receives
+     `{values[participant × len(grid)], describe}`.
+   - Brainflow caches results by (basis, params, grid, coefficient digest).
+   - The analysis module stays the single source of truth for basis definitions (DRY), and
+     Brainflow never links its code.
+3. **Pre-projected series (already supported).** Lag/time members or 4D series (E1, `05857c47`)
+   remain valid for producers that prefer to write projected maps.
+
+**What Brainflow implements later, and where.**
+- bridge_types: a `SeriesAxisSource` variant `basis_projection {coefficients: feature | column,
+  basis: {id, description, matrix_ref | provider_ref, params}, grid}`.
+- field_table: the manifest validation itself. The coefficient count equals the matrix columns,
+  the grid is finite with a declared unit, and the matrix file is checksum-pinned for frozen
+  queries.
+- The series binding gets a **projection stage** as the first per-participant stage, before the
+  declared transforms (baseline, difference, window). It records the basis id, description, grid
+  and provider/matrix digest in provenance, and the caption names the basis
+  ("projected from spm-hrf+td, 3 coefficients").
+- The participants view can toggle between coefficients and the projected course; export carries
+  both.
+- Later, the same contract can drive a virtual projected 4D layer (B·β voxelwise on demand), so a
+  projected map at time t renders like a 4D frame. If a producer ships within-subject coefficient
+  covariance, it can be carried too; until then the caption says bands are between-subject only.
+
+**Phase 4 constraints that keep this open (check in review).**
+- Series binding resolves the axis through one function (`resolveSetSeriesBinding`).
+- The per-participant stage list in `populationPlot` is ordered and typed.
+- Provenance lives in `frame.meta`.
+
+A projection stage slots in front of the transforms without changing the population stage. Do
+not add basis evaluation code to Brainflow; coordinate the `project_series` request/response
+schema with the analysis module before building.

@@ -21,7 +21,7 @@ use neuro_inference::*;
 
 let field = StatField::new(FieldKind::T { df: 24.0 }, dims, voxel_mm, &mask)?;
 let method = RftClusterExtent::new(Smoothness::isotropic_fwhm_mm(8.0));
-let result = method.infer(&field, &[ClusterExtent::new(120)], 3.1)?;
+let result = method.infer(&field, &[ClusterExtent::new(120)], &ClusterSearch::one_tailed(3.1))?;
 // result.clusters[0].p_corrected, result.summary.assumptions, result.summary.diagnostics
 ```
 
@@ -53,6 +53,11 @@ single component SPM. Resel counts follow SPM's `spm_resels_vol`.
    `p(n ≥ k) = exp(-β k^(2/3))` with `β = (Γ(5/2) / Ek)^(2/3)`. This is the
    uncorrected extent p.
 5. The FWE-corrected p is `1 - exp(-(Ec + eps) p(n ≥ k))` (Poisson clumping).
+6. Tails: `ClusterSearch` says whether one sign or both signs (Z and T fields)
+   were searched. With two tails the family-wise p is `1 - (1 - P)^2` over the
+   tails (Šidák; `familywise_over_tails`), which here equals doubling `Ec`.
+   The uncorrected `p(n ≥ k)` stays per cluster, and `Ec` is reported per tail.
+   F fields are one-tailed. Every cluster method follows this convention.
 
 ### Assumptions
 

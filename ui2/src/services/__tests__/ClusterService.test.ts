@@ -166,6 +166,7 @@ describe('phase 4: sub-peaks, cluster-level p, cancellation', () => {
     expectedClusters: 0.42,
     expectedVoxelsPerCluster: 3.3,
     assumption: 'Assumes stationary smoothness of 6 x 6 x 8 mm FWHM (user-supplied). Gaussian random field theory.',
+    tails: 2 as const,
   };
   const RICH: ClusterTable = {
     ...TABLE,
@@ -216,7 +217,8 @@ describe('phase 4: sub-peaks, cluster-level p, cancellation', () => {
   it('the methods sentence states the peaks rule and the RFT assumption; the CSV lists sub-peaks and p', () => {
     expect(clusterMethodsSentence(RICH, 'z')).toBe(
       '26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels; ' +
-        'up to 3 peaks per cluster, ≥ 8 mm apart; cluster-level p (FWE) by Gaussian random field theory, assuming 6 × 6 × 8 mm FWHM',
+        'up to 3 peaks per cluster, ≥ 8 mm apart; cluster-level p (FWE, two-tailed: both signs) by Gaussian random field theory, assuming 6 × 6 × 8 mm FWHM (user-supplied), ' +
+        'search 1,000 voxels (non-zero), 4 resels, 0.4 clusters expected per tail (3.3 voxels each)',
     );
     const csv = clusterTableCsv(RICH, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }, [['R_region'], []]).split('\n');
     expect(csv[0]).toContain('assuming 6 x 6 x 8 mm FWHM');

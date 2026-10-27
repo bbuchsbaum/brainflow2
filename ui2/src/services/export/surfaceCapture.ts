@@ -19,6 +19,7 @@ import { useSurfaceStore, type LoadedSurface } from '@/stores/surfaceStore';
 import { activeSurfaceFigureExporter } from './surfaceExporter';
 import { surfaceColorbarLayer } from '@/components/views/surfaceFrame/surfaceColorbar';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
+import { overlayMapName, pairedOverlayLayers } from '@/utils/hemisphereOverlays';
 import { surfaceFileName } from '@/utils/exportFileName';
 import {
   chromeUnit,
@@ -119,15 +120,40 @@ function findSurface(handleLower: string): LoadedSurface | null {
 }
 
 /** The overlay the colorbar describes: the view's surface's, else any visible surface's. */
-function figureColorbar(anchor: LoadedSurface | null): ReturnType<typeof surfaceColorbarLayer> {
-  const own = surfaceColorbarLayer(anchor);
-  if (own) return own;
-  for (const surface of useSurfaceStore.getState().surfaces.values()) {
-    if (surface.visible === false) continue;
-    const layer = surfaceColorbarLayer(surface);
-    if (layer) return layer;
+function figureColorbar(
+  anchor: LoadedSurface | null,
+  hemispheres: ReadonlyArray<'left' | 'right'>,
+): ReturnType<typeof surfaceColorbarLayer> {
+  let base = surfaceColorbarLayer(anchor);
+  if (!base) {
+    for (const surface of useSurfaceStore.getState().surfaces.values()) {
+      if (surface.visible === false) continue;
+      base = surfaceColorbarLayer(surface);
+      if (base) break;
+    }
   }
-  return null;
+  if (!base || hemispheres.length < 2) return base;
+  // Both hemispheres under one bar (v1 F1): the paired layers must share one
+  // window, and the bar is titled with the map, not one hemisphere's file.
+  const visible = [...useSurfaceStore.getState().surfaces.values()].filter((s) => s.visible !== false);
+  const pairs = pairedOverlayLayers(visible, base.name);
+  if (pairs.length < 2) return base;
+  const [first] = pairs;
+  const differs = pairs.some(
+    ({ layer }) =>
+      layer.range[0] !== first.layer.range[0] ||
+      layer.range[1] !== first.layer.range[1] ||
+      layer.colormap !== first.layer.colormap ||
+      (layer.threshold?.[0] ?? 0) !== (first.layer.threshold?.[0] ?? 0) ||
+      (layer.threshold?.[1] ?? 0) !== (first.layer.threshold?.[1] ?? 0),
+  );
+  if (differs)
+    throw new Error(
+      `The hemispheres show ${overlayMapName(base.name)} with different colour ranges, colormaps or thresholds; ` +
+        'give them the same window to share one colorbar.',
+    );
+  const name = `${overlayMapName(base.name)} (lh, rh)`;
+  return { ...base, name, nameLabel: name };
 }
 
 function headerRuns(title: string, layerName: string | null): HeaderRun[][] {
@@ -155,7 +181,7 @@ export async function captureSurfaceComposite(
   const paneGap = 6;
 
   const anchor = findSurface(surfaceHandle);
-  const colorbar = figureColorbar(anchor);
+  const colorbar = figureColorbar(anchor, info.hemispheres);
   const side: ExportSideBar = { colorbar, value: null, legend: null };
   const hasSide = frame.colorbar && !!colorbar;
   const layerName = colorbar?.name ?? null;

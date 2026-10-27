@@ -171,6 +171,18 @@ const NO_INTENT: NonNullable<VolumeFixture['header']> = {
 
 const VIEW_CODES: Record<string, number> = { axial: 0, sagittal: 1, coronal: 2 };
 
+/** Statistics over a fixture's values: every frame of a 4D fixture, as the backend's data range does. */
+function fixtureStats(fixture: VolumeFixture) {
+  if (!fixture.frames) return stats(fixture.data);
+  const all = new Float32Array(fixture.frames.reduce((n, f) => n + f.length, 0));
+  let offset = 0;
+  for (const f of fixture.frames) {
+    all.set(f, offset);
+    offset += f.length;
+  }
+  return stats(all);
+}
+
 function stats(data: Float32Array) {
   let min = Infinity;
   let max = -Infinity;
@@ -377,8 +389,12 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       for (let k = 0; k < nz; k += 1)
         for (let j = 0; j < ny; j += 1)
           for (let i = 0; i < nx; i += 1) {
+            const n = i + nx * (j + ny * k);
+            // Zero outside the brain, as a real FIR NIfTI is (v1 user 6: a
+            // whole-grid offset turned the overlay into an opaque slab).
+            if (!(fixtures.mni.data[n] > 0)) continue;
             const w = [0, 1, 2].map((r) => affine[r][0] * i + affine[r][1] * j + affine[r][2] * k + affine[r][3]);
-            data[i + nx * (j + ny * k)] = firValue(w, id.subject, id.condition, lag);
+            data[n] = firValue(w, id.subject, id.condition, lag);
           }
       return data;
     });
@@ -685,7 +701,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     get_nifti_header_info: ({ volumeId }: { volumeId: string }) => {
       const vol = volumeFor(volumeId);
       const b = volumeBounds(vol.fixture);
-      const s = stats(vol.fixture.data);
+      const s = fixtureStats(vol.fixture);
       return {
         filename: vol.name,
         dimensions: [...vol.fixture.dims],
@@ -796,7 +812,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       const spec = layerSpec.Volume;
       const vol = volumeFor(spec.source_resource_id);
       layers.set(spec.id, { layerId: spec.id, volumeId: vol.id });
-      const s = stats(vol.fixture.data);
+      const s = fixtureStats(vol.fixture);
       const center = volumeCenter(vol.fixture);
       const [nx, ny, nz] = vol.fixture.dims;
       return {

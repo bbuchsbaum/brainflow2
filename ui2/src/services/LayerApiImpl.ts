@@ -283,7 +283,12 @@ export class LayerApiImpl implements LayerApi {
       // statisticDefaultRange). It is final: no histogram refinement later
       // changes it, so nothing but the user moves its window (native v6).
       const statisticRange = isLabelLike ? null : statisticDefaultRange(statisticOf(newLayer), dataRange);
-      const rangeResult = statisticRange ?? computeFallbackIntensityRange(rangeOptions);
+      const rangeResult = overlayDisplay(
+        newLayer,
+        statisticRange ?? computeFallbackIntensityRange(rangeOptions),
+        dataRange,
+        !!statisticRange,
+      );
       if (statisticRange) statisticFirstPaint.add(newLayer.id);
 
       renderProps = {
@@ -485,9 +490,13 @@ export class LayerApiImpl implements LayerApi {
 
     // A statistic whose data range was not finite (NaN / Inf): the
     // statistic rule from the histogram's 0.1 / 99.9 percentiles.
-    const rangeResult =
-      (layer.type === 'label' ? null : statisticDefaultRangeFromHistogram(statisticOf(layer), histogram)) ??
-      computeAdaptiveIntensityRange(histogram, rangeOptions);
+    const statisticRefined = layer.type === 'label' ? null : statisticDefaultRangeFromHistogram(statisticOf(layer), histogram);
+    const rangeResult = overlayDisplay(
+      layer,
+      statisticRefined ?? computeAdaptiveIntensityRange(histogram, rangeOptions),
+      rangeOptions.dataRange ?? { min: 0, max: 0 },
+      !!statisticRefined,
+    );
     const isLabelLike = layer.type === 'label';
     const refined: LayerRender = {
       opacity: layer.visible ? 1.0 : 0.0,
@@ -687,4 +696,28 @@ export class LayerApiImpl implements LayerApi {
     await this.ensureGpuResidentForLayer(id);
     await this.reconcileGpuResidency(id);
   }
+}
+
+/**
+ * A 4D, non-statistic, non-label volume added ON TOP of another volume
+ * (phase 4 v1 user 6: a FIR / BOLD series over the anatomy) is shown as an
+ * intensity overlay: the "hot" ramp with everything below its window hidden,
+ * so the anatomy shows through, instead of an opaque grayscale slab. The base
+ * volume and statistics keep their own rules.
+ */
+export function overlayDisplay<T extends { intensity: [number, number]; threshold: [number, number]; suggestedColormap?: string }>(
+  layer: { id: string; type?: string; volumeType?: string; timeSeriesInfo?: { num_timepoints: number } | null },
+  range: T,
+  dataRange: { min: number; max: number },
+  isStatistic: boolean,
+): T {
+  if (isStatistic || layer.type === 'label' || layer.type === 'mask') return range;
+  const fourD = (layer.timeSeriesInfo?.num_timepoints ?? 0) >= 2 || layer.volumeType === 'TimeSeries4D';
+  if (!fourD) return range;
+  const below = useLayerStore
+    .getState()
+    .layers.some((l) => l.id !== layer.id && l.type !== 'label' && (l.order ?? 0) < (useLayerStore.getState().getLayer(layer.id)?.order ?? Infinity));
+  if (!below) return range;
+  const low = Math.min(dataRange.min, range.intensity[0]);
+  return { ...range, suggestedColormap: 'hot', threshold: [low, range.intensity[0]] };
 }

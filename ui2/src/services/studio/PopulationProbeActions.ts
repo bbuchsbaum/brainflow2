@@ -1,5 +1,5 @@
 import { getTransport } from '@/services/transport';
-import type { PopulationMask, PopulationParticipantDefinition } from '@/types/population';
+import type { PopulationMask, PopulationParticipantDefinition, PopulationProbe } from '@/types/population';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
@@ -89,6 +89,28 @@ export const populationProbeActions = {
       },
       'pin',
     );
+  },
+  /** Pin a region probe (E2/E3) at the crosshair: each observation is reduced over the region. */
+  pinRegion(region: NonNullable<PopulationProbe['region']>) {
+    const state = useSetStudioStore.getState();
+    const view = useViewStateStore.getState();
+    return state.setPopulationProbe(
+      {
+        supportKey: populationSupportKey(state, view.activeWorkspaceKey),
+        worldMm: [...view.viewState.crosshair.world_mm],
+        radiusMm: 0,
+        reduce: 'mean',
+        region,
+      },
+      'pin',
+    );
+  },
+  /** Back to a point probe at the pinned location (no region). */
+  clearRegion() {
+    const state = useSetStudioStore.getState();
+    const pinned = state.population.pinnedProbe;
+    if (!pinned?.region) return;
+    state.setPopulationProbe({ ...pinned, region: null }, 'pin');
   },
   unpin() {
     useSetStudioStore.getState().setPopulationProbe(null, 'pin');
