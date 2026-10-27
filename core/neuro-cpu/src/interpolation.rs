@@ -34,15 +34,16 @@ pub fn sample_trilinear(volume: &dyn Volume, voxel: [f32; 3]) -> Option<f32> {
     })
 }
 
-/// Sample within the closed voxel-center bounds; outside or non-finite coordinates
-/// have no value. Upper corners are replicated at the final plane.
+/// Sample in the half-open voxel interval [0, dimension), matching the GPU
+/// sampler domain. Replicate upper corners at the final plane; reject outside
+/// and non-finite coordinates.
 pub(crate) fn sample_trilinear_with(
     dims: [usize; 3],
     voxel: [f32; 3],
     get: impl Fn([usize; 3]) -> Option<f32>,
 ) -> Option<f32> {
     if (0..3).any(|i| {
-        dims[i] == 0 || !voxel[i].is_finite() || voxel[i] < 0.0 || voxel[i] > (dims[i] - 1) as f32
+        dims[i] == 0 || !voxel[i].is_finite() || voxel[i] < 0.0 || voxel[i] >= dims[i] as f32
     }) {
         return None;
     }
@@ -123,16 +124,17 @@ mod tests {
     }
 
     #[test]
-    fn trilinear_closed_bounds_and_singleton_axes() {
+    fn trilinear_edge_replication_and_singleton_axes() {
         let mut volume = TestVolume::new([2, 2, 1], [1.0; 3], [0.0; 3]);
         volume.data_mut().copy_from_slice(&[0.0, 1.0, 2.0, 3.0]);
         assert_eq!(sample_trilinear(&volume, [1.0, 0.5, 0.0]), Some(2.0));
         assert_eq!(sample_trilinear(&volume, [0.5, 1.0, 0.0]), Some(2.5));
         assert_eq!(sample_trilinear(&volume, [1.0, 1.0, 0.0]), Some(3.0));
+        assert_eq!(sample_trilinear(&volume, [1.75, 1.75, 0.75]), Some(3.0));
         for voxel in [
             [-0.01, 0.0, 0.0],
-            [1.01, 0.0, 0.0],
-            [0.0, 0.0, 0.01],
+            [2.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
             [f32::NAN, 0.0, 0.0],
             [f32::INFINITY, 0.0, 0.0],
         ] {

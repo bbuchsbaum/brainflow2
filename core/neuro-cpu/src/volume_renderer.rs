@@ -143,7 +143,7 @@ mod tests {
                 .unwrap()
         };
         assert_ne!(render(&slice), vec![51, 51, 51, 255]);
-        slice.origin_mm[2] = 0.01;
+        slice.origin_mm[2] = 1.0;
         assert_eq!(render(&slice), vec![51, 51, 51, 255]);
     }
 
