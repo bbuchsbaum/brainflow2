@@ -221,7 +221,8 @@ impl VolumeSource for NativeVolumeSource<'_> {
             dtype,
             volume_type,
             num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
-            current_timepoint: None,
+            // Matches the registry, which starts a 4D volume at frame 0.
+            current_timepoint: time_series_info.as_ref().map(|_| 0),
             time_series_info,
             statistic: intent.statistic,
             is_label_map: intent.is_label_map,
@@ -604,6 +605,7 @@ mod tests {
         assert_eq!(handle.volume_type, bridge_types::VolumeType::TimeSeries4D);
         assert_eq!(handle.dims, vec![4, 3, 2, 5]);
         assert_eq!(handle.num_timepoints, Some(5));
+        assert_eq!(handle.current_timepoint, Some(0));
         let series = handle.time_series_info.as_ref().unwrap();
         assert_eq!((series.num_timepoints, series.tr), (5, Some(2.0)));
         // Every frame is resident: the last frame holds 5.
@@ -643,6 +645,98 @@ mod tests {
             .collect();
         for (got, want) in lags.iter().zip([0.1f32, 0.6, 1.1, 0.7, 0.3, 0.1]) {
             assert!((got - want).abs() < 1e-6, "{lags:?}");
+        }
+    }
+
+    /// Native round 2: a freshly loaded 4D file must draw frame 0 on its first
+    /// render, before any timepoint change. Real Metal; a missing adapter fails.
+    #[tokio::test]
+    async fn freshly_loaded_4d_file_renders_frame_zero_before_any_timepoint_change() {
+        let path =
+            std::env::temp_dir().join(format!("brainflow-4d-gpu-{}.nii", uuid::Uuid::new_v4()));
+        write_fixture_style_nifti(&path, [8, 8, 8, 3], 2.0);
+        let state = BridgeState::default().unwrap();
+        let handle = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap();
+        std::fs::remove_file(&path).ok();
+        let service = render_loop::RenderLoopService::new()
+            .await
+            .expect("GPU adapter required for this test");
+        *state.render_loop_service.lock().await = Some(Arc::new(tokio::sync::Mutex::new(service)));
+
+        // Voxel centres 0..28 mm on each axis; frame t holds t + 1 everywhere.
+        let payload = |timepoint: Option<usize>| {
+            let mut payload = serde_json::json!({
+                "views": {
+                    "axial": {"origin_mm": [-2.0, 30.0, 14.0], "u_mm": [1.0, 0.0, 0.0], "v_mm": [0.0, -1.0, 0.0]},
+                    "sagittal": {"origin_mm": [14.0, -2.0, 30.0], "u_mm": [0.0, 1.0, 0.0], "v_mm": [0.0, 0.0, -1.0]},
+                    "coronal": {"origin_mm": [-2.0, 14.0, 30.0], "u_mm": [1.0, 0.0, 0.0], "v_mm": [0.0, 0.0, -1.0]}
+                },
+                "crosshair": {"world_mm": [14.0, 14.0, 14.0], "visible": false},
+                "layers": [{
+                    "id": "layer-4d-fresh",
+                    "volumeId": handle.id,
+                    "visible": true,
+                    "opacity": 1.0,
+                    "colormap": "gray",
+                    "intensity": [0.0, 2.0],
+                    "threshold": [0.0, 0.0],
+                    "blendMode": "alpha",
+                    "interpolation": "nearest"
+                }],
+                "requestedView": {
+                    "type": "axial",
+                    "origin_mm": [-2.0, 30.0, 14.0, 1.0],
+                    "u_mm": [32.0, 0.0, 0.0, 0.0],
+                    "v_mm": [0.0, -32.0, 0.0, 0.0],
+                    "width": 32,
+                    "height": 32
+                }
+            });
+            if let Some(timepoint) = timepoint {
+                payload["timepoint"] = serde_json::json!(timepoint);
+            }
+            payload.to_string()
+        };
+
+        // A first render that names frame 0 draws it: frame 0 (value 1 of the
+        // 0..2 window) is uploaded at layer creation, no timepoint change needed.
+        let first =
+            crate::render_view_with_diagnostics_for_testing(payload(Some(0)), &state, Some("rgba"))
+                .await
+                .expect("first 4D render");
+        let rgba = &first.data[8..];
+        let lit = rgba
+            .chunks_exact(4)
+            .filter(|px| px[0] > 0 || px[1] > 0 || px[2] > 0)
+            .count();
+        assert!(
+            lit > rgba.len() / 4 / 2,
+            "frame 0 rendered black: {lit} lit pixels"
+        );
+        let centre = &rgba[(16 * 32 + 16) * 4..(16 * 32 + 16) * 4 + 4];
+        assert!(
+            (100..=156).contains(&centre[0]),
+            "frame 0 grey level {centre:?}"
+        );
+
+        // A render that omits the timepoint is refused (4103), not drawn black.
+        match crate::render_view_with_diagnostics_for_testing(payload(None), &state, Some("rgba"))
+            .await
+        {
+            Err(BridgeError::Input { code: 4103, .. }) => {}
+            other => panic!(
+                "expected 4103 for a 4D render without timepoint, got {:?}",
+                other.map(|_| ())
+            ),
         }
     }
 

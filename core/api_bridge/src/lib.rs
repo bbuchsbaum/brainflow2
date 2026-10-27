@@ -8003,14 +8003,22 @@ async fn resolve_requested_render_timepoint(
         });
     }
 
-    Ok((
-        requires_timepoint,
-        if requires_timepoint {
-            requested_timepoint
-        } else {
-            None
-        },
-    ))
+    if !requires_timepoint {
+        return Ok((false, None));
+    }
+    // The view timepoint is shared across layers; a shorter run holds on its
+    // last frame rather than reading past its end.
+    let last_frame = stack_length_for_volume(&entry.data).saturating_sub(1);
+    let resolved = requested_timepoint.map(|timepoint| {
+        if timepoint > last_frame {
+            debug!(
+                "Clamping render timepoint {} to last frame {} for volume '{}'",
+                timepoint, last_frame, volume_id
+            );
+        }
+        timepoint.min(last_frame)
+    });
+    Ok((true, resolved))
 }
 
 async fn invalidate_cached_layer_for_render(

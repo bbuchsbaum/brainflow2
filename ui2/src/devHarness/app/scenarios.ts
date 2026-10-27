@@ -332,7 +332,10 @@ async function loadStat(
 async function seriesRuns(): Promise<void> {
   await p3Base(['anat']);
   const { multirunPath, MULTIRUN_VOXEL_MM } = await import('./multirun');
-  for (const run of [1, 2, 3]) await loadVolume(multirunPath(run), 'add-layer');
+  // As in the native check (round 2): run 1 loaded and the Series open, then
+  // runs 2 and 3 added one at a time while the view groups them, so the run
+  // group forms (and re-forms) while later runs are still loading and refining.
+  await loadVolume(multirunPath(1), 'add-layer');
   await selectLayer(multirunPath(1));
   await navigateTo([...MULTIRUN_VOXEL_MM] as [number, number, number]);
   const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
@@ -343,6 +346,8 @@ async function seriesRuns(): Promise<void> {
   useLayoutSettingsStore.getState().setBottomDockActiveTab('plot');
   useLayoutSettingsStore.getState().setBottomDockHeight(320);
   usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
+  for (const run of [2, 3]) await loadVolume(multirunPath(run), 'add-layer');
+  await selectLayer(multirunPath(1));
   await until(() => document.querySelectorAll('[data-testid="plot-x-rule"]').length === 3, 'three run boundaries');
   {
     const { useLayerStore: store } = await import('@/stores/layerStore');
@@ -384,6 +389,18 @@ async function seriesRuns(): Promise<void> {
     const l = useViewStateStore.getState().viewState.layers.find((x) => x.id === run2);
     return !!l && l.colormap === 'gray' && l.intensity[1] - l.intensity[0] > 1;
   }, 'run 2 EPI window');
+  // Native R2-1 / R2-2: one pooled window for every run; only the focused run drawn.
+  {
+    const runIds = await Promise.all([1, 2, 3].map((n) => layerIdForPath(multirunPath(n))));
+    await until(() => {
+      const views = runIds.map((id) => useViewStateStore.getState().viewState.layers.find((x) => x.id === id));
+      const w = views.map((v) => v?.intensity.join(','));
+      return views.every((v) => v?.colormap === 'gray') && new Set(w).size === 1;
+    }, 'one pooled window for all runs');
+    const views = runIds.map((id) => useViewStateStore.getState().viewState.layers.find((x) => x.id === id));
+    if (views[0]?.visible || !views[1]?.visible || views[2]?.visible)
+      throw new Error(`run visibility ${views.map((v) => v?.visible).join('/')} (want hidden/shown/hidden)`);
+  }
   const view = useViewStateStore.getState().viewState.layers;
   noteStep(
     `runs display: ${[1, 2, 3]

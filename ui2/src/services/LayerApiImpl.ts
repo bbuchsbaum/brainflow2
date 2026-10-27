@@ -117,6 +117,10 @@ export class LayerApiImpl implements LayerApi {
 
   private toViewLayer(layer: Layer): ViewLayer {
     const layerMetadata = useLayerStore.getState().getLayerMetadata(layer.id);
+    // The store's visibility wins over the object captured at load: a run the
+    // Series view hid while it was still loading must not be added visible
+    // (native R2-2: run 2 drawn over the focused run 1).
+    const visible = useLayerStore.getState().getLayer(layer.id)?.visible ?? layer.visible;
     const existing = useViewStateStore
       .getState()
       .viewState.layers.find((item) => item.id === layer.id);
@@ -125,7 +129,7 @@ export class LayerApiImpl implements LayerApi {
         ...existing,
         name: layer.name,
         volumeId: layer.volumeId,
-        visible: layer.visible,
+        visible,
       };
     }
 
@@ -144,8 +148,8 @@ export class LayerApiImpl implements LayerApi {
       id: layer.id,
       name: layer.name,
       volumeId: layer.volumeId,
-      visible: layer.visible,
-      opacity: layer.visible ? (metadataRenderProps?.opacity ?? 1.0) : 0.0,
+      visible,
+      opacity: visible ? (metadataRenderProps?.opacity ?? 1.0) : 0.0,
       colormap: metadataRenderProps?.colormap ?? 'gray',
       intensity,
       threshold,
@@ -468,7 +472,13 @@ export class LayerApiImpl implements LayerApi {
     };
     const initial = target()?.layers.find((item) => item.id === layer.id);
     if (!initial) return;
-    const initialRender = JSON.stringify(initial);
+    // Only a change to the window, threshold or colour map means the user (or
+    // another refinement) took over; visibility toggles do not (native R2-1: a
+    // run hidden by the Series view while its histogram ran kept its first-paint
+    // window and never joined the pooled EPI window).
+    const renderKey = (item: typeof initial | undefined) =>
+      item ? JSON.stringify([item.intensity, item.threshold, item.colormap]) : '';
+    const initialRender = renderKey(initial);
     // Guard both immutable store edits and external mutation of render arrays.
     let histogram;
     try {
@@ -489,7 +499,7 @@ export class LayerApiImpl implements LayerApi {
 
     // The layer may have been removed while the histogram was computing.
     const store = useLayerStore.getState();
-    if (!store.getLayer(layer.id) || JSON.stringify(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
+    if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
       return;
     }
 
@@ -510,7 +520,7 @@ export class LayerApiImpl implements LayerApi {
     let intensity = rangeResult.intensity;
     if (!statisticRefined && rangeResult.suggestedColormap === 'gray' && isFourDIntensityLayer(layer)) {
       const epi = await this.epiWindow(layer.id);
-      if (!store.getLayer(layer.id) || JSON.stringify(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
+      if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
       if (epi) {
         intensity = shareRunWindow(
           layer.id,

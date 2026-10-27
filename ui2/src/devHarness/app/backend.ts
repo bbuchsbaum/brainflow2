@@ -594,6 +594,19 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const renderRequested = (state: any, view: any): Uint8Array => {
+    // Mirrors api_bridge resolve_requested_render_timepoint: a drawn 4D layer
+    // needs the request's timepoint (native R2-3: a view state without one
+    // rendered black until the first frame change).
+    const fourD = (state.layers ?? []).some(
+      (l: { visible?: boolean; opacity?: number; volumeId?: string; volume_id?: string } | null) =>
+        !!l &&
+        l.visible !== false &&
+        (l.opacity ?? 1) > 0 &&
+        (volumes.get((l.volumeId ?? l.volume_id) as string)?.fixture.frames?.length ?? 0) > 1,
+    );
+    if (fourD && (state.timepoint === undefined || state.timepoint === null)) {
+      throw Object.assign(new Error('Render request for a 4D volume must include a timepoint.'), { code: 4103 });
+    }
     const crosshair = state.crosshair;
     const color = (crosshair?.color as number[] | undefined) ?? [1, 0.8, 0.2, 0.8];
     const frame: SliceFrame = {

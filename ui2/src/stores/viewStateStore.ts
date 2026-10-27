@@ -86,6 +86,9 @@ function getInitialViewState(): ViewState {
       visible: true,
     },
     layers: [],
+    // The backend refuses a render of a 4D layer without a timepoint (error
+    // 4103): a view state always carries one (native R2-3).
+    timepoint: 0,
   };
 }
 

@@ -1349,3 +1349,128 @@ async fn render_view_rejects_4d_request_without_timepoint() {
         other => panic!("expected BridgeError::Input, got {:?}", other),
     }
 }
+
+/// 8x8x8x`frames` volume (2 mm, origin -8 mm) whose frame t holds t / 24 everywhere.
+fn make_ramp_4d_volume(frames: usize) -> VolumeSendable {
+    let space = NeuroSpace::new(
+        vec![8, 8, 8, frames],
+        Some(vec![2.0, 2.0, 2.0, 1.0]),
+        Some(vec![-8.0, -8.0, -8.0, 0.0]),
+        None,
+        None,
+    )
+    .unwrap();
+    let mut vec4d = DenseNeuroVec::<f32>::zeros(space).unwrap();
+    for ((_, _, _, t), value) in vec4d.data.indexed_iter_mut() {
+        *value = t as f32 / 24.0;
+    }
+    VolumeSendable::Vec4DF32(vec4d)
+}
+
+#[tokio::test]
+async fn shared_timepoint_is_clamped_to_each_4d_layers_last_frame() {
+    let bridge_state = BridgeState::default().expect("bridge state");
+    assert!(
+        install_render_service_or_skip(&bridge_state).await,
+        "this test needs a GPU adapter"
+    );
+
+    for (volume_id, frames) in [("run-long", 24usize), ("run-short", 18)] {
+        let metadata = VolumeMetadataInfo {
+            name: volume_id.into(),
+            path: format!("memory://{volume_id}"),
+            dtype: "f32".into(),
+            volume_type: VolumeType::TimeSeries4D,
+            time_series_info: Some(TimeSeriesInfo {
+                num_timepoints: frames,
+                tr: Some(2.0),
+                temporal_unit: Some("seconds".into()),
+                acquisition_time: Some(2.0 * frames as f32),
+            }),
+        };
+        bridge_state.volume_registry.lock().await.insert(
+            volume_id.into(),
+            make_ramp_4d_volume(frames),
+            metadata,
+        );
+    }
+
+    let layer = |id: &str, volume_id: &str| {
+        json!({
+            "id": id,
+            "volumeId": volume_id,
+            "visible": true,
+            "opacity": 1.0,
+            "colormap": "gray",
+            "intensity": [0.0, 1.0],
+            "threshold": [0.0, 0.0],
+            "blendMode": "alpha",
+            "interpolation": "nearest"
+        })
+    };
+    let payload = |layers: Vec<serde_json::Value>, timepoint: usize| {
+        json!({
+            "views": {
+                "axial": {"origin_mm": [-9.0, 7.0, 0.0], "u_mm": [1.0, 0.0, 0.0], "v_mm": [0.0, -1.0, 0.0]},
+                "sagittal": {"origin_mm": [0.0, -9.0, 7.0], "u_mm": [0.0, 1.0, 0.0], "v_mm": [0.0, 0.0, -1.0]},
+                "coronal": {"origin_mm": [-9.0, 0.0, 7.0], "u_mm": [1.0, 0.0, 0.0], "v_mm": [0.0, 0.0, -1.0]}
+            },
+            "crosshair": {"world_mm": [0.0, 0.0, 0.0], "visible": false},
+            "layers": layers,
+            "requestedView": {
+                "type": "axial",
+                "origin_mm": [-9.0, 7.0, 0.0, 1.0],
+                "u_mm": [16.0, 0.0, 0.0, 0.0],
+                "v_mm": [0.0, -16.0, 0.0, 0.0],
+                "width": 16,
+                "height": 16
+            },
+            "timepoint": timepoint
+        })
+        .to_string()
+    };
+
+    // Both runs visible at frame 20: the 18-frame run holds on frame 17.
+    render_view_with_diagnostics_for_testing(
+        payload(
+            vec![layer("long", "run-long"), layer("short", "run-short")],
+            20,
+        ),
+        &bridge_state,
+        Some("rgba"),
+    )
+    .await
+    .expect("frame 20 past the short run's end still renders");
+    let timepoints = bridge_state.layer_to_timepoint_map.lock().await.clone();
+    assert_eq!(timepoints.get("long").copied(), Some(Some(20)));
+    assert_eq!(timepoints.get("short").copied(), Some(Some(17)));
+
+    // The short run alone: frame 20 draws exactly its last frame (17/24 grey).
+    let centre_grey = |bytes: &[u8]| {
+        let (width, height, rgba) = decode_raw_rgba_frame(bytes);
+        rgba[((height / 2 * width + width / 2) * 4) as usize]
+    };
+    let mut greys = Vec::new();
+    for timepoint in [20usize, 17, 16] {
+        let output = render_view_with_diagnostics_for_testing(
+            payload(vec![layer("short", "run-short")], timepoint),
+            &bridge_state,
+            Some("rgba"),
+        )
+        .await
+        .expect("short run render");
+        greys.push(centre_grey(&output.data));
+    }
+    assert_eq!(
+        greys[0], greys[1],
+        "frame 20 should show frame 17: {greys:?}"
+    );
+    assert!(
+        greys[1] > greys[2],
+        "frames 17 and 16 should differ: {greys:?}"
+    );
+    assert!(
+        (greys[1] as i32 - (17.0f32 / 24.0 * 255.0).round() as i32).abs() <= 3,
+        "{greys:?}"
+    );
+}

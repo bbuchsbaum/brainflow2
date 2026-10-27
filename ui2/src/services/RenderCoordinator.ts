@@ -12,6 +12,30 @@ import type { ViewType } from '@/types/coordinates';
 import type { RenderSession } from './RenderSession';
 import { recordRenderDiagnostic } from '@/services/render/RenderDiagnostics';
 import { createDebugLogger } from '@/utils/debug';
+import { getEventBus } from '@/events/EventBus';
+import { formatTauriError, tauriErrorCode } from '@/utils/formatTauriError';
+
+/** api_bridge refuses to draw a 4D layer without a frame (render_view, BridgeError::Input 4103). */
+export const RENDER_NO_TIMEPOINT_CODE = 4103;
+let noTimepointReported = false;
+
+/**
+ * A refused render must not be a silent black view (native R2-3): say so,
+ * once per session for the no-frame case (it repeats on every render).
+ */
+export function reportRenderFailure(error: unknown): void {
+  if (tauriErrorCode(error) !== RENDER_NO_TIMEPOINT_CODE || noTimepointReported) return;
+  noTimepointReported = true;
+  getEventBus().emit('ui.notification', {
+    type: 'error',
+    message: `A 4D layer could not be drawn: no frame was selected. Step to a frame to show it. (${formatTauriError(error)})`,
+  });
+}
+
+/** Test hook. */
+export function resetRenderFailureReports(): void {
+  noTimepointReported = false;
+}
 
 const renderDebugLog = createDebugLogger('render-coordinator');
 
@@ -355,6 +379,7 @@ export class RenderCoordinator {
       console.error(`[RenderCoordinator] Job ${job.id} (${job.viewType}) failed with detailed context:`, errorContext);
 
       useRenderStore.getState()._setRenderState({ renderError: error as Error });
+      reportRenderFailure(error);
       throw error;
     }
   }

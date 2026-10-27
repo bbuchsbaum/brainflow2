@@ -25,8 +25,13 @@ function prune(): void {
   });
 }
 
-const same = (a: readonly number[] | undefined, b: readonly number[] | undefined) =>
-  !!a && !!b && Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
+// Windows survive a float32 round trip (the render path stores f32), so
+// "still the window the view set" allows a relative tolerance (native R2-1).
+const same = (a: readonly number[] | undefined, b: readonly number[] | undefined) => {
+  if (!a || !b) return false;
+  const tol = 1e-4 * Math.max(1, Math.abs(b[1] - b[0]));
+  return Math.abs(a[0] - b[0]) <= tol && Math.abs(a[1] - b[1]) <= tol;
+};
 
 /**
  * Record `layerId`'s own window and return the pooled window for it; siblings

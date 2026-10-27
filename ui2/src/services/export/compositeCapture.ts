@@ -123,30 +123,75 @@ export function registerMosaicExportSource(
   };
 }
 
+/**
+ * The view last focused, by kind. It decides the export target before the
+ * active workspace does (native R2-5: a Mosaic or Set Studio tab left open
+ * kept the export on Mosaic, or a surface-only dialog, while the user worked
+ * in another view).
+ */
+// Which came last: focusing a view, or switching workspace (a tab)? A view
+// focused before the switch belongs to the tab the user left.
+let focusSeq = 0;
+let workspaceSeq = 0;
+let seq = 0;
+let tracking = false;
+function trackRecency(): void {
+  if (tracking) return;
+  tracking = true;
+  useActiveRenderContextStore.subscribe((state, prev) => {
+    if (state.activeId !== prev.activeId) focusSeq = ++seq;
+  });
+  useWorkspaceStore.subscribe((state, prev) => {
+    if (state.activeWorkspaceId !== prev.activeWorkspaceId) workspaceSeq = ++seq;
+  });
+}
+trackRecency();
+
+/** Test hook: forget the recency of focus and workspace switches. */
+export function resetExportFocusRecency(): void {
+  focusSeq = 0;
+  workspaceSeq = 0;
+}
+
+function focusedViewKind(): 'mosaic' | 'surface' | 'slice' | null {
+  // A workspace switch after the last focus: the focused view is in another tab.
+  if (workspaceSeq > focusSeq) return null;
+  const active = useActiveRenderContextStore.getState().activeId;
+  const id = typeof active === 'string' ? active.toLowerCase() : '';
+  if (id.startsWith('mosaic:')) return 'mosaic';
+  if (id.startsWith('surface')) return 'surface';
+  if ((SLICE_TARGETS as string[]).includes(id)) return 'slice';
+  return null;
+}
+
 function activeMosaicSource(): MosaicExportSource | null {
   const active = useActiveRenderContextStore.getState().activeId;
-  if (typeof active === 'string' && active.toLowerCase().startsWith('mosaic:')) {
+  const kind = focusedViewKind();
+  if (kind === 'mosaic' && typeof active === 'string') {
     const id = active.slice('mosaic:'.length);
     for (const [ws, read] of mosaicSources) {
       if (ws.toLowerCase() === id.toLowerCase()) return read();
     }
   }
+  // Another view has focus: a mosaic elsewhere is not the target.
+  if (kind) return null;
   const workspaceId = useWorkspaceStore.getState().getActiveWorkspace?.()?.id;
   const read = workspaceId ? mosaicSources.get(workspaceId) : undefined;
   return read ? read() : null;
 }
 
-/** Targets the current workspace can export. */
+/** Targets the focused view (else the current workspace) can export. */
 export function availableExportTargets(): ExportTarget[] {
   if (activeMosaicSource()) return ['mosaic'];
-  // Compare panels render their own states: those keep the plain capture of
-  // the active view. A surface view composes its own poses (D4).
-  const workspaceType = useWorkspaceStore.getState().getActiveWorkspace?.()?.type;
-  if (workspaceType === 'comparison' || workspaceType === 'set-studio') return [];
-  const active = useActiveRenderContextStore.getState().activeId;
-  if (typeof active === 'string' && active.toLowerCase().startsWith('surface')) {
+  // A focused surface view composes its own poses (D4), whatever workspace
+  // is marked active.
+  if (focusedViewKind() === 'surface') {
     return activeSurfaceFigureExporter() ? ['surface', 'surface-lat-med'] : [];
   }
+  // Compare panels render their own states: those keep the plain capture of
+  // the active view. A focused slice view in another tab is exported as such.
+  const workspaceType = useWorkspaceStore.getState().getActiveWorkspace?.()?.type;
+  if (focusedViewKind() !== 'slice' && (workspaceType === 'comparison' || workspaceType === 'set-studio')) return [];
   const views = useViewStateStore.getState().viewState;
   const hasVolume = views.layers.some((l) => l.visible && l.volumeId);
   return hasVolume ? [...SLICE_TARGETS, 'orthogonal', 'orthogonal-row'] : [];
@@ -401,16 +446,39 @@ async function renderPane(
   };
 }
 
+/**
+ * The base layer as the figure's colorbar when no overlay has one (native
+ * R2-4: a z map loaded alone exported without its scale). Rule: a visible
+ * scalar base that is a statistic (header or file-name statistic) or is drawn
+ * with a colour map other than grey; a plain grey anatomical base is skipped.
+ */
+export function baseColorbarLayerId(
+  layers: ReturnType<typeof useLayerStore.getState>['layers'],
+  viewLayers: ViewState['layers'],
+  metadata: ReturnType<typeof useLayerStore.getState>['layerMetadata'],
+): string | null {
+  const isAtlas = (l: (typeof layers)[number]) => l.source === 'atlas' || l.isLabelMap === true;
+  const base = layers.find((l) => !isAtlas(l));
+  const view = base ? viewLayers.find((l) => l.id === base.id) : undefined;
+  if (!base || !view || !view.visible || (view.layerMode ?? 'scalar') !== 'scalar') return null;
+  const statistic = statisticUnits(base.statistic, metadata.get(base.id)?.dataRange) !== null;
+  const coloured = !!view.colormap && !/^gr[ae]y(scale)?$/i.test(view.colormap);
+  return statistic || coloured ? base.id : null;
+}
+
 async function sideBar(viewState: ViewState, withValue: boolean): Promise<ExportSideBar> {
   const { layers, layerMetadata } = useLayerStore.getState();
   const activeId = activeVolumeLayerId(viewState.layers);
-  const colorbarId = chooseColorbarLayerId(layers, viewState.layers, activeId);
+  const overlayId = chooseColorbarLayerId(layers, viewState.layers, activeId);
+  const colorbarId = overlayId ?? baseColorbarLayerId(layers, viewState.layers, layerMetadata);
   const viewLayer = colorbarId ? viewState.layers.find((l) => l.id === colorbarId) : undefined;
   const show = colorbarId
     ? useDisplayOptionsStore.getState().options.get(colorbarId)?.showColorbar !== false
     : false;
   const colorbar = colorbarId
-    ? resolveColorbarLayer(layers, colorbarId, viewLayer, show, layerMetadata.get(colorbarId))
+    ? resolveColorbarLayer(layers, colorbarId, viewLayer, show, layerMetadata.get(colorbarId), {
+        allowBase: !overlayId,
+      })
     : null;
   let value: number | null = null;
   if (colorbar && withValue) {

@@ -29,9 +29,11 @@ export function resolveColorbarLayer(
   viewLayer: ViewLayer | null | undefined,
   showColorbar: boolean,
   metadata?: VolumeMetadata | null,
+  /** Exports may describe the base layer itself (a statistic loaded alone, native R2-4). */
+  options: { allowBase?: boolean } = {},
 ): ColorbarLayer | null {
   if (!selectedLayerId || !viewLayer || !showColorbar) return null;
-  if (!isOverlayLayer(layers, selectedLayerId)) return null;
+  if (!isOverlayLayer(layers, selectedLayerId) && !options.allowBase) return null;
   if (!viewLayer.visible || (viewLayer.layerMode ?? 'scalar') !== 'scalar') return null;
   if (!viewLayer.colormap || !viewLayer.intensity) return null;
   const info = layers.find((l) => l.id === selectedLayerId);

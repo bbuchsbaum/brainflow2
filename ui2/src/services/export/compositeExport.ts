@@ -347,7 +347,9 @@ function drawPane(
 
   const bar =
     options.scaleBar && pane.scaleBar !== false && pane.plane
-      ? planScaleBar(ctx, x, iy, pane, u, letters.map((l) => l.box))
+      ? planScaleBar(ctx, x, iy, pane, u, letters.map((l) => l.box), (box) =>
+          dataCoverage(ctx, box, options.background),
+        )
       : null;
   // A letter the scale bar must cover (a pane too small for both) is left
   // out: text never overlaps text (the top letter still orients the pane).
@@ -475,10 +477,62 @@ interface ScaleBarPlan {
 }
 
 /**
- * 10 mm bar, bottom-right of the pane, its length from the pane's own mm/px.
- * Placed clear of the orientation letters: bottom-right; else raised above
- * the letter it would cover (a narrow figure-row pane: "10 mm" ran into the
- * bottom "P"); else bottom-right (the caller drops the covered letter).
+ * Fraction of a box's pixels that show data (not page / background), read
+ * back from the pane just drawn. 0 when the canvas cannot be read.
+ */
+function dataCoverage(ctx: CanvasRenderingContext2D, box: Rect, background: ExportBackground): number {
+  try {
+    const w = Math.max(1, Math.round(box.width));
+    const h = Math.max(1, Math.round(box.height));
+    const data = ctx.getImageData(Math.round(box.x), Math.round(box.y), w, h).data;
+    return coverageOf(data, background);
+  } catch {
+    return 0;
+  }
+}
+
+/** Data pixels in RGBA bytes: brighter than a black page, darker than a white one, opaque on a transparent one. */
+export function coverageOf(data: ArrayLike<number>, background: ExportBackground): number {
+  let n = 0;
+  let total = 0;
+  for (let i = 0; i + 3 < data.length; i += 4) {
+    total += 1;
+    const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    const alpha = data[i + 3];
+    const isData =
+      background === 'white' ? alpha > 8 && lum < 235 : background === 'black' ? lum > 24 : alpha > 8 && lum > 24;
+    if (isData) n += 1;
+  }
+  return total ? n / total : 0;
+}
+
+/** Scale-bar corners in order of preference: bottom-right, bottom-left, top-right, top-left. */
+export type ScaleBarCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+const SCALE_BAR_CORNERS: ScaleBarCorner[] = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
+/** Coverage below which a corner counts as clear of data. */
+export const SCALE_BAR_CLEAR = 0.01;
+
+/**
+ * The corner for the scale bar (native R2-4: with Crop to brain the bar sat
+ * on a blob): the first preferred corner clear of the letters and of data;
+ * else the clear-of-letters corner with the least data under it.
+ */
+export function chooseScaleBarCorner(
+  candidates: ReadonlyArray<{ corner: ScaleBarCorner; lettersClear: boolean; coverage: number }>,
+): ScaleBarCorner {
+  const ok = candidates.filter((c) => c.lettersClear);
+  const pool = ok.length ? ok : candidates;
+  const clear = pool.find((c) => c.coverage <= SCALE_BAR_CLEAR);
+  if (clear) return clear.corner;
+  return pool.reduce((best, c) => (c.coverage < best.coverage ? c : best), pool[0]).corner;
+}
+
+/**
+ * 10 mm bar, its length from the pane's own mm/px, in a corner clear of the
+ * orientation letters and of the data (bottom-right first; with a cropped
+ * frame the data can reach every edge, so the corner with the least data
+ * wins). A pane too small for any clear corner keeps bottom-right (the caller
+ * drops a covered letter).
  */
 function planScaleBar(
   ctx: CanvasRenderingContext2D,
@@ -487,30 +541,38 @@ function planScaleBar(
   pane: ExportPane,
   u: number,
   avoid: readonly Rect[],
+  coverage: (box: Rect) => number = () => 0,
 ): ScaleBarPlan | null {
   if (!pane.plane) return null;
   const length = scaleBarPx(pane.plane);
   if (!(length > 4) || length > pane.width * 0.6) return null;
-  const right = x + pane.width - 8 * u;
   ctx.save();
   ctx.font = font(ptToPx(TEXT_PT.tick, u), MONO);
-  // Centred over the bar, but never past the pane edge: a short bar (a
-  // mosaic tile) right-aligns its label to the bar's end instead.
   const text = `${SCALE_BAR_MM} mm`;
   const textW = ctx.measureText(text).width;
   ctx.restore();
-  const textRight = Math.min(right - length / 2 + textW / 2, x + pane.width - EDGE_INSET * u);
   const h = ptToPx(TEXT_PT.tick, u) * 1.4 + 6 * u;
-  const left = Math.min(right - length, textRight - textW) - 2 * u;
-  const boxAt = (b: number): Rect => ({ x: left, y: b - h, width: right + 2 * u - left, height: h + 2 * u });
-  const clear = (b: number) => b - h >= y && !avoid.some((other) => intersects(boxAt(b), other));
-  const bottom = y + pane.height - 8 * u;
-  let base = bottom;
-  if (!clear(bottom)) {
-    const blocker = avoid.find((other) => intersects(boxAt(bottom), other));
-    if (blocker && clear(blocker.y - 3 * u)) base = blocker.y - 3 * u;
-  }
-  return { barX: right - length, base, length, text, textRight, box: boxAt(base) };
+  const plan = (corner: ScaleBarCorner): ScaleBarPlan => {
+    const onRight = corner.endsWith('right');
+    const right = onRight ? x + pane.width - 8 * u : x + 8 * u + Math.max(length, textW);
+    // Centred over the bar, but never past the pane edge.
+    const textRight = onRight
+      ? Math.min(right - length / 2 + textW / 2, x + pane.width - EDGE_INSET * u)
+      : Math.max(right - length / 2 + textW / 2, x + EDGE_INSET * u + textW);
+    const left = Math.min(right - length, textRight - textW) - 2 * u;
+    const base = corner.startsWith('bottom') ? y + pane.height - 8 * u : y + 8 * u + h;
+    const box = { x: left, y: base - h, width: right + 2 * u - left, height: h + 2 * u };
+    return { barX: right - length, base, length, text, textRight, box };
+  };
+  const candidates = SCALE_BAR_CORNERS.map((corner) => {
+    const p = plan(corner);
+    return {
+      corner,
+      lettersClear: p.box.y >= y && !avoid.some((other) => intersects(p.box, other)),
+      coverage: coverage(p.box),
+    };
+  });
+  return plan(chooseScaleBarCorner(candidates));
 }
 
 function paintScaleBar(ctx: CanvasRenderingContext2D, plan: ScaleBarPlan, u: number, style: OnImageStyle): void {
