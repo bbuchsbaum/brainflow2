@@ -3,6 +3,7 @@ import {
   populationRelationshipService,
   validRelationshipFit,
   sameRelationshipBindings,
+  relationshipUnassigned,
 } from './PopulationRelationshipService';
 import type {
   PopulationState,
@@ -10,7 +11,7 @@ import type {
   PopulationOrder,
   PopulationPartition,
 } from '@/types/population';
-import { validatePopulationPartition } from './populationGroups';
+import { comparableGroups, validatePopulationPartition } from './populationGroups';
 import type { StudioCohortSummary, SpatialFieldSetSummary } from '@/types/studio';
 import type { PopulationSliceRequest } from './PopulationSliceService';
 import { invokeCancelable } from './PopulationExportService';
@@ -210,14 +211,22 @@ export function preparePopulationRestore(
         true,
       ) &&
       savedFit.geometry.orderable;
+    // Unassigned members of the saved fit are the order's unavailable tail, in
+    // source order (the response-order convention). v1 fits have none.
+    const unassignedIds =
+      similarityMatches && validRelationshipFit(savedFit)
+        ? relationshipUnassigned(savedFit).map((u) => u.memberId)
+        : [];
     if (
       similarityMatches &&
       order.tieRule === 'source' &&
       matching &&
       maskMatches &&
       Array.isArray(unavailable) &&
-      unavailable.length === 0 &&
+      JSON.stringify(unavailable) === JSON.stringify(unassignedIds) &&
       Array.isArray(ordered) &&
+      JSON.stringify(ordered.slice(ordered.length - unassignedIds.length)) ===
+        JSON.stringify(unassignedIds) &&
       ordered.length === ids.length &&
       new Set(ordered).size === ids.length &&
       ordered.every((id) => ids.includes(id))
@@ -406,7 +415,8 @@ export function preparePopulationRestore(
               : 'inspect',
       contributorsGroupId:
         typeof presentation.contributorsGroupId === 'string' &&
-        partition?.groups.some((g) => g.id === presentation.contributorsGroupId)
+        partition &&
+        comparableGroups(partition).some((g) => g.id === presentation.contributorsGroupId)
           ? presentation.contributorsGroupId
           : undefined,
       montageScope: presentation.montageScope === 'plane' ? 'plane' : 'probe',

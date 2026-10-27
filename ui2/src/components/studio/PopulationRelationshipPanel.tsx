@@ -5,7 +5,10 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import {
   populationRelationshipService,
+  relationshipFittedIds,
   relationshipSource,
+  relationshipUnassigned,
+  relationshipUnassignedSummary,
   type RelationshipRequest,
 } from '@/services/studio/PopulationRelationshipService';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
@@ -31,6 +34,9 @@ export function PopulationRelationshipPanel() {
   const current = !!fit && !snapshot.stale && !snapshot.pending;
   const selected = new Set(resolvePopulation(state).workingMemberIds);
   const coordinates = fit?.geometry.coordinates ?? [];
+  // Geometry is indexed by fitted members; unassigned members have no position.
+  const fitted = fit ? relationshipFittedIds(fit) : [];
+  const unassignedCount = fit ? relationshipUnassigned(fit).length : 0;
   const limit = Math.max(0, ...coordinates.flat().map(Math.abs)) || 1;
   return (
     <details
@@ -38,7 +44,10 @@ export function PopulationRelationshipPanel() {
       aria-label="Spatial relationships"
     >
       <summary className="cursor-pointer font-medium">
-        Spatial relationships {fit ? `· ${fit.request.members.length} observations` : ''}
+        Spatial relationships{' '}
+        {fit
+          ? `· ${fitted.length} observations${unassignedCount ? ` · ${unassignedCount} unassigned` : ''}`
+          : ''}
       </summary>
       <div className="mt-3 space-y-3">
         <p className="text-muted-foreground">
@@ -109,6 +118,11 @@ export function PopulationRelationshipPanel() {
               retained variation {(100 * fit.geometry.explainedFraction).toFixed(1)}% · normalized
               stress {fit.geometry.stress.toFixed(3)}
             </p>
+            {unassignedCount > 0 && (
+              <p className="text-muted-foreground" aria-label="Unassigned observations">
+                {relationshipUnassignedSummary(fit)}
+              </p>
+            )}
             <PopulationExplanation key={fit.fitId} fit={fit} current={current} />
             {snapshot.stale && (
               <Notice role="alert" severity="danger">
@@ -152,43 +166,43 @@ export function PopulationRelationshipPanel() {
                 <text x="280" y="294" textAnchor="middle" fill="currentColor" fontSize="11">
                   MDS axis 1
                 </text>
-                {fit.request.members.map((member, i) => (
+                {fitted.map((memberId, i) => (
                   <circle
-                    key={member.memberId}
-                    data-datum-id={member.memberId}
+                    key={memberId}
+                    data-datum-id={memberId}
                     data-fit-x={coordinates[i][0]}
                     data-fit-y={coordinates[i][1]}
                     cx={280 + (coordinates[i][0] / limit) * 115}
                     cy={145 - (coordinates[i][1] / limit) * 115}
-                    r={member.memberId === state.selection.activeMemberId ? 7 : 4}
+                    r={memberId === state.selection.activeMemberId ? 7 : 4}
                     fill={
-                      selected.has(member.memberId)
+                      selected.has(memberId)
                         ? 'var(--bf-text-primary)'
                         : 'var(--bf-text-muted)'
                     }
                     // Selected marks are light neutral (chrome is achromatic;
                     // amber is never a data colour). The active member gets
                     // the accent as a thin state edge, not a fill.
-                    stroke={member.memberId === state.selection.activeMemberId ? SELECTED_EDGE_COLOR : 'none'}
+                    stroke={memberId === state.selection.activeMemberId ? SELECTED_EDGE_COLOR : 'none'}
                     strokeWidth="2"
                     role="button"
                     tabIndex={0}
-                    aria-label={`Focus relationship ${member.memberId}`}
-                    aria-pressed={selected.has(member.memberId)}
+                    aria-label={`Focus relationship ${memberId}`}
+                    aria-pressed={selected.has(memberId)}
                     onClick={(e) =>
                       e.shiftKey
-                        ? service.toggle(member.memberId)
-                        : populationProbeActions.focus(member.memberId)
+                        ? service.toggle(memberId)
+                        : populationProbeActions.focus(memberId)
                     }
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        if (e.shiftKey) service.toggle(member.memberId);
-                        else populationProbeActions.focus(member.memberId);
+                        if (e.shiftKey) service.toggle(memberId);
+                        else populationProbeActions.focus(memberId);
                       }
                     }}
                   >
-                    <title>{member.memberId} · original observation · Shift-click to select</title>
+                    <title>{memberId} · original observation · Shift-click to select</title>
                   </circle>
                 ))}
               </svg>
@@ -206,7 +220,7 @@ export function PopulationRelationshipPanel() {
                   fieldClassName="w-16"
                   aria-label="Similarity group count"
                   min={2}
-                  max={fit.request.members.length}
+                  max={fitted.length}
                   value={Number.isFinite(count) ? count : ''}
                   onChange={(e) => setCount(e.target.valueAsNumber)}
                 />
@@ -216,7 +230,7 @@ export function PopulationRelationshipPanel() {
                   !current ||
                   !Number.isInteger(count) ||
                   count < 2 ||
-                  count > fit.request.members.length
+                  count > fitted.length
                 }
                 onClick={() => service.group(count)}
               >

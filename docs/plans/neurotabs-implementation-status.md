@@ -254,6 +254,8 @@ The [next delivery plan](neurotabs-next-delivery-plan.md) sequences all seven re
 
 Verify the native app path from audited import through live mean/focus, pinned values, saved-calculation opening and sensitivity preview, including end-to-end latency and full-shell layout. Add immutable source retention/relocation and explicit saved reference/history restoration. Extend witness rules to largest deviations and maps nearest a stated summary, with explicit spatial distance definitions; add cached scrubbing/movie transitions, similarity/factor groups and typed comparisons. Preserve physical temporal axes and grouped/faceted plot authoring as part of the complete M0–M5 and P scope.
 
+In progress: [contributors, neighbours and the Space arrangement](neurotabs-contributors-and-space.md) covers maps nearest a summary, unassigned observations in relationship fits, opening the focused observation in the viewer, and an image-based similarity arrangement. W2 (declared eligibility rule; low-coverage, all-missing and zero-variance observations reported as unassigned instead of refusing the fit) has local Rust and UI test evidence; its list UI, W1, W3–W5 and native acceptance remain open.
+
 ## Delivery A: cached originals and reversible montage
 
 See [movie/montage evidence and the reusable 80-person fixture](neurotabs-movie-evidence.md). This increment adds the focus-only native transport, bounded original-raster window, buffered playback, whole-plane/regional montage, shared order and saved presentation. The complete M0–M5/P issue remains open.

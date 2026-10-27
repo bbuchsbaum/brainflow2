@@ -1,7 +1,7 @@
 import { inferenceMethod, inferenceChannel, inferenceActive } from './inferenceCatalog';
 import { inferenceIssue, importedInferenceIssue } from './populationInference';
 import type { PopulationInferenceSpec } from '@/types/population';
-import { validatePopulationPartition } from './populationGroups';
+import { comparableGroups, validatePopulationPartition } from './populationGroups';
 import type { PopulationMemberSource } from '@/types/population';
 import type { PopulationMask } from '@/types/population';
 import {
@@ -291,7 +291,8 @@ export function buildPopulationSliceQuery(
         population.context.memberIds,
       );
       if (issue) throw new Error(issue);
-      groups = state.population.partition.groups
+      // The unassigned group of a relationship fit is not a comparison operand.
+      groups = comparableGroups(state.population.partition)
         .slice(groupPage * 4, (groupPage + 1) * 4)
         .map((g) => groupRequest(g.id, g.memberIds));
     }

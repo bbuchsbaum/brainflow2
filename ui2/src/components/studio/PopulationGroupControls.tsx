@@ -3,7 +3,7 @@ import { populationProbeActions } from '@/services/studio/PopulationProbeActions
 import { useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { resolvePopulation } from '@/services/studio/populationContext';
-import { partitionPopulation } from '@/services/studio/populationGroups';
+import { comparableGroups, partitionPopulation } from '@/services/studio/populationGroups';
 import { studioMetadata } from '@/services/studio/studioMetadata';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 
@@ -99,7 +99,7 @@ export function PopulationGroupControls() {
                 aria-label={`Assign group to ${operand}`}
                 value=""
                 onChange={(event) => {
-                  const group = state.population.partition?.groups.find(
+                  const group = comparableGroups(state.population.partition!).find(
                     (g) => g.id === event.target.value,
                   );
                   if (!group) return;
@@ -120,7 +120,7 @@ export function PopulationGroupControls() {
                 }}
               >
                 <option value="">Choose a group</option>
-                {state.population.partition!.groups.map((group) => (
+                {comparableGroups(state.population.partition!).map((group) => (
                   <option key={group.id} value={group.id}>
                     {group.label} · {group.memberIds.length} observations
                   </option>

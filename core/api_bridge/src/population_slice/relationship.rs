@@ -24,10 +24,58 @@ pub struct Region {
 pub struct Request {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub explanation: Option<ExplanationRequest>,
+    /// Absent: v1 (refuse on any unusable member). Present: v2 eligibility,
+    /// which reports unusable members as unassigned instead of refusing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eligibility: Option<Eligibility>,
     pub members: Vec<SetMemberRef>,
     pub mask: Option<crate::population_mask::MaskSource>,
     pub region: Option<Region>,
     pub distance: Distance,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Eligibility {
+    /// Members whose finite count on the candidate support is below
+    /// `tau x median` (median over members with any finite value) are unassigned.
+    pub low_coverage_tau: f64,
+}
+const LABEL_V1: &str = "classical-mds-common-support-v1";
+const LABEL_V2: &str = "classical-mds-common-support-v2";
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum UnassignedReason {
+    /// No finite value on the candidate support.
+    AllMissing,
+    /// Finite count divided by the median finite count of non-missing members.
+    LowCoverage { fraction: f64 },
+    /// Pattern shape only: constant on the voxels shared by the eligible members
+    /// before this exclusion. The support is then recomputed once without it and
+    /// it stays excluded even if it varies on the larger recomputed support
+    /// (re-admitting it could shrink the support again). The reason therefore
+    /// describes the pre-exclusion shared voxels, not the fitted support.
+    ZeroVarianceOnSupport,
+}
+impl UnassignedReason {
+    fn describe(&self) -> String {
+        match self {
+            Self::AllMissing => "no finite values".into(),
+            Self::LowCoverage { fraction } => {
+                format!("low coverage, {:.1}% of the median", 100. * fraction)
+            }
+            Self::ZeroVarianceOnSupport => "constant on the shared voxels before exclusion".into(),
+        }
+    }
+}
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Unassigned {
+    pub member_id: String,
+    pub reason: UnassignedReason,
+    /// Finite voxels on the candidate support.
+    pub finite_count: usize,
+    /// Common (fitted) voxels this member would have removed had it been fitted.
+    pub support_loss_voxels: usize,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
@@ -59,8 +107,14 @@ pub struct Result {
     pub request: Request,
     pub support_sha256: String,
     pub candidate_voxels: usize,
+    /// Common finite voxels of the fitted members.
     pub common_voxels: usize,
+    /// Per request member, on the candidate support.
     pub finite_counts: Vec<usize>,
+    /// Geometry rows/columns follow this order. v1: every request member.
+    pub fitted_member_ids: Vec<String>,
+    /// Request members excluded by v2 eligibility, in request order. v1: empty.
+    pub unassigned: Vec<Unassigned>,
     pub dimensions: Vec<usize>,
     pub affine: [[f32; 4]; 4],
     pub geometry: math::Geometry,
@@ -98,6 +152,14 @@ pub async fn evaluate(
             "Choose a finite region with radius greater than zero and at most 200 mm.",
         ));
     }
+    if request.eligibility.as_ref().is_some_and(|e| {
+        !e.low_coverage_tau.is_finite() || !(0.0..=1.0).contains(&e.low_coverage_tau)
+    }) {
+        return Err(input(
+            "The low-coverage threshold must be a finite fraction between 0 and 1.",
+        ));
+    }
+    let strict = request.eligibility.is_none();
     static ADMISSION: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
     let admission = Arc::clone(ADMISSION.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1))));
     let permit = tokio::select! { _=token.cancelled()=>return Err(crate::population_sampling::cancelled()),p=admission.acquire_owned()=>p.map_err(|_|input("Similarity admission closed."))? };
@@ -269,7 +331,7 @@ pub async fn evaluate(
             })
             .await?;
         let finite = row.iter().filter(|v| v.is_finite()).count();
-        if finite == 0 {
+        if finite == 0 && strict {
             return Err(input(format!("{} has no finite values on the requested support; change the context or support explicitly.",member.member_id)));
         }
         member.expected_sha256 = Some(revision.sha256);
@@ -289,22 +351,183 @@ pub async fn evaluate(
     let held = permit.clone();
     let candidates = candidate.clone();
     let explanation_request = request.explanation.clone();
-    let (geometry, common_voxels, support_sha256, explanation) = tokio::task::spawn_blocking(move || {
-        let _held = held;
-        let mut common = Vec::new();
-        let mut hash = Sha256::new();
-        for (j, &index) in candidates.iter().enumerate() {
-            if j % 4096 == 0 {
-                check.check()?;
+    let eligibility = request.eligibility.clone();
+    let counts = finite_counts.clone();
+    let (geometry, common_voxels, support_sha256, explanation, fitted_member_ids, unassigned) =
+        tokio::task::spawn_blocking(move || {
+            let _held = held;
+            let mut rows = rows;
+            let selection = select_members(
+                &rows,
+                &candidates,
+                &counts,
+                &distance,
+                eligibility.as_ref(),
+                &labels,
+                &check,
+            )?;
+            if let Some(request) = &explanation_request {
+                refuse_unassigned_explanation(&request.field, &selection.unassigned)?;
             }
-            if rows.iter().all(|row| row[j].is_finite()) {
-                common.push(j);
-                hash.update((index as u64).to_le_bytes());
-            }
+            let fitted_labels: Vec<String> = selection
+                .fitted
+                .iter()
+                .map(|&i| labels[i].clone())
+                .collect();
+            let fitted_rows: Vec<Vec<f32>> = selection
+                .fitted
+                .iter()
+                .map(|&i| std::mem::take(&mut rows[i]))
+                .collect();
+            drop(rows);
+            let common = selection.common;
+            let geometry = math::fit(&fitted_rows, &common, &distance, &check)?;
+            let explanation = match (explanation_request, explanation_plan) {
+                (Some(request), Some(plan)) => {
+                    let (values, total, label) = math::explain(
+                        &fitted_rows,
+                        &common,
+                        &distance,
+                        &geometry,
+                        &request.field,
+                        &fitted_labels,
+                        &check,
+                    )?;
+                    let by_index: HashMap<_, _> = common
+                        .iter()
+                        .zip(values)
+                        .map(|(&j, value)| (candidates[j], value))
+                        .collect();
+                    let raster = plan
+                        .pixels
+                        .iter()
+                        .map(|slot| {
+                            slot.and_then(|i| {
+                                let v = plan.voxels[i];
+                                by_index
+                                    .get(
+                                        &(v[0]
+                                            + v[1] * plan.dimensions[0]
+                                            + v[2] * plan.dimensions[0] * plan.dimensions[1]),
+                                    )
+                                    .copied()
+                            })
+                        })
+                        .collect();
+                    Some(Explanation {
+                        plane: plan.plane,
+                        values: raster,
+                        total,
+                        label,
+                    })
+                }
+                _ => None,
+            };
+            Ok::<_, bridge_types::BridgeError>((
+                geometry,
+                common.len(),
+                selection.support_sha256,
+                explanation,
+                fitted_labels,
+                selection.unassigned,
+            ))
+        })
+        .await
+        .map_err(|e| input(e.to_string()))??;
+    guard.validate(token.clone()).await?;
+    token.check()?;
+    let affine = std::array::from_fn(|r| std::array::from_fn(|c| affine[(r, c)]));
+    let fit_id = fit_identity(&request, &dimensions, affine, &support_sha256)?;
+    Ok(Result {
+        explanation,
+        fit_id,
+        request,
+        support_sha256,
+        candidate_voxels: candidate.len(),
+        common_voxels,
+        finite_counts,
+        fitted_member_ids,
+        unassigned,
+        dimensions,
+        affine,
+        geometry,
+    })
+}
+/// Fit identity: SHA-256 of the definition label, the request without its
+/// explanation, the grid and the support hash. v1 requests (no eligibility)
+/// serialize exactly as before eligibility existed, so v1 fit ids are unchanged.
+fn fit_identity(
+    request: &Request,
+    dimensions: &[usize],
+    affine: [[f32; 4]; 4],
+    support_sha256: &str,
+) -> BridgeResult<String> {
+    let mut identity_request = request.clone();
+    identity_request.explanation = None;
+    let label = if request.eligibility.is_none() {
+        LABEL_V1
+    } else {
+        LABEL_V2
+    };
+    let identity =
+        serde_json::to_vec(&(label, &identity_request, dimensions, affine, support_sha256))
+            .map_err(|e| input(e.to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(identity)))
+}
+/// Members fitted on one common support, the unassigned remainder and the support.
+struct Selection {
+    fitted: Vec<usize>,
+    unassigned: Vec<Unassigned>,
+    /// Positions in the candidate list that are finite for every fitted member.
+    common: Vec<usize>,
+    support_sha256: String,
+}
+fn common_support(
+    rows: &[Vec<f32>],
+    members: &[usize],
+    candidates: &[usize],
+    check: &SampleCancellation,
+) -> BridgeResult<(Vec<usize>, String)> {
+    let mut common = Vec::new();
+    let mut hash = Sha256::new();
+    for (j, &index) in candidates.iter().enumerate() {
+        if j % 4096 == 0 {
+            check.check()?;
         }
-        if matches!(distance, Distance::PatternShape) && common.len() >= 2 {
+        if members.iter().all(|&i| rows[i][j].is_finite()) {
+            common.push(j);
+            hash.update((index as u64).to_le_bytes());
+        }
+    }
+    Ok((common, format!("{:x}", hash.finalize())))
+}
+fn constant_on(row: &[f32], common: &[usize]) -> bool {
+    common.iter().all(|&j| row[j] == row[common[0]])
+}
+/// v1 (`eligibility` absent) reproduces the original refusals. v2 applies, in
+/// order: AllMissing; LowCoverage against `tau x median` finite count of the
+/// non-missing members on the candidate support; the common support of the rest;
+/// for pattern shape, ZeroVarianceOnSupport followed by one recomputation of the
+/// support. One pass suffices: the recomputed support is a superset of the
+/// previous one, so a member that varied there still varies. Fewer than two
+/// fitted members or common voxels remains a refusal.
+fn select_members(
+    rows: &[Vec<f32>],
+    candidates: &[usize],
+    counts: &[usize],
+    distance: &Distance,
+    eligibility: Option<&Eligibility>,
+    labels: &[String],
+    check: &SampleCancellation,
+) -> BridgeResult<Selection> {
+    let n = rows.len();
+    let shape = matches!(distance, Distance::PatternShape);
+    let Some(eligibility) = eligibility else {
+        let fitted: Vec<usize> = (0..n).collect();
+        let (common, support_sha256) = common_support(rows, &fitted, candidates, check)?;
+        if shape && common.len() >= 2 {
             for (i, row) in rows.iter().enumerate() {
-                if common.iter().all(|&j| row[j] == row[common[0]]) {
+                if constant_on(row, &common) {
                     return Err(input(format!(
                         "{} is constant on common support; pattern shape is undefined. Use effect distance or change context/support.",
                         labels[i],
@@ -312,49 +535,128 @@ pub async fn evaluate(
                 }
             }
         }
-        let geometry = math::fit(&rows, &common, &distance, &check)?;
-        let explanation = match (explanation_request, explanation_plan) {
-            (Some(request),Some(plan)) => {
-                let (values,total,label)=math::explain(&rows,&common,&distance,&geometry,&request.field,&labels,&check)?;
-                let by_index:HashMap<_,_>=common.iter().zip(values).map(|(&j,value)|(candidates[j],value)).collect();
-                let raster=plan.pixels.iter().map(|slot|slot.and_then(|i| {let v=plan.voxels[i];by_index.get(&(v[0]+v[1]*plan.dimensions[0]+v[2]*plan.dimensions[0]*plan.dimensions[1])).copied()})).collect();
-                Some(Explanation {plane:plan.plane,values:raster,total,label})
-            }, _=>None
+        return Ok(Selection {
+            fitted,
+            unassigned: vec![],
+            common,
+            support_sha256,
+        });
+    };
+    let mut reasons: Vec<Option<UnassignedReason>> = counts
+        .iter()
+        .map(|&c| (c == 0).then_some(UnassignedReason::AllMissing))
+        .collect();
+    let mut present: Vec<usize> = counts.iter().copied().filter(|&c| c > 0).collect();
+    present.sort_unstable();
+    // Median of the non-missing finite counts; mean of the two middle values when even.
+    let median = present.get(present.len() / 2).map(|&upper| {
+        if present.len() % 2 == 1 {
+            upper as f64
+        } else {
+            (present[present.len() / 2 - 1] + upper) as f64 / 2.
+        }
+    });
+    if let Some(median) = median {
+        let threshold = eligibility.low_coverage_tau * median;
+        for (reason, &count) in reasons.iter_mut().zip(counts) {
+            if reason.is_none() && (count as f64) < threshold {
+                *reason = Some(UnassignedReason::LowCoverage {
+                    fraction: count as f64 / median,
+                });
+            }
+        }
+    }
+    let mut fitted: Vec<usize> = (0..n).filter(|&i| reasons[i].is_none()).collect();
+    let (mut common, mut support_sha256) = common_support(rows, &fitted, candidates, check)?;
+    if shape && common.len() >= 2 {
+        let constant: Vec<usize> = fitted
+            .iter()
+            .copied()
+            .filter(|&i| constant_on(&rows[i], &common))
+            .collect();
+        if !constant.is_empty() {
+            for &i in &constant {
+                reasons[i] = Some(UnassignedReason::ZeroVarianceOnSupport);
+            }
+            fitted.retain(|i| !constant.contains(i));
+            (common, support_sha256) = common_support(rows, &fitted, candidates, check)?;
+        }
+    }
+    let unassigned: Vec<Unassigned> = reasons
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, reason)| {
+            reason.map(|reason| Unassigned {
+                member_id: labels[i].clone(),
+                reason,
+                finite_count: counts[i],
+                support_loss_voxels: common.iter().filter(|&&j| !rows[i][j].is_finite()).count(),
+            })
+        })
+        .collect();
+    if fitted.len() < 2 || common.len() < 2 {
+        let excluded = if unassigned.is_empty() {
+            "none".to_string()
+        } else {
+            unassigned
+                .iter()
+                .map(|u| {
+                    format!(
+                        "{} ({}; would remove {} of {} common voxels)",
+                        u.member_id,
+                        u.reason.describe(),
+                        u.support_loss_voxels,
+                        common.len()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
         };
-        Ok::<_, bridge_types::BridgeError>((
-            geometry,
-            common.len(),
-            format!("{:x}", hash.finalize()),
-            explanation,
-        ))
-    })
-    .await
-    .map_err(|e| input(e.to_string()))??;
-    guard.validate(token.clone()).await?;
-    token.check()?;
-    let affine = std::array::from_fn(|r| std::array::from_fn(|c| affine[(r, c)]));
-    let mut identity_request = request.clone();
-    identity_request.explanation = None;
-    let identity = serde_json::to_vec(&(
-        "classical-mds-common-support-v1",
-        &identity_request,
-        &dimensions,
-        affine,
-        &support_sha256,
-    ))
-    .map_err(|e| input(e.to_string()))?;
-    Ok(Result {
-        explanation,
-        fit_id: format!("{:x}", Sha256::digest(identity)),
-        request,
+        let rule = format!(
+            "low-coverage τ = {} × median finite count {}",
+            eligibility.low_coverage_tau,
+            median.map_or("unavailable (no member has finite values)".into(), |m| m
+                .to_string()),
+        );
+        return Err(input(if fitted.len() < 2 {
+            format!(
+                "The declared eligibility rule ({rule}) left {} fitted observation(s); similarity needs at least 2. Excluded: {excluded}.",
+                fitted.len(),
+            )
+        } else {
+            format!(
+                "The {} fitted observations share {} common finite voxel(s); similarity needs at least 2. Eligibility rule: {rule}. Excluded: {excluded}.",
+                fitted.len(),
+                common.len(),
+            )
+        }));
+    }
+    Ok(Selection {
+        fitted,
+        unassigned,
+        common,
         support_sha256,
-        candidate_voxels: candidate.len(),
-        common_voxels,
-        finite_counts,
-        dimensions,
-        affine,
-        geometry,
     })
+}
+/// An explanation may name only fitted members.
+fn refuse_unassigned_explanation(
+    field: &ExplanationKind,
+    unassigned: &[Unassigned],
+) -> BridgeResult<()> {
+    let named: Vec<&String> = match field {
+        ExplanationKind::Pair { a, b } => vec![a, b],
+        ExplanationKind::Reconstruction { member, .. } => vec![member],
+        ExplanationKind::Component { .. } => vec![],
+    };
+    for name in named {
+        if let Some(u) = unassigned.iter().find(|u| &u.member_id == name) {
+            return Err(input(format!(
+                "{name} is unassigned in this fit ({}); choose a fitted observation.",
+                u.reason.describe()
+            )));
+        }
+    }
+    Ok(())
 }
 #[cfg(test)]
 mod tests {
@@ -363,6 +665,7 @@ mod tests {
     fn request(sources: &[TestSource]) -> Request {
         Request {
             explanation: None,
+            eligibility: None,
             members: sources
                 .iter()
                 .enumerate()
@@ -539,5 +842,457 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+    fn grid(values: impl Fn(usize) -> f32) -> TestSource {
+        TestSource::new(&[3, 3, 3], &(0..27).map(values).collect::<Vec<_>>())
+    }
+    fn ramp() -> TestSource {
+        grid(|i| i as f32)
+    }
+    fn wave() -> TestSource {
+        grid(|i| ((i * 7) % 11) as f32)
+    }
+    fn with_tau(sources: &[TestSource], tau: f64, distance: Distance) -> Request {
+        let mut q = request(sources);
+        q.eligibility = Some(Eligibility {
+            low_coverage_tau: tau,
+        });
+        q.distance = distance;
+        q
+    }
+    async fn run(q: Request) -> BridgeResult<Result> {
+        evaluate(
+            q,
+            &BridgeState::default().unwrap(),
+            SampleCancellation::default(),
+        )
+        .await
+    }
+    fn reasons(result: &Result) -> Vec<(String, UnassignedReason, usize, usize)> {
+        result
+            .unassigned
+            .iter()
+            .map(|u| {
+                (
+                    u.member_id.clone(),
+                    u.reason.clone(),
+                    u.finite_count,
+                    u.support_loss_voxels,
+                )
+            })
+            .collect()
+    }
+    fn identity(result: &Result, label: &str) -> String {
+        let mut q = result.request.clone();
+        q.explanation = None;
+        format!(
+            "{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&(
+                    label,
+                    &q,
+                    &result.dimensions,
+                    result.affine,
+                    &result.support_sha256
+                ))
+                .unwrap()
+            )
+        )
+    }
+    #[test]
+    fn eligibility_wire_shape_defaults_to_v1() {
+        let base = serde_json::json!({"members":[],"mask":null,"region":null,"distance":"effect"});
+        let q: Request = serde_json::from_value(base.clone()).unwrap();
+        assert!(q.eligibility.is_none());
+        assert!(!serde_json::to_string(&q).unwrap().contains("eligibility"));
+        let mut v2 = base.clone();
+        v2["eligibility"] = serde_json::json!({"lowCoverageTau":0.9});
+        let q: Request = serde_json::from_value(v2).unwrap();
+        assert_eq!(q.eligibility.unwrap().low_coverage_tau, 0.9);
+        let mut unknown = base;
+        unknown["eligibility"] = serde_json::json!({"lowCoverageTau":0.9,"other":1});
+        assert!(serde_json::from_value::<Request>(unknown).is_err());
+    }
+    #[tokio::test]
+    async fn no_eligibility_keeps_v1_identity_and_shape() {
+        let sources = vec![ramp(), wave(), grid(|i| (i % 4) as f32)];
+        let v1 = run(request(&sources)).await.unwrap();
+        // The identity formula and label are unchanged from before eligibility existed.
+        assert_eq!(v1.fit_id, identity(&v1, "classical-mds-common-support-v1"));
+        assert_eq!(v1.fitted_member_ids, vec!["S0", "S1", "S2"]);
+        assert!(v1.unassigned.is_empty());
+        let json = serde_json::to_value(&v1).unwrap();
+        assert!(json["request"].get("eligibility").is_none());
+        assert_eq!(
+            json["fittedMemberIds"],
+            serde_json::json!(["S0", "S1", "S2"])
+        );
+        assert_eq!(json["unassigned"], serde_json::json!([]));
+        // v2 with nothing excluded: same support and geometry, new label and fit id.
+        let v2 = run(with_tau(&sources, 0.9, Distance::Effect))
+            .await
+            .unwrap();
+        assert_eq!(v2.fit_id, identity(&v2, "classical-mds-common-support-v2"));
+        assert_ne!(v2.fit_id, v1.fit_id);
+        assert_eq!(v2.support_sha256, v1.support_sha256);
+        assert_eq!(v2.geometry.distances, v1.geometry.distances);
+        assert!(v2.unassigned.is_empty());
+        let again = run(v2.request.clone()).await.unwrap();
+        assert_eq!(again.fit_id, v2.fit_id);
+    }
+    #[tokio::test]
+    async fn v2_all_missing_is_unassigned_and_geometry_covers_fitted_members() {
+        let sources = vec![grid(|_| 1.), grid(|_| 3.), grid(|_| f32::NAN)];
+        assert!(run(request(&sources)).await.is_err());
+        let result = run(with_tau(&sources, 0.9, Distance::Effect))
+            .await
+            .unwrap();
+        assert_eq!(result.request.members.len(), 3);
+        assert_eq!(result.finite_counts, vec![27, 27, 0]);
+        assert_eq!(result.fitted_member_ids, vec!["S0", "S1"]);
+        assert_eq!(
+            reasons(&result),
+            vec![("S2".into(), UnassignedReason::AllMissing, 0, 27)]
+        );
+        assert_eq!(result.common_voxels, 27);
+        assert_eq!(result.geometry.coordinates.len(), 2);
+        assert_eq!(result.geometry.distances.len(), 2);
+        assert_eq!(result.geometry.merges.len(), 1);
+        assert!((result.geometry.distances[0][1] - 2.).abs() < 1e-12);
+        // Support hash equals that of a v1 fit over the fitted members alone.
+        let alone = run(request(&sources[..2])).await.unwrap();
+        assert_eq!(result.support_sha256, alone.support_sha256);
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(
+            json["unassigned"],
+            serde_json::json!([{"memberId":"S2","reason":{"kind":"allMissing"},"finiteCount":0,"supportLossVoxels":27}])
+        );
+    }
+    #[tokio::test]
+    async fn v2_low_coverage_reports_partial_support_loss() {
+        // S2 covers 14 of 27 voxels (for example one hemisphere).
+        let sources = vec![ramp(), wave(), grid(|i| if i < 14 { 2. } else { f32::NAN })];
+        let v1 = run(request(&sources)).await.unwrap();
+        assert_eq!(v1.common_voxels, 14);
+        let result = run(with_tau(&sources, 0.9, Distance::Effect))
+            .await
+            .unwrap();
+        assert_eq!(result.fitted_member_ids, vec!["S0", "S1"]);
+        assert_eq!(result.common_voxels, 27);
+        assert_eq!(
+            reasons(&result),
+            vec![(
+                "S2".into(),
+                UnassignedReason::LowCoverage {
+                    fraction: 14. / 27.
+                },
+                14,
+                13
+            )]
+        );
+        assert_eq!(result.finite_counts, vec![27, 27, 14]);
+    }
+    #[tokio::test]
+    async fn v2_low_coverage_threshold_is_strict_at_tau_times_median() {
+        // Finite counts 20, 20, 20, 10, 9: median 20, tau 0.5, threshold 10.
+        let count = |k: usize| move |i: usize| if i < k { (i * i % 5) as f32 } else { f32::NAN };
+        let sources = vec![
+            grid(count(20)),
+            grid(|i| if i < 20 { i as f32 } else { f32::NAN }),
+            grid(|i| if i < 20 { (i % 3) as f32 } else { f32::NAN }),
+            grid(|i| if i < 10 { (10 - i) as f32 } else { f32::NAN }),
+            grid(count(9)),
+        ];
+        let result = run(with_tau(&sources, 0.5, Distance::Effect))
+            .await
+            .unwrap();
+        assert_eq!(result.finite_counts, vec![20, 20, 20, 10, 9]);
+        assert_eq!(result.fitted_member_ids, vec!["S0", "S1", "S2", "S3"]);
+        assert_eq!(
+            reasons(&result),
+            vec![(
+                "S4".into(),
+                UnassignedReason::LowCoverage { fraction: 0.45 },
+                9,
+                1
+            )]
+        );
+        assert_eq!(result.common_voxels, 10);
+    }
+    #[tokio::test]
+    async fn v2_median_excludes_all_missing_members() {
+        // Non-missing counts 27, 27, 20: median 27, threshold 24.3, S4 excluded.
+        // Counting the two missing members would give median 20 and keep S4.
+        let sources = vec![
+            ramp(),
+            wave(),
+            grid(|_| f32::NAN),
+            grid(|_| f32::NAN),
+            grid(|i| if i < 20 { 1. } else { f32::NAN }),
+        ];
+        let result = run(with_tau(&sources, 0.9, Distance::Effect))
+            .await
+            .unwrap();
+        assert_eq!(result.fitted_member_ids, vec!["S0", "S1"]);
+        assert_eq!(
+            reasons(&result),
+            vec![
+                ("S2".into(), UnassignedReason::AllMissing, 0, 27),
+                ("S3".into(), UnassignedReason::AllMissing, 0, 27),
+                (
+                    "S4".into(),
+                    UnassignedReason::LowCoverage {
+                        fraction: 20. / 27.
+                    },
+                    20,
+                    7
+                ),
+            ]
+        );
+    }
+    #[tokio::test]
+    async fn v2_zero_variance_recomputes_support_once() {
+        // S2 is constant where finite and missing on voxels 0..3; S0 misses voxel 0.
+        let sources = vec![
+            grid(|i| if i == 0 { f32::NAN } else { i as f32 }),
+            wave(),
+            grid(|i| if i < 3 { f32::NAN } else { 5. }),
+        ];
+        assert!(run(with_tau(&sources, 0.9, Distance::Effect))
+            .await
+            .unwrap()
+            .unassigned
+            .is_empty());
+        let mut v1 = request(&sources);
+        v1.distance = Distance::PatternShape;
+        assert!(run(v1).await.is_err());
+        let result = run(with_tau(&sources, 0.9, Distance::PatternShape))
+            .await
+            .unwrap();
+        assert_eq!(result.fitted_member_ids, vec!["S0", "S1"]);
+        // Support grows from voxels 3..27 to 1..27 after the exclusion.
+        assert_eq!(result.common_voxels, 26);
+        assert_eq!(
+            reasons(&result),
+            vec![("S2".into(), UnassignedReason::ZeroVarianceOnSupport, 24, 2)]
+        );
+        let alone = {
+            let mut q = request(&sources[..2]);
+            q.distance = Distance::PatternShape;
+            run(q).await.unwrap()
+        };
+        assert_eq!(result.support_sha256, alone.support_sha256);
+        assert_eq!(result.geometry.distances, alone.geometry.distances);
+    }
+    #[tokio::test]
+    async fn v2_mixed_reasons_keep_request_order() {
+        let sources = vec![
+            grid(|_| 4.),
+            ramp(),
+            grid(|_| f32::NAN),
+            wave(),
+            grid(|i| if i < 5 { i as f32 } else { f32::NAN }),
+            grid(|i| (i % 4) as f32),
+        ];
+        let result = run(with_tau(&sources, 0.9, Distance::PatternShape))
+            .await
+            .unwrap();
+        assert_eq!(result.fitted_member_ids, vec!["S1", "S3", "S5"]);
+        assert_eq!(
+            reasons(&result),
+            vec![
+                ("S0".into(), UnassignedReason::ZeroVarianceOnSupport, 27, 0),
+                ("S2".into(), UnassignedReason::AllMissing, 0, 27),
+                (
+                    "S4".into(),
+                    UnassignedReason::LowCoverage { fraction: 5. / 27. },
+                    5,
+                    22
+                ),
+            ]
+        );
+        assert_eq!(result.finite_counts, vec![27, 27, 0, 27, 5, 27]);
+        assert_eq!(result.geometry.coordinates.len(), 3);
+        assert_eq!(result.geometry.merges.len(), 2);
+    }
+    #[tokio::test]
+    async fn v2_refuses_fewer_than_two_eligible_or_common_voxels() {
+        let few = vec![ramp(), grid(|_| f32::NAN), grid(|_| f32::NAN)];
+        let error = run(with_tau(&few, 0.9, Distance::Effect))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("left 1 fitted observation(s)"), "{error}");
+        assert!(error.contains("needs at least 2"), "{error}");
+        assert!(error.contains("S1 (no finite values"), "{error}");
+        // Overlap on one voxel only: counts 14 and 14, no low coverage.
+        let thin = vec![
+            grid(|i| if i < 14 { i as f32 } else { f32::NAN }),
+            grid(|i| if i >= 13 { i as f32 } else { f32::NAN }),
+        ];
+        assert!(run(request(&thin)).await.is_err());
+        let error = run(with_tau(&thin, 0.9, Distance::Effect))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("share 1 common finite voxel(s)"), "{error}");
+        let bad_tau = with_tau(&thin, 1.5, Distance::Effect);
+        assert!(run(bad_tau).await.is_err());
+    }
+    #[tokio::test]
+    async fn v2_disjoint_and_constant_refusals_still_refuse() {
+        let sources = vec![grid(|_| 1.), grid(|_| 2.)];
+        let mut q = with_tau(&sources, 0.9, Distance::Effect);
+        q.region = Some(Region {
+            world_mm: [1., 1., 1.],
+            radius_mm: 1.01,
+        });
+        assert_eq!(run(q.clone()).await.unwrap().common_voxels, 7);
+        q.distance = Distance::PatternShape;
+        let error = run(q).await.unwrap_err().to_string();
+        assert!(
+            error.contains("constant on the shared voxels before exclusion"),
+            "{error}"
+        );
+        let disjoint = vec![
+            grid(|i| if i == 0 { 1. } else { f32::NAN }),
+            grid(|i| if i == 1 { 1. } else { f32::NAN }),
+        ];
+        assert!(run(with_tau(&disjoint, 0.9, Distance::Effect))
+            .await
+            .is_err());
+    }
+    #[tokio::test]
+    async fn v2_explanation_refuses_unassigned_members() {
+        let sources = vec![grid(|_| 1.), grid(|_| 3.), grid(|_| f32::NAN)];
+        let q = with_tau(&sources, 0.9, Distance::Effect);
+        let fit = run(q.clone()).await.unwrap();
+        let explain = |a: &str, b: &str| {
+            let mut q = q.clone();
+            q.explanation = Some(ExplanationRequest {
+                field: ExplanationKind::Pair {
+                    a: a.into(),
+                    b: b.into(),
+                },
+                crosshair_mm: [1., 1., 1.],
+                orientation: Orientation::Axial,
+            });
+            q
+        };
+        let shown = run(explain("S0", "S1")).await.unwrap();
+        assert_eq!(shown.fit_id, fit.fit_id);
+        assert!((shown.explanation.unwrap().total - 4.).abs() < 1e-12);
+        let error = run(explain("S0", "S2")).await.unwrap_err().to_string();
+        assert!(error.contains("S2 is unassigned"), "{error}");
+        let mut reconstruct = q.clone();
+        reconstruct.explanation = Some(ExplanationRequest {
+            field: ExplanationKind::Reconstruction {
+                member: "S2".into(),
+                components: 0,
+            },
+            crosshair_mm: [1., 1., 1.],
+            orientation: Orientation::Axial,
+        });
+        assert!(run(reconstruct).await.is_err());
+    }
+    /// A fixed v1 request: the literal id pins the v1 identity bytes, computed on
+    /// the None path and unchanged from before eligibility existed.
+    #[test]
+    fn v1_fit_identity_is_pinned() {
+        let q: Request = serde_json::from_value(serde_json::json!({
+            "members": [
+                {"memberId": "S0", "sourcePath": "/data/S0.nii", "expectedSha256": "a".repeat(64)},
+                {"memberId": "S1", "sourcePath": "/data/S1.nii", "stackIndex": 2, "expectedSha256": "b".repeat(64)}
+            ],
+            "mask": null,
+            "region": {"worldMm": [1.0, 2.0, 3.0], "radiusMm": 4.5},
+            "distance": "pattern-shape"
+        }))
+        .unwrap();
+        let affine = [
+            [2., 0., 0., -90.],
+            [0., 2., 0., -126.],
+            [0., 0., 2., -72.],
+            [0., 0., 0., 1.],
+        ];
+        let support = "c".repeat(64);
+        let id = fit_identity(&q, &[91, 109, 91], affine, &support).unwrap();
+        assert_eq!(
+            id,
+            "c35d763f31eb74303563933dd8003cfb6f898ce1a3cf2b686bc3a885d181391c"
+        );
+        let mut v2 = q.clone();
+        v2.eligibility = Some(Eligibility {
+            low_coverage_tau: 0.9,
+        });
+        assert_ne!(
+            fit_identity(&v2, &[91, 109, 91], affine, &support).unwrap(),
+            id
+        );
+    }
+    #[tokio::test]
+    async fn v2_two_members_refuse_when_coverage_rule_leaves_one() {
+        // Counts 14 and 27: median 20.5, threshold 18.45, so only S1 remains.
+        let sources = vec![grid(|i| if i < 14 { i as f32 } else { f32::NAN }), ramp()];
+        assert!(run(request(&sources)).await.is_ok());
+        let error = run(with_tau(&sources, 0.9, Distance::Effect))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("left 1 fitted observation(s)"), "{error}");
+        assert!(error.contains("needs at least 2"), "{error}");
+        assert!(
+            error.contains("τ = 0.9 × median finite count 20.5"),
+            "{error}"
+        );
+        assert!(error.contains("S0 (low coverage"), "{error}");
+    }
+    #[tokio::test]
+    async fn v2_even_count_median_is_mean_of_middle_counts() {
+        // Counts 20, 24, 27, 27: median 25.5, threshold 22.95. S0 is excluded and
+        // S1 kept; an upper-middle median (27, threshold 24.3) would exclude S1.
+        let sources = vec![
+            grid(|i| if i < 20 { (i % 6) as f32 } else { f32::NAN }),
+            grid(|i| if i < 24 { (i % 5) as f32 } else { f32::NAN }),
+            ramp(),
+            wave(),
+        ];
+        let result = run(with_tau(&sources, 0.9, Distance::Effect))
+            .await
+            .unwrap();
+        assert_eq!(result.finite_counts, vec![20, 24, 27, 27]);
+        assert_eq!(result.fitted_member_ids, vec!["S1", "S2", "S3"]);
+        assert_eq!(
+            reasons(&result),
+            vec![(
+                "S0".into(),
+                UnassignedReason::LowCoverage {
+                    fraction: 20. / 25.5
+                },
+                20,
+                4
+            )]
+        );
+    }
+    #[tokio::test]
+    async fn v2_tau_one_and_zero_bound_the_rule() {
+        let sources = vec![
+            ramp(),
+            wave(),
+            grid(|i| if i < 26 { (i % 3) as f32 } else { f32::NAN }),
+            grid(|i| if i < 5 { i as f32 } else { f32::NAN }),
+        ];
+        // tau = 1: anything below the median (27, 27, 26, 5 -> 26.5) is excluded.
+        let strictest = run(with_tau(&sources, 1., Distance::Effect)).await.unwrap();
+        assert_eq!(strictest.fitted_member_ids, vec!["S0", "S1"]);
+        assert_eq!(strictest.unassigned.len(), 2);
+        assert_eq!(strictest.common_voxels, 27);
+        // tau = 0: the low-coverage rule never excludes; every member is fitted.
+        let none = run(with_tau(&sources, 0., Distance::Effect)).await.unwrap();
+        assert!(none.unassigned.is_empty());
+        assert_eq!(none.common_voxels, 5);
+        let v1 = run(request(&sources)).await.unwrap();
+        assert_eq!(none.support_sha256, v1.support_sha256);
+        assert_eq!(none.geometry.distances, v1.geometry.distances);
     }
 }

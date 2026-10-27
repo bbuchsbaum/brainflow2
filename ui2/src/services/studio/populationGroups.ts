@@ -47,6 +47,28 @@ export function partitionPopulation(
     })),
   };
 }
+/** Map-derived partitions may end with one group of observations that have no
+ * fitted position. It is not a similarity group: never a comparison operand,
+ * summary tile or contributors choice, and not counted among the groups. */
+export const UNASSIGNED_GROUP_ID = 'unassigned';
+type PartitionGroup = PopulationPartition['groups'][number];
+export function isUnassignedGroup(
+  partition: Pick<PopulationPartition, 'origin'>,
+  group: PartitionGroup,
+): boolean {
+  return (
+    partition.origin === 'map-derived' &&
+    group.id === UNASSIGNED_GROUP_ID &&
+    (group as { origin?: unknown }).origin === 'unassigned'
+  );
+}
+/** Groups that may be compared, tiled or chosen as contributors. */
+export function comparableGroups(partition: PopulationPartition): PartitionGroup[] {
+  return partition.groups.filter((group) => !isUnassignedGroup(partition, group));
+}
+export function unassignedGroup(partition: PopulationPartition): PartitionGroup | null {
+  return partition.groups.find((group) => isUnassignedGroup(partition, group)) ?? null;
+}
 export function validatePopulationPartition(
   partition: PopulationPartition,
   setId: string,
@@ -85,7 +107,10 @@ export function validatePopulationPartition(
       !group.label.trim() ||
       !(group.value === null || typeof group.value === 'string') ||
       !Array.isArray(group.memberIds) ||
-      !group.memberIds.length
+      !group.memberIds.length ||
+      // A per-group origin is accepted only on the unassigned group of a fit.
+      (Object.prototype.hasOwnProperty.call(group, 'origin') &&
+        !isUnassignedGroup(partition, group))
     )
       return 'Grouping requires uniquely identified, nonempty groups.';
     if (partition.factorColumns) {
