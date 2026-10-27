@@ -534,6 +534,13 @@ export class PopulationRelationshipService {
     const state = useSetStudioStore.getState();
     state.setPopulationPartition(relationshipPartition(fit, count, state.selection.activeSetId!));
   }
+  /** Unassigned members of the current fit, or null when no fit is usable for
+   * the current population (none, stale, or fitted on another source scope). */
+  currentUnassigned(): RelationshipUnassigned[] | null {
+    const { fit, stale, scope } = this.snapshot;
+    if (!fit || stale || scope !== relationshipSource().scope) return null;
+    return relationshipUnassigned(fit);
+  }
   exportFor(members: PopulationMemberSource[], mask: PopulationMask | null) {
     const { fit, stale, scope } = this.snapshot;
     return fit &&

@@ -7,6 +7,8 @@ import type {
   PopulationPartition,
   PopulationMask,
   PopulationParticipantDefinition,
+  PopulationPreviewState,
+  PopulationPreviewTarget,
   PopulationProbe,
   PopulationRelationship,
   PopulationSelectionOrigin,
@@ -38,8 +40,24 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
   };
 }
 
+export const INITIAL_POPULATION_PREVIEW: PopulationPreviewState = Object.freeze({
+  target: null,
+  holding: false,
+});
+
+const PREVIEW_TARGET_KINDS = ['observation', 'participant', 'group', 'set'];
+
 export interface PopulationSlice {
   population: PopulationState;
+  /** Presentation state kept outside `population`, so nothing that reads or
+   * serializes the analytical state observes a preview. */
+  populationPreview: PopulationPreviewState;
+  setPopulationPreviewTarget: (target: PopulationPreviewTarget | null) => PopulationActionResult;
+  setPopulationPreviewHolding: (holding: boolean) => void;
+  clearPopulationPreview: () => void;
+  /** After a context change, release a held preview; clear the target only
+   * when it no longer resolves. */
+  reconcilePopulationPreview: (contextChanged: boolean) => void;
   setPopulationFocusedFrame: (memberId: string, frame: number) => PopulationActionResult;
   configurePopulationInference: (definition: PopulationInference | null) => PopulationActionResult;
   setPopulationPartition: (partition: PopulationPartition | null) => PopulationActionResult;
@@ -75,7 +93,57 @@ export interface PopulationSlice {
 }
 
 type Host = PopulationContextHost & PopulationSlice;
-type Set = (state: Partial<Pick<Host, 'population' | 'selection'>>) => void;
+
+const sameValue = (a: unknown, b: unknown): boolean =>
+  a === b || JSON.stringify(a) === JSON.stringify(b);
+
+/** True when the fields that define the population context differ between
+ * `previous` and `state`: session, active dataset and its observations or
+ * metadata, scope and its members, and filters. Saving, renaming or deleting
+ * an unrelated cohort replaces references but is not a context change. */
+export function populationPreviewContextChanged(state: Host, previous: Host): boolean {
+  const setId = state.selection.activeSetId;
+  const scopeId = state.selection.activeScopeCohortId;
+  const set = setId ? state.sets[setId] : undefined;
+  const before = setId ? previous.sets[setId] : undefined;
+  return (
+    state.population.sessionRevision !== previous.population.sessionRevision ||
+    setId !== previous.selection.activeSetId ||
+    scopeId !== previous.selection.activeScopeCohortId ||
+    !sameValue(state.activeDesignFilters, previous.activeDesignFilters) ||
+    (set !== before &&
+      (!set ||
+        !before ||
+        !sameValue(set.memberIds, before.memberIds) ||
+        !sameValue(set.memberSummaries, before.memberSummaries) ||
+        !sameValue(set.designTablePreview, before.designTablePreview))) ||
+    (scopeId !== null &&
+      !sameValue(state.cohorts[scopeId]?.memberIds, previous.cohorts[scopeId]?.memberIds))
+  );
+}
+
+/** Whether the chosen preview target still names something: a partition group
+ * or saved set of the active dataset, or a participant identity. */
+export function populationPreviewTargetResolves(state: Host): boolean {
+  const target = state.populationPreview.target;
+  if (!target || target.kind === 'observation') return true;
+  if (target.kind === 'group')
+    return !!state.population.partition?.groups.some((group) => group.id === target.groupId);
+  const set = state.selection.activeSetId ? state.sets[state.selection.activeSetId] : undefined;
+  if (target.kind === 'set')
+    return !!set?.savedCohortIds.includes(target.cohortId) && !!state.cohorts[target.cohortId];
+  const definition = state.population.participants;
+  if (!set || !definition) return false;
+  try {
+    participantIdentity(set, definition);
+    return true;
+  } catch {
+    return false;
+  }
+}
+type Set = (
+  state: Partial<Pick<Host, 'population' | 'selection' | 'populationPreview'>>,
+) => void;
 const ok: PopulationActionResult = { ok: true };
 const fail = (reason: string): PopulationActionResult => ({ ok: false, reason });
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -94,7 +162,7 @@ function copyProbe(probe: PopulationProbe | null): PopulationProbe | null {
 export function createPopulationSlice(
   set: Set,
   get: () => Host,
-): Omit<PopulationSlice, 'population'> {
+): Omit<PopulationSlice, 'population' | 'populationPreview'> {
   const changeWorking = (working: PopulationWorkingSelection) => {
     const { population } = get();
     if (same(population.working, working)) return;
@@ -118,6 +186,39 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    setPopulationPreviewTarget(target) {
+      if (
+        target &&
+        (!PREVIEW_TARGET_KINDS.includes(target.kind) ||
+          (target.kind === 'group' && !target.groupId.trim()) ||
+          (target.kind === 'set' && !target.cohortId.trim()))
+      )
+        return fail('Choose a focused observation, participant, group or saved set to preview.');
+      const { populationPreview } = get();
+      if (!same(populationPreview.target, target))
+        set({
+          populationPreview: { ...populationPreview, target: target ? { ...target } : null },
+        });
+      return ok;
+    },
+    setPopulationPreviewHolding(holding) {
+      const { populationPreview } = get();
+      if (populationPreview.holding !== holding)
+        set({ populationPreview: { ...populationPreview, holding } });
+    },
+    reconcilePopulationPreview(contextChanged) {
+      const state = get();
+      const { populationPreview } = state;
+      const target = populationPreviewTargetResolves(state) ? populationPreview.target : null;
+      const holding = populationPreview.holding && !contextChanged && target === populationPreview.target;
+      if (target !== populationPreview.target || holding !== populationPreview.holding)
+        set({ populationPreview: { target, holding } });
+    },
+    clearPopulationPreview() {
+      const { populationPreview } = get();
+      if (populationPreview.target !== null || populationPreview.holding)
+        set({ populationPreview: INITIAL_POPULATION_PREVIEW });
+    },
     setPopulationFocusedFrame(memberId, frame) {
       const checked = checkedMembers([memberId]);
       if (!checked.ok) return checked;
