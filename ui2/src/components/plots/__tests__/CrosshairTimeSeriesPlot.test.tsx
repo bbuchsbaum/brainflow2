@@ -10,6 +10,8 @@ const { invokeMock, layerStoreState, voxelTransformMock } = vi.hoisted(() => ({
     current: {} as {
       getLayer: (id: string) => unknown;
       getLayerMetadata: (id: string) => unknown;
+      layers?: unknown[];
+      layerMetadata?: Map<string, unknown>;
     },
   },
   voxelTransformMock: vi.fn(),
@@ -24,7 +26,9 @@ vi.mock("@/utils/voxelTransform", () => ({
 }));
 
 vi.mock("@/stores/layerStore", () => {
-  const useLayerStore = (() => layerStoreState.current) as unknown as {
+  // Selectors read the mocked state (the body selects layers and metadata).
+  const useLayerStore = ((selector?: (s: unknown) => unknown) =>
+    selector ? selector(layerStoreState.current) : layerStoreState.current) as unknown as {
     getState: () => typeof layerStoreState.current;
   };
   useLayerStore.getState = () => layerStoreState.current;
@@ -38,9 +42,7 @@ import {
   TIMESERIES_THROTTLE_MS,
 } from "../crosshairTimeSeriesPlot.helpers";
 import { crosshairTimeSeriesPlot } from "../crosshairTimeSeriesPlot.mode";
-import { usePlotSpecStore } from "@/stores/plotSpecStore";
-
-const TIME_SERIES_MODE_ID = "crosshair-time-series";
+import { DEFAULT_SERIES_SETTINGS, useSeriesStore } from "@/stores/seriesStore";
 
 function ctxFor(overrides: Partial<PlotModeContext> = {}): PlotModeContext {
   return {
@@ -59,7 +61,11 @@ function setupFourDLayer(opts?: {
 }) {
   const dims = opts?.dimensions ?? [64, 64, 32];
   const numTp = opts?.numTimepoints ?? 100;
+  const layer = { id: "vol-1", name: "vol-1", volumeId: "volume-handle-1", timeSeriesInfo: { num_timepoints: numTp, tr: null } };
+  const meta = { worldToVoxel: "matrix-stub", dimensions: dims };
   layerStoreState.current = {
+    layers: [layer],
+    layerMetadata: new Map([["vol-1", meta]]),
     getLayer: (id: string) =>
       id === "vol-1"
         ? {
@@ -80,6 +86,8 @@ function setupFourDLayer(opts?: {
 
 function setupThreeDLayer() {
   layerStoreState.current = {
+    layers: [{ id: "vol-1", name: "vol-1", volumeId: "volume-handle-1" }],
+    layerMetadata: new Map(),
     getLayer: (id: string) =>
       id === "vol-1"
         ? {
@@ -213,7 +221,8 @@ describe("CrosshairTimeSeriesPlotBody", () => {
       number,
     ]);
     setupFourDLayer();
-    usePlotSpecStore.getState().resetPlotSpecStore();
+    // The Series locus is shared with the dataset series (round 2 R4/X2).
+    useSeriesStore.setState({ ...DEFAULT_SERIES_SETTINGS, locus: "point" });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -237,7 +246,8 @@ describe("CrosshairTimeSeriesPlotBody", () => {
   });
 
   it("issues sample_stack with a sphere locus when a radius is configured", async () => {
-    usePlotSpecStore.getState().setSphereRadiusMm(TIME_SERIES_MODE_ID, 4);
+    // The Series locus control's sphere (was the encoding panel's radius).
+    useSeriesStore.setState({ locus: "sphere", radiusMm: 4 });
     invokeMock.mockResolvedValue([1, 2, 3, 4]);
     render(<CrosshairTimeSeriesPlotBody ctx={ctxFor()} />);
 

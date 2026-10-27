@@ -92,10 +92,13 @@ export const P4_SCENARIOS = [
   'surface-vertex',
   'cluster-subpeaks-rft',
   'series-fir-sphere',
+  'series-fir-sem95',
   'series-fir-diff',
   'series-region',
   'series-cluster',
   'series-raw4d',
+  'series-runs-concat',
+  'series-runs-faceted',
 ];
 
 /** Phase 4 viewport variants (capture-only). */

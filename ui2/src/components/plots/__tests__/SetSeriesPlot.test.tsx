@@ -50,7 +50,9 @@ describe('Series mode on a dataset (E5)', () => {
     expect(sample).toHaveBeenCalledTimes(1);
     const request = sample.mock.calls[0][0] as SampleRequest;
     expect(request.locus).toMatchObject({ kind: 'set', radiusMm: 6, worldMm: [-39.5, -19.5, 50.5] });
-    expect(screen.getByTestId('series-caption')).toHaveTextContent('Lag (TR) · mean ± 95% CI (t, df = 5) · 6 participants · 6 mm sphere');
+    expect(screen.getByTestId('series-caption')).toHaveTextContent('mean ± 95% CI (t, df = 5) · 6 participants · 6 mm sphere');
+    // Round 2 (v1 visual 6): the axis is titled on the plot, not repeated in the caption.
+    expect(screen.getByTestId('series-caption')).not.toHaveTextContent('Lag (TR)');
     expect(screen.getAllByTestId('plot-band')).toHaveLength(2);
   });
 
@@ -130,17 +132,85 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     expect(screen.getByRole('button', { name: 'Load atlas…' })).toBeInTheDocument();
   });
 
-  it('mean over a peak window: one point per condition with error bars; the window is stated', async () => {
+  // Round 2 S1 (deliberate change): no data-driven default window. The window
+  // waits to be set; the peak window is one click away and labelled as such.
+  it('mean over window: no default window; the condition-averaged peak on request, stated as data-driven', async () => {
     render(<SetSeriesPlot ctx={ctx} />);
     await waitFor(() => expect(screen.getByTestId('series-legend')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Transforms/ }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Mean over window' }));
-    // Default: the population peak (lag 2) ± 1, never the whole axis.
-    await waitFor(() => expect(screen.getByTestId('series-caption')).toHaveTextContent('Mean over 1–3'));
+    expect(screen.getByText('Set a window')).toBeInTheDocument();
+    expect(screen.getByLabelText('Window from')).toHaveValue(null);
+    expect(useSeriesStore.getState().transforms).toEqual([]);
+    expect(screen.queryAllByTestId('plot-error-bar')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Use condition-averaged peak ± 1' }));
+    // faces peak at lag 2, houses at lag 4: the average of the two curves peaks at lag 3 or near it,
+    // never at one condition's peak by construction.
+    await waitFor(() =>
+      expect(screen.getByTestId('series-caption')).toHaveTextContent(/window lags \d–\d TR from the condition-averaged peak \(data-driven\)/),
+    );
     expect(screen.getAllByTestId('plot-error-bar')).toHaveLength(2);
+    // A typed window drops the data-driven label.
+    fireEvent.change(screen.getByLabelText('Window from'), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText('Window to'), { target: { value: '6' } });
+    await waitFor(() => expect(screen.getByTestId('series-caption')).toHaveTextContent('window lags 4–6 TR'));
+    expect(screen.getByTestId('series-caption')).not.toHaveTextContent('data-driven');
   });
 
-  it('Copy CSV: per condition × lag, n, centre, band and its definition, under the caption', async () => {
+  it('a from > to pair marks both fields with one message and is not committed (round 2 A3)', async () => {
+    render(<SetSeriesPlot ctx={ctx} />);
+    await waitFor(() => expect(screen.getByTestId('series-legend')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Transforms/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Baseline' }));
+    await waitFor(() => expect(useSeriesStore.getState().transforms).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText('Baseline from'), { target: { value: '5' } });
+    const from = screen.getByLabelText('Baseline from');
+    const to = screen.getByLabelText('Baseline to');
+    expect(from).toHaveAttribute('aria-invalid', 'true');
+    expect(to).toHaveAttribute('aria-invalid', 'true');
+    expect(from.getAttribute('aria-describedby')).toBe(to.getAttribute('aria-describedby'));
+    expect(screen.getAllByText('Baseline: from must be ≤ to')).toHaveLength(1);
+    // Not committed: the store keeps the last valid pair and the plot stays.
+    expect(useSeriesStore.getState().transforms).toEqual([{ kind: 'baseline', from: 0, to: 0 }]);
+    expect(screen.queryByText(/finite bounds/)).toBeNull();
+    expect(screen.getAllByTestId('plot-band').length).toBeGreaterThan(0);
+  });
+
+  it('Difference A = B marks both selects and is not committed (round 2 A3)', async () => {
+    render(<SetSeriesPlot ctx={ctx} />);
+    await waitFor(() => expect(screen.getByTestId('series-legend')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Transforms/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Difference' }));
+    await waitFor(() => expect(useSeriesStore.getState().transforms).toHaveLength(1));
+    const committed = useSeriesStore.getState().transforms;
+    const b = screen.getByLabelText('Difference B');
+    fireEvent.change(b, { target: { value: (screen.getByLabelText('Difference A') as HTMLSelectElement).value } });
+    expect(screen.getByLabelText('Difference A')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Difference B')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Difference: choose two different conditions')).toBeInTheDocument();
+    expect(useSeriesStore.getState().transforms).toBe(committed);
+  });
+
+  it('the population plot reads value by value from the keyboard (round 2 A2)', async () => {
+    render(<SetSeriesPlot ctx={ctx} />);
+    await waitFor(() => expect(screen.getAllByTestId('plot-readout-point').length).toBe(16));
+    const svg = screen.getByTestId('plot-mark-line');
+    expect(svg.getAttribute('aria-label')).toMatch(/by lag \(tr\), faces and houses, mean ± 95% CI$/);
+    const stops = screen.getAllByTestId('plot-readout-point').filter((p) => p.getAttribute('tabindex') === '0');
+    expect(stops).toHaveLength(1);
+    expect(stops[0].getAttribute('aria-label')).toMatch(/^faces · lag 0 TR: mean −?\d+\.\d\d, 95% CI −?\d+\.\d\d to −?\d+\.\d\d, n = 6$/);
+    const viewer = vi.fn();
+    window.addEventListener('keydown', viewer);
+    stops[0].focus();
+    fireEvent.keyDown(stops[0], { key: 'ArrowRight' });
+    expect(document.activeElement?.getAttribute('aria-label')).toMatch(/^faces · lag 1 TR/);
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    expect(document.activeElement?.getAttribute('aria-label')).toMatch(/^houses · lag 1 TR/);
+    expect(viewer).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', viewer);
+  });
+
+  it('Copy CSV: per condition × lag, n, centre, SD, SE, band and its definition', async () => {
     const writeText = vi.fn(async () => undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     render(<SetSeriesPlot ctx={ctx} />);
@@ -148,10 +218,12 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     fireEvent.click(screen.getByRole('button', { name: 'Copy CSV' }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const csv = String((writeText.mock.calls[0] as unknown[])[0]).split('\n');
-    expect(csv[0]).toMatch(/^# Lag \(TR\) · mean \+\/- 95% CI \(t, df = 5\)/);
-    expect(csv[1]).toBe('lag_TR,condition,n,mean,band_low,band_high,band_definition');
-    expect(csv).toHaveLength(2 + 16 + 1);
-    expect(csv[2].split(',').slice(1, 3)).toEqual(['faces', '6']);
+    // Round 2 X1 (deliberate change): one header row, no comment lines; SD, SE and the locus as columns.
+    expect(csv[0]).toBe(
+      'condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,locus_kind,locus_label,n_voxels,transforms',
+    );
+    expect(csv).toHaveLength(1 + 16 + 1);
+    expect(csv[1].split(',').slice(0, 3)).toEqual(['faces', '0', '6']);
   });
 
   it('a blank or non-positive radius is marked with a message, not silently reverted', async () => {

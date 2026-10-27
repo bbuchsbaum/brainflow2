@@ -45,22 +45,27 @@ class TimeNavigationService {
         ? (candidateLayers as { layers: LayerInfo[] }).layers
         : [];
 
-    return layersArray.filter(
+    const fourD = layersArray.filter(
       (layer) =>
         layer.volumeType === 'TimeSeries4D' &&
         layer.timeSeriesInfo &&
         layer.timeSeriesInfo.num_timepoints > 0,
     );
+    // The selected 4D layer leads (its length bounds navigation): runs of
+    // different lengths are focused one at a time (phase 4 E5b).
+    const selectedId = (storeHook.getState?.() as { selectedLayerId?: string | null } | undefined)?.selectedLayerId;
+    const lead = fourD.findIndex((layer) => layer.id === selectedId);
+    return lead > 0 ? [fourD[lead], ...fourD.slice(0, lead), ...fourD.slice(lead + 1)] : fourD;
   }
 
-  private persistTimepoint(volumeIds: string[], timepoint: number): void {
-    if (volumeIds.length === 0) {
+  private persistTimepoint(targets: ReadonlyMap<string, number>): void {
+    if (targets.size === 0) {
       return;
     }
 
     const api = getApiService();
     void Promise.allSettled(
-      volumeIds.map((volumeId) => api.setVolumeTimepoint(volumeId, timepoint)),
+      [...targets].map(([volumeId, timepoint]) => api.setVolumeTimepoint(volumeId, timepoint)),
     ).then((results) => {
       const failures = results.filter(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
@@ -153,17 +158,21 @@ class TimeNavigationService {
       }
     ).getState?.();
     const updateLayer = layerStoreApi?.updateLayer;
+    // A shorter series (another run) stops at its last frame.
+    const own = (layer: LayerInfo) =>
+      Math.min(clampedTimepoint, Math.max(0, (layer.timeSeriesInfo?.num_timepoints ?? 1) - 1));
     if (typeof updateLayer === 'function') {
       layers.forEach((layer) => {
-        updateLayer(layer.id, { currentTimepoint: clampedTimepoint });
+        updateLayer(layer.id, { currentTimepoint: own(layer) });
       });
     }
 
     // Persist to backend (fire and forget)
-    const volumeIds = Array.from(
-      new Set(layers.map((layer) => layer.volumeId).filter((id): id is string => Boolean(id))),
-    );
-    this.persistTimepoint(volumeIds, clampedTimepoint);
+    const targets = new Map<string, number>();
+    layers.forEach((layer) => {
+      if (layer.volumeId && !targets.has(layer.volumeId)) targets.set(layer.volumeId, own(layer));
+    });
+    this.persistTimepoint(targets);
 
     // Emit UI event with refreshed info
     const updatedInfo = this.getTimeInfo();

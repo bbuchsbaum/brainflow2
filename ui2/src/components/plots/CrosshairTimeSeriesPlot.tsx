@@ -1,59 +1,85 @@
 /**
- * CrosshairTimeSeriesPlot — voxel / sphere time-series plot.
+ * The Series mode over a 4D layer (phase 4 E5; round 2 R4/X2/X3/E5b): the
+ * layer's series at the Series locus (voxel, sphere, region, cluster; the
+ * same control as the dataset series), drawn by the shared encoder with the
+ * same caption and export row.
  *
- * Step 2: the body's sole job is *sampling* — it builds a {@link SampleRequest}
- * from the active layer + crosshair + the sphere-radius/reducer params,
- * resolves it to a {@link SampleFrame} via `sampleProvider`, and hands the
- * frame to {@link EncodedPlotView}, which owns the spec, the encoding panel,
- * and the mark rendering. Radius 0 (the default) samples the single nearest
- * voxel; a positive radius averages (or otherwise reduces) a sphere of voxels
- * around the crosshair per timepoint.
- *
- * Owns PRD Risk #3 (sampling cost) by:
- *   - throttling fetches to <= 30 Hz (33 ms minimum gap);
- *   - skipping requests when the active layer is 3D, the crosshair is unset,
- *     or the world->voxel transform yields out-of-bounds coordinates;
- *   - de-duplicating on (voxel/world, radius, reduce) and cancelling stale
- *     inflight requests via a monotonic token.
+ * - Axis: the dataset's declared lag / time axis when the layer is a dataset
+ *   member ("Lag (TR)", 0-based), else seconds with a TR, else the 1-based
+ *   frame (X3).
+ * - Segments (E5b): the layer's runs (BIDS names that differ only in run /
+ *   ses, or a `<stem>_runs.json` sidecar), concatenated, faceted or overlaid;
+ *   clicking a sample focuses that run's layer and frame.
+ * - Sampling cost (PRD Risk #3): fetches are throttled to ≤ 30 Hz,
+ *   de-duplicated on the locus, and stale in-flight requests are dropped via
+ *   a monotonic token.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { sampleProvider } from "@/services/SampleProvider";
-import { getTimeNavigationService } from "@/services/TimeNavigationService";
-import { useLayerStore } from "@/stores/layerStore";
-import { useClusterStore } from "@/stores/clusterStore";
-import { useSeriesStore } from "@/stores/seriesStore";
-import { resolveSeriesRegion, type SeriesRegion } from "@/services/series/seriesRegion";
-import { RawSeriesLocus } from "./RawSeriesLocus";
-import { formatWorldMm } from "@/utils/valueFormat";
-import { shortLayerLabel } from "@/components/views/viewportFrame/frameFormat";
-import { usePlotSpecStore } from "@/stores/plotSpecStore";
-import type { Locus, SampleFrame } from "@/plotting";
-
-import { EncodedPlotView } from "./EncodedPlotView";
+import { sampleProvider } from '@/services/SampleProvider';
+import { getTimeNavigationService } from '@/services/TimeNavigationService';
+import { getTransport } from '@/services/transport';
+import { decodeText, isMissingFileError } from '@/services/LabelTableService';
+import { useLayerStore } from '@/stores/layerStore';
+import { useClusterStore } from '@/stores/clusterStore';
+import { useSeriesStore, seriesRadiusMm } from '@/stores/seriesStore';
+import { useSetStudioStore } from '@/stores/setStudioStore';
+import { resolveSeriesRegion, type SeriesRegion } from '@/services/series/seriesRegion';
+import { datasetAxisFor, layerAxis, type RawSeriesAxis } from '@/services/series/rawSeriesAxis';
 import {
-  TIMESERIES_THROTTLE_MS,
-  resolveTimeseriesVoxel,
-} from "./crosshairTimeSeriesPlot.helpers";
-import type { PlotModeContext } from "./plotHost.types";
+  SEGMENT_FRAME_ID,
+  SERIES_SEGMENT,
+  manualSegmentGroup,
+  parseRunsSidecar,
+  rawSeriesCsv,
+  runGroupFor,
+  runsSidecarPath,
+  segmentAt,
+  segmentedSeriesFrame,
+  type SegmentGroup,
+  type SegmentLayout,
+} from '@/services/series/seriesSegments';
+import { clusterLocusText } from '@/services/series/seriesPresentation';
+import {
+  populationPlotPng,
+  savePopulationPlot,
+} from '@/services/studio/PopulationPlotExportService';
+import { getEventBus } from '@/events/EventBus';
+import { formatWorldMm } from '@/utils/valueFormat';
+import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
+import { Button, Notice, Select, Toolbar, ToolbarField } from '@/components/ui/bf';
+import type { Locus, ResolvedPlotSpec, SampleFrame } from '@/plotting';
 
-const PLOT_PADDING = 12;
-const formatSeconds = (s: number) => `${Number(s.toFixed(3))} s`;
-const LOCUS_ROW_PX = 32;
-const CAPTION_ROW_PX = 16;
-const MIN_LOCUS_ROW_HOST_PX = 180;
-/** Frame index column (string ids for the plot's datum links). */
-const FRAME_ID = "__frame";
-const MIN_PLOT_W = 80;
+import { PlotEncoder } from './encoder/PlotEncoder';
+import { populationCategoryColor } from './encoder/cartesianMarks';
+import { FRAME_LEGEND_INSET, PlotFrameLegend } from './PlotFrameLegend';
+import { SeriesIssue } from './SeriesIssue';
+import { seriesIssueAction } from './seriesIssue.helpers';
+import { SeriesLocusControls } from './SeriesLocusControls';
+import { TIMESERIES_THROTTLE_MS, resolveTimeseriesVoxel } from './crosshairTimeSeriesPlot.helpers';
+import type { PlotModeContext } from './plotHost.types';
+
+/** Below this host height (the pinned time row) only the plot is drawn. */
+const MIN_FULL_HOST_PX = 180;
 const MIN_PLOT_H = 60;
 
 /** Mode id — also the key under which this mode's spec/params are persisted. */
-export const TIME_SERIES_MODE_ID = "crosshair-time-series";
+export const TIME_SERIES_MODE_ID = 'crosshair-time-series';
 
-interface TimeSeriesPlotBodyProps {
-  ctx: PlotModeContext;
-}
+const LAYOUT_OPTIONS = [
+  {
+    value: 'concatenated',
+    label: 'Concatenated',
+    title: 'One axis across the runs, boundaries marked',
+  },
+  { value: 'faceted', label: 'Faceted', title: 'One panel per run, shared y axis' },
+  {
+    value: 'overlaid',
+    label: 'Overlaid',
+    title: 'Runs aligned on time within the run, one line each',
+  },
+] as const;
 
 interface ThrottleState {
   pending: ReturnType<typeof setTimeout> | null;
@@ -61,265 +87,600 @@ interface ThrottleState {
   inflightToken: number;
 }
 
-export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
+/** Sampled values per segment layer, and the locus they came from. */
+interface RawSample {
+  values: Map<string, number[]>;
+  voxels: number | null;
+}
+
+// Runs sidecars are read once per image path (null: none or unreadable).
+const sidecarTexts = new Map<string, Promise<string | null>>();
+function readSidecar(path: string): Promise<string | null> {
+  let pending = sidecarTexts.get(path);
+  if (!pending) {
+    pending = getTransport()
+      .invoke('plugin:fs|read_text_file', { path })
+      .then(decodeText)
+      .catch((error) => {
+        if (!isMissingFileError(error))
+          console.warn(`[Series] Runs sidecar ${path} could not be read:`, error);
+        return null;
+      });
+    sidecarTexts.set(path, pending);
+  }
+  return pending;
+}
+
+export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
   const { layerId, crosshairMm, width, height } = ctx;
-  const radiusMm = usePlotSpecStore(
-    (s) => s.sphereRadiusMmByMode[TIME_SERIES_MODE_ID] ?? 0,
-  );
-  const reduce = usePlotSpecStore(
-    (s) => s.reduceByMode[TIME_SERIES_MODE_ID] ?? "mean",
-  );
-  // Phase 4 E2/E3: a region / cluster locus (Series locus control) replaces
-  // the crosshair voxel / sphere.
-  const locusKind = useSeriesStore((s) => s.locus);
-  const regionPick = useSeriesStore((s) => s.regionPick);
-  const clusterSelection = useClusterStore((s) => (locusKind === "cluster" ? s.selectedId : null));
-  const clusterTable = useClusterStore((s) => (locusKind === "cluster" ? s.result : null));
-  const [region, setRegion] = useState<SeriesRegion | null>(null);
+  const full = height >= MIN_FULL_HOST_PX;
+  const settings = useSeriesStore();
+  const locusKind = settings.locus;
+  const radiusMm = seriesRadiusMm(settings);
+  const clusterSelection = useClusterStore((s) => (locusKind === 'cluster' ? s.selectedId : null));
+  const clusterTable = useClusterStore((s) => (locusKind === 'cluster' ? s.result : null));
+
+  // --- Segments (E5b) -------------------------------------------------------
+  const layers = useLayerStore((s) => s.layers);
+  const layer = useMemo(() => layers?.find?.((l) => l.id === layerId), [layers, layerId]);
+  const metadata = useLayerStore((s) => s.layerMetadata);
+  const sourcePath =
+    (layerId ? metadata?.get?.(layerId)?.sourcePath : undefined) ?? layer?.sourcePath;
+  const sidecarPath = runsSidecarPath(sourcePath);
+  const [sidecar, setSidecar] = useState<{ path: string; text: string | null } | null>(null);
   useEffect(() => {
+    if (!sidecarPath || settings.segments === 'off') return;
     let live = true;
-    if (!crosshairMm || (locusKind !== "region" && locusKind !== "cluster")) {
-      setRegion(null);
-      return;
-    }
-    void resolveSeriesRegion({ locus: locusKind, regionPick }, [crosshairMm[0], crosshairMm[1], crosshairMm[2]]).then(
-      (next) => live && setRegion(next),
-    );
+    void readSidecar(sidecarPath).then((text) => live && setSidecar({ path: sidecarPath, text }));
     return () => {
       live = false;
     };
-  }, [crosshairMm, locusKind, regionPick, clusterSelection, clusterTable]);
-  const regionWanted = locusKind === "region" || locusKind === "cluster";
+  }, [sidecarPath, settings.segments]);
+  const grid = (id: string) => {
+    const m = metadata?.get?.(id);
+    return m ? { dimensions: m.dimensions, voxelToWorld: m.voxelToWorld } : undefined;
+  };
+  const { group, groupIssue } = useMemo((): {
+    group: SegmentGroup | null;
+    groupIssue: string | null;
+  } => {
+    if (!layer || !layers?.length || settings.segments === 'off')
+      return { group: null, groupIssue: null };
+    if (settings.segments === 'manual')
+      return {
+        group: manualSegmentGroup(settings.manualSegmentLayerIds, layers),
+        groupIssue: null,
+      };
+    if (sidecar && sidecar.path === sidecarPath && sidecar.text) {
+      try {
+        return { group: parseRunsSidecar(sidecar.text, layer), groupIssue: null };
+      } catch (e) {
+        return { group: null, groupIssue: `Runs sidecar ignored: ${(e as Error).message}` };
+      }
+    }
+    return { group: runGroupFor(layer.id, layers, grid), groupIssue: null };
+    // grid reads `metadata`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    layer,
+    layers,
+    metadata,
+    settings.segments,
+    settings.manualSegmentLayerIds,
+    sidecar,
+    sidecarPath,
+  ]);
+  // Offered when the layer is alone: every 4D layer on its grid, by hand.
+  const groupable = useMemo(() => {
+    if (!layer) return [] as string[];
+    const own = grid(layer.id);
+    return (layers ?? [])
+      .filter((l) => (l.timeSeriesInfo?.num_timepoints ?? 0) >= 2)
+      .filter((l) => l.id === layer.id || JSON.stringify(grid(l.id)) === JSON.stringify(own))
+      .map((l) => l.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layer, layers, metadata]);
+  const layout: SegmentLayout = settings.segmentLayout ?? 'concatenated';
+
+  // --- Axis (X3) -------------------------------------------------------------
+  const studioSets = useSetStudioStore((s) => s.sets);
+  const studioSelection = useSetStudioStore((s) => s.selection);
+  const studioPopulation = useSetStudioStore((s) => s.population);
+  const studioFeatures = useSetStudioStore((s) => s.features);
+  const tr =
+    layer?.timeSeriesInfo?.tr && layer.timeSeriesInfo.tr > 0 ? layer.timeSeriesInfo.tr : null;
+  const datasetAxis = useMemo(
+    () => (group ? null : datasetAxisFor(sourcePath, { sets: studioSets, selection: studioSelection, population: studioPopulation, features: studioFeatures })),
+    [group, sourcePath, studioSets, studioSelection, studioPopulation, studioFeatures],
+  );
+  const axis: RawSeriesAxis = datasetAxis ?? layerAxis(tr);
+
+  // --- Locus ----------------------------------------------------------------
+  const regionLocusWanted = locusKind === 'region' || locusKind === 'cluster';
+  const [region, setRegion] = useState<SeriesRegion | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!crosshairMm || !regionLocusWanted) {
+      setRegion(null);
+      return;
+    }
+    void resolveSeriesRegion({ locus: locusKind, regionPick: settings.regionPick }, [
+      crosshairMm[0],
+      crosshairMm[1],
+      crosshairMm[2],
+    ]).then((next) => live && setRegion(next));
+    return () => {
+      live = false;
+    };
+  }, [
+    crosshairMm,
+    locusKind,
+    regionLocusWanted,
+    settings.regionPick,
+    clusterSelection,
+    clusterTable,
+  ]);
   const regionLocus = region && region.region ? region.region : null;
-  const regionKey = regionLocus ? JSON.stringify(regionLocus) : regionWanted ? "pending" : "";
-  const [frame, setFrame] = useState<SampleFrame | null>(null);
+  const regionLabel = region && region.region ? region.label : '';
+  const regionKey = regionLocus ? JSON.stringify(regionLocus) : regionLocusWanted ? 'pending' : '';
+  const regionIssue = region && !region.region ? region.issue : null;
+
+  // --- Sampling ----------------------------------------------------------------
+  const sampleLayerIds = useMemo(
+    () => (group ? [...new Set(group.segments.map((s) => s.layerId))] : layerId ? [layerId] : []),
+    [group, layerId],
+  );
+  const [sample, setSample] = useState<RawSample | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const throttleRef = useRef<ThrottleState>({
-    pending: null,
-    lastDispatch: 0,
-    inflightToken: 0,
-  });
-  const lastKeyRef = useRef<string>("");
+  const throttleRef = useRef<ThrottleState>({ pending: null, lastDispatch: 0, inflightToken: 0 });
+  const lastKeyRef = useRef<string>('');
 
   useEffect(() => {
     const target = resolveTimeseriesVoxel(layerId, crosshairMm);
-    if (!target || !layerId || !crosshairMm || regionKey === "pending") {
-      // Drop stale data when the target becomes invalid (e.g. crosshair leaves
-      // the volume). Bump the inflight token so a request already in flight
-      // cannot resurrect stale data over the just-cleared state.
+    if (!target || !layerId || !crosshairMm || regionKey === 'pending' || regionIssue) {
+      // Drop stale data when the target becomes invalid; bump the token so a
+      // request in flight cannot resurrect it.
       throttleRef.current.inflightToken += 1;
-      setFrame(null);
+      lastKeyRef.current = '';
+      setSample(null);
       setError(null);
       setLoading(false);
       return;
     }
-
-    const worldMm: [number, number, number] = [
-      crosshairMm[0],
-      crosshairMm[1],
-      crosshairMm[2],
-    ];
-    // Dedupe key. For a point (radius 0) the nearest voxel is authoritative, so
-    // key on the rounded voxel — sub-voxel crosshair moves don't change the
-    // sample. For a sphere, membership and per-voxel distances depend on the
-    // fractional world position, so key on the (quantized) world position.
+    const worldMm: [number, number, number] = [crosshairMm[0], crosshairMm[1], crosshairMm[2]];
+    // A point is keyed on its voxel (sub-voxel moves sample the same voxel); a
+    // sphere's membership depends on the fractional position.
     const locusKey =
       radiusMm > 0
-        ? `s:${worldMm.map((v) => v.toFixed(2)).join(",")}`
-        : `v:${target.voxel.join(",")}`;
-    const key = regionLocus
-      ? `${target.volumeId}:r:${regionKey}:${reduce}`
-      : `${target.volumeId}:${locusKey}:${radiusMm}:${reduce}`;
-    if (key === lastKeyRef.current && frame !== null) {
-      // Same locus as the previous successful sample — skip duplicate request.
-      return;
-    }
-
+        ? `s:${worldMm.map((v) => v.toFixed(2)).join(',')}`
+        : `v:${target.voxel.join(',')}`;
+    const key = `${sampleLayerIds.join('+')}:${regionLocus ? `r:${regionKey}` : `${locusKey}:${radiusMm}`}`;
+    if (key === lastKeyRef.current && sample !== null) return;
     if (throttleRef.current.pending) {
       clearTimeout(throttleRef.current.pending);
       throttleRef.current.pending = null;
     }
-
     const elapsed = Date.now() - throttleRef.current.lastDispatch;
-    const delay =
-      elapsed >= TIMESERIES_THROTTLE_MS ? 0 : TIMESERIES_THROTTLE_MS - elapsed;
-
+    const delay = elapsed >= TIMESERIES_THROTTLE_MS ? 0 : TIMESERIES_THROTTLE_MS - elapsed;
     const locus: Locus = regionLocus
-      ? { kind: "point", worldMm, region: regionLocus }
+      ? { kind: 'point', worldMm, region: regionLocus }
       : radiusMm > 0
-        ? { kind: "sphere", worldMm, radiusMm }
-        : { kind: "point", worldMm };
-
+        ? { kind: 'sphere', worldMm, radiusMm }
+        : { kind: 'point', worldMm };
     const token = ++throttleRef.current.inflightToken;
     const dispatch = () => {
       throttleRef.current.pending = null;
       throttleRef.current.lastDispatch = Date.now();
       lastKeyRef.current = key;
-
       setLoading(true);
       setError(null);
-      sampleProvider
-        .sample({ datasetId: layerId, locus, reduce })
-        .then((result) => {
+      Promise.all(
+        sampleLayerIds.map((id) =>
+          sampleProvider
+            .sample({ datasetId: id, locus, reduce: 'mean' })
+            .then((frame: SampleFrame) => [id, frame] as const),
+        ),
+      )
+        .then((frames) => {
           if (token !== throttleRef.current.inflightToken) return;
-          setFrame(result);
+          const values = new Map<string, number[]>();
+          for (const [id, frame] of frames)
+            values.set(
+              id,
+              frame.rows.map((r) => (typeof r.value === 'number' ? r.value : Number.NaN)),
+            );
+          const counts = frames
+            .map(([, f]) => (f.meta as { validCount?: unknown } | undefined)?.validCount)
+            .filter((n): n is number => typeof n === 'number');
+          setSample({ values, voxels: counts.length ? Math.max(...counts) : null });
           setLoading(false);
         })
         .catch((err) => {
           if (token !== throttleRef.current.inflightToken) return;
+          lastKeyRef.current = '';
+          setSample(null);
           setError(err instanceof Error ? err : new Error(String(err)));
           setLoading(false);
         });
     };
-
-    if (delay === 0) {
-      dispatch();
-    } else {
-      throttleRef.current.pending = setTimeout(dispatch, delay);
-    }
-
+    if (delay === 0) dispatch();
+    else throttleRef.current.pending = setTimeout(dispatch, delay);
     const throttleHandle = throttleRef;
     return () => {
       if (throttleHandle.current.pending) {
         clearTimeout(throttleHandle.current.pending);
         throttleHandle.current.pending = null;
       }
-      // Invalidate any in-flight request on teardown so a late resolve is
-      // ignored (no setState after the effect re-runs or the body unmounts).
+      // A late resolve after re-run or unmount is ignored.
       throttleHandle.current.inflightToken += 1;
     };
-    // `frame` is intentionally excluded — including it would refire the effect
-    // after each successful sample. The dedupe above uses a ref.
+    // `sample` is excluded: including it would refire after each success.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layerId, crosshairMm, radiusMm, reduce, regionKey]);
+  }, [layerId, crosshairMm, radiusMm, regionKey, regionIssue, sampleLayerIds]);
 
-  // Phase 4 E5: each sample is a frame of the layer; the current frame is
-  // marked, and clicking a sample moves to that frame.
-  const currentTimepoint = useLayerStore((s) =>
-    layerId ? (s.layers.find((l) => l.id === layerId)?.currentTimepoint ?? 0) : 0,
+  // --- The plotted frame -------------------------------------------------------
+  const currentTimepoint = layer?.currentTimepoint ?? 0;
+  const plotted = useMemo(() => {
+    if (!sample) return null;
+    if (group) {
+      const samples = group.segments
+        .map((segment) => ({
+          segment,
+          values: (sample.values.get(segment.layerId) ?? []).slice(
+            segment.frameStart,
+            segment.frameStart + segment.frames,
+          ),
+        }))
+        .filter((s) => s.values.length > 0);
+      if (!samples.length) return null;
+      const series = segmentedSeriesFrame(samples, layout);
+      return {
+        ...series,
+        integer: series.xTitle.startsWith('Frame'),
+        segments: samples.map((s) => s.segment),
+      };
+    }
+    const values = sample.values.get(layerId ?? '') ?? [];
+    if (values.length < 2) return null;
+    const frame: SampleFrame = {
+      columns: [
+        { name: 't', role: 'temporal', ...(axis.unit ? { unit: axis.unit } : {}) },
+        { name: 'value', role: 'quantitative' },
+        { name: SEGMENT_FRAME_ID, role: 'index' },
+      ],
+      rows: values.map((v, i) => ({
+        t: axis.at(i),
+        value: Number.isFinite(v) ? v : null,
+        [SEGMENT_FRAME_ID]: `0:${i}`,
+      })),
+    };
+    return {
+      frame,
+      xTitle: axis.title,
+      rules: [],
+      step: axis.step,
+      note: null,
+      integer: axis.integer,
+      segments: null,
+    };
+  }, [sample, group, layout, layerId, axis]);
+
+  const layerName = layer?.name;
+  const member = datasetAxis?.member ?? null;
+  const yTitle = `${datasetAxis?.measure ?? 'Signal'} (a.u.)`;
+  const legend =
+    plotted?.segments && layout === 'overlaid'
+      ? plotted.segments.map((s) => ({ label: s.label, color: populationCategoryColor(s.label) }))
+      : [];
+  const spec: ResolvedPlotSpec | null = plotted
+    ? {
+        mark: 'line',
+        encoding: {
+          x: 't',
+          y: 'value',
+          ...(plotted.segments && layout === 'overlaid' ? { color: SERIES_SEGMENT } : {}),
+          ...(plotted.segments && layout === 'faceted' ? { facet: SERIES_SEGMENT } : {}),
+        },
+        transforms: [],
+        params: {
+          xTitle: plotted.xTitle,
+          yTitle,
+          xIntegerTicks: plotted.integer,
+          xPadHalfStep: plotted.step,
+          ...(plotted.rules.length ? { xRules: plotted.rules } : {}),
+          ...(legend.length ? { topInset: FRAME_LEGEND_INSET } : {}),
+          ariaLabel: `${yTitle} by ${plotted.xTitle.toLowerCase()}${layerName ? `, ${shortLayerLabel(layerName)}` : ''}`,
+        },
+      }
+    : null;
+
+  // Segment and frame under the current timepoint ("run 2 · frame 13/24").
+  const here = group ? segmentAt(group, layerId, currentTimepoint) : null;
+  const focusedId = group
+    ? here
+      ? `${here.index}:${currentTimepoint}`
+      : null
+    : String(`0:${currentTimepoint}`);
+  const segmentIds = useMemo(
+    () => new Set((plotted?.frame.rows ?? []).map((r) => String(r[SEGMENT_FRAME_ID]))),
+    [plotted],
   );
-  // The x axis states its unit (v0 fidelity 2): seconds when the TR is
-  // known, else the frame number, 1-based like every frame readout.
-  const tr = typeof frame?.meta?.tr === "number" && frame.meta.tr > 0 ? frame.meta.tr : null;
-  const linked = useMemo<SampleFrame | null>(
-    () =>
-      frame && frame.rows.length > 1
-        ? {
-            ...frame,
-            columns: [...frame.columns, { name: FRAME_ID, label: "Frame", role: "index" }],
-            rows: frame.rows.map((row, i) => ({
-              ...row,
-              ...(tr === null ? { t: i + 1 } : {}),
-              [FRAME_ID]: String(i),
-            })),
-          }
-        : frame,
-    [frame, tr],
-  );
-  const rawLayerName: unknown = useLayerStore((s) =>
-    layerId ? s.layers?.find((l) => l.id === layerId)?.name : undefined,
-  );
-  const layerName = typeof rawLayerName === "string" ? rawLayerName : undefined;
-  const axisParams = useMemo(
-    () => ({
-      xTitle: tr === null ? "Frame" : "Time (s)",
-      yTitle: layerName ? shortLayerLabel(layerName) : "Value",
-      xIntegerTicks: tr === null,
-      xPadHalfStep: tr ?? 1,
-    }),
-    [tr, layerName],
-  );
-  // The locus, named under the plot (v0 fidelity 2).
-  const voxel = resolveTimeseriesVoxel(layerId, crosshairMm);
-  const locusCaption = [
-    regionLocus && region?.region
-      ? region.label
-      : crosshairMm
-        ? `${radiusMm > 0 ? `${radiusMm} mm sphere at` : "voxel"} ${crosshairMm.map((v) => formatWorldMm(v)).join(", ")} mm${
-            radiusMm > 0 || !voxel ? "" : ` (ijk ${voxel.voxel.join(" ")})`
-          }`
-        : null,
-    layerName ? shortLayerLabel(layerName) : null,
+  const focus = (id: string) => {
+    const [si, t] = id.split(':').map(Number);
+    const segment = group?.segments[si];
+    const targetLayer = segment?.layerId ?? layerId;
+    if (targetLayer && targetLayer !== layerId) useLayerStore.getState().selectLayer?.(targetLayer);
+    getTimeNavigationService().setTimepoint(t);
+  };
+  const datumLabel = (i: number) => {
+    const row = plotted?.frame.rows[i];
+    if (!row) return '';
+    const [si, t] = String(row[SEGMENT_FRAME_ID]).split(':').map(Number);
+    const v = Number(row.value);
+    const value = Number.isFinite(v) ? v.toPrecision(4) : 'no value';
+    if (group) {
+      const segment = group.segments[si];
+      const within = t - segment.frameStart;
+      return `${segment.label} · frame ${within + 1}/${segment.frames}${segment.tr ? `, ${Number((within * segment.tr).toFixed(3))} s` : ''}: ${value}`;
+    }
+    return datasetAxis
+      ? `${axis.describe(t)} (frame ${t + 1} of ${plotted!.frame.rows.length}): ${value}`
+      : `${t + 1 === axis.at(t) ? `Frame ${t + 1}` : `Frame ${t + 1}, ${axis.describe(t)}`}: ${value}`;
+  };
+
+  // --- Caption, export ------------------------------------------------------------
+  const locusText = regionLocus
+    ? locusKind === 'cluster'
+      ? (clusterLocusText(
+          useClusterStore.getState().result,
+          useClusterStore.getState().selectedId,
+        ) ?? regionLabel)
+      : regionLabel
+    : crosshairMm
+      ? `${radiusMm > 0 ? `${radiusMm} mm sphere at` : 'voxel'} ${crosshairMm.map((v) => formatWorldMm(v)).join(', ')} mm${
+          radiusMm > 0
+            ? ''
+            : (() => {
+                const voxel = resolveTimeseriesVoxel(layerId, crosshairMm);
+                return voxel ? ` (ijk ${voxel.voxel.join(' ')})` : '';
+              })()
+        }`
+      : 'no locus';
+  const voxels = locusKind === 'cluster' ? null : (sample?.voxels ?? null);
+  const counter = group
+    ? here
+      ? `${here.segment.label} · frame ${here.frame}/${here.segment.frames}`
+      : null
+    : datasetAxis
+      ? `${axis.describe(currentTimepoint)} (frame ${currentTimepoint + 1} of ${layer?.timeSeriesInfo?.num_timepoints ?? '?'})`
+      : null;
+  const source = group
+    ? group.title
+    : [
+        layerName ? shortLayerLabel(layerName) : null,
+        // The member, unless the layer name already says it ("fir (sub-s01, faces)").
+        member && !member.split(' · ').every((part) => (layerName ?? '').includes(part)) ? member : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+  const caption = [
+    voxels !== null && voxels > 1
+      ? `${locusText}, ${voxels.toLocaleString('en-US')} voxels`
+      : locusText,
+    source,
+    plotted?.note ?? null,
+    counter,
   ]
     .filter(Boolean)
-    .join(" · ");
-  const frameIds = useMemo(
-    () => new Set((linked?.rows ?? []).map((row) => String(row[FRAME_ID]))),
-    [linked],
-  );
+    .join(' · ');
 
-  const plotWidth = Math.max(width - PLOT_PADDING * 2, MIN_PLOT_W);
-  // The locus row, above the plot when there is room (not in the pinned time row).
-  const showLocusRow = height >= MIN_LOCUS_ROW_HOST_PX;
-  const plotHeight = Math.max(
-    height - PLOT_PADDING * 2 - (showLocusRow ? LOCUS_ROW_PX + CAPTION_ROW_PX : 0),
-    MIN_PLOT_H,
-  );
+  const copyCsv = async () => {
+    if (!plotted || !sample) return;
+    const rows = group
+      ? plotted.segments!.flatMap((segment) =>
+          (sample.values.get(segment.layerId) ?? [])
+            .slice(segment.frameStart, segment.frameStart + segment.frames)
+            .map((v, i) => ({
+              segment: segment.id,
+              volumeIndex: segment.frameStart + i,
+              tWithin: segment.tr ? Number((i * segment.tr).toFixed(6)) : i,
+              t: null as number | null,
+              value: Number.isFinite(v) ? v : null,
+              layer: layers.find((l) => l.id === segment.layerId)?.name ?? segment.layerId,
+            })),
+        )
+      : (sample.values.get(layerId ?? '') ?? []).map((v, i) => ({
+          segment: null,
+          volumeIndex: i,
+          tWithin: null,
+          t: axis.at(i),
+          value: Number.isFinite(v) ? v : null,
+          layer: layerName ?? layerId ?? '',
+        }));
+    if (group) {
+      // The concatenated axis, whatever the layout on screen.
+      let offset = 0;
+      const seconds = plotted.segments!.every((s) => s.tr !== null);
+      for (const segment of plotted.segments!) {
+        rows
+          .filter((r) => r.segment === segment.id)
+          .forEach((r, i) => {
+            r.t = seconds ? Number((offset + i * segment.tr!).toFixed(6)) : offset + i + 1;
+          });
+        offset += seconds ? segment.frames * segment.tr! : segment.frames;
+      }
+    }
+    const segAxis = group
+      ? {
+          name: plotted.segments!.every((s) => s.tr !== null) ? 't' : 'frame',
+          unit: plotted.segments!.every((s) => s.tr !== null) ? 's' : null,
+        }
+      : { name: axis.name, unit: axis.unit };
+    const csv = rawSeriesCsv({
+      rows,
+      axis: segAxis,
+      locus: {
+        kind: regionLocus ? locusKind : radiusMm > 0 ? 'sphere' : 'voxel',
+        label: locusText,
+        voxels: sample.voxels,
+      },
+    });
+    try {
+      await navigator.clipboard.writeText(csv);
+      getEventBus().emit('ui.notification', { type: 'info', message: 'Series copied as CSV' });
+    } catch {
+      getEventBus().emit('ui.notification', {
+        type: 'warning',
+        message: 'Could not copy to the clipboard',
+      });
+    }
+  };
+  const plotBox = useRef<HTMLDivElement>(null);
+  const exportImage = async () => {
+    if (!plotBox.current) return;
+    try {
+      const png = await populationPlotPng(plotBox.current, caption, legend);
+      const saved = await savePopulationPlot(png, 'png');
+      if (saved) getEventBus().emit('ui.notification', { type: 'info', message: `Saved ${saved}` });
+    } catch (e) {
+      getEventBus().emit('ui.notification', {
+        type: 'error',
+        message: `Export failed: ${(e as Error).message}`,
+      });
+    }
+  };
 
+  // The plot takes what the toolbar and caption leave (measured).
+  const [plotSize, setPlotSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = plotBox.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (!r) return;
+      const next = { width: Math.floor(r.width), height: Math.floor(r.height) };
+      setPlotSize((prev) =>
+        prev.width === next.width && prev.height === next.height ? prev : next,
+      );
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const plotWidth = plotSize.width > 0 ? plotSize.width : Math.max(width - 16, 80);
+  const plotHeight =
+    plotSize.height > 0 ? plotSize.height : Math.max(height - (full ? 72 : 36), MIN_PLOT_H);
+
+  const issue = regionIssue ?? (error ? error.message : null);
   return (
     <div
       data-testid="crosshair-ts-plot-body"
-      style={{
-        position: "absolute",
-        inset: 0,
-        padding: `${PLOT_PADDING}px`,
-        overflow: "hidden",
-      }}
+      className="absolute inset-0 flex min-h-0 flex-col gap-1 p-2 text-bf-xs"
     >
-      {showLocusRow ? <RawSeriesLocus region={region} /> : null}
-      {loading && frame === null && (
-        <div
-          data-testid="crosshair-ts-loading"
-          className="bf-role-section"
-          style={{ color: "var(--app-text-muted)" }}
-        >
-          Sampling…
-        </div>
-      )}
-      {error && (
-        <div
-          data-testid="crosshair-ts-error"
-          className="bf-role-section"
-          style={{ color: "var(--app-error)" }}
-        >
-          {error.message}
-        </div>
-      )}
-      {linked && (
-        <EncodedPlotView
-          modeId={TIME_SERIES_MODE_ID}
-          frame={linked}
-          params={axisParams}
-          context={
-            linked.rows.length > 1
-              ? {
-                  datumLink: {
-                    idColumn: FRAME_ID,
-                    focusedId: String(currentTimepoint),
-                    selectedIds: frameIds,
-                    onFocus: (id) => getTimeNavigationService().setTimepoint(Number(id)),
-                    onToggleSelection: () => undefined,
-                    // Arrow keys step frames (v1 function 3); no selection here.
-                    selectable: false,
-                    activateOnMove: true,
-                    label: (i) => {
-                      const v = Number(linked.rows[i]?.value);
-                      return `${tr === null ? `Frame ${i + 1}` : `Frame ${i + 1}, ${formatSeconds(i * tr)}`}: ${Number.isFinite(v) ? v.toPrecision(4) : 'no value'}`;
-                    },
-                  },
+      {ctx.chrome || full ? (
+        <Toolbar aria-label="Series" className="shrink-0 flex-wrap px-0">
+          {ctx.chrome}
+          {full ? <SeriesLocusControls /> : null}
+          {full && (group || groupable.length > 1) ? (
+            <ToolbarField label="Runs">
+              <Select
+                aria-label="Series runs"
+                className="w-auto max-w-[260px]"
+                value={settings.segments === 'off' || !group ? 'off' : settings.segments}
+                onValueChange={(v) =>
+                  settings.update(
+                    v === 'manual'
+                      ? { segments: 'manual', manualSegmentLayerIds: groupable }
+                      : { segments: v as 'auto' | 'off' },
+                  )
                 }
-              : undefined
-          }
-          width={plotWidth}
-          height={plotHeight}
-          showLocus
-        />
-      )}
-      {showLocusRow && linked && locusCaption ? (
-        <p className="text-bf-2xs text-bf-text-muted" data-testid="raw-series-caption">
-          {locusCaption}
+                options={[
+                  { value: 'off', label: 'This layer only' },
+                  ...(settings.segments !== 'manual' && (group || settings.segments === 'off')
+                    ? [{ value: 'auto', label: group?.title ?? 'Runs of this layer' }]
+                    : []),
+                  ...(groupable.length > 1
+                    ? [{ value: 'manual', label: `All ${groupable.length} 4D layers on this grid` }]
+                    : []),
+                ]}
+              />
+            </ToolbarField>
+          ) : null}
+          {full && group ? (
+            <ToolbarField label="Layout">
+              <Select
+                aria-label="Runs layout"
+                className="w-auto"
+                value={layout}
+                onValueChange={(v) => settings.update({ segmentLayout: v as SegmentLayout })}
+                options={LAYOUT_OPTIONS}
+              />
+            </ToolbarField>
+          ) : null}
+        </Toolbar>
+      ) : null}
+      {full && issue ? (
+        <SeriesIssue message={issue} action={regionIssue ? seriesIssueAction(locusKind) : null} />
+      ) : null}
+      {full && groupIssue ? (
+        <Notice severity="warning" role="status" className="shrink-0">
+          {groupIssue}
+        </Notice>
+      ) : null}
+      {loading && !plotted ? (
+        <p data-testid="crosshair-ts-loading" className="text-bf-text-muted">
+          Sampling…
         </p>
+      ) : null}
+      {!full && error ? (
+        <p data-testid="crosshair-ts-error" className="text-bf-danger">
+          {error.message}
+        </p>
+      ) : null}
+      <div className="relative min-h-[60px] flex-1">
+        <div ref={plotBox} className="absolute inset-0" data-testid="raw-series-plot">
+          {plotted && spec ? (
+            <PlotEncoder
+              frame={plotted.frame}
+              spec={spec}
+              width={plotWidth}
+              height={plotHeight}
+              context={{
+                datumLink: {
+                  idColumn: SEGMENT_FRAME_ID,
+                  focusedId,
+                  selectedIds: segmentIds,
+                  onFocus: focus,
+                  onToggleSelection: () => undefined,
+                  // Arrow keys step frames; no selection here.
+                  selectable: false,
+                  activateOnMove: true,
+                  label: datumLabel,
+                },
+              }}
+            />
+          ) : null}
+        </div>
+        <PlotFrameLegend entries={legend} label="Runs legend" />
+      </div>
+      {full && plotted ? (
+        <div className="flex shrink-0 items-start gap-2">
+          <p
+            className="min-w-0 flex-1 text-bf-2xs text-bf-text-muted"
+            data-testid="raw-series-caption"
+          >
+            {caption}
+            {loading ? ' · sampling…' : ''}
+          </p>
+          <span className="inline-flex shrink-0 gap-1">
+            <Button variant="secondary" size="sm" onClick={() => void copyCsv()}>
+              Copy CSV
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => void exportImage()}>
+              Export image
+            </Button>
+          </span>
+        </div>
       ) : null}
     </div>
   );

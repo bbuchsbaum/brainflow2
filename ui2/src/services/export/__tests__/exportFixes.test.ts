@@ -8,6 +8,7 @@ import {
   layoutFileName,
   mosaicFileName,
   sliceFileName,
+  surfaceFileName,
 } from '@/utils/exportFileName';
 import { cropBox, cropVolumeIds } from '../compositeCapture';
 
@@ -51,6 +52,14 @@ describe('export file names (native check: "zmap_synthetic_axial_-10.0mm.png")',
     }
     expect(exportFileBase('', 'view')).toBe('view');
     expect(exportFileBase('___', 'view')).toBe('view');
+  });
+
+  it('names the hemispheres of a surface figure once (v1 visual 9)', () => {
+    expect(surfaceFileName('sensorimotor.func (lh, rh)', 'lat_med', ['left', 'right'], 'png')).toBe(
+      'sensorimotor.func_lat_med_lh_rh.png',
+    );
+    expect(surfaceFileName('lh.sensorimotor.func.gii', 'surface', ['left'], 'png')).toBe('sensorimotor.func_surface_lh.png');
+    expect(surfaceFileName(null, 'surface', ['right'], 'jpg')).toBe('surface_surface_rh.jpg');
   });
 });
 

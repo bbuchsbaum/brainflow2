@@ -13,6 +13,7 @@
  */
 import type { ViewType } from '@/types/coordinates';
 import { formatWorldMmAscii } from '@/utils/valueFormat';
+import { overlayMapName } from '@/utils/hemisphereOverlays';
 
 type ImageExt = 'png' | 'jpg';
 
@@ -68,7 +69,12 @@ export function mosaicFileName(
   return `${exportFileBase(name, 'mosaic')}_mosaic_${viewType}_${axisPositionToken(axis, firstMm)}_to_${axisPositionToken(axis, lastMm)}mm.${format}`;
 }
 
-/** A surface figure: "<layer>_<kind>_<lh|rh|lh_rh>.<ext>" (D4). */
+/**
+ * A surface figure: "<map>_<kind>_<lh|rh|lh_rh>.<ext>" (D4). The hemispheres
+ * are named once, by the suffix: the map's own hemisphere token
+ * ("lh.sensorimotor.func.gii") and a colorbar title's "(lh, rh)" are dropped
+ * (v1 visual 9: "sensorimotor.func_lh_rh_lat_med_lh_rh.png").
+ */
 export function surfaceFileName(
   name: string | null,
   kind: 'surface' | 'lat_med',
@@ -76,5 +82,6 @@ export function surfaceFileName(
   format: ImageExt,
 ): string {
   const hemi = hemispheres.map((h) => (h === 'left' ? 'lh' : 'rh')).join('_');
-  return `${exportFileBase(name, 'surface')}_${kind}${hemi ? `_${hemi}` : ''}.${format}`;
+  const map = name ? overlayMapName(name.replace(/\s*\((?:lh|rh)(?:,\s*(?:lh|rh))*\)\s*$/i, '')) : null;
+  return `${exportFileBase(map, 'surface')}_${kind}${hemi ? `_${hemi}` : ''}.${format}`;
 }

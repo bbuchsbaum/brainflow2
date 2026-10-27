@@ -264,4 +264,66 @@ describe('PopulationProbePanel region locus', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Point / sphere' }));
     await waitFor(() => expect(useSetStudioStore.getState().population.pinnedProbe?.region ?? null).toBeNull());
   });
+
+  it('a failed Cluster keeps the control on the locus of the shown data and offers Open Clusters (v1 function 1)', async () => {
+    const { useLayerStore } = await import('@/stores/layerStore');
+    useLayerStore.setState({
+      layers: [
+        {
+          id: 'atlas',
+          name: 'atlas',
+          volumeId: 'atlas',
+          type: 'label',
+          visible: true,
+          order: 0,
+          atlasPaletteLegend: [{ label_id: 2, roi: 'R_occipitotemporal', color: [0, 255, 0] }],
+        },
+      ],
+    } as never);
+    const { sample } = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+    await waitFor(() => expect(sample).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('radio', { name: 'Region' }));
+    // No region at the crosshair: the control stays on Point / sphere and the
+    // alert carries the picker.
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/No region: .*Kept the previous locus/);
+    expect(screen.getByRole('radio', { name: 'Point / sphere' })).toBeChecked();
+    fireEvent.change(screen.getByLabelText('Probe region'), { target: { value: '2' } });
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Region' })).toBeChecked());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/region .*occipitotemporal/));
+    // No cluster table: Cluster fails, the control and the data stay on the region.
+    fireEvent.click(screen.getByRole('radio', { name: 'Cluster' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/No cluster: .*Kept the previous locus/));
+    expect(screen.getByRole('radio', { name: 'Region' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Cluster' })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Open Clusters' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/region .*occipitotemporal/);
+  });
+
+  it('a failed Region with no atlas offers Load atlas…', async () => {
+    const { useLayerStore } = await import('@/stores/layerStore');
+    useLayerStore.setState({ layers: [] } as never);
+    setup();
+    fireEvent.click(screen.getByRole('radio', { name: 'Region' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/No region/));
+    expect(screen.getByRole('radio', { name: 'Point / sphere' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Load atlas…' })).toBeInTheDocument();
+  });
+
+  it('the radius rejects negative values visibly and says what 0 means (v1 function 8)', async () => {
+    const { sample } = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+    await waitFor(() => expect(sample).toHaveBeenCalledTimes(1));
+    const field = screen.getByRole('spinbutton', { name: 'Probe radius in millimetres' });
+    expect(screen.getByText('voxel only')).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: '-2' } });
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/Radius must be ≥ 0 mm \(0 = the voxel only\)/)).toBeInTheDocument();
+    expect(useSetStudioStore.getState().population.pinnedProbe?.radiusMm ?? 0).toBe(0);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(sample).toHaveBeenCalledTimes(1);
+  });
 });

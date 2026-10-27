@@ -327,6 +327,37 @@ async function loadStat(
   return id;
 }
 
+/** The multirun study (E5b): three runs loaded, the Series at the block voxel, run 2's peak focused. */
+async function seriesRuns(): Promise<void> {
+  await p3Base(['anat']);
+  const { multirunPath, MULTIRUN_VOXEL_MM } = await import('./multirun');
+  for (const run of [1, 2, 3]) await loadVolume(multirunPath(run), 'add-layer');
+  await selectLayer(multirunPath(1));
+  await navigateTo([...MULTIRUN_VOXEL_MM] as [number, number, number]);
+  const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
+  const { usePlotModeStore } = await import('@/stores/plotModeStore');
+  const { useSeriesStore } = await import('@/stores/seriesStore');
+  useSeriesStore.getState().update({ locus: 'point', segments: 'auto', segmentLayout: null });
+  useLayoutSettingsStore.getState().setBottomDockOpen(true);
+  useLayoutSettingsStore.getState().setBottomDockActiveTab('plot');
+  useLayoutSettingsStore.getState().setBottomDockHeight(320);
+  usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
+  await until(() => document.querySelectorAll('[data-testid="plot-x-rule"]').length === 3, 'three run boundaries');
+  (document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="1:12"]') as SVGElement).dispatchEvent(
+    new MouseEvent('click', { bubbles: true }),
+  );
+  const { useLayerStore } = await import('@/stores/layerStore');
+  const run2 = await layerIdForPath(multirunPath(2));
+  await until(
+    () => useLayerStore.getState().selectedLayerId === run2 && useLayerStore.getState().layers.find((l) => l.id === run2)?.currentTimepoint === 12,
+    'run 2 frame 12 focused',
+  );
+  await until(() => /run 2 · frame 13\/24/.test(document.querySelector('[data-testid="raw-series-caption"]')?.textContent ?? ''), 'run counter');
+  const peak = document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="1:12"]')?.getAttribute('aria-label');
+  noteStep(`runs: ${Array.from(document.querySelectorAll('[data-testid="plot-x-rule"]')).map((e) => e.textContent).join(' | ')}; peak ${peak}`);
+  noteStep(`caption: ${document.querySelector('[data-testid="raw-series-caption"]')?.textContent}`);
+}
+
 async function p3Base(expand: string[] = ['anat', 'stats']): Promise<void> {
   await servicesReady();
   await mountStudy(expand);
@@ -761,7 +792,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     {
       const row = document.querySelector<HTMLElement>(`[data-testid="cluster-row-${firstWithPeaks.id}"]`)!;
       row.focus();
-      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
       await until(() => !!document.querySelector(`[data-testid="cluster-subpeak-${firstWithPeaks.id}-2"]`), 'sub-peak rows');
     }
     for (const c of table.clusters) {
@@ -773,7 +804,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     }
     const inf = table.extentInference!;
     noteStep(`RFT: resels ${inf.resels.map((r) => r.toFixed(2)).join(' ')}, Ec ${inf.expectedClusters.toFixed(3)}, search ${inf.searchVoxels} vox`);
-    noteStep(`assumption: ${document.querySelector('[data-testid="cluster-assumption"]')?.textContent}`);
+    noteStep(`methods: ${document.querySelector('[data-testid="cluster-methods"]')?.textContent}`);
     await frames(5);
   },
   // P3.6: three visible layers, pointer hovering inside the z blob / region 1.
@@ -1230,6 +1261,11 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   },
   // Phase 4 E6: FIR series (3D lag maps), 6 mm sphere, mean ± 95% CI (t).
   'series-fir-sphere': async () => firSeries('3d', { radiusMm: 6, band: 'ci95' }),
+  // v1 fidelity 7: the ± 1.96 SE band says it is a normal approximation at n = 6.
+  'series-fir-sem95': async () => {
+    await firSeries('3d', { radiusMm: 6, band: 'sem95' });
+    await until(() => /normal approx\., n = 6/.test(document.querySelector('[data-testid="series-caption"]')?.textContent ?? ''), 'sem95 caption');
+  },
   // Phase 4 E6: the same study as 4D lag series, faces − houses (paired) with
   // a 0–0 TR baseline: one difference line, mean ± 95% CI (t).
   'series-fir-diff': async () =>
@@ -1267,6 +1303,13 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
       await getClusterService().selectCluster(1);
       const t = useClusterStore.getState().result!.table;
       noteStep(`clusters: ${t.clusters.length}, row 1 ${t.clusters[0].voxelCount} vox, label volume ${t.labelVolumeId}`);
+    }).then(async () => {
+      // v1 function 2: with the dataset bound and row 1 selected, "Series for
+      // cluster 1" is available, though the z map is not the active layer.
+      const { clusterSeriesUnavailable } = await import('@/services/series/openClusterSeries');
+      const reason = clusterSeriesUnavailable();
+      noteStep(`Series for cluster 1: ${reason ?? 'available'}`);
+      if (reason) throw new Error(`Series for cluster 1 unavailable: ${reason}`);
     }),
   // Phase 4 E6: the FIR series at the narrow window (1280 × 800 variant).
   'series-1280': async () => firSeries('3d', { radiusMm: 6, band: 'ci95' }),
@@ -1274,11 +1317,23 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   // crosshair: the Series mode on the layer, frame 2 selected from the plot.
   'series-raw4d': async () => {
     await p3Base(['anat']);
-    const { fir4dPath, FIR_CENTRE } = await import('./firStudy');
+    const { fir4dPath, FIR_CENTRE, firSet } = await import('./firStudy');
+    // The layer is a member of the 4D FIR study: its series uses the study's
+    // lag axis (round 2 X3), "Lag (TR)" from 0, like the dataset series.
+    const { useSetStudioStore } = await import('@/stores/setStudioStore');
+    useSetStudioStore.getState().bootstrapStudio({
+      set: firSet('4d'),
+      features: [{ id: 'fir', label: 'FIR beta', kind: 'volume' }],
+      cohorts: [],
+      expressions: [],
+    } as never);
     const path = fir4dPath('s01', 'faces');
     await loadVolume(path, 'add-layer');
     await selectLayer(path);
     await navigateTo([...FIR_CENTRE] as [number, number, number]);
+    const { useSeriesStore } = await import('@/stores/seriesStore');
+    useSeriesStore.getState().reset();
+    useSeriesStore.getState().update({ source: 'layer', locus: 'point' });
     const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
     const { usePlotModeStore } = await import('@/stores/plotModeStore');
     useLayoutSettingsStore.getState().setBottomDockOpen(true);
@@ -1286,7 +1341,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     useLayoutSettingsStore.getState().setBottomDockHeight(320);
     usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
     await until(() => document.querySelectorAll('[data-testid="crosshair-ts-plot-body"] [data-datum-id]').length >= 8, 'raw 4D series points');
-    (document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="2"]') as SVGElement).dispatchEvent(
+    (document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="0:2"]') as SVGElement).dispatchEvent(
       new MouseEvent('click', { bubbles: true }),
     );
     const { useLayerStore } = await import('@/stores/layerStore');
@@ -1297,6 +1352,21 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
         .map((el) => el.getAttribute('aria-label'))
         .join(' | ')}`,
     );
+    await frames(5);
+  },
+  // Phase 4 E5b: one subject's three runs (truth: p4_fixtures.json
+  // `multirun`), concatenated with labelled run boundaries; a click on run 2's
+  // peak focuses run 2's layer and frame 12 ("run 2 · frame 13/24").
+  'series-runs-concat': async () => {
+    await seriesRuns();
+    await frames(5);
+  },
+  // The same runs faceted: one panel per run on a shared y axis.
+  'series-runs-faceted': async () => {
+    await seriesRuns();
+    const { useSeriesStore } = await import('@/stores/seriesStore');
+    useSeriesStore.getState().update({ segmentLayout: 'faceted' });
+    await until(() => document.querySelectorAll('[data-testid="plot-facets"] [data-testid="plot-mark-line"]').length === 3, 'three run facets');
     await frames(5);
   },
   // v4 fidelity critic: the live crosshair must not run through the

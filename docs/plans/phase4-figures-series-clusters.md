@@ -150,6 +150,36 @@ plot↔image linking.
 
   Linking: hover or crosshair drives the locus. Clicking a point focuses that member/frame
   (`TimeNavigationService` for raw 4D). Exported through the existing plot export path.
+### E5b. Segmented series: time × run (user, 2026-10-27)
+
+A 4D series for one subject is often several runs (or sessions). The general form is **series
+axis × segment factor**: within-segment time `t` plus a segment id such as run, session or
+block, with optional per-segment metadata (length, TR, onset offset). It is not special to
+raw 4D. The same structure covers Set Studio members with a `run` column, or lags × runs.
+
+- **Sources of segments**, most explicit first:
+  1. a NeuroTabs observation column with `semantic_role: segment` (or named `run`/`session`);
+  2. several 4D layers grouped as runs: same subject and grid, BIDS entities that differ only in
+     `run`/`ses`, offered as "Runs of sub-01 task-faces"; the user can also group selected layers
+     manually;
+  3. one concatenated 4D volume with run boundaries from a sidecar (frame counts per run).
+- **Layouts** are three encodings of the same frame, not three code paths:
+  - **concatenated:** x = cumulative time, with run boundary rules and labels; optional gaps;
+  - **faceted:** small multiples by segment with a shared y axis and per-run x;
+  - **overlaid:** segments aligned on within-run time and drawn as separate lines (detail = run).
+
+  The default is concatenated for raw 4D and overlaid when a condition factor is present.
+- **Rules:**
+  - Time is in seconds when each segment's TR is known. Segments with different TRs can be
+    faceted or overlaid in seconds, but are only concatenated with per-segment scaling, stated in
+    the caption. Temporal resampling across TRs stays out of scope.
+  - Clicking a point focuses that segment's layer and frame.
+  - The frame counter reads "run 2 · frame 37/180".
+  - Export carries `segment` and `t_within` columns.
+- **Interface:** the series binding gains `segment: {column | layers | boundaries}`, and the
+  plotted frame gains `__seriesSegment` and `__seriesT` (within-segment). The locus, transforms
+  and population stages are unchanged, so a projection stage (E7) composes with segments too.
+
 - **E6. Fixtures and harness.** A synthetic FIR study with known answers: subjects ×
   conditions × lags, as 3D members with design columns *and* as 4D members, two conditions
   with different peak latencies, and a parcel atlas. Specimens: an FIR series for a parcel

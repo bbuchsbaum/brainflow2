@@ -47,4 +47,11 @@ export type ComputeClustersRequest = {
      * for the same source volume unless that one is displayed as a layer.
      */
     emitLabelVolume?: boolean | null;
+    /**
+     * Registered mask volume (e.g. a brain mask) bounding the search: clusters
+     * form only inside it, and RFT resels/search voxels use mask ∩ finite map
+     * voxels. Other grids are resampled by nearest voxel. Default: the map's
+     * finite non-zero voxels.
+     */
+    searchMask?: string | null;
 };

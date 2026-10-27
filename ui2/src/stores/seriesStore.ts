@@ -5,6 +5,7 @@
  */
 import { create } from 'zustand';
 import type { PopulationPlotRecipe, PopulationTransform } from '@/services/studio/populationPlot';
+import type { SegmentLayout } from '@/services/series/seriesSegments';
 
 export type SeriesSourceChoice = 'auto' | 'layer' | 'set';
 export type SeriesLocusKind = 'point' | 'sphere' | 'region' | 'cluster';
@@ -29,6 +30,15 @@ export interface SeriesSettings {
   /** Population summary lines, or one line per participant (click focuses). */
   display: 'summary' | 'participants';
   transforms: PopulationTransform[];
+  /**
+   * Segments of a raw 4D series (E5b): 'auto' groups the layer with its runs
+   * (BIDS names that differ only in run / ses) or splits it by a runs
+   * sidecar; 'off' plots the layer alone; 'manual' uses `manualSegmentLayerIds`.
+   */
+  segments: 'auto' | 'off' | 'manual';
+  manualSegmentLayerIds: string[];
+  /** Null: the default (concatenated; overlaid when a condition factor is present). */
+  segmentLayout: SegmentLayout | null;
 }
 
 interface SeriesStore extends SeriesSettings {
@@ -45,6 +55,9 @@ export const DEFAULT_SERIES_SETTINGS: SeriesSettings = {
   band: 'ci95',
   display: 'summary',
   transforms: [],
+  segments: 'auto',
+  manualSegmentLayerIds: [],
+  segmentLayout: null,
 };
 
 export const useSeriesStore = create<SeriesStore>((set) => ({

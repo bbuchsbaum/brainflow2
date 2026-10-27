@@ -49,6 +49,8 @@ export const crosshairTimeSeriesPlot: PlotMode = {
   },
   render: (ctx) => <SeriesBody ctx={ctx} />,
   toolbar: (ctx) => <SeriesSourceToggle layerId={ctx.layerId} />,
+  // The mode selector and source switch sit on the series' own first toolbar row.
+  inlineChrome: true,
 };
 
 export default crosshairTimeSeriesPlot;

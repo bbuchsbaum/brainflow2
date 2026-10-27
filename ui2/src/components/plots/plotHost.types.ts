@@ -60,6 +60,12 @@ export interface PlotModeContext {
   readonly hasCohort?: boolean;
   /** Whether a Studio population (an active set) exists; undefined = unknown. */
   readonly hasPopulation?: boolean;
+  /**
+   * Host chrome (the mode selector and the mode's toolbar fragment) for a
+   * mode with `inlineChrome`: the mode places it at the start of its own
+   * first toolbar row, so the dock spends no row on it.
+   */
+  readonly chrome?: ReactNode;
 }
 
 /** A registered plot mode. The host treats this as opaque content. */
@@ -74,6 +80,11 @@ export interface PlotMode {
   render(ctx: PlotModeContext): ReactNode;
   /** Optional toolbar fragment shown to the right of the mode selector. */
   toolbar?(ctx: PlotModeContext): ReactNode;
+  /**
+   * When rendering, the host omits its header row and passes the mode
+   * selector and toolbar fragment in `ctx.chrome` (round 2 R4).
+   */
+  readonly inlineChrome?: boolean;
 }
 
 /** Props accepted by `PlotHost`. */

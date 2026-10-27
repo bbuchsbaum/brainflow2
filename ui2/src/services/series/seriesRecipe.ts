@@ -17,7 +17,8 @@ export function seriesRecipe(binding: SetSeriesBinding, settings: SeriesSettings
     axis: binding.kind === 'time' && binding.unit ? 'time' : 'number',
     axisUnit: binding.unit ?? '',
     color: binding.conditionColumn,
-    facet: null,
+    // Runs (E5b): one panel per run on a shared y axis, else pooled within participant.
+    facet: settings.segmentLayout === 'faceted' && binding.segmentColumn ? binding.segmentColumn : null,
     detail: binding.subjectColumn,
     mark: collapsed ? 'point' : 'line',
     summary: summary ? settings.summary : 'none',

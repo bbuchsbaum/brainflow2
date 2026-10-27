@@ -42,7 +42,11 @@ describe('StatusBar Vertex slot (phase 4, D1)', () => {
       ]),
     });
     render(<StatusBar />);
-    expect(screen.getByTestId('status-vertex')).toHaveTextContent('1 2.25');
+    // The value is labelled with its overlay (v1 function 9; was "1 2.25").
+    const slot = screen.getByTestId('status-vertex');
+    expect(slot).toHaveTextContent('1 · sensorimotor.func 2.25');
+    expect(slot).toHaveAttribute('aria-label', 'Vertex 1, sensorimotor.func 2.25');
+    expect(slot.closest('[title]')?.getAttribute('title')).toMatch(/^Vertex 1, 0\.5 mm from the crosshair; lh\.sensorimotor\.func\.gii = 2\.25$/);
   });
 
   it('an inflated mesh alone: "—", saying what to load', () => {

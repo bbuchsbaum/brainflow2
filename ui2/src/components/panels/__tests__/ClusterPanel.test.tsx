@@ -163,8 +163,12 @@ describe('ClusterPanel', () => {
     render(<ClusterPanel />);
     expect(screen.getByTestId('cluster-pfwe-1')).toHaveTextContent('< 0.001');
     expect(screen.getByTestId('cluster-pfwe-2')).toHaveTextContent('0.432');
-    expect(screen.getByTestId('cluster-assumption')).toHaveTextContent('Assumes stationary smoothness of 8 mm FWHM');
-    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('assuming 8 mm FWHM');
+    // One methods paragraph, each number once (v1 R2); the caveats behind a disclosure.
+    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('8 mm FWHM (4.0 voxels, user-supplied); search volume 1,000 voxels');
+    expect(screen.queryByTestId('cluster-assumption')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Assumptions/ }));
+    expect(screen.getByTestId('cluster-assumption')).toHaveTextContent('Assumes stationary smoothness');
+    expect(screen.getByRole('button', { name: /Assumptions/ })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByTestId('cluster-subpeak-1-2')).toBeNull();
     const row = screen.getByTestId('cluster-row-1');
     expect(row).toHaveAttribute('aria-expanded', 'false');
@@ -230,7 +234,7 @@ describe('ClusterPanel', () => {
     expect(button).toHaveAttribute('aria-describedby', 'cluster-reason');
   });
 
-  it('a label map selected: "Clusters need a statistical layer", named, and Copy CSV off', () => {
+  it('a label map selected: Compute says why; the z table stays usable, with "Select zmap_synthetic" (v1 function 2)', () => {
     useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap_synthetic.nii.gz', table: TABLE, regions: [null, null], computedAt: 0 });
     useLayerStore.setState((st) => ({
       layers: [...st.layers, { id: 'atlas', name: 'atlas-synth3_dseg.nii.gz', volumeId: 'atlas', type: 'label', visible: true, order: 2 } as never],
@@ -245,7 +249,14 @@ describe('ClusterPanel', () => {
     render(<ClusterPanel />);
     expect(screen.getByTestId('cluster-layer')).toHaveTextContent('atlas-synth3_dseg');
     expect(screen.getByRole('button', { name: 'Compute' })).toHaveAttribute('title', 'Clusters need a statistical layer (a z, t or F map)');
-    expect(screen.getByRole('button', { name: 'Copy CSV' })).toBeDisabled();
+    // Deliberate change: the table is still right for its own layer, so it is
+    // shown and copyable, named, never "Compute to update" (Compute would
+    // target the atlas).
+    expect(screen.getByTestId('cluster-row-1')).toBeInTheDocument();
+    expect(screen.getByTestId('cluster-elsewhere')).toHaveTextContent('Table for zmap_synthetic.');
+    expect(screen.queryByTestId('cluster-stale')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy CSV' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Select zmap_synthetic' }));
   });
 
   it('disables Compute for an invalid minimum size, without console errors', () => {
@@ -282,7 +293,7 @@ describe('ClusterPanel', () => {
     fireEvent.keyDown(screen.getByTestId('cluster-row-2'), { key: 'Enter' });
     expect(selectCluster).toHaveBeenLastCalledWith(2);
     expect(screen.getByTestId('cluster-methods')).toHaveTextContent(
-      '26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 30 voxels',
+      '26-connected clusters of |z| > 3.1, two-tailed, uncorrected, ≥ 1 voxel; 2 clusters, 30 voxels.',
     );
   });
 
@@ -310,11 +321,12 @@ describe('ClusterPanel', () => {
       ];
     });
     render(<ClusterPanel />);
-    expect(screen.getByTestId('cluster-stale')).toHaveTextContent('Table is for zmap_synthetic');
+    // Deliberate change (v1 function 2): named as another layer's table, still usable.
+    expect(screen.getByTestId('cluster-elsewhere')).toHaveTextContent('Table for zmap_synthetic');
     // Headed by the table's statistic (z), not the active layer's (t).
     expect(screen.getByRole('columnheader', { name: /^Peak z/ })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /^Peak t/ })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Copy CSV' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Copy CSV' })).toBeEnabled();
   });
 
   it('says the table is stale when the display threshold changes', () => {
@@ -365,5 +377,60 @@ describe('ClusterPanel', () => {
     expect(rowIds()).toEqual(['cluster-row-1', 'cluster-row-2']);
     expect(screen.getByRole('button', { name: '#' }).closest('th')).toHaveAttribute('aria-sort', 'ascending');
   });
-});
 
+  it('"Series for cluster" stays focusable when unavailable and says why in visible text (v1 function 2)', () => {
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap_synthetic.nii.gz', table: TABLE, regions: [null, null], computedAt: 0 });
+    render(<ClusterPanel />);
+    const series = screen.getByTestId('cluster-series');
+    expect(series).not.toBeDisabled();
+    expect(series).toHaveAttribute('aria-disabled', 'true');
+    expect(series).toHaveAttribute('aria-describedby', 'cluster-series-reason');
+    expect(screen.getByTestId('cluster-series-reason')).toHaveTextContent('Select a cluster row.');
+    fireEvent.click(series);
+  });
+
+  it('a brain mask bounds the search: sent as searchMask, part of staleness, named in the methods (S3)', () => {
+    useLayerStore.setState((st) => ({
+      layers: [...st.layers, { id: 'mask', name: 'brain_mask.nii.gz', volumeId: 'vol-mask', type: 'volume', visible: true, order: 2 } as never],
+    }));
+    render(<ClusterPanel />);
+    const search = screen.getByLabelText('Search');
+    expect(Array.from((search as HTMLSelectElement).options).map((o) => o.text)).toEqual([
+      'Non-zero voxels of the map',
+      'Brain mask T1',
+      'Brain mask brain_mask',
+    ]);
+    fireEvent.change(search, { target: { value: 'mask' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
+    expect(compute).toHaveBeenLastCalledWith(expect.objectContaining({ searchMask: 'vol-mask' }));
+    act(() =>
+      useClusterStore.getState().setResult({
+        layerId: 'z',
+        layerName: 'zmap_synthetic.nii.gz',
+        table: { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 2000 } },
+        regions: [null, null],
+        computedAt: 0,
+      }),
+    );
+    expect(screen.queryByTestId('cluster-stale')).toBeNull();
+    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('search volume 2,000 voxels (brain mask brain_mask)');
+    fireEvent.change(search, { target: { value: '' } });
+    expect(screen.getByTestId('cluster-stale')).toHaveTextContent('Parameters changed since this table.');
+  });
+
+  it('arrow keys the table handles never reach window shortcuts (v1 function 6)', () => {
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap_synthetic.nii.gz', table: TABLE, regions: [null, null], computedAt: 0 });
+    render(<ClusterPanel />);
+    const onWindowKey = vi.fn();
+    window.addEventListener('keydown', onWindowKey);
+    const row = screen.getByTestId('cluster-row-1');
+    act(() => row.focus());
+    // Not cancelable, like a synthetic event: preventDefault alone does nothing.
+    act(() => {
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+    expect(document.activeElement).toBe(screen.getByTestId('cluster-row-2'));
+    expect(onWindowKey).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', onWindowKey);
+  });
+});

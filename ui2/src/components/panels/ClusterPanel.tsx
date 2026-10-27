@@ -6,10 +6,15 @@
  *   display threshold until the user edits it.
  * - Table: one row per cluster (rank by |peak|), mono right-aligned numbers,
  *   U+2212 minus. Click / Enter / arrow keys move the crosshair to the peak.
- * - Footer: the methods sentence, Copy CSV, Go to max / min.
+ * - Footer: one methods paragraph (every number once; the RFT caveats behind
+ *   an "Assumptions" disclosure), then Copy CSV, Go to max / min and
+ *   "Series for cluster N", right-aligned.
  * - Phase 4 (C1/C2): each cluster's sub-peaks behind a disclosure (region
  *   per sub-peak too), and opt-in cluster-level p (RFT) from a user-supplied
- *   FWHM: p(FWE) / p(unc) columns, the assumption under the methods line.
+ *   FWHM: p(FWE) / p(unc) columns. The search volume is the map's non-zero
+ *   voxels or a chosen brain mask (S3).
+ * - A table computed for another layer stays readable and usable (rows,
+ *   CSV, series), headed "Table for <layer>" with a Select action.
  *
  * The target layer is the active layer (the same rule as the viewport header,
  * colorbar and status bar), when it is a scalar volume.
@@ -27,6 +32,7 @@ import {
   Notice,
   NumberField,
   SegmentedControl,
+  Select,
   useRovingFocus,
   HOVER_FILL,
   FOCUS_RING_INSET,
@@ -44,12 +50,12 @@ import { formatLayerValue, formatWorldMm } from '@/utils/valueFormat';
 import { trueMinus } from '@/components/views/viewportFrame/frameFormat';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
 import {
+  clusterCaveats,
   clusterMethodsSentence,
   clusterTableCsv,
   colormapEnds,
   displayThresholdMagnitude,
   formatClusterP,
-  fwhmDescription,
   getClusterService,
   parseFwhm,
 } from '@/services/ClusterService';
@@ -205,6 +211,19 @@ export function ClusterPanel() {
     [symbol, allLayers, layerMetadata],
   );
   const variable = symbol ? symbol.replace(/\(.*\)$/, '') : 'value';
+  // Search-volume masks (S3): single-frame, non-statistical volumes other than
+  // the map (a brain mask; any finite non-zero voxel is inside).
+  const maskCandidates = useMemo(
+    () =>
+      allLayers.filter(
+        (l) =>
+          l.volumeId &&
+          l.id !== target?.id &&
+          !statisticUnits(l.statistic, layerMetadata.get(l.id)?.dataRange) &&
+          ((l as { timeSeriesInfo?: { num_timepoints: number } }).timeSeriesInfo?.num_timepoints ?? 1) < 2,
+      ),
+    [allLayers, layerMetadata, target?.id],
+  );
 
   const params = useClusterStore((s) => s.params);
   const status = useClusterStore((s) => s.status);
@@ -212,6 +231,8 @@ export function ClusterPanel() {
   const error = useClusterStore((s) => s.error);
   const selectedId = useClusterStore((s) => s.selectedId);
   const setParams = useClusterStore((s) => s.setParams);
+  const maskLayer = maskCandidates.find((l) => l.id === params.searchMaskLayerId) ?? null;
+  const maskVolumeId = maskLayer?.volumeId ?? null;
 
   // f32 thresholds (3.0999999046) shown and used at display precision (3.1).
   const rawLayerThreshold = displayThresholdMagnitude(target?.threshold);
@@ -264,8 +285,9 @@ export function ClusterPanel() {
       connectivity: params.connectivity,
       minVoxels: params.minVoxels,
       extent: params.extentP && fwhm !== null ? { fwhmMm: fwhm, statistic: declared } : null,
+      ...(maskVolumeId ? { searchMask: maskVolumeId } : {}),
     });
-  }, [target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, layer?.statistic]);
+  }, [target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, layer?.statistic, maskVolumeId]);
 
   // The table's own statistic (its layer may no longer be the active one):
   // headers, the empty line and the methods sentence use it, never the
@@ -279,12 +301,23 @@ export function ClusterPanel() {
       : null,
   );
   const resultVariable = resultSymbol ? resultSymbol.replace(/\(.*\)$/, '') : 'value';
+  // The mask a table was computed with, by name (the methods paragraph).
+  const resultMaskName = useLayerStore((s) => {
+    const id = result?.table.searchVolume?.kind === 'mask' ? result.table.searchVolume.maskVolumeId : null;
+    const mask = id ? s.layers.find((l) => l.volumeId === id) : undefined;
+    return mask ? shortLayerLabel(mask.name) : null;
+  });
 
-  // Stale: the table no longer describes the target layer or the parameters.
+  // A table for a layer that is not the active one (v1 function 2): still
+  // valid for its own layer, so it stays readable and usable; the footer
+  // names it and offers to select it. Never "Compute": that would target the
+  // active layer, which may not be a statistic at all.
+  const elsewhere = !!result && (!target || result.layerId !== target.id);
+  // Stale: the parameters changed since the table of the active layer.
   const stale = useMemo(() => {
-    if (!result || !target) return null;
-    if (result.layerId !== target.id) return `Table is for ${shortLayerLabel(result.layerName)}.`;
+    if (!result || !target || result.layerId !== target.id) return null;
     const t = result.table;
+    const tableMask = t.searchVolume?.kind === 'mask' ? t.searchVolume.maskVolumeId : null;
     const changed =
       threshold === null ||
       !sameValue(t.threshold, threshold) ||
@@ -292,9 +325,10 @@ export function ClusterPanel() {
       t.connectivity !== params.connectivity ||
       t.minVoxels !== params.minVoxels ||
       !!t.extentInference !== params.extentP ||
+      tableMask !== maskVolumeId ||
       (t.extentInference !== null && t.extentInference !== undefined && !sameFwhm(t.extentInference.fwhmMm, fwhm));
     return changed ? 'Parameters changed since this table.' : null;
-  }, [result, target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm]);
+  }, [result, target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, maskVolumeId]);
 
   // Sortable by rank (#, = |peak| descending, the backend order), voxels or
   // |peak|. Regions travel with their cluster (indexed by rank).
@@ -367,11 +401,15 @@ export function ClusterPanel() {
   // cluster store and the Studio / layer stores it reads change together).
   useSetStudioStore((st) => st.selection.activeSetId);
   const seriesReason = clusterSeriesUnavailable();
+  const seriesBlocked = stale ? `${stale} Compute to use it.` : seriesReason;
+  const caveats = result ? clusterCaveats(result.table) : null;
+  const [showAssumptions, setShowAssumptions] = useState(false);
 
   const copyCsv = useCallback(async () => {
     if (!result) return;
     const csv = clusterTableCsv(result.table, result.regions, {
       layerName: result.layerName,
+      maskName: resultMaskName,
       symbol: statisticUnits(
         useLayerStore.getState().layers.find((l) => l.id === result.layerId)?.statistic,
         useLayerStore.getState().layerMetadata.get(result.layerId)?.dataRange,
@@ -389,7 +427,7 @@ export function ClusterPanel() {
         message: 'Could not copy to the clipboard',
       });
     }
-  }, [result]);
+  }, [result, resultMaskName]);
 
   const goTo = useCallback(
     async (kind: 'max' | 'min') => {
@@ -412,8 +450,11 @@ export function ClusterPanel() {
       <div
         role="group"
         aria-label="Cluster parameters"
-        className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 border-b border-bf-border-subtle px-2 py-0.5"
+        className="flex min-h-7 items-start gap-x-2 border-b border-bf-border-subtle px-2 py-0.5"
       >
+        {/* The parameters wrap among themselves; Compute keeps its place at
+            the end of the first row (v1 visual 2). */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
         <span
           className="max-w-[24ch] truncate font-medium text-foreground"
           title={layer?.name ?? undefined}
@@ -484,9 +525,32 @@ export function ClusterPanel() {
           invalid={minInvalid}
           onValueChange={(v) => setParams({ minVoxels: v })}
         />
+        {maskCandidates.length > 0 ? (
+          <>
+            <label className="text-bf-text-secondary" htmlFor="cluster-search">
+              Search
+            </label>
+            <Select
+              id="cluster-search"
+              className="w-auto max-w-[32ch]"
+              value={maskLayer?.id ?? ''}
+              title="Voxels searched for clusters (and the RFT search volume)"
+              onValueChange={(v) => setParams({ searchMaskLayerId: v || null })}
+            >
+              <option value="">Non-zero voxels of the map</option>
+              {maskCandidates.map((l) => (
+                <option key={l.id} value={l.id}>
+                  Brain mask {shortLayerLabel(l.name)}
+                </option>
+              ))}
+            </Select>
+          </>
+        ) : null}
         {/* Opt-in cluster-level p: off by default, and only with a stated
-            smoothness (never estimated from the map). */}
+            smoothness (never estimated from the map). Same type as the
+            neighbouring labels (v1 visual 11). */}
         <Checkbox
+          className="text-bf-xs text-bf-text-secondary"
           checked={params.extentP}
           onCheckedChange={(checked) => setParams({ extentP: checked })}
           title="Cluster-extent p values by Gaussian random field theory, from the smoothness you state"
@@ -501,14 +565,16 @@ export function ClusterPanel() {
             <TextField
               id="cluster-fwhm"
               mono
-              className="h-6 w-[11ch]"
+              className="h-6 w-[8ch]"
               value={params.fwhmText}
               invalid={fwhmInvalid && params.fwhmText.trim() !== ''}
               placeholder="mm"
+              title="FWHM in mm, assumed stationary: one value, or three for i j k"
               aria-describedby="cluster-fwhm-hint"
               onChange={(e) => setParams({ fwhmText: e.target.value })}
             />
-            <span id="cluster-fwhm-hint" className="text-bf-2xs text-bf-text-muted">
+            {/* In the tooltip, not on the row: it pushed Compute to a second row (v1 visual 2). */}
+            <span id="cluster-fwhm-hint" className="sr-only">
               mm, assumed stationary
             </span>
           </>
@@ -524,6 +590,7 @@ export function ClusterPanel() {
             {computeReason ?? `Default threshold ${DEFAULT_STAT_THRESHOLD} (the layer has no display threshold)`}
           </span>
         ) : null}
+        </div>
         <Button
           variant="primary"
           size="sm"
@@ -531,7 +598,7 @@ export function ClusterPanel() {
           disabled={!canCompute}
           title={notStatReason ?? thresholdReason ?? undefined}
           aria-describedby={computeReason ? 'cluster-reason' : undefined}
-          className={computeReason ? undefined : 'ml-auto'}
+          className="mt-0.5 shrink-0"
         >
           {computing ? 'Computing…' : 'Compute'}
         </Button>
@@ -552,7 +619,7 @@ export function ClusterPanel() {
               {error}
             </Notice>
           </div>
-        ) : !target || !symbol ? (
+        ) : (!target || !symbol) && !result ? (
           // P3.11: say what clusters need, and offer the loaded statistical
           // map when there is one.
           <EmptyPane
@@ -581,7 +648,7 @@ export function ClusterPanel() {
           />
         ) : !result ? (
           <p className="p-3 text-bf-text-muted" data-testid="cluster-empty">
-            Compute clusters for {shortLayerLabel(layer?.name ?? target.name)}.
+            Compute clusters for {shortLayerLabel(layer?.name ?? target?.name ?? '')}.
           </p>
         ) : clusters.length === 0 ? (
           <p className="p-3 text-bf-text-muted" data-testid="cluster-none">
@@ -802,32 +869,81 @@ export function ClusterPanel() {
         )}
       </div>
 
-      {/* Footer: methods sentence and actions. */}
-      <div className="flex min-h-7 flex-wrap items-center gap-x-2 border-t border-bf-border-subtle px-2 py-0.5 text-bf-text-muted">
+      {/* Footer: the methods paragraph, then the actions right-aligned below it. */}
+      <div className="flex flex-col gap-0.5 border-t border-bf-border-subtle px-2 py-1 text-bf-text-muted">
         {stale ? (
           <span className="text-bf-warning" data-testid="cluster-stale">
             {stale} Compute to update.
           </span>
-        ) : result ? (
-          <span className="min-w-0 basis-full py-0.5" data-testid="cluster-methods">
-            <MethodsSentence
-              text={clusterMethodsSentence(result.table, resultSymbol)}
-              variable={resultVariable}
-            />
-            {result.table.truncated ? ` (first ${result.table.clusters.length} shown)` : ''}
+        ) : null}
+        {elsewhere && result ? (
+          <span data-testid="cluster-elsewhere">
+            Table for {shortLayerLabel(result.layerName)}.{' '}
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto px-0"
+              onClick={() => {
+                selectStatLayer(result.layerId);
+                focusFallback(['#cluster-threshold']);
+              }}
+            >
+              Select {shortLayerLabel(result.layerName)}
+            </Button>{' '}
+            to change its parameters.
           </span>
         ) : null}
-        <span className="ml-auto inline-flex items-center gap-1">
+        {result && !stale ? (
+          <p className="m-0 min-w-0" data-testid="cluster-methods">
+            <MethodsSentence
+              text={clusterMethodsSentence(result.table, resultSymbol, { maskName: resultMaskName })}
+              variable={resultVariable}
+            />
+            {result.table.truncated ? ` First ${result.table.clusters.length} shown.` : ''}
+            {caveats ? (
+              <>
+                {caveats.warning ? (
+                  <span className="text-bf-warning" data-testid="cluster-smoothness-warning">
+                    {' '}
+                    {caveats.warning}
+                  </span>
+                ) : null}{' '}
+                <button
+                  type="button"
+                  className={cn('rounded-sm text-bf-text-secondary hover:text-foreground', FOCUS_RING_INSET)}
+                  aria-expanded={showAssumptions}
+                  aria-controls="cluster-assumption"
+                  onClick={() => setShowAssumptions((v) => !v)}
+                >
+                  Assumptions {showAssumptions ? '▾' : '▸'}
+                </button>
+                {showAssumptions ? (
+                  <span id="cluster-assumption" data-testid="cluster-assumption" className="text-bf-2xs">
+                    {' '}
+                    {caveats.assumptions}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-1">
           {notStatReason ? (
             <span id="cluster-footer-reason" className="sr-only">
               {notStatReason}
             </span>
           ) : null}
+          {/* Why "Series for cluster" is off, as visible text (v1 function 2, v1 visual 10). */}
+          {result && seriesBlocked ? (
+            <span id="cluster-series-reason" className="mr-1 text-bf-2xs" data-testid="cluster-series-reason">
+              {seriesBlocked}
+            </span>
+          ) : null}
           <Button
             variant="secondary"
             size="sm"
-            // A stale or hidden table is not copied as if current.
-            disabled={!result || clusters.length === 0 || !!stale || !!notStatReason}
+            // A stale table is not copied as if current.
+            disabled={!result || clusters.length === 0 || !!stale}
             title={stale ? `${stale} Compute to copy.` : undefined}
             onClick={copyCsv}
           >
@@ -853,27 +969,22 @@ export function ClusterPanel() {
           >
             Go to min
           </Button>
+          {/* aria-disabled, not disabled: it stays focusable, so its reason is reachable. */}
           <Button
             variant="secondary"
             size="sm"
             data-testid="cluster-series"
-            disabled={!!seriesReason || !!stale}
-            title={stale ? `${stale} Compute to use it.` : (seriesReason ?? `Series over cluster ${selectedId}`)}
-            onClick={() => openClusterSeries()}
+            aria-disabled={seriesBlocked ? true : undefined}
+            aria-describedby={result && seriesBlocked ? 'cluster-series-reason' : undefined}
+            className={seriesBlocked ? 'cursor-not-allowed opacity-50 hover:bg-bf-bg-panel-raised' : undefined}
+            title={seriesBlocked ?? `Series over cluster ${selectedId}`}
+            onClick={() => {
+              if (!seriesBlocked) openClusterSeries();
+            }}
           >
             {selectedId !== null ? `Series for cluster ${selectedId}` : 'Series for cluster'}
           </Button>
-        </span>
-        {!stale && result?.table.extentInference ? (
-          // Every p value rests on this: always visible with them.
-          <span
-            className="basis-full text-bf-2xs text-bf-text-muted"
-            data-testid="cluster-assumption"
-            title={`FWHM ${fwhmDescription(result.table.extentInference)}; ${result.table.extentInference.expectedClusters.toFixed(2)} clusters expected by chance`}
-          >
-            {result.table.extentInference.assumption}
-          </span>
-        ) : null}
+        </div>
       </div>
     </div>
   );

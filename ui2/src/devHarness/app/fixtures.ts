@@ -21,6 +21,8 @@ export interface VolumeFixture {
   header?: StatHeader;
   /** 4D fixtures (phase 4 E6): one array per frame; `data` is the frame on display. */
   frames?: Float32Array[];
+  /** Seconds per frame of a 4D fixture (null / absent: unknown). */
+  tr?: number;
 }
 
 /** NIfTI intent and description fields of a synthetic Phase 3 fixture (p3_fixtures.json). */

@@ -108,13 +108,24 @@ describe('ClusterService', () => {
 describe('cluster methods sentence and CSV', () => {
   it('states the parameters and totals', () => {
     expect(clusterMethodsSentence(TABLE, 'z')).toBe(
-      '26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels',
+      '26-connected clusters of |z| > 3.1, two-tailed, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels.',
     );
     expect(clusterMethodsSentence({ ...TABLE, discardedClusters: 3, minVoxels: 5 }, 't(24)')).toBe(
-      '26-connected clusters of |t| > 3.1 (t(24)), two-sided, uncorrected, ≥ 5 voxels; 2 clusters, 757 voxels (3 smaller dropped)',
+      '26-connected clusters of |t| > 3.1 (t(24)), two-tailed, uncorrected, ≥ 5 voxels; 2 clusters, 757 voxels, 3 smaller dropped.',
     );
     expect(clusterMethodsSentence({ ...TABLE, sign: 'negative' }, 'z')).toBe(
-      '26-connected clusters of z < \u22123.1, one-sided (negative), uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels',
+      '26-connected clusters of z < \u22123.1, one-tailed (negative), uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels.',
+    );
+    // A brain-mask search without p values (S3): said once, with the mask's name.
+    expect(
+      clusterMethodsSentence(
+        { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 228483 } },
+        'z',
+        { maskName: 'MNI152_T1_2mm_brain_mask' },
+      ),
+    ).toBe(
+      '26-connected clusters of |z| > 3.1, two-tailed, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels; ' +
+        'search volume 228,483 voxels (brain mask MNI152_T1_2mm_brain_mask).',
     );
   });
 
@@ -129,7 +140,7 @@ describe('cluster methods sentence and CSV', () => {
 
   it('writes an ASCII CSV with a parameter comment line', () => {
     const csv = clusterTableCsv(TABLE, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }).split('\n');
-    expect(csv[0]).toBe('# zmap: 26-connected clusters of |z| > 3.1, two-sided, uncorrected, >= 1 voxel; 2 clusters, 757 voxels');
+    expect(csv[0]).toBe('# zmap: 26-connected clusters of |z| > 3.1, two-tailed, uncorrected, >= 1 voxel; 2 clusters, 757 voxels.');
     expect(csv[1].split(',').slice(0, 2)).toEqual(['cluster', 'peak']);
     expect(csv[1]).toContain('centroid_x_mm,centroid_y_mm,centroid_z_mm,cog_abs_weighted_x_mm');
     expect(csv[1].endsWith('region_at_peak')).toBe(true);
@@ -193,6 +204,22 @@ describe('phase 4: sub-peaks, cluster-level p, cancellation', () => {
     for (const bad of ['', '0', '-4', '6 6', 'abc', '6 6 8 8']) expect(parseFwhm(bad)).toBeNull();
   });
 
+  it('caveats: the standing assumptions, and a warning under 3 voxels FWHM', async () => {
+    const { clusterCaveats } = await import('../ClusterService');
+    expect(clusterCaveats(TABLE)).toBeNull();
+    expect(clusterCaveats(RICH)?.warning).toBeNull();
+    const rough = { ...RICH, extentInference: { ...EXTENT, fwhmMm: [4, 4, 4] as [number, number, number] } } as ClusterTable;
+    expect(clusterCaveats(rough)?.warning).toBe('Smoothness is only 2.0 voxels FWHM: p values are likely conservative and unstable.');
+  });
+
+  it('sends a search mask only when one is chosen (S3)', async () => {
+    const t = transport(RICH);
+    await new ClusterService(t).compute({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1, searchMask: 'vol-mask' });
+    expect(t.invoke).toHaveBeenLastCalledWith('compute_clusters', { request: expect.objectContaining({ searchMask: 'vol-mask' }) });
+    await new ClusterService(t).compute({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1, searchMask: null });
+    expect((t.invoke as ReturnType<typeof vi.fn>).mock.lastCall?.[1].request).not.toHaveProperty('searchMask');
+  });
+
   it('sends the extent request and region-looks-up every sub-peak', async () => {
     const t = transport(RICH);
     await new ClusterService(t).compute({
@@ -214,15 +241,24 @@ describe('phase 4: sub-peaks, cluster-level p, cancellation', () => {
     expect(useClusterStore.getState().error).toBeNull();
   });
 
-  it('the methods sentence states the peaks rule and the RFT assumption; the CSV lists sub-peaks and p', () => {
+  it('the methods paragraph states each number once, in methods order; the CSV lists sub-peaks and p (v1 R2)', () => {
     expect(clusterMethodsSentence(RICH, 'z')).toBe(
-      '26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels; ' +
-        'up to 3 peaks per cluster, ≥ 8 mm apart; cluster-level p (FWE, two-tailed: both signs) by Gaussian random field theory, assuming 6 × 6 × 8 mm FWHM (user-supplied), ' +
-        'search 1,000 voxels (non-zero), 4 resels, 0.4 clusters expected per tail (3.3 voxels each)',
+      '26-connected clusters of |z| > 3.1, two-tailed, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels; ' +
+        'up to 3 peaks per cluster, ≥ 8 mm apart. Cluster-level p(FWE) by Gaussian random field theory, ' +
+        'two-tailed (1 \u2212 (1 \u2212 p)\u00b2), 6 × 6 × 8 mm FWHM (user-supplied); ' +
+        'search volume 1,000 voxels (non-zero voxels of the map), 4.0 resels; 0.42 clusters expected per tail, 3.3 voxels each.',
+    );
+    // Isotropic FWHM on isotropic voxels: the voxel count inside the one parenthesis.
+    const iso = { ...RICH, extentInference: { ...EXTENT, fwhmMm: [8, 8, 8] as [number, number, number], resels: [1, 2, 3, 577.16] as [number, number, number, number], searchVoxels: 43051, expectedClusters: 6.5432 } } as ClusterTable;
+    expect(clusterMethodsSentence(iso, 'z')).toContain(
+      '8 mm FWHM (4.0 voxels, user-supplied); search volume 43,051 voxels (non-zero voxels of the map), 577.2 resels; 6.54 clusters expected per tail',
     );
     const csv = clusterTableCsv(RICH, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }, [['R_region'], []]).split('\n');
-    expect(csv[0]).toContain('assuming 6 x 6 x 8 mm FWHM');
-    expect(csv[1]).toBe('# Assumes stationary smoothness of 6 x 6 x 8 mm FWHM (user-supplied). Gaussian random field theory.');
+    expect(csv[0]).toContain('two-tailed (1 - (1 - p)^2), 6 x 6 x 8 mm FWHM');
+    expect(csv[1]).toBe(
+      '# Assumes stationary smoothness; approximate unless the cluster-forming threshold is high and the map is smooth relative to its voxels (SPM spm_P_RF).',
+    );
+    expect([...csv.join('\n')].every((ch) => ch.charCodeAt(0) < 128)).toBe(true);
     const header = csv[2].split(',');
     expect(header.slice(0, 7)).toEqual(['cluster', 'peak', 'sign', 'voxels', 'volume_mm3', 'p_fwe_extent', 'p_unc_extent']);
     const rows = csv.slice(3, -1).map((r) => r.split(','));

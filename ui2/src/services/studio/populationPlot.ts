@@ -15,11 +15,23 @@ import { sampleQuantile, tQuantile } from '@/utils/distributions';
 export type PopulationTransform =
   | { kind: 'baseline'; from: number; to: number }
   | { kind: 'conditionDifference'; column: string; a: string; b: string }
-  | { kind: 'windowMean'; from: number; to: number };
+  | {
+      kind: 'windowMean';
+      from: number;
+      to: number;
+      /**
+       * Where the window came from: set from the data (the peak of the
+       * condition-averaged curve) rather than typed. Absent = declared by the
+       * user. Stated in captions and exports (round 2 S1: circularity).
+       */
+      source?: 'condition-averaged-peak';
+    };
 
 /** What each transform did, kept in the frame's provenance (meta). */
 export interface PopulationTransformRecord {
   transform: PopulationTransform;
+  /** The axis the window is on: its label ("Lag") and unit ("TR"). */
+  axis?: { label: string; unit: string };
   /** Participant lines in / out. */
   linesIn: number;
   linesOut: number;
@@ -191,11 +203,13 @@ export function composePopulationPlot(
     });
     let outColumns: SampleFrame['columns'] = columns;
     const records: PopulationTransformRecord[] = [];
+    const axisColumn = columns.find((c) => c.name === r.x);
+    const axis = { label: axisColumn?.label ?? r.x, unit: r.axisUnit };
     for (const t of transforms) {
       const applied = applyTransform(reduced, outColumns, t, r);
       reduced = applied.rows;
       outColumns = applied.columns;
-      records.push(applied.record);
+      records.push({ ...applied.record, axis });
     }
     const provenance = transforms.length ? { populationTransforms: records } : {};
     if (r.summary !== 'none') {
@@ -207,6 +221,8 @@ export function composePopulationPlot(
       const summaries = [...groups.values()].map((cell) => {
         const values = finite(cell);
         const { centre, lower, upper } = populationStage(values, r.summary as 'mean' | 'median', r.band);
+        // SD and SE travel with every summary row (effect sizes, meta-analysis).
+        const { sd, se } = spreadOf(values);
         return {
           ...Object.fromEntries(
             outColumns.map((c) => [
@@ -219,6 +235,8 @@ export function composePopulationPlot(
           lower,
           upper,
           count: values.length,
+          sd,
+          se,
           __contributors: JSON.stringify(
             cell.flatMap((v) => JSON.parse(v.__contributors) as string[]),
           ),
@@ -228,8 +246,8 @@ export function composePopulationPlot(
         frame: {
           ...frame,
           columns: [
-            ...outColumns.filter((c) => !['lower', 'upper', 'count'].includes(c.name)),
-            ...['lower', 'upper', 'count'].map((name) => ({ name, role: 'quantitative' as const })),
+            ...outColumns.filter((c) => !SUMMARY_COLUMNS.includes(c.name)),
+            ...SUMMARY_COLUMNS.map((name) => ({ name, role: 'quantitative' as const })),
           ],
           rows: summaries,
           meta: {
@@ -252,6 +270,18 @@ export function composePopulationPlot(
 }
 
 type ReducedRow = FrameRow & { __contributors: string };
+
+/** Columns the population stage adds to each summary row. */
+const SUMMARY_COLUMNS = ['lower', 'upper', 'count', 'sd', 'se'];
+
+/** Sample SD (n − 1) and SE = SD / √n; null below two values. */
+function spreadOf(values: readonly number[]): { sd: number | null; se: number | null } {
+  const n = values.length;
+  if (n < 2) return { sd: null, se: null };
+  const mean = meanOf(values);
+  const sd = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1));
+  return { sd, se: sd / Math.sqrt(n) };
+}
 
 const finite = (cell: readonly FrameRow[]) =>
   cell.map((v) => v.value).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
@@ -437,4 +467,74 @@ function plotSpec(r: PopulationPlotRecipe, summary: boolean): ResolvedPlotSpec {
     },
     ...(summary && r.band !== 'none' ? { band: { lower: 'lower', upper: 'upper' } } : {}),
   };
+}
+
+/** "lag 0 TR", "lags 1–3 TR", "t 0–4 s": a transform window on its axis. */
+export function axisWindowText(from: number, to: number, axis?: { label: string; unit: string }): string {
+  const label = (axis?.label ?? '').toLowerCase();
+  const noun = label === 'time' ? 't' : label;
+  const plural = noun === 'lag' ? 'lags' : noun;
+  const num = (v: number) => String(v).replace('-', '−');
+  const unit = axis?.unit ? ` ${axis.unit}` : '';
+  const span = from === to ? num(from) : `${num(from)}–${num(to)}`;
+  const word = from === to ? noun : plural;
+  return `${word ? `${word} ` : ''}${span}${unit}`;
+}
+
+/**
+ * The declared transforms as a clause from the frame's provenance:
+ * "baseline: lag 0 TR subtracted per participant; faces − houses, paired;
+ * window lags 1–3 TR from the condition-averaged peak (data-driven)".
+ * Empty when there are none.
+ */
+export function populationTransformSummary(frame: SampleFrame): string {
+  const records = frame.meta?.populationTransforms as PopulationTransformRecord[] | undefined;
+  if (!records?.length) return '';
+  return records
+    .map(({ transform: t, linesIn, linesOut, axis }) => {
+      const kept = linesOut < linesIn ? ` (${linesOut} of ${linesIn} lines kept)` : '';
+      if (t.kind === 'baseline')
+        return `baseline: ${axisWindowText(t.from, t.to, axis)} subtracted per participant${kept}`;
+      if (t.kind === 'windowMean')
+        return `window ${axisWindowText(t.from, t.to, axis)}${t.source === 'condition-averaged-peak' ? ' from the condition-averaged peak (data-driven)' : ''}${kept}`;
+      return `${t.a} − ${t.b}, paired${linesOut < linesIn ? ` (${linesOut} of ${linesIn} participants paired)` : ''}`;
+    })
+    .join('; ');
+}
+
+/**
+ * A window around the peak of the condition-AVERAGED curve, ± one axis step
+ * (round 2 S1): each condition's mean at each position, averaged with equal
+ * weight per condition, so the window favours no condition. Only offered on
+ * request and labelled data-driven; never a silent default. Null without a
+ * numeric axis.
+ */
+export function conditionAveragedPeakWindow(
+  frame: SampleFrame,
+  r: Pick<PopulationPlotRecipe, 'x' | 'color'>,
+): [number, number] | null {
+  const cells = new Map<number, Map<string, { s: number; n: number }>>();
+  for (const row of frame.rows) {
+    const x = Number(row[r.x]);
+    const v = row.value;
+    if (!Number.isFinite(x) || typeof v !== 'number' || !Number.isFinite(v)) continue;
+    const level = r.color ? String(row[r.color] ?? '(missing)') : '';
+    const byLevel = cells.get(x) ?? new Map<string, { s: number; n: number }>();
+    const cell = byLevel.get(level) ?? { s: 0, n: 0 };
+    cell.s += v;
+    cell.n += 1;
+    byLevel.set(level, cell);
+    cells.set(x, byLevel);
+  }
+  const xs = [...cells.keys()].sort((a, b) => a - b);
+  if (!xs.length) return null;
+  let peak = xs[0];
+  let best = -Infinity;
+  for (const x of xs) {
+    const means = [...cells.get(x)!.values()].map(({ s, n }) => s / n);
+    const avg = Math.abs(meanOf(means));
+    if (avg > best) [best, peak] = [avg, x];
+  }
+  const step = xs.length > 1 ? Math.min(...xs.slice(1).map((x, i) => x - xs[i])) : 1;
+  return [Math.max(xs[0], peak - step), Math.min(xs[xs.length - 1], peak + step)];
 }

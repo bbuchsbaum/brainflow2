@@ -112,6 +112,8 @@ export function applyExtentInference(
   table: ClusterTable,
   vol: VolumeFixture,
   request: ExtentRequest,
+  /** The searched voxels (`search_voxels`); default the map's finite non-zero voxels. */
+  searched: Uint8Array | null = null,
 ): void {
   const fail = (message: string): never => {
     throw Object.assign(new Error(message), { code: 4080 });
@@ -145,7 +147,7 @@ export function applyExtentInference(
   const mask = new Uint8Array(vol.data.length);
   let searchVoxels = 0;
   vol.data.forEach((v, i) => {
-    if (Number.isFinite(v) && v !== 0) {
+    if (searched ? searched[i] : Number.isFinite(v) && v !== 0) {
       mask[i] = 1;
       searchVoxels += 1;
     }

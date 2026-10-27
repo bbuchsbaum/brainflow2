@@ -669,7 +669,9 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             mesh.userData.radiusMm = markerRadiusMm;
             // A dark halo like the slice crosshair's (v1 F10): a larger back-faced
             // sphere drawn just before the marker, so the green reads on any data colour.
-            const halo = new THREE.Mesh(new THREE.SphereGeometry(markerRadiusMm * MARKER_HALO_SCALE, 20, 20), new THREE.MeshBasicMaterial({ color: 0x0b0c0e, side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+            // Opaque on purpose: three.js draws the transparent list after the opaque one,
+            // so a transparent halo would land on top of the marker whatever its renderOrder.
+            const halo = new THREE.Mesh(new THREE.SphereGeometry(markerRadiusMm * MARKER_HALO_SCALE, 20, 20), new THREE.MeshBasicMaterial({ color: 0x0b0c0e, side: THREE.BackSide, depthTest: false, depthWrite: false }));
             halo.name = 'crosshairMarkerHalo';
             halo.renderOrder = 998;
             mesh.add(halo);

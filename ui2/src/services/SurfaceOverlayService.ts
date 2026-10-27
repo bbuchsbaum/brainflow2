@@ -391,6 +391,7 @@ export class SurfaceOverlayService {
       addDataLayer(targetSurfaceId, {
         id: dataLayer.id,
         name: dataLayer.name,
+        sourcePath: filePath,
         dataHandle: dataLayer.dataHandle,
         values: layerValues,
         colormap: dataLayer.colormap,
@@ -413,7 +414,9 @@ export class SurfaceOverlayService {
       });
       // The same map on the other hemisphere shares one colour range (v1 F1).
       const store = useSurfaceStore.getState();
-      for (const update of pairedRangeUpdates(pairedOverlayLayers(store.surfaces.values(), dataLayer.name))) {
+      for (const update of pairedRangeUpdates(
+        pairedOverlayLayers(store.surfaces.values(), { name: dataLayer.name, sourcePath: filePath }, targetSurfaceId),
+      )) {
         store.updateLayerProperty(update.surfaceId, update.layerId, 'range', update.range);
       }
       applySurfaceSelectionInContext(

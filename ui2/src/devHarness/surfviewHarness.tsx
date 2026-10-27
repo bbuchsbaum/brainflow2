@@ -32,6 +32,8 @@ export function Harness() {
   const [mounted, setMounted] = useState(true);
   const [size, setSize] = useState(400);
   const [pick, setPick] = useState('none');
+  // The linked-cursor marker at the dorsal pole, i.e. the centre of the dorsal view.
+  const [marker, setMarker] = useState(false);
   const [error, setError] = useState('');
   const [exporter, setExporter] = useState<SurfaceCanvasExporter | null>(null);
   const onExporterChange = useCallback((next: SurfaceCanvasExporter | null) => setExporter(() => next), []);
@@ -94,8 +96,9 @@ export function Harness() {
     <button onClick={() => setMode('rgba')}>rgba</button><button onClick={() => setMode('none')}>unload</button>
     <button onClick={() => setMounted(v => !v)}>mount</button><button onClick={() => setSize(v => v === 400 ? 300 : 400)}>resize</button>
     <button onClick={() => setRampMode('scalar')}>ramp scalar</button><button onClick={() => setRampMode('volume')}>ramp volume</button><button onClick={() => setRampMode('zero')}>ramp zero</button>
+    <button onClick={() => setMarker(v => !v)}>marker</button>
     <button disabled={!exporter} onClick={exportImage}>export</button><button onClick={inspectRuntime}>inspect runtime</button>
-  </div><div id="viewer" style={{ width: size, height: size }}>{mounted && <NeuroSurfaceCanvas surfaces={surfaces} width={size} height={size} viewpoint='dorsal' projectionSettings={{ useGPUProjection: rampMode === 'volume' }} materialSettings={{ ...DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, surfaceColor: color }} onExporterChange={onExporterChange} onError={onError} onSurfacePick={onPick} />}</div>
+  </div><div id="viewer" style={{ width: size, height: size }}>{mounted && <NeuroSurfaceCanvas surfaces={surfaces} width={size} height={size} viewpoint='dorsal' projectionSettings={{ useGPUProjection: rampMode === 'volume' }} materialSettings={{ ...DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, surfaceColor: color }} onExporterChange={onExporterChange} onError={onError} onSurfacePick={onPick} markerWorldPosition={marker ? [0, 0, 20] : undefined} />}</div>
   <output id="runtime"/><output id="pixels"/><output id="pick">{pick}</output><output id="error">{error}</output></>;
 }
 

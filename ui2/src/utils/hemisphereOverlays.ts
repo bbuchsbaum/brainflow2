@@ -13,21 +13,64 @@ export function overlayMapName(name: string): string {
     .replace(/\.gii$/i, '')
     .replace(/^(lh|rh)\./i, '')
     .replace(/(^|_)hemi-[LR](?=_|\.|$)/i, '')
+    // HCP ("sub.L.thickness") and suffix forms ("zstat_lh.func").
+    .replace(/\.[LR](?=\.)/, '')
+    .replace(/[._](lh|rh)(?=\.|$)/i, '')
     .replace(/^_+/, '');
+}
+
+/** The BIDS subject / session / space entities of a path (last occurrence of each). */
+function entities(path: string): { sub?: string; ses?: string; space?: string } {
+  const last = (key: string) => {
+    const all = [...path.matchAll(new RegExp(`(?:^|[/_.])${key}-([A-Za-z0-9]+)`, 'g'))];
+    return all.length ? all[all.length - 1][1] : undefined;
+  };
+  return { sub: last('sub'), ses: last('ses'), space: last('space') };
+}
+
+const dirname = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+
+/**
+ * Whose map this is: BIDS sub / ses / space when the path names a subject,
+ * else the overlay's directory (FreeSurfer `<subject>/surf/lh.*`), else the
+ * mesh's directory. Null when nothing is known (then names alone decide).
+ */
+export function overlaySubjectKey(overlay: { name: string; sourcePath?: string }, meshPath?: string): string | null {
+  const path = overlay.sourcePath ?? overlay.name;
+  const e = entities(path);
+  if (e.sub) return `sub-${e.sub}|ses-${e.ses ?? ''}|space-${e.space ?? ''}`;
+  const dir = dirname(overlay.sourcePath ?? '') || dirname(meshPath ?? '');
+  return dir ? `dir:${dir}` : null;
 }
 
 const isScalar = (layer: SurfaceDataLayer) => !layer.rgba && !layer.labels && !layer.atlasConfig && (layer.values?.length ?? 0) > 0;
 
-/** Every scalar layer of the same map on any loaded surface (the given one included). */
+/**
+ * Every scalar layer of the same map of the same subject / session on any
+ * loaded surface (the given one included): the same name without its
+ * hemisphere, and the same subject key (v1 fidelity 8: two subjects'
+ * lh.zstat.gii do not pair). `base` is a layer or its name and source path;
+ * `baseSurfaceId` supplies the mesh directory when the overlay has no path.
+ */
 export function pairedOverlayLayers(
   surfaces: Iterable<LoadedSurface>,
-  name: string,
+  base: string | { name: string; sourcePath?: string },
+  baseSurfaceId?: string,
 ): Array<{ surfaceId: string; layer: SurfaceDataLayer }> {
-  const key = overlayMapName(name);
+  const list = [...surfaces];
+  const overlay = typeof base === 'string' ? { name: base } : base;
+  const key = overlayMapName(overlay.name);
+  const meshPath = list.find((s) => s.handle === baseSurfaceId)?.metadata?.path;
+  const subject = overlaySubjectKey(overlay, meshPath);
   const out: Array<{ surfaceId: string; layer: SurfaceDataLayer }> = [];
-  for (const surface of surfaces)
+  for (const surface of list)
     for (const layer of surface.layers.values())
-      if (isScalar(layer) && overlayMapName(layer.name) === key) out.push({ surfaceId: surface.handle, layer });
+      if (
+        isScalar(layer) &&
+        overlayMapName(layer.name) === key &&
+        overlaySubjectKey(layer, surface.metadata?.path) === subject
+      )
+        out.push({ surfaceId: surface.handle, layer });
   return out;
 }
 

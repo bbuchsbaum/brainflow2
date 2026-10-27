@@ -241,8 +241,8 @@ export function PlotHost({
     [modes, activeId, ctx],
   );
 
-  let body: ReactNode;
-  let bodyState: string;
+  let body: ReactNode = null;
+  let bodyState = 'unresolved';
   if (modes.length === 0) {
     bodyState = 'no-modes';
     body = <EmptyAxes testid="plot-host-empty-no-modes" />;
@@ -294,12 +294,27 @@ export function PlotHost({
         />
       );
     }
-  } else {
-    bodyState = 'active';
-    body = mode.render(ctx);
   }
 
   const toolbarContent = mode?.toolbar?.(ctx);
+  // A mode that lays out its own toolbar takes the host chrome inline.
+  const inline = bodyState === 'unresolved' && !!mode?.inlineChrome;
+  if (bodyState === 'unresolved' && mode) {
+    bodyState = 'active';
+    body = mode.render(
+      inline
+        ? {
+            ...ctx,
+            chrome: (
+              <>
+                <ModeSelector modes={modes} activeId={activeId} onChange={handleModeChange} />
+                {toolbarContent}
+              </>
+            ),
+          }
+        : ctx,
+    );
+  }
 
   return (
     <div
@@ -318,6 +333,7 @@ export function PlotHost({
         overflow: 'hidden',
       }}
     >
+      {inline ? null : (
       <div
         data-testid="plot-host-toolbar"
         style={{
@@ -340,6 +356,7 @@ export function PlotHost({
           {toolbarContent}
         </div>
       </div>
+      )}
       <div
         ref={bodyRef}
         data-testid="plot-host-body"

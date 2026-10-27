@@ -25,6 +25,11 @@ export interface ClusterParams {
   extentP: boolean;
   /** FWHM in mm as typed: one value ("8") or one per voxel axis ("6 6 8"). */
   fwhmText: string;
+  /**
+   * Layer whose finite non-zero voxels bound the search (a brain mask), or
+   * null for the map's own non-zero voxels (the backend default).
+   */
+  searchMaskLayerId: string | null;
 }
 
 export interface ClusterResult {
@@ -66,6 +71,7 @@ export const DEFAULT_CLUSTER_PARAMS: ClusterParams = {
   minVoxels: 1,
   extentP: false,
   fwhmText: '',
+  searchMaskLayerId: null,
 };
 
 export const useClusterStore = create<ClusterStore>((set) => ({

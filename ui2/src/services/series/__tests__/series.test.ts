@@ -66,6 +66,18 @@ describe('series bindings (E5)', () => {
     expect(resolveSetSeriesBinding({ ...set4, seriesAxes: undefined }, meta4)).toBeNull();
   });
 
+  it('a run column is the segment factor; Faceted puts one run per panel (E5b)', () => {
+    const set4 = firSet('4d');
+    const rows = new Map(set4.memberSummaries.map((m, i) => [m.id, { ...(m.designValues as Record<string, string>), run: String((i % 2) + 1) }]));
+    const binding = resolveSetSeriesBinding(set4, { columns: ['condition', 'run', 'subject'], rows })!;
+    expect(binding.segmentColumn).toBe('run');
+    expect(seriesRecipe(binding, DEFAULT_SERIES_SETTINGS).facet).toBeNull();
+    expect(seriesRecipe(binding, { ...DEFAULT_SERIES_SETTINGS, segmentLayout: 'faceted' }).facet).toBe('run');
+    // One value only: not a factor.
+    const single = new Map([...rows].map(([id, r]) => [id, { ...r, run: '1' }]));
+    expect(resolveSetSeriesBinding(set4, { columns: ['condition', 'run', 'subject'], rows: single })!.segmentColumn).toBeNull();
+  });
+
   it('4D members expand to one sample per frame', () => {
     const binding = activeSetSeriesBinding({ ...useSetStudioStore.getState(), sets: { 'fir-4d': firSet('4d') }, selection: { ...useSetStudioStore.getState().selection, activeSetId: 'fir-4d' } })!;
     const { members, positions } = expandSeriesMembers(binding, [{ memberId: 'a', sourcePath: '/a.nii.gz' }]);

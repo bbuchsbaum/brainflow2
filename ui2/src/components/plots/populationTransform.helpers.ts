@@ -4,24 +4,23 @@
  * declared transforms from the frame's provenance.
  */
 import type { SampleFrame } from '@/plotting';
-import type { PopulationTransformRecord } from '@/services/studio/populationPlot';
+import { populationTransformSummary } from '@/services/studio/populationPlot';
 
 export function numericRange(frame: SampleFrame, column: string): [number, number] | null {
   const values = frame.rows.map((r) => Number(r[column])).filter(Number.isFinite);
   return values.length ? [Math.min(...values), Math.max(...values)] : null;
 }
 
-/** "Baseline 0–0 subtracted; faces − houses (2 of 3 participants paired)." */
+/**
+ * "baseline: lag 0 TR subtracted per participant; faces − houses, paired"
+ * (a caption clause: lower case, no full stop; empty without transforms).
+ */
 export function transformSummary(frame: SampleFrame): string {
-  const records = frame.meta?.populationTransforms as PopulationTransformRecord[] | undefined;
-  if (!records?.length) return '';
-  return records
-    .map(({ transform: t, linesIn, linesOut }) => {
-      const kept = linesOut < linesIn ? ` (${linesOut} of ${linesIn} lines kept)` : '';
-      if (t.kind === 'baseline') return `Baseline ${t.from}–${t.to} subtracted${kept}`;
-      if (t.kind === 'windowMean') return `Mean over ${t.from}–${t.to}${kept}`;
-      return `${t.a} − ${t.b}, paired${linesOut < linesIn ? ` (${linesOut} of ${linesIn} participants paired)` : ''}`;
-    })
-    .join('; ')
-    .concat('.');
+  return populationTransformSummary(frame);
+}
+
+/** The same clause as a sentence ("Baseline: … paired. "), for running text. */
+export function transformSentence(frame: SampleFrame): string {
+  const clause = populationTransformSummary(frame);
+  return clause ? `${clause[0].toUpperCase()}${clause.slice(1)}. ` : '';
 }

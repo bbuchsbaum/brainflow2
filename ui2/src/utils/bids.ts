@@ -120,6 +120,10 @@ export function formatBidsDisplayName(parsed: BidsEntities): string {
     tags.push(space);
   }
   if (entities.desc) tags.push(entities.desc);
+  // Non-standard condition entities (FIR studies: sub-s01_cond-faces_fir): the
+  // condition is what tells two members of one subject apart (round 2 X3).
+  const condition = entities.cond ?? entities.condition;
+  if (condition) tags.push(condition);
   if (entities.run) tags.push(`run-${entities.run}`);
   if (entities.hemi) tags.push(entities.hemi === 'L' ? 'Left' : entities.hemi === 'R' ? 'Right' : entities.hemi);
 

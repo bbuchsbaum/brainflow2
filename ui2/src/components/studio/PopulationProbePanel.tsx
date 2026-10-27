@@ -1,6 +1,9 @@
 import { Button, Notice, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
 import { isRegionSource } from '@/services/atlasRegionLookup';
 import { resolveSeriesRegion } from '@/services/series/seriesRegion';
+import { openDockTab } from '@/components/layout/openDockTab';
+import { AtlasPicker } from '@/components/inspector/imaging/InspectorLoadDialogs';
+import { ValidatedNumberField } from '@/components/plots/ValidatedNumberField';
 import { useLayerStore } from '@/stores/layerStore';
 import { PopulationPivot } from './PopulationPivot';
 import { populationPlotService } from '@/services/studio/PopulationPlotService';
@@ -96,29 +99,46 @@ export function PopulationProbePanel({
       ? 'cluster'
       : 'region'
     : 'point';
-  // The requested locus: Region stays chosen (picker shown) even when the
-  // crosshair is outside every region.
+  // The control shows the locus of the data on screen: a Region or Cluster
+  // that fails to resolve leaves it on the previous locus (v1 function 1),
+  // and the alert says so and offers the fix.
   const [requestedLocus, setRequestedLocus] = useState<'point' | 'region' | 'cluster' | null>(null);
   const probeLocus = requestedLocus ?? pinnedLocus;
+  const [locusIssue, setLocusIssue] = useState<{
+    kind: 'region' | 'cluster';
+    message: string;
+  } | null>(null);
+  const [atlasPicker, setAtlasPicker] = useState(false);
   const regionAtlas = useLayerStore((s) => s.layers.find(isRegionSource));
   const chooseProbeLocus = async (
     kind: 'point' | 'region' | 'cluster',
     pick: { layerId: string; labelId: number } | null = null,
   ) => {
-    setRequestedLocus(kind);
     if (kind === 'point') {
+      setRequestedLocus(kind);
+      setLocusIssue(null);
       setPinError(null);
       return populationProbeActions.clearRegion();
     }
     const crosshair = useViewStateStore.getState().viewState.crosshair.world_mm;
     const resolved = await resolveSeriesRegion({ locus: kind, regionPick: pick }, crosshair);
-    if (!resolved?.region) return setPinError(resolved?.issue ?? 'No region here.');
+    if (!resolved?.region) {
+      setLocusIssue({ kind, message: resolved?.issue ?? 'No region here.' });
+      return;
+    }
+    setRequestedLocus(kind);
+    setLocusIssue(null);
     setPinError(null);
     populationProbeActions.pinRegion({ locus: resolved.region, label: resolved.label });
   };
+  const regionOptions = (regionAtlas?.atlasPaletteLegend ?? []).map((e) => ({
+    value: String(e.label_id),
+    label: e.displayName ?? e.roi,
+  }));
+  const pickRegion = (v: string) =>
+    regionAtlas && void chooseProbeLocus('region', { layerId: regionAtlas.id, labelId: Number(v) });
 
   const updateRadius = (next: number) => {
-    if (!Number.isFinite(next) || next < 0) return;
     setRadius(next);
     populationProbeActions.setRadius(next);
   };
@@ -232,15 +252,23 @@ export function PopulationProbePanel({
           {probeLocus === 'point' ? (
             <label className="flex items-center gap-1 text-bf-sm">
               Radius{' '}
-              <NumberField
+              <ValidatedNumberField
                 aria-label="Probe radius in millimetres"
                 min={0}
                 step={1}
                 value={radius}
-                onChange={(event) => updateRadius(event.target.valueAsNumber)}
+                validate={(v) =>
+                  v === null
+                    ? 'Enter a radius in mm (0 = the voxel only)'
+                    : v < 0
+                      ? 'Radius must be ≥ 0 mm (0 = the voxel only)'
+                      : null
+                }
+                onCommit={updateRadius}
                 fieldClassName="w-20"
                 unit="mm"
               />
+              {radius === 0 ? <span className="text-bf-2xs text-bf-text-muted">voxel only</span> : null}
             </label>
           ) : null}
           {probeLocus === 'region' && regionAtlas ? (
@@ -252,11 +280,8 @@ export function PopulationProbePanel({
                   ? String(population.probe.region.locus.labelIds[0])
                   : ''
               }
-              onValueChange={(v) => void chooseProbeLocus('region', { layerId: regionAtlas.id, labelId: Number(v) })}
-              options={(regionAtlas.atlasPaletteLegend ?? []).map((e) => ({
-                value: String(e.label_id),
-                label: e.displayName ?? e.roi,
-              }))}
+              onValueChange={pickRegion}
+              options={regionOptions}
             />
           ) : null}
           <Button variant="secondary" size="sm"
@@ -310,6 +335,31 @@ export function PopulationProbePanel({
           {orderSourceStatus === 'unknown' && ' · order source revisions unverified'}
         </p>
       )}
+      {locusIssue && (
+        <Notice role="alert" severity="danger" className="mt-2">
+          <span>
+            No {locusIssue.kind}: {locusIssue.message} Kept the previous locus.
+          </span>
+          {locusIssue.kind === 'cluster' ? (
+            <Button variant="secondary" size="sm" className="ml-2" onClick={() => openDockTab('clusters', { focus: true })}>
+              Open Clusters
+            </Button>
+          ) : regionAtlas ? (
+            <Select
+              aria-label="Probe region"
+              className="ml-2 inline-flex w-auto max-w-[220px]"
+              value=""
+              onValueChange={pickRegion}
+              options={[{ value: '', label: 'Pick a region', disabled: true }, ...regionOptions]}
+            />
+          ) : (
+            <Button variant="secondary" size="sm" className="ml-2" onClick={() => setAtlasPicker(true)}>
+              Load atlas…
+            </Button>
+          )}
+        </Notice>
+      )}
+      {atlasPicker ? <AtlasPicker onClose={() => setAtlasPicker(false)} /> : null}
       {pinError && (
         <Notice role="alert" severity="danger">
           {pinError}

@@ -9,7 +9,7 @@ import { gunzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import meta from '../../fixtures/app/p3_fixtures.json';
-import { findClusters, findExtremum, nonzeroBbox } from '../volumeQueries';
+import { findClusters, findExtremum, nonzeroBbox, resampleMaskNearest } from '../volumeQueries';
 import type { VolumeFixture } from '../fixtures';
 
 const dir = resolve(__dirname, '../../fixtures/app');
@@ -160,5 +160,46 @@ describe('harness sub-peaks mirror the backend (C1)', () => {
     expect(neg).toHaveLength(1);
     expect(neg[0].subPeaks.map((p) => p.ijk)).toEqual([[14, 6, 6]]);
     expect(t.clusters.find((c) => c.sign === 'positive')!.subPeaks).toEqual([]);
+  });
+});
+
+describe('harness compute_clusters search mask (S3)', () => {
+  const all = (vol: VolumeFixture, value: number): VolumeFixture => ({ ...vol, data: new Float32Array(vol.data.length).fill(value) });
+
+  it('a mask covering the grid forms the same clusters, over every finite voxel', () => {
+    const plain = findClusters(zmap, { threshold: 3.1 });
+    const mask = resampleMaskNearest(all(zmap, 1), zmap);
+    const masked = findClusters(zmap, { threshold: 3.1 }, mask, 'vol-mask');
+    expect(masked.clusters.map((c) => c.voxelCount)).toEqual(plain.clusters.map((c) => c.voxelCount));
+    expect(plain.searchVolume).toEqual({ kind: 'map-nonzero', maskVolumeId: null, voxels: zmap.data.filter((v) => Number.isFinite(v) && v !== 0).length });
+    expect(masked.searchVolume).toEqual({ kind: 'mask', maskVolumeId: 'vol-mask', voxels: zmap.data.filter((v) => Number.isFinite(v)).length });
+  });
+
+  it('clusters form only inside the mask; another grid is resampled by nearest voxel', () => {
+    const plain = findClusters(zmap, { threshold: 3.1 });
+    const peak = plain.clusters[0].peakIjk;
+    const [nx, ny] = zmap.dims;
+    // Only cluster 1's peak voxel is inside.
+    const one = new Float32Array(zmap.data.length);
+    one[peak[0] + nx * (peak[1] + ny * peak[2])] = 1;
+    const masked = findClusters(zmap, { threshold: 3.1 }, resampleMaskNearest({ ...zmap, data: one }, zmap), 'm');
+    expect(masked.clusters.map((c) => c.voxelCount)).toEqual([1]);
+    expect(masked.clusters[0].peakIjk).toEqual(peak);
+    // A 2x-coarser mask grid with the same world extent, all inside.
+    const coarse: VolumeFixture = {
+      dims: zmap.dims.map((d) => Math.ceil(d / 2)) as [number, number, number],
+      affine: zmap.affine.map((row, r) => (r < 3 ? [row[0] * 2, row[1] * 2, row[2] * 2, row[3]] : row)),
+      data: new Float32Array(Math.ceil(zmap.dims[0] / 2) * Math.ceil(zmap.dims[1] / 2) * Math.ceil(zmap.dims[2] / 2)).fill(1),
+      range: [0, 1],
+    };
+    expect(findClusters(zmap, { threshold: 3.1 }, resampleMaskNearest(coarse, zmap), 'c').clusters.map((c) => c.voxelCount)).toEqual(
+      plain.clusters.map((c) => c.voxelCount),
+    );
+  });
+
+  it('an empty search is an input error (4081)', () => {
+    expect(() => findClusters(zmap, { threshold: 3.1 }, resampleMaskNearest(all(zmap, 0), zmap), 'm')).toThrow(
+      expect.objectContaining({ code: 4081 }),
+    );
   });
 });

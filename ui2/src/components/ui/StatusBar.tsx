@@ -29,6 +29,7 @@ import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
 import { useSurfaceStore } from "@/stores/surfaceStore";
 import { parseSurfaceViewContextId } from "@/utils/surfaceViewContext";
 import { surfaceColorbarLayer } from "@/components/views/surfaceFrame/surfaceColorbar";
+import { overlayMapName } from "@/utils/hemisphereOverlays";
 import { useSurfaceNearestVertex, useSurfaceValueAtCrosshair } from "@/hooks/useSurfaceValueAtCrosshair";
 import { transformWorldToVoxelColumnMajor } from "@/utils/voxelTransform";
 import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
@@ -81,7 +82,7 @@ const WIDTHS: Record<string, [string, string]> = {
 };
 
 /** Content-sized slots stop growing here (a long file name). */
-const MAX_WIDTHS: Record<string, string> = { layer: "40ch", region: "32ch" };
+const MAX_WIDTHS: Record<string, string> = { layer: "40ch", region: "32ch", vertex: "44ch" };
 
 /** Only the layer name shrinks. */
 const SHRINK: Record<string, number> = { layer: 1 };
@@ -401,19 +402,35 @@ const StatusVertexSlot = React.memo(() => {
     const surface = surfaceId ? state.surfaces.get(surfaceId) : undefined;
     return surface ? (surfaceColorbarLayer(surface)?.layerId ?? null) : null;
   });
+  const overlayName = useSurfaceStore((state) => {
+    const surface = surfaceId ? state.surfaces.get(surfaceId) : undefined;
+    return surface ? (surfaceColorbarLayer(surface)?.name ?? null) : null;
+  });
   if (!surfaceId) return null;
-  return <StatusVertexReadout surfaceId={surfaceId} overlayId={overlayId} />;
+  return <StatusVertexReadout surfaceId={surfaceId} overlayId={overlayId} overlayName={overlayName} />;
 });
 
 StatusVertexSlot.displayName = "StatusVertexSlot";
 
-function StatusVertexReadout({ surfaceId, overlayId }: { surfaceId: string; overlayId: string | null }) {
+function StatusVertexReadout({
+  surfaceId,
+  overlayId,
+  overlayName,
+}: {
+  surfaceId: string;
+  overlayId: string | null;
+  overlayName: string | null;
+}) {
   const { reading, anatomical } = useSurfaceValueAtCrosshair(surfaceId, overlayId ?? "");
   const nearest = useSurfaceNearestVertex(surfaceId);
+  // The value is labelled with its overlay (v1 function 9): "32,116 · sensorimotor.func 59,391".
+  const map = overlayName ? overlayMapName(overlayName) : null;
+  const value = reading ? formatLayerValue(reading.value) : null;
   const title = !anatomical
     ? "Load the matching pial or white surface for an anatomical readout"
     : nearest
-      ? `Vertex ${nearest.vertex}, ${nearest.distanceMm.toFixed(1)} mm from the crosshair`
+      ? `Vertex ${nearest.vertex}, ${nearest.distanceMm.toFixed(1)} mm from the crosshair` +
+        (value !== null && overlayName ? `; ${overlayName} = ${value}` : "")
       : "No vertex within 3 mm of the crosshair";
   return (
     <SlotFrame
@@ -421,10 +438,18 @@ function StatusVertexReadout({ surfaceId, overlayId }: { surfaceId: string; over
       title={title}
       value={
         anatomical && nearest ? (
-          <span data-testid="status-vertex">
+          <span
+            data-testid="status-vertex"
+            aria-label={
+              `Vertex ${nearest.vertex}` + (value !== null && map ? `, ${map} ${value}` : "")
+            }
+          >
             {nearest.vertex.toLocaleString("en-US")}
-            {reading ? (
-              <span className="status-value__ijk"> {formatLayerValue(reading.value)}</span>
+            {value !== null ? (
+              <>
+                {map ? <span className="status-value__symbol"> · {map}</span> : null}
+                <span className="status-value__ijk"> {value}</span>
+              </>
             ) : null}
           </span>
         ) : (

@@ -1,6 +1,6 @@
 import { PopulationTimeCourseControls } from './PopulationTimeCourseControls';
 import { PopulationTransformControls } from './PopulationTransformControls';
-import { numericRange, transformSummary } from './populationTransform.helpers';
+import { numericRange, transformSentence } from './populationTransform.helpers';
 import {
   populationPlotPng,
   savePopulationPlot,
@@ -360,7 +360,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
             {p.recipe.summary !== 'none'
               ? 'Equal weight per locally valid participant; count varies by position.'
               : 'Observed samples.'}{' '}
-            {transformSummary(composed.frame)}
+            {transformSentence(composed.frame)}
             Navigation leaves this probe fixed.{' '}
             {composed.spec.params.jitter === true &&
               'Horizontal jitter separates overlapping observations; values are unchanged.'}

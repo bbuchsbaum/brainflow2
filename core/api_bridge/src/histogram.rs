@@ -87,9 +87,18 @@ where
     })
 }
 
+/// Frames of a 4D volume a histogram covers (3D volumes have one frame).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HistogramFrames {
+    /// One frame, e.g. the displayed timepoint.
+    One(usize),
+    /// Every frame, pooled into one histogram.
+    All,
+}
+
 pub(crate) fn for_volume(
     volume: &VolumeSendable,
-    timepoint: usize,
+    frames: HistogramFrames,
     bin_count: u32,
     range: Option<&[f32]>,
     exclude_zeros: bool,
@@ -106,6 +115,17 @@ pub(crate) fn for_volume(
     }
     macro_rules! scan_4d {
         ($volume:expr) => {{
+            let timepoint = match frames {
+                HistogramFrames::All => {
+                    return compute(
+                        $volume.data.iter().map(|v| *v as f32),
+                        bin_count,
+                        range,
+                        exclude_zeros,
+                    )
+                }
+                HistogramFrames::One(timepoint) => timepoint,
+            };
             let frame = $volume
                 .volume(timepoint)
                 .map_err(|error| BridgeError::Internal {
@@ -140,6 +160,42 @@ pub(crate) fn for_volume(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_frames_pools_every_frame_of_a_4d_volume() {
+        use volmath::{DenseNeuroVec, NeuroSpace};
+        // 2x2x1 voxels x 3 frames: frame t holds value t + 1 everywhere, except
+        // voxel (0,0,0) of frame 1, which is 0.
+        let space = NeuroSpace::new(vec![2, 2, 1, 3], None, None, None, None).unwrap();
+        let mut data = DenseNeuroVec::<f32>::zeros(space).unwrap();
+        for t in 0..3 {
+            for j in 0..2 {
+                for i in 0..2 {
+                    data.data[[i, j, 0, t]] = t as f32 + 1.0;
+                }
+            }
+        }
+        data.data[[0, 0, 0, 1]] = 0.0;
+        let volume = VolumeSendable::Vec4DF32(data);
+        let range = [0.0f32, 3.0];
+        let all = for_volume(&volume, HistogramFrames::All, 3, Some(&range), false).unwrap();
+        // Values: 1 x4, 0 x1, 2 x3, 3 x4 -> bins [0,1), [1,2), [2,3].
+        assert_eq!(all.total_count, 12);
+        assert_eq!(
+            all.bins.iter().map(|b| b.count).collect::<Vec<_>>(),
+            [1, 4, 7]
+        );
+        assert!((all.mean - 22.0 / 12.0).abs() < 1e-6);
+        assert_eq!((all.min_value, all.max_value), (0.0, 3.0));
+        // exclude_zeros drops the single zero.
+        let nonzero = for_volume(&volume, HistogramFrames::All, 3, Some(&range), true).unwrap();
+        assert_eq!(nonzero.total_count, 11);
+        // One frame is unchanged: frame 2 is four 3s.
+        let one = for_volume(&volume, HistogramFrames::One(2), 3, Some(&range), false).unwrap();
+        assert_eq!(one.total_count, 4);
+        assert_eq!(one.mean, 3.0);
+    }
+
     #[test]
     fn histogram_analytic_moments_and_closed_upper_bin() {
         let result = compute([0., 1., 2., 3., 4.].into_iter(), 2, None, false).unwrap();

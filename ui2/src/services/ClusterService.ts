@@ -45,6 +45,12 @@ export interface ComputeClustersInput {
   minVoxels: number;
   /** Opt-in cluster-level p (RFT); the statistic only when the header cannot say it. */
   extent?: { fwhmMm: FwhmMm; statistic?: ExtentStatistic | null } | null;
+  /**
+   * Volume id of a mask bounding the search (clusters form only inside it;
+   * RFT search volume = mask ∩ finite map voxels). Absent: the map's
+   * finite non-zero voxels.
+   */
+  searchMask?: string | null;
 }
 
 /** `compute_clusters` rejected because a newer request superseded it. */
@@ -96,6 +102,7 @@ export class ClusterService {
             },
           }
         : {}),
+      ...(input.searchMask ? { searchMask: input.searchMask } : {}),
     };
     try {
       const table = await this.bridge().invoke<ClusterTable>('compute_clusters', { request: body });
@@ -230,50 +237,108 @@ export class ClusterService {
   }
 }
 
+/** How the search volume was chosen, for the methods paragraph. */
+export interface ClusterSearchLabel {
+  /** Display name of the mask layer when `table.searchVolume.kind` is "mask". */
+  maskName?: string | null;
+}
+
+const thousands = (n: number) => n.toLocaleString('en-US');
+const fixedThousands = (n: number, digits: number) =>
+  n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+/** "non-zero voxels of the map" / "brain mask T1" (what the backend searched). */
+function searchDescription(table: ClusterTable, label?: ClusterSearchLabel): string {
+  if (table.searchVolume?.kind === 'mask') {
+    const name = label?.maskName ?? table.searchVolume.maskVolumeId ?? 'a mask';
+    return `brain mask ${name}`;
+  }
+  return 'non-zero voxels of the map';
+}
+
 /**
- * The footer's methods sentence (the parameters a figure caption needs),
- * e.g. "26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1
- * voxel; 4 clusters, 873 voxels". `symbol` is the statistic label ("z",
- * "t(24)") or null ("value"). One-sided tables read "z > 3.1, one-sided
- * (positive)" / "z < −3.1, one-sided (negative)".
+ * The footer's methods paragraph (what a figure caption or methods section
+ * needs), every number stated once, in methods order, e.g. "26-connected
+ * clusters of |z| > 3.1, two-tailed, uncorrected, ≥ 1 voxel; 4 clusters, 873
+ * voxels. Cluster-level p(FWE) by Gaussian random field theory, two-tailed
+ * (1 − (1 − p)²), 8 mm FWHM (4.0 voxels, user-supplied); search volume 43,051
+ * voxels (non-zero voxels of the map), 577.2 resels; 6.54 clusters expected
+ * per tail, 13.4 voxels each." `symbol` is the statistic label ("z",
+ * "t(24)") or null ("value"). One-tailed tables read "z > 3.1, one-tailed
+ * (positive)" / "z < −3.1, one-tailed (negative)". The caveats are
+ * {@link clusterCaveats}.
  */
-export function clusterMethodsSentence(table: ClusterTable, symbol: string | null): string {
+export function clusterMethodsSentence(
+  table: ClusterTable,
+  symbol: string | null,
+  label?: ClusterSearchLabel,
+): string {
   const variable = symbol ? stripDof(symbol) : 'value';
   const voxels = table.clusters.reduce((n, c) => n + c.voxelCount, 0);
   const minVox = `≥ ${table.minVoxels} voxel${table.minVoxels === 1 ? '' : 's'}`;
-  const count = `${table.totalClusters} cluster${table.totalClusters === 1 ? '' : 's'}`;
+  const count = `${thousands(table.totalClusters)} cluster${table.totalClusters === 1 ? '' : 's'}`;
   const dropped =
-    table.discardedClusters > 0 ? ` (${table.discardedClusters} smaller dropped)` : '';
+    table.discardedClusters > 0 ? `, ${table.discardedClusters} smaller dropped` : '';
   const df = symbol && symbol !== variable ? ` (${symbol})` : '';
   const t = formatLayerValueAscii(table.threshold);
   const test =
     table.sign === 'both'
-      ? `|${variable}| > ${t}${df}, two-sided`
+      ? `|${variable}| > ${t}${df}, two-tailed`
       : table.sign === 'positive'
-        ? `${variable} > ${t}${df}, one-sided (positive)`
-        : `${variable} < \u2212${t}${df}, one-sided (negative)`;
+        ? `${variable} > ${t}${df}, one-tailed (positive)`
+        : `${variable} < \u2212${t}${df}, one-tailed (negative)`;
   const peaks =
     (table.maxPeaksPerCluster ?? 1) > 1
       ? `; up to ${table.maxPeaksPerCluster} peaks per cluster, ≥ ${formatLayerValueAscii(table.minPeakDistanceMm)} mm apart`
       : '';
   const inference = table.extentInference;
-  // The search volume decides every p(FWE): state it (v0 fidelity 5).
-  const extent = inference
-    ? `; cluster-level p (FWE, ${inference.tails === 2 ? 'two-tailed: both signs' : 'one-tailed'}) by Gaussian random field theory, assuming ${fwhmDescription(inference)} FWHM` +
-      `${fwhmVoxels(inference, table.voxelVolumeMm3)} (user-supplied)` +
-      `, search ${inference.searchVoxels.toLocaleString('en-US')} voxels (non-zero), ` +
-      `${formatLayerValueAscii(inference.resels[3])} resels, ${inference.expectedClusters.toFixed(1)} clusters expected per tail` +
-      ` (${inference.expectedVoxelsPerCluster.toFixed(1)} voxels each)`
-    : '';
-  return `${table.connectivity}-connected clusters of ${test}, uncorrected, ${minVox}; ${count}, ${voxels} voxels${dropped}${peaks}${extent}`;
+  // The search volume decides every p(FWE): state it (v0 fidelity 5), and
+  // which voxels it is (S3). Without p values it matters only for a mask.
+  const maskOnly =
+    !inference && table.searchVolume?.kind === 'mask'
+      ? `; search volume ${thousands(table.searchVolume.voxels)} voxels (${searchDescription(table, label)})`
+      : '';
+  const first = `${table.connectivity}-connected clusters of ${test}, uncorrected, ${minVox}; ${count}, ${thousands(voxels)} voxels${dropped}${peaks}${maskOnly}.`;
+  if (!inference) return first;
+  const tails = inference.tails === 2 ? 'two-tailed (1 \u2212 (1 \u2212 p)\u00b2)' : 'one-tailed';
+  const fwhmVox = fwhmVoxels(inference, table.voxelVolumeMm3);
+  const second =
+    `Cluster-level p(FWE) by Gaussian random field theory, ${tails}, ` +
+    `${fwhmDescription(inference)} FWHM (${fwhmVox ? `${fwhmVox}, ` : ''}user-supplied); ` +
+    `search volume ${thousands(inference.searchVoxels)} voxels (${searchDescription(table, label)}), ` +
+    `${fixedThousands(inference.resels[3], 1)} resels; ` +
+    `${inference.expectedClusters.toFixed(2)} clusters expected per tail, ` +
+    `${fixedThousands(inference.expectedVoxelsPerCluster, 1)} voxels each.`;
+  return `${first} ${second}`;
 }
 
-/** " (4.0 voxels)" for an isotropic FWHM on isotropic voxels (SPM's footer states both). */
+/**
+ * The caveats behind a table's cluster p values (none without them): the
+ * standing RFT assumptions, and a warning when the stated smoothness is
+ * under 3 voxels FWHM on some axis (RFT p values are then conservative and
+ * unstable). The warning is shown whenever it applies.
+ */
+export function clusterCaveats(table: ClusterTable): { assumptions: string; warning: string | null } | null {
+  const inference = table.extentInference;
+  if (!inference) return null;
+  const edge = Math.cbrt(table.voxelVolumeMm3);
+  const minFwhmVoxels = edge > 0 ? Math.min(...inference.fwhmMm) / edge : Infinity;
+  return {
+    assumptions:
+      'Assumes stationary smoothness; approximate unless the cluster-forming threshold is high and the map is smooth relative to its voxels (SPM spm_P_RF).',
+    warning:
+      minFwhmVoxels < 3
+        ? `Smoothness is only ${minFwhmVoxels.toFixed(1)} voxels FWHM: p values are likely conservative and unstable.`
+        : null,
+  };
+}
+
+/** "4.0 voxels" for an isotropic FWHM on isotropic voxels (SPM's footer states both), else "". */
 function fwhmVoxels(inference: Pick<ClusterExtentInference, 'fwhmMm'>, voxelVolumeMm3: number): string {
   const [x, y, z] = inference.fwhmMm;
   const edge = Math.cbrt(voxelVolumeMm3);
   if (!(edge > 0) || x !== y || y !== z) return '';
-  return ` (${(x / edge).toFixed(1)} voxels)`;
+  return `${(x / edge).toFixed(1)} voxels`;
 }
 
 /** "8 mm" (isotropic) or "6 × 6 × 8 mm" (per voxel axis). */
@@ -320,7 +385,7 @@ const csvCell = (value: string | number | null) => {
 export function clusterTableCsv(
   table: ClusterTable,
   regions: ReadonlyArray<string | null>,
-  meta: { layerName: string; symbol: string | null },
+  meta: { layerName: string; symbol: string | null; maskName?: string | null },
   subPeakRegions?: ReadonlyArray<ReadonlyArray<string | null>>,
 ): string {
   // Coordinates at 2 decimals (ASCII minus): centroids are not on voxel centres.
@@ -391,9 +456,17 @@ export function clusterTableCsv(
   ]);
   // The comment lines are ASCII too (">=", "-"), like the numbers.
   const ascii = (text: string) =>
-    text.replace(/[−\u2212]/g, '-').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/×/g, 'x');
-  const comments = [`# ${meta.layerName}: ${ascii(clusterMethodsSentence(table, meta.symbol))}`];
-  if (table.extentInference) comments.push(`# ${ascii(table.extentInference.assumption)}`);
+    text
+      .replace(/[−\u2212]/g, '-')
+      .replace(/≥/g, '>=')
+      .replace(/≤/g, '<=')
+      .replace(/×/g, 'x')
+      .replace(/\u00b2/g, '^2');
+  const comments = [
+    `# ${meta.layerName}: ${ascii(clusterMethodsSentence(table, meta.symbol, { maskName: meta.maskName }))}`,
+  ];
+  const caveats = clusterCaveats(table);
+  if (caveats) comments.push(`# ${ascii([caveats.assumptions, caveats.warning].filter(Boolean).join(' '))}`);
   return (
     [...comments, header.join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n') + '\n'
   );

@@ -6,7 +6,14 @@
  * packages/api/src/generated. IDs come from counters, never clocks/RNG.
  */
 import type { ExtremumKind, StatisticInfo, StatisticKind } from '@brainflow/api';
-import { clusterLabelData, findClusters, findExtremum, nonzeroBbox, type ClusterQuery } from './volumeQueries';
+import {
+  clusterLabelData,
+  findClusters,
+  findExtremum,
+  nonzeroBbox,
+  resampleMaskNearest,
+  type ClusterQuery,
+} from './volumeQueries';
 
 interface QueryTarget {
   volumeId?: string | null;
@@ -35,6 +42,7 @@ import {
   sampleFirMember,
   sampleFirVoxels,
 } from './firStudy';
+import { multirunFixture, parseMultirunPath } from './multirun';
 import { computeSurfaceSulcalDepth } from '@brainflow/visualization/surface';
 import {
   ANALYSIS_DESCRIPTORS,
@@ -442,6 +450,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     // Phase 4 E6: a FIR study's 4D lag series (one subject × condition), on the MNI grid.
     if (parseFirPath(path, 0) && path.endsWith('_fir.nii.gz')) return firFixture(path);
     if (path === ZMAP_MULTIPEAK_PATH) return fixtures.zmapMultipeak;
+    // Phase 4 E5b: one subject's three BOLD runs (4 mm grid, TR 2 s).
+    const run = parseMultirunPath(path);
+    if (run !== null) return multirunFixture(run);
     if (path === TMAP_NOISY_PATH) return fixtures.tmapNoisy;
     if (path === ATLAS_PATH) return fixtures.atlas;
     return null;
@@ -463,7 +474,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
         volume_type: 'TimeSeries4D',
         num_timepoints: frames,
         current_timepoint: 0,
-        time_series_info: { num_timepoints: frames, tr: null, temporal_unit: null, acquisition_time: null },
+        time_series_info: { num_timepoints: frames, tr: fixture.tr ?? null, temporal_unit: fixture.tr ? 's' : null, acquisition_time: null },
         ...handleStatistic(fixture),
       };
     }
@@ -879,8 +890,14 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       binCount?: number;
       range?: [number, number];
       excludeZeros?: boolean;
+      allFrames?: boolean;
     }) => {
-      const vol = volumeForLayer(args.layerId).fixture;
+      const fixture = volumeForLayer(args.layerId).fixture;
+      // all_frames: every frame of a 4D volume (v2 R3), else the one on display.
+      const vol =
+        args.allFrames && fixture.frames && fixture.frames.length > 1
+          ? { ...fixture, data: Float32Array.from(fixture.frames.flatMap((f) => Array.from(f))) }
+          : fixture;
       // histogram.rs filters before everything: excluded zeros leave the
       // bins, the range and mean/std alike.
       const s = stats(args.excludeZeros ? vol.data.filter((v) => v !== 0) : vol.data);
@@ -1052,10 +1069,16 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     // fixture arrays by the mirrors in volumeQueries.ts.
     compute_clusters: ({ request }: { request: ClusterQuery & QueryTarget }) => {
       const entry = targetVolume(request);
-      const table = findClusters(entry.fixture, request);
+      // S3: a registered mask volume bounds the search (nearest-voxel resampled).
+      const maskId = request.searchMask ?? null;
+      if (maskId && !volumes.has(maskId)) {
+        throw Object.assign(new Error(`Search mask volume ${maskId} not found`), { code: 4041 });
+      }
+      const mask = maskId ? resampleMaskNearest(volumeFor(maskId).fixture, entry.fixture) : null;
+      const table = findClusters(entry.fixture, request, mask, maskId);
       // E3: the cluster-id label volume, registered (hidden) so a row can be a region.
       if (request.emitLabelVolume) {
-        const labels = clusterLabelData(entry.fixture, request, table);
+        const labels = clusterLabelData(entry.fixture, request, table, mask);
         const info = registerVolume(`${entry.path}#clusters`, `${entry.name} clusters`, {
           dims: entry.fixture.dims,
           affine: entry.fixture.affine,

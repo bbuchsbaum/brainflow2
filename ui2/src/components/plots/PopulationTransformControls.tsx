@@ -4,12 +4,21 @@
  * applied in this order. Shared by the pinned population plot and the
  * Series mode. Each control states what it computes; nothing is applied
  * until it is switched on.
+ *
+ * Paired inputs (from/to, A/B) are validated as a pair (round 2 A3): both
+ * fields are marked, one message is shared by both, and nothing reaches the
+ * recipe until the pair is valid, so the last valid plot stays. A window
+ * mean has no default window (round 2 S1): it waits for one, typed or taken
+ * on request from the condition-averaged peak (and then labelled as such).
  */
-import { useMemo } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import type { SampleFrame } from '@/plotting';
-import type { PopulationPlotRecipe, PopulationTransform } from '@/services/studio/populationPlot';
-import { Checkbox, Select, Toolbar, ToolbarField } from '@/components/ui/bf';
-import { ValidatedNumberField } from './ValidatedNumberField';
+import {
+  conditionAveragedPeakWindow,
+  type PopulationPlotRecipe,
+  type PopulationTransform,
+} from '@/services/studio/populationPlot';
+import { Button, Checkbox, NumberField, Select, Toolbar, ToolbarField } from '@/components/ui/bf';
 
 type Kind = PopulationTransform['kind'];
 const ORDER: Kind[] = ['baseline', 'conditionDifference', 'windowMean'];
@@ -37,7 +46,7 @@ export function PopulationTransformControls({
     onChange(all.sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind)));
   };
   const measured = recipe.axis !== 'category';
-  const [lo, hi] = axisRange ?? [0, 0];
+  const lo = axisRange?.[0] ?? 0;
   const conditionColumn =
     recipe.color ?? frame.columns.find((c) => c.name === 'condition')?.name ?? null;
   const levels = useMemo(
@@ -56,65 +65,10 @@ export function PopulationTransformControls({
   const baseline = get('baseline');
   const difference = get('conditionDifference');
   const window = get('windowMean');
-  const unit = recipe.axisUnit ? ` ${recipe.axisUnit}` : '';
-  const range = (
-    t: { from: number; to: number },
-    kind: 'baseline' | 'windowMean',
-    label: string,
-  ) => {
-    // Field-level checks (v1 function 7): from ≤ to, and the window must
-    // overlap the axis (its range is stated).
-    const order = t.from > t.to ? `${label}: from must be ≤ to` : null;
-    const outside =
-      axisRange && (t.to < axisRange[0] || t.from > axisRange[1])
-        ? `${label} ${t.from}–${t.to}${unit} is outside the axis (${axisRange[0]}–${axisRange[1]}${unit})`
-        : null;
-    const finite = (v: number | null) => (v === null ? 'Enter a number' : null);
-    return (
-      <>
-        <ToolbarField label="From">
-          <ValidatedNumberField
-            aria-label={`${label} from`}
-            fieldClassName="w-[8ch]"
-            value={t.from}
-            unit={unit.trim() || undefined}
-            validate={finite}
-            onCommit={(v) => set(kind, { kind, from: v, to: t.to })}
-          />
-        </ToolbarField>
-        <ToolbarField label="To">
-          <ValidatedNumberField
-            aria-label={`${label} to`}
-            fieldClassName="w-[8ch]"
-            value={t.to}
-            unit={unit.trim() || undefined}
-            validate={finite}
-            externalMessage={order ?? outside}
-            onCommit={(v) => set(kind, { kind, from: t.from, to: v })}
-          />
-        </ToolbarField>
-      </>
-    );
-  };
-  // A window mean starts around the population's peak (± 1 step), never the
-  // whole axis (v1 user 3).
-  const peakWindow = (): [number, number] => {
-    if (!axisRange) return [lo, hi];
-    const sums = new Map<number, { s: number; n: number }>();
-    for (const row of frame.rows) {
-      const x = Number(row[recipe.x]);
-      const v = Number(row.value);
-      if (!Number.isFinite(x) || !Number.isFinite(v)) continue;
-      const cell = sums.get(x) ?? { s: 0, n: 0 };
-      cell.s += v;
-      cell.n += 1;
-      sums.set(x, cell);
-    }
-    let peak = axisRange[0];
-    let best = -Infinity;
-    for (const [x, { s, n }] of sums) if (Math.abs(s / n) > best) [best, peak] = [Math.abs(s / n), x];
-    return [Math.max(axisRange[0], peak - 1), Math.min(axisRange[1], peak + 1)];
-  };
+  // "Mean over window" switched on but no window yet: nothing is applied.
+  const [windowPending, setWindowPending] = useState(false);
+  const unit = recipe.axisUnit;
+  const peak = () => conditionAveragedPeakWindow(frame, { x: recipe.x, color: conditionColumn });
   return (
     <Toolbar
       aria-label="Collapse transforms"
@@ -131,7 +85,15 @@ export function PopulationTransformControls({
       >
         Baseline
       </Checkbox>
-      {baseline ? range(baseline, 'baseline', 'Baseline') : null}
+      {baseline ? (
+        <WindowFields
+          label="Baseline"
+          unit={unit}
+          axisRange={axisRange ?? null}
+          value={baseline}
+          onCommit={(from, to) => set('baseline', { kind: 'baseline', from, to })}
+        />
+      ) : null}
       <Checkbox
         checked={!!difference}
         disabled={!conditionColumn || levels.length < 2 || !recipe.detail}
@@ -148,39 +110,218 @@ export function PopulationTransformControls({
         Difference
       </Checkbox>
       {difference ? (
-        <>
-          <ToolbarField label="A">
-            <Select
-              aria-label="Difference A"
-              className="w-auto max-w-[140px]"
-              value={difference.a}
-              onValueChange={(v) => set('conditionDifference', { ...difference, a: v })}
-              options={levels.map((l) => ({ value: l, label: l }))}
-            />
-          </ToolbarField>
-          <ToolbarField label="− B">
-            <Select
-              aria-label="Difference B"
-              className="w-auto max-w-[140px]"
-              value={difference.b}
-              onValueChange={(v) => set('conditionDifference', { ...difference, b: v })}
-              options={levels.map((l) => ({ value: l, label: l }))}
-            />
-          </ToolbarField>
-        </>
+        <DifferenceFields
+          levels={levels}
+          value={difference}
+          onCommit={(a, b) => set('conditionDifference', { ...difference, a, b })}
+        />
       ) : null}
       <Checkbox
-        checked={!!window}
+        checked={!!window || windowPending}
         disabled={!measured || !recipe.detail}
-        title="Each participant line's mean over a window: one value per line"
+        title="Each participant line's mean over a window you set: one value per line"
         onCheckedChange={(on) => {
-          const [from, to] = peakWindow();
-          set('windowMean', on ? { kind: 'windowMean', from, to } : null);
+          setWindowPending(on);
+          if (!on) set('windowMean', null);
         }}
       >
         Mean over window
       </Checkbox>
-      {window ? range(window, 'windowMean', 'Window') : null}
+      {window || windowPending ? (
+        <WindowFields
+          label="Window"
+          unit={unit}
+          axisRange={axisRange ?? null}
+          value={window ?? null}
+          onCommit={(from, to) => set('windowMean', { kind: 'windowMean', from, to })}
+          extra={
+            <>
+              {window?.source === 'condition-averaged-peak' ? (
+                <span className="text-bf-2xs text-bf-text-muted" data-testid="window-source">
+                  From the condition-averaged peak (data-driven)
+                </span>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!peak()}
+                title="Peak of the mean over conditions (equal weight per condition), ± one step. The window then depends on these data; the caption says so."
+                onClick={() => {
+                  const w = peak();
+                  if (w)
+                    set('windowMean', {
+                      kind: 'windowMean',
+                      from: w[0],
+                      to: w[1],
+                      source: 'condition-averaged-peak',
+                    });
+                }}
+              >
+                Use condition-averaged peak ± 1
+              </Button>
+            </>
+          }
+        />
+      ) : null}
     </Toolbar>
+  );
+}
+
+const parse = (text: string): number | null => {
+  if (text.trim() === '') return null;
+  const v = Number(text);
+  return Number.isFinite(v) ? v : null;
+};
+
+/**
+ * From / To of a baseline or window, checked as a pair: an empty pair is a
+ * hint ("Set a window"), a bad number, from > to or a window off the axis is
+ * one message on both fields. Only a valid pair is committed.
+ */
+function WindowFields({
+  label,
+  unit,
+  axisRange,
+  value,
+  onCommit,
+  extra,
+}: {
+  label: 'Baseline' | 'Window';
+  unit: string;
+  axisRange: [number, number] | null;
+  /** The committed window; null while none is set. */
+  value: { from: number; to: number } | null;
+  onCommit: (from: number, to: number) => void;
+  extra?: ReactNode;
+}) {
+  const messageId = useId();
+  const committed = value ? `${value.from}|${value.to}` : '';
+  const [draft, setDraft] = useState(() => ({
+    from: value ? String(value.from) : '',
+    to: value ? String(value.to) : '',
+  }));
+  const problem = pairProblem(draft, label, unit, axisRange);
+  // Follow outside changes (the peak button, a reset) unless mid-edit on an invalid pair.
+  useEffect(() => {
+    if (!value) return;
+    setDraft((d) =>
+      pairProblem(d, label, unit, axisRange) && `${parse(d.from)}|${parse(d.to)}` !== committed
+        ? d
+        : { from: String(value.from), to: String(value.to) },
+    );
+    // committed stands for value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committed]);
+  const edit = (side: 'from' | 'to', text: string) => {
+    const next = { ...draft, [side]: text };
+    setDraft(next);
+    const from = parse(next.from);
+    const to = parse(next.to);
+    if (!pairProblem(next, label, unit, axisRange) && from !== null && to !== null)
+      if (`${from}|${to}` !== committed) onCommit(from, to);
+  };
+  const incomplete = !problem && (parse(draft.from) === null || parse(draft.to) === null);
+  const hint = incomplete ? (label === 'Window' ? 'Set a window' : 'Set both bounds') : null;
+  const field = (side: 'from' | 'to') => (
+    <ToolbarField label={side === 'from' ? 'From' : 'To'}>
+      <NumberField
+        aria-label={`${label} ${side}`}
+        aria-describedby={problem || hint ? messageId : undefined}
+        fieldClassName="w-[8ch]"
+        unit={unit || undefined}
+        value={draft[side]}
+        invalid={!!problem}
+        onValueChange={(_, event) => edit(side, event.target.value)}
+      />
+    </ToolbarField>
+  );
+  return (
+    <>
+      {field('from')}
+      {field('to')}
+      {problem ? (
+        <span id={messageId} role="status" className="text-bf-2xs text-bf-danger">
+          {problem}
+        </span>
+      ) : hint ? (
+        <span id={messageId} className="text-bf-2xs text-bf-text-muted">
+          {hint}
+        </span>
+      ) : null}
+      {extra}
+    </>
+  );
+}
+
+function pairProblem(
+  draft: { from: string; to: string },
+  label: string,
+  unit: string,
+  axisRange: [number, number] | null,
+): string | null {
+  const from = parse(draft.from);
+  const to = parse(draft.to);
+  if ((draft.from.trim() && from === null) || (draft.to.trim() && to === null))
+    return `${label}: enter a number`;
+  if (from === null || to === null) return null;
+  if (from > to) return `${label}: from must be ≤ to`;
+  const u = unit ? ` ${unit}` : '';
+  if (axisRange && (to < axisRange[0] || from > axisRange[1]))
+    return `${label} ${from}–${to}${u} is outside the axis (${axisRange[0]}–${axisRange[1]}${u})`;
+  return null;
+}
+
+/** A − B: two different levels, checked as a pair (both marked when equal). */
+function DifferenceFields({
+  levels,
+  value,
+  onCommit,
+}: {
+  levels: string[];
+  value: { a: string; b: string };
+  onCommit: (a: string, b: string) => void;
+}) {
+  const messageId = useId();
+  const [draft, setDraft] = useState({ a: value.a, b: value.b });
+  useEffect(() => {
+    setDraft({ a: value.a, b: value.b });
+  }, [value.a, value.b]);
+  const same = draft.a === draft.b;
+  const choose = (side: 'a' | 'b', level: string) => {
+    const next = { ...draft, [side]: level };
+    setDraft(next);
+    if (next.a !== next.b) onCommit(next.a, next.b);
+  };
+  const options = levels.map((l) => ({ value: l, label: l }));
+  return (
+    <>
+      <ToolbarField label="A">
+        <Select
+          aria-label="Difference A"
+          aria-describedby={same ? messageId : undefined}
+          className="w-auto max-w-[140px]"
+          value={draft.a}
+          invalid={same}
+          onValueChange={(v) => choose('a', v)}
+          options={options}
+        />
+      </ToolbarField>
+      <ToolbarField label="− B">
+        <Select
+          aria-label="Difference B"
+          aria-describedby={same ? messageId : undefined}
+          className="w-auto max-w-[140px]"
+          value={draft.b}
+          invalid={same}
+          onValueChange={(v) => choose('b', v)}
+          options={options}
+        />
+      </ToolbarField>
+      {same ? (
+        <span id={messageId} role="status" className="text-bf-2xs text-bf-danger">
+          Difference: choose two different conditions
+        </span>
+      ) : null}
+    </>
   );
 }

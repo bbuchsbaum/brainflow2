@@ -383,7 +383,8 @@ export function spreadLabelCenters(ys: readonly number[], minGap: number, lo: nu
  */
 export function wrapNameAtBoundaries(name: string, maxChars: number, maxLines: number): string[] {
   if (!(maxChars > 0)) return [];
-  const pieces = name.match(/[^_\-.\s]+[_\-.\s]*/g) ?? [name];
+  // A parenthetical ("(lh, rh)") is one piece: never split inside it (v1 visual 9).
+  const pieces = name.match(/\([^)]*\)[_\-.\s]*|[^_\-.\s(]+[_\-.\s]*/g) ?? [name];
   const lines: string[] = [];
   let line = '';
   for (const piece of pieces) {

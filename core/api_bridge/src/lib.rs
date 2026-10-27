@@ -6130,6 +6130,7 @@ async fn compute_layer_histogram(
     bin_count: Option<u32>,
     range: Option<Vec<f32>>,
     exclude_zeros: Option<bool>,
+    all_frames: Option<bool>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<HistogramResult> {
     info!(
@@ -6244,14 +6245,14 @@ async fn compute_layer_histogram(
         .await
         .get_timepoint(&volume_handle)
         .unwrap_or(0);
+    // `allFrames` pools every frame of a 4D volume; 3D volumes are unaffected.
+    let frames = if all_frames.unwrap_or(false) {
+        histogram::HistogramFrames::All
+    } else {
+        histogram::HistogramFrames::One(timepoint)
+    };
     tokio::task::spawn_blocking(move || {
-        histogram::for_volume(
-            &volume,
-            timepoint,
-            bin_count,
-            range.as_deref(),
-            exclude_zeros,
-        )
+        histogram::for_volume(&volume, frames, bin_count, range.as_deref(), exclude_zeros)
     })
     .await
     .map_err(|error| BridgeError::Internal {

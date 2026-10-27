@@ -47,6 +47,19 @@ test('surface pixels respond to layer controls and survive lifecycle', async ({ 
 });
 
 
+test('linked-cursor marker keeps its colour inside the dark halo', async ({ page }) => {
+  await page.goto('/surfview-harness.html');
+  await expect(page.getByRole('button', { name: 'export' })).toBeEnabled();
+  await expect.poll(async () => (await pixels(page)).nonblack).toBeGreaterThan(1000);
+  await page.getByRole('button', { name: 'marker' }).click();
+  // A transparent halo sorts after the opaque marker and darkens it to ~(18, 48, 15).
+  await expect.poll(async () => (await pixels(page)).center[1]).toBeGreaterThan(180);
+  const [r, g, b] = (await pixels(page)).center;
+  expect(g).toBeGreaterThan(r + 60);
+  expect(g).toBeGreaterThan(b + 60);
+});
+
+
 test('real viewer retains owned world lights and requests linear volume filtering', async ({ page }) => {
   await page.goto('/surfview-harness.html');
   await page.getByRole('button', { name: 'inspect runtime' }).click();

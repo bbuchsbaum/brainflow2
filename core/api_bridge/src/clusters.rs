@@ -165,6 +165,36 @@ pub struct ComputeClustersRequest {
     #[serde(default)]
     #[ts(optional = nullable)]
     pub emit_label_volume: Option<bool>,
+    /// Registered mask volume (e.g. a brain mask) bounding the search: clusters
+    /// form only inside it, and RFT resels/search voxels use mask ∩ finite map
+    /// voxels. Other grids are resampled by nearest voxel. Default: the map's
+    /// finite non-zero voxels.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub search_mask: Option<String>,
+}
+
+/// Which voxels were searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum SearchVolumeKind {
+    /// The map's finite, non-zero voxels (default).
+    #[serde(rename = "map-nonzero")]
+    MapNonzero,
+    /// A mask volume intersected with the map's finite voxels.
+    #[serde(rename = "mask")]
+    Mask,
+}
+
+/// The search volume a cluster table was computed on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchVolume {
+    pub kind: SearchVolumeKind,
+    pub mask_volume_id: Option<String>,
+    #[ts(type = "number")]
+    pub voxels: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -289,6 +319,11 @@ pub struct ClusterTable {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub label_volume_id: Option<String>,
+    /// Search volume used for cluster formation and extent inference (always
+    /// set by `compute_clusters`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub search_volume: Option<SearchVolume>,
 }
 
 pub(crate) struct ClusterParams {
@@ -598,11 +633,14 @@ fn select_peaks(
 pub(crate) fn find_clusters(
     frame: &Frame,
     params: &ClusterParams,
+    search_mask: Option<&[bool]>,
     is_superseded: &dyn Fn() -> bool,
 ) -> BridgeResult<ClusterRun> {
     let threshold = params.threshold;
-    let polarity_of = |v: f32| -> Option<ClusterPolarity> {
-        if !v.is_finite() {
+    // Voxels outside an explicit search mask never pass.
+    let polarity_of = |index: usize| -> Option<ClusterPolarity> {
+        let v = frame.values[index];
+        if !v.is_finite() || search_mask.is_some_and(|mask| !mask[index]) {
             None
         } else if v > threshold && params.sign != ClusterSign::Negative {
             Some(ClusterPolarity::Positive)
@@ -630,7 +668,7 @@ pub(crate) fn find_clusters(
         if labels[seed] != 0 {
             continue;
         }
-        let Some(polarity) = polarity_of(frame.values[seed]) else {
+        let Some(polarity) = polarity_of(seed) else {
             continue;
         };
         next_label += 1;
@@ -650,7 +688,7 @@ pub(crate) fn find_clusters(
                 let Some(n) = neighbour(frame, ijk, offset) else {
                     continue;
                 };
-                if labels[n] == 0 && polarity_of(frame.values[n]) == Some(polarity) {
+                if labels[n] == 0 && polarity_of(n) == Some(polarity) {
                     labels[n] = next_label;
                     stack.push(n);
                 }
@@ -732,6 +770,7 @@ pub(crate) fn find_clusters(
         min_peak_distance_mm: params.min_peak_distance_mm,
         extent_inference: None,
         label_volume_id: None,
+        search_volume: None,
     };
     Ok(ClusterRun { table, label_image })
 }
@@ -820,6 +859,20 @@ fn voxel_sizes(frame: &Frame) -> [f64; 3] {
     [0, 1, 2].map(|c| f64::from((m[(0, c)].powi(2) + m[(1, c)].powi(2) + m[(2, c)].powi(2)).sqrt()))
 }
 
+/// The searched voxels: `mask ∩ finite` with an explicit mask, else the map's
+/// finite non-zero voxels.
+pub(crate) fn search_voxels(frame: &Frame, search_mask: Option<&[bool]>) -> Vec<bool> {
+    frame
+        .values
+        .iter()
+        .enumerate()
+        .map(|(index, v)| match search_mask {
+            Some(mask) => mask[index] && v.is_finite(),
+            None => v.is_finite() && *v != 0.0,
+        })
+        .collect()
+}
+
 /// Attach random-field extent p values to `table` (clusters formed at
 /// `table.threshold`) through `neuro_inference`. The search volume is the
 /// frame's finite, non-zero voxels.
@@ -828,12 +881,9 @@ pub(crate) fn apply_extent_inference(
     frame: &Frame,
     fwhm_mm: [f32; 3],
     field: ResolvedField,
+    search_mask: Option<&[bool]>,
 ) -> BridgeResult<()> {
-    let mask: Vec<bool> = frame
-        .values
-        .iter()
-        .map(|v| v.is_finite() && *v != 0.0)
-        .collect();
+    let mask = search_voxels(frame, search_mask);
     let stat_field = StatField::new(field.kind, frame.dims, voxel_sizes(frame), &mask)
         .map_err(inference_error)?;
     let method = ClusterMethod::RftExtent(RftClusterExtent::new(Smoothness::FwhmMm(
@@ -946,16 +996,52 @@ pub(crate) async fn compute_clusters_impl(
         }
         None => None,
     };
+    let mask_volume = match &request.search_mask {
+        Some(mask_id) => Some((
+            mask_id.clone(),
+            state
+                .volume_registry
+                .lock()
+                .await
+                .get_arc(mask_id)
+                .ok_or_else(|| BridgeError::VolumeNotFound {
+                    code: 4041,
+                    details: format!("Search mask volume {mask_id} not found"),
+                })?,
+        )),
+        None => None,
+    };
     let worker_generation = generation.clone();
     let (mut table, label_volume) = with_frame(volume, timepoint, move |frame| {
         let generation = worker_generation;
         let superseded = || generation.is_superseded();
+        let search_mask = mask_volume
+            .as_ref()
+            .map(|(_, mask)| crate::volume_queries::resample_mask_nearest(mask, &frame))
+            .transpose()?;
+        let searched = search_voxels(&frame, search_mask.as_deref());
+        let searched_count = searched.iter().filter(|v| **v).count() as u64;
+        if search_mask.is_some() && searched_count == 0 {
+            return Err(BridgeError::Input {
+                code: 4081,
+                details: "The search mask has no finite map voxels on the analysed grid.".into(),
+            });
+        }
         let ClusterRun {
             mut table,
             label_image,
-        } = find_clusters(&frame, &params, &superseded)?;
+        } = find_clusters(&frame, &params, search_mask.as_deref(), &superseded)?;
+        table.search_volume = Some(SearchVolume {
+            kind: if search_mask.is_some() {
+                SearchVolumeKind::Mask
+            } else {
+                SearchVolumeKind::MapNonzero
+            },
+            mask_volume_id: mask_volume.as_ref().map(|(id, _)| id.clone()),
+            voxels: searched_count,
+        });
         if let Some((fwhm_mm, field)) = extent {
-            apply_extent_inference(&mut table, &frame, fwhm_mm, field)?;
+            apply_extent_inference(&mut table, &frame, fwhm_mm, field, search_mask.as_deref())?;
         }
         if generation.is_superseded() {
             return Err(cancelled());
@@ -1024,7 +1110,7 @@ mod tests {
     }
 
     fn find_clusters(frame: &Frame, params: &ClusterParams) -> ClusterTable {
-        super::find_clusters(frame, params, &|| false)
+        super::find_clusters(frame, params, None, &|| false)
             .unwrap()
             .table
     }
@@ -1325,7 +1411,7 @@ mod tests {
     #[test]
     fn superseded_computation_returns_cancelled_error() {
         let frame = fixture();
-        match super::find_clusters(&frame, &params(ClusterSign::Both, 26, 1), &|| true) {
+        match super::find_clusters(&frame, &params(ClusterSign::Both, 26, 1), None, &|| true) {
             Err(BridgeError::Input { code, .. }) => assert_eq!(code, CANCELLED_CODE),
             other => panic!("expected cancellation, got {other:?}"),
         }
@@ -1372,7 +1458,7 @@ mod tests {
             kind: FieldKind::Z,
             from_request: false,
         };
-        apply_extent_inference(&mut table, &frame, [4.0; 3], field).unwrap();
+        apply_extent_inference(&mut table, &frame, [4.0; 3], field, None).unwrap();
         // Box of 20^3 voxels at 0.5 FWHM per voxel: R = [1, 28.5, 270.75, 857.375];
         // reference from core/neuro-inference/tests/fixtures/rft_reference.py
         // (p_rf) at u = f64::from(3.1f32), the threshold the f32 request carries.
@@ -1406,7 +1492,7 @@ mod tests {
             kind: FieldKind::T { df: 20.0 },
             from_request: true,
         };
-        apply_extent_inference(&mut table, &frame, [4.0; 3], t).unwrap();
+        apply_extent_inference(&mut table, &frame, [4.0; 3], t, None).unwrap();
         let inference = table.extent_inference.as_ref().unwrap();
         assert_eq!(
             (inference.df, inference.statistic_source.as_str()),
@@ -1433,10 +1519,10 @@ mod tests {
         let mut p = peak_params(3.1, 3, 8.0);
         p.sign = ClusterSign::Positive;
         let mut one = find_clusters(&frame, &p);
-        apply_extent_inference(&mut one, &frame, [4.0; 3], z).unwrap();
+        apply_extent_inference(&mut one, &frame, [4.0; 3], z, None).unwrap();
         p.sign = ClusterSign::Both;
         let mut two = find_clusters(&frame, &p);
-        apply_extent_inference(&mut two, &frame, [4.0; 3], z).unwrap();
+        apply_extent_inference(&mut two, &frame, [4.0; 3], z, None).unwrap();
         let (a, b) = (
             one.extent_inference.as_ref().unwrap(),
             two.extent_inference.as_ref().unwrap(),
@@ -1461,7 +1547,7 @@ mod tests {
             from_request: true,
         };
         let mut table = find_clusters(&frame, &p);
-        apply_extent_inference(&mut table, &frame, [4.0; 3], f).unwrap();
+        apply_extent_inference(&mut table, &frame, [4.0; 3], f, None).unwrap();
         assert_eq!(table.extent_inference.unwrap().tails, 1);
     }
 
@@ -1476,13 +1562,13 @@ mod tests {
             from_request: false,
         };
         let mut t = table.clone();
-        assert!(apply_extent_inference(&mut t, &frame, [0.0, 4.0, 4.0], z).is_err());
+        assert!(apply_extent_inference(&mut t, &frame, [0.0, 4.0, 4.0], z, None).is_err());
         let mut zero = find_clusters(&frame, &peak_params(0.0, 3, 8.0));
-        assert!(apply_extent_inference(&mut zero, &frame, [4.0; 3], z).is_err());
+        assert!(apply_extent_inference(&mut zero, &frame, [4.0; 3], z, None).is_err());
         // An all-zero image has no search volume.
         let empty = frame_3d([4, 4, 4], [2.0; 3], [0.0; 3], vec![0.0; 64]);
         let mut e = find_clusters(&empty, &peak_params(3.1, 3, 8.0));
-        assert!(apply_extent_inference(&mut e, &empty, [4.0; 3], z).is_err());
+        assert!(apply_extent_inference(&mut e, &empty, [4.0; 3], z, None).is_err());
     }
 
     #[test]
@@ -1704,5 +1790,160 @@ mod tests {
         let registry = state.volume_registry.lock().await;
         assert!(registry.get(&label_id).is_none());
         assert!(registry.get(&second_id).is_some());
+    }
+
+    async fn register_volume(state: &BridgeState, id: &str, volume: bridge_types::VolumeSendable) {
+        state.volume_registry.lock().await.insert(
+            id.into(),
+            volume,
+            crate::VolumeMetadataInfo {
+                name: id.into(),
+                path: "<memory>".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+    }
+
+    /// Half-volume mask (i < 10) on the 20^3, 2 mm extent grid.
+    fn half_mask() -> Vec<f32> {
+        (0..8000)
+            .map(|index| if index % 20 < 10 { 1.0 } else { 0.0 })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn search_mask_bounds_clusters_and_rft_search_volume() {
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        let stat = format!("stat-mask-{}", uuid::Uuid::new_v4());
+        let frame = extent_frame();
+        register_volume(
+            &state,
+            &stat,
+            volume_3d([20; 3], [2.0; 3], [0.0; 3], frame.values.to_vec()),
+        )
+        .await;
+        register_volume(
+            &state,
+            "mask-half",
+            volume_3d([20; 3], [2.0; 3], [0.0; 3], half_mask()),
+        )
+        .await;
+        let request = |mask: Option<&str>| -> ComputeClustersRequest {
+            let mask = mask
+                .map(|m| format!(r#","searchMask":"{m}""#))
+                .unwrap_or_default();
+            serde_json::from_str(&format!(
+                r#"{{"volumeId":"{stat}","threshold":3.1,"sign":"positive"{mask},
+                    "extent":{{"method":"rft-extent","fwhmMm":4,"statistic":"z"}}}}"#
+            ))
+            .unwrap()
+        };
+        // Default: the map's non-zero voxels (background 0.5 everywhere).
+        let full = compute_clusters_impl(request(None), &state).await.unwrap();
+        assert_eq!(
+            full.search_volume,
+            Some(SearchVolume {
+                kind: SearchVolumeKind::MapNonzero,
+                mask_volume_id: None,
+                voxels: 8000
+            })
+        );
+        assert_eq!(full.clusters.len(), 2);
+        // Half mask: the 8-voxel cluster at i = 12..13 is outside; resels are
+        // those of a 10 x 20 x 20 box: R = [1, 23.5, 175.75, 406.125].
+        let half = compute_clusters_impl(request(Some("mask-half")), &state)
+            .await
+            .unwrap();
+        assert_eq!(
+            half.search_volume,
+            Some(SearchVolume {
+                kind: SearchVolumeKind::Mask,
+                mask_volume_id: Some("mask-half".into()),
+                voxels: 4000
+            })
+        );
+        assert_eq!(half.clusters.len(), 1);
+        assert_eq!(half.clusters[0].voxel_count, 27);
+        let inference = half.extent_inference.as_ref().unwrap();
+        assert_eq!(inference.resels, [1.0, 23.5, 175.75, 406.125]);
+        assert_eq!(inference.search_voxels, 4000);
+        // Reference: rft_reference.py p_rf(27 * 0.125, f32(3.1), "Z", R).
+        close(inference.expected_clusters, 4.185829301833703e+00);
+        close(
+            half.clusters[0].p_fwe_extent.unwrap(),
+            4.934507476339611e-05,
+        );
+        close(
+            half.clusters[0].p_uncorrected_extent.unwrap(),
+            1.178889264547693e-05,
+        );
+    }
+
+    #[tokio::test]
+    async fn search_mask_counts_zero_map_voxels_and_resamples_other_grids() {
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        let stat = format!("stat-zero-{}", uuid::Uuid::new_v4());
+        // Map: 8^3, 2 mm, zero background with one 2x2x2 blob of 5.
+        let mut values = vec![0.0f32; 512];
+        for k in 2..4 {
+            for j in 2..4 {
+                for i in 2..4 {
+                    values[i + 8 * (j + 8 * k)] = 5.0;
+                }
+            }
+        }
+        register_volume(&state, &stat, volume_3d([8; 3], [2.0; 3], [0.0; 3], values)).await;
+        // Mask on a 4 mm grid: mask voxels i = 0..=2 (centres 0, 4, 8 mm).
+        let coarse: Vec<f32> = (0..64)
+            .map(|index| if index % 4 < 3 { 1.0 } else { 0.0 })
+            .collect();
+        register_volume(
+            &state,
+            "mask-coarse",
+            volume_3d([4; 3], [4.0; 3], [0.0; 3], coarse),
+        )
+        .await;
+        let run = |mask: Option<&str>| {
+            let mask = mask
+                .map(|m| format!(r#","searchMask":"{m}""#))
+                .unwrap_or_default();
+            serde_json::from_str::<ComputeClustersRequest>(&format!(
+                r#"{{"volumeId":"{stat}","threshold":1.0{mask}}}"#
+            ))
+            .unwrap()
+        };
+        let default = compute_clusters_impl(run(None), &state).await.unwrap();
+        // Non-zero map voxels only: the blob.
+        assert_eq!(default.search_volume.unwrap().voxels, 8);
+        let masked = compute_clusters_impl(run(Some("mask-coarse")), &state)
+            .await
+            .unwrap();
+        // Map voxel centres x = 2i mm map to mask voxel floor(x / 4 + 0.5):
+        // along x, i = 0..=4 (x <= 8 mm) land on mask voxels 0..=2; along y and
+        // z, j, k = 0..=6 land inside the 4-voxel mask grid (14 mm maps to
+        // index 4, outside) -> 5 x 7 x 7 = 245 voxels, zeros included; the
+        // blob (i, j, k = 2, 3) stays whole.
+        let volume = masked.search_volume.unwrap();
+        assert_eq!((volume.kind, volume.voxels), (SearchVolumeKind::Mask, 245));
+        assert_eq!(masked.clusters.len(), 1);
+        assert_eq!(masked.clusters[0].voxel_count, 8);
+        // Missing or empty masks are errors.
+        assert!(compute_clusters_impl(run(Some("no-such-mask")), &state)
+            .await
+            .is_err());
+        register_volume(
+            &state,
+            "mask-empty",
+            volume_3d([4; 3], [4.0; 3], [0.0; 3], vec![0.0; 64]),
+        )
+        .await;
+        match compute_clusters_impl(run(Some("mask-empty")), &state).await {
+            Err(BridgeError::Input { code, .. }) => assert_eq!(code, 4081),
+            other => panic!("expected empty-mask error, got {other:?}"),
+        }
     }
 }

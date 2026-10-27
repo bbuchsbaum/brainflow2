@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest';
-import { composePopulationPlot, defaultPopulationPlotRecipe as base } from '../populationPlot';
+import {
+  axisWindowText,
+  composePopulationPlot,
+  conditionAveragedPeakWindow,
+  defaultPopulationPlotRecipe as base,
+  populationTransformSummary,
+} from '../populationPlot';
 import type { SampleFrame } from '@/plotting';
 const frame: SampleFrame = {
   columns: [
@@ -225,7 +231,7 @@ it('baseline subtraction removes each line’s pre-onset mean (E4)', () => {
   // Subject offsets cancel: every subject's faces lag 2 is 4 after the baseline.
   expect(at(out.frame.rows, 'faces', 2)).toMatchObject({ value: 4, count: 3 });
   expect(out.frame.meta?.populationTransforms).toEqual([
-    { transform: { kind: 'baseline', from: 0, to: 0 }, linesIn: 6, linesOut: 6, dropped: [] },
+    { transform: { kind: 'baseline', from: 0, to: 0 }, linesIn: 6, linesOut: 6, dropped: [], axis: { label: 'lag', unit: '' } },
   ]);
 });
 
@@ -244,6 +250,7 @@ it('condition difference is paired per participant; unpaired participants are dr
       linesIn: 3,
       linesOut: 2,
       dropped: ['s3'],
+      axis: { label: 'lag', unit: '' },
     },
   ]);
 });
@@ -268,4 +275,56 @@ it('window mean collapses lags to one value per line, after a difference (E4)', 
   expect(() =>
     composePopulationPlot(fir, { ...firRecipe, axis: 'category', transforms: [{ kind: 'baseline', from: 0, to: 0 }] }),
   ).toThrow(/measured/);
+});
+
+it('summary rows carry SD and SE; the transforms read as one clause (round 2 X1/S1)', () => {
+  const out = composePopulationPlot(fir, {
+    ...firRecipe,
+    band: 'ci95',
+    transforms: [
+      { kind: 'baseline', from: 0, to: 0 },
+      { kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' },
+    ],
+  });
+  // faces − houses at lag 2 after baseline: 2 for every subject → SD 0.
+  expect(at(out.frame.rows, 'faces − houses', 2)).toMatchObject({ value: 2, sd: 0, se: 0, count: 3 });
+  expect(populationTransformSummary(out.frame)).toBe(
+    'baseline: lag 0 subtracted per participant; faces − houses, paired',
+  );
+  const raw = composePopulationPlot(fir, { ...firRecipe, band: 'sd' });
+  const row = at(raw.frame.rows, 'faces', 2); // 4, 5, 6
+  expect(row.sd).toBeCloseTo(1, 12);
+  expect(row.se).toBeCloseTo(1 / Math.sqrt(3), 12);
+});
+
+it('window text and provenance: typed vs from the condition-averaged peak (round 2 S1)', () => {
+  expect(axisWindowText(1, 3, { label: 'Lag', unit: 'TR' })).toBe('lags 1–3 TR');
+  expect(axisWindowText(0, 0, { label: 'Lag', unit: 'TR' })).toBe('lag 0 TR');
+  expect(axisWindowText(-2, 4, { label: 'Time', unit: 's' })).toBe('t \u22122–4 s');
+  const declared = composePopulationPlot(fir, {
+    ...firRecipe,
+    mark: 'point',
+    transforms: [{ kind: 'windowMean', from: 1, to: 3 }],
+  });
+  expect(populationTransformSummary(declared.frame)).toBe('window lags 1–3');
+  const peak = composePopulationPlot(fir, {
+    ...firRecipe,
+    mark: 'point',
+    transforms: [{ kind: 'windowMean', from: 1, to: 3, source: 'condition-averaged-peak' }],
+  });
+  expect(populationTransformSummary(peak.frame)).toBe(
+    'window lags 1–3 from the condition-averaged peak (data-driven)',
+  );
+});
+
+it('the condition-averaged peak weighs conditions equally, ± one axis step (round 2 S1)', () => {
+  // Condition means (over s1..s3, offsets +1): faces [1,3,5,2], houses [1,2,3,6];
+  // averaged [1, 2.5, 4, 4] → the first maximum, lag 2 → window 1–3.
+  expect(conditionAveragedPeakWindow(fir, { x: 'lag', color: 'condition' })).toEqual([1, 3]);
+  // Unbalanced rows (houses twice as many) must not tilt it towards houses.
+  const extra = { ...fir, rows: [...fir.rows, ...fir.rows.filter((r) => r.condition === 'houses').map((r) => ({ ...r, member: `${r.member}b` }))] };
+  expect(conditionAveragedPeakWindow(extra, { x: 'lag', color: 'condition' })).toEqual([1, 3]);
+  // Faces alone peaks at lag 2; houses alone at lag 3, clamped to the axis.
+  const houses = { ...fir, rows: fir.rows.filter((r) => r.condition === 'houses') };
+  expect(conditionAveragedPeakWindow(houses, { x: 'lag', color: 'condition' })).toEqual([2, 3]);
 });

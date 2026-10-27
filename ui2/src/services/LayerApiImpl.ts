@@ -14,9 +14,11 @@ import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { colormapNameToId } from '@/components/ui/colormapOptions';
 import { histogramService } from './HistogramService';
+import type { HistogramData } from '@/types/histogram';
 import {
   computeAdaptiveIntensityRange,
   computeFallbackIntensityRange,
+  computePercentileFromBins,
   statisticDefaultRange,
   statisticDefaultRangeFromHistogram,
   type IntensityRangeOptions,
@@ -473,6 +475,8 @@ export class LayerApiImpl implements LayerApi {
         layerId: layer.id,
         binCount: 256,
         excludeZeros: true,
+        // A 4D series is windowed over all its frames (v2 R3), not the first.
+        ...(isFourDIntensityLayer(layer as Parameters<typeof isFourDIntensityLayer>[0]) ? { allFrames: true } : {}),
       });
     } catch (histError) {
       console.warn(
@@ -496,6 +500,7 @@ export class LayerApiImpl implements LayerApi {
       statisticRefined ?? computeAdaptiveIntensityRange(histogram, rangeOptions),
       rangeOptions.dataRange ?? { min: 0, max: 0 },
       !!statisticRefined,
+      histogram,
     );
     const isLabelLike = layer.type === 'label';
     const refined: LayerRender = {
@@ -704,12 +709,23 @@ export class LayerApiImpl implements LayerApi {
  * intensity overlay: the "hot" ramp with everything below its window hidden,
  * so the anatomy shows through, instead of an opaque grayscale slab. The base
  * volume and statistics keep their own rules.
+ *
+ * The ramp starts above black (v2 R3: the lowest visible values drew a
+ * near-black ring over the anatomy) and does not saturate at the robust high
+ * (its core was flat white): the robust window [a, b] maps to
+ * [HOT_VISIBLE_FROM, HOT_ROBUST_HIGH] of the hot LUT, dark red to yellow, and
+ * values above b fade to white. There is no red–yellow LUT, so this is the
+ * hot LUT windowed, not a new colormap. With the all-frame histogram the
+ * window runs from p90 + 10% of (high − p90) to high = max(p99.9, 80% of the
+ * maximum) of the non-zero values: the bulk of a series (the brain at baseline, a FIR map's near-zero
+ * lags) is hidden and the response keeps its shape, not a flat white core.
  */
 export function overlayDisplay<T extends { intensity: [number, number]; threshold: [number, number]; suggestedColormap?: string }>(
   layer: { id: string; type?: string; volumeType?: string; timeSeriesInfo?: { num_timepoints: number } | null },
   range: T,
   dataRange: { min: number; max: number },
   isStatistic: boolean,
+  histogram?: { bins: HistogramData['bins']; totalCount: number; maxValue?: number },
 ): T {
   if (isStatistic || layer.type === 'label' || layer.type === 'mask') return range;
   const fourD = (layer.timeSeriesInfo?.num_timepoints ?? 0) >= 2 || layer.volumeType === 'TimeSeries4D';
@@ -718,6 +734,34 @@ export function overlayDisplay<T extends { intensity: [number, number]; threshol
     .getState()
     .layers.some((l) => l.id !== layer.id && l.type !== 'label' && (l.order ?? 0) < (useLayerStore.getState().getLayer(layer.id)?.order ?? Infinity));
   if (!below) return range;
-  const low = Math.min(dataRange.min, range.intensity[0]);
-  return { ...range, suggestedColormap: 'hot', threshold: [low, range.intensity[0]] };
+  const robust =
+    histogram && histogram.totalCount > 0 && histogram.bins.length
+      ? ([
+          computePercentileFromBins(histogram.bins, histogram.totalCount, 90),
+          // A focal response is a tiny share of all voxels × frames: the high
+          // edge is at least 80% of the series maximum, so its peak is not clipped.
+          Math.max(
+            computePercentileFromBins(histogram.bins, histogram.totalCount, 99.9),
+            Number.isFinite(histogram.maxValue) ? 0.8 * histogram.maxValue! : -Infinity,
+          ),
+        ] as const)
+      : null;
+  // Visible from a tenth of the way above the bulk (p90) to the robust high.
+  const [a, b] =
+    robust && robust[1] > robust[0] ? [robust[0] + 0.1 * (robust[1] - robust[0]), robust[1]] : range.intensity;
+  const low = Math.min(dataRange.min, a);
+  const span = b > a ? (b - a) / (HOT_ROBUST_HIGH - HOT_VISIBLE_FROM) : 0;
+  const intensity: [number, number] = span > 0 ? [a - HOT_VISIBLE_FROM * span, a + (1 - HOT_VISIBLE_FROM) * span] : [a, b];
+  return { ...range, intensity, suggestedColormap: 'hot', threshold: [low, a] };
+}
+
+/** Hot LUT position of the lowest visible value: dark red (~105, 0, 0), not black. */
+export const HOT_VISIBLE_FROM = 0.15;
+/** Hot LUT position of the robust high: yellow; values above it fade to white. */
+export const HOT_ROBUST_HIGH = 0.75;
+
+/** A layer whose display window should come from all its frames (4D, not a statistic). */
+export function isFourDIntensityLayer(layer: { type?: string; volumeType?: string; timeSeriesInfo?: { num_timepoints: number } | null }): boolean {
+  if (layer.type === 'label' || layer.type === 'mask') return false;
+  return (layer.timeSeriesInfo?.num_timepoints ?? 0) >= 2 || layer.volumeType === 'TimeSeries4D';
 }

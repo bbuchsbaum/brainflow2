@@ -136,7 +136,9 @@ function figureColorbar(
   // Both hemispheres under one bar (v1 F1): the paired layers must share one
   // window, and the bar is titled with the map, not one hemisphere's file.
   const visible = [...useSurfaceStore.getState().surfaces.values()].filter((s) => s.visible !== false);
-  const pairs = pairedOverlayLayers(visible, base.name);
+  const baseSurface = visible.find((s) => s.layers.has(base.layerId));
+  const baseLayer = baseSurface?.layers.get(base.layerId);
+  const pairs = pairedOverlayLayers(visible, baseLayer ?? base.name, baseSurface?.handle);
   if (pairs.length < 2) return base;
   const [first] = pairs;
   const differs = pairs.some(

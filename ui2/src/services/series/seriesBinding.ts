@@ -33,6 +33,11 @@ export interface SetSeriesBinding {
   frames: { start: number; step: number; count: number } | null;
   subjectColumn: string | null;
   conditionColumn: string | null;
+  /**
+   * The segment factor (E5b): a `run` / `session` design column with at
+   * least two values, so runs can be faceted instead of pooled.
+   */
+  segmentColumn?: string | null;
   /** Where the axis came from, for the plot's provenance line. */
   origin: 'manifest' | 'design column';
 }
@@ -44,6 +49,7 @@ export const SERIES_OBSERVATION = '__seriesObservation';
 
 const SUBJECT_COLUMNS = ['subject', 'participant', 'sub', 'subject_id', 'participant_id'];
 const CONDITION_COLUMNS = ['condition', 'cond', 'trial_type'];
+const SEGMENT_COLUMNS = ['run', 'session', 'ses', 'segment'];
 
 const findColumn = (columns: readonly string[], names: readonly string[]) =>
   names.map((n) => columns.find((c) => c.toLowerCase() === n)).find((c) => c !== undefined) ?? null;
@@ -69,6 +75,11 @@ export function resolveSetSeriesBinding(
       ? participants.identity.column
       : findColumn(columns, SUBJECT_COLUMNS);
   const conditionColumn = findColumn(columns, CONDITION_COLUMNS);
+  const segmentCandidate = findColumn(columns, SEGMENT_COLUMNS);
+  const segmentColumn =
+    segmentCandidate && new Set([...metadata.rows.values()].map((row) => row[segmentCandidate])).size > 1
+      ? segmentCandidate
+      : null;
   const allNumeric = (column: string) =>
     metadata.rows.size > 0 && [...metadata.rows.values()].every((row) => isNumeric(row[column]));
   const declared: SeriesAxis | undefined = (set.seriesAxes ?? []).find(
@@ -87,6 +98,7 @@ export function resolveSetSeriesBinding(
         frames: null,
         subjectColumn,
         conditionColumn,
+        segmentColumn,
         origin: 'manifest',
       };
     }
@@ -99,6 +111,7 @@ export function resolveSetSeriesBinding(
       frames: { start: declared.start ?? 0, step: declared.step ?? 1, count: declared.count },
       subjectColumn,
       conditionColumn,
+      segmentColumn,
       origin: 'manifest',
     };
   }
@@ -112,6 +125,7 @@ export function resolveSetSeriesBinding(
     frames: null,
     subjectColumn,
     conditionColumn,
+    segmentColumn,
     origin: 'design column',
   };
 }

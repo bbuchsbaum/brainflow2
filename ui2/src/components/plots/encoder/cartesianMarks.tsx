@@ -14,7 +14,7 @@
  * Pure render: no hooks beyond `useMemo`, no effects, no store access.
  */
 
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { scaleBand, scaleLinear, scalePoint } from '@visx/scale';
 import { Area, AreaClosed, Bar, Circle, LinePath } from '@visx/shape';
 import { AxisBottom, AxisLeft } from '@visx/axis';
@@ -23,7 +23,7 @@ import { Group } from '@visx/group';
 import type { BoxStats, SampleFrame } from '@/plotting';
 import { boxStats, columnValues, getColumn, linearFit, numericColumn } from '@/plotting';
 
-import type { MarkRenderer, MarkRenderProps } from './types';
+import type { EncoderContext, MarkRenderer, MarkRenderProps } from './types';
 
 // ---------------------------------------------------------------------------
 // Tokens / layout
@@ -175,12 +175,19 @@ interface AxisOptions {
   readonly xIntegerTicks?: boolean;
   /** A hairline at y = 0 when the domain spans zero (difference plots). */
   readonly zeroLine?: boolean;
+  /**
+   * Labelled vertical rules on a numeric x axis (segment boundaries of a
+   * concatenated series, E5b): a dashed hairline at `x`, its label at the top.
+   */
+  readonly xRules?: readonly { readonly x: number; readonly label: string }[];
 }
 
 interface CartesianMarkProps {
   readonly axes?: AxisOptions;
   readonly margin?: { top: number; right: number; bottom: number; left: number };
   readonly interactive?: boolean;
+  /** What the plot shows, for assistive technology (default "<kind> plot"). */
+  readonly label?: string;
   readonly kind: MarkKind;
   readonly width: number;
   readonly height: number;
@@ -210,6 +217,7 @@ function CartesianMark({
   axes,
   margin = MARGIN,
   interactive,
+  label,
   kind,
   width,
   height,
@@ -226,7 +234,7 @@ function CartesianMark({
       width={Math.max(0, width)}
       height={Math.max(0, height)}
       role={interactive ? 'group' : 'img'}
-      aria-label={`${kind} plot`}
+      aria-label={label ?? `${kind} plot`}
     >
       <Group left={margin.left} top={margin.top}>
         {axes?.zeroLine && showAxes && zeroInDomain(yScale) ? (
@@ -240,6 +248,27 @@ function CartesianMark({
             strokeWidth={1}
           />
         ) : null}
+        {showAxes && xScale && 'ticks' in xScale
+          ? (axes?.xRules ?? []).map((rule) => {
+              const x = (xScale as LinearScale)(rule.x) ?? 0;
+              if (!(x >= 0 && x <= innerWidth)) return null;
+              return (
+                <Group key={`${rule.x}-${rule.label}`} data-testid="plot-x-rule" pointerEvents="none">
+                  {x > 0.5 ? (
+                    <line x1={x} x2={x} y1={0} y2={innerHeight} stroke="var(--bf-border-strong)" strokeWidth={1} strokeDasharray="3 3" />
+                  ) : null}
+                  <text
+                    x={x + 3}
+                    y={-3}
+                    fill={axisLabelColor}
+                    style={{ fontSize: axisLabelSize, fontFamily: proseFontFamily }}
+                  >
+                    {rule.label}
+                  </text>
+                </Group>
+              );
+            })
+          : null}
         {children}
         {showAxes && axes?.xTitle ? (
           <text
@@ -314,6 +343,79 @@ function integerTicks(xScale: LinearScale) {
 }
 
 // ---------------------------------------------------------------------------
+// Population summaries: what is plotted, value by value (round 2 A2)
+// ---------------------------------------------------------------------------
+
+/** The population stage's provenance on a summary frame. */
+interface PopulationReduction {
+  readonly centre: 'none' | 'mean' | 'median';
+  readonly band: 'none' | 'sd' | 'sem95' | 'ci95' | 'iqr';
+}
+
+const BAND_NAMES: Record<PopulationReduction['band'], string> = {
+  none: '',
+  sd: '± SD',
+  sem95: '± 1.96 SE',
+  ci95: '95% CI',
+  iqr: 'IQR',
+};
+
+const num3 = (v: unknown) => {
+  const n = typeof v === 'number' ? v : Number.NaN;
+  return Number.isFinite(n) ? n.toFixed(2).replace('-', '\u2212') : 'no value';
+};
+
+/** "faces · lag 2 TR: mean 2.13, 95% CI 1.86 to 2.40, n = 6". */
+function summaryLabel(
+  frame: SampleFrame,
+  spec: MarkRenderProps['spec'],
+  reduction: PopulationReduction,
+  rowIndex: number,
+): string {
+  const row = frame.rows[rowIndex] ?? {};
+  const { x, y, color } = spec.encoding;
+  const parts: string[] = [];
+  if (color) parts.push(String(row[color] ?? '(missing)'));
+  if (x && x !== color) {
+    const col = getColumn(frame, x);
+    const name = (col?.label ?? x).toLowerCase();
+    const unit = col?.unit ? ` ${col.unit}` : '';
+    parts.push(`${name} ${row[x] ?? ''}${unit}`);
+  }
+  const band = spec.band;
+  const lo = band ? row[band.lower] : null;
+  const hi = band ? row[band.upper] : null;
+  const value = [
+    `${reduction.centre} ${num3(row[y ?? 'value'])}`,
+    band && reduction.band !== 'none' && typeof lo === 'number' && typeof hi === 'number'
+      ? `${BAND_NAMES[reduction.band]} ${num3(lo)} to ${num3(hi)}`
+      : null,
+    typeof row.count === 'number' ? `n = ${row.count}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  return `${parts.join(' · ')}${parts.length ? ': ' : ''}${value}`;
+}
+
+/** "FIR beta (a.u.) by lag (TR), faces and houses, mean ± 95% CI" for a summary; else "<kind> plot". */
+function plotLabel(
+  frame: SampleFrame,
+  spec: MarkRenderProps['spec'],
+  reduction: PopulationReduction | undefined,
+  kind: MarkKind,
+): string {
+  if (typeof spec.params.ariaLabel === 'string') return spec.params.ariaLabel;
+  if (!reduction || reduction.centre === 'none') return `${kind} plot`;
+  const y = typeof spec.params.yTitle === 'string' ? spec.params.yTitle : 'value';
+  const x = typeof spec.params.xTitle === 'string' ? spec.params.xTitle.toLowerCase() : null;
+  const color = spec.encoding.color;
+  const levels = color ? [...new Set(frame.rows.map((r) => String(r[color] ?? '(missing)')))] : [];
+  const listed = levels.length > 1 ? `${levels.slice(0, -1).join(', ')} and ${levels[levels.length - 1]}` : levels[0];
+  const band = reduction.band === 'none' ? '' : reduction.band === 'iqr' ? ', IQR' : ` ${BAND_NAMES[reduction.band].startsWith('±') ? '' : '± '}${BAND_NAMES[reduction.band]}`;
+  return [`${y}${x ? ` by ${x}` : ''}`, listed, `${reduction.centre}${band}`].filter(Boolean).join(', ');
+}
+
+// ---------------------------------------------------------------------------
 // Continuous marks (line / area / point)
 // ---------------------------------------------------------------------------
 
@@ -339,14 +441,24 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     [frame, xName, yName, catMode, band],
   );
 
+  // A population summary without datum links is still readable point by
+  // point (round 2 A2): one roving tab stop over the centre values.
+  const reduction = frame.meta?.populationReduction as PopulationReduction | undefined;
+  const readable = !context?.datumLink && !!reduction && reduction.centre !== 'none' && !!yName;
+  const [readFocus, setReadFocus] = useState<string | null>(null);
+
   const axes: AxisOptions = {
     xTitle: typeof spec.params.xTitle === 'string' ? spec.params.xTitle : undefined,
     yTitle: typeof spec.params.yTitle === 'string' ? spec.params.yTitle : undefined,
     xIntegerTicks: spec.params.xIntegerTicks === true,
     zeroLine: spec.params.zeroLine === true,
+    xRules: Array.isArray(spec.params.xRules) ? (spec.params.xRules as AxisOptions['xRules']) : undefined,
   };
+  // A strip above the plot area for in-frame legends and rule labels.
+  const topInset = typeof spec.params.topInset === 'number' ? spec.params.topInset : axes.xRules?.length ? 12 : 0;
   const margin = {
     ...MARGIN,
+    top: MARGIN.top + topInset,
     bottom: MARGIN.bottom + (axes.xTitle ? 14 : 0),
     left: MARGIN.left + (axes.yTitle ? 14 : 0),
   };
@@ -368,8 +480,8 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       declaredDomain.length === 2 &&
       declaredDomain.every(Number.isFinite)
         ? ([Number(declaredDomain[0]), Number(declaredDomain[1])] as [number, number])
-        : paddedDomain(yValues);
-    if (context?.datumLink) {
+        : paddedDomain(spec.params.yIncludeZero === true ? [...yValues, 0] : yValues);
+    if (context?.datumLink || readable) {
       const pad = (yDomain[1] - yDomain[0]) * 0.05;
       yDomain[0] -= pad;
       yDomain[1] += pad;
@@ -403,7 +515,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       range: [0, innerWidth],
     });
     return { xScale, yScale, catMode: false as const };
-  }, [points, innerWidth, innerHeight, catMode, context?.datumLink, frame, xName, spec.params]);
+  }, [points, innerWidth, innerHeight, catMode, context?.datumLink, readable, frame, xName, spec.params]);
 
   // Empty / degenerate: line & area need >=2 finite points; point needs >=1.
   const minPoints = kind === 'point' ? 1 : 2;
@@ -483,6 +595,21 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
             fillOpacity={0.15}
             stroke="none"
           />
+          {/* Band edges: overlapping bands stay legible (v1 visual 8). */}
+          {(['lo', 'hi'] as const).map((edge) => (
+            <LinePath<SeriesPoint>
+              key={edge}
+              data-testid="plot-band-edge"
+              data={data}
+              defined={(p) => Number.isFinite(p[edge])}
+              x={px}
+              y={(p) => py(p[edge])}
+              stroke={colorFor(data[0])}
+              strokeOpacity={0.4}
+              strokeWidth={1}
+              fill="none"
+            />
+          ))}
         </Group>
       ))
     : null;
@@ -490,8 +617,24 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
   // Datum links (phase 4 v1 function 3/6): ONE tab stop for the point set,
   // roving focus inside (Left/Right along a line, Up/Down across lines,
   // Home/End), keys kept from the viewer's shortcuts.
-  const link = context?.datumLink;
-  const linkedIds = (p: SeriesPoint) => (link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null);
+  const link: EncoderContext['datumLink'] = context?.datumLink ??
+    (readable
+      ? {
+          idColumn: '',
+          focusedId: readFocus,
+          selectedIds: new Set<string>(),
+          onFocus: () => undefined,
+          onToggleSelection: () => undefined,
+          selectable: false,
+          label: (i) => summaryLabel(frame, spec, reduction!, i),
+        }
+      : undefined);
+  const linkedIds = (p: SeriesPoint) =>
+    !link || p.rowIndex === undefined
+      ? null
+      : readable
+        ? `r${p.rowIndex}`
+        : frame.rows[p.rowIndex][link.idColumn];
   const lines = [...groups.values()].map((g) =>
     g.filter((p) => Number.isFinite(p.y) && typeof linkedIds(p) === 'string').sort((a, b) => a.xNum - b.xNum),
   );
@@ -529,6 +672,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     const nextId = linkedIds(target) as string;
     const svg = (event.currentTarget as SVGElement).ownerSVGElement;
     (svg?.querySelector(`[data-datum-id="${CSS.escape(nextId)}"]`) as SVGElement | null)?.focus();
+    if (readable) setReadFocus(nextId);
     if (link.activateOnMove) link.onFocus(nextId);
   };
 
@@ -541,6 +685,33 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       const focused = id === link.focusedId;
       const selected = link.selectedIds.has(id);
       const name = link.label && p.rowIndex !== undefined ? link.label(p.rowIndex) : `${id}: ${p.y}`;
+      if (readable) {
+        // Read-only stops: invisible on a line until focused, the plotted
+        // point itself for point marks; nothing to activate.
+        const shown = kind === 'point' || focused;
+        return (
+          <Circle
+            key={id}
+            cx={px(p)}
+            cy={py(p.y)}
+            r={focused ? 5 : kind === 'point' ? 3 : 4}
+            fill={colorFor(p)}
+            fillOpacity={shown ? 1 : 0}
+            stroke={focused ? 'var(--app-text-primary)' : 'none'}
+            strokeWidth={1.5}
+            role="img"
+            aria-roledescription="data point"
+            tabIndex={id === tabStopId ? 0 : -1}
+            data-datum-id={id}
+            data-testid="plot-readout-point"
+            aria-label={name}
+            onFocus={() => setReadFocus(id)}
+            onKeyDown={(event) => moveFrom(event, id)}
+          >
+            <title>{name}</title>
+          </Circle>
+        );
+      }
       return (
         <Circle
           key={id}
@@ -566,6 +737,28 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
         </Circle>
       );
     });
+
+  // Baseline positions are 0 by construction after subtraction: drawn hollow,
+  // so a forced 0 ± 0 does not read as an estimate (v1 user 7).
+  const baselineRange = spec.params.baselineRange;
+  const hollow =
+    Array.isArray(baselineRange) && baselineRange.length === 2 && !scales.catMode
+      ? points
+          .filter((p) => Number.isFinite(p.y) && p.xNum >= Number(baselineRange[0]) && p.xNum <= Number(baselineRange[1]))
+          .map((p, i) => (
+            <Circle
+              key={`b${i}`}
+              data-testid="plot-baseline-point"
+              cx={px(p)}
+              cy={py(p.y)}
+              r={3}
+              fill="var(--bf-bg-panel)"
+              stroke={colorFor(p)}
+              strokeWidth={1.25}
+              pointerEvents="none"
+            />
+          ))
+      : null;
 
   let geometry: ReactNode = null;
   if (kind === 'line') {
@@ -634,7 +827,8 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     <CartesianMark
       axes={axes}
       margin={margin}
-      interactive={!!context?.datumLink}
+      interactive={!!link}
+      label={plotLabel(frame, spec, reduction, kind)}
       kind={kind}
       width={width}
       height={height}
@@ -646,7 +840,8 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       {ribbon}
       {whiskers}
       {geometry}
-      {kind !== 'point' && context?.datumLink ? markers : null}
+      {hollow}
+      {kind !== 'point' && link ? markers : null}
     </CartesianMark>
   );
 }

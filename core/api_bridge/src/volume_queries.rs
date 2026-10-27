@@ -256,6 +256,42 @@ pub(crate) struct ResolvedVolume {
     pub path: String,
 }
 
+/// A binary search mask on `frame`'s grid from a mask volume: a frame voxel is
+/// inside when the nearest mask voxel (by world position, as region loci map
+/// labels) holds a finite non-zero value. The mask must have one frame.
+pub(crate) fn resample_mask_nearest(
+    mask: &VolumeSendable,
+    frame: &Frame,
+) -> BridgeResult<Vec<bool>> {
+    let invalid = |details: &str| BridgeError::Input {
+        code: 4081,
+        details: details.into(),
+    };
+    if crate::stack_length_for_volume(mask) != 1 {
+        return Err(invalid("A search mask must have one spatial frame."));
+    }
+    let mask_frame = extract_frame(mask, 0)?;
+    let inside = |v: f32| v.is_finite() && v != 0.0;
+    if mask_frame.dims == frame.dims && mask_frame.affine == frame.affine {
+        return Ok(mask_frame.values.iter().map(|v| inside(*v)).collect());
+    }
+    let world_to_mask = mask_frame
+        .affine
+        .try_inverse()
+        .ok_or_else(|| invalid("The search mask affine is not invertible."))?;
+    Ok((0..frame.values.len())
+        .map(|index| {
+            let [i, j, k] = frame.ijk(index);
+            let world = frame
+                .affine
+                .transform_point(&Point3::new(i as f32, j as f32, k as f32));
+            let p = world_to_mask.transform_point(&world);
+            nearest_voxel([p.x, p.y, p.z], mask_frame.dims)
+                .is_some_and(|[x, y, z]| inside(mask_frame.values[mask_frame.index(x, y, z)]))
+        })
+        .collect())
+}
+
 /// Resolve a volume (by id, or through a layer's mapping) and the frame to
 /// read: the explicit `timepoint`, else the volume's current timepoint, else 0.
 pub(crate) async fn resolve_volume(

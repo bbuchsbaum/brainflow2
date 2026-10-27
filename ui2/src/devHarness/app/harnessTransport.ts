@@ -71,7 +71,9 @@ export class HarnessTransport implements BackendTransport {
       return await handler(args ?? {}, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.errors.push({ cmd, message });
+      // A sidecar probe that finds no file (label tables, runs sidecars) is
+      // the normal answer, as in the app; not a handler error.
+      if (!(cmd === 'plugin:fs|read_text_file' && /os error 2/.test(message))) log.errors.push({ cmd, message });
       throw error;
     } finally {
       log.pending -= 1;

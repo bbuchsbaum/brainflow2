@@ -32,6 +32,8 @@ export interface SurfaceDataLayer {
   parcelOverlay?: SurfaceParcelOverlay;
   id: string;
   name: string;
+  /** The overlay file it was loaded from (hemisphere pairing compares subjects). */
+  sourcePath?: string;
   dataHandle?: string;
   values: Float32Array;
   indices?: Uint32Array; // Optional vertex indices for sparse data
