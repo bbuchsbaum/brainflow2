@@ -182,9 +182,9 @@ describe('PlotPanel ↔ plotModeStore handshake (6c)', () => {
 
     render(<PlotPanel defaultMode="histogram" />);
 
-    const tab = screen.getByRole('radio', { name: 'Time series' });
+    const select = screen.getByRole('combobox', { name: 'Plot mode' });
     act(() => {
-      fireEvent.click(tab);
+      fireEvent.change(select, { target: { value: 'crosshair-time-series' } });
     });
 
     expect(usePlotModeStore.getState().activePlotModeId).toBe('crosshair-time-series');

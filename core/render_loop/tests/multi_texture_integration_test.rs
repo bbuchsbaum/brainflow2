@@ -35,9 +35,13 @@ fn test_multi_texture_upload_integration() {
         println!("Uploaded functional volume to texture index {}", func_idx);
         assert_eq!(func_idx, 1);
 
-        // Upload detail patch
-        let (detail_idx, detail_tfm) = service
+        // The patch includes 65535, beyond finite half precision. An explicit
+        // half request must fail without consuming a slot, then R32F preserves it.
+        assert!(service
             .upload_volume_multi_texture(&volumes.detail_patch, wgpu::TextureFormat::R16Float)
+            .is_err());
+        let (detail_idx, detail_tfm) = service
+            .upload_volume_multi_texture(&volumes.detail_patch, wgpu::TextureFormat::R32Float)
             .expect("Failed to upload detail patch");
 
         println!("Uploaded detail patch to texture index {}", detail_idx);

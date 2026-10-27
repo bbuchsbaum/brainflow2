@@ -4,6 +4,7 @@ pub mod population;
 pub mod population_inference;
 mod preview;
 mod promote;
+mod series;
 
 pub use materialize::materialize_compare_panes;
 pub use preview::{
@@ -1976,6 +1977,215 @@ mod tests {
         assert!(!blocked.contract.can_import);
         assert_issue_contains(&blocked, "metadata column z_late is missing");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn save_test_nifti_4d(
+        path: &Path,
+        dims: [u16; 4],
+        value: impl Fn(usize, usize, usize, usize) -> f32,
+    ) {
+        let header = NiftiHeader {
+            dim: [4, dims[0], dims[1], dims[2], dims[3], 1, 1, 1],
+            datatype: 16,
+            bitpix: 32,
+            sform_code: 1,
+            srow_x: [1.0, 0.0, 0.0, 0.0],
+            srow_y: [0.0, 1.0, 0.0, 0.0],
+            srow_z: [0.0, 0.0, 1.0, 0.0],
+            ..NiftiHeader::default()
+        };
+        let shape = dims.map(usize::from);
+        let data = ndarray::Array4::from_shape_fn(
+            (shape[0], shape[1], shape[2], shape[3]),
+            |(i, j, k, t)| value(i, j, k, t),
+        );
+        WriterOptions::new(path)
+            .reference_header(&header)
+            .write_nifti(&data)
+            .expect("write 4D test nifti");
+    }
+
+    /// A FIR-style package: two subjects x two conditions, each member one 4D
+    /// image (2x2x2 voxels x `frames` lags). `axes` is the feature's logical
+    /// axes and `shape` its declared shape.
+    fn write_series_package(label: &str, axes: &str, shape: &str, frames: u16) -> PathBuf {
+        let dir = make_temp_dir(label);
+        fs::create_dir_all(dir.join("maps")).unwrap();
+        let mut observations = String::from("row_id,subject,condition,fir_res\n");
+        let mut resources = String::from("resource_id,backend,locator\n");
+        for subject in ["s01", "s02"] {
+            for condition in ["faces", "houses"] {
+                let id = format!("{subject}_{condition}");
+                observations.push_str(&format!("{id},{subject},{condition},{id}\n"));
+                resources.push_str(&format!("{id},nifti,maps/{id}.nii.gz\n"));
+                save_test_nifti_4d(
+                    &dir.join(format!("maps/{id}.nii.gz")),
+                    [2, 2, 2, frames],
+                    |_, _, _, t| t as f32,
+                );
+            }
+        }
+        fs::write(dir.join("observations.csv"), observations).unwrap();
+        fs::write(dir.join("resources.csv"), resources).unwrap();
+        fs::write(
+            dir.join("nftab.yaml"),
+            format!(
+                r#"spec_version: "0.1.0"
+dataset_id: "fir-series"
+storage_profile: "table-package"
+observation_table: {{ path: "observations.csv", format: "csv" }}
+row_id: "row_id"
+observation_axes: ["subject", "condition"]
+observation_columns:
+  row_id:    {{ dtype: string, nullable: false, semantic_role: row_id }}
+  subject:   {{ dtype: string, nullable: false, semantic_role: subject }}
+  condition: {{ dtype: string, nullable: false, semantic_role: condition }}
+  fir_res:   {{ dtype: string, nullable: true }}
+features:
+  fir:
+    logical:
+      kind: volume
+      axes: {axes}
+      dtype: float32
+      support_ref: "grid"
+      shape: {shape}
+      axis_domains:
+        lag: {{ unit: "TR", start: 0.0, step: 1.0 }}
+    encodings:
+      - type: ref
+        binding: {{ resource_id: {{ column: "fir_res" }} }}
+resources: {{ path: "resources.csv", format: "csv" }}
+supports:
+  grid:
+    support_type: volume
+    support_id: "grid-2"
+    space: "MNI152NLin2009cAsym"
+    grid_id: "grid-2"
+"#
+            ),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn four_d_members_with_a_declared_series_axis_are_compare_ready() {
+        let dir = write_series_package(
+            "fir4d-ready",
+            r#"["x", "y", "z", "lag"]"#,
+            "[2, 2, 2, 6]",
+            6,
+        );
+        let candidate = preview_manifest_candidate(&dir.join("nftab.yaml"));
+        assert_eq!(
+            candidate.contract.readiness,
+            StudioImportReadiness::CompareReady,
+            "{:?}",
+            issue_messages(&candidate)
+        );
+        assert!(issue_messages(&candidate).is_empty());
+        assert_eq!(candidate.set.member_count, 4);
+        let axes = candidate.set.series_axes.as_ref().expect("series axes");
+        assert_eq!(axes.len(), 1);
+        assert_eq!(
+            (axes[0].start, axes[0].step, axes[0].count),
+            (Some(0.0), Some(1.0), Some(6))
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn four_d_members_without_a_series_axis_or_with_a_wrong_count_need_review() {
+        // No series axis: the 4th dimension is ambiguous.
+        let plain = write_series_package("fir4d-plain", r#"["x", "y", "z"]"#, "[2, 2, 2]", 6);
+        let candidate = preview_manifest_candidate(&plain.join("nftab.yaml"));
+        assert_ne!(
+            candidate.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        assert_issue_contains(&candidate, "declare a lag or time axis");
+        fs::remove_dir_all(plain).unwrap();
+        // Declared 4 lags, files hold 6.
+        let mismatch = write_series_package(
+            "fir4d-count",
+            r#"["x", "y", "z", "lag"]"#,
+            "[2, 2, 2, 4]",
+            6,
+        );
+        let candidate = preview_manifest_candidate(&mismatch.join("nftab.yaml"));
+        assert_ne!(
+            candidate.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        assert_issue_contains(&candidate, "has 6 frames but the series axis declares 4");
+        fs::remove_dir_all(mismatch).unwrap();
+        // Single-frame members against a declared 6-lag axis are flagged too.
+        let single = write_series_package(
+            "fir4d-single",
+            r#"["x", "y", "z", "lag"]"#,
+            "[2, 2, 2, 6]",
+            1,
+        );
+        let candidate = preview_manifest_candidate(&single.join("nftab.yaml"));
+        assert_ne!(
+            candidate.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        assert_issue_contains(&candidate, "has 1 frames but the series axis declares 6");
+        fs::remove_dir_all(single).unwrap();
+    }
+
+    /// Synthetic FIR packages (generated by
+    /// .hillclimb/native-check/p4/gen/make_fixtures.py): fir3d stores one 3D
+    /// map per subject x condition x lag (lag observation column), fir4d one
+    /// 4D map per subject x condition (lag feature axis).
+    #[test]
+    fn fir_fixtures_are_compare_ready_with_lag_axes() {
+        let fir3d = copy_neurotabs_fixture("fir3d", "fixture-fir3d");
+        let candidate = preview_manifest_candidate(&fir3d.join("nftab.yaml"));
+        assert_eq!(
+            candidate.contract.readiness,
+            StudioImportReadiness::CompareReady,
+            "fir3d: {:?}",
+            issue_messages(&candidate)
+        );
+        assert_eq!(candidate.set.member_count, 72);
+        let axes = candidate
+            .set
+            .series_axes
+            .as_ref()
+            .expect("fir3d series axes");
+        assert_eq!(axes.len(), 1);
+        assert_eq!(axes[0].kind, bridge_types::SeriesAxisKind::Lag);
+        assert_eq!(
+            axes[0].source,
+            bridge_types::SeriesAxisSource::ObservationColumn {
+                column: "lag".into()
+            }
+        );
+        assert_eq!(axes[0].unit.as_deref(), Some("TR"));
+        fs::remove_dir_all(fir3d).unwrap();
+
+        let fir4d = copy_neurotabs_fixture("fir4d", "fixture-fir4d");
+        let candidate = preview_manifest_candidate(&fir4d.join("nftab.yaml"));
+        assert_eq!(
+            candidate.contract.readiness,
+            StudioImportReadiness::CompareReady,
+            "fir4d: {:?}",
+            issue_messages(&candidate)
+        );
+        assert_eq!(candidate.set.member_count, 12);
+        let axes = candidate
+            .set
+            .series_axes
+            .as_ref()
+            .expect("fir4d series axes");
+        assert_eq!(axes.len(), 1);
+        assert_eq!(
+            (axes[0].start, axes[0].step, axes[0].count),
+            (Some(0.0), Some(1.0), Some(6))
+        );
+        fs::remove_dir_all(fir4d).unwrap();
     }
 
     #[test]

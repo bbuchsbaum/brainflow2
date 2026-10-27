@@ -74,6 +74,7 @@ use brainflow_loaders as core_loaders;
 
 // Import error helpers
 mod analysis;
+mod cluster_labels;
 mod clusters;
 mod command_registry;
 mod error_context;
@@ -83,6 +84,8 @@ mod image_export;
 pub mod image_set;
 mod materialization;
 mod projection_geometry;
+mod raw_ipc;
+mod region_locus;
 mod remote_cache;
 mod remote_transfer;
 mod render_bridge_adapter;
@@ -104,9 +107,12 @@ use error_helpers::*;
 // `command_list.rs` and the TS exporter see them at the crate root.
 use clusters::compute_clusters;
 pub use clusters::{
-    ClusterPolarity, ClusterSign, ClusterSummary, ClusterTable, ComputeClustersRequest,
+    ClusterExtentInference, ClusterExtentMethodRequest, ClusterPolarity, ClusterSign,
+    ClusterSummary, ClusterTable, ComputeClustersRequest, ExtentStatistic, ExtentWithheld, FwhmMm,
+    RftExtentRequest, SubPeak,
 };
 use image_export::save_image_bytes;
+pub use region_locus::{LabelSource, RegionLocus};
 use volume_queries::{volume_extremum, volume_nonzero_bbox};
 pub use volume_queries::{
     ExtremumKind, VolumeExtremumRequest, VolumeNonzeroBbox, VolumeNonzeroBboxRequest, VoxelLocation,
@@ -3629,7 +3635,7 @@ async fn get_initial_views(
     let mut views = HashMap::new();
 
     // Axial view
-    let axial_view = ViewRectMm::full_extent(
+    let axial_view = ViewRectMm::full_extent_to_edges(
         &volume_meta,
         ViewOrientation::Axial,
         crosshair_world,
@@ -3638,7 +3644,7 @@ async fn get_initial_views(
     views.insert("axial".to_string(), axial_view);
 
     // Sagittal view
-    let sagittal_view = ViewRectMm::full_extent(
+    let sagittal_view = ViewRectMm::full_extent_to_edges(
         &volume_meta,
         ViewOrientation::Sagittal,
         crosshair_world,
@@ -3647,7 +3653,7 @@ async fn get_initial_views(
     views.insert("sagittal".to_string(), sagittal_view);
 
     // Coronal view
-    let coronal_view = ViewRectMm::full_extent(
+    let coronal_view = ViewRectMm::full_extent_to_edges(
         &volume_meta,
         ViewOrientation::Coronal,
         crosshair_world,
@@ -3742,7 +3748,8 @@ async fn recalculate_view_for_dimensions(
     debug!("  - crosshair_world: {:?}", crosshair_world);
     debug!("  - screen_px_max: {:?}", screen_px_max);
 
-    let view = ViewRectMm::full_extent(&volume_meta, orientation, crosshair_world, screen_px_max);
+    let view =
+        ViewRectMm::full_extent_to_edges(&volume_meta, orientation, crosshair_world, screen_px_max);
 
     debug!("[Backend] Calculated ViewRectMm:");
     debug!("  - origin_mm: {:?}", view.origin_mm);
@@ -3849,7 +3856,8 @@ async fn recalculate_all_views(
                     key
                 ),
             })?;
-        let view = ViewRectMm::full_extent(&volume_meta, orientation, crosshair_world, dims);
+        let view =
+            ViewRectMm::full_extent_to_edges(&volume_meta, orientation, crosshair_world, dims);
         debug!(
             "[recalculate_all_views] {:?} view -> origin {:?}, dims {}x{}",
             orientation, view.origin_mm, view.width_px, view.height_px
@@ -4258,31 +4266,40 @@ async fn request_layer_gpu_resources_with_upload_hook(
                 spatial_dims[2] as u32,
             ];
 
-            let gpu_format = match volume_data {
-                VolumeSendable::VolF32(_, _) | VolumeSendable::Vec4DF32(_) => {
-                    GpuTextureFormat::R32Float
+            let gpu_format = if metadata_only_flag {
+                // No allocation exists yet; retain a source-type hint for this
+                // provisional response. Uploaded layers report actual storage.
+                match volume_data {
+                    VolumeSendable::VolF32(_, _) | VolumeSendable::Vec4DF32(_) => {
+                        GpuTextureFormat::R32Float
+                    }
+                    VolumeSendable::VolI16(_, _) | VolumeSendable::Vec4DI16(_) => {
+                        GpuTextureFormat::R16Float
+                    }
+                    VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_) => {
+                        GpuTextureFormat::R8Unorm
+                    }
+                    VolumeSendable::VolI8(_, _) | VolumeSendable::Vec4DI8(_) => {
+                        GpuTextureFormat::R8Unorm
+                    }
+                    VolumeSendable::VolU16(_, _) | VolumeSendable::Vec4DU16(_) => {
+                        GpuTextureFormat::R16Float
+                    }
+                    VolumeSendable::VolI32(_, _) | VolumeSendable::Vec4DI32(_) => {
+                        GpuTextureFormat::R32Float
+                    }
+                    VolumeSendable::VolU32(_, _) | VolumeSendable::Vec4DU32(_) => {
+                        GpuTextureFormat::R32Float
+                    }
+                    VolumeSendable::VolF64(_, _) | VolumeSendable::Vec4DF64(_) => {
+                        GpuTextureFormat::R32Float
+                    }
                 }
-                VolumeSendable::VolI16(_, _) | VolumeSendable::Vec4DI16(_) => {
-                    GpuTextureFormat::R16Float
-                }
-                VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_) => {
-                    GpuTextureFormat::R8Unorm
-                }
-                VolumeSendable::VolI8(_, _) | VolumeSendable::Vec4DI8(_) => {
-                    GpuTextureFormat::R8Unorm
-                }
-                VolumeSendable::VolU16(_, _) | VolumeSendable::Vec4DU16(_) => {
-                    GpuTextureFormat::R16Float
-                }
-                VolumeSendable::VolI32(_, _) | VolumeSendable::Vec4DI32(_) => {
-                    GpuTextureFormat::R32Float
-                }
-                VolumeSendable::VolU32(_, _) | VolumeSendable::Vec4DU32(_) => {
-                    GpuTextureFormat::R32Float
-                }
-                VolumeSendable::VolF64(_, _) | VolumeSendable::Vec4DF64(_) => {
-                    GpuTextureFormat::R32Float
-                }
+            } else {
+                let renderer = render_loop_service.as_ref().ok_or_else(|| {
+                    gpu_allocation_error(&ui_layer_id, "Render service unavailable after upload")
+                })?;
+                uploaded_gpu_format(renderer, atlas_layer_idx)?
             };
 
             // Get the affine transform (voxel to world) and extract space info - clone before dropping the guard
@@ -4601,7 +4618,10 @@ async fn request_layer_gpu_resources_with_upload_hook(
                         compute_data_range_from_volume(volume_data)
                     })
             };
-            let is_binary_like = (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0);
+            // Display uses the 0-1 window for any data within [0, 1]; the
+            // reported mask flag requires a true {0, 1} image.
+            let in_unit_range = min_val >= 0.0 && max_val <= 1.0;
+            let is_binary_like = in_unit_range && volume_queries::is_binary_volume(volume_data);
             let data_range = Some(DataRange {
                 min: min_val,
                 max: max_val,
@@ -4681,7 +4701,7 @@ async fn request_layer_gpu_resources_with_upload_hook(
                 let (display_min, display_max) = if is_u8 {
                     // For U8 data, always use 0-1 range because R8Unorm normalizes to this range
                     (0.0, 1.0)
-                } else if is_binary_like && max_val <= 1.0 {
+                } else if in_unit_range {
                     // For float data that's already 0-1
                     (0.0, 1.0)
                 } else {
@@ -4705,7 +4725,7 @@ async fn request_layer_gpu_resources_with_upload_hook(
                     &volume_data,
                     VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_)
                 );
-                let (display_min, display_max) = if is_u8 || (is_binary_like && max_val <= 1.0) {
+                let (display_min, display_max) = if is_u8 || in_unit_range {
                     (0.0, 1.0)
                 } else {
                     (min_val, max_val)
@@ -5756,25 +5776,31 @@ async fn set_crosshair(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.update_slice_outline")]
+// Outline options arrive as separate optional invoke arguments; older callers
+// omit the colour mode and halo.
+#[allow(clippy::too_many_arguments)]
 async fn update_slice_outline(
     enabled: bool,
     outline_layer_index: u32,
     selected_label_id: u32,
     color: Vec<f32>,
     thickness_px: f32,
+    color_mode: Option<OutlineColorMode>,
+    halo_px: Option<f32>,
+    halo_color: Option<Vec<f32>>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    if color.len() != 4 {
-        return Err(BridgeError::Input {
+    let rgba = |values: Vec<f32>, name: &str| -> BridgeResult<[f32; 4]> {
+        values.try_into().map_err(|_| BridgeError::Input {
             code: 2020,
-            details: "color must be a 4-element RGBA array".to_string(),
-        });
-    }
-
-    let color_arr: [f32; 4] = color.try_into().map_err(|_| BridgeError::Internal {
-        code: 5020,
-        details: "Failed to convert outline color to array".to_string(),
-    })?;
+            details: format!("{name} must be a 4-element RGBA array"),
+        })
+    };
+    let color_arr = rgba(color, "color")?;
+    let halo_arr = match halo_color {
+        Some(values) => rgba(values, "haloColor")?,
+        None => default_outline_halo_rgba(),
+    };
 
     let service_guard = state.render_loop_service.lock().await;
     let service_arc = service_guard
@@ -5793,6 +5819,9 @@ async fn update_slice_outline(
         selected_label_id,
         outline_color: color_arr,
         outline_thickness_px: thickness_px.max(1.0),
+        outline_color_mode: color_mode.unwrap_or_default().shader_value(),
+        halo_thickness_px: halo_px.unwrap_or(0.0).max(0.0),
+        halo_color: halo_arr,
         ..SliceFeatureUbo::default()
     });
 
@@ -6106,6 +6135,7 @@ async fn compute_layer_histogram(
     bin_count: Option<u32>,
     range: Option<Vec<f32>>,
     exclude_zeros: Option<bool>,
+    all_frames: Option<bool>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<HistogramResult> {
     info!(
@@ -6220,14 +6250,14 @@ async fn compute_layer_histogram(
         .await
         .get_timepoint(&volume_handle)
         .unwrap_or(0);
+    // `allFrames` pools every frame of a 4D volume; 3D volumes are unaffected.
+    let frames = if all_frames.unwrap_or(false) {
+        histogram::HistogramFrames::All
+    } else {
+        histogram::HistogramFrames::One(timepoint)
+    };
     tokio::task::spawn_blocking(move || {
-        histogram::for_volume(
-            &volume,
-            timepoint,
-            bin_count,
-            range.as_deref(),
-            exclude_zeros,
-        )
+        histogram::for_volume(&volume, frames, bin_count, range.as_deref(), exclude_zeros)
     })
     .await
     .map_err(|error| BridgeError::Internal {
@@ -7795,7 +7825,7 @@ async fn allocate_gpu_resources_for_layer(
         world_to_voxel: [0.0; 16], // Not needed for on-demand allocation
         dim: [1, 1, 1],            // Not needed
         pad_slices: 0,
-        tex_format: GpuTextureFormat::R32Float,
+        tex_format: uploaded_gpu_format(render_service, atlas_idx)?,
         atlas_layer_index: atlas_idx,
         slice_info: SliceInfo {
             // Dummy slice info
@@ -7823,8 +7853,26 @@ async fn allocate_gpu_resources_for_layer(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs(),
-        is_binary_like: (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0),
+        // A true {0, 1} image, not merely data within [0, 1].
+        is_binary_like: min_val >= 0.0
+            && max_val <= 1.0
+            && volume_queries::is_binary_volume(volume_to_upload.as_ref()),
     })
+}
+
+/// Report allocated storage, rather than guessing from the source voxel type.
+fn uploaded_gpu_format(service: &RenderLoopService, slot: u32) -> BridgeResult<GpuTextureFormat> {
+    match service.get_volume_texture_format(slot) {
+        Some(wgpu::TextureFormat::R8Unorm) => Ok(GpuTextureFormat::R8Unorm),
+        Some(wgpu::TextureFormat::R16Float) => Ok(GpuTextureFormat::R16Float),
+        Some(wgpu::TextureFormat::R32Float) => Ok(GpuTextureFormat::R32Float),
+        format => Err(BridgeError::Internal {
+            code: 5015,
+            details: format!(
+                "Unsupported or missing uploaded texture format at slot {slot}: {format:?}"
+            ),
+        }),
+    }
 }
 
 /// Robust layer lookup helper that tries multiple strategies
@@ -7955,14 +8003,22 @@ async fn resolve_requested_render_timepoint(
         });
     }
 
-    Ok((
-        requires_timepoint,
-        if requires_timepoint {
-            requested_timepoint
-        } else {
-            None
-        },
-    ))
+    if !requires_timepoint {
+        return Ok((false, None));
+    }
+    // The view timepoint is shared across layers; a shorter run holds on its
+    // last frame rather than reading past its end.
+    let last_frame = stack_length_for_volume(&entry.data).saturating_sub(1);
+    let resolved = requested_timepoint.map(|timepoint| {
+        if timepoint > last_frame {
+            debug!(
+                "Clamping render timepoint {} to last frame {} for volume '{}'",
+                timepoint, last_frame, volume_id
+            );
+        }
+        timepoint.min(last_frame)
+    });
+    Ok((true, resolved))
 }
 
 async fn invalidate_cached_layer_for_render(
@@ -8196,10 +8252,40 @@ struct LayerOutlineState {
     color: [f32; 4],
     #[serde(rename = "thicknessPx", default = "default_outline_thickness_px")]
     thickness_px: f32,
+    /// "uniform" (default; `color`) or "lut" (each region's palette colour,
+    /// alpha `color[3]` x LUT alpha).
+    #[serde(rename = "colorMode", default)]
+    color_mode: OutlineColorMode,
+    /// Dark halo width in screen pixels; 0 (default) draws none.
+    #[serde(rename = "haloPx", default)]
+    halo_px: f32,
+    #[serde(rename = "haloColor", default = "default_outline_halo_rgba")]
+    halo_color: [f32; 4],
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum OutlineColorMode {
+    #[default]
+    Uniform,
+    Lut,
+}
+
+impl OutlineColorMode {
+    pub(crate) fn shader_value(self) -> u32 {
+        match self {
+            Self::Uniform => 0,
+            Self::Lut => 1,
+        }
+    }
 }
 
 fn default_outline_rgba() -> [f32; 4] {
     [1.0, 1.0, 0.0, 1.0]
+}
+
+fn default_outline_halo_rgba() -> [f32; 4] {
+    [0.0, 0.0, 0.0, 0.6]
 }
 
 fn default_outline_thickness_px() -> f32 {
@@ -8458,9 +8544,12 @@ async fn prepare_frontend_layers_for_render(
     })
 }
 
-// Diagnostics entry point threads many per-render inputs; not worth a params struct.
+type SubmittedFrontendFrame =
+    std::pin::Pin<Box<dyn std::future::Future<Output = BridgeResult<RenderViewTestOutput>> + Send>>;
+
+// Diagnostics entry point threads many per-render inputs.
 #[allow(clippy::too_many_arguments)]
-async fn render_frontend_view_with_diagnostics(
+async fn submit_frontend_view_with_diagnostics(
     frontend_state: &FrontendViewState,
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
@@ -8470,7 +8559,7 @@ async fn render_frontend_view_with_diagnostics(
     service_lock_time: std::time::Duration,
     prepared_layers: Option<&PreparedFrontendLayers>,
     render_view_id: &str,
-) -> BridgeResult<RenderViewTestOutput> {
+) -> BridgeResult<SubmittedFrontendFrame> {
     let total_start = std::time::Instant::now();
     let target = render_bridge_adapter::select_view_target(frontend_state);
     let requested_view = target.requested_view.clone();
@@ -8560,28 +8649,30 @@ async fn render_frontend_view_with_diagnostics(
             };
 
         let total_time = total_start.elapsed() + parse_time + service_lock_time;
-        return Ok(RenderViewTestOutput {
-            data,
-            diagnostics: RenderViewDiagnostics {
-                requested_view,
-                format: format_label,
-                parse_ms: duration_ms(parse_time),
-                service_lock_ms: duration_ms(service_lock_time),
-                target_setup_ms: duration_ms(target_setup_time),
-                layer_processing_ms: duration_ms(layer_processing_time),
-                render_loop_ms: 0.0,
-                encode_ms,
-                total_ms: duration_ms(total_time),
-                visible_layer_count: 0,
-                output_bytes,
-                output_dimensions: [width as u32, height as u32],
-                warnings,
-                frame: render_loop::view_state::FrameDiagnostics {
-                    readback_mode,
-                    ..render_loop::view_state::FrameDiagnostics::default()
+        return Ok(Box::pin(async move {
+            Ok(RenderViewTestOutput {
+                data,
+                diagnostics: RenderViewDiagnostics {
+                    requested_view,
+                    format: format_label,
+                    parse_ms: duration_ms(parse_time),
+                    service_lock_ms: duration_ms(service_lock_time),
+                    target_setup_ms: duration_ms(target_setup_time),
+                    layer_processing_ms: duration_ms(layer_processing_time),
+                    render_loop_ms: 0.0,
+                    encode_ms,
+                    total_ms: duration_ms(total_time),
+                    visible_layer_count: 0,
+                    output_bytes,
+                    output_dimensions: [width as u32, height as u32],
+                    warnings,
+                    frame: render_loop::view_state::FrameDiagnostics {
+                        readback_mode,
+                        ..render_loop::view_state::FrameDiagnostics::default()
+                    },
                 },
-            },
-        });
+            })
+        }));
     }
 
     let backend_view_state =
@@ -8625,156 +8716,169 @@ async fn render_frontend_view_with_diagnostics(
     service.update_slice_feature_ubo(render_bridge_adapter::slice_features_from_frontend_layers(
         &frontend_state.layers,
     ));
-    let frame_result = service
-        .request_frame_with_options(
+    let frame_submission = service
+        .submit_frame_with_options(
             render_loop::view_state::ViewId::new(render_view_id),
             backend_view_state,
             render_loop::view_state::FrameRequestOptions { readback_mode },
         )
-        .await
         .map_err(|e| BridgeError::GpuError {
             code: 8011,
             details: format!("Failed to render frame: {:?}", e),
-        })?;
-    let render_time = render_start.elapsed();
-    info!("⏱️  GPU render (request_frame) took: {:?}", render_time);
+        })?
+        .into_snapshot();
+    Ok(Box::pin(async move {
+        let frame_result =
+            frame_submission
+                .complete()
+                .await
+                .map_err(|error| BridgeError::GpuError {
+                    code: 8011,
+                    details: format!("Failed to complete frame: {error}"),
+                })?;
+        let render_time = render_start.elapsed();
+        info!("⏱️  GPU render (request_frame) took: {:?}", render_time);
 
-    info!(
-        "Frame rendered successfully: {}x{}, {} bytes, {} layers rendered",
-        frame_result.dimensions[0],
-        frame_result.dimensions[1],
-        frame_result.image_data.len(),
-        frame_result.rendered_layers.len()
-    );
+        info!(
+            "Frame rendered successfully: {}x{}, {} bytes, {} layers rendered",
+            frame_result.dimensions[0],
+            frame_result.dimensions[1],
+            frame_result.image_data.len(),
+            frame_result.rendered_layers.len()
+        );
 
-    if !frame_result.warnings.is_empty() {
-        info!("Render warnings: {:?}", frame_result.warnings);
-    }
-
-    if frame_result.image_data.len() >= 400 {
-        let width = frame_result.dimensions[0] as usize;
-        let height = frame_result.dimensions[1] as usize;
-        let center_x = width / 2;
-        let center_y = height / 2;
-        let center_idx = (center_y * width + center_x) * 4;
-
-        if center_idx + 3 < frame_result.image_data.len() {
-            let center_pixel = &frame_result.image_data[center_idx..center_idx + 4];
-            info!(
-                "Center pixel RGBA: [{}, {}, {}, {}]",
-                center_pixel[0], center_pixel[1], center_pixel[2], center_pixel[3]
-            );
+        if !frame_result.warnings.is_empty() {
+            info!("Render warnings: {:?}", frame_result.warnings);
         }
 
-        let mut non_black_count = 0;
-        let mut max_value = 0u8;
-        let sample_step = std::cmp::max(1, width / 10);
+        if frame_result.image_data.len() >= 400 {
+            let width = frame_result.dimensions[0] as usize;
+            let height = frame_result.dimensions[1] as usize;
+            let center_x = width / 2;
+            let center_y = height / 2;
+            let center_idx = (center_y * width + center_x) * 4;
 
-        for y in (0..height).step_by(sample_step) {
-            for x in (0..width).step_by(sample_step) {
-                let idx = (y * width + x) * 4;
-                if idx + 3 < frame_result.image_data.len() {
-                    let r = frame_result.image_data[idx];
-                    let g = frame_result.image_data[idx + 1];
-                    let b = frame_result.image_data[idx + 2];
-                    max_value = max_value.max(r).max(g).max(b);
-                    if r > 0 || g > 0 || b > 0 {
-                        non_black_count += 1;
+            if center_idx + 3 < frame_result.image_data.len() {
+                let center_pixel = &frame_result.image_data[center_idx..center_idx + 4];
+                info!(
+                    "Center pixel RGBA: [{}, {}, {}, {}]",
+                    center_pixel[0], center_pixel[1], center_pixel[2], center_pixel[3]
+                );
+            }
+
+            let mut non_black_count = 0;
+            let mut max_value = 0u8;
+            let sample_step = std::cmp::max(1, width / 10);
+
+            for y in (0..height).step_by(sample_step) {
+                for x in (0..width).step_by(sample_step) {
+                    let idx = (y * width + x) * 4;
+                    if idx + 3 < frame_result.image_data.len() {
+                        let r = frame_result.image_data[idx];
+                        let g = frame_result.image_data[idx + 1];
+                        let b = frame_result.image_data[idx + 2];
+                        max_value = max_value.max(r).max(g).max(b);
+                        if r > 0 || g > 0 || b > 0 {
+                            non_black_count += 1;
+                        }
                     }
                 }
             }
+
+            let total_samples = ((height / sample_step) + 1) * ((width / sample_step) + 1);
+            let non_black_percentage = (non_black_count as f32 / total_samples as f32) * 100.0;
+
+            info!(
+                "Pixel sampling: {}/{} non-black pixels ({:.1}%), max value: {}",
+                non_black_count, total_samples, non_black_percentage, max_value
+            );
+
+            if non_black_percentage < 5.0 {
+                warn!(
+                    "Rendered image appears to be mostly black! Check intensity window settings."
+                );
+            }
         }
 
-        let total_samples = ((height / sample_step) + 1) * ((width / sample_step) + 1);
-        let non_black_percentage = (non_black_count as f32 / total_samples as f32) * 100.0;
+        let width = frame_result.dimensions[0];
+        let height = frame_result.dimensions[1];
+        let visible_layer_count = frame_result.rendered_layers.len();
+        let frame_diagnostics = frame_result.diagnostics.clone();
+        let frame_warnings = frame_result.warnings.clone();
+        let rgba_data = frame_result.image_data;
 
-        info!(
-            "Pixel sampling: {}/{} non-black pixels ({:.1}%), max value: {}",
-            non_black_count, total_samples, non_black_percentage, max_value
-        );
+        let (result, encode_time) = if readback_mode
+            == render_loop::view_state::FrameReadbackMode::Skip
+        {
+            (Vec::new(), std::time::Duration::ZERO)
+        } else if format == RenderFormat::RawRgba {
+            info!("🚀 RAW RGBA: Skipping PNG encoding, returning raw pixel data");
+            let rgba_len = rgba_data.len();
+            let raw_buffer = render_bridge_adapter::encode_raw_rgba_frame(width, height, rgba_data);
 
-        if non_black_percentage < 5.0 {
-            warn!("Rendered image appears to be mostly black! Check intensity window settings.");
-        }
-    }
+            info!(
+                "🚀 RAW RGBA: Returning {} bytes (8 byte header + {} RGBA bytes)",
+                raw_buffer.len(),
+                rgba_len
+            );
 
-    let width = frame_result.dimensions[0];
-    let height = frame_result.dimensions[1];
-    let visible_layer_count = frame_result.rendered_layers.len();
-    let frame_diagnostics = frame_result.diagnostics.clone();
-    let frame_warnings = frame_result.warnings.clone();
-    let rgba_data = frame_result.image_data;
-
-    let (result, encode_time) = if readback_mode == render_loop::view_state::FrameReadbackMode::Skip
-    {
-        (Vec::new(), std::time::Duration::ZERO)
-    } else if format == RenderFormat::RawRgba {
-        info!("🚀 RAW RGBA: Skipping PNG encoding, returning raw pixel data");
-        let rgba_len = rgba_data.len();
-        let raw_buffer = render_bridge_adapter::encode_raw_rgba_frame(width, height, rgba_data);
-
-        info!(
-            "🚀 RAW RGBA: Returning {} bytes (8 byte header + {} RGBA bytes)",
-            raw_buffer.len(),
-            rgba_len
-        );
-
-        (raw_buffer, std::time::Duration::ZERO)
-    } else {
-        let png_encode_start = std::time::Instant::now();
-        let png_data = image_export::encode_still_frame(format, width, height, rgba_data)?;
-        let png_encode_time = png_encode_start.elapsed();
-        info!(
-            "⏱️  {} encoding took: {:?}",
-            format.label(),
-            png_encode_time
-        );
-        info!(
-            "Backend: Encoded RGBA to {} - {} bytes ({}x{})",
-            format.label(),
-            png_data.len(),
-            width,
-            height
-        );
-
-        (png_data, png_encode_time)
-    };
-
-    let total_time = total_start.elapsed() + parse_time + service_lock_time;
-    debug!(
-        "⏱️  TOTAL render_frontend_view_with_diagnostics time: {:?}",
-        total_time
-    );
-    debug!(
-        "⏱️  Mode: {}, Total size: {} bytes",
-        if format == RenderFormat::RawRgba {
-            "RAW RGBA"
+            (raw_buffer, std::time::Duration::ZERO)
         } else {
-            "PNG"
-        },
-        result.len()
-    );
-    let output_bytes = result.len();
+            let png_encode_start = std::time::Instant::now();
+            let png_data = image_export::encode_still_frame(format, width, height, rgba_data)?;
+            let png_encode_time = png_encode_start.elapsed();
+            info!(
+                "⏱️  {} encoding took: {:?}",
+                format.label(),
+                png_encode_time
+            );
+            info!(
+                "Backend: Encoded RGBA to {} - {} bytes ({}x{})",
+                format.label(),
+                png_data.len(),
+                width,
+                height
+            );
 
-    Ok(RenderViewTestOutput {
-        data: result,
-        diagnostics: RenderViewDiagnostics {
-            requested_view,
-            format: format_label,
-            parse_ms: duration_ms(parse_time),
-            service_lock_ms: duration_ms(service_lock_time),
-            target_setup_ms: duration_ms(target_setup_time),
-            layer_processing_ms: duration_ms(layer_processing_time),
-            render_loop_ms: duration_ms(render_time),
-            encode_ms: duration_ms(encode_time),
-            total_ms: duration_ms(total_time),
-            visible_layer_count,
-            output_bytes,
-            output_dimensions: [width, height],
-            warnings: frame_warnings,
-            frame: frame_diagnostics,
-        },
-    })
+            (png_data, png_encode_time)
+        };
+
+        let total_time = total_start.elapsed() + parse_time + service_lock_time;
+        debug!(
+            "⏱️  TOTAL render_frontend_view_with_diagnostics time: {:?}",
+            total_time
+        );
+        debug!(
+            "⏱️  Mode: {}, Total size: {} bytes",
+            if format == RenderFormat::RawRgba {
+                "RAW RGBA"
+            } else {
+                "PNG"
+            },
+            result.len()
+        );
+        let output_bytes = result.len();
+
+        Ok(RenderViewTestOutput {
+            data: result,
+            diagnostics: RenderViewDiagnostics {
+                requested_view,
+                format: format_label,
+                parse_ms: duration_ms(parse_time),
+                service_lock_ms: duration_ms(service_lock_time),
+                target_setup_ms: duration_ms(target_setup_time),
+                layer_processing_ms: duration_ms(layer_processing_time),
+                render_loop_ms: duration_ms(render_time),
+                encode_ms: duration_ms(encode_time),
+                total_ms: duration_ms(total_time),
+                visible_layer_count,
+                output_bytes,
+                output_dimensions: [width, height],
+                warnings: frame_warnings,
+                frame: frame_diagnostics,
+            },
+        })
+    }))
 }
 
 // Internal implementation that supports both PNG and raw RGBA output
@@ -8829,19 +8933,20 @@ async fn render_view_process_with_diagnostics(
     );
 
     let service_lock_start = std::time::Instant::now();
-    let service_guard = bridge_state.render_loop_service.lock().await;
-    let service_arc = service_guard
-        .as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized {
-            code: 5006,
-            details:
-                "GPU rendering service is not initialized. Please initialize the render loop first."
-                    .to_string(),
-        })?;
+    let service_arc = {
+        let service_guard = bridge_state.render_loop_service.lock().await;
+        service_guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| BridgeError::ServiceNotInitialized {
+                code: 5006,
+                details: "GPU rendering service is not initialized".into(),
+            })?
+    };
     let mut service = service_arc.lock().await;
     let service_lock_time = service_lock_start.elapsed();
 
-    render_frontend_view_with_diagnostics(
+    let submitted = submit_frontend_view_with_diagnostics(
         &frontend_state,
         bridge_state,
         &mut service,
@@ -8852,7 +8957,9 @@ async fn render_view_process_with_diagnostics(
         None,
         "frontend_view",
     )
-    .await
+    .await?;
+    drop(service);
+    submitted.await
 }
 
 #[doc(hidden)]
@@ -8970,7 +9077,7 @@ async fn render_views_process_with_diagnostics(
         let mut state_for_view = base_state.clone();
         state_for_view.requested_view = Some(request);
         let view_id = format!("frontend_multi_{index}");
-        let result = render_frontend_view_with_diagnostics(
+        let result = submit_frontend_view_with_diagnostics(
             &state_for_view,
             bridge_state,
             &mut service,
@@ -8981,6 +9088,7 @@ async fn render_views_process_with_diagnostics(
             Some(&prepared_layers),
             &view_id,
         )
+        .await?
         .await?;
         readback_views.push((
             render_loop::view_state::ViewId::new(view_id),
@@ -8990,14 +9098,22 @@ async fn render_views_process_with_diagnostics(
         per_view.push(result.diagnostics);
     }
     let readback_start = std::time::Instant::now();
-    let images = service
-        .read_views_to_images_sized(&readback_views)
+    let pending_readback = service
+        .submit_views_readback(&readback_views)
+        .map_err(|error| BridgeError::GpuError {
+            code: 5021,
+            details: format!("Failed to submit orthogonal readback: {error}"),
+        })?
+        .into_snapshot();
+    drop(service);
+    let images = pending_readback
+        .complete()
+        .await
         .map_err(|error| BridgeError::GpuError {
             code: 5021,
             details: format!("Failed to read orthogonal views: {error}"),
         })?;
     let readback_ms = duration_ms(readback_start.elapsed());
-    drop(service);
     for (index, rgba) in images.into_iter().enumerate() {
         let [width, height] = readback_views[index].1;
         let encode_start = std::time::Instant::now();
@@ -9528,20 +9644,33 @@ async fn batch_render_slices(
             view_ids.push(view_id);
         }
 
-        // Phase 2: one encoder, one submit, one poll(Wait) for all N slices.
-        let images = service
-            .read_views_to_images(
-                &view_ids,
-                [
-                    batch_request.width_per_slice,
-                    batch_request.height_per_slice,
-                ],
-            )
+        let views: Vec<_> = view_ids
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    [
+                        batch_request.width_per_slice,
+                        batch_request.height_per_slice,
+                    ],
+                )
+            })
+            .collect();
+        let pending = service
+            .submit_views_readback(&views)
             .map_err(|e| BridgeError::GpuError {
                 code: 5021,
-                details: format!("Failed to read back batch: {}", e),
-            })?;
+                details: format!("Failed to submit batch readback: {e}"),
+            })?
+            .into_snapshot();
         drop(service);
+        let images = pending
+            .complete()
+            .await
+            .map_err(|e| BridgeError::GpuError {
+                code: 5021,
+                details: format!("Failed to read batch: {e}"),
+            })?;
 
         for (idx, rgba_data) in images.iter().enumerate() {
             if rgba_data.len() != expected_size {
@@ -9561,17 +9690,25 @@ async fn batch_render_slices(
         // Legacy fallback (kill-switch): render + blocking readback per slice.
         for (idx, view_state) in view_states.iter().enumerate() {
             let mut service = service_arc.lock().await;
-            let frame_result = service
-                .request_frame(
+            let submission = service
+                .submit_frame_with_options(
                     render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx)),
                     view_state.clone(),
+                    render_loop::view_state::FrameRequestOptions::default(),
                 )
-                .await
                 .map_err(|e| BridgeError::GpuError {
                     code: 8011,
                     details: format!("Failed to render slice {}: {:?}", idx, e),
-                })?;
+                })?
+                .into_snapshot();
             drop(service);
+            let frame_result = submission
+                .complete()
+                .await
+                .map_err(|e| BridgeError::GpuError {
+                    code: 8011,
+                    details: format!("Failed to complete slice {}: {e}", idx),
+                })?;
 
             let rgba_data = frame_result.image_data;
             if rgba_data.len() != expected_size {
@@ -11685,7 +11822,29 @@ async fn sample_stack_impl(
     reduce: &str,
     state: &BridgeState,
 ) -> BridgeResult<Vec<f32>> {
-    if world_mm.len() != 3 {
+    sample_stack_locus_impl(layer_id, world_mm, radius_mm, reduce, None, state).await
+}
+
+/// [`sample_stack_impl`] with an optional region locus, which replaces the
+/// point/sphere (`world_mm`, `radius_mm` are then ignored): the region is
+/// mapped onto the layer's grid and reduced per stack index.
+async fn sample_stack_locus_impl(
+    layer_id: &str,
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    region: Option<&region_locus::RegionLocus>,
+    state: &BridgeState,
+) -> BridgeResult<Vec<f32>> {
+    // Prepare the region before taking the registry lock (it may read the
+    // registry or the sample cache itself).
+    let prepared_region = match region {
+        Some(locus) => {
+            Some(region_locus::prepare_region(locus, state, &SampleCancellation::default()).await?)
+        }
+        None => None,
+    };
+    if prepared_region.is_none() && world_mm.len() != 3 {
         return Err(BridgeError::Input {
             code: 2016,
             details: "world_mm must be [x, y, z] in mm".to_string(),
@@ -11716,16 +11875,21 @@ async fn sample_stack_impl(
 
     let stack_len = stack_length_for_volume(volume_data);
 
-    // Transform the requested world point to (fractional) voxel coordinates.
-    let world_to_voxel = get_affine_from_volume(volume_data)?.inverse();
-    let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
-    let voxel_point = world_to_voxel.transform_point(&world_point);
-    let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
+    let voxels = match &prepared_region {
+        Some(region) => region.member_voxels(volume_data)?.as_ref().clone(),
+        None => {
+            // Transform the requested world point to (fractional) voxel coordinates.
+            let world_to_voxel = get_affine_from_volume(volume_data)?.inverse();
+            let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
+            let voxel_point = world_to_voxel.transform_point(&world_point);
+            let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
 
-    let dims = get_spatial_dims_from_volume(volume_data);
-    let spacing = get_spacing_from_volume(volume_data);
+            let dims = get_spatial_dims_from_volume(volume_data);
+            let spacing = get_spacing_from_volume(volume_data);
 
-    let voxels = gather_locus_voxels(center_voxel, &dims, spacing, radius_mm)?;
+            gather_locus_voxels(center_voxel, &dims, spacing, radius_mm)?
+        }
+    };
 
     // No in-bounds voxels -> zeros of the correct stack length.
     if voxels.is_empty() {
@@ -11766,9 +11930,18 @@ async fn sample_stack(
     world_mm: Vec<f32>,
     radius_mm: f32,
     reduce: String,
+    region: Option<region_locus::RegionLocus>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<f32>> {
-    sample_stack_impl(&layer_id, &world_mm, radius_mm, &reduce, state.inner()).await
+    sample_stack_locus_impl(
+        &layer_id,
+        &world_mm,
+        radius_mm,
+        &reduce,
+        region.as_ref(),
+        state.inner(),
+    )
+    .await
 }
 
 #[doc(hidden)]
@@ -12035,23 +12208,33 @@ fn gather_member_roi_values(
     radius_mm: f32,
     stack_index: usize,
     mask: Option<&population_mask::PreparedMask>,
+    region: Option<&region_locus::PreparedRegion>,
 ) -> Vec<f32> {
-    // Transform the requested world point into (fractional) voxel coordinates.
-    let affine = match get_affine_from_volume(volume_data) {
-        Ok(affine) => affine,
-        Err(_) => return Vec::new(),
-    };
-    let world_to_voxel = affine.inverse();
-    let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
-    let voxel_point = world_to_voxel.transform_point(&world_point);
-    let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
+    let voxels = match region {
+        // Region locus: the label region resampled onto this member's grid.
+        Some(region) => match region.member_voxels(volume_data) {
+            Ok(voxels) => voxels,
+            Err(_) => return Vec::new(),
+        },
+        None => {
+            // Transform the requested world point into (fractional) voxel coordinates.
+            let affine = match get_affine_from_volume(volume_data) {
+                Ok(affine) => affine,
+                Err(_) => return Vec::new(),
+            };
+            let world_to_voxel = affine.inverse();
+            let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
+            let voxel_point = world_to_voxel.transform_point(&world_point);
+            let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
 
-    let dims = get_spatial_dims_from_volume(volume_data);
-    let spacing = get_spacing_from_volume(volume_data);
+            let dims = get_spatial_dims_from_volume(volume_data);
+            let spacing = get_spacing_from_volume(volume_data);
 
-    let voxels = match gather_locus_voxels(center_voxel, &dims, spacing, radius_mm) {
-        Ok(voxels) => voxels,
-        Err(_) => return Vec::new(),
+            match gather_locus_voxels(center_voxel, &dims, spacing, radius_mm) {
+                Ok(voxels) => Arc::new(voxels),
+                Err(_) => return Vec::new(),
+            }
+        }
     };
     if voxels.is_empty() {
         return Vec::new();
@@ -12059,7 +12242,7 @@ fn gather_member_roi_values(
 
     // The caller validates the explicit frame before gathering spatial values.
     let mut vals: Vec<f32> = Vec::with_capacity(voxels.len());
-    for (x, y, z) in voxels {
+    for &(x, y, z) in voxels.iter() {
         if mask.is_some_and(|mask| !mask.includes(x, y, z)) {
             continue;
         }
@@ -12084,7 +12267,7 @@ fn sample_member_volume(
     radius_mm: f32,
     reduce: &str,
 ) -> f32 {
-    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm, 0, None);
+    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm, 0, None, None);
     if vals.is_empty() {
         return f32::NAN;
     }
@@ -12139,6 +12322,9 @@ pub struct MemberTrace {
     pub count: u32,
     pub source_revision: Option<set_sample_cache::SampleSourceRevision>,
     pub mask_revision: Option<set_sample_cache::SampleSourceRevision>,
+    /// Digest of a path-backed region label volume (region loci only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region_revision: Option<set_sample_cache::SampleSourceRevision>,
     pub error: Option<String>,
 }
 
@@ -12218,6 +12404,7 @@ async fn resolve_member_source_path(
 }
 
 /// Resolve and sample a single immutable decoded snapshot on a blocking worker.
+#[allow(clippy::too_many_arguments)] // Point/sphere operands plus optional mask and region.
 async fn sample_member_source(
     member: &SetMemberRef,
     path: PathBuf,
@@ -12226,6 +12413,7 @@ async fn sample_member_source(
     state: &BridgeState,
     cancellation: &SampleCancellation,
     mask: Option<Arc<population_mask::PreparedMask>>,
+    region: Option<Arc<region_locus::PreparedRegion>>,
 ) -> BridgeResult<(Vec<f32>, set_sample_cache::SampleSourceRevision)> {
     cancellation.check()?;
     let world = world_mm.to_vec();
@@ -12244,7 +12432,7 @@ async fn sample_member_source(
         if frame >= frames {
             return Err(BridgeError::Input { code: 2025, details: format!("stackIndex {frame} is outside the source's {frames} frames.") });
         }
-        Ok((gather_member_roi_values(volume, &world, radius_mm, frame, mask.as_deref()), revision.clone()))
+        Ok((gather_member_roi_values(volume, &world, radius_mm, frame, mask.as_deref(), region.as_deref()), revision.clone()))
     }).await
 }
 
@@ -12287,7 +12475,33 @@ async fn sample_set_at_world_impl(
     cancellation: &SampleCancellation,
     mask: Option<&population_mask::MaskSource>,
 ) -> BridgeResult<Vec<MemberSample>> {
-    let traces = sample_set_trace_at_world_impl(
+    sample_set_at_locus_impl(
+        members,
+        world_mm,
+        radius_mm,
+        reduce,
+        state,
+        cancellation,
+        mask,
+        None,
+    )
+    .await
+}
+
+/// [`sample_set_at_world_impl`] with an optional region locus, which replaces
+/// the point/sphere (`world_mm`, `radius_mm` are then ignored).
+#[allow(clippy::too_many_arguments)] // Point/sphere operands plus optional mask and region.
+async fn sample_set_at_locus_impl(
+    members: &[SetMemberRef],
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    state: &BridgeState,
+    cancellation: &SampleCancellation,
+    mask: Option<&population_mask::MaskSource>,
+    region: Option<&region_locus::RegionLocus>,
+) -> BridgeResult<Vec<MemberSample>> {
+    let traces = sample_set_trace_at_locus_impl(
         members,
         world_mm,
         radius_mm,
@@ -12296,6 +12510,7 @@ async fn sample_set_at_world_impl(
         state,
         cancellation,
         mask,
+        region,
     )
     .await?;
     Ok(traces
@@ -12313,6 +12528,7 @@ async fn sample_set_at_world_impl(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.sample_set_at_world")]
+#[allow(clippy::too_many_arguments)] // Existing operands plus optional mask and region.
 async fn sample_set_at_world(
     members: Vec<SetMemberRef>,
     world_mm: Vec<f32>,
@@ -12320,6 +12536,7 @@ async fn sample_set_at_world(
     reduce: String,
     ticket: Option<SampleTicket>,
     mask: Option<population_mask::MaskSource>,
+    region: Option<region_locus::RegionLocus>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberSample>> {
     let cancellation = ticket
@@ -12327,7 +12544,7 @@ async fn sample_set_at_world(
         .map(|ticket| state.population_sampling.begin(ticket))
         .transpose()?
         .unwrap_or_default();
-    sample_set_at_world_impl(
+    sample_set_at_locus_impl(
         &members,
         &world_mm,
         radius_mm,
@@ -12335,6 +12552,7 @@ async fn sample_set_at_world(
         state.inner(),
         &cancellation,
         mask.as_ref(),
+        region.as_ref(),
     )
     .await
 }
@@ -12378,7 +12596,40 @@ async fn sample_set_trace_at_world_impl(
     cancellation: &SampleCancellation,
     mask: Option<&population_mask::MaskSource>,
 ) -> BridgeResult<Vec<MemberTrace>> {
-    validate_set_sample_request(members, world_mm, radius_mm, reduce)?;
+    sample_set_trace_at_locus_impl(
+        members,
+        world_mm,
+        radius_mm,
+        reduce,
+        band,
+        state,
+        cancellation,
+        mask,
+        None,
+    )
+    .await
+}
+
+/// [`sample_set_trace_at_world_impl`] with an optional region locus, which
+/// replaces the point/sphere (`world_mm`, `radius_mm` are then ignored). The
+/// region is prepared once and mapped onto each member grid
+/// ([`region_locus`]); each member's explicit `stackIndex` applies as usual.
+#[allow(clippy::too_many_arguments)] // Existing sampling operands plus mask and region.
+async fn sample_set_trace_at_locus_impl(
+    members: &[SetMemberRef],
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    band: &str,
+    state: &BridgeState,
+    cancellation: &SampleCancellation,
+    mask: Option<&population_mask::MaskSource>,
+    region: Option<&region_locus::RegionLocus>,
+) -> BridgeResult<Vec<MemberTrace>> {
+    match region {
+        Some(_) => validate_set_sample_request(members, &[0.0; 3], 0.0, reduce)?,
+        None => validate_set_sample_request(members, world_mm, radius_mm, reduce)?,
+    }
     if !matches!(band, "none" | "sd" | "sem95" | "ci95" | "iqr") {
         return Err(BridgeError::Input {
             code: 2016,
@@ -12401,11 +12652,46 @@ async fn sample_set_trace_at_world_impl(
         Some(mask) => Some(resolve_member_source_path(&mask.source_path, state).await?),
         None => None,
     };
+    // A path-backed region label joins the whole-query source guard. A frozen
+    // query (pinned member or mask digests) must also pin the label digest.
+    let frozen = members.iter().any(|m| m.expected_sha256.is_some())
+        || mask.is_some_and(|m| m.expected_sha256.is_some());
+    let region_path = match region.map(|locus| &locus.label_source) {
+        // In-memory layers and registered volumes have no digest to pin, so a
+        // frozen query cannot reproduce them.
+        Some(
+            region_locus::LabelSource::Layer { .. } | region_locus::LabelSource::Volume { .. },
+        ) if frozen => {
+            return Err(BridgeError::Input {
+                code: 2027,
+                details: "A frozen population query needs a region label file \
+                          (labelSource type \"path\" with expectedSha256); layer and \
+                          registered-volume regions cannot be pinned."
+                    .into(),
+            });
+        }
+        Some(region_locus::LabelSource::Path {
+            path,
+            expected_sha256,
+        }) => {
+            if frozen && expected_sha256.is_none() {
+                return Err(BridgeError::Input {
+                    code: 2027,
+                    details: "A frozen population query must pin the region label volume \
+                              (labelSource.expectedSha256)."
+                        .into(),
+                });
+            }
+            Some(resolve_member_source_path(path, state).await?)
+        }
+        _ => None,
+    };
     let guard = set_sample_cache::QuerySourceGuard::capture(
         paths
             .iter()
             .filter_map(|path| path.as_ref().ok().cloned())
             .chain(mask_path.iter().cloned())
+            .chain(region_path.iter().cloned())
             .collect(),
         cancellation.clone(),
     )
@@ -12415,6 +12701,10 @@ async fn sample_set_trace_at_world_impl(
             Some(population_mask::prepare_mask(source, path, state, cancellation).await?)
         }
         _ => None,
+    };
+    let prepared_region = match region {
+        Some(locus) => Some(region_locus::prepare_region(locus, state, cancellation).await?),
+        None => None,
     };
     let mut traces = Vec::with_capacity(members.len());
     for (member, path) in members.iter().zip(paths) {
@@ -12428,6 +12718,7 @@ async fn sample_set_trace_at_world_impl(
                 state,
                 cancellation,
                 mask.clone(),
+                prepared_region.clone(),
             )
             .await
             .map_err(|error| error.to_string()),
@@ -12450,8 +12741,13 @@ async fn sample_set_trace_at_world_impl(
         };
         cancellation.check()?;
         let error = error.or_else(|| {
-            vals.is_empty()
-                .then(|| "No finite measurements at this spatial probe.".to_string())
+            vals.is_empty().then(|| {
+                if prepared_region.is_some() {
+                    "No finite measurements in this region.".to_string()
+                } else {
+                    "No finite measurements at this spatial probe.".to_string()
+                }
+            })
         });
         let value = if vals.is_empty() {
             f32::NAN
@@ -12469,6 +12765,9 @@ async fn sample_set_trace_at_world_impl(
             count: vals.len() as u32,
             source_revision,
             mask_revision: mask.as_ref().map(|mask| mask.revision.clone()),
+            region_revision: prepared_region
+                .as_ref()
+                .and_then(|region| region.revision.clone()),
             error,
         });
     }
@@ -12488,6 +12787,7 @@ async fn sample_set_trace_at_world(
     band: String,
     ticket: Option<SampleTicket>,
     mask: Option<population_mask::MaskSource>,
+    region: Option<region_locus::RegionLocus>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberTrace>> {
     let cancellation = ticket
@@ -12495,7 +12795,7 @@ async fn sample_set_trace_at_world(
         .map(|ticket| state.population_sampling.begin(ticket))
         .transpose()?
         .unwrap_or_default();
-    sample_set_trace_at_world_impl(
+    sample_set_trace_at_locus_impl(
         &members,
         &world_mm,
         radius_mm,
@@ -12504,6 +12804,7 @@ async fn sample_set_trace_at_world(
         state.inner(),
         &cancellation,
         mask.as_ref(),
+        region.as_ref(),
     )
     .await
 }
@@ -12601,12 +12902,21 @@ async fn replay_population_summary(
 }
 
 /// Save a bounded population graphic or recipe to a newly chosen output file.
+/// Raw body = file bytes; `x-brainflow-path` and `x-brainflow-format` headers
+/// (percent-encoded) carry the destination and "png" | "json".
 #[command]
-async fn export_population_plot(
-    path: String,
-    bytes: Vec<u8>,
-    format: String,
-) -> BridgeResult<String> {
+async fn export_population_plot(request: tauri::ipc::Request<'_>) -> BridgeResult<String> {
+    let body = raw_ipc::raw_body(request.body(), "export_population_plot")?;
+    // Same cap as population_plot_export::save, checked before copying.
+    if body.len() > population_plot_export::MAX_PLOT_BYTES {
+        return Err(BridgeError::Input {
+            code: 6451,
+            details: "Plot exports are limited to 16 MiB.".into(),
+        });
+    }
+    let bytes = body.to_vec();
+    let path = raw_ipc::required_header(request.headers(), "x-brainflow-path")?;
+    let format = raw_ipc::required_header(request.headers(), "x-brainflow-format")?;
     tokio::task::spawn_blocking(move || population_plot_export::save(&path, &bytes, &format))
         .await
         .map_err(|e| BridgeError::Input {
@@ -13487,6 +13797,10 @@ mod tests {
             )
             .await
             .unwrap();
+            assert!(
+                matches!(initial.tex_format, GpuTextureFormat::R16Float),
+                "small f32 source values are stored as half precision and metadata must report it"
+            );
             let service = state
                 .render_loop_service
                 .lock()

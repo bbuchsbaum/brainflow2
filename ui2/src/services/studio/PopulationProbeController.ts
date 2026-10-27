@@ -133,6 +133,8 @@ export function buildPopulationProbeQuery(
       worldMm: [...probe.worldMm],
       radiusMm: probe.radiusMm,
       ...(resolved.source.mask ? { mask: resolved.source.mask } : {}),
+      // A region probe reduces each observation over the region (E2/E3).
+      ...(probe.region ? { region: probe.region.locus } : {}),
     },
   };
   const key = JSON.stringify([datasetKey, probe.supportKey, request]);

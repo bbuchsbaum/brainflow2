@@ -121,6 +121,7 @@ fn manifest_blocked_candidate(manifest_path: &str, message: &str) -> StudioImpor
             member_summaries: Vec::new(),
             member_ids: Vec::new(),
             saved_cohort_ids: Vec::new(),
+            series_axes: None,
             ingest_audit: StudioIngestAuditSummary {
                 source_label: "NeuroTabs manifest".to_string(),
                 join: StudioJoinAuditSummary {
@@ -292,6 +293,7 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
         member_summaries: observation_table.member_summaries,
         member_ids: observation_table.member_ids,
         saved_cohort_ids: vec![cohort_id.clone()],
+        series_axes: Some(manifest.series_axes()),
         ingest_audit: StudioIngestAuditSummary {
             source_label: "NeuroTabs manifest".to_string(),
             join: StudioJoinAuditSummary {

@@ -24,7 +24,8 @@ const { invokeMock, emitMock } = vi.hoisted(() => ({
   emitMock: vi.fn(),
 }));
 
-vi.mock("@/services/transport", () => ({
+vi.mock("@/services/transport", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/transport")>()),
   getTransport: () => ({
     invoke: invokeMock,
   }),
@@ -178,13 +179,25 @@ describe("ViewExportService", () => {
     );
 
     expect(path).toBe("/tmp/out/slice.png");
-    expect(invokeMock).toHaveBeenCalledWith("save_image_bytes", {
-      bytes: [137, 80],
-      suggestedName: "slice.png",
-    });
+    // Raw body (the Uint8Array itself) plus a percent-encoded header.
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_image_bytes",
+      new Uint8Array([137, 80]),
+      { headers: { "x-brainflow-suggested-name": "slice.png" } },
+    );
     expect(emitMock).toHaveBeenCalledWith("ui.notification", {
       type: "info",
       message: "Saved image to /tmp/out/slice.png",
+    });
+  });
+
+  it("percent-encodes non-ASCII suggested names", async () => {
+    invokeMock.mockResolvedValue("/tmp/out/x.png");
+
+    await service.saveImageBytes(new Uint8Array([137]), "Résultats fig 1.png");
+
+    expect(invokeMock).toHaveBeenCalledWith("save_image_bytes", new Uint8Array([137]), {
+      headers: { "x-brainflow-suggested-name": "R%C3%A9sultats%20fig%201.png" },
     });
   });
 
@@ -194,10 +207,11 @@ describe("ViewExportService", () => {
     await expect(
       service.saveImageBytes(new Uint8Array([1]), ""),
     ).resolves.toBeNull();
-    expect(invokeMock).toHaveBeenCalledWith("save_image_bytes", {
-      bytes: [1],
-      suggestedName: undefined,
-    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_image_bytes",
+      new Uint8Array([1]),
+      { headers: {} },
+    );
     expect(emitMock).not.toHaveBeenCalled();
   });
 
@@ -210,7 +224,8 @@ describe("ViewExportService", () => {
 
     expect(invokeMock).toHaveBeenCalledWith(
       "save_image_bytes",
-      expect.objectContaining({ bytes: [7] }),
+      new Uint8Array([7]),
+      expect.objectContaining({ headers: expect.any(Object) }),
     );
     expect(emitMock).not.toHaveBeenCalled();
   });

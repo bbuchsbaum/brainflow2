@@ -1,3 +1,4 @@
+import type { SeriesAxis } from "./SeriesAxis";
 import type { StudioAlignmentClass } from "./StudioAlignmentClass";
 import type { StudioDesignTablePreview } from "./StudioDesignTablePreview";
 import type { StudioIngestAuditSummary } from "./StudioIngestAuditSummary";
@@ -17,4 +18,8 @@ export type SpatialFieldSetSummary = {
     memberIds: Array<string>;
     savedCohortIds: Array<string>;
     ingestAudit: StudioIngestAuditSummary;
+    /**
+     * Time/lag axes declared by a NeuroTabs manifest (absent elsewhere).
+     */
+    seriesAxes?: Array<SeriesAxis>;
 };

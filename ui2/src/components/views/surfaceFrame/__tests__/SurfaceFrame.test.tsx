@@ -63,4 +63,19 @@ describe('SurfaceFrame (P3.10)', () => {
     render(<SurfaceFrame surface={s} width={600} height={400} />);
     for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveAttribute('aria-checked', 'false');
   });
+
+  it("draws the orientation glyph from its view's camera (D5)", async () => {
+    const { useSurfaceCameraStore } = await import('@/stores/surfaceCameraStore');
+    useSurfaceCameraStore.getState().setBasis('view-g', { right: [0, -1, 0], up: [0, 0, 1], forward: [1, 0, 0] });
+    render(<SurfaceFrame surface={surface(false)} width={600} height={400} surfaceViewId="view-g" />);
+    const gizmo = screen.getByTestId('surface-orientation-gizmo');
+    for (const letter of ['R', 'A', 'S']) expect(gizmo).toHaveTextContent(letter);
+    // R points away from the viewer: named last.
+    expect(gizmo.getAttribute('aria-label')).toMatch(/R, nearest first$/);
+  });
+
+  it('no glyph before the viewer reports a camera', () => {
+    render(<SurfaceFrame surface={surface(false)} width={600} height={400} surfaceViewId="view-none" />);
+    expect(screen.queryByTestId('surface-orientation-gizmo')).toBeNull();
+  });
 });

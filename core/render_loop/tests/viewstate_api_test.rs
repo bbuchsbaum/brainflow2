@@ -137,7 +137,7 @@ fn test_viewstate_multi_resolution() {
             .register_volume_with_upload(
                 "detail".to_string(),
                 &volumes.detail_patch,
-                wgpu::TextureFormat::R16Uint,
+                wgpu::TextureFormat::R32Float,
             )
             .expect("Failed to register detail");
 

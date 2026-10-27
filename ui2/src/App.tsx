@@ -1,5 +1,6 @@
 import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
@@ -552,6 +553,7 @@ function AppContent() {
             const viewLayers = useViewStateStore.getState().viewState.layers;
             if (layerIndex >= viewLayers.length) return;
             const targetId = viewLayers[layerIndex].id;
+            noteUserVisibility(targetId);
             useViewStateStore.getState().setViewState((state) => {
               const layer = state.layers.find((l) => l.id === targetId);
               if (layer) {
@@ -571,6 +573,7 @@ function AppContent() {
         category: 'Layers',
         description: 'Show all layers',
         handler: () => {
+          useViewStateStore.getState().viewState.layers.forEach((layer) => noteUserVisibility(layer.id));
           useViewStateStore.getState().setViewState((state) => {
             state.layers.forEach((layer) => {
               layer.visible = true;

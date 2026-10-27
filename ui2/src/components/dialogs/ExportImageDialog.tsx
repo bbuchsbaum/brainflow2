@@ -37,6 +37,7 @@ import {
   currentMosaicExportSource,
   defaultExportTarget,
   EXPORT_TARGET_LABEL,
+  isSurfaceExportTarget,
   MAX_EXPORT_TILES,
   clampMosaicRange,
   defaultMosaicRange,
@@ -104,6 +105,13 @@ const INCLUDE: Array<{ key: keyof Omit<FrameIncludes, 'background'>; label: stri
   { key: 'crosshair', label: 'Crosshair' },
 ];
 
+/** A surface figure (D4): view names and an orientation glyph; no scale bar, crosshair or crop. */
+const SURFACE_INCLUDE: typeof INCLUDE = [
+  { key: 'colorbar', label: 'Colorbar' },
+  { key: 'header', label: 'View name' },
+  { key: 'orientation', label: 'Orientation glyph' },
+];
+
 export function ExportImageDialog() {
   const isOpen = useExportDialogStore((state) => state.isOpen);
   const imageUrl = useExportDialogStore((state) => state.imageUrl);
@@ -161,6 +169,7 @@ export function ExportImageDialog() {
       : isOpen
         ? defaultExportTarget()
         : null;
+  const surfaceFigure = isSurfaceExportTarget(exportTarget);
   const mosaicSource = useMemo(
     () => (isOpen && exportTarget === 'mosaic' ? currentMosaicExportSource() : null),
     [isOpen, exportTarget],
@@ -621,7 +630,7 @@ export function ExportImageDialog() {
               <fieldset className="space-y-0.5">
                 <legend className="mb-1 text-bf-xs text-bf-text-muted">Include</legend>
                 <div className="grid grid-cols-2 gap-x-2">
-                  {INCLUDE.map(({ key, label }) => (
+                  {(surfaceFigure ? SURFACE_INCLUDE : INCLUDE).map(({ key, label }) => (
                     <Checkbox
                       key={key}
                       checked={composite[key]}
@@ -630,12 +639,14 @@ export function ExportImageDialog() {
                       {label}
                     </Checkbox>
                   ))}
-                  <Checkbox
-                    checked={cropToBrain}
-                    onCheckedChange={(checked) => setCropToBrain(checked)}
-                  >
-                    Crop to brain
-                  </Checkbox>
+                  {surfaceFigure ? null : (
+                    <Checkbox
+                      checked={cropToBrain}
+                      onCheckedChange={(checked) => setCropToBrain(checked)}
+                    >
+                      Crop to brain
+                    </Checkbox>
+                  )}
                 </div>
               </fieldset>
 

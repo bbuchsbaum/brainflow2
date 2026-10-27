@@ -47,6 +47,38 @@ test('surface pixels respond to layer controls and survive lifecycle', async ({ 
 });
 
 
+test('linked-cursor marker keeps its colour inside the dark halo', async ({ page }) => {
+  await page.goto('/surfview-harness.html');
+  await expect(page.getByRole('button', { name: 'export' })).toBeEnabled();
+  await expect.poll(async () => (await pixels(page)).nonblack).toBeGreaterThan(1000);
+  await page.getByRole('button', { name: 'marker' }).click();
+  // A transparent halo sorts after the opaque marker and darkens it to ~(18, 48, 15).
+  await expect.poll(async () => (await pixels(page)).center[1]).toBeGreaterThan(180);
+  const [r, g, b] = (await pixels(page)).center;
+  expect(g).toBeGreaterThan(r + 60);
+  expect(g).toBeGreaterThan(b + 60);
+});
+
+
+test('figure poses leave out the pick crosshair a click puts on the surface (native check item 10)', async ({ page }) => {
+  await page.goto('/surfview-harness.html');
+  await expect(page.getByRole('button', { name: 'export' })).toBeEnabled();
+  await expect.poll(async () => (await pixels(page)).nonblack).toBeGreaterThan(1000);
+  const pose = async (name: string) => {
+    await page.locator('#pose').evaluate(el => { el.textContent = ''; });
+    await page.getByRole('button', { name, exact: true }).click();
+    await expect(page.locator('#pose')).not.toBeEmpty();
+    return Number(await page.locator('#pose').textContent());
+  };
+  const before = await pose('pose');
+  await page.locator('#viewer canvas').click({ position: { x: 200, y: 200 } });
+  await expect(page.locator('#pick')).not.toHaveText('none');
+  // Without markers the figure is unchanged by the click; with markers the crosshair shows.
+  expect(await pose('pose')).toBe(before);
+  expect(await pose('pose with crosshair')).not.toBe(before);
+});
+
+
 test('real viewer retains owned world lights and requests linear volume filtering', async ({ page }) => {
   await page.goto('/surfview-harness.html');
   await page.getByRole('button', { name: 'inspect runtime' }).click();

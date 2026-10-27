@@ -19,6 +19,10 @@ export interface VolumeFixture {
   range: [number, number];
   /** NIfTI header extras served by get_nifti_header_info / load_file (Phase 3 fixtures only). */
   header?: StatHeader;
+  /** 4D fixtures (phase 4 E6): one array per frame; `data` is the frame on display. */
+  frames?: Float32Array[];
+  /** Seconds per frame of a 4D fixture (null / absent: unknown). */
+  tr?: number;
 }
 
 /** NIfTI intent and description fields of a synthetic Phase 3 fixture (p3_fixtures.json). */
@@ -55,10 +59,48 @@ export interface HarnessFixtures {
    * nonzero voxels sit near 0. Loaded without a scenario-set window.
    */
   zmapNoisy: VolumeFixture;
+  /**
+   * Phase 4 C1: the z map plus two smaller blobs inside blob 1's cluster
+   * (MULTIPEAK_BLOBS), so the cluster has sub-peaks. Loadable by path only.
+   */
+  zmapMultipeak: VolumeFixture;
   tmapNoisy: VolumeFixture;
 }
 
 /** A deterministic copy of `fixture` with tiny noise in 93% of voxels. */
+/** Extra Gaussian blobs (world mm centres) added to the z map for sub-peaks. */
+export const MULTIPEAK_BLOBS = [
+  { c: [-40, -2, 50], amp: 4.5, sd: 5 },
+  { c: [-30, -28, 42], amp: 4, sd: 4 },
+] as const;
+
+export function withBlobs(fixture: VolumeFixture, blobs: typeof MULTIPEAK_BLOBS, brain: VolumeFixture): VolumeFixture {
+  const [nx, ny, nz] = fixture.dims;
+  const a = fixture.affine;
+  const data = new Float32Array(fixture.data);
+  for (let k = 0; k < nz; k += 1)
+    for (let j = 0; j < ny; j += 1)
+      for (let i = 0; i < nx; i += 1) {
+        const n = i + nx * (j + ny * k);
+        if (!(brain.data[n] > 0)) continue; // inside the brain only
+        const w = [0, 1, 2].map((r) => a[r][0] * i + a[r][1] * j + a[r][2] * k + a[r][3]);
+        let add = 0;
+        for (const b of blobs) {
+          const d2 = (w[0] - b.c[0]) ** 2 + (w[1] - b.c[1]) ** 2 + (w[2] - b.c[2]) ** 2;
+          add += b.amp * Math.exp(-d2 / (2 * b.sd * b.sd));
+        }
+        // Tails cut like the generator's blobs: no faint halo across the brain.
+        if (add >= 0.05) data[n] = Math.fround(data[n] + add);
+      }
+  let lo = 0;
+  let hi = 0;
+  for (const v of data) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return { ...fixture, data, range: [lo, hi] };
+}
+
 function withNativeNoise(fixture: VolumeFixture, seed: number): VolumeFixture {
   let state = seed >>> 0;
   const rand = () => {
@@ -200,6 +242,7 @@ export async function loadFixtures(): Promise<HarnessFixtures> {
     zmap: p3Volume('zmap', new Float32Array(zmap), mni),
     tmap: p3Volume('tmap', new Float32Array(tmap), mni),
     zmapNoisy: withNativeNoise(p3Volume('zmap', new Float32Array(zmap), mni), 5),
+    zmapMultipeak: withBlobs(p3Volume('zmap', new Float32Array(zmap), mni), MULTIPEAK_BLOBS, mni),
     tmapNoisy: withNativeNoise(p3Volume('tmap', new Float32Array(tmap), mni), 7),
     atlas: p3Volume('atlas', Float32Array.from(new Uint8Array(atlas)), mni),
     atlasLut: new TextDecoder().decode(lut),

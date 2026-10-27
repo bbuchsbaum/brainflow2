@@ -52,6 +52,11 @@ describe('parseBidsFilename', () => {
 });
 
 describe('formatBidsDisplayName', () => {
+  it('names the condition of a FIR member (round 2 X3)', () => {
+    const parsed = parseBidsFilename('/fir/sub-s01_cond-faces_fir.nii.gz')!;
+    expect(formatBidsDisplayName(parsed)).toBe('fir (sub-s01, faces)');
+  });
+
   it('formats fMRI BOLD with task and context', () => {
     const parsed = parseBidsFilename('sub-01_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz')!;
     const name = formatBidsDisplayName(parsed);

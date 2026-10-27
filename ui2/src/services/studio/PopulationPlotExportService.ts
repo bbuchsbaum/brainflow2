@@ -1,4 +1,4 @@
-import { getTransport } from '@/services/transport';
+import { getTransport, rawBodyHeaders } from '@/services/transport';
 
 /** Export the rendered marks with resolved theme styles and facet headings.
  * Detached clones contain no event listeners; only the app's SVG mark trees
@@ -101,7 +101,12 @@ export async function populationPlotPng(
     copy.setAttribute('y', String(y));
     copy.setAttribute('width', String(rect.width));
     copy.setAttribute('height', String(rect.height));
-    const heading = svg.previousElementSibling;
+    // A facet's heading: the svg's previous sibling, or the facet group's
+    // heading (the encoder wraps each facet's svg in a [data-facet] group, round 3 C9).
+    const heading =
+      svg.previousElementSibling ??
+      svg.closest('[data-facet]')?.querySelector(':scope > [role="heading"]') ??
+      null;
     if (heading && !heading.querySelector('svg'))
       text(heading.textContent?.slice(0, 160) ?? '', x + 4, y - 6, 11);
     root.append(copy);
@@ -150,11 +155,12 @@ export async function savePopulationPlot(
       },
     });
     if (!path) return null;
-    return getTransport().invoke<string>('export_population_plot', {
-      path,
-      bytes: Array.from(bytes),
-      format,
-    });
+    // Raw body: the bytes travel as-is, arguments as headers (no JSON array).
+    return getTransport().invoke<string>(
+      'export_population_plot',
+      bytes,
+      rawBodyHeaders({ 'x-brainflow-path': path, 'x-brainflow-format': format }),
+    );
   }
   const url = URL.createObjectURL(
     new Blob([Uint8Array.from(bytes).buffer], {

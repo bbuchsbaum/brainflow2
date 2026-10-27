@@ -16,6 +16,9 @@ import {
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getEventBus } from '@/events/EventBus';
 import { getViewExportService } from '@/services/ViewExportService';
+import { getSurfaceCurvatureService } from '@/services/SurfaceCurvatureService';
+import { useSurfaceCameraStore } from '@/stores/surfaceCameraStore';
+import type { CameraBasis } from '@/utils/orientationGizmo';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useViewContextMenu } from '@/hooks/useViewContextMenu';
 import { buildSurfaceViewContextId } from '@/utils/surfaceViewContext';
@@ -84,9 +87,10 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   // SurfaceGeometryData exports vertices_world; both sides use the image/world
   // affine contract. Do not apply an additional axis reflection here.
   const markerWorldPosition = crosshairVisible ? crosshairWorld : null;
-  const handleSurfacePick = useCallback((world: [number, number, number]) => {
+  const handleSurfacePick = useCallback((world: [number, number, number], picked?: { handle: string; vertex: number }) => {
     if (!world.every(Number.isFinite)) return;
     markActive();
+    useSurfaceStore.getState().setPickedVertex(picked ? { surfaceId: picked.handle, vertex: picked.vertex, world } : null);
     void useViewStateStore.getState().setCrosshair(world, true);
   }, [markActive]);
 
@@ -114,49 +118,21 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
     [surfacesToRender],
   );
 
-  // The viewer frames the first mesh with centerCamera() (a top-down view)
-  // and applies `viewpoint` only when that prop CHANGES, so the store's
-  // preset (default "lateral") never reached the camera (v4 user critic: "L"
-  // lit on a dorsal view). Once the viewer is up and has centred on the mesh,
-  // hand it the hemisphere-qualified name ("left_lateral"): the same view in
-  // the viewer's table, but a new prop value, so it is applied.
-  const [viewerReady, setViewerReady] = useState(false);
-  const [cameraSettled, setCameraSettled] = useState(false);
-  const hasGeometry = surfacesToRender.some((item) => (item.geometry?.vertices?.length ?? 0) > 0);
+  // The viewer applies the preset after its first fit, and the nonce
+  // re-applies it when the checked preset is pressed again (phase 4: the
+  // viewer is ours; the earlier prop-flip workaround is gone).
   useEffect(() => {
-    if (!viewerReady || !hasGeometry || cameraSettled) return;
-    let frame = 0;
-    let remaining = 3;
-    const tick = () => {
-      remaining -= 1;
-      if (remaining <= 0) setCameraSettled(true);
-      else frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [viewerReady, hasGeometry, cameraSettled]);
-  const firstSurface = (renderSurfaces ?? [surface])[0];
-  const hemisphere = surfaceHemisphere(firstSurface?.metadata?.hemisphere ?? firstSurface?.geometry?.hemisphere);
-  // A re-apply (same preset pressed again) flips between the two spellings
-  // of the same view, so the viewer sees a new value and moves the camera.
-  const qualified = hemisphere && !viewpoint.includes('_') ? `${hemisphere}_${viewpoint}` : viewpoint;
-  // Counted from the settle: 0 before (plain), the settle makes it 1
-  // (qualified), each re-apply flips it again.
-  const [applyCount, setApplyCount] = useState(0);
-  const lastNonce = React.useRef(viewpointNonce);
-  useEffect(() => {
-    if (cameraSettled) setApplyCount((n) => (n === 0 ? 1 : n));
-  }, [cameraSettled]);
-  useEffect(() => {
-    if (viewpointNonce === lastNonce.current) return;
-    lastNonce.current = viewpointNonce;
-    if (cameraSettled) setApplyCount((n) => n + 1);
-  }, [viewpointNonce, cameraSettled]);
-  const appliedViewpoint = applyCount % 2 === 1 ? qualified : viewpoint;
+    getSurfaceCurvatureService().start();
+  }, []);
+
+  // D5: the camera basis for the frame's orientation glyph.
+  const handleCameraChange = useCallback(
+    (basis: CameraBasis) => useSurfaceCameraStore.getState().setBasis(surfaceViewId, basis),
+    [surfaceViewId],
+  );
 
   const handleExporterChange = useCallback(
     (exporter: SurfaceCanvasExporter | null) => {
-      setViewerReady(!!exporter);
       const exportService = getViewExportService();
       if (exporter) {
         exportService.registerExporter(surfaceContextId, exporter);
@@ -194,7 +170,8 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
       surfaces={surfacesToRender}
       width={width}
       height={height}
-      viewpoint={appliedViewpoint}
+      viewpoint={viewpoint}
+      viewpointNonce={viewpointNonce}
       showControls={showControls}
       lightingSettings={lightingSettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.lightingSettings}
       displaySettings={displaySettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.displaySettings}
@@ -208,17 +185,10 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
       onActivate={markActive}
       onContextMenu={handleContextMenu}
       onExporterChange={handleExporterChange}
+      onCameraChange={handleCameraChange}
       onSurfacePick={handleSurfacePick}
     />
   );
 };
 
 export const SurfaceViewCanvas = React.memo(SurfaceViewCanvasInner);
-
-/** The viewer's hemisphere key ("left" / "right"), or null when unknown. */
-function surfaceHemisphere(value: unknown): 'left' | 'right' | null {
-  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (v === 'left' || v === 'lh' || v === 'l') return 'left';
-  if (v === 'right' || v === 'rh' || v === 'r') return 'right';
-  return null;
-}

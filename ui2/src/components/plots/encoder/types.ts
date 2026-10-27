@@ -22,6 +22,19 @@ export interface EncoderContext {
     readonly selectedIds: ReadonlySet<string>;
     readonly onFocus: (id: string) => void;
     readonly onToggleSelection: (id: string) => void;
+    /** False: points focus only (no Shift-click selection, no aria-pressed). Default true. */
+    readonly selectable?: boolean;
+    /** Arrow keys also activate (onFocus) the point they move to (frame stepping). */
+    readonly activateOnMove?: boolean;
+    /** Accessible name of a point (row index into the frame). */
+    readonly label?: (rowIndex: number) => string;
+    /**
+     * Where Tab enters a set that does not hold the focused point (a facet):
+     * the first point whose id is listed, else the first point.
+     */
+    readonly entryIds?: ReadonlySet<string>;
+    /** What a click does, concretely ("Click to show this frame"); omitted: the tooltip is the label. */
+    readonly action?: string;
   };
   readonly intensityWindow?: [number, number];
   readonly threshold?: [number, number];

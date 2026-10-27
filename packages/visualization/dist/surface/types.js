@@ -9,6 +9,7 @@ export const DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS = {
     opacity: 1,
     smoothing: 0,
     flatShading: false,
+    showCurvature: true,
 };
 export const DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS = {
     surfaceColor: '#CCCCCC',

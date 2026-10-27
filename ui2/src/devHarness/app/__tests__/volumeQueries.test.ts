@@ -9,7 +9,7 @@ import { gunzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import meta from '../../fixtures/app/p3_fixtures.json';
-import { findClusters, findExtremum, nonzeroBbox } from '../volumeQueries';
+import { findClusters, findExtremum, nonzeroBbox, resampleMaskNearest } from '../volumeQueries';
 import type { VolumeFixture } from '../fixtures';
 
 const dir = resolve(__dirname, '../../fixtures/app');
@@ -113,5 +113,156 @@ describe('harness volume_extremum / volume_nonzero_bbox mirrors', () => {
     );
     expect(bbox.voxelCount).toBe(voxels);
     expect(bbox.ijkMin.every((v, a) => v <= bbox.ijkMax[a])).toBe(true);
+  });
+});
+
+// Phase 4 C1: the backend's sub-peak cases (core/api_bridge/src/clusters.rs
+// tests), on the same Gaussian blobs along x (2 mm voxels, origin 0).
+function blobs(list: Array<[number, number]>): VolumeFixture {
+  const [nx, ny, nz] = [40, 13, 13];
+  const data = new Float32Array(nx * ny * nz);
+  for (let k = 0; k < nz; k++)
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++) {
+        const r2 = (j - 6) ** 2 + (k - 6) ** 2;
+        data[i + nx * (j + ny * k)] = list.reduce(
+          (s, [c, a]) => s + Math.fround(a * Math.exp(-((i - c) ** 2 + r2) / 2)),
+          0,
+        );
+      }
+  return { dims: [nx, ny, nz], affine: [[2, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0], [0, 0, 0, 1]], data, range: [0, 0] };
+}
+
+describe('harness sub-peaks mirror the backend (C1)', () => {
+  it('merged blobs closer than the minimum distance report no sub-peak; 5 mm does', () => {
+    const vol = blobs([[10, 10], [13, 8]]);
+    const t8 = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 8 });
+    expect(t8.clusters).toHaveLength(1);
+    expect(t8.clusters[0].peakIjk).toEqual([10, 6, 6]);
+    expect(t8.clusters[0].subPeaks).toEqual([]);
+    const t5 = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 5 });
+    expect(t5.clusters[0].subPeaks.map((p) => [p.ijk, p.mm])).toEqual([[[13, 6, 6], [26, 12, 12]]]);
+  });
+
+  it('three blobs 12 mm apart: sub-peaks strongest first; the count includes the main peak', () => {
+    const vol = blobs([[8, 10], [14, 6], [20, 8]]);
+    const t = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 8 });
+    expect(t.clusters[0].subPeaks.map((p) => p.ijk)).toEqual([[20, 6, 6], [14, 6, 6]]);
+    expect(findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 2 }).clusters[0].subPeaks).toHaveLength(1);
+    const one = findClusters(vol, { threshold: 0.1, maxPeaksPerCluster: 1 });
+    expect(one.clusters[0].subPeaks).toEqual([]);
+    expect([one.maxPeaksPerCluster, one.minPeakDistanceMm]).toEqual([1, 8]);
+  });
+
+  it('a negative cluster takes its most negative peaks', () => {
+    const t = findClusters(blobs([[8, -10], [14, -7], [30, 4]]), { threshold: 0.1, maxPeaksPerCluster: 3, minPeakDistanceMm: 8 });
+    const neg = t.clusters.filter((c) => c.sign === 'negative');
+    expect(neg).toHaveLength(1);
+    expect(neg[0].subPeaks.map((p) => p.ijk)).toEqual([[14, 6, 6]]);
+    expect(t.clusters.find((c) => c.sign === 'positive')!.subPeaks).toEqual([]);
+  });
+});
+
+describe('harness compute_clusters search mask (S3)', () => {
+  const all = (vol: VolumeFixture, value: number): VolumeFixture => ({ ...vol, data: new Float32Array(vol.data.length).fill(value) });
+
+  it('a mask covering the grid forms the same clusters, over every finite voxel', () => {
+    const plain = findClusters(zmap, { threshold: 3.1 });
+    const mask = resampleMaskNearest(all(zmap, 1), zmap);
+    const masked = findClusters(zmap, { threshold: 3.1 }, mask, 'vol-mask');
+    expect(masked.clusters.map((c) => c.voxelCount)).toEqual(plain.clusters.map((c) => c.voxelCount));
+    // maskVoxelsOutsideMap is null without a mask, as the backend binding has it (deliberate: the field is now always set).
+    expect(plain.searchVolume).toEqual({
+      kind: 'map-nonzero',
+      maskVolumeId: null,
+      voxels: zmap.data.filter((v) => Number.isFinite(v) && v !== 0).length,
+      maskVoxelsOutsideMap: null,
+    });
+    expect(masked.searchVolume).toEqual({
+      kind: 'mask',
+      maskVolumeId: 'vol-mask',
+      voxels: zmap.data.filter((v) => Number.isFinite(v)).length,
+      // Round 3 T2: the whole-grid mask covers every voxel where the map is 0 or non-finite.
+      maskVoxelsOutsideMap: zmap.data.filter((v) => !(Number.isFinite(v) && v !== 0)).length,
+    });
+  });
+
+  it('clusters form only inside the mask; another grid is resampled by nearest voxel', () => {
+    const plain = findClusters(zmap, { threshold: 3.1 });
+    const peak = plain.clusters[0].peakIjk;
+    const [nx, ny] = zmap.dims;
+    // Only cluster 1's peak voxel is inside.
+    const one = new Float32Array(zmap.data.length);
+    one[peak[0] + nx * (peak[1] + ny * peak[2])] = 1;
+    const masked = findClusters(zmap, { threshold: 3.1 }, resampleMaskNearest({ ...zmap, data: one }, zmap), 'm');
+    expect(masked.clusters.map((c) => c.voxelCount)).toEqual([1]);
+    expect(masked.clusters[0].peakIjk).toEqual(peak);
+    // A 2x-coarser mask grid with the same world extent, all inside.
+    const coarse: VolumeFixture = {
+      dims: zmap.dims.map((d) => Math.ceil(d / 2)) as [number, number, number],
+      affine: zmap.affine.map((row, r) => (r < 3 ? [row[0] * 2, row[1] * 2, row[2] * 2, row[3]] : row)),
+      data: new Float32Array(Math.ceil(zmap.dims[0] / 2) * Math.ceil(zmap.dims[1] / 2) * Math.ceil(zmap.dims[2] / 2)).fill(1),
+      range: [0, 1],
+    };
+    expect(findClusters(zmap, { threshold: 3.1 }, resampleMaskNearest(coarse, zmap), 'c').clusters.map((c) => c.voxelCount)).toEqual(
+      plain.clusters.map((c) => c.voxelCount),
+    );
+  });
+
+  it('an empty search is an input error (4081)', () => {
+    expect(() => findClusters(zmap, { threshold: 3.1 }, resampleMaskNearest(all(zmap, 0), zmap), 'm')).toThrow(
+      expect.objectContaining({ code: 4081 }),
+    );
+  });
+});
+
+describe('harness masked RFT search matches the p4 truth (round 3 S7)', () => {
+  it('multipeak z map inside the MNI brain mask: search voxels, mask voxels outside the map, E[m], p(FWE)', async () => {
+    const { withBlobs, MULTIPEAK_BLOBS } = await import('../fixtures');
+    const p4 = (await import('../../fixtures/app/p4_fixtures.json')).default as unknown as {
+      clustersMultipeak: {
+        rftBrainMask: {
+          searchVoxels: number;
+          maskVoxelsOutsideMap: number;
+          expectedClusters: number;
+          clusters: { voxels: number; pFweExtent: number }[];
+        };
+      };
+    };
+    const truth = p4.clustersMultipeak.rftBrainMask;
+    const brain: VolumeFixture = { ...zmap, data: Float32Array.from(readFileSync(resolve(dir, 'mni_2mm.u8'))) };
+    const map = withBlobs({ ...zmap, data: new Float32Array(zmap.data) }, MULTIPEAK_BLOBS, brain);
+    const mask = resampleMaskNearest(brain, map);
+    const t = findClusters(
+      map,
+      { threshold: 3.1, connectivity: 26, maxPeaksPerCluster: 3, minPeakDistanceMm: 8, extent: { fwhmMm: 8, statistic: 'z' } },
+      mask,
+      'vol-brain-mask',
+    );
+    expect(t.searchVolume).toMatchObject({ kind: 'mask', voxels: truth.searchVoxels, maskVoxelsOutsideMap: truth.maskVoxelsOutsideMap });
+    expect(t.extentInference!.searchVoxels).toBe(truth.searchVoxels);
+    expect(Math.abs(t.extentInference!.expectedClusters - truth.expectedClusters) / truth.expectedClusters).toBeLessThan(1e-6);
+    expect(t.clusters.map((c) => c.voxelCount)).toEqual(truth.clusters.map((c) => c.voxels));
+    // The truth uses the closed-form extent p; the mirror evaluates spm_P_RF (agrees to ~1e-6).
+    t.clusters.forEach((c, i) => expect(c.pFweExtent!).toBeCloseTo(truth.clusters[i].pFweExtent, 5));
+  });
+
+});
+
+describe('cluster p on a pre-thresholded map (B12 mirror)', () => {
+  const thresholded = { ...zmap, data: Float32Array.from(zmap.data, (v) => (Math.abs(v) > 3.1 ? v : 0)) };
+  it('withholds p with the reason when no search mask is given', () => {
+    const t = findClusters(thresholded, { threshold: 3.1, connectivity: 26, extent: { fwhmMm: 8, statistic: 'z' } });
+    expect(t.extentInference).toBeNull();
+    expect(t.clusters.every((c) => c.pFweExtent == null)).toBe(true);
+    expect(t.extentWithheld).toEqual({
+      code: 4080,
+      reason: 'This map looks pre-thresholded (no |z| < 3.1 among non-zero voxels); cluster p needs the unthresholded map or a search mask.',
+    });
+  });
+  it('computes p on an unthresholded map', () => {
+    const t = findClusters(zmap, { threshold: 3.1, connectivity: 26, extent: { fwhmMm: 8, statistic: 'z' } });
+    expect(t.extentWithheld).toBeUndefined();
+    expect(t.extentInference).not.toBeNull();
   });
 });

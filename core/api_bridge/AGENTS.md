@@ -104,3 +104,18 @@ Run `cargo test -p api-bridge` for unit tests. Integration tests in `tests/pipel
 
 - `preview_folder_ontology` and `preview_set_studio_imports` accept optional `SampleTicket` values through the existing bounded query-ticket registry. Cancellation ends the remote enumeration future; owned SFTP adapters finish their current operation. Local enumeration runs on a blocking worker with a visited-entry bound; cancellation discards publication while that worker finishes. No new invoke command was added.
 - `DiscoveryInventory.truncated` carries upstream scan incompleteness through both ontology and import validation. Truncated/ambiguous discovery cannot be committed. Listing or staging one remote header cannot grant comparison readiness; complete required source/support validation belongs to the operation.
+
+- `submit_frontend_view_with_diagnostics` prepares the same per-view target later
+  used by `submit_frame_with_options`. Do not allocate a second legacy offscreen
+  target in this declarative path. Final renderer volume teardown clears view targets.
+
+- Image-set byte reservations are conservative bounds on automatic GPU storage,
+  including possible R32 promotion. Raw 4D sets reserve for label preservation;
+  studio cohorts use the maximum bound across members. Uploaded layer responses
+  obtain `tex_format` from the renderer allocation, not from source dtype.
+
+- `render_view`, `render_views` and `batch_render_slices` submit GPU work under the
+  render-service lock, then release the lock before awaiting readback. Their
+  submissions use `into_snapshot()` because bridge view IDs are shared cache slots;
+  envelopes are unchanged. `BRAINFLOW_BATCH_READBACK=0` still selects the per-slice
+  path.

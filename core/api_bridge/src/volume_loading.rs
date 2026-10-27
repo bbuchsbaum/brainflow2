@@ -39,17 +39,20 @@ impl VolumeSource for NativeVolumeSource<'_> {
         // stall the async runtime (and every other in-flight command) for that span.
         let decode_start = Instant::now();
         let decode_path = file_path.clone();
-        let (volume_sendable, _affine) =
-            tokio::task::spawn_blocking(move || nifti_loader::load_nifti_volume_auto(&decode_path))
-                .await
-                .map_err(|e| BridgeError::Internal {
-                    code: 1004,
-                    details: format!("Volume decode task failed for {}: {}", path, e),
-                })?
-                .map_err(|e| BridgeError::Loader {
-                    code: 1003,
-                    details: format!("Failed to load file {}: {}", path, e),
-                })?;
+        // Dispatches on the header: multi-frame files load every frame as a
+        // TimeSeries4D (the 3D-only loader would keep frame 0).
+        let volume_sendable = tokio::task::spawn_blocking(move || {
+            nifti_loader::load_nifti_auto_dimension(&decode_path)
+        })
+        .await
+        .map_err(|e| BridgeError::Internal {
+            code: 1004,
+            details: format!("Volume decode task failed for {}: {}", path, e),
+        })?
+        .map_err(|e| BridgeError::Loader {
+            code: 1003,
+            details: format!("Failed to load file {}: {}", path, e),
+        })?;
         info!(
             "[perf] load_file decode (spawn_blocking, off async runtime): {} ms ({})",
             decode_start.elapsed().as_millis(),
@@ -218,7 +221,8 @@ impl VolumeSource for NativeVolumeSource<'_> {
             dtype,
             volume_type,
             num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
-            current_timepoint: None,
+            // Matches the registry, which starts a 4D volume at frame 0.
+            current_timepoint: time_series_info.as_ref().map(|_| 0),
             time_series_info,
             statistic: intent.statistic,
             is_label_map: intent.is_label_map,
@@ -345,6 +349,9 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
                 ),
             });
         }
+        // Volumes shown by a layer; a cluster label volume owned by this
+        // source is released below unless it is among them.
+        let displayed: std::collections::HashSet<String> = mappings.values().cloned().collect();
         drop(mappings);
         // Do all awaited host work before the final synchronous removal.
         let renderer = state.render_loop_service.lock().await.clone();
@@ -360,13 +367,43 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
                 details: volume_id.into(),
             });
         }
-        if let Some(renderer) = renderer.as_mut() {
-            renderer.remove_custom_colormap(&format!("parcel:{}", volume_id));
+        release_volume(
+            renderer.as_deref_mut(),
+            &mut samplers,
+            &mut registry,
+            volume_id,
+        );
+        // A cluster label volume owned by this source goes with it (unless a
+        // layer displays it), through the same release.
+        if let Some(label_id) = crate::cluster_labels::owned_after_removal(volume_id, &displayed) {
+            release_volume(
+                renderer.as_deref_mut(),
+                &mut samplers,
+                &mut registry,
+                &label_id,
+            );
         }
-        samplers.retain(|_, entry| entry.template_volume_id != volume_id);
-        registry.remove(volume_id);
+        crate::clusters::forget_generation(volume_id);
         Ok(())
     }
+}
+
+/// Host-side release of one registered volume: its parcel colormap, the
+/// surface samplers bound to it, and its registry entry (with dictionaries
+/// and overlays). Callers hold `volume_operations`, and take the renderer,
+/// sampler and registry locks in that order (after any layer-map snapshot),
+/// so no layer allocation can interleave with the removal.
+pub(crate) fn release_volume(
+    renderer: Option<&mut RenderLoopService>,
+    samplers: &mut HashMap<String, SurfaceSamplerEntry>,
+    registry: &mut VolumeRegistry,
+    volume_id: &str,
+) {
+    if let Some(renderer) = renderer {
+        renderer.remove_custom_colormap(&format!("parcel:{}", volume_id));
+    }
+    samplers.retain(|_, entry| entry.template_volume_id != volume_id);
+    registry.remove(volume_id);
 }
 
 #[cfg(test)]
@@ -498,6 +535,209 @@ mod tests {
             .await
             .unwrap();
         assert!(observed.upgrade().is_none());
+    }
+
+    /// A single-file NIfTI-1 written byte for byte like the native-check
+    /// fixture generator (.hillclimb/native-check/p4/gen/make_fixtures.py
+    /// `write_nifti`): x-fastest float32, sform code 4, xyzt_units mm + s,
+    /// pixdim[4] = TR, 4 empty extension bytes.
+    fn write_fixture_style_nifti(path: &std::path::Path, dims: [usize; 4], tr: f32) {
+        let mut header = vec![0u8; 348];
+        header[0..4].copy_from_slice(&348i32.to_le_bytes());
+        let dim: [i16; 8] = [
+            4,
+            dims[0] as i16,
+            dims[1] as i16,
+            dims[2] as i16,
+            dims[3] as i16,
+            1,
+            1,
+            1,
+        ];
+        for (index, value) in dim.iter().enumerate() {
+            header[40 + 2 * index..42 + 2 * index].copy_from_slice(&value.to_le_bytes());
+        }
+        header[70..72].copy_from_slice(&16i16.to_le_bytes()); // float32
+        header[72..74].copy_from_slice(&32i16.to_le_bytes());
+        let pixdim = [1.0f32, 4.0, 4.0, 4.0, tr, 1.0, 1.0, 1.0];
+        for (index, value) in pixdim.iter().enumerate() {
+            header[76 + 4 * index..80 + 4 * index].copy_from_slice(&value.to_le_bytes());
+        }
+        header[108..112].copy_from_slice(&352f32.to_le_bytes()); // vox_offset
+        header[112..116].copy_from_slice(&1f32.to_le_bytes()); // scl_slope
+        header[123] = 2 | 8; // mm + seconds
+        header[254..256].copy_from_slice(&4i16.to_le_bytes()); // sform_code (MNI)
+        for axis in 0..3 {
+            let mut row = [0f32; 4];
+            row[axis] = 4.0;
+            for (index, value) in row.iter().enumerate() {
+                let at = 280 + 16 * axis + 4 * index;
+                header[at..at + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        header[344..348].copy_from_slice(b"n+1\0");
+        header.extend_from_slice(&[0u8; 4]);
+        // Frame t holds t + 1 everywhere (x-fastest within each frame).
+        for t in 0..dims[3] {
+            for _ in 0..dims[0] * dims[1] * dims[2] {
+                header.extend_from_slice(&((t + 1) as f32).to_le_bytes());
+            }
+        }
+        std::fs::write(path, header).unwrap();
+    }
+
+    #[tokio::test]
+    async fn four_d_file_loads_every_frame_through_the_native_path() {
+        let path = std::env::temp_dir().join(format!("brainflow-4d-{}.nii", uuid::Uuid::new_v4()));
+        write_fixture_style_nifti(&path, [4, 3, 2, 5], 2.0);
+        let state = BridgeState::default().unwrap();
+        let handle = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(handle.volume_type, bridge_types::VolumeType::TimeSeries4D);
+        assert_eq!(handle.dims, vec![4, 3, 2, 5]);
+        assert_eq!(handle.num_timepoints, Some(5));
+        assert_eq!(handle.current_timepoint, Some(0));
+        let series = handle.time_series_info.as_ref().unwrap();
+        assert_eq!((series.num_timepoints, series.tr), (5, Some(2.0)));
+        // Every frame is resident: the last frame holds 5.
+        let registry = state.volume_registry.lock().await;
+        let volume = registry.get(&handle.id).unwrap();
+        assert_eq!(
+            crate::read_member_frame_at_voxel(volume, 3, 2, 1, 4),
+            Some(5.0)
+        );
+        assert_eq!(
+            crate::read_member_frame_at_voxel(volume, 0, 0, 0, 0),
+            Some(1.0)
+        );
+    }
+
+    #[tokio::test]
+    async fn gzipped_fir_map_loads_all_lags_through_the_native_path() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../field_table/fixtures/neurotabs/fir4d/maps/sub-01_task-faces_fir.nii.gz");
+        let state = BridgeState::default().unwrap();
+        let handle = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(handle.dims, vec![41, 49, 40, 6]);
+        assert_eq!(handle.num_timepoints, Some(6));
+        let registry = state.volume_registry.lock().await;
+        let volume = registry.get(&handle.id).unwrap();
+        let lags: Vec<f32> = (0..6)
+            .map(|lag| crate::read_member_frame_at_voxel(volume, 7, 23, 30, lag).unwrap())
+            .collect();
+        for (got, want) in lags.iter().zip([0.1f32, 0.6, 1.1, 0.7, 0.3, 0.1]) {
+            assert!((got - want).abs() < 1e-6, "{lags:?}");
+        }
+    }
+
+    /// Native round 2: a freshly loaded 4D file must draw frame 0 on its first
+    /// render, before any timepoint change. Real Metal; a missing adapter fails.
+    #[tokio::test]
+    async fn freshly_loaded_4d_file_renders_frame_zero_before_any_timepoint_change() {
+        let path =
+            std::env::temp_dir().join(format!("brainflow-4d-gpu-{}.nii", uuid::Uuid::new_v4()));
+        write_fixture_style_nifti(&path, [8, 8, 8, 3], 2.0);
+        let state = BridgeState::default().unwrap();
+        let handle = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap();
+        std::fs::remove_file(&path).ok();
+        let service = render_loop::RenderLoopService::new()
+            .await
+            .expect("GPU adapter required for this test");
+        *state.render_loop_service.lock().await = Some(Arc::new(tokio::sync::Mutex::new(service)));
+
+        // Voxel centres 0..28 mm on each axis; frame t holds t + 1 everywhere.
+        let payload = |timepoint: Option<usize>| {
+            let mut payload = serde_json::json!({
+                "views": {
+                    "axial": {"origin_mm": [-2.0, 30.0, 14.0], "u_mm": [1.0, 0.0, 0.0], "v_mm": [0.0, -1.0, 0.0]},
+                    "sagittal": {"origin_mm": [14.0, -2.0, 30.0], "u_mm": [0.0, 1.0, 0.0], "v_mm": [0.0, 0.0, -1.0]},
+                    "coronal": {"origin_mm": [-2.0, 14.0, 30.0], "u_mm": [1.0, 0.0, 0.0], "v_mm": [0.0, 0.0, -1.0]}
+                },
+                "crosshair": {"world_mm": [14.0, 14.0, 14.0], "visible": false},
+                "layers": [{
+                    "id": "layer-4d-fresh",
+                    "volumeId": handle.id,
+                    "visible": true,
+                    "opacity": 1.0,
+                    "colormap": "gray",
+                    "intensity": [0.0, 2.0],
+                    "threshold": [0.0, 0.0],
+                    "blendMode": "alpha",
+                    "interpolation": "nearest"
+                }],
+                "requestedView": {
+                    "type": "axial",
+                    "origin_mm": [-2.0, 30.0, 14.0, 1.0],
+                    "u_mm": [32.0, 0.0, 0.0, 0.0],
+                    "v_mm": [0.0, -32.0, 0.0, 0.0],
+                    "width": 32,
+                    "height": 32
+                }
+            });
+            if let Some(timepoint) = timepoint {
+                payload["timepoint"] = serde_json::json!(timepoint);
+            }
+            payload.to_string()
+        };
+
+        // A first render that names frame 0 draws it: frame 0 (value 1 of the
+        // 0..2 window) is uploaded at layer creation, no timepoint change needed.
+        let first =
+            crate::render_view_with_diagnostics_for_testing(payload(Some(0)), &state, Some("rgba"))
+                .await
+                .expect("first 4D render");
+        let rgba = &first.data[8..];
+        let lit = rgba
+            .chunks_exact(4)
+            .filter(|px| px[0] > 0 || px[1] > 0 || px[2] > 0)
+            .count();
+        assert!(
+            lit > rgba.len() / 4 / 2,
+            "frame 0 rendered black: {lit} lit pixels"
+        );
+        let centre = &rgba[(16 * 32 + 16) * 4..(16 * 32 + 16) * 4 + 4];
+        assert!(
+            (100..=156).contains(&centre[0]),
+            "frame 0 grey level {centre:?}"
+        );
+
+        // A render that omits the timepoint is refused (4103), not drawn black.
+        match crate::render_view_with_diagnostics_for_testing(payload(None), &state, Some("rgba"))
+            .await
+        {
+            Err(BridgeError::Input { code: 4103, .. }) => {}
+            other => panic!(
+                "expected 4103 for a 4D render without timepoint, got {:?}",
+                other.map(|_| ())
+            ),
+        }
     }
 
     #[tokio::test]

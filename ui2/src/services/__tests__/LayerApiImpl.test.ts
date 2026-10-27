@@ -97,6 +97,12 @@ vi.mock('@/services/LayerEvictionService', () => ({
   layerEvictionService: mockLayerEvictionService,
 }));
 
+/** Private LayerApiImpl paths the native-round tests drive directly. */
+interface Internals {
+  upsertViewLayer(layer: unknown): void;
+  refineIntensityFromHistogram(layer: unknown, options: unknown): Promise<void>;
+}
+
 describe('LayerApiImpl', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -263,6 +269,23 @@ describe('LayerApiImpl', () => {
     expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
   });
 
+  it('a show still promoting to the GPU does not undo a later hide', async () => {
+    const api = new LayerApiImpl();
+    mockLayerStoreState.getLayer.mockReturnValue({ id: 'layer-1', name: 'Run', volumeId: 'vol-1', visible: false, type: 'anatomical' });
+    mockLayerStoreState.layerMetadata.set('layer-1', { gpuResident: false });
+    let release: () => void = () => undefined;
+    mockApiService.requestLayerGpuResources.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({}); }),
+    );
+    const viewLayer = { id: 'layer-1', visible: false, opacity: 0 };
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: { layers: unknown[] }) => void) => update({ layers: [viewLayer] }));
+    const show = api.updateLayer('layer-1', { visible: true });
+    await api.updateLayer('layer-1', { visible: false });
+    release();
+    await show;
+    expect(viewLayer.visible).toBe(false);
+  });
+
   it('loadLayerData promotes a deferred layer to GPU residency without changing visibility', async () => {
     const api = new LayerApiImpl();
     mockLayerStoreState.getLayer.mockReturnValue({
@@ -321,6 +344,35 @@ describe('LayerApiImpl', () => {
     expect((mockViewStateStoreState.viewState.layers[0] as any).intensity).toEqual([31,47]);
   });
 
+
+  it('a run hidden while it was loading is added hidden, whatever the captured layer says (native R2-2)', () => {
+    const api = new LayerApiImpl() as unknown as Internals;
+    const stale = { id: 'run-2', name: 'run 2', volumeId: 'vol-2', visible: true, type: 'functional' };
+    mockLayerStoreState.getLayer.mockReturnValue({ ...stale, visible: false });
+    const state: { layers: Record<string, unknown>[]; views: object; crosshair: object } = { layers: [], views: {}, crosshair: {} };
+    mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
+    api.upsertViewLayer(stale);
+    expect(state.layers[0]).toMatchObject({ id: 'run-2', visible: false, opacity: 0 });
+  });
+
+  it('a late histogram still refines a layer whose visibility changed meanwhile (native R2-1)', async () => {
+    let finish!: (value: unknown) => void;
+    mockHistogramService.computeHistogram.mockReturnValue(new Promise(r => { finish = r; }));
+    const api = new LayerApiImpl() as unknown as Internals;
+    const layer = { id: 'layer-1', name: 'T1', volumeId: 'vol-1', visible: true, type: 'anatomical' };
+    mockLayerStoreState.getLayer.mockReturnValue(layer);
+    const view: Record<string, unknown> = { id: 'layer-1', visible: true, opacity: 1, intensity: [0, 100], threshold: [0, 0], colormap: 'gray' };
+    const state = { layers: [view] };
+    mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
+    const pending = api.refineIntensityFromHistogram(layer, { layerType: 'anatomical', dataRange: { min: 0, max: 100 } });
+    // The Series view hides the run while its histogram is computed.
+    Object.assign(view, { visible: false, opacity: 0 });
+    finish({ bins: [{ x0: 0, x1: 50, count: 100 }, { x0: 50, x1: 100, count: 100 }], totalCount: 200, mean: 50, minValue: 0, maxValue: 100 });
+    await pending;
+    expect(view.intensity).not.toEqual([0, 100]);
+  });
 
   it('a z map is shown as one from the first paint and never refined (native v6)', async () => {
     // A z map that is mostly ~1e-5 noise: histogram percentiles would give ±0.03.

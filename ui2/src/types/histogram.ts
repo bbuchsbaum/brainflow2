@@ -65,6 +65,8 @@ export interface HistogramRequest {
   range?: [number, number];
   /** Whether to exclude zero values */
   excludeZeros?: boolean;
+  /** 4D volumes: every frame, not the current one (backend `all_frames`). */
+  allFrames?: boolean;
 }
 
 export interface HistogramChartProps {

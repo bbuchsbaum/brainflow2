@@ -163,15 +163,18 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
     if (isDisabled || !effectiveTimeInfo) {
       return 'No time axis';
     }
+    // One frame convention everywhere: 1-based "frame of count" (phase 4
+    // v0: the Inspector read "2/8" while this read "2/7" for frame index 2).
     const frame = displayTimepoint;
-    const lastFrame = denominator;
+    const count = denominator + 1;
     const tr = effectiveTimeInfo.tr;
     if (tr && tr > 0) {
       const elapsed = formatElapsed(frame * tr);
-      const total = formatElapsed(lastFrame * tr);
-      return `${frame}/${lastFrame} · ${elapsed} / ${total}`;
+      // The run's duration: count × TR (24 frames at 2 s = 0:48), round 3 C9.
+      const total = formatElapsed(count * tr);
+      return `${frame + 1}/${count} · ${elapsed} / ${total}`;
     }
-    return `${frame}/${lastFrame}`;
+    return `${frame + 1}/${count}`;
   }, [isDisabled, effectiveTimeInfo, displayTimepoint, denominator]);
 
   const handlePrevious = useCallback(() => {

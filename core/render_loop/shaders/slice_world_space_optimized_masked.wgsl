@@ -1,3 +1,4 @@
+// @include fullscreen_vertex
 // Optimized world-space slice shader with multi-resolution performance improvements
 // Key optimizations:
 // - Early exit for transparent regions
@@ -98,9 +99,10 @@ struct SliceFeatureUbo {
     outline_mode: u32,
     outline_color: vec4<f32>,
     outline_thickness_px: f32,
-    _pad1_x: f32,
-    _pad1_y: f32,
-    _pad1_z: f32,
+    outline_color_mode: u32,
+    halo_thickness_px: f32,
+    _pad1: f32,
+    halo_color: vec4<f32>,
 };
 
 const LAYER_MODE_SCALAR: u32 = 0u;
@@ -162,12 +164,8 @@ struct VsOut {
 // --- Vertex Shader ---
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
-    // Generate full-screen quad vertices in NDC space [0, 1]
-    let vertex_id = vid % 6u;
-    let x = f32((vertex_id & 1u) ^ ((vertex_id >> 2u) & 1u));
-    let y = f32((vertex_id >> 1u) & 1u);
-    let ndc = vec2<f32>(x, y);
-    
+    let ndc = fullscreen_vertex(vid);
+
     // Convert to clip space [-1, 1]
     let clip_pos = ndc * 2.0 - 1.0;
     
@@ -257,7 +255,9 @@ fn sampleLayerLabelIdOptimized(layer: LayerData, world_mm: vec3<f32>) -> u32 {
 
     let voxel_coord = voxel_coord_h.xyz / voxel_coord_h.w;
     let dim_f = vec3<f32>(layer.dim);
-    if (any(voxel_coord < vec3<f32>(0.0)) || any(voxel_coord >= dim_f)) {
+    // Voxel-centre domain: voxel i covers [i-0.5, i+0.5), so the volume spans
+    // [-0.5, dim-0.5). Matches the CPU renderer and picker (round to nearest).
+    if (any(voxel_coord < vec3<f32>(-0.5)) || any(voxel_coord >= dim_f - 0.5)) {
         return 0u;
     }
 
@@ -271,39 +271,101 @@ fn sampleLayerLabelIdOptimized(layer: LayerData, world_mm: vec3<f32>) -> u32 {
     return u32(max(round(raw_value), 0.0));
 }
 
+// Label LUT texel for an integer label id. Ids outside the LUT width (e.g.
+// >= 2048) are transparent: out-of-bounds textureLoad results are
+// implementation-defined, so they are never read.
+fn labelLutTexel(colormap_id: u32, label_id: i32) -> vec4<f32> {
+    let width = i32(textureDimensions(colormapLutTexture).x);
+    if (label_id < 0 || label_id >= width) {
+        return vec4<f32>(0.0);
+    }
+    return textureLoad(colormapLutTexture, vec2<i32>(label_id, 0), i32(colormap_id), 0);
+}
+
+fn labelOutlineTexel(layer: LayerData, label_id: u32) -> vec4<f32> {
+    // Per-region colour: the label's LUT texel (alpha encodes visibility).
+    return labelLutTexel(layer.colormap_id, i32(min(label_id, 0x7fffffffu)));
+}
+
+fn labelOutlineColor(layer: LayerData, label_id: u32) -> vec4<f32> {
+    // outline_color_mode: 0 = uniform outline_color, 1 = the region's LUT colour.
+    // LUT alpha multiplies the outline alpha so hidden regions stay hidden.
+    if (slice_features.outline_color_mode == 1u) {
+        let texel = labelOutlineTexel(layer, label_id);
+        return vec4<f32>(texel.rgb, slice_features.outline_color.a * texel.a);
+    }
+    return slice_features.outline_color;
+}
+
+fn labelHaloColor(layer: LayerData, label_id: u32) -> vec4<f32> {
+    var alpha = slice_features.halo_color.a;
+    if (slice_features.outline_color_mode == 1u) {
+        alpha = alpha * labelOutlineTexel(layer, label_id).a;
+    }
+    return vec4<f32>(slice_features.halo_color.rgb, alpha);
+}
+
+// True when any 4-neighbour at `distance_px` screen pixels has a label other
+// than `label_id` (pixels nearer the boundary than that also qualify).
+fn labelDiffersWithin(layer: LayerData, world_mm: vec3<f32>, label_id: u32, distance_px: f32) -> bool {
+    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * distance_px;
+    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * distance_px;
+    return sampleLayerLabelIdOptimized(layer, world_mm + du) != label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - du) != label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm + dv) != label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - dv) != label_id;
+}
+
+// True when any 4-neighbour at `distance_px` screen pixels has `label_id`.
+fn labelNearWithin(layer: LayerData, world_mm: vec3<f32>, label_id: u32, distance_px: f32) -> bool {
+    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * distance_px;
+    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * distance_px;
+    return sampleLayerLabelIdOptimized(layer, world_mm + du) == label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - du) == label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm + dv) == label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - dv) == label_id;
+}
+
 fn sampleSelectedLabelOutlineOptimized(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
     if (slice_features.outline_enabled == 0u || layer.layer_mode != LAYER_MODE_LABEL) {
         return vec4<f32>(0.0);
     }
 
     let center_label = sampleLayerLabelIdOptimized(layer, world_mm);
+    let thickness_px = max(slice_features.outline_thickness_px, 1.0);
+    let halo_px = max(slice_features.halo_thickness_px, 0.0);
 
     // outline_mode: 0 = single selected label, 1 = all parcel boundaries.
     if (slice_features.outline_mode == 1u) {
+        // All boundaries: every non-background voxel adjacent to a different
+        // label. The halo is a second band inside each region, behind the outline.
         if (center_label == 0u) {
             return vec4<f32>(0.0);
         }
-    } else {
-        let selected_label = slice_features.selected_label_id;
-        if (selected_label == 0u || center_label != selected_label) {
-            return vec4<f32>(0.0);
+        if (labelDiffersWithin(layer, world_mm, center_label, thickness_px)) {
+            return labelOutlineColor(layer, center_label);
         }
+        if (halo_px > 0.0 && labelDiffersWithin(layer, world_mm, center_label, thickness_px + halo_px)) {
+            return labelHaloColor(layer, center_label);
+        }
+        return vec4<f32>(0.0);
     }
 
-    let thickness_px = max(slice_features.outline_thickness_px, 1.0);
-    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * thickness_px;
-    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * thickness_px;
-
-    let neighbor_differs =
-        sampleLayerLabelIdOptimized(layer, world_mm + du) != center_label ||
-        sampleLayerLabelIdOptimized(layer, world_mm - du) != center_label ||
-        sampleLayerLabelIdOptimized(layer, world_mm + dv) != center_label ||
-        sampleLayerLabelIdOptimized(layer, world_mm - dv) != center_label;
-
-    if (neighbor_differs) {
-        return slice_features.outline_color;
+    // Single label: the outline is the selected region's inner boundary band;
+    // the halo is a band just outside it.
+    let selected_label = slice_features.selected_label_id;
+    if (selected_label == 0u) {
+        return vec4<f32>(0.0);
     }
-
+    if (center_label == selected_label) {
+        if (labelDiffersWithin(layer, world_mm, center_label, thickness_px)) {
+            return labelOutlineColor(layer, selected_label);
+        }
+        return vec4<f32>(0.0);
+    }
+    if (halo_px > 0.0 && labelNearWithin(layer, world_mm, selected_label, halo_px)) {
+        return labelHaloColor(layer, selected_label);
+    }
     return vec4<f32>(0.0);
 }
 
@@ -332,6 +394,9 @@ fn alphaThresholdFloorMagnitude(layer: LayerData, raw_value: f32, hi: f32) -> f3
         }
     } else if (layer.threshold_mode == 2u) {
         floor_mag = abs(layer.thresh_low - layer.alpha_center);
+    } else if (layer.threshold_mode == 4u) {
+        // Inside mode has no threshold-derived magnitude floor.
+        floor_mag = 0.0;
     } else {
         floor_mag = abs(layer.thresh_high - layer.alpha_center);
     }
@@ -359,7 +424,9 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     
     // Vectorized bounds check
     let dim_f = vec3<f32>(layer.dim);
-    let in_bounds = all(voxel_coord >= vec3<f32>(0.0)) && all(voxel_coord < dim_f);
+    // Voxel-centre domain: voxel i covers [i-0.5, i+0.5), so the volume spans
+    // [-0.5, dim-0.5). Matches the CPU renderer and picker (round to nearest).
+    let in_bounds = all(voxel_coord >= vec3<f32>(-0.5)) && all(voxel_coord < dim_f - 0.5);
     if (!in_bounds) {
         return vec4<f32>(0.0);
     }
@@ -433,6 +500,9 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
         alpha = select(alpha, 0.0, within_abs_range);
     } else if (layer.threshold_mode == 2u) { // Above
         alpha = select(0.0, alpha, raw_value >= layer.thresh_low);
+    } else if (layer.threshold_mode == 4u) { // Inside inclusive range
+        let within_range = raw_value >= layer.thresh_low && raw_value <= layer.thresh_high;
+        alpha = select(0.0, alpha, within_range);
     } else { // Below
         alpha = select(0.0, alpha, raw_value <= layer.thresh_high);
     }
@@ -478,7 +548,7 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
         if (label_id <= 0) {
             return vec4<f32>(0.0);
         }
-        let lut_texel = textureLoad(colormapLutTexture, vec2<i32>(label_id, 0), i32(layer.colormap_id), 0);
+        let lut_texel = labelLutTexel(layer.colormap_id, label_id);
         return vec4<f32>(lut_texel.rgb, alpha * lut_texel.a);
     }
 

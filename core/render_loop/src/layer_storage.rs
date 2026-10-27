@@ -28,6 +28,16 @@ fn effective_layer_mode(layer: &LayerInfo) -> LayerMode {
     }
 }
 
+/// WGSL implementations may assume floats are finite (e.g. Metal fast-math), so
+/// unbounded thresholds (`±inf`, "no bound") are clamped to the finite extremes
+/// before upload. Inclusive comparisons keep the same semantics for finite data.
+fn gpu_threshold_bounds((low, high): (f32, f32)) -> (f32, f32) {
+    (
+        low.clamp(f32::MIN, f32::MAX),
+        high.clamp(f32::MIN, f32::MAX),
+    )
+}
+
 fn effective_interpolation_mode(layer: &LayerInfo) -> u32 {
     match effective_layer_mode(layer) {
         LayerMode::Label | LayerMode::Mask => 0,
@@ -344,8 +354,8 @@ impl LayerStorageManager {
                 opacity: layer.opacity,
                 intensity_min: layer.intensity_range.0,
                 intensity_max: layer.intensity_range.1,
-                thresh_low: layer.threshold_range.0,
-                thresh_high: layer.threshold_range.1,
+                thresh_low: gpu_threshold_bounds(layer.threshold_range).0,
+                thresh_high: gpu_threshold_bounds(layer.threshold_range).1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
                 has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
                 interpolation_mode,
@@ -430,8 +440,8 @@ impl LayerStorageManager {
             opacity: layer.opacity,
             intensity_min: layer.intensity_range.0,
             intensity_max: layer.intensity_range.1,
-            thresh_low: layer.threshold_range.0,
-            thresh_high: layer.threshold_range.1,
+            thresh_low: gpu_threshold_bounds(layer.threshold_range).0,
+            thresh_high: gpu_threshold_bounds(layer.threshold_range).1,
             is_mask: if layer.is_mask { 1 } else { 0 },
             has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
             interpolation_mode,
@@ -582,5 +592,57 @@ mod tests {
             crate::LayerMode::Label as u32
         );
         assert_eq!(manager.layer_data[0].interpolation_mode, 0);
+    }
+
+    #[test]
+    fn unbounded_thresholds_are_finite_on_upload() {
+        let (device, queue) = pollster::block_on(create_test_device());
+
+        let mut manager = LayerStorageManager::new(&device, 2);
+        let layout = LayerStorageManager::create_bind_group_layout(&device);
+        manager.create_bind_group(&device, &layout);
+
+        let layer = |threshold_range, threshold_mode| LayerInfo {
+            atlas_index: 0,
+            opacity: 1.0,
+            intensity_range: (0.0, 1.0),
+            threshold_range,
+            threshold_mode,
+            texture_coords: (0.0, 0.0, 1.0, 1.0),
+            ..Default::default()
+        };
+        let layers = vec![
+            layer((2.5, f32::INFINITY), ThresholdMode::Above),
+            layer((f32::NEG_INFINITY, 4.0), ThresholdMode::Below),
+        ];
+        let dims = vec![(4, 4, 4); 2];
+        let transforms = vec![Matrix4::identity(); 2];
+        manager.update_layers(&device, &queue, &layout, &layers, &dims, &transforms);
+
+        let uploaded: Vec<_> = manager
+            .layer_data
+            .iter()
+            .map(|data| (data.thresh_low, data.thresh_high))
+            .collect();
+        assert_eq!(uploaded, vec![(2.5, f32::MAX), (f32::MIN, 4.0)]);
+
+        let replacement = layer((f32::NEG_INFINITY, f32::INFINITY), ThresholdMode::Above);
+        manager
+            .update_layer(
+                &queue,
+                1,
+                &replacement,
+                (4, 4, 4),
+                &Matrix4::identity(),
+                (false, 1.0),
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                manager.layer_data[1].thresh_low,
+                manager.layer_data[1].thresh_high
+            ),
+            (f32::MIN, f32::MAX)
+        );
     }
 }

@@ -20,8 +20,15 @@ Brainflow preserves the volume affine world frame. NIfTI qform/sform maps voxel 
 
 ### 2. Grid Coordinates 
 - **Definition**: Continuous floating-point positions in voxel space
-- **Range**: [-0.5, dim-0.5] for proper voxel center alignment
+- **Range**: half-open [-0.5, dim-0.5) per axis. Voxel i covers [i-0.5, i+0.5),
+  so grid coordinate i is the centre of voxel i.
 - **Usage**: Interpolation, sub-voxel precision
+- **Shared domain**: the GPU slice samplers (both masked shaders), the CPU reference
+  renderer (`neuro-cpu` nearest and trilinear) and the CPU picker
+  (`volume_queries::nearest_voxel`) all use this domain. A point is inside when
+  `-0.5 <= v < dim-0.5` on every axis; nearest sampling picks `floor(v+0.5)`, and
+  trilinear corners clamp into [0, dim-1] (edge replication). The GPU maps grid
+  coordinate v to texture coordinate (v+0.5)/dim.
 
 ### 3. World Coordinates (x, y, z)
 - **Definition**: Physical positions in millimeters in the affine world frame
@@ -214,7 +221,8 @@ fn test_heterogeneous_overlay() {
 
 ### 3. Half-Voxel Shifts
 **Problem**: Misalignment due to voxel corner vs. center  
-**Solution**: Grid coordinates [0,0,0] map to center of first voxel
+**Solution**: Grid coordinates [0,0,0] map to center of first voxel; the volume
+extends half a voxel beyond the first and last centres ([-0.5, dim-0.5))
 
 ### 4. Transform Direction
 **Problem**: Applying voxel_to_world when world_to_voxel needed  

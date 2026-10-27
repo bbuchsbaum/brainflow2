@@ -12,6 +12,7 @@
  * - surface overlay load
  */
 
+import { matchingOverlayTarget } from './surfaceOverlayIdentity';
 import { formatTauriError, toError } from '@/utils/formatTauriError';
 import { fileLoadScheduler } from './LoadScheduler';
 import { getEventBus, type EventBus } from '@/events/EventBus';
@@ -398,11 +399,14 @@ export class DisplayLifecycleOrchestrator {
     }
 
     const commandContext = getActiveSurfaceCommandContext();
-    const targetSurfaceId =
+    const selectedSurfaceId =
       surfaces.length === 1
         ? surfaces[0].handle
         : resolveSurfaceTargetSurfaceId(commandContext, surfaceState.surfaces) || surfaces[0].handle;
-    const targetSurface = surfaces.find((surface) => surface.handle === targetSurfaceId);
+    const selected = surfaces.find((surface) => surface.handle === selectedSurfaceId);
+    // An overlay that names its hemisphere goes to that hemisphere's surface.
+    const targetSurface = selected ? matchingOverlayTarget(path, selected, surfaces) : undefined;
+    const targetSurfaceId = targetSurface?.handle ?? selectedSurfaceId;
 
     if (!targetSurface) {
       this.eventBus.emit('ui.notification', {

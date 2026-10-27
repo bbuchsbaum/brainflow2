@@ -114,6 +114,38 @@ export class SetIngestionService {
     await this.scanFolderReview();
   }
 
+  /** Ask for a NeuroTabs manifest, then preview exactly that file; cancelling changes nothing. */
+  async chooseManifestPreview(): Promise<void> {
+    const before = useSetStudioStore.getState().importDialog;
+    let path: string | null;
+    try {
+      path = await this.transport.invoke<string | null>('plugin:dialog|open', {
+        options: {
+          directory: false,
+          multiple: false,
+          title: 'Open a NeuroTabs manifest',
+          filters: [{ name: 'NeuroTabs manifest', extensions: ['yaml', 'yml', 'json'] }],
+        },
+      });
+    } catch (error) {
+      if (useSetStudioStore.getState().importDialog !== before) return;
+      const requestId = (this.requestVersion = nextImportRequestId());
+      const state = useSetStudioStore.getState();
+      state.dispatchImportEvent({ type: 'PREVIEW_REQUESTED', mode: 'manifest', requestId });
+      state.dispatchImportEvent({
+        type: 'PREVIEW_FAILED',
+        mode: 'manifest',
+        requestId,
+        message: formatTauriError(error),
+        now: Date.now(),
+      });
+      return;
+    }
+    if (!path || useSetStudioStore.getState().importDialog !== before) return;
+    useSetStudioStore.getState().setManifestPath(path);
+    await this.openImportPreview('manifest');
+  }
+
   async chooseFolderReview(): Promise<void> {
     const before = useSetStudioStore.getState().importDialog;
     try {

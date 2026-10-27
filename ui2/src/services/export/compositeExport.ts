@@ -23,8 +23,10 @@ import {
   PLANE_NAME,
   type FramePlane,
   colorbarBlockModel,
+  nameWrapPieces,
 } from '@/components/views/viewportFrame/frameFormat';
 import { anatomicalLabels } from '@/utils/anatomicalLabels';
+import { END_ON, projectGizmoAxes, type CameraBasis } from '@/utils/orientationGizmo';
 import {
   adaptCrosshairStyleToViewport,
   buildActiveCrosshairStyle,
@@ -131,6 +133,16 @@ export type SizeSpec =
 export const PRINT_WIDTHS_MM = [89, 183] as const;
 export const PRINT_DPI = [300, 600] as const;
 
+/**
+ * The resolution written into the file (PNG pHYs; native R3-4: a Screen 2×
+ * export carried none). Print: its dpi. Screen: 72 dpi per multiple (1× = 72,
+ * 2× = 144), the convention macOS and most viewers use for a Retina capture,
+ * so a 2× image opens at its on-screen size.
+ */
+export function exportDpi(size: SizeSpec): number {
+  return size.kind === 'print' ? size.dpi : 72 * size.scale;
+}
+
 /** Target width in device pixels for a print size (null for a screen multiple). */
 export function printWidthPx(size: SizeSpec): number | null {
   return size.kind === 'print' ? Math.round((size.widthMm / 25.4) * size.dpi) : null;
@@ -149,9 +161,9 @@ export interface ExportPane {
   image: CanvasImageSource;
   width: number;
   height: number;
-  /** The view plane refitted to width x height (u/v per device pixel). */
-  plane: ViewPlane;
-  framePlane: FramePlane;
+  /** The view plane refitted to width x height (u/v per device pixel); null for a surface pane. */
+  plane: ViewPlane | null;
+  framePlane: FramePlane | null;
   /** World position of the slice along its axis (header). */
   positionMm: number;
   layerName: string | null;
@@ -162,6 +174,12 @@ export interface ExportPane {
   orientation?: boolean;
   /** False: no scale bar on this pane (a montage shows one, on its last tile). */
   scaleBar?: boolean;
+  /**
+   * A surface pose (phase 4, D4): its header ("Left lateral  overlay",
+   * richest first) and the camera for the orientation glyph that replaces
+   * the letters. Surface panes have no scale bar and no crosshair.
+   */
+  surface?: { header: HeaderRun[][]; basis: CameraBasis | null } | null;
 }
 
 export interface ExportSideBar {
@@ -316,7 +334,7 @@ function drawPane(
   // Orientation letters, measured first: the scale bar is placed clear of them.
   const letterFont = font(ptToPx(TEXT_PT.letter, u), SANS, 600);
   const letters: Array<{ text: string; x: number; y: number; align: CanvasTextAlign; baseline: CanvasTextBaseline; box: Rect }> = [];
-  if (options.orientation && pane.orientation !== false) {
+  if (options.orientation && pane.orientation !== false && pane.plane) {
     const labels = anatomicalLabels(pane.plane);
     if (labels) {
       const off = 5 * u;
@@ -338,8 +356,10 @@ function drawPane(
   }
 
   const bar =
-    options.scaleBar && pane.scaleBar !== false
-      ? planScaleBar(ctx, x, iy, pane, u, letters.map((l) => l.box))
+    options.scaleBar && pane.scaleBar !== false && pane.plane
+      ? planScaleBar(ctx, x, iy, pane, u, letters.map((l) => l.box), (box) =>
+          dataCoverage(ctx, box, options.background),
+        )
       : null;
   // A letter the scale bar must cover (a pane too small for both) is left
   // out: text never overlaps text (the top letter still orients the pane).
@@ -372,7 +392,11 @@ function drawPane(
     ctx.restore();
   }
 
-  if (options.crosshair && pane.crosshairWorld) {
+  if (options.orientation && pane.surface?.basis) {
+    drawGizmo(ctx, x + EDGE_INSET * u, iy + pane.height - EDGE_INSET * u, pane.surface.basis, u, onImage);
+  }
+
+  if (options.crosshair && pane.crosshairWorld && pane.plane) {
     const point = projectToImage(pane.crosshairWorld, pane.plane);
     if (point) {
       // The user's stroke at the frame's CSS size, in chrome units; it
@@ -400,6 +424,59 @@ function drawPane(
   }
 }
 
+/** Side of the orientation glyph's box, in chrome units (D5). */
+export const GIZMO_SIZE = 40;
+
+/**
+ * The orientation glyph (D5) in the pane's bottom-left corner (x, bottom):
+ * R / A / S as the pose's camera sees them, back to front, axes pointing
+ * away dimmed. On-image style, like the letters it replaces.
+ */
+function drawGizmo(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  bottom: number,
+  basis: CameraBasis,
+  u: number,
+  style: OnImageStyle,
+): void {
+  const size = GIZMO_SIZE * u;
+  const c = { x: x + size / 2, y: bottom - size / 2 };
+  const r = size * 0.3;
+  ctx.save();
+  ctx.strokeStyle = style.text;
+  ctx.fillStyle = style.text;
+  ctx.shadowColor = style.halo;
+  ctx.shadowBlur = 3 * u;
+  ctx.lineWidth = 1.25 * u;
+  ctx.lineCap = 'round';
+  ctx.font = font(ptToPx(TEXT_PT.tick, u), SANS, 600);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const axis of projectGizmoAxes(basis)) {
+    const away = axis.depth < -0.05;
+    if (Math.hypot(axis.x, axis.y) < END_ON) {
+      // Along the line of sight: a ring (away) or a dot (toward), the letter beside it.
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 2.5 * u, 0, 2 * Math.PI);
+      if (away) ctx.stroke();
+      else ctx.fill();
+      ctx.textAlign = 'left';
+      ctx.fillText(axis.label, c.x + 5 * u, c.y + 6 * u);
+      ctx.textAlign = 'center';
+      continue;
+    }
+    ctx.globalAlpha = away ? 0.55 : 1;
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(c.x + axis.x * r, c.y + axis.y * r);
+    ctx.stroke();
+    ctx.fillText(axis.label, c.x + axis.x * (r + 6 * u), c.y + axis.y * (r + 6 * u));
+  }
+  ctx.restore();
+}
+
 interface ScaleBarPlan {
   barX: number;
   base: number;
@@ -410,10 +487,62 @@ interface ScaleBarPlan {
 }
 
 /**
- * 10 mm bar, bottom-right of the pane, its length from the pane's own mm/px.
- * Placed clear of the orientation letters: bottom-right; else raised above
- * the letter it would cover (a narrow figure-row pane: "10 mm" ran into the
- * bottom "P"); else bottom-right (the caller drops the covered letter).
+ * Fraction of a box's pixels that show data (not page / background), read
+ * back from the pane just drawn. 0 when the canvas cannot be read.
+ */
+function dataCoverage(ctx: CanvasRenderingContext2D, box: Rect, background: ExportBackground): number {
+  try {
+    const w = Math.max(1, Math.round(box.width));
+    const h = Math.max(1, Math.round(box.height));
+    const data = ctx.getImageData(Math.round(box.x), Math.round(box.y), w, h).data;
+    return coverageOf(data, background);
+  } catch {
+    return 0;
+  }
+}
+
+/** Data pixels in RGBA bytes: brighter than a black page, darker than a white one, opaque on a transparent one. */
+export function coverageOf(data: ArrayLike<number>, background: ExportBackground): number {
+  let n = 0;
+  let total = 0;
+  for (let i = 0; i + 3 < data.length; i += 4) {
+    total += 1;
+    const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    const alpha = data[i + 3];
+    const isData =
+      background === 'white' ? alpha > 8 && lum < 235 : background === 'black' ? lum > 24 : alpha > 8 && lum > 24;
+    if (isData) n += 1;
+  }
+  return total ? n / total : 0;
+}
+
+/** Scale-bar corners in order of preference: bottom-right, bottom-left, top-right, top-left. */
+export type ScaleBarCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+const SCALE_BAR_CORNERS: ScaleBarCorner[] = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
+/** Coverage below which a corner counts as clear of data. */
+export const SCALE_BAR_CLEAR = 0.01;
+
+/**
+ * The corner for the scale bar (native R2-4: with Crop to brain the bar sat
+ * on a blob): the first preferred corner clear of the letters and of data;
+ * else the clear-of-letters corner with the least data under it.
+ */
+export function chooseScaleBarCorner(
+  candidates: ReadonlyArray<{ corner: ScaleBarCorner; lettersClear: boolean; coverage: number }>,
+): ScaleBarCorner {
+  const ok = candidates.filter((c) => c.lettersClear);
+  const pool = ok.length ? ok : candidates;
+  const clear = pool.find((c) => c.coverage <= SCALE_BAR_CLEAR);
+  if (clear) return clear.corner;
+  return pool.reduce((best, c) => (c.coverage < best.coverage ? c : best), pool[0]).corner;
+}
+
+/**
+ * 10 mm bar, its length from the pane's own mm/px, in a corner clear of the
+ * orientation letters and of the data (bottom-right first; with a cropped
+ * frame the data can reach every edge, so the corner with the least data
+ * wins). A pane too small for any clear corner keeps bottom-right (the caller
+ * drops a covered letter).
  */
 function planScaleBar(
   ctx: CanvasRenderingContext2D,
@@ -422,29 +551,38 @@ function planScaleBar(
   pane: ExportPane,
   u: number,
   avoid: readonly Rect[],
+  coverage: (box: Rect) => number = () => 0,
 ): ScaleBarPlan | null {
+  if (!pane.plane) return null;
   const length = scaleBarPx(pane.plane);
   if (!(length > 4) || length > pane.width * 0.6) return null;
-  const right = x + pane.width - 8 * u;
   ctx.save();
   ctx.font = font(ptToPx(TEXT_PT.tick, u), MONO);
-  // Centred over the bar, but never past the pane edge: a short bar (a
-  // mosaic tile) right-aligns its label to the bar's end instead.
   const text = `${SCALE_BAR_MM} mm`;
   const textW = ctx.measureText(text).width;
   ctx.restore();
-  const textRight = Math.min(right - length / 2 + textW / 2, x + pane.width - EDGE_INSET * u);
   const h = ptToPx(TEXT_PT.tick, u) * 1.4 + 6 * u;
-  const left = Math.min(right - length, textRight - textW) - 2 * u;
-  const boxAt = (b: number): Rect => ({ x: left, y: b - h, width: right + 2 * u - left, height: h + 2 * u });
-  const clear = (b: number) => b - h >= y && !avoid.some((other) => intersects(boxAt(b), other));
-  const bottom = y + pane.height - 8 * u;
-  let base = bottom;
-  if (!clear(bottom)) {
-    const blocker = avoid.find((other) => intersects(boxAt(bottom), other));
-    if (blocker && clear(blocker.y - 3 * u)) base = blocker.y - 3 * u;
-  }
-  return { barX: right - length, base, length, text, textRight, box: boxAt(base) };
+  const plan = (corner: ScaleBarCorner): ScaleBarPlan => {
+    const onRight = corner.endsWith('right');
+    const right = onRight ? x + pane.width - 8 * u : x + 8 * u + Math.max(length, textW);
+    // Centred over the bar, but never past the pane edge.
+    const textRight = onRight
+      ? Math.min(right - length / 2 + textW / 2, x + pane.width - EDGE_INSET * u)
+      : Math.max(right - length / 2 + textW / 2, x + EDGE_INSET * u + textW);
+    const left = Math.min(right - length, textRight - textW) - 2 * u;
+    const base = corner.startsWith('bottom') ? y + pane.height - 8 * u : y + 8 * u + h;
+    const box = { x: left, y: base - h, width: right + 2 * u - left, height: h + 2 * u };
+    return { barX: right - length, base, length, text, textRight, box };
+  };
+  const candidates = SCALE_BAR_CORNERS.map((corner) => {
+    const p = plan(corner);
+    return {
+      corner,
+      lettersClear: p.box.y >= y && !avoid.some((other) => intersects(p.box, other)),
+      coverage: coverage(p.box),
+    };
+  });
+  return plan(chooseScaleBarCorner(candidates));
 }
 
 function paintScaleBar(ctx: CanvasRenderingContext2D, plan: ScaleBarPlan, u: number, style: OnImageStyle): void {
@@ -477,9 +615,12 @@ export interface HeaderRun {
  * The slice header, richest first: each candidate is tried in turn and the
  * first that fits the pane is drawn, so headers never run together or past
  * their pane (native check, figure row at 89 mm):
- *   "Axial  z = −10.0 mm  zmap"  →  "Axial  z = −10.0 mm"  →  "z = −10.0 mm"
- *   →  "z −10.0 mm"  →  "z −10.0"  →  nothing.
- * The layer name is whole or absent (never ellipsized, v5 critics).
+ *   "Axial  z = −10.0 mm  zmap"  →  "Axial  z = −10.0 mm"  →  "Axial  z −10.0 mm"
+ *   →  "Axial  z −10.0"  →  "Ax.  z −10.0"  →  "Axial".
+ * The view name is never dropped (native R3-3: a narrow crop read only
+ * "y = −18.0 mm"); when even the shortest form is too wide the header is set
+ * smaller (drawHeaderBand). The layer name is whole or absent (never
+ * ellipsized, v5 critics).
  */
 export function headerCandidates(
   plane: FramePlane,
@@ -491,7 +632,7 @@ export function headerCandidates(
   const planeRun: HeaderRun = { text: PLANE_NAME[plane] };
   if (!match) {
     const plain: HeaderRun[] = [planeRun, { text: position }];
-    return [plain, [{ text: position }], []];
+    return [plain, [planeRun]];
   }
   const [, axis, value] = match;
   const bare = value.replace(/\s*mm$/, '');
@@ -503,12 +644,19 @@ export function headerCandidates(
   const out: HeaderRun[][] = [];
   if (layerName) out.push([...full, { text: shortLayerLabel(layerName), muted: true }]);
   out.push(full);
-  out.push(full.slice(1));
-  out.push([{ text: axis, italic: true }, { text: value, gapEm: 0.3 }]);
-  out.push([{ text: axis, italic: true }, { text: bare, gapEm: 0.3 }]);
-  out.push([]);
+  out.push([planeRun, { text: axis, italic: true }, { text: value, gapEm: 0.3 }]);
+  out.push([planeRun, { text: axis, italic: true }, { text: bare, gapEm: 0.3 }]);
+  // The view abbreviated keeps both the view and the position in a narrow pane.
+  out.push([{ text: PLANE_ABBR[plane] }, { text: axis, italic: true }, { text: bare, gapEm: 0.3 }]);
+  out.push([planeRun]);
   return out;
 }
+
+/** The smallest a header is set (of its point size) before it falls back to the view name alone. */
+export const HEADER_MIN_SCALE = 0.6;
+
+/** Abbreviated view names for narrow panes ("Ax.  z −10.0"). */
+const PLANE_ABBR: Record<FramePlane, string> = { axial: 'Ax.', coronal: 'Cor.', sagittal: 'Sag.' };
 
 function drawHeaderBand(
   ctx: CanvasRenderingContext2D,
@@ -526,22 +674,38 @@ function drawHeaderBand(
   const gap = 6 * u;
   const room = pane.width - 2 * EDGE_INSET * u;
   ctx.save();
-  const styled = (runs: HeaderRun[]) =>
+  const styled = (runs: HeaderRun[], scale = 1) =>
     runs.map((r) => ({
       text: r.text,
-      font: font(px, SANS, 400, !!r.italic),
+      font: font(px * scale, SANS, 400, !!r.italic),
       color: r.muted ? theme.muted : theme.text,
-      gap: r.gapEm != null ? px * r.gapEm : undefined,
+      gap: r.gapEm != null ? px * scale * r.gapEm : scale < 1 ? gap * scale : undefined,
     }));
   const measure = (list: ReturnType<typeof styled>) =>
     list.reduce((sum, p, i) => {
       ctx.font = p.font;
       return sum + ctx.measureText(p.text).width + (i > 0 ? (p.gap ?? gap) : 0);
     }, 0);
+  const candidates = pane.surface
+    ? pane.surface.header
+    : pane.framePlane
+      ? headerCandidates(pane.framePlane, pane.positionMm, pane.layerName)
+      : [];
+  // The first form that fits; else the last two forms set smaller (down to
+  // HEADER_MIN_SCALE) so the view name stays (native R3-3).
+  const fitted = (runs: HeaderRun[]) => {
+    const natural = measure(styled(runs));
+    const scale = natural > 0 ? Math.min(1, room / natural) : 1;
+    return scale >= HEADER_MIN_SCALE ? styled(runs, scale * 0.999) : null;
+  };
   const parts =
-    headerCandidates(pane.framePlane, pane.positionMm, pane.layerName)
-      .map(styled)
-      .find((list) => measure(list) <= room) ?? [];
+    candidates
+      .slice(0, -1)
+      .map((c) => styled(c))
+      .find((list) => measure(list) <= room) ??
+    (candidates.length >= 2 ? fitted(candidates[candidates.length - 2]) : null) ??
+    (candidates.length >= 1 ? styled(candidates[candidates.length - 1], Math.max(0.3, room / Math.max(1, measure(styled(candidates[candidates.length - 1]))))) : null) ??
+    [];
   ctx.textBaseline = 'middle';
   // Inset from the pane's left edge (the header is page text, not flush).
   let cx = x + EDGE_INSET * u;
@@ -705,7 +869,8 @@ function drawColorbar(
   const symbolRuns = block.symbol;
   const cx = barX + drawRuns(ctx, symbolRuns, barX, captionY, labelPx);
   ctx.font = font(labelPx, SANS);
-  ctx.fillStyle = theme.muted;
+  // Full ink: a figure's colorbar title must stay ≥ 4.5:1 on white at print size (v1 F1).
+  ctx.fillStyle = theme.text;
   if (nameInline && block.name) {
     ctx.fillText(prefix + block.name, cx, captionY);
   } else {
@@ -815,13 +980,15 @@ export function inferredStatisticNote(units: string | null | undefined): string 
  * A name broken at its own boundaries (after _ - . or a space) into at most
  * `maxLines` lines of `width`; [] when it does not fit whole that way.
  */
-function wrapAtBoundaries(
-  ctx: CanvasRenderingContext2D,
+/** Wrap a layer name at its boundaries to `width` px (null-free: [] when it does not fit). */
+export function wrapAtBoundaries(
+  ctx: Pick<CanvasRenderingContext2D, 'measureText'>,
   text: string,
   width: number,
   maxLines: number,
 ): string[] {
-  const pieces = text.match(/[^_\-.\s]+[_\-.\s]*/g) ?? [text];
+  // The same wrap points as the on-screen colorbar: "(lh, rh)" stays whole (round 3 S1).
+  const pieces = nameWrapPieces(text);
   const lines: string[] = [];
   let line = '';
   for (const piece of pieces) {

@@ -132,7 +132,8 @@ class HistogramService {
         layerId: request.layerId,
         binCount: request.binCount || 256,
         range: request.range,
-        excludeZeros: request.excludeZeros || false
+        excludeZeros: request.excludeZeros || false,
+        ...(request.allFrames ? { allFrames: true } : {})
       });
       
       // Transform response to frontend format
@@ -181,6 +182,7 @@ class HistogramService {
     if (request.range) {
       parts.push(`range-${request.range[0]}-${request.range[1]}`);
     }
+    if (request.allFrames) parts.push('all-frames');
     
     return parts.join('-');
   }

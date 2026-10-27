@@ -48,3 +48,19 @@ export function toError(error: unknown): Error {
   if (error instanceof Error) return error;
   return new Error(error == null ? 'Unknown error' : formatTauriError(error), { cause: error });
 }
+
+/**
+ * The numeric bridge error code of a rejection (`{ Input: { code, details } }`,
+ * `{ code, ... }`, or an Error whose cause is one), else null.
+ */
+export function tauriErrorCode(error: unknown, depth = 0): number | null {
+  if (!error || typeof error !== 'object' || depth > 3) return null;
+  const record = error as Record<string, unknown>;
+  if (typeof record.code === 'number') return record.code;
+  if (error instanceof Error) return tauriErrorCode((error as Error & { cause?: unknown }).cause, depth + 1);
+  for (const value of Object.values(record)) {
+    const code = tauriErrorCode(value, depth + 1);
+    if (code !== null) return code;
+  }
+  return null;
+}

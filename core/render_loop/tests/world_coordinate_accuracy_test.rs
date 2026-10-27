@@ -271,14 +271,14 @@ mod tests {
             ];
 
             for pos in boundary_positions {
-                // Check if position maps to valid voxel
+                // Check if position maps into the voxel-centre domain [-0.5, dim-0.5)
                 let voxel_pos = world_to_voxel.transform_point(&Point3::from(Vector3::from(pos)));
-                let in_bounds = voxel_pos.x >= 0.0
-                    && voxel_pos.x < dims[0] as f32
-                    && voxel_pos.y >= 0.0
-                    && voxel_pos.y < dims[1] as f32
-                    && voxel_pos.z >= 0.0
-                    && voxel_pos.z < dims[2] as f32;
+                let in_bounds = voxel_pos.x >= -0.5
+                    && voxel_pos.x < dims[0] as f32 - 0.5
+                    && voxel_pos.y >= -0.5
+                    && voxel_pos.y < dims[1] as f32 - 0.5
+                    && voxel_pos.z >= -0.5
+                    && voxel_pos.z < dims[2] as f32 - 0.5;
 
                 // For positions inside boundaries, verify they map correctly
                 if in_bounds {

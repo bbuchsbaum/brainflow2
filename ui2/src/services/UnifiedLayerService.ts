@@ -25,6 +25,7 @@
  */
 
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
+import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import { useSurfaceStore, type LoadedSurface } from '@/stores/surfaceStore';
 import { nanoid } from 'nanoid';
 
@@ -192,6 +193,7 @@ export class UnifiedLayerService {
     if (!layer) return;
     
     if (isVolumeLayer(layer)) {
+      noteUserVisibility(id);
       useLayerStore.getState().updateLayer(id, { visible: !layer.visible });
     } else {
       // Surface visibility would be handled here

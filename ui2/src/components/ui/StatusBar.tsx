@@ -25,6 +25,12 @@ import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { Button, KeyValue } from "@/components/ui/bf";
 import { statisticSignAssumed, statisticUnits } from "@/utils/statistic";
 import { hasRegionSource } from "@/services/atlasRegionLookup";
+import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
+import { useSurfaceStore } from "@/stores/surfaceStore";
+import { parseSurfaceViewContextId } from "@/utils/surfaceViewContext";
+import { surfaceColorbarLayer } from "@/components/views/surfaceFrame/surfaceColorbar";
+import { overlayMapName } from "@/utils/hemisphereOverlays";
+import { useSurfaceNearestVertex, useSurfaceValueAtCrosshair } from "@/hooks/useSurfaceValueAtCrosshair";
 import { transformWorldToVoxelColumnMajor } from "@/utils/voxelTransform";
 import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { formatWorldMm } from "@/utils/valueFormat";
@@ -59,6 +65,7 @@ const LABELS: Record<string, string> = {
   layer: "Layer",
   value: "Value",
   region: "Region",
+  vertex: "Vertex",
   atlas: "Atlas",
   fps: "FPS",
   gpu: "GPU",
@@ -75,7 +82,7 @@ const WIDTHS: Record<string, [string, string]> = {
 };
 
 /** Content-sized slots stop growing here (a long file name). */
-const MAX_WIDTHS: Record<string, string> = { layer: "40ch", region: "32ch" };
+const MAX_WIDTHS: Record<string, string> = { layer: "40ch", region: "32ch", vertex: "44ch" };
 
 /** Only the layer name shrinks. */
 const SHRINK: Record<string, number> = { layer: 1 };
@@ -274,7 +281,20 @@ const StatusVoxelSlot = React.memo(() => {
     () => resolveVoxelGridReference(layers, layerMetadata),
     [layers, layerMetadata],
   );
+  const selectedLayerId = useLayerStore((state) => state.selectedLayerId);
   if (!reference) return null;
+  // The active layer on another grid (a 4 mm BOLD over the 2 mm T1): say whose
+  // grid the index is on (round 3 C9).
+  const active = selectedLayerId ? layerMetadata.get(selectedLayerId) : undefined;
+  const otherGrid =
+    !!active?.voxelToWorld &&
+    selectedLayerId !== reference.layerId &&
+    (JSON.stringify(active.dimensions ?? null) !== JSON.stringify(reference.dims) ||
+      active.voxelToWorld.some((v, i) => Math.abs(v - reference.voxelToWorld[i]) > 1e-4));
+  const spacing = [0, 1, 2].map((c) => Math.hypot(reference.voxelToWorld[c * 4], reference.voxelToWorld[c * 4 + 1], reference.voxelToWorld[c * 4 + 2]));
+  const gridLabel = otherGrid
+    ? ` · ref ${spacing.every((v) => Math.abs(v - spacing[0]) < 1e-3) ? `${Number(spacing[0].toFixed(2))} mm` : reference.name}`
+    : "";
   const world: [number, number, number] = [crosshair[0], crosshair[1], crosshair[2]];
   const index = worldToVoxelIndex(world, reference);
   const inside = index.every(Number.isFinite) && voxelIndexInBounds(index, reference.dims);
@@ -286,9 +306,7 @@ const StatusVoxelSlot = React.memo(() => {
   const fractional = !snapToVoxel && between;
   const text = !inside
     ? EMPTY_VALUE
-    : fractional
-      ? formatVoxelIndex(continuous, 1)
-      : formatVoxelIndex(index);
+    : (fractional ? formatVoxelIndex(continuous, 1) : formatVoxelIndex(index)) + gridLabel;
   return (
     <SlotFrame
       id="voxel"
@@ -376,6 +394,107 @@ const StatusRegionSlot = React.memo(() => {
 });
 
 StatusRegionSlot.displayName = "StatusRegionSlot";
+
+/**
+ * "Vertex" slot (phase 4, D1): while a surface pane is the active view, the
+ * vertex nearest the crosshair and the shown overlay's value there, read on
+ * the anatomical mesh (an inflated mesh alone has none: "—" says what to
+ * load). Hidden for volume panes.
+ */
+const StatusVertexSlot = React.memo(() => {
+  const activeId = useActiveRenderContextStore((state) => state.activeId);
+  const context = parseSurfaceViewContextId(activeId);
+  const surfaceId = useSurfaceStore((state) =>
+    context
+      ? ([...state.surfaces.keys()].find((handle) => handle.toLowerCase() === context.surfaceHandle) ?? null)
+      : null,
+  );
+  const overlayId = useSurfaceStore((state) => {
+    const surface = surfaceId ? state.surfaces.get(surfaceId) : undefined;
+    return surface ? (surfaceColorbarLayer(surface)?.layerId ?? null) : null;
+  });
+  const overlayName = useSurfaceStore((state) => {
+    const surface = surfaceId ? state.surfaces.get(surfaceId) : undefined;
+    return surface ? (surfaceColorbarLayer(surface)?.name ?? null) : null;
+  });
+  if (!surfaceId) return null;
+  return <StatusVertexReadout surfaceId={surfaceId} overlayId={overlayId} overlayName={overlayName} />;
+});
+
+StatusVertexSlot.displayName = "StatusVertexSlot";
+
+function StatusVertexReadout({
+  surfaceId,
+  overlayId,
+  overlayName,
+}: {
+  surfaceId: string;
+  overlayId: string | null;
+  overlayName: string | null;
+}) {
+  const { reading, anatomical } = useSurfaceValueAtCrosshair(surfaceId, overlayId ?? "");
+  const crosshairNearest = useSurfaceNearestVertex(surfaceId);
+  // A vertex clicked on this surface (any mesh, inflated too: native check
+  // item 9) while the crosshair is still where the click put it. The
+  // crosshair → vertex lookup through a pial / white mesh stays for a
+  // crosshair moved in a volume.
+  const picked = useSurfaceStore((state) => state.pickedVertex);
+  const crosshair = useViewStateStore((state) => state.viewState.crosshair.world_mm);
+  const pickedHere =
+    picked && picked.surfaceId === surfaceId && picked.world.every((v, i) => Math.abs(v - crosshair[i]) < 1e-3)
+      ? picked
+      : null;
+  const pickedValue = useSurfaceStore((state) => {
+    if (!pickedHere || !overlayId) return null;
+    const v = state.surfaces.get(surfaceId)?.layers.get(overlayId)?.values?.[pickedHere.vertex];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  });
+  const fromPick = !!pickedHere && !(anatomical && crosshairNearest);
+  const nearest = fromPick ? { vertex: pickedHere!.vertex, distanceMm: 0 } : crosshairNearest;
+  // The value is labelled with its overlay (v1 function 9): "32,116 · sensorimotor.func 59,391".
+  const map = overlayName ? overlayMapName(overlayName) : null;
+  const value = fromPick
+    ? pickedValue !== null
+      ? formatLayerValue(pickedValue)
+      : null
+    : reading
+      ? formatLayerValue(reading.value)
+      : null;
+  const title = fromPick
+    ? `Vertex ${nearest!.vertex}, clicked on the surface` + (value !== null && overlayName ? `; ${overlayName} = ${value}` : "")
+    : !anatomical
+    ? "Load the matching pial or white surface for an anatomical readout"
+    : nearest
+      ? `Vertex ${nearest.vertex}, ${nearest.distanceMm.toFixed(1)} mm from the crosshair` +
+        (value !== null && overlayName ? `; ${overlayName} = ${value}` : "")
+      : "No vertex within 3 mm of the crosshair";
+  return (
+    <SlotFrame
+      id="vertex"
+      title={title}
+      value={
+        (anatomical || fromPick) && nearest ? (
+          <span
+            data-testid="status-vertex"
+            aria-label={
+              `Vertex ${nearest.vertex}` + (value !== null && map ? `, ${map} ${value}` : "")
+            }
+          >
+            {nearest.vertex.toLocaleString("en-US")}
+            {value !== null ? (
+              <>
+                {map ? <span className="status-value__symbol"> · {map}</span> : null}
+                <span className="status-value__ijk"> {value}</span>
+              </>
+            ) : null}
+          </span>
+        ) : (
+          <span data-testid="status-vertex">{EMPTY_VALUE}</span>
+        )
+      }
+    />
+  );
+}
 
 /**
  * Compact "Diagnostics" button: developer telemetry (atlas pressure, FPS, GPU)
@@ -504,7 +623,10 @@ export function StatusBar({
           ) : id === "mouse" ? (
             <StatusMouseSlot key={id} />
           ) : id === "region" ? (
-            <StatusRegionSlot key={id} />
+            <React.Fragment key={id}>
+              <StatusRegionSlot />
+              <StatusVertexSlot />
+            </React.Fragment>
           ) : (
             <StatusBarSlot
               key={id}

@@ -29,6 +29,8 @@ use wgpu::util::DeviceExt; // For create_buffer_init helper trait
 // --- Modules ---
 pub mod benchmarks;
 pub mod facade;
+mod readback;
+pub use readback::{FrameSubmission, PendingReadback, ReadbackMetrics, ReadbackMonitor};
 pub mod layer_storage;
 pub mod layer_uniforms;
 pub mod layer_uniforms_optimized;
@@ -447,10 +449,28 @@ impl Default for VolumeMetadata {
 
 // --- RenderLoopService ---
 
+/// Legacy offscreen readback: either submitted GPU work or an immediate blank
+/// frame when no world-space layers are resident.
+enum LegacyReadback {
+    Blank(Vec<u8>),
+    Pending(PendingReadback),
+}
+
+impl LegacyReadback {
+    async fn complete(self) -> Result<Vec<u8>, RenderLoopError> {
+        match self {
+            Self::Blank(image) => Ok(image),
+            Self::Pending(pending) => Ok(pending.complete().await?.remove(0)),
+        }
+    }
+}
+
 pub struct RenderLoopService {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
     pub device: Arc<wgpu::Device>,
+    readback_driver: readback::ReadbackDriver,
+    legacy_readback_epoch: readback::ViewEpoch,
     pub queue: Arc<wgpu::Queue>,
     pub volume_atlas: TextureAtlas, // Now mutable via service methods
     pub frame_ubo_buffer: wgpu::Buffer, // ADDED: Frame UBO buffer
@@ -522,6 +542,7 @@ impl RenderLoopService {
 
     /// Initializes WGPU components using reusable renderer configuration.
     pub async fn new_with_config(config: WgpuSliceRendererConfig) -> Result<Self, RenderLoopError> {
+        config.atlas.validate_runtime_capacity()?;
         log::info!("RenderLoopService: Initializing WGPU...");
 
         // 1. Create Instance
@@ -550,7 +571,7 @@ impl RenderLoopService {
 
         if !supports_float32_filterable {
             log::warn!(
-                "WARNING: FLOAT32_FILTERABLE feature not supported on this adapter. Linear filtering of R32Float textures will not work correctly. Consider using nearest neighbor sampling or R16Float textures."
+                "FLOAT32_FILTERABLE is unavailable. The active slice layout accepts R16Float/R8Unorm; uploads requiring R32Float will return an error."
             );
         }
 
@@ -698,6 +719,8 @@ impl RenderLoopService {
             instance,
             adapter,
             device: device_arc.clone(),
+            readback_driver: readback::ReadbackDriver::new(Arc::clone(&device_arc))?,
+            legacy_readback_epoch: readback::ViewEpoch::default(),
             queue: queue_arc,
             volume_atlas,
             frame_ubo_buffer, // ADDED: Store frame UBO
@@ -1533,15 +1556,58 @@ impl RenderLoopService {
         self.upload_volume_3d_labelaware(source_volume, false)
     }
 
-    /// Upload a 3D volume, optionally guaranteeing an integer-preserving texture
-    /// format. When `preserve_integer_labels` is true, label/atlas volumes use
-    /// `R16Float` (exact for label ids <= 2048) instead of `R8Unorm`, which would
-    /// normalize 8-bit data to [0,1] and collapse discrete label ids under nearest
-    /// sampling. Scalar volumes keep the default format selection.
+    /// Upload physical scalar values; label uploads additionally require exact
+    /// integer representation when choosing half or full precision.
     pub fn upload_volume_3d_labelaware<T>(
         &mut self,
         source_volume: &DenseVolume3<T>,
         preserve_integer_labels: bool,
+    ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + serde::Serialize
+            + DataRange<T>
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
+        self.upload_volume_3d_with_policy(
+            source_volume,
+            multi_texture_manager::UploadFormat::Automatic {
+                preserve_labels: preserve_integer_labels,
+            },
+        )
+    }
+
+    /// Upload using an explicit format. R8Unorm deliberately range-normalizes;
+    /// float formats retain physical units and reject finite overflow/underflow.
+    pub fn upload_volume_3d_with_format<T>(
+        &mut self,
+        source_volume: &DenseVolume3<T>,
+        format: wgpu::TextureFormat,
+    ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + serde::Serialize
+            + DataRange<T>
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
+        self.upload_volume_3d_with_policy(
+            source_volume,
+            multi_texture_manager::UploadFormat::Explicit(format),
+        )
+    }
+
+    fn upload_volume_3d_with_policy<T>(
+        &mut self,
+        source_volume: &DenseVolume3<T>,
+        policy: multi_texture_manager::UploadFormat,
     ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
     where
         T: VoxelData
@@ -1569,36 +1635,27 @@ impl RenderLoopService {
             });
         }
 
-        // Use multi-texture manager for world-space rendering
+        // Use multi-texture manager for world-space rendering.
         if self.world_space_enabled {
             if let Some(ref mut multi_texture_manager) = self.multi_texture_manager {
-                // Determine texture format based on data type.
-                // Non-U8 types already use R16Float (exact integers up to 2048, with
-                // filtering support). U8 normally uses R8Unorm (normalized to [0,1]),
-                // but for label/atlas volumes that collapses discrete ids under
-                // nearest sampling, so force R16Float to keep ids exact.
-                let format = match source_volume.voxel_type() {
-                    NumericType::U8 if !preserve_integer_labels => wgpu::TextureFormat::R8Unorm,
-                    _ => wgpu::TextureFormat::R16Float,
-                };
-
-                // Upload to multi-texture manager
-                let (texture_index, world_to_voxel) = multi_texture_manager.upload_volume(
-                    &self.device,
-                    &self.queue,
-                    source_volume,
-                    format,
-                )?;
+                let (texture_index, world_to_voxel) = multi_texture_manager
+                    .upload_volume_with_policy(
+                        &self.device,
+                        &self.queue,
+                        source_volume,
+                        policy,
+                        true,
+                    )?;
+                let format = multi_texture_manager
+                    .get_texture_info(texture_index)
+                    .expect("a successful upload publishes its texture")
+                    .format;
 
                 // Store volume metadata for the texture index
                 let spacing = source_volume.space.0.spacing();
                 let origin = source_volume.space.0.origin();
 
-                // Calculate voxel_to_world matrix
-                let voxel_to_world = nalgebra::Matrix4::from_row_slice(&[
-                    spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
-                    spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
-                ]);
+                let voxel_to_world = source_volume.space.0.voxel_to_world();
 
                 // Get data range
                 let (data_min, data_max) = source_volume.range().unwrap_or((
@@ -1612,10 +1669,14 @@ impl RenderLoopService {
                     voxel_to_world,
                     origin: [origin[0], origin[1], origin[2]],
                     spacing: [spacing[0], spacing[1], spacing[2]],
-                    data_range: (
-                        num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
-                        num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
-                    ),
+                    data_range: if format == wgpu::TextureFormat::R8Unorm {
+                        (0.0, 1.0)
+                    } else {
+                        (
+                            num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
+                            num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
+                        )
+                    },
                 };
                 self.volume_metadata.insert(texture_index, metadata);
 
@@ -1666,12 +1727,13 @@ impl RenderLoopService {
             });
         }
 
-        if self.volume_atlas.is_3d {
-            self.volume_atlas.mark_3d_allocation();
+        let (format, mut volume_bytes) =
+            multi_texture_manager::encode_with_policy(source_volume, policy)?;
+        if format != wgpu::TextureFormat::R16Float || self.volume_atlas.format != format {
+            return Err(RenderLoopError::Internal { code: 6007, details:
+                "The legacy atlas only supports R16Float; enable world-space rendering for other formats".into() });
         }
-
-        // Convert entire volume to f16 bytes
-        let mut volume_bytes = source_volume.to_f16_bytes();
+        self.volume_atlas.mark_3d_allocation();
 
         // Debug: Check the converted data
         let voxel_count = width as usize * height as usize * depth as usize;
@@ -1978,8 +2040,13 @@ impl RenderLoopService {
             })?
             .clone();
 
-        // Update the data range with the actual computed values
-        metadata.data_range = data_range;
+        // Explicit normalized storage has normalized display units.
+        metadata.data_range =
+            if self.uploaded_texture_format(texture_index) == wgpu::TextureFormat::R8Unorm {
+                (0.0, 1.0)
+            } else {
+                data_range
+            };
         log::debug!(
             "register_volume_with_range: Setting data_range to ({}, {})",
             data_range.0,
@@ -1995,7 +2062,7 @@ impl RenderLoopService {
             VolumeRegistryEntry {
                 atlas_index: texture_index,
                 metadata,
-                format: wgpu::TextureFormat::R32Float, // TODO: Get from actual upload
+                format: self.uploaded_texture_format(texture_index),
             },
         );
         self.invalidate_prepared_layer_state_cache();
@@ -2025,7 +2092,7 @@ impl RenderLoopService {
             VolumeRegistryEntry {
                 atlas_index: texture_index,
                 metadata,
-                format: wgpu::TextureFormat::R32Float, // TODO: Get from actual texture
+                format: self.uploaded_texture_format(texture_index),
             },
         );
         self.invalidate_prepared_layer_state_cache();
@@ -2048,25 +2115,38 @@ impl RenderLoopService {
     ) where
         T: VoxelData + num_traits::NumCast + DataRange<T>,
     {
+        let format = self.uploaded_texture_format(texture_index);
         if let Some(meta) = self.volume_metadata.get_mut(&texture_index) {
             meta.world_to_voxel = world_to_voxel;
             let vol_dims = source_volume.space.dims();
             meta.dimensions = (vol_dims[0] as u32, vol_dims[1] as u32, vol_dims[2] as u32);
             let spacing = source_volume.space.0.spacing();
             let origin = source_volume.space.0.origin();
-            meta.voxel_to_world = nalgebra::Matrix4::from_row_slice(&[
-                spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
-                spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
-            ]);
+            meta.voxel_to_world = source_volume.space.0.voxel_to_world();
+            meta.spacing = [spacing[0], spacing[1], spacing[2]];
+            meta.origin = [origin[0], origin[1], origin[2]];
             let (data_min, data_max) = source_volume.range().unwrap_or((
                 num_traits::cast::<f32, T>(0.0).unwrap_or_else(|| panic!("Failed to cast 0.0")),
                 num_traits::cast::<f32, T>(1.0).unwrap_or_else(|| panic!("Failed to cast 1.0")),
             ));
-            meta.data_range = (
-                num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
-                num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
-            );
+            meta.data_range = if format == wgpu::TextureFormat::R8Unorm {
+                (0.0, 1.0)
+            } else {
+                (
+                    num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
+                    num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
+                )
+            };
+            for entry in self
+                .volumes
+                .values_mut()
+                .filter(|entry| entry.atlas_index == texture_index)
+            {
+                entry.metadata = meta.clone();
+                entry.format = format;
+            }
         }
+        self.invalidate_prepared_layer_state_cache();
     }
 
     /// Replace an existing atlas texture with a new 3D volume (world-space rendering only).
@@ -2106,6 +2186,12 @@ impl RenderLoopService {
             atlas_index,
             source_volume,
         )?;
+
+        // Automatic precision promotion replaces a texture in the same slot.
+        // Same-format updates retain their bind group and remain a queue write.
+        if multi_texture_manager.bind_group().is_none() {
+            self.rebuild_texture_bind_group()?;
+        }
 
         self.refresh_volume_metadata_after_update(atlas_index, world_to_voxel, source_volume);
 
@@ -2306,6 +2392,9 @@ impl RenderLoopService {
                     )?;
                 }
 
+                if multi_texture_manager.resident_slot_count() == 0 {
+                    self.clear_views();
+                }
                 self.invalidate_prepared_layer_state_cache();
                 Ok(())
             } else {
@@ -2574,14 +2663,6 @@ impl RenderLoopService {
 
     // --- Method to update the frame UBO ---
     pub fn update_frame_ubo(&self, origin_mm: [f32; 4], u_mm: [f32; 4], v_mm: [f32; 4]) {
-        // Get atlas dimensions
-        let atlas_dims = self.volume_atlas.size;
-        let atlas_dim_u32 = [
-            atlas_dims.width,
-            atlas_dims.height,
-            atlas_dims.depth_or_array_layers,
-        ];
-
         // Get render target dimensions
         let target_dims = if self.offscreen_dimensions != (0, 0) {
             [self.offscreen_dimensions.0, self.offscreen_dimensions.1]
@@ -2589,6 +2670,26 @@ impl RenderLoopService {
             // Fallback to default if no offscreen target is configured
             [512, 512]
         };
+        self.update_frame_ubo_for_target(origin_mm, u_mm, v_mm, target_dims);
+    }
+
+    /// Write the frame UBO for an explicit render-target size. Screen-pixel
+    /// widths in the shaders (outline, halo, slice border, crosshair) divide the
+    /// frame vectors by `target_dims`, so it must be the size being rendered.
+    pub fn update_frame_ubo_for_target(
+        &self,
+        origin_mm: [f32; 4],
+        u_mm: [f32; 4],
+        v_mm: [f32; 4],
+        target_dims: [u32; 2],
+    ) {
+        // Get atlas dimensions
+        let atlas_dims = self.volume_atlas.size;
+        let atlas_dim_u32 = [
+            atlas_dims.width,
+            atlas_dims.height,
+            atlas_dims.depth_or_array_layers,
+        ];
 
         log::debug!(
             "DEBUG update_frame_ubo: atlas_dim = {:?}, target_dim = {:?}, offscreen_dimensions = {:?}",
@@ -3333,6 +3434,13 @@ impl RenderLoopService {
                 .retain(|_, entry| entry.atlas_index != atlas_index);
             self.invalidate_prepared_layer_state_cache();
         }
+        if self
+            .multi_texture_manager
+            .as_ref()
+            .is_some_and(|manager| manager.resident_slot_count() == 0)
+        {
+            self.clear_views();
+        }
         Ok(removed)
     }
 
@@ -3443,12 +3551,9 @@ impl RenderLoopService {
         }
     }
 
-    /// Overwrite an already-resident volume texture slot with a different member's
-    /// data in place (no reallocation). Used by the resident-image-set ring when it
-    /// evicts an LRU member and reuses its slot: the incoming member shares the
-    /// grid/format, so this is a single `write_texture` with no new allocation and
-    /// no bind-group rebuild. Errors if `texture_index` is not resident or the
-    /// dimensions differ.
+    /// Replace a resident member in the same slot. Same-format updates use one
+    /// queue write; automatic precision promotion replaces the texture and its
+    /// binding. Explicit-format slots never silently change precision.
     pub fn update_volume_3d_at<T>(
         &mut self,
         texture_index: u32,
@@ -3464,26 +3569,8 @@ impl RenderLoopService {
             + std::ops::Div<Output = T>
             + std::ops::Mul<Output = T>,
     {
-        if self.world_space_enabled {
-            if let Some(ref mut multi_texture_manager) = self.multi_texture_manager {
-                let world_to_voxel = multi_texture_manager.update_volume(
-                    &self.device,
-                    &self.queue,
-                    texture_index,
-                    source_volume,
-                )?;
-                self.refresh_volume_metadata_after_update(
-                    texture_index,
-                    world_to_voxel,
-                    source_volume,
-                );
-                return Ok(());
-            }
-        }
-        Err(RenderLoopError::Internal {
-            code: 8016,
-            details: "update_volume_3d_at requires world-space rendering".to_string(),
-        })
+        self.update_volume_3d_at_index(texture_index, source_volume)
+            .map(|_| ())
     }
 
     /// Update layer intensity window
@@ -3931,30 +4018,19 @@ impl RenderLoopService {
         output
     }
 
-    fn read_texture_to_image(
+    fn submit_texture_readback(
         &self,
         texture: &wgpu::Texture,
-        viewport_size: [u32; 2],
-    ) -> Result<Vec<u8>, RenderLoopError> {
-        let bytes_per_pixel = 4u32; // RGBA8 = 4 bytes
-        let unpadded_bytes_per_row = viewport_size[0] * bytes_per_pixel;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
-        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
-        let buffer_size = (padded_bytes_per_row * viewport_size[1]) as u64;
-
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ViewState Staging Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
+        size: [u32; 2],
+        stamps: Vec<readback::ViewStamp>,
+    ) -> Result<PendingReadback, RenderLoopError> {
+        let region = readback::ReadbackRegion::new(size, 0, self.device.limits().max_buffer_size)?;
+        let buffer = self.readback_driver.buffer(region.bytes, "View Readback")?;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("ViewState Copy Encoder"),
+                label: Some("View Readback Copy"),
             });
-
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
                 texture,
@@ -3963,77 +4039,109 @@ impl RenderLoopService {
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::ImageCopyBuffer {
-                buffer: &staging_buffer,
+                buffer: &buffer.buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(viewport_size[1]),
+                    bytes_per_row: Some(region.stride),
+                    rows_per_image: Some(size[1]),
                 },
             },
             wgpu::Extent3d {
-                width: viewport_size[0],
-                height: viewport_size[1],
+                width: size[0],
+                height: size[1],
                 depth_or_array_layers: 1,
             },
         );
-
         self.queue.submit(Some(encoder.finish()));
-
-        let slice = staging_buffer.slice(..);
-        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
-        });
-
-        self.device.poll(wgpu::Maintain::Wait);
-
-        let result =
-            pollster::block_on(receiver.receive()).ok_or_else(|| RenderLoopError::Internal {
-                code: 8005,
-                details: "Failed to receive frame readback result".to_string(),
-            })?;
-
-        result.map_err(|_| RenderLoopError::Internal {
-            code: 8006,
-            details: "Failed to map frame readback buffer".to_string(),
-        })?;
-
-        let data = slice.get_mapped_range();
-        let image = Self::unpack_gpu_buffer_to_image(
-            &data,
-            viewport_size[0],
-            viewport_size[1],
-            padded_bytes_per_row,
-        );
-        drop(data);
-        staging_buffer.unmap();
-
-        Ok(image)
+        self.readback_driver.map(buffer, vec![region], stamps)
     }
 
-    /// Read back several already-rendered view targets in a single GPU sync.
-    ///
-    /// This is the batch counterpart of [`read_texture_to_image`]: instead of one
-    /// `copy_texture_to_buffer` + `device.poll(Wait)` per view (N blocking stalls),
-    /// it packs all N views into one staging buffer with a single encoder, a single
-    /// `queue.submit`, and a single `poll(Wait)`. Each view must already be rendered
-    /// (e.g. via [`request_frame_with_options`] with [`FrameReadbackMode::Skip`]) and
-    /// share the same `viewport_size`. The i-th returned image is byte-identical to
-    /// what `read_texture_to_image` would have produced for that view's texture.
+    /// Submit one aligned copy containing all requested view rasters.
+    /// The returned owner does not borrow this service; completion may be awaited
+    /// after releasing the renderer lock. A newer render/resize/closure invalidates it.
+    pub fn submit_views_readback(
+        &self,
+        views: &[(ViewId, [u32; 2])],
+    ) -> Result<PendingReadback, RenderLoopError> {
+        if views.is_empty() {
+            return Err(RenderLoopError::Internal {
+                code: 8007,
+                details: "No views requested for readback".into(),
+            });
+        }
+        let mut regions = Vec::with_capacity(views.len());
+        let mut stamps = Vec::with_capacity(views.len());
+        let mut total = 0;
+        for (id, size) in views {
+            let view = self
+                .views
+                .get(id)
+                .ok_or_else(|| RenderLoopError::Internal {
+                    code: 8007,
+                    details: format!("View '{}' not found", id.0),
+                })?;
+            if size[0] > view.dimensions[0] || size[1] > view.dimensions[1] {
+                return Err(RenderLoopError::Internal {
+                    code: 8007,
+                    details: "Readback exceeds view dimensions".into(),
+                });
+            }
+            let region =
+                readback::ReadbackRegion::new(*size, total, self.device.limits().max_buffer_size)?;
+            total += region.bytes;
+            regions.push(region);
+            stamps.push(view.epoch.stamp(id));
+        }
+        let buffer = self.readback_driver.buffer(total, "Batch Readback")?;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Batch Readback Copy"),
+            });
+        for ((id, size), region) in views.iter().zip(&regions) {
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &self.views[id].render_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &buffer.buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: region.offset,
+                        bytes_per_row: Some(region.stride),
+                        rows_per_image: Some(size[1]),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: size[0],
+                    height: size[1],
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        self.queue.submit(Some(encoder.finish()));
+        self.readback_driver.map(buffer, regions, stamps)
+    }
+
+    pub fn readback_monitor(&self) -> ReadbackMonitor {
+        self.readback_driver.monitor()
+    }
+
+    /// Native compatibility API. Async callers should use submit_views_readback.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn read_views_to_images(
         &self,
-        view_ids: &[ViewId],
-        viewport_size: [u32; 2],
+        ids: &[ViewId],
+        size: [u32; 2],
     ) -> Result<Vec<Vec<u8>>, RenderLoopError> {
-        let views: Vec<_> = view_ids
-            .iter()
-            .cloned()
-            .map(|id| (id, viewport_size))
-            .collect();
+        let views: Vec<_> = ids.iter().cloned().map(|id| (id, size)).collect();
         self.read_views_to_images_sized(&views)
     }
 
-    /// Read differently sized panes with one aligned buffer and one GPU sync.
+    /// Native compatibility adapter over the owned asynchronous readback.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn read_views_to_images_sized(
         &self,
         views: &[(ViewId, [u32; 2])],
@@ -4041,128 +4149,20 @@ impl RenderLoopService {
         if views.is_empty() {
             return Ok(Vec::new());
         }
-
-        let mut regions = Vec::with_capacity(views.len());
-        let mut total_size = 0u64;
-        for (id, size) in views {
-            let invalid = || RenderLoopError::Internal {
-                code: 8007,
-                details: format!("Invalid readback size for view '{}'", id.0),
-            };
-            let context = self.views.get(id).ok_or_else(invalid)?;
-            let texture_size = context.render_texture.size();
-            if size[0] == 0
-                || size[1] == 0
-                || size[0] > texture_size.width
-                || size[1] > texture_size.height
-            {
-                return Err(invalid());
-            }
-            let stride = size[0]
-                .checked_mul(4)
-                .ok_or_else(invalid)?
-                .div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-                .checked_mul(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-                .ok_or_else(invalid)?;
-            let bytes = u64::from(stride) * u64::from(size[1]);
-            regions.push((total_size, bytes, stride));
-            total_size = total_size.checked_add(bytes).ok_or_else(invalid)?;
-        }
-        if total_size > self.device.limits().max_buffer_size {
-            return Err(RenderLoopError::Internal {
-                code: 8007,
-                details: "Batch readback exceeds the device buffer limit".into(),
-            });
-        }
-
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Batch Readback Staging Buffer"),
-            size: total_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Batch Readback Copy Encoder"),
-            });
-
-        for (idx, (view_id, viewport_size)) in views.iter().enumerate() {
-            let (offset, _, padded_bytes_per_row) = regions[idx];
-            let view_context =
-                self.views
-                    .get(view_id)
-                    .ok_or_else(|| RenderLoopError::Internal {
-                        code: 8007,
-                        details: format!("View '{}' not found for batch readback", view_id.0),
-                    })?;
-
-            encoder.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
-                    texture: &view_context.render_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::ImageCopyBuffer {
-                    buffer: &staging_buffer,
-                    layout: wgpu::ImageDataLayout {
-                        offset,
-                        bytes_per_row: Some(padded_bytes_per_row),
-                        rows_per_image: Some(viewport_size[1]),
-                    },
-                },
-                wgpu::Extent3d {
-                    width: viewport_size[0],
-                    height: viewport_size[1],
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-
-        self.queue.submit(Some(encoder.finish()));
-
-        let slice = staging_buffer.slice(..);
-        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
-        });
-
-        // Single blocking sync for the whole batch.
-        self.device.poll(wgpu::Maintain::Wait);
-
-        pollster::block_on(receiver.receive())
-            .ok_or_else(|| RenderLoopError::Internal {
-                code: 8008,
-                details: "Failed to receive batch readback result".to_string(),
-            })?
-            .map_err(|_| RenderLoopError::Internal {
-                code: 8009,
-                details: "Failed to map batch readback buffer".to_string(),
-            })?;
-
-        let data = slice.get_mapped_range();
-        let mut images = Vec::with_capacity(views.len());
-        for (idx, (_, viewport_size)) in views.iter().enumerate() {
-            let (offset, region_bytes, padded_bytes_per_row) = regions[idx];
-            let start = offset as usize;
-            let end = start + region_bytes as usize;
-            images.push(Self::unpack_gpu_buffer_to_image(
-                &data[start..end],
-                viewport_size[0],
-                viewport_size[1],
-                padded_bytes_per_row,
-            ));
-        }
-        drop(data);
-        staging_buffer.unmap();
-
-        Ok(images)
+        pollster::block_on(self.submit_views_readback(views)?.complete())
     }
 
     /// Render to the offscreen target and return the image data
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn render_to_buffer(&mut self) -> Result<Vec<u8>, RenderLoopError> {
+        pollster::block_on(self.submit_legacy_readback()?.complete())
+    }
+
+    pub async fn render_to_buffer_async(&mut self) -> Result<Vec<u8>, RenderLoopError> {
+        self.submit_legacy_readback()?.complete().await
+    }
+
+    fn submit_legacy_readback(&mut self) -> Result<LegacyReadback, RenderLoopError> {
         // Ensure render target pool exists and has current dimensions
         let (width, height) = self.offscreen_dimensions;
         if width == 0 || height == 0 {
@@ -4220,10 +4220,12 @@ impl RenderLoopService {
                     );
                     log::warn!("  - Ensure add_layer_3d was called with the layer info");
 
-                    // Return a transparent image instead of continuing
+                    // Return a transparent image instead of continuing; it still
+                    // supersedes any earlier legacy frame.
+                    self.legacy_readback_epoch.invalidate();
                     let (width, height) = self.offscreen_dimensions;
                     let size = (width * height * 4) as usize;
-                    return Ok(vec![0u8; size]);
+                    return Ok(LegacyReadback::Blank(vec![0u8; size]));
                 }
             } else {
                 log::error!(
@@ -4464,17 +4466,15 @@ impl RenderLoopService {
             render_pass.draw(0..6, 0..1);
         }
 
-        // Create a buffer to copy the render result to
-        let bytes_per_row = width * 4; // RGBA8
-        let padded_bytes_per_row = (bytes_per_row + 255) & !255; // Align to 256 bytes
-        let buffer_size = padded_bytes_per_row * height;
-
-        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Offscreen Output Buffer"),
-            size: buffer_size as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let region = readback::ReadbackRegion::new(
+            [width, height],
+            0,
+            self.device.limits().max_buffer_size,
+        )?;
+        let padded_bytes_per_row = region.stride;
+        let output_buffer = self
+            .readback_driver
+            .buffer(region.bytes, "Offscreen Output Buffer")?;
 
         // Copy texture to buffer
         encoder.copy_texture_to_buffer(
@@ -4485,7 +4485,7 @@ impl RenderLoopService {
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::ImageCopyBuffer {
-                buffer: &output_buffer,
+                buffer: &output_buffer.buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
@@ -4501,67 +4501,15 @@ impl RenderLoopService {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        // Map the buffer and read the data
-        let buffer_slice = output_buffer.slice(..);
-        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
-        });
-
-        self.device.poll(wgpu::Maintain::Wait);
-
-        let result =
-            pollster::block_on(receiver.receive()).ok_or_else(|| RenderLoopError::Internal {
-                code: 7004,
-                details: "Failed to receive buffer mapping result".to_string(),
-            })?;
-
-        result.map_err(|_| RenderLoopError::Internal {
-            code: 7005,
-            details: "Failed to map output buffer".to_string(),
-        })?;
-
-        let data = buffer_slice.get_mapped_range();
-
-        // Use helper to unpack buffer with Y-flip
-        let output = Self::unpack_gpu_buffer_to_image(&data, width, height, padded_bytes_per_row);
-
-        // Debug: Verify alpha channel values
-        #[cfg(debug_assertions)]
-        {
-            let mut zero_alpha_count = 0;
-            let mut low_alpha_count = 0;
-            let total_pixels = (width * height) as usize;
-
-            for i in (3..output.len()).step_by(4) {
-                if output[i] == 0 {
-                    zero_alpha_count += 1;
-                } else if output[i] < 128 {
-                    low_alpha_count += 1;
-                }
-            }
-
-            if zero_alpha_count > 0 {
-                log::warn!(
-                    "{} pixels ({:.1}%) have alpha=0 (fully transparent)",
-                    zero_alpha_count,
-                    (zero_alpha_count as f32 / total_pixels as f32) * 100.0
-                );
-            }
-            if low_alpha_count > 0 {
-                log::warn!(
-                    "{} pixels ({:.1}%) have alpha<128 (semi-transparent)",
-                    low_alpha_count,
-                    (low_alpha_count as f32 / total_pixels as f32) * 100.0
-                );
-            }
-        }
-
-        // Record draw call
+        let stamp = self
+            .legacy_readback_epoch
+            .advance(&ViewId::new("legacy_offscreen"));
+        let pending = self
+            .readback_driver
+            .map(output_buffer, vec![region], vec![stamp])?;
         self.render_state.record_draw();
         let _stats = self.render_state.end_frame();
-
-        Ok(output)
+        Ok(LegacyReadback::Pending(pending))
     }
 
     // === ViewState API Methods ===
@@ -4585,52 +4533,40 @@ impl RenderLoopService {
             + std::ops::Mul<Output = T>,
     {
         // Upload volume to atlas
-        let (atlas_index, _world_to_voxel) = self.upload_volume_3d(volume)?;
+        let (atlas_index, _world_to_voxel) = self.upload_volume_3d_with_format(volume, format)?;
 
-        // Get volume metadata
-        let dims = volume.space.dims();
-        let world_to_voxel = volume.space.0.world_to_voxel();
-        let voxel_to_world = volume.space.0.voxel_to_world();
-        let spacing = volume.space.0.spacing();
-        let origin = volume.space.0.origin();
+        self.register_volume(volume_id, atlas_index)
+    }
 
-        log::debug!("register_volume_with_upload:");
-        log::debug!("  world_to_voxel: {:?}", world_to_voxel);
-        log::debug!("  voxel_to_world: {:?}", voxel_to_world);
-        let data_range = volume
-            .range()
-            .map(|(min, max)| {
-                let min_f32 = num_traits::cast::<T, f32>(min).unwrap_or(0.0);
-                let max_f32 = num_traits::cast::<T, f32>(max).unwrap_or(1.0);
-                log::debug!("Volume data range: min={}, max={}", min_f32, max_f32);
-                (min_f32, max_f32)
-            })
-            .unwrap_or_else(|| {
-                log::debug!("Volume.range() returned None, using default (0.0, 1.0)");
-                (0.0, 1.0)
-            });
+    /// Actual allocated storage format, or None for an unknown/released slot.
+    pub fn get_volume_texture_format(&self, texture_index: u32) -> Option<wgpu::TextureFormat> {
+        if self.world_space_enabled {
+            self.multi_texture_manager
+                .as_ref()
+                .and_then(|manager| manager.get_texture_info(texture_index))
+                .map(|info| info.format)
+        } else {
+            self.volume_metadata
+                .contains_key(&texture_index)
+                .then_some(self.volume_atlas.format)
+        }
+    }
 
-        let metadata = VolumeMetadata {
-            dimensions: (dims[0] as u32, dims[1] as u32, dims[2] as u32),
-            world_to_voxel,
-            voxel_to_world,
-            origin: [origin[0], origin[1], origin[2]],
-            spacing: [spacing[0], spacing[1], spacing[2]],
-            data_range,
-        };
+    fn uploaded_texture_format(&self, texture_index: u32) -> wgpu::TextureFormat {
+        self.get_volume_texture_format(texture_index)
+            .unwrap_or(self.volume_atlas.format)
+    }
 
-        // Store in registry
-        self.volumes.insert(
-            volume_id,
-            VolumeRegistryEntry {
-                atlas_index,
-                metadata,
-                format,
-            },
-        );
-        self.invalidate_prepared_layer_state_cache();
+    /// Release a view's render target. Pending submitted GPU work retains its own
+    /// resource references; subsequent readback requires rendering the view again.
+    pub fn release_view(&mut self, view_id: &ViewId) -> bool {
+        self.views.remove(view_id).is_some()
+    }
 
-        Ok(())
+    /// Release all cached view targets, for workspace/session teardown.
+    pub fn clear_views(&mut self) {
+        self.legacy_readback_epoch.invalidate();
+        self.views.clear();
     }
 
     /// Create or update a view's render target
@@ -4639,6 +4575,16 @@ impl RenderLoopService {
         view_id: ViewId,
         dimensions: [u32; 2],
     ) -> Result<(), RenderLoopError> {
+        let limit = self.device.limits().max_texture_dimension_2d;
+        if dimensions.iter().any(|&dim| dim == 0 || dim > limit) {
+            return Err(RenderLoopError::Internal {
+                code: 8003,
+                details: format!(
+                    "Invalid view dimensions {:?}; supported range is 1..={}",
+                    dimensions, limit
+                ),
+            });
+        }
         if let Some(view) = self.views.get(&view_id) {
             if !view.needs_resize(dimensions) {
                 return Ok(()); // View exists and is correct size
@@ -4675,6 +4621,7 @@ impl RenderLoopService {
             ViewContext {
                 id: view_id,
                 last_state: None,
+                epoch: readback::ViewEpoch::default(),
                 render_texture: texture,
                 render_target,
                 dimensions,
@@ -4701,6 +4648,17 @@ impl RenderLoopService {
         state: ViewState,
         options: FrameRequestOptions,
     ) -> Result<FrameResult, RenderLoopError> {
+        self.submit_frame_with_options(view_id, state, options)?
+            .complete()
+            .await
+    }
+
+    pub fn submit_frame_with_options(
+        &mut self,
+        view_id: ViewId,
+        state: ViewState,
+        options: FrameRequestOptions,
+    ) -> Result<FrameSubmission, RenderLoopError> {
         let request_start = std::time::Instant::now();
 
         // Validate state
@@ -4712,6 +4670,7 @@ impl RenderLoopService {
         // Ensure view exists with correct dimensions
         self.ensure_view(view_id.clone(), state.viewport_size)?;
 
+        let stamp = self.views[&view_id].epoch.advance(&view_id);
         let mut warnings = Vec::new();
         let mut rendered_layers = Vec::new();
 
@@ -4732,8 +4691,14 @@ impl RenderLoopService {
             _padding_target: [0, 0],
         };
 
-        // Update frame UBO
-        self.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
+        // Update frame UBO for this view's target size (not the legacy
+        // offscreen target, which declarative views do not allocate).
+        self.update_frame_ubo_for_target(
+            frame_ubo.origin_mm,
+            frame_ubo.u_mm,
+            frame_ubo.v_mm,
+            frame_ubo.target_dim,
+        );
 
         // Update crosshair
         self.update_crosshair_position_with_color(
@@ -5077,52 +5042,59 @@ impl RenderLoopService {
         let render_ms = render_start.elapsed().as_secs_f32() * 1000.0;
         let prepare_ms = request_start.elapsed().as_secs_f32() * 1000.0 - render_ms;
 
+        let readback_start = std::time::Instant::now();
         let mut image_data = Vec::new();
-        let readback_ms = if matches!(options.readback_mode, FrameReadbackMode::Skip) {
-            0.0
+        let readback = if matches!(options.readback_mode, FrameReadbackMode::Skip) {
+            None
         } else {
-            let readback_start = std::time::Instant::now();
-            let view_context =
-                self.views
-                    .get(&view_id)
-                    .ok_or_else(|| RenderLoopError::Internal {
-                        code: 8004,
-                        details: format!("View '{}' not found", view_id.0),
-                    })?;
-
-            match self.read_texture_to_image(&view_context.render_texture, viewport_size) {
-                Ok(result) => {
-                    image_data = result;
+            match self.submit_texture_readback(
+                &self.views[&view_id].render_texture,
+                viewport_size,
+                vec![stamp.clone()],
+            ) {
+                Ok(readback) => Some(readback),
+                // Too many frames still mapping: degrade to a grey placeholder
+                // frame with a warning instead of failing the request.
+                Err(error) if readback::is_staging_budget_exhausted(&error) => {
+                    log::warn!("{error}; returning a placeholder frame");
+                    warnings.push(
+                        "Readback staging budget exhausted; frame skipped (grey placeholder)."
+                            .to_string(),
+                    );
+                    image_data = readback::placeholder_frame(viewport_size);
+                    None
                 }
-                Err(_) => {
-                    warnings.push("Failed to read back rendered image".to_string());
-                    image_data = vec![128u8; (viewport_size[0] * viewport_size[1] * 4) as usize];
-                }
+                Err(error) => return Err(error),
             }
-
-            readback_start.elapsed().as_secs_f32() * 1000.0
         };
+        let readback_ms = 0.;
 
         // Calculate render time
         let render_time_ms = request_start.elapsed().as_secs_f32() * 1000.0;
 
-        Ok(FrameResult {
-            image_data,
-            dimensions: viewport_size,
-            render_time_ms,
-            warnings,
-            rendered_layers,
-            used_cpu_fallback: false,
-            diagnostics: FrameDiagnostics {
-                prepare_ms: prepare_ms.max(0.0),
-                render_ms,
-                readback_ms,
-                total_ms: render_time_ms,
-                visible_layers: layer_infos.len() as u32,
-                updated_layer_slots,
-                reused_layer_state,
-                readback_mode: options.readback_mode,
+        Ok(FrameSubmission {
+            result: FrameResult {
+                image_data,
+                dimensions: viewport_size,
+                render_time_ms,
+                warnings,
+                rendered_layers,
+                used_cpu_fallback: false,
+                diagnostics: FrameDiagnostics {
+                    prepare_ms: prepare_ms.max(0.0),
+                    render_ms,
+                    readback_ms,
+                    total_ms: render_time_ms,
+                    visible_layers: layer_infos.len() as u32,
+                    updated_layer_slots,
+                    reused_layer_state,
+                    readback_mode: options.readback_mode,
+                },
             },
+            readback,
+            stamp: Some(stamp),
+            request_start,
+            readback_start,
         })
     }
 
@@ -5256,53 +5228,10 @@ impl RenderLoopService {
             view_state.crosshair_color,
         );
 
-        // Calculate field of view and slice parameters from view state
-        let fov_mm = view_state.camera.fov_mm;
-        let half_fov = fov_mm / 2.0;
-
-        // Convert the camera center and orientation to slice parameters
-        let center = view_state.camera.world_center;
-
-        // Generate slice plane vectors based on orientation
-        let (u_mm, v_mm) = match view_state.camera.orientation {
-            view_state::SliceOrientation::Axial => {
-                // Axial: u=right (X+), v=forward (Y+), normal=up (Z+)
-                ([1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0])
-            }
-            view_state::SliceOrientation::Sagittal => {
-                // Sagittal: u=forward (Y+), v=up (Z+), normal=right (X+)
-                ([0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
-            }
-            view_state::SliceOrientation::Coronal => {
-                // Coronal: u=right (X+), v=up (Z+), normal=forward (Y+)
-                ([1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
-            }
-        };
-
-        // Calculate origin as center - half_extent in each direction
-        let origin_mm = [
-            center[0] - half_fov * u_mm[0] - half_fov * v_mm[0],
-            center[1] - half_fov * u_mm[1] - half_fov * v_mm[1],
-            center[2] - half_fov * u_mm[2] - half_fov * v_mm[2],
-            0.0,
-        ];
-
-        // Scale vectors to span the full field of view
-        let u_scaled = [
-            u_mm[0] * fov_mm,
-            u_mm[1] * fov_mm,
-            u_mm[2] * fov_mm,
-            u_mm[3],
-        ];
-        let v_scaled = [
-            v_mm[0] * fov_mm,
-            v_mm[1] * fov_mm,
-            v_mm[2] * fov_mm,
-            v_mm[3],
-        ];
-
-        // Update frame UBO with slice parameters
-        self.update_frame_ubo(origin_mm, u_scaled, v_scaled);
+        // The canonical conversion preserves exact slice frames (including
+        // oblique/non-square frames) supplied by the reusable SliceProvider.
+        let (origin, u_vec, v_vec) = view_state.camera_to_frame_params();
+        self.update_frame_ubo(origin, u_vec, v_vec);
 
         // Add layers from view state
         for layer_config in &view_state.layers {
@@ -5344,6 +5273,11 @@ impl RenderLoopService {
                 layer.colormap_id = layer_config.colormap_id;
                 layer.blend_mode = layer_config.blend_mode;
                 layer.intensity_range = layer_config.intensity_window;
+                layer.interpolation_mode = match layer_config.interpolation {
+                    view_state::InterpolationMode::Nearest => 0,
+                    view_state::InterpolationMode::Linear => 1,
+                    view_state::InterpolationMode::Cubic => 2,
+                };
 
                 // Intensity-modulated alpha (None / Off => flat-opacity layer).
                 let (am_mode, am_gamma, am_center) = match &layer_config.alpha_mod {
@@ -5369,6 +5303,7 @@ impl RenderLoopService {
     }
 
     /// Composite RGBA image using current view state (implements SliceProvider interface)
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn composite_rgba(
         &mut self,
         request: &neuro_types::CompositeRequest,
@@ -5401,6 +5336,39 @@ mod tests {
     // CrosshairUbo is already imported at module level
     // Maintain is imported above if needed
     use approx::assert_abs_diff_eq;
+
+    #[tokio::test]
+    async fn declarative_targets_are_owned_once_and_released_with_final_volume() {
+        let mut service = RenderLoopService::new().await.unwrap();
+        service.load_shaders().unwrap();
+        let volume = test_fixtures::create_test_pattern_volume();
+        let (slot, _) = service.upload_volume_3d(&volume).unwrap();
+        service
+            .register_volume_with_range("v".into(), slot, (0., 255.))
+            .unwrap();
+        let id = ViewId::new("owned-view");
+        service.ensure_view(id.clone(), [32, 24]).unwrap();
+        let state = ViewState::from_basic_params(
+            "v".into(),
+            [32., 32., 12.],
+            view_state::SliceOrientation::Axial,
+            64.,
+            [32, 24],
+            (0., 255.),
+        )
+        .with_crosshair(false);
+        service.request_frame(id.clone(), state).await.unwrap();
+        assert_eq!(service.views.len(), 1);
+        assert!(
+            service.render_target_pool.is_none(),
+            "declarative views must not allocate legacy targets"
+        );
+        service.release_layer_resources(slot).unwrap();
+        assert!(
+            !service.release_view(&id),
+            "final volume teardown must release cached views"
+        );
+    }
 
     #[tokio::test]
     async fn test_wgpu_initialization() {

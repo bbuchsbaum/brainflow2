@@ -88,6 +88,28 @@ impl WgpuSliceRenderer {
             .await
     }
 
+    /// Submit without retaining a mutable renderer borrow during GPU completion.
+    pub fn submit_frame_with_options(
+        &mut self,
+        view_id: ViewId,
+        state: ViewState,
+        options: FrameRequestOptions,
+    ) -> Result<crate::FrameSubmission, RenderLoopError> {
+        self.service
+            .submit_frame_with_options(view_id, state, options)
+    }
+
+    pub fn submit_views_readback(
+        &self,
+        views: &[(ViewId, [u32; 2])],
+    ) -> Result<crate::PendingReadback, RenderLoopError> {
+        self.service.submit_views_readback(views)
+    }
+
+    pub fn readback_monitor(&self) -> crate::ReadbackMonitor {
+        self.service.readback_monitor()
+    }
+
     /// Render several frame requests sequentially on the same GPU service.
     pub async fn request_frames(
         &mut self,
@@ -120,6 +142,16 @@ impl WgpuSliceRenderer {
                 details: format!("Volume '{}' is not registered", volume_id),
             })?;
         self.service.release_volume(texture_index)
+    }
+
+    /// Release a view target when its consumer closes. Returns whether it existed.
+    pub fn release_view(&mut self, view_id: &ViewId) -> bool {
+        self.service.release_view(view_id)
+    }
+
+    /// Release every view target during workspace/session teardown.
+    pub fn clear_views(&mut self) {
+        self.service.clear_views();
     }
 
     /// Current atlas telemetry.
@@ -248,6 +280,8 @@ pub struct RendererAtlasConfig {
     pub dimensions: [u32; 3],
     pub format: RendererVolumeFormat,
     pub label: Option<String>,
+    /// Active shaders bind 13 slots. Smaller requests retain that layout; requests
+    /// above 13 are rejected before adapter/device initialization.
     pub max_textures: u32,
     pub initial_layer_capacity: usize,
 }
@@ -265,9 +299,22 @@ impl Default for RendererAtlasConfig {
 }
 
 impl RendererAtlasConfig {
+    pub(crate) fn validate_runtime_capacity(&self) -> Result<(), RenderLoopError> {
+        if self.max_textures > multi_texture_manager::MAX_TEXTURES as u32 {
+            return Err(RenderLoopError::Internal {
+                code: 1703,
+                details: format!(
+                    "The runtime masked shaders support at most {} textures, requested {}",
+                    multi_texture_manager::MAX_TEXTURES,
+                    self.max_textures
+                ),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn runtime_max_textures(&self) -> u32 {
-        self.max_textures
-            .max(multi_texture_manager::MAX_TEXTURES as u32)
+        multi_texture_manager::MAX_TEXTURES as u32
     }
 
     pub(crate) fn extent3d(&self) -> wgpu::Extent3d {
@@ -374,12 +421,14 @@ impl RendererLimits {
     }
 }
 
-/// Texture format hints accepted by the reusable facade.
+/// Explicit texture storage formats. Float formats retain physical values;
+/// R8Unorm range-normalizes to [0, 1] and requires normalized display windows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RendererVolumeFormat {
     R8Unorm,
     R16Float,
     R32Float,
+    /// Not supported by the active float-sampling pipeline; registration returns an error.
     R16Uint,
 }
 

@@ -64,13 +64,13 @@ async fn oob_crosshair_yields_constant() {
         // Verify the position maps to out-of-bounds voxel coordinates
         let voxel = grid_space.coord_to_grid(&world_pos);
 
-        // At least one coordinate should be out of bounds
-        let is_oob = voxel[0] < 0.0
-            || voxel[0] >= dims[0] as f32
-            || voxel[1] < 0.0
-            || voxel[1] >= dims[1] as f32
-            || voxel[2] < 0.0
-            || voxel[2] >= dims[2] as f32;
+        // At least one coordinate is outside the voxel-centre domain [-0.5, dim-0.5)
+        let is_oob = voxel[0] < -0.5
+            || voxel[0] >= dims[0] as f32 - 0.5
+            || voxel[1] < -0.5
+            || voxel[1] >= dims[1] as f32 - 0.5
+            || voxel[2] < -0.5
+            || voxel[2] >= dims[2] as f32 - 0.5;
 
         assert!(
             is_oob,
@@ -196,18 +196,17 @@ async fn oob_with_transform() {
         .add_render_layer(layer_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
         .unwrap();
 
-    // Volume bounds in world space:
-    // X: [-30, 27] (origin + (dims-1) * spacing = -30 + 19*3 = 27)
-    // Y: [-30, 27]
-    // Z: [-15, 12] (origin + (dims-1) * spacing = -15 + 9*3 = 12)
+    // Voxel centres in world space: X/Y -30..27, Z -15..12. The voxel-centre
+    // domain [-0.5, dim-0.5) extends half a voxel (1.5 mm) beyond them:
+    // X/Y [-31.5, 28.5), Z [-16.5, 13.5).
 
     let oob_world_positions = vec![
-        [-31.0, 0.0, 0.0], // Just outside X min (voxel -0.33)
-        [30.1, 0.0, 0.0],  // Just outside X max (voxel 20.03)
-        [0.0, -31.0, 0.0], // Just outside Y min (voxel -0.33)
-        [0.0, 30.1, 0.0],  // Just outside Y max (voxel 20.03)
-        [0.0, 0.0, -16.0], // Just outside Z min (voxel -0.33)
-        [0.0, 0.0, 15.1],  // Just outside Z max (voxel 10.03)
+        [-32.0, 0.0, 0.0], // Just outside X min (voxel -0.67)
+        [30.1, 0.0, 0.0],  // Outside X max (voxel 20.03)
+        [0.0, -32.0, 0.0], // Just outside Y min (voxel -0.67)
+        [0.0, 30.1, 0.0],  // Outside Y max (voxel 20.03)
+        [0.0, 0.0, -17.0], // Just outside Z min (voxel -0.67)
+        [0.0, 0.0, 15.1],  // Outside Z max (voxel 10.03)
     ];
 
     for world_pos in oob_world_positions {
@@ -220,13 +219,13 @@ async fn oob_with_transform() {
             voxel_vec.z / voxel_vec.w,
         ];
 
-        // Verify at least one voxel coordinate is out of bounds
-        let is_oob = voxel[0] < 0.0
-            || voxel[0] >= dims[0] as f32
-            || voxel[1] < 0.0
-            || voxel[1] >= dims[1] as f32
-            || voxel[2] < 0.0
-            || voxel[2] >= dims[2] as f32;
+        // Verify at least one coordinate is outside the voxel-centre domain [-0.5, dim-0.5)
+        let is_oob = voxel[0] < -0.5
+            || voxel[0] >= dims[0] as f32 - 0.5
+            || voxel[1] < -0.5
+            || voxel[1] >= dims[1] as f32 - 0.5
+            || voxel[2] < -0.5
+            || voxel[2] >= dims[2] as f32 - 0.5;
 
         assert!(
             is_oob,

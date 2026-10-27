@@ -1,0 +1,27 @@
+import type { SeriesAxisAlignment } from "./SeriesAxisAlignment";
+import type { SeriesAxisKind } from "./SeriesAxisKind";
+import type { SeriesAxisSource } from "./SeriesAxisSource";
+/**
+ * A typed series axis (time / lag / index) declared by a NeuroTabs package.
+ */
+export type SeriesAxis = {
+    kind: SeriesAxisKind;
+    source: SeriesAxisSource;
+    /**
+     * Unit of axis positions, e.g. "s", "ms" or "TR".
+     */
+    unit: string | null;
+    /**
+     * Position of the first sample (declared axes).
+     */
+    start: number | null;
+    /**
+     * Spacing between consecutive samples (declared axes; > 0).
+     */
+    step: number | null;
+    /**
+     * Number of samples, when known from the feature shape or axis domain.
+     */
+    count: number | null;
+    alignment: SeriesAxisAlignment;
+};

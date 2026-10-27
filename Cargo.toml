@@ -15,6 +15,7 @@ members = [
   "core/atlases",
   "core/templates",
   "xtask", "core/colormap", "core/neuro-core", "core/neuro-cpu", "core/neuro-types", "core/neuro-integration-tests",
+  "core/neuro-inference",
 ]
 resolver = "2"
 

@@ -1,0 +1,15 @@
+[package]
+name = "neuro-inference"
+version = "0.1.0"
+edition = "2021"
+description = "Statistical inference for thresholded neuroimaging maps: random field theory cluster-extent p values and voxel-level corrections"
+license = "MIT"
+
+[dependencies]
+libm = "0.2"
+serde = { workspace = true, optional = true }
+
+[features]
+default = []
+# Serialize/Deserialize on configuration and result types.
+serde = ["dep:serde"]

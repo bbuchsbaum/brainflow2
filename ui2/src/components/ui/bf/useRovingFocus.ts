@@ -13,6 +13,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
  * - `selectOnMove` also calls `onSelect` as focus moves (single-select lists
  *   where focus follows selection); otherwise Enter/Space on the row selects.
  *
+ * Handled keys are consumed (preventDefault and stopPropagation), so a
+ * window-level shortcut (e.g. the viewer's arrow-key slice step) never also
+ * acts on them, even for a synthetic, non-cancelable event.
+ *
  * Moving focus never selects by itself unless asked, and never changes the
  * caller's store: the hook keeps only the focused id. The tab stop follows
  * `activeId` (usually the selected row) until the user moves focus.
@@ -102,16 +106,19 @@ export function useRovingFocus({
       target = enabled[enabled.length - 1];
     } else if (orientation === 'vertical' && e.key === 'ArrowRight' && onExpand && current) {
       e.preventDefault();
+      e.stopPropagation();
       onExpand(current);
       return;
     } else if (orientation === 'vertical' && e.key === 'ArrowLeft' && onCollapse && current) {
       e.preventDefault();
+      e.stopPropagation();
       onCollapse(current);
       return;
     } else {
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
     if (target !== null && target !== current) focusId(target);
   };
 

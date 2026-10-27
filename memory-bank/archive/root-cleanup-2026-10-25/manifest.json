@@ -1,0 +1,175 @@
+{
+  "date": "2026-10-25",
+  "root_file_count_before": 38,
+  "root_file_count_after": 14,
+  "files": [
+    {
+      "source": "GROUP_MAP_DISPLAY_IDEAS.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/GROUP_MAP_DISPLAY_IDEAS.md",
+      "action": "relocate",
+      "sha256": "4c905e2f7d3aaef57ed5eeb643dbf3dda3fa1ef5ccd7b95b399e7d08fc719138",
+      "bytes": 3462
+    },
+    {
+      "source": "SURFACE_PARITY_PLAN.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/SURFACE_PARITY_PLAN.md",
+      "action": "relocate",
+      "sha256": "f06017522e31791ddcdcb47edd1ed9033f37b6015764c28a6b7c7c4f55666a2b",
+      "bytes": 1380
+    },
+    {
+      "source": "BINARY_IPC_TEST_GUIDE.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/BINARY_IPC_TEST_GUIDE.md",
+      "action": "relocate",
+      "sha256": "4ea6f82906b32deb74b31b1202c533dbc8f72f00a442fa2d19403caeca501509",
+      "bytes": 3152
+    },
+    {
+      "source": "VERIFY_BINARY_IPC.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/VERIFY_BINARY_IPC.md",
+      "action": "relocate",
+      "sha256": "4eedf21ebca9fbdd249888713b7841d3f23a834a68ff71cba237be8b67e4ff5c",
+      "bytes": 2737
+    },
+    {
+      "source": "redesign_notes.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/redesign_notes.md",
+      "action": "relocate",
+      "sha256": "e2726c6860b2b54dfaefd1600de67945a6f985b95b1278cb47ddf50cd3e36662",
+      "bytes": 6915
+    },
+    {
+      "source": "redesign_plan.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/redesign_plan.md",
+      "action": "relocate",
+      "sha256": "3f7e1f055df79e131921ea52f8fdc14c5f66be2e7a191b842b918b0519b9b801",
+      "bytes": 1410
+    },
+    {
+      "source": "redesign_progress.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/redesign_progress.md",
+      "action": "relocate",
+      "sha256": "7d3278c0d3e8e0ff55fcd7792a1f52328e742d020614f98bfb609b5a5d76c2c2",
+      "bytes": 596
+    },
+    {
+      "source": "VISION.md",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/VISION.md",
+      "action": "relocate",
+      "sha256": "2da657f2c8342e39127d77ba7d09f2283c3ae4118fbeaac66fab41f4b49d389d",
+      "bytes": 9538
+    },
+    {
+      "source": "mdc-editor-f7d9f94c-2a94-424a-ba74-e23ba92a17a7",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/phase1-document-index.md",
+      "action": "relocate",
+      "sha256": "903a5ea0b8554581e41059d69d27596dd1179059f3d13bd28f11f2245487b7ed",
+      "bytes": 1916
+    },
+    {
+      "source": "build-all.sh",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/legacy-scripts/build-all.sh",
+      "action": "relocate",
+      "sha256": "9ef552201d366de2548a60bab1cbe6c4fc98f602ec96d32f3593fa65b8eb9113",
+      "bytes": 405
+    },
+    {
+      "source": "launch-dev.sh",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/legacy-scripts/launch-dev.sh",
+      "action": "relocate",
+      "sha256": "2c58753660713c6d01324730c7b3d48867bb72cda3cd5ddbc02f506ffa5d9cea",
+      "bytes": 1091
+    },
+    {
+      "source": "pre-launch-check.sh",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/legacy-scripts/pre-launch-check.sh",
+      "action": "relocate",
+      "sha256": "d1ca5bffa645e285f2158a1ef07b86b3bc32bfc956cee6e3e3b35a4257dc7de3",
+      "bytes": 4304
+    },
+    {
+      "source": "start-tauri.sh",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/legacy-scripts/start-tauri.sh",
+      "action": "relocate",
+      "sha256": "07725ef5b42d4b87e22d777c0f910bf4149b3dbba7bcc0d80219131c9b788b8b",
+      "bytes": 852
+    },
+    {
+      "source": "run_mni_test.sh",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/legacy-scripts/run_mni_test.sh",
+      "action": "relocate",
+      "sha256": "eb41197eb361653c93414f88b7fd5cbe5562933bbb1a3de197e5af3cd9359e14",
+      "bytes": 1306
+    },
+    {
+      "source": "test-tauri-api.sh",
+      "destination": "memory-bank/archive/root-cleanup-2026-10-25/legacy-scripts/test-tauri-api.sh",
+      "action": "relocate",
+      "sha256": "4117f242b9903347e68fe0ec56cebe943322596d2dd0f7e90b384bf46d67bd8d",
+      "bytes": 1209
+    },
+    {
+      "source": "create_toy_nifti.py",
+      "destination": "tools/create_toy_nifti.py",
+      "action": "relocate",
+      "sha256": "114bccff5b2d630a55f065aae3d97549b96dc33a49dd7a4e1753c62127fab9e6",
+      "bytes": 934
+    },
+    {
+      "source": "dev_log.txt",
+      "destination": "cruft/root-cleanup-2026-10-25/dev_log.txt",
+      "action": "local archive (ignored)",
+      "sha256": "50029440ca561d0834c059a01e3390385e7e23e8cb5bdc83a0e0d5e433a79a5d",
+      "bytes": 71774
+    },
+    {
+      "source": "tauri_dev_log.txt",
+      "destination": "cruft/root-cleanup-2026-10-25/tauri_dev_log.txt",
+      "action": "local archive (ignored)",
+      "sha256": "d42bb6c62ae2cd539431f8d6b012b3a10fc8ae5c0fa6112abe9a5782768d299d",
+      "bytes": 81882
+    },
+    {
+      "source": "tmp_unreachable_inventory.json",
+      "destination": "cruft/root-cleanup-2026-10-25/tmp_unreachable_inventory.json",
+      "action": "local archive (ignored)",
+      "sha256": "4d0925b4984fc1dc57b6fb834eb024588d5d23d84e15df5edf2234ae95aa2210",
+      "bytes": 179052
+    },
+    {
+      "source": "compare-live.png",
+      "destination": "cruft/root-cleanup-2026-10-25/compare-live.png",
+      "action": "local archive (ignored)",
+      "sha256": "5c950bac6db08e417be86cca4122d95b486abe6520fcbdc692209a26d14cea40",
+      "bytes": 100449
+    },
+    {
+      "source": "mockup7-live-1600x1000.png",
+      "destination": "cruft/root-cleanup-2026-10-25/mockup7-live-1600x1000.png",
+      "action": "local archive (ignored)",
+      "sha256": "b59848385ed25142cf91851b0e5cf1fa157ea77a46d20b3f4c9f246e10b3f978",
+      "bytes": 92441
+    },
+    {
+      "source": "mockup7-live-snapshot.md",
+      "destination": "cruft/root-cleanup-2026-10-25/mockup7-live-snapshot.md",
+      "action": "local archive (ignored)",
+      "sha256": "82d7385cf840a2ec77770ba100f798a093874e42391bf8baf31c7966af1f8911",
+      "bytes": 4175
+    },
+    {
+      "source": "global_mask2.nii",
+      "destination": "test-data/unit/global_mask2.nii",
+      "action": "remove byte-identical duplicate",
+      "sha256": "1beeab0b8bd869f96820da1764cc216a7a6073d7a62fec2a3f49957dade78b4d",
+      "bytes": 105440
+    },
+    {
+      "source": ".DS_Store",
+      "destination": null,
+      "action": "delete regenerable Finder metadata",
+      "sha256": "1d59d959ece3fbcd23a2ae5ebde63fc9de83cc5534d81e19ef50bfdbc645cefa",
+      "bytes": 10244
+    }
+  ]
+}

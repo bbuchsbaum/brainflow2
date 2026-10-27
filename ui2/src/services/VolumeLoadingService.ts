@@ -299,6 +299,19 @@ export class VolumeLoadingService {
         alignPlaneToCrosshair(plane, initialCrosshair);
       }
 
+      // A 4D layer is only drawn with a timepoint in the view state (the
+      // backend refuses the render otherwise, error 4103): a workspace without
+      // one (restored from an older session) starts at the volume's frame
+      // (native R2-3: slices were black until the first frame change).
+      if (volumeHandle.volume_type === 'TimeSeries4D') {
+        const workspaceState = useViewStateStore.getState().workspaceViewStates.get(workspaceId);
+        if (workspaceState && typeof workspaceState.timepoint !== 'number') {
+          useViewStateStore.getState().setViewState((state) => {
+            state.timepoint = volumeHandle.current_timepoint ?? 0;
+          }, workspaceId);
+        }
+      }
+
       let addedLayer: Layer | undefined;
       try {
         addedLayer = await this.layerService!.addLayer(layer, {

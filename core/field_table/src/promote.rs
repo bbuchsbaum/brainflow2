@@ -128,9 +128,10 @@ pub fn build_discovery_neurotabs_package(
         column_schema(ScalarDType::String, false, Some("row_id")),
     );
     for column in &design_columns {
+        let dtype = design_column_dtype(candidate, column);
         observation_columns.insert(
             column.clone(),
-            column_schema(ScalarDType::String, false, Some(column)),
+            column_schema(dtype, false, design_column_role(column, dtype)),
         );
     }
     observation_columns.insert(
@@ -470,6 +471,48 @@ fn sanitize_identifier(value: &str, fallback: &str) -> String {
     }
 }
 
+/// A `lag`/`time` design column whose values are all numeric is written as
+/// float64 so the manifest declares a series axis (`semantic_role: lag|time`);
+/// everything else stays a string.
+fn design_column_dtype(candidate: &StudioImportCandidate, column: &str) -> ScalarDType {
+    series_column_dtype(
+        column,
+        candidate
+            .discovery
+            .iter()
+            .flat_map(|discovery| &discovery.groups)
+            .flat_map(|group| &group.design_values)
+            .filter(|value| value.column == column)
+            .map(|value| value.value.as_str()),
+    )
+}
+
+/// Semantic role of a promoted design column: its name, except for series
+/// names. A numeric `lag` column becomes a lag axis (unit unknown: bins); a
+/// `time` column gets no role, because a time axis requires a unit that file
+/// names cannot supply; non-numeric `lag`/`time` values are plain factors.
+fn design_column_role(column: &str, dtype: ScalarDType) -> Option<&str> {
+    match bridge_types::SeriesAxisKind::from_convention_name(column) {
+        Some(bridge_types::SeriesAxisKind::Lag) if dtype == ScalarDType::Float64 => Some(column),
+        Some(_) => None,
+        None => Some(column),
+    }
+}
+
+fn series_column_dtype<'a>(column: &str, values: impl Iterator<Item = &'a str>) -> ScalarDType {
+    if bridge_types::SeriesAxisKind::from_convention_name(column).is_none() {
+        return ScalarDType::String;
+    }
+    let mut values = values.peekable();
+    if values.peek().is_some()
+        && values.all(|value| value.trim().parse::<f64>().is_ok_and(f64::is_finite))
+    {
+        ScalarDType::Float64
+    } else {
+        ScalarDType::String
+    }
+}
+
 fn column_schema(
     dtype: ScalarDType,
     nullable: bool,
@@ -482,5 +525,53 @@ fn column_schema(
         levels: None,
         unit: None,
         description: None,
+    }
+}
+
+#[cfg(test)]
+mod series_column_tests {
+    use super::*;
+
+    #[test]
+    fn numeric_lag_and_time_columns_become_float64() {
+        assert_eq!(
+            series_column_dtype("lag", ["0", "1", "2"].into_iter()),
+            ScalarDType::Float64
+        );
+        assert_eq!(
+            series_column_dtype("time", ["0.5", "1.0"].into_iter()),
+            ScalarDType::Float64
+        );
+        assert_eq!(
+            series_column_dtype("lag", ["early"].into_iter()),
+            ScalarDType::String
+        );
+        assert_eq!(
+            series_column_dtype("lag", std::iter::empty()),
+            ScalarDType::String
+        );
+        assert_eq!(
+            series_column_dtype("run", ["1"].into_iter()),
+            ScalarDType::String
+        );
+    }
+
+    #[test]
+    fn series_roles_only_for_valid_series_columns() {
+        assert_eq!(design_column_role("lag", ScalarDType::Float64), Some("lag"));
+        assert_eq!(design_column_role("lag", ScalarDType::String), None);
+        assert_eq!(design_column_role("time", ScalarDType::Float64), None);
+        assert_eq!(
+            design_column_role("subject", ScalarDType::String),
+            Some("subject")
+        );
+        assert_eq!(
+            series_column_dtype("lag", ["1", "NaN"].into_iter()),
+            ScalarDType::String
+        );
+        assert_eq!(
+            series_column_dtype("lag", ["inf"].into_iter()),
+            ScalarDType::String
+        );
     }
 }

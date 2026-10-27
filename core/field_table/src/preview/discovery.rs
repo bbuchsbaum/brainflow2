@@ -173,6 +173,7 @@ pub(super) fn regex_candidate(
                 .iter()
                 .map(|cohort| cohort.id.clone())
                 .collect(),
+            series_axes: None,
             ingest_audit: StudioIngestAuditSummary {
                 source_label: "Regex discovery".to_string(),
                 join: StudioJoinAuditSummary {

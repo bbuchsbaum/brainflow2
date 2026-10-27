@@ -32,6 +32,9 @@ export function useTimeNavigation(): TimeNavigationActions {
   // Subscribe to relevant store slices
   const viewState = useViewStateStore((state) => state.viewState);
   const layers = useLayerStore((state) => state.layers);
+  // The selected 4D layer leads, as in TimeNavigationService (runs of
+  // different lengths, phase 4 E5b).
+  const selectedLayerId = useLayerStore((state) => state.selectedLayerId);
   const timeNavService = useMemo(() => getTimeNavigationService(), []);
 
   // Performance monitoring for development
@@ -43,12 +46,12 @@ export function useTimeNavigation(): TimeNavigationActions {
   // Cache expensive layer filtering with useMemo to avoid re-computation
   const cached4DLayer = useMemo(() => {
     const start = performance.now();
-    const result = layers.find(
-      (layer) =>
-        layer.volumeType === 'TimeSeries4D' &&
-        layer.timeSeriesInfo &&
-        layer.timeSeriesInfo.num_timepoints > 1,
-    );
+    const fourD = (layer: (typeof layers)[number]) =>
+      layer.volumeType === 'TimeSeries4D' &&
+      !!layer.timeSeriesInfo &&
+      layer.timeSeriesInfo.num_timepoints > 1;
+    const selected = layers.find((layer) => layer.id === selectedLayerId);
+    const result = selected && fourD(selected) ? selected : layers.find(fourD);
     const computeTime = performance.now() - start;
 
     // Only log in development and if computation took significant time
@@ -57,7 +60,7 @@ export function useTimeNavigation(): TimeNavigationActions {
     }
 
     return result;
-  }, [layers]); // Only recalculate when layers actually change
+  }, [layers, selectedLayerId]); // Only recalculate when layers or the selection change
 
   // Check if we have a 4D volume loaded (now using cached value)
   const has4DVolume = useCallback(() => {
@@ -84,8 +87,9 @@ export function useTimeNavigation(): TimeNavigationActions {
       return null;
     }
 
-    const currentTimepoint = viewState.timepoint ?? 0;
     const { num_timepoints, tr } = timeSeriesInfo;
+    // Clamped to the lead layer (REVIEW m8: "31/20" after selecting a shorter run).
+    const currentTimepoint = Math.max(0, Math.min(num_timepoints - 1, viewState.timepoint ?? 0));
 
     return {
       currentTimepoint,

@@ -17,15 +17,22 @@ vi.mock('@/services/ViewExportService', () => ({
   }),
 }));
 
+const targetsMock = vi.hoisted(() => ({
+  available: ['axial', 'sagittal', 'coronal', 'orthogonal'] as string[],
+  fallback: 'axial',
+}));
 vi.mock('@/services/export/compositeCapture', () => ({
-  availableExportTargets: () => ['axial', 'sagittal', 'coronal', 'orthogonal'],
-  defaultExportTarget: () => 'axial',
+  availableExportTargets: () => targetsMock.available,
+  defaultExportTarget: () => targetsMock.fallback,
+  isSurfaceExportTarget: (t: string | null) => t === 'surface' || t === 'surface-lat-med',
   EXPORT_TARGET_LABEL: {
     axial: 'Axial',
     sagittal: 'Sagittal',
     coronal: 'Coronal',
     orthogonal: 'Orthogonal layout',
     mosaic: 'Mosaic',
+    surface: 'Surface',
+    'surface-lat-med': 'Surface lateral + medial',
   },
   captureComposite: captureCompositeMock,
   currentMosaicExportSource: () => null,
@@ -35,6 +42,8 @@ vi.mock('@/services/export/compositeCapture', () => ({
 
 describe('ExportImageDialog composited export (P3.8)', () => {
   beforeEach(() => {
+    targetsMock.available = ['axial', 'sagittal', 'coronal', 'orthogonal'];
+    targetsMock.fallback = 'axial';
     captureCompositeMock.mockReset();
     captureActiveViewMock.mockReset();
     vi.stubGlobal('URL', {
@@ -217,5 +226,18 @@ describe('ExportImageDialog composited export (P3.8)', () => {
     } finally {
       useWorkspaceStore.setState({ activeWorkspaceId: null });
     }
+  });
+
+  it('a surface view offers the surface figures, without scale bar, crosshair or crop (D4)', async () => {
+    targetsMock.available = ['surface', 'surface-lat-med'];
+    targetsMock.fallback = 'surface';
+    useExportDialogStore.getState().open();
+    render(<ExportImageDialog />);
+    await waitFor(() => expect(captureCompositeMock).toHaveBeenCalledWith('surface', 'png', expect.anything()));
+    expect(screen.getByRole('checkbox', { name: 'Orientation glyph' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'View name' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Scale bar/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Crosshair' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Crop to brain' })).toBeNull();
   });
 });

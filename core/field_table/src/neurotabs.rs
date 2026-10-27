@@ -11,7 +11,7 @@ pub struct NeuroTabsIssue {
 }
 
 impl NeuroTabsIssue {
-    fn new(path: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn new(path: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             path: path.into(),
             message: message.into(),
@@ -165,6 +165,7 @@ impl NeuroTabsManifest {
         for (feature_id, feature) in &self.features {
             self.validate_feature(feature_id, feature, &mut issues);
         }
+        crate::series::validate_series_axes(self, &mut issues);
 
         if issues.is_empty() {
             Ok(())
@@ -516,7 +517,7 @@ impl Alignment {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AxisDomain {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -526,6 +527,15 @@ pub struct AxisDomain {
     pub size: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Unit of positions along a series (`lag`/`time`) axis, e.g. "s" or "TR".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// Position of the first sample along a series axis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<f64>,
+    /// Spacing of samples along a series axis (> 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -13,6 +13,7 @@ import type {
   StudioImportMode,
 } from '@/types/studio';
 import { TsvImportWizard } from './TsvImportWizard';
+import { seriesAxisLabel } from './seriesAxisLabel';
 
 const IMPORT_TABS_ID = 'studio-import';
 
@@ -101,6 +102,26 @@ export function StudioImportDialog() {
       size="full"
       bodyClassName="p-0"
       className="max-w-4xl rounded-sm"
+      // The Modal's footer slot sits outside the scrolling body, so the Import
+      // action stays visible however tall the preview grows.
+      footer={
+        showClassicLayout ? (
+          <div className="border-t border-border px-5 py-3 flex items-center justify-between gap-3">
+            <div className="text-bf-sm text-muted-foreground">{importFootnote}</div>
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={closeImportDialog}>
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmImportCandidate}
+                disabled={!selectedCandidate || isLoading || importBlocked}
+              >
+                {importLabel}
+              </Button>
+            </div>
+          </div>
+        ) : null
+      }
     >
       <div style={{ maxHeight: 'calc(85vh - 4rem)' }} className="flex flex-col">
         <Tabs
@@ -126,7 +147,7 @@ export function StudioImportDialog() {
 
         {/* Classic two-column layout for manifest, regex, and table preview step */}
         {showClassicLayout ? (
-          <div className="flex-1 grid gap-0 md:grid-cols-[240px_minmax(0,1fr)] overflow-hidden">
+          <div className="grid min-h-0 flex-1 gap-0 overflow-hidden md:grid-cols-[240px_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)]">
             <div className="border-r border-border bg-background p-4 overflow-y-auto">
               <div className="text-bf-md font-medium text-foreground">Preview candidates</div>
               <div
@@ -336,22 +357,6 @@ export function StudioImportDialog() {
               )}
 
              </div>
-              <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-3">
-                <div className="text-bf-sm text-muted-foreground">
-                  {importFootnote}
-                </div>
-                <div className="flex gap-3">
-                  <Button variant="secondary" onClick={closeImportDialog}>
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={confirmImportCandidate}
-                    disabled={!selectedCandidate || isLoading || importBlocked}
-                  >
-                    {importLabel}
-                  </Button>
-                </div>
-              </div>
             </div>
           </div>
         ) : null}
@@ -504,6 +509,16 @@ function ImportCandidatePreview({
             ['Compare ready', set.ingestAudit.support.readyForCompare ? 'Yes' : 'Not yet'],
           ]}
         />
+        {set.seriesAxes && set.seriesAxes.length > 0 ? (
+          <PreviewCard
+            title="Series"
+            accent="ok"
+            rows={set.seriesAxes.map((axis, i): [string, string] => [
+              set.seriesAxes!.length > 1 ? `Series axis ${i + 1}` : 'Series axis',
+              seriesAxisLabel(axis, set.memberSummaries),
+            ])}
+          />
+        ) : null}
         <PreviewCard
           title="Import contract"
           accent={candidate.contract.canImport ? 'ok' : 'error'}

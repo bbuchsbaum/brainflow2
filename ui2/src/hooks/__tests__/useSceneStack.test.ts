@@ -119,3 +119,14 @@ describe('buildSceneStack label maps (P3 item 4)', () => {
   });
 });
 
+
+describe('4D frame readout (phase 4 v1 F8)', () => {
+  it('is 1-based of the count, like the status bar ("frame 3/8" for index 2)', () => {
+    const stack = buildSceneStack(
+      [makeVolume({ volumeType: 'TimeSeries4D', currentTimepoint: 2, timeSeriesInfo: { num_timepoints: 8, tr: null, temporal_unit: null, acquisition_time: null } } as Partial<LayerInfo>)],
+      new Map(),
+      null,
+    );
+    expect(stack.volumes[0].subtitle).toContain('frame 3/8');
+  });
+});

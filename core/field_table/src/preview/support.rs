@@ -22,6 +22,20 @@ pub(super) fn table_support_label(signature: &TableSupportSignature) -> String {
 }
 
 pub(super) fn inspect_table_volume_support(path: &Path) -> Result<TableSupportSignature, String> {
+    let (signature, frames) = inspect_volume_support_and_frames(path)?;
+    if frames > 1 {
+        return Err(format!(
+            "{} is a 4D series; Studio table preview currently expects 3D members.",
+            path.display()
+        ));
+    }
+    Ok(signature)
+}
+
+/// Spatial support plus the number of frames along the 4th axis (1 for 3D).
+fn inspect_volume_support_and_frames(
+    path: &Path,
+) -> Result<(TableSupportSignature, usize), String> {
     let object = ReaderOptions::new()
         .read_file(path)
         .map_err(|error| format!("{}: {}", path.display(), error))?;
@@ -30,21 +44,43 @@ pub(super) fn inspect_table_volume_support(path: &Path) -> Result<TableSupportSi
     if ndim < 3 {
         return Err(format!("{} is not a 3D volume.", path.display()));
     }
-    if ndim >= 4 && header.dim[4] > 1 {
-        return Err(format!(
-            "{} is a 4D series; Studio table preview currently expects 3D members.",
-            path.display()
-        ));
-    }
-
-    Ok(TableSupportSignature {
+    let frames = if ndim >= 4 {
+        (header.dim[4] as usize).max(1)
+    } else {
+        1
+    };
+    let signature = TableSupportSignature {
         dims: [
             header.dim[1] as usize,
             header.dim[2] as usize,
             header.dim[3] as usize,
         ],
         voxel_sizes: [header.pixdim[1], header.pixdim[2], header.pixdim[3]],
-    })
+    };
+    Ok((signature, frames))
+}
+
+/// Frames a manifest feature declares along a series (`lag`/`time`) axis in
+/// position 3 (`axes: [x, y, z, lag]`), as `Some(count)` where the count is
+/// known from `logical.shape` or the axis domain `size`, or `Some(None)` when
+/// the axis is declared without a count. `None` when there is no such axis.
+fn declared_series_frames(feature: &FeatureSchema) -> Option<Option<usize>> {
+    let axis = feature.logical.axes.get(3)?;
+    bridge_types::SeriesAxisKind::from_convention_name(axis)?;
+    Some(
+        feature
+            .logical
+            .shape
+            .as_ref()
+            .and_then(|shape| shape.get(3).copied())
+            .or_else(|| {
+                feature
+                    .logical
+                    .axis_domains
+                    .get(axis)
+                    .and_then(|domain| domain.size)
+            }),
+    )
 }
 
 pub(super) fn infer_support_summary(
@@ -199,8 +235,8 @@ pub(super) fn validate_nifti_volume_support(
         }];
     }
 
-    let signature = match inspect_table_volume_support(path) {
-        Ok(signature) => signature,
+    let (signature, frames) = match inspect_volume_support_and_frames(path) {
+        Ok(found) => found,
         Err(message) => {
             return vec![StudioJoinIssueDetail {
                 message,
@@ -208,6 +244,34 @@ pub(super) fn validate_nifti_volume_support(
             }];
         }
     };
+    // A 4D member is unambiguous only when the feature declares a series axis
+    // (e.g. `axes: [x, y, z, lag]`). Import only validates frame counts: every
+    // member, 3D or 4D, must match the declared count (strict manifest
+    // validation requires one, so members of different lengths cannot form a
+    // set). Expansion into one observation per frame (stackIndex) happens
+    // later, in the UI's series mode.
+    match (frames > 1, declared_series_frames(feature)) {
+        (true, None) => {
+            return vec![StudioJoinIssueDetail {
+                message: format!(
+                    "{} is a 4D series; declare a lag or time axis (logical.axes \
+                     [x, y, z, lag|time]) to compare its frames.",
+                    path.display()
+                ),
+                member_ids: vec![row_id.to_string()],
+            }];
+        }
+        (_, Some(Some(declared))) if declared != frames => {
+            return vec![StudioJoinIssueDetail {
+                message: format!(
+                    "Row {} has {} frames but the series axis declares {}.",
+                    row_id, frames, declared
+                ),
+                member_ids: vec![row_id.to_string()],
+            }];
+        }
+        _ => {}
+    }
     let Some(shape) = &feature.logical.shape else {
         return Vec::new();
     };

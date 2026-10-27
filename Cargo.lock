@@ -249,6 +249,7 @@ dependencies = [
  "log",
  "nalgebra 0.32.6",
  "ndarray 0.16.1",
+ "neuro-inference",
  "neuro-types",
  "neuroatlas",
  "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
@@ -4784,6 +4785,14 @@ dependencies = [
  "neuro-types",
  "rayon",
  "volmath",
+]
+
+[[package]]
+name = "neuro-inference"
+version = "0.1.0"
+dependencies = [
+ "libm",
+ "serde",
 ]
 
 [[package]]

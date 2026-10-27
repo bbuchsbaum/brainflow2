@@ -114,8 +114,14 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
           <IntegratedVolumeSurfaceWorkspace />
         </CenterWithBottomDock>
       );
+    // Studio shares the same dock, so its population plots and View › Panels
+    // › Plot Panel work there too (NeuroTabs workspace shape: bottom Plot dock).
     case "set-studio":
-      return <SetStudioWorkspace />;
+      return (
+        <CenterWithBottomDock>
+          <SetStudioWorkspace />
+        </CenterWithBottomDock>
+      );
     case "bids-explorer":
       return <BidsExplorerWorkspace workspaceId={workspaceId} />;
     case "analysis-workbench":

@@ -1,7 +1,7 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianSmoothing, THREE, } from 'neurosurface';
+import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianSmoothing, THREE, normalizeCurvature, } from 'neurosurface';
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
 import { buildLayerInstance, applyLayerUpdate, applySurfaceRenderSettings, applySceneRenderSettings, } from './surfaceRuntime.js';
@@ -37,6 +37,55 @@ function applySmoothingToRenderedSurface(renderedSurface, original, smoothingVal
         console.error('Failed to apply smoothing:', error);
     }
 }
+/**
+ * Grey folding underlay (D2): values normalised to about [-1, 1] (98th
+ * percentile), then surfview's `brightness − clamp(c / smoothness, ±0.5) ·
+ * contrast`: gyri ≈ 0.75, sulci ≈ 0.39, graded only near the fundus /
+ * crown boundary (FreeSurfer-like), muted enough that data colours above
+ * threshold stay the strongest thing on the mesh.
+ */
+/** The marker halo's radius, relative to the marker (1.5 px-ish ring at typical zoom). */
+const MARKER_HALO_SCALE = 1.35;
+const CURVATURE_STYLE = { brightness: 0.62, contrast: 0.5, smoothness: 0.5 };
+function applyCurvature(renderedSurface, curvature, vertexCount, show) {
+    const usable = !!curvature && curvature.length === vertexCount;
+    if (usable) {
+        renderedSurface.setCurvature(normalizeCurvature(new Float32Array(curvature)), CURVATURE_STYLE);
+    }
+    if (renderedSurface.getCurvatureLayer()) {
+        renderedSurface.showCurvature(usable && show);
+    }
+}
+/** Left / right from a surface's hemisphere field, else null. */
+function hemisphereOf(item) {
+    const value = String(item?.geometry.hemisphere ?? '').trim().toLowerCase();
+    if (value === 'left' || value === 'lh' || value === 'l')
+        return 'left';
+    if (value === 'right' || value === 'rh' || value === 'r')
+        return 'right';
+    return null;
+}
+/** The camera's screen basis in world coordinates. */
+function cameraBasis(camera) {
+    if (!camera?.matrixWorld?.elements)
+        return null;
+    camera.updateMatrixWorld?.();
+    const e = camera.matrixWorld.elements;
+    // Column-major: x axis (right), y axis (up), z axis (toward the viewer).
+    return {
+        right: [e[0], e[1], e[2]],
+        up: [e[4], e[5], e[6]],
+        forward: [-e[8], -e[9], -e[10]],
+    };
+}
+function dataUrlToBytes(dataUrl) {
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const binary = atob(base64);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1)
+        out[i] = binary.charCodeAt(i);
+    return out;
+}
 function removeRenderedSurface(viewer, handle, rendered) {
     try {
         viewer.removeSurface(handle);
@@ -65,7 +114,7 @@ function removeRenderedSurface(viewer, handle, rendered) {
         // no-op
     }
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onError, onSurfacePick, }) => {
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, viewpointNonce, onError, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -76,6 +125,10 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     const hasCenteredCamera = useRef(false);
     const lastSmoothingValue = useRef(0);
     const lastUseGPUProjectionRef = useRef(projectionSettings.useGPUProjection);
+    const viewpointRef = useRef(viewpoint);
+    viewpointRef.current = viewpoint;
+    const showCurvatureRef = useRef(displaySettings.showCurvature !== false);
+    showCurvatureRef.current = displaySettings.showCurvature !== false;
     const surfacesToRender = useMemo(() => {
         const unique = new Map();
         for (const item of surfaces) {
@@ -93,7 +146,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         if (!isInitialized || !viewerRef.current?.renderer?.domElement || !onExporterChange) {
             return;
         }
-        const exporter = async ({ format, }) => {
+        const exporter = (async ({ format, }) => {
             const viewer = viewerRef.current;
             const canvas = viewer?.renderer?.domElement;
             if (!canvas) {
@@ -108,6 +161,147 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             });
             const buffer = await blob.arrayBuffer();
             return new Uint8Array(buffer);
+        });
+        // D3: one figure pose on the live viewer, then everything restored.
+        exporter.capturePose = async ({ pose, width: outW, height: outH, transparentBackground, background, showMarker = false }) => {
+            const viewer = viewerRef.current;
+            if (!viewer?.exportPNG || !viewer.setAnatomicalView) {
+                throw new Error('Surface viewer cannot capture figure poses');
+            }
+            const limit = exporter.figureInfo?.().maxSide;
+            if (limit && (outW > limit || outH > limit)) {
+                throw new Error(`Surface pane ${Math.round(outW)} × ${Math.round(outH)} px is over this GPU's ${limit} px limit`);
+            }
+            const handles = [...renderedSurfacesRef.current.keys()];
+            const inputs = renderedSurfaceInputsRef.current;
+            const shown = handles.filter((h) => inputs.get(h)?.visible !== false);
+            const targets = shown.filter((h) => {
+                const hemi = hemisphereOf(inputs.get(h));
+                return !pose.hemisphere || pose.hemisphere === 'both' || hemi === pose.hemisphere;
+            });
+            if (targets.length === 0)
+                throw new Error(`No ${pose.hemisphere ?? ''} surface to capture`.replace('  ', ' '));
+            const cameraState = viewer.getCameraState?.();
+            const interaction = viewer.isInteractionEnabled?.() ?? true;
+            const visibility = new Map();
+            for (const [h, surface] of renderedSurfacesRef.current) {
+                const mesh = surface.mesh;
+                if (!mesh)
+                    continue;
+                visibility.set(h, mesh.visible);
+                mesh.visible = targets.includes(h);
+            }
+            const marker = markerMeshRef.current;
+            const markerVisible = marker?.visible ?? false;
+            if (marker)
+                marker.visible = showMarker && markerVisible;
+            // The viewer's own pick crosshair (the small "+" a click leaves on a
+            // vertex) is interaction state too: not drawn into a figure (native check
+            // item 10).
+            const pickCrosshair = viewer.crosshair?.group;
+            const pickCrosshairVisible = pickCrosshair?.visible ?? false;
+            if (pickCrosshair)
+                pickCrosshair.visible = showMarker && pickCrosshairVisible;
+            const previousBackground = viewer.getFigureBackground?.();
+            const pairId = 'bf-capture-pair';
+            let paired = false;
+            // Frame the pose at the PANE's aspect: the viewer is resized to the
+            // print size first (exportPNG alone would reuse the on-screen framing,
+            // leaving the brain small in a wider pane), then restored.
+            const liveSize = { width: viewer.width, height: viewer.height, dpr: viewer.renderer?.getPixelRatio?.() ?? 1 };
+            const outWidth = Math.max(1, Math.round(outW));
+            const outHeight = Math.max(1, Math.round(outH));
+            let resized = false;
+            try {
+                viewer.setInteractionEnabled?.(false);
+                if (viewer.resize && liveSize.width > 0 && liveSize.height > 0) {
+                    viewer.resize(outWidth, outHeight, { dpr: 1 });
+                    resized = true;
+                }
+                const left = targets.find((h) => hemisphereOf(inputs.get(h)) === 'left');
+                const right = targets.find((h) => hemisphereOf(inputs.get(h)) === 'right');
+                let result;
+                if (pose.view === 'current') {
+                    // The user's camera: only the hemisphere filter applies.
+                    result = null;
+                }
+                else if (pose.hemisphere === 'both' && left && right) {
+                    const registered = viewer.registerBilateralSurfaceGroup?.({ id: pairId, leftSurfaceId: left, rightSurfaceId: right });
+                    paired = !!registered?.ok;
+                    result = paired
+                        ? viewer.setAnatomicalView(pose.view, { layout: 'paired', groupId: pairId, fit: true })
+                        : viewer.setAnatomicalView(pose.view, { layout: 'single', surfaceId: left, fit: true });
+                }
+                else {
+                    result = viewer.setAnatomicalView(pose.view, { layout: 'single', surfaceId: targets[0], fit: true });
+                }
+                if (result && result.ok === false)
+                    throw new Error(result.message ?? 'Anatomical view failed');
+                // A tight fit of the shown meshes (the view's own fit is looser).
+                if (pose.view !== 'current')
+                    viewer.fitToView?.({ padding: 0.05 });
+                const basis = cameraBasis(viewer.camera);
+                const backgroundColor = background ? Number.parseInt(background.replace('#', ''), 16) : undefined;
+                const dataUrl = viewer.exportPNG({
+                    width: outWidth,
+                    height: outHeight,
+                    transparent: transparentBackground,
+                    ...(backgroundColor !== undefined && !transparentBackground ? { background: backgroundColor } : {}),
+                    colorbar: false,
+                    scaleBar: false,
+                    roiLabels: false,
+                });
+                const hemispheres = targets
+                    .map((h) => hemisphereOf(inputs.get(h)))
+                    .filter((x) => x !== null);
+                return { bytes: dataUrlToBytes(dataUrl), basis, hemispheres: [...new Set(hemispheres)] };
+            }
+            finally {
+                if (resized)
+                    viewer.resize(liveSize.width, liveSize.height, { dpr: liveSize.dpr });
+                if (paired)
+                    viewer.unregisterBilateralSurfaceGroup?.(pairId);
+                for (const [h, surface] of renderedSurfacesRef.current) {
+                    const mesh = surface.mesh;
+                    if (mesh && visibility.has(h))
+                        mesh.visible = visibility.get(h);
+                }
+                if (marker)
+                    marker.visible = markerVisible;
+                if (pickCrosshair)
+                    pickCrosshair.visible = pickCrosshairVisible;
+                if (previousBackground && viewer.setFigureBackground) {
+                    viewer.setFigureBackground(previousBackground.color ?? 0x000000, previousBackground.transparent ?? false);
+                }
+                if (cameraState !== undefined)
+                    viewer.setCameraState?.(cameraState);
+                viewer.setInteractionEnabled?.(interaction);
+                viewer.requestRender?.();
+            }
+        };
+        exporter.figureInfo = () => {
+            const viewer = viewerRef.current;
+            const inputs = renderedSurfaceInputsRef.current;
+            const hemispheres = new Set();
+            for (const h of renderedSurfacesRef.current.keys()) {
+                const input = inputs.get(h);
+                const hemi = input?.visible !== false ? hemisphereOf(input) : null;
+                if (hemi)
+                    hemispheres.add(hemi);
+            }
+            const rect = containerRef.current?.getBoundingClientRect();
+            const gl = viewer?.renderer?.getContext?.();
+            let maxSide = 4096;
+            if (gl) {
+                const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+                const renderbuffer = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+                maxSide = Math.min(renderbuffer ?? maxSide, viewport ? Math.min(viewport[0], viewport[1]) : maxSide);
+            }
+            return {
+                hemispheres: ['left', 'right'].filter((h) => hemispheres.has(h)),
+                viewport: rect && rect.width > 0 && rect.height > 0 ? { width: rect.width, height: rect.height } : { width: 640, height: 480 },
+                maxSide,
+            };
         };
         onExporterChange(exporter);
         return () => onExporterChange(null);
@@ -234,6 +428,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 renderedSurface.addLayer(buildLayerInstance(layerSpec));
             }
             applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings);
+            applyCurvature(renderedSurface, item.curvature, item.geometry.vertices.length / 3, showCurvatureRef.current);
             viewer.addSurface(renderedSurface, item.handle);
             renderedSurfacesRef.current.set(item.handle, renderedSurface);
             renderedSurfaceInputsRef.current.set(item.handle, item);
@@ -301,6 +496,10 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                     renderedSurface.setLayerOrder(plan.orderedLayerIds);
                     changed = true;
                 }
+                if (previousInput.curvature !== item.curvature) {
+                    applyCurvature(renderedSurface, item.curvature, item.geometry.vertices.length / 3, showCurvatureRef.current);
+                    changed = true;
+                }
                 renderedSurfaceInputsRef.current.set(item.handle, item);
             }
             lastUseGPUProjectionRef.current = useGPUCompositing;
@@ -308,6 +507,14 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 const controls = viewer.controls;
                 const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
                 viewer.centerCamera();
+                // The fit looks down the z axis; the requested preset (default
+                // lateral) is applied on the fitted mesh, so the first view matches it.
+                try {
+                    viewer.setViewpoint(viewpointRef.current);
+                }
+                catch {
+                    // unknown viewpoint: keep the fit
+                }
                 if (controls && controls.autoRotate !== undefined) {
                     controls.autoRotate = wasAutoRotating;
                 }
@@ -342,7 +549,39 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         if (viewerRef.current) {
             viewerRef.current.setViewpoint(viewpoint);
         }
-    }, [viewpoint]);
+    }, [viewpoint, viewpointNonce]);
+    // D2: the underlay toggle.
+    useEffect(() => {
+        if (!viewerRef.current)
+            return;
+        renderedSurfacesRef.current.forEach((renderedSurface, handle) => {
+            const input = renderedSurfaceInputsRef.current.get(handle);
+            if (renderedSurface.getCurvatureLayer()) {
+                renderedSurface.showCurvature(displaySettings.showCurvature !== false && !!input?.curvature);
+            }
+        });
+        viewerRef.current.requestRender();
+    }, [isInitialized, displaySettings.showCurvature, renderHandlesKey]);
+    // D5: report the camera's screen basis when it changes (orientation glyph).
+    useEffect(() => {
+        if (!isInitialized || !onCameraChange)
+            return;
+        let frame = 0;
+        let last = '';
+        const tick = () => {
+            const basis = cameraBasis(viewerRef.current?.camera);
+            if (basis) {
+                const key = [...basis.right, ...basis.up].map((v) => v.toFixed(3)).join(',');
+                if (key !== last) {
+                    last = key;
+                    onCameraChange(basis);
+                }
+            }
+            frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(frame);
+    }, [isInitialized, onCameraChange]);
     useEffect(() => {
         if (viewerRef.current) {
             viewerRef.current.requestRender();
@@ -437,6 +676,14 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             mesh.name = 'crosshairMarker';
             mesh.renderOrder = 999;
             mesh.userData.radiusMm = markerRadiusMm;
+            // A dark halo like the slice crosshair's (v1 F10): a larger back-faced
+            // sphere drawn just before the marker, so the green reads on any data colour.
+            // Opaque on purpose: three.js draws the transparent list after the opaque one,
+            // so a transparent halo would land on top of the marker whatever its renderOrder.
+            const halo = new THREE.Mesh(new THREE.SphereGeometry(markerRadiusMm * MARKER_HALO_SCALE, 20, 20), new THREE.MeshBasicMaterial({ color: 0x0b0c0e, side: THREE.BackSide, depthTest: false, depthWrite: false }));
+            halo.name = 'crosshairMarkerHalo';
+            halo.renderOrder = 998;
+            mesh.add(halo);
             viewer.scene.add(mesh);
             markerMeshRef.current = mesh;
         }
@@ -446,6 +693,11 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 mesh.geometry.dispose();
                 mesh.geometry = new THREE.SphereGeometry(markerRadiusMm, 20, 20);
                 mesh.userData.radiusMm = markerRadiusMm;
+                const halo = mesh.getObjectByName('crosshairMarkerHalo');
+                if (halo) {
+                    halo.geometry.dispose();
+                    halo.geometry = new THREE.SphereGeometry(markerRadiusMm * MARKER_HALO_SCALE, 20, 20);
+                }
             }
             const material = mesh.material;
             material.color?.set?.(markerColor);
@@ -486,6 +738,9 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 // viewer may already be disposed during teardown
             }
             try {
+                const halo = mesh.getObjectByName?.('crosshairMarkerHalo');
+                halo?.geometry?.dispose?.();
+                halo?.material?.dispose?.();
                 mesh.geometry?.dispose?.();
                 const material = mesh.material;
                 if (Array.isArray(material)) {
@@ -557,8 +812,12 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 const indices = [hit.face.a, hit.face.b, hit.face.c];
                 const triangle = indices.map(i => [positions.getX(i), positions.getY(i), positions.getZ(i)]);
                 const world = mapPickedTriangle(reference, indices, triangle, [local.x, local.y, local.z]);
+                // The picked vertex (the triangle corner nearest the hit), known on any
+                // mesh, inflated too: a vertex readout needs no anatomical mesh for it.
+                const d2 = triangle.map(([x, y, z]) => (x - local.x) ** 2 + (y - local.y) ** 2 + (z - local.z) ** 2);
+                const corner = d2.indexOf(Math.min(...d2));
                 if (world)
-                    onSurfacePick(world);
+                    onSurfacePick(world, handle ? { handle, vertex: indices[corner] } : undefined);
             }
         };
         canvas.addEventListener('mousedown', onDown);

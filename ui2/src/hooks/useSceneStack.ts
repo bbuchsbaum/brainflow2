@@ -170,7 +170,8 @@ function buildVolumeSubtitle(
 
   if (layer.volumeType === 'TimeSeries4D' && layer.timeSeriesInfo) {
     const total = layer.timeSeriesInfo.num_timepoints;
-    const current = layer.currentTimepoint ?? 0;
+    // 1-based frame of count, like the status bar's time readout.
+    const current = (layer.currentTimepoint ?? 0) + 1;
     parts.push(`frame ${current}/${total}`);
   }
 

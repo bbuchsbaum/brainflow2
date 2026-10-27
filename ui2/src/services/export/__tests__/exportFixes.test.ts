@@ -8,8 +8,9 @@ import {
   layoutFileName,
   mosaicFileName,
   sliceFileName,
+  surfaceFileName,
 } from '@/utils/exportFileName';
-import { cropBox, cropVolumeIds } from '../compositeCapture';
+import { cropBox, cropKind, cropVolumeIds, type CropKind } from '../compositeCapture';
 
 describe('export file names (native check: "zmap_synthetic_axial_-10.0mm.png")', () => {
   it('puts the axis letter before the signed value for a slice', () => {
@@ -52,6 +53,14 @@ describe('export file names (native check: "zmap_synthetic_axial_-10.0mm.png")',
     expect(exportFileBase('', 'view')).toBe('view');
     expect(exportFileBase('___', 'view')).toBe('view');
   });
+
+  it('names the hemispheres of a surface figure once (v1 visual 9)', () => {
+    expect(surfaceFileName('sensorimotor.func (lh, rh)', 'lat_med', ['left', 'right'], 'png')).toBe(
+      'sensorimotor.func_lat_med_lh_rh.png',
+    );
+    expect(surfaceFileName('lh.sensorimotor.func.gii', 'surface', ['left'], 'png')).toBe('sensorimotor.func_surface_lh.png');
+    expect(surfaceFileName(null, 'surface', ['right'], 'jpg')).toBe('surface_surface_rh.jpg');
+  });
 });
 
 describe('Crop to brain (native check: cropped to the overlay, cut into the head)', () => {
@@ -68,13 +77,20 @@ describe('Crop to brain (native check: cropped to the overlay, cut into the head
   const t1 = { id: 't1', volumeId: 't1', visible: true, opacity: 1 };
   const z = { id: 'z', volumeId: 'z', visible: true, opacity: 1 };
 
+  // Round 3 R3-3 (deliberate change: was the union of the visible volumes, a
+  // statistic counting only |v| above its display threshold): the crop is the
+  // support of one volume — a brain mask, else the bottom anatomy, else the
+  // bottom volume — never the rendered or thresholded pixels.
+  const kinds: Record<string, CropKind> = { t1: 'anatomical', z: 'statistic', mask: 'mask' };
+  const kindOf = (id: string | undefined) => kinds[id ?? ''] ?? 'anatomical';
+
   it('frames the head whichever end of the stack the anatomy is on', async () => {
     for (const layers of [
       [t1, z],
       [z, t1],
     ]) {
-      const ids = cropVolumeIds(layers);
-      expect(new Set(ids)).toEqual(new Set(['t1', 'z']));
+      const ids = cropVolumeIds(layers, kindOf);
+      expect(ids).toEqual(['t1']);
       const box = await cropBox(ids, fetch);
       // The head box padded by half a voxel: never the overlay's box.
       expect(box!.worldMinMm).toEqual([-70.5, -100.5, -60.5]);
@@ -82,27 +98,22 @@ describe('Crop to brain (native check: cropped to the overlay, cut into the head
     }
   });
 
-  it('keeps statistic voxels outside the anatomy in the frame (the union)', async () => {
-    const wide = {
-      ...fetch,
-      nonzero: async (id: string) =>
-        id === 'z' ? { worldMinMm: [-90, -60, -10], worldMaxMm: [42, 40, 50] } : boxes[id],
-    };
-    const box = await cropBox(cropVolumeIds([t1, z]), wide);
-    expect(box!.worldMinMm[0]).toBe(-90.5);
-    expect(box!.worldMaxMm[0]).toBe(70.5);
+  it('a brain mask wins, visible or not; a statistic alone is cropped to its whole support, not its blobs', () => {
+    const mask = { id: 'mask', volumeId: 'mask', visible: false, opacity: 0 };
+    expect(cropVolumeIds([t1, z, mask], kindOf)).toEqual(['mask']);
+    expect(cropVolumeIds([{ ...t1, visible: false }, z], kindOf)).toEqual(['t1']);
+    // The z map as the only (base) layer: its own support at threshold 0.
+    expect(cropVolumeIds([z], kindOf)).toEqual(['z']);
+    expect(cropVolumeIds([], kindOf)).toEqual([]);
   });
 
-  it('ignores hidden layers, and falls back to the bottom volume when none is visible', () => {
-    expect(cropVolumeIds([t1, { ...z, visible: false }])).toEqual(['t1']);
-    expect(cropVolumeIds([{ ...z, opacity: 0 }, t1])).toEqual(['t1']);
-    expect(
-      cropVolumeIds([
-        { ...t1, visible: false },
-        { ...z, visible: false },
-      ]),
-    ).toEqual(['t1']);
-    expect(cropVolumeIds([])).toEqual([]);
+  it('classifies layers for the crop: mask by name token or binary flag, labels, statistics, anatomy', () => {
+    expect(cropKind({ name: 'MNI152_T1_2mm_brain_mask.nii.gz' }, { isStatistic: false })).toBe('mask');
+    expect(cropKind({ name: 'roi', sourcePath: '/d/sub-01_desc-brainmask.nii.gz' }, { isStatistic: false })).toBe('mask');
+    expect(cropKind({ name: 'x' }, { isStatistic: false, isBinaryLike: true })).toBe('mask');
+    expect(cropKind({ name: 'bold_masked.nii.gz' }, { isStatistic: false })).toBe('anatomical');
+    expect(cropKind({ name: 'atlas', type: 'label' }, { isStatistic: false })).toBe('label');
+    expect(cropKind({ name: 'p4_zmap.nii' }, { isStatistic: true })).toBe('statistic');
   });
 
   it('is null (no crop) when no volume has a non-zero box', async () => {
@@ -110,19 +121,12 @@ describe('Crop to brain (native check: cropped to the overlay, cut into the head
   });
 });
 
-describe('crop thresholds (a dense noisy statistic must not widen the crop)', () => {
-  it('statistic layers count |v| above their display threshold; anatomy and labels every non-zero voxel', async () => {
-    const { cropThresholdsByVolume } = await import('../compositeCapture');
-    const map = cropThresholdsByVolume(
-      [
-        { id: 't1', volumeId: 'v-t1', threshold: [0, 0] },
-        { id: 'z', volumeId: 'v-z', threshold: [-3.1, 3.1] },
-        { id: 'atlas', volumeId: 'v-atlas', threshold: [0, 0] },
-      ],
-      (id) => id === 'z',
-    );
-    expect(map.get('v-t1')).toBe(0);
-    expect(map.get('v-z')).toBeCloseTo(3.1, 9);
-    expect(map.get('v-atlas')).toBe(0);
+describe('export colorbar title wrap (round 3 S1)', () => {
+  it('never breaks inside "(lh, rh)"', async () => {
+    const { wrapAtBoundaries } = await import('../compositeExport');
+    // One unit per character.
+    const ctx = { measureText: (t: string) => ({ width: t.length }) as TextMetrics };
+    expect(wrapAtBoundaries(ctx, 'sensorimotor.func (lh, rh)', 20, 2)).toEqual(['sensorimotor.func ', '(lh, rh)']);
+    expect(wrapAtBoundaries(ctx, 'sensorimotor.func (lh, rh)', 23, 2)).toEqual(['sensorimotor.func ', '(lh, rh)']);
   });
 });

@@ -1,0 +1,26 @@
+import type { ExtentStatistic } from "./ExtentStatistic";
+import type { FwhmMm } from "./FwhmMm";
+/**
+ * Parameters of the `"rft-extent"` method (Gaussian random field theory).
+ */
+export type RftExtentRequest = {
+    /**
+     * Smoothness of the statistic image, assumed stationary (user-supplied;
+     * never estimated from the map). Per-axis values follow the voxel axes.
+     */
+    fwhmMm: FwhmMm;
+    /**
+     * Declares the field type when the header has no z/t/F intent, or
+     * overrides it. Default: the NIfTI header statistic.
+     */
+    statistic?: ExtentStatistic | null;
+    /**
+     * Degrees of freedom: error df for t, numerator df for F (overrides the
+     * header).
+     */
+    df?: number | null;
+    /**
+     * Denominator (error) df for F (overrides the header).
+     */
+    df2?: number | null;
+};

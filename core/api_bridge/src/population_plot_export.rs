@@ -11,11 +11,14 @@ fn invalid(message: &str) -> BridgeError {
         details: message.into(),
     }
 }
+/// Largest accepted plot export.
+pub const MAX_PLOT_BYTES: usize = 16 * 1024 * 1024;
+
 pub fn save(path: &str, bytes: &[u8], format: &str) -> BridgeResult<String> {
     let path = Path::new(path);
     if !path.is_absolute()
         || bytes.is_empty()
-        || bytes.len() > 16 * 1024 * 1024
+        || bytes.len() > MAX_PLOT_BYTES
         || path.extension().and_then(|s| s.to_str()) != Some(format)
     {
         return Err(invalid(

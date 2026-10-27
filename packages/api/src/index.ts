@@ -51,6 +51,9 @@ export interface CoreApi {
     selectedLabelId: number,
     color: [number, number, number, number],
     thicknessPx: number,
+    colorMode?: 'uniform' | 'lut',
+    haloPx?: number,
+    haloColor?: [number, number, number, number],
   ): Promise<void>;
   // Render target management
   init_render_loop(canvas_id: string): Promise<void>;

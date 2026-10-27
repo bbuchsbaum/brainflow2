@@ -232,6 +232,51 @@ describe('SetIngestionService', () => {
     ).toBe(false);
   });
 
+  it('opens a manifest chooser and previews exactly the chosen file', async () => {
+    const candidate = { ...makeDiscoveryCandidate(), id: 'candidate-manifest', mode: 'manifest' as const };
+    const invoke = vi.fn(async (command: string) =>
+      command === 'plugin:dialog|open' ? '/tmp/study/chosen.neurotabs.yaml' : [candidate],
+    );
+    const service = new SetIngestionService({ invoke } as unknown as BackendTransport);
+
+    await service.chooseManifestPreview();
+
+    expect(invoke.mock.calls[0][0]).toBe('plugin:dialog|open');
+    expect(invoke.mock.calls[0][1]).toMatchObject({
+      options: { directory: false, multiple: false, filters: [{ extensions: ['yaml', 'yml', 'json'] }] },
+    });
+    expect(invoke).toHaveBeenCalledWith('preview_set_studio_imports', {
+      request: expect.objectContaining({ mode: 'manifest', manifestPath: '/tmp/study/chosen.neurotabs.yaml' }),
+    });
+    const dialog = useSetStudioStore.getState().importDialog;
+    expect(dialog.isOpen).toBe(true);
+    expect(dialog.manifestPath).toBe('/tmp/study/chosen.neurotabs.yaml');
+  });
+
+  it('does nothing when the manifest chooser is cancelled', async () => {
+    const invoke = vi.fn().mockResolvedValue(null);
+    const service = new SetIngestionService({ invoke } as unknown as BackendTransport);
+
+    await service.chooseManifestPreview();
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    const dialog = useSetStudioStore.getState().importDialog;
+    expect(dialog.isOpen).toBe(false);
+    expect(dialog.manifestPath).toBe('');
+  });
+
+  it('reports a failed manifest chooser in the import dialog', async () => {
+    const invoke = vi.fn().mockRejectedValue(new Error('dialog unavailable'));
+    const service = new SetIngestionService({ invoke } as unknown as BackendTransport);
+
+    await service.chooseManifestPreview();
+
+    const dialog = useSetStudioStore.getState().importDialog;
+    expect(dialog.isOpen).toBe(true);
+    expect(dialog.mode).toBe('manifest');
+    expect(dialog.error).toContain('dialog unavailable');
+  });
+
   it('exports local discovery candidates through the promotion command', async () => {
     const candidate = withDiscoveryRoot(makeDiscoveryCandidate(), '/tmp/study');
     const invoke = vi.fn().mockResolvedValue({

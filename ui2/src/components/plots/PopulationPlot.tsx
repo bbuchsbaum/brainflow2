@@ -1,4 +1,6 @@
 import { PopulationTimeCourseControls } from './PopulationTimeCourseControls';
+import { PopulationTransformControls } from './PopulationTransformControls';
+import { numericRange, transformSentence } from './populationTransform.helpers';
 import {
   populationPlotPng,
   savePopulationPlot,
@@ -292,12 +294,19 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
                 className="w-auto max-w-[200px]"
                 aria-label="Plot summary"
                 value={p.recipe.summary}
-                onValueChange={(v) =>
-                  apply({ summary: v as PopulationPlotRecipe['summary'] })
-                }
+                onValueChange={(v) => {
+                  const summary = v as PopulationPlotRecipe['summary'];
+                  // Keep the band valid for the centre (IQR with a median).
+                  const band =
+                    summary === 'median'
+                      ? p.recipe.band === 'none' ? 'none' : 'iqr'
+                      : p.recipe.band === 'iqr' ? 'ci95' : p.recipe.band;
+                  apply({ summary, band });
+                }}
               >
                 <option value="none">Individuals</option>
                 <option value="mean">Participant mean</option>
+                <option value="median">Participant median</option>
               </Select>
             </ToolbarField>
             <ToolbarField label="Within participant">
@@ -321,11 +330,26 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
                 onValueChange={(v) => apply({ band: v as PopulationPlotRecipe['band'] })}
               >
                 <option value="none">None</option>
-                <option value="sd">Participant SD</option>
-                <option value="sem95">Mean ± 1.96 SE (normal approximation)</option>
+                <option value="sd" disabled={p.recipe.summary === 'median'}>Participant SD</option>
+                <option value="sem95" disabled={p.recipe.summary === 'median'}>
+                  Mean ± 1.96 SE (normal approximation)
+                </option>
+                <option value="ci95" disabled={p.recipe.summary === 'median'}>
+                  95% CI of the mean (t, n − 1 df)
+                </option>
+                <option value="iqr" disabled={p.recipe.summary !== 'median'}>
+                  Interquartile range
+                </option>
               </Select>
             </ToolbarField>
           </Toolbar>
+          <PopulationTransformControls
+            frame={p.frame}
+            recipe={p.recipe}
+            // The sampled frame's axis: after a window mean x holds labels (REVIEW m6).
+            axisRange={numericRange(p.frame, p.recipe.x)}
+            onChange={(transforms) => apply({ transforms })}
+          />
           <p className="text-muted-foreground">
             Pinned samples · {visibleFrame?.rows.length} / {p.frame.rows.length} sample rows{' '}
             {p.frame.columns.find((c) => c.name === 'value')?.unit &&
@@ -334,9 +358,10 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
             {populationPlotService.canLink(p)
               ? 'Click to focus; Shift-click to select.'
               : 'Detached sample receipt; no live image links.'}{' '}
-            {p.recipe.summary === 'mean'
+            {p.recipe.summary !== 'none'
               ? 'Equal weight per locally valid participant; count varies by position.'
               : 'Observed samples.'}{' '}
+            {transformSentence(composed.frame)}
             Navigation leaves this probe fixed.{' '}
             {composed.spec.params.jitter === true &&
               'Horizontal jitter separates overlapping observations; values are unchanged.'}
@@ -394,6 +419,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
                         ),
                         onFocus: (id) => populationPlotService.focus(p, id),
                         onToggleSelection: (id) => populationPlotService.select(p, id),
+                        action: 'Click to make this the active member',
                       },
                     }
                   : undefined

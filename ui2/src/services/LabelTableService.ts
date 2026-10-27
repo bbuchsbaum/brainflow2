@@ -42,7 +42,7 @@ export interface LabelTableResult {
   colormapId: number | null;
 }
 
-function decodeText(raw: unknown): string | null {
+export function decodeText(raw: unknown): string | null {
   if (typeof raw === 'string') return raw;
   // tauri-plugin-fs answers an ArrayBuffer (raw IPC body) or a number[];
   // test realms may hand over a foreign-realm ArrayBuffer, hence the tag check.
@@ -255,7 +255,7 @@ function layerExists(layerId: string): boolean {
 }
 
 /** tauri-plugin-fs reports a missing file as an OS "not found" error. */
-function isMissingFileError(error: unknown): boolean {
+export function isMissingFileError(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return /os error 2\b|no such file|not found|cannot find/i.test(text);
 }

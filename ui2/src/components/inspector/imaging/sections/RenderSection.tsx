@@ -1,5 +1,6 @@
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { ThresholdText } from "@/components/ui/ThresholdText";
+import { noteUserVisibility } from "@/services/series/visibilityIntent";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import { statisticUnits, statisticVariable } from "@/utils/statistic";
 import { sameStatisticLayerIds } from "@/utils/compareSharedWindow";
@@ -7,6 +8,7 @@ import { DEFAULT_LABEL_OUTLINE, labelDisplayOf, type LabelDisplay } from "@/util
 import React, { useEffect, useId, useState } from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
+import type { OutlineColorMode } from "@/types/viewState";
 import { useSurfaceStore } from "@/stores/surfaceStore";
 import { ColormapPicker } from "@/components/ui/ColormapPicker";
 import {
@@ -152,6 +154,11 @@ function VolumeRenderRows({
     compare && !isFieldLinked(compare.mode, field) ? panelOverride?.[field] : undefined;
   const intensity = own("intensity") ?? viewLayer.intensity;
   const threshold = own("threshold") ?? viewLayer.threshold;
+  // A greyscale EPI series hides nothing: no "0 to 0" Threshold row (v4 visual).
+  const epiImage =
+    (own("colormap") ?? viewLayer.colormap) === "gray" &&
+    !isThresholdActive(threshold) &&
+    (layer?.timeSeriesInfo?.num_timepoints ?? 0) >= 2;
   // One ruler for Intensity, Threshold and the colormap strip: the union of
   // the data range and the window. The thumbs, the strip's gradient span and
   // both hidden-band cut-outs then sit at the same x for the same value; the
@@ -240,6 +247,7 @@ function VolumeRenderRows({
             // `visible && opacity > 0` gate honors the toggle. The
             // `updateLayer` call keeps the layer registry in sync for any
             // surface that still reads from there.
+            noteUserVisibility(layerId);
             setViewState((draft) => {
               const target = draft.layers.find((l) => l.id === layerId);
               if (!target) return;
@@ -285,7 +293,7 @@ function VolumeRenderRows({
         <OverrideMark compare={compare} layerId={layerId} field="intensity" label="Intensity" />
       ) : null}
 
-      {kind === "overlay" && layerMode !== "label" ? (
+      {kind === "overlay" && layerMode !== "label" && !epiImage ? (
         <InspectorRange
           label="Threshold"
           mode="hidden"
@@ -310,7 +318,7 @@ function VolumeRenderRows({
           Default threshold (the file sets none); the cluster table uses the same.
         </p>
       ) : null}
-      {kind === "overlay" && layerMode !== "label" ? (
+      {kind === "overlay" && layerMode !== "label" && !epiImage ? (
         <OverrideMark compare={compare} layerId={layerId} field="threshold" label="Threshold" />
       ) : null}
 
@@ -460,7 +468,8 @@ function VolumeRenderRows({
           items={[
             {
               label: "Time frame",
-              value: `${layer.currentTimepoint ?? 0} / ${layer.timeSeriesInfo.num_timepoints}`,
+              // 1-based frame of count, like the status bar and the Scene row.
+              value: `${(layer.currentTimepoint ?? 0) + 1} / ${layer.timeSeriesInfo.num_timepoints}`,
             },
           ]}
         />
@@ -610,6 +619,11 @@ function hexToRgbaTuple(
   ];
 }
 
+const OUTLINE_COLOR_MODE_OPTIONS = [
+  { value: "lut", label: "Regions", title: "Each boundary in its region's table colour" },
+  { value: "uniform", label: "Single", title: "Every boundary in one colour" },
+] as const;
+
 const LABEL_DISPLAY_OPTIONS = [
   { value: "fill", label: "Fill", title: "Regions filled with their table colours" },
   { value: "outline", label: "Outline", title: "Region boundaries only" },
@@ -696,17 +710,31 @@ function LabelOutlineBlock({
             />
           </FieldRow>
 
-          <FieldRow label="Outline color" controlId={`label-outline-color-${layerId}`}>
-            {({ id }) => (
-              <ColorInput
-                id={id}
-                showValue
-                value={rgbaToHex(outline.color)}
-                onValueChange={(v) => update({ color: hexToRgbaTuple(v, outline.color[3]) })}
-                aria-label="Outline color"
+          <FieldRow label="Colours">
+            {(control) => (
+              <SegmentedControl
+                id={control.id}
+                aria-label="Outline colours"
+                value={outline.colorMode ?? "uniform"}
+                onValueChange={(value) => update({ colorMode: value as OutlineColorMode })}
+                options={OUTLINE_COLOR_MODE_OPTIONS}
               />
             )}
           </FieldRow>
+
+          {(outline.colorMode ?? "uniform") === "uniform" ? (
+            <FieldRow label="Outline color" controlId={`label-outline-color-${layerId}`}>
+              {({ id }) => (
+                <ColorInput
+                  id={id}
+                  showValue
+                  value={rgbaToHex(outline.color)}
+                  onValueChange={(v) => update({ color: hexToRgbaTuple(v, outline.color[3]) })}
+                  aria-label="Outline color"
+                />
+              )}
+            </FieldRow>
+          ) : null}
         </>
       ) : null}
     </>
@@ -739,7 +767,11 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
     const { surfaceId, surfaceLayerId } = item.ref;
     const update = (key: string, value: unknown) =>
       useSurfaceStore.getState().updateLayerProperty(surfaceId, surfaceLayerId, key, value);
-    if (layer.parcelOverlay)
+    // Parcel and continuous scalar overlays share the editable rows; a
+    // threshold hides values within [low, high] so the folding / base colour
+    // shows through (native check item 8: continuous overlays had none).
+    // Precoloured (RGBA / label) overlays stay read-only.
+    if (layer.parcelOverlay || (!layer.rgba && !layer.labels && !layer.atlasConfig))
       return (
         <>
           <FieldRow label="Visible">
@@ -771,6 +803,7 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
           <ColormapBlock value={layer.colormap} onChange={(v) => update('colormap', v)} />
           <InspectorRange
             label="Threshold"
+            mode="hidden"
             low={layer.threshold?.[0] ?? 0}
             high={layer.threshold?.[1] ?? 0}
             min={Math.min(0, layer.dataRange[0])}

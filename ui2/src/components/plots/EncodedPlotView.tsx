@@ -43,6 +43,8 @@ export interface EncodedPlotViewProps {
   readonly showLocus?: boolean;
   /** Show the reducer control in the panel (e.g. region sampling). */
   readonly showReduce?: boolean;
+  /** Extra mark params (axis titles, integer ticks …) merged over the resolved spec's. */
+  readonly params?: Readonly<Record<string, unknown>>;
 }
 
 export function EncodedPlotView({
@@ -53,9 +55,13 @@ export function EncodedPlotView({
   context,
   showLocus,
   showReduce,
+  params,
 }: EncodedPlotViewProps) {
   const override = usePlotSpecStore((s) => s.specByMode[modeId]);
-  const spec = useMemo(() => resolveSpec(frame, override), [frame, override]);
+  const spec = useMemo(() => {
+    const resolved = resolveSpec(frame, override);
+    return params ? { ...resolved, params: { ...resolved.params, ...params } } : resolved;
+  }, [frame, override, params]);
 
   const areaRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);

@@ -36,6 +36,7 @@ import {
 import { layoutFileName, mosaicFileName, sliceFileName } from '@/utils/exportFileName';
 import { matteOntoPage } from '@/utils/exportMatte';
 import {
+  exportDpi,
   chromeUnit,
   compose,
   compositionSize,
@@ -53,6 +54,7 @@ import {
 } from './compositeExport';
 import { brainFraming, getNonzeroBbox } from '@/services/mosaic/brainBounds';
 import { getApiService } from '@/services/apiService';
+import { activeSurfaceFigureExporter } from './surfaceExporter';
 
 export type ExportTarget =
   | 'axial'
@@ -60,7 +62,9 @@ export type ExportTarget =
   | 'coronal'
   | 'orthogonal'
   | 'orthogonal-row'
-  | 'mosaic';
+  | 'mosaic'
+  | 'surface'
+  | 'surface-lat-med';
 
 const SLICE_TARGETS: ViewType[] = ['axial', 'sagittal', 'coronal'];
 
@@ -71,7 +75,14 @@ export const EXPORT_TARGET_LABEL: Record<ExportTarget, string> = {
   orthogonal: 'Orthogonal layout',
   'orthogonal-row': 'Figure row (axial | coronal | sagittal)',
   mosaic: 'Mosaic',
+  surface: 'Surface',
+  'surface-lat-med': 'Surface lateral + medial',
 };
+
+/** Surface figure targets (phase 4, D4: services/export/surfaceCapture.ts). */
+export function isSurfaceExportTarget(target: ExportTarget | null | undefined): target is 'surface' | 'surface-lat-med' {
+  return target === 'surface' || target === 'surface-lat-med';
+}
 
 /** Which mosaic slices to export: the page on screen, or a range. */
 export type MosaicTileSpec =
@@ -113,28 +124,75 @@ export function registerMosaicExportSource(
   };
 }
 
+/**
+ * The view last focused, by kind. It decides the export target before the
+ * active workspace does (native R2-5: a Mosaic or Set Studio tab left open
+ * kept the export on Mosaic, or a surface-only dialog, while the user worked
+ * in another view).
+ */
+// Which came last: focusing a view, or switching workspace (a tab)? A view
+// focused before the switch belongs to the tab the user left.
+let focusSeq = 0;
+let workspaceSeq = 0;
+let seq = 0;
+let tracking = false;
+function trackRecency(): void {
+  if (tracking) return;
+  tracking = true;
+  useActiveRenderContextStore.subscribe((state, prev) => {
+    if (state.activeId !== prev.activeId) focusSeq = ++seq;
+  });
+  useWorkspaceStore.subscribe((state, prev) => {
+    if (state.activeWorkspaceId !== prev.activeWorkspaceId) workspaceSeq = ++seq;
+  });
+}
+trackRecency();
+
+/** Test hook: forget the recency of focus and workspace switches. */
+export function resetExportFocusRecency(): void {
+  focusSeq = 0;
+  workspaceSeq = 0;
+}
+
+function focusedViewKind(): 'mosaic' | 'surface' | 'slice' | null {
+  // A workspace switch after the last focus: the focused view is in another tab.
+  if (workspaceSeq > focusSeq) return null;
+  const active = useActiveRenderContextStore.getState().activeId;
+  const id = typeof active === 'string' ? active.toLowerCase() : '';
+  if (id.startsWith('mosaic:')) return 'mosaic';
+  if (id.startsWith('surface')) return 'surface';
+  if ((SLICE_TARGETS as string[]).includes(id)) return 'slice';
+  return null;
+}
+
 function activeMosaicSource(): MosaicExportSource | null {
   const active = useActiveRenderContextStore.getState().activeId;
-  if (typeof active === 'string' && active.toLowerCase().startsWith('mosaic:')) {
+  const kind = focusedViewKind();
+  if (kind === 'mosaic' && typeof active === 'string') {
     const id = active.slice('mosaic:'.length);
     for (const [ws, read] of mosaicSources) {
       if (ws.toLowerCase() === id.toLowerCase()) return read();
     }
   }
+  // Another view has focus: a mosaic elsewhere is not the target.
+  if (kind) return null;
   const workspaceId = useWorkspaceStore.getState().getActiveWorkspace?.()?.id;
   const read = workspaceId ? mosaicSources.get(workspaceId) : undefined;
   return read ? read() : null;
 }
 
-/** Targets the current workspace can export. */
+/** Targets the focused view (else the current workspace) can export. */
 export function availableExportTargets(): ExportTarget[] {
   if (activeMosaicSource()) return ['mosaic'];
-  // Compare panels render their own states, and a surface is not a slice:
-  // those keep the plain capture of the active view.
+  // A focused surface view composes its own poses (D4), whatever workspace
+  // is marked active.
+  if (focusedViewKind() === 'surface') {
+    return activeSurfaceFigureExporter() ? ['surface', 'surface-lat-med'] : [];
+  }
+  // Compare panels render their own states: those keep the plain capture of
+  // the active view. A focused slice view in another tab is exported as such.
   const workspaceType = useWorkspaceStore.getState().getActiveWorkspace?.()?.type;
-  if (workspaceType === 'comparison' || workspaceType === 'set-studio') return [];
-  const active = useActiveRenderContextStore.getState().activeId;
-  if (typeof active === 'string' && active.toLowerCase().startsWith('surface')) return [];
+  if (focusedViewKind() !== 'slice' && (workspaceType === 'comparison' || workspaceType === 'set-studio')) return [];
   const views = useViewStateStore.getState().viewState;
   const hasVolume = views.layers.some((l) => l.visible && l.volumeId);
   return hasVolume ? [...SLICE_TARGETS, 'orthogonal', 'orthogonal-row'] : [];
@@ -145,6 +203,7 @@ export function defaultExportTarget(): ExportTarget | null {
   const available = availableExportTargets();
   if (available.length === 0) return null;
   if (available.includes('mosaic')) return 'mosaic';
+  if (available.includes('surface')) return 'surface';
   const active = useActiveRenderContextStore.getState().activeId;
   const id = typeof active === 'string' ? active.toLowerCase() : '';
   return (SLICE_TARGETS as string[]).includes(id) ? (id as ExportTarget) : 'axial';
@@ -388,16 +447,39 @@ async function renderPane(
   };
 }
 
+/**
+ * The base layer as the figure's colorbar when no overlay has one (native
+ * R2-4: a z map loaded alone exported without its scale). Rule: a visible
+ * scalar base that is a statistic (header or file-name statistic) or is drawn
+ * with a colour map other than grey; a plain grey anatomical base is skipped.
+ */
+export function baseColorbarLayerId(
+  layers: ReturnType<typeof useLayerStore.getState>['layers'],
+  viewLayers: ViewState['layers'],
+  metadata: ReturnType<typeof useLayerStore.getState>['layerMetadata'],
+): string | null {
+  const isAtlas = (l: (typeof layers)[number]) => l.source === 'atlas' || l.isLabelMap === true;
+  const base = layers.find((l) => !isAtlas(l));
+  const view = base ? viewLayers.find((l) => l.id === base.id) : undefined;
+  if (!base || !view || !view.visible || (view.layerMode ?? 'scalar') !== 'scalar') return null;
+  const statistic = statisticUnits(base.statistic, metadata.get(base.id)?.dataRange) !== null;
+  const coloured = !!view.colormap && !/^gr[ae]y(scale)?$/i.test(view.colormap);
+  return statistic || coloured ? base.id : null;
+}
+
 async function sideBar(viewState: ViewState, withValue: boolean): Promise<ExportSideBar> {
   const { layers, layerMetadata } = useLayerStore.getState();
   const activeId = activeVolumeLayerId(viewState.layers);
-  const colorbarId = chooseColorbarLayerId(layers, viewState.layers, activeId);
+  const overlayId = chooseColorbarLayerId(layers, viewState.layers, activeId);
+  const colorbarId = overlayId ?? baseColorbarLayerId(layers, viewState.layers, layerMetadata);
   const viewLayer = colorbarId ? viewState.layers.find((l) => l.id === colorbarId) : undefined;
   const show = colorbarId
     ? useDisplayOptionsStore.getState().options.get(colorbarId)?.showColorbar !== false
     : false;
   const colorbar = colorbarId
-    ? resolveColorbarLayer(layers, colorbarId, viewLayer, show, layerMetadata.get(colorbarId))
+    ? resolveColorbarLayer(layers, colorbarId, viewLayer, show, layerMetadata.get(colorbarId), {
+        allowBase: !overlayId,
+      })
     : null;
   let value: number | null = null;
   if (colorbar && withValue) {
@@ -429,41 +511,41 @@ function figureLayerName(viewState: ViewState, side: ExportSideBar): string | nu
   return (top && layers.find((l) => l.id === top.id)?.name) ?? layerNameOf(viewState);
 }
 
-/**
- * Volumes whose non-zero voxels "Crop to brain" frames: the union of the
- * visible volume layers (the mosaic's rule), else the reference (bottom
- * volume) layer. The union is order-free, so it is the same whether the
- * anatomy or the statistic was loaded first, and it never cuts into either:
- * the head (anatomy) and every visible statistic voxel stay in the frame.
- * Cropping to one layer picked by stack position cut into the head when that
- * layer was the overlay (native check).
- */
-export function cropVolumeIds(
-  layers: ReadonlyArray<{ volumeId?: string | null; visible: boolean; opacity: number }>,
-): string[] {
-  const visible = layers.filter((l) => l.visible && l.opacity > 0 && l.volumeId).map((l) => l.volumeId!);
-  if (visible.length > 0) return [...new Set(visible)];
-  const reference = layers.find((l) => l.volumeId);
-  return reference?.volumeId ? [reference.volumeId] : [];
-}
+/** What a volume layer is, for choosing the crop's support. */
+export type CropKind = 'mask' | 'anatomical' | 'statistic' | 'label';
 
 /**
- * Per volume, the |value| a voxel must exceed to count for the crop: a
- * statistic layer's display threshold (its hidden band), else 0. A volume
- * shown by several layers takes the smallest.
+ * The volume whose support "Crop to brain" frames (native R3-3: with a z map
+ * as the base the crop shrank to its suprathreshold blobs and the header lost
+ * its view name). The crop follows the head, never the rendered or thresholded
+ * pixels: a loaded brain mask (any visibility) first, else the bottom
+ * anatomical volume, else the bottom volume whatever it is; its finite
+ * non-zero voxels at threshold 0 (cropBox). Statistics and labels never set
+ * the crop when an anatomy or mask is loaded.
  */
-export function cropThresholdsByVolume(
-  layers: ReadonlyArray<{ id: string; volumeId?: string | null; threshold?: readonly [number, number] }>,
-  isStatistic: (layerId: string) => boolean,
-): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const l of layers) {
-    if (!l.volumeId) continue;
-    const t = isStatistic(l.id) && l.threshold ? Math.max(Math.abs(l.threshold[0]), Math.abs(l.threshold[1])) : 0;
-    const cut = Number.isFinite(t) ? t : 0;
-    out.set(l.volumeId, Math.min(out.get(l.volumeId) ?? Infinity, cut));
-  }
-  return out;
+export function cropVolumeIds(
+  layers: ReadonlyArray<{ id?: string; volumeId?: string | null }>,
+  kindOf: (layerId: string | undefined) => CropKind = () => 'anatomical',
+): string[] {
+  const volumes = layers.filter((l) => l.volumeId);
+  const pick =
+    volumes.find((l) => kindOf(l.id) === 'mask') ??
+    volumes.find((l) => kindOf(l.id) === 'anatomical') ??
+    volumes[0];
+  return pick?.volumeId ? [pick.volumeId] : [];
+}
+
+/** A layer's crop kind from its store record (mask name token or binary flag, statistic, label). */
+export function cropKind(
+  layer: { name?: string; sourcePath?: string; type?: string; isLabelMap?: boolean } | undefined,
+  options: { isStatistic: boolean; isBinaryLike?: boolean },
+): CropKind {
+  const base = (p?: string) => (p ?? '').split(/[\\/]/).pop() ?? '';
+  const masky = (n?: string) => /(?:^|[^a-z])(?:brain)?mask(?:[^a-z]|$)/i.test(n ?? '');
+  if (options.isBinaryLike === true || masky(layer?.name) || masky(base(layer?.sourcePath))) return 'mask';
+  if (layer?.type === 'label' || layer?.isLabelMap) return 'label';
+  if (options.isStatistic) return 'statistic';
+  return 'anatomical';
 }
 
 /**
@@ -654,6 +736,10 @@ export async function captureComposite(
   format: ExportFormat,
   request: CompositeRequest,
 ): Promise<CompositeCapture> {
+  if (isSurfaceExportTarget(target)) {
+    const { captureSurfaceComposite } = await import('./surfaceCapture');
+    return captureSurfaceComposite(target, format, request);
+  }
   // Captions are drawn with the app's fonts: wait for them (preview = file).
   if (typeof document !== 'undefined' && document.fonts?.ready) await document.fonts.ready;
   const settings = useCrosshairSettingsStore.getState().settings;
@@ -733,20 +819,22 @@ export async function captureComposite(
   const hasSide = frame.colorbar && (!!side.colorbar || (side.legend?.length ?? 0) > 0);
   const headerName = figureLayerName(viewState, side);
 
-  // Crop to the brain: the visible volumes' non-zero voxels (cropVolumeIds),
-  // measured from the voxel EDGES as the mosaic frames the brain (v4
-  // fidelity), then one mm/px for all panes.
-  // A statistic layer counts only its shown voxels (|v| above its display
-  // threshold): a dense noisy map would otherwise widen the crop to the
-  // whole field of view. Anatomy and labels count every non-zero voxel.
-  const cropThresholds = cropThresholdsByVolume(viewState.layers, (layerId) => {
+  // Crop to the brain: the support (finite non-zero voxels, threshold 0) of a
+  // brain mask, else the bottom anatomy, else the bottom volume (cropVolumeIds,
+  // native R3-3), measured from the voxel EDGES as the mosaic frames the
+  // brain (v4 fidelity), then one mm/px for all panes.
+  const cropKindOf = (layerId: string | undefined): CropKind => {
     const { layers, layerMetadata } = useLayerStore.getState();
     const info = layers.find((l) => l.id === layerId);
-    return statisticUnits(info?.statistic, layerMetadata.get(layerId)?.dataRange) !== null;
-  });
+    const meta = layerId ? layerMetadata.get(layerId) : undefined;
+    return cropKind(info, {
+      isStatistic: statisticUnits(info?.statistic, meta?.dataRange) !== null,
+      isBinaryLike: meta?.isBinaryLike,
+    });
+  };
   const bbox = request.cropToBrain
-    ? await cropBox(cropVolumeIds(viewState.layers), {
-        nonzero: (id) => getNonzeroBbox(id, cropThresholds.get(id) ?? 0),
+    ? await cropBox(cropVolumeIds(viewState.layers, cropKindOf), {
+        nonzero: (id) => getNonzeroBbox(id, 0),
         bounds: (id) => getApiService().getVolumeBounds(id).catch(() => null),
       })
     : null;
@@ -820,7 +908,8 @@ export async function captureComposite(
     // The decoded tiles are drawn: release them (up to ~200 MB at 600 dpi).
     closeImages();
   }
-  const dpi = request.size.kind === 'print' ? request.size.dpi : null;
+  // Every export carries its resolution (screen presets too, native R3-4).
+  const dpi = exportDpi(request.size);
   const provenance = request.provenance
     ? await provenanceRecord(viewState, target, label, request, composition)
     : null;

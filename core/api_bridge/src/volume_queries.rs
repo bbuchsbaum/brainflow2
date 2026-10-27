@@ -16,6 +16,7 @@ use crate::{get_affine_from_volume, get_spatial_dims_from_volume, BridgeState};
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 use nalgebra::{Affine3, Point3};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::sync::Arc;
 use tauri::{command, State};
 use ts_rs::TS;
@@ -149,14 +150,15 @@ pub(crate) fn sample_nearest(
 }
 
 /// One spatial frame as f32 in x-fastest (NIfTI) order, with its grid.
-pub(crate) struct Frame {
-    pub values: Vec<f32>,
+/// 3D f32 volumes stored column-major are borrowed, not copied.
+pub(crate) struct Frame<'a> {
+    pub values: Cow<'a, [f32]>,
     pub dims: [usize; 3],
     pub affine: Affine3<f32>,
     pub timepoint: Option<usize>,
 }
 
-impl Frame {
+impl Frame<'_> {
     pub(crate) fn index(&self, i: usize, j: usize, k: usize) -> usize {
         i + self.dims[0] * (j + self.dims[1] * k)
     }
@@ -183,16 +185,18 @@ impl Frame {
 
 /// Extract the spatial frame at `timepoint` (4D) as f32. `timepoint` must be in
 /// range for 4D volumes and is ignored for 3D volumes.
-pub(crate) fn extract_frame(volume: &VolumeSendable, timepoint: usize) -> BridgeResult<Frame> {
+pub(crate) fn extract_frame(volume: &VolumeSendable, timepoint: usize) -> BridgeResult<Frame<'_>> {
     let affine = get_affine_from_volume(volume)?;
     let dims = spatial_dims(volume);
     macro_rules! from_3d {
         ($vol:expr) => {
             (
-                $vol.values_contiguous()
-                    .iter()
-                    .map(|v| *v as f32)
-                    .collect::<Vec<f32>>(),
+                Cow::Owned(
+                    $vol.values_contiguous()
+                        .iter()
+                        .map(|v| *v as f32)
+                        .collect::<Vec<f32>>(),
+                ),
                 None,
             )
         };
@@ -208,11 +212,12 @@ pub(crate) fn extract_frame(volume: &VolumeSendable, timepoint: usize) -> Bridge
                     }
                 }
             }
-            (values, Some(timepoint))
+            (Cow::Owned(values), Some(timepoint))
         }};
     }
     let (values, frame_timepoint) = match volume {
-        VolumeSendable::VolF32(v, _) => from_3d!(v),
+        // Zero-copy when the f32 volume is already column-major.
+        VolumeSendable::VolF32(v, _) => (v.values_contiguous(), None),
         VolumeSendable::VolF64(v, _) => from_3d!(v),
         VolumeSendable::VolI16(v, _) => from_3d!(v),
         VolumeSendable::VolI32(v, _) => from_3d!(v),
@@ -243,6 +248,100 @@ pub(crate) fn extract_frame(volume: &VolumeSendable, timepoint: usize) -> Bridge
     })
 }
 
+/// A volume resolved for a query, with its source path (for header metadata).
+pub(crate) struct ResolvedVolume {
+    pub id: String,
+    pub volume: Arc<VolumeSendable>,
+    pub timepoint: usize,
+    pub path: String,
+}
+
+/// True {0, 1} test for "binary-like" volumes (masks): every finite voxel is
+/// 0 or 1 within 1e-6, non-finite voxels are ignored, and at least one voxel
+/// is 1. An all-zero image is not reported as a mask (it has no foreground).
+/// The scan stops at the first voxel outside {0, 1}, so non-mask maps are
+/// rejected early; 4D volumes are tested over every frame.
+pub(crate) fn is_binary_volume(volume: &VolumeSendable) -> bool {
+    fn scan<I: Iterator<Item = f32>>(values: I) -> bool {
+        let mut any_one = false;
+        for v in values {
+            if !v.is_finite() {
+                continue;
+            }
+            if (v - 1.0).abs() <= 1e-6 {
+                any_one = true;
+            } else if v.abs() > 1e-6 {
+                return false;
+            }
+        }
+        any_one
+    }
+    macro_rules! scan_3d {
+        ($vol:expr) => {
+            scan($vol.values_contiguous().iter().map(|v| *v as f32))
+        };
+    }
+    macro_rules! scan_4d {
+        ($vec:expr) => {
+            scan($vec.data.iter().map(|v| *v as f32))
+        };
+    }
+    match volume {
+        VolumeSendable::VolF32(v, _) => scan_3d!(v),
+        VolumeSendable::VolF64(v, _) => scan_3d!(v),
+        VolumeSendable::VolI16(v, _) => scan_3d!(v),
+        VolumeSendable::VolI32(v, _) => scan_3d!(v),
+        VolumeSendable::VolU8(v, _) => scan_3d!(v),
+        VolumeSendable::VolU16(v, _) => scan_3d!(v),
+        VolumeSendable::VolU32(v, _) => scan_3d!(v),
+        VolumeSendable::VolI8(v, _) => scan_3d!(v),
+        VolumeSendable::Vec4DF32(v) => scan_4d!(v),
+        VolumeSendable::Vec4DF64(v) => scan_4d!(v),
+        VolumeSendable::Vec4DI16(v) => scan_4d!(v),
+        VolumeSendable::Vec4DI32(v) => scan_4d!(v),
+        VolumeSendable::Vec4DU8(v) => scan_4d!(v),
+        VolumeSendable::Vec4DU16(v) => scan_4d!(v),
+        VolumeSendable::Vec4DU32(v) => scan_4d!(v),
+        VolumeSendable::Vec4DI8(v) => scan_4d!(v),
+    }
+}
+
+/// A binary search mask on `frame`'s grid from a mask volume: a frame voxel is
+/// inside when the nearest mask voxel (by world position, as region loci map
+/// labels) holds a finite non-zero value. The mask must have one frame.
+pub(crate) fn resample_mask_nearest(
+    mask: &VolumeSendable,
+    frame: &Frame,
+) -> BridgeResult<Vec<bool>> {
+    let invalid = |details: &str| BridgeError::Input {
+        code: 4081,
+        details: details.into(),
+    };
+    if crate::stack_length_for_volume(mask) != 1 {
+        return Err(invalid("A search mask must have one spatial frame."));
+    }
+    let mask_frame = extract_frame(mask, 0)?;
+    let inside = |v: f32| v.is_finite() && v != 0.0;
+    if mask_frame.dims == frame.dims && mask_frame.affine == frame.affine {
+        return Ok(mask_frame.values.iter().map(|v| inside(*v)).collect());
+    }
+    let world_to_mask = mask_frame
+        .affine
+        .try_inverse()
+        .ok_or_else(|| invalid("The search mask affine is not invertible."))?;
+    Ok((0..frame.values.len())
+        .map(|index| {
+            let [i, j, k] = frame.ijk(index);
+            let world = frame
+                .affine
+                .transform_point(&Point3::new(i as f32, j as f32, k as f32));
+            let p = world_to_mask.transform_point(&world);
+            nearest_voxel([p.x, p.y, p.z], mask_frame.dims)
+                .is_some_and(|[x, y, z]| inside(mask_frame.values[mask_frame.index(x, y, z)]))
+        })
+        .collect())
+}
+
 /// Resolve a volume (by id, or through a layer's mapping) and the frame to
 /// read: the explicit `timepoint`, else the volume's current timepoint, else 0.
 pub(crate) async fn resolve_volume(
@@ -250,7 +349,7 @@ pub(crate) async fn resolve_volume(
     volume_id: Option<&str>,
     layer_id: Option<&str>,
     timepoint: Option<usize>,
-) -> BridgeResult<(Arc<VolumeSendable>, usize)> {
+) -> BridgeResult<ResolvedVolume> {
     let volume_id = match (volume_id, layer_id) {
         (Some(id), _) => id.to_string(),
         (None, Some(layer)) => state
@@ -271,16 +370,22 @@ pub(crate) async fn resolve_volume(
         }
     };
     let registry = state.volume_registry.lock().await;
-    let volume = registry
-        .get_arc(&volume_id)
+    let entry = registry
+        .get_entry(&volume_id)
         .ok_or_else(|| BridgeError::VolumeNotFound {
             code: 4041,
             details: volume_id.clone(),
         })?;
-    let timepoint = timepoint
-        .or_else(|| registry.get_timepoint(&volume_id))
-        .unwrap_or(0);
-    Ok((volume, timepoint))
+    let volume = Arc::clone(&entry.data);
+    let path = entry.metadata.path.clone();
+    let timepoint = timepoint.or(entry.current_timepoint).unwrap_or(0);
+    drop(registry);
+    Ok(ResolvedVolume {
+        id: volume_id,
+        volume,
+        timepoint,
+        path,
+    })
 }
 
 /// Run a CPU scan over a resolved frame on a blocking worker.
@@ -291,7 +396,7 @@ pub(crate) async fn with_frame<T, F>(
 ) -> BridgeResult<T>
 where
     T: Send + 'static,
-    F: FnOnce(Frame) -> BridgeResult<T> + Send + 'static,
+    F: for<'a> FnOnce(Frame<'a>) -> BridgeResult<T> + Send + 'static,
 {
     tokio::task::spawn_blocking(move || work(extract_frame(&volume, timepoint)?))
         .await
@@ -482,7 +587,9 @@ pub(crate) async fn volume_extremum_impl(
     request: VolumeExtremumRequest,
     state: &BridgeState,
 ) -> BridgeResult<Option<VoxelLocation>> {
-    let (volume, timepoint) = resolve_volume(
+    let ResolvedVolume {
+        volume, timepoint, ..
+    } = resolve_volume(
         state,
         request.volume_id.as_deref(),
         request.layer_id.as_deref(),
@@ -512,7 +619,9 @@ pub(crate) async fn volume_nonzero_bbox_impl(
     state: &BridgeState,
 ) -> BridgeResult<Option<VolumeNonzeroBbox>> {
     let threshold = validate_threshold(request.threshold.unwrap_or(0.0))?;
-    let (volume, timepoint) = resolve_volume(
+    let ResolvedVolume {
+        volume, timepoint, ..
+    } = resolve_volume(
         state,
         request.volume_id.as_deref(),
         request.layer_id.as_deref(),
@@ -528,6 +637,25 @@ pub(crate) async fn volume_nonzero_bbox_impl(
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::*;
+
+    /// Owned frame with an axis-aligned affine (spacing, origin).
+    pub(crate) fn frame_3d(
+        dims: [usize; 3],
+        spacing: [f32; 3],
+        origin: [f32; 3],
+        values: Vec<f32>,
+    ) -> Frame<'static> {
+        assert_eq!(values.len(), dims.iter().product::<usize>());
+        Frame {
+            values: Cow::Owned(values),
+            dims,
+            affine: Affine3::from_matrix_unchecked(nalgebra::Matrix4::new(
+                spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
+                spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
+            )),
+            timepoint: None,
+        }
+    }
     use volmath::{DenseVolume3, NeuroSpace, NeuroSpace3, NeuroSpaceExt};
 
     /// 3D f32 volume with spacing/origin and x-fastest `values`.
@@ -650,8 +778,11 @@ mod tests {
     #[test]
     fn frame_extraction_is_x_fastest_for_3d_and_4d() {
         let dims = [3, 2, 2];
-        let frame = extract_frame(&volume_3d(dims, [1.0; 3], [0.0; 3], ramp(dims)), 0).unwrap();
-        assert_eq!(frame.values, ramp(dims));
+        let volume = volume_3d(dims, [1.0; 3], [0.0; 3], ramp(dims));
+        let frame = extract_frame(&volume, 0).unwrap();
+        assert_eq!(frame.values.as_ref(), ramp(dims).as_slice());
+        // f32 volumes are borrowed, not copied.
+        assert!(matches!(frame.values, Cow::Borrowed(_)));
         assert_eq!(frame.ijk(7), [1, 0, 1]);
         assert_eq!(frame.index(1, 0, 1), 7);
 
@@ -665,7 +796,8 @@ mod tests {
         .unwrap();
         let mut vec4d = DenseNeuroVec::<f32>::zeros(space).unwrap();
         vec4d.data[[2, 1, 0, 1]] = 5.0;
-        let frame = extract_frame(&VolumeSendable::Vec4DF32(vec4d.clone()), 1).unwrap();
+        let volume_4d = VolumeSendable::Vec4DF32(vec4d.clone());
+        let frame = extract_frame(&volume_4d, 1).unwrap();
         assert_eq!(frame.values[frame.index(2, 1, 0)], 5.0);
         assert_eq!(frame.timepoint, Some(1));
         assert!(extract_frame(&VolumeSendable::Vec4DF32(vec4d), 2).is_err());
@@ -675,9 +807,7 @@ mod tests {
     fn extremum_and_bbox_report_voxel_and_world_positions() {
         let dims = [5, 5, 5];
         let mut values = vec![0.0f32; 125];
-        let frame_of = |values: Vec<f32>| {
-            extract_frame(&volume_3d(dims, [2.0; 3], [-4.0, -4.0, -4.0], values), 0).unwrap()
-        };
+        let frame_of = |values: Vec<f32>| test_support::frame_3d(dims, [2.0; 3], [-4.0; 3], values);
         let index = |i: usize, j: usize, k: usize| i + 5 * (j + 5 * k);
         values[index(1, 2, 3)] = 4.0;
         values[index(3, 1, 1)] = -6.0;
@@ -773,5 +903,25 @@ mod tests {
         )
         .await
         .is_err());
+    }
+
+    #[test]
+    fn binary_test_requires_values_in_zero_one_with_foreground() {
+        let mask = volume_3d([2, 2, 1], [1.0; 3], [0.0; 3], vec![0.0, 1.0, 1.0, f32::NAN]);
+        assert!(is_binary_volume(&mask), "{{0, 1}} mask (NaN ignored)");
+        let probability = volume_3d([2, 2, 1], [1.0; 3], [0.0; 3], vec![0.0, 0.25, 0.9, 1.0]);
+        assert!(!is_binary_volume(&probability), "0-1 probability map");
+        let zeros = volume_3d([2, 2, 1], [1.0; 3], [0.0; 3], vec![0.0; 4]);
+        assert!(!is_binary_volume(&zeros), "all-zero has no foreground");
+        let near = volume_3d([2, 1, 1], [1.0; 3], [0.0; 3], vec![1.0 + 5e-7, 0.0]);
+        assert!(is_binary_volume(&near), "within 1e-6");
+        let space = NeuroSpace::new(vec![2, 1, 1, 2], None, None, None, None).unwrap();
+        let mut vec4d = DenseNeuroVec::<f32>::zeros(space).unwrap();
+        vec4d.data[[0, 0, 0, 0]] = 1.0;
+        vec4d.data[[1, 0, 0, 1]] = 0.5;
+        assert!(
+            !is_binary_volume(&VolumeSendable::Vec4DF32(vec4d)),
+            "any frame counts"
+        );
     }
 }

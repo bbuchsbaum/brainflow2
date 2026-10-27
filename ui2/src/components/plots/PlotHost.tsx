@@ -104,10 +104,8 @@ interface ModeSelectorProps {
 }
 
 /**
- * Plot modes: a joined segmented group (V5 navigation kind 2, bf
- * SegmentedControl: radio semantics, arrows move and select) for up to four
- * modes, a bf Select beyond that. A single mode still shows its name, so the
- * pane says which plot it holds.
+ * Plot modes: a bf Select (one form for any number of modes, round 3 S4). A
+ * single mode still shows its name, so the pane says which plot it holds.
  */
 /** The empty dock keeps the loaded chrome: the Histogram tab, disabled. */
 const EMPTY_MODE_OPTIONS = [{ value: 'histogram', label: 'Histogram' }] as const;
@@ -130,27 +128,30 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
     );
   }
 
-  if (modes.length > 4) {
+  // One mode: its name as plain text (the pane says which plot it holds).
+  if (modes.length === 1) {
     return (
-      <Select
+      <SegmentedControl
         aria-label="Plot mode"
-        data-testid="plot-host-mode-select"
-        className="w-auto"
-        value={activeId}
+        data-testid="plot-host-mode-tabs"
         options={options}
+        value={activeId}
         onValueChange={onChange}
+        singleLabel
       />
     );
   }
 
+  // One form whatever the number of modes (round 3 S4: tabs with two modes
+  // and a dropdown with five read as two different controls).
   return (
-    <SegmentedControl
+    <Select
       aria-label="Plot mode"
-      data-testid="plot-host-mode-tabs"
-      options={options}
+      data-testid="plot-host-mode-select"
+      className="w-auto"
       value={activeId}
+      options={options}
       onValueChange={onChange}
-      singleLabel
     />
   );
 }
@@ -241,8 +242,8 @@ export function PlotHost({
     [modes, activeId, ctx],
   );
 
-  let body: ReactNode;
-  let bodyState: string;
+  let body: ReactNode = null;
+  let bodyState = 'unresolved';
   if (modes.length === 0) {
     bodyState = 'no-modes';
     body = <EmptyAxes testid="plot-host-empty-no-modes" />;
@@ -294,12 +295,27 @@ export function PlotHost({
         />
       );
     }
-  } else {
-    bodyState = 'active';
-    body = mode.render(ctx);
   }
 
   const toolbarContent = mode?.toolbar?.(ctx);
+  // A mode that lays out its own toolbar takes the host chrome inline.
+  const inline = bodyState === 'unresolved' && !!mode?.inlineChrome;
+  if (bodyState === 'unresolved' && mode) {
+    bodyState = 'active';
+    body = mode.render(
+      inline
+        ? {
+            ...ctx,
+            chrome: (
+              <>
+                <ModeSelector modes={modes} activeId={activeId} onChange={handleModeChange} />
+                {toolbarContent}
+              </>
+            ),
+          }
+        : ctx,
+    );
+  }
 
   return (
     <div
@@ -318,6 +334,7 @@ export function PlotHost({
         overflow: 'hidden',
       }}
     >
+      {inline ? null : (
       <div
         data-testid="plot-host-toolbar"
         style={{
@@ -340,6 +357,7 @@ export function PlotHost({
           {toolbarContent}
         </div>
       </div>
+      )}
       <div
         ref={bodyRef}
         data-testid="plot-host-body"

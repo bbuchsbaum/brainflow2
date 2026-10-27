@@ -222,6 +222,9 @@ pub(crate) fn slice_features_from_frontend_layers(layers: &[LayerState]) -> Slic
                     outline_mode,
                     outline_color: outline.color,
                     outline_thickness_px: outline.thickness_px.max(1.0),
+                    outline_color_mode: outline.color_mode.shader_value(),
+                    halo_thickness_px: outline.halo_px.max(0.0),
+                    halo_color: outline.halo_color,
                     ..SliceFeatureUbo::default()
                 };
             }
@@ -603,6 +606,32 @@ mod tests {
         assert_eq!(features.selected_label_id, 42);
         assert_eq!(features.outline_color, [1.0, 0.0, 0.0, 1.0]);
         assert_eq!(features.outline_thickness_px, 2.5);
+        // Omitted colour mode and halo keep the uniform, halo-free outline.
+        assert_eq!(features.outline_color_mode, 0);
+        assert_eq!(features.halo_thickness_px, 0.0);
+        assert_eq!(features.halo_color, [0.0, 0.0, 0.0, 0.6]);
+    }
+
+    #[test]
+    fn slice_feature_conversion_maps_lut_colour_and_halo() {
+        let fixture = FRONTEND_FIXTURE.replace(
+            r#""thicknessPx": 2.5"#,
+            r#""thicknessPx": 2.5, "colorMode": "lut", "haloPx": 1.5, "haloColor": [0.1, 0.2, 0.3, 0.4]"#,
+        );
+        let frontend = parse_frontend_view_state(&fixture).expect("fixture parses");
+
+        let features = slice_features_from_frontend_layers(&frontend.layers);
+
+        assert_eq!(features.outline_color_mode, 1);
+        assert_eq!(features.halo_thickness_px, 1.5);
+        assert_eq!(features.halo_color, [0.1, 0.2, 0.3, 0.4]);
+
+        let negative_halo = fixture.replace(r#""haloPx": 1.5"#, r#""haloPx": -2.0"#);
+        let frontend = parse_frontend_view_state(&negative_halo).expect("fixture parses");
+        assert_eq!(
+            slice_features_from_frontend_layers(&frontend.layers).halo_thickness_px,
+            0.0
+        );
     }
 
     #[test]

@@ -84,3 +84,30 @@ export function useSurfaceValueAtCrosshair(
   }, [surface, anatomy, surfaceLayerId, crosshair, maxDistanceMm]);
   return { reading, anatomical: anatomy !== null };
 }
+
+/**
+ * The anatomical vertex nearest the crosshair (within `maxDistanceMm`) for a
+ * surface, whatever overlay it carries: the status bar's Vertex slot (D1).
+ * Null without an anatomical mesh or when no vertex is close enough.
+ */
+export function useSurfaceNearestVertex(
+  surfaceId: string,
+  maxDistanceMm = 3,
+): { vertex: number; distanceMm: number } | null {
+  const surface = useSurfaceStore((s) => s.surfaces.get(surfaceId));
+  const surfaces = useSurfaceStore((s) => s.surfaces);
+  const crosshair = useViewStateStore((s) => s.viewState.crosshair.world_mm);
+  const meshes = useMemo(
+    () => (surface ? anatomicalMeshesFor(surface, surfaces.values()) : []),
+    [surface, surfaces],
+  );
+  return useMemo(() => {
+    const point: [number, number, number] = [crosshair[0], crosshair[1], crosshair[2]];
+    let hit: { index: number; distanceMm: number } | null = null;
+    for (const vertices of meshes) {
+      const candidate = nearestVertex(vertices, point);
+      if (candidate && (!hit || candidate.distanceMm < hit.distanceMm)) hit = candidate;
+    }
+    return hit && hit.distanceMm <= maxDistanceMm ? { vertex: hit.index, distanceMm: hit.distanceMm } : null;
+  }, [meshes, crosshair, maxDistanceMm]);
+}

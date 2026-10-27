@@ -1,3 +1,4 @@
+import type { RegionLocus } from '@brainflow/api';
 /** Exact source/frame identity carried through every restored image and probe request. */
 export interface PopulationMemberSource {
   memberId: string;
@@ -46,6 +47,11 @@ export interface PopulationProbe {
   /** Zero denotes a point; positive values denote a physical sphere. */
   readonly radiusMm: number;
   readonly reduce: 'mean' | 'median' | 'min' | 'max' | 'sum';
+  /**
+   * A region (atlas parcel, label region, cluster row) instead of the point /
+   * sphere (phase 4 E2/E3): each observation is reduced over its voxels.
+   */
+  readonly region?: { readonly locus: RegionLocus; readonly label: string } | null;
 }
 
 export interface PopulationRelationship {

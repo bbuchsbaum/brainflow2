@@ -22,10 +22,11 @@ use std::mem::{offset_of, size_of};
 
 use render_loop::layer_storage::LayerMetadata;
 use render_loop::shader_contract as sc;
+use render_loop::shaders::{compose_shader_source, sources};
 use render_loop::{FrameUbo, LayerUboStd140, SliceFeatureUbo};
 
-const MASKED: &str = include_str!("../shaders/slice_world_space_masked.wgsl");
-const OPTIMIZED: &str = include_str!("../shaders/slice_world_space_optimized_masked.wgsl");
+const MASKED: &str = sources::SLICE_WORLD_SPACE;
+const OPTIMIZED: &str = sources::SLICE_WORLD_SPACE_OPTIMIZED;
 
 fn shaders() -> [(&'static str, &'static str); 2] {
     [
@@ -35,8 +36,15 @@ fn shaders() -> [(&'static str, &'static str); 2] {
 }
 
 fn parse(name: &str, source: &str) -> naga::Module {
-    naga::front::wgsl::parse_str(source)
-        .unwrap_or_else(|e| panic!("{name} failed to parse with naga: {e:?}"))
+    let module = naga::front::wgsl::parse_str(&compose_shader_source(source))
+        .unwrap_or_else(|e| panic!("{name} failed to parse with naga: {e:?}"));
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap_or_else(|e| panic!("{name} failed naga validation: {e:?}"));
+    module
 }
 
 /// Reflected layout of a named WGSL struct: member byte offsets (in declaration
@@ -139,10 +147,6 @@ fn expected_layer_layout() -> StructLayout {
 }
 
 fn expected_feature_layout() -> StructLayout {
-    // Rust collapses the trailing padding into `_pad1: [f32; 3]`, while WGSL
-    // declares three scalar pad members (`_pad1_x/y/z`). Expand the array so the
-    // expected member list matches the WGSL member count exactly.
-    let pad = offset_of!(SliceFeatureUbo, _pad1) as u32;
     StructLayout {
         offsets: vec![
             offset_of!(SliceFeatureUbo, outline_enabled) as u32,
@@ -151,9 +155,10 @@ fn expected_feature_layout() -> StructLayout {
             offset_of!(SliceFeatureUbo, outline_mode) as u32,
             offset_of!(SliceFeatureUbo, outline_color) as u32,
             offset_of!(SliceFeatureUbo, outline_thickness_px) as u32,
-            pad,
-            pad + 4,
-            pad + 8,
+            offset_of!(SliceFeatureUbo, outline_color_mode) as u32,
+            offset_of!(SliceFeatureUbo, halo_thickness_px) as u32,
+            offset_of!(SliceFeatureUbo, _pad1) as u32,
+            offset_of!(SliceFeatureUbo, halo_color) as u32,
         ],
         size: size_of::<SliceFeatureUbo>() as u32,
     }

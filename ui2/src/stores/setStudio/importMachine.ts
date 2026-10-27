@@ -374,7 +374,7 @@ export function createInitialImportContext(): ImportContext {
     selectedCandidateId: null,
     preview: { status: 'idle' },
     ontology: { status: 'idle' },
-    manifestPath: '/data/studyA/studyA.neurotabs.yaml',
+    manifestPath: '',
     discoveryRoot: '',
     filePattern: DEFAULT_DISCOVERY_FILE_PATTERN,
     discoveryMaxDepth: '4',

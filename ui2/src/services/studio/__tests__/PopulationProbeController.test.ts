@@ -170,6 +170,20 @@ describe('population probe query definitions', () => {
       'pin',
     );
   });
+  it('a region probe samples each observation over the region (E2/E3); bad regions are refused', () => {
+    const state = useSetStudioStore.getState();
+    const region = { locus: { labelSource: { type: 'layer' as const, layerId: 'atlas' }, labelIds: [3] }, label: 'L_sensorimotor' };
+    const pin = (r: unknown) =>
+      state.setPopulationProbe(
+        { supportKey: populationSupportKey(state, 'workspace'), worldMm: [1, 2, 3], radiusMm: 0, reduce: 'mean', region: r as never },
+        'pin',
+      );
+    expect(pin(region)).toEqual({ ok: true });
+    const query = buildPopulationProbeQuery(useSetStudioStore.getState(), 'workspace').query!;
+    expect(query.request.locus).toMatchObject({ kind: 'set', region: region.locus });
+    expect(pin({ ...region, locus: { ...region.locus, labelIds: [] } })).toMatchObject({ ok: false, reason: expect.stringMatching(/region/) });
+    expect(pin({ ...region, label: ' ' })).toMatchObject({ ok: false });
+  });
   it('excludes focus, working membership, reference and list search from the sample key', () => {
     const initial = buildPopulationProbeQuery(useSetStudioStore.getState(), 'workspace');
     expect(initial.issue).toBeNull();

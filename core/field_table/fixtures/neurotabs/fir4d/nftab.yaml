@@ -1,0 +1,31 @@
+spec_version: "0.1.0"
+dataset_id: "p4-fir-4d"
+storage_profile: "table-package"
+observation_table: { path: "observations.csv", format: "csv" }
+row_id: "row_id"
+observation_axes: ["subject", "condition"]
+observation_columns:
+  row_id:    { dtype: string, nullable: false, semantic_role: row_id }
+  subject:   { dtype: string, nullable: false, semantic_role: subject }
+  condition: { dtype: string, nullable: false, semantic_role: condition }
+  fir_res:   { dtype: string, nullable: true }
+features:
+  fir:
+    logical:
+      kind: volume
+      axes: ["x", "y", "z", "lag"]
+      dtype: float32
+      support_ref: "grid4"
+      shape: [41, 49, 40, 6]
+      axis_domains:
+        lag: { unit: "TR", start: 0.0, step: 1.0 }
+    encodings:
+      - type: ref
+        binding: { resource_id: { column: "fir_res" } }
+resources: { path: "resources.csv", format: "csv" }
+supports:
+  grid4:
+    support_type: volume
+    support_id: "mni152-4mm-p4"
+    space: "MNI152NLin2009cAsym"
+    grid_id: "mni152-4mm-p4"

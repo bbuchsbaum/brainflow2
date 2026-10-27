@@ -1,0 +1,13 @@
+resource_id,backend,locator
+s01_faces,nifti,maps/sub-01_task-faces_fir.nii.gz
+s01_houses,nifti,maps/sub-01_task-houses_fir.nii.gz
+s02_faces,nifti,maps/sub-02_task-faces_fir.nii.gz
+s02_houses,nifti,maps/sub-02_task-houses_fir.nii.gz
+s03_faces,nifti,maps/sub-03_task-faces_fir.nii.gz
+s03_houses,nifti,maps/sub-03_task-houses_fir.nii.gz
+s04_faces,nifti,maps/sub-04_task-faces_fir.nii.gz
+s04_houses,nifti,maps/sub-04_task-houses_fir.nii.gz
+s05_faces,nifti,maps/sub-05_task-faces_fir.nii.gz
+s05_houses,nifti,maps/sub-05_task-houses_fir.nii.gz
+s06_faces,nifti,maps/sub-06_task-faces_fir.nii.gz
+s06_houses,nifti,maps/sub-06_task-houses_fir.nii.gz

@@ -30,3 +30,29 @@ export function validateSurfaceOverlayIdentity(path: string, surface: LoadedSurf
     }
   }
 }
+
+/**
+ * The surface an overlay should go to: `preferred` unless the overlay names
+ * the other hemisphere (rh.*.func.gii onto a left mesh), then the loaded
+ * surface of its hemisphere that agrees on every identity field (the one in
+ * `preferred`'s folder first). Phase 4: loading lh, rh and both overlays in
+ * a row put rh's overlay on lh and failed.
+ */
+export function matchingOverlayTarget(
+  path: string,
+  preferred: LoadedSurface,
+  surfaces: readonly LoadedSurface[],
+): LoadedSurface {
+  const agrees = (surface: LoadedSurface) => {
+    try {
+      validateSurfaceOverlayIdentity(path, surface);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (agrees(preferred)) return preferred;
+  const folder = (p: string) => p.replaceAll('\\', '/').replace(/[^/]*$/, '');
+  const matches = surfaces.filter(agrees);
+  return matches.find((s) => folder(s.metadata.path) === folder(preferred.metadata.path)) ?? matches[0] ?? preferred;
+}

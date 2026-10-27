@@ -13,10 +13,11 @@ pub fn sample_nearest(volume: &dyn Volume, voxel: [f32; 3]) -> Option<f32> {
         return None;
     }
 
-    // Round to nearest integer coordinates
-    let x = voxel[0].round() as i32;
-    let y = voxel[1].round() as i32;
-    let z = voxel[2].round() as i32;
+    // Voxel i covers [i - 0.5, i + 0.5); floor(v + 0.5) matches the GPU nearest
+    // sampler and the bridge picker exactly at half-voxel boundaries.
+    let x = (voxel[0] + 0.5).floor() as i32;
+    let y = (voxel[1] + 0.5).floor() as i32;
+    let z = (voxel[2] + 0.5).floor() as i32;
 
     // Check bounds
     if x < 0 || x >= dims[0] as i32 || y < 0 || y >= dims[1] as i32 || z < 0 || z >= dims[2] as i32
@@ -34,27 +35,27 @@ pub fn sample_trilinear(volume: &dyn Volume, voxel: [f32; 3]) -> Option<f32> {
     })
 }
 
-/// Sample within the closed voxel-center bounds; outside or non-finite coordinates
-/// have no value. Upper corners are replicated at the final plane.
+/// Sample in the voxel-centre domain [-0.5, dimension - 0.5), matching the GPU
+/// sampler and `sample_nearest`: voxel i covers [i - 0.5, i + 0.5). Corners are
+/// clamped into [0, dimension - 1] (edge replication); outside and non-finite
+/// coordinates have no value.
 pub(crate) fn sample_trilinear_with(
     dims: [usize; 3],
     voxel: [f32; 3],
     get: impl Fn([usize; 3]) -> Option<f32>,
 ) -> Option<f32> {
     if (0..3).any(|i| {
-        dims[i] == 0 || !voxel[i].is_finite() || voxel[i] < 0.0 || voxel[i] > (dims[i] - 1) as f32
+        dims[i] == 0 || !voxel[i].is_finite() || voxel[i] < -0.5 || voxel[i] >= dims[i] as f32 - 0.5
     }) {
         return None;
     }
-    let [x0, y0, z0] = voxel.map(|v| v.floor() as usize);
-    let x1 = (x0 + 1).min(dims[0] - 1);
-    let y1 = (y0 + 1).min(dims[1] - 1);
-    let z1 = (z0 + 1).min(dims[2] - 1);
-    let [fx, fy, fz] = [
-        voxel[0] - x0 as f32,
-        voxel[1] - y0 as f32,
-        voxel[2] - z0 as f32,
-    ];
+    // floor(v) may be -1 in the low half voxel; clamp before casting to usize.
+    let corner = |i: usize, offset: f32| -> usize {
+        (voxel[i].floor() + offset).clamp(0.0, (dims[i] - 1) as f32) as usize
+    };
+    let [x0, y0, z0] = [corner(0, 0.0), corner(1, 0.0), corner(2, 0.0)];
+    let [x1, y1, z1] = [corner(0, 1.0), corner(1, 1.0), corner(2, 1.0)];
+    let [fx, fy, fz] = voxel.map(|v| v - v.floor());
     let v000 = get([x0, y0, z0])?;
     let v001 = get([x0, y0, z1])?;
     let v010 = get([x0, y1, z0])?;
@@ -120,19 +121,32 @@ mod tests {
         // Test out of bounds
         assert_eq!(sample_nearest(&volume, [-1.0, 0.0, 0.0]), None);
         assert_eq!(sample_nearest(&volume, [3.0, 0.0, 0.0]), None);
+
+        // Half-open voxel-centre domain [-0.5, 2.5).
+        assert_eq!(sample_nearest(&volume, [-0.5, 0.0, 0.0]), Some(0.0));
+        assert_eq!(sample_nearest(&volume, [2.49, 0.0, 0.0]), Some(2.0));
+        assert_eq!(sample_nearest(&volume, [2.5, 0.0, 0.0]), None);
     }
 
     #[test]
-    fn trilinear_closed_bounds_and_singleton_axes() {
+    fn trilinear_edge_replication_and_singleton_axes() {
         let mut volume = TestVolume::new([2, 2, 1], [1.0; 3], [0.0; 3]);
         volume.data_mut().copy_from_slice(&[0.0, 1.0, 2.0, 3.0]);
         assert_eq!(sample_trilinear(&volume, [1.0, 0.5, 0.0]), Some(2.0));
         assert_eq!(sample_trilinear(&volume, [0.5, 1.0, 0.0]), Some(2.5));
         assert_eq!(sample_trilinear(&volume, [1.0, 1.0, 0.0]), Some(3.0));
+        assert_eq!(sample_trilinear(&volume, [1.25, 1.25, 0.25]), Some(3.0));
+        // The low half voxel replicates voxel 0, matching nearest sampling.
+        assert_eq!(sample_trilinear(&volume, [-0.4, -0.5, -0.5]), Some(0.0));
+        assert_eq!(
+            sample_trilinear(&volume, [-0.4, 0.0, 0.0]),
+            sample_nearest(&volume, [-0.4, 0.0, 0.0])
+        );
         for voxel in [
-            [-0.01, 0.0, 0.0],
-            [1.01, 0.0, 0.0],
-            [0.0, 0.0, 0.01],
+            [-0.51, 0.0, 0.0],
+            [1.5, 0.0, 0.0],
+            [1.75, 1.75, 0.0],
+            [0.0, 0.0, 0.5],
             [f32::NAN, 0.0, 0.0],
             [f32::INFINITY, 0.0, 0.0],
         ] {

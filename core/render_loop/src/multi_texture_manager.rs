@@ -1,7 +1,7 @@
 // Multi-texture management for world-space rendering
 
 use crate::RenderLoopError;
-use log::debug;
+use log::{debug, warn};
 use nalgebra::Matrix4;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -55,12 +55,21 @@ struct TextureEntry {
     format: wgpu::TextureFormat,
     dimensions: [u32; 3],
     world_to_voxel: Matrix4<f32>,
+    policy: UploadFormat,
+    require_filterable: bool,
 }
 
 struct MaskTextureEntry {
     #[allow(dead_code)]
     texture: Texture,
     view: TextureView,
+}
+
+/// Storage selection for a volume upload.
+#[derive(Clone, Copy)]
+pub(crate) enum UploadFormat {
+    Automatic { preserve_labels: bool },
+    Explicit(wgpu::TextureFormat),
 }
 
 impl MultiTextureManager {
@@ -172,6 +181,28 @@ impl MultiTextureManager {
             + std::ops::Div<Output = T>
             + std::ops::Mul<Output = T>,
     {
+        // Raw texture storage can be consumed by an unfilterable layout.
+        self.upload_volume_with_policy(device, queue, volume, UploadFormat::Explicit(format), false)
+    }
+
+    pub(crate) fn upload_volume_with_policy<T>(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        volume: &DenseVolume3<T>,
+        policy: UploadFormat,
+        require_filterable: bool,
+    ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + DataRange<T>
+            + Serialize
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
         // Choose a slot without consuming it. Validation/conversion can fail;
         // only commit the reservation once the texture is ready to publish.
         let index = if let Some(&freed_index) = self.free_indices.last() {
@@ -195,6 +226,9 @@ impl MultiTextureManager {
             depth_or_array_layers: dims[2] as u32,
         };
         let max_3d_dim = device.limits().max_texture_dimension_3d;
+        if size.width == 0 || size.height == 0 || size.depth_or_array_layers == 0 {
+            return Err(conversion_error("Volume dimensions must be nonzero"));
+        }
         if size.width > max_3d_dim
             || size.height > max_3d_dim
             || size.depth_or_array_layers > max_3d_dim
@@ -207,6 +241,18 @@ impl MultiTextureManager {
                 ),
             });
         }
+
+        let (format, texture_data) = encode_with_policy(volume, policy)?;
+        let (format, texture_data) = fit_filterable_format(
+            volume,
+            policy,
+            format,
+            texture_data,
+            require_filterable
+                && !device
+                    .features()
+                    .contains(wgpu::Features::FLOAT32_FILTERABLE),
+        )?;
 
         // Create 3D texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -223,81 +269,7 @@ impl MultiTextureManager {
         // Create texture view
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Convert volume data to appropriate format
-        let mut texture_data = match format {
-            wgpu::TextureFormat::R8Unorm => convert_to_r8unorm(volume)?,
-            wgpu::TextureFormat::R16Float => convert_to_r16float(volume)?,
-            wgpu::TextureFormat::R32Float => convert_to_r32float(volume)?,
-            _ => {
-                return Err(RenderLoopError::UnsupportedVolumeFormat(
-                    volume.voxel_type(),
-                ));
-            }
-        };
-
-        // Calculate bytes per pixel based on format
-        let bytes_per_pixel = match format {
-            wgpu::TextureFormat::R8Unorm => 1,
-            wgpu::TextureFormat::R16Float => 2,
-            wgpu::TextureFormat::R32Float => 4,
-            _ => {
-                return Err(RenderLoopError::Internal {
-                    code: 6002,
-                    details: format!("Unsupported texture format: {:?}", format),
-                });
-            }
-        };
-
-        // Calculate row alignment
-        let unpadded_bytes_per_row = size.width * bytes_per_pixel;
-        let aligned_bytes_per_row =
-            wgpu::util::align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let padding_per_row = aligned_bytes_per_row - unpadded_bytes_per_row;
-
-        // If we need padding, restructure the data
-        if padding_per_row > 0 && (size.height > 1 || size.depth_or_array_layers > 1) {
-            let mut padded_data = Vec::new();
-            let row_size = unpadded_bytes_per_row as usize;
-            let padding = vec![0u8; padding_per_row as usize];
-
-            for z in 0..size.depth_or_array_layers {
-                for y in 0..size.height {
-                    let start = ((z * size.height + y) * size.width * bytes_per_pixel) as usize;
-                    let end = start + row_size;
-                    padded_data.extend_from_slice(&texture_data[start..end]);
-                    padded_data.extend_from_slice(&padding);
-                }
-            }
-
-            texture_data = padded_data;
-        }
-
-        // Upload data to texture
-        let bytes_per_row = if size.height == 1 && size.depth_or_array_layers == 1 {
-            None
-        } else {
-            Some(aligned_bytes_per_row)
-        };
-
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &texture_data,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row,
-                rows_per_image: if size.depth_or_array_layers > 1 {
-                    Some(size.height)
-                } else {
-                    None
-                },
-            },
-            size,
-        );
+        write_volume_texture(queue, &texture, size, &texture_data);
 
         // Get world-to-voxel transform from the space
         // Access the inner NeuroSpaceImpl to get world_to_voxel()
@@ -315,6 +287,8 @@ impl MultiTextureManager {
                 format,
                 dimensions: [size.width, size.height, size.depth_or_array_layers],
                 world_to_voxel,
+                policy,
+                require_filterable,
             },
         );
 
@@ -701,7 +675,7 @@ impl MultiTextureManager {
     /// Overwrite an existing texture slot with new volume data (dimensions must match).
     pub fn update_volume<T>(
         &mut self,
-        _device: &Device,
+        device: &Device,
         queue: &Queue,
         index: u32,
         volume: &DenseVolume3<T>,
@@ -716,10 +690,13 @@ impl MultiTextureManager {
             + std::ops::Div<Output = T>
             + std::ops::Mul<Output = T>,
     {
-        let entry = self.textures.get(&index).ok_or(RenderLoopError::Internal {
-            code: 6003,
-            details: format!("No texture found for index {}", index),
-        })?;
+        let entry = self
+            .textures
+            .get_mut(&index)
+            .ok_or(RenderLoopError::Internal {
+                code: 6003,
+                details: format!("No texture found for index {}", index),
+            })?;
 
         let dims = volume.space().dims();
         if dims[0] as u32 != entry.dimensions[0]
@@ -736,78 +713,51 @@ impl MultiTextureManager {
             });
         }
 
-        let mut texture_data = match entry.format {
-            wgpu::TextureFormat::R8Unorm => convert_to_r8unorm(volume)?,
-            wgpu::TextureFormat::R16Float => convert_to_r16float(volume)?,
-            wgpu::TextureFormat::R32Float => convert_to_r32float(volume)?,
-            _ => {
-                return Err(RenderLoopError::UnsupportedVolumeFormat(
-                    volume.voxel_type(),
-                ));
+        let (format, texture_data) = match entry.policy {
+            UploadFormat::Automatic { preserve_labels }
+                if entry.format == wgpu::TextureFormat::R32Float =>
+            {
+                (entry.format, encode_automatic_r32(volume, preserve_labels)?)
             }
+            policy => encode_with_policy(volume, policy)?,
         };
-
-        let bytes_per_pixel = match entry.format {
-            wgpu::TextureFormat::R8Unorm => 1,
-            wgpu::TextureFormat::R16Float => 2,
-            wgpu::TextureFormat::R32Float => 4,
-            _ => unreachable!(),
-        };
-
+        let (format, texture_data) = fit_filterable_format(
+            volume,
+            entry.policy,
+            format,
+            texture_data,
+            entry.require_filterable
+                && !device
+                    .features()
+                    .contains(wgpu::Features::FLOAT32_FILTERABLE),
+        )?;
         let size = wgpu::Extent3d {
             width: entry.dimensions[0],
             height: entry.dimensions[1],
             depth_or_array_layers: entry.dimensions[2],
         };
-
-        let unpadded_bytes_per_row = size.width * bytes_per_pixel;
-        let aligned_bytes_per_row =
-            wgpu::util::align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let padding_per_row = aligned_bytes_per_row - unpadded_bytes_per_row;
-
-        if padding_per_row > 0 && (size.height > 1 || size.depth_or_array_layers > 1) {
-            let mut padded_data = Vec::new();
-            let row_size = unpadded_bytes_per_row as usize;
-            let padding = vec![0u8; padding_per_row as usize];
-
-            for z in 0..size.depth_or_array_layers {
-                for y in 0..size.height {
-                    let start = ((z * size.height + y) * size.width * bytes_per_pixel) as usize;
-                    let end = start + row_size;
-                    padded_data.extend_from_slice(&texture_data[start..end]);
-                    padded_data.extend_from_slice(&padding);
-                }
-            }
-
-            texture_data = padded_data;
+        if format != entry.format {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(&format!("Volume Texture {}", index)),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D3,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            write_volume_texture(queue, &texture, size, &texture_data);
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            entry.texture = texture;
+            entry.view = view;
+            entry.format = format;
+            self.bind_group = None;
+        } else {
+            write_volume_texture(queue, &entry.texture, size, &texture_data);
         }
 
-        let bytes_per_row = if size.height == 1 && size.depth_or_array_layers == 1 {
-            None
-        } else {
-            Some(aligned_bytes_per_row)
-        };
-
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &entry.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &texture_data,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row,
-                rows_per_image: if size.depth_or_array_layers > 1 {
-                    Some(size.height)
-                } else {
-                    None
-                },
-            },
-            size,
-        );
-
+        entry.world_to_voxel = volume.space().world_to_voxel();
         Ok(entry.world_to_voxel)
     }
 
@@ -920,42 +870,232 @@ pub struct TextureInfo {
     pub world_to_voxel: Matrix4<f32>,
 }
 
+// Queue::write_texture accepts tightly packed rows. Only encoder buffer copies
+// (including readback) require COPY_BYTES_PER_ROW_ALIGNMENT.
+fn write_volume_texture(queue: &Queue, texture: &Texture, size: wgpu::Extent3d, data: &[u8]) {
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(size.width * format_bytes_per_pixel(texture.format()) as u32),
+            rows_per_image: Some(size.height),
+        },
+        size,
+    );
+}
+
+fn conversion_error(details: &str) -> RenderLoopError {
+    RenderLoopError::Internal {
+        code: 6007,
+        details: details.into(),
+    }
+}
+
+pub(crate) fn encode_volume<T>(
+    volume: &DenseVolume3<T>,
+    format: wgpu::TextureFormat,
+) -> Result<Vec<u8>, RenderLoopError>
+where
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
+{
+    match format {
+        wgpu::TextureFormat::R8Unorm => convert_to_r8unorm(volume),
+        wgpu::TextureFormat::R16Float => convert_to_r16float(volume),
+        wgpu::TextureFormat::R32Float => convert_to_r32float(volume),
+        _ => Err(RenderLoopError::UnsupportedVolumeFormat(
+            volume.voxel_type(),
+        )),
+    }
+}
+
+// The common half-precision case validates and encodes each voxel once. A
+// rare precision fallback retries the whole volume, validating every label.
+pub(crate) fn encode_with_policy<T>(
+    volume: &DenseVolume3<T>,
+    policy: UploadFormat,
+) -> Result<(wgpu::TextureFormat, Vec<u8>), RenderLoopError>
+where
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
+{
+    let preserve_labels = match policy {
+        UploadFormat::Explicit(format) => return Ok((format, encode_volume(volume, format)?)),
+        UploadFormat::Automatic { preserve_labels } => preserve_labels,
+    };
+    let values = volume.values_contiguous();
+    let mut bytes = Vec::with_capacity(values.len() * 2);
+    for &original in values.iter() {
+        let value = checked_automatic_value(original, preserve_labels)?;
+        let half = half::f16::from_f32(value);
+        let rounded = half.to_f32();
+        if value.is_finite()
+            && (!rounded.is_finite()
+                || (value != 0.0 && rounded == 0.0)
+                || (preserve_labels && rounded != value))
+        {
+            // Do not retain the abandoned half buffer alongside the full one.
+            drop(bytes);
+            return Ok((
+                wgpu::TextureFormat::R32Float,
+                encode_automatic_r32(volume, preserve_labels)?,
+            ));
+        }
+        bytes.extend_from_slice(&half.to_ne_bytes());
+    }
+    Ok((wgpu::TextureFormat::R16Float, bytes))
+}
+
+fn checked_automatic_value<T: num_traits::NumCast + Copy + PartialEq>(
+    original: T,
+    preserve_labels: bool,
+) -> Result<f32, RenderLoopError> {
+    let value = voxel_as_f32(original)?;
+    if preserve_labels && value.is_finite() && num_traits::cast::<f32, T>(value) != Some(original) {
+        return Err(conversion_error(
+            "Label cannot be represented exactly by R32Float",
+        ));
+    }
+    Ok(value)
+}
+
+/// R32Float needs FLOAT32_FILTERABLE in the filterable slice layout. When
+/// the adapter lacks it (`r32_unfilterable`), an *automatic* scalar upload
+/// that was promoted to R32Float falls back to R16Float: magnitudes above the
+/// f16 range clamp to ±65504 and values below its smallest subnormal flush
+/// to zero, with a warning. Label-preserving and explicitly requested R32Float
+/// uploads keep the error, because f16 cannot hold them exactly.
+pub(crate) fn fit_filterable_format<T>(
+    volume: &DenseVolume3<T>,
+    policy: UploadFormat,
+    format: wgpu::TextureFormat,
+    data: Vec<u8>,
+    r32_unfilterable: bool,
+) -> Result<(wgpu::TextureFormat, Vec<u8>), RenderLoopError>
+where
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
+{
+    if !(r32_unfilterable && format == wgpu::TextureFormat::R32Float) {
+        return Ok((format, data));
+    }
+    if !matches!(
+        policy,
+        UploadFormat::Automatic {
+            preserve_labels: false
+        }
+    ) {
+        return Err(conversion_error(
+            "R32Float requires FLOAT32_FILTERABLE for the active slice texture layout",
+        ));
+    }
+    drop(data);
+    let (bytes, clamped, flushed) = encode_r16_lossy(volume)?;
+    warn!(
+        "Adapter lacks FLOAT32_FILTERABLE: volume uploaded as R16Float instead of R32Float \
+         ({clamped} voxels clamped to ±65504, {flushed} flushed to zero)"
+    );
+    Ok((wgpu::TextureFormat::R16Float, bytes))
+}
+
+/// Lossy R16Float encoding: clamp finite magnitudes to ±65504; values too
+/// small for f16 flush to zero. Returns (bytes, clamped, flushed).
+fn encode_r16_lossy<T>(volume: &DenseVolume3<T>) -> Result<(Vec<u8>, usize, usize), RenderLoopError>
+where
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
+{
+    let values = volume.values_contiguous();
+    let mut bytes = Vec::with_capacity(values.len() * 2);
+    let (mut clamped, mut flushed) = (0usize, 0usize);
+    let max = half::f16::MAX.to_f32();
+    for &original in values.iter() {
+        let mut value = voxel_as_f32(original)?;
+        if value.is_finite() && value.abs() > max {
+            value = value.clamp(-max, max);
+            clamped += 1;
+        }
+        let half = half::f16::from_f32(value);
+        if value != 0.0 && value.is_finite() && half.to_f32() == 0.0 {
+            flushed += 1;
+        }
+        bytes.extend_from_slice(&half.to_ne_bytes());
+    }
+    Ok((bytes, clamped, flushed))
+}
+
+fn encode_automatic_r32<T>(
+    volume: &DenseVolume3<T>,
+    preserve_labels: bool,
+) -> Result<Vec<u8>, RenderLoopError>
+where
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
+{
+    let values = volume.values_contiguous();
+    let mut bytes = Vec::with_capacity(values.len() * 4);
+    for &original in values.iter() {
+        bytes.extend_from_slice(&checked_automatic_value(original, preserve_labels)?.to_ne_bytes());
+    }
+    Ok(bytes)
+}
+
+fn voxel_as_f32<T: num_traits::NumCast + Copy>(value: T) -> Result<f32, RenderLoopError> {
+    let original = num_traits::cast::<T, f64>(value)
+        .ok_or_else(|| conversion_error("Cannot convert voxel to f64"))?;
+    let value = num_traits::cast::<T, f32>(value)
+        .ok_or_else(|| conversion_error("Cannot convert voxel to f32"))?;
+    if original.is_finite() && (!value.is_finite() || (original != 0.0 && value == 0.0)) {
+        return Err(conversion_error(
+            "Voxel exceeds the finite nonzero range supported by R32Float",
+        ));
+    }
+    Ok(value)
+}
+
 // Helper functions for data conversion
 
 fn convert_to_r8unorm<T>(volume: &DenseVolume3<T>) -> Result<Vec<u8>, RenderLoopError>
 where
-    T: VoxelData
-        + num_traits::NumCast
-        + DataRange<T>
-        + Serialize
-        + num_traits::Zero
-        + std::ops::Sub<Output = T>
-        + std::ops::Div<Output = T>
-        + std::ops::Mul<Output = T>,
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
 {
-    let (min_val, max_val) = volume.range().ok_or(RenderLoopError::Internal {
-        code: 6003,
-        details: "Empty volume has no range".to_string(),
-    })?;
-    let range = max_val - min_val;
-
-    let data: Vec<u8> = volume
-        .values_contiguous()
+    // R8Unorm is an explicitly requested, range-normalized display format.
+    // Cast BEFORE arithmetic: integer division otherwise collapses the contrast.
+    let values = volume.values_contiguous();
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    for &value in values.iter() {
+        let value = num_traits::cast::<T, f64>(value)
+            .ok_or_else(|| conversion_error("Cannot convert voxel to f64"))?;
+        if !value.is_finite() {
+            return Err(conversion_error(
+                "R8Unorm cannot preserve non-finite voxels; use a float format",
+            ));
+        }
+        min = min.min(value);
+        max = max.max(value);
+    }
+    if values.is_empty() {
+        return Err(conversion_error("Cannot upload an empty volume"));
+    }
+    let range = max - min;
+    if !range.is_finite() {
+        return Err(conversion_error(
+            "R8Unorm normalization range is not finite",
+        ));
+    }
+    Ok(values
         .iter()
-        .map(|&val| {
-            let normalized = if range > T::zero() {
-                (val - min_val) / range
+        .map(|&value| {
+            let value = num_traits::cast::<T, f64>(value).unwrap();
+            if range > 0.0 {
+                (((value - min) / range) * 255.0).round() as u8
             } else {
-                T::zero()
-            };
-
-            num_traits::cast::<T, f32>(normalized * num_traits::cast::<u8, T>(255).unwrap())
-                .unwrap_or(0.0)
-                .round() as u8
+                0
+            }
         })
-        .collect();
-
-    Ok(data)
+        .collect())
 }
 
 fn convert_to_r16float<T>(volume: &DenseVolume3<T>) -> Result<Vec<u8>, RenderLoopError>
@@ -971,8 +1111,14 @@ where
     let values = volume.values_contiguous();
     let mut bytes = Vec::with_capacity(values.len() * 2);
     for &val in values.iter() {
-        let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
-        bytes.extend_from_slice(&half::f16::from_f32(f32_val).to_ne_bytes());
+        let f32_val = voxel_as_f32(val)?;
+        let half = half::f16::from_f32(f32_val);
+        if f32_val.is_finite() && (!half.is_finite() || (f32_val != 0.0 && half.to_f32() == 0.0)) {
+            return Err(conversion_error(
+                "R16Float would overflow or erase a finite nonzero voxel; use R32Float",
+            ));
+        }
+        bytes.extend_from_slice(&half.to_ne_bytes());
     }
     Ok(bytes)
 }
@@ -985,7 +1131,7 @@ where
     let values = volume.values_contiguous();
     let mut bytes = Vec::with_capacity(values.len() * 4);
     for &val in values.iter() {
-        let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
+        let f32_val = voxel_as_f32(val)?;
         bytes.extend_from_slice(&f32_val.to_ne_bytes());
     }
     Ok(bytes)
@@ -1006,6 +1152,201 @@ mod tests {
             .request_device(&wgpu::DeviceDescriptor::default(), None)
             .await
             .unwrap()
+    }
+
+    #[test]
+    fn normalized_u8_conversion_retains_intermediate_levels() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![3, 1, 1], vec![1.; 3], vec![0.; 3]).unwrap();
+        let volume = DenseVolume3::from_data(space, vec![32u8, 64, 96]);
+        assert_eq!(convert_to_r8unorm(&volume).unwrap(), [0, 128, 255]);
+        assert_eq!(
+            encode_with_policy(
+                &volume,
+                UploadFormat::Automatic {
+                    preserve_labels: false
+                }
+            )
+            .unwrap()
+            .0,
+            wgpu::TextureFormat::R16Float
+        );
+    }
+
+    #[test]
+    fn normalized_range_overflow_is_rejected() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![2, 1, 1], vec![1.; 3], vec![0.; 3]).unwrap();
+        let volume = DenseVolume3::from_data(space, vec![-1e308f64, 1e308]);
+        assert!(convert_to_r8unorm(&volume).is_err());
+    }
+
+    #[test]
+    fn default_precision_preserves_finite_range_and_label_identity() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![1; 3], vec![1.; 3], vec![0.; 3]).unwrap();
+        for value in [70_000f32, -70_000., 1e-9] {
+            let volume = DenseVolume3::from_data(space.clone(), vec![value]);
+            assert_eq!(
+                encode_with_policy(
+                    &volume,
+                    UploadFormat::Automatic {
+                        preserve_labels: false
+                    }
+                )
+                .unwrap()
+                .0,
+                wgpu::TextureFormat::R32Float
+            );
+            assert!(convert_to_r16float(&volume).is_err());
+            assert_eq!(convert_to_r32float(&volume).unwrap(), value.to_ne_bytes());
+        }
+        let label = DenseVolume3::from_data(space.clone(), vec![2049u16]);
+        assert_eq!(
+            encode_with_policy(
+                &label,
+                UploadFormat::Automatic {
+                    preserve_labels: true
+                }
+            )
+            .unwrap()
+            .0,
+            wgpu::TextureFormat::R32Float
+        );
+        let label32 = DenseVolume3::from_data(space.clone(), vec![16_777_217u32]);
+        assert!(encode_with_policy(
+            &label32,
+            UploadFormat::Automatic {
+                preserve_labels: true
+            }
+        )
+        .is_err());
+        let overflow = DenseVolume3::from_data(space, vec![1e100f64]);
+        assert!(convert_to_r32float(&overflow).is_err());
+    }
+
+    #[test]
+    fn unfilterable_r32_falls_back_to_lossy_r16_for_scalars_only() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![3, 1, 1], vec![1.; 3], vec![0.; 3]).unwrap();
+        // 1e6 overflows f16 and 1e-9 underflows it: automatic encoding promotes.
+        let volume = DenseVolume3::from_data(space.clone(), vec![1e6f32, 1e-9, 3.0]);
+        let scalar = UploadFormat::Automatic {
+            preserve_labels: false,
+        };
+        let (format, bytes) = encode_with_policy(&volume, scalar).unwrap();
+        assert_eq!(format, wgpu::TextureFormat::R32Float);
+        // Filterable adapter: R32Float is kept.
+        let kept = fit_filterable_format(&volume, scalar, format, bytes.clone(), false).unwrap();
+        assert_eq!(kept.0, wgpu::TextureFormat::R32Float);
+        // Unfilterable adapter: R16Float with clamp and flush.
+        let (format, bytes) = fit_filterable_format(&volume, scalar, format, bytes, true).unwrap();
+        assert_eq!(format, wgpu::TextureFormat::R16Float);
+        let decoded: Vec<f32> = bytes
+            .chunks_exact(2)
+            .map(|b| half::f16::from_ne_bytes([b[0], b[1]]).to_f32())
+            .collect();
+        assert_eq!(decoded, vec![65504.0, 0.0, 3.0]);
+        // Labels and explicit R32Float keep the error.
+        let labels = DenseVolume3::from_data(space, vec![1u32, 2049, 7]);
+        let label_policy = UploadFormat::Automatic {
+            preserve_labels: true,
+        };
+        let (format, bytes) = encode_with_policy(&labels, label_policy).unwrap();
+        assert!(fit_filterable_format(&labels, label_policy, format, bytes, true).is_err());
+        let explicit = UploadFormat::Explicit(wgpu::TextureFormat::R32Float);
+        let (format, bytes) = encode_with_policy(&volume, explicit).unwrap();
+        assert!(fit_filterable_format(&volume, explicit, format, bytes, true).is_err());
+    }
+
+    #[test]
+    fn unfilterable_device_uploads_promoted_scalar_volume_as_r16() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        // The default device descriptor does not enable FLOAT32_FILTERABLE.
+        let (device, queue) = pollster::block_on(create_test_device());
+        assert!(!device
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE));
+        let mut manager = MultiTextureManager::new(&device, &queue, 4);
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![2, 2, 2], vec![1.; 3], vec![0.; 3]).unwrap();
+        let volume =
+            DenseVolume3::from_data(space, vec![1e6f32, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let (index, _) = manager
+            .upload_volume_with_policy(
+                &device,
+                &queue,
+                &volume,
+                UploadFormat::Automatic {
+                    preserve_labels: false,
+                },
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            manager.textures.get(&index).unwrap().format,
+            wgpu::TextureFormat::R16Float
+        );
+    }
+
+    #[test]
+    fn automatic_encoding_retries_and_checks_all_labels() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![3, 1, 1], vec![1.; 3], vec![0.; 3]).unwrap();
+        let volume = DenseVolume3::from_data(space.clone(), vec![1u32, 2049, 7]);
+        let (format, bytes) = encode_with_policy(
+            &volume,
+            UploadFormat::Automatic {
+                preserve_labels: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(format, wgpu::TextureFormat::R32Float);
+        let expected: Vec<u8> = [1f32, 2049., 7.]
+            .iter()
+            .flat_map(|value| value.to_ne_bytes())
+            .collect();
+        assert_eq!(bytes, expected);
+        let invalid = DenseVolume3::from_data(space, vec![1u32, 2049, 16_777_217]);
+        assert!(encode_with_policy(
+            &invalid,
+            UploadFormat::Automatic {
+                preserve_labels: true
+            }
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn update_refreshes_texture_affine() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, MAX_TEXTURES as u32);
+            let original =
+                NeuroSpace::from_dims_spacing_origin(vec![2; 3], vec![1.; 3], vec![0.; 3]).unwrap();
+            let replacement =
+                NeuroSpace::from_dims_spacing_origin(vec![2; 3], vec![2.; 3], vec![3.; 3]).unwrap();
+            let first = DenseVolume3::from_data(original, vec![1f32; 8]);
+            let second = DenseVolume3::from_data(replacement, vec![2f32; 8]);
+            let (index, old) = manager
+                .upload_volume(&device, &queue, &first, wgpu::TextureFormat::R16Float)
+                .unwrap();
+            let updated = manager
+                .update_volume(&device, &queue, index, &second)
+                .unwrap();
+            assert_ne!(updated, old);
+            assert_eq!(updated, second.space().world_to_voxel());
+            assert_eq!(
+                manager.get_texture_info(index).unwrap().world_to_voxel,
+                updated
+            );
+        });
     }
 
     #[test]

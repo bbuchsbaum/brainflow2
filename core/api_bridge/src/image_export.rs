@@ -197,17 +197,25 @@ pub(crate) fn save_to_picked(
     Ok(target)
 }
 
+/// Header carrying the percent-encoded suggested file name.
+pub(crate) const SUGGESTED_NAME_HEADER: &str = "x-brainflow-suggested-name";
+
 /// Save an exported PNG/JPEG to a destination chosen in a native save dialog.
-/// Returns the saved path, or `null` when the dialog is cancelled. There is
-/// deliberately no path argument: writes always go through the dialog.
+/// The image is the raw request body; the optional suggested file name is the
+/// `x-brainflow-suggested-name` header (see [`crate::raw_ipc`]). Returns the
+/// saved path, or `null` when the dialog is cancelled. There is deliberately no
+/// path argument: writes always go through the dialog.
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.save_image_bytes")]
 pub(crate) async fn save_image_bytes<R: Runtime>(
     app: tauri::AppHandle<R>,
-    bytes: Vec<u8>,
-    suggested_name: Option<String>,
+    request: tauri::ipc::Request<'_>,
 ) -> BridgeResult<Option<String>> {
-    let kind = validate_image_bytes(&bytes)?;
+    // Validate (including the size cap) before copying the body.
+    let body = crate::raw_ipc::raw_body(request.body(), "save_image_bytes")?;
+    let kind = validate_image_bytes(body)?;
+    let bytes = body.to_vec();
+    let suggested_name = crate::raw_ipc::header(request.headers(), SUGGESTED_NAME_HEADER)?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()

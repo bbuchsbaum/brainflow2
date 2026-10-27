@@ -254,6 +254,9 @@ UPDATE_RENDER_GOLDEN=1 cargo test -p render_loop --test render_golden_test
 
 ## Useful Documentation
 
+- [Product ideas](docs/vision.md) - Compact vision, population-display ideas and shared surface/volume direction.
+- [Render transport validation](docs/render-transport-validation.md) - Current entry points and checks, replacing the historical binary-IPC guides.
+- [Root cleanup archive](memory-bank/archive/root-cleanup-2026-10-25/README.md) - Original notes, retired scripts and a file relocation manifest.
 - `AGENTS.md` - Maintainer-oriented quick reference for architecture, commands, caveats, and testing.
 - `memory-bank/README.md` - Index for project history and planning documents.
 - `memory-bank/ARCHITECTURE.md` - Current high-level architecture notes.

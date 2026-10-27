@@ -1,7 +1,7 @@
 // Runtime shader loading module for wgpu 0.20
 // This replaces the build-time wgsl_to_wgpu approach for compatibility
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 use wgpu::{
     BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, ShaderModule,
     ShaderModuleDescriptor, ShaderSource,
@@ -10,6 +10,19 @@ use wgpu::{
 #[cfg(feature = "typed-shaders")]
 pub mod typed {
     include!(concat!(env!("OUT_DIR"), "/typed_shaders.rs"));
+}
+
+/// Compose shader fragments for both embedded and runtime-loaded sources.
+/// The explicit marker keeps unrelated shaders unchanged and permits the same
+/// on-disk slice source to be used by the shader watcher.
+pub fn compose_shader_source(source: &str) -> Cow<'_, str> {
+    const MARKER: &str = "// @include fullscreen_vertex";
+    if !source.contains("fn fullscreen_vertex(") && source.lines().any(|line| line.trim() == MARKER)
+    {
+        Cow::Owned(source.replacen(MARKER, sources::FULLSCREEN_VERTEX, 1))
+    } else {
+        Cow::Borrowed(source)
+    }
 }
 
 /// Shader loading errors
@@ -64,7 +77,7 @@ impl ShaderManager {
         if !self.shaders.contains_key(name) {
             let module = device.create_shader_module(ShaderModuleDescriptor {
                 label: Some(name),
-                source: ShaderSource::Wgsl(source.into()),
+                source: ShaderSource::Wgsl(compose_shader_source(source)),
             });
             self.shaders.insert(name.to_string(), module);
         }
@@ -183,7 +196,7 @@ impl ShaderManager {
         source: &str,
     ) -> Result<(&ShaderModule, ShaderValidation), ShaderError> {
         // Validate first
-        let validation = Self::validate_shader(source, name);
+        let validation = Self::validate_shader(&compose_shader_source(source), name);
 
         if !validation.valid {
             return Err(ShaderError::ValidationError(validation.errors.join("; ")));
@@ -334,12 +347,18 @@ mod tests {
 
 // Embedded shader sources
 pub mod sources {
+    pub const FULLSCREEN_VERTEX: &str = include_str!("../shaders/fullscreen_vertex.wgsl");
     /// World-space slice shader with multi-texture + alpha mask support
-    pub const SLICE_WORLD_SPACE: &str = include_str!("../shaders/slice_world_space_masked.wgsl");
+    pub const SLICE_WORLD_SPACE: &str = concat!(
+        include_str!("../shaders/fullscreen_vertex.wgsl"),
+        include_str!("../shaders/slice_world_space_masked.wgsl")
+    );
 
     /// Optimized world-space slice shader with performance improvements
-    pub const SLICE_WORLD_SPACE_OPTIMIZED: &str =
-        include_str!("../shaders/slice_world_space_optimized_masked.wgsl");
+    pub const SLICE_WORLD_SPACE_OPTIMIZED: &str = concat!(
+        include_str!("../shaders/fullscreen_vertex.wgsl"),
+        include_str!("../shaders/slice_world_space_optimized_masked.wgsl")
+    );
 
     // Debug shaders - kept for potential future debugging but not loaded by default
     #[allow(dead_code)]

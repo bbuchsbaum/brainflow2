@@ -6,14 +6,21 @@
  * packages/api/src/generated. IDs come from counters, never clocks/RNG.
  */
 import type { ExtremumKind, StatisticInfo, StatisticKind } from '@brainflow/api';
-import { findClusters, findExtremum, nonzeroBbox, type ClusterQuery } from './volumeQueries';
+import {
+  clusterLabelData,
+  findClusters,
+  findExtremum,
+  nonzeroBbox,
+  resampleMaskNearest,
+  type ClusterQuery,
+} from './volumeQueries';
 
 interface QueryTarget {
   volumeId?: string | null;
   layerId?: string | null;
 }
 import type { HarnessFixtures, VolumeFixture } from './fixtures';
-import type { Handler } from './harnessTransport';
+import { rawBody, rawHeader, type Handler, type InvokeOptions } from './harnessTransport';
 import {
   flatColumnMajor,
   flatRowMajor,
@@ -27,6 +34,17 @@ import {
 import { renderSlice, type SliceFrame, type SliceLayer } from './slicer';
 import { noteStep } from './harnessLog';
 import {
+  FIR_LAGS,
+  firRevision,
+  firValue,
+  locusVoxels,
+  parseFirPath,
+  sampleFirMember,
+  sampleFirVoxels,
+} from './firStudy';
+import { multirunFixture, parseMultirunPath } from './multirun';
+import { computeSurfaceSulcalDepth } from '@brainflow/visualization/surface';
+import {
   ANALYSIS_DESCRIPTORS,
   BIDS_EVENTS,
   BIDS_ROOT,
@@ -39,9 +57,37 @@ import {
 /** Paths the harness "file system" serves. */
 export const HARNESS_ROOT = '/harness/study';
 export const MNI_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain.nii.gz`;
+/** Simulated native latency of a 4D GPU upload and of a layer patch (ms). */
+const GPU_4D_UPLOAD_MS = 150;
+const PATCH_MS = 15;
+
+/** The MNI brain mask (1 inside the brain, 0 outside): a search mask for clusters. */
+export const MNI_MASK_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain_mask.nii.gz`;
 export const STATS_PATH = `${HARNESS_ROOT}/stats/task-motor_zstat1.nii.gz`;
 export const SURFACE_PATH = `${HARNESS_ROOT}/surf/lh.inflated.gii`;
 export const SURFACE_OVERLAY_PATH = `${HARNESS_ROOT}/surf/lh.sensorimotor.func.gii`;
+
+/**
+ * Phase 4 surface-figure fixtures (D2-D4), all derived from the fs_LR 32k
+ * left inflated mesh at load time; not listed in the Files tree (the P3
+ * specimens stay as they were):
+ * - rh.inflated: the lh mesh mirrored in x (face winding flipped);
+ * - lh.midthickness: SYNTHETIC folded stand-in (the lh mesh scaled 0.9 about
+ *   its centroid), same topology: the anatomical mesh for the vertex readout;
+ * - lh/rh.sulc.shape.gii: SYNTHETIC "sulc", the sulcal depth of the inflated
+ *   mesh itself (its residual large-scale concavities: insula, medial wall);
+ * - rh.sensorimotor: the lh overlay × 0.7 (mirrored with the mesh).
+ */
+export const FIG_ROOT = `${HARNESS_ROOT}/fig`;
+export const FIG_LH_PATH = `${FIG_ROOT}/lh.inflated.gii`;
+export const FIG_RH_PATH = `${FIG_ROOT}/rh.inflated.gii`;
+export const FIG_LH_MID_PATH = `${FIG_ROOT}/lh.midthickness.gii`;
+export const FIG_LH_OVERLAY_PATH = `${FIG_ROOT}/lh.sensorimotor.func.gii`;
+export const FIG_RH_OVERLAY_PATH = `${FIG_ROOT}/rh.sensorimotor.func.gii`;
+export const FIG_LH_SULC_PATH = `${FIG_ROOT}/lh.sulc.shape.gii`;
+export const FIG_RH_SULC_PATH = `${FIG_ROOT}/rh.sulc.shape.gii`;
+/** The rh overlay is the lh one scaled by this (a known answer). */
+export const FIG_RH_OVERLAY_SCALE = 0.7;
 /** Phase 3 synthetic statistics (fixtures/app/p3_fixtures.json). Listed under stats/, which
  * the gate scenarios never expand, so the gate baselines do not see them. */
 export const ZMAP_PATH = `${HARNESS_ROOT}/stats/zmap_synthetic.nii.gz`;
@@ -49,8 +95,16 @@ export const TMAP_PATH = `${HARNESS_ROOT}/stats/tmap_synthetic_df24.nii.gz`;
 /** Native-like noisy copies (v6), loadable by path; not listed in the tree. */
 export const ZMAP_NOISY_PATH = `${HARNESS_ROOT}/stats/zmap_native_noise.nii.gz`;
 export const TMAP_NOISY_PATH = `${HARNESS_ROOT}/stats/tmap_native_noise_df24.nii.gz`;
+/** Phase 4 C1: the z map with two extra blobs in cluster 1 (sub-peaks); not listed. */
+export const ZMAP_MULTIPEAK_PATH = `${HARNESS_ROOT}/stats/zmap_multipeak.nii.gz`;
 export const ATLAS_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.nii.gz`;
 export const ATLAS_LUT_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.tsv`;
+
+/** The E2 `region` argument of the sampling commands. */
+type RegionArg = {
+  labelSource: { type: 'layer'; layerId: string } | { type: 'volume'; volumeId: string } | { type: 'path'; path: string };
+  labelIds: number[];
+};
 
 interface VolumeEntry {
   id: string;
@@ -58,6 +112,8 @@ interface VolumeEntry {
   path: string;
   fixture: VolumeFixture;
   worldToVoxel: number[][];
+  /** 4D fixtures: the frame on display. */
+  timepoint?: number;
 }
 
 interface LayerEntry {
@@ -104,6 +160,17 @@ const VIRTUAL_FS: Record<string, Array<{ name: string; isDir: boolean }>> = {
     { name: 'lh.inflated.gii', isDir: false },
     { name: 'lh.sensorimotor.func.gii', isDir: false },
   ],
+  // Phase 4 figure set (not linked from the study root: listed only for the
+  // curvature service's sidecar lookup).
+  [FIG_ROOT]: [
+    'lh.inflated.gii',
+    'rh.inflated.gii',
+    'lh.midthickness.gii',
+    'lh.sensorimotor.func.gii',
+    'rh.sensorimotor.func.gii',
+    'lh.sulc.shape.gii',
+    'rh.sulc.shape.gii',
+  ].map((name) => ({ name, isDir: false })),
 };
 
 const NO_INTENT: NonNullable<VolumeFixture['header']> = {
@@ -117,6 +184,18 @@ const NO_INTENT: NonNullable<VolumeFixture['header']> = {
 };
 
 const VIEW_CODES: Record<string, number> = { axial: 0, sagittal: 1, coronal: 2 };
+
+/** Statistics over a fixture's values: every frame of a 4D fixture, as the backend's data range does. */
+function fixtureStats(fixture: VolumeFixture) {
+  if (!fixture.frames) return stats(fixture.data);
+  const all = new Float32Array(fixture.frames.reduce((n, f) => n + f.length, 0));
+  let offset = 0;
+  for (const f of fixture.frames) {
+    all.set(f, offset);
+    offset += f.length;
+  }
+  return stats(all);
+}
 
 function stats(data: Float32Array) {
   let min = Infinity;
@@ -253,18 +332,150 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   let surfaceCounter = 0;
   let overlayCounter = 0;
   const surfaces = new Map<string, string>();
+  const overlays = new Map<string, Float32Array>();
+  // Phase 4 figure meshes and values, derived once (see FIG_ROOT).
+  let figure: {
+    rh: Float32Array;
+    rhFaces: Uint32Array;
+    mid: Float32Array;
+    sulc: Float32Array | null;
+    rhOverlay: Float32Array;
+  } | null = null;
+  const figureData = () => {
+    if (figure) return figure;
+    const { vertices, faces, overlay } = fixtures.surface;
+    const rh = new Float32Array(vertices);
+    for (let i = 0; i < rh.length; i += 3) rh[i] = -rh[i];
+    const rhFaces = new Uint32Array(faces);
+    for (let i = 0; i < rhFaces.length; i += 3) {
+      const b = rhFaces[i + 1];
+      rhFaces[i + 1] = rhFaces[i + 2];
+      rhFaces[i + 2] = b;
+    }
+    const c = [0, 0, 0];
+    const n = vertices.length / 3;
+    for (let i = 0; i < vertices.length; i += 1) c[i % 3] += vertices[i] / n;
+    const mid = new Float32Array(vertices.length);
+    for (let i = 0; i < vertices.length; i += 1) mid[i] = c[i % 3] + 0.9 * (vertices[i] - c[i % 3]);
+    figure = { rh, rhFaces, mid, sulc: null, rhOverlay: overlay.map((v) => v * FIG_RH_OVERLAY_SCALE) };
+    return figure;
+  };
+  const surfaceMeshFor = (path: string) => {
+    const { vertices, faces } = fixtures.surface;
+    if (path === SURFACE_PATH || path === FIG_LH_PATH) {
+      return { vertices, faces, hemisphere: 'left', surfaceType: 'inflated' };
+    }
+    if (path === FIG_RH_PATH) {
+      const f = figureData();
+      return { vertices: f.rh, faces: f.rhFaces, hemisphere: 'right', surfaceType: 'inflated' };
+    }
+    if (path === FIG_LH_MID_PATH) {
+      return { vertices: figureData().mid, faces, hemisphere: 'left', surfaceType: 'midthickness' };
+    }
+    return null;
+  };
+  const overlayValuesFor = (path: string): Float32Array | null => {
+    if (path === SURFACE_OVERLAY_PATH || path === FIG_LH_OVERLAY_PATH) return fixtures.surface.overlay;
+    if (path === FIG_RH_OVERLAY_PATH) return figureData().rhOverlay;
+    if (path === FIG_LH_SULC_PATH || path === FIG_RH_SULC_PATH) {
+      const f = figureData();
+      f.sulc ??= computeSurfaceSulcalDepth(fixtures.surface.vertices, fixtures.surface.faces, 'left');
+      return f.sulc;
+    }
+    return null;
+  };
   let jobCounter = 0;
   const jobs = new Map<string, string>();
   // register_categorical_colormap slots (custom slots follow the builtins).
   const categoricalLuts = new Map<number, Uint8Array>();
   const categoricalKeys = new Map<string, number>();
 
+  // FIR 4D fixtures, built once per path (8 frames on the MNI grid).
+  const firFixtures = new Map<string, VolumeFixture>();
+  const firFixture = (path: string): VolumeFixture => {
+    const cached = firFixtures.get(path);
+    if (cached) return cached;
+    const id = parseFirPath(path, 0)!;
+    const { dims, affine } = fixtures.mni;
+    const [nx, ny, nz] = dims;
+    const frames = FIR_LAGS.map((lag) => {
+      const data = new Float32Array(nx * ny * nz);
+      for (let k = 0; k < nz; k += 1)
+        for (let j = 0; j < ny; j += 1)
+          for (let i = 0; i < nx; i += 1) {
+            const n = i + nx * (j + ny * k);
+            // Zero outside the brain, as a real FIR NIfTI is (v1 user 6: a
+            // whole-grid offset turned the overlay into an opaque slab).
+            if (!(fixtures.mni.data[n] > 0)) continue;
+            const w = [0, 1, 2].map((r) => affine[r][0] * i + affine[r][1] * j + affine[r][2] * k + affine[r][3]);
+            data[n] = firValue(w, id.subject, id.condition, lag);
+          }
+      return data;
+    });
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const f of frames) for (const v of f) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    const fixture: VolumeFixture = { dims: [nx, ny, nz], affine, data: frames[0], frames, range: [lo, hi] };
+    firFixtures.set(path, fixture);
+    return fixture;
+  };
+
+  /** Voxel centres (world mm) of a region locus; error 2027 when it holds none. */
+  const regionVoxels = (region: RegionArg): number[][] => {
+    const src = region.labelSource;
+    const vol =
+      src.type === 'layer'
+        ? volumeForLayer(src.layerId).fixture
+        : src.type === 'volume'
+          ? volumeFor(src.volumeId).fixture
+          : fixtureForPath(src.path);
+    if (!vol) throw Object.assign(new Error(`Label source not found: ${JSON.stringify(src)}`), { code: 2027 });
+    const ids = new Set(region.labelIds);
+    const [nx, ny, nz] = vol.dims;
+    const a = vol.affine;
+    const out: number[][] = [];
+    for (let k = 0; k < nz; k += 1)
+      for (let j = 0; j < ny; j += 1)
+        for (let i = 0; i < nx; i += 1)
+          if (ids.has(Math.round(vol.data[i + nx * (j + ny * k)])))
+            out.push([0, 1, 2].map((r) => a[r][0] * i + a[r][1] * j + a[r][2] * k + a[r][3]));
+    if (!out.length)
+      throw Object.assign(new Error(`The region holds no voxels (labels ${region.labelIds.join(', ')})`), { code: 2027 });
+    return out;
+  };
+
+  let mask: VolumeFixture | null = null;
+  const mniMask = (): VolumeFixture => {
+    mask ??= {
+      dims: fixtures.mni.dims,
+      affine: fixtures.mni.affine,
+      data: Float32Array.from(fixtures.mni.data, (v) => (v > 0 ? 1 : 0)),
+      range: [0, 1],
+    };
+    return mask;
+  };
+
+  const voxelSpacing = (f: VolumeFixture) =>
+    [0, 1, 2].map((c) => Math.hypot(f.affine[0][c], f.affine[1][c], f.affine[2][c]));
+  /** Only 0 and 1 in every frame (a mask), as the loader's is_binary_like. */
+  const isBinaryFixture = (f: VolumeFixture) => (f.frames ?? [f.data]).every((d) => d.every((v) => v === 0 || v === 1));
+
   const fixtureForPath = (path: string): VolumeFixture | null => {
     if (path === MNI_PATH) return fixtures.mni;
+    if (path === MNI_MASK_PATH) return mniMask();
     if (path === STATS_PATH) return fixtures.stats;
     if (path === ZMAP_PATH) return fixtures.zmap;
     if (path === TMAP_PATH) return fixtures.tmap;
     if (path === ZMAP_NOISY_PATH) return fixtures.zmapNoisy;
+    // Phase 4 E6: a FIR study's 4D lag series (one subject × condition), on the MNI grid.
+    if (parseFirPath(path, 0) && path.endsWith('_fir.nii.gz')) return firFixture(path);
+    if (path === ZMAP_MULTIPEAK_PATH) return fixtures.zmapMultipeak;
+    // Phase 4 E5b: one subject's three BOLD runs (4 mm grid, TR 2 s).
+    const run = parseMultirunPath(path);
+    if (run !== null) return multirunFixture(run);
     if (path === TMAP_NOISY_PATH) return fixtures.tmapNoisy;
     if (path === ATLAS_PATH) return fixtures.atlas;
     return null;
@@ -273,7 +484,23 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   const registerVolume = (path: string, name: string, fixture: VolumeFixture) => {
     volumeCounter += 1;
     const id = `vol-${volumeCounter}`;
-    volumes.set(id, { id, name, path, fixture, worldToVoxel: invertAffine(fixture.affine) });
+    // Each registration displays its own frame (a fresh `data` reference).
+    const own = fixture.frames ? { ...fixture, data: fixture.frames[0] } : fixture;
+    volumes.set(id, { id, name, path, fixture: own, worldToVoxel: invertAffine(fixture.affine), timepoint: fixture.frames ? 0 : undefined });
+    const frames = fixture.frames?.length ?? 0;
+    if (frames > 1) {
+      return {
+        id,
+        name,
+        dims: [...fixture.dims, frames],
+        dtype: 'f32',
+        volume_type: 'TimeSeries4D',
+        num_timepoints: frames,
+        current_timepoint: 0,
+        time_series_info: { num_timepoints: frames, tr: fixture.tr ?? null, temporal_unit: fixture.tr ? 's' : null, acquisition_time: null },
+        ...handleStatistic(fixture),
+      };
+    }
     return {
       id,
       name,
@@ -371,6 +598,19 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const renderRequested = (state: any, view: any): Uint8Array => {
+    // Mirrors api_bridge resolve_requested_render_timepoint: a drawn 4D layer
+    // needs the request's timepoint (native R2-3: a view state without one
+    // rendered black until the first frame change).
+    const fourD = (state.layers ?? []).some(
+      (l: { visible?: boolean; opacity?: number; volumeId?: string; volume_id?: string } | null) =>
+        !!l &&
+        l.visible !== false &&
+        (l.opacity ?? 1) > 0 &&
+        (volumes.get((l.volumeId ?? l.volume_id) as string)?.fixture.frames?.length ?? 0) > 1,
+    );
+    if (fourD && (state.timepoint === undefined || state.timepoint === null)) {
+      throw Object.assign(new Error('Render request for a 4D volume must include a timepoint.'), { code: 4103 });
+    }
     const crosshair = state.crosshair;
     const color = (crosshair?.color as number[] | undefined) ?? [1, 0.8, 0.2, 0.8];
     const frame: SliceFrame = {
@@ -508,11 +748,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     get_nifti_header_info: ({ volumeId }: { volumeId: string }) => {
       const vol = volumeFor(volumeId);
       const b = volumeBounds(vol.fixture);
-      const s = stats(vol.fixture.data);
+      const s = fixtureStats(vol.fixture);
       return {
         filename: vol.name,
         dimensions: [...vol.fixture.dims],
-        voxel_spacing: [2, 2, 2],
+        voxel_spacing: voxelSpacing(vol.fixture),
         data_type: vol.fixture.header?.dataType ?? 'FLOAT32',
         voxel_to_world: flatRowMajor(vol.fixture.affine),
         world_bounds_min: b.min,
@@ -533,18 +773,96 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
           : statisticForHeader({ ...NO_INTENT }),
       };
     },
-    get_volume_timepoint: () => 0,
-    set_volume_timepoint: () => null,
+    get_volume_timepoint: ({ volumeId }: { volumeId?: string } = {}) =>
+      (volumeId && volumes.get(volumeId)?.timepoint) ?? 0,
+    // 4D fixtures display the requested frame; 3D ones ignore it.
+    set_volume_timepoint: ({ volumeId, timepoint }: { volumeId: string; timepoint: number }) => {
+      const entry = volumes.get(volumeId);
+      const frames = entry?.fixture.frames;
+      if (entry && frames) {
+        const t = Math.max(0, Math.min(frames.length - 1, Math.round(timepoint)));
+        entry.timepoint = t;
+        entry.fixture = { ...entry.fixture, data: frames[t] };
+      }
+      return null;
+    },
+    // sample_stack: the locus (nearest voxel, or a sphere reduced by `reduce`)
+    // per frame of a 4D layer, one value for a 3D layer.
+    sample_stack: ({
+      layerId,
+      worldMm,
+      radiusMm,
+      reduce,
+      region,
+    }: {
+      layerId: string;
+      worldMm: [number, number, number];
+      radiusMm: number;
+      reduce?: string;
+      region?: RegionArg;
+    }) => {
+      const entry = volumeForLayer(layerId);
+      const vol = entry.fixture;
+      const [nx, ny] = vol.dims;
+      const voxels = (region ? regionVoxels(region) : locusVoxels(vol, worldMm, radiusMm)).map((w) =>
+        [0, 1, 2].map((r) => Math.round((w[r] - vol.affine[r][3]) / vol.affine[r][r])),
+      );
+      const frames = vol.frames ?? [vol.data];
+      return frames.map((data) => {
+        const values = voxels.map(([i, j, k]) => data[i + nx * (j + ny * k)]);
+        if (!values.length) return Number.NaN;
+        if (reduce === 'median') {
+          const sorted = [...values].sort((a, b) => a - b);
+          const m = sorted.length >> 1;
+          return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+        }
+        return values.reduce((a, b) => a + b, 0) / values.length;
+      });
+    },
+    // sample_set_at_world (phase 4 E6): the synthetic FIR study's members,
+    // evaluated analytically at voxel centres of the MNI grid (firStudy.ts).
+    sample_set_at_world: ({
+      members,
+      worldMm,
+      radiusMm,
+      reduce,
+      region,
+    }: {
+      members: Array<{ memberId: string; sourcePath: string; stackIndex?: number }>;
+      worldMm: [number, number, number];
+      radiusMm: number;
+      reduce?: 'mean' | 'median';
+      region?: RegionArg;
+    }) => {
+      // E2: a region replaces the point / sphere (its voxel centres).
+      const voxels = region ? regionVoxels(region) : null;
+      return members.map((m) => {
+        const sampled = voxels
+          ? sampleFirVoxels(m.sourcePath, m.stackIndex, voxels, reduce ?? 'mean')
+          : sampleFirMember(fixtures.mni, m.sourcePath, m.stackIndex, worldMm, radiusMm, reduce ?? 'mean');
+        if (!sampled) throw new Error(`harness: no set sampling fixture for ${m.sourcePath}`);
+        return {
+          memberId: m.memberId,
+          value: sampled.value,
+          count: sampled.count,
+          sourceRevision: { sha256: firRevision(m.sourcePath), sourceBytes: 1 },
+          error: null,
+        };
+      });
+    },
 
-    request_layer_gpu_resources: ({
+    request_layer_gpu_resources: async ({
       layerSpec,
     }: {
       layerSpec: { Volume: { id: string; source_resource_id: string } };
     }) => {
       const spec = layerSpec.Volume;
       const vol = volumeFor(spec.source_resource_id);
+      // Native round 3: a 4D upload takes real time, so loads and GPU promotions
+      // finish after the UI has moved on (run groups form mid-load).
+      if ((vol.fixture.frames?.length ?? 0) > 1) await new Promise((r) => setTimeout(r, GPU_4D_UPLOAD_MS));
       layers.set(spec.id, { layerId: spec.id, volumeId: vol.id });
-      const s = stats(vol.fixture.data);
+      const s = fixtureStats(vol.fixture);
       const center = volumeCenter(vol.fixture);
       const [nx, ny, nz] = vol.fixture.dims;
       return {
@@ -566,15 +884,20 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
         voxel_to_world: flatColumnMajor(vol.fixture.affine),
         origin: [vol.fixture.affine[0][3], vol.fixture.affine[1][3], vol.fixture.affine[2][3]],
         center_world: center,
-        spacing: [2, 2, 2],
+        // From the fixture (round 3 C8): the multirun BOLD is 4 mm, the brain mask binary.
+        spacing: voxelSpacing(vol.fixture),
         data_range: { min: s.min, max: s.max },
         source_volume_id: vol.id,
         allocated_at: 0,
-        is_binary_like: false,
+        is_binary_like: isBinaryFixture(vol.fixture),
       };
     },
     wait_for_layer_ready: () => true,
-    patch_layer: () => null,
+    // A backend round trip, as natively (visibility toggles await it).
+    patch_layer: async () => {
+      await new Promise((r) => setTimeout(r, PATCH_MS));
+      return null;
+    },
     release_layer_gpu_resources: ({ layerId }: { layerId: string }) => {
       layers.delete(layerId);
       return { success: true, message: 'released' };
@@ -611,8 +934,14 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       binCount?: number;
       range?: [number, number];
       excludeZeros?: boolean;
+      allFrames?: boolean;
     }) => {
-      const vol = volumeForLayer(args.layerId).fixture;
+      const fixture = volumeForLayer(args.layerId).fixture;
+      // all_frames: every frame of a 4D volume (v2 R3), else the one on display.
+      const vol =
+        args.allFrames && fixture.frames && fixture.frames.length > 1
+          ? { ...fixture, data: Float32Array.from(fixture.frames.flatMap((f) => Array.from(f))) }
+          : fixture;
       // histogram.rs filters before everything: excluded zeros leave the
       // bins, the range and mean/std alike.
       const s = stats(args.excludeZeros ? vol.data.filter((v) => v !== 0) : vol.data);
@@ -641,38 +970,47 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
 
     load_surface: ({ path }: { path: string }) => {
-      if (path !== SURFACE_PATH) throw new Error(`harness: no surface fixture for ${path}`);
+      const mesh = surfaceMeshFor(path);
+      if (!mesh) throw new Error(`harness: no surface fixture for ${path}`);
       surfaceCounter += 1;
       const handle = `surf-${surfaceCounter}`;
       surfaces.set(handle, path);
       return {
         type: 'Surface',
         handle,
-        vertex_count: fixtures.surface.vertices.length / 3,
-        face_count: fixtures.surface.faces.length / 3,
-        hemisphere: 'left',
-        surface_type: 'inflated',
+        vertex_count: mesh.vertices.length / 3,
+        face_count: mesh.faces.length / 3,
+        hemisphere: mesh.hemisphere,
+        surface_type: mesh.surfaceType,
       };
     },
     get_surface_geometry: ({ handle }: { handle: string }) => {
-      if (!surfaces.has(handle)) throw new Error(`Surface '${handle}' not found`);
-      return { vertices: fixtures.surface.vertices, faces: fixtures.surface.faces };
+      const path = surfaces.get(handle);
+      const mesh = path ? surfaceMeshFor(path) : null;
+      if (!mesh) throw new Error(`Surface '${handle}' not found`);
+      return { vertices: mesh.vertices, faces: mesh.faces };
     },
     unload_surface: ({ handle }: { handle: string }) => {
       surfaces.delete(handle);
       return { success: true, message: 'unloaded' };
     },
     load_surface_overlay: ({ path, targetSurfaceId }: { path: string; targetSurfaceId: string }) => {
-      if (path !== SURFACE_OVERLAY_PATH) throw new Error(`harness: no overlay fixture for ${path}`);
+      const values = overlayValuesFor(path);
+      // Like the backend: a missing file is error 2010.
+      if (!values) throw new Error(`Overlay file not found: ${path}`);
       overlayCounter += 1;
+      const kind = path.includes('.sulc.') ? 'sulc' : 'sensorimotor';
+      const handle = `overlay_${targetSurfaceId}_${kind}_${overlayCounter}`;
+      overlays.set(handle, values);
       return {
         type: 'SurfaceData',
-        handle: `overlay_${targetSurfaceId}_sensorimotor_${overlayCounter}`,
-        data_count: fixtures.surface.overlay.length,
-        intent: 'functional',
+        handle,
+        data_count: values.length,
+        intent: kind === 'sulc' ? 'shape' : 'functional',
       };
     },
-    get_surface_overlay_data: () => Array.from(fixtures.surface.overlay),
+    get_surface_overlay_data: ({ handle }: { handle?: string } = {}) =>
+      Array.from((handle ? overlays.get(handle) : undefined) ?? fixtures.surface.overlay),
     unload_surface_overlay: () => ({ success: true, message: 'unloaded' }),
 
     list_analyses: () => ANALYSIS_DESCRIPTORS,
@@ -773,8 +1111,28 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
     // Volume queries (clusters.rs / volume_queries.rs), computed on the
     // fixture arrays by the mirrors in volumeQueries.ts.
-    compute_clusters: ({ request }: { request: ClusterQuery & QueryTarget }) =>
-      findClusters(targetVolume(request).fixture, request),
+    compute_clusters: ({ request }: { request: ClusterQuery & QueryTarget }) => {
+      const entry = targetVolume(request);
+      // S3: a registered mask volume bounds the search (nearest-voxel resampled).
+      const maskId = request.searchMask ?? null;
+      if (maskId && !volumes.has(maskId)) {
+        throw Object.assign(new Error(`Search mask volume ${maskId} not found`), { code: 4041 });
+      }
+      const mask = maskId ? resampleMaskNearest(volumeFor(maskId).fixture, entry.fixture) : null;
+      const table = findClusters(entry.fixture, request, mask, maskId);
+      // E3: the cluster-id label volume, registered (hidden) so a row can be a region.
+      if (request.emitLabelVolume) {
+        const labels = clusterLabelData(entry.fixture, request, table, mask);
+        const info = registerVolume(`${entry.path}#clusters`, `${entry.name} clusters`, {
+          dims: entry.fixture.dims,
+          affine: entry.fixture.affine,
+          data: labels,
+          range: [0, table.clusters.length],
+        });
+        table.labelVolumeId = info.id;
+      }
+      return table;
+    },
     volume_extremum: ({ request }: { request: QueryTarget & { kind: ExtremumKind } }) =>
       findExtremum(targetVolume(request).fixture, request.kind),
     volume_nonzero_bbox: ({ request }: { request: QueryTarget & { threshold?: number | null } }) =>
@@ -805,14 +1163,25 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       categoricalLuts.set(slot, Uint8Array.from(lutRgb));
       return slot;
     },
-    // save_image_bytes(bytes, suggestedName?) -> written path | null.
+    // save_image_bytes: raw Uint8Array body, suggested name in the
+    // percent-encoded x-brainflow-suggested-name header -> written path | null.
     // The harness never shows a native dialog: it "writes" to a fixed fake
     // folder and logs the step. `null` (cancel) can be forced per scenario
     // with setHandler.
-    save_image_bytes: ({ bytes, suggestedName }: { bytes: number[]; suggestedName?: string }) => {
-      const name = suggestedName && suggestedName.trim() ? suggestedName.trim() : 'view.png';
-      const path = `/harness/exports/${name}`;
-      noteStep(`save_image_bytes ${bytes?.length ?? 0} bytes -> ${path}`);
+    save_image_bytes: (body: unknown, options?: InvokeOptions) => {
+      const bytes = rawBody(body, 'save_image_bytes');
+      const suggested = rawHeader(options, 'x-brainflow-suggested-name')?.trim();
+      const path = `/harness/exports/${suggested || 'view.png'}`;
+      noteStep(`save_image_bytes ${bytes.length} bytes -> ${path}`);
+      return path;
+    },
+    // export_population_plot: raw body; x-brainflow-path / x-brainflow-format.
+    export_population_plot: (body: unknown, options?: InvokeOptions) => {
+      const bytes = rawBody(body, 'export_population_plot');
+      const path = rawHeader(options, 'x-brainflow-path');
+      const format = rawHeader(options, 'x-brainflow-format');
+      if (!path || !format) throw new Error('Missing request header x-brainflow-path/format.');
+      noteStep(`export_population_plot ${bytes.length} bytes (${format}) -> ${path}`);
       return path;
     },
     // tauri-plugin-fs read_text_file (scope: capabilities/default.json
@@ -820,6 +1189,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     // like a missing file.
     // tauri app version (export provenance): a fixed stub in the harness.
     'plugin:app|version': () => '0.0.0-harness',
+    // tauri-plugin-fs read_file (FreeSurfer lh.sulc / lh.curv sidecars, D2):
+    // the harness has none, so every read fails like a missing file.
+    'plugin:fs|read_file': ({ path }: { path: string }) => {
+      throw new Error(`failed to open file at path: ${path} with error: No such file or directory (os error 2)`);
+    },
     'plugin:fs|read_text_file': ({ path }: { path: string }) => {
       if (path === ATLAS_LUT_PATH) return new TextEncoder().encode(fixtures.atlasLut).buffer;
       throw new Error(`failed to open file at path: ${path} with error: No such file or directory (os error 2)`);

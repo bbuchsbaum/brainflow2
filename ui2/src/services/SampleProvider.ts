@@ -88,6 +88,7 @@ export class SampleProvider {
       worldMm: [locus.worldMm[0], locus.worldMm[1], locus.worldMm[2]],
       radiusMm,
       reduce,
+      ...(locus.region ? { region: locus.region } : {}),
     });
 
     const shape = layerStackShape(request.datasetId);
@@ -335,6 +336,7 @@ export class SampleProvider {
         {
           members,
           ...(locus.mask ? { mask: locus.mask } : {}),
+          ...(locus.region ? { region: locus.region } : {}),
           worldMm,
           radiusMm: locus.radiusMm,
           reduce,
@@ -424,6 +426,7 @@ export class SampleProvider {
       {
         members,
         ...(locus.mask ? { mask: locus.mask } : {}),
+        ...(locus.region ? { region: locus.region } : {}),
         worldMm,
         radiusMm: locus.radiusMm,
         reduce,

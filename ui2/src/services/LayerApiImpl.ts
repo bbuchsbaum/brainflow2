@@ -14,9 +14,12 @@ import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { colormapNameToId } from '@/components/ui/colormapOptions';
 import { histogramService } from './HistogramService';
+import type { HistogramData } from '@/types/histogram';
+import { pooledWindow, runGroupIds, shareRunWindow } from './series/runWindow';
 import {
   computeAdaptiveIntensityRange,
   computeFallbackIntensityRange,
+  computePercentileFromBins,
   statisticDefaultRange,
   statisticDefaultRangeFromHistogram,
   type IntensityRangeOptions,
@@ -114,6 +117,10 @@ export class LayerApiImpl implements LayerApi {
 
   private toViewLayer(layer: Layer): ViewLayer {
     const layerMetadata = useLayerStore.getState().getLayerMetadata(layer.id);
+    // The store's visibility wins over the object captured at load: a run the
+    // Series view hid while it was still loading must not be added visible
+    // (native R2-2: run 2 drawn over the focused run 1).
+    const visible = useLayerStore.getState().getLayer(layer.id)?.visible ?? layer.visible;
     const existing = useViewStateStore
       .getState()
       .viewState.layers.find((item) => item.id === layer.id);
@@ -122,7 +129,7 @@ export class LayerApiImpl implements LayerApi {
         ...existing,
         name: layer.name,
         volumeId: layer.volumeId,
-        visible: layer.visible,
+        visible,
       };
     }
 
@@ -141,8 +148,8 @@ export class LayerApiImpl implements LayerApi {
       id: layer.id,
       name: layer.name,
       volumeId: layer.volumeId,
-      visible: layer.visible,
-      opacity: layer.visible ? (metadataRenderProps?.opacity ?? 1.0) : 0.0,
+      visible,
+      opacity: visible ? (metadataRenderProps?.opacity ?? 1.0) : 0.0,
       colormap: metadataRenderProps?.colormap ?? 'gray',
       intensity,
       threshold,
@@ -283,7 +290,12 @@ export class LayerApiImpl implements LayerApi {
       // statisticDefaultRange). It is final: no histogram refinement later
       // changes it, so nothing but the user moves its window (native v6).
       const statisticRange = isLabelLike ? null : statisticDefaultRange(statisticOf(newLayer), dataRange);
-      const rangeResult = statisticRange ?? computeFallbackIntensityRange(rangeOptions);
+      const rangeResult = overlayDisplay(
+        newLayer,
+        statisticRange ?? computeFallbackIntensityRange(rangeOptions),
+        dataRange,
+        !!statisticRange,
+      );
       if (statisticRange) statisticFirstPaint.add(newLayer.id);
 
       renderProps = {
@@ -460,7 +472,13 @@ export class LayerApiImpl implements LayerApi {
     };
     const initial = target()?.layers.find((item) => item.id === layer.id);
     if (!initial) return;
-    const initialRender = JSON.stringify(initial);
+    // Only a change to the window, threshold or colour map means the user (or
+    // another refinement) took over; visibility toggles do not (native R2-1: a
+    // run hidden by the Series view while its histogram ran kept its first-paint
+    // window and never joined the pooled EPI window).
+    const renderKey = (item: typeof initial | undefined) =>
+      item ? JSON.stringify([item.intensity, item.threshold, item.colormap]) : '';
+    const initialRender = renderKey(initial);
     // Guard both immutable store edits and external mutation of render arrays.
     let histogram;
     try {
@@ -468,6 +486,8 @@ export class LayerApiImpl implements LayerApi {
         layerId: layer.id,
         binCount: 256,
         excludeZeros: true,
+        // A 4D series is windowed over all its frames (v2 R3), not the first.
+        ...(isFourDIntensityLayer(layer as Parameters<typeof isFourDIntensityLayer>[0]) ? { allFrames: true } : {}),
       });
     } catch (histError) {
       console.warn(
@@ -479,19 +499,46 @@ export class LayerApiImpl implements LayerApi {
 
     // The layer may have been removed while the histogram was computing.
     const store = useLayerStore.getState();
-    if (!store.getLayer(layer.id) || JSON.stringify(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
+    if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
       return;
     }
 
     // A statistic whose data range was not finite (NaN / Inf): the
     // statistic rule from the histogram's 0.1 / 99.9 percentiles.
-    const rangeResult =
-      (layer.type === 'label' ? null : statisticDefaultRangeFromHistogram(statisticOf(layer), histogram)) ??
-      computeAdaptiveIntensityRange(histogram, rangeOptions);
+    const statisticRefined = layer.type === 'label' ? null : statisticDefaultRangeFromHistogram(statisticOf(layer), histogram);
+    const rangeResult = overlayDisplay(
+      layer,
+      statisticRefined ?? computeAdaptiveIntensityRange(histogram, rangeOptions),
+      rangeOptions.dataRange ?? { min: 0, max: 0 },
+      !!statisticRefined,
+      histogram,
+    );
     const isLabelLike = layer.type === 'label';
+    // A BOLD series is windowed like an EPI viewer (round 3 C1): p2–p98 over
+    // every voxel of every frame, background zeros included (the brain mid
+    // grey, a response toward white), pooled across its runs.
+    let intensity = rangeResult.intensity;
+    if (!statisticRefined && rangeResult.suggestedColormap === 'gray' && isFourDIntensityLayer(layer)) {
+      const ids = runGroupIds(layer.id);
+      const epi = await this.epiWindow(ids);
+      if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
+      if (epi) {
+        intensity = shareRunWindow(
+          layer.id,
+          epi,
+          (id) => target()?.layers.find((item) => item.id === id)?.intensity,
+          (id, window) =>
+            useViewStateStore.getState().setViewState((state) => {
+              const sibling = state.layers.find((item) => item.id === id);
+              if (sibling) sibling.intensity = [window[0], window[1]];
+            }),
+          ids,
+        );
+      }
+    }
     const refined: LayerRender = {
       opacity: layer.visible ? 1.0 : 0.0,
-      intensity: rangeResult.intensity,
+      intensity,
       threshold: rangeResult.threshold,
       colormap: rangeResult.suggestedColormap ?? 'gray',
       interpolation: isLabelLike ? 'nearest' : 'linear',
@@ -507,6 +554,37 @@ export class LayerApiImpl implements LayerApi {
       `[LayerApiImpl] Refined intensity from histogram (${rangeResult.method}) for ${layer.id}:`,
       rangeResult.intensity,
     );
+  }
+
+  /**
+   * EPI window of a run group (native R3-2): every run's all-frame histogram,
+   * zeros included, on the group's common range with the same bins, summed,
+   * then p2–p98 of the sum (runWindow.pooledWindow). One run: its own.
+   */
+  private async epiWindow(ids: readonly string[]): Promise<[number, number] | null> {
+    const BINS = 1024;
+    try {
+      const own = await Promise.all(
+        ids.map((layerId) => histogramService.computeHistogram({ layerId, binCount: BINS, excludeZeros: false, allFrames: true })),
+      );
+      const usable = own.filter((h) => h.totalCount > 0 && h.bins.length);
+      if (!usable.length) return null;
+      const range: [number, number] = [
+        Math.min(...usable.map((h) => h.minValue)),
+        Math.max(...usable.map((h) => h.maxValue)),
+      ];
+      const common =
+        ids.length > 1
+          ? await Promise.all(
+              ids.map((layerId) =>
+                histogramService.computeHistogram({ layerId, binCount: BINS, range, excludeZeros: false, allFrames: true }),
+              ),
+            )
+          : usable;
+      return pooledWindow(common, computePercentileFromBins as Parameters<typeof pooledWindow>[1]);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -586,18 +664,29 @@ export class LayerApiImpl implements LayerApi {
     }
   }
 
+  /** Latest visibility request per layer (updateLayer ordering). */
+  private readonly visibilitySeq = new Map<string, number>();
+
   async updateLayer(id: string, updates: Partial<Layer>): Promise<Layer> {
     // For now, layer metadata is managed on frontend only
     // Backend only cares about render properties
 
     // If visibility changed, update opacity
     if ('visible' in updates) {
+      // A newer visibility request for the layer supersedes this one: a show
+      // that finishes its GPU promotion after a later hide must not re-show the
+      // layer (show → hide in quick succession left it drawn).
+      const seq = (this.visibilitySeq.get(id) ?? 0) + 1;
+      this.visibilitySeq.set(id, seq);
+      const current = () => this.visibilitySeq.get(id) === seq;
       if (updates.visible) {
         await this.ensureGpuResidentForLayer(id);
       }
+      if (!current()) return { id, ...updates } as Layer;
       await this.patchLayerRender(id, {
         opacity: updates.visible ? 1.0 : 0.0,
       });
+      if (!current()) return { id, ...updates } as Layer;
       this.setViewLayerVisibility(id, updates.visible ?? true);
       if (updates.visible) {
         await this.reconcileGpuResidency(id);
@@ -687,4 +776,83 @@ export class LayerApiImpl implements LayerApi {
     await this.ensureGpuResidentForLayer(id);
     await this.reconcileGpuResidency(id);
   }
+}
+
+/**
+ * The display of a 4D, non-statistic, non-label series (phase 4 v1 user 6,
+ * round 3 F1). Two kinds:
+ * - an image (a BIDS `_bold` / "bold" name, or any series that never goes
+ *   below zero): an EPI, greyscale with a robust p2–p98 window over all frames;
+ * - signed / zero-centred maps (FIR betas) added ON TOP of another volume: an
+ *   intensity overlay, the hot ramp with the bulk (≤ p90 + 10% of the way to
+ *   the robust high) hidden so the anatomy shows through. The window keeps to
+ *   the data (round 3: no LUT ends outside it): from max(data min, a − ¼ of
+ *   the visible span), so the lowest visible value sits above black, to the
+ *   series maximum, so a focal peak is not a flat white core.
+ * A window narrower than 5% of the data span (a near-constant series, a
+ * sub-bin window) widens to the data span. The base volume and statistics
+ * keep their own rules.
+ */
+export function overlayDisplay<T extends { intensity: [number, number]; threshold: [number, number]; suggestedColormap?: string }>(
+  layer: {
+    id: string;
+    type?: string;
+    volumeType?: string;
+    timeSeriesInfo?: { num_timepoints: number } | null;
+    name?: string;
+    sourcePath?: string;
+  },
+  range: T,
+  dataRange: { min: number; max: number },
+  isStatistic: boolean,
+  histogram?: { bins: HistogramData['bins']; totalCount: number; minValue?: number; maxValue?: number },
+): T {
+  if (isStatistic || layer.type === 'label' || layer.type === 'mask') return range;
+  const fourD = (layer.timeSeriesInfo?.num_timepoints ?? 0) >= 2 || layer.volumeType === 'TimeSeries4D';
+  if (!fourD) return range;
+  const has = histogram && histogram.totalCount > 0 && histogram.bins.length > 0;
+  const pct = (q: number) => computePercentileFromBins(histogram!.bins, histogram!.totalCount, q);
+  const lo = has && Number.isFinite(histogram!.minValue) ? histogram!.minValue! : dataRange.min;
+  const hi = has && Number.isFinite(histogram!.maxValue) ? histogram!.maxValue! : dataRange.max;
+  const floor = (a: number, b: number): [number, number] =>
+    b - a >= 0.05 * (hi - lo) || !(hi > lo) ? [a, b] : [lo, hi];
+
+  const named = /_bold(\.nii(\.gz)?)?$/i.test(layer.sourcePath ?? '') || /(^|[^a-z])bold([^a-z]|$)/i.test(layer.name ?? '');
+  const p2 = has ? pct(2) : null;
+  const p98 = has ? pct(98) : null;
+  // Only signed / zero-centred series (FIR betas, contrasts) are overlays; any
+  // all-positive series is an image — real EPI (swraf*.nii, rest.nii) has a
+  // noisy, non-zero background, so its p2 sits near 0 (REVIEW M3).
+  const signed = Math.min(lo, p2 ?? lo) < 0;
+  const boldLike = named || !signed;
+  if (boldLike) {
+    const intensity = p2 !== null && p98 !== null ? floor(p2, p98) : range.intensity;
+    return { ...range, intensity, threshold: [0, 0], suggestedColormap: 'gray' };
+  }
+
+  const below = useLayerStore
+    .getState()
+    .layers.some((l) => l.id !== layer.id && l.type !== 'label' && (l.order ?? 0) < (useLayerStore.getState().getLayer(layer.id)?.order ?? Infinity));
+  if (!below) return range;
+  // A focal response is a tiny share of all voxels × frames: the robust high
+  // is at least 80% of the series maximum.
+  const robust = has ? ([pct(90), Math.max(pct(99.9), 0.8 * hi)] as const) : null;
+  const [a, b] = floor(
+    ...((robust && robust[1] > robust[0] ? [robust[0] + 0.1 * (robust[1] - robust[0]), robust[1]] : range.intensity) as [number, number]),
+  );
+  const span = b > a ? (b - a) / (HOT_ROBUST_HIGH - HOT_VISIBLE_FROM) : 0;
+  const intensity: [number, number] =
+    span > 0 ? [Math.max(lo, a - HOT_VISIBLE_FROM * span), Math.max(b, Math.min(hi, a + (1 - HOT_VISIBLE_FROM) * span))] : [a, b];
+  return { ...range, intensity, suggestedColormap: 'hot', threshold: [Math.min(lo, a), a] };
+}
+
+/** Hot LUT position of the lowest visible value when the data reach below it: dark red, not black. */
+export const HOT_VISIBLE_FROM = 0.15;
+/** Hot LUT position of the robust high: yellow; values above it fade towards white at the maximum. */
+export const HOT_ROBUST_HIGH = 0.75;
+
+/** A layer whose display window should come from all its frames (4D, not a statistic). */
+export function isFourDIntensityLayer(layer: { type?: string; volumeType?: string; timeSeriesInfo?: { num_timepoints: number } | null }): boolean {
+  if (layer.type === 'label' || layer.type === 'mask') return false;
+  return (layer.timeSeriesInfo?.num_timepoints ?? 0) >= 2 || layer.volumeType === 'TimeSeries4D';
 }

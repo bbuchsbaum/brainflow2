@@ -720,9 +720,10 @@ function SliceViewCanvasBody({
         </div>
       )}
 
-      {/* Temporal metric selector (only for 4D volumes) */}
+      {/* Temporal metric selector (only for 4D volumes), left of the
+          viewport's layout button in the same row (v4 visual: they collided). */}
       {is4DVolume && (
-        <div className="absolute top-1 right-1 flex items-center gap-1">
+        <div className="absolute top-1 right-10 flex items-center gap-1">
           <TemporalMetricSelector
             value={temporalMetric}
             onChange={setTemporalMetric}

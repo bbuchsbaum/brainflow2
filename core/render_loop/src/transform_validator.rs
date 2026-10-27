@@ -37,20 +37,22 @@ impl TransformValidator {
             }
         }
 
-        // Find world bounds by transforming volume corners
+        // World bounds of the voxel-centre domain [-0.5, dim - 0.5) per axis.
+        let [lo, hx, hy, hz] = [
+            -0.5,
+            volume_dims[0] as f32 - 0.5,
+            volume_dims[1] as f32 - 0.5,
+            volume_dims[2] as f32 - 0.5,
+        ];
         let corners = [
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(volume_dims[0] as f32, 0.0, 0.0),
-            Point3::new(0.0, volume_dims[1] as f32, 0.0),
-            Point3::new(0.0, 0.0, volume_dims[2] as f32),
-            Point3::new(volume_dims[0] as f32, volume_dims[1] as f32, 0.0),
-            Point3::new(volume_dims[0] as f32, 0.0, volume_dims[2] as f32),
-            Point3::new(0.0, volume_dims[1] as f32, volume_dims[2] as f32),
-            Point3::new(
-                volume_dims[0] as f32,
-                volume_dims[1] as f32,
-                volume_dims[2] as f32,
-            ),
+            Point3::new(lo, lo, lo),
+            Point3::new(hx, lo, lo),
+            Point3::new(lo, hy, lo),
+            Point3::new(lo, lo, hz),
+            Point3::new(hx, hy, lo),
+            Point3::new(hx, lo, hz),
+            Point3::new(lo, hy, hz),
+            Point3::new(hx, hy, hz),
         ];
 
         let mut min_world = Point3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
@@ -94,12 +96,9 @@ impl TransformValidator {
     ) -> PointValidation {
         let voxel = transform.transform_point(world_point);
 
-        let in_bounds = voxel.x >= 0.0
-            && voxel.x < volume_dims[0] as f32
-            && voxel.y >= 0.0
-            && voxel.y < volume_dims[1] as f32
-            && voxel.z >= 0.0
-            && voxel.z < volume_dims[2] as f32;
+        // Voxel-centre domain, shared with the GPU samplers and CPU renderer.
+        let in_bounds =
+            (0..3).all(|axis| voxel[axis] >= -0.5 && voxel[axis] < volume_dims[axis] as f32 - 0.5);
 
         PointValidation {
             voxel_coords: voxel,
@@ -112,33 +111,24 @@ impl TransformValidator {
         }
     }
 
-    /// Calculate distance from voxel point to volume bounds
+    /// Distance (in voxels) from a point to the voxel-centre domain
+    /// [-0.5, dim - 0.5) on each axis.
     fn distance_to_bounds(voxel: &Point3<f32>, dims: [u32; 3]) -> f32 {
-        let dx = if voxel.x < 0.0 {
-            -voxel.x
-        } else if voxel.x >= dims[0] as f32 {
-            voxel.x - dims[0] as f32 + 1.0
-        } else {
-            0.0
-        };
-
-        let dy = if voxel.y < 0.0 {
-            -voxel.y
-        } else if voxel.y >= dims[1] as f32 {
-            voxel.y - dims[1] as f32 + 1.0
-        } else {
-            0.0
-        };
-
-        let dz = if voxel.z < 0.0 {
-            -voxel.z
-        } else if voxel.z >= dims[2] as f32 {
-            voxel.z - dims[2] as f32 + 1.0
-        } else {
-            0.0
-        };
-
-        (dx * dx + dy * dy + dz * dz).sqrt()
+        (0..3)
+            .map(|axis| {
+                let low = -0.5;
+                let high = dims[axis] as f32 - 0.5;
+                let d = if voxel[axis] < low {
+                    low - voxel[axis]
+                } else if voxel[axis] >= high {
+                    voxel[axis] - high
+                } else {
+                    0.0
+                };
+                d * d
+            })
+            .sum::<f32>()
+            .sqrt()
     }
 
     /// Validate multiple transforms for alignment in world space
@@ -298,6 +288,25 @@ mod tests {
     }
 
     #[test]
+    fn point_validation_uses_voxel_centre_domain() {
+        let identity = Matrix4::identity();
+        let check = |x: f32| {
+            TransformValidator::validate_world_point(
+                &Point3::new(x, 0.0, 0.0),
+                &identity,
+                [4, 4, 4],
+            )
+        };
+        assert!(check(-0.5).in_bounds);
+        assert!(check(3.49).in_bounds);
+        assert!(!check(3.5).in_bounds);
+        let below = check(-1.5);
+        assert!(!below.in_bounds);
+        assert!((below.distance_to_bounds - 1.0).abs() < 1e-6);
+        assert!((check(4.5).distance_to_bounds - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_multi_volume_alignment() {
         let volumes = TestVolumeSet::create_aligned();
         let (anat_tfm, func_tfm, detail_tfm) = volumes.get_transforms();
@@ -313,10 +322,11 @@ mod tests {
         assert_eq!(alignment.volume_count, 3);
         assert!(alignment.all_axis_aligned);
 
-        // Check global bounds encompass all volumes
+        // Global bounds span the anatomical voxel-centre domain: 256 1 mm voxels
+        // centred from -128 to 127 cover [-128.5, 127.5).
         let (min, max) = alignment.global_world_bounds;
-        assert!(min.x <= -128.0 && max.x >= 128.0);
-        assert!(min.y <= -128.0 && max.y >= 128.0);
-        assert!(min.z <= -128.0 && max.z >= 128.0);
+        assert!(min.x <= -128.5 && max.x >= 127.5);
+        assert!(min.y <= -128.5 && max.y >= 127.5);
+        assert!(min.z <= -128.5 && max.z >= 127.5);
     }
 }

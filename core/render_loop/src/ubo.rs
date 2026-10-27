@@ -222,7 +222,14 @@ pub struct SliceFeatureUbo {
     pub outline_mode: u32,
     pub outline_color: [f32; 4],
     pub outline_thickness_px: f32,
-    pub _pad1: [f32; 3],
+    /// 0 = uniform `outline_color`; 1 = each region's LUT colour, with alpha
+    /// `outline_color[3]` x LUT alpha (hidden regions stay hidden).
+    pub outline_color_mode: u32,
+    /// Dark halo band width in screen pixels (0 = none). Single-label mode draws
+    /// it just outside the region; all-boundaries mode draws a second inner band.
+    pub halo_thickness_px: f32,
+    pub _pad1: f32,
+    pub halo_color: [f32; 4],
 }
 
 impl Default for SliceFeatureUbo {
@@ -234,12 +241,15 @@ impl Default for SliceFeatureUbo {
             outline_mode: 0,
             outline_color: [1.0, 1.0, 0.0, 1.0],
             outline_thickness_px: 1.0,
-            _pad1: [0.0; 3],
+            outline_color_mode: 0,
+            halo_thickness_px: 0.0,
+            _pad1: 0.0,
+            halo_color: [0.0, 0.0, 0.0, 0.6],
         }
     }
 }
 
-const _: [(); 48] = [(); std::mem::size_of::<SliceFeatureUbo>()];
+const _: [(); 64] = [(); std::mem::size_of::<SliceFeatureUbo>()];
 
 // --- Optimized layer data struct for performance shader ---
 // This struct includes precomputed values to reduce per-pixel calculations

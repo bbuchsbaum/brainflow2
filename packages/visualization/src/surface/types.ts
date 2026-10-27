@@ -31,6 +31,12 @@ export interface SurfaceRenderable {
   geometry: SurfaceRenderableGeometry;
   layers: ReadonlyMap<string, SurfaceRenderableLayer> | readonly SurfaceRenderableLayer[];
   metadata?: unknown;
+  /**
+   * Per-vertex folding values for the grey underlay (FreeSurfer convention:
+   * positive in sulci): a `.sulc`/`.curv`/`.shape.gii` file, or sulcal depth
+   * computed from the matching folded mesh. Null/absent: plain base colour.
+   */
+  curvature?: Float32Array | null;
 }
 
 export interface SurfaceLightingSettings {
@@ -57,6 +63,8 @@ export interface SurfaceDisplaySettings {
   opacity: number;
   smoothing: number;
   flatShading: boolean;
+  /** Draw the folding (curvature / sulcal depth) underlay when a surface has one. */
+  showCurvature?: boolean;
 }
 
 export interface SurfaceViewSettings {
@@ -78,6 +86,7 @@ export const DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS: SurfaceDisplaySettings = {
   opacity: 1,
   smoothing: 0,
   flatShading: false,
+  showCurvature: true,
 };
 
 export const DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS: SurfaceMaterialSettings = {
@@ -124,10 +133,69 @@ export interface SurfaceReconciliationPlan {
   orderChanged: boolean;
 }
 
-export type SurfaceCanvasExporter = (options: {
+/** A camera pose for a figure capture (D3). */
+/** An anatomical figure view, or 'current': the camera as the user left it. */
+export type SurfaceExportView = 'current' | 'lateral' | 'medial' | 'dorsal' | 'ventral' | 'anterior' | 'posterior';
+
+export interface SurfaceExportPose {
+  view: SurfaceExportView;
+  /**
+   * Which hemisphere to show: 'left' / 'right' hide the other one; 'both'
+   * shows every visible surface (a paired view when a left and a right
+   * surface are loaded). Default: every visible surface, single view of the
+   * first.
+   */
+  hemisphere?: 'left' | 'right' | 'both';
+}
+
+/** The camera's screen basis in world (RAS) coordinates. */
+export interface SurfaceCameraBasis {
+  /** World direction pointing to screen right. */
+  right: [number, number, number];
+  /** World direction pointing to screen up. */
+  up: [number, number, number];
+  /** World direction from the camera into the scene. */
+  forward: [number, number, number];
+}
+
+export interface SurfaceCaptureResult {
+  bytes: Uint8Array;
+  /** The pose's camera basis (for an orientation glyph in the figure). */
+  basis: SurfaceCameraBasis | null;
+  /** Hemispheres drawn. */
+  hemispheres: Array<'left' | 'right'>;
+}
+
+export type SurfaceCanvasExporter = ((options: {
   format: 'png' | 'jpg';
   transparentBackground: boolean;
-}) => Promise<Uint8Array>;
+}) => Promise<Uint8Array>) & {
+  /**
+   * Render one pose at width x height device pixels on the live viewer
+   * (controls paused, other hemisphere hidden, anatomical view, then the
+   * camera, visibility and marker restored). Present on viewers that support
+   * figure capture.
+   */
+  capturePose?: (options: {
+    pose: SurfaceExportPose;
+    width: number;
+    height: number;
+    transparentBackground: boolean;
+    background?: string;
+    showMarker?: boolean;
+  }) => Promise<SurfaceCaptureResult>;
+  /** What a figure can show: hemispheres on screen, the viewport's aspect, the largest renderable side. */
+  figureInfo?: () => SurfaceFigureInfo;
+};
+
+export interface SurfaceFigureInfo {
+  /** Hemispheres of the visible surfaces (left first). */
+  hemispheres: Array<'left' | 'right'>;
+  /** The on-screen viewport, CSS px. */
+  viewport: { width: number; height: number };
+  /** Largest pane side the WebGL context can render (drawing buffer limit). */
+  maxSide: number;
+}
 
 export interface NeuroSurfaceCanvasProps {
   surfaces: readonly SurfaceRenderable[];
@@ -172,13 +240,21 @@ export interface NeuroSurfaceCanvasProps {
   onActivate?: () => void;
   onContextMenu?: React.MouseEventHandler<HTMLDivElement>;
   onExporterChange?: (exporter: SurfaceCanvasExporter | null) => void;
+  /** The camera's screen basis whenever it changes (orientation glyph, D5). */
+  onCameraChange?: (basis: SurfaceCameraBasis) => void;
+  /**
+   * Bump to re-apply `viewpoint` even when its value is unchanged (the preset
+   * pressed again after an orbit). The viewpoint is also re-applied after the
+   * first fit of a new mesh.
+   */
+  viewpointNonce?: number;
   onError?: (error: unknown) => void;
   /**
    * Fired when the user clicks (not drags) a point on a rendered surface, with
    * the picked location in the surface's own vertex frame (world [x, y, z]).
    * Used to drive a reverse linked cursor (surface click → volume crosshair).
    */
-  onSurfacePick?: (world: [number, number, number]) => void;
+  onSurfacePick?: (world: [number, number, number], picked?: { handle: string; vertex: number }) => void;
 }
 
 export type NeurosurfaceLayerConfig =

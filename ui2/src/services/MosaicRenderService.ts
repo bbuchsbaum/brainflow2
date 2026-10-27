@@ -6,6 +6,7 @@
  */
 
 import { getApiService } from '@/services/apiService';
+import { widenToVoxelEdges } from '@/utils/voxelEdges';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getEventBus } from '@/events/EventBus';
 import { useRenderStateStore } from '@/stores/renderStateStore';
@@ -81,10 +82,14 @@ export class MosaicRenderService {
         }) as [number, number, number];
         const framing = brain
           ? brainFraming(brain, voxelSize)
-          : {
-              min: [0, 1, 2].map(d => Math.min(...allBounds.map(b => b.min[d]))),
-              max: [0, 1, 2].map(d => Math.max(...allBounds.map(b => b.max[d]))),
-            };
+          : (() => {
+              // The union of the visible volumes' outer voxel edges (native N1).
+              const edges = allBounds.map(b => widenToVoxelEdges(b, b.dims));
+              return {
+                min: [0, 1, 2].map(d => Math.min(...edges.map(b => b.min[d]))),
+                max: [0, 1, 2].map(d => Math.max(...edges.map(b => b.max[d]))),
+              };
+            })();
         const dimension = axis === 'sagittal' ? 0 : axis === 'coronal' ? 1 : 2;
         const sampling = { min: bounds.min[dimension], max: bounds.max[dimension], count: meta.sliceCount, bounds: framing };
         slicePositionAtIndex(sampling, 0); // Validate before caching usable geometry.

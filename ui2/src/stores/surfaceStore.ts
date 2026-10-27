@@ -32,6 +32,8 @@ export interface SurfaceDataLayer {
   parcelOverlay?: SurfaceParcelOverlay;
   id: string;
   name: string;
+  /** The overlay file it was loaded from (hemisphere pairing compares subjects). */
+  sourcePath?: string;
   dataHandle?: string;
   values: Float32Array;
   indices?: Uint32Array; // Optional vertex indices for sparse data
@@ -83,6 +85,13 @@ export interface LoadedSurface {
       smoothingKernel?: number;
     };
   };
+  /**
+   * Folding values for the grey underlay (FreeSurfer convention: positive in
+   * sulci), set by SurfaceCurvatureService: a sulc / curv file next to the
+   * mesh, or sulcal depth computed from the matching folded mesh.
+   */
+  curvature?: Float32Array | null;
+  curvatureSource?: { kind: 'file'; path: string } | { kind: 'computed'; from: string } | null;
 }
 
 export interface SurfaceLightingSettings {
@@ -109,6 +118,8 @@ export interface SurfaceDisplaySettings {
   opacity: number;
   smoothing: number;
   flatShading: boolean;
+  /** Grey folding underlay where the surface has curvature (D2). */
+  showCurvature: boolean;
 }
 
 export type SurfaceSelectionItemType = 'geometry' | 'dataLayer' | null;
@@ -151,6 +162,7 @@ export const DEFAULT_SURFACE_DISPLAY_SETTINGS: SurfaceDisplaySettings = {
   opacity: 1.0,
   smoothing: 0.0,
   flatShading: false,
+  showCurvature: true,
 };
 
 export const DEFAULT_SURFACE_VIEW_SETTINGS: SurfaceViewSettings = {
@@ -294,12 +306,25 @@ interface SurfaceState {
   setSurfaceVisibility: (surfaceId: string, visible: boolean) => void;
   removeSurface: (surfaceId: string) => void;
   setViewpoint: (viewpoint: string) => void;
+  /** Attach (or clear) a surface's folding underlay values. */
+  setSurfaceCurvature: (
+    handle: string,
+    curvature: Float32Array | null,
+    source: LoadedSurface['curvatureSource'],
+  ) => void;
   /**
    * Bumped to re-apply the current viewpoint (the preset pressed again after
    * an orbit): the canvas passes the viewer a new prop value for the same view.
    */
   viewpointNonce: number;
   reapplyViewpoint: () => void;
+  /**
+   * The vertex the user last clicked on a surface, and where (native check
+   * item 9): known on any mesh, inflated too; the Vertex slot reads it while
+   * the crosshair is still at that point.
+   */
+  pickedVertex: { surfaceId: string; vertex: number; world: [number, number, number] } | null;
+  setPickedVertex: (picked: { surfaceId: string; vertex: number; world: [number, number, number] } | null) => void;
   registerSurfaceView: (surfaceViewId: string, surfaceHandle: string) => void;
   unregisterSurfaceView: (surfaceViewId: string) => void;
   activateSurfaceView: (surfaceViewId: string) => void;
@@ -350,6 +375,8 @@ export const useSurfaceStore = create<SurfaceState>()(
       loadError: null,
       viewpoint: 'lateral',
       viewpointNonce: 0,
+      pickedVertex: null,
+      setPickedVertex: (picked) => set({ pickedVertex: picked }),
       showControls: false,
       surfaceViewSettings: new Map(),
       surfaceViewHandles: new Map(),
@@ -655,6 +682,16 @@ export const useSurfaceStore = create<SurfaceState>()(
       // Set viewpoint
       reapplyViewpoint: () => {
         set((state) => ({ viewpointNonce: state.viewpointNonce + 1 }));
+      },
+
+      setSurfaceCurvature: (handle, curvature, source) => {
+        set((state) => {
+          const surface = state.surfaces.get(handle);
+          if (!surface || (surface.curvature === curvature && surface.curvatureSource === source)) return state;
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(handle, { ...surface, curvature, curvatureSource: source });
+          return { surfaces };
+        });
       },
 
       setViewpoint: (viewpoint: string) => {
