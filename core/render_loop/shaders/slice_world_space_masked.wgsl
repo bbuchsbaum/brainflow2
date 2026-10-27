@@ -234,7 +234,9 @@ fn sampleLayerLabelId(layer: LayerData, world_mm: vec3<f32>) -> u32 {
 
     let voxel_coord = voxel_coord_h.xyz / voxel_coord_h.w;
     let dim_f = vec3<f32>(layer.dim);
-    if (any(voxel_coord < vec3<f32>(0.0)) || any(voxel_coord >= dim_f)) {
+    // Voxel-centre domain: voxel i covers [i-0.5, i+0.5), so the volume spans
+    // [-0.5, dim-0.5). Matches the CPU renderer and picker (round to nearest).
+    if (any(voxel_coord < vec3<f32>(-0.5)) || any(voxel_coord >= dim_f - 0.5)) {
         return 0u;
     }
 
@@ -340,7 +342,9 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
     
     // Check bounds - return transparent for out-of-bounds
     let dim_f = vec3<f32>(layer.dim);
-    if (any(voxel_coord < vec3<f32>(0.0)) || any(voxel_coord >= dim_f)) {
+    // Voxel-centre domain: voxel i covers [i-0.5, i+0.5), so the volume spans
+    // [-0.5, dim-0.5). Matches the CPU renderer and picker (round to nearest).
+    if (any(voxel_coord < vec3<f32>(-0.5)) || any(voxel_coord >= dim_f - 0.5)) {
         return vec4<f32>(0.0);
     }
     

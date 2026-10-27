@@ -90,6 +90,10 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
   `shaders::compose_shader_source`; reflection must validate the composed source.
   `ThresholdMode::Inside = 4` retains inclusive ranges for the reusable slice
   adapter; `Range = 0` retains its existing hide-inside semantics.
+- Slice sampling uses the voxel-centre domain `[-0.5, dim-0.5)` (texture coordinate
+  `(v+0.5)/dim`), shared with `neuro-cpu` and the bridge picker; see
+  `docs/COORDINATE_SYSTEM_SPEC.md`. `neuro-integration-tests/tests/edge_domain_agreement_test.rs`
+  checks GPU/CPU edge coverage.
 - Declarative rendering owns targets through `ensure_view`; do not also allocate
   a legacy offscreen target. Facade consumers release closed views with
   `release_view`/`clear_views`; final volume teardown also clears cached views.

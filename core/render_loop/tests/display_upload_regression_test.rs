@@ -10,9 +10,10 @@ fn space() -> NeuroSpace {
 }
 
 fn view(id: &str, high: f32) -> ViewState {
+    // The 8-voxel grid spans [-0.5, 7.5) in x/y; centre the 8 mm field on it.
     ViewState::from_basic_params(
         id.into(),
-        [4., 4., 4.],
+        [3.5, 3.5, 4.],
         SliceOrientation::Axial,
         8.,
         [16, 16],

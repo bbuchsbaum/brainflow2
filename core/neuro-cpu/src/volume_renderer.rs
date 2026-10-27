@@ -142,8 +142,12 @@ mod tests {
                 .render_volume_slice(&volume, slice, 0.0, 1.0, BuiltinColormap::Grayscale, 1.0)
                 .unwrap()
         };
+        // [1, 1] is inside the final voxel's centre-domain half; the singleton z
+        // axis spans [-0.5, 0.5).
         assert_ne!(render(&slice), vec![51, 51, 51, 255]);
-        slice.origin_mm[2] = 1.0;
+        slice.origin_mm[2] = -0.5;
+        assert_ne!(render(&slice), vec![51, 51, 51, 255]);
+        slice.origin_mm[2] = 0.5;
         assert_eq!(render(&slice), vec![51, 51, 51, 255]);
     }
 

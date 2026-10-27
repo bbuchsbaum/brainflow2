@@ -254,7 +254,9 @@ fn sampleLayerLabelIdOptimized(layer: LayerData, world_mm: vec3<f32>) -> u32 {
 
     let voxel_coord = voxel_coord_h.xyz / voxel_coord_h.w;
     let dim_f = vec3<f32>(layer.dim);
-    if (any(voxel_coord < vec3<f32>(0.0)) || any(voxel_coord >= dim_f)) {
+    // Voxel-centre domain: voxel i covers [i-0.5, i+0.5), so the volume spans
+    // [-0.5, dim-0.5). Matches the CPU renderer and picker (round to nearest).
+    if (any(voxel_coord < vec3<f32>(-0.5)) || any(voxel_coord >= dim_f - 0.5)) {
         return 0u;
     }
 
@@ -359,7 +361,9 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     
     // Vectorized bounds check
     let dim_f = vec3<f32>(layer.dim);
-    let in_bounds = all(voxel_coord >= vec3<f32>(0.0)) && all(voxel_coord < dim_f);
+    // Voxel-centre domain: voxel i covers [i-0.5, i+0.5), so the volume spans
+    // [-0.5, dim-0.5). Matches the CPU renderer and picker (round to nearest).
+    let in_bounds = all(voxel_coord >= vec3<f32>(-0.5)) && all(voxel_coord < dim_f - 0.5);
     if (!in_bounds) {
         return vec4<f32>(0.0);
     }
