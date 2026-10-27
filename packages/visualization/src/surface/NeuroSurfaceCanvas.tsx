@@ -309,6 +309,12 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       const marker = markerMeshRef.current;
       const markerVisible = marker?.visible ?? false;
       if (marker) marker.visible = showMarker && markerVisible;
+      // The viewer's own pick crosshair (the small "+" a click leaves on a
+      // vertex) is interaction state too: not drawn into a figure (native check
+      // item 10).
+      const pickCrosshair = viewer.crosshair?.group as { visible: boolean } | undefined;
+      const pickCrosshairVisible = pickCrosshair?.visible ?? false;
+      if (pickCrosshair) pickCrosshair.visible = showMarker && pickCrosshairVisible;
       const previousBackground = viewer.getFigureBackground?.();
       const pairId = 'bf-capture-pair';
       let paired = false;
@@ -366,6 +372,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
           if (mesh && visibility.has(h)) mesh.visible = visibility.get(h)!;
         }
         if (marker) marker.visible = markerVisible;
+        if (pickCrosshair) pickCrosshair.visible = pickCrosshairVisible;
         if (previousBackground && viewer.setFigureBackground) {
           viewer.setFigureBackground(previousBackground.color ?? 0x000000, previousBackground.transparent ?? false);
         }
@@ -985,7 +992,11 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         const indices: [number, number, number] = [hit.face.a, hit.face.b, hit.face.c];
         const triangle = indices.map(i => [positions.getX(i), positions.getY(i), positions.getZ(i)] as [number, number, number]) as [[number, number, number], [number, number, number], [number, number, number]];
         const world = mapPickedTriangle(reference, indices, triangle, [local.x, local.y, local.z]);
-        if (world) onSurfacePick(world);
+        // The picked vertex (the triangle corner nearest the hit), known on any
+        // mesh, inflated too: a vertex readout needs no anatomical mesh for it.
+        const d2 = triangle.map(([x, y, z]) => (x - local.x) ** 2 + (y - local.y) ** 2 + (z - local.z) ** 2);
+        const corner = d2.indexOf(Math.min(...d2));
+        if (world) onSurfacePick(world, handle ? { handle, vertex: indices[corner] } : undefined);
       }
     };
 

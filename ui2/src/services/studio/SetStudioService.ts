@@ -16,7 +16,7 @@ export class SetStudioService {
 
   async openManifestInStudio(): Promise<string> {
     const workspaceId = await this.openStudioWorkspace();
-    await getSetIngestionService().openImportPreview('manifest');
+    await getSetIngestionService().chooseManifestPreview();
     return workspaceId;
   }
 

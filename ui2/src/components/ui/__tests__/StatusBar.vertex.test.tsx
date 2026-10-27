@@ -50,11 +50,31 @@ describe('StatusBar Vertex slot (phase 4, D1)', () => {
   });
 
   it('an inflated mesh alone: "—", saying what to load', () => {
-    useSurfaceStore.setState({ surfaces: new Map([['infl', mesh('infl', 'inflated', [0, 0, 0, 10, 0, 0, 0, 10, 0], true)]]) });
+    useSurfaceStore.setState({ pickedVertex: null, surfaces: new Map([['infl', mesh('infl', 'inflated', [0, 0, 0, 10, 0, 0, 0, 10, 0], true)]]) });
     render(<StatusBar />);
     const slot = screen.getByTestId('status-vertex');
     expect(slot).toHaveTextContent('—');
     expect(slot.closest('[title]')).toHaveAttribute('title', 'Load the matching pial or white surface for an anatomical readout');
+  });
+
+  it('an inflated mesh alone: a vertex clicked on it is shown with its value (native check item 9)', () => {
+    useSurfaceStore.setState({
+      surfaces: new Map([['infl', mesh('infl', 'inflated', [0, 0, 0, 10, 0, 0, 0, 10, 0], true)]]),
+      pickedVertex: { surfaceId: 'infl', vertex: 2, world: [10, 0, 0] },
+    });
+    render(<StatusBar />);
+    const slot = screen.getByTestId('status-vertex');
+    expect(slot).toHaveTextContent('2 · sensorimotor.func 9');
+    expect(slot.closest('[title]')?.getAttribute('title')).toMatch(/^Vertex 2, clicked on the surface/);
+  });
+
+  it('a click elsewhere since (the crosshair moved in a volume) falls back to the crosshair lookup', () => {
+    useSurfaceStore.setState({
+      surfaces: new Map([['infl', mesh('infl', 'inflated', [0, 0, 0, 10, 0, 0, 0, 10, 0], true)]]),
+      pickedVertex: { surfaceId: 'infl', vertex: 2, world: [99, 0, 0] },
+    });
+    render(<StatusBar />);
+    expect(screen.getByTestId('status-vertex')).toHaveTextContent('—');
   });
 
   it('hidden while a volume pane is active', () => {

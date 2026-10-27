@@ -8,6 +8,7 @@
  */
 
 import { linkModeOf, panelDisplayLayers } from '@/utils/compareDisplay';
+import { widenToVoxelEdges } from '@/utils/voxelEdges';
 import type { CompareLinkMode } from '@/types/comparison';
 import { getApiService } from '@/services/apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -220,7 +221,9 @@ export class ComparisonRenderService {
         },
       });
 
-      const viewPlane = this.createBoundsFittedViewPlane(panel, bounds, crosshair, width, height);
+      // Frame the outer voxel edges, not the outer voxel centres (native N1).
+      const dims = metadata?.dimensions ?? (bounds as { dims?: number[] }).dims;
+      const viewPlane = this.createBoundsFittedViewPlane(panel, widenToVoxelEdges(bounds, dims), crosshair, width, height);
       return { viewPlane, crosshair };
     }
 

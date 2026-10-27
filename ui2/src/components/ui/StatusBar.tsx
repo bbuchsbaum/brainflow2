@@ -433,11 +433,36 @@ function StatusVertexReadout({
   overlayName: string | null;
 }) {
   const { reading, anatomical } = useSurfaceValueAtCrosshair(surfaceId, overlayId ?? "");
-  const nearest = useSurfaceNearestVertex(surfaceId);
+  const crosshairNearest = useSurfaceNearestVertex(surfaceId);
+  // A vertex clicked on this surface (any mesh, inflated too: native check
+  // item 9) while the crosshair is still where the click put it. The
+  // crosshair → vertex lookup through a pial / white mesh stays for a
+  // crosshair moved in a volume.
+  const picked = useSurfaceStore((state) => state.pickedVertex);
+  const crosshair = useViewStateStore((state) => state.viewState.crosshair.world_mm);
+  const pickedHere =
+    picked && picked.surfaceId === surfaceId && picked.world.every((v, i) => Math.abs(v - crosshair[i]) < 1e-3)
+      ? picked
+      : null;
+  const pickedValue = useSurfaceStore((state) => {
+    if (!pickedHere || !overlayId) return null;
+    const v = state.surfaces.get(surfaceId)?.layers.get(overlayId)?.values?.[pickedHere.vertex];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  });
+  const fromPick = !!pickedHere && !(anatomical && crosshairNearest);
+  const nearest = fromPick ? { vertex: pickedHere!.vertex, distanceMm: 0 } : crosshairNearest;
   // The value is labelled with its overlay (v1 function 9): "32,116 · sensorimotor.func 59,391".
   const map = overlayName ? overlayMapName(overlayName) : null;
-  const value = reading ? formatLayerValue(reading.value) : null;
-  const title = !anatomical
+  const value = fromPick
+    ? pickedValue !== null
+      ? formatLayerValue(pickedValue)
+      : null
+    : reading
+      ? formatLayerValue(reading.value)
+      : null;
+  const title = fromPick
+    ? `Vertex ${nearest!.vertex}, clicked on the surface` + (value !== null && overlayName ? `; ${overlayName} = ${value}` : "")
+    : !anatomical
     ? "Load the matching pial or white surface for an anatomical readout"
     : nearest
       ? `Vertex ${nearest.vertex}, ${nearest.distanceMm.toFixed(1)} mm from the crosshair` +
@@ -448,7 +473,7 @@ function StatusVertexReadout({
       id="vertex"
       title={title}
       value={
-        anatomical && nearest ? (
+        (anatomical || fromPick) && nearest ? (
           <span
             data-testid="status-vertex"
             aria-label={

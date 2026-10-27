@@ -87,9 +87,10 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   // SurfaceGeometryData exports vertices_world; both sides use the image/world
   // affine contract. Do not apply an additional axis reflection here.
   const markerWorldPosition = crosshairVisible ? crosshairWorld : null;
-  const handleSurfacePick = useCallback((world: [number, number, number]) => {
+  const handleSurfacePick = useCallback((world: [number, number, number], picked?: { handle: string; vertex: number }) => {
     if (!world.every(Number.isFinite)) return;
     markActive();
+    useSurfaceStore.getState().setPickedVertex(picked ? { surfaceId: picked.handle, vertex: picked.vertex, world } : null);
     void useViewStateStore.getState().setCrosshair(world, true);
   }, [markActive]);
 

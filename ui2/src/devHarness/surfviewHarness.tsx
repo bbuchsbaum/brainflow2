@@ -53,6 +53,23 @@ export function Harness() {
       : [{ id: 'overlay', values: scalar(value), colormap: 'viridis', range: [0, 1], threshold: threshold ? [0, 1] : [0, 0], opacity }];
     return [{ handle: 'sphere', geometry: { vertices, faces, hemisphere: 'left' }, layers }];
   }, [mode, value, threshold, opacity, rampMode, rampColormap]);
+  // A figure pose with and without interaction markers (native check item 10).
+  const capturePose = async (showMarker: boolean) => {
+    if (!exporter?.capturePose) return;
+    const { bytes } = await exporter.capturePose({ pose: { view: 'current' } as never, width: 300, height: 300, transparentBackground: false, showMarker });
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+    img.onload = () => {
+      const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d')!; ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, img.width, img.height).data;
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) sum += data[i] * 3 + data[i + 1] * 5 + data[i + 2] * 7;
+      document.querySelector('#pose')!.textContent = String(sum);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  };
   const inspectRuntime = () => {
     const host = document.createElement('div'); document.body.appendChild(host);
     const viewer = new NeuroSurfaceViewer(host, 100, 100, { showControls: false, useShaders: false }, 'lateral');
@@ -97,9 +114,10 @@ export function Harness() {
     <button onClick={() => setMounted(v => !v)}>mount</button><button onClick={() => setSize(v => v === 400 ? 300 : 400)}>resize</button>
     <button onClick={() => setRampMode('scalar')}>ramp scalar</button><button onClick={() => setRampMode('volume')}>ramp volume</button><button onClick={() => setRampMode('zero')}>ramp zero</button>
     <button onClick={() => setMarker(v => !v)}>marker</button>
-    <button disabled={!exporter} onClick={exportImage}>export</button><button onClick={inspectRuntime}>inspect runtime</button>
+    <button disabled={!exporter} onClick={exportImage}>export</button>
+    <button disabled={!exporter} onClick={() => void capturePose(false)}>pose</button><button disabled={!exporter} onClick={() => void capturePose(true)}>pose with crosshair</button><button onClick={inspectRuntime}>inspect runtime</button>
   </div><div id="viewer" style={{ width: size, height: size }}>{mounted && <NeuroSurfaceCanvas surfaces={surfaces} width={size} height={size} viewpoint='dorsal' projectionSettings={{ useGPUProjection: rampMode === 'volume' }} materialSettings={{ ...DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, surfaceColor: color }} onExporterChange={onExporterChange} onError={onError} onSurfacePick={onPick} markerWorldPosition={marker ? [0, 0, 20] : undefined} />}</div>
-  <output id="runtime"/><output id="pixels"/><output id="pick">{pick}</output><output id="error">{error}</output></>;
+  <output id="runtime"/><output id="pose"/><output id="pixels"/><output id="pick">{pick}</output><output id="error">{error}</output></>;
 }
 
 createRoot(document.getElementById('root')!).render(<Harness />);

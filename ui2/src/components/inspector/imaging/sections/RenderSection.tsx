@@ -765,7 +765,11 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
     const { surfaceId, surfaceLayerId } = item.ref;
     const update = (key: string, value: unknown) =>
       useSurfaceStore.getState().updateLayerProperty(surfaceId, surfaceLayerId, key, value);
-    if (layer.parcelOverlay)
+    // Parcel and continuous scalar overlays share the editable rows; a
+    // threshold hides values within [low, high] so the folding / base colour
+    // shows through (native check item 8: continuous overlays had none).
+    // Precoloured (RGBA / label) overlays stay read-only.
+    if (layer.parcelOverlay || (!layer.rgba && !layer.labels && !layer.atlasConfig))
       return (
         <>
           <FieldRow label="Visible">
@@ -797,6 +801,7 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
           <ColormapBlock value={layer.colormap} onChange={(v) => update('colormap', v)} />
           <InspectorRange
             label="Threshold"
+            mode="hidden"
             low={layer.threshold?.[0] ?? 0}
             high={layer.threshold?.[1] ?? 0}
             min={Math.min(0, layer.dataRange[0])}

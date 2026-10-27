@@ -230,6 +230,8 @@ describe("WorkspaceRouter", () => {
       { type: "mosaic", testid: "route-mosaic" },
       { type: "comparison", testid: "route-comparison" },
       { type: "integrated", testid: "route-integrated" },
+      // NeuroTabs workspace shape: Studio has the bottom Plot dock too.
+      { type: "set-studio", testid: "route-set-studio" },
     ];
 
     for (const { type, testid } of cases) {
@@ -243,9 +245,8 @@ describe("WorkspaceRouter", () => {
     }
   });
 
-  it("does NOT wrap non-imaging workspaces in the bottom dock", () => {
+  it("does NOT wrap the BIDS and analysis workspaces in the bottom dock", () => {
     const cases: Array<{ type: WorkspaceType; testid: string }> = [
-      { type: "set-studio", testid: "route-set-studio" },
       { type: "bids-explorer", testid: "route-bids-explorer" },
       { type: "analysis-workbench", testid: "route-analysis-workbench" },
     ];

@@ -210,7 +210,10 @@ export interface NeuroSurfaceCanvasProps {
      * the picked location in the surface's own vertex frame (world [x, y, z]).
      * Used to drive a reverse linked cursor (surface click → volume crosshair).
      */
-    onSurfacePick?: (world: [number, number, number]) => void;
+    onSurfacePick?: (world: [number, number, number], picked?: {
+        handle: string;
+        vertex: number;
+    }) => void;
 }
 export type NeurosurfaceLayerConfig = {
     type: 'base';

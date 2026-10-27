@@ -13,6 +13,13 @@ export function openDockTab(tab: DockTabId, options: { focus?: boolean } = {}): 
   if (options.focus) focusDockTab(tab);
 }
 
+/** The dock tab a View › Panels request opens, or null for a non-dock panel. */
+export function dockTabForPanel(panelType: string): DockTabId | null {
+  if (panelType === 'ClusterPanel') return 'clusters';
+  if (panelType === 'PlotPanel') return 'plot';
+  return null;
+}
+
 /** First control to focus in a tab when a command opens it. */
 const FOCUS_TARGET: Partial<Record<DockTabId, string>> = {
   clusters: '[data-testid="cluster-panel"] #cluster-threshold:not([disabled]), [data-testid="cluster-panel"] button:not([disabled])',

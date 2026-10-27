@@ -46,6 +46,22 @@ export function cornersWorld(vol: VolumeFixture): Vec3[] {
   return out;
 }
 
+/**
+ * The 8 outer voxel EDGE corners (voxel −0.5 and n − 0.5 through the affine),
+ * mirroring neuro-types `volume_edge_corners_world`: rendered view frames span
+ * the edges (native N1); bounds and the default crosshair stay on centres.
+ */
+export function edgeCornersWorld(vol: VolumeFixture): Vec3[] {
+  const [nx, ny, nz] = vol.dims.map((d) => d - 0.5);
+  const out: Vec3[] = [];
+  for (const k of [-0.5, nz])
+    for (const j of [-0.5, ny])
+      for (const i of [-0.5, nx]) {
+        out.push(voxelToWorld(vol.affine, [i, j, k]));
+      }
+  return out;
+}
+
 export function volumeBounds(vol: VolumeFixture) {
   const corners = cornersWorld(vol);
   const min: Vec3 = [Infinity, Infinity, Infinity];
@@ -81,6 +97,7 @@ function columnUnit(affine: number[][], c: number): Vec3 {
   return [v[0] / n, v[1] / n, v[2] / n];
 }
 
+/** Mirrors ViewRectMm::full_extent_to_edges (the backend's rendered-view frame). */
 export function fullExtent(
   vol: VolumeFixture,
   orient: Orientation,
@@ -103,7 +120,8 @@ export function fullExtent(
   let uMax = -Infinity;
   let vMin = Infinity;
   let vMax = -Infinity;
-  for (const corner of cornersWorld(vol)) {
+  // full_extent_to_edges: the frame reaches the outer voxel edges.
+  for (const corner of edgeCornersWorld(vol)) {
     const delta = sub(corner, cross);
     const rD = dot(right, delta);
     const dD = dot(down, delta);

@@ -48,7 +48,7 @@ import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
 import { ClusterPanelMoved } from '@/components/panels/ClusterPanelMoved';
-import { openDockTab } from './openDockTab';
+import { dockTabForPanel, openDockTab } from './openDockTab';
 // Right-rail Inspector — single tab; mode-aware via InspectorRouter.
 import { InspectorRouter } from '@/components/inspector/InspectorRouter';
 
@@ -525,9 +525,10 @@ export function GoldenLayoutRoot() {
       if (!panelType) {
         return;
       }
-      // Clusters are a bottom-dock tab (P3.5), never a centre or side pane.
-      if (panelType === 'ClusterPanel') {
-        openDockTab('clusters', { focus: true });
+      // Clusters and plots are bottom-dock tabs (P3.5), never a centre or side pane.
+      const dockTab = dockTabForPanel(panelType);
+      if (dockTab) {
+        openDockTab(dockTab, { focus: true });
         return;
       }
       console.log(`[GoldenLayoutRoot] Adding panel: ${panelType}`);
@@ -543,13 +544,6 @@ export function GoldenLayoutRoot() {
         const rightColumn = root.contentItems[2]; // Right column (third item in row)
         if (!rightColumn || rightColumn.type !== 'column') {
           console.error('[GoldenLayoutRoot] Could not find right column');
-          return;
-        }
-
-        // Plots are now hosted in the right-sidebar tab shell (VolumeLayerPanel).
-        // Keep menu commands non-fatal but avoid re-introducing a duplicate GL plot pane.
-        if (panelType === 'PlotPanel') {
-          console.info('[GoldenLayoutRoot] PlotPanel add ignored; use sidebar Plots tab.');
           return;
         }
 

@@ -318,6 +318,13 @@ interface SurfaceState {
    */
   viewpointNonce: number;
   reapplyViewpoint: () => void;
+  /**
+   * The vertex the user last clicked on a surface, and where (native check
+   * item 9): known on any mesh, inflated too; the Vertex slot reads it while
+   * the crosshair is still at that point.
+   */
+  pickedVertex: { surfaceId: string; vertex: number; world: [number, number, number] } | null;
+  setPickedVertex: (picked: { surfaceId: string; vertex: number; world: [number, number, number] } | null) => void;
   registerSurfaceView: (surfaceViewId: string, surfaceHandle: string) => void;
   unregisterSurfaceView: (surfaceViewId: string) => void;
   activateSurfaceView: (surfaceViewId: string) => void;
@@ -368,6 +375,8 @@ export const useSurfaceStore = create<SurfaceState>()(
       loadError: null,
       viewpoint: 'lateral',
       viewpointNonce: 0,
+      pickedVertex: null,
+      setPickedVertex: (picked) => set({ pickedVertex: picked }),
       showControls: false,
       surfaceViewSettings: new Map(),
       surfaceViewHandles: new Map(),

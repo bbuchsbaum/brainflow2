@@ -9,6 +9,7 @@ import { alignPlaneToCrosshair } from "./viewStateGeometry";
  */
 
 import { create } from "zustand";
+import { widenToVoxelEdges } from "@/utils/voxelEdges";
 import { subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { enablePatches, produceWithPatches } from "immer";
@@ -568,9 +569,10 @@ const createViewStateStore = () =>
 
                 try {
                   const apiService = getApiService();
-                  const bounds = await apiService.getVolumeBounds(
-                    visibleLayer.volumeId,
-                  );
+                  // The frame spans the outer voxel edges, not the outer
+                  // voxel centres (native N1).
+                  const centres = await apiService.getVolumeBounds(visibleLayer.volumeId);
+                  const bounds = widenToVoxelEdges(centres, centres.dims);
                   storeLog("viewStateStore", "Got volume bounds:", bounds);
 
                   let widthMm: number;

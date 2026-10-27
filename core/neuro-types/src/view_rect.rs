@@ -54,10 +54,41 @@ impl SliceGeometry {
     ///
     /// This implementation derives orientation from the voxel_to_world matrix
     /// to handle any volume orientation robustly.
+    ///
+    /// The frame spans the outermost voxel *centres*; see
+    /// [`Self::full_extent_to_edges`] for a frame that includes the outer half
+    /// voxel on every side.
     pub fn full_extent(
         orient: ViewOrientation,
         cross_mm: [f32; 3],
         meta: &VolumeMetadata,
+        screen_px_max: [u32; 2],
+        handedness: Handedness,
+    ) -> Self {
+        let corners = meta.volume_corners_world();
+        Self::full_extent_over(orient, cross_mm, meta, &corners, screen_px_max, handedness)
+    }
+
+    /// Like [`Self::full_extent`], but frames the outer voxel *edges*
+    /// ([`VolumeMetadata::volume_edge_corners_world`]) so the viewer shows the
+    /// whole of every edge voxel. The GPU samples at pixel centres, so this is
+    /// the frame for displayed views.
+    pub fn full_extent_to_edges(
+        orient: ViewOrientation,
+        cross_mm: [f32; 3],
+        meta: &VolumeMetadata,
+        screen_px_max: [u32; 2],
+        handedness: Handedness,
+    ) -> Self {
+        let corners = meta.volume_edge_corners_world();
+        Self::full_extent_over(orient, cross_mm, meta, &corners, screen_px_max, handedness)
+    }
+
+    fn full_extent_over(
+        orient: ViewOrientation,
+        cross_mm: [f32; 3],
+        meta: &VolumeMetadata,
+        corners: &[[f32; 3]; 8],
         screen_px_max: [u32; 2],
         handedness: Handedness,
     ) -> Self {
@@ -75,9 +106,9 @@ impl SliceGeometry {
             ViewOrientation::Sagittal => (negate_vec3(e_y), negate_vec3(e_z)), // -Y right (anterior->posterior), -Z down
         };
 
-        // 3. Project all volume corners into the active in-plane basis (right/down),
-        // relative to crosshair. This is robust for oblique and flipped affines.
-        let corners = meta.volume_corners_world();
+        // 3. Project the given volume corners into the active in-plane basis
+        // (right/down), relative to crosshair. This is robust for oblique and
+        // flipped affines.
         let r_dot_r = vec3_dot(right_mm, right_mm);
         let d_dot_d = vec3_dot(down_mm, down_mm);
         let r_dot_d = vec3_dot(right_mm, down_mm);
@@ -91,7 +122,7 @@ impl SliceGeometry {
         let mut v_min = f32::INFINITY;
         let mut v_max = f32::NEG_INFINITY;
 
-        for corner in &corners {
+        for corner in corners {
             let delta = vec3_sub(*corner, cross_mm);
             let r_dot_delta = vec3_dot(right_mm, delta);
             let d_dot_delta = vec3_dot(down_mm, delta);
@@ -448,6 +479,30 @@ impl VolumeMetadata {
 
         corners_world
     }
+
+    /// The 8 outer corners of the voxel grid in world coordinates: voxel-space
+    /// -0.5 and n - 0.5 on each axis, i.e. the edges of the outermost voxels
+    /// rather than their centres ([`Self::volume_corners_world`]).
+    pub fn volume_edge_corners_world(&self) -> [[f32; 3]; 8] {
+        let mut corners_world = [[0.0; 3]; 8];
+        for (i, corner) in corners_world.iter_mut().enumerate() {
+            let voxel = [0usize, 1, 2].map(|axis| {
+                if i & (1 << axis) == 0 {
+                    -0.5
+                } else {
+                    self.dimensions[axis] as f32 - 0.5
+                }
+            });
+            let world =
+                self.voxel_to_world * nalgebra::Point4::new(voxel[0], voxel[1], voxel[2], 1.0);
+            *corner = [
+                world[0] / world[3],
+                world[1] / world[3],
+                world[2] / world[3],
+            ];
+        }
+        corners_world
+    }
 }
 
 impl ViewRectMm {
@@ -494,6 +549,23 @@ impl ViewRectMm {
 
         // Convert SliceGeometry to ViewRectMm
         ViewRectMm::from(&geom)
+    }
+
+    /// Full-extent view framing the outer voxel edges rather than centres (see
+    /// [`SliceGeometry::full_extent_to_edges`]); used for displayed views.
+    pub fn full_extent_to_edges(
+        volume_meta: &VolumeMetadata,
+        orientation: ViewOrientation,
+        crosshair_world: [f32; 3],
+        screen_px_max: [u32; 2],
+    ) -> Self {
+        ViewRectMm::from(&SliceGeometry::full_extent_to_edges(
+            orientation,
+            crosshair_world,
+            volume_meta,
+            screen_px_max,
+            Handedness::Neurological,
+        ))
     }
 
     /// Convert to GPU frame parameters (origin + u/v vectors in homogeneous coordinates).
@@ -544,6 +616,50 @@ impl From<&ViewRectMm> for SliceGeometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 8x8x8 grid of 10 mm voxels with centres at -35..+35 mm: the full-extent
+    /// frame must reach the outer voxel edges at -40..+40, not stop at the centres.
+    #[test]
+    fn full_extent_frames_outer_voxel_edges() {
+        let mut affine = nalgebra::Matrix4::<f32>::identity();
+        for axis in 0..3 {
+            affine[(axis, axis)] = 10.0;
+            affine[(axis, 3)] = -35.0;
+        }
+        let meta = VolumeMetadata {
+            dimensions: [8, 8, 8],
+            voxel_to_world: affine,
+        };
+        let view =
+            ViewRectMm::full_extent_to_edges(&meta, ViewOrientation::Axial, [0.0; 3], [400, 400]);
+        let pixel = view.u_mm[0];
+        assert!((pixel - 0.2).abs() < 1e-5, "pixel size {pixel}");
+        assert!(
+            (view.origin_mm[0] + 40.0).abs() < 1e-3,
+            "{:?}",
+            view.origin_mm
+        );
+        assert!(
+            (view.origin_mm[1] - 40.0).abs() < 1e-3,
+            "{:?}",
+            view.origin_mm
+        );
+        let right = view.origin_mm[0] + view.u_mm[0] * view.width_px as f32;
+        let bottom = view.origin_mm[1] + view.v_mm[1] * view.height_px as f32;
+        assert!((right - 40.0).abs() <= pixel, "right edge {right}");
+        assert!((bottom + 40.0).abs() <= pixel, "bottom edge {bottom}");
+        // The centre-framed variant is unchanged (CPU samplers rely on it).
+        let centred = ViewRectMm::full_extent(&meta, ViewOrientation::Axial, [0.0; 3], [400, 400]);
+        assert!(
+            (centred.origin_mm[0] + 35.0).abs() < 1e-3,
+            "{:?}",
+            centred.origin_mm
+        );
+        // Voxel centres stay the reference for bounds and the default crosshair.
+        let centres = meta.volume_corners_world();
+        assert_eq!(centres[0], [-35.0, -35.0, -35.0]);
+        assert_eq!(centres[7], [35.0, 35.0, 35.0]);
+    }
     use nalgebra::Matrix4;
 
     #[test]

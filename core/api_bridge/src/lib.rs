@@ -3635,7 +3635,7 @@ async fn get_initial_views(
     let mut views = HashMap::new();
 
     // Axial view
-    let axial_view = ViewRectMm::full_extent(
+    let axial_view = ViewRectMm::full_extent_to_edges(
         &volume_meta,
         ViewOrientation::Axial,
         crosshair_world,
@@ -3644,7 +3644,7 @@ async fn get_initial_views(
     views.insert("axial".to_string(), axial_view);
 
     // Sagittal view
-    let sagittal_view = ViewRectMm::full_extent(
+    let sagittal_view = ViewRectMm::full_extent_to_edges(
         &volume_meta,
         ViewOrientation::Sagittal,
         crosshair_world,
@@ -3653,7 +3653,7 @@ async fn get_initial_views(
     views.insert("sagittal".to_string(), sagittal_view);
 
     // Coronal view
-    let coronal_view = ViewRectMm::full_extent(
+    let coronal_view = ViewRectMm::full_extent_to_edges(
         &volume_meta,
         ViewOrientation::Coronal,
         crosshair_world,
@@ -3748,7 +3748,8 @@ async fn recalculate_view_for_dimensions(
     debug!("  - crosshair_world: {:?}", crosshair_world);
     debug!("  - screen_px_max: {:?}", screen_px_max);
 
-    let view = ViewRectMm::full_extent(&volume_meta, orientation, crosshair_world, screen_px_max);
+    let view =
+        ViewRectMm::full_extent_to_edges(&volume_meta, orientation, crosshair_world, screen_px_max);
 
     debug!("[Backend] Calculated ViewRectMm:");
     debug!("  - origin_mm: {:?}", view.origin_mm);
@@ -3855,7 +3856,8 @@ async fn recalculate_all_views(
                     key
                 ),
             })?;
-        let view = ViewRectMm::full_extent(&volume_meta, orientation, crosshair_world, dims);
+        let view =
+            ViewRectMm::full_extent_to_edges(&volume_meta, orientation, crosshair_world, dims);
         debug!(
             "[recalculate_all_views] {:?} view -> origin {:?}, dims {}x{}",
             orientation, view.origin_mm, view.width_px, view.height_px
