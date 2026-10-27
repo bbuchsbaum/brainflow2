@@ -10,6 +10,7 @@ import { useCallback } from 'react';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useContextMenuStore } from '@/stores/contextMenuStore';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
+import { getEventBus } from '@/events/EventBus';
 import { useHoverSettingsPopoverStore } from '@/stores/hoverSettingsPopoverStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
@@ -79,6 +80,11 @@ export function useViewContextMenu(contextId: string) {
           id: 'separator-1',
           label: '',
           separator: true
+        },
+        {
+          id: 'image-header',
+          label: 'Image Header…',
+          onClick: () => getEventBus().emit('ui.imageHeader.open', {})
         },
         {
           id: 'export-image',

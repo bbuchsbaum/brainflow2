@@ -15,6 +15,13 @@ import {
   type FrameIncludes,
   type SizeSpec,
 } from '@/services/export/compositeExport';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+
+/** The active workspace's id (the key the chosen View is remembered under). */
+function activeWorkspaceKey(): string | null {
+  const ws = useWorkspaceStore.getState();
+  return ws.activeWorkspaceId ?? ws.getActiveWorkspace?.()?.id ?? null;
+}
 
 interface ExportDialogState {
   isOpen: boolean;
@@ -30,8 +37,14 @@ interface ExportDialogState {
   viewType: ViewType | null;
   /** What the last capture shows (the dialog's View line). */
   target: CaptureTarget | null;
-  /** Composited export target (null: resolved from the active view on capture). */
+  /**
+   * Composited export target (null: resolved from the active view on capture).
+   * Opening restores the View last chosen in the active workspace; the dialog
+   * falls back to the active panel only when that target is not available.
+   */
   exportTarget: ExportTarget | null;
+  /** The View last chosen, per workspace id. Kept across openings. */
+  exportTargetByWorkspace: Record<string, ExportTarget>;
   /** What the frame includes (P3.8). Kept across openings. */
   composite: FrameIncludes;
   /** Output size: a screen multiple or a print width at a dpi. */
@@ -78,6 +91,11 @@ interface ExportDialogState {
   clearCapture: () => void;
 }
 
+function rememberedTarget(byWorkspace: Record<string, ExportTarget> | undefined): ExportTarget | null {
+  const key = activeWorkspaceKey();
+  return (key && byWorkspace?.[key]) || null;
+}
+
 export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   isOpen: false,
   isCapturing: false,
@@ -90,6 +108,7 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   viewType: null,
   target: null,
   exportTarget: null,
+  exportTargetByWorkspace: {},
   // Default: everything but the crosshair, on white (v2 user critic).
   composite: { ...EXPORT_PRESETS.figure },
   size: { kind: 'screen', scale: 2 },
@@ -112,7 +131,7 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
       nameEdited: false,
       viewType: null,
       target: null,
-      exportTarget: null,
+      exportTarget: rememberedTarget(get().exportTargetByWorkspace),
       outputSize: null,
     });
   },
@@ -126,7 +145,15 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   setTransparentBackground: (value) => set({ transparentBackground: value }),
   setSuggestedName: (name) => set({ suggestedName: name, nameEdited: true }),
   setViewType: (viewType) => set({ viewType }),
-  setExportTarget: (exportTarget) => set({ exportTarget }),
+  setExportTarget: (exportTarget) => {
+    const key = activeWorkspaceKey();
+    set((state) => ({
+      exportTarget,
+      exportTargetByWorkspace: key
+        ? { ...state.exportTargetByWorkspace, [key]: exportTarget }
+        : state.exportTargetByWorkspace,
+    }));
+  },
   setComposite: (patch) => set((state) => ({ composite: { ...state.composite, ...patch } })),
   // A figure is cropped to the brain; "As shown" keeps the view's field.
   applyPreset: (preset) =>

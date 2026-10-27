@@ -142,6 +142,11 @@ export function useLayerValueAtWorld(
   layerId: string | null | undefined,
   world: WorldPoint | null | undefined,
   delayMs = VALUE_SAMPLE_DEBOUNCE_MS,
+  /**
+   * Skip the frontend bounds test and let the backend answer (label maps:
+   * outside reads label 0, background, as the status Region slot does).
+   */
+  trustBackendBounds = false,
 ): LayerValueReading | null {
   const [reading, setReading] = useState<LayerValueReading | null>(null);
   const metadata = useLayerStore((s) => (layerId ? s.layerMetadata.get(layerId) : undefined));
@@ -158,7 +163,7 @@ export function useLayerValueAtWorld(
       return;
     }
     const point: WorldPoint = [x, y, z];
-    if (!isInsideVolume(point, metadata)) {
+    if (!trustBackendBounds && !isInsideVolume(point, metadata)) {
       setReading({ layerId, world: point, value: null });
       return;
     }
@@ -172,7 +177,7 @@ export function useLayerValueAtWorld(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [layerId, x, y, z, timepoint, metadata, delayMs]);
+  }, [layerId, x, y, z, timepoint, metadata, delayMs, trustBackendBounds]);
 
   return reading && reading.layerId === layerId ? reading : null;
 }

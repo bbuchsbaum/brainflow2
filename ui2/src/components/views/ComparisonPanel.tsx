@@ -30,6 +30,7 @@ import type { CompareLinkMode, ComparisonPanelConfig, PanelOverrideField } from 
 import { isFieldLinked, panelHasOverrides } from '@/utils/compareDisplay';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import { createDebugLogger } from '@/utils/debug';
+import { isClickOnData, volumeEdgeBounds } from './clickDataBounds';
 import {
   OrientationLabels,
   PLANE_AXIS_INDEX,
@@ -78,32 +79,8 @@ interface ComparisonPanelProps {
 
 /** Space the colorbar keeps clear at the top-right for the panel actions slot. */
 const PANEL_ACTIONS_RESERVE = 28;
-/**
- * Outer voxel-edge box of a volume: voxel-centre `worldBounds` widened by half
- * a voxel on each axis (spacing from bounds and dimensions, else `spacing`).
- */
-export function volumeEdgeBounds(
-  metadata:
-    | { worldBounds?: { min: [number, number, number]; max: [number, number, number] }; dimensions?: [number, number, number]; spacing?: [number, number, number] }
-    | null
-    | undefined,
-): { min: [number, number, number]; max: [number, number, number] } | null {
-  const b = metadata?.worldBounds;
-  if (!b) return null;
-  const min: [number, number, number] = [0, 0, 0];
-  const max: [number, number, number] = [0, 0, 0];
-  for (let a = 0; a < 3; a += 1) {
-    const lo = Math.min(b.min[a], b.max[a]);
-    const hi = Math.max(b.min[a], b.max[a]);
-    const n = metadata?.dimensions?.[a];
-    const sp = n && n > 1 ? (hi - lo) / (n - 1) : (metadata?.spacing?.[a] ?? 0);
-    const half = Number.isFinite(sp) && sp > 0 ? sp / 2 : 0;
-    min[a] = lo - half;
-    max[a] = hi + half;
-  }
-  return { min, max };
-}
-
+/** The colorbar's own column at a Compare panel's right edge (px). */
+const COMPARE_COLORBAR_COLUMN = 128;
 export function ComparisonPanel({
   workspaceId,
   panel,
@@ -243,9 +220,6 @@ export function ComparisonPanel({
     crosshairSettings.centerGap,
   ]);
 
-  const handleWorldClick = useCallback((worldCoord: [number, number, number]) => {
-    setCrosshair(worldCoord, true);
-  }, [setCrosshair]);
 
   const { handleDragOver, handleDrop } = useViewportDropTarget({
     onLayerDrop: (layerId) => onLayerDrop?.(panel.id, layerId),
@@ -319,6 +293,13 @@ export function ComparisonPanel({
     [panelMetadata],
   );
 
+  // A click places the crosshair only on the image data: the panel margin
+  // and letterbox around the volume (inside the bitmap) are ignored.
+  const handleWorldClick = useCallback((worldCoord: [number, number, number]) => {
+    if (!isClickOnData(worldCoord, viewPlane, crosshairEdgeBounds)) return;
+    setCrosshair(worldCoord, true);
+  }, [setCrosshair, viewPlane, crosshairEdgeBounds]);
+
   // Per-pane value: the panel layer at the crosshair (nearest voxel), shown
   // in the header's right slot; the status bar follows the panel under the
   // pointer / last focused, so the two never disagree.
@@ -374,6 +355,30 @@ export function ComparisonPanel({
   // Accessible identity: the letter first, so two panels showing the same
   // layer never share a name ("Remove panel A, zmap_synthetic").
   const panelLabel = letter ? `${letter}, ${panelName}` : panelName;
+  // A layer can be added to a panel without dragging (v6 native check: the
+  // only way was drag-and-drop): the loaded volumes this panel does not show.
+  const loadedLayers = useLayerStore((state) => state.layers);
+  const addableLayers = useMemo(
+    () => loadedLayers.filter((l) => l.volumeId && !panel.visibleLayerIds.has(l.id)),
+    [loadedLayers, panel.visibleLayerIds],
+  );
+  const addLayerSelect =
+    addableLayers.length > 0 ? (
+      <Select
+        className="w-auto"
+        aria-label={`Add a layer to panel ${panelLabel}`}
+        value=""
+        options={[
+          { value: '', label: 'Add layer…', disabled: true },
+          ...addableLayers.map((l) => ({ value: l.id, label: l.name })),
+        ]}
+        onValueChange={(v) => {
+          if (v) useComparisonStore.getState().addLayerToPanel(workspaceId, panel.id, v);
+        }}
+        data-testid="comparison-panel-add-layer"
+      />
+    ) : null;
+
   const panelUnits = useLayerStore(state => {
     const info = panelLayerId ? state.layers.find(l => l.id === panelLayerId) : undefined;
     return statisticUnits(info?.statistic, panelMetadata?.dataRange);
@@ -399,6 +404,12 @@ export function ComparisonPanel({
     };
   }, [sharedColorbarLayer, colorbarOverride, linkMode]);
   const edited = panelHasOverrides(panel, linkMode);
+  // The colorbar has its own column at the panel's right edge, outside the
+  // image (native v6: on a portrait panel the top-right corner bar sat on
+  // the brain). Only a panel too narrow for a column and a usable image
+  // keeps the corner placement.
+  const showColorbar = !!colorbarLayer && !hideColorbar;
+  const reserveColorbarColumn = showColorbar && width - COMPARE_COLORBAR_COLUMN >= 180;
   // What this panel sets for itself ("threshold unlinked", "window, colormap unlinked").
   const unlinkedTag = useMemo(() => {
     if (!colorbarOverride || linkMode === 'all') return null;
@@ -465,8 +476,11 @@ export function ComparisonPanel({
       {/* Canvas area (the rail strip below takes no image space from the fit) */}
       <div
         ref={canvasContainerRef}
-        className="absolute inset-x-0 top-0"
-        style={{ bottom: hasLayers ? SLIDER_HEIGHT : 0 }}
+        className="absolute left-0 top-0"
+        style={{
+          bottom: hasLayers ? SLIDER_HEIGHT : 0,
+          right: reserveColorbarColumn ? COMPARE_COLORBAR_COLUMN : 0,
+        }}
       >
         <SliceViewport
           width={canvasSize.width}
@@ -498,11 +512,12 @@ export function ComparisonPanel({
             letterActive={active}
           />
         ) : (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-bf-xs text-bf-text-muted">
-            Drop a layer or file here
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-bf-xs text-bf-text-muted">
+            Drop a layer or file here, or
+            <span className="pointer-events-auto">{addLayerSelect}</span>
           </div>
         )}
-        {colorbarLayer && !hideColorbar && (
+        {showColorbar && colorbarLayer && !reserveColorbarColumn && (
           <ViewportColorbar
             layer={colorbarLayer}
             width={canvasSize.width}
@@ -546,6 +561,7 @@ export function ComparisonPanel({
                 />
               </span>
             ))}
+            {addLayerSelect}
             <Select
               className="w-auto"
               aria-label={`Panel orientation, ${panelLabel}`}
@@ -602,6 +618,26 @@ export function ComparisonPanel({
           )}
         </div>
       </div>
+
+      {reserveColorbarColumn && colorbarLayer ? (
+        // The colorbar column: beside the image, never on it.
+        <div
+          className="pointer-events-none absolute right-0 top-0"
+          style={{ width: COMPARE_COLORBAR_COLUMN, bottom: hasLayers ? SLIDER_HEIGHT : 0 }}
+          data-testid="comparison-colorbar-column"
+        >
+          <ViewportColorbar
+            layer={colorbarLayer}
+            width={Math.max(COMPARE_COLORBAR_COLUMN, 160)}
+            height={canvasSize.height}
+            topReserve={PANEL_ACTIONS_RESERVE}
+            corner="top"
+            maxWidth={COMPARE_COLORBAR_COLUMN - 8}
+            value={colorbarReading?.value ?? null}
+            tag={unlinkedTag}
+          />
+        </div>
+      ) : null}
 
       {hasLayers && (
         <div className="absolute inset-x-0 bottom-0" style={{ height: SLIDER_HEIGHT }}>

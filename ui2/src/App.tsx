@@ -1,5 +1,6 @@
 import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
 import { TooltipOverlay } from '@/components/TooltipOverlay';
@@ -41,7 +42,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNavigationShortcuts } from '@/hooks/useNavigationShortcuts';
 import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
-import { getEventBus } from '@/events/EventBus';
+import { getEventBus, useEvent } from '@/events/EventBus';
 import { PerformanceDashboard } from '@/components/debug/PerformanceDashboard';
 import {
   migrateLayerRenderToViewState,
@@ -123,8 +124,6 @@ function AppContent() {
   const [showGoToCoordinate, setShowGoToCoordinate] = useState(false);
   const [showImageHeader, setShowImageHeader] = useState(false);
   const [imageHeaderVolumeId, setImageHeaderVolumeId] = useState<string | null>(null);
-  const selectedLayerId = useLayerStore((s) => s.selectedLayerId);
-  const layers = useLayerStore((s) => s.layers);
   const applyWorkspacePreset = useWorkspaceStore((s) => s.applyWorkspacePreset);
   const activeWorkspaceType = useWorkspaceStore((state) => {
     const workspaceId = state.activeWorkspaceId;
@@ -308,6 +307,15 @@ function AppContent() {
         },
       },
       {
+        id: 'info.imageHeader',
+        title: 'Image Header…',
+        subtitle: 'The selected layer\u2019s NIfTI header: dimensions, affine, intent, statistic.',
+        keywords: ['header', 'image header', 'nifti', 'info', 'sform', 'qform', 'intent', 'affine'],
+        group: 'View',
+        shortcut: 'Cmd/Ctrl+I',
+        run: () => openImageHeader(),
+      },
+      {
         id: 'command.exportViewImage',
         title: 'Export View as Image…',
         subtitle: 'Save the active view as PNG or JPEG.',
@@ -485,6 +493,33 @@ function AppContent() {
     };
   }, []);
 
+  // Image header: Cmd+I, the View menu, the command palette and the view
+  // context menu all open it for the selected layer (else the top volume).
+  const openImageHeader = useCallback((volumeId?: string) => {
+    const { layers: all, selectedLayerId: selected } = useLayerStore.getState();
+    const layer =
+      (volumeId ? all.find((l) => l.volumeId === volumeId) : undefined) ??
+      all.find((l) => l.id === selected) ??
+      [...all].reverse().find((l) => l.volumeId);
+    if (layer?.volumeId) {
+      setImageHeaderVolumeId(layer.volumeId);
+      setShowImageHeader(true);
+    }
+  }, []);
+  useEvent('ui.imageHeader.open', ({ volumeId }) => openImageHeader(volumeId));
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void safeListen('image-header-action', () => openImageHeader()).then((fn) => {
+      if (disposed) safeUnlisten(fn);
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      safeUnlisten(unlisten);
+    };
+  }, [openImageHeader]);
+
   // Register Cmd+I shortcut to open image header dialog for selected layer
   useEffect(() => {
     const service = getKeyboardShortcutService();
@@ -494,16 +529,10 @@ function AppContent() {
       modifiers: { meta: true },
       category: 'Info',
       description: 'Show image header info',
-      handler: () => {
-        const layer = layers.find((l) => l.id === selectedLayerId);
-        if (layer?.volumeId) {
-          setImageHeaderVolumeId(layer.volumeId);
-          setShowImageHeader(true);
-        }
-      },
+      handler: () => openImageHeader(),
     });
     return unregister;
-  }, [selectedLayerId, layers]);
+  }, [openImageHeader]);
 
   // Register number key shortcuts: 1-9 toggle layer visibility, 0 shows all
   useEffect(() => {

@@ -191,10 +191,12 @@ describe("ViewExportService", () => {
 });
 
 describe("export file names", () => {
+  // The shared rule (utils/exportFileName): the axis letter before the
+  // signed position, so a name never reads "_-".
   it("names a slice export by layer, plane and position", () => {
-    expect(sliceExportFileName("zmap_synthetic.nii.gz", "axial", 50.5, "png")).toBe("zmap_synthetic_axial_50.5mm.png");
-    expect(sliceExportFileName("my map (v2).nii", "coronal", -19.5, "jpg")).toBe("my_map_v2_coronal_-19.5mm.jpg");
-    expect(sliceExportFileName(null, "sagittal", -0.04, "png")).toBe("view_sagittal_0.0mm.png");
+    expect(sliceExportFileName("zmap_synthetic.nii.gz", "axial", 50.5, "png")).toBe("zmap_synthetic_axial_z50.5mm.png");
+    expect(sliceExportFileName("my map (v2).nii", "coronal", -19.5, "jpg")).toBe("my_map_v2_coronal_y-19.5mm.jpg");
+    expect(sliceExportFileName(null, "sagittal", -0.04, "png")).toBe("view_sagittal_x0.0mm.png");
   });
 
   it("swaps only the extension of a typed name", () => {

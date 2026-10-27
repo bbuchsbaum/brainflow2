@@ -299,6 +299,17 @@ function VolumeRenderRows({
           onChange={(low, high) => setLayerField("threshold", [low, high])}
         />
       ) : null}
+      {kind === "overlay" &&
+      layerMode !== "label" &&
+      metadata?.statisticDefaultThreshold &&
+      Math.abs(threshold[0] + metadata.statisticDefaultThreshold) < 1e-6 &&
+      Math.abs(threshold[1] - metadata.statisticDefaultThreshold) < 1e-6 ? (
+        // The statistic default, said so (the file sets no threshold), until
+        // the user moves it.
+        <p className="-mt-0.5 mb-1 text-bf-2xs text-bf-text-muted" data-testid="threshold-default-note">
+          Default threshold (the file sets none); the cluster table uses the same.
+        </p>
+      ) : null}
       {kind === "overlay" && layerMode !== "label" ? (
         <OverrideMark compare={compare} layerId={layerId} field="threshold" label="Threshold" />
       ) : null}

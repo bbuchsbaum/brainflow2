@@ -5,6 +5,7 @@
  * register custom exporters keyed by componentType and an optional id.
  */
 
+import { sliceFileName } from "@/utils/exportFileName";
 import { getTransport } from "./transport";
 import { useLayerStore } from "@/stores/layerStore";
 import { formatTauriError } from "@/utils/formatTauriError";
@@ -62,12 +63,9 @@ export function sliceExportFileName(
   positionMm: number,
   format: ExportFormat,
 ): string {
-  const base = (layerName ?? "view")
-    .replace(/\.(nii\.gz|nii|gii|mgz|mgh)$/i, "")
-    .replace(/[^A-Za-z0-9_.-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  const pos = Number.isFinite(positionMm) ? positionMm.toFixed(1) : "0.0";
-  return `${base}_${viewType}_${pos === "-0.0" ? "0.0" : pos}mm.${format}`;
+  // One naming rule with the composited exports (utils/exportFileName):
+  // "zmap_axial_z-10.0mm.png", never "_-".
+  return sliceFileName(layerName, viewType, Number.isFinite(positionMm) ? positionMm : 0, format);
 }
 
 /** Replace a file name's image extension with the format's (keeps typed names). */

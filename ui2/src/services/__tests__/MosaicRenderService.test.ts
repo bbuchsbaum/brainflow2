@@ -62,8 +62,12 @@ vi.mock('@/stores/viewStateStore', () => {
       },
     },
   };
-  const useViewStateStore = ((selector?: (s: typeof state) => any) =>
-    selector ? selector(state) : state) as any;
+  type Store = ((selector?: (s: typeof state) => unknown) => unknown) & {
+    getState: () => typeof state;
+    subscribe: ReturnType<typeof vi.fn>;
+  };
+  const useViewStateStore = ((selector?: (s: typeof state) => unknown) =>
+    selector ? selector(state) : state) as Store;
   Object.assign(state, { getWorkspaceViewState: () => state.viewState });
   useViewStateStore.getState = () => state;
   useViewStateStore.subscribe = vi.fn(() => vi.fn());
@@ -76,8 +80,10 @@ vi.mock('@/stores/renderStateStore', () => {
     setImage: vi.fn(),
     setError: vi.fn(),
   };
-  const useRenderStateStore = ((selector?: (s: typeof store) => any) =>
-    selector ? selector(store) : store) as any;
+  const useRenderStateStore = ((selector?: (s: typeof store) => unknown) =>
+    selector ? selector(store) : store) as ((selector?: (s: typeof store) => unknown) => unknown) & {
+    getState: () => typeof store;
+  };
   useRenderStateStore.getState = () => store;
   return { useRenderStateStore };
 });
@@ -101,7 +107,7 @@ vi.mock('@/services/ViewPlaneService', () => ({
 
 vi.mock('@/utils/coordinates', () => ({
   CoordinateTransform: {
-    worldToScreenUnchecked: (world: [number, number, number], _plane: ViewPlane) =>
+    worldToScreenUnchecked: (world: [number, number, number]) =>
       [world[0] + 96, 96 - world[1]] as [number, number],
   },
 }));
@@ -576,6 +582,135 @@ describe('MosaicRenderService', () => {
       const setImageForCell = store.setImage.mock.calls.filter((c) => c[0] === 'cancel-cell');
       expect(setImageForCell).toHaveLength(0);
       expect(store.setRendering).toHaveBeenCalledWith('cancel-cell', false);
+    });
+  });
+
+  // ── Native defect: tiles stuck on "Loading…" (p3 native check #7) ──
+
+  describe('cancel/supersede races leave every visible cell rendered', () => {
+    type RenderStoreMock = Record<'setRendering' | 'setImage' | 'setError', ReturnType<typeof vi.fn>>;
+    const cell = (id: string, sliceIndex: number, size = 128): MosaicRenderRequest => ({
+      sliceIndex,
+      axis: 'axial',
+      cellId: id,
+      width: size,
+      height: size,
+    });
+
+    function pendingRenders() {
+      const pending: Array<{ request: unknown[]; d: ReturnType<typeof deferred<ImageBitmap>> }> = [];
+      mockApplyAndRenderViewState.mockImplementation((...args: unknown[]) => {
+        const d = deferred<ImageBitmap>();
+        pending.push({ request: args, d });
+        return d.promise;
+      });
+      return pending;
+    }
+
+    function lastRenderingFlag(store: RenderStoreMock, cellId: string) {
+      const calls = store.setRendering.mock.calls.filter((c) => c[0] === cellId);
+      return calls.length ? calls[calls.length - 1][1] : undefined;
+    }
+
+    it('a superseded grid never dispatches its later batches, so it cannot steal a newer claim', async () => {
+      const svc = getMosaicRenderService();
+      const { useRenderStateStore } = await import('@/stores/renderStateStore');
+      const store = useRenderStateStore.getState() as unknown as RenderStoreMock;
+      const pending = pendingRenders();
+
+      // Grid 1 (provisional 4×4 page): 8 cells, two batches of 4. Batch 1 is
+      // in flight; batch 2 (c4..c7) has not started.
+      const grid1 = Array.from({ length: 8 }, (_, i) => cell(`c${i}`, i));
+      svc.renderMosaicGrid(grid1);
+      await flushMicrotasks();
+      expect(pending).toHaveLength(4);
+
+      // The component re-fits (Auto grid, new page): the effect cleanup
+      // cancels grid 1's cells and requests the new page, which shows c5 first.
+      svc.cancelRenders(grid1.map((r) => r.cellId));
+      svc.renderMosaicGrid([cell('c5', 5, 200)]);
+      await flushMicrotasks();
+      expect(pending).toHaveLength(5);
+      const newC5 = pending[4];
+
+      // Grid 1's batch 1 completes late. Before the fix its loop went on to
+      // batch 2, re-claimed c5 (set it rendering), then dropped as stale and
+      // released the claim, so the newer c5 render was dropped too: "Loading…"
+      // for good.
+      for (let i = 0; i < 4; i++) pending[i].d.resolve(fakeBitmap(i + 1));
+      await flushMicrotasks();
+      expect(pending).toHaveLength(5); // grid 1's batch 2 was never dispatched
+
+      const bmp = fakeBitmap(99);
+      newC5.d.resolve(bmp);
+      await flushMicrotasks();
+      for (const p of pending.slice(5)) p.d.resolve(fakeBitmap(7));
+      await flushMicrotasks();
+
+      const c5Images = store.setImage.mock.calls.filter((c: unknown[]) => c[0] === 'c5');
+      expect(c5Images).toHaveLength(1);
+      expect(c5Images[0][1]).toBe(bmp);
+      expect(lastRenderingFlag(store, 'c5')).toBe(false);
+      // No grid-1 cell was painted after its cancel.
+      expect(store.setImage.mock.calls.filter((c: unknown[]) => c[0] !== 'c5')).toHaveLength(0);
+    });
+
+    it.each(['late-old-first', 'late-old-last'] as const)(
+      'a completion after its cancel is followed by the re-request, which paints the cell (%s)',
+      async (order) => {
+        const svc = getMosaicRenderService();
+        const { useRenderStateStore } = await import('@/stores/renderStateStore');
+        const store = useRenderStateStore.getState() as unknown as RenderStoreMock;
+        const pending = pendingRenders();
+
+        // Provisional size in flight, then cancelled and re-requested at the
+        // fitted size (same cell id: tags carry no size).
+        svc.renderMosaicGrid([cell('x', 3, 128)]);
+        await flushMicrotasks();
+        svc.cancelRenders(['x']);
+        svc.renderMosaicGrid([cell('x', 3, 240)]);
+        await flushMicrotasks();
+        expect(pending).toHaveLength(2);
+        expect(pending[1].request[2]).toBe(240);
+
+        const stale = fakeBitmap(1);
+        const fresh = fakeBitmap(2);
+        if (order === 'late-old-first') {
+          pending[0].d.resolve(stale);
+          await flushMicrotasks();
+          pending[1].d.resolve(fresh);
+        } else {
+          pending[1].d.resolve(fresh);
+          await flushMicrotasks();
+          pending[0].d.resolve(stale);
+        }
+        await flushMicrotasks();
+
+        const images = store.setImage.mock.calls.filter((c: unknown[]) => c[0] === 'x');
+        expect(images).toHaveLength(1);
+        expect(images[0][1]).toBe(fresh);
+        expect(stale.close).toHaveBeenCalledOnce();
+        expect(lastRenderingFlag(store, 'x')).toBe(false);
+      },
+    );
+
+    it('a dropped render that leaves its cell unowned clears the rendering flag', async () => {
+      const svc = getMosaicRenderService();
+      const { useRenderStateStore } = await import('@/stores/renderStateStore');
+      const store = useRenderStateStore.getState() as unknown as RenderStoreMock;
+      const pending = pendingRenders();
+
+      svc.renderMosaicGrid([cell('y', 1)]);
+      await flushMicrotasks();
+      // A newer grid without y supersedes the first one; y is not cancelled.
+      svc.renderMosaicGrid([cell('z', 2)]);
+      await flushMicrotasks();
+      pending.forEach((p, i) => p.d.resolve(fakeBitmap(i + 1)));
+      await flushMicrotasks();
+
+      expect(store.setImage.mock.calls.filter((c: unknown[]) => c[0] === 'y')).toHaveLength(0);
+      expect(lastRenderingFlag(store, 'y')).toBe(false);
+      expect(lastRenderingFlag(store, 'z')).toBe(false);
     });
   });
 

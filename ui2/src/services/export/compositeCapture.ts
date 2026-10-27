@@ -26,14 +26,15 @@ import {
   resolveColorbarLayer,
 } from '@/components/views/viewportFrame/useOverlayColorbar';
 import { PLANE_AXIS_INDEX } from '@/components/views/viewportFrame/frameFormat';
-import { formatWorldMm, formatWorldMmAscii } from '@/utils/valueFormat';
+import { formatWorldMm } from '@/utils/valueFormat';
 import { isInferredStatistic, statisticUnits } from '@/utils/statistic';
 import {
   getViewExportService,
-  sliceExportFileName,
   type CaptureTarget,
   type ExportFormat,
 } from '@/services/ViewExportService';
+import { layoutFileName, mosaicFileName, sliceFileName } from '@/utils/exportFileName';
+import { matteOntoPage } from '@/utils/exportMatte';
 import {
   chromeUnit,
   compose,
@@ -42,6 +43,7 @@ import {
   headerBandPx,
   printWidthPx,
   SIDEBAR_W,
+  sideGapPx,
   type CompositeOptions,
   type ExportPane,
   type ExportSideBar,
@@ -49,7 +51,7 @@ import {
   type PaneLayout,
   type SizeSpec,
 } from './compositeExport';
-import { brainFraming, unionNonzeroBbox } from '@/services/mosaic/brainBounds';
+import { brainFraming, getNonzeroBbox } from '@/services/mosaic/brainBounds';
 import { getApiService } from '@/services/apiService';
 
 export type ExportTarget =
@@ -150,6 +152,40 @@ export function defaultExportTarget(): ExportTarget | null {
 
 async function decode(bytes: Uint8Array): Promise<CanvasImageSource> {
   return createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+}
+
+/**
+ * A pane for a white or transparent page: outside the head becomes the page
+ * (utils/exportMatte.ts explains the matte and why it is built from the
+ * render's look on black rather than from the backend alpha alone). A black
+ * page keeps the render as is, on black.
+ */
+async function decodeForPage(
+  bytes: Uint8Array,
+  width: number,
+  height: number,
+  background: FrameIncludes['background'],
+): Promise<CanvasImageSource> {
+  const bitmap = await decode(bytes);
+  if (background === 'black') return bitmap;
+  const canvas: HTMLCanvasElement | OffscreenCanvas =
+    typeof document !== 'undefined' ? document.createElement('canvas') : new OffscreenCanvas(width, height);
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
+  if (!ctx || typeof ctx.getImageData !== 'function') return bitmap;
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  (bitmap as Partial<ImageBitmap>).close?.();
+  const pixels = ctx.getImageData(0, 0, width, height);
+  pixels.data.set(
+    matteOntoPage(pixels.data, width, height, { page: background === 'white' ? [255, 255, 255] : null }),
+  );
+  ctx.putImageData(pixels, 0, 0);
+  const matted = await createImageBitmap(canvas);
+  // Release the scratch backing store at once (600 dpi panes are large).
+  canvas.width = 0;
+  canvas.height = 0;
+  return matted;
 }
 
 function layerNameOf(viewState: ViewState): string | null {
@@ -327,19 +363,19 @@ async function renderPane(
   const plane = rectPlane(spec.plane, rect, mmPerPx);
   const [width, height] = plane.dim_px;
   const state: ViewState = { ...viewState, views: { ...viewState.views, [spec.viewType]: plane } };
-  // Image panes stay on black on a white page: an alpha edge composited on
-  // white left a dark stair-stepped rim around the brain (v3 visual critic).
+  // Ask for a transparent clear off a black page; the matte also handles a
+  // pass that clears to opaque black (decodeForPage).
   const bytes = await getViewExportService().renderViewToBytes(
     state,
     spec.viewType,
     width,
     height,
     'png',
-    background === 'transparent',
+    background !== 'black',
   );
   const crosshair = viewState.crosshair.world_mm;
   return {
-    image: await decode(bytes),
+    image: await decodeForPage(bytes, width, height, background),
     width,
     height,
     plane,
@@ -392,8 +428,75 @@ function figureLayerName(viewState: ViewState, side: ExportSideBar): string | nu
   return (top && layers.find((l) => l.id === top.id)?.name) ?? layerNameOf(viewState);
 }
 
-const fileBase = (name: string | null, fallback: string) =>
-  (name ?? fallback).replace(/\.(nii\.gz|nii)$/i, '').replace(/[^A-Za-z0-9_.-]+/g, '_');
+/**
+ * Volumes whose non-zero voxels "Crop to brain" frames: the union of the
+ * visible volume layers (the mosaic's rule), else the reference (bottom
+ * volume) layer. The union is order-free, so it is the same whether the
+ * anatomy or the statistic was loaded first, and it never cuts into either:
+ * the head (anatomy) and every visible statistic voxel stay in the frame.
+ * Cropping to one layer picked by stack position cut into the head when that
+ * layer was the overlay (native check).
+ */
+export function cropVolumeIds(
+  layers: ReadonlyArray<{ volumeId?: string | null; visible: boolean; opacity: number }>,
+): string[] {
+  const visible = layers.filter((l) => l.visible && l.opacity > 0 && l.volumeId).map((l) => l.volumeId!);
+  if (visible.length > 0) return [...new Set(visible)];
+  const reference = layers.find((l) => l.volumeId);
+  return reference?.volumeId ? [reference.volumeId] : [];
+}
+
+/**
+ * Per volume, the |value| a voxel must exceed to count for the crop: a
+ * statistic layer's display threshold (its hidden band), else 0. A volume
+ * shown by several layers takes the smallest.
+ */
+export function cropThresholdsByVolume(
+  layers: ReadonlyArray<{ id: string; volumeId?: string | null; threshold?: readonly [number, number] }>,
+  isStatistic: (layerId: string) => boolean,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const l of layers) {
+    if (!l.volumeId) continue;
+    const t = isStatistic(l.id) && l.threshold ? Math.max(Math.abs(l.threshold[0]), Math.abs(l.threshold[1])) : 0;
+    const cut = Number.isFinite(t) ? t : 0;
+    out.set(l.volumeId, Math.min(out.get(l.volumeId) ?? Infinity, cut));
+  }
+  return out;
+}
+
+/**
+ * The crop box (voxel edges, as the mosaic frames the brain): the union of
+ * the volumes' non-zero boxes, each padded by half its own voxel.
+ */
+export async function cropBox(
+  volumeIds: readonly string[],
+  fetch: {
+    nonzero: (id: string) => Promise<{ worldMinMm: readonly number[]; worldMaxMm: readonly number[] } | null>;
+    bounds: (id: string) => Promise<{ min: number[]; max: number[]; dims?: number[] } | null>;
+  },
+): Promise<{ worldMinMm: number[]; worldMaxMm: number[] } | null> {
+  let min: number[] | null = null;
+  let max: number[] | null = null;
+  for (const id of volumeIds) {
+    const [box, bounds] = await Promise.all([fetch.nonzero(id), fetch.bounds(id)]);
+    if (!box) continue;
+    const voxel = [0, 1, 2].map((d) => {
+      const n = bounds?.dims?.[d] ?? 0;
+      return bounds && n > 1 ? Math.abs(bounds.max[d] - bounds.min[d]) / (n - 1) : 0;
+    }) as [number, number, number];
+    const edges = brainFraming(
+      {
+        worldMinMm: [0, 1, 2].map((a) => Math.min(box.worldMinMm[a], box.worldMaxMm[a])),
+        worldMaxMm: [0, 1, 2].map((a) => Math.max(box.worldMinMm[a], box.worldMaxMm[a])),
+      } as never,
+      voxel,
+    );
+    min = min ? min.map((v, a) => Math.min(v, edges.min[a])) : edges.min;
+    max = max ? max.map((v, a) => Math.max(v, edges.max[a])) : edges.max;
+  }
+  return min && max ? { worldMinMm: min, worldMaxMm: max } : null;
+}
 
 export interface CompositeCapture {
   bytes: Uint8Array;
@@ -629,28 +732,28 @@ export async function captureComposite(
   const hasSide = frame.colorbar && (!!side.colorbar || (side.legend?.length ?? 0) > 0);
   const headerName = figureLayerName(viewState, side);
 
-  // Crop to the brain: the reference volume's non-zero voxels (the bottom
-  // volume layer, the snapping / ijk rule), then one mm/px for all panes.
-  const reference = viewState.layers.find((l) => l.volumeId);
-  const centres =
-    request.cropToBrain && reference?.volumeId ? await unionNonzeroBbox([reference.volumeId]) : null;
-  // The margin is measured from the voxel EDGES, as the mosaic frames the
-  // brain (brainFraming), not from the voxel-centre envelope (v4 fidelity).
-  let bbox = centres;
-  if (centres && reference?.volumeId) {
-    const bounds = await getApiService().getVolumeBounds(reference.volumeId);
-    const voxel = [0, 1, 2].map((d) => {
-      const n = bounds.dims?.[d] ?? 0;
-      return n > 1 ? Math.abs(bounds.max[d] - bounds.min[d]) / (n - 1) : 0;
-    }) as [number, number, number];
-    const edges = brainFraming(centres, voxel);
-    bbox = { worldMinMm: edges.min, worldMaxMm: edges.max } as typeof centres;
-  }
+  // Crop to the brain: the visible volumes' non-zero voxels (cropVolumeIds),
+  // measured from the voxel EDGES as the mosaic frames the brain (v4
+  // fidelity), then one mm/px for all panes.
+  // A statistic layer counts only its shown voxels (|v| above its display
+  // threshold): a dense noisy map would otherwise widen the crop to the
+  // whole field of view. Anatomy and labels count every non-zero voxel.
+  const cropThresholds = cropThresholdsByVolume(viewState.layers, (layerId) => {
+    const { layers, layerMetadata } = useLayerStore.getState();
+    const info = layers.find((l) => l.id === layerId);
+    return statisticUnits(info?.statistic, layerMetadata.get(layerId)?.dataRange) !== null;
+  });
+  const bbox = request.cropToBrain
+    ? await cropBox(cropVolumeIds(viewState.layers), {
+        nonzero: (id) => getNonzeroBbox(id, cropThresholds.get(id) ?? 0),
+        bounds: (id) => getApiService().getVolumeBounds(id).catch(() => null),
+      })
+    : null;
   const rects = specRows.map((row) => row.map((p) => paneRect(p.plane, bbox)));
   const mmPerPx = solveMmPerPx(
     specRows.map((row, r) => row.map((p, c) => ({ plane: p.plane, rect: rects[r][c] }))),
     request.size,
-    { unit, paneGap, sideW: hasSide ? SIDEBAR_W * unit + paneGap * unit : 0 },
+    { unit, paneGap, sideW: hasSide ? SIDEBAR_W * unit + sideGapPx(unit, paneGap) : 0 },
   );
   // Size check before any render: too large fails now, with a reason.
   const planned = compositionSize(
@@ -717,12 +820,10 @@ export async function captureComposite(
 
   const c = viewState.crosshair.world_mm;
   const suggestedName = mosaic
-    ? `${fileBase(headerName, 'mosaic')}_mosaic_${mosaic.axis}_${formatWorldMmAscii(mosaic.first)}_to_${formatWorldMmAscii(mosaic.last)}mm.${format}`
+    ? mosaicFileName(headerName, mosaic.axis, mosaic.first, mosaic.last, format)
     : target === 'orthogonal' || target === 'orthogonal-row'
-      ? `${fileBase(headerName, 'view')}_${target === 'orthogonal' ? 'orthogonal' : 'row'}_${c
-          .map((x) => formatWorldMmAscii(x))
-          .join('_')}mm.${format}`
-      : sliceExportFileName(headerName, target as ViewType, c[PLANE_AXIS_INDEX[target as ViewType]], format);
+      ? layoutFileName(headerName, target === 'orthogonal' ? 'orthogonal' : 'row', c, format)
+      : sliceFileName(headerName, target as ViewType, c[PLANE_AXIS_INDEX[target as ViewType]], format);
   const warning =
     composition.height > composition.width * 3
       ? `Tall output (${composition.width} × ${composition.height} px): use more columns or a larger step.`

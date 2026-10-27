@@ -58,6 +58,11 @@ interface ViewportColorbarProps {
   tag?: string | null;
   /** Force the corner placement at the top-right (clear of the image's centre). */
   corner?: 'top' | null;
+  /**
+   * Widest the block may be (a reserved column, Compare): the name caption
+   * middle-truncates and the footer wraps to fit; the bar group is the floor.
+   */
+  maxWidth?: number | null;
 }
 
 const EDGE = 8; // px from the canvas-area edges
@@ -142,6 +147,7 @@ export function ViewportColorbar({
   value = null,
   tag = null,
   corner = null,
+  maxWidth = null,
 }: ViewportColorbarProps) {
   // The tag has its own line: it never squeezes the layer name.
   const tagChars = 0;
@@ -174,7 +180,9 @@ export function ViewportColorbar({
     const groupW = valueW + VALUE_GAP + CARET_W + BAR_W + MARK_W + LABEL_GAP + labelW;
     // The footer starts at the bar's left edge (like the name caption) and
     // may widen the box to the right, so "|z| ≤ 3.1 hidden" stays one line.
-    const lines = colorbarCaptionLines(exprParts, NAME_MAX_CHARS * CHAR_W);
+    const barLeftW = valueW + VALUE_GAP + CARET_W;
+    const textBudget = maxWidth ? Math.max(4 * CHAR_W, maxWidth - PAD_X - barLeftW) : Infinity;
+    const lines = colorbarCaptionLines(exprParts, Math.min(NAME_MAX_CHARS * CHAR_W, textBudget));
     // The name caption ("z · zmap_synthetic") may widen the box up to
     // NAME_MAX_CHARS; longer names middle-truncate.
     // The name caption starts at the bar's left edge and may widen the box
@@ -184,7 +192,7 @@ export function ViewportColorbar({
       (layer.nameLabel?.length ?? 0) +
       tagChars;
     const barLeft = valueW + VALUE_GAP + CARET_W;
-    const nameW = Math.ceil(Math.min(nameChars, NAME_MAX_CHARS) * NAME_CHAR_W);
+    const nameW = Math.min(Math.ceil(Math.min(nameChars, NAME_MAX_CHARS) * NAME_CHAR_W), textBudget);
     const captionW = Math.ceil(Math.max(0, ...lines.map((l) => l.length * CHAR_W)));
     const boxW =
       Math.max(groupW, lines.length ? barLeft + captionW : 0, nameChars ? barLeft + nameW : 0) + PAD_X;

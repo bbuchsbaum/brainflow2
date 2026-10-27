@@ -9,22 +9,28 @@ import { getTransport } from '@/services/transport';
 
 const cache = new Map<string, Promise<VolumeNonzeroBbox | null>>();
 
-export function getNonzeroBbox(volumeId: string): Promise<VolumeNonzeroBbox | null> {
-  let pending = cache.get(volumeId);
+/**
+ * `threshold`: voxels with |v| > threshold count (a statistic map at its
+ * display threshold: a dense noisy map's 1e-5 voxels must not widen a crop
+ * to the whole field of view). 0: any non-zero voxel.
+ */
+export function getNonzeroBbox(volumeId: string, threshold = 0): Promise<VolumeNonzeroBbox | null> {
+  const key = threshold > 0 ? `${volumeId}|${threshold}` : volumeId;
+  let pending = cache.get(key);
   if (!pending) {
     pending = Promise.resolve()
       .then(() =>
         getTransport().invoke<VolumeNonzeroBbox | null>('volume_nonzero_bbox', {
-          request: { volumeId },
+          request: threshold > 0 ? { volumeId, threshold } : { volumeId },
         }),
       )
       .then((bbox) => bbox ?? null)
       .catch((error) => {
         console.warn('[brainBounds] volume_nonzero_bbox failed; mosaic stays uncropped:', error);
-        cache.delete(volumeId);
+        cache.delete(key);
         return null;
       });
-    cache.set(volumeId, pending);
+    cache.set(key, pending);
   }
   return pending;
 }

@@ -46,6 +46,9 @@ export const SURFACE_OVERLAY_PATH = `${HARNESS_ROOT}/surf/lh.sensorimotor.func.g
  * the gate scenarios never expand, so the gate baselines do not see them. */
 export const ZMAP_PATH = `${HARNESS_ROOT}/stats/zmap_synthetic.nii.gz`;
 export const TMAP_PATH = `${HARNESS_ROOT}/stats/tmap_synthetic_df24.nii.gz`;
+/** Native-like noisy copies (v6), loadable by path; not listed in the tree. */
+export const ZMAP_NOISY_PATH = `${HARNESS_ROOT}/stats/zmap_native_noise.nii.gz`;
+export const TMAP_NOISY_PATH = `${HARNESS_ROOT}/stats/tmap_native_noise_df24.nii.gz`;
 export const ATLAS_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.nii.gz`;
 export const ATLAS_LUT_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.tsv`;
 
@@ -261,6 +264,8 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     if (path === STATS_PATH) return fixtures.stats;
     if (path === ZMAP_PATH) return fixtures.zmap;
     if (path === TMAP_PATH) return fixtures.tmap;
+    if (path === ZMAP_NOISY_PATH) return fixtures.zmapNoisy;
+    if (path === TMAP_NOISY_PATH) return fixtures.tmapNoisy;
     if (path === ATLAS_PATH) return fixtures.atlas;
     return null;
   };

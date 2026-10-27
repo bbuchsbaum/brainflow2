@@ -159,9 +159,18 @@ export class MosaicRenderService {
       height,
     });
 
+    // A render whose grid was superseded before it started must not claim the
+    // cell: the claim would steal ownership from the newer grid's render of
+    // the same cellId (which then drops its image as stale), and this render
+    // would itself drop as stale, leaving the cell on "Loading…" for good.
+    if (generation !== undefined && generation !== this.gridGeneration) {
+      return;
+    }
+
     // Stamp this render's epoch; a later render or cancel invalidates it.
     const requestId = this.nextRequestId++;
     this.activeRenders.set(cellId, requestId);
+    let painted = false;
 
     try {
       // Update store to indicate rendering started
@@ -240,6 +249,7 @@ export class MosaicRenderService {
         // Update store with the rendered image
         renderStore.setImage(cellId, imageBitmap);
         renderStore.setRendering(cellId, false);
+        painted = true;
         debug(`[MosaicRenderService] Updated store with image for ${cellId}`);
       } else {
         throw new Error('No image returned from backend');
@@ -261,11 +271,17 @@ export class MosaicRenderService {
       const renderStore = useRenderStateStore.getState();
       renderStore.setError(cellId, error instanceof Error ? error : new Error(String(error)));
       renderStore.setRendering(cellId, false);
+      painted = true;
     } finally {
       // Only release ownership if we still hold it (a newer render may already
       // own the cellId).
       if (this.activeRenders.get(cellId) === requestId) {
         this.activeRenders.delete(cellId);
+      }
+      // A dropped render that leaves the cell unowned must not leave its
+      // spinner on: nothing would ever clear it.
+      if (!painted && !this.activeRenders.has(cellId)) {
+        useRenderStateStore.getState().setRendering(cellId, false);
       }
       debug(`[MosaicRenderService] Finished processing ${cellId}`);
     }
@@ -342,6 +358,12 @@ export class MosaicRenderService {
 
     // Process batches sequentially, but items within each batch in parallel
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      // A newer grid superseded this one: its remaining batches are not
+      // dispatched (the newer grid renders every cell it shows).
+      if (generation !== this.gridGeneration) {
+        debug(`[MosaicRenderService] Grid generation ${generation} superseded; stopping`);
+        break;
+      }
       const batch = batches[batchIndex];
       debug(
         `[MosaicRenderService] Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} renders`,

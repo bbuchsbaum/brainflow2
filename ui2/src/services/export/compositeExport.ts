@@ -201,17 +201,37 @@ function pageTheme(background: ExportBackground): PageTheme {
 }
 
 /**
- * Text drawn ON an image pane (letters, tile labels, scale bar): always light
- * with a dark halo, because image panes stay black (also on a white page:
- * no alpha rim around the brain, v3 visual critic).
+ * Text drawn ON an image pane (letters, scale bar). On a black or
+ * transparent page: light with a dark halo. On a white page the pane is
+ * matted onto the page (utils/exportMatte.ts: outside the head is white), so
+ * the letters are dark with a light halo, readable on page and tissue alike.
  */
-const ON_IMAGE = { text: '#e6e7ea', halo: 'rgba(0,0,0,0.85)', scrim: 'rgba(0,0,0,0.7)' };
+interface OnImageStyle {
+  text: string;
+  halo: string;
+}
+const ON_IMAGE_DARK: OnImageStyle = { text: '#e6e7ea', halo: 'rgba(0,0,0,0.85)' };
+const ON_IMAGE_LIGHT: OnImageStyle = { text: '#16171a', halo: 'rgba(255,255,255,0.9)' };
+
+export function onImageStyle(background: ExportBackground): OnImageStyle {
+  return background === 'white' ? ON_IMAGE_LIGHT : ON_IMAGE_DARK;
+}
 
 const SANS = '"IBM Plex Sans", system-ui, sans-serif';
 const MONO = '"IBM Plex Mono", ui-monospace, monospace';
 
 /** Width of the colorbar column in CSS px at 96 dpi (bar + ticks + caption). */
 export const SIDEBAR_W = 120;
+/**
+ * Clear gutter between the image grid and the colorbar column (CSS px at
+ * 96 dpi): the colorbar is its own column, never on the image (native check).
+ */
+export const SIDE_GAP = 14;
+
+/** Gutter before the side column in output px, at least the pane gap. */
+export function sideGapPx(unit: number, paneGap = 4): number {
+  return Math.max(paneGap, SIDE_GAP) * unit;
+}
 const BAR_W = 10;
 const MAX_BAR_H = 160;
 /**
@@ -248,19 +268,8 @@ export function headerBandPx(unit: number): number {
 
 type Rect = { x: number; y: number; width: number; height: number };
 
-/** Fill text with a halo, returning its box (for crosshair knockouts). */
-function haloText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  u: number,
-): Rect {
-  ctx.save();
-  ctx.shadowColor = ON_IMAGE.halo;
-  ctx.shadowBlur = 3 * u;
-  ctx.fillText(text, x, y);
-  ctx.restore();
+/** The box of text drawn with the context's current font / align / baseline, padded for its halo. */
+function textBox(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, u: number): Rect {
   const m = ctx.measureText(text);
   const w = m.width;
   const h = (m.actualBoundingBoxAscent ?? 0) + (m.actualBoundingBoxDescent ?? 0) || ptToPx(8, u);
@@ -289,41 +298,65 @@ function drawPane(
   const band = options.header && !pane.tileLabel ? headerBandPx(u) : 0;
   if (band) drawHeaderBand(ctx, x, y, pane, u, band, theme);
   const iy = y + band;
-  // Image panes are black (also on a white page): an alpha edge composited
-  // onto white leaves a dark stair-stepped rim around the brain.
-  if (options.background !== 'transparent') {
+  // On a black page the pane sits on black (as on screen). On a white or
+  // transparent page the capture has already matted the pane onto the page
+  // (utils/exportMatte.ts): outside the head is page, with no dark rim.
+  if (options.background === 'black') {
     ctx.fillStyle = '#000000';
     ctx.fillRect(x, iy, pane.width, pane.height);
   }
   ctx.drawImage(pane.image, x, iy, pane.width, pane.height);
+  const onImage = onImageStyle(options.background);
 
   // Everything on the image first, collecting boxes the crosshair skips.
   const knockouts: Rect[] = [];
 
+  // Orientation letters, measured first: the scale bar is placed clear of them.
+  const letterFont = font(ptToPx(TEXT_PT.letter, u), SANS, 600);
+  const letters: Array<{ text: string; x: number; y: number; align: CanvasTextAlign; baseline: CanvasTextBaseline; box: Rect }> = [];
   if (options.orientation && pane.orientation !== false) {
     const labels = anatomicalLabels(pane.plane);
     if (labels) {
-      ctx.save();
-      ctx.font = font(ptToPx(TEXT_PT.letter, u), SANS, 600);
-      ctx.fillStyle = ON_IMAGE.text;
       const off = 5 * u;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      knockouts.push(haloText(ctx, labels.top, x + pane.width / 2, iy + off, u));
-      ctx.textBaseline = 'bottom';
-      knockouts.push(haloText(ctx, labels.bottom, x + pane.width / 2, iy + pane.height - off, u));
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left';
-      knockouts.push(haloText(ctx, labels.left, x + off, iy + pane.height / 2, u));
-      ctx.textAlign = 'right';
-      knockouts.push(haloText(ctx, labels.right, x + pane.width - off, iy + pane.height / 2, u));
+      const specs: Array<[string, number, number, CanvasTextAlign, CanvasTextBaseline]> = [
+        [labels.top, x + pane.width / 2, iy + off, 'center', 'top'],
+        [labels.bottom, x + pane.width / 2, iy + pane.height - off, 'center', 'bottom'],
+        [labels.left, x + off, iy + pane.height / 2, 'left', 'middle'],
+        [labels.right, x + pane.width - off, iy + pane.height / 2, 'right', 'middle'],
+      ];
+      ctx.save();
+      ctx.font = letterFont;
+      for (const [text, lx, ly, align, baseline] of specs) {
+        ctx.textAlign = align;
+        ctx.textBaseline = baseline;
+        letters.push({ text, x: lx, y: ly, align, baseline, box: textBox(ctx, text, lx, ly, u) });
+      }
       ctx.restore();
     }
   }
 
-  if (options.scaleBar && pane.scaleBar !== false) {
-    const box = drawScaleBar(ctx, x, iy, pane, u);
-    if (box) knockouts.push(box);
+  const bar =
+    options.scaleBar && pane.scaleBar !== false
+      ? planScaleBar(ctx, x, iy, pane, u, letters.map((l) => l.box))
+      : null;
+  // A letter the scale bar must cover (a pane too small for both) is left
+  // out: text never overlaps text (the top letter still orients the pane).
+  ctx.save();
+  ctx.font = letterFont;
+  ctx.fillStyle = onImage.text;
+  ctx.shadowColor = onImage.halo;
+  ctx.shadowBlur = 3 * u;
+  for (const l of letters) {
+    if (bar && intersects(l.box, bar.box)) continue;
+    ctx.textAlign = l.align;
+    ctx.textBaseline = l.baseline;
+    ctx.fillText(l.text, l.x, l.y);
+    knockouts.push(l.box);
+  }
+  ctx.restore();
+  if (bar) {
+    paintScaleBar(ctx, bar, u, onImage);
+    knockouts.push(bar.box);
   }
 
   if (pane.tileLabel) {
@@ -365,36 +398,114 @@ function drawPane(
   }
 }
 
-/** 10 mm bar, bottom-right of the pane, its length from the pane's own mm/px. */
-function drawScaleBar(
+interface ScaleBarPlan {
+  barX: number;
+  base: number;
+  length: number;
+  text: string;
+  textRight: number;
+  box: Rect;
+}
+
+/**
+ * 10 mm bar, bottom-right of the pane, its length from the pane's own mm/px.
+ * Placed clear of the orientation letters: bottom-right; else raised above
+ * the letter it would cover (a narrow figure-row pane: "10 mm" ran into the
+ * bottom "P"); else bottom-right (the caller drops the covered letter).
+ */
+function planScaleBar(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   pane: ExportPane,
   u: number,
-): Rect | null {
+  avoid: readonly Rect[],
+): ScaleBarPlan | null {
   const length = scaleBarPx(pane.plane);
   if (!(length > 4) || length > pane.width * 0.6) return null;
   const right = x + pane.width - 8 * u;
-  const base = y + pane.height - 8 * u;
   ctx.save();
-  ctx.fillStyle = ON_IMAGE.text;
-  ctx.shadowColor = ON_IMAGE.halo;
-  ctx.shadowBlur = 3 * u;
-  ctx.fillRect(right - length, base - 2 * u, length, 2 * u);
   ctx.font = font(ptToPx(TEXT_PT.tick, u), MONO);
-  ctx.textBaseline = 'bottom';
   // Centred over the bar, but never past the pane edge: a short bar (a
   // mosaic tile) right-aligns its label to the bar's end instead.
   const text = `${SCALE_BAR_MM} mm`;
   const textW = ctx.measureText(text).width;
-  const textRight = Math.min(right - length / 2 + textW / 2, x + pane.width - EDGE_INSET * u);
-  ctx.textAlign = 'right';
-  ctx.fillText(text, textRight, base - 4 * u);
   ctx.restore();
+  const textRight = Math.min(right - length / 2 + textW / 2, x + pane.width - EDGE_INSET * u);
   const h = ptToPx(TEXT_PT.tick, u) * 1.4 + 6 * u;
   const left = Math.min(right - length, textRight - textW) - 2 * u;
-  return { x: left, y: base - h, width: right + 2 * u - left, height: h + 2 * u };
+  const boxAt = (b: number): Rect => ({ x: left, y: b - h, width: right + 2 * u - left, height: h + 2 * u });
+  const clear = (b: number) => b - h >= y && !avoid.some((other) => intersects(boxAt(b), other));
+  const bottom = y + pane.height - 8 * u;
+  let base = bottom;
+  if (!clear(bottom)) {
+    const blocker = avoid.find((other) => intersects(boxAt(bottom), other));
+    if (blocker && clear(blocker.y - 3 * u)) base = blocker.y - 3 * u;
+  }
+  return { barX: right - length, base, length, text, textRight, box: boxAt(base) };
+}
+
+function paintScaleBar(ctx: CanvasRenderingContext2D, plan: ScaleBarPlan, u: number, style: OnImageStyle): void {
+  ctx.save();
+  ctx.fillStyle = style.text;
+  ctx.shadowColor = style.halo;
+  ctx.shadowBlur = 3 * u;
+  ctx.fillRect(plan.barX, plan.base - 2 * u, plan.length, 2 * u);
+  ctx.font = font(ptToPx(TEXT_PT.tick, u), MONO);
+  ctx.textBaseline = 'bottom';
+  ctx.textAlign = 'right';
+  ctx.fillText(plan.text, plan.textRight, plan.base - 4 * u);
+  ctx.restore();
+}
+
+function intersects(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/** One run of a slice header. */
+export interface HeaderRun {
+  text: string;
+  italic?: boolean;
+  muted?: boolean;
+  /** Space before this run, in em (default: the 6-unit word gap). */
+  gapEm?: number;
+}
+
+/**
+ * The slice header, richest first: each candidate is tried in turn and the
+ * first that fits the pane is drawn, so headers never run together or past
+ * their pane (native check, figure row at 89 mm):
+ *   "Axial  z = −10.0 mm  zmap"  →  "Axial  z = −10.0 mm"  →  "z = −10.0 mm"
+ *   →  "z −10.0 mm"  →  "z −10.0"  →  nothing.
+ * The layer name is whole or absent (never ellipsized, v5 critics).
+ */
+export function headerCandidates(
+  plane: FramePlane,
+  positionMm: number,
+  layerName: string | null,
+): HeaderRun[][] {
+  const position = formatSlicePosition(plane, positionMm);
+  const match = /^([xyz]) (.*)$/.exec(position);
+  const planeRun: HeaderRun = { text: PLANE_NAME[plane] };
+  if (!match) {
+    const plain: HeaderRun[] = [planeRun, { text: position }];
+    return [plain, [{ text: position }], []];
+  }
+  const [, axis, value] = match;
+  const bare = value.replace(/\s*mm$/, '');
+  const full: HeaderRun[] = [
+    planeRun,
+    { text: axis, italic: true },
+    { text: `= ${value}`, gapEm: 0.3 },
+  ];
+  const out: HeaderRun[][] = [];
+  if (layerName) out.push([...full, { text: shortLayerLabel(layerName), muted: true }]);
+  out.push(full);
+  out.push(full.slice(1));
+  out.push([{ text: axis, italic: true }, { text: value, gapEm: 0.3 }]);
+  out.push([{ text: axis, italic: true }, { text: bare, gapEm: 0.3 }]);
+  out.push([]);
+  return out;
 }
 
 function drawHeaderBand(
@@ -406,35 +517,29 @@ function drawHeaderBand(
   band: number,
   theme: PageTheme,
 ): void {
-  // "Axial  z = 50.5 mm  zmap_synthetic" (plane, mono position, muted layer).
+  // "Axial  z = 50.5 mm  zmap_synthetic": sans throughout, the axis variable
+  // italic, the layer muted; shortened until it fits inside the pane with an
+  // inset at both ends.
   const px = ptToPx(TEXT_PT.header, u);
   const gap = 6 * u;
-  // Sans throughout, the axis variable italic ("Axial  z = 50.5 mm"), as in
-  // the frame's typography for symbols.
-  const position = formatSlicePosition(pane.framePlane, pane.positionMm);
-  const axis = /^([xyz]) /.exec(position)?.[1] ?? null;
-  const parts: Array<{ text: string; font: string; color: string; gap?: number }> = [
-    { text: PLANE_NAME[pane.framePlane], font: font(px, SANS), color: theme.text },
-    ...(axis
-      ? [
-          { text: axis, font: font(px, SANS, 400, true), color: theme.text },
-          { text: `= ${position.slice(2)}`, font: font(px, SANS), color: theme.text, gap: px * 0.3 },
-        ]
-      : [{ text: position, font: font(px, SANS), color: theme.text }]),
-  ];
+  const room = pane.width - 2 * EDGE_INSET * u;
   ctx.save();
-  const measure = (list: typeof parts) =>
+  const styled = (runs: HeaderRun[]) =>
+    runs.map((r) => ({
+      text: r.text,
+      font: font(px, SANS, 400, !!r.italic),
+      color: r.muted ? theme.muted : theme.text,
+      gap: r.gapEm != null ? px * r.gapEm : undefined,
+    }));
+  const measure = (list: ReturnType<typeof styled>) =>
     list.reduce((sum, p, i) => {
       ctx.font = p.font;
       return sum + ctx.measureText(p.text).width + (i > 0 ? (p.gap ?? gap) : 0);
     }, 0);
-  // The layer name, whole or not at all: a figure never prints an
-  // ellipsized name (v5 critics).
-  if (pane.layerName) {
-    const candidate = [...parts, { text: shortLayerLabel(pane.layerName), font: font(px, SANS), color: theme.muted }];
-    if (measure(candidate) <= pane.width - EDGE_INSET * u) parts.push(candidate[candidate.length - 1]);
-  }
-  if (measure(parts) > pane.width - EDGE_INSET * u) parts.shift();
+  const parts =
+    headerCandidates(pane.framePlane, pane.positionMm, pane.layerName)
+      .map(styled)
+      .find((list) => measure(list) <= room) ?? [];
   ctx.textBaseline = 'middle';
   // Inset from the pane's left edge (the header is page text, not flush).
   let cx = x + EDGE_INSET * u;
@@ -498,6 +603,8 @@ function measureRuns(
 const MIN_EXPORT_BAR = 60;
 
 interface ColorbarBlockLayout {
+  /** Room left of the bar for the crosshair caret and its value (output px). */
+  caretRoom: number;
   prefix: string;
   nameInline: boolean;
   nameLines: string[];
@@ -521,9 +628,16 @@ function colorbarBlockLayout(ctx: CanvasRenderingContext2D, side: ExportSideBar,
   const labelPx = ptToPx(TEXT_PT.label, u);
   const tickPx = ptToPx(TEXT_PT.tick, u);
   const colW = SIDEBAR_W * u;
-  const caretRoom = side.value != null ? 30 * u : 4 * u;
-  const room = colW - caretRoom - 2 * u;
   ctx.save();
+  // The value beside the caret is right-aligned 7 units left of the bar: the
+  // room before the bar holds all of it, so it never reaches into the image
+  // grid left of the column (native check: the colorbar on the image).
+  let caretRoom = 4 * u;
+  if (side.value != null && Number.isFinite(side.value)) {
+    ctx.font = font(tickPx, MONO);
+    caretRoom = Math.max(30 * u, ctx.measureText(formatLayerValue(side.value)).width + 9 * u);
+  }
+  const room = colW - caretRoom - 2 * u;
   ctx.font = font(labelPx, SANS);
   const symbolW = measureRuns(ctx, block.symbol, labelPx);
   const prefix = block.symbol.length ? ' · ' : '';
@@ -540,7 +654,7 @@ function colorbarBlockLayout(ctx: CanvasRenderingContext2D, side: ExportSideBar,
   const footerLines = block.footer.length ? (footerTwoLines ? 2 : 1) : 0;
   const footBlock =
     6 * u + footerLines * tickPx * 1.4 + (noteLines.length ? 2 * u + noteLines.length * tickPx * 1.3 : 0) + 4 * u;
-  return { prefix, nameInline, nameLines, headroom, footerTwoLines, noteLines, footBlock };
+  return { caretRoom, prefix, nameInline, nameLines, headroom, footerTwoLines, noteLines, footBlock };
 }
 
 /** Height the side column needs (colorbar block, and a legend below it). */
@@ -565,14 +679,14 @@ function drawColorbar(
   const block = colorbarBlockModel(layer);
   const labelPx = ptToPx(TEXT_PT.label, u);
   const tickPx = ptToPx(TEXT_PT.tick, u);
-  const caretRoom = side.value != null ? 30 * u : 4 * u;
-  const barX = x + caretRoom;
   const [wMin, wMax] = layer.intensity;
   // The layer name, never ellipsized (v5 critics): beside the symbol when it
   // fits, else whole on its own line(s) above, wrapped at name boundaries
   // (_ - .); a name that needs more than two lines is left to the file name.
   // The bar takes what the caption above and the footer below leave.
   const layout = colorbarBlockLayout(ctx, side, u);
+  const caretRoom = layout.caretRoom;
+  const barX = x + caretRoom;
   const { prefix, nameInline, nameLines } = layout;
   const lineH = labelPx * 1.25;
   const free = height - layout.headroom - layout.footBlock;
@@ -785,6 +899,35 @@ export function compositionSize(
   /** The side column's measured height (sideColumnMinHeight): the canvas holds it all. */
   sideMinHeight = 0,
 ): { width: number; height: number; gridW: number; offsetX: number } {
+  const { width, height, gridW, offsetX } = compositionLayout(rows, options, hasSide, sideMinHeight);
+  return { width, height, gridW, offsetX };
+}
+
+/** A box in output px (canvas coordinates). */
+export type Box = { x: number; y: number; width: number; height: number };
+
+export interface CompositionLayout {
+  width: number;
+  height: number;
+  gridW: number;
+  offsetX: number;
+  /** Per row, per pane: the header band / tile strip and the image box (canvas coordinates). */
+  panes: Array<Array<{ x: number; y: number; band: number; image: Box }>>;
+  /** The colorbar / legend column (canvas coordinates), or null. */
+  side: Box | null;
+}
+
+/**
+ * Where everything goes: one layout for the size check, the drawing and the
+ * geometry tests. The side column starts a clear gutter (SIDE_GAP) right of
+ * the widest row, so it never overlaps an image.
+ */
+export function compositionLayout(
+  rows: Array<Array<{ width: number; height: number; tile?: boolean }>>,
+  options: Pick<CompositeOptions, 'unit' | 'header' | 'colorbar' | 'paneGap' | 'targetWidth' | 'alignRows'>,
+  hasSide: boolean,
+  sideMinHeight = 0,
+): CompositionLayout {
   const u = options.unit;
   const gap = (options.paneGap ?? 4) * u;
   const band = (p: { tile?: boolean }) =>
@@ -795,15 +938,33 @@ export function compositionSize(
   const rowHeights = rows.map((r) => Math.max(0, ...r.map((p) => p.height + band(p))));
   const gridW = Math.max(0, ...rowWidths);
   const gridH = rowHeights.reduce((a, b) => a + b, 0) + gap * Math.max(0, rows.length - 1);
-  const sideW = hasSide ? SIDEBAR_W * u + gap : 0;
+  const sideGap = sideGapPx(u, options.paneGap ?? 4);
+  const sideW = hasSide ? SIDEBAR_W * u + sideGap : 0;
   const natural = Math.max(1, Math.round(gridW + sideW));
   const width = options.targetWidth && options.targetWidth > 0 ? Math.round(options.targetWidth) : natural;
-  return {
-    width,
-    height: Math.max(1, Math.round(gridH), hasSide ? Math.ceil(sideMinHeight) : 0),
-    gridW,
-    offsetX: Math.max(0, Math.floor((width - (gridW + sideW)) / 2)),
-  };
+  const height = Math.max(1, Math.round(gridH), hasSide ? Math.ceil(sideMinHeight) : 0);
+  const offsetX = Math.max(0, Math.floor((width - (gridW + sideW)) / 2));
+
+  let y = 0;
+  const panes = rows.map((row, r) => {
+    let x = options.alignRows === 'start' ? 0 : (gridW - rowWidths[r]) / 2;
+    const placed = row.map((pane) => {
+      const b = band(pane);
+      // Shorter panes sit centred in the row (no ragged bottoms in a figure
+      // row: axial is taller than coronal and sagittal).
+      const dy = Math.max(0, Math.round((rowHeights[r] - (pane.height + b)) / 2));
+      const at = { x: offsetX + x, y: y + dy, band: b };
+      x += pane.width + gap;
+      return {
+        ...at,
+        image: { x: at.x, y: at.y + (pane.tile ? 0 : b), width: pane.width, height: pane.height },
+      };
+    });
+    y += rowHeights[r] + gap;
+    return placed;
+  });
+  const side = hasSide ? { x: offsetX + gridW + sideGap, y: 0, width: SIDEBAR_W * u, height } : null;
+  return { width, height, gridW, offsetX, panes, side };
 }
 
 export function compose(
@@ -814,25 +975,19 @@ export function compose(
 ): Composition {
   const u = options.unit;
   const theme = pageTheme(options.background);
-  const gap = (options.paneGap ?? 4) * u;
   const hasSide =
     options.colorbar && (!!side.colorbar || (!!side.legend && side.legend.length > 0));
-  const band = (p: ExportPane) =>
-    p.tileLabel ? tileStripPx(u) : options.header ? headerBandPx(u) : 0;
-  const rowWidths = rows.map(
-    (r) => r.reduce((w, p) => w + p.width, 0) + gap * Math.max(0, r.length - 1),
-  );
-  const rowHeights = rows.map((r) => Math.max(0, ...r.map((p) => p.height + band(p))));
   // The side column's height, measured with the same fonts (a scratch
   // context): a short figure row grows to hold the whole colorbar block.
   const measureCtx = hasSide && side.colorbar ? (makeCanvas(1, 1).getContext('2d') as CanvasRenderingContext2D | null) : null;
   const sideMin = measureCtx ? sideColumnMinHeight(measureCtx, side, u) : 0;
-  const { width, height, gridW, offsetX } = compositionSize(
+  const layout = compositionLayout(
     rows.map((r) => r.map((p) => ({ width: p.width, height: p.height, tile: !!p.tileLabel }))),
     options,
     hasSide,
     sideMin,
   );
+  const { width, height } = layout;
 
   const canvas = makeCanvas(width, height);
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
@@ -841,32 +996,24 @@ export function compose(
     ctx.fillStyle = theme.ground;
     ctx.fillRect(0, 0, width, height);
   }
-  // Centred in an exact target width (a pixel either side at most).
-  if (offsetX) ctx.translate(offsetX, 0);
 
-  let y = 0;
   rows.forEach((row, r) => {
-    let x = options.alignRows === 'start' ? 0 : (gridW - rowWidths[r]) / 2;
-    for (const pane of row) {
-      // Shorter panes sit centred in the row (no ragged bottoms in a
-      // figure row: axial is taller than coronal and sagittal).
-      const dy = Math.round((rowHeights[r] - (pane.height + band(pane))) / 2);
-      drawPane(ctx, x, y + Math.max(0, dy), pane, options, settings, theme);
-      x += pane.width + gap;
-    }
-    y += rowHeights[r] + gap;
+    row.forEach((pane, c) => {
+      const at = layout.panes[r][c];
+      drawPane(ctx, at.x, at.y, pane, options, settings, theme);
+    });
   });
 
-  if (hasSide) {
-    const sx = gridW + gap;
+  if (layout.side) {
+    const { x: sx, height: sh } = layout.side;
     const legend = side.legend && side.legend.length > 0 ? side.legend : null;
     if (side.colorbar && legend) {
       // A statistic over a label map: the colorbar above, the regions below.
-      const split = Math.round(height * 0.6);
+      const split = Math.round(sh * 0.6);
       drawColorbar(ctx, sx, 0, split, side, u, theme);
-      drawLegend(ctx, sx, split, height - split, legend, u, theme);
-    } else if (side.colorbar) drawColorbar(ctx, sx, 0, height, side, u, theme);
-    else if (legend) drawLegend(ctx, sx, 0, height, legend, u, theme);
+      drawLegend(ctx, sx, split, sh - split, legend, u, theme);
+    } else if (side.colorbar) drawColorbar(ctx, sx, 0, sh, side, u, theme);
+    else if (legend) drawLegend(ctx, sx, 0, sh, legend, u, theme);
   }
   return { canvas, width, height };
 }

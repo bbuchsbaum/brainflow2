@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ComparisonPanel, volumeEdgeBounds } from '../ComparisonPanel';
+import { ComparisonPanel } from '../ComparisonPanel';
+import { volumeEdgeBounds } from '../clickDataBounds';
 import { resolveCommonViewType } from '../ComparisonWorkspace';
 import { useStatusReadoutStore } from '@/stores/statusReadoutStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -215,5 +216,46 @@ describe('Compare status readout claim', () => {
     expect(useStatusReadoutStore.getState().override?.layerId).toBe('stat');
     useStatusReadoutStore.getState().release('compare:w:panel-2');
     expect(useStatusReadoutStore.getState().override).toBeNull();
+  });
+
+  it('adds a loaded layer to the panel without dragging ("Add layer…", native v6)', async () => {
+    vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() })));
+    const { useLayerStore } = await import('@/stores/layerStore');
+    const { useComparisonStore } = await import('@/stores/comparisonStore');
+    useLayerStore.setState({
+      layers: [
+        { id: 'layer-1', name: 'MNI152 T1w', volumeId: 'v1', type: 'volume', visible: true, order: 0 },
+        { id: 'layer-z', name: 'zmap_synthetic.nii', volumeId: 'vz', type: 'volume', visible: true, order: 1 },
+      ] as never,
+    });
+    const addLayerToPanel = vi.fn();
+    const original = useComparisonStore.getState().addLayerToPanel;
+    useComparisonStore.setState({ addLayerToPanel });
+    const panel: ComparisonPanelConfig = {
+      id: 'panel-3',
+      label: 'MNI152 T1w',
+      visibleLayerIds: new Set(['layer-1']),
+      viewType: 'axial',
+    };
+    render(
+      <ComparisonPanel
+        workspaceId="comparison-workspace"
+        panel={panel}
+        width={640}
+        height={420}
+        layerNames={new Map([['layer-1', 'MNI152 T1w']])}
+        onRemoveLayer={vi.fn()}
+        onRemovePanel={vi.fn()}
+        onViewTypeChange={vi.fn()}
+      />,
+    );
+    const select = screen.getByRole('combobox', { name: 'Add a layer to panel MNI152 T1w' });
+    // Only the layer this panel does not show is offered.
+    expect(select).toHaveTextContent('zmap_synthetic.nii');
+    expect(select).not.toHaveTextContent('MNI152 T1w');
+    fireEvent.change(select, { target: { value: 'layer-z' } });
+    expect(addLayerToPanel).toHaveBeenCalledWith('comparison-workspace', 'panel-3', 'layer-z');
+    useComparisonStore.setState({ addLayerToPanel: original });
+    vi.unstubAllGlobals();
   });
 });

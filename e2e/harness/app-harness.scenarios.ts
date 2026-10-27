@@ -70,6 +70,11 @@ export const P3_SCENARIOS = [
   'surface-preset-medial',
   'surface-preset-dorsal',
   'surface-preset-anterior',
+  // Native-like statistics with no scenario-set window (v6 native check).
+  'native-zmap',
+  'native-tmap',
+  'native-export-crop',
+  'native-export-crop-zfirst',
   'crosshair-letter-knockout',
 ];
 

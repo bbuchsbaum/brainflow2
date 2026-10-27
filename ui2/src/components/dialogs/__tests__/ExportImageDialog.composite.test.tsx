@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExportImageDialog } from '../ExportImageDialog';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { EXPORT_PRESETS } from '@/services/export/compositeExport';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
 
 const { captureCompositeMock, captureActiveViewMock } = vi.hoisted(() => ({
   captureCompositeMock: vi.fn(),
@@ -64,6 +65,7 @@ describe('ExportImageDialog composited export (P3.8)', () => {
       suggestedName: '',
       nameEdited: false,
       exportTarget: null,
+      exportTargetByWorkspace: {},
       composite: { ...EXPORT_PRESETS.figure },
       size: { kind: 'screen', scale: 2 },
       provenance: false,
@@ -171,5 +173,49 @@ describe('ExportImageDialog composited export (P3.8)', () => {
       useExportDialogStore.getState().setComposite({ background: 'transparent' });
     });
     expect(screen.getByTestId('export-preview').className).toContain('bf-checkerboard');
+  });
+
+  // Native check: the View reset to the active panel on every open.
+  it('remembers the chosen View per workspace and falls back to the active panel when it is gone', async () => {
+    const lastTarget = () => captureCompositeMock.mock.calls[captureCompositeMock.mock.calls.length - 1][0];
+    const reopen = async (workspaceId: string | null) => {
+      act(() => {
+        useExportDialogStore.getState().close();
+        useWorkspaceStore.setState({ activeWorkspaceId: workspaceId });
+      });
+      captureCompositeMock.mockClear();
+      act(() => useExportDialogStore.getState().open());
+      await waitFor(() => expect(captureCompositeMock).toHaveBeenCalled());
+    };
+    try {
+      render(<ExportImageDialog />);
+      await reopen('ws-a');
+      expect(lastTarget()).toBe('axial');
+      act(() => useExportDialogStore.getState().setExportTarget('coronal'));
+      await waitFor(() => expect(lastTarget()).toBe('coronal'));
+
+      // Reopened in the same workspace: the chosen View, not the active panel.
+      await reopen('ws-a');
+      expect(lastTarget()).toBe('coronal');
+      expect(screen.getByRole('combobox', { name: /view/i })).toHaveTextContent('Coronal');
+
+      // Another workspace has its own choice (none yet: the active panel).
+      await reopen('ws-b');
+      expect(lastTarget()).toBe('axial');
+      act(() => useExportDialogStore.getState().setExportTarget('orthogonal'));
+      await waitFor(() => expect(lastTarget()).toBe('orthogonal'));
+
+      await reopen('ws-a');
+      expect(lastTarget()).toBe('coronal');
+
+      // A remembered View this workspace can no longer export: the active panel.
+      act(() =>
+        useExportDialogStore.setState({ exportTargetByWorkspace: { 'ws-a': 'mosaic' } }),
+      );
+      await reopen('ws-a');
+      expect(lastTarget()).toBe('axial');
+    } finally {
+      useWorkspaceStore.setState({ activeWorkspaceId: null });
+    }
   });
 });

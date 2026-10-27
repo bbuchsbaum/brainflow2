@@ -4,6 +4,14 @@ interface UseWindowLevelOptions {
   canvasRef: React.RefObject<HTMLElement | null>;
   layerId: string | null;
   dataRange: { min: number; max: number } | null;
+  /**
+   * The layer's current window: a drag starts from it. Without it the drag
+   * started from the full data range, so the first pixel of movement jumped
+   * the window (native v6: −0.03…0.03 became −0.48…2.15).
+   */
+  currentWindow?: readonly [number, number] | null;
+  /** The same, read at mouse-down (callers that cannot subscribe). */
+  getCurrentWindow?: () => readonly [number, number] | null | undefined;
   onUpdate: (intensity: [number, number]) => void;
 }
 
@@ -23,6 +31,8 @@ export function useWindowLevel({
   canvasRef,
   layerId,
   dataRange,
+  currentWindow = null,
+  getCurrentWindow,
   onUpdate,
 }: UseWindowLevelOptions): UseWindowLevelReturn {
   const [isDragging, setIsDragging] = useState(false);
@@ -45,6 +55,11 @@ export function useWindowLevel({
   const layerIdRef = useRef(layerId);
   useEffect(() => { layerIdRef.current = layerId; }, [layerId]);
 
+  const windowRef = useRef(currentWindow);
+  useEffect(() => { windowRef.current = currentWindow; }, [currentWindow]);
+  const getWindowRef = useRef(getCurrentWindow);
+  useEffect(() => { getWindowRef.current = getCurrentWindow; }, [getCurrentWindow]);
+
   const onUpdateRef = useRef(onUpdate);
   useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
 
@@ -53,8 +68,10 @@ export function useWindowLevel({
     if (!layerIdRef.current || !dataRangeRef.current) return;
 
     const range = dataRangeRef.current;
-    const center = (range.min + range.max) / 2;
-    const width = range.max - range.min;
+    const win = getWindowRef.current?.() ?? windowRef.current;
+    const valid = !!win && Number.isFinite(win[0]) && Number.isFinite(win[1]) && win[1] >= win[0];
+    const center = valid ? (win![0] + win![1]) / 2 : (range.min + range.max) / 2;
+    const width = valid ? win![1] - win![0] : range.max - range.min;
 
     dragState.current = {
       active: false,
@@ -97,7 +114,13 @@ export function useWindowLevel({
 
     // Clamp so [center - width/2, center + width/2] stays within data range
     const half = newWidth / 2;
-    newCenter = Math.max(range.min + half, Math.min(range.max - half, newCenter));
+    // Keep the window inside the data while it fits; a wider window (a
+    // statistic's symmetric ±max|v| over asymmetric data) keeps its centre
+    // within the data instead of being pushed off-centre.
+    newCenter =
+      newWidth <= totalRange
+        ? Math.max(range.min + half, Math.min(range.max - half, newCenter))
+        : Math.max(range.min, Math.min(range.max, newCenter));
 
     const newMin = newCenter - half;
     const newMax = newCenter + half;
@@ -119,7 +142,13 @@ export function useWindowLevel({
   const handleContextMenu = useCallback((e: MouseEvent) => {
     if (dragState.current?.thresholdMet) {
       e.preventDefault();
+      return;
     }
+    // The context menu opened (macOS opens it on mouse-down): this right
+    // press is a menu click, not a window/level drag. Moving to a menu item
+    // with the button held must not change the window (native v6: the
+    // export, opened from this menu, moved the overlay's window).
+    dragState.current = null;
   }, []);
 
   useEffect(() => {

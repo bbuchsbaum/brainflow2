@@ -12,7 +12,7 @@
  * - Built-in performance tracking
  */
 
-import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
 import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
@@ -100,6 +100,11 @@ function MosaicViewPromiseRaw({
   const [mosaicFill, setMosaicFill] = useState(0);
   const [currentSlice, setCurrentSlice] = useState(0);
   const [hasInitialized, setHasInitialized] = useState(false);
+  // The layout inputs the current cellSize was fitted for. Tiles are only
+  // requested for a fitted layout: a grid requested at the provisional size
+  // (128 px, 4×4) is cancelled a frame later, and each throwaway grid is one
+  // more chance for a cancel/supersede race to strand a tile.
+  const [fittedKey, setFittedKey] = useState<string | null>(null);
   
   const gridRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -279,8 +284,12 @@ function MosaicViewPromiseRaw({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridSize.rows, gridSize.cols]);
   
-  // Calculate cell dimensions based on container size
-  useEffect(() => {
+  const layoutKey = (rows: number, cols: number) =>
+    `${gridChoice}|${rows}x${cols}|${brainAspect ?? ''}|${totalSlices}|${colorbarColumnPx}`;
+
+  // Calculate cell dimensions based on container size. A layout effect: the
+  // first grid commit is measured before it paints or requests any tile.
+  useLayoutEffect(() => {
     if (!gridRef.current) return;
 
     const updateCellDimensions = () => {
@@ -331,18 +340,18 @@ function MosaicViewPromiseRaw({
       setCellSize((prev) =>
         prev.width === finalSize.width && prev.height === finalSize.height ? prev : finalSize,
       );
+      setFittedKey(layoutKey(fit.rows, fit.cols));
       setHasInitialized(true);
     };
 
     // Try to calculate dimensions immediately
     updateCellDimensions();
-    
-    // If not initialized yet, try again after a frame
-    if (!hasInitialized) {
-      requestAnimationFrame(() => {
-        updateCellDimensions();
-      });
-    }
+
+    // Measure again on the next frame: the host pane (GoldenLayout, the
+    // bottom dock's reserve) can settle its size after this commit.
+    const frame = requestAnimationFrame(() => {
+      updateCellDimensions();
+    });
     
     // Use ResizeObserver to detect container size changes
     const resizeObserver = new ResizeObserver(updateCellDimensions);
@@ -352,10 +361,14 @@ function MosaicViewPromiseRaw({
     window.addEventListener('resize', updateCellDimensions);
     
     return () => {
+      cancelAnimationFrame(frame);
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateCellDimensions);
     };
+    // The grid element mounts with the first non-empty slicing (totalSlices).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridSize, gridChoice, hasInitialized, brainAspect, totalSlices, colorbarColumnPx]);
+  const layoutFitted = fittedKey === layoutKey(gridSize.rows, gridSize.cols);
   
   // Calculate slice indices for current page
   const sliceIndices = useMemo(() => {
@@ -408,6 +421,10 @@ function MosaicViewPromiseRaw({
       console.log('[MosaicViewPromise] DEBUG - Skipping render: no slices or layers');
       return;
     }
+    if (!layoutFitted) {
+      // Wait for the grid to be fitted to the pane (no provisional-size tiles).
+      return;
+    }
     
     const renderRequests = sliceIndices.map((sliceIndex, i) => ({
       sliceIndex,
@@ -433,7 +450,8 @@ function MosaicViewPromiseRaw({
     cellSize.height,
     visibleLayers.length,
     layerRevision,
-    timepointRevision
+    timepointRevision,
+    layoutFitted
   ]);
   
   // Handle page navigation

@@ -19,6 +19,7 @@ import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { CoordinateTransform } from '@/utils/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
+import { isClickOnData, useLayerEdgeBounds } from './clickDataBounds';
 
 interface MosaicCellProps {
   workspaceId: string;
@@ -31,7 +32,21 @@ interface MosaicCellProps {
   onCrosshairClick?: (worldCoord: [number, number, number]) => void;
 }
 
-export function MosaicCell({
+export function MosaicCell(props: MosaicCellProps) {
+  // Guard against invalid slice indices. The early return lives here and the
+  // hooks in MosaicCellBody, so their order never changes (rules of hooks).
+  if (props.sliceIndex == null || props.sliceIndex < 0) {
+    console.warn(`[MosaicCell] Invalid sliceIndex: ${props.sliceIndex}`);
+    return (
+      <div className="flex items-center justify-center h-full text-bf-xs text-bf-text-secondary">
+        <span>No slice</span>
+      </div>
+    );
+  }
+  return <MosaicCellBody {...props} />;
+}
+
+function MosaicCellBody({
   workspaceId,
   renderService: mosaicRenderService,
   width,
@@ -41,16 +56,6 @@ export function MosaicCell({
   axis,
   onCrosshairClick
 }: MosaicCellProps) {
-  // Guard against invalid slice indices
-  if (sliceIndex == null || sliceIndex < 0) {
-    console.warn(`[MosaicCell] Invalid sliceIndex: ${sliceIndex}`);
-    return (
-      <div className="flex items-center justify-center h-full text-bf-xs text-bf-text-secondary">
-        <span>No slice</span>
-      </div>
-    );
-  }
-  
   // Create RenderContext using the tag as the ID
   const renderContext = useMemo(() => ({
     id: tag,  // Use the tag directly as ID
@@ -67,6 +72,11 @@ export function MosaicCell({
   const axisViewPlane = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).views[axis]);
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
+  // The volume's outer voxel edges: a click in the tile padding around the
+  // brain (inside the bitmap) does not move the crosshair.
+  const viewLayers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
+  const dataLayerIds = useMemo(() => viewLayers.map(layer => layer.id), [viewLayers]);
+  const dataEdgeBounds = useLayerEdgeBounds(dataLayerIds);
   
   const slicePositionRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -207,9 +217,11 @@ export function MosaicCell({
         break;
     }
 
+    if (!isClickOnData(finalWorldCoord, currentViewPlane, dataEdgeBounds)) return;
+
     event.preventDefault();
     onCrosshairClick(finalWorldCoord);
-  }, [axis, axisViewPlane, mosaicRenderService, onCrosshairClick, tag]);
+  }, [axis, axisViewPlane, mosaicRenderService, onCrosshairClick, tag, dataEdgeBounds]);
   
   return (
     <SliceViewport

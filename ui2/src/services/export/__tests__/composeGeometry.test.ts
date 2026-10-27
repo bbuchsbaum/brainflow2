@@ -8,6 +8,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   compose,
+  compositionLayout,
+  headerCandidates,
+  sideGapPx,
   SIDEBAR_W as SIDE,
   EDGE_INSET,
   ptToPx,
@@ -37,6 +40,7 @@ interface RectCall {
 
 let texts: TextCall[] = [];
 let rects: RectCall[] = [];
+let images: RectCall[] = [];
 
 function recorder(): CanvasRenderingContext2D {
   const state = {
@@ -104,7 +108,7 @@ function recorder(): CanvasRenderingContext2D {
       tx += dx;
     },
     strokeRect: () => {},
-    drawImage: () => {},
+    drawImage: (_img: unknown, x: number, y: number, w: number, h: number) => images.push({ x: x + tx, y, w, h }),
     createLinearGradient: () => ({ addColorStop: () => {} }),
     beginPath: () => {},
     moveTo: () => {},
@@ -166,6 +170,7 @@ describe('composer figure finish (output px)', () => {
   beforeEach(() => {
     texts = [];
     rects = [];
+    images = [];
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
       () => recorder() as never,
     );
@@ -349,8 +354,9 @@ describe('composer figure finish (output px)', () => {
     const unit = dpi / 96;
     const total = Math.round((mm / 25.4) * dpi);
     const gap = target === 'mosaic' ? 6 : 4;
-    // The capture solves panes to the target minus the side column and its gap.
-    const avail = total - SIDE * unit - gap * unit;
+    // The capture solves panes to the target minus the side column and its
+    // gutter (sideGapPx: the colorbar's own column, native check).
+    const avail = total - SIDE * unit - sideGapPx(unit, gap);
     const layer = guessed ? { ...zLayer, units: 'z*', unitsFromName: true } : zLayer;
     const comp = compose(
       shapes[target](avail, unit),
@@ -367,5 +373,159 @@ describe('composer figure finish (output px)', () => {
       expect(b.top, `${t.text} top`).toBeGreaterThanOrEqual(-0.5);
       expect(b.bottom, `${t.text} bottom`).toBeLessThanOrEqual(comp.height + 0.5);
     }
+  });
+
+  // ── native check (P3 export defects) ──────────────────────────────────────
+
+  const crosshair = { activeColor: '#0f0', activeThickness: 1, activeStyle: 'solid' } as never;
+  const overlaps = (a: { left: number; right: number; top: number; bottom: number }, b: typeof a) =>
+    a.left < b.right - 0.01 && b.left < a.right - 0.01 && a.top < b.bottom - 0.01 && b.top < a.bottom - 0.01;
+  // Realistic figure shapes: a montage letters its first tile and puts the
+  // scale bar on its last, as the capture does.
+  const figureShapes: Record<string, (avail: number, unit: number) => ExportPane[][]> = {
+    axial: shapes.axial,
+    sagittal: shapes.sagittal,
+    coronal: (w) => [[pane({ width: w, height: Math.round(w * 0.95), framePlane: 'coronal' })]],
+    'figure row': (w, unit) => {
+      const each = Math.floor((w - 2 * 4 * unit) / 3);
+      return [[
+        pane({ width: each, height: Math.round(each * 1.2), positionMm: -10, layerName: null }),
+        pane({ width: each, height: Math.round(each * 0.95), framePlane: 'coronal', positionMm: -60, layerName: null }),
+        pane({ width: each, height: Math.round(each * 0.78), framePlane: 'sagittal', positionMm: 42, layerName: null }),
+      ]];
+    },
+    orthogonal: shapes.orthogonal,
+    mosaic: (w, unit) => {
+      const cols = w > 3000 ? 6 : 4;
+      const tile = Math.floor((w - (cols - 1) * 6 * unit) / cols);
+      const n = 2 * cols;
+      return Array.from({ length: 2 }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => {
+          const i = r * cols + c;
+          return pane({
+            width: tile,
+            height: Math.round(tile * 1.2),
+            layerName: null,
+            tileLabel: { text: `z ${i}`, emphasis: false },
+            orientation: i === 0,
+            scaleBar: i === n - 1,
+          });
+        }),
+      );
+    },
+  };
+  const solveCase = (target: string, mm: number, dpi: number) => {
+    const unit = dpi / 96;
+    const total = Math.round((mm / 25.4) * dpi);
+    const gap = target === 'mosaic' ? 6 : 4;
+    const avail = total - SIDE * unit - sideGapPx(unit, gap);
+    return { unit, total, gap, rows: figureShapes[target](avail, unit) };
+  };
+  const sizes: Array<[number, number]> = [
+    [89, 300],
+    [89, 600],
+    [183, 300],
+    [183, 600],
+  ];
+
+  // (c) The colorbar always has its own column: its box misses every pane
+  // image, and everything the colorbar draws (caption, bar, ticks, the
+  // crosshair value beside its caret) stays inside that column.
+  const colorbarCases: Array<[string, number, number]> = [];
+  for (const target of Object.keys(figureShapes)) for (const [mm, dpi] of sizes) colorbarCases.push([target, mm, dpi]);
+  it.each(colorbarCases)('colorbar column clear of every image: %s, %i mm, %i dpi', (target, mm, dpi) => {
+    const { unit, total, gap, rows } = solveCase(target, mm, dpi);
+    const opts = { ...options, unit, targetWidth: total, paneGap: gap, crosshair: true };
+    // A long crosshair value: its text sits left of the bar.
+    compose(rows, { colorbar: zLayer as never, value: -12345.67 }, opts, crosshair);
+    const layout = compositionLayout(
+      rows.map((r) => r.map((p) => ({ width: p.width, height: p.height, tile: !!p.tileLabel }))),
+      opts,
+      true,
+    );
+    const side = layout.side!;
+    expect(side).toBeTruthy();
+    const sideBox = { left: side.x, right: side.x + side.width, top: side.y, bottom: side.y + side.height };
+    // The drawn pane images are exactly the layout's image boxes.
+    const imageBoxes = images.map((i) => ({ left: i.x, right: i.x + i.w, top: i.y, bottom: i.y + i.h }));
+    expect(imageBoxes.length).toBe(rows.flat().length);
+    for (const img of imageBoxes) {
+      expect(overlaps(img, sideBox), 'colorbar column ∩ pane image').toBe(false);
+      // A visible gutter, not a hairline.
+      expect(sideBox.left - img.right).toBeGreaterThanOrEqual(10 * unit - 0.01);
+    }
+    // Everything drawn right of the grid belongs to the column and lies in it.
+    const gridRight = Math.max(...imageBoxes.map((b) => b.right));
+    const sideTexts = texts.filter((t) => t.right > gridRight + 0.5);
+    expect(sideTexts.length).toBeGreaterThan(2);
+    for (const t of texts) {
+      const b = box(t);
+      const inSide = overlaps(b, sideBox);
+      if (!inSide) continue;
+      expect(b.left, `${t.text} left of the column`).toBeGreaterThanOrEqual(side.x - 0.5);
+      for (const img of imageBoxes) expect(overlaps(b, img), `${t.text} on an image`).toBe(false);
+    }
+    // The value is drawn, and inside the column.
+    const value = texts.find((t) => /12,346/.test(t.text));
+    expect(value, 'crosshair value').toBeTruthy();
+    expect(value!.left).toBeGreaterThanOrEqual(side.x - 0.5);
+  });
+
+  // (e) Headers never run together or past their pane; no two text boxes
+  // intersect anywhere on the figure.
+  const textCases: Array<[string, number, number]> = [];
+  for (const target of ['figure row', 'orthogonal', 'mosaic']) for (const [mm, dpi] of sizes) textCases.push([target, mm, dpi]);
+  it.each(textCases)('no two text boxes intersect: %s, %i mm, %i dpi', (target, mm, dpi) => {
+    const { unit, total, gap, rows } = solveCase(target, mm, dpi);
+    compose(rows, { colorbar: zLayer as never }, { ...options, unit, targetWidth: total, paneGap: gap }, crosshair);
+    const boxes = texts.map((t) => ({ t, b: box(t) }));
+    expect(boxes.length).toBeGreaterThan(5);
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        expect(
+          overlaps(boxes[i].b, boxes[j].b),
+          `"${boxes[i].t.text}" overlaps "${boxes[j].t.text}"`,
+        ).toBe(false);
+      }
+    }
+    // Every header run stays inside its own pane's width.
+    if (target !== 'mosaic') {
+      const layout = compositionLayout(
+        rows.map((r) => r.map((p) => ({ width: p.width, height: p.height }))),
+        { ...options, unit, targetWidth: total, paneGap: gap },
+        true,
+      );
+      const panes = layout.panes.flat();
+      const inBand = (t: TextCall) =>
+        panes.find((q) => t.y > q.y && t.y < q.y + q.band && t.left >= q.x - 0.5 && t.left < q.image.x + q.image.width);
+      const headerTexts = texts.filter((t) => inBand(t));
+      // Every pane has a header (at least the position).
+      expect(new Set(headerTexts.map((t) => inBand(t))).size).toBe(panes.length);
+      for (const t of headerTexts) {
+        const p = inBand(t)!;
+        expect(t.right, `${t.text} past its pane`).toBeLessThanOrEqual(p.image.x + p.image.width - EDGE_INSET * unit + 0.01);
+      }
+    }
+  });
+
+  it('shortens a header that does not fit: plane word first, then the "=" and the unit', () => {
+    const variants = headerCandidates('axial', -10, 'zmap_synthetic.nii.gz').map((runs) =>
+      runs.map((r) => r.text).join(' '),
+    );
+    expect(variants).toEqual([
+      'Axial z = −10.0 mm zmap_synthetic',
+      'Axial z = −10.0 mm',
+      'z = −10.0 mm',
+      'z −10.0 mm',
+      'z −10.0',
+      '',
+    ]);
+    // A figure row at 89 mm, 300 dpi: each pane shows "z = −10.0 mm" or a
+    // shorter form, never three headers run together.
+    const { unit, total, gap, rows } = solveCase('figure row', 89, 300);
+    compose(rows, { colorbar: zLayer as never }, { ...options, unit, targetWidth: total, paneGap: gap }, crosshair);
+    const joined = texts.map((t) => t.text).join('|');
+    expect(joined).not.toMatch(/mmy|mmx/);
+    for (const axis of ['z', 'y', 'x']) expect(texts.some((t) => t.text === axis)).toBe(true);
   });
 });

@@ -49,6 +49,38 @@ export interface HarnessFixtures {
   atlas: VolumeFixture;
   /** BIDS-style LUT sidecar text for `atlas`. */
   atlasLut: string;
+  /**
+   * Native-like copies of zmap / tmap (v6 native check): ~1e-5 noise in 93%
+   * of voxels, as real statistic files have, so histogram percentiles of the
+   * nonzero voxels sit near 0. Loaded without a scenario-set window.
+   */
+  zmapNoisy: VolumeFixture;
+  tmapNoisy: VolumeFixture;
+}
+
+/** A deterministic copy of `fixture` with tiny noise in 93% of voxels. */
+function withNativeNoise(fixture: VolumeFixture, seed: number): VolumeFixture {
+  let state = seed >>> 0;
+  const rand = () => {
+    // mulberry32
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const data = new Float32Array(fixture.data.length);
+  for (let i = 0; i < data.length; i += 1) {
+    const noise = rand() < 0.93 ? (rand() - 0.5) * 4e-5 : 0;
+    data[i] = fixture.data[i] + noise;
+  }
+  let lo = 0;
+  let hi = 0;
+  for (const v of data) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return { ...fixture, data, range: [lo, hi] };
 }
 
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
@@ -167,6 +199,8 @@ export async function loadFixtures(): Promise<HarnessFixtures> {
     },
     zmap: p3Volume('zmap', new Float32Array(zmap), mni),
     tmap: p3Volume('tmap', new Float32Array(tmap), mni),
+    zmapNoisy: withNativeNoise(p3Volume('zmap', new Float32Array(zmap), mni), 5),
+    tmapNoisy: withNativeNoise(p3Volume('tmap', new Float32Array(tmap), mni), 7),
     atlas: p3Volume('atlas', Float32Array.from(new Uint8Array(atlas)), mni),
     atlasLut: new TextDecoder().decode(lut),
   };

@@ -149,6 +149,26 @@ describe('LayerApiImpl', () => {
     });
   });
 
+  it('releases a completed GPU allocation when its destination closes while uploading', async () => {
+    let complete!: (value: unknown) => void;
+    mockApiService.requestLayerGpuResources.mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
+    const api = new LayerApiImpl();
+    const pending = api.addLayer({ name: 'Late volume', volumeId: 'late', visible: true, type: 'anatomical', order: 0 }, { workspaceId: 'test' });
+    mockViewStateStoreState.workspaceViewStates.delete('test');
+    complete({ data_range: { min: 0, max: 100 }, is_binary_like: false });
+    await expect(pending).rejects.toThrow('workspace');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('late');
+    expect(mockLayerStoreState.addLayer).not.toHaveBeenCalled();
+  });
+
+  it('releases provisional resources when the backend upload rejects', async () => {
+    mockApiService.requestLayerGpuResources.mockRejectedValueOnce(new Error('GPU upload failed'));
+    const api = new LayerApiImpl();
+    await expect(api.addLayer({ name: 'Failed volume', volumeId: 'failed', visible: true, type: 'anatomical', order: 0 }, { workspaceId: 'test' })).rejects.toThrow('GPU upload failed');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('failed');
+    expect(mockLayerStoreState.addLayer).not.toHaveBeenCalled();
+  });
+
   it('routes volume removal through the lifecycle queue with retry metadata', async () => {
     const api = new LayerApiImpl();
 
@@ -301,4 +321,35 @@ describe('LayerApiImpl', () => {
     expect((mockViewStateStoreState.viewState.layers[0] as any).intensity).toEqual([31,47]);
   });
 
+
+  it('a z map is shown as one from the first paint and never refined (native v6)', async () => {
+    // A z map that is mostly ~1e-5 noise: histogram percentiles would give ±0.03.
+    mockApiService.requestLayerGpuResources.mockResolvedValueOnce({
+      data_range: { min: -5, max: 6 },
+      center_world: [0, 0, 0],
+      is_binary_like: false,
+      dim: [16, 16, 16],
+      spacing: [1, 1, 1],
+      origin: [0, 0, 0],
+      voxel_to_world: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+      world_to_voxel: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+      tex_format: 'r32float',
+    });
+    const api = new LayerApiImpl();
+    await api.addLayer({
+      id: 'z1',
+      name: 'zmap_synthetic.nii',
+      volumeId: 'vol-z',
+      visible: true,
+      type: 'functional',
+      statistic: { kind: 'z', intentCode: 5, intentParams: [0, 0, 0], intentName: '', dof: [], label: 'z', fromDescription: false, positiveDataLabel: null },
+    } as never);
+    await new Promise((r) => setTimeout(r, 0));
+    const added = mockLayerStoreState.layers[mockLayerStoreState.layers.length - 1];
+    const render = mockLayerStoreState.layerMetadata.get(added.id)?.renderProps;
+    expect(render?.intensity).toEqual([-6, 6]);
+    expect(render?.threshold).toEqual([-3.1, 3.1]);
+    expect(render?.colormap).toBe('fmri');
+    expect(mockHistogramService.computeHistogram).not.toHaveBeenCalled();
+  });
 });

@@ -156,4 +156,56 @@ describe('MosaicViewPromise render scheduling', () => {
       expect(renderMosaicGridMock.mock.calls.length).toBeGreaterThan(initialCalls);
     });
   });
+  it('requests tiles only at the fitted size, and re-requests every visible cell after a resize cancels them', async () => {
+    const settle = async () => {
+      let settled = -1;
+      while (settled !== renderMosaicGridMock.mock.calls.length) {
+        settled = renderMosaicGridMock.mock.calls.length;
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+      }
+    };
+    render(<MosaicViewPromise workspaceId="test-workspace" />);
+    await waitFor(() => expect(renderMosaicGridMock).toHaveBeenCalled());
+    await settle();
+
+    type Req = { cellId: string; width: number; height: number };
+    const sizes = renderMosaicGridMock.mock.calls.map(([reqs]: [Req[]]) => `${reqs[0].width}x${reqs[0].height}`);
+    // No grid at the provisional 128 px / 4×4 layout: only the fitted size.
+    expect(new Set(sizes).size).toBe(1);
+    expect(sizes[0]).not.toBe('128x128');
+    const before: Req[] = renderMosaicGridMock.mock.calls.at(-1)![0];
+    const cellsBefore = before.map((r) => r.cellId);
+
+    // The pane grows: the fit changes the tile size, the effect cleanup
+    // cancels the in-flight cells, and the same visible cells are requested
+    // again at the new size (nothing is left waiting on a cancelled render).
+    const rect = vi.mocked(HTMLElement.prototype.getBoundingClientRect);
+    rect.mockImplementation(() => ({
+      width: 960, height: 960, top: 0, left: 0, bottom: 960, right: 960, x: 0, y: 0, toJSON: () => ({}),
+    }) as DOMRect);
+    cancelRendersMock.mockClear();
+    renderMosaicGridMock.mockClear();
+    try {
+      await act(async () => {
+        window.dispatchEvent(new Event('resize'));
+      });
+      await settle();
+    } finally {
+      rect.mockImplementation(() => ({
+        width: 640, height: 640, top: 0, left: 0, bottom: 640, right: 640, x: 0, y: 0, toJSON: () => ({}),
+      }) as DOMRect);
+    }
+
+    expect(cancelRendersMock).toHaveBeenCalledWith(cellsBefore);
+    const after: Req[] = renderMosaicGridMock.mock.calls.at(-1)![0];
+    expect(after[0].width).toBeGreaterThan(before[0].width);
+    const visible = screen.getAllByTestId(/^cell-/).map((el) => el.dataset.testid!.slice('cell-'.length));
+    expect(after.map((r) => r.cellId).sort()).toEqual([...visible].sort());
+    // Every cancelled cell still on screen was requested again.
+    for (const id of cellsBefore.filter((c) => visible.includes(c))) {
+      expect(after.some((r) => r.cellId === id)).toBe(true);
+    }
+  });
 });

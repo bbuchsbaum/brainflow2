@@ -30,7 +30,11 @@ export function LayerReadoutValue({
 }) {
   const layer = useLayerStore((s) => s.layers.find((l) => l.id === layerId));
   const dataRange = useLayerStore((s) => s.layerMetadata.get(layerId)?.dataRange);
-  const reading = useLayerValueAtWorld(layerId, point.world, READOUT_DELAY_MS);
+  // A label map (catalogue atlas or user table) reads like the status Region
+  // slot: the backend's sample, whose outside is label 0 (background). The
+  // frontend grid test could disagree with an atlas's resampled grid and
+  // show "—" where the status bar named the region (native v6).
+  const reading = useLayerValueAtWorld(layerId, point.world, READOUT_DELAY_MS, layer?.type === 'label');
   const value = reading?.value ?? null;
   const at = point.source === 'pointer' ? 'at the pointer' : 'at the crosshair';
 

@@ -8,13 +8,14 @@
  */
 
 import type { HistogramData, HistogramBin } from '@/types/histogram';
+import type { StatisticInfo } from '@brainflow/api';
 
 // ── Public types ────────────────────────────────────────────────
 
 export interface IntensityRangeResult {
   intensity: [number, number];
   threshold: [number, number];
-  method: 'percentile' | 'symmetric-percentile' | 'full-range' | 'fallback';
+  method: 'percentile' | 'symmetric-percentile' | 'full-range' | 'fallback' | 'statistic';
   suggestedColormap?: string;
 }
 
@@ -152,4 +153,67 @@ export function computeFallbackIntensityRange(
     threshold: [min + range / 2, min + range / 2],
     method: 'fallback',
   };
+}
+
+// ── Statistic maps (declared or inferred) ───────────────────────
+
+/** |z| / |t| hidden at first paint (the cluster panel's default too). */
+export const DEFAULT_STAT_THRESHOLD = 3.1;
+
+const SYMMETRIC_KINDS = new Set(['z', 't', 'correlation']);
+const ONE_SIDED_KINDS = new Set(['f', 'chi2', 'logp', 'log10p']);
+
+/**
+ * First-paint display of a statistic layer, from its finite data range
+ * (max |v|: the robust end for a map whose voxels are mostly tiny noise,
+ * where histogram percentiles gave ±0.03 and painted the whole volume;
+ * native check, v6):
+ * - z, t, r: a symmetric window ±max|v| (fmri colormap); z and t hide
+ *   |v| ≤ 3.1, the conventional cut the cluster panel also defaults to;
+ *   r hides nothing.
+ * - F, χ², −log p: one-sided [0, max]; no default threshold. A meaningful
+ *   cut depends on the degrees of freedom (F) or is already the scale (−log p),
+ *   and a data quantile would be arbitrary, so the user sets it.
+ * Null for other layers (anatomy keeps its own defaults) and when the range
+ * is not finite (the histogram refinement handles that case).
+ */
+export function statisticDefaultRange(
+  statistic: Pick<StatisticInfo, 'kind'> | null | undefined,
+  dataRange: { min: number; max: number } | null | undefined,
+): IntensityRangeResult | null {
+  const kind = statistic?.kind;
+  if (!kind || !dataRange) return null;
+  const { min, max } = dataRange;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  if (SYMMETRIC_KINDS.has(kind)) {
+    const maxAbs = Math.max(Math.abs(min), Math.abs(max));
+    if (!(maxAbs > 0)) return null;
+    const cut = kind === 'correlation' ? 0 : DEFAULT_STAT_THRESHOLD;
+    return {
+      intensity: [-maxAbs, maxAbs],
+      threshold: cut > 0 ? [-cut, cut] : [0, 0],
+      method: 'statistic',
+      suggestedColormap: 'fmri',
+    };
+  }
+  if (ONE_SIDED_KINDS.has(kind)) {
+    if (!(max > 0)) return null;
+    return { intensity: [0, max], threshold: [0, 0], method: 'statistic', suggestedColormap: 'hot' };
+  }
+  return null;
+}
+
+/**
+ * The same rule from a histogram (non-finite data range: NaN / Inf in the
+ * file): the ends are the 0.1 / 99.9 percentiles of the finite nonzero
+ * voxels.
+ */
+export function statisticDefaultRangeFromHistogram(
+  statistic: Pick<StatisticInfo, 'kind'> | null | undefined,
+  histogram: HistogramData,
+): IntensityRangeResult | null {
+  if (histogram.bins.length === 0 || histogram.totalCount <= 0) return null;
+  const lo = computePercentileFromBins(histogram.bins, histogram.totalCount, 0.1);
+  const hi = computePercentileFromBins(histogram.bins, histogram.totalCount, 99.9);
+  return statisticDefaultRange(statistic, { min: lo, max: hi });
 }

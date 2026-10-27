@@ -13,6 +13,8 @@ import {
   SURFACE_OVERLAY_PATH,
   SURFACE_PATH,
   TMAP_PATH,
+  TMAP_NOISY_PATH,
+  ZMAP_NOISY_PATH,
   ZMAP_PATH,
 } from './backend';
 import p3Meta from '../fixtures/app/p3_fixtures.json';
@@ -327,6 +329,62 @@ async function p3Base(expand: string[] = ['anat', 'stats']): Promise<void> {
 
 const loadZ = () => loadStat(ZMAP_PATH, [-6, 6], [-3.1, 3.1]);
 
+/** Load a native-like statistic with no scenario window; assert the default display. */
+async function nativeStatistic(path: string): Promise<void> {
+  await p3Base();
+  await loadVolume(path, 'add-layer');
+  const id = await layerIdForPath(path);
+  const { useViewStateStore } = await import('@/stores/viewStateStore');
+  await until(() => !!useViewStateStore.getState().viewState.layers.find((l) => l.id === id), 'statistic layer committed');
+  await frames(20);
+  const layer = useViewStateStore.getState().viewState.layers.find((l) => l.id === id)!;
+  const [lo, hi] = layer.intensity;
+  const [tlo, thi] = layer.threshold;
+  noteStep(`default window ${lo}..${hi}, threshold ${tlo}..${thi}, colormap ${layer.colormap}`);
+  if (!(hi >= 3 && Math.abs(lo + hi) < 1e-6)) throw new Error(`statistic window not symmetric ±max|v|: ${lo}..${hi}`);
+  if (!(Math.abs(tlo + 3.1) < 1e-6 && Math.abs(thi - 3.1) < 1e-6)) throw new Error(`statistic threshold not |v| ≤ 3.1: ${tlo}..${thi}`);
+  // The T1 stays visible: a brain point away from every blob reads gray.
+  const point = await clientPointOf('axial', [20, -40, useViewStateStore.getState().viewState.crosshair.world_mm[2]]);
+  const ctx = point.canvas.getContext('2d');
+  const rect = point.canvas.getBoundingClientRect();
+  const cx = Math.round(((point.x - rect.left) * point.canvas.width) / rect.width);
+  const cy = Math.round(((point.y - rect.top) * point.canvas.height) / rect.height);
+  const [r, g, b] = ctx ? Array.from(ctx.getImageData(cx, cy, 1, 1).data) : [0, 0, 0];
+  noteStep(`axial pixel at (20, -40): rgb ${r},${g},${b}`);
+  const gray = Math.abs(r - g) < 16 && Math.abs(g - b) < 16;
+  if (!gray || r < 30) throw new Error(`T1 hidden under the statistic overlay: rgb ${r},${g},${b}`);
+}
+
+/** Figure row at 183 mm with Crop to brain; T1 + dense noisy z map. */
+async function nativeExportCrop(order: 't1-first' | 'z-first'): Promise<void> {
+  await servicesReady();
+  await mountStudy(['anat', 'stats']);
+  if (order === 't1-first') {
+    await loadVolume(MNI_PATH);
+    await loadVolume(ZMAP_NOISY_PATH, 'add-layer');
+  } else {
+    await loadVolume(ZMAP_NOISY_PATH);
+    await loadVolume(MNI_PATH, 'add-layer');
+  }
+  await frames(10);
+  const { useExportDialogStore } = await import('@/stores/exportDialogStore');
+  const store = useExportDialogStore.getState();
+  store.applyPreset('figure');
+  store.setCropToBrain(true);
+  store.setSize({ kind: 'print', widthMm: 183, dpi: 300 });
+  store.open();
+  await exportSettled();
+  const before = useExportDialogStore.getState().imageUrl;
+  useExportDialogStore.getState().setExportTarget('orthogonal-row');
+  await until(() => useExportDialogStore.getState().imageUrl !== before, 'figure row composed');
+  await exportSettled();
+  const size = useExportDialogStore.getState().outputSize;
+  noteStep(`crop (${order}): ${size?.width} × ${size?.height} px`);
+  // The clean z map's figure row is 2161 × ~722 px (cropped to the brain);
+  // an uncropped field of view is far taller.
+  if (!size || size.height > 800) throw new Error(`crop widened by the noisy statistic: ${size?.width} × ${size?.height}`);
+}
+
 /** Open the bottom dock on the plot tab (what the Inspector's "open in dock" does). */
 async function openPlotDock(mode: 'histogram' | null): Promise<void> {
   const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
@@ -551,6 +609,15 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await enterDisplayMode('Mosaic');
     await until(() => document.querySelectorAll('[data-testid="mosaic-tile-label"]').length > 0, 'mosaic tiles');
     await frames(10);
+    // Native v6: every tile renders without a resize (no cell left on
+    // "Loading…" after the provisional grid is replaced by the fitted one).
+    await until(
+      () =>
+        Array.from(document.querySelectorAll<HTMLElement>('.mosaic-cell')).every(
+          (cell) => !/Loading/.test(cell.textContent ?? ''),
+        ),
+      'every mosaic tile rendered',
+    );
     // The user's "cramped" check: the share of the pane (minus the colorbar
     // column) the tiles (image + label strip) cover, measured in the DOM.
     const grid = document.querySelector<HTMLElement>('[data-testid="mosaic-tile-grid"]');
@@ -886,6 +953,17 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
       }
     }
   },
+  // Native check v6: a statistic file as it really is (~1e-5 noise in 93% of
+  // voxels), loaded WITHOUT a scenario-set window. Asserts the statistic
+  // default (symmetric ±max|v|, |v| ≤ 3.1 hidden) and that the T1 is still
+  // visible under the overlay away from the blobs (pixel check).
+  'native-zmap': async () => nativeStatistic(ZMAP_NOISY_PATH),
+  'native-tmap': async () => nativeStatistic(TMAP_NOISY_PATH),
+  // Native check v6: Crop to brain with a dense noisy z map (93% non-zero),
+  // in both load orders: the crop is the brain (+6%), never the whole field
+  // of view. Asserts the figure-row output height matches the clean map's.
+  'native-export-crop': async () => nativeExportCrop('t1-first'),
+  'native-export-crop-zfirst': async () => nativeExportCrop('z-first'),
   // P3.13: Files tree with every folder expanded (captured at 1280x800 only).
   files: async () => {
     await p3Base(['anat', 'stats', 'surf']);

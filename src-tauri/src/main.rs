@@ -559,6 +559,15 @@ fn main() {
                                 .build(app)?,
                         )
                         .separator()
+                        // Opens the UI's image header dialog for the selected
+                        // layer (ui2 App: "image-header-action").
+                        .item(
+                            &MenuItemBuilder::new("Image Header...")
+                                .id("image_header")
+                                .accelerator("CmdOrCtrl+I")
+                                .build(app)?,
+                        )
+                        .separator()
                         .item(
                             &SubmenuBuilder::new(app, "Panels")
                                 .item(
@@ -700,6 +709,11 @@ fn main() {
                         ) {
                             Ok(_) => println!("Crosshair toggle event emitted successfully"),
                             Err(e) => eprintln!("Failed to emit crosshair toggle event: {}", e),
+                        }
+                    }
+                    "image_header" => {
+                        if let Err(e) = app.emit("image-header-action", serde_json::json!({})) {
+                            eprintln!("Failed to emit image-header-action event: {}", e);
                         }
                     }
                     "crosshair_settings" => {

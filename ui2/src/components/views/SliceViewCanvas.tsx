@@ -53,6 +53,7 @@ import {
 import { useActiveLayer } from "@/utils/activeLayer";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { pointerToWorld } from "@/utils/slicePointer";
+import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
 import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
 import {
   OrientationLabels,
@@ -91,26 +92,9 @@ function SliceViewCanvasRaw({
   className = "",
 }: SliceViewCanvasProps) {
   const model = useSliceViewModel(viewId, { width, height });
-  const {
-    viewPlane,
-    crosshair,
-    layers,
-    hasLayers,
-    isLoadingAnyLayer,
-    canvasHeight,
-    renderContext,
-    primaryLayer,
-    primaryOptions,
-    hoverEnabled,
-    hoverLayerIds,
-  } = model;
-
-  // Access setter without subscribing to it (stable reference)
-  const setCrosshair = useRef(
-    useViewStateStore.getState().setCrosshair,
-  ).current;
-
-  if (!viewPlane) {
+  // The early return lives here, and every other hook in the body component,
+  // so the hook order never changes between renders (rules of hooks).
+  if (!model.viewPlane) {
     return (
       <div
         className={`h-full w-full relative ${className}`}
@@ -122,6 +106,44 @@ function SliceViewCanvasRaw({
       </div>
     );
   }
+  return (
+    <SliceViewCanvasBody
+      viewId={viewId}
+      width={width}
+      height={height}
+      className={className}
+      model={model}
+    />
+  );
+}
+
+type SliceViewModel = ReturnType<typeof useSliceViewModel>;
+
+function SliceViewCanvasBody({
+  viewId,
+  width,
+  height,
+  className,
+  model,
+}: SliceViewCanvasProps & { className: string; model: SliceViewModel }) {
+  const {
+    crosshair,
+    layers,
+    hasLayers,
+    isLoadingAnyLayer,
+    canvasHeight,
+    renderContext,
+    primaryLayer,
+    primaryOptions,
+    hoverEnabled,
+    hoverLayerIds,
+  } = model;
+  const viewPlane = model.viewPlane as NonNullable<SliceViewModel["viewPlane"]>;
+
+  // Access setter without subscribing to it (stable reference)
+  const setCrosshair = useRef(
+    useViewStateStore.getState().setCrosshair,
+  ).current;
 
   // RenderContext registration handled by useSliceViewModel
 
@@ -205,6 +227,11 @@ function SliceViewCanvasRaw({
     canvasRef: containerAreaRef,
     layerId: primaryLayer?.id ?? null,
     dataRange,
+    // A drag starts from the layer's current window (never the data range).
+    getCurrentWindow: () =>
+      primaryLayer?.id
+        ? useViewStateStore.getState().viewState.layers.find((l) => l.id === primaryLayer.id)?.intensity
+        : null,
     onUpdate: handleWindowLevelUpdate,
   });
 
@@ -420,6 +447,11 @@ function SliceViewCanvasRaw({
     isDraggingRef.current = isDragging;
   }, [isDragging]);
 
+  // Clicks off the image data (letterbox / margin around the volume inside
+  // the bitmap) do not move the crosshair.
+  const dataLayerIds = useMemo(() => layers.map((l) => l.id), [layers]);
+  const dataEdgeBounds = useLayerEdgeBounds(dataLayerIds);
+
   const handleWorldClick = useCallback(
     (
       worldCoord: [number, number, number],
@@ -427,11 +459,12 @@ function SliceViewCanvasRaw({
     ) => {
       // Suppress crosshair update if W/L drag just ended
       if (isDraggingRef.current) return;
+      if (!isClickOnData(worldCoord, viewPlane, dataEdgeBounds)) return;
       markActive();
       // Important: pass updateViews=true to ensure all views update their crosshair
       setCrosshair(worldCoord, true);
     },
-    [setCrosshair, markActive],
+    [setCrosshair, markActive, viewPlane, dataEdgeBounds],
   );
 
   // Handle mouse wheel for time/slice navigation

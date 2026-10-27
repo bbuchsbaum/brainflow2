@@ -75,6 +75,8 @@ export interface EventMap {
   };
   /** Dismiss every visible toast (e.g. transient load toasts). */
   'ui.notification.clear': Record<string, never>;
+  /** Open the image header dialog (the selected layer's volume unless given). */
+  'ui.imageHeader.open': { volumeId?: string };
   'ui.progress': { taskId: string; progress: number; message?: string };
 
   // Services initialization events

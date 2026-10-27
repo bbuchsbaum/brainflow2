@@ -16,10 +16,10 @@ interface MappingSectionProps {
  * looks identical on both supports.
  */
 export function MappingSection({ item }: MappingSectionProps) {
-  if (item.ref.type !== 'mapping' && item.ref.type !== 'surface-overlay') return null;
-
+  // Hooks first: their order must not depend on the item kind.
   const surfaces = useSurfaceStore((s) => s.surfaces);
   const volumeLayers = useLayerStore((s) => s.layers);
+  if (item.ref.type !== 'mapping' && item.ref.type !== 'surface-overlay') return null;
 
   const surfaceId = item.ref.surfaceId;
   const surfaceLayerId = item.ref.surfaceLayerId;

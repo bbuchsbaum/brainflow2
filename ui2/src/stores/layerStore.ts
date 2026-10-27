@@ -20,6 +20,11 @@ enableMapSet();
 export interface VolumeMetadata {
   // Existing fields
   dataRange?: DataRange;
+  /**
+   * |v| hidden at first paint by the statistic default (3.1 for z / t), when
+   * the file set no threshold: the Inspector says the threshold is a default.
+   */
+  statisticDefaultThreshold?: number;
   centerWorld?: [number, number, number];
   isBinaryLike?: boolean;
   worldBounds?: {
