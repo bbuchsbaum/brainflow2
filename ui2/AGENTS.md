@@ -188,7 +188,7 @@ await invoke('plugin:api-bridge|render_view', { stateJson: JSON.stringify(viewSt
 - `@tauri-apps/api@2.6.0` - Tauri IPC communication
 
 **Visualization:**
-- `neurosurface` - 3D surface rendering (local dependency)
+- `neurosurface` - npm alias for `surfview@3.1.0`; paired with `three@0.185.1`, adapted in `@brainflow/visualization`
 - `@visx/*` - Data visualization primitives
 
 **Testing:**

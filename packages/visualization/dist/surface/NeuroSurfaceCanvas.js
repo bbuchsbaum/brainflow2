@@ -1,76 +1,15 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, DataLayer, RGBALayer, VolumeProjectionLayer, LaplacianSmoothing, THREE, } from 'neurosurface';
+import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianSmoothing, THREE, } from 'neurosurface';
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
-function colorHexToNumber(value) {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (typeof value === 'number') {
-        return value;
-    }
-    return Number.parseInt(value.replace('#', ''), 16);
-}
+import { buildLayerInstance, applyLayerUpdate, applySurfaceRenderSettings, applySceneRenderSettings, } from './surfaceRuntime.js';
 function hasRenderableGeometry(surface) {
     return Boolean(surface.geometry.vertices &&
         surface.geometry.faces &&
         surface.geometry.vertices.length > 0 &&
         surface.geometry.faces.length > 0);
-}
-function buildLayerInstance(spec) {
-    switch (spec.kind) {
-        case 'rgba':
-            return new RGBALayer(spec.id, spec.rgba ?? new Float32Array(0), {
-                opacity: spec.opacity,
-            });
-        case 'volume':
-            return new VolumeProjectionLayer(spec.id, new Float32Array(spec.volumeData ?? []), spec.volumeDims ?? [1, 1, 1], {
-                affineMatrix: spec.affineMatrix,
-                colormap: spec.colormap || 'viridis',
-                range: spec.range,
-                threshold: spec.threshold,
-                opacity: spec.opacity,
-            });
-        case 'data':
-        default:
-            return new DataLayer(spec.id, spec.values ?? new Float32Array(0), spec.indices ?? null, spec.colormap || 'viridis', {
-                range: spec.range,
-                threshold: spec.threshold,
-                opacity: spec.opacity,
-            });
-    }
-}
-function applyLayerUpdate(renderedSurface, spec) {
-    switch (spec.kind) {
-        case 'rgba':
-            renderedSurface.updateLayer(spec.id, {
-                rgbaData: spec.rgba,
-                opacity: spec.opacity,
-            });
-            return;
-        case 'volume':
-            renderedSurface.updateLayer(spec.id, {
-                volumeData: spec.volumeData ? new Float32Array(spec.volumeData) : undefined,
-                colormap: spec.colormap,
-                range: spec.range,
-                threshold: spec.threshold,
-                affineMatrix: spec.affineMatrix,
-                opacity: spec.opacity,
-            });
-            return;
-        case 'data':
-        default:
-            renderedSurface.updateLayer(spec.id, {
-                data: spec.values,
-                indices: spec.indices ?? undefined,
-                colorMap: spec.colormap,
-                range: spec.range,
-                threshold: spec.threshold,
-                opacity: spec.opacity,
-            });
-    }
 }
 function applySmoothingToRenderedSurface(renderedSurface, original, smoothingValue) {
     const mesh = renderedSurface?.mesh;
@@ -96,67 +35,6 @@ function applySmoothingToRenderedSurface(renderedSurface, original, smoothingVal
     }
     catch (error) {
         console.error('Failed to apply smoothing:', error);
-    }
-}
-function applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings) {
-    if (renderedSurface.updateConfig) {
-        renderedSurface.updateConfig({
-            alpha: displaySettings.opacity,
-            flatShading: displaySettings.flatShading,
-            shininess: materialSettings.shininess,
-            specularColor: colorHexToNumber(materialSettings.specularColor),
-            emissive: colorHexToNumber(materialSettings.emissiveColor),
-            emissiveIntensity: materialSettings.emissiveIntensity,
-        });
-    }
-    const mesh = renderedSurface.mesh;
-    if (!mesh || !mesh.material) {
-        return;
-    }
-    const material = mesh.material;
-    if (material.wireframe !== undefined) {
-        material.wireframe = displaySettings.wireframe;
-    }
-    if (material.flatShading !== undefined) {
-        material.flatShading = displaySettings.flatShading;
-    }
-    if (material.color && material.color.set) {
-        material.color.set(materialSettings.surfaceColor);
-    }
-    if (mesh.geometry && mesh.geometry.computeVertexNormals) {
-        mesh.geometry.computeVertexNormals();
-    }
-    material.needsUpdate = true;
-}
-function applySceneRenderSettings(viewer, lightingSettings) {
-    if (!viewer.scene) {
-        return;
-    }
-    viewer.scene.traverse((child) => {
-        if (child.isAmbientLight) {
-            child.intensity = lightingSettings.ambientLightIntensity;
-        }
-        else if (child.isDirectionalLight) {
-            if (child.userData?.role !== 'fill') {
-                child.intensity = lightingSettings.directionalLightIntensity;
-                if (lightingSettings.lightPosition) {
-                    child.position.set(...lightingSettings.lightPosition);
-                }
-            }
-        }
-    });
-    let fillLight = viewer.scene.getObjectByName('fillLight');
-    if (!fillLight &&
-        lightingSettings.fillLightIntensity &&
-        lightingSettings.fillLightIntensity > 0) {
-        fillLight = new THREE.DirectionalLight(0xffffff, lightingSettings.fillLightIntensity);
-        fillLight.name = 'fillLight';
-        fillLight.userData.role = 'fill';
-        fillLight.position.set(-100, -100, -50);
-        viewer.scene.add(fillLight);
-    }
-    else if (fillLight) {
-        fillLight.intensity = lightingSettings.fillLightIntensity || 0;
     }
 }
 function removeRenderedSurface(viewer, handle, rendered) {
@@ -265,6 +143,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                     showControls,
                     useShaders,
                     controlType: 'trackball',
+                    headlight: false,
                 }, viewpoint);
             };
             try {
@@ -491,13 +370,13 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings);
         });
         viewerRef.current.requestRender();
-    }, [displaySettings, materialSettings, renderHandlesKey]);
+    }, [isInitialized, displaySettings, materialSettings, renderHandlesKey]);
     useEffect(() => {
         if (!viewerRef.current)
             return;
         applySceneRenderSettings(viewerRef.current, lightingSettings);
         viewerRef.current.requestRender();
-    }, [lightingSettings]);
+    }, [isInitialized, lightingSettings]);
     // Linked cursor: a marker sphere on the surface that tracks a world position
     // (the volume crosshair), snapped to the nearest visible-surface vertex so it
     // sits on the cortex. The mesh is created once and then repositioned / toggled

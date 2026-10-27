@@ -204,6 +204,18 @@ expect(result).toBeDefined();
 
 The population harness also tests saved-summary replay: its simulated chooser returns the exported JSON path, its command receipt contains only record/output paths and the ticket, and live focus/weighting stay unchanged. Desktop and narrow screenshots are produced for inspection. Native record/artifact/source integrity and byte-equivalent publication are Rust-test responsibilities.
 
+## Isolated surface renderer harness
+
+`playwright.surfview.config.ts` runs `harness/surfview.spec.ts` on an owned Vite
+server at port 5339 (`reuseExistingServer: false`). This is another explicit
+exception to native-app tests: `ui2/surfview-harness.html` mounts the real shared
+surface canvas with synthetic geometry/data, without Tauri. Run
+`pnpm --dir e2e exec playwright test --config playwright.surfview.config.ts`.
+`SURFVIEW_QA_BROWSER` selects an installed automation Chromium executable;
+`SURFVIEW_QA_OUTPUT` redirects artifacts. Perform browser-ownership audits before
+and after; preserve other sessions' browsers. Pixel, lighting and lifecycle
+checks qualify this browser integration, not native desktop or all GPU backends.
+
 ## App-harness screenshot gate
 
 `playwright.app-harness.visual.config.ts` runs `harness/app-harness.visual.spec.ts`
