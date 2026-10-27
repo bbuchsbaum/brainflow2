@@ -94,6 +94,11 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
   `(v+0.5)/dim`), shared with `neuro-cpu` and the bridge picker; see
   `docs/COORDINATE_SYSTEM_SPEC.md`. `neuro-integration-tests/tests/edge_domain_agreement_test.rs`
   checks GPU/CPU edge coverage.
+- Label outlines (`SliceFeatureUbo`, 64 bytes): `outline_color_mode` 1 draws each
+  region in its LUT colour (alpha = outline alpha x LUT alpha); `halo_thickness_px`
+  adds a `halo_color` band outside a selected region, or a second inner band in
+  all-boundaries mode. Screen-pixel widths use the frame UBO `target_dim`, which
+  declarative frames set to the view size. Gate: `slice_outline_render_test`.
 - Declarative rendering owns targets through `ensure_view`; do not also allocate
   a legacy offscreen target. Facade consumers release closed views with
   `release_view`/`clear_views`; final volume teardown also clears cached views.

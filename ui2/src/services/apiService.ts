@@ -579,6 +579,9 @@ export class ApiService {
     selectedLabelId: number;
     color: [number, number, number, number];
     thicknessPx: number;
+    colorMode?: 'uniform' | 'lut';
+    haloPx?: number;
+    haloColor?: [number, number, number, number];
   }): Promise<void> {
     await this.transport.invoke('update_slice_outline', {
       enabled: options.enabled,
@@ -586,6 +589,9 @@ export class ApiService {
       selectedLabelId: options.selectedLabelId,
       color: options.color,
       thicknessPx: options.thicknessPx,
+      colorMode: options.colorMode,
+      haloPx: options.haloPx,
+      haloColor: options.haloColor,
     });
   }
 

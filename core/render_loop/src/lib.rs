@@ -2663,14 +2663,6 @@ impl RenderLoopService {
 
     // --- Method to update the frame UBO ---
     pub fn update_frame_ubo(&self, origin_mm: [f32; 4], u_mm: [f32; 4], v_mm: [f32; 4]) {
-        // Get atlas dimensions
-        let atlas_dims = self.volume_atlas.size;
-        let atlas_dim_u32 = [
-            atlas_dims.width,
-            atlas_dims.height,
-            atlas_dims.depth_or_array_layers,
-        ];
-
         // Get render target dimensions
         let target_dims = if self.offscreen_dimensions != (0, 0) {
             [self.offscreen_dimensions.0, self.offscreen_dimensions.1]
@@ -2678,6 +2670,26 @@ impl RenderLoopService {
             // Fallback to default if no offscreen target is configured
             [512, 512]
         };
+        self.update_frame_ubo_for_target(origin_mm, u_mm, v_mm, target_dims);
+    }
+
+    /// Write the frame UBO for an explicit render-target size. Screen-pixel
+    /// widths in the shaders (outline, halo, slice border, crosshair) divide the
+    /// frame vectors by `target_dims`, so it must be the size being rendered.
+    pub fn update_frame_ubo_for_target(
+        &self,
+        origin_mm: [f32; 4],
+        u_mm: [f32; 4],
+        v_mm: [f32; 4],
+        target_dims: [u32; 2],
+    ) {
+        // Get atlas dimensions
+        let atlas_dims = self.volume_atlas.size;
+        let atlas_dim_u32 = [
+            atlas_dims.width,
+            atlas_dims.height,
+            atlas_dims.depth_or_array_layers,
+        ];
 
         log::debug!(
             "DEBUG update_frame_ubo: atlas_dim = {:?}, target_dim = {:?}, offscreen_dimensions = {:?}",
@@ -4679,8 +4691,14 @@ impl RenderLoopService {
             _padding_target: [0, 0],
         };
 
-        // Update frame UBO
-        self.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
+        // Update frame UBO for this view's target size (not the legacy
+        // offscreen target, which declarative views do not allocate).
+        self.update_frame_ubo_for_target(
+            frame_ubo.origin_mm,
+            frame_ubo.u_mm,
+            frame_ubo.v_mm,
+            frame_ubo.target_dim,
+        );
 
         // Update crosshair
         self.update_crosshair_position_with_color(

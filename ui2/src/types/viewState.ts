@@ -12,11 +12,22 @@ export interface CrosshairState {
   visible: boolean;
 }
 
+/** "uniform": `color`; "lut": each region's table colour (alpha = color[3] x LUT alpha). */
+export type OutlineColorMode = "uniform" | "lut";
+
 export interface LayerOutlineConfig {
   enabled: boolean;
   selectedLabelId: number;
   color: [number, number, number, number];
   thicknessPx: number;
+  /** Omitted: "uniform". */
+  colorMode?: OutlineColorMode;
+  /**
+   * Dark halo width in screen pixels (0 or omitted: none). Outside a selected
+   * region; a second inner band when every boundary is drawn.
+   */
+  haloPx?: number;
+  haloColor?: [number, number, number, number];
 }
 
 // Intensity-modulated alpha ("transparent thresholding"). When mode !== 'off',

@@ -7,6 +7,7 @@ import { DEFAULT_LABEL_OUTLINE, labelDisplayOf, type LabelDisplay } from "@/util
 import React, { useEffect, useId, useState } from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
+import type { OutlineColorMode } from "@/types/viewState";
 import { useSurfaceStore } from "@/stores/surfaceStore";
 import { ColormapPicker } from "@/components/ui/ColormapPicker";
 import {
@@ -610,6 +611,11 @@ function hexToRgbaTuple(
   ];
 }
 
+const OUTLINE_COLOR_MODE_OPTIONS = [
+  { value: "lut", label: "Regions", title: "Each boundary in its region's table colour" },
+  { value: "uniform", label: "Single", title: "Every boundary in one colour" },
+] as const;
+
 const LABEL_DISPLAY_OPTIONS = [
   { value: "fill", label: "Fill", title: "Regions filled with their table colours" },
   { value: "outline", label: "Outline", title: "Region boundaries only" },
@@ -696,17 +702,31 @@ function LabelOutlineBlock({
             />
           </FieldRow>
 
-          <FieldRow label="Outline color" controlId={`label-outline-color-${layerId}`}>
-            {({ id }) => (
-              <ColorInput
-                id={id}
-                showValue
-                value={rgbaToHex(outline.color)}
-                onValueChange={(v) => update({ color: hexToRgbaTuple(v, outline.color[3]) })}
-                aria-label="Outline color"
+          <FieldRow label="Colours">
+            {(control) => (
+              <SegmentedControl
+                id={control.id}
+                aria-label="Outline colours"
+                value={outline.colorMode ?? "uniform"}
+                onValueChange={(value) => update({ colorMode: value as OutlineColorMode })}
+                options={OUTLINE_COLOR_MODE_OPTIONS}
               />
             )}
           </FieldRow>
+
+          {(outline.colorMode ?? "uniform") === "uniform" ? (
+            <FieldRow label="Outline color" controlId={`label-outline-color-${layerId}`}>
+              {({ id }) => (
+                <ColorInput
+                  id={id}
+                  showValue
+                  value={rgbaToHex(outline.color)}
+                  onValueChange={(v) => update({ color: hexToRgbaTuple(v, outline.color[3]) })}
+                  aria-label="Outline color"
+                />
+              )}
+            </FieldRow>
+          ) : null}
         </>
       ) : null}
     </>

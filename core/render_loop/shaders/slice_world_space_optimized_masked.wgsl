@@ -99,9 +99,10 @@ struct SliceFeatureUbo {
     outline_mode: u32,
     outline_color: vec4<f32>,
     outline_thickness_px: f32,
-    _pad1_x: f32,
-    _pad1_y: f32,
-    _pad1_z: f32,
+    outline_color_mode: u32,
+    halo_thickness_px: f32,
+    _pad1: f32,
+    halo_color: vec4<f32>,
 };
 
 const LAYER_MODE_SCALAR: u32 = 0u;
@@ -270,39 +271,90 @@ fn sampleLayerLabelIdOptimized(layer: LayerData, world_mm: vec3<f32>) -> u32 {
     return u32(max(round(raw_value), 0.0));
 }
 
+fn labelOutlineTexel(layer: LayerData, label_id: u32) -> vec4<f32> {
+    // Per-region colour: the label's LUT texel (alpha encodes visibility).
+    return textureLoad(colormapLutTexture, vec2<i32>(i32(label_id), 0), i32(layer.colormap_id), 0);
+}
+
+fn labelOutlineColor(layer: LayerData, label_id: u32) -> vec4<f32> {
+    // outline_color_mode: 0 = uniform outline_color, 1 = the region's LUT colour.
+    // LUT alpha multiplies the outline alpha so hidden regions stay hidden.
+    if (slice_features.outline_color_mode == 1u) {
+        let texel = labelOutlineTexel(layer, label_id);
+        return vec4<f32>(texel.rgb, slice_features.outline_color.a * texel.a);
+    }
+    return slice_features.outline_color;
+}
+
+fn labelHaloColor(layer: LayerData, label_id: u32) -> vec4<f32> {
+    var alpha = slice_features.halo_color.a;
+    if (slice_features.outline_color_mode == 1u) {
+        alpha = alpha * labelOutlineTexel(layer, label_id).a;
+    }
+    return vec4<f32>(slice_features.halo_color.rgb, alpha);
+}
+
+// True when any 4-neighbour at `distance_px` screen pixels has a label other
+// than `label_id` (pixels nearer the boundary than that also qualify).
+fn labelDiffersWithin(layer: LayerData, world_mm: vec3<f32>, label_id: u32, distance_px: f32) -> bool {
+    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * distance_px;
+    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * distance_px;
+    return sampleLayerLabelIdOptimized(layer, world_mm + du) != label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - du) != label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm + dv) != label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - dv) != label_id;
+}
+
+// True when any 4-neighbour at `distance_px` screen pixels has `label_id`.
+fn labelNearWithin(layer: LayerData, world_mm: vec3<f32>, label_id: u32, distance_px: f32) -> bool {
+    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * distance_px;
+    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * distance_px;
+    return sampleLayerLabelIdOptimized(layer, world_mm + du) == label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - du) == label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm + dv) == label_id ||
+        sampleLayerLabelIdOptimized(layer, world_mm - dv) == label_id;
+}
+
 fn sampleSelectedLabelOutlineOptimized(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
     if (slice_features.outline_enabled == 0u || layer.layer_mode != LAYER_MODE_LABEL) {
         return vec4<f32>(0.0);
     }
 
     let center_label = sampleLayerLabelIdOptimized(layer, world_mm);
+    let thickness_px = max(slice_features.outline_thickness_px, 1.0);
+    let halo_px = max(slice_features.halo_thickness_px, 0.0);
 
     // outline_mode: 0 = single selected label, 1 = all parcel boundaries.
     if (slice_features.outline_mode == 1u) {
+        // All boundaries: every non-background voxel adjacent to a different
+        // label. The halo is a second band inside each region, behind the outline.
         if (center_label == 0u) {
             return vec4<f32>(0.0);
         }
-    } else {
-        let selected_label = slice_features.selected_label_id;
-        if (selected_label == 0u || center_label != selected_label) {
-            return vec4<f32>(0.0);
+        if (labelDiffersWithin(layer, world_mm, center_label, thickness_px)) {
+            return labelOutlineColor(layer, center_label);
         }
+        if (halo_px > 0.0 && labelDiffersWithin(layer, world_mm, center_label, thickness_px + halo_px)) {
+            return labelHaloColor(layer, center_label);
+        }
+        return vec4<f32>(0.0);
     }
 
-    let thickness_px = max(slice_features.outline_thickness_px, 1.0);
-    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * thickness_px;
-    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * thickness_px;
-
-    let neighbor_differs =
-        sampleLayerLabelIdOptimized(layer, world_mm + du) != center_label ||
-        sampleLayerLabelIdOptimized(layer, world_mm - du) != center_label ||
-        sampleLayerLabelIdOptimized(layer, world_mm + dv) != center_label ||
-        sampleLayerLabelIdOptimized(layer, world_mm - dv) != center_label;
-
-    if (neighbor_differs) {
-        return slice_features.outline_color;
+    // Single label: the outline is the selected region's inner boundary band;
+    // the halo is a band just outside it.
+    let selected_label = slice_features.selected_label_id;
+    if (selected_label == 0u) {
+        return vec4<f32>(0.0);
     }
-
+    if (center_label == selected_label) {
+        if (labelDiffersWithin(layer, world_mm, center_label, thickness_px)) {
+            return labelOutlineColor(layer, selected_label);
+        }
+        return vec4<f32>(0.0);
+    }
+    if (halo_px > 0.0 && labelNearWithin(layer, world_mm, selected_label, halo_px)) {
+        return labelHaloColor(layer, selected_label);
+    }
     return vec4<f32>(0.0);
 }
 

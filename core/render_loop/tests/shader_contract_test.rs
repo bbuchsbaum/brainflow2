@@ -147,10 +147,6 @@ fn expected_layer_layout() -> StructLayout {
 }
 
 fn expected_feature_layout() -> StructLayout {
-    // Rust collapses the trailing padding into `_pad1: [f32; 3]`, while WGSL
-    // declares three scalar pad members (`_pad1_x/y/z`). Expand the array so the
-    // expected member list matches the WGSL member count exactly.
-    let pad = offset_of!(SliceFeatureUbo, _pad1) as u32;
     StructLayout {
         offsets: vec![
             offset_of!(SliceFeatureUbo, outline_enabled) as u32,
@@ -159,9 +155,10 @@ fn expected_feature_layout() -> StructLayout {
             offset_of!(SliceFeatureUbo, outline_mode) as u32,
             offset_of!(SliceFeatureUbo, outline_color) as u32,
             offset_of!(SliceFeatureUbo, outline_thickness_px) as u32,
-            pad,
-            pad + 4,
-            pad + 8,
+            offset_of!(SliceFeatureUbo, outline_color_mode) as u32,
+            offset_of!(SliceFeatureUbo, halo_thickness_px) as u32,
+            offset_of!(SliceFeatureUbo, _pad1) as u32,
+            offset_of!(SliceFeatureUbo, halo_color) as u32,
         ],
         size: size_of::<SliceFeatureUbo>() as u32,
     }

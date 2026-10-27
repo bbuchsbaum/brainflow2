@@ -92,14 +92,17 @@ fn ubo_field_offsets() {
 fn slice_feature_ubo_layout_and_defaults() {
     use std::mem::{offset_of, size_of};
 
-    assert_eq!(size_of::<SliceFeatureUbo>(), 48);
+    assert_eq!(size_of::<SliceFeatureUbo>(), 64);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_enabled), 0);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_layer_index), 4);
     assert_eq!(offset_of!(SliceFeatureUbo, selected_label_id), 8);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_mode), 12);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_color), 16);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_thickness_px), 32);
-    assert_eq!(offset_of!(SliceFeatureUbo, _pad1), 36);
+    assert_eq!(offset_of!(SliceFeatureUbo, outline_color_mode), 36);
+    assert_eq!(offset_of!(SliceFeatureUbo, halo_thickness_px), 40);
+    assert_eq!(offset_of!(SliceFeatureUbo, _pad1), 44);
+    assert_eq!(offset_of!(SliceFeatureUbo, halo_color), 48);
 
     let features = SliceFeatureUbo::default();
     assert_eq!(features.outline_enabled, 0);
@@ -107,6 +110,8 @@ fn slice_feature_ubo_layout_and_defaults() {
     assert_eq!(features.selected_label_id, 0);
     assert_eq!(features.outline_color, [1.0, 1.0, 0.0, 1.0]);
     assert_eq!(features.outline_thickness_px, 1.0);
+    assert_eq!(features.outline_color_mode, 0);
+    assert_eq!(features.halo_thickness_px, 0.0);
 }
 
 #[test]
@@ -128,18 +133,17 @@ fn slice_feature_wgsl_padding_does_not_use_vec3_after_scalar() {
 
         assert!(
             !feature_body.contains("vec3<f32>"),
-            "{name} SliceFeatureUbo must not use vec3 padding after \
-             outline_thickness_px. WGSL gives vec3 16-byte alignment there, \
-             making the shader expect a 64-byte uniform while Rust provides \
-             a 48-byte SliceFeatureUbo, which can black-frame the render."
+            "{name} SliceFeatureUbo must not use vec3 padding: WGSL gives vec3 16-byte \
+             alignment, which would shift halo_color away from Rust's 64-byte layout \
+             and can black-frame the render."
         );
         assert!(
             feature_body.contains("outline_thickness_px: f32")
-                && feature_body.contains("_pad1_x: f32")
-                && feature_body.contains("_pad1_y: f32")
-                && feature_body.contains("_pad1_z: f32"),
-            "{name} SliceFeatureUbo must use three scalar f32 pad fields after \
-             outline_thickness_px to match Rust SliceFeatureUbo's 48-byte layout"
+                && feature_body.contains("outline_color_mode: u32")
+                && feature_body.contains("halo_thickness_px: f32")
+                && feature_body.contains("_pad1: f32")
+                && feature_body.contains("halo_color: vec4<f32>"),
+            "{name} SliceFeatureUbo must match Rust SliceFeatureUbo's 64-byte layout"
         );
     }
 }
@@ -186,9 +190,10 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
         "outline_mode",
         "outline_color",
         "outline_thickness_px",
-        "_pad1_x",
-        "_pad1_y",
-        "_pad1_z",
+        "outline_color_mode",
+        "halo_thickness_px",
+        "_pad1",
+        "halo_color",
     ];
 
     let shaders = [

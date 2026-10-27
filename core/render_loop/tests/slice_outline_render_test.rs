@@ -190,7 +190,7 @@ async fn selected_label_outline_renders_without_black_frame() {
             outline_mode: 0,
             outline_color: [0.0, 1.0, 0.0, 1.0],
             outline_thickness_px: 2.0,
-            _pad1: [0.0; 3],
+            ..SliceFeatureUbo::default()
         });
 
         let outlined = service
@@ -211,4 +211,172 @@ async fn selected_label_outline_renders_without_black_frame() {
             "{orientation:?} enabling outline should not black-frame or erase the scalar underlay"
         );
     }
+}
+
+/// Axial view of the label box over the scalar ramp at 4 px/mm with the label
+/// layer at `label_opacity`. The box covers voxels x 8..24, i.e. world
+/// [7.5, 23.5), so pixel columns 30..=93 lie inside it (centre x = (col+0.5)/4).
+fn lut_view_state(label_opacity: f32, include_scalar_underlay: bool) -> ViewState {
+    let mut state = label_view_state(SliceOrientation::Axial, include_scalar_underlay);
+    let label = state.layers.len() - 1;
+    state.layers[label].opacity = label_opacity;
+    state
+}
+
+const ROW: usize = 64;
+
+fn px(image: &[u8], x: usize) -> [i32; 3] {
+    let at = (ROW * 128 + x) * 4;
+    [image[at] as i32, image[at + 1] as i32, image[at + 2] as i32]
+}
+
+fn assert_close(actual: [i32; 3], expected: [i32; 3], tolerance: i32, what: &str) {
+    assert!(
+        actual
+            .iter()
+            .zip(expected)
+            .all(|(a, e)| (a - e).abs() <= tolerance),
+        "{what}: got {actual:?}, expected {expected:?}"
+    );
+}
+
+/// 60%-opaque black over `base`.
+fn haloed(base: [i32; 3]) -> [i32; 3] {
+    base.map(|c| (c as f32 * 0.4).round() as i32)
+}
+
+#[tokio::test]
+async fn lut_coloured_outline_and_dark_halo_follow_region_boundaries() {
+    let mut service = RenderLoopService::new()
+        .await
+        .expect("failed to initialize render service");
+    service.load_shaders().expect("failed to load shaders");
+    service
+        .enable_world_space_rendering()
+        .expect("failed to enable world-space rendering");
+    for (id, volume) in [
+        ("label-volume", create_label_box_volume()),
+        ("scalar-underlay", create_scalar_underlay_volume()),
+    ] {
+        service
+            .register_volume_with_upload(id.to_string(), &volume, wgpu::TextureFormat::R32Float)
+            .expect("failed to register volume");
+    }
+    service
+        .initialize_colormap()
+        .expect("failed to initialize colormap");
+    service
+        .create_world_space_bind_groups()
+        .expect("failed to create world-space bind groups");
+
+    let mut frame = |id: &str, features: SliceFeatureUbo, state: ViewState| {
+        service.update_slice_feature_ubo(features);
+        let image = pollster::block_on(service.request_frame(ViewId::new(id), state))
+            .expect("render failed")
+            .image_data;
+        image
+    };
+
+    // Region 2's LUT colour, from an opaque fill with no underlay.
+    let region = px(
+        &frame(
+            "fill",
+            SliceFeatureUbo::default(),
+            lut_view_state(1.0, false),
+        ),
+        62,
+    );
+    // Translucent fill over the ramp, outline off: the comparison baseline.
+    let baseline = frame(
+        "baseline",
+        SliceFeatureUbo::default(),
+        lut_view_state(0.3, true),
+    );
+    let lut_features = |mode: u32| SliceFeatureUbo {
+        outline_enabled: 1,
+        outline_layer_index: 1,
+        selected_label_id: if mode == 0 { 2 } else { 0 },
+        outline_mode: mode,
+        // Ignored in LUT mode except for its alpha.
+        outline_color: [0.0, 1.0, 0.0, 1.0],
+        outline_thickness_px: 2.0,
+        outline_color_mode: 1,
+        halo_thickness_px: 2.0,
+        halo_color: [0.0, 0.0, 0.0, 0.6],
+        ..SliceFeatureUbo::default()
+    };
+    assert_ne!(
+        region,
+        [0, 255, 0],
+        "the LUT colour must differ from the uniform colour"
+    );
+
+    // Single label: outline is the region's inner 2 px band in its LUT colour,
+    // the halo is the 2 px band just outside it, and pixels beyond are untouched.
+    let single = frame("single", lut_features(0), lut_view_state(0.3, true));
+    for x in [30, 31, 92, 93] {
+        assert_close(
+            px(&single, x),
+            region,
+            2,
+            &format!("single outline at column {x}"),
+        );
+    }
+    for x in [28, 29, 94, 95] {
+        assert_close(
+            px(&single, x),
+            haloed(px(&baseline, x)),
+            3,
+            &format!("outer halo at column {x}"),
+        );
+    }
+    for x in [27, 32, 62, 91, 96] {
+        assert_eq!(
+            px(&single, x),
+            px(&baseline, x),
+            "column {x} must be unchanged"
+        );
+    }
+
+    // All boundaries: same outline band, halo as a second band inside the region.
+    let all = frame("all", lut_features(1), lut_view_state(0.3, true));
+    for x in [30, 31, 92, 93] {
+        assert_close(
+            px(&all, x),
+            region,
+            2,
+            &format!("all-boundaries outline at column {x}"),
+        );
+    }
+    for x in [32, 33, 90, 91] {
+        assert_close(
+            px(&all, x),
+            haloed(px(&baseline, x)),
+            3,
+            &format!("inner halo at column {x}"),
+        );
+    }
+    for x in [28, 29, 34, 62, 89, 94] {
+        assert_eq!(
+            px(&all, x),
+            px(&baseline, x),
+            "column {x} must be unchanged"
+        );
+    }
+
+    // Zero outline and halo alpha (e.g. an "outline only" layer at opacity 0)
+    // draws neither band.
+    let hidden = frame(
+        "hidden",
+        SliceFeatureUbo {
+            outline_color: [0.0, 1.0, 0.0, 0.0],
+            halo_color: [0.0, 0.0, 0.0, 0.0],
+            ..lut_features(0)
+        },
+        lut_view_state(0.3, true),
+    );
+    assert_eq!(
+        hidden, baseline,
+        "zero-alpha outline and halo must not draw"
+    );
 }

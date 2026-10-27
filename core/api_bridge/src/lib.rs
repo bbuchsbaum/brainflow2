@@ -5768,25 +5768,31 @@ async fn set_crosshair(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.update_slice_outline")]
+// Outline options arrive as separate optional invoke arguments; older callers
+// omit the colour mode and halo.
+#[allow(clippy::too_many_arguments)]
 async fn update_slice_outline(
     enabled: bool,
     outline_layer_index: u32,
     selected_label_id: u32,
     color: Vec<f32>,
     thickness_px: f32,
+    color_mode: Option<OutlineColorMode>,
+    halo_px: Option<f32>,
+    halo_color: Option<Vec<f32>>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    if color.len() != 4 {
-        return Err(BridgeError::Input {
+    let rgba = |values: Vec<f32>, name: &str| -> BridgeResult<[f32; 4]> {
+        values.try_into().map_err(|_| BridgeError::Input {
             code: 2020,
-            details: "color must be a 4-element RGBA array".to_string(),
-        });
-    }
-
-    let color_arr: [f32; 4] = color.try_into().map_err(|_| BridgeError::Internal {
-        code: 5020,
-        details: "Failed to convert outline color to array".to_string(),
-    })?;
+            details: format!("{name} must be a 4-element RGBA array"),
+        })
+    };
+    let color_arr = rgba(color, "color")?;
+    let halo_arr = match halo_color {
+        Some(values) => rgba(values, "haloColor")?,
+        None => default_outline_halo_rgba(),
+    };
 
     let service_guard = state.render_loop_service.lock().await;
     let service_arc = service_guard
@@ -5805,6 +5811,9 @@ async fn update_slice_outline(
         selected_label_id,
         outline_color: color_arr,
         outline_thickness_px: thickness_px.max(1.0),
+        outline_color_mode: color_mode.unwrap_or_default().shader_value(),
+        halo_thickness_px: halo_px.unwrap_or(0.0).max(0.0),
+        halo_color: halo_arr,
         ..SliceFeatureUbo::default()
     });
 
@@ -8223,10 +8232,40 @@ struct LayerOutlineState {
     color: [f32; 4],
     #[serde(rename = "thicknessPx", default = "default_outline_thickness_px")]
     thickness_px: f32,
+    /// "uniform" (default; `color`) or "lut" (each region's palette colour,
+    /// alpha `color[3]` x LUT alpha).
+    #[serde(rename = "colorMode", default)]
+    color_mode: OutlineColorMode,
+    /// Dark halo width in screen pixels; 0 (default) draws none.
+    #[serde(rename = "haloPx", default)]
+    halo_px: f32,
+    #[serde(rename = "haloColor", default = "default_outline_halo_rgba")]
+    halo_color: [f32; 4],
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum OutlineColorMode {
+    #[default]
+    Uniform,
+    Lut,
+}
+
+impl OutlineColorMode {
+    pub(crate) fn shader_value(self) -> u32 {
+        match self {
+            Self::Uniform => 0,
+            Self::Lut => 1,
+        }
+    }
 }
 
 fn default_outline_rgba() -> [f32; 4] {
     [1.0, 1.0, 0.0, 1.0]
+}
+
+fn default_outline_halo_rgba() -> [f32; 4] {
+    [0.0, 0.0, 0.0, 0.6]
 }
 
 fn default_outline_thickness_px() -> f32 {
