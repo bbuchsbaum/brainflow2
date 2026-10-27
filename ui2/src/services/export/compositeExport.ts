@@ -291,13 +291,15 @@ function drawPane(
   options: CompositeOptions,
   settings: ActiveCrosshairSettings,
   theme: PageTheme,
+  /** Image offset below the header (a shorter pane centred in its row). */
+  imageDy = 0,
 ): void {
   const u = options.unit;
   // Header band above the image: plane, position and layer never cover the
   // image or its top letter (v3: "A" and "S" were hidden under the header).
   const band = options.header && !pane.tileLabel ? headerBandPx(u) : 0;
   if (band) drawHeaderBand(ctx, x, y, pane, u, band, theme);
-  const iy = y + band;
+  const iy = y + band + imageDy;
   // On a black page the pane sits on black (as on screen). On a white or
   // transparent page the capture has already matted the pane onto the page
   // (utils/exportMatte.ts): outside the head is page, with no dark rim.
@@ -912,7 +914,7 @@ export interface CompositionLayout {
   gridW: number;
   offsetX: number;
   /** Per row, per pane: the header band / tile strip and the image box (canvas coordinates). */
-  panes: Array<Array<{ x: number; y: number; band: number; image: Box }>>;
+  panes: Array<Array<{ x: number; y: number; band: number; imageDy: number; image: Box }>>;
   /** The colorbar / legend column (canvas coordinates), or null. */
   side: Box | null;
 }
@@ -950,14 +952,15 @@ export function compositionLayout(
     let x = options.alignRows === 'start' ? 0 : (gridW - rowWidths[r]) / 2;
     const placed = row.map((pane) => {
       const b = band(pane);
-      // Shorter panes sit centred in the row (no ragged bottoms in a figure
-      // row: axial is taller than coronal and sagittal).
+      // Shorter images sit centred in the row (no ragged bottoms in a figure
+      // row: axial is taller than coronal and sagittal), while every header
+      // stays at the row's top: one shared baseline (native v6 recheck).
       const dy = Math.max(0, Math.round((rowHeights[r] - (pane.height + b)) / 2));
-      const at = { x: offsetX + x, y: y + dy, band: b };
+      const at = { x: offsetX + x, y, band: b, imageDy: dy };
       x += pane.width + gap;
       return {
         ...at,
-        image: { x: at.x, y: at.y + (pane.tile ? 0 : b), width: pane.width, height: pane.height },
+        image: { x: at.x, y: y + (pane.tile ? 0 : b) + dy, width: pane.width, height: pane.height },
       };
     });
     y += rowHeights[r] + gap;
@@ -1000,7 +1003,7 @@ export function compose(
   rows.forEach((row, r) => {
     row.forEach((pane, c) => {
       const at = layout.panes[r][c];
-      drawPane(ctx, at.x, at.y, pane, options, settings, theme);
+      drawPane(ctx, at.x, at.y, pane, options, settings, theme, at.imageDy);
     });
   });
 

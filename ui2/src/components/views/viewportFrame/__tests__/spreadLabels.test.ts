@@ -16,3 +16,14 @@ describe('spreadLabelCenters (colorbar tick labels never crowd)', () => {
     for (let i = 1; i < out.length; i += 1) expect(out[i] - out[i - 1]).toBeGreaterThanOrEqual(13);
   });
 });
+
+import { wrapNameAtBoundaries } from '../frameFormat';
+
+describe('wrapNameAtBoundaries (caption names whole or not at all)', () => {
+  it('wraps at its own boundaries into whole pieces', () => {
+    expect(wrapNameAtBoundaries('zmap_synthetic', 9, 2)).toEqual(['zmap_', 'synthetic']);
+  });
+  it('gives nothing (drop the name) when two lines cannot hold it', () => {
+    expect(wrapNameAtBoundaries('sub-01_task-motor_space-MNI152_desc-zstat1', 10, 2)).toEqual([]);
+  });
+});

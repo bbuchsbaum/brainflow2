@@ -527,6 +527,8 @@ export function ComparisonPanel({
             // Top-right corner, clear of the cortex (the bottom-right sat on
             // the brain in Compare's wide panes).
             corner="top"
+            // Never wider than the pane (the caption wraps or drops the name).
+            maxWidth={Math.max(96, canvasSize.width - 16)}
             value={colorbarReading?.value ?? null}
             tag={unlinkedTag}
           />

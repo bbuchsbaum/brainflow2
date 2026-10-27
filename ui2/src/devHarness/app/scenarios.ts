@@ -385,6 +385,28 @@ async function nativeExportCrop(order: 't1-first' | 'z-first'): Promise<void> {
   if (!size || size.height > 800) throw new Error(`crop widened by the noisy statistic: ${size?.width} × ${size?.height}`);
 }
 
+/**
+ * Native recheck (v6): every Compare colorbar caption line lies inside its
+ * pane and is not cut ("z · zmap_sy…" was clipped at the pane edge).
+ */
+function assertCompareCaptionsInside(): void {
+  const panes = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="comparison-panel"]'));
+  for (const pane of panes) {
+    const box = pane.getBoundingClientRect();
+    const lines = pane.querySelectorAll<HTMLElement>(
+      '[data-testid="viewport-colorbar-name"], [data-testid="viewport-colorbar-name-line"], [data-testid="viewport-colorbar-tag"]',
+    );
+    for (const line of Array.from(lines)) {
+      const text = line.firstElementChild as HTMLElement | null;
+      const r = (text ?? line).getBoundingClientRect();
+      const inside = r.left >= box.left - 0.5 && r.right <= box.right + 0.5 && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+      const cut = line.scrollWidth > line.clientWidth + 1;
+      noteStep(`caption "${line.textContent}" in panel ${pane.dataset.panelLetter}: ${inside ? 'inside' : 'OUTSIDE'}${cut ? ', cut' : ''}`);
+      if (!inside || cut) throw new Error(`Compare caption "${line.textContent}" leaves its pane or is cut`);
+    }
+  }
+}
+
 /** Open the bottom dock on the plot tab (what the Inspector's "open in dock" does). */
 async function openPlotDock(mode: 'histogram' | null): Promise<void> {
   const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
@@ -811,6 +833,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     );
     noteStep(`compare: ${document.querySelector('[data-testid="compare-edit-bar"]')?.textContent}`);
     await frames(10);
+    assertCompareCaptionsInside();
   },
   // P3.11: empty workspaces with the next action.
   'empty-compare': async () => {

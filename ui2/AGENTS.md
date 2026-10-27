@@ -56,9 +56,42 @@ Key invariants from `Design.md` (do not violate without reason):
 - Inspector is selection-driven; sections vary by layer kind (volume / surface / atlas / annotation).
 - `STATS` in the inspector is summary-only; the histogram chart lives in the bottom Plot dock, not the inspector.
 - A 4D layer surfaces exactly one canonical pinned time row in the center workspace; do not add a second time scrubber to the inspector.
-- The bottom dock is a single dock with `Activity | Plot | Log` tabs — not separate persistent log panels.
+- The bottom dock is a single dock with `Activity | Plot | Clusters | Log` tabs — not separate persistent log panels.
 - `Integrated` is one of `Orthogonal | Surface | Integrated | Mosaic | Compare`; it is a display-mode option, not the universal shell.
 - Use the `--bf-*` token names from §3.1 of `Design.md` for new surfaces; the `--app-*` tokens in `src/styles/theme.css` map onto the same palette.
+
+### Redesign contracts (phases 2–3, 2026-10)
+
+The live visual contract is the root `AGENTS.md` "Visual style" section plus
+`docs/plans/ui-redesign-2026-10.md`, `ui-redesign-phase2.md` and `ui-redesign-phase3.md`.
+- **Primitives:** build controls from `src/components/ui/bf/` (Tabs, SegmentedControl, Slider,
+  Section, FieldRow, SelectableRow, StatusPill, Chip, Button, NumberField, Modal footer, EmptyPane,
+  `focusFallback`, …). The ESLint ratchet (`eslint.ratchet.js`) errors on raw palette classes,
+  `text-[Npx]`, uppercase/tracking, hex in style props, raw range inputs, hand-rolled
+  tablist/radiogroup and raw `var(--bf-accent)`; its allowlist may only shrink.
+- **Statistics:** `LayerInfo.statistic` comes from the backend (`StatisticInfo`, NIfTI intent or SPM
+  descrip); filename guesses (`zstat`/`tstat` only, never randomise p-maps or cluster masks) are
+  marked `z*` everywhere and spoken "inferred from file name". Format symbols with `StatSymbol` /
+  `utils/statistic.ts`. z/t maps first-paint at ±max|v| with |v| ≤ 3.1 hidden (marked as a default)
+  and are never re-windowed after first paint.
+- **Voxel-exact navigation:** `setCrosshair` snaps to voxel centres of the snapping reference
+  (`utils/voxelSnap.ts`, bottom volume layer, `floor(v+0.5)` like the backend sampler) when
+  `snapToVoxel` is on; stepping (wheel, PageUp/Down, sliders, Compare rail) moves one reference
+  voxel via `SliceNavigationService`. Go-to-peak/extremum pass `{ snap: false }`. Click-to-world
+  mapping is unchanged; clicks outside the volume are ignored (`clickDataBounds.ts`).
+- **Label maps:** sidecar tables (BIDS dseg TSV / FreeSurfer LUT) only for layers already marked as
+  labels (intent 1002 or whole-token names); slots come from `LabelColormapPool` (refcounted,
+  released on layer removal).
+- **Export:** one composer (`services/export/compositeExport.ts` + `compositeCapture.ts`) draws
+  preview and file; text in points at output dpi; geometry tests require every text box inside
+  the canvas, no overlapping text and no colorbar/image overlap. Saves go through
+  `save_image_bytes` (native dialog only).
+- **Clusters / readout / Compare:** `compute_clusters` + `volume_extremum` back the Clusters dock
+  tab; per-layer values live in the Inspector Scene rows (`useReadoutPoint`); Compare overrides go
+  through the panel-aware writer `utils/layerDisplayWrite.ts`.
+- **Harness and gate:** dev-only app harness (`app-harness.html`, `src/devHarness/`) with
+  synthetic known-answer fixtures (`fixtures/app/p3_fixtures.json`); screenshot gate per
+  `e2e/AGENTS.md`. Update gate baselines only for intended visual changes, in the same commit.
 
 ### Working In This Directory
 

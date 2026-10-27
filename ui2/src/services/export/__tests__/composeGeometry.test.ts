@@ -528,4 +528,17 @@ describe('composer figure finish (output px)', () => {
     expect(joined).not.toMatch(/mmy|mmx/);
     for (const axis of ['z', 'y', 'x']) expect(texts.some((t) => t.text === axis)).toBe(true);
   });
+
+  it('a figure row has one header baseline, however tall each image (native v6 recheck)', () => {
+    const unit = 300 / 96;
+    const row = [
+      pane({ width: 640, height: 760, layerName: null }),
+      pane({ width: 640, height: 600, framePlane: 'coronal', layerName: null }),
+      pane({ width: 640, height: 500, framePlane: 'sagittal', layerName: null }),
+    ];
+    compose([row], { colorbar: null }, { ...options, unit }, { activeColor: '#0f0', activeThickness: 1, activeStyle: 'solid' });
+    const headerYs = texts.filter((t) => /^= /.test(t.text)).map((t) => t.y);
+    expect(headerYs).toHaveLength(3);
+    for (const y of headerYs) expect(y).toBeCloseTo(headerYs[0], 6);
+  });
 });

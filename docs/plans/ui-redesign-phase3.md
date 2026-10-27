@@ -133,3 +133,29 @@ that do not exist).
 
 Fresh-context code review of the phase branch, then merge prep for
 `ui/redesign-p2` + `ui/redesign-p3` into `main` on the user's go-ahead.
+
+## Outcome (2026-10-27)
+
+All thirteen items shipped on `ui/redesign-p3` except the follow-ups listed below.
+
+- Hill climb `.hillclimb/p3`, rounds v0-v5 plus a v6 confirmation capture, four critics.
+  Visual 52 -> 62 (of 80), function/accessibility 6.0 -> 7.9, target user 6.9 -> 7.9,
+  scientific fidelity 4 -> 8. Every displayed number was recomputed independently against the
+  synthetic fixtures: clusters, peaks, ijk, centroids, regions, mosaic positions, export geometry
+  and dpi.
+- Fresh-context code reviews of the backend and frontend; their defects are fixed (save-dialog
+  overwrite, header reads under the registry lock, slice stepping with snapping, label colormap
+  slot leak, label-map detection).
+- Native .app checks (`.hillclimb/native-check/p3/`): the first run passed the core features and
+  exposed defaults the harness never exercised (statistic first-paint window, export matte and
+  crop, mosaic loading race, a window/level drag under the macOS context menu). All are fixed;
+  the re-check passed 8 of 8 items, item 5 read as "outside the volume".
+- Ships with surfview 3.1.0 (user decision).
+
+Follow-ups (mote, tag redesign-p3 and related):
+- shader: per-region label outline colour and halo; edge-voxel sampling convention;
+- export IPC payload and cancellable cluster compute;
+- side-by-side lateral/medial surfaces, surface export through the composer, orientation gizmo,
+  status-bar vertex value (these need the surface viewer package);
+- cluster sub-peaks and cluster-level p; plot time course (needs a 4D fixture);
+- offline Neurosynth lookup ported from neurotide.

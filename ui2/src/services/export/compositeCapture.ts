@@ -175,6 +175,7 @@ async function decodeForPage(
   const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
   if (!ctx || typeof ctx.getImageData !== 'function') return bitmap;
   ctx.drawImage(bitmap, 0, 0, width, height);
+  // Our own decode (above), drawn and no longer needed: safe to close.
   (bitmap as Partial<ImageBitmap>).close?.();
   const pixels = ctx.getImageData(0, 0, width, height);
   pixels.data.set(
@@ -785,6 +786,13 @@ export async function captureComposite(
       flat.length > 1 && (hasSide || r + c > 0) ? null : headerName,
     );
   });
+  // Safe to close (ui2/CLAUDE.md MosaicView rule 3 forbids closing bitmaps
+  // an on-screen canvas may still draw): every pane image here is created by
+  // this capture alone (renderPane → ViewExportService.renderViewToBytes, a
+  // direct render_view call returning bytes, then decode / decodeForPage →
+  // createImageBitmap). None comes from MosaicRenderService, useRenderCanvas
+  // or the EventBus 'render.complete' path, and none is shared outside this
+  // function.
   const closeImages = () => {
     for (const pane of rendered) (pane.image as Partial<ImageBitmap>).close?.();
   };

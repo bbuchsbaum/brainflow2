@@ -6,6 +6,7 @@ import {
   HIDDEN_BAND_BACKGROUND,
   colorbarTicks,
   spreadLabelCenters,
+  wrapNameAtBoundaries,
   colormapVerticalGradient,
   hiddenBand,
   thresholdExpressionParts,
@@ -13,7 +14,6 @@ import {
 } from './frameFormat';
 import { formatLayerValue, formatRange } from '@/utils/valueFormat';
 import { asciiCopyHandler } from '@/utils/numericInput';
-import { middleTruncate } from './frameFormat';
 
 export interface ColorbarLayer {
   layerId: string;
@@ -199,13 +199,31 @@ export function ViewportColorbar({
     return { ticks, labelW, valueW, boxW, lines };
   };
   const nominal = measure(MAX_BAR_H);
+  // The layer name, never a fragment (v6 native recheck: "z · zmap_sy…"):
+  // beside the symbol when the whole caption fits the box, else whole on up
+  // to two lines of its own (wrapped at _ - .), else left out (the symbol
+  // stays; the tooltip and accessible name carry the full name).
+  const nameRoomChars = Math.floor((nominal.boxW - PAD_X - (nominal.valueW + VALUE_GAP + CARET_W)) / NAME_CHAR_W);
+  const captionChars = (layer.units ? layer.units.length + 3 : 0) + (layer.nameLabel?.length ?? 0);
+  const nameInline = !layer.nameLabel || captionChars <= nameRoomChars;
+  const nameLines = nameInline || !layer.nameLabel ? [] : wrapNameAtBoundaries(layer.nameLabel, nameRoomChars, 2);
+  // The tag ("threshold unlinked") wraps at its words the same way.
+  const tagLines = !tag
+    ? []
+    : tag.length <= nameRoomChars
+      ? [tag]
+      : (() => {
+          const wrapped = wrapNameAtBoundaries(tag, nameRoomChars, 2);
+          return wrapped.length > 0 ? wrapped : [tag];
+        })();
   const chromeH =
+    nameLines.length * (LINE_H + 2) +
     capTopH +
     capBottomH +
     (nominal.lines.length ? CAPTION_GAP + nominal.lines.length * LINE_H : 0) +
     PAD_Y +
     (layer.nameLabel || layer.units ? LINE_H + NAME_GAP : 0) +
-    (tag ? LINE_H : 0);
+    tagLines.length * LINE_H;
 
   // ── beside the image ──
   let layout: { style: CSSProperties; barH: number; beside: boolean } | null = null;
@@ -370,38 +388,36 @@ export function ViewportColorbar({
           {layer.units && (
             <StatSymbol label={layer.units} className="text-bf-text-secondary" />
           )}
-          {layer.units && layer.nameLabel && <span className="text-bf-text-muted"> · </span>}
-          {layer.nameLabel && (
-            <span className="text-bf-text-muted">
-              {middleTruncate(
-                layer.nameLabel,
-                Math.max(
-                  1,
-                  Math.floor(
-                    (boxW -
-                      PAD_X -
-                      nameIndent -
-                      (tagChars + fromNameChars) * NAME_CHAR_W -
-                      (layer.units ? (layer.units.length + 3) * NAME_CHAR_W : 0)) /
-                      NAME_CHAR_W,
-                  ),
-                ),
-                7,
-              ) ?? layer.nameLabel}
-            </span>
-          )}
+          {layer.units && layer.nameLabel && nameInline && <span className="text-bf-text-muted"> · </span>}
+          {layer.nameLabel && nameInline && <span className="text-bf-text-muted">{layer.nameLabel}</span>}
           </span>
         </div>
       )}
-      {tag && (
+      {nameLines.map((line) => (
         <div
-          className="truncate whitespace-nowrap text-left leading-none text-bf-text-muted"
+          key={line}
+          className="whitespace-nowrap text-left leading-none text-bf-text-muted"
           style={{ height: LINE_H, marginTop: -NAME_GAP + 2, marginBottom: NAME_GAP, paddingLeft: nameIndent }}
+          data-testid="viewport-colorbar-name-line"
+        >
+          <span className={TEXT_BACKING}>{line}</span>
+        </div>
+      ))}
+      {tagLines.map((line, i) => (
+        <div
+          key={line}
+          className="whitespace-nowrap text-left leading-none text-bf-text-muted"
+          style={{
+            height: LINE_H,
+            marginTop: i === 0 ? -NAME_GAP + 2 : 0,
+            marginBottom: i === tagLines.length - 1 ? NAME_GAP : 0,
+            paddingLeft: nameIndent,
+          }}
           data-testid="viewport-colorbar-tag"
         >
-          <span className={TEXT_BACKING}>{tag}</span>
+          <span className={TEXT_BACKING}>{line}</span>
         </div>
-      )}
+      ))}
       <div
         className="relative font-mono tabular-nums"
         style={{ width: groupW, height: groupH }}

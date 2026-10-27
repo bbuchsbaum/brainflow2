@@ -70,6 +70,32 @@ describe("ViewExportService", () => {
     });
   });
 
+  it("renders export panes to bytes for the export alone: no render.complete, nothing shared on screen", async () => {
+    // compositeCapture decodes these bytes into its own ImageBitmaps and
+    // closes them after compose (ui2/CLAUDE.md MosaicView rule 3 is about
+    // bitmaps handed to on-screen canvases; these never are).
+    const { useViewStateStore } = await import("@/stores/viewStateStore");
+    invokeMock.mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+    const base = useViewStateStore.getState().viewState;
+    const viewState = {
+      ...base,
+      layers: [
+        { id: "t1", name: "t1", volumeId: "v1", visible: true, opacity: 1, colormap: "gray", intensity: [0, 100], threshold: [0, 0] },
+      ],
+    } as never;
+    const bytes = await service.renderViewToBytes(
+      viewState,
+      "axial",
+      64,
+      64,
+      "png",
+      false,
+    );
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(invokeMock).toHaveBeenCalledWith("render_view", expect.objectContaining({ format: "png" }));
+    expect(emitMock).not.toHaveBeenCalled();
+  });
+
   it("uses the active surface renderable exporter key directly", async () => {
     const bytes = new Uint8Array([1, 2, 3]);
     service.registerExporter("surfaceview:surface-a:view-1", async () => bytes);

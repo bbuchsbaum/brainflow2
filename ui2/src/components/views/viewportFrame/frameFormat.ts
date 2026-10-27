@@ -376,6 +376,26 @@ export function spreadLabelCenters(ys: readonly number[], minGap: number, lo: nu
   return out;
 }
 
+/**
+ * A layer name broken at its own boundaries (after _ - . or a space) into at
+ * most `maxLines` lines of `maxChars`; [] when it does not fit whole that way
+ * (the caller then leaves the name out: a caption never prints a fragment).
+ */
+export function wrapNameAtBoundaries(name: string, maxChars: number, maxLines: number): string[] {
+  if (!(maxChars > 0)) return [];
+  const pieces = name.match(/[^_\-.\s]+[_\-.\s]*/g) ?? [name];
+  const lines: string[] = [];
+  let line = '';
+  for (const piece of pieces) {
+    if (line && (line + piece).length > maxChars) {
+      lines.push(line);
+      line = piece;
+    } else line += piece;
+  }
+  if (line) lines.push(line);
+  return lines.length <= maxLines && lines.every((l) => l.length <= maxChars) ? lines : [];
+}
+
 /** Hidden threshold band as bar fractions [from, to] (bottom-up), clipped to the window. */
 export function hiddenBand(
   window: readonly [number, number],
