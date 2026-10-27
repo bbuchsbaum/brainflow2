@@ -46,6 +46,11 @@ export function PopulationTransformControls({
     onChange(all.sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind)));
   };
   const measured = recipe.axis !== 'category';
+  // Lags are whole numbers: a fractional window bound is refused (round 3 C9).
+  const integerAxis = useMemo(() => {
+    const xs = frame.rows.map((r) => r[recipe.x]).filter((v): v is number => typeof v === 'number');
+    return xs.length > 0 && xs.every(Number.isInteger);
+  }, [frame, recipe.x]);
   const lo = axisRange?.[0] ?? 0;
   const conditionColumn =
     recipe.color ?? frame.columns.find((c) => c.name === 'condition')?.name ?? null;
@@ -90,6 +95,7 @@ export function PopulationTransformControls({
           label="Baseline"
           unit={unit}
           axisRange={axisRange ?? null}
+          integerAxis={integerAxis}
           value={baseline}
           onCommit={(from, to) => set('baseline', { kind: 'baseline', from, to })}
         />
@@ -132,6 +138,7 @@ export function PopulationTransformControls({
           label="Window"
           unit={unit}
           axisRange={axisRange ?? null}
+          integerAxis={integerAxis}
           value={window ?? null}
           onCommit={(from, to) => set('windowMean', { kind: 'windowMean', from, to })}
           extra={
@@ -182,6 +189,7 @@ function WindowFields({
   label,
   unit,
   axisRange,
+  integerAxis = false,
   value,
   onCommit,
   extra,
@@ -189,6 +197,7 @@ function WindowFields({
   label: 'Baseline' | 'Window';
   unit: string;
   axisRange: [number, number] | null;
+  integerAxis?: boolean;
   /** The committed window; null while none is set. */
   value: { from: number; to: number } | null;
   onCommit: (from: number, to: number) => void;
@@ -200,12 +209,12 @@ function WindowFields({
     from: value ? String(value.from) : '',
     to: value ? String(value.to) : '',
   }));
-  const problem = pairProblem(draft, label, unit, axisRange);
+  const problem = pairProblem(draft, label, unit, axisRange, integerAxis);
   // Follow outside changes (the peak button, a reset) unless mid-edit on an invalid pair.
   useEffect(() => {
     if (!value) return;
     setDraft((d) =>
-      pairProblem(d, label, unit, axisRange) && `${parse(d.from)}|${parse(d.to)}` !== committed
+      pairProblem(d, label, unit, axisRange, integerAxis) && `${parse(d.from)}|${parse(d.to)}` !== committed
         ? d
         : { from: String(value.from), to: String(value.to) },
     );
@@ -217,7 +226,7 @@ function WindowFields({
     setDraft(next);
     const from = parse(next.from);
     const to = parse(next.to);
-    if (!pairProblem(next, label, unit, axisRange) && from !== null && to !== null)
+    if (!pairProblem(next, label, unit, axisRange, integerAxis) && from !== null && to !== null)
       if (`${from}|${to}` !== committed) onCommit(from, to);
   };
   const incomplete = !problem && (parse(draft.from) === null || parse(draft.to) === null);
@@ -258,17 +267,22 @@ function pairProblem(
   label: string,
   unit: string,
   axisRange: [number, number] | null,
+  integerAxis = false,
 ): string | null {
   const from = parse(draft.from);
   const to = parse(draft.to);
   if ((draft.from.trim() && from === null) || (draft.to.trim() && to === null))
     return `${label}: enter a number`;
   if (from === null || to === null) return null;
+  if (integerAxis && !(Number.isInteger(from) && Number.isInteger(to)))
+    return `${label}: lags are whole numbers`;
   if (from > to) return `${label}: from must be ≤ to`;
   const u = unit ? ` ${unit}` : '';
+  // Unicode minus, "−3 to 4" (round 3 C9).
+  const n = (v: number) => (v < 0 ? `\u2212${-v}` : String(v));
   // Partly outside counts too (round 3 T5): {−3, 4} on a 0–7 axis is not a 0–4 window.
   if (axisRange && (from < axisRange[0] || to > axisRange[1]))
-    return `${label} ${from}–${to}${u} must lie within the axis (${axisRange[0]}–${axisRange[1]}${u})`;
+    return `${label} ${n(from)} to ${n(to)}${u} must lie within the axis (${n(axisRange[0])} to ${n(axisRange[1])}${u})`;
   return null;
 }
 

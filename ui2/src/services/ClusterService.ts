@@ -268,20 +268,29 @@ function searchDescription(table: ClusterTable, label?: ClusterSearchLabel): str
 }
 
 /**
- * A volume the cluster search may use as a brain mask (round 3 T2): a mask
- * layer, a file named as a mask, or binary data ({0, 1}). Any other volume
- * would silently set the search volume to its non-zero support.
+ * A volume the cluster search may use as a brain mask (round 4 C7): binary
+ * data ({0, 1}: isBinaryLike, or a data range of exactly 0..1 when the
+ * loader did not say otherwise), or a file whose name has the whole token
+ * "mask" / "brainmask" ("brain_mask", "_mask.nii"; not "masked"). A
+ * probability map (continuous 0..1, isBinaryLike false) is never offered, even
+ * when named as a mask. Any other volume would silently set the search volume
+ * to its non-zero support.
  */
 export function isMaskLike(
   layer: { name?: string; type?: string; sourcePath?: string },
   metadata?: { isBinaryLike?: boolean; dataRange?: { min: number; max: number } } | null,
 ): boolean {
-  if (layer.type === 'mask') return true;
-  if (/mask/i.test(`${layer.name ?? ''} ${layer.sourcePath ?? ''}`)) return true;
-  if (metadata?.isBinaryLike) return true;
+  if (metadata?.isBinaryLike === false) return false;
+  if (metadata?.isBinaryLike === true) return true;
   const range = metadata?.dataRange;
-  return !!range && range.min === 0 && range.max === 1;
+  if (range && range.min === 0 && range.max === 1) return true;
+  if (range && !(range.min >= 0 && range.max <= 1)) return false;
+  const base = (path: string | undefined) => (path ?? '').split(/[\\/]/).pop() ?? '';
+  return [layer.name, base(layer.sourcePath)].some((n) => MASK_TOKEN.test(n ?? ''));
 }
+
+/** "mask" or "brainmask" as a whole token: brain_mask, sub-01_mask.nii.gz, brainmask; not "masked". */
+const MASK_TOKEN = /(?:^|[^a-z])(?:brain)?mask(?:[^a-z]|$)/i;
 
 /**
  * The footer's methods paragraph (what a figure caption or methods section
@@ -392,10 +401,12 @@ export function parseFwhm(text: string): FwhmMm | null {
   return null;
 }
 
-/** A cluster-level p for the table: "< 0.001" or three decimals. */
+/** A cluster-level p for the table: "< 0.001", three decimals, or four just below 1. */
 export function formatClusterP(p: number | null | undefined): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return '—';
-  return p < 0.001 ? '< 0.001' : p.toFixed(3);
+  if (p < 0.001) return '< 0.001';
+  // Near 1, three decimals would round 0.9996 up to "1.000" (round 4 C9).
+  return p > 0.999 && p < 1 ? p.toFixed(4) : p.toFixed(3);
 }
 
 function stripDof(symbol: string): string {

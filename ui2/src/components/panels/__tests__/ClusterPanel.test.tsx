@@ -396,10 +396,12 @@ describe('ClusterPanel', () => {
     render(<ClusterPanel />);
     const search = screen.getByLabelText('Search');
     // Only masks are offered (round 3 T2): the T1 would search its own non-zero support.
+    // Deliberate change (round 4 C4): the option is the mask's name under a "Brain mask" group.
     expect(Array.from((search as HTMLSelectElement).options).map((o) => o.text)).toEqual([
       'Non-zero voxels of the map',
-      'Brain mask brain_mask',
+      'brain_mask',
     ]);
+    expect(search.querySelector('optgroup')).toHaveAttribute('label', 'Brain mask');
     fireEvent.change(search, { target: { value: 'mask' } });
     fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
     expect(compute).toHaveBeenLastCalledWith(expect.objectContaining({ searchMask: 'vol-mask' }));
@@ -437,6 +439,21 @@ describe('ClusterPanel', () => {
     act(() => useLayerStore.setState((st) => ({ layers: st.layers.filter((l) => l.id !== 'mask') })));
     expect(useClusterStore.getState().params.searchMaskLayerId).toBeNull();
     expect(screen.getByTestId('cluster-stale')).toHaveTextContent('The search mask of this table was removed.');
+    // Round 4 C5: the control stays, disabled, with a hint; the stale notice is said once
+    // and the methods sentence that explains the shown values stays, marked stale.
+    expect(screen.getByLabelText('Search')).toBeDisabled();
+    expect(screen.getByTestId('cluster-search-hint')).toHaveTextContent('Load a brain mask…');
+    expect(screen.getAllByText(/The search mask of this table was removed\./)).toHaveLength(1);
+    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('(Stale)');
+    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('brain mask');
+  });
+
+  it('the Search control is shown, disabled with a hint, when no brain mask is loaded (round 4 C5)', () => {
+    render(<ClusterPanel />);
+    const search = screen.getByLabelText('Search');
+    expect(search).toBeDisabled();
+    expect(search).toHaveValue('');
+    expect(screen.getByTestId('cluster-search-hint')).toHaveTextContent('Load a brain mask…');
   });
 
   it('arrow keys the table handles never reach window shortcuts (v1 function 6)', () => {

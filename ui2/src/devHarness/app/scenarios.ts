@@ -344,6 +344,14 @@ async function seriesRuns(): Promise<void> {
   useLayoutSettingsStore.getState().setBottomDockHeight(320);
   usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
   await until(() => document.querySelectorAll('[data-testid="plot-x-rule"]').length === 3, 'three run boundaries');
+  // Round 3 C2: Right from run 1's last frame goes to run 2's first.
+  {
+    const last = document.querySelector<SVGElement>('[data-testid="crosshair-ts-plot-body"] [data-datum-id="0:19"]')!;
+    last.focus();
+    last.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    await until(() => document.activeElement?.getAttribute('data-datum-id') === '1:0', 'ArrowRight into run 2');
+    noteStep(`keys: run 1 frame 20 → ${document.activeElement?.getAttribute('aria-label')}`);
+  }
   (document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="1:12"]') as SVGElement).dispatchEvent(
     new MouseEvent('click', { bubbles: true }),
   );

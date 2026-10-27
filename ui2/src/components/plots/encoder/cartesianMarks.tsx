@@ -301,7 +301,8 @@ function CartesianMark({
           <Group pointerEvents="none">
             <AxisLeft
               scale={yScale as never}
-              numTicks={4}
+              // At least four labelled values on short axes (round 3 C9).
+              numTicks={5}
               stroke={gridColor}
               tickStroke={gridColor}
               tickLabelProps={() => ({
@@ -560,7 +561,8 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     // One series coloured as its condition elsewhere (raw 4D member, round 3 S4).
     if (!spec.encoding.color) return typeof spec.params.seriesColor === 'string' ? spec.params.seriesColor : lineColor;
     const label = String(frame.rows[p.rowIndex!]?.[spec.encoding.color] ?? '(missing)');
-    return populationCategoryColor(label);
+    const map = spec.params.colorMap as Record<string, string> | undefined;
+    return map?.[label] ?? populationCategoryColor(label);
   };
   for (const p of points) {
     const row = frame.rows[p.rowIndex!];
@@ -657,10 +659,14 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     if (li < 0) return;
     const pi = lines[li].findIndex((p) => linkedIds(p) === id);
     let target: SeriesPoint | undefined;
-    if (event.key === 'ArrowRight') target = lines[li][pi + 1];
-    else if (event.key === 'ArrowLeft') target = lines[li][pi - 1];
-    else if (event.key === 'Home') target = lines[li][0];
-    else if (event.key === 'End') target = lines[li][lines[li].length - 1];
+    // Segments laid end to end on one time axis (concatenated runs) are one
+    // sequence for Left/Right/Home/End: into the next run's first frame (round 3 C2).
+    const sequence = spec.params.keysAcrossGroups === true ? [...allLinked].sort((a, b) => a.xNum - b.xNum) : lines[li];
+    const si = sequence.findIndex((p) => linkedIds(p) === id);
+    if (event.key === 'ArrowRight') target = sequence[si + 1];
+    else if (event.key === 'ArrowLeft') target = sequence[si - 1];
+    else if (event.key === 'Home') target = sequence[0];
+    else if (event.key === 'End') target = sequence[sequence.length - 1];
     else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const g = lines[li + (event.key === 'ArrowDown' ? 1 : -1)];
       target = g?.[Math.min(pi, g.length - 1)];

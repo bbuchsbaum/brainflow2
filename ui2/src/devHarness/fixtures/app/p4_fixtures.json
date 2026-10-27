@@ -2447,7 +2447,8 @@
       -20,
       48
     ],
-    "block": "3x3x3 voxels around voxelIjk carry each run course; the rest of the brain ellipsoid is flat at the run baseline; zero outside",
+    "block": "3x3x3 voxels around voxelIjk carry each run course; the rest of the brain ellipsoid is baseline + texture (time-constant); zero outside",
+    "texture": "18 * sin(0.45 i) * cos(0.35 j) * cos(0.3 k)",
     "brainVoxels": 31632,
     "blockVoxels": 27,
     "runs": [
@@ -2490,11 +2491,15 @@
         "concatFirstFrame": 0,
         "concatFirstTS": 0,
         "allFrameNonZero": {
-          "p2": 100,
-          "p90": 100,
-          "p98": 100,
-          "p999": 100,
-          "max": 110
+          "p2": 86.22992706298828,
+          "p90": 108.25037384033203,
+          "p98": 113.80052947998047,
+          "p999": 117.41746520996094,
+          "max": 117.70503234863281
+        },
+        "allFrameWithZeros": {
+          "p2": 0,
+          "p98": 111.78458404541016
         }
       },
       {
@@ -2540,11 +2545,15 @@
         "concatFirstFrame": 20,
         "concatFirstTS": 40,
         "allFrameNonZero": {
-          "p2": 102,
-          "p90": 102,
-          "p98": 102,
-          "p999": 102,
+          "p2": 88.22992706298828,
+          "p90": 110.2535629272461,
+          "p98": 115.80443572998047,
+          "p999": 119.4259262084961,
           "max": 122
+        },
+        "allFrameWithZeros": {
+          "p2": 0,
+          "p98": 113.78919982910156
         }
       },
       {
@@ -2584,11 +2593,15 @@
         "concatFirstFrame": 44,
         "concatFirstTS": 88,
         "allFrameNonZero": {
-          "p2": 98,
-          "p90": 98,
-          "p98": 98,
-          "p999": 98,
-          "max": 113
+          "p2": 84.22992706298828,
+          "p90": 106.25385284423828,
+          "p98": 111.80187225341797,
+          "p999": 115.41746520996094,
+          "max": 115.70503234863281
+        },
+        "allFrameWithZeros": {
+          "p2": 0,
+          "p98": 109.78771209716797
         }
       }
     ],

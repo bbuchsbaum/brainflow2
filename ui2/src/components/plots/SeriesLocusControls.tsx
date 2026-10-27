@@ -28,6 +28,16 @@ export function SeriesLocusControls({ resolvedRegion = null }: { resolvedRegion?
   const atlas = useLayerStore((s) => s.layers.find(isRegionSource));
   const legend = atlas?.atlasPaletteLegend ?? [];
   const pickValue = regionPick && regionPick.layerId === atlas?.id ? String(regionPick.labelId) : AT_CROSSHAIR;
+  // "Crosshair: L_sensorimotor" (the atlas is named in the caption).
+  const shortRegion = resolvedRegion ? resolvedRegion.replace(/\s*\(.*\)$/, '') : null;
+  const crosshairLabel = shortRegion ? `Crosshair: ${shortRegion}` : 'At the crosshair';
+  const picked = legend.find((e) => String(e.label_id) === pickValue);
+  const pickTitle =
+    pickValue === AT_CROSSHAIR
+      ? resolvedRegion
+        ? `The region at the crosshair: ${resolvedRegion}`
+        : 'The region at the crosshair'
+      : (picked?.displayName ?? picked?.roi);
   return (
     <>
       <SegmentedControl
@@ -56,15 +66,17 @@ export function SeriesLocusControls({ resolvedRegion = null }: { resolvedRegion?
         <ToolbarField label="Region">
           <Select
             aria-label="Series region"
-            // A fixed slot: the toolbar row never reflows with the region's name (round 3 S5).
-            className="w-[26ch]"
+            // A fixed slot on row 1 that ellipsizes, never clipping mid-glyph;
+            // the title carries the full name (round 3 C4).
+            className="w-[18ch] truncate"
+            title={pickTitle}
             value={pickValue}
             onValueChange={(v) =>
               update({ regionPick: v === AT_CROSSHAIR ? null : { layerId: atlas.id, labelId: Number(v) } })
             }
             options={[
               // Names the region the crosshair resolved to.
-              { value: AT_CROSSHAIR, label: resolvedRegion ? `At the crosshair: ${resolvedRegion}` : 'At the crosshair' },
+              { value: AT_CROSSHAIR, label: crosshairLabel },
               ...legend.map((e) => ({
                 value: String(e.label_id),
                 label: e.displayName ?? e.roi,

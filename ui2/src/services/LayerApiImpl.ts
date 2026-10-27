@@ -15,6 +15,7 @@ import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { colormapNameToId } from '@/components/ui/colormapOptions';
 import { histogramService } from './HistogramService';
 import type { HistogramData } from '@/types/histogram';
+import { shareRunWindow } from './series/runWindow';
 import {
   computeAdaptiveIntensityRange,
   computeFallbackIntensityRange,
@@ -503,9 +504,29 @@ export class LayerApiImpl implements LayerApi {
       histogram,
     );
     const isLabelLike = layer.type === 'label';
+    // A BOLD series is windowed like an EPI viewer (round 3 C1): p2–p98 over
+    // every voxel of every frame, background zeros included (the brain mid
+    // grey, a response toward white), pooled across its runs.
+    let intensity = rangeResult.intensity;
+    if (!statisticRefined && rangeResult.suggestedColormap === 'gray' && isFourDIntensityLayer(layer)) {
+      const epi = await this.epiWindow(layer.id);
+      if (!store.getLayer(layer.id) || JSON.stringify(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
+      if (epi) {
+        intensity = shareRunWindow(
+          layer.id,
+          epi,
+          (id) => target()?.layers.find((item) => item.id === id)?.intensity,
+          (id, window) =>
+            useViewStateStore.getState().setViewState((state) => {
+              const sibling = state.layers.find((item) => item.id === id);
+              if (sibling) sibling.intensity = [window[0], window[1]];
+            }),
+        );
+      }
+    }
     const refined: LayerRender = {
       opacity: layer.visible ? 1.0 : 0.0,
-      intensity: rangeResult.intensity,
+      intensity,
       threshold: rangeResult.threshold,
       colormap: rangeResult.suggestedColormap ?? 'gray',
       interpolation: isLabelLike ? 'nearest' : 'linear',
@@ -521,6 +542,22 @@ export class LayerApiImpl implements LayerApi {
       `[LayerApiImpl] Refined intensity from histogram (${rangeResult.method}) for ${layer.id}:`,
       rangeResult.intensity,
     );
+  }
+
+  /** EPI window: robust p2–p98 over all frames, zeros included; widened when degenerate. */
+  private async epiWindow(layerId: string): Promise<[number, number] | null> {
+    try {
+      const h = await histogramService.computeHistogram({ layerId, binCount: 512, excludeZeros: false, allFrames: true });
+      if (!(h.totalCount > 0) || !h.bins.length) return null;
+      const p2 = computePercentileFromBins(h.bins, h.totalCount, 2);
+      const p98 = computePercentileFromBins(h.bins, h.totalCount, 98);
+      const span = h.maxValue - h.minValue;
+      // A background-dominated p2 is the background itself (0), not a bin edge.
+      const low = p2 - h.minValue < 0.01 * span ? h.minValue : p2;
+      return p98 - low >= 0.05 * span && p98 > low ? [low, p98] : [h.minValue, h.maxValue];
+    } catch {
+      return null;
+    }
   }
 
   /**

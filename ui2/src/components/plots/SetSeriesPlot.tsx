@@ -181,7 +181,12 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
   const featureLabel = useSetStudioStore((s) => (s.selection.activeFeatureId ? s.features[s.selection.activeFeatureId]?.label : null));
   const valueUnit = result?.frame.columns.find((c) => c.name === 'value')?.unit;
   const difference = (recipe?.transforms ?? []).find((t) => t.kind === 'conditionDifference');
-  const yTitle = `${featureLabel ?? 'Value'}${difference && difference.kind === 'conditionDifference' ? ` (${difference.a} − ${difference.b})` : ''}${valueUnit ? `, ${valueUnit}` : ' (a.u.)'}`;
+  // "faces − houses (FIR beta, a.u.)" for a difference, else "FIR beta (a.u.)" (round 3 C9).
+  const measure = `${featureLabel ?? 'Value'}, ${valueUnit ?? 'a.u.'}`;
+  const yTitle =
+    difference && difference.kind === 'conditionDifference'
+      ? `${difference.a} − ${difference.b} (${measure})`
+      : `${featureLabel ?? 'Value'} (${valueUnit ?? 'a.u.'})`;
   const transformCount = settings.transforms.length;
   const [transformsOpen, setTransformsOpen] = useState(false);
   // The plot is sized by its container (v0 visual 1: a fixed reserve overflowed at 1280).
@@ -250,7 +255,10 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
   const legend = conditions.map((label) => ({ label, color: populationCategoryColor(label) }));
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-1 p-2 text-bf-xs" data-testid="set-series-plot">
+    // The whole panel scrolls when the dock is short (round 3 C6): the plot
+    // keeps its minimum height and axis, and the caption follows it, so no
+    // data or axis is ever under the footer.
+    <div className="flex h-full min-h-0 flex-col gap-1 overflow-y-auto p-2 text-bf-xs" data-testid="set-series-plot">
       {/* Row 1 (fixed slots, round 2 R4): mode, display, centre, band, locus and its parameter. */}
       <Toolbar aria-label="Series" className="shrink-0 flex-wrap px-0">
         {ctx.chrome}
@@ -300,7 +308,8 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
                     { value: 'none', label: 'None' },
                   ]
                 : [
-                    { value: 'ci95', label: '95% CI (t, n − 1 df)' },
+                    // Short labels keep row 1 one row with a Region slot (round 3 C4); the caption gives the df.
+                    { value: 'ci95', label: '95% CI (t)' },
                     { value: 'sem95', label: '± 1.96 SE' },
                     { value: 'sd', label: '± SD' },
                     { value: 'none', label: 'None' },
@@ -341,11 +350,9 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
         </Button>
       </div>
       {/* The body scrolls; the caption and export row below never do (v1 function 4). */}
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+      <div className="flex flex-[1_0_auto] flex-col gap-1">
         {result && transformsOpen ? (
-          // The transforms scroll in their own box, so the plot (axis and its
-          // title) keeps its height above the footer at 1280 too (round 3 S6).
-          <div id="series-transforms" className="max-h-[45%] shrink-0 overflow-y-auto">
+          <div id="series-transforms" className="shrink-0">
             <PopulationTransformControls
               frame={result.frame}
               recipe={recipe!}

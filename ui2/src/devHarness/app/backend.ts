@@ -454,6 +454,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     return mask;
   };
 
+  const voxelSpacing = (f: VolumeFixture) =>
+    [0, 1, 2].map((c) => Math.hypot(f.affine[0][c], f.affine[1][c], f.affine[2][c]));
+  /** Only 0 and 1 in every frame (a mask), as the loader's is_binary_like. */
+  const isBinaryFixture = (f: VolumeFixture) => (f.frames ?? [f.data]).every((d) => d.every((v) => v === 0 || v === 1));
+
   const fixtureForPath = (path: string): VolumeFixture | null => {
     if (path === MNI_PATH) return fixtures.mni;
     if (path === MNI_MASK_PATH) return mniMask();
@@ -730,7 +735,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       return {
         filename: vol.name,
         dimensions: [...vol.fixture.dims],
-        voxel_spacing: [2, 2, 2],
+        voxel_spacing: voxelSpacing(vol.fixture),
         data_type: vol.fixture.header?.dataType ?? 'FLOAT32',
         voxel_to_world: flatRowMajor(vol.fixture.affine),
         world_bounds_min: b.min,
@@ -859,11 +864,12 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
         voxel_to_world: flatColumnMajor(vol.fixture.affine),
         origin: [vol.fixture.affine[0][3], vol.fixture.affine[1][3], vol.fixture.affine[2][3]],
         center_world: center,
-        spacing: [2, 2, 2],
+        // From the fixture (round 3 C8): the multirun BOLD is 4 mm, the brain mask binary.
+        spacing: voxelSpacing(vol.fixture),
         data_range: { min: s.min, max: s.max },
         source_volume_id: vol.id,
         allocated_at: 0,
-        is_binary_like: false,
+        is_binary_like: isBinaryFixture(vol.fixture),
       };
     },
     wait_for_layer_ready: () => true,

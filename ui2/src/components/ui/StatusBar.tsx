@@ -281,7 +281,20 @@ const StatusVoxelSlot = React.memo(() => {
     () => resolveVoxelGridReference(layers, layerMetadata),
     [layers, layerMetadata],
   );
+  const selectedLayerId = useLayerStore((state) => state.selectedLayerId);
   if (!reference) return null;
+  // The active layer on another grid (a 4 mm BOLD over the 2 mm T1): say whose
+  // grid the index is on (round 3 C9).
+  const active = selectedLayerId ? layerMetadata.get(selectedLayerId) : undefined;
+  const otherGrid =
+    !!active?.voxelToWorld &&
+    selectedLayerId !== reference.layerId &&
+    (JSON.stringify(active.dimensions ?? null) !== JSON.stringify(reference.dims) ||
+      active.voxelToWorld.some((v, i) => Math.abs(v - reference.voxelToWorld[i]) > 1e-4));
+  const spacing = [0, 1, 2].map((c) => Math.hypot(reference.voxelToWorld[c * 4], reference.voxelToWorld[c * 4 + 1], reference.voxelToWorld[c * 4 + 2]));
+  const gridLabel = otherGrid
+    ? ` · ref ${spacing.every((v) => Math.abs(v - spacing[0]) < 1e-3) ? `${Number(spacing[0].toFixed(2))} mm` : reference.name}`
+    : "";
   const world: [number, number, number] = [crosshair[0], crosshair[1], crosshair[2]];
   const index = worldToVoxelIndex(world, reference);
   const inside = index.every(Number.isFinite) && voxelIndexInBounds(index, reference.dims);
@@ -293,9 +306,7 @@ const StatusVoxelSlot = React.memo(() => {
   const fractional = !snapToVoxel && between;
   const text = !inside
     ? EMPTY_VALUE
-    : fractional
-      ? formatVoxelIndex(continuous, 1)
-      : formatVoxelIndex(index);
+    : (fractional ? formatVoxelIndex(continuous, 1) : formatVoxelIndex(index)) + gridLabel;
   return (
     <SlotFrame
       id="voxel"

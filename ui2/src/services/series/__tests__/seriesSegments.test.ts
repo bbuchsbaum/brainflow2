@@ -159,13 +159,13 @@ describe('segmented frames (E5b)', () => {
 describe('raw series CSV (X2)', () => {
   it('has one header row with segment and within-run columns, then the locus', () => {
     const csv = rawSeriesCsv({
-      rows: [{ segment: 'run-2', volumeIndex: 12, frame: 13, tWithin: 24, t: 64, tr: 2, value: 122, layer: 'Faces BOLD (sub-01, run-2)' }],
+      rows: [{ segment: 'run 2', volumeIndex: 12, frame: 13, tWithin: 24, t: 64, tr: 2, value: 122, layer: 'Faces BOLD (sub-01, run-2)' }],
       axis: { name: 't', unit: 's' },
       locus: { kind: 'voxel', label: 'voxel ijk 10 23 30 on Faces BOLD (sub-01, run-2) grid (centre −40, −20, 48 mm)', voxels: 1 },
     });
     expect(csv).toBe(
       'segment,volume_index0,frame,t_within_s,t_s,tr_s,value,locus_kind,locus_label,n_voxels,layer\n' +
-        'run-2,12,13,24,64,2,122,voxel,"voxel ijk 10 23 30 on Faces BOLD (sub-01, run-2) grid (centre -40, -20, 48 mm)",1,"Faces BOLD (sub-01, run-2)"\n',
+        'run 2,12,13,24,64,2,122,voxel,"voxel ijk 10 23 30 on Faces BOLD (sub-01, run-2) grid (centre -40, -20, 48 mm)",1,"Faces BOLD (sub-01, run-2)"\n',
     );
   });
 });

@@ -165,7 +165,13 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     fireEvent.change(screen.getByLabelText('Window from'), { target: { value: '-3' } });
     fireEvent.change(screen.getByLabelText('Window to'), { target: { value: '4' } });
     expect(screen.getByLabelText('Window from')).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByText(/must lie within the axis \(0–7/)).toBeInTheDocument();
+    // Unicode minus and "to" (round 3 C9; deliberate wording change).
+    expect(screen.getByText('Window \u22123 to 4 TR must lie within the axis (0 to 7 TR)')).toBeInTheDocument();
+    expect(useSeriesStore.getState().transforms).toEqual([]);
+    // Lags are whole numbers.
+    fireEvent.change(screen.getByLabelText('Window from'), { target: { value: '1.5' } });
+    fireEvent.change(screen.getByLabelText('Window to'), { target: { value: '7' } });
+    expect(screen.getByText('Window: lags are whole numbers')).toBeInTheDocument();
     expect(useSeriesStore.getState().transforms).toEqual([]);
   });
 

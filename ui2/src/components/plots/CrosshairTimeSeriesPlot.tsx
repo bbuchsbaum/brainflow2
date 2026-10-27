@@ -22,8 +22,9 @@ import { getTimeNavigationService } from '@/services/TimeNavigationService';
 import { getTransport } from '@/services/transport';
 import { decodeText, isMissingFileError } from '@/services/LabelTableService';
 import { useLayerStore } from '@/stores/layerStore';
-import { getLayerService } from '@/services/LayerService';
-import { transformVoxelToWorldColumnMajor } from '@/utils/voxelTransform';
+import { activateRun, formRunGroup, restoreRunGroup } from '@/services/series/runVisibility';
+import { transformVoxelToWorldColumnMajor, transformWorldToVoxelColumnMajor } from '@/utils/voxelTransform';
+import { sphereVoxelCount } from '@/services/series/sphereVoxels';
 import { useClusterStore } from '@/stores/clusterStore';
 import { useSeriesStore, seriesRadiusMm } from '@/stores/seriesStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -383,7 +384,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
   const yTitle = `${datasetAxis?.measure ?? 'Signal'} (a.u.)`;
   const legend =
     plotted?.segments && layout === 'overlaid'
-      ? plotted.segments.map((s) => ({ label: s.label, color: populationCategoryColor(s.label) }))
+      ? plotted.segments.map((s, i) => ({ label: s.label, color: segmentColor(i) }))
       : [];
   const spec: ResolvedPlotSpec | null = plotted
     ? {
@@ -404,6 +405,10 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
           xPadHalfStep: plotted.step,
           ...(plotted.rules.length ? { xRules: plotted.rules } : {}),
           ...(legend.length ? { topInset: FRAME_LEGEND_INSET } : {}),
+          // Concatenated runs are one time sequence for the arrow keys (round 3 C2).
+          ...(plotted.segments && layout === 'concatenated' ? { keysAcrossGroups: true } : {}),
+          // Overlaid runs: a fixed, well-separated palette (round 3 C9).
+          ...(legend.length ? { colorMap: Object.fromEntries(legend.map((e) => [e.label, e.color])) } : {}),
           // Faceted runs: one row up to four panels on a shared y (round 3 T3).
           ...(plotted.segments && layout === 'faceted' ? { facetColumns: Math.min(4, plotted.segments.length), facetLabel: 'Run' } : {}),
           ...(datasetAxis?.condition ? { seriesColor: populationCategoryColor(datasetAxis.condition) } : {}),
@@ -427,18 +432,25 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
     const [si, t] = id.split(':').map(Number);
     const segment = group?.segments[si];
     const targetLayer = segment?.layerId ?? layerId;
-    if (targetLayer && targetLayer !== layerId) useLayerStore.getState().selectLayer?.(targetLayer);
-    if (group && targetLayer) showOnlyRun(group, targetLayer);
+    if (targetLayer && targetLayer !== layerId) {
+      // An explicit activation of another run (round 3 C3): only now does the
+      // view change which run is shown.
+      if (group) activateRun(group, targetLayer, layerId);
+      useLayerStore.getState().selectLayer?.(targetLayer);
+    }
     getTimeNavigationService().setTimepoint(t);
   };
-  // A run group shows the focused run only (round 3 F1): the others overlap it
-  // on the same grid. Applied once when a group of run layers forms.
-  const shownGroup = useRef<string | null>(null);
+  // A run group shows the focused run only (round 3 F1), set once when the
+  // group forms; "This layer only" restores what the view changed (C3).
+  const formedKey = useRef<string | null>(null);
   useEffect(() => {
-    if (!group || !layerId || shownGroup.current === group.key) return;
-    shownGroup.current = group.key;
-    showOnlyRun(group, layerId);
-  }, [group, layerId]);
+    const key = group && group.source !== 'sidecar' ? group.key : null;
+    if (formedKey.current && formedKey.current !== key) restoreRunGroup(formedKey.current);
+    formedKey.current = key;
+    if (group && key && layerId) formRunGroup(group, layerId);
+    // layerId is read once at formation; a later focus is an activation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.key]);
   const datumLabel = (i: number) => {
     const row = plotted?.frame.rows[i];
     if (!row) return '';
@@ -469,7 +481,14 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
         : voxelLocusText(layerId, layerName, crosshairMm)
       : 'no locus';
   // A voxel locus is one voxel (round 3 S2); regions report their own count.
-  const voxels = locusKind === 'cluster' ? null : radiusMm > 0 || regionLocus ? (sample?.voxels ?? null) : 1;
+  const voxels =
+    locusKind === 'cluster'
+      ? null
+      : regionLocus
+        ? (sample?.voxels ?? null)
+        : radiusMm > 0 && crosshairMm
+          ? sphereCount(layerId, crosshairMm, radiusMm)
+          : 1;
   const counter = group
     ? here
       ? `${here.segment.label} · frame ${here.frame}/${here.segment.frames}`
@@ -504,7 +523,8 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
           (sample.values.get(segment.layerId) ?? [])
             .slice(segment.frameStart, segment.frameStart + segment.frames)
             .map((v, i) => ({
-              segment: segment.id,
+              // As on screen ("run 2"), round 3 C9.
+              segment: segment.label,
               volumeIndex: segment.frameStart + i,
               frame: i + 1,
               tr: segment.tr,
@@ -530,7 +550,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       const seconds = plotted.segments!.every((s) => s.tr !== null);
       for (const segment of plotted.segments!) {
         rows
-          .filter((r) => r.segment === segment.id)
+          .filter((r) => r.segment === segment.label)
           .forEach((r, i) => {
             r.t = seconds ? Number((offset + i * segment.tr!).toFixed(6)) : offset + i + 1;
           });
@@ -713,17 +733,24 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
   );
 }
 
-/** Show the focused run's layer and hide the group's other run layers (a sidecar group is one layer). */
-function showOnlyRun(group: SegmentGroup, layerId: string): void {
-  if (group.source === 'sidecar') return;
-  const ids = new Set(group.segments.map((s) => s.layerId));
-  if (!ids.has(layerId)) return;
-  const layers = useLayerStore.getState().layers ?? [];
-  const service = getLayerService();
-  for (const id of ids) {
-    const want = id === layerId;
-    if (layers.find((l) => l.id === id)?.visible !== want) service.toggleVisibility(id, want);
+/** Voxels of the layer's grid in a sphere locus, as sample_stack gathers them. */
+function sphereCount(layerId: string | undefined, worldMm: readonly [number, number, number], radiusMm: number): number | null {
+  const meta = layerId ? useLayerStore.getState().getLayerMetadata?.(layerId) : undefined;
+  if (!meta?.worldToVoxel || !meta.voxelToWorld || !meta.dimensions) return null;
+  try {
+    const centre = transformWorldToVoxelColumnMajor(meta.worldToVoxel, [worldMm[0], worldMm[1], worldMm[2]]);
+    const m = meta.voxelToWorld;
+    const spacing = [0, 1, 2].map((c) => Math.hypot(m[c * 4], m[c * 4 + 1], m[c * 4 + 2])) as [number, number, number];
+    return sphereVoxelCount(centre, meta.dimensions, spacing, radiusMm);
+  } catch {
+    return null;
   }
+}
+
+/** Distinct hues for overlaid runs, clear of the crosshair green. */
+const SEGMENT_HUES = [28, 210, 330, 265, 52, 185];
+function segmentColor(i: number): string {
+  return `hsl(${SEGMENT_HUES[i % SEGMENT_HUES.length]} 70% 58%)`;
 }
 
 /** "voxel ijk 10 23 30 on <layer> grid (centre −40, −20, 48 mm)": the sampled voxel, not the crosshair (round 3 S2). */

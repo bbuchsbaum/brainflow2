@@ -5,7 +5,7 @@
  * p4_fixtures.json `multirun`). The 3×3×3 block around voxel (10, 23, 30)
  * (−40, −20, 48 mm) carries each run's course
  * `baseline + amplitude · exp(−((t − centre) / 2)²)` (t = 0-based frame in the
- * run); elsewhere in the brain each run is flat at its baseline.
+ * run); elsewhere in the brain each run is its baseline plus a time-constant texture (± 18).
  */
 import type { VolumeFixture } from './fixtures';
 
@@ -31,6 +31,13 @@ export function parseMultirunPath(path: string): number | null {
   const run = m ? Number(m[1]) : null;
   return run !== null && MULTIRUN_RUNS.some((r) => r.run === run) ? run : null;
 }
+
+/**
+ * A time-constant, anatomy-like texture inside the brain (round 3 C1: the EPI
+ * view needs structure), baseline ± 18; the block keeps its known course.
+ */
+export const multirunTexture = (i: number, j: number, k: number) =>
+  18 * Math.sin(0.45 * i) * Math.cos(0.35 * j) * Math.cos(0.3 * k);
 
 /** The run's value at frame t inside the block. */
 export const multirunCourse = (run: number, t: number) => {
@@ -76,7 +83,7 @@ function buildRun(run: number): VolumeFixture {
       for (let j = 0; j < ny; j += 1)
         for (let i = 0; i < nx; i += 1) {
           if (!inBrain(i, j, k)) continue;
-          data[i + nx * (j + ny * k)] = inBlock(i, j, k) ? course : r.baseline;
+          data[i + nx * (j + ny * k)] = inBlock(i, j, k) ? course : r.baseline + multirunTexture(i, j, k);
         }
     return data;
   });

@@ -381,9 +381,13 @@ const MR_RUNS = [
   { run: 3, frames: 18, baseline: 98, amplitude: 15, centre: 9 },
 ];
 const mrCourse = (R, t) => R.baseline + R.amplitude * Math.exp(-(((t - R.centre) / 2) ** 2));
+// Round 3 C1: an anatomy-like, time-constant texture so the EPI view has structure
+// (baseline ± 18 inside the brain; the block keeps its known course).
+const mrTexture = (i, j, k) => 18 * Math.sin(0.45 * i) * Math.cos(0.35 * j) * Math.cos(0.3 * k);
 const [mx, my, mz] = MR_DIMS;
 let brainVox = 0;
 let blockVox = 0;
+const textureVoxels = []; // [i, j, k] of brain voxels outside the block
 for (let k = 0; k < mz; k++)
   for (let j = 0; j < my; j++)
     for (let i = 0; i < mx; i++) {
@@ -391,6 +395,7 @@ for (let k = 0; k < mz; k++)
       if (!inBrain) continue;
       brainVox++;
       if (Math.abs(i - MR_IJK[0]) <= 1 && Math.abs(j - MR_IJK[1]) <= 1 && Math.abs(k - MR_IJK[2]) <= 1) blockVox++;
+      else textureVoxels.push([i, j, k]);
     }
 // All-frame non-zero values of one run (float32, as the fixture stores them):
 // (brain − block) voxels at the baseline, the block at the course.
@@ -410,11 +415,11 @@ const multirunRuns = MR_RUNS.map((R) => {
   const course = Array.from({ length: R.frames }, (_, t) => Math.fround(mrCourse(R, t)));
   const counts = new Map();
   const add = (v, c) => counts.set(v, (counts.get(v) ?? 0) + c);
-  for (const v of course) {
-    add(Math.fround(R.baseline), brainVox - blockVox);
-    add(v, blockVox);
-  }
+  for (const [i, j, k] of textureVoxels) add(Math.fround(R.baseline + mrTexture(i, j, k)), R.frames);
+  for (const v of course) add(v, blockVox);
   const pairs = [...counts].sort((a, b) => a[0] - b[0]);
+  // The EPI window counts the background zeros too.
+  const withZeros = [[0, (mx * my * mz - brainVox) * R.frames], ...pairs].sort((a, b) => a[0] - b[0]);
   const peakFrame = course.indexOf(Math.max(...course));
   const out = {
     label: `run-${R.run}`,
@@ -427,7 +432,8 @@ const multirunRuns = MR_RUNS.map((R) => {
     peak: { frameWithin: peakFrame, tWithinS: peakFrame * MR_TR, value: course[peakFrame], concatFrame: concatFrame + peakFrame, concatTS: (concatFrame + peakFrame) * MR_TR },
     concatFirstFrame: concatFrame,
     concatFirstTS: concatFrame * MR_TR,
-    allFrameNonZero: { p2: percentileOf(pairs, 2), p90: percentileOf(pairs, 90), p98: percentileOf(pairs, 98), p999: percentileOf(pairs, 99.9), max: Math.max(...course) },
+    allFrameNonZero: { p2: percentileOf(pairs, 2), p90: percentileOf(pairs, 90), p98: percentileOf(pairs, 98), p999: percentileOf(pairs, 99.9), max: pairs[pairs.length - 1][0] },
+    allFrameWithZeros: { p2: percentileOf(withZeros, 2), p98: percentileOf(withZeros, 98) },
   };
   concatFrame += R.frames;
   return out;
@@ -438,7 +444,8 @@ const multirun = {
   trS: MR_TR,
   voxelIjk: MR_IJK,
   voxelMm: MR_IJK.map((v, a) => MR_ORIGIN[a] + MR_VOXEL * v),
-  block: '3x3x3 voxels around voxelIjk carry each run course; the rest of the brain ellipsoid is flat at the run baseline; zero outside',
+  block: '3x3x3 voxels around voxelIjk carry each run course; the rest of the brain ellipsoid is baseline + texture (time-constant); zero outside',
+  texture: '18 * sin(0.45 i) * cos(0.35 j) * cos(0.3 k)',
   brainVoxels: brainVox,
   blockVoxels: blockVox,
   runs: multirunRuns,

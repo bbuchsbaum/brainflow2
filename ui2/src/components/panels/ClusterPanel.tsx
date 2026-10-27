@@ -415,7 +415,8 @@ export function ClusterPanel() {
   // cluster store and the Studio / layer stores it reads change together).
   useSetStudioStore((st) => st.selection.activeSetId);
   const seriesReason = clusterSeriesUnavailable();
-  const seriesBlocked = stale ? `${stale} Compute to use it.` : seriesReason;
+  // Stale: the footer's one stale notice says why; the button only says what to do (round 4 C5).
+  const seriesBlocked = stale ? 'Compute to use it.' : seriesReason;
   const caveats = result ? clusterCaveats(result.table) : null;
   const [showAssumptions, setShowAssumptions] = useState(false);
 
@@ -539,26 +540,41 @@ export function ClusterPanel() {
           invalid={minInvalid}
           onValueChange={(v) => setParams({ minVoxels: v })}
         />
-        {maskCandidates.length > 0 ? (
-          <>
-            <label className="text-bf-text-secondary" htmlFor="cluster-search">
-              Search
-            </label>
-            <Select
-              id="cluster-search"
-              className="w-auto max-w-[32ch]"
-              value={maskLayer?.id ?? ''}
-              title="Voxels searched for clusters (and the RFT search volume)"
-              onValueChange={(v) => setParams({ searchMaskLayerId: v || null })}
-            >
-              <option value="">Non-zero voxels of the map</option>
+        {/* Always shown (round 4 C5): disabled with a hint when no brain mask
+            is loaded. A fixed slot that ellipsizes, never clips mid-glyph
+            (C4); the title carries the full choice. */}
+        <label className="text-bf-text-secondary" htmlFor="cluster-search">
+          Search
+        </label>
+        <Select
+          id="cluster-search"
+          className="w-[22ch] truncate"
+          value={maskLayer?.id ?? ''}
+          disabled={maskCandidates.length === 0}
+          title={
+            maskCandidates.length === 0
+              ? 'Load a brain mask (a binary 0/1 volume) to bound the search; until then the map’s non-zero voxels are searched'
+              : maskLayer
+                ? `Brain mask ${maskLayer.name} (voxels searched for clusters and the RFT search volume)`
+                : 'Non-zero voxels of the map (voxels searched for clusters and the RFT search volume)'
+          }
+          onValueChange={(v) => setParams({ searchMaskLayerId: v || null })}
+        >
+          <option value="">Non-zero voxels of the map</option>
+          {maskCandidates.length > 0 ? (
+            <optgroup label="Brain mask">
               {maskCandidates.map((l) => (
-                <option key={l.id} value={l.id}>
-                  Brain mask {shortLayerLabel(l.name)}
+                <option key={l.id} value={l.id} title={l.name}>
+                  {shortLayerLabel(l.name)}
                 </option>
               ))}
-            </Select>
-          </>
+            </optgroup>
+          ) : null}
+        </Select>
+        {maskCandidates.length === 0 ? (
+          <span className="text-bf-2xs text-bf-text-muted" data-testid="cluster-search-hint">
+            Load a brain mask…
+          </span>
         ) : null}
         {/* Opt-in cluster-level p: off by default, and only with a stated
             smoothness (never estimated from the map). Same type as the
@@ -909,8 +925,10 @@ export function ClusterPanel() {
             to change its parameters.
           </span>
         ) : null}
-        {result && !stale ? (
-          <p className="m-0 min-w-0" data-testid="cluster-methods">
+        {/* A stale table keeps the sentence that explains its values, marked (round 4 C5). */}
+        {result ? (
+          <p className={cn('m-0 min-w-0', stale && 'opacity-70')} data-testid="cluster-methods">
+            {stale ? <span className="text-bf-warning">(Stale) </span> : null}
             <MethodsSentence
               text={clusterMethodsSentence(result.table, resultSymbol, { maskName: resultMaskName })}
               variable={resultVariable}

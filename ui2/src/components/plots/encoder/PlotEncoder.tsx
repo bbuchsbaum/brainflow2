@@ -126,7 +126,7 @@ export function PlotEncoder({ frame, spec, width, height, context }: PlotEncoder
           }}
         >
           {[...groups].map(([name, rows]) => (
-            <div key={name} role="group" aria-label={facetLabel ? `${facetLabel}: ${name}` : name}>
+            <div key={name} role="group" data-facet={name} aria-label={facetLabel ? `${facetLabel}: ${name}` : name}>
               <div
                 role="heading"
                 aria-level={3}

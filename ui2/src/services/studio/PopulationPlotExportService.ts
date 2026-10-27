@@ -101,7 +101,12 @@ export async function populationPlotPng(
     copy.setAttribute('y', String(y));
     copy.setAttribute('width', String(rect.width));
     copy.setAttribute('height', String(rect.height));
-    const heading = svg.previousElementSibling;
+    // A facet's heading: the svg's previous sibling, or the facet group's
+    // heading (the encoder wraps each facet's svg in a [data-facet] group, round 3 C9).
+    const heading =
+      svg.previousElementSibling ??
+      svg.closest('[data-facet]')?.querySelector(':scope > [role="heading"]') ??
+      null;
     if (heading && !heading.querySelector('svg'))
       text(heading.textContent?.slice(0, 160) ?? '', x + 4, y - 6, 11);
     root.append(copy);

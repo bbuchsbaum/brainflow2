@@ -182,7 +182,7 @@ type ClusterResult = ReturnType<typeof useClusterStore.getState>['result'];
 
 /**
  * A cluster locus, defined once (v1 visual 6, v1 fidelity 4): "cluster 1 of
- * zmap_synthetic (|z| > 3.1, 26-connected; 398 voxels; peak 5.97 at −39.5,
+ * zmap_synthetic (|z| > 3.1, 26-connected; 398 voxels; peak z 5.97 at −39.5,
  * −19.5, 50.5 mm)". The statistic is the table layer's ("|z|"), else
  * "|value|". Null when the row is not in the table.
  */
@@ -199,5 +199,5 @@ export function clusterLocusText(result: ClusterResult | null, id: number | null
   const u = formatLayerValue(t.threshold);
   const test = t.sign === 'both' ? `|${v}| > ${u}` : t.sign === 'positive' ? `${v} > ${u}` : `${v} < −${u}`;
   const n = cluster.voxelCount.toLocaleString('en-US');
-  return `cluster ${cluster.id} of ${shortLayerLabel(result.layerName)} (${test}, ${t.connectivity}-connected; ${n} voxel${cluster.voxelCount === 1 ? '' : 's'}; peak ${trueMinus(cluster.peakValue.toFixed(2))} at ${cluster.peakMm.map((x) => formatWorldMm(x)).join(', ')} mm)`;
+  return `cluster ${cluster.id} of ${shortLayerLabel(result.layerName)} (${test}, ${t.connectivity}-connected; ${n} voxel${cluster.voxelCount === 1 ? '' : 's'}; peak ${v} ${trueMinus(cluster.peakValue.toFixed(2))} at ${cluster.peakMm.map((x) => formatWorldMm(x)).join(', ')} mm)`;
 }

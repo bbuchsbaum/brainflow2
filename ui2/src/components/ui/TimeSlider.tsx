@@ -170,7 +170,8 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
     const tr = effectiveTimeInfo.tr;
     if (tr && tr > 0) {
       const elapsed = formatElapsed(frame * tr);
-      const total = formatElapsed(denominator * tr);
+      // The run's duration: count × TR (24 frames at 2 s = 0:48), round 3 C9.
+      const total = formatElapsed(count * tr);
       return `${frame + 1}/${count} · ${elapsed} / ${total}`;
     }
     return `${frame + 1}/${count}`;

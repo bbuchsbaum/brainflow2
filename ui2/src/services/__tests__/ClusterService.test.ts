@@ -10,6 +10,7 @@ vi.mock('../atlasRegionLookup', () => ({
 }));
 
 import {
+  formatClusterP,
   isMaskLike,
   ClusterService,
   clusterMethodsSentence,
@@ -145,13 +146,31 @@ describe('cluster methods sentence and CSV', () => {
     ).toContain('(brain mask brain_mask).');
   });
 
-  it('offers only masks as a search volume (round 3 T2)', () => {
-    expect(isMaskLike({ name: 'MNI152_T1_2mm_brain_mask.nii.gz' })).toBe(true);
-    expect(isMaskLike({ name: 'roi', type: 'mask' })).toBe(true);
-    expect(isMaskLike({ name: 'roi' }, { dataRange: { min: 0, max: 1 } })).toBe(true);
+  it('offers only binary volumes or whole-token "mask" names as a search volume (round 4 C7)', () => {
+    // Binary data, by the loader's flag or an exact 0..1 range.
     expect(isMaskLike({ name: 'seg' }, { isBinaryLike: true })).toBe(true);
+    expect(isMaskLike({ name: 'roi' }, { dataRange: { min: 0, max: 1 } })).toBe(true);
+    // Whole-token names: brain_mask, brainmask, _mask.nii.
+    expect(isMaskLike({ name: 'MNI152_T1_2mm_brain_mask.nii.gz' })).toBe(true);
+    expect(isMaskLike({ name: 'sub-01_brainmask.nii.gz' })).toBe(true);
+    expect(isMaskLike({ name: 'roi', sourcePath: '/d/sub-01_desc-brain_mask.nii.gz' })).toBe(true);
+    // Not "masked"; not a type guessed from the name.
+    expect(isMaskLike({ name: 'bold_masked.nii.gz' })).toBe(false);
+    expect(isMaskLike({ name: 'roi', type: 'mask' })).toBe(false);
+    // A probability map is never a mask, whatever its name.
+    expect(isMaskLike({ name: 'GM_mask_prob.nii.gz' }, { isBinaryLike: false, dataRange: { min: 0, max: 1 } })).toBe(false);
+    expect(isMaskLike({ name: 'gm_probseg.nii.gz' }, { isBinaryLike: false, dataRange: { min: 0, max: 0.98 } })).toBe(false);
+    // An anatomical image is not offered.
     expect(isMaskLike({ name: 'MNI152_T1_2mm_brain.nii.gz' }, { dataRange: { min: 0, max: 8364 } })).toBe(false);
   });
+
+  it('prints p(FWE) just below 1 with four decimals, not "1.000" (round 4 C9)', () => {
+    expect(formatClusterP(0.99964)).toBe('0.9996');
+    expect(formatClusterP(0.0079)).toBe('0.008');
+    expect(formatClusterP(0.0004)).toBe('< 0.001');
+    expect(formatClusterP(1)).toBe('1.000');
+  });
+
 
   it('leaves the weighted COG empty when the backend did not send it (v3 fidelity)', () => {
     const noCog = { ...TABLE, clusters: [{ ...TABLE.clusters[0], weightedCentroidMm: undefined as never, centroidMm: [-39.913, -19.5, 50.5] as [number, number, number] }] };
