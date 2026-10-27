@@ -6,7 +6,7 @@
  */
 
 import { sliceFileName } from "@/utils/exportFileName";
-import { getTransport } from "./transport";
+import { getTransport, rawBodyHeaders } from "./transport";
 import { useLayerStore } from "@/stores/layerStore";
 import { formatTauriError } from "@/utils/formatTauriError";
 import { labelRenderFields } from "@/utils/labelDisplay";
@@ -228,12 +228,14 @@ export class ViewExportService {
     bytes: Uint8Array,
     suggestedName?: string,
   ): Promise<string | null> {
+    // Raw body: the encoded image travels as-is (no JSON number array); the
+    // suggested name is a percent-encoded header.
     const savedPath = await this.transport.invoke<string | null>(
       "save_image_bytes",
-      {
-        bytes: Array.from(bytes),
-        suggestedName: suggestedName || undefined,
-      },
+      bytes,
+      rawBodyHeaders({
+        "x-brainflow-suggested-name": suggestedName || undefined,
+      }),
     );
     if (savedPath) {
       this.notify("info", `Saved image to ${savedPath}`);

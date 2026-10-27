@@ -6,11 +6,38 @@
  * - every command without a handler is recorded in `__harnessLog.unknown`
  *   and resolves to `null`, which the app treats as "nothing there".
  */
-import type { BackendTransport } from '@/services/transport';
+import type { BackendTransport, InvokeOptions } from '@/services/transport';
 import { harnessLog } from './harnessLog';
 
+/**
+ * `args` is the JSON argument object, or the `Uint8Array` body of a raw-body
+ * command, whose string arguments are then in `options.headers`.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Handler = (args: any) => unknown;
+export type Handler = (args: any, options?: InvokeOptions) => unknown;
+
+export type { InvokeOptions };
+
+/** The raw body of a raw-body command; JSON bodies fail like the backend. */
+export function rawBody(body: unknown, cmd: string): Uint8Array {
+  if (body instanceof Uint8Array) return body;
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  throw new Error(
+    `${cmd} expects the bytes as a raw Uint8Array body with arguments in x-brainflow-* headers, not a JSON object.`,
+  );
+}
+
+/** A percent-encoded `x-brainflow-*` header, decoded; `undefined` when absent. */
+export function rawHeader(options: InvokeOptions | undefined, name: string): string | undefined {
+  const headers = options?.headers;
+  const value =
+    headers instanceof Headers
+      ? (headers.get(name) ?? undefined)
+      : Array.isArray(headers)
+        ? headers.find(([key]) => key.toLowerCase() === name)?.[1]
+        : (headers as Record<string, string> | undefined)?.[name];
+  return value === undefined ? undefined : decodeURIComponent(value);
+}
 
 const PLUGIN_PREFIX = 'plugin:api-bridge|';
 
@@ -21,11 +48,16 @@ export class HarnessTransport implements BackendTransport {
     this.handlers = handlers;
   }
 
-  async invoke<T>(cmd: string, args?: unknown): Promise<T> {
-    return this.dispatch(cmd, args, 'transport') as Promise<T>;
+  async invoke<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T> {
+    return this.dispatch(cmd, args, 'transport', options) as Promise<T>;
   }
 
-  async dispatch(rawCmd: string, args: unknown, via: 'transport' | 'internals'): Promise<unknown> {
+  async dispatch(
+    rawCmd: string,
+    args: unknown,
+    via: 'transport' | 'internals',
+    options?: InvokeOptions,
+  ): Promise<unknown> {
     const cmd = rawCmd.startsWith(PLUGIN_PREFIX) ? rawCmd.slice(PLUGIN_PREFIX.length) : rawCmd;
     const log = harnessLog();
     log.calls.push({ cmd, via });
@@ -36,7 +68,7 @@ export class HarnessTransport implements BackendTransport {
         if (!log.unknown.includes(cmd)) log.unknown.push(cmd);
         return null;
       }
-      return await handler(args ?? {});
+      return await handler(args ?? {}, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.errors.push({ cmd, message });
@@ -58,7 +90,8 @@ export class HarnessTransport implements BackendTransport {
 export function installTauriInternalsShim(transport: HarnessTransport): void {
   let callbackId = 0;
   const internals = {
-    invoke: (cmd: string, args?: unknown) => transport.dispatch(cmd, args, 'internals'),
+    invoke: (cmd: string, args?: unknown, options?: InvokeOptions) =>
+      transport.dispatch(cmd, args, 'internals', options),
     transformCallback: () => {
       callbackId += 1;
       return callbackId;

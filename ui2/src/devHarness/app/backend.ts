@@ -13,7 +13,7 @@ interface QueryTarget {
   layerId?: string | null;
 }
 import type { HarnessFixtures, VolumeFixture } from './fixtures';
-import type { Handler } from './harnessTransport';
+import { rawBody, rawHeader, type Handler, type InvokeOptions } from './harnessTransport';
 import {
   flatColumnMajor,
   flatRowMajor,
@@ -805,14 +805,25 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       categoricalLuts.set(slot, Uint8Array.from(lutRgb));
       return slot;
     },
-    // save_image_bytes(bytes, suggestedName?) -> written path | null.
+    // save_image_bytes: raw Uint8Array body, suggested name in the
+    // percent-encoded x-brainflow-suggested-name header -> written path | null.
     // The harness never shows a native dialog: it "writes" to a fixed fake
     // folder and logs the step. `null` (cancel) can be forced per scenario
     // with setHandler.
-    save_image_bytes: ({ bytes, suggestedName }: { bytes: number[]; suggestedName?: string }) => {
-      const name = suggestedName && suggestedName.trim() ? suggestedName.trim() : 'view.png';
-      const path = `/harness/exports/${name}`;
-      noteStep(`save_image_bytes ${bytes?.length ?? 0} bytes -> ${path}`);
+    save_image_bytes: (body: unknown, options?: InvokeOptions) => {
+      const bytes = rawBody(body, 'save_image_bytes');
+      const suggested = rawHeader(options, 'x-brainflow-suggested-name')?.trim();
+      const path = `/harness/exports/${suggested || 'view.png'}`;
+      noteStep(`save_image_bytes ${bytes.length} bytes -> ${path}`);
+      return path;
+    },
+    // export_population_plot: raw body; x-brainflow-path / x-brainflow-format.
+    export_population_plot: (body: unknown, options?: InvokeOptions) => {
+      const bytes = rawBody(body, 'export_population_plot');
+      const path = rawHeader(options, 'x-brainflow-path');
+      const format = rawHeader(options, 'x-brainflow-format');
+      if (!path || !format) throw new Error('Missing request header x-brainflow-path/format.');
+      noteStep(`export_population_plot ${bytes.length} bytes (${format}) -> ${path}`);
       return path;
     },
     // tauri-plugin-fs read_text_file (scope: capabilities/default.json

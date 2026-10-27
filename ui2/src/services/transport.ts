@@ -3,11 +3,31 @@
  * Abstraction layer for backend communication
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, type InvokeOptions } from '@tauri-apps/api/core';
 import { apiBridgeCommands, configureInvoker } from '@brainflow/api';
 
+export type { InvokeOptions };
+
 export interface BackendTransport {
-  invoke<T>(cmd: string, args?: unknown): Promise<T>;
+  /**
+   * `args` is a JSON object, or a `Uint8Array` raw body for commands that take
+   * bulk bytes (`save_image_bytes`, `export_population_plot`); their string
+   * arguments then travel as `options.headers` (see `rawBodyHeaders`).
+   */
+  invoke<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T>;
+}
+
+/**
+ * Request headers for a raw-body command. Values are `encodeURIComponent`
+ * encoded (headers must be ASCII; the backend decodes them). `undefined`
+ * entries are omitted.
+ */
+export function rawBodyHeaders(values: Record<string, string | undefined>): InvokeOptions {
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(values)) {
+    if (value !== undefined) headers[name] = encodeURIComponent(value);
+  }
+  return { headers };
 }
 
 // Commands from the api-bridge plugin need the `plugin:api-bridge|` namespace.
@@ -19,11 +39,11 @@ const apiBridgeCommandSet: ReadonlySet<string> = new Set(apiBridgeCommands);
  * Production transport using Tauri's invoke
  */
 export class TauriTransport implements BackendTransport {
-  async invoke<T>(cmd: string, args?: any): Promise<T> {
+  async invoke<T>(cmd: string, args?: any, options?: InvokeOptions): Promise<T> {
     try {
       // Map plugin commands to their namespaced versions
       const namespacedCmd = this.getNamespacedCommand(cmd);
-      return await invoke<T>(namespacedCmd, args);
+      return await invoke<T>(namespacedCmd, args, options);
     } catch (error) {
       console.error(`Tauri command ${cmd} failed:`, error);
       throw error;
@@ -45,13 +65,15 @@ export class TauriTransport implements BackendTransport {
  */
 export class MockTransport implements BackendTransport {
   private responses = new Map<string, any>();
-  private callLog: Array<{ cmd: string; args: any; timestamp: number }> = [];
+  private callLog: Array<{ cmd: string; args: any; options?: InvokeOptions; timestamp: number }> =
+    [];
 
-  async invoke<T>(cmd: string, args?: unknown): Promise<T> {
+  async invoke<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T> {
     // Log the call
     this.callLog.push({
       cmd,
       args,
+      options,
       timestamp: Date.now(),
     });
 
@@ -61,7 +83,7 @@ export class MockTransport implements BackendTransport {
     // Return mock response
     const response = this.responses.get(cmd);
     if (response instanceof Function) {
-      return response(args);
+      return response(args, options);
     }
     if (response !== undefined) {
       return response;

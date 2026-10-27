@@ -83,6 +83,7 @@ mod image_export;
 pub mod image_set;
 mod materialization;
 mod projection_geometry;
+mod raw_ipc;
 mod remote_cache;
 mod remote_transfer;
 mod render_bridge_adapter;
@@ -12678,12 +12679,13 @@ async fn replay_population_summary(
 }
 
 /// Save a bounded population graphic or recipe to a newly chosen output file.
+/// Raw body = file bytes; `x-brainflow-path` and `x-brainflow-format` headers
+/// (percent-encoded) carry the destination and "png" | "json".
 #[command]
-async fn export_population_plot(
-    path: String,
-    bytes: Vec<u8>,
-    format: String,
-) -> BridgeResult<String> {
+async fn export_population_plot(request: tauri::ipc::Request<'_>) -> BridgeResult<String> {
+    let bytes = raw_ipc::raw_body(request.body(), "export_population_plot")?.to_vec();
+    let path = raw_ipc::required_header(request.headers(), "x-brainflow-path")?;
+    let format = raw_ipc::required_header(request.headers(), "x-brainflow-format")?;
     tokio::task::spawn_blocking(move || population_plot_export::save(&path, &bytes, &format))
         .await
         .map_err(|e| BridgeError::Input {
