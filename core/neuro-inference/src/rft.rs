@@ -83,7 +83,16 @@ impl ExtentModel {
     /// `R3 > 0`.
     pub fn new(kind: FieldKind, u: f64, resels: [f64; 4]) -> Self {
         let ec = ec_densities(kind, u).map(|d| d.max(f64::EPSILON));
-        let expected_clusters = resels.iter().zip(ec).map(|(r, d)| r * d).sum();
+        // Σ R_d·EC_d can turn negative for search volumes with a strongly
+        // negative Euler characteristic (many holes/handles) at moderate u;
+        // an expected count below zero is meaningless, so floor it at 0 (SPM
+        // leaves it unguarded). This keeps p(FWE) within [0, 1].
+        let expected_clusters = resels
+            .iter()
+            .zip(ec)
+            .map(|(r, d)| r * d)
+            .sum::<f64>()
+            .max(0.0);
         let expected_resels_per_cluster = ec[0] / ec[3];
         // D = 3: beta = (Γ(D/2 + 1) / Ek)^(2/D).
         let beta = (ln_gamma(2.5).exp() / expected_resels_per_cluster).powf(2.0 / 3.0);
@@ -105,7 +114,8 @@ impl ExtentModel {
     /// FWE-corrected extent p: probability of one or more clusters of at
     /// least `k_resels` anywhere in the search volume.
     pub fn p_fwe(&self, k_resels: f64) -> f64 {
-        1.0 - (-(self.expected_clusters + f64::EPSILON) * self.p_uncorrected(k_resels)).exp()
+        (1.0 - (-(self.expected_clusters + f64::EPSILON) * self.p_uncorrected(k_resels)).exp())
+            .clamp(0.0, 1.0)
     }
 }
 
@@ -244,5 +254,14 @@ mod tests {
         assert!(model.p_fwe(0.5) > model.p_fwe(2.0));
         assert!(model.p_fwe(2.0) > model.p_fwe(8.0));
         assert_eq!(model.p_uncorrected(0.0), 1.0);
+    }
+
+    #[test]
+    fn negative_euler_characteristic_cannot_give_p_outside_unit_interval() {
+        // A search volume with many holes: R0 strongly negative.
+        let model = ExtentModel::new(FieldKind::Z, 2.0, [-500.0, 0.0, 0.0, 10.0]);
+        assert_eq!(model.expected_clusters, 0.0);
+        let p = model.p_fwe(0.5);
+        assert!((0.0..=1.0).contains(&p), "{p}");
     }
 }
