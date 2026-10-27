@@ -5,9 +5,9 @@ import { FOCUS_RING } from './bf/states';
 /**
  * Icon-only button (also exported from `ui/bf`). `aria-label` is required.
  *
- * Sizes: `xs` is the 24×24 control (`H_CONTROL`, 14px glyph) used in panels,
- * toolbars, pagers and section actions; `sm` (28px), `md` and `lg` remain for
- * existing call sites. `pressed` makes it a toggle (`aria-pressed`, selected
+ * Sizes: `xs` (the default) is the 24×24 control (`H_CONTROL`, 14px glyph)
+ * used in panels, toolbars, pagers and section actions; `sm` (28px), `md` and
+ * `lg` are larger and must be asked for. `pressed` makes it a toggle (`aria-pressed`, selected
  * fill + neutral bottom edge). Other button attributes pass through.
  */
 export interface IconButtonProps
@@ -58,7 +58,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   {
     icon,
     variant = 'ghost',
-    size = 'md',
+    size = 'xs',
     disabled = false,
     loading = false,
     pressed,

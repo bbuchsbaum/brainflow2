@@ -16,11 +16,17 @@ export function fieldRowIds(controlId: string) {
 }
 
 const UNIT_RE = /^(.*\S)\s(mm|ms|s|Hz|%|voxels|vox|TR)$/;
+// A number or a numeric expression: "2.00", "−37.5", "228,483", "≈ 4",
+// "2 × 2 × 2", "1.5–3", "0 to 255". Prose before a unit word does not match.
+const NUMERIC_RE = /^(?:[≈~<>≤≥±]\s?)?[−+-]?\d[\d,.]*(?:\s?(?:×|x|–|-|\/|to)\s?[−+-]?\d[\d,.]*)*$/;
 
-/** Split "2.00 mm" into ["2.00", "mm"]; non-matching text has no unit. */
+/**
+ * Split "2.00 mm" into ["2.00", "mm"]. Only a numeric value keeps its unit
+ * apart: "Brain mask, 228,483 voxels" is prose and stays whole.
+ */
 export function splitUnit(text: string): [string, string | null] {
   const m = UNIT_RE.exec(text);
-  return m ? [m[1], m[2]] : [text, null];
+  return m && NUMERIC_RE.test(m[1]) ? [m[1], m[2]] : [text, null];
 }
 
 /** Half the thumb width: the ruler's content box is inset by this on both sides. */

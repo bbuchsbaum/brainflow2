@@ -186,6 +186,21 @@ describe('bf KeyValue', () => {
     expect(splitUnit('sub 01')).toEqual(['sub 01', null]);
   });
 
+  it('splitUnit keeps prose whole and splits numeric expressions', () => {
+    expect(splitUnit('Brain mask, 228,483 voxels')).toEqual(['Brain mask, 228,483 voxels', null]);
+    expect(splitUnit('Low coverage in 3 voxels')).toEqual(['Low coverage in 3 voxels', null]);
+    expect(splitUnit('228,483 voxels')).toEqual(['228,483', 'voxels']);
+    expect(splitUnit('−37.5 mm')).toEqual(['−37.5', 'mm']);
+    expect(splitUnit('2.00 × 2.00 × 2.00 mm')).toEqual(['2.00 × 2.00 × 2.00', 'mm']);
+    expect(splitUnit('0 to 255 %')).toEqual(['0 to 255', '%']);
+    expect(splitUnit('≈ 4 s')).toEqual(['≈ 4', 's']);
+  });
+
+  it('KeyValue does not mute a unit word at the end of prose', () => {
+    render(<KeyValue items={[{ label: 'Support', value: 'Brain mask, 228,483 voxels', mono: false }]} />);
+    expect(screen.getByText('Brain mask, 228,483 voxels')).toBeInTheDocument();
+  });
+
   it('rows layout pairs dt/dd in a named label column', () => {
     const { container } = render(<KeyValue layout="rows" labelWidth="wide" items={[{ label: 'TR', value: 2, unit: 's' }]} />);
     expect((container.firstChild as HTMLElement).style.gridTemplateColumns).toBe('148px minmax(0, 1fr)');

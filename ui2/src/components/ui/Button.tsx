@@ -8,9 +8,9 @@ import { FOCUS_GAP, FOCUS_RING } from './bf/states';
  * (text, hover fill), danger (soft danger), link (underlined light neutral,
  * HYBRID rule 5; no fill, no fixed height).
  *
- * Sizes: `sm` is the 24px control height (`H_CONTROL`) and the size for
- * panels, toolbars, section actions and dialogs footers alike; `md` / `lg`
- * are 28px (legacy call sites). Focus is the shared outer ring (2px, offset 1,
+ * Sizes: `sm` (the default) is the 24px control height (`H_CONTROL`) and the
+ * size for panels, toolbars, section actions and dialog footers alike; `md` /
+ * `lg` are 28px and must be asked for. Focus is the shared outer ring (2px, offset 1,
  * square corners). Any other button attribute (aria-*, data-*, id, form…)
  * passes through, and the ref reaches the `<button>`.
  */
@@ -77,7 +77,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   {
     children,
     variant = 'primary',
-    size = 'md',
+    size = 'sm',
     disabled = false,
     loading = false,
     icon,
