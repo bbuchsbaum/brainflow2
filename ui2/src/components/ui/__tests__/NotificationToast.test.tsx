@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NotificationToast } from '../NotificationToast';
 import { getEventBus } from '@/events/EventBus';
 
@@ -52,5 +52,37 @@ describe('NotificationToast (status-bar messages)', () => {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
     });
     expect(document.activeElement).toBe(screen.getByTestId('status-diagnostics-trigger'));
+  });
+
+  it('an open message list does not expire out from under the user; it expires on close', () => {
+    vi.useFakeTimers();
+    try {
+      render(<NotificationToast />);
+      act(() => {
+        getEventBus().emit('ui.notification', { type: 'info', message: 'Saved image to /tmp/figure.png' });
+      });
+      fireEvent.click(screen.getByTestId('status-notification-open'));
+      act(() => {
+        vi.advanceTimersByTime(6000);
+      });
+      // Still there while the list is open.
+      expect(screen.getByTestId('status-notification-list')).toHaveTextContent('Saved image to /tmp/figure.png');
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+      act(() => {
+        vi.advanceTimersByTime(10);
+      });
+      expect(screen.queryByTestId('status-notification')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('announces an error once (its alert), not also in the polite region', () => {
+    render(<NotificationToast />);
+    act(() => {
+      getEventBus().emit('ui.notification', { type: 'error', message: 'Disk full' });
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Disk full');
+    expect(screen.getByRole('status')).not.toHaveTextContent('Disk full');
   });
 });

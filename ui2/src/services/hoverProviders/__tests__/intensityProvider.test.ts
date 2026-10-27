@@ -196,4 +196,31 @@ describe('intensityProvider', () => {
     ]);
     useLayerStore.setState({ layers: [] });
   });
+
+  it('gives no entry outside a partial-FOV layer (no fabricated 0, review D5)', async () => {
+    const { useLayerStore } = await import('@/stores/layerStore');
+    useLayerStore.setState({
+      layers: [
+        { id: 'full', name: 'T1.nii.gz', volumeId: 'full', type: 'volume', visible: true, order: 0 } as never,
+        { id: 'slab', name: 'slab_bold.nii.gz', volumeId: 'slab', type: 'volume', visible: true, order: 1 } as never,
+      ],
+      layerMetadata: new Map([
+        // A 10-voxel slab around z = 0 (1 mm, identity-like affine).
+        [
+          'slab',
+          {
+            dimensions: [10, 10, 10],
+            worldToVoxel: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 5, 5, 1],
+          },
+        ],
+      ]) as never,
+    });
+    mockSampleLayerAtWorld.mockResolvedValue({ value: 0 });
+    const result = await intensityProvider.getInfo(
+      createMockContext({ layerIds: ['full', 'slab'], worldCoord: [0, 0, 40] }),
+    );
+    expect(result?.map((e) => e.label)).toEqual(['T1']);
+    expect(mockSampleLayerAtWorld).toHaveBeenCalledTimes(1);
+    useLayerStore.setState({ layers: [], layerMetadata: new Map() });
+  });
 });

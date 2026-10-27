@@ -7,7 +7,7 @@ for (const layout of [
   test(`review and open a selected folder at ${layout.width}px`, async ({ page }, info) => {
     await page.setViewportSize(layout);
     await page.goto('/folder-review-harness.html');
-    await page.getByRole('button', { name: 'Open selected folder in Set Studio…' }).click();
+    await page.getByRole('button', { name: 'Open selected folder in Set studio…' }).click();
     await expect(page.getByRole('button', { name: 'Open set', exact: true })).toBeEnabled();
     await expect(page.getByText('2 members · 3 images')).toBeVisible();
     await expect(page.getByText('Missing', { exact: true })).toBeVisible();
@@ -30,7 +30,7 @@ for (const layout of [
 
 test('cancel ignores late discovery', async ({ page }) => {
   await page.goto('/folder-review-harness.html?slow');
-  await page.getByRole('button', { name: 'Open selected folder in Set Studio…' }).click();
+  await page.getByRole('button', { name: 'Open selected folder in Set studio…' }).click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByTestId('active-study')).toHaveText('No study replaced');
   await page.waitForTimeout(1400);
@@ -40,7 +40,7 @@ test('cancel ignores late discovery', async ({ page }) => {
 for (const mode of ['truncated', 'disconnected']) {
   test(`${mode} review stays recoverable`, async ({ page }, info) => {
     await page.goto(`/folder-review-harness.html?${mode}`);
-    await page.getByRole('button', { name: 'Open selected folder in Set Studio…' }).click();
+    await page.getByRole('button', { name: 'Open selected folder in Set studio…' }).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open set', exact: true })).toBeDisabled();
     await page.screenshot({ path: info.outputPath(`${mode}.png`) });
@@ -51,7 +51,7 @@ for (const mode of ['truncated', 'disconnected']) {
 
 test('changed assignments require a new review before opening', async ({ page }) => {
   await page.goto('/folder-review-harness.html?changed');
-  await page.getByRole('button', { name: 'Open selected folder in Set Studio…' }).click();
+  await page.getByRole('button', { name: 'Open selected folder in Set studio…' }).click();
   await page.getByRole('button', { name: 'Open set', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('files changed');
   await expect(page.getByRole('button', { name: 'Open set', exact: true })).toBeDisabled();

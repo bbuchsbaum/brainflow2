@@ -9,15 +9,35 @@ function anatomyKey(surface: LoadedSurface): string | null {
   });
   if (!identity) return null;
   return (
-    identity.basePath.replace(/(^|[_.])(pial|white|inflated|sphere)(?=[_.]|$)/gi, '$1anatomical') +
+    identity.basePath.replace(/(^|[_.])(pial|white|midthickness|smoothwm|graymid|inflated|very_inflated|sphere)(?=[_.]|$)/gi, '$1anatomical') +
     ':' +
     identity.hemisphere
   );
 }
 
+/** Meshes in the volume's world space (midthickness and smoothwm too). */
+const ANATOMICAL_TYPES = new Set(['pial', 'white', 'midthickness', 'smoothwm', 'graymid']);
+
 function isAnatomical(surface: LoadedSurface): boolean {
-  const type = surface.geometry.surfaceType ?? surface.metadata.surfaceType;
-  return type === 'pial' || type === 'white';
+  const type = String(surface.geometry.surfaceType ?? surface.metadata.surfaceType ?? '').toLowerCase();
+  return ANATOMICAL_TYPES.has(type);
+}
+
+/**
+ * Every anatomical mesh that stands for `surface` (itself when anatomical,
+ * else the same-subject/hemisphere meshes of identical topology), for a
+ * readout that takes the vertex nearest the crosshair on any of them.
+ */
+export function anatomicalMeshesFor(
+  surface: LoadedSurface,
+  all: Iterable<LoadedSurface>,
+): Float32Array[] {
+  if (isAnatomical(surface)) return [surface.geometry.vertices];
+  const key = anatomyKey(surface);
+  if (!key) return [];
+  return [...all]
+    .filter((c) => isAnatomical(c) && anatomyKey(c) === key && sameTopology(surface, c))
+    .map((c) => c.geometry.vertices);
 }
 
 function sameTopology(a: LoadedSurface, b: LoadedSurface): boolean {

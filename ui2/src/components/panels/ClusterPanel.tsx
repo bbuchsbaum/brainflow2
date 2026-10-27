@@ -159,6 +159,9 @@ function selectStatLayer(layerId: string): void {
   if (item) useInspectorSelectionStore.getState().setActive(item);
 }
 
+/** |z| / |t| threshold seeded for a map with no display threshold. */
+const DEFAULT_STAT_THRESHOLD = 3.1;
+
 export function ClusterPanel() {
   const viewLayers = useViewStateStore((s) => s.viewState.layers);
   const active = useActiveLayer(viewLayers);
@@ -196,19 +199,29 @@ export function ClusterPanel() {
   const layerThreshold =
     rawLayerThreshold === null ? null : Number.parseFloat(rawLayerThreshold.toPrecision(6));
   const thresholdRef = useRef<HTMLInputElement>(null);
-  const threshold = params.linked ? (layerThreshold ?? 0) : params.threshold;
+  // Linked to a layer without a display threshold: never 0 (it clusters the
+  // whole brain into one; review R7). A z or t map seeds the conventional
+  // |z| > 3.1 and says so; other statistics wait for a value.
+  const seededDefault =
+    params.linked && layerThreshold === null && symbol && /^[zt]/.test(symbol) ? DEFAULT_STAT_THRESHOLD : null;
+  const threshold = params.linked ? (layerThreshold ?? seededDefault) : params.threshold;
   const thresholdInvalid = threshold === null || !Number.isFinite(threshold) || threshold < 0;
   const minInvalid =
     params.minVoxels === null || !Number.isInteger(params.minVoxels) || params.minVoxels < 1;
   const computing = status === 'computing';
   // Clusters need a statistical layer: a T1 at |value| > 0 is one 100k-voxel
   // "cluster" (v4 user critic). Disabled controls say why.
-  const notStatReason = !target
+  const notStatReason = !active
     ? 'Select a layer to find clusters'
-    : !symbol
+    : !target || !symbol
       ? 'Clusters need a statistical layer (a z, t or F map)'
       : null;
+  const thresholdReason =
+    !notStatReason && threshold === null ? 'Enter a threshold (the layer has no display threshold)' : null;
   const canCompute = !notStatReason && !thresholdInvalid && !minInvalid && !computing;
+  // Shown under the toolbar row when the EmptyPane does not already say it.
+  const computeReason = notStatReason && target ? notStatReason : thresholdReason;
+  const activeName = useLayerStore((s) => (active ? s.layers.find((l) => l.id === active.id)?.name : undefined));
 
   const compute = useCallback(() => {
     if (!target || threshold === null || params.minVoxels === null) return;
@@ -321,7 +334,11 @@ export function ClusterPanel() {
           title={layer?.name ?? undefined}
           data-testid="cluster-layer"
         >
-          {target ? shortLayerLabel(layer?.name ?? target.name) : 'No layer'}
+          {target
+            ? shortLayerLabel(layer?.name ?? target.name)
+            : active
+              ? shortLayerLabel(activeName ?? active.name)
+              : 'No layer'}
         </span>
         <label
           className="inline-flex items-center whitespace-pre text-bf-text-secondary"
@@ -382,13 +399,25 @@ export function ClusterPanel() {
           invalid={minInvalid}
           onValueChange={(v) => setParams({ minVoxels: v })}
         />
+        {/* Why Compute is off, as text (a disabled button's tooltip is out
+            of reach without a mouse); the default threshold is said too. */}
+        {computeReason || seededDefault !== null ? (
+          <span
+            id="cluster-reason"
+            className="ml-auto text-bf-2xs text-bf-text-muted"
+            data-testid="cluster-reason"
+          >
+            {computeReason ?? `Default threshold ${DEFAULT_STAT_THRESHOLD} (the layer has no display threshold)`}
+          </span>
+        ) : null}
         <Button
           variant="primary"
           size="sm"
           onClick={compute}
           disabled={!canCompute}
-          title={notStatReason ?? undefined}
-          className="ml-auto"
+          title={notStatReason ?? thresholdReason ?? undefined}
+          aria-describedby={computeReason ? 'cluster-reason' : undefined}
+          className={computeReason ? undefined : 'ml-auto'}
         >
           {computing ? 'Computing…' : 'Compute'}
         </Button>
@@ -567,11 +596,16 @@ export function ClusterPanel() {
           </span>
         ) : null}
         <span className="ml-auto inline-flex items-center gap-1">
+          {notStatReason ? (
+            <span id="cluster-footer-reason" className="sr-only">
+              {notStatReason}
+            </span>
+          ) : null}
           <Button
             variant="secondary"
             size="sm"
-            // A stale table is not copied as if current: recompute first.
-            disabled={!result || clusters.length === 0 || !!stale}
+            // A stale or hidden table is not copied as if current.
+            disabled={!result || clusters.length === 0 || !!stale || !!notStatReason}
             title={stale ? `${stale} Compute to copy.` : undefined}
             onClick={copyCsv}
           >
@@ -582,6 +616,7 @@ export function ClusterPanel() {
             size="sm"
             disabled={!!notStatReason}
             title={notStatReason ?? undefined}
+            aria-describedby={notStatReason ? 'cluster-footer-reason' : undefined}
             onClick={() => void goTo('max')}
           >
             Go to max
@@ -591,6 +626,7 @@ export function ClusterPanel() {
             size="sm"
             disabled={!!notStatReason}
             title={notStatReason ?? undefined}
+            aria-describedby={notStatReason ? 'cluster-footer-reason' : undefined}
             onClick={() => void goTo('min')}
           >
             Go to min

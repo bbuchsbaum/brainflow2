@@ -1091,7 +1091,21 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await until(() => !!controlByLabel(dialog()!, 'Password'), 'password field shown');
   },
   // Same driver as volume-surface; captured only as the 1280x800 variant (integrated-1280).
-  integrated: async (ctx) => DRIVERS['volume-surface'](ctx),
+  // v5 critics: at 1280 the surface frame's header and camera presets must
+  // not overlap (one width budget); fails the capture if their boxes meet.
+  integrated: async (ctx) => {
+    await DRIVERS['volume-surface'](ctx);
+    await until(() => !!document.querySelector('[data-testid="surface-frame-header"]'), 'surface frame header');
+    await frames(5);
+    const header = document.querySelector<HTMLElement>('[data-testid="surface-frame-header"]')!.getBoundingClientRect();
+    const presets = document.querySelector<HTMLElement>('[data-testid="surface-camera-presets-slot"]')?.getBoundingClientRect();
+    if (presets) {
+      const overlap =
+        header.left < presets.right && presets.left < header.right && header.top < presets.bottom && presets.top < header.bottom;
+      noteStep(`surface header right ${header.right.toFixed(1)}, presets left ${presets.left.toFixed(1)}`);
+      if (overlap) throw new Error('surface frame header and camera presets overlap');
+    }
+  },
   ...P3_DRIVERS,
 };
 

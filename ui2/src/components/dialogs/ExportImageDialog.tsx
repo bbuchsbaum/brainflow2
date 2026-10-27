@@ -54,6 +54,9 @@ import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { formatWorldMm } from '@/utils/valueFormat';
 
+/** Pause after an option change before the preview re-composes. */
+const CAPTURE_DEBOUNCE_MS = 250;
+
 const FORMAT_OPTIONS = [
   { value: 'png', label: 'PNG' },
   { value: 'jpg', label: 'JPG' },
@@ -163,49 +166,88 @@ export function ExportImageDialog() {
     [isOpen, exportTarget],
   );
 
+  // The File name field has initial focus; in a short window the settings
+  // column scrolls, so keep the focused field in view (v5 visual, 1280).
   useEffect(() => {
     if (!isOpen) return;
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const input = fileNameInputRef.current;
+        if (input && document.activeElement === input) input.scrollIntoView?.({ block: 'nearest' });
+      }),
+    );
+    return () => cancelAnimationFrame(raf);
+  }, [isOpen]);
+
+  // The first preview after opening starts at once; later ones are debounced.
+  const freshOpenRef = useRef(true);
+  useEffect(() => {
+    if (!isOpen) {
+      freshOpenRef.current = true;
+      return;
+    }
 
     const seq = ++captureSeqRef.current;
     setCapturing(true);
     setError(null);
 
-    const capture = exportTarget
-      ? captureComposite(exportTarget, format, {
-          frame: composite,
-          size,
-          provenance,
-          mosaicTiles,
-          cropToBrain,
-          mosaicColumns,
-        }).then((result) => {
-          if (seq === captureSeqRef.current) {
-            setOutputSize({ width: result.width, height: result.height });
-            setOutputDpi(result.dpi);
-            setWarning(result.warning);
-          }
-          return result;
-        })
-      : getViewExportService().captureActiveView({
-          format,
-          transparentBackground: format === 'png' ? transparentBackground : false,
-          viewType: viewType ?? undefined,
-        });
+    // Option changes come in bursts (typing a range, stepping columns): wait
+    // for a pause, and abandon a capture a newer one supersedes, so stale
+    // full-resolution renders never queue up behind the live views (R3).
+    const controller = new AbortController();
+    let cancelled = false;
+    const timer = setTimeout(
+      () => {
+        if (cancelled) return;
+        startCapture();
+      },
+      freshOpenRef.current ? 0 : CAPTURE_DEBOUNCE_MS,
+    );
+    freshOpenRef.current = false;
+    const startCapture = () => {
+      const capture = exportTarget
+        ? captureComposite(exportTarget, format, {
+            frame: composite,
+            size,
+            provenance,
+            mosaicTiles,
+            cropToBrain,
+            mosaicColumns,
+            signal: controller.signal,
+          }).then((result) => {
+            if (seq === captureSeqRef.current) {
+              setOutputSize({ width: result.width, height: result.height });
+              setOutputDpi(result.dpi);
+              setWarning(result.warning);
+            }
+            return result;
+          })
+        : getViewExportService().captureActiveView({
+            format,
+            transparentBackground: format === 'png' ? transparentBackground : false,
+            viewType: viewType ?? undefined,
+          });
 
-    capture
-      .then(({ bytes, mime, suggestedName: name, target: captured }) => {
-        if (seq !== captureSeqRef.current) return;
-        bytesRef.current = bytes;
-        setCaptureResult(bytes, mime, name, captured ?? null);
-      })
-      .catch((err) => {
-        if (seq !== captureSeqRef.current) return;
-        setError(formatTauriError(err) || 'Failed to capture view');
-      })
-      .finally(() => {
-        if (seq !== captureSeqRef.current) return;
-        setCapturing(false);
-      });
+      capture
+        .then(({ bytes, mime, suggestedName: name, target: captured }) => {
+          if (seq !== captureSeqRef.current) return;
+          bytesRef.current = bytes;
+          setCaptureResult(bytes, mime, name, captured ?? null);
+        })
+        .catch((err) => {
+          if (seq !== captureSeqRef.current || controller.signal.aborted) return;
+          setError(formatTauriError(err) || 'Failed to capture view');
+        })
+        .finally(() => {
+          if (seq !== captureSeqRef.current) return;
+          setCapturing(false);
+        });
+    };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [
     isOpen,
     exportTarget,
@@ -281,6 +323,36 @@ export function ExportImageDialog() {
           }`
       : format.toUpperCase();
 
+  // File name and format sit high in the column (above Include), so the
+  // focused File name is never below the fold (v5 function critic).
+  const formatField = (
+    <FieldRow
+      label="Format"
+      layout="stacked"
+      hint={
+        format === 'jpg' && composite.background === 'transparent' && exportTarget
+          ? 'JPG has no transparency: flattened onto black.'
+          : undefined
+      }
+    >
+      <Select
+        value={format}
+        options={FORMAT_OPTIONS}
+        onValueChange={(v) => setFormat(v === 'jpg' ? 'jpg' : 'png')}
+      />
+    </FieldRow>
+  );
+  const fileNameField = (
+    <FieldRow label="File name" layout="stacked" hint="Location is chosen in the save dialog.">
+      <TextField
+        ref={fileNameInputRef}
+        value={suggestedName}
+        onChange={(e) => setSuggestedName(e.target.value)}
+        placeholder={`view.${format}`}
+      />
+    </FieldRow>
+  );
+
   return (
     <Modal
       isOpen={isOpen}
@@ -296,29 +368,29 @@ export function ExportImageDialog() {
       // (format summary, Cancel / Save) stay in view at any window height.
       bodyClassName="flex flex-col overflow-hidden p-0"
       footer={
-  <div className="flex items-center justify-end gap-2 border-t border-bf-border-subtle px-3 py-3">
-    {/* Format summary: what Save writes. */}
-    <p
-      className="mr-auto min-w-0 truncate font-mono text-bf-2xs tabular-nums text-bf-text-muted"
-      data-testid="export-size"
-    >
-      {summary}
-    </p>
-    <Button variant="secondary" size="sm" onClick={close} disabled={isSaving}>
-      Cancel
-    </Button>
-    {/* While saving, Save stays focusable (aria-disabled), so focus
+        <div className="flex items-center justify-end gap-2 border-t border-bf-border-subtle px-3 py-3">
+          {/* Format summary: what Save writes. */}
+          <p
+            className="mr-auto min-w-0 truncate font-mono text-bf-2xs tabular-nums text-bf-text-muted"
+            data-testid="export-size"
+          >
+            {summary}
+          </p>
+          <Button variant="secondary" size="sm" onClick={close} disabled={isSaving}>
+            Cancel
+          </Button>
+          {/* While saving, Save stays focusable (aria-disabled), so focus
         does not fall to <body> under the native save dialog. */}
-    <Button
-      variant="primary"
-      size="sm"
-      onClick={handleSave}
-      disabled={isCapturing || !hasBytes}
-      aria-disabled={isSaving || undefined}
-    >
-      {isSaving ? 'Saving…' : 'Save…'}
-    </Button>
-  </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSave}
+            disabled={isCapturing || !hasBytes}
+            aria-disabled={isSaving || undefined}
+          >
+            {isSaving ? 'Saving…' : 'Save…'}
+          </Button>
+        </div>
       }
       className="!max-w-4xl rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
@@ -351,7 +423,9 @@ export function ExportImageDialog() {
 
         {/* Options */}
         <div
-          className="w-full space-y-2 md:min-h-0 md:w-80 md:overflow-y-auto md:pr-1"
+          // Padding inside the scroll box so focus rings (2px + offset) and
+          // the error alert's ring are never clipped by it (v5 visual).
+          className="w-full space-y-2 md:-mx-1.5 md:-my-1 md:min-h-0 md:w-[20.75rem] md:overflow-y-auto md:px-1.5 md:py-1 md:pb-2"
           data-testid="export-settings"
         >
           {exportTarget ? (
@@ -393,9 +467,17 @@ export function ExportImageDialog() {
                         <NumberField
                           step={mosaicSource.sampling.step}
                           unit="mm"
-                          value={mosaicTiles.fromMm}
+                          // The range as the figure takes it: "To" is the last
+                          // slice actually exported (v5: 82.5 shown, 78.5 drawn).
+                          value={clampMosaicRange(mosaicSource.sampling!, mosaicTiles).fromMm}
                           onValueChange={(v) =>
-                            v !== null && setMosaicTiles(clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, fromMm: v }))
+                            v !== null &&
+                            setMosaicTiles(
+                              clampMosaicRange(mosaicSource.sampling!, {
+                                ...mosaicTiles,
+                                fromMm: v,
+                              }),
+                            )
                           }
                         />
                       </FieldRow>
@@ -403,9 +485,12 @@ export function ExportImageDialog() {
                         <NumberField
                           step={mosaicSource.sampling.step}
                           unit="mm"
-                          value={mosaicTiles.toMm}
+                          value={clampMosaicRange(mosaicSource.sampling!, mosaicTiles).toMm}
                           onValueChange={(v) =>
-                            v !== null && setMosaicTiles(clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, toMm: v }))
+                            v !== null &&
+                            setMosaicTiles(
+                              clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, toMm: v }),
+                            )
                           }
                         />
                       </FieldRow>
@@ -419,7 +504,10 @@ export function ExportImageDialog() {
                             v !== null &&
                             v >= 1 &&
                             setMosaicTiles(
-                              clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, every: Math.round(v) }),
+                              clampMosaicRange(mosaicSource.sampling!, {
+                                ...mosaicTiles,
+                                every: Math.round(v),
+                              }),
                             )
                           }
                         />
@@ -439,7 +527,11 @@ export function ExportImageDialog() {
                       At most {MAX_EXPORT_TILES} slices; positions snap to the reference grid.
                     </p>
                   ) : null}
-                  <FieldRow label="Columns" layout="stacked" hint="Default: 6 at 183 mm, 4 at 89 mm, else the grid's.">
+                  <FieldRow
+                    label="Columns"
+                    layout="stacked"
+                    hint="Default: 6 at 183 mm, 4 at 89 mm, else the grid's."
+                  >
                     <NumberField
                       step={1}
                       min={1}
@@ -447,7 +539,9 @@ export function ExportImageDialog() {
                       value={mosaicColumns ?? ''}
                       placeholder="Auto"
                       onValueChange={(v) =>
-                        setMosaicColumns(v === null ? null : Math.max(1, Math.min(12, Math.round(v))))
+                        setMosaicColumns(
+                          v === null ? null : Math.max(1, Math.min(12, Math.round(v))),
+                        )
                       }
                     />
                   </FieldRow>
@@ -521,6 +615,9 @@ export function ExportImageDialog() {
                 </>
               )}
 
+              {formatField}
+              {fileNameField}
+
               <fieldset className="space-y-0.5">
                 <legend className="mb-1 text-bf-xs text-bf-text-muted">Include</legend>
                 <div className="grid grid-cols-2 gap-x-2">
@@ -533,7 +630,10 @@ export function ExportImageDialog() {
                       {label}
                     </Checkbox>
                   ))}
-                  <Checkbox checked={cropToBrain} onCheckedChange={(checked) => setCropToBrain(checked)}>
+                  <Checkbox
+                    checked={cropToBrain}
+                    onCheckedChange={(checked) => setCropToBrain(checked)}
+                  >
                     Crop to brain
                   </Checkbox>
                 </div>
@@ -561,24 +661,10 @@ export function ExportImageDialog() {
                   disabled={format !== 'png'}
                 />
               </FieldRow>
+              {formatField}
+              {fileNameField}
             </>
           )}
-
-          <FieldRow
-            label="Format"
-            layout="stacked"
-            hint={
-              format === 'jpg' && composite.background === 'transparent' && exportTarget
-                ? 'JPG has no transparency: flattened onto black.'
-                : undefined
-            }
-          >
-            <Select
-              value={format}
-              options={FORMAT_OPTIONS}
-              onValueChange={(v) => setFormat(v === 'jpg' ? 'jpg' : 'png')}
-            />
-          </FieldRow>
 
           {exportTarget ? (
             <Checkbox
@@ -589,19 +675,6 @@ export function ExportImageDialog() {
               Embed provenance in the file
             </Checkbox>
           ) : null}
-
-          <FieldRow
-            label="File name"
-            layout="stacked"
-            hint="Location is chosen in the save dialog."
-          >
-            <TextField
-              ref={fileNameInputRef}
-              value={suggestedName}
-              onChange={(e) => setSuggestedName(e.target.value)}
-              placeholder={`view.${format}`}
-            />
-          </FieldRow>
 
           {warning && !error ? (
             <Notice severity="warning" data-testid="export-warning">
@@ -621,7 +694,6 @@ export function ExportImageDialog() {
           )}
         </div>
       </div>
-
     </Modal>
   );
 }

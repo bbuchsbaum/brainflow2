@@ -100,9 +100,15 @@ export function MosaicColorbar({
   }, [colorbar !== null]);
   // Measure the rendered bar (content-sized) and ask for that column, so the
   // grid fit leaves room for "z · zmap_synthetic" and "|z| ≤ 3.1 hidden".
+  // Runs when the bar's inputs change (not every render), and with
+  // hysteresis: grow at once, shrink only by more than 8 px, so the
+  // column-width <-> grid-fit loop cannot oscillate (review R10).
+  const caretValue = reading?.value ?? null;
+  const columnRef = useRef(columnPx);
+  columnRef.current = columnPx;
   useEffect(() => {
     const el = ref.current;
-    if (!el || !onColumnPx) return;
+    if (!el || !onColumnPx || !colorbar) return;
     const measure = () => {
       const box = el.querySelector<HTMLElement>('[data-testid="viewport-colorbar"]');
       if (!box) return;
@@ -111,14 +117,16 @@ export function MosaicColorbar({
         right = Math.max(right, child.getBoundingClientRect().right);
       });
       const need = Math.max(COLORBAR_COLUMN_PX, Math.ceil(right - el.getBoundingClientRect().left) + 4);
-      if (Math.abs(need - columnPx) > 1) onColumnPx(need);
+      const current = columnRef.current;
+      if (need > current || need < current - 8) onColumnPx(need);
     };
     measure();
+    if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     const box = el.querySelector('[data-testid="viewport-colorbar"]');
     if (box) observer.observe(box);
     return () => observer.disconnect();
-  });
+  }, [colorbar, height, caretValue, onColumnPx]);
   if (!colorbar) return <MosaicLegend workspaceId={workspaceId} />;
   return (
     <div

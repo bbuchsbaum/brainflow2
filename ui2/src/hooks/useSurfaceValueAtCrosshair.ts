@@ -11,7 +11,7 @@
 import { useMemo } from 'react';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { resolveCursorAnatomy } from '@/components/views/surfaceLink';
+import { anatomicalMeshesFor } from '@/components/views/surfaceLink';
 
 export interface SurfaceReading {
   vertex: number;
@@ -53,15 +53,23 @@ export function useSurfaceValueAtCrosshair(
   const surface = useSurfaceStore((s) => s.surfaces.get(surfaceId));
   const surfaces = useSurfaceStore((s) => s.surfaces);
   const crosshair = useViewStateStore((s) => s.viewState.crosshair.world_mm);
-  const anatomy = useMemo(
-    () => (surface ? (resolveCursorAnatomy([surface], surfaces.values()).get(surface.handle) ?? null) : null),
+  // Every matching anatomical mesh (pial, white, midthickness...): the
+  // vertex nearest the crosshair on ANY of them, not pial first (v5: a
+  // crosshair on the white surface read the pial vertex).
+  const meshes = useMemo(
+    () => (surface ? anatomicalMeshesFor(surface, surfaces.values()) : []),
     [surface, surfaces],
   );
+  const anatomy = meshes.length > 0 ? meshes : null;
   const reading = useMemo(() => {
     const layer = surface?.layers.get(surfaceLayerId);
-    const vertices = anatomy;
-    if (!layer || !vertices || !layer.values?.length) return null;
-    const hit = nearestVertex(vertices, [crosshair[0], crosshair[1], crosshair[2]]);
+    if (!layer || !anatomy || !layer.values?.length) return null;
+    const point: [number, number, number] = [crosshair[0], crosshair[1], crosshair[2]];
+    let hit: { index: number; distanceMm: number } | null = null;
+    for (const vertices of anatomy) {
+      const candidate = nearestVertex(vertices, point);
+      if (candidate && (!hit || candidate.distanceMm < hit.distanceMm)) hit = candidate;
+    }
     if (!hit || hit.distanceMm > maxDistanceMm) return null;
     // Sparse layers carry their vertex indices.
     let value: number | undefined;

@@ -89,7 +89,8 @@ describe('ClusterService', () => {
     const setCrosshair = vi.spyOn(useViewStateStore.getState(), 'setCrosshair').mockResolvedValue();
     await service.selectCluster(2);
     expect(useClusterStore.getState().selectedId).toBe(2);
-    expect(setCrosshair).toHaveBeenCalledWith([0.5, 40.5, 10.5], true);
+    // Exactly on the peak voxel: not snapped to a coarser reference (review R2).
+    expect(setCrosshair).toHaveBeenCalledWith([0.5, 40.5, 10.5], true, false, undefined, { snap: false });
     setCrosshair.mockRestore();
   });
 
@@ -98,7 +99,7 @@ describe('ClusterService', () => {
     const setCrosshair = vi.spyOn(useViewStateStore.getState(), 'setCrosshair').mockResolvedValue();
     await new ClusterService(t).goToExtremum('z', 'max');
     expect(t.invoke).toHaveBeenCalledWith('volume_extremum', { request: { layerId: 'z', volumeId: 'vol-z', kind: 'max' } });
-    expect(setCrosshair).toHaveBeenCalledWith([-39.5, -19.5, 50.5], true);
+    expect(setCrosshair).toHaveBeenCalledWith([-39.5, -19.5, 50.5], true, false, undefined, { snap: false });
     setCrosshair.mockRestore();
   });
 });
@@ -134,5 +135,17 @@ describe('cluster methods sentence and CSV', () => {
     expect(csv[2]).toBe('1,positive,398,3184,5.965,-39.5,-19.5,50.5,1,2,3,-39.9,-19.5,50.5,-39.5,-19.5,50.5,2.9825,L_sensorimotor');
     expect(csv[3].startsWith('2,negative,359,2872,-4.977,0.5,40.5,10.5')).toBe(true);
     expect(csv[3].endsWith(',')).toBe(true);
+  });
+
+  it('clears a table whose layer is removed, keeping the parameters (review R8)', async () => {
+    const { clearResultForRemovedLayer } = await import('../ClusterService');
+    const { useClusterStore } = await import('@/stores/clusterStore');
+    useClusterStore.getState().setParams({ minVoxels: 7 });
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'z', table: { clusters: [] } as never, regions: [], computedAt: 0 });
+    clearResultForRemovedLayer('other');
+    expect(useClusterStore.getState().result).not.toBeNull();
+    clearResultForRemovedLayer('z');
+    expect(useClusterStore.getState().result).toBeNull();
+    expect(useClusterStore.getState().params.minVoxels).toBe(7);
   });
 });

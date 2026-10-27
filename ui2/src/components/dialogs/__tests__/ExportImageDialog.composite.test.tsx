@@ -88,10 +88,24 @@ describe('ExportImageDialog composited export (P3.8)', () => {
         mosaicTiles: { kind: 'page' },
         cropToBrain: true,
         mosaicColumns: null,
+        // A superseded preview is abandoned through this signal (review R3).
+        signal: expect.any(AbortSignal),
       }),
     );
     expect(captureActiveViewMock).not.toHaveBeenCalled();
     expect(await screen.findByTestId('export-size')).toHaveTextContent('PNG · 1040 × 600 px · 2× screen');
+  });
+
+  it('abandons a superseded preview capture (its signal aborts) when options change (review R3)', async () => {
+    useExportDialogStore.getState().open();
+    render(<ExportImageDialog />);
+    await waitFor(() => expect(captureCompositeMock).toHaveBeenCalledTimes(1));
+    const first = captureCompositeMock.mock.calls[0][2] as { signal: AbortSignal };
+    expect(first.signal.aborted).toBe(false);
+    act(() => useExportDialogStore.getState().setSize({ kind: 'screen', scale: 3 }));
+    expect(first.signal.aborted).toBe(true);
+    // The new capture starts after the debounce.
+    await waitFor(() => expect(captureCompositeMock).toHaveBeenCalledTimes(2));
   });
 
   it('states a print size in mm at its dpi and asks for provenance', async () => {

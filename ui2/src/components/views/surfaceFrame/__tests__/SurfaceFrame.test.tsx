@@ -50,4 +50,17 @@ describe('SurfaceFrame (P3.10)', () => {
     expect(surfaceColorbarLayer(surface(true))).toMatchObject({ colormap: 'viridis', intensity: [0, 2] });
     expect(surfaceColorbarLayer(surface(false))).toBeNull();
   });
+
+  it('in a narrow pane: letters with the full word as the accessible name', () => {
+    render(<SurfaceFrame surface={surface(false)} width={375} height={400} />);
+    const lateral = screen.getByRole('radio', { name: 'Lateral' });
+    expect(lateral).toHaveTextContent(/^L$/);
+  });
+
+  it('with no hemisphere, no preset is shown as applied', () => {
+    const s = surface(false);
+    (s.metadata as { hemisphere?: string }).hemisphere = undefined;
+    render(<SurfaceFrame surface={s} width={600} height={400} />);
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveAttribute('aria-checked', 'false');
+  });
 });

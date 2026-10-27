@@ -70,20 +70,24 @@ function parseTsv(lines: string[]): LabelTableEntry[] {
   return out;
 }
 
+/**
+ * A headerless LUT row: `id name R G B [A]`, at least five columns, a
+ * non-numeric name and RGB in 0..255. A table is accepted only when most
+ * rows are such rows, so notes or a column of numbers in a same-stem `.txt`
+ * ("12 34 56 ...") never turn an image into a label map (review D3).
+ */
 function parseFreeSurferLut(lines: string[]): LabelTableEntry[] {
   const out: LabelTableEntry[] = [];
   for (const line of lines) {
     const cells = line.trim().split(/\s+/);
     const id = parseId(cells[0]);
-    if (id === null || cells.length < 2) continue;
+    if (id === null || cells.length < 5) continue;
+    if (/^[-+]?\d*\.?\d+$/.test(cells[1])) continue;
     const rgb = cells.slice(2, 5).map(Number);
-    const color =
-      rgb.length === 3 && rgb.every((v) => Number.isInteger(v) && v >= 0 && v <= 255)
-        ? (rgb as [number, number, number])
-        : null;
-    out.push({ id, name: cells[1], color });
+    if (!rgb.every((v) => Number.isInteger(v) && v >= 0 && v <= 255)) continue;
+    out.push({ id, name: cells[1], color: rgb as [number, number, number] });
   }
-  return out;
+  return out.length >= Math.max(1, Math.ceil(lines.length * 0.8)) ? out : [];
 }
 
 /**
@@ -180,25 +184,41 @@ export function buildLabelPalette(entries: LabelTableEntry[]): LabelTablePalette
 // anatomicals are not misclassified. (Follow-up: a data-driven heuristic —
 // integer dtype + small distinct-value count — would also catch unnamed atlases
 // but needs a backend distinct-value count; see audit-backlog.)
-const SEGMENTATION_NAME_TOKENS = [
-  'seg', // aseg, dseg, *seg*
-  'parc', // aparc, wmparc, parcellation
+//
+// Matched on whole name TOKENS (split at _ - . + and spaces; BIDS entities
+// and suffixes), never substrings: "yeo" must not match `task-eyeopen`, nor
+// "roi" `steroid` (review D3 / R12).
+const SEGMENTATION_WORDS = new Set([
+  'seg',
+  'dseg',
+  'aseg',
+  'segmentation',
+  'parc',
+  'aparc',
+  'wmparc',
+  'parcellation',
   'atlas',
   'label',
+  'labels',
   'roi',
-  'schaefer',
-  'aal',
-  'desikan',
-  'destrieux',
-  'harvardoxford',
-  'harvard-oxford',
-  'glasser',
-  'brodmann',
-  'yeo',
-  'juelich',
-  'talairach',
-];
+  'rois',
+]);
+/** Atlas families, alone or with a version / resolution ("yeo2011", "aal3v1"). */
+const ATLAS_FAMILY =
+  /^(schaefer|yeo|aal|desikan|destrieux|harvardoxford|glasser|brodmann|juelich|talairach)(\d.*)?$/;
+/** Continuous maps whose names carry label words (BIDS `label-GM_probseg`). */
+const CONTINUOUS_WORDS = new Set(['probseg', 'probmap', 'prob', 'pve']);
+
+/** Name tokens of a file name (extension dropped, lower case). */
+export function nameTokens(name: string): string[] {
+  const base = name.toLowerCase().replace(/^.*[\\/]/, '').replace(/(\.nii\.gz|\.nii|\.mgz|\.mgh|\.gii)$/, '');
+  return base.split(/[_\-.+\s]+/).filter(Boolean);
+}
 
 export function looksLikeSegmentation(lowerName: string): boolean {
-  return SEGMENTATION_NAME_TOKENS.some((tok) => lowerName.includes(tok));
+  const tokens = nameTokens(lowerName);
+  if (tokens.some((t) => CONTINUOUS_WORDS.has(t))) return false;
+  return tokens.some(
+    (t) => SEGMENTATION_WORDS.has(t) || ATLAS_FAMILY.test(t) || (t.endsWith('seg') && t.length > 3),
+  );
 }

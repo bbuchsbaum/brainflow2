@@ -274,4 +274,98 @@ describe('composer figure finish (output px)', () => {
     expect(natural.width).not.toBe(1051);
     expect(exact.width).toBe(1051);
   });
+
+  it('never prints an ellipsized name: a figure row, a long layer name, a narrow pane (v5 critics)', () => {
+    const long = 'sub-01_task-motor_space-MNI152NLin2009cAsym_desc-zstat1.nii.gz';
+    const row = [
+      pane({ width: 640, height: 700, layerName: long }),
+      pane({ width: 600, height: 560, framePlane: 'coronal', layerName: null }),
+      pane({ width: 560, height: 560, framePlane: 'sagittal', layerName: null }),
+    ];
+    compose([row], { colorbar: { ...zLayer, name: long, nameLabel: long.replace('.nii.gz', '') } as never }, options, {
+      activeColor: '#0f0',
+      activeThickness: 1,
+      activeStyle: 'solid',
+    });
+    expect(texts.length).toBeGreaterThan(5);
+    for (const t of texts) expect(t.text).not.toContain('…');
+    // The colorbar caption names the layer whole (wrapped at its own
+    // boundaries) or not at all: never a fragment.
+    const caption = texts.filter((t) => /sub-01|motor|zstat1/.test(t.text)).map((t) => t.text).join('');
+    expect(caption === '' || caption === long.replace('.nii.gz', '')).toBe(true);
+  });
+
+  // v5 fidelity: the footnote fell below the canvas in short layouts. Every
+  // drawn text box lies inside the canvas, for every target, both widths,
+  // both resolutions, declared and guessed statistics.
+  const box = (t: TextCall) => {
+    const top =
+      t.baseline === 'top'
+        ? t.y
+        : t.baseline === 'middle'
+          ? t.y - t.px / 2
+          : t.baseline === 'bottom'
+            ? t.y - t.px
+            : t.y - t.px * 0.8;
+    return { left: t.left, right: t.right, top, bottom: top + t.px };
+  };
+  const shapes: Record<string, (avail: number, unit: number) => ExportPane[][]> = {
+    axial: (w) => [[pane({ width: w, height: Math.round(w * 1.2) })]],
+    sagittal: (w) => [[pane({ width: w, height: Math.round(w * 0.78), framePlane: 'sagittal' })]],
+    'figure row': (w, unit) => {
+      const each = Math.floor((w - 2 * 4 * unit) / 3);
+      return [[
+        pane({ width: each, height: Math.round(each * 1.2) }),
+        pane({ width: each, height: Math.round(each * 0.95), framePlane: 'coronal', layerName: null }),
+        pane({ width: each, height: Math.round(each * 0.78), framePlane: 'sagittal', layerName: null }),
+      ]];
+    },
+    orthogonal: (w, unit) => {
+      const half = Math.floor((w - 4 * unit) / 2);
+      return [
+        [pane({ width: half, height: Math.round(half * 1.2) })],
+        [
+          pane({ width: half, height: Math.round(half * 0.78), framePlane: 'sagittal', layerName: null }),
+          pane({ width: half, height: Math.round(half * 0.95), framePlane: 'coronal', layerName: null }),
+        ],
+      ];
+    },
+    mosaic: (w, unit) => {
+      const cols = w > 3000 ? 6 : 4;
+      const tile = Math.floor((w - (cols - 1) * 6 * unit) / cols);
+      return Array.from({ length: 2 }, (_, r) =>
+        Array.from({ length: cols }, (_, c) =>
+          pane({ width: tile, height: Math.round(tile * 1.2), layerName: null, tileLabel: { text: `z ${r * cols + c}`, emphasis: false } }),
+        ),
+      );
+    },
+  };
+  const cases: Array<[string, number, number, boolean]> = [];
+  for (const target of Object.keys(shapes))
+    for (const mm of [89, 183])
+      for (const dpi of [300, 600])
+        for (const guessed of [false, true]) cases.push([target, mm, dpi, guessed]);
+  it.each(cases)('all text inside the canvas: %s, %i mm, %i dpi, guessed statistic %s', (target, mm, dpi, guessed) => {
+    const unit = dpi / 96;
+    const total = Math.round((mm / 25.4) * dpi);
+    const gap = target === 'mosaic' ? 6 : 4;
+    // The capture solves panes to the target minus the side column and its gap.
+    const avail = total - SIDE * unit - gap * unit;
+    const layer = guessed ? { ...zLayer, units: 'z*', unitsFromName: true } : zLayer;
+    const comp = compose(
+      shapes[target](avail, unit),
+      { colorbar: layer as never, value: 5.97 },
+      { ...options, unit, targetWidth: total, paneGap: gap },
+      { activeColor: '#0f0', activeThickness: 1, activeStyle: 'solid' },
+    );
+    expect(comp.width).toBe(total);
+    if (guessed) expect(texts.some((t) => t.text.includes('inferred'))).toBe(true);
+    for (const t of texts) {
+      const b = box(t);
+      expect(b.left, `${t.text} left`).toBeGreaterThanOrEqual(-0.5);
+      expect(b.right, `${t.text} right`).toBeLessThanOrEqual(comp.width + 0.5);
+      expect(b.top, `${t.text} top`).toBeGreaterThanOrEqual(-0.5);
+      expect(b.bottom, `${t.text} bottom`).toBeLessThanOrEqual(comp.height + 0.5);
+    }
+  });
 });

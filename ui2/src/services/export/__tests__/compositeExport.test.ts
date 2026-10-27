@@ -182,4 +182,12 @@ describe('composited export (P3.8)', () => {
     expect(parsed.app).toBe('Brainflow');
     expect(parsed.layers).toMatchObject({ truncated: true, count: 5000 });
   });
+
+  it('refuses a figure past the canvas limit before rendering, with a reason (review R5)', async () => {
+    const { compositionFits, ExportTooLargeError } = await import('../compositeCapture');
+    expect(compositionFits(2161, 2080)).toBe(true);
+    expect(compositionFits(4323, 26000)).toBe(false);
+    expect(compositionFits(12000, 12000)).toBe(false);
+    expect(new ExportTooLargeError(4323, 26000).message).toMatch(/4323 × 26000 px.*fewer slices/);
+  });
 });

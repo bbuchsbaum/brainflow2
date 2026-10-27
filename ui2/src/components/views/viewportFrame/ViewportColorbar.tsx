@@ -281,10 +281,20 @@ export function ViewportColorbar({
   // the caret at the bar end, while the "≥ 6" tick stays on the other side.
   const caretLabelTop = caretY === null ? null : labelTop(caretY);
 
+  // Spoken with the long name ("z score, inferred from file name"), never
+  // "z star" (v5 fidelity).
+  const spokenUnits = layer.units ? statisticLongName(layer.units) : null;
+  const spokenVariable = layer.units ? statisticVariable(layer.units) : null;
   const ariaLabel = [
     `Colorbar for ${layer.name}${tag ? ` (${tag})` : ''}: ${cmap.label}`,
-    `${formatRange(wMin, wMax)}${layer.units ? ` ${layer.units}` : ''}`,
-    exprParts ? `${exprParts.join(' ')} hidden` : null,
+    `${formatRange(wMin, wMax)}${spokenUnits ? ` ${spokenUnits}` : ''}`,
+    exprParts
+      ? `${
+          spokenVariable && spokenVariable !== 'value'
+            ? exprParts.join(' ').split(spokenVariable).join(statisticLongName(spokenVariable))
+            : exprParts.join(' ')
+        } hidden`
+      : null,
     valueLabel ? `value at crosshair ${valueLabel}` : null,
   ]
     .filter(Boolean)

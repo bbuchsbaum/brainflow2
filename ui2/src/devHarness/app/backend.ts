@@ -800,7 +800,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       categoricalLuts.set(slot, Uint8Array.from(lutRgb));
       return slot;
     },
-    // save_image_bytes(bytes, suggestedName?, path?) -> written path | null.
+    // save_image_bytes(bytes, suggestedName?) -> written path | null.
     // The harness never shows a native dialog: it "writes" to a fixed fake
     // folder and logs the step. `null` (cancel) can be forced per scenario
     // with setHandler.

@@ -7,11 +7,20 @@
 import { EmptyPane } from '@/components/ui/bf';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
-import { openFileDialog, openFileShortcut, mountDirectoryDialog } from '@/services/fileActions';
+import {
+  openFileDialog,
+  openFileShortcut,
+  mountDirectoryDialog,
+  mountDirectoryShortcut,
+} from '@/services/fileActions';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 
 export function EmptyStackOverlay() {
   const hasVolume = useViewStateStore((s) => s.viewState.layers.some((l) => !!l.volumeId));
   const loading = useLayerStore((s) => s.loadingLayers.size > 0);
+  // The hint names what the user can do now: nothing is in Files until a
+  // directory is mounted (v5 function critic).
+  const mounted = useFileBrowserStore((s) => s.rootPath.trim().length > 0 || s.entries.length > 0);
   if (hasVolume || loading) return null;
   return (
     <div
@@ -20,7 +29,11 @@ export function EmptyStackOverlay() {
     >
       <EmptyPane
         title="No volume loaded"
-        hint="Double-click a file in Files, or drop one on a view."
+        hint={
+          mounted
+            ? 'Double-click a file in Files, or drop one on a view.'
+            : 'Open a file, or mount a directory to browse it in Files.'
+        }
         primary={{
           label: 'Open file…',
           onClick: () => void openFileDialog(),
@@ -30,6 +43,7 @@ export function EmptyStackOverlay() {
         secondary={{
           label: 'Mount directory',
           onClick: () => void mountDirectoryDialog(),
+          shortcut: mountDirectoryShortcut(),
           testId: 'empty-mount-directory',
         }}
       />

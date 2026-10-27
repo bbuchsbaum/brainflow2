@@ -113,6 +113,46 @@ describe('ClusterPanel', () => {
     }
   });
 
+  it('a z map with no display threshold seeds |z| > 3.1 and says so, never 0 (review R7, v5)', () => {
+    seed([0, 0]);
+    render(<ClusterPanel />);
+    expect(screen.getByLabelText('Cluster threshold, absolute z')).toHaveValue(3.1);
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('Default threshold 3.1 (the layer has no display threshold)');
+    fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
+    expect(compute).toHaveBeenCalledWith(expect.objectContaining({ threshold: 3.1 }));
+  });
+
+  it('an F map with no display threshold waits for a value, with the reason as text', () => {
+    seed([0, 0]);
+    const F = { ...Z, kind: 'F' as const, intentCode: 4, label: 'F(2,30)', dof: [2, 30] };
+    useLayerStore.setState((st) => ({
+      layers: st.layers.map((l) => (l.id === 'z' ? { ...l, statistic: F } : l)) as never,
+    }));
+    render(<ClusterPanel />);
+    const button = screen.getByRole('button', { name: 'Compute' });
+    expect(button).toBeDisabled();
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('Enter a threshold');
+    expect(button).toHaveAttribute('aria-describedby', 'cluster-reason');
+  });
+
+  it('a label map selected: "Clusters need a statistical layer", named, and Copy CSV off', () => {
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap_synthetic.nii.gz', table: TABLE, regions: [null, null], computedAt: 0 });
+    useLayerStore.setState((st) => ({
+      layers: [...st.layers, { id: 'atlas', name: 'atlas-synth3_dseg.nii.gz', volumeId: 'atlas', type: 'label', visible: true, order: 2 } as never],
+      selectedLayerId: 'atlas',
+    }));
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [
+        ...state.layers,
+        { id: 'atlas', name: 'atlas', volumeId: 'atlas', visible: true, opacity: 1, colormap: 'gray', intensity: [0, 3], threshold: [0, 0], layerMode: 'label' } as never,
+      ];
+    });
+    render(<ClusterPanel />);
+    expect(screen.getByTestId('cluster-layer')).toHaveTextContent('atlas-synth3_dseg');
+    expect(screen.getByRole('button', { name: 'Compute' })).toHaveAttribute('title', 'Clusters need a statistical layer (a z, t or F map)');
+    expect(screen.getByRole('button', { name: 'Copy CSV' })).toBeDisabled();
+  });
+
   it('disables Compute for an invalid minimum size, without console errors', () => {
     const error = vi.spyOn(console, 'error');
     render(<ClusterPanel />);

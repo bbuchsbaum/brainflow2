@@ -21,15 +21,16 @@ import { looksLikeSegmentation } from '@/utils/labelTable';
 import { inferStatisticFromName } from '@/utils/statistic';
 
 /**
- * Volumes worth checking for a label-table sidecar: label layers (by name or
- * NIfTI label intent) and integer-typed images.
+ * Volumes worth checking for a label-table sidecar: label layers only (a
+ * segmentation name token, or the NIfTI label intent). A plain integer image
+ * is not sniffed: most T1s and BOLD runs are int16 / uint8, and a same-stem
+ * `.txt` of notes must not turn one into a label map (review D3).
  */
 export function mayHaveLabelTable(
   type: Layer['type'],
   handle: Pick<VolumeHandle, 'dtype' | 'is_label_map'>,
 ): boolean {
-  if (type === 'label' || handle.is_label_map) return true;
-  return /^(u?int\d*|[ui]\d+)$/i.test(handle.dtype ?? '');
+  return type === 'label' || handle.is_label_map === true;
 }
 
 /**

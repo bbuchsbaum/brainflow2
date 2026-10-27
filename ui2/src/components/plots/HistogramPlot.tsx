@@ -16,6 +16,7 @@
  * invalidation; React rerenders with new render props from `viewStateStore`).
  */
 
+import { writeLayerDisplayField } from '@/utils/layerDisplayWrite';
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getEventBus } from "@/events/EventBus";
@@ -168,12 +169,8 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
   const handleIntensityChange = useCallback(
     (window: [number, number]) => {
       if (!layerId) return;
-      useViewStateStore.getState().setViewState((state) => {
-        const layers = state.layers.map((l) =>
-          l.id === layerId ? { ...l, intensity: window } : l,
-        );
-        return { ...state, layers };
-      });
+      // Panel-aware in an unlinked Compare (the Inspector's rule).
+      writeLayerDisplayField(layerId, 'intensity', window);
     },
     [layerId],
   );
@@ -181,12 +178,7 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
   const handleThresholdChange = useCallback(
     (threshold: [number, number]) => {
       if (!layerId) return;
-      useViewStateStore.getState().setViewState((state) => {
-        const layers = state.layers.map((l) =>
-          l.id === layerId ? { ...l, threshold } : l,
-        );
-        return { ...state, layers };
-      });
+      writeLayerDisplayField(layerId, 'threshold', threshold);
     },
     [layerId],
   );

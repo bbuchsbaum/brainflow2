@@ -204,13 +204,16 @@ function VolumeRenderRows({
         ? sameStatisticLayerIds(layerId, useWorkspaceStore.getState().activeWorkspaceId)
         : { ids: [], held: [] };
     const sharedRangeIds = shared.ids;
-    if (shared.held.length > 0) {
-      // A panel's own window is kept, and said so (never silently masked).
+    // A panel's own window is kept, and said so (never silently masked):
+    // once per change of what is held, not on every drag event (v5).
+    const heldKey = shared.held.join(", ");
+    if (heldKey && heldKey !== lastHeldNotice) {
       getEventBus().emit("ui.notification", {
         type: "info",
-        message: `Shared window not applied to ${shared.held.join(", ")}: that panel keeps its own window`,
+        message: `Shared window not applied to ${heldKey}: that panel keeps its own window`,
       });
     }
+    if (field === "intensity") lastHeldNotice = heldKey;
     setViewState((draft) => {
       const target = draft.layers.find((l) => l.id === layerId);
       if (!target) return;
@@ -785,6 +788,9 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
 }
 
 // ── linked compare ───────────────────────────────────────────────────────────
+
+/** The last "shared window not applied" notice (announced once per change). */
+let lastHeldNotice = "";
 
 
 const OVERRIDE_FIELDS = new Set<string>(["intensity", "threshold", "colormap"]);

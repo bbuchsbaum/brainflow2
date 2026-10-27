@@ -6,6 +6,7 @@
  * and context menus stay here while viewport mechanics are shared.
  */
 
+import { writeLayerDisplayField } from "@/utils/layerDisplayWrite";
 import React, {
   useRef,
   useCallback,
@@ -108,9 +109,6 @@ function SliceViewCanvasRaw({
   const setCrosshair = useRef(
     useViewStateStore.getState().setCrosshair,
   ).current;
-  const setViewState = useRef(
-    useViewStateStore.getState().setViewState,
-  ).current;
 
   if (!viewPlane) {
     return (
@@ -196,15 +194,10 @@ function SliceViewCanvasRaw({
   const handleWindowLevelUpdate = useCallback(
     (intensity: [number, number]) => {
       if (!primaryLayer?.id) return;
-      const layerId = primaryLayer.id;
-      setViewState((state) => ({
-        ...state,
-        layers: state.layers.map((l) =>
-          l.id === layerId ? { ...l, intensity } : l,
-        ),
-      }));
+      // Panel-aware in an unlinked Compare (the Inspector's rule).
+      writeLayerDisplayField(primaryLayer.id, 'intensity', intensity);
     },
-    [primaryLayer?.id, setViewState],
+    [primaryLayer?.id],
   );
 
   // useWindowLevel hook — attaches to the canvas area div
@@ -267,6 +260,7 @@ function SliceViewCanvasRaw({
   // Slider navigation using the same approach as original SliceView
   const sliceNavService = getSliceNavigationService();
 
+  const snapToVoxelSetting = useCrosshairSettingsStore((s) => s.settings.snapToVoxel);
   // Get min/max/step (only depends on layers, not crosshair)
   const sliderBounds = React.useMemo(() => {
     try {
@@ -295,6 +289,8 @@ function SliceViewCanvasRaw({
     layers,
     axisIndex,
     crosshair.world_mm[axisIndex],
+    // The grid changes with the snapping setting (navigationMetadata).
+    snapToVoxelSetting,
   ]);
 
   // Current slider value mirrors crosshair position for this axis
@@ -444,10 +440,6 @@ function SliceViewCanvasRaw({
   useEffect(() => {
     layersRef.current = layers;
   }, [layers]);
-  const sliderBoundsRef = useRef(sliderBounds);
-  useEffect(() => {
-    sliderBoundsRef.current = sliderBounds;
-  }, [sliderBounds]);
   const showTimeOverlayRef = useRef(showTimeOverlay);
   useEffect(() => {
     showTimeOverlayRef.current = showTimeOverlay;
@@ -472,15 +464,9 @@ function SliceViewCanvasRaw({
             );
           }
         } else {
-          const { min, max, step } = sliderBoundsRef.current;
-          const curr = sliderValueRef.current;
+          // One reference voxel per notch (ten with Shift), always moving.
           const multiplier = event.shiftKey ? 10 : 1;
-          const delta =
-            event.deltaY > 0 ? step * multiplier : -step * multiplier;
-          const next = Math.max(min, Math.min(max, curr + delta));
-          if (!Object.is(next, curr)) {
-            sliceNavService.updateSlicePosition(viewId, next);
-          }
+          sliceNavService.stepSlice(viewId, event.deltaY > 0 ? multiplier : -multiplier);
         }
       },
       50,

@@ -10,6 +10,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { formatLayerValue } from '@/utils/valueFormat';
 import { formatStatisticValue } from '@/utils/statistic';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
+import { isInsideVolume } from '@/hooks/useLayerValueAtWorld';
 
 export const intensityProvider: HoverInfoProvider = {
   id: 'intensity',
@@ -25,6 +26,10 @@ export const intensityProvider: HoverInfoProvider = {
     const { layers, layerMetadata } = useLayerStore.getState();
     const entries = await Promise.all(
       ids.map(async (layerId, index): Promise<HoverInfoEntry | null> => {
+        // Outside a partial-FOV layer there is no value (the backend answers
+        // 0 there): no entry, as the Scene readout shows "—" (review D5).
+        const world = ctx.worldCoord as [number, number, number];
+        if (!isInsideVolume([world[0], world[1], world[2]], layerMetadata.get(layerId))) return null;
         const result = await sampleLayerAtWorld({ layerId, world: ctx.worldCoord });
         if (result.value === null) return null;
         // Name the sampled layer and format like the status bar: precision

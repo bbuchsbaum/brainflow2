@@ -365,7 +365,10 @@ async function sideBar(viewState: ViewState, withValue: boolean): Promise<Export
   let value: number | null = null;
   if (colorbar && withValue) {
     const c = viewState.crosshair.world_mm;
-    value = await sampleLayerValue(colorbar.layerId, [c[0], c[1], c[2]]);
+    // At the layer's current timepoint (the backend samples it): a default
+    // of 0 would cache another timepoint's value under t = 0 (review D4).
+    const timepoint = layers.find((l) => l.id === colorbar.layerId)?.currentTimepoint ?? 0;
+    value = await sampleLayerValue(colorbar.layerId, [c[0], c[1], c[2]], timepoint);
   }
   // The topmost visible label map's regions (beside or below the colorbar).
   const labelLayer = [...viewState.layers]
@@ -416,6 +419,53 @@ export interface CompositeRequest {
   cropToBrain?: boolean;
   /** Montage columns (null: a default for the size). */
   mosaicColumns?: number | null;
+  /** Abandon the capture (a newer preview superseded it): no more renders. */
+  signal?: AbortSignal;
+}
+
+/** Pane renders in flight at once: the backend serialises renders on one
+ * mutex, so more only queues work that blocks the live views (review R3). */
+const PANE_RENDER_CONCURRENCY = 2;
+
+/**
+ * Largest composition: WebKit refuses (late, as "could not be encoded")
+ * canvases past its area limit. Checked before any pane renders (review R5).
+ */
+export const MAX_COMPOSITION_SIDE = 16384;
+export const MAX_COMPOSITION_AREA = 100_000_000;
+
+export class ExportTooLargeError extends Error {
+  constructor(width: number, height: number) {
+    super(
+      `The figure would be ${width} × ${height} px, over the ${MAX_COMPOSITION_AREA / 1e6} megapixel limit: ` +
+        'use fewer slices (a larger step), more columns, a narrower width or 300 dpi.',
+    );
+    this.name = 'ExportTooLargeError';
+  }
+}
+
+/** True when a composition of this size can be drawn. */
+export function compositionFits(width: number, height: number): boolean {
+  return width <= MAX_COMPOSITION_SIDE && height <= MAX_COMPOSITION_SIDE && width * height <= MAX_COMPOSITION_AREA;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new DOMException('Export capture superseded', 'AbortError');
+}
+
+/** Map `items` through `fn` with at most `limit` calls in flight, in order. */
+async function mapBounded<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      out[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 /** Montage columns: the user's choice, else 6 at a 2-column print width, 4 at 1 column, else the screen grid's. */
@@ -602,13 +652,45 @@ export async function captureComposite(
     request.size,
     { unit, paneGap, sideW: hasSide ? SIDEBAR_W * unit + paneGap * unit : 0 },
   );
-  const rows: PaneLayout = await Promise.all(
+  // Size check before any render: too large fails now, with a reason.
+  const planned = compositionSize(
     specRows.map((row, r) =>
-      Promise.all(
-        row.map((p, c) => renderPane(viewState, p, rects[r][c], mmPerPx, frame.background, headerName)),
-      ),
+      row.map((p, c) => {
+        const [w, h] = rectPlane(p.plane, rects[r][c], mmPerPx).dim_px;
+        return { width: w, height: h, tile: !!p.extra?.tileLabel };
+      }),
     ),
+    { unit, header: mosaic ? false : frame.header, colorbar: frame.colorbar, paneGap, targetWidth: printWidthPx(request.size) ?? undefined },
+    !!hasSide,
   );
+  if (!compositionFits(planned.width, planned.height)) throw new ExportTooLargeError(planned.width, planned.height);
+
+  // Pane renders, a few at a time, abandoned as soon as a newer preview
+  // supersedes this one.
+  const flat = specRows.flatMap((row, r) => row.map((p, c) => ({ p, r, c })));
+  const rendered = await mapBounded(flat, PANE_RENDER_CONCURRENCY, async ({ p, r, c }) => {
+    throwIfAborted(request.signal);
+    return renderPane(
+      viewState,
+      p,
+      rects[r][c],
+      mmPerPx,
+      frame.background,
+      // A multi-pane figure names the layer once: in the shared colorbar
+      // caption, or (no colorbar) the first pane's header. Never per pane
+      // (v5: three differently truncated names).
+      flat.length > 1 && (hasSide || r + c > 0) ? null : headerName,
+    );
+  });
+  const closeImages = () => {
+    for (const pane of rendered) (pane.image as Partial<ImageBitmap>).close?.();
+  };
+  if (request.signal?.aborted) {
+    closeImages();
+    throwIfAborted(request.signal);
+  }
+  let k = 0;
+  const rows: PaneLayout = specRows.map((row) => row.map(() => rendered[k++]));
 
   const options: CompositeOptions = {
     ...frame,
@@ -620,7 +702,13 @@ export async function captureComposite(
     // 1052 that integer pane widths can sum to).
     targetWidth: printWidthPx(request.size) ?? undefined,
   };
-  const composition = compose(rows, side, options, settings);
+  let composition: ReturnType<typeof compose>;
+  try {
+    composition = compose(rows, side, options, settings);
+  } finally {
+    // The decoded tiles are drawn: release them (up to ~200 MB at 600 dpi).
+    closeImages();
+  }
   const dpi = request.size.kind === 'print' ? request.size.dpi : null;
   const provenance = request.provenance
     ? await provenanceRecord(viewState, target, label, request, composition)

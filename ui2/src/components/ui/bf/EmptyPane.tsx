@@ -82,8 +82,11 @@ export function EmptyPane({
                 aria-keyshortcuts={ariaKeyShortcut(primary.shortcut)}
               >
                 {primary.label}
+                {/* Shown, not spoken: the shortcut is in aria-keyshortcuts. */}
                 {primary.shortcut ? (
-                  <span className="ml-2 font-mono text-bf-2xs opacity-70">{primary.shortcut}</span>
+                  <span aria-hidden className="ml-2 font-mono text-bf-2xs opacity-70">
+                    {primary.shortcut}
+                  </span>
                 ) : null}
               </Button>
             ) : null}
@@ -98,7 +101,9 @@ export function EmptyPane({
               >
                 {secondary.label}
                 {secondary.shortcut ? (
-                  <span className="ml-2 font-mono text-bf-2xs text-bf-text-muted">{secondary.shortcut}</span>
+                  <span aria-hidden className="ml-2 font-mono text-bf-2xs text-bf-text-muted">
+                    {secondary.shortcut}
+                  </span>
                 ) : null}
               </Button>
             ) : null}

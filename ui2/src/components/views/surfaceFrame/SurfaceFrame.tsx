@@ -12,22 +12,28 @@
  * The frame is pointer-transparent except for its controls, so the camera
  * keeps every drag.
  */
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SegmentedControl } from '@/components/ui/bf';
 import { useSurfaceStore, type LoadedSurface } from '@/stores/surfaceStore';
 import { ViewportColorbar } from '../viewportFrame/ViewportColorbar';
 import { surfaceColorbarLayer } from './surfaceColorbar';
 import { shortLayerLabel } from '../viewportFrame/frameFormat';
 
-// Full words: "L" means left elsewhere in the app (orientation letters).
+// Full words where they fit ("L" means left elsewhere in the app); in a
+// narrow pane single letters, the full word in the tooltip and accessible
+// name (v5 critics: the words covered the header at 1280).
 const CAMERA_PRESETS = [
-  { value: 'lateral', label: 'Lateral', title: 'View from the lateral side' },
-  { value: 'medial', label: 'Medial', title: 'View from the medial side' },
-  { value: 'dorsal', label: 'Dorsal', title: 'View from above' },
-  { value: 'ventral', label: 'Ventral', title: 'View from below' },
-  { value: 'anterior', label: 'Anterior', title: 'View from the front' },
-  { value: 'posterior', label: 'Posterior', title: 'View from the back' },
+  { value: 'lateral', word: 'Lateral', letter: 'L', title: 'View from the lateral side' },
+  { value: 'medial', word: 'Medial', letter: 'M', title: 'View from the medial side' },
+  { value: 'dorsal', word: 'Dorsal', letter: 'D', title: 'View from above' },
+  { value: 'ventral', word: 'Ventral', letter: 'V', title: 'View from below' },
+  { value: 'anterior', word: 'Anterior', letter: 'A', title: 'View from the front' },
+  { value: 'posterior', word: 'Posterior', letter: 'P', title: 'View from the back' },
 ] as const;
+
+/** Below this pane width the presets show letters and the colorbar moves down. */
+const SURFACE_FRAME_NARROW_PX = 560;
+const FRAME_GAP_PX = 12;
 
 const SCRIM = 'bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)]';
 
@@ -44,6 +50,36 @@ export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFr
   const setViewpoint = useSurfaceStore((s) => s.setViewpoint);
   const reapplyViewpoint = useSurfaceStore((s) => s.reapplyViewpoint);
   const [open, setOpen] = useState(false);
+  const narrow = width < SURFACE_FRAME_NARROW_PX;
+  // The initial view needs the hemisphere (lateral is -x for left, +x for
+  // right): without it no preset is shown as applied; a press still sets one.
+  const hemisphere = String(surface.metadata.hemisphere ?? surface.geometry.hemisphere ?? '').toLowerCase();
+  const knownHemisphere = ['left', 'right', 'lh', 'rh', 'l', 'r'].includes(hemisphere);
+  const presetOptions = useMemo(
+    () =>
+      CAMERA_PRESETS.map((p) =>
+        narrow
+          ? { value: p.value, label: p.letter, title: `${p.word}: ${p.title.toLowerCase()}`, 'aria-label': p.word }
+          : { value: p.value, label: p.word, title: p.title },
+      ),
+    [narrow],
+  );
+  // One width budget for the header row: the header gets what the presets
+  // leave (measured), so the two never overlap.
+  const presetsRef = useRef<HTMLDivElement>(null);
+  const [presetsWidth, setPresetsWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = presetsRef.current;
+    if (!el) return;
+    const measure = () => setPresetsWidth(Math.ceil(el.getBoundingClientRect().width));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [narrow]);
+  const headerMaxWidth = Math.max(80, width - presetsWidth - FRAME_GAP_PX - 12);
+  const bottomBand = Math.max(120, Math.round(height * 0.3));
   const colorbar = useMemo(() => surfaceColorbarLayer(surface), [surface]);
   const overlayName = colorbar?.name ?? null;
   const parts = ['Surface', surface.metadata.hemisphere, surface.metadata.surfaceType].filter(
@@ -54,8 +90,8 @@ export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFr
     <div className="pointer-events-none absolute inset-0" data-testid="surface-frame">
       {/* Header band */}
       <div
-        className={`absolute left-1.5 z-10 flex max-w-[60%] select-none flex-col gap-0.5 rounded-bf-xs ${SCRIM} px-1 text-bf-xs text-bf-text-secondary`}
-        style={{ top: topInset + 4 }}
+        className={`absolute left-1.5 z-10 flex select-none flex-col gap-0.5 rounded-bf-xs ${SCRIM} px-1 text-bf-xs text-bf-text-secondary`}
+        style={{ top: topInset + 4, maxWidth: headerMaxWidth }}
         data-testid="surface-frame-header"
       >
         <div className="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
@@ -95,11 +131,16 @@ export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFr
       </div>
 
       {/* Camera presets: the slice frame's top-right corner slot. */}
-      <div className="pointer-events-auto absolute right-1.5 z-10" style={{ top: topInset + 4 }}>
+      <div
+        ref={presetsRef}
+        className="pointer-events-auto absolute right-1.5 z-10"
+        style={{ top: topInset + 4 }}
+        data-testid="surface-camera-presets-slot"
+      >
         <SegmentedControl
           aria-label="Camera"
-          options={CAMERA_PRESETS}
-          value={viewpoint}
+          options={presetOptions}
+          value={knownHemisphere ? viewpoint : ''}
           onValueChange={(v) => setViewpoint(v)}
           // Pressing the checked preset again (after an orbit) re-applies it.
           onReselect={() => reapplyViewpoint()}
@@ -109,14 +150,28 @@ export function SurfaceFrame({ surface, width, height, topInset = 0 }: SurfaceFr
 
       {/* Overlay colorbar: right edge, the slice panes' component. */}
       {colorbar ? (
-        <ViewportColorbar
-          layer={colorbar}
-          width={width}
-          height={height}
-          topReserve={topInset + 32}
-          // Top-right under the camera presets, off the mesh.
-          corner="top"
-        />
+        narrow ? (
+          // Narrow: the mesh fills the pane's width, so the bar lives in a
+          // bottom band (below a lateral / medial view) at the right.
+          // (The bottom-corner bar takes at most half its area's height,
+          // so the area is twice the band: the bar stays in the band.)
+          <div
+            className="absolute inset-x-0 bottom-0"
+            style={{ height: 2 * bottomBand }}
+            data-testid="surface-colorbar-band"
+          >
+            <ViewportColorbar layer={colorbar} width={width} height={2 * bottomBand} />
+          </div>
+        ) : (
+          <ViewportColorbar
+            layer={colorbar}
+            width={width}
+            height={height}
+            topReserve={topInset + 32}
+            // Top-right under the camera presets, off the mesh.
+            corner="top"
+          />
+        )
       ) : null}
     </div>
   );

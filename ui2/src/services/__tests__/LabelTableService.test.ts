@@ -163,3 +163,46 @@ describe('applyLabelDisplayDefault', () => {
     expect(useViewStateStore.getState().viewState.layers[0].labelDisplay).toBeUndefined();
   });
 });
+
+describe('LabelColormapPool (review D2: slots are reused and released)', () => {
+  it('shares a key between layers of the same table and recycles it after the last one goes', async () => {
+    const { LabelColormapPool } = await import('../LabelTableService');
+    const pool = new LabelColormapPool();
+    expect(pool.acquire('a', 'label_ids|5')).toBe('label_ids|5');
+    expect(pool.acquire('b', 'label_ids|5')).toBe('label_ids|5');
+    pool.release('a');
+    // Still held by b: a new table takes a new slot.
+    expect(pool.acquire('c', 'label_table|/x.tsv')).toBe('label_table|/x.tsv');
+    pool.release('b');
+    // label_ids|5 is free now: the next new table reuses that slot.
+    expect(pool.acquire('d', 'label_table|/y.tsv')).toBe('label_ids|5');
+    expect(pool.slotsTaken).toBe(2);
+  });
+
+  it('a long session of load / unload never takes more slots than are live at once', async () => {
+    const { LabelColormapPool } = await import('../LabelTableService');
+    const pool = new LabelColormapPool();
+    for (let i = 0; i < 500; i += 1) {
+      pool.acquire(`layer-${i}`, `label_table|/study/atlas-${i}.tsv`);
+      pool.release(`layer-${i}`);
+    }
+    expect(pool.slotsTaken).toBe(1);
+  });
+
+  it('generated palettes are keyed by the label range only (shared across layers)', async () => {
+    const transport = transportWith({});
+    const service = new LabelTableService(transport);
+    useLayerStore.setState({
+      layers: [
+        { id: 'l1', name: 'l1', volumeId: 'l1', type: 'volume', visible: true, order: 0 },
+        { id: 'l2', name: 'l2', volumeId: 'l2', type: 'volume', visible: true, order: 1 },
+      ] as never,
+    });
+    await service.applyGeneratedPalette('l1', 7);
+    await service.applyGeneratedPalette('l2', 7);
+    const keys = transport.invoke.mock.calls
+      .filter(([cmd]) => cmd === 'register_categorical_colormap')
+      .map(([, args]) => (args as { key: string }).key);
+    expect(keys).toEqual(['label_ids|7', 'label_ids|7']);
+  });
+});

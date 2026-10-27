@@ -19,6 +19,7 @@ import type {
   VoxelLocation,
 } from '@brainflow/api';
 import { getTransport, type BackendTransport } from './transport';
+import { getEventBus } from '@/events/EventBus';
 import { useClusterStore, type ClusterConnectivity } from '@/stores/clusterStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -43,6 +44,8 @@ export interface ComputeClustersInput {
 
 /** Region lookups at cluster peaks are sampled; cap them for very long tables. */
 const MAX_REGION_LOOKUPS = 200;
+/** Region lookups in flight at once while a table is computed. */
+const REGION_LOOKUP_CONCURRENCY = 8;
 
 export class ClusterService {
   private transport: BackendTransport | null;
@@ -106,28 +109,44 @@ export class ClusterService {
     }
   }
 
-  /** Atlas/label region at each peak ("—" in the table when null). */
+  /**
+   * Atlas/label region at each peak ("—" in the table when null), at most
+   * REGION_LOOKUP_CONCURRENCY lookups in flight (not one IPC per cluster at
+   * once; review R6).
+   */
   private async regionsAtPeaks(table: ClusterTable): Promise<Array<string | null>> {
-    return Promise.all(
-      table.clusters.map(async (cluster, index) => {
-        if (index >= MAX_REGION_LOOKUPS) return null;
+    const clusters = table.clusters.slice(0, MAX_REGION_LOOKUPS);
+    const out: Array<string | null> = table.clusters.map(() => null);
+    let next = 0;
+    const worker = async () => {
+      while (next < clusters.length) {
+        const index = next;
+        next += 1;
         try {
-          const hit = await resolveAtlasRegionAtWorld(cluster.peakMm);
-          return hit ? formatRegionLabel(hit.entry) : null;
+          const hit = await resolveAtlasRegionAtWorld(clusters[index].peakMm);
+          out[index] = hit ? formatRegionLabel(hit.entry) : null;
         } catch {
-          return null;
+          out[index] = null;
         }
-      }),
-    );
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(REGION_LOOKUP_CONCURRENCY, clusters.length) }, worker));
+    return out;
   }
 
-  /** Select a row and move the crosshair to its peak (snapped like any placement). */
+  /**
+   * Select a row and move the crosshair to its peak voxel exactly. Peak and
+   * extremum moves are NOT snapped: they are explicit requests for one voxel
+   * of the statistic layer, and snapping to a coarser reference grid (a 1 mm
+   * map over a 2 mm base) would land in a neighbouring voxel, so the readout
+   * would contradict "Moved to max z 5.97" (review R2).
+   */
   async selectCluster(id: number): Promise<void> {
     const { result, select } = useClusterStore.getState();
     const cluster = result?.table.clusters.find((c) => c.id === id);
     if (!cluster) return;
     select(id);
-    await useViewStateStore.getState().setCrosshair([...cluster.peakMm], true);
+    await useViewStateStore.getState().setCrosshair([...cluster.peakMm], true, false, undefined, { snap: false });
   }
 
   /** Location of the max / min voxel of a layer (null when it has no finite value). */
@@ -145,7 +164,8 @@ export class ClusterService {
   async goToExtremum(layerId: string, kind: ExtremumKind): Promise<VoxelLocation | null> {
     const location = await this.extremum(layerId, kind);
     if (location) {
-      await useViewStateStore.getState().setCrosshair([...location.worldMm], true);
+      // Exact, not snapped (see selectCluster).
+      await useViewStateStore.getState().setCrosshair([...location.worldMm], true, false, undefined, { snap: false });
       const { result, select } = useClusterStore.getState();
       if (result?.layerId === layerId) {
         const hit = result.table.clusters.find(
@@ -268,12 +288,26 @@ export function displayThresholdMagnitude(
 ): number | null {
   if (!threshold) return null;
   const t = Math.max(Math.abs(threshold[0]), Math.abs(threshold[1]));
-  return Number.isFinite(t) ? t : null;
+  // [0, 0] is "no threshold", not a threshold of 0 (review R7).
+  return Number.isFinite(t) && t > 0 ? t : null;
 }
 
 let instance: ClusterService | null = null;
 
 export const getClusterService = (): ClusterService => {
-  instance ??= new ClusterService();
+  if (!instance) {
+    instance = new ClusterService();
+    getEventBus().on('layer.removed', ({ layerId }) => clearResultForRemovedLayer(layerId));
+  }
   return instance;
 };
+
+/**
+ * A table whose layer is gone is cleared (rows would navigate to peaks of a
+ * layer that no longer exists; review R8). The parameters are kept.
+ */
+export function clearResultForRemovedLayer(layerId: string): void {
+  const state = useClusterStore.getState();
+  if (state.result?.layerId !== layerId) return;
+  useClusterStore.setState({ status: 'idle', result: null, error: null, selectedId: null });
+}

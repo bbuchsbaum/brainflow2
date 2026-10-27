@@ -15,7 +15,7 @@ import { SliceSlider } from '@/components/ui/SliceSlider';
 import { Link2, Unlink2, X } from 'lucide-react';
 import { IconButton, Select } from '@/components/ui/bf';
 import { useLayerStore } from '@/stores/layerStore';
-import { sliceRangeForMetadata } from '@/services/SliceNavigationService';
+import { navigationSliceRange } from '@/services/SliceNavigationService';
 import { useLayerValueAtWorld } from '@/hooks/useLayerValueAtWorld';
 import { useStatusReadoutStore } from '@/stores/statusReadoutStore';
 import { formatLayerValue } from '@/utils/valueFormat';
@@ -285,9 +285,14 @@ export function ComparisonPanel({
 
   // Rail scrubber: the panel layer's grid along the panel's slice axis.
   const axis = PLANE_AXIS_INDEX[panel.viewType];
+  // With snapping on, the snapping reference's grid (one shared rule with
+  // the orthogonal views), so the rail never asks for a slice the snap
+  // rounds back.
+  const snapToVoxel = useCrosshairSettingsStore((s) => s.settings.snapToVoxel);
   const sliceRange = useMemo(
-    () => sliceRangeForMetadata(panelMetadata, axis, crosshair.world_mm[axis]),
-    [panelMetadata, axis, crosshair.world_mm],
+    () => navigationSliceRange(axis, crosshair.world_mm[axis], panelMetadata),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [panelMetadata, axis, crosshair.world_mm, snapToVoxel],
   );
   const handleSliderChange = useCallback(
     (value: number) => {

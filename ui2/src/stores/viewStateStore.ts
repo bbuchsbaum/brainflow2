@@ -131,6 +131,11 @@ interface ViewStateStore {
     updateViews?: boolean,
     immediate?: boolean,
     workspaceId?: string,
+    /**
+     * `snap: false` places the crosshair exactly (an explicit go-to-peak on
+     * a layer finer than the snapping reference); default: snapped.
+     */
+    options?: { snap?: boolean },
   ) => Promise<void>;
   setCrosshairVisible: (visible: boolean) => void;
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
@@ -249,6 +254,7 @@ const createViewStateStore = () =>
               updateViews = false,
               immediate = false,
               workspaceId,
+              options,
             ) => {
               storeLog("viewStateStore", "setCrosshair called with:", {
                 position,
@@ -270,7 +276,7 @@ const createViewStateStore = () =>
               // picks) lands on the nearest voxel centre of the reference grid
               // (see utils/voxelSnap.ts). Click-to-world mapping is untouched;
               // the snap is applied here, after it.
-              position = snapCrosshairToVoxelGrid(position);
+              if (options?.snap !== false) position = snapCrosshairToVoxelGrid(position);
 
               const currentState = get();
               const workspaceKey = workspaceId && currentState.workspaceViewStates.has(workspaceId)

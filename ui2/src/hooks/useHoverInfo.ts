@@ -51,8 +51,6 @@ export interface UseHoverInfoResult {
   handleMouseMove: (event: React.MouseEvent) => void;
   /** Call this on mouse leave */
   handleMouseLeave: () => void;
-  /** Current intensity value for in-canvas overlay (null if not available) */
-  hoverValue: number | null;
   /** All current hover entries (for custom rendering) */
   hoverEntries: HoverInfoEntry[];
 }
@@ -92,7 +90,6 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   }, [layerIds]);
 
   // Local state for in-canvas hover overlay
-  const [hoverValue, setHoverValue] = useState<number | null>(null);
   const [hoverEntries, setHoverEntries] = useState<HoverInfoEntry[]>([]);
 
   // Get throttle setting
@@ -122,7 +119,6 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   }, [enabled]);
 
   const clearHoverState = useCallback(() => {
-    setHoverValue(null);
     setHoverEntries([]);
 
     const mouseStore = useMouseCoordinateStore.getState();
@@ -213,23 +209,6 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
             });
           }
 
-          const intensityEntry = entries.find(
-            (e) => e.group === "intensity" || e.label === "Value",
-          );
-          if (intensityEntry) {
-            const value = parseFloat(intensityEntry.value);
-            setHoverValue((prev) =>
-              Number.isFinite(value) &&
-              prev !== null &&
-              Math.abs(prev - value) < 1e-6
-                ? prev
-                : Number.isFinite(value)
-                  ? value
-                  : null,
-            );
-          } else {
-            setHoverValue(null);
-          }
         } catch (err) {
           console.error("[useHoverInfo] Error handling mouse move:", err);
           clearHoverState();
@@ -274,7 +253,6 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   return {
     handleMouseMove,
     handleMouseLeave,
-    hoverValue,
     hoverEntries,
   };
 }

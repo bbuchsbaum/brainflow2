@@ -70,10 +70,9 @@ describe('useHoverInfo', () => {
   });
 
   describe('initialization', () => {
-    it('returns initial state with null hoverValue and empty entries', () => {
+    it('returns initial state with empty entries', () => {
       const { result } = renderHook(() => useHoverInfo(defaultOptions));
 
-      expect(result.current.hoverValue).toBeNull();
       expect(result.current.hoverEntries).toEqual([]);
     });
 
@@ -97,7 +96,6 @@ describe('useHoverInfo', () => {
         await new Promise((r) => setTimeout(r, 100));
       });
 
-      expect(result.current.hoverValue).toBeNull();
       expect(result.current.hoverEntries).toEqual([]);
       expect(provider?.getInfo).not.toHaveBeenCalled();
       // P3.6: the status Mouse slot and the per-layer readout follow the
@@ -147,20 +145,6 @@ describe('useHoverInfo', () => {
       });
     });
 
-    it('extracts numeric hoverValue from intensity entry', async () => {
-      const { result } = renderHook(() => useHoverInfo(defaultOptions));
-      const event = createMockMouseEvent(100, 100);
-
-      await act(async () => {
-        result.current.handleMouseMove(event);
-        await new Promise((r) => setTimeout(r, 100));
-      });
-
-      await waitFor(() => {
-        expect(result.current.hoverValue).toBe(42);
-      });
-    });
-
     it('clears state when canvasToWorld returns null', async () => {
       const canvasToWorld = vi.fn(() => null);
       const { result } = renderHook(() =>
@@ -183,7 +167,6 @@ describe('useHoverInfo', () => {
         await new Promise((r) => setTimeout(r, 100));
       });
 
-      expect(result.current.hoverValue).toBeNull();
       expect(result.current.hoverEntries).toEqual([]);
     });
 
@@ -262,7 +245,7 @@ describe('useHoverInfo', () => {
   });
 
   describe('handleMouseLeave', () => {
-    it('clears hoverValue and hoverEntries', async () => {
+    it('clears hoverEntries', async () => {
       const { result } = renderHook(() => useHoverInfo(defaultOptions));
 
       // First trigger a hover
@@ -276,7 +259,6 @@ describe('useHoverInfo', () => {
         result.current.handleMouseLeave();
       });
 
-      expect(result.current.hoverValue).toBeNull();
       expect(result.current.hoverEntries).toEqual([]);
     });
 
@@ -381,14 +363,13 @@ describe('useHoverInfo', () => {
       });
 
       await waitFor(() => {
-        expect(result.current.hoverValue).toBe(42);
+        expect(result.current.hoverEntries.length).toBeGreaterThan(0);
       });
 
       rerender({ ...defaultOptions, enabled: false });
 
       await waitFor(() => {
-        expect(result.current.hoverValue).toBeNull();
-        expect(result.current.hoverEntries).toEqual([]);
+          expect(result.current.hoverEntries).toEqual([]);
         expect(useStatusBarStore.getState().values.mouse).toBe('--');
         expect(useStatusBarStore.getState().values.value).toBe('--');
         expect(useTooltipStore.getState().tooltip).toBeNull();
@@ -412,7 +393,6 @@ describe('useHoverInfo', () => {
         await new Promise((r) => setTimeout(r, 100));
       });
 
-      expect(result.current.hoverValue).toBeNull();
       expect(result.current.hoverEntries).toEqual([]);
       expect(consoleSpy).toHaveBeenCalled();
 

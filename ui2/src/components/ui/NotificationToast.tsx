@@ -90,8 +90,25 @@ function useMiddleFit(text: string, el: React.RefObject<HTMLElement | null>): st
 
 export function NotificationToast() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // While the message list is open, nothing expires out from under it (the
+  // popover would vanish and drop focus to <body>, v5 function critic):
+  // expiries wait and apply when it closes.
+  const openRef = useRef(false);
+  const deferredExpiry = useRef(new Set<string>());
+  const expire = (id: string) => {
+    if (openRef.current) {
+      deferredExpiry.current.add(id);
+      return;
+    }
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
 
-  useEvent('ui.notification.clear', () => setNotifications([]));
+  useEvent('ui.notification.clear', () => {
+    const wasOpen = openRef.current;
+    setNotifications([]);
+    // Forced closed (all cleared): focus goes somewhere useful.
+    if (wasOpen) focusFallback(['[data-testid="status-diagnostics-trigger"]']);
+  });
 
   useEvent('ui.notification', ({ type, message, durationMs }) => {
     const notification: Notification = { id: `toast-${(nextNotificationId += 1)}`, type, message };
@@ -108,9 +125,7 @@ export function NotificationToast() {
     });
     // Errors wait for the user; the rest expire.
     if (type !== 'error') {
-      setTimeout(() => {
-        setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
-      }, durationMs ?? DEFAULT_DURATION_MS);
+      setTimeout(() => expire(notification.id), durationMs ?? DEFAULT_DURATION_MS);
     }
   });
 
@@ -118,15 +133,29 @@ export function NotificationToast() {
   const earlier = notifications.length - 1;
   const textRef = useRef<HTMLSpanElement>(null);
   const shown = useMiddleFit(current?.message ?? '', textRef);
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    openRef.current = next;
+    setOpenState(next);
+    if (!next && deferredExpiry.current.size > 0) {
+      const ids = new Set(deferredExpiry.current);
+      deferredExpiry.current.clear();
+      setNotifications((prev) => prev.filter((n) => !ids.has(n.id)));
+    }
+  };
   useEffect(() => {
-    if (!current) setOpen(false);
+    if (!current && openRef.current) {
+      openRef.current = false;
+      setOpenState(false);
+    }
   }, [current]);
 
   // Keep the live region mounted so the first message is announced.
   const [announced, setAnnounced] = useState('');
+  // Errors are announced once, by their alert; the polite region carries
+  // the rest (v5: errors were read twice).
   useEffect(() => {
-    if (current) setAnnounced(current.message);
+    if (current && current.type !== 'error') setAnnounced(current.message);
   }, [current]);
 
   return (

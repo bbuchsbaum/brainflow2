@@ -25,11 +25,12 @@ describe('defaultCrosshairWorld', () => {
 });
 
 describe('mayHaveLabelTable', () => {
-  it('checks label layers, label intents and integer images only', () => {
+  it('checks label layers and label intents only, never a plain integer image (review D3)', () => {
     expect(mayHaveLabelTable('label', { dtype: 'f32' })).toBe(true);
-    expect(mayHaveLabelTable('volume', { dtype: 'u8' })).toBe(true);
-    expect(mayHaveLabelTable('volume', { dtype: 'i16' })).toBe(true);
+    expect(mayHaveLabelTable('volume', { dtype: 'i16', is_label_map: true })).toBe(true);
+    // An int16 T1 or uint8 BOLD run is not sniffed for a sidecar.
+    expect(mayHaveLabelTable('volume', { dtype: 'u8' })).toBe(false);
+    expect(mayHaveLabelTable('volume', { dtype: 'i16' })).toBe(false);
     expect(mayHaveLabelTable('volume', { dtype: 'f32' })).toBe(false);
-    expect(mayHaveLabelTable('volume', { dtype: 'f64' })).toBe(false);
   });
 });

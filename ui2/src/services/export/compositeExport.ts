@@ -428,18 +428,11 @@ function drawHeaderBand(
       ctx.font = p.font;
       return sum + ctx.measureText(p.text).width + (i > 0 ? (p.gap ?? gap) : 0);
     }, 0);
-  // The band spans the pane: the layer name gets what is left, middle-
-  // truncated (never clipped to a stub; dropped below 8 characters).
+  // The layer name, whole or not at all: a figure never prints an
+  // ellipsized name (v5 critics).
   if (pane.layerName) {
-    const label = shortLayerLabel(pane.layerName);
-    for (let chars = label.length; chars >= 8; chars -= 1) {
-      const text = middleTruncate(label, chars, 8) ?? label;
-      const candidate = [...parts, { text, font: font(px, SANS), color: theme.muted }];
-      if (measure(candidate) <= pane.width - EDGE_INSET * u) {
-        parts.push(candidate[candidate.length - 1]);
-        break;
-      }
-    }
+    const candidate = [...parts, { text: shortLayerLabel(pane.layerName), font: font(px, SANS), color: theme.muted }];
+    if (measure(candidate) <= pane.width - EDGE_INSET * u) parts.push(candidate[candidate.length - 1]);
   }
   if (measure(parts) > pane.width - EDGE_INSET * u) parts.shift();
   ctx.textBaseline = 'middle';
@@ -501,6 +494,64 @@ function measureRuns(
   }, 0);
 }
 
+/** Smallest bar the export draws (CSS px at 96 dpi). */
+const MIN_EXPORT_BAR = 60;
+
+interface ColorbarBlockLayout {
+  prefix: string;
+  nameInline: boolean;
+  nameLines: string[];
+  /** Space above the bar: caption (and name lines). */
+  headroom: number;
+  footerTwoLines: boolean;
+  noteLines: string[];
+  /** Space below the bar: footer lines, then the inferred-statistic note. */
+  footBlock: number;
+}
+
+/**
+ * The colorbar block's text, measured once: drawing and the composition's
+ * height both use it, so the canvas always holds the whole block, footnote
+ * included (v5 fidelity: "z* inferred from file name" fell below the canvas
+ * in figure rows and short panes).
+ */
+function colorbarBlockLayout(ctx: CanvasRenderingContext2D, side: ExportSideBar, u: number): ColorbarBlockLayout {
+  const layer = side.colorbar!;
+  const block = colorbarBlockModel(layer);
+  const labelPx = ptToPx(TEXT_PT.label, u);
+  const tickPx = ptToPx(TEXT_PT.tick, u);
+  const colW = SIDEBAR_W * u;
+  const caretRoom = side.value != null ? 30 * u : 4 * u;
+  const room = colW - caretRoom - 2 * u;
+  ctx.save();
+  ctx.font = font(labelPx, SANS);
+  const symbolW = measureRuns(ctx, block.symbol, labelPx);
+  const prefix = block.symbol.length ? ' · ' : '';
+  ctx.font = font(labelPx, SANS);
+  const nameInline = !!block.name && symbolW + ctx.measureText(prefix + block.name).width <= room;
+  const nameLines = block.name && !nameInline ? wrapAtBoundaries(ctx, block.name, room, 2) : [];
+  const footerTwoLines = block.footer.length > 0 && measureRuns(ctx, block.footer, tickPx) > colW - caretRoom;
+  const note = inferredStatisticNote(layer.units);
+  ctx.font = font(tickPx, SANS);
+  const noteLines = note ? wrapWords(ctx, note, colW - caretRoom) : [];
+  ctx.restore();
+  const lineH = labelPx * 1.25;
+  const headroom = labelPx * 2 + nameLines.length * lineH;
+  const footerLines = block.footer.length ? (footerTwoLines ? 2 : 1) : 0;
+  const footBlock =
+    6 * u + footerLines * tickPx * 1.4 + (noteLines.length ? 2 * u + noteLines.length * tickPx * 1.3 : 0) + 4 * u;
+  return { prefix, nameInline, nameLines, headroom, footerTwoLines, noteLines, footBlock };
+}
+
+/** Height the side column needs (colorbar block, and a legend below it). */
+export function sideColumnMinHeight(ctx: CanvasRenderingContext2D, side: ExportSideBar, u: number): number {
+  if (!side.colorbar) return 0;
+  const l = colorbarBlockLayout(ctx, side, u);
+  const block = l.headroom + MIN_EXPORT_BAR * u + l.footBlock;
+  // With a legend the colorbar gets the top 60% of the column.
+  return side.legend && side.legend.length > 0 ? block / 0.6 : block;
+}
+
 function drawColorbar(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -514,13 +565,19 @@ function drawColorbar(
   const block = colorbarBlockModel(layer);
   const labelPx = ptToPx(TEXT_PT.label, u);
   const tickPx = ptToPx(TEXT_PT.tick, u);
-  const colW = SIDEBAR_W * u;
-  const barH = Math.max(24 * u, Math.min(MAX_BAR_H * u, height - 4 * labelPx - 16 * u));
-  const top = y + Math.max(labelPx * 2, (height - barH) / 2);
   const caretRoom = side.value != null ? 30 * u : 4 * u;
   const barX = x + caretRoom;
   const [wMin, wMax] = layer.intensity;
-  const room = x + colW - barX - 2 * u;
+  // The layer name, never ellipsized (v5 critics): beside the symbol when it
+  // fits, else whole on its own line(s) above, wrapped at name boundaries
+  // (_ - .); a name that needs more than two lines is left to the file name.
+  // The bar takes what the caption above and the footer below leave.
+  const layout = colorbarBlockLayout(ctx, side, u);
+  const { prefix, nameInline, nameLines } = layout;
+  const lineH = labelPx * 1.25;
+  const free = height - layout.headroom - layout.footBlock;
+  const barH = Math.max(24 * u, Math.min(MAX_BAR_H * u, free));
+  const top = y + layout.headroom + Math.max(0, (free - barH) / 2);
 
   ctx.save();
   // Caption: the statistic symbol; the layer name only when it fits whole
@@ -530,19 +587,15 @@ function drawColorbar(
   // Clear of the top tick label, which is centred on the bar's top edge.
   const captionY = top - tickPx / 2 - 5 * u;
   const symbolRuns = block.symbol;
-  let cx = barX + drawRuns(ctx, symbolRuns, barX, captionY, labelPx);
-  if (block.name) {
-    const prefix = symbolRuns.length ? ' · ' : '';
-    ctx.font = font(labelPx, SANS);
-    for (let chars = block.name.length; chars >= 8; chars -= 1) {
-      const text = prefix + (middleTruncate(block.name, chars, 8) ?? block.name);
-      if (ctx.measureText(text).width <= room - (cx - barX)) {
-        ctx.fillStyle = theme.muted;
-        ctx.fillText(text, cx, captionY);
-        cx += ctx.measureText(text).width;
-        break;
-      }
-    }
+  const cx = barX + drawRuns(ctx, symbolRuns, barX, captionY, labelPx);
+  ctx.font = font(labelPx, SANS);
+  ctx.fillStyle = theme.muted;
+  if (nameInline && block.name) {
+    ctx.fillText(prefix + block.name, cx, captionY);
+  } else {
+    nameLines.forEach((line, i) =>
+      ctx.fillText(line, barX, captionY - (nameLines.length - i) * lineH),
+    );
   }
 
   // Bar: the colormap gradient, min at the bottom.
@@ -613,7 +666,7 @@ function drawColorbar(
     ctx.textBaseline = 'top';
     ctx.fillStyle = theme.muted;
     const fy = top + barH + 6 * u;
-    if (measureRuns(ctx, block.footer, tickPx) <= colW - (barX - x)) {
+    if (!layout.footerTwoLines) {
       drawRuns(ctx, block.footer, barX, fy, tickPx);
     } else {
       // Too narrow for one line: expression, then "hidden".
@@ -625,17 +678,14 @@ function drawColorbar(
 
   // A statistic guessed from the file name is explained on the figure: on
   // paper "z*" usually means a critical value (v4 fidelity critic).
-  const note = inferredStatisticNote(layer.units);
-  if (note) {
-    const lines = block.footer.length ? 2 : 0;
+  if (layout.noteLines.length) {
+    const lines = block.footer.length ? (layout.footerTwoLines ? 2 : 1) : 0;
     const ny = top + barH + 6 * u + lines * tickPx * 1.4 + 2 * u;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillStyle = theme.muted;
     ctx.font = font(tickPx, SANS);
-    wrapWords(ctx, note, colW - (barX - x)).forEach((line, i) =>
-      ctx.fillText(line, barX, ny + i * tickPx * 1.3),
-    );
+    layout.noteLines.forEach((line, i) => ctx.fillText(line, barX, ny + i * tickPx * 1.3));
   }
   ctx.restore();
 }
@@ -643,6 +693,29 @@ function drawColorbar(
 /** "z* inferred from file name" for a guessed statistic, else null. */
 export function inferredStatisticNote(units: string | null | undefined): string | null {
   return units && units.endsWith(INFERRED_MARK) ? `${units} inferred from file name` : null;
+}
+
+/**
+ * A name broken at its own boundaries (after _ - . or a space) into at most
+ * `maxLines` lines of `width`; [] when it does not fit whole that way.
+ */
+function wrapAtBoundaries(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  width: number,
+  maxLines: number,
+): string[] {
+  const pieces = text.match(/[^_\-.\s]+[_\-.\s]*/g) ?? [text];
+  const lines: string[] = [];
+  let line = '';
+  for (const piece of pieces) {
+    if (line && ctx.measureText(line + piece).width > width) {
+      lines.push(line);
+      line = piece;
+    } else line += piece;
+  }
+  if (line) lines.push(line);
+  return lines.length <= maxLines && lines.every((l) => ctx.measureText(l).width <= width) ? lines : [];
 }
 
 /** Greedy word wrap to `width` with the context's current font. */
@@ -709,6 +782,8 @@ export function compositionSize(
   rows: Array<Array<{ width: number; height: number; tile?: boolean }>>,
   options: Pick<CompositeOptions, 'unit' | 'header' | 'colorbar' | 'paneGap' | 'targetWidth'>,
   hasSide: boolean,
+  /** The side column's measured height (sideColumnMinHeight): the canvas holds it all. */
+  sideMinHeight = 0,
 ): { width: number; height: number; gridW: number; offsetX: number } {
   const u = options.unit;
   const gap = (options.paneGap ?? 4) * u;
@@ -725,7 +800,7 @@ export function compositionSize(
   const width = options.targetWidth && options.targetWidth > 0 ? Math.round(options.targetWidth) : natural;
   return {
     width,
-    height: Math.max(1, Math.round(gridH)),
+    height: Math.max(1, Math.round(gridH), hasSide ? Math.ceil(sideMinHeight) : 0),
     gridW,
     offsetX: Math.max(0, Math.floor((width - (gridW + sideW)) / 2)),
   };
@@ -748,10 +823,15 @@ export function compose(
     (r) => r.reduce((w, p) => w + p.width, 0) + gap * Math.max(0, r.length - 1),
   );
   const rowHeights = rows.map((r) => Math.max(0, ...r.map((p) => p.height + band(p))));
+  // The side column's height, measured with the same fonts (a scratch
+  // context): a short figure row grows to hold the whole colorbar block.
+  const measureCtx = hasSide && side.colorbar ? (makeCanvas(1, 1).getContext('2d') as CanvasRenderingContext2D | null) : null;
+  const sideMin = measureCtx ? sideColumnMinHeight(measureCtx, side, u) : 0;
   const { width, height, gridW, offsetX } = compositionSize(
     rows.map((r) => r.map((p) => ({ width: p.width, height: p.height, tile: !!p.tileLabel }))),
     options,
     hasSide,
+    sideMin,
   );
 
   const canvas = makeCanvas(width, height);
@@ -768,7 +848,10 @@ export function compose(
   rows.forEach((row, r) => {
     let x = options.alignRows === 'start' ? 0 : (gridW - rowWidths[r]) / 2;
     for (const pane of row) {
-      drawPane(ctx, x, y, pane, options, settings, theme);
+      // Shorter panes sit centred in the row (no ragged bottoms in a
+      // figure row: axial is taller than coronal and sagittal).
+      const dy = Math.round((rowHeights[r] - (pane.height + band(pane))) / 2);
+      drawPane(ctx, x, y + Math.max(0, dy), pane, options, settings, theme);
       x += pane.width + gap;
     }
     y += rowHeights[r] + gap;
