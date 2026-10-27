@@ -158,3 +158,22 @@ export interface PopulationInference extends PopulationInferenceSpec {
   setId: string;
   featureId: string;
 }
+
+/**
+ * Hold-to-preview target: presentation state, not a seventh analytical state.
+ * It never changes the context, working selection, summaries, selection
+ * algebra or exports. `observation` and `participant` follow the focused
+ * observation; a group or saved set names its members.
+ */
+export type PopulationPreviewTarget =
+  | { readonly kind: 'observation' }
+  | { readonly kind: 'participant' }
+  | { readonly kind: 'group'; readonly groupId: string }
+  | { readonly kind: 'set'; readonly cohortId: string };
+
+export interface PopulationPreviewState {
+  /** Null: the default unit (focused participant under a participant reduction). */
+  readonly target: PopulationPreviewTarget | null;
+  /** True only while the hold-to-preview control is held. */
+  readonly holding: boolean;
+}
