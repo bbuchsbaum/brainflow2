@@ -130,7 +130,7 @@ pub fn build_discovery_neurotabs_package(
     for column in &design_columns {
         observation_columns.insert(
             column.clone(),
-            column_schema(ScalarDType::String, false, Some(column)),
+            column_schema(design_column_dtype(candidate, column), false, Some(column)),
         );
     }
     observation_columns.insert(
@@ -470,6 +470,34 @@ fn sanitize_identifier(value: &str, fallback: &str) -> String {
     }
 }
 
+/// A `lag`/`time` design column whose values are all numeric is written as
+/// float64 so the manifest declares a series axis (`semantic_role: lag|time`);
+/// everything else stays a string.
+fn design_column_dtype(candidate: &StudioImportCandidate, column: &str) -> ScalarDType {
+    series_column_dtype(
+        column,
+        candidate
+            .discovery
+            .iter()
+            .flat_map(|discovery| &discovery.groups)
+            .flat_map(|group| &group.design_values)
+            .filter(|value| value.column == column)
+            .map(|value| value.value.as_str()),
+    )
+}
+
+fn series_column_dtype<'a>(column: &str, values: impl Iterator<Item = &'a str>) -> ScalarDType {
+    if bridge_types::SeriesAxisKind::from_convention_name(column).is_none() {
+        return ScalarDType::String;
+    }
+    let mut values = values.peekable();
+    if values.peek().is_some() && values.all(|value| value.trim().parse::<f64>().is_ok()) {
+        ScalarDType::Float64
+    } else {
+        ScalarDType::String
+    }
+}
+
 fn column_schema(
     dtype: ScalarDType,
     nullable: bool,
@@ -482,5 +510,34 @@ fn column_schema(
         levels: None,
         unit: None,
         description: None,
+    }
+}
+
+#[cfg(test)]
+mod series_column_tests {
+    use super::*;
+
+    #[test]
+    fn numeric_lag_and_time_columns_become_float64() {
+        assert_eq!(
+            series_column_dtype("lag", ["0", "1", "2"].into_iter()),
+            ScalarDType::Float64
+        );
+        assert_eq!(
+            series_column_dtype("time", ["0.5", "1.0"].into_iter()),
+            ScalarDType::Float64
+        );
+        assert_eq!(
+            series_column_dtype("lag", ["early"].into_iter()),
+            ScalarDType::String
+        );
+        assert_eq!(
+            series_column_dtype("lag", std::iter::empty()),
+            ScalarDType::String
+        );
+        assert_eq!(
+            series_column_dtype("run", ["1"].into_iter()),
+            ScalarDType::String
+        );
     }
 }

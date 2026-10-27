@@ -405,7 +405,7 @@ fn bids_entity_candidate(
         let role = bids_role(&entities, &file.stem);
         let mut design_values = Vec::new();
         push_design_value(&mut design_values, "subject", &subject);
-        for key in ["session", "task", "run", "space", "desc", "hemi"] {
+        for key in ["session", "task", "run", "space", "desc", "hemi", "lag"] {
             if let Some(value) = entities.get(key) {
                 push_design_value(&mut design_values, key, value);
             }
@@ -797,6 +797,8 @@ fn collect_bids_token(token: &str, entities: &mut BTreeMap<String, String>) {
         "desc" => "desc",
         "hemi" => "hemi",
         "stat" => "stat",
+        // FIR-style outputs (`..._lag-3_...`): proposed as a lag series axis.
+        "lag" => "lag",
         _ => return,
     };
     if !value.is_empty() {
@@ -873,6 +875,7 @@ fn factors_from_groups(groups: &[StudioDiscoveryMemberGroup]) -> Vec<StudioFolde
         .map(|(name, values)| StudioFolderOntologyFactor {
             source: factor_source(&name).to_string(),
             confidence: factor_confidence(&name),
+            series_axis: proposed_series_axis(&name, &values),
             name,
             values: values.into_iter().collect(),
         })
@@ -941,12 +944,22 @@ fn observed_roles(matches: &[OntologyMatch]) -> Vec<String> {
     roles
 }
 
+/// A `lag`/`time` factor whose values are all numeric is proposed as a
+/// series axis (NeuroTabs `semantic_role: lag|time`).
+pub(super) fn proposed_series_axis(
+    name: &str,
+    values: &BTreeSet<String>,
+) -> Option<bridge_types::SeriesAxisKind> {
+    let kind = bridge_types::SeriesAxisKind::from_convention_name(name)?;
+    (!values.is_empty() && values.iter().all(|v| v.trim().parse::<f64>().is_ok())).then_some(kind)
+}
+
 fn factor_source(name: &str) -> &'static str {
     match name {
         "subject" | "session" => "path_entity",
         "condition" => "filename_modifier",
         "analysis" => "ancestor_folder",
-        "task" | "run" | "space" | "desc" | "hemi" => "bids_entity",
+        "task" | "run" | "space" | "desc" | "hemi" | "lag" => "bids_entity",
         _ => "inferred",
     }
 }
@@ -957,14 +970,22 @@ fn factor_confidence(name: &str) -> f32 {
         "session" => 0.9,
         "analysis" => 0.78,
         "condition" => 0.7,
-        "task" | "run" | "space" | "desc" | "hemi" => 0.82,
+        "task" | "run" | "space" | "desc" | "hemi" | "lag" => 0.82,
         _ => 0.6,
     }
 }
 
 fn member_id_from_design_values(values: &[StudioDiscoveryDesignValue]) -> String {
     let mut parts = Vec::new();
-    for preferred in ["subject", "session", "condition", "analysis", "task", "run"] {
+    for preferred in [
+        "subject",
+        "session",
+        "condition",
+        "analysis",
+        "task",
+        "run",
+        "lag",
+    ] {
         if let Some(value) = values.iter().find(|value| value.column == preferred) {
             parts.push(sanitize_identifier(&value.value));
         }
@@ -1305,6 +1326,65 @@ mod tests {
         assert!(maps.file_pattern.contains("(?P<subject>"));
 
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn proposes_lag_series_axis_from_bids_lag_entity() {
+        let root = make_temp_dir("fir-lags");
+        for subject in ["sub-01", "sub-02"] {
+            for lag in 0..3 {
+                touch(
+                    &root
+                        .join(subject)
+                        .join(format!("{subject}_task-faces_lag-{lag}_beta.nii.gz")),
+                );
+            }
+        }
+
+        let summary = preview_folder_ontology(StudioFolderOntologyPreviewRequest {
+            root: root.to_string_lossy().to_string(),
+            max_depth: Some(3),
+            max_files: Some(20),
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+        });
+
+        let bids = candidate(&summary, "bids-entities");
+        assert_eq!(bids.matched_files, 6);
+        // Each lag is its own member: no duplicate keys.
+        assert_eq!(bids.duplicate_keys, 0);
+        assert_eq!(bids.groups.len(), 6);
+        let lag = bids
+            .factors
+            .iter()
+            .find(|factor| factor.name == "lag")
+            .expect("lag factor");
+        assert_eq!(lag.values, vec!["0", "1", "2"]);
+        assert_eq!(lag.source, "bids_entity");
+        assert_eq!(lag.series_axis, Some(bridge_types::SeriesAxisKind::Lag));
+        let task = bids
+            .factors
+            .iter()
+            .find(|factor| factor.name == "task")
+            .expect("task factor");
+        assert_eq!(task.series_axis, None);
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn series_axis_proposal_needs_numeric_values() {
+        let values = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
+        assert_eq!(
+            proposed_series_axis("time", &values(&["0.0", "2.5"])),
+            Some(bridge_types::SeriesAxisKind::Time)
+        );
+        assert_eq!(
+            proposed_series_axis("lag", &values(&["early", "late"])),
+            None
+        );
+        assert_eq!(proposed_series_axis("run", &values(&["1", "2"])), None);
+        assert_eq!(proposed_series_axis("lag", &values(&[])), None);
     }
 
     #[test]

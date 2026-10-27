@@ -104,6 +104,7 @@ fn main() {
     VoxelLocation::export_all().expect("export voxel location");
     VolumeNonzeroBboxRequest::export_all().expect("export bbox request");
     VolumeNonzeroBbox::export_all().expect("export bbox");
+    RegionLocus::export_all().expect("export region locus");
 
     println!("TypeScript type export completed for api_bridge");
 }

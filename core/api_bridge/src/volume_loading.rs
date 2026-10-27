@@ -345,6 +345,9 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
                 ),
             });
         }
+        // Volumes shown by a layer; a cluster label volume owned by this
+        // source is released below unless it is among them.
+        let displayed: std::collections::HashSet<String> = mappings.values().cloned().collect();
         drop(mappings);
         // Do all awaited host work before the final synchronous removal.
         let renderer = state.render_loop_service.lock().await.clone();
@@ -365,6 +368,7 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
         }
         samplers.retain(|_, entry| entry.template_volume_id != volume_id);
         registry.remove(volume_id);
+        crate::cluster_labels::on_volume_removed(&mut registry, volume_id, &displayed);
         Ok(())
     }
 }

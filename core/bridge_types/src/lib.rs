@@ -1467,6 +1467,11 @@ pub struct StudioFolderOntologyFactor {
     pub source: String,
     pub values: Vec<String>,
     pub confidence: f32,
+    /// Proposed series axis for this factor (a `lag-*`/`time-*` token or a
+    /// lag/time column whose values are all numeric).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub series_axis: Option<SeriesAxisKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1546,6 +1551,74 @@ pub struct StudioDesignTablePreview {
     pub rows: Vec<StudioDesignRowPreview>,
 }
 
+/// Kind of a series axis: physical time, a lag (e.g. FIR bin), or a plain
+/// index (frames, members) with no physical spacing.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum SeriesAxisKind {
+    Time,
+    Lag,
+    Index,
+}
+
+impl SeriesAxisKind {
+    /// The NeuroTabs naming convention: an observation column with
+    /// `semantic_role: lag|time`, or a feature logical axis named `lag`/`time`.
+    pub fn from_convention_name(name: &str) -> Option<Self> {
+        match name {
+            "time" => Some(Self::Time),
+            "lag" => Some(Self::Lag),
+            _ => None,
+        }
+    }
+}
+
+/// Where a series axis lives in a NeuroTabs package.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SeriesAxisSource {
+    /// One observation row per axis position; the value is in `column`.
+    ObservationColumn { column: String },
+    /// A logical axis of a feature (e.g. `axes: [x, y, z, time]`); `position`
+    /// is its index in `logical.axes`.
+    FeatureAxis {
+        feature: String,
+        axis: String,
+        position: usize,
+    },
+}
+
+/// How positions along the axis are known.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum SeriesAxisAlignment {
+    /// `start + i * step` declared in the manifest, common to all members.
+    DeclaredCommonAxis,
+    /// Positions are the (numeric) values of an observation column.
+    ObservationValues,
+}
+
+/// A typed series axis (time / lag / index) declared by a NeuroTabs package.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesAxis {
+    pub kind: SeriesAxisKind,
+    pub source: SeriesAxisSource,
+    /// Unit of axis positions, e.g. "s", "ms" or "TR".
+    pub unit: Option<String>,
+    /// Position of the first sample (declared axes).
+    pub start: Option<f64>,
+    /// Spacing between consecutive samples (declared axes; > 0).
+    pub step: Option<f64>,
+    /// Number of samples, when known from the feature shape or axis domain.
+    pub count: Option<usize>,
+    pub alignment: SeriesAxisAlignment,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
@@ -1563,6 +1636,10 @@ pub struct SpatialFieldSetSummary {
     pub member_ids: Vec<String>,
     pub saved_cohort_ids: Vec<String>,
     pub ingest_audit: StudioIngestAuditSummary,
+    /// Time/lag axes declared by a NeuroTabs manifest (absent elsewhere).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub series_axes: Option<Vec<SeriesAxis>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

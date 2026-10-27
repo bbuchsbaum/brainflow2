@@ -39,4 +39,10 @@ minPeakDistanceMm?: number | null,
 /**
  * Cluster-level p values; off by default.
  */
-extent?: ClusterExtentMethodRequest | null, };
+extent?: ClusterExtentMethodRequest | null, 
+/**
+ * Register a hidden cluster-id label volume and return its id in
+ * `labelVolumeId` (default false). It replaces the previous one emitted
+ * for the same source volume unless that one is displayed as a layer.
+ */
+emitLabelVolume?: boolean | null, };

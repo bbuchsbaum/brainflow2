@@ -1,3 +1,4 @@
+import type { ClusterExtentInference } from "./ClusterExtentInference";
 import type { ClusterSign } from "./ClusterSign";
 import type { ClusterSummary } from "./ClusterSummary";
 export type ClusterTable = {
@@ -24,4 +25,16 @@ export type ClusterTable = {
      */
     discardedClusters: number;
     truncated: boolean;
+    maxPeaksPerCluster: number;
+    minPeakDistanceMm: number;
+    /**
+     * Present only when `extent` was requested.
+     */
+    extentInference: ClusterExtentInference | null;
+    /**
+     * Registered cluster-id label volume (`emitLabelVolume`): voxel value =
+     * cluster `id`, 0 elsewhere, on the analysed grid. Usable as a region
+     * locus (`labelSource: { type: "volume", volumeId }`, `labelIds: [id]`).
+     */
+    labelVolumeId?: string;
 };

@@ -4,6 +4,7 @@ pub mod population;
 pub mod population_inference;
 mod preview;
 mod promote;
+mod series;
 
 pub use materialize::materialize_compare_panes;
 pub use preview::{

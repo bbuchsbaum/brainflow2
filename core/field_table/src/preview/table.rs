@@ -77,6 +77,7 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
                 member_summaries: Vec::new(),
                 member_ids: Vec::new(),
                 saved_cohort_ids: Vec::new(),
+                series_axes: None,
                 ingest_audit: StudioIngestAuditSummary {
                     source_label: source_label.clone(),
                     join: StudioJoinAuditSummary {
@@ -466,6 +467,7 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
                 .iter()
                 .map(|cohort| cohort.id.clone())
                 .collect(),
+            series_axes: None,
             ingest_audit: StudioIngestAuditSummary {
                 source_label: source_label.clone(),
                 join: StudioJoinAuditSummary {

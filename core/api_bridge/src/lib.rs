@@ -74,6 +74,7 @@ use brainflow_loaders as core_loaders;
 
 // Import error helpers
 mod analysis;
+mod cluster_labels;
 mod clusters;
 mod command_registry;
 mod error_context;
@@ -84,6 +85,7 @@ pub mod image_set;
 mod materialization;
 mod projection_geometry;
 mod raw_ipc;
+mod region_locus;
 mod remote_cache;
 mod remote_transfer;
 mod render_bridge_adapter;
@@ -110,6 +112,7 @@ pub use clusters::{
     RftExtentRequest, SubPeak,
 };
 use image_export::save_image_bytes;
+pub use region_locus::{LabelSource, RegionLocus};
 use volume_queries::{volume_extremum, volume_nonzero_bbox};
 pub use volume_queries::{
     ExtremumKind, VolumeExtremumRequest, VolumeNonzeroBbox, VolumeNonzeroBboxRequest, VoxelLocation,
@@ -11802,7 +11805,29 @@ async fn sample_stack_impl(
     reduce: &str,
     state: &BridgeState,
 ) -> BridgeResult<Vec<f32>> {
-    if world_mm.len() != 3 {
+    sample_stack_locus_impl(layer_id, world_mm, radius_mm, reduce, None, state).await
+}
+
+/// [`sample_stack_impl`] with an optional region locus, which replaces the
+/// point/sphere (`world_mm`, `radius_mm` are then ignored): the region is
+/// mapped onto the layer's grid and reduced per stack index.
+async fn sample_stack_locus_impl(
+    layer_id: &str,
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    region: Option<&region_locus::RegionLocus>,
+    state: &BridgeState,
+) -> BridgeResult<Vec<f32>> {
+    // Prepare the region before taking the registry lock (it may read the
+    // registry or the sample cache itself).
+    let prepared_region = match region {
+        Some(locus) => {
+            Some(region_locus::prepare_region(locus, state, &SampleCancellation::default()).await?)
+        }
+        None => None,
+    };
+    if prepared_region.is_none() && world_mm.len() != 3 {
         return Err(BridgeError::Input {
             code: 2016,
             details: "world_mm must be [x, y, z] in mm".to_string(),
@@ -11833,16 +11858,21 @@ async fn sample_stack_impl(
 
     let stack_len = stack_length_for_volume(volume_data);
 
-    // Transform the requested world point to (fractional) voxel coordinates.
-    let world_to_voxel = get_affine_from_volume(volume_data)?.inverse();
-    let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
-    let voxel_point = world_to_voxel.transform_point(&world_point);
-    let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
+    let voxels = match &prepared_region {
+        Some(region) => region.member_voxels(volume_data)?.as_ref().clone(),
+        None => {
+            // Transform the requested world point to (fractional) voxel coordinates.
+            let world_to_voxel = get_affine_from_volume(volume_data)?.inverse();
+            let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
+            let voxel_point = world_to_voxel.transform_point(&world_point);
+            let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
 
-    let dims = get_spatial_dims_from_volume(volume_data);
-    let spacing = get_spacing_from_volume(volume_data);
+            let dims = get_spatial_dims_from_volume(volume_data);
+            let spacing = get_spacing_from_volume(volume_data);
 
-    let voxels = gather_locus_voxels(center_voxel, &dims, spacing, radius_mm)?;
+            gather_locus_voxels(center_voxel, &dims, spacing, radius_mm)?
+        }
+    };
 
     // No in-bounds voxels -> zeros of the correct stack length.
     if voxels.is_empty() {
@@ -11883,9 +11913,18 @@ async fn sample_stack(
     world_mm: Vec<f32>,
     radius_mm: f32,
     reduce: String,
+    region: Option<region_locus::RegionLocus>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<f32>> {
-    sample_stack_impl(&layer_id, &world_mm, radius_mm, &reduce, state.inner()).await
+    sample_stack_locus_impl(
+        &layer_id,
+        &world_mm,
+        radius_mm,
+        &reduce,
+        region.as_ref(),
+        state.inner(),
+    )
+    .await
 }
 
 #[doc(hidden)]
@@ -12152,23 +12191,33 @@ fn gather_member_roi_values(
     radius_mm: f32,
     stack_index: usize,
     mask: Option<&population_mask::PreparedMask>,
+    region: Option<&region_locus::PreparedRegion>,
 ) -> Vec<f32> {
-    // Transform the requested world point into (fractional) voxel coordinates.
-    let affine = match get_affine_from_volume(volume_data) {
-        Ok(affine) => affine,
-        Err(_) => return Vec::new(),
-    };
-    let world_to_voxel = affine.inverse();
-    let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
-    let voxel_point = world_to_voxel.transform_point(&world_point);
-    let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
+    let voxels = match region {
+        // Region locus: the label region resampled onto this member's grid.
+        Some(region) => match region.member_voxels(volume_data) {
+            Ok(voxels) => voxels,
+            Err(_) => return Vec::new(),
+        },
+        None => {
+            // Transform the requested world point into (fractional) voxel coordinates.
+            let affine = match get_affine_from_volume(volume_data) {
+                Ok(affine) => affine,
+                Err(_) => return Vec::new(),
+            };
+            let world_to_voxel = affine.inverse();
+            let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
+            let voxel_point = world_to_voxel.transform_point(&world_point);
+            let center_voxel = [voxel_point.x, voxel_point.y, voxel_point.z];
 
-    let dims = get_spatial_dims_from_volume(volume_data);
-    let spacing = get_spacing_from_volume(volume_data);
+            let dims = get_spatial_dims_from_volume(volume_data);
+            let spacing = get_spacing_from_volume(volume_data);
 
-    let voxels = match gather_locus_voxels(center_voxel, &dims, spacing, radius_mm) {
-        Ok(voxels) => voxels,
-        Err(_) => return Vec::new(),
+            match gather_locus_voxels(center_voxel, &dims, spacing, radius_mm) {
+                Ok(voxels) => Arc::new(voxels),
+                Err(_) => return Vec::new(),
+            }
+        }
     };
     if voxels.is_empty() {
         return Vec::new();
@@ -12176,7 +12225,7 @@ fn gather_member_roi_values(
 
     // The caller validates the explicit frame before gathering spatial values.
     let mut vals: Vec<f32> = Vec::with_capacity(voxels.len());
-    for (x, y, z) in voxels {
+    for &(x, y, z) in voxels.iter() {
         if mask.is_some_and(|mask| !mask.includes(x, y, z)) {
             continue;
         }
@@ -12201,7 +12250,7 @@ fn sample_member_volume(
     radius_mm: f32,
     reduce: &str,
 ) -> f32 {
-    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm, 0, None);
+    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm, 0, None, None);
     if vals.is_empty() {
         return f32::NAN;
     }
@@ -12256,6 +12305,9 @@ pub struct MemberTrace {
     pub count: u32,
     pub source_revision: Option<set_sample_cache::SampleSourceRevision>,
     pub mask_revision: Option<set_sample_cache::SampleSourceRevision>,
+    /// Digest of a path-backed region label volume (region loci only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region_revision: Option<set_sample_cache::SampleSourceRevision>,
     pub error: Option<String>,
 }
 
@@ -12335,6 +12387,7 @@ async fn resolve_member_source_path(
 }
 
 /// Resolve and sample a single immutable decoded snapshot on a blocking worker.
+#[allow(clippy::too_many_arguments)] // Point/sphere operands plus optional mask and region.
 async fn sample_member_source(
     member: &SetMemberRef,
     path: PathBuf,
@@ -12343,6 +12396,7 @@ async fn sample_member_source(
     state: &BridgeState,
     cancellation: &SampleCancellation,
     mask: Option<Arc<population_mask::PreparedMask>>,
+    region: Option<Arc<region_locus::PreparedRegion>>,
 ) -> BridgeResult<(Vec<f32>, set_sample_cache::SampleSourceRevision)> {
     cancellation.check()?;
     let world = world_mm.to_vec();
@@ -12361,7 +12415,7 @@ async fn sample_member_source(
         if frame >= frames {
             return Err(BridgeError::Input { code: 2025, details: format!("stackIndex {frame} is outside the source's {frames} frames.") });
         }
-        Ok((gather_member_roi_values(volume, &world, radius_mm, frame, mask.as_deref()), revision.clone()))
+        Ok((gather_member_roi_values(volume, &world, radius_mm, frame, mask.as_deref(), region.as_deref()), revision.clone()))
     }).await
 }
 
@@ -12404,7 +12458,33 @@ async fn sample_set_at_world_impl(
     cancellation: &SampleCancellation,
     mask: Option<&population_mask::MaskSource>,
 ) -> BridgeResult<Vec<MemberSample>> {
-    let traces = sample_set_trace_at_world_impl(
+    sample_set_at_locus_impl(
+        members,
+        world_mm,
+        radius_mm,
+        reduce,
+        state,
+        cancellation,
+        mask,
+        None,
+    )
+    .await
+}
+
+/// [`sample_set_at_world_impl`] with an optional region locus, which replaces
+/// the point/sphere (`world_mm`, `radius_mm` are then ignored).
+#[allow(clippy::too_many_arguments)] // Point/sphere operands plus optional mask and region.
+async fn sample_set_at_locus_impl(
+    members: &[SetMemberRef],
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    state: &BridgeState,
+    cancellation: &SampleCancellation,
+    mask: Option<&population_mask::MaskSource>,
+    region: Option<&region_locus::RegionLocus>,
+) -> BridgeResult<Vec<MemberSample>> {
+    let traces = sample_set_trace_at_locus_impl(
         members,
         world_mm,
         radius_mm,
@@ -12413,6 +12493,7 @@ async fn sample_set_at_world_impl(
         state,
         cancellation,
         mask,
+        region,
     )
     .await?;
     Ok(traces
@@ -12430,6 +12511,7 @@ async fn sample_set_at_world_impl(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.sample_set_at_world")]
+#[allow(clippy::too_many_arguments)] // Existing operands plus optional mask and region.
 async fn sample_set_at_world(
     members: Vec<SetMemberRef>,
     world_mm: Vec<f32>,
@@ -12437,6 +12519,7 @@ async fn sample_set_at_world(
     reduce: String,
     ticket: Option<SampleTicket>,
     mask: Option<population_mask::MaskSource>,
+    region: Option<region_locus::RegionLocus>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberSample>> {
     let cancellation = ticket
@@ -12444,7 +12527,7 @@ async fn sample_set_at_world(
         .map(|ticket| state.population_sampling.begin(ticket))
         .transpose()?
         .unwrap_or_default();
-    sample_set_at_world_impl(
+    sample_set_at_locus_impl(
         &members,
         &world_mm,
         radius_mm,
@@ -12452,6 +12535,7 @@ async fn sample_set_at_world(
         state.inner(),
         &cancellation,
         mask.as_ref(),
+        region.as_ref(),
     )
     .await
 }
@@ -12495,7 +12579,40 @@ async fn sample_set_trace_at_world_impl(
     cancellation: &SampleCancellation,
     mask: Option<&population_mask::MaskSource>,
 ) -> BridgeResult<Vec<MemberTrace>> {
-    validate_set_sample_request(members, world_mm, radius_mm, reduce)?;
+    sample_set_trace_at_locus_impl(
+        members,
+        world_mm,
+        radius_mm,
+        reduce,
+        band,
+        state,
+        cancellation,
+        mask,
+        None,
+    )
+    .await
+}
+
+/// [`sample_set_trace_at_world_impl`] with an optional region locus, which
+/// replaces the point/sphere (`world_mm`, `radius_mm` are then ignored). The
+/// region is prepared once and mapped onto each member grid
+/// ([`region_locus`]); each member's explicit `stackIndex` applies as usual.
+#[allow(clippy::too_many_arguments)] // Existing sampling operands plus mask and region.
+async fn sample_set_trace_at_locus_impl(
+    members: &[SetMemberRef],
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    band: &str,
+    state: &BridgeState,
+    cancellation: &SampleCancellation,
+    mask: Option<&population_mask::MaskSource>,
+    region: Option<&region_locus::RegionLocus>,
+) -> BridgeResult<Vec<MemberTrace>> {
+    match region {
+        Some(_) => validate_set_sample_request(members, &[0.0; 3], 0.0, reduce)?,
+        None => validate_set_sample_request(members, world_mm, radius_mm, reduce)?,
+    }
     if !matches!(band, "none" | "sd" | "sem95" | "ci95" | "iqr") {
         return Err(BridgeError::Input {
             code: 2016,
@@ -12518,11 +12635,33 @@ async fn sample_set_trace_at_world_impl(
         Some(mask) => Some(resolve_member_source_path(&mask.source_path, state).await?),
         None => None,
     };
+    // A path-backed region label joins the whole-query source guard. A frozen
+    // query (pinned member or mask digests) must also pin the label digest.
+    let region_path = match region.map(|locus| &locus.label_source) {
+        Some(region_locus::LabelSource::Path {
+            path,
+            expected_sha256,
+        }) => {
+            let frozen = members.iter().any(|m| m.expected_sha256.is_some())
+                || mask.is_some_and(|m| m.expected_sha256.is_some());
+            if frozen && expected_sha256.is_none() {
+                return Err(BridgeError::Input {
+                    code: 2027,
+                    details: "A frozen population query must pin the region label volume \
+                              (labelSource.expectedSha256)."
+                        .into(),
+                });
+            }
+            Some(resolve_member_source_path(path, state).await?)
+        }
+        _ => None,
+    };
     let guard = set_sample_cache::QuerySourceGuard::capture(
         paths
             .iter()
             .filter_map(|path| path.as_ref().ok().cloned())
             .chain(mask_path.iter().cloned())
+            .chain(region_path.iter().cloned())
             .collect(),
         cancellation.clone(),
     )
@@ -12532,6 +12671,10 @@ async fn sample_set_trace_at_world_impl(
             Some(population_mask::prepare_mask(source, path, state, cancellation).await?)
         }
         _ => None,
+    };
+    let prepared_region = match region {
+        Some(locus) => Some(region_locus::prepare_region(locus, state, cancellation).await?),
+        None => None,
     };
     let mut traces = Vec::with_capacity(members.len());
     for (member, path) in members.iter().zip(paths) {
@@ -12545,6 +12688,7 @@ async fn sample_set_trace_at_world_impl(
                 state,
                 cancellation,
                 mask.clone(),
+                prepared_region.clone(),
             )
             .await
             .map_err(|error| error.to_string()),
@@ -12567,8 +12711,13 @@ async fn sample_set_trace_at_world_impl(
         };
         cancellation.check()?;
         let error = error.or_else(|| {
-            vals.is_empty()
-                .then(|| "No finite measurements at this spatial probe.".to_string())
+            vals.is_empty().then(|| {
+                if prepared_region.is_some() {
+                    "No finite measurements in this region.".to_string()
+                } else {
+                    "No finite measurements at this spatial probe.".to_string()
+                }
+            })
         });
         let value = if vals.is_empty() {
             f32::NAN
@@ -12586,6 +12735,9 @@ async fn sample_set_trace_at_world_impl(
             count: vals.len() as u32,
             source_revision,
             mask_revision: mask.as_ref().map(|mask| mask.revision.clone()),
+            region_revision: prepared_region
+                .as_ref()
+                .and_then(|region| region.revision.clone()),
             error,
         });
     }
@@ -12605,6 +12757,7 @@ async fn sample_set_trace_at_world(
     band: String,
     ticket: Option<SampleTicket>,
     mask: Option<population_mask::MaskSource>,
+    region: Option<region_locus::RegionLocus>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberTrace>> {
     let cancellation = ticket
@@ -12612,7 +12765,7 @@ async fn sample_set_trace_at_world(
         .map(|ticket| state.population_sampling.begin(ticket))
         .transpose()?
         .unwrap_or_default();
-    sample_set_trace_at_world_impl(
+    sample_set_trace_at_locus_impl(
         &members,
         &world_mm,
         radius_mm,
@@ -12621,6 +12774,7 @@ async fn sample_set_trace_at_world(
         state.inner(),
         &cancellation,
         mask.as_ref(),
+        region.as_ref(),
     )
     .await
 }

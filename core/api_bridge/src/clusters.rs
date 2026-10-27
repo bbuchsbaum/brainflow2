@@ -159,6 +159,12 @@ pub struct ComputeClustersRequest {
     #[serde(default)]
     #[ts(optional = nullable)]
     pub extent: Option<ClusterExtentMethodRequest>,
+    /// Register a hidden cluster-id label volume and return its id in
+    /// `labelVolumeId` (default false). It replaces the previous one emitted
+    /// for the same source volume unless that one is displayed as a layer.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub emit_label_volume: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -270,8 +276,14 @@ pub struct ClusterTable {
     pub truncated: bool,
     pub max_peaks_per_cluster: u32,
     pub min_peak_distance_mm: f32,
-    /// Present only when `extentP` was requested.
+    /// Present only when `extent` was requested.
     pub extent_inference: Option<ClusterExtentInference>,
+    /// Registered cluster-id label volume (`emitLabelVolume`): voxel value =
+    /// cluster `id`, 0 elsewhere, on the analysed grid. Usable as a region
+    /// locus (`labelSource: { type: "volume", volumeId }`, `labelIds: [id]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub label_volume_id: Option<String>,
 }
 
 pub(crate) struct ClusterParams {
@@ -282,6 +294,17 @@ pub(crate) struct ClusterParams {
     pub max_clusters: u32,
     pub max_peaks: u32,
     pub min_peak_distance_mm: f32,
+    /// Also return a cluster-id label image (see [`ClusterRun::label_image`]).
+    pub emit_labels: bool,
+}
+
+/// Output of [`find_clusters`].
+#[derive(Debug)]
+pub(crate) struct ClusterRun {
+    pub table: ClusterTable,
+    /// Frame-shaped (x-fastest) image holding each returned cluster's `id`
+    /// on its voxels and 0 elsewhere; present when `emit_labels` is set.
+    pub label_image: Option<Vec<f32>>,
 }
 
 /// Per-volume generation counters; a newer request bumps the counter and
@@ -291,6 +314,7 @@ fn generations() -> &'static Mutex<HashMap<String, Arc<AtomicU64>>> {
     GENERATIONS.get_or_init(Default::default)
 }
 
+#[derive(Clone)]
 pub(crate) struct Generation {
     counter: Arc<AtomicU64>,
     generation: u64,
@@ -570,7 +594,7 @@ pub(crate) fn find_clusters(
     frame: &Frame,
     params: &ClusterParams,
     is_superseded: &dyn Fn() -> bool,
-) -> BridgeResult<ClusterTable> {
+) -> BridgeResult<ClusterRun> {
     let threshold = params.threshold;
     let polarity_of = |v: f32| -> Option<ClusterPolarity> {
         if !v.is_finite() {
@@ -678,7 +702,16 @@ pub(crate) fn find_clusters(
         }
         clusters.push(summary);
     }
-    Ok(ClusterTable {
+    let label_image = params.emit_labels.then(|| {
+        let mut image = vec![0.0f32; frame.values.len()];
+        for (rank, acc) in kept.iter().take(params.max_clusters as usize).enumerate() {
+            for &index in &members[acc.members.clone()] {
+                image[index as usize] = (rank + 1) as f32;
+            }
+        }
+        image
+    });
+    let table = ClusterTable {
         clusters,
         threshold,
         sign: params.sign,
@@ -693,7 +726,9 @@ pub(crate) fn find_clusters(
         max_peaks_per_cluster: params.max_peaks,
         min_peak_distance_mm: params.min_peak_distance_mm,
         extent_inference: None,
-    })
+        label_volume_id: None,
+    };
+    Ok(ClusterRun { table, label_image })
 }
 
 /// Field type for extent inference, with where it came from.
@@ -870,6 +905,7 @@ pub(crate) async fn compute_clusters_impl(
         max_clusters,
         max_peaks,
         min_peak_distance_mm,
+        emit_labels: request.emit_label_volume.unwrap_or(false),
     };
     let ResolvedVolume {
         id,
@@ -894,18 +930,34 @@ pub(crate) async fn compute_clusters_impl(
         }
         None => None,
     };
-    with_frame(volume, timepoint, move |frame| {
+    let worker_generation = generation.clone();
+    let (mut table, label_volume) = with_frame(volume, timepoint, move |frame| {
+        let generation = worker_generation;
         let superseded = || generation.is_superseded();
-        let mut table = find_clusters(&frame, &params, &superseded)?;
+        let ClusterRun {
+            mut table,
+            label_image,
+        } = find_clusters(&frame, &params, &superseded)?;
         if let Some((fwhm_mm, field)) = extent {
             apply_extent_inference(&mut table, &frame, fwhm_mm, field)?;
         }
         if generation.is_superseded() {
             return Err(cancelled());
         }
-        Ok(table)
+        let label_volume = label_image
+            .map(|image| {
+                crate::cluster_labels::label_volume_from_image(image, frame.dims, frame.affine)
+            })
+            .transpose()?;
+        Ok((table, label_volume))
     })
-    .await
+    .await?;
+    if let Some(volume) = label_volume {
+        let clusters = table.clusters.len() as u32;
+        table.label_volume_id =
+            Some(crate::cluster_labels::register(state, &id, volume, clusters, &generation).await?);
+    }
+    Ok(table)
 }
 
 #[cfg(test)]
@@ -956,7 +1008,9 @@ mod tests {
     }
 
     fn find_clusters(frame: &Frame, params: &ClusterParams) -> ClusterTable {
-        super::find_clusters(frame, params, &|| false).unwrap()
+        super::find_clusters(frame, params, &|| false)
+            .unwrap()
+            .table
     }
 
     fn params(sign: ClusterSign, connectivity: u8, min_voxels: u32) -> ClusterParams {
@@ -968,6 +1022,7 @@ mod tests {
             max_clusters: 500,
             max_peaks: 3,
             min_peak_distance_mm: 8.0,
+            emit_labels: false,
         }
     }
 
@@ -1139,6 +1194,7 @@ mod tests {
             max_clusters: 500,
             max_peaks,
             min_peak_distance_mm: min_distance,
+            emit_labels: false,
         }
     }
 
@@ -1508,5 +1564,87 @@ mod tests {
             }
             other => panic!("expected extent error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn emitted_label_volume_is_a_region_locus_for_each_cluster() {
+        use crate::region_locus::{LabelSource, RegionLocus};
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        let frame = fixture();
+        let metadata = |name: &str| crate::VolumeMetadataInfo {
+            name: name.into(),
+            path: "<memory>".into(),
+            dtype: "f32".into(),
+            volume_type: bridge_types::VolumeType::Volume3D,
+            time_series_info: None,
+        };
+        state.volume_registry.lock().await.insert(
+            "stat-e3".into(),
+            volume_3d(DIMS, [2.0; 3], [-10.0; 3], frame.values.to_vec()),
+            metadata("stat"),
+        );
+        state
+            .layer_to_volume_map
+            .lock()
+            .await
+            .insert("layer-stat".into(), "stat-e3".into());
+        let request: ComputeClustersRequest = serde_json::from_str(
+            r#"{"volumeId":"stat-e3","threshold":2.0,"minVoxels":2,"emitLabelVolume":true}"#,
+        )
+        .unwrap();
+        let table = compute_clusters_impl(request.clone(), &state)
+            .await
+            .unwrap();
+        let label_id = table.label_volume_id.clone().expect("label volume");
+        // Each cluster's region on the stat map recovers its size and mean.
+        for cluster in &table.clusters {
+            let locus = RegionLocus {
+                label_source: LabelSource::Volume {
+                    volume_id: label_id.clone(),
+                },
+                label_ids: vec![cluster.id],
+            };
+            let series = crate::sample_stack_locus_impl(
+                "layer-stat",
+                &[],
+                0.0,
+                "mean",
+                Some(&locus),
+                &state,
+            )
+            .await
+            .unwrap();
+            assert!((series[0] - cluster.mean_value).abs() < 1e-5, "{cluster:?}");
+            let region = crate::region_locus::prepare_region(
+                &locus,
+                &state,
+                &crate::population_sampling::SampleCancellation::default(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(region.voxel_count as u64, cluster.voxel_count);
+        }
+        // Discarded clusters (below minVoxels) are 0 in the label image.
+        let speck = RegionLocus {
+            label_source: LabelSource::Volume {
+                volume_id: label_id.clone(),
+            },
+            label_ids: vec![table.clusters.len() as u32 + 1],
+        };
+        assert!(crate::region_locus::prepare_region(
+            &speck,
+            &state,
+            &crate::population_sampling::SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        // A second emission replaces the first (not displayed as a layer).
+        let second = compute_clusters_impl(request, &state).await.unwrap();
+        let second_id = second.label_volume_id.unwrap();
+        assert_ne!(second_id, label_id);
+        let registry = state.volume_registry.lock().await;
+        assert!(registry.get(&label_id).is_none());
+        assert!(registry.get(&second_id).is_some());
     }
 }

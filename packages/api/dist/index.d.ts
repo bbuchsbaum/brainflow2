@@ -23,7 +23,7 @@ export interface CoreApi {
     release_layer_gpu_resources(layerId: string): Promise<ReleaseResult>;
     supports_webgpu(): Promise<boolean>;
     set_crosshair(world_coords: [number, number, number]): Promise<void>;
-    update_slice_outline(enabled: boolean, outlineLayerIndex: number, selectedLabelId: number, color: [number, number, number, number], thicknessPx: number): Promise<void>;
+    update_slice_outline(enabled: boolean, outlineLayerIndex: number, selectedLabelId: number, color: [number, number, number, number], thicknessPx: number, colorMode?: 'uniform' | 'lut', haloPx?: number, haloColor?: [number, number, number, number]): Promise<void>;
     init_render_loop(canvas_id: string): Promise<void>;
     resize_canvas(width: number, height: number): Promise<void>;
     render_view(stateJson: string, format?: RenderOutputFormat): Promise<Uint8Array>;
