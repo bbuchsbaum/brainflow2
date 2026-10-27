@@ -185,10 +185,18 @@ context).
 **Pure module** `ui2/src/services/studio/relationshipNeighbours.ts`, over
 `fittedMemberIds`:
 
-- `rankNeighbours(fit, memberId)`: tie-inclusive ranks using one relative
-  tolerance (ε × max d; Rust gives coincident maps d ≈ 1e-10, not 0), shared
-  with `neighbourPreservation` and W5's `coincidentGroups`. Deterministic
-  tie-break by fit order.
+- `rankNeighbours(fit, memberId)`: tie-inclusive ranks using one tie rule:
+  a and b tie when |a² − b²| ≤ ε₂ × max d² (ε₂ = 1e-12) or
+  |a − b| ≤ ε₁ × max d (ε₁ = 1e-7). The squared term absorbs Rust's
+  arithmetic: it computes d = √max(0, gᵢᵢ + gⱼⱼ − 2gᵢⱼ) from a Gram matrix,
+  so its rounding error is in d² and a coincident pair comes out at
+  d ≈ 1e-8 × max d, not 0. The linear term reflects the input's resolution:
+  map values are stored as f32 (relative precision ≈ 6e-8), so distance
+  differences below about 1e-7 of the largest distance are not resolvable;
+  this ties affine copies of one map when ranked from a third map. Rank by
+  d², display d. The rule (`distancesTie`, `tieTolerance`) is shared with
+  `neighbourPreservation`, the centroid ranking and W5's `coincidentGroups`.
+  Deterministic tie-break by fit order.
 - `neighbourPreservation(distances, coords, k = 3)`: per member and overall,
   tie-inclusive, following neuroimjs `src/volumeset/nmds.ts:897`. Returns
   "not informative" when n − 1 ≤ k (n ≤ 4 at k = 3), as neuroimjs does.
