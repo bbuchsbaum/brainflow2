@@ -104,7 +104,9 @@ use error_helpers::*;
 // `command_list.rs` and the TS exporter see them at the crate root.
 use clusters::compute_clusters;
 pub use clusters::{
-    ClusterPolarity, ClusterSign, ClusterSummary, ClusterTable, ComputeClustersRequest,
+    ClusterExtentInference, ClusterExtentMethodRequest, ClusterPolarity, ClusterSign,
+    ClusterSummary, ClusterTable, ComputeClustersRequest, ExtentStatistic, FwhmMm,
+    RftExtentRequest, SubPeak,
 };
 use image_export::save_image_bytes;
 use volume_queries::{volume_extremum, volume_nonzero_bbox};

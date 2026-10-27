@@ -1,10 +1,12 @@
+import type { ClusterExtentMethodRequest } from "./ClusterExtentMethodRequest";
 import type { ClusterSign } from "./ClusterSign";
 export type ComputeClustersRequest = {
     volumeId?: string | null;
     layerId?: string | null;
     /**
      * Absolute threshold (>= 0): positive voxels need `v > threshold`,
-     * negative voxels `v < -threshold`.
+     * negative voxels `v < -threshold`. Also the cluster-forming threshold
+     * for `extentP`.
      */
     threshold: number;
     /**
@@ -22,7 +24,21 @@ export type ComputeClustersRequest = {
     minVoxels?: number | null;
     timepoint?: number | null;
     /**
-     * Cap on returned rows (default 500); `truncated` reports a cut.
+     * Cap on returned rows (default 500, at most 5000); `truncated` reports
+     * a cut.
      */
     maxClusters?: number | null;
+    /**
+     * Peaks reported per cluster including the main peak (default 3, 1..=32;
+     * 1 disables sub-peaks).
+     */
+    maxPeaksPerCluster?: number | null;
+    /**
+     * Minimum world distance between reported peaks (default 8 mm).
+     */
+    minPeakDistanceMm?: number | null;
+    /**
+     * Cluster-level p values; off by default.
+     */
+    extent?: ClusterExtentMethodRequest | null;
 };

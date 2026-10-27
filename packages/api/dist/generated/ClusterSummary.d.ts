@@ -1,4 +1,5 @@
 import type { ClusterPolarity } from "./ClusterPolarity";
+import type { SubPeak } from "./SubPeak";
 export type ClusterSummary = {
     /**
      * 1-based rank in the returned order (|peak| descending).
@@ -16,6 +17,10 @@ export type ClusterSummary = {
      * World centre of the peak voxel.
      */
     peakMm: [number, number, number];
+    /**
+     * Further local maxima (main peak excluded), strongest first.
+     */
+    subPeaks: Array<SubPeak>;
     meanValue: number;
     /**
      * Unweighted centre of mass (mean voxel position), voxel coordinates.
@@ -39,4 +44,12 @@ export type ClusterSummary = {
      */
     bboxMmMin: [number, number, number];
     bboxMmMax: [number, number, number];
+    /**
+     * FWE-corrected cluster-extent p (only with `extentP`).
+     */
+    pFweExtent: number | null;
+    /**
+     * Uncorrected `P(n >= k)` for this extent (only with `extentP`).
+     */
+    pUncorrectedExtent: number | null;
 };
