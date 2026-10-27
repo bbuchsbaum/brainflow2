@@ -29,7 +29,7 @@ fn test_world_space_rendering_workflow() {
             .expect("Failed to upload functional");
 
         let (detail_idx, detail_tfm) = service
-            .upload_volume_multi_texture(&volumes.detail_patch, wgpu::TextureFormat::R16Float)
+            .upload_volume_multi_texture(&volumes.detail_patch, wgpu::TextureFormat::R32Float)
             .expect("Failed to upload detail");
 
         // Initialize colormap

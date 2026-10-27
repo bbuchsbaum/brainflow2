@@ -522,6 +522,7 @@ impl RenderLoopService {
 
     /// Initializes WGPU components using reusable renderer configuration.
     pub async fn new_with_config(config: WgpuSliceRendererConfig) -> Result<Self, RenderLoopError> {
+        config.atlas.validate_runtime_capacity()?;
         log::info!("RenderLoopService: Initializing WGPU...");
 
         // 1. Create Instance
@@ -550,7 +551,7 @@ impl RenderLoopService {
 
         if !supports_float32_filterable {
             log::warn!(
-                "WARNING: FLOAT32_FILTERABLE feature not supported on this adapter. Linear filtering of R32Float textures will not work correctly. Consider using nearest neighbor sampling or R16Float textures."
+                "FLOAT32_FILTERABLE is unavailable. The active slice layout accepts R16Float/R8Unorm; uploads requiring R32Float will return an error."
             );
         }
 
@@ -1533,15 +1534,58 @@ impl RenderLoopService {
         self.upload_volume_3d_labelaware(source_volume, false)
     }
 
-    /// Upload a 3D volume, optionally guaranteeing an integer-preserving texture
-    /// format. When `preserve_integer_labels` is true, label/atlas volumes use
-    /// `R16Float` (exact for label ids <= 2048) instead of `R8Unorm`, which would
-    /// normalize 8-bit data to [0,1] and collapse discrete label ids under nearest
-    /// sampling. Scalar volumes keep the default format selection.
+    /// Upload physical scalar values; label uploads additionally require exact
+    /// integer representation when choosing half or full precision.
     pub fn upload_volume_3d_labelaware<T>(
         &mut self,
         source_volume: &DenseVolume3<T>,
         preserve_integer_labels: bool,
+    ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + serde::Serialize
+            + DataRange<T>
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
+        self.upload_volume_3d_with_policy(
+            source_volume,
+            multi_texture_manager::UploadFormat::Automatic {
+                preserve_labels: preserve_integer_labels,
+            },
+        )
+    }
+
+    /// Upload using an explicit format. R8Unorm deliberately range-normalizes;
+    /// float formats retain physical units and reject finite overflow/underflow.
+    pub fn upload_volume_3d_with_format<T>(
+        &mut self,
+        source_volume: &DenseVolume3<T>,
+        format: wgpu::TextureFormat,
+    ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + serde::Serialize
+            + DataRange<T>
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
+        self.upload_volume_3d_with_policy(
+            source_volume,
+            multi_texture_manager::UploadFormat::Explicit(format),
+        )
+    }
+
+    fn upload_volume_3d_with_policy<T>(
+        &mut self,
+        source_volume: &DenseVolume3<T>,
+        policy: multi_texture_manager::UploadFormat,
     ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
     where
         T: VoxelData
@@ -1569,36 +1613,27 @@ impl RenderLoopService {
             });
         }
 
-        // Use multi-texture manager for world-space rendering
+        // Use multi-texture manager for world-space rendering.
         if self.world_space_enabled {
             if let Some(ref mut multi_texture_manager) = self.multi_texture_manager {
-                // Determine texture format based on data type.
-                // Non-U8 types already use R16Float (exact integers up to 2048, with
-                // filtering support). U8 normally uses R8Unorm (normalized to [0,1]),
-                // but for label/atlas volumes that collapses discrete ids under
-                // nearest sampling, so force R16Float to keep ids exact.
-                let format = match source_volume.voxel_type() {
-                    NumericType::U8 if !preserve_integer_labels => wgpu::TextureFormat::R8Unorm,
-                    _ => wgpu::TextureFormat::R16Float,
-                };
-
-                // Upload to multi-texture manager
-                let (texture_index, world_to_voxel) = multi_texture_manager.upload_volume(
-                    &self.device,
-                    &self.queue,
-                    source_volume,
-                    format,
-                )?;
+                let (texture_index, world_to_voxel) = multi_texture_manager
+                    .upload_volume_with_policy(
+                        &self.device,
+                        &self.queue,
+                        source_volume,
+                        policy,
+                        true,
+                    )?;
+                let format = multi_texture_manager
+                    .get_texture_info(texture_index)
+                    .expect("a successful upload publishes its texture")
+                    .format;
 
                 // Store volume metadata for the texture index
                 let spacing = source_volume.space.0.spacing();
                 let origin = source_volume.space.0.origin();
 
-                // Calculate voxel_to_world matrix
-                let voxel_to_world = nalgebra::Matrix4::from_row_slice(&[
-                    spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
-                    spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
-                ]);
+                let voxel_to_world = source_volume.space.0.voxel_to_world();
 
                 // Get data range
                 let (data_min, data_max) = source_volume.range().unwrap_or((
@@ -1612,10 +1647,14 @@ impl RenderLoopService {
                     voxel_to_world,
                     origin: [origin[0], origin[1], origin[2]],
                     spacing: [spacing[0], spacing[1], spacing[2]],
-                    data_range: (
-                        num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
-                        num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
-                    ),
+                    data_range: if format == wgpu::TextureFormat::R8Unorm {
+                        (0.0, 1.0)
+                    } else {
+                        (
+                            num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
+                            num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
+                        )
+                    },
                 };
                 self.volume_metadata.insert(texture_index, metadata);
 
@@ -1666,12 +1705,13 @@ impl RenderLoopService {
             });
         }
 
-        if self.volume_atlas.is_3d {
-            self.volume_atlas.mark_3d_allocation();
+        let (format, mut volume_bytes) =
+            multi_texture_manager::encode_with_policy(source_volume, policy)?;
+        if format != wgpu::TextureFormat::R16Float || self.volume_atlas.format != format {
+            return Err(RenderLoopError::Internal { code: 6007, details:
+                "The legacy atlas only supports R16Float; enable world-space rendering for other formats".into() });
         }
-
-        // Convert entire volume to f16 bytes
-        let mut volume_bytes = source_volume.to_f16_bytes();
+        self.volume_atlas.mark_3d_allocation();
 
         // Debug: Check the converted data
         let voxel_count = width as usize * height as usize * depth as usize;
@@ -1978,8 +2018,13 @@ impl RenderLoopService {
             })?
             .clone();
 
-        // Update the data range with the actual computed values
-        metadata.data_range = data_range;
+        // Explicit normalized storage has normalized display units.
+        metadata.data_range =
+            if self.uploaded_texture_format(texture_index) == wgpu::TextureFormat::R8Unorm {
+                (0.0, 1.0)
+            } else {
+                data_range
+            };
         log::debug!(
             "register_volume_with_range: Setting data_range to ({}, {})",
             data_range.0,
@@ -1995,7 +2040,7 @@ impl RenderLoopService {
             VolumeRegistryEntry {
                 atlas_index: texture_index,
                 metadata,
-                format: wgpu::TextureFormat::R32Float, // TODO: Get from actual upload
+                format: self.uploaded_texture_format(texture_index),
             },
         );
         self.invalidate_prepared_layer_state_cache();
@@ -2025,7 +2070,7 @@ impl RenderLoopService {
             VolumeRegistryEntry {
                 atlas_index: texture_index,
                 metadata,
-                format: wgpu::TextureFormat::R32Float, // TODO: Get from actual texture
+                format: self.uploaded_texture_format(texture_index),
             },
         );
         self.invalidate_prepared_layer_state_cache();
@@ -2048,25 +2093,38 @@ impl RenderLoopService {
     ) where
         T: VoxelData + num_traits::NumCast + DataRange<T>,
     {
+        let format = self.uploaded_texture_format(texture_index);
         if let Some(meta) = self.volume_metadata.get_mut(&texture_index) {
             meta.world_to_voxel = world_to_voxel;
             let vol_dims = source_volume.space.dims();
             meta.dimensions = (vol_dims[0] as u32, vol_dims[1] as u32, vol_dims[2] as u32);
             let spacing = source_volume.space.0.spacing();
             let origin = source_volume.space.0.origin();
-            meta.voxel_to_world = nalgebra::Matrix4::from_row_slice(&[
-                spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
-                spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
-            ]);
+            meta.voxel_to_world = source_volume.space.0.voxel_to_world();
+            meta.spacing = [spacing[0], spacing[1], spacing[2]];
+            meta.origin = [origin[0], origin[1], origin[2]];
             let (data_min, data_max) = source_volume.range().unwrap_or((
                 num_traits::cast::<f32, T>(0.0).unwrap_or_else(|| panic!("Failed to cast 0.0")),
                 num_traits::cast::<f32, T>(1.0).unwrap_or_else(|| panic!("Failed to cast 1.0")),
             ));
-            meta.data_range = (
-                num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
-                num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
-            );
+            meta.data_range = if format == wgpu::TextureFormat::R8Unorm {
+                (0.0, 1.0)
+            } else {
+                (
+                    num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
+                    num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
+                )
+            };
+            for entry in self
+                .volumes
+                .values_mut()
+                .filter(|entry| entry.atlas_index == texture_index)
+            {
+                entry.metadata = meta.clone();
+                entry.format = format;
+            }
         }
+        self.invalidate_prepared_layer_state_cache();
     }
 
     /// Replace an existing atlas texture with a new 3D volume (world-space rendering only).
@@ -2106,6 +2164,12 @@ impl RenderLoopService {
             atlas_index,
             source_volume,
         )?;
+
+        // Automatic precision promotion replaces a texture in the same slot.
+        // Same-format updates retain their bind group and remain a queue write.
+        if multi_texture_manager.bind_group().is_none() {
+            self.rebuild_texture_bind_group()?;
+        }
 
         self.refresh_volume_metadata_after_update(atlas_index, world_to_voxel, source_volume);
 
@@ -2306,6 +2370,9 @@ impl RenderLoopService {
                     )?;
                 }
 
+                if multi_texture_manager.resident_slot_count() == 0 {
+                    self.clear_views();
+                }
                 self.invalidate_prepared_layer_state_cache();
                 Ok(())
             } else {
@@ -3333,6 +3400,13 @@ impl RenderLoopService {
                 .retain(|_, entry| entry.atlas_index != atlas_index);
             self.invalidate_prepared_layer_state_cache();
         }
+        if self
+            .multi_texture_manager
+            .as_ref()
+            .is_some_and(|manager| manager.resident_slot_count() == 0)
+        {
+            self.clear_views();
+        }
         Ok(removed)
     }
 
@@ -3443,12 +3517,9 @@ impl RenderLoopService {
         }
     }
 
-    /// Overwrite an already-resident volume texture slot with a different member's
-    /// data in place (no reallocation). Used by the resident-image-set ring when it
-    /// evicts an LRU member and reuses its slot: the incoming member shares the
-    /// grid/format, so this is a single `write_texture` with no new allocation and
-    /// no bind-group rebuild. Errors if `texture_index` is not resident or the
-    /// dimensions differ.
+    /// Replace a resident member in the same slot. Same-format updates use one
+    /// queue write; automatic precision promotion replaces the texture and its
+    /// binding. Explicit-format slots never silently change precision.
     pub fn update_volume_3d_at<T>(
         &mut self,
         texture_index: u32,
@@ -3464,26 +3535,8 @@ impl RenderLoopService {
             + std::ops::Div<Output = T>
             + std::ops::Mul<Output = T>,
     {
-        if self.world_space_enabled {
-            if let Some(ref mut multi_texture_manager) = self.multi_texture_manager {
-                let world_to_voxel = multi_texture_manager.update_volume(
-                    &self.device,
-                    &self.queue,
-                    texture_index,
-                    source_volume,
-                )?;
-                self.refresh_volume_metadata_after_update(
-                    texture_index,
-                    world_to_voxel,
-                    source_volume,
-                );
-                return Ok(());
-            }
-        }
-        Err(RenderLoopError::Internal {
-            code: 8016,
-            details: "update_volume_3d_at requires world-space rendering".to_string(),
-        })
+        self.update_volume_3d_at_index(texture_index, source_volume)
+            .map(|_| ())
     }
 
     /// Update layer intensity window
@@ -4585,52 +4638,39 @@ impl RenderLoopService {
             + std::ops::Mul<Output = T>,
     {
         // Upload volume to atlas
-        let (atlas_index, _world_to_voxel) = self.upload_volume_3d(volume)?;
+        let (atlas_index, _world_to_voxel) = self.upload_volume_3d_with_format(volume, format)?;
 
-        // Get volume metadata
-        let dims = volume.space.dims();
-        let world_to_voxel = volume.space.0.world_to_voxel();
-        let voxel_to_world = volume.space.0.voxel_to_world();
-        let spacing = volume.space.0.spacing();
-        let origin = volume.space.0.origin();
+        self.register_volume(volume_id, atlas_index)
+    }
 
-        log::debug!("register_volume_with_upload:");
-        log::debug!("  world_to_voxel: {:?}", world_to_voxel);
-        log::debug!("  voxel_to_world: {:?}", voxel_to_world);
-        let data_range = volume
-            .range()
-            .map(|(min, max)| {
-                let min_f32 = num_traits::cast::<T, f32>(min).unwrap_or(0.0);
-                let max_f32 = num_traits::cast::<T, f32>(max).unwrap_or(1.0);
-                log::debug!("Volume data range: min={}, max={}", min_f32, max_f32);
-                (min_f32, max_f32)
-            })
-            .unwrap_or_else(|| {
-                log::debug!("Volume.range() returned None, using default (0.0, 1.0)");
-                (0.0, 1.0)
-            });
+    /// Actual allocated storage format, or None for an unknown/released slot.
+    pub fn get_volume_texture_format(&self, texture_index: u32) -> Option<wgpu::TextureFormat> {
+        if self.world_space_enabled {
+            self.multi_texture_manager
+                .as_ref()
+                .and_then(|manager| manager.get_texture_info(texture_index))
+                .map(|info| info.format)
+        } else {
+            self.volume_metadata
+                .contains_key(&texture_index)
+                .then_some(self.volume_atlas.format)
+        }
+    }
 
-        let metadata = VolumeMetadata {
-            dimensions: (dims[0] as u32, dims[1] as u32, dims[2] as u32),
-            world_to_voxel,
-            voxel_to_world,
-            origin: [origin[0], origin[1], origin[2]],
-            spacing: [spacing[0], spacing[1], spacing[2]],
-            data_range,
-        };
+    fn uploaded_texture_format(&self, texture_index: u32) -> wgpu::TextureFormat {
+        self.get_volume_texture_format(texture_index)
+            .unwrap_or(self.volume_atlas.format)
+    }
 
-        // Store in registry
-        self.volumes.insert(
-            volume_id,
-            VolumeRegistryEntry {
-                atlas_index,
-                metadata,
-                format,
-            },
-        );
-        self.invalidate_prepared_layer_state_cache();
+    /// Release a view's render target. Pending submitted GPU work retains its own
+    /// resource references; subsequent readback requires rendering the view again.
+    pub fn release_view(&mut self, view_id: &ViewId) -> bool {
+        self.views.remove(view_id).is_some()
+    }
 
-        Ok(())
+    /// Release all cached view targets, for workspace/session teardown.
+    pub fn clear_views(&mut self) {
+        self.views.clear();
     }
 
     /// Create or update a view's render target
@@ -5256,53 +5296,10 @@ impl RenderLoopService {
             view_state.crosshair_color,
         );
 
-        // Calculate field of view and slice parameters from view state
-        let fov_mm = view_state.camera.fov_mm;
-        let half_fov = fov_mm / 2.0;
-
-        // Convert the camera center and orientation to slice parameters
-        let center = view_state.camera.world_center;
-
-        // Generate slice plane vectors based on orientation
-        let (u_mm, v_mm) = match view_state.camera.orientation {
-            view_state::SliceOrientation::Axial => {
-                // Axial: u=right (X+), v=forward (Y+), normal=up (Z+)
-                ([1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0])
-            }
-            view_state::SliceOrientation::Sagittal => {
-                // Sagittal: u=forward (Y+), v=up (Z+), normal=right (X+)
-                ([0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
-            }
-            view_state::SliceOrientation::Coronal => {
-                // Coronal: u=right (X+), v=up (Z+), normal=forward (Y+)
-                ([1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
-            }
-        };
-
-        // Calculate origin as center - half_extent in each direction
-        let origin_mm = [
-            center[0] - half_fov * u_mm[0] - half_fov * v_mm[0],
-            center[1] - half_fov * u_mm[1] - half_fov * v_mm[1],
-            center[2] - half_fov * u_mm[2] - half_fov * v_mm[2],
-            0.0,
-        ];
-
-        // Scale vectors to span the full field of view
-        let u_scaled = [
-            u_mm[0] * fov_mm,
-            u_mm[1] * fov_mm,
-            u_mm[2] * fov_mm,
-            u_mm[3],
-        ];
-        let v_scaled = [
-            v_mm[0] * fov_mm,
-            v_mm[1] * fov_mm,
-            v_mm[2] * fov_mm,
-            v_mm[3],
-        ];
-
-        // Update frame UBO with slice parameters
-        self.update_frame_ubo(origin_mm, u_scaled, v_scaled);
+        // The canonical conversion preserves exact slice frames (including
+        // oblique/non-square frames) supplied by the reusable SliceProvider.
+        let (origin, u_vec, v_vec) = view_state.camera_to_frame_params();
+        self.update_frame_ubo(origin, u_vec, v_vec);
 
         // Add layers from view state
         for layer_config in &view_state.layers {
@@ -5344,6 +5341,11 @@ impl RenderLoopService {
                 layer.colormap_id = layer_config.colormap_id;
                 layer.blend_mode = layer_config.blend_mode;
                 layer.intensity_range = layer_config.intensity_window;
+                layer.interpolation_mode = match layer_config.interpolation {
+                    view_state::InterpolationMode::Nearest => 0,
+                    view_state::InterpolationMode::Linear => 1,
+                    view_state::InterpolationMode::Cubic => 2,
+                };
 
                 // Intensity-modulated alpha (None / Off => flat-opacity layer).
                 let (am_mode, am_gamma, am_center) = match &layer_config.alpha_mod {
@@ -5401,6 +5403,39 @@ mod tests {
     // CrosshairUbo is already imported at module level
     // Maintain is imported above if needed
     use approx::assert_abs_diff_eq;
+
+    #[tokio::test]
+    async fn declarative_targets_are_owned_once_and_released_with_final_volume() {
+        let mut service = RenderLoopService::new().await.unwrap();
+        service.load_shaders().unwrap();
+        let volume = test_fixtures::create_test_pattern_volume();
+        let (slot, _) = service.upload_volume_3d(&volume).unwrap();
+        service
+            .register_volume_with_range("v".into(), slot, (0., 255.))
+            .unwrap();
+        let id = ViewId::new("owned-view");
+        service.ensure_view(id.clone(), [32, 24]).unwrap();
+        let state = ViewState::from_basic_params(
+            "v".into(),
+            [32., 32., 12.],
+            view_state::SliceOrientation::Axial,
+            64.,
+            [32, 24],
+            (0., 255.),
+        )
+        .with_crosshair(false);
+        service.request_frame(id.clone(), state).await.unwrap();
+        assert_eq!(service.views.len(), 1);
+        assert!(
+            service.render_target_pool.is_none(),
+            "declarative views must not allocate legacy targets"
+        );
+        service.release_layer_resources(slot).unwrap();
+        assert!(
+            !service.release_view(&id),
+            "final volume teardown must release cached views"
+        );
+    }
 
     #[tokio::test]
     async fn test_wgpu_initialization() {

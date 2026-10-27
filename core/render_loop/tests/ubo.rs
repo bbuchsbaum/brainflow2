@@ -424,7 +424,7 @@ async fn active_masked_wgsl_sources_validate_as_shader_modules() {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let _shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(name),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
+            source: wgpu::ShaderSource::Wgsl(render_loop::shaders::compose_shader_source(source)),
         });
         device.poll(wgpu::Maintain::Wait);
         let error = device.pop_error_scope().await;

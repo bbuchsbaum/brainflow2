@@ -1,3 +1,4 @@
+// @include fullscreen_vertex
 // World-space slice shader with proper multi-resolution support
 // Each layer samples from its own texture with correct resolution
 
@@ -148,18 +149,8 @@ struct VsOut {
 // --- Vertex Shader ---
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
-    // Generate full-screen quad vertices in NDC space [0, 1]
-    var ndc: vec2<f32>;
-    switch (vid) {
-        case 0u: { ndc = vec2<f32>(0.0, 0.0); }  // Bottom-left
-        case 1u: { ndc = vec2<f32>(1.0, 0.0); }  // Bottom-right
-        case 2u: { ndc = vec2<f32>(0.0, 1.0); }  // Top-left
-        case 3u: { ndc = vec2<f32>(0.0, 1.0); }  // Top-left
-        case 4u: { ndc = vec2<f32>(1.0, 0.0); }  // Bottom-right
-        case 5u: { ndc = vec2<f32>(1.0, 1.0); }  // Top-right
-        default: { ndc = vec2<f32>(0.0, 0.0); }  // Fallback
-    }
-    
+    let ndc = fullscreen_vertex(vid);
+
     // Convert to clip space [-1, 1]
     let clip_pos = ndc * 2.0 - 1.0;
     
@@ -330,6 +321,9 @@ fn alphaThresholdFloorMagnitude(layer: LayerData, raw_value: f32, hi: f32) -> f3
         }
     } else if (layer.threshold_mode == 2u) {
         floor_mag = abs(layer.thresh_low - layer.alpha_center);
+    } else if (layer.threshold_mode == 4u) {
+        // Inside mode has no threshold-derived magnitude floor.
+        floor_mag = 0.0;
     } else {
         floor_mag = abs(layer.thresh_high - layer.alpha_center);
     }
@@ -422,6 +416,12 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
             }
             case 3u: { // Below threshold
                 if (raw_value > layer.thresh_high) {
+                    alpha = 0.0;
+                }
+            }
+            case 4u: { // Inside inclusive range
+                let within_range = raw_value >= layer.thresh_low && raw_value <= layer.thresh_high;
+                if (!within_range) {
                     alpha = 0.0;
                 }
             }

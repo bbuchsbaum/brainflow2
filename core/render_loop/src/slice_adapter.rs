@@ -8,9 +8,9 @@ use crate::view_state::{
     CameraState, InterpolationMode, LayerConfig, SliceOrientation, ThresholdConfig, ViewState,
 };
 use crate::{RenderLoopError, RenderLoopService};
-use nalgebra::Vector3;
 use neuro_types::{
-    CompositeRequest, LayerSpec, Result as NeuroResult, RgbaImage, SliceGeometry, SliceProvider,
+    CompositeRequest, InterpolationMethod, LayerSpec, Result as NeuroResult, RgbaImage,
+    SliceGeometry, SliceProvider,
 };
 
 /// Error conversion from RenderLoop to neuro-types
@@ -31,127 +31,6 @@ impl GpuSliceAdapter {
     pub fn new(render_service: RenderLoopService) -> Self {
         Self {
             render_service: std::cell::RefCell::new(render_service),
-        }
-    }
-
-    /// Convert SliceSpec to ViewState for GPU rendering
-    #[allow(dead_code)]
-    fn slice_spec_to_view_state(&self, request: &CompositeRequest) -> NeuroResult<ViewState> {
-        let slice = &request.slice;
-
-        // Calculate the center of the slice in world coordinates
-        let center_x = slice.origin_mm[0]
-            + slice.u_mm[0] * (slice.dim_px[0] as f32 / 2.0)
-            + slice.v_mm[0] * (slice.dim_px[1] as f32 / 2.0);
-        let center_y = slice.origin_mm[1]
-            + slice.u_mm[1] * (slice.dim_px[0] as f32 / 2.0)
-            + slice.v_mm[1] * (slice.dim_px[1] as f32 / 2.0);
-        let center_z = slice.origin_mm[2]
-            + slice.u_mm[2] * (slice.dim_px[0] as f32 / 2.0)
-            + slice.v_mm[2] * (slice.dim_px[1] as f32 / 2.0);
-
-        // Calculate field of view from slice vectors
-        let u_length =
-            (slice.u_mm[0].powi(2) + slice.u_mm[1].powi(2) + slice.u_mm[2].powi(2)).sqrt();
-        let v_length =
-            (slice.v_mm[0].powi(2) + slice.v_mm[1].powi(2) + slice.v_mm[2].powi(2)).sqrt();
-        let fov_mm = (u_length * slice.dim_px[0] as f32).max(v_length * slice.dim_px[1] as f32);
-
-        // Determine slice orientation from vectors
-        let orientation = self.detect_slice_orientation(&slice.u_mm, &slice.v_mm)?;
-
-        // Preserve the EXACT slice frame so the GPU renders the same rectangle
-        // the CPU slicer does (via SliceSpec::pixel_to_world), instead of letting
-        // camera_to_frame_params re-derive a square frame from world_center/fov.
-        let (frame_origin, frame_u_vec, frame_v_vec) = exact_frame_params(slice);
-
-        // Convert layers
-        let gpu_layers = request
-            .layers
-            .iter()
-            .map(|layer| self.layer_spec_to_layer_config(layer))
-            .collect::<NeuroResult<Vec<_>>>()?;
-
-        Ok(ViewState {
-            layout_version: 1,
-            camera: CameraState {
-                world_center: [center_x, center_y, center_z],
-                fov_mm,
-                orientation,
-                frame_origin: Some(frame_origin),
-                frame_u_vec: Some(frame_u_vec),
-                frame_v_vec: Some(frame_v_vec),
-            },
-            crosshair_world: [center_x, center_y, center_z],
-            layers: gpu_layers,
-            viewport_size: slice.dim_px,
-            show_crosshair: false,
-            crosshair_color: [0.0, 1.0, 0.0, 0.8],
-            timepoint: None,
-        })
-    }
-
-    /// Convert LayerSpec to GPU LayerConfig
-    fn layer_spec_to_layer_config(&self, layer: &LayerSpec) -> NeuroResult<LayerConfig> {
-        Ok(LayerConfig {
-            volume_id: format!("volume_{}", layer.volume_id.0), // Convert handle to string ID
-            opacity: layer.visual.opacity,
-            colormap_id: layer.visual.colormap_id,
-            blend_mode: self.convert_blend_mode(layer.visual.blend_mode),
-            intensity_window: layer.visual.intensity_range,
-            threshold: if layer.visual.threshold_range.0 != f32::NEG_INFINITY
-                || layer.visual.threshold_range.1 != f32::INFINITY
-            {
-                Some(ThresholdConfig {
-                    mode: ThresholdMode::Range,
-                    range: layer.visual.threshold_range,
-                })
-            } else {
-                None
-            },
-            visible: layer.visual.opacity > 0.0,
-            interpolation: InterpolationMode::Linear, // Default to linear
-            layer_mode: Default::default(),
-            alpha_mod: None,
-        })
-    }
-
-    /// Convert neuro-types BlendMode to GPU BlendMode
-    fn convert_blend_mode(&self, mode: neuro_types::BlendMode) -> GpuBlendMode {
-        match mode {
-            neuro_types::BlendMode::Normal => GpuBlendMode::Normal,
-            neuro_types::BlendMode::Additive => GpuBlendMode::Additive,
-            neuro_types::BlendMode::Multiply => GpuBlendMode::Multiply,
-        }
-    }
-
-    /// Detect slice orientation from U and V vectors
-    fn detect_slice_orientation(
-        &self,
-        u_mm: &[f32; 3],
-        v_mm: &[f32; 3],
-    ) -> NeuroResult<SliceOrientation> {
-        // Calculate the normal vector (cross product of U and V)
-        let u = Vector3::new(u_mm[0], u_mm[1], u_mm[2]);
-        let v = Vector3::new(v_mm[0], v_mm[1], v_mm[2]);
-        let normal = u.cross(&v).normalize();
-
-        // Determine dominant axis
-        let abs_normal = [normal.x.abs(), normal.y.abs(), normal.z.abs()];
-        let max_component = abs_normal
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i)
-            .unwrap_or(2);
-
-        match max_component {
-            0 => Ok(SliceOrientation::Sagittal), // X-dominant normal
-            1 => Ok(SliceOrientation::Coronal),  // Y-dominant normal
-            2 => Ok(SliceOrientation::Axial),    // Z-dominant normal
-            _ => Err(neuro_types::Error::InvalidSliceSpec(
-                "Cannot determine slice orientation".into(),
-            )),
         }
     }
 }
@@ -208,27 +87,20 @@ impl SliceSpecMapper {
         // Preserve the EXACT slice frame (see slice_spec_to_view_state).
         let (frame_origin, frame_u_vec, frame_v_vec) = exact_frame_params(slice);
 
-        // Convert layers (simplified - would need proper layer mapping)
+        let interpolation = match slice.interp {
+            InterpolationMethod::Nearest => InterpolationMode::Nearest,
+            InterpolationMethod::Linear => InterpolationMode::Linear,
+            InterpolationMethod::Cubic => {
+                return Err(neuro_types::Error::InvalidSliceSpec(
+                    "GPU slice rendering does not support cubic interpolation".into(),
+                ))
+            }
+        };
         let gpu_layers = request
             .layers
             .iter()
-            .map(|layer| LayerConfig {
-                volume_id: format!("volume_{}", layer.volume_id.0),
-                opacity: layer.visual.opacity,
-                colormap_id: layer.visual.colormap_id,
-                blend_mode: match layer.visual.blend_mode {
-                    neuro_types::BlendMode::Normal => GpuBlendMode::Normal,
-                    neuro_types::BlendMode::Additive => GpuBlendMode::Additive,
-                    neuro_types::BlendMode::Multiply => GpuBlendMode::Multiply,
-                },
-                intensity_window: layer.visual.intensity_range,
-                threshold: None, // Simplified for now
-                visible: layer.visual.opacity > 0.0,
-                interpolation: InterpolationMode::Linear, // Default to linear
-                layer_mode: Default::default(),
-                alpha_mod: None,
-            })
-            .collect();
+            .map(|layer| map_layer(layer, interpolation))
+            .collect::<NeuroResult<Vec<_>>>()?;
 
         Ok(ViewState {
             layout_version: 1,
@@ -248,6 +120,43 @@ impl SliceSpecMapper {
             timepoint: None,
         })
     }
+}
+
+/// Neuro thresholds retain the inclusive range, while GPU Range hides it.
+/// Above, Below, and Inside implement matching inclusive boundaries.
+fn map_layer(layer: &LayerSpec, interpolation: InterpolationMode) -> NeuroResult<LayerConfig> {
+    let (low, high) = layer.visual.threshold_range;
+    if low.is_nan() || high.is_nan() || low > high {
+        return Err(neuro_types::Error::InvalidSliceSpec(
+            "Invalid layer threshold range".into(),
+        ));
+    }
+    let mode = if high == f32::INFINITY {
+        ThresholdMode::Above
+    } else if low == f32::NEG_INFINITY {
+        ThresholdMode::Below
+    } else {
+        ThresholdMode::Inside
+    };
+    Ok(LayerConfig {
+        volume_id: format!("volume_{}", layer.volume_id.0),
+        opacity: layer.visual.opacity,
+        colormap_id: layer.visual.colormap_id,
+        blend_mode: match layer.visual.blend_mode {
+            neuro_types::BlendMode::Normal => GpuBlendMode::Normal,
+            neuro_types::BlendMode::Additive => GpuBlendMode::Additive,
+            neuro_types::BlendMode::Multiply => GpuBlendMode::Multiply,
+        },
+        intensity_window: layer.visual.get_display_range(),
+        threshold: Some(ThresholdConfig {
+            mode,
+            range: (low, high),
+        }),
+        visible: layer.visual.opacity > 0.0,
+        interpolation,
+        layer_mode: Default::default(),
+        alpha_mod: None,
+    })
 }
 
 /// Exact GPU frame parameters for a slice, routed through the single
@@ -286,17 +195,67 @@ mod tests {
         assert!((view_state.camera.fov_mm - 100.0).abs() < 1e-6);
     }
 
-    // Note: These tests would require a real RenderLoopService instance
-    // which requires GPU setup. For now, we test the static functions.
+    #[test]
+    fn maps_display_threshold_and_interpolation() {
+        let mut slice = SliceSpec::axial_at([0.0; 3], [10.0; 2], [10; 2]);
+        slice.interp = InterpolationMethod::Nearest;
+        let mut visual = LayerVisual::overlay(3, 0.5, 2.5);
+        visual.intensity_range = (0.0, 10.0);
+        visual.display_range = Some((1.0, 8.0));
+        let layer = LayerSpec {
+            volume_id: VolumeHandle::new(1),
+            world_from_voxel: Matrix4::identity(),
+            visual,
+        };
+        let mut request = CompositeRequest::single_layer(slice, layer);
+        let view = SliceSpecMapper::to_view_state(&request).unwrap();
+        let config = &view.layers[0];
+        assert_eq!(config.intensity_window, (1.0, 8.0));
+        assert_eq!(config.interpolation, InterpolationMode::Nearest);
+        let threshold = config.threshold.as_ref().unwrap();
+        assert_eq!(threshold.mode, ThresholdMode::Above);
+        assert_eq!(threshold.range, (2.5, f32::INFINITY));
+        assert_eq!(config.blend_mode, GpuBlendMode::Additive);
+
+        request.slice.interp = InterpolationMethod::Linear;
+        request.layers[0].visual.display_range = None;
+        request.layers[0].visual.threshold_range = (f32::NEG_INFINITY, 4.0);
+        let view = SliceSpecMapper::to_view_state(&request).unwrap();
+        assert_eq!(view.layers[0].interpolation, InterpolationMode::Linear);
+        assert_eq!(view.layers[0].intensity_window, (0.0, 10.0));
+        assert_eq!(
+            view.layers[0].threshold.as_ref().unwrap().mode,
+            ThresholdMode::Below
+        );
+        request.layers[0].visual.threshold_range = (f32::NEG_INFINITY, f32::INFINITY);
+        assert_eq!(
+            SliceSpecMapper::to_view_state(&request).unwrap().layers[0]
+                .threshold
+                .as_ref()
+                .unwrap()
+                .mode,
+            ThresholdMode::Above
+        );
+    }
 
     #[test]
-    fn test_static_blend_mode_conversion() {
-        // Test the blend mode conversion logic without needing an adapter instance
-        let normal_gpu = match neuro_types::BlendMode::Normal {
-            neuro_types::BlendMode::Normal => GpuBlendMode::Normal,
-            neuro_types::BlendMode::Additive => GpuBlendMode::Additive,
-            neuro_types::BlendMode::Multiply => GpuBlendMode::Multiply,
+    fn rejects_unsupported_or_invalid_requests() {
+        let slice = SliceSpec::axial_at([0.0; 3], [10.0; 2], [10; 2]);
+        let layer = LayerSpec {
+            volume_id: VolumeHandle::new(0),
+            world_from_voxel: Matrix4::identity(),
+            visual: LayerVisual::default(),
         };
-        assert_eq!(normal_gpu, GpuBlendMode::Normal);
+        let mut request = CompositeRequest::single_layer(slice, layer);
+        request.layers[0].visual.threshold_range = (1.0, 2.0);
+        let view = SliceSpecMapper::to_view_state(&request).unwrap();
+        let threshold = view.layers[0].threshold.as_ref().unwrap();
+        assert_eq!(threshold.mode, ThresholdMode::Inside);
+        assert_eq!(threshold.range, (1.0, 2.0));
+        request.layers[0].visual.threshold_range = (f32::NAN, f32::INFINITY);
+        assert!(SliceSpecMapper::to_view_state(&request).is_err());
+        request.layers[0].visual.threshold_range = (f32::NEG_INFINITY, f32::INFINITY);
+        request.slice.interp = InterpolationMethod::Cubic;
+        assert!(SliceSpecMapper::to_view_state(&request).is_err());
     }
 }

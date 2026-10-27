@@ -31,6 +31,8 @@ pub enum ThresholdMode {
     Above = 2,
     /// Below threshold only.
     Below = 3,
+    /// Keep values inside the inclusive threshold range.
+    Inside = 4,
 }
 
 /// Shader-side layer semantics.
@@ -627,6 +629,21 @@ impl ViewState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn threshold_mode_discriminants_and_inside_serde_are_stable() {
+        assert_eq!(ThresholdMode::Range as u32, 0);
+        assert_eq!(ThresholdMode::Absolute as u32, 1);
+        assert_eq!(ThresholdMode::Above as u32, 2);
+        assert_eq!(ThresholdMode::Below as u32, 3);
+        assert_eq!(ThresholdMode::Inside as u32, 4);
+        let json = serde_json::to_string(&ThresholdMode::Inside).unwrap();
+        assert_eq!(json, "\"Inside\"");
+        assert_eq!(
+            serde_json::from_str::<ThresholdMode>(&json).unwrap(),
+            ThresholdMode::Inside
+        );
+    }
 
     #[test]
     fn view_state_round_trips_through_json() {

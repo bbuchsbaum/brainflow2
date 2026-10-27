@@ -22,10 +22,11 @@ use std::mem::{offset_of, size_of};
 
 use render_loop::layer_storage::LayerMetadata;
 use render_loop::shader_contract as sc;
+use render_loop::shaders::{compose_shader_source, sources};
 use render_loop::{FrameUbo, LayerUboStd140, SliceFeatureUbo};
 
-const MASKED: &str = include_str!("../shaders/slice_world_space_masked.wgsl");
-const OPTIMIZED: &str = include_str!("../shaders/slice_world_space_optimized_masked.wgsl");
+const MASKED: &str = sources::SLICE_WORLD_SPACE;
+const OPTIMIZED: &str = sources::SLICE_WORLD_SPACE_OPTIMIZED;
 
 fn shaders() -> [(&'static str, &'static str); 2] {
     [
@@ -35,8 +36,15 @@ fn shaders() -> [(&'static str, &'static str); 2] {
 }
 
 fn parse(name: &str, source: &str) -> naga::Module {
-    naga::front::wgsl::parse_str(source)
-        .unwrap_or_else(|e| panic!("{name} failed to parse with naga: {e:?}"))
+    let module = naga::front::wgsl::parse_str(&compose_shader_source(source))
+        .unwrap_or_else(|e| panic!("{name} failed to parse with naga: {e:?}"));
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap_or_else(|e| panic!("{name} failed naga validation: {e:?}"));
+    module
 }
 
 /// Reflected layout of a named WGSL struct: member byte offsets (in declaration

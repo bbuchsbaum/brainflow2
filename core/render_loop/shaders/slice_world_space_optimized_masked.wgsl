@@ -1,3 +1,4 @@
+// @include fullscreen_vertex
 // Optimized world-space slice shader with multi-resolution performance improvements
 // Key optimizations:
 // - Early exit for transparent regions
@@ -162,12 +163,8 @@ struct VsOut {
 // --- Vertex Shader ---
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
-    // Generate full-screen quad vertices in NDC space [0, 1]
-    let vertex_id = vid % 6u;
-    let x = f32((vertex_id & 1u) ^ ((vertex_id >> 2u) & 1u));
-    let y = f32((vertex_id >> 1u) & 1u);
-    let ndc = vec2<f32>(x, y);
-    
+    let ndc = fullscreen_vertex(vid);
+
     // Convert to clip space [-1, 1]
     let clip_pos = ndc * 2.0 - 1.0;
     
@@ -332,6 +329,9 @@ fn alphaThresholdFloorMagnitude(layer: LayerData, raw_value: f32, hi: f32) -> f3
         }
     } else if (layer.threshold_mode == 2u) {
         floor_mag = abs(layer.thresh_low - layer.alpha_center);
+    } else if (layer.threshold_mode == 4u) {
+        // Inside mode has no threshold-derived magnitude floor.
+        floor_mag = 0.0;
     } else {
         floor_mag = abs(layer.thresh_high - layer.alpha_center);
     }
@@ -433,6 +433,9 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
         alpha = select(alpha, 0.0, within_abs_range);
     } else if (layer.threshold_mode == 2u) { // Above
         alpha = select(0.0, alpha, raw_value >= layer.thresh_low);
+    } else if (layer.threshold_mode == 4u) { // Inside inclusive range
+        let within_range = raw_value >= layer.thresh_low && raw_value <= layer.thresh_high;
+        alpha = select(0.0, alpha, within_range);
     } else { // Below
         alpha = select(0.0, alpha, raw_value <= layer.thresh_high);
     }

@@ -43,7 +43,7 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
 
 ### Common Patterns
 - `WgpuSliceRenderer` is the reusable facade for external apps; keep new public lifecycle features there before exposing raw `RenderLoopService` internals
-- Runtime masked WGSL currently has a fixed multi-texture binding count; facade texture capacity config is clamped to that runtime minimum until shader generation/bindings become configurable
+- Runtime masked WGSL binds exactly 13 textures; smaller facade capacity requests retain that layout, and requests above 13 return an error before GPU initialization
 - Offscreen rendering (avoids Tauri window handle complexity)
 - Storage buffers for dynamic layer count
 - 3D texture arrays for direct volume sampling
@@ -76,3 +76,28 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
 - `encase` - Optional typed shader bindings (typed-shaders feature)
 
 <!-- MANUAL: This is the most complex crate - consult core/CLAUDE.md for architecture details before major changes. -->
+
+## Display upload and view ownership
+
+- `upload_volume_3d_with_format` honors explicit storage requests; default uploads
+  preserve physical scalar units, including native U8. R16Float is used only if
+  it retains finite nonzero values; otherwise use R32Float. Label-aware uploads
+  also require exact categorical IDs and reject IDs that R32Float cannot preserve.
+  Explicit R8Unorm is range-normalized display storage with windows in `[0, 1]`.
+- Upload and in-place update share encoding and tightly packed `Queue::write_texture`.
+  Keep 256-byte row alignment for encoder buffer copies/readback, not queue writes.
+- Both active masked shaders include `fullscreen_vertex.wgsl` through
+  `shaders::compose_shader_source`; reflection must validate the composed source.
+  `ThresholdMode::Inside = 4` retains inclusive ranges for the reusable slice
+  adapter; `Range = 0` retains its existing hide-inside semantics.
+- Declarative rendering owns targets through `ensure_view`; do not also allocate
+  a legacy offscreen target. Facade consumers release closed views with
+  `release_view`/`clear_views`; final volume teardown also clears cached views.
+- Regression gate: `cargo test -p render_loop --test display_upload_regression_test`
+  plus the shader-contract, render-golden, batched-readback, and resource-lifecycle
+  tests. The focused regression requires an actual GPU and never soft-skips.
+
+- Automatic resident slots can promote from R16F to R32F on member replacement;
+  promotion keeps the slot ID, replaces its binding, and refreshes registry
+  metadata. R32 slots stay R32 to avoid churn. Explicit-format slots reject
+  unsafe replacements. `get_volume_texture_format` reports actual storage.
