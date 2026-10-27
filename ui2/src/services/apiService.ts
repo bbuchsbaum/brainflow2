@@ -12,7 +12,6 @@ import type { ViewState } from '@/types/viewState';
 import type { WorldCoordinates, ViewPlane, ViewType } from '@/types/coordinates';
 import {
   RenderClient,
-  configureInvoker,
   decodePngPacket,
   decodeRawRgbaPacket,
   validateRenderViewPayload,
@@ -48,10 +47,10 @@ function hexToRgba(hex: string, alpha = 1.0): [number, number, number, number] {
   const b = parseInt(clean.substring(4, 6), 16) / 255;
   return [r, g, b, alpha];
 }
-import { getFilesystemService } from './filesystem/FilesystemService';
-import { getVolumeApiService } from './volume/VolumeApiService';
-import { getLayerGpuService } from './layer/LayerGpuService';
-import { getBatchRenderService } from './mosaic/BatchRenderService';
+import { FilesystemService } from './filesystem/FilesystemService';
+import { VolumeApiService } from './volume/VolumeApiService';
+import { LayerGpuService } from './layer/LayerGpuService';
+import { BatchRenderService } from './mosaic/BatchRenderService';
 import { recordRenderDiagnostic } from './render/RenderDiagnostics';
 import { buildRequestedViewPayload } from '@/utils/viewGeometry';
 
@@ -76,10 +75,19 @@ export const RENDERER_DRAWS_CROSSHAIR = false;
 export class ApiService {
   private transport: BackendTransport;
   private renderClient: RenderClient;
+  private readonly filesystem: FilesystemService;
+  private readonly volumes: VolumeApiService;
+  private readonly layerGpu: LayerGpuService;
+  private readonly batchRenderer: BatchRenderService;
 
   constructor(transport: BackendTransport = getTransport()) {
     this.transport = transport;
-    configureInvoker((cmd, args) => this.transport.invoke(cmd, args));
+    // Every delegate shares this instance's backend. Global service getters
+    // would silently bypass an explicitly supplied transport.
+    this.filesystem = new FilesystemService(transport);
+    this.volumes = new VolumeApiService(transport);
+    this.layerGpu = new LayerGpuService(transport);
+    this.batchRenderer = new BatchRenderService(transport);
     this.renderClient = new RenderClient(this.transport);
     apiDebugLog(
       `[ApiService] Initialized with unified render_view API (RGBA mode: ${renderFlags.useRawRGBA ? 'ENABLED' : 'DISABLED'})`,
@@ -462,34 +470,34 @@ export class ApiService {
     path: string,
     maxDepth = 1,
   ): Promise<import('./filesystem/FilesystemService').FileNode[]> {
-    return getFilesystemService().listDirectory(path, maxDepth);
+    return this.filesystem.listDirectory(path, maxDepth);
   }
 
   // ── Volume delegation ──────────────────────────────────────────────────────
 
   async loadFile(path: string): Promise<import('./volume/VolumeApiService').VolumeHandle> {
-    return getVolumeApiService().loadFile(path);
+    return this.volumes.loadFile(path);
   }
 
   async getVolumeBounds(volumeId: string): Promise<VolumeBounds> {
-    return getVolumeApiService().getVolumeBounds(volumeId);
+    return this.volumes.getVolumeBounds(volumeId);
   }
 
   async unloadVolume(volumeId: string): Promise<void> {
-    return getVolumeApiService().unloadVolume(volumeId);
+    return this.volumes.unloadVolume(volumeId);
   }
 
   async getNiftiHeaderInfo(
     volumeId: string,
   ): Promise<import('./volume/VolumeApiService').NiftiHeaderInfo> {
-    return getVolumeApiService().getNiftiHeaderInfo(volumeId);
+    return this.volumes.getNiftiHeaderInfo(volumeId);
   }
 
   async getInitialViews(
     volumeId: string,
     maxPx: [number, number],
   ): Promise<Record<string, ViewPlane>> {
-    return getVolumeApiService().getInitialViews(volumeId, maxPx);
+    return this.volumes.getInitialViews(volumeId, maxPx);
   }
 
   async recalculateViewForDimensions(
@@ -498,7 +506,7 @@ export class ApiService {
     dimensions: [number, number],
     crosshairMm: [number, number, number],
   ): Promise<ViewPlane> {
-    return getVolumeApiService().recalculateViewForDimensions(
+    return this.volumes.recalculateViewForDimensions(
       volumeId,
       viewType,
       dimensions,
@@ -511,21 +519,21 @@ export class ApiService {
     dimensionsByView: Record<ViewType, [number, number]>,
     crosshairMm: [number, number, number],
   ): Promise<Record<ViewType, ViewPlane>> {
-    return getVolumeApiService().recalculateAllViews(volumeId, dimensionsByView, crosshairMm);
+    return this.volumes.recalculateAllViews(volumeId, dimensionsByView, crosshairMm);
   }
 
   async sampleWorldCoordinate(
     worldCoord: WorldCoordinates,
   ): Promise<import('./volume/VolumeApiService').SampleResult> {
-    return getVolumeApiService().sampleWorldCoordinate(worldCoord);
+    return this.volumes.sampleWorldCoordinate(worldCoord);
   }
 
   async setVolumeTimepoint(volumeId: string, timepoint: number): Promise<void> {
-    return getVolumeApiService().setVolumeTimepoint(volumeId, timepoint);
+    return this.volumes.setVolumeTimepoint(volumeId, timepoint);
   }
 
   async getVolumeTimepoint(volumeId: string): Promise<number | null> {
-    return getVolumeApiService().getVolumeTimepoint(volumeId);
+    return this.volumes.getVolumeTimepoint(volumeId);
   }
 
   async querySliceAxisMeta(
@@ -536,7 +544,7 @@ export class ApiService {
     sliceSpacing: number;
     axisLength: number;
   }> {
-    return getVolumeApiService().querySliceAxisMeta(volumeId, axis);
+    return this.volumes.querySliceAxisMeta(volumeId, axis);
   }
 
   // ── Layer GPU delegation ───────────────────────────────────────────────────
@@ -546,11 +554,11 @@ export class ApiService {
     volumeId: string,
     metadataOnly?: boolean,
   ): Promise<any> {
-    return getLayerGpuService().requestLayerGpuResources(layerId, volumeId, metadataOnly);
+    return this.layerGpu.requestLayerGpuResources(layerId, volumeId, metadataOnly);
   }
 
   async releaseLayerGpuResources(layerId: string): Promise<void> {
-    return getLayerGpuService().releaseLayerGpuResources(layerId);
+    return this.layerGpu.releaseLayerGpuResources(layerId);
   }
 
   async waitForLayerReady(
@@ -558,11 +566,11 @@ export class ApiService {
     timeoutMs: number = 5000,
     pollIntervalMs: number = 25,
   ): Promise<boolean> {
-    return getLayerGpuService().waitForLayerReady(layerId, timeoutMs, pollIntervalMs);
+    return this.layerGpu.waitForLayerReady(layerId, timeoutMs, pollIntervalMs);
   }
 
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
-    return getLayerGpuService().patchLayer(layerId, patch);
+    return this.layerGpu.patchLayer(layerId, patch);
   }
 
   async updateSliceOutline(options: {
@@ -585,11 +593,11 @@ export class ApiService {
    * @deprecated Use layer service instead
    */
   async addRenderLayer(layerId: string, volumeId: string): Promise<void> {
-    return getLayerGpuService().addRenderLayer(layerId, volumeId);
+    return this.layerGpu.addRenderLayer(layerId, volumeId);
   }
 
   async getAtlasStats(): Promise<AtlasStats> {
-    return getLayerGpuService().getAtlasStats();
+    return this.layerGpu.getAtlasStats();
   }
 
   // ── Batch render delegation ────────────────────────────────────────────────
@@ -599,7 +607,7 @@ export class ApiService {
     widthPerSlice: number,
     heightPerSlice: number,
   ): Promise<ArrayBuffer> {
-    return getBatchRenderService().batchRenderSlices(viewStates, widthPerSlice, heightPerSlice);
+    return this.batchRenderer.batchRenderSlices(viewStates, widthPerSlice, heightPerSlice);
   }
 
   // ── Render methods (stay in ApiService - complex and tightly coupled) ──────

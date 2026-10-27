@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { apiBridgeCommands } from '@brainflow/api';
+import { apiBridgeCommands, configureInvoker } from '@brainflow/api';
 
 export interface BackendTransport {
   invoke<T>(cmd: string, args?: unknown): Promise<T>;
@@ -370,7 +370,9 @@ export function getTransport(): BackendTransport {
   if (!globalTransport) {
     // Check if we're in a Tauri environment
     if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      globalTransport = new TauriTransport();
+      const transport = new TauriTransport();
+      setTransport(transport);
+      return transport;
     } else {
       throw new Error(
         'Tauri environment not detected. Please run the application with "cargo tauri dev" instead of "npm run dev".',
@@ -381,8 +383,11 @@ export function getTransport(): BackendTransport {
 }
 
 /**
- * Set the global transport (useful for testing)
+ * Select the application default and bind legacy package-level helpers to it.
+ * Existing service instances retain their own transport. Call this before
+ * constructing application services; it does not hot-swap their backends.
  */
 export function setTransport(transport: BackendTransport) {
   globalTransport = transport;
+  configureInvoker((cmd, args) => transport.invoke(cmd, args));
 }
