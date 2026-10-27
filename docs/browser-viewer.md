@@ -43,17 +43,28 @@ Click a slice or edit crosshair coordinates, change window/level, add a scalar
 overlay and adjust its opacity. Clear the workspace or unload individual images.
 Native source scaling and affine selection come from neuroim, not a JS decoder.
 
-This first browser host allows four volumes, 32 million voxels per image and
+This first browser host allows up to four volumes (fewer if the adapter has fewer
+resident slots), 32 million voxels per image and
 64 million resident voxels in total. Compressed and expanded inputs are each
 bounded to 256 MiB. Decoder storage is f32; GPU upload uses physical-value
 R32Float, without range-normalizing the scientific data. These are input/resident
 budgets, not a claim that total browser/GPU memory is bounded to the same number.
 
-The current shader layout requires at least 27 sampled textures per stage and
-R32Float filtering support for this host. WebGPU availability alone is
-insufficient. Qualification so far is Chromium with the Metal backend on this
-Mac; other browsers/devices need their own acceptance run. There is no silent
-CPU or mock rendering fallback.
+The browser host sizes the shared shader layout to the actual adapter: each
+volume needs two sampled textures (data and alpha mask), plus one shared
+colormap texture. A device with 16 sampled textures per stage gets seven slots;
+the layout supports 1–13 slots, also bounded by binding limits. Two samplers and
+R32Float filtering are required. Native callers retain the fixed 13-slot default
+unless they opt into `RendererCapacityPolicy::FitAdapter`.
+
+Startup checks these capabilities before accepting files and reports recovery
+options on failure. There is no silent scalar-precision reduction or CPU/mock
+rendering fallback. Rendering qualification so far is Chromium/Metal on this
+Mac, including a real requested device limit of 16 sampled textures. Firefox
+157 exposes WebGPU here but returns no adapter; the viewer's startup error and
+desktop recovery route were verified. The installed Playwright WebKit build for
+macOS 14 crashes before opening a page, so WebKit rendering remains unqualified.
+Other browsers/devices need their own acceptance run.
 
 Labels, multi-frame time series, surfaces, atlas/template catalogs, remote mounts,
 native paths, filesystem watching and external process plugins remain unavailable
@@ -101,13 +112,23 @@ It needs a working real WebGPU adapter; no GPU test is soft-skipped. Set
 `BROWSER_QA_BROWSER` when the pinned Playwright browser is unavailable and a
 project automation Chromium is already installed. Follow `AGENTS.md`'s browser
 ownership audit before and after automation; never use a personal Chrome profile.
+`BROWSER_QA_OUTPUT` redirects browser artifacts, and `BROWSER_NATIVE_WITNESS`
+selects a freshly generated native witness JSON when using another receipt directory.
 
 The browser/native comparison allows at most one byte per RGBA channel for
 backend UNORM rounding. Native analytic checks independently constrain affine,
 voxel order and scalar intensity. Browser tests also exercise linked controls,
-overlays, cancellation, unload, offline reload, app-only cache contents and
+overlays, cancellation and unload on default/adaptive devices, rejection of
+insufficient texture limits or missing R32Float filtering, offline reload, app-only cache contents and
 Chromium installability checks. They do not establish all-format, all-device,
 all-browser or native desktop UI acceptance.
+
+`adaptive_capacity_test` compares the final resident slot on an actual
+16-texture native device with the default desktop renderer, in both interpolation
+modes and through the legacy alpha-mask API, then checks exhaustion and reuse.
+Declarative `ViewState` does not carry alpha-mask ownership; this slice does not
+extend that API. `shader_contract_test` validates both composed shaders at
+1, 4, 7 and 13 slots. The host test also exercises an actual one-slot device.
 
 The workspace remains on WGPU 0.20. A private-worker compatibility adapter
 replaces its removed `maxInterStageShaderComponents` request with the current

@@ -6,6 +6,34 @@ const GZIP: &[u8] = include_bytes!("../../../test-data/browser/oblique.nii.gz");
 const FRAME: &str = include_str!("../../../test-data/browser/frame.json");
 
 #[tokio::test]
+async fn one_slot_device_bounds_residency_and_reuses_after_unload() {
+    let mut host = BrowserHost::configure_with_texture_limit(Some(3))
+        .await
+        .expect("Real GPU required");
+    assert_eq!(host.capabilities().volume_slots, 1);
+    assert_eq!(host.capabilities().sampled_texture_limit, 3);
+    let first = host
+        .load_nifti("first.nii".into(), NIFTI.to_vec())
+        .await
+        .unwrap();
+    assert!(host
+        .load_nifti("second.nii".into(), NIFTI.to_vec())
+        .await
+        .unwrap_err()
+        .contains("up to 1 volumes"));
+    host.unload(&first.id).await.unwrap();
+    let reused = host
+        .load_nifti("reused.nii".into(), NIFTI.to_vec())
+        .await
+        .unwrap();
+    host.unload(&reused.id).await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&host.diagnostics()).unwrap(),
+        json!({"volumes":0,"stagingBuffers":0,"stagingBytes":0})
+    );
+}
+
+#[tokio::test]
 async fn oblique_voxels_match_independent_geometry_and_reclaim_after_failure_and_unload() {
     let mut host = BrowserHost::configure()
         .await
@@ -99,7 +127,7 @@ async fn oblique_voxels_match_independent_geometry_and_reclaim_after_failure_and
         .load_nifti("fifth.nii".into(), NIFTI.to_vec())
         .await
         .unwrap_err()
-        .contains("four volumes"));
+        .contains("up to 4 volumes"));
     assert_eq!(
         serde_json::from_str::<Value>(&host.diagnostics()).unwrap()["volumes"],
         4

@@ -46,9 +46,9 @@ pub mod layer {
 /// `MAX_TEXTURES` volume textures, then `MAX_TEXTURES` mask textures, then the
 /// linear sampler, the colormap LUT array, and the nearest sampler. The named
 /// constants below reflect the canonical [`MAX_TEXTURES`] used by the active
-/// shaders. The renderer rejects configured capacities above this count and
-/// pads smaller requests to the fixed layout. Low-level builders use [`bindings`]
-/// for structural tests; alternate counts cannot be bound to the active shaders.
+/// shaders by default. The desktop policy pads smaller requests to that layout.
+/// The opt-in adaptive policy composes WGSL and GPU resources with the same
+/// resolved [`bindings`] table; capacities above the canonical count are refused.
 pub mod texture {
     /// Canonical volume/mask texture count baked into the active masked shaders.
     pub const MAX_TEXTURES: u32 = crate::multi_texture_manager::MAX_TEXTURES as u32;

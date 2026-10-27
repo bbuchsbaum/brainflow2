@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir:'./harness', testMatch:'browser-host.spec.ts',workers:1,retries:0,timeout:60_000,
-  reporter:'list',outputDir:'../cruft/browser-portability/playwright',
+  reporter:'list',outputDir:process.env.BROWSER_QA_OUTPUT ?? '../cruft/browser-portability/playwright',
   use:{baseURL:'http://127.0.0.1:5358',viewport:{width:1440,height:900},trace:'retain-on-failure',
     launchOptions:{executablePath:process.env.BROWSER_QA_BROWSER,args:['--enable-unsafe-webgpu','--ignore-gpu-blocklist',...(process.platform==='darwin'?['--use-angle=metal']:[])]}},
   webServer:[

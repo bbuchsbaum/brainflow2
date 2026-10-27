@@ -170,6 +170,23 @@ impl WgpuSliceRenderer {
         self.service.atlas_metrics()
     }
 
+    /// Actual selected device/layout capabilities, after initialization.
+    pub fn capabilities(&self) -> RendererCapabilities {
+        RendererCapabilities {
+            volume_slots: self.service.runtime_texture_capacity,
+            sampled_texture_limit: self
+                .service
+                .device
+                .limits()
+                .max_sampled_textures_per_shader_stage,
+            float32_filterable: self
+                .service
+                .device
+                .features()
+                .contains(wgpu::Features::FLOAT32_FILTERABLE),
+        }
+    }
+
     /// Brainflow compatibility adapter for code that has not migrated yet.
     #[doc(hidden)]
     pub fn legacy_service(&self) -> &RenderLoopService {
@@ -291,9 +308,12 @@ pub struct RendererAtlasConfig {
     pub dimensions: [u32; 3],
     pub format: RendererVolumeFormat,
     pub label: Option<String>,
-    /// Active shaders bind 13 slots. Smaller requests retain that layout; requests
-    /// above 13 are rejected before adapter/device initialization.
+    /// With FixedDesktop, smaller requests retain the 13-slot layout. With
+    /// FitAdapter, this bounds the resolved slots. Requests above 13 are refused.
     pub max_textures: u32,
+    /// Desktop compatibility is fixed at 13 slots. Opt in to resolving a smaller
+    /// layout against adapter/device limits; max_textures then becomes a ceiling.
+    pub capacity_policy: RendererCapacityPolicy,
     pub initial_layer_capacity: usize,
 }
 
@@ -304,6 +324,7 @@ impl Default for RendererAtlasConfig {
             format: RendererVolumeFormat::R16Float,
             label: Some("Volume 3D Texture Atlas".to_string()),
             max_textures: multi_texture_manager::MAX_TEXTURES as u32,
+            capacity_policy: RendererCapacityPolicy::FixedDesktop,
             initial_layer_capacity: 32,
         }
     }
@@ -311,7 +332,10 @@ impl Default for RendererAtlasConfig {
 
 impl RendererAtlasConfig {
     pub(crate) fn validate_runtime_capacity(&self) -> Result<(), RenderLoopError> {
-        if self.max_textures > multi_texture_manager::MAX_TEXTURES as u32 {
+        if self.max_textures > multi_texture_manager::MAX_TEXTURES as u32
+            || (self.capacity_policy == RendererCapacityPolicy::FitAdapter
+                && self.max_textures == 0)
+        {
             return Err(RenderLoopError::Internal {
                 code: 1703,
                 details: format!(
@@ -324,8 +348,36 @@ impl RendererAtlasConfig {
         Ok(())
     }
 
-    pub(crate) fn runtime_max_textures(&self) -> u32 {
-        multi_texture_manager::MAX_TEXTURES as u32
+    pub(crate) fn resolve_runtime_capacity(
+        &self,
+        limits: &wgpu::Limits,
+        sampled_ceiling: Option<u32>,
+    ) -> Result<u32, RenderLoopError> {
+        self.validate_runtime_capacity()?;
+        let capacity = match self.capacity_policy {
+            RendererCapacityPolicy::FixedDesktop => multi_texture_manager::MAX_TEXTURES as u32,
+            RendererCapacityPolicy::FitAdapter => {
+                let budget = limits
+                    .max_sampled_textures_per_shader_stage
+                    .min(sampled_ceiling.unwrap_or(u32::MAX));
+                self.max_textures
+                    .min(budget.saturating_sub(1) / 2)
+                    .min(limits.max_bindings_per_bind_group.saturating_sub(3) / 2)
+            }
+        };
+        if capacity == 0
+            || limits.max_samplers_per_shader_stage < 2
+            || limits.max_sampled_textures_per_shader_stage < capacity * 2 + 1
+            || limits.max_bindings_per_bind_group < capacity * 2 + 3
+            || (self.capacity_policy == RendererCapacityPolicy::FitAdapter
+                && sampled_ceiling
+                    .is_some_and(|n| n > limits.max_sampled_textures_per_shader_stage))
+        {
+            return Err(RenderLoopError::Internal { code:1713, details:format!(
+                "GPU cannot support the requested texture layout: sampled textures={}, samplers={}, bindings/group={}, requested ceiling={sampled_ceiling:?}",
+                limits.max_sampled_textures_per_shader_stage, limits.max_samplers_per_shader_stage, limits.max_bindings_per_bind_group) });
+        }
+        Ok(capacity)
     }
 
     pub(crate) fn extent3d(&self) -> wgpu::Extent3d {
@@ -335,12 +387,21 @@ impl RendererAtlasConfig {
             depth_or_array_layers: self.dimensions[2],
         }
     }
+}
 
-    pub(crate) fn required_sampled_textures(&self) -> u32 {
-        self.runtime_max_textures()
-            .saturating_mul(2)
-            .saturating_add(1)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RendererCapacityPolicy {
+    #[default]
+    FixedDesktop,
+    FitAdapter,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RendererCapabilities {
+    pub volume_slots: u32,
+    pub sampled_texture_limit: u32,
+    pub float32_filterable: bool,
 }
 
 /// Backend family selection.
@@ -399,9 +460,55 @@ pub enum RendererFeaturePolicy {
 #[derive(Debug, Clone, Default)]
 pub struct RendererLimits {
     pub max_texture_dimension_3d: Option<u32>,
+    /// FixedDesktop retains its minimum-request behavior. FitAdapter uses this
+    /// as a ceiling for both resource packing and the actual requested device.
     pub max_sampled_textures_per_shader_stage: Option<u32>,
     pub max_storage_buffers_per_shader_stage: Option<u32>,
     pub max_uniform_buffers_per_shader_stage: Option<u32>,
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::*;
+    #[test]
+    fn adaptive_policy_fits_both_resource_budgets_and_requested_ceiling() {
+        let mut limits = wgpu::Limits::downlevel_defaults();
+        let mut config = RendererAtlasConfig {
+            capacity_policy: RendererCapacityPolicy::FitAdapter,
+            ..Default::default()
+        };
+        assert_eq!(config.resolve_runtime_capacity(&limits, None).unwrap(), 7);
+        limits.max_sampled_textures_per_shader_stage = 48;
+        assert_eq!(config.resolve_runtime_capacity(&limits, None).unwrap(), 13);
+        assert_eq!(
+            config.resolve_runtime_capacity(&limits, Some(16)).unwrap(),
+            7
+        );
+        config.max_textures = 4;
+        assert_eq!(config.resolve_runtime_capacity(&limits, None).unwrap(), 4);
+        limits.max_bindings_per_bind_group = 7;
+        assert_eq!(config.resolve_runtime_capacity(&limits, None).unwrap(), 2);
+        assert!(config.resolve_runtime_capacity(&limits, Some(2)).is_err());
+        limits.max_samplers_per_shader_stage = 1;
+        assert!(config.resolve_runtime_capacity(&limits, None).is_err());
+    }
+    #[test]
+    fn desktop_policy_keeps_small_request_padding_and_rejects_unsupported_adapters() {
+        let config = RendererAtlasConfig {
+            max_textures: 4,
+            ..Default::default()
+        };
+        let mut limits = wgpu::Limits::downlevel_defaults();
+        assert!(config.resolve_runtime_capacity(&limits, None).is_err());
+        limits.max_sampled_textures_per_shader_stage = 48;
+        assert_eq!(config.resolve_runtime_capacity(&limits, None).unwrap(), 13);
+        let invalid = RendererAtlasConfig {
+            max_textures: 0,
+            capacity_policy: RendererCapacityPolicy::FitAdapter,
+            ..Default::default()
+        };
+        assert!(invalid.validate_runtime_capacity().is_err());
+    }
 }
 
 impl RendererLimits {

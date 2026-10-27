@@ -15,15 +15,30 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
   const { id, cmd } = message;
   if (cancelled.delete(id)) return;
   try {
-    if (!host) {
-      await init({ module_or_path: wasmUrl });
-      host = await BrowserHost.create();
-    }
     const args = (message.args ?? {}) as Record<string, unknown>;
+    if (!host) {
+      if (!(navigator as unknown as { gpu?: unknown }).gpu) {
+        throw new Error(
+          'WebGPU is unavailable in this browser worker. Open the viewer over HTTPS or localhost in a WebGPU-capable browser, or use the desktop app.',
+        );
+      }
+      const ceiling = args.maxSampledTextures;
+      if (
+        ceiling !== undefined &&
+        (typeof ceiling !== 'number' ||
+          !Number.isInteger(ceiling) ||
+          ceiling < 0 ||
+          ceiling > 0xffffffff)
+      ) {
+        throw new Error('The GPU sampled-texture ceiling must be an unsigned integer.');
+      }
+      await init({ module_or_path: wasmUrl });
+      host = await BrowserHost.create(ceiling as number | undefined);
+    }
     let value: unknown;
     switch (cmd) {
       case 'initialize':
-        value = true;
+        value = JSON.parse(host.capabilities());
         break;
       case 'load_file': {
         if (!(args.file instanceof File))

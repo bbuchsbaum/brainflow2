@@ -186,6 +186,10 @@ fn expected_metadata_layout() -> StructLayout {
 /// Expected `(group, binding, address-space)` table built from the shared
 /// `shader_contract` constants.
 fn expected_binding_table() -> Vec<(u32, u32, &'static str)> {
+    expected_binding_table_for_capacity(sc::texture::MAX_TEXTURES)
+}
+
+fn expected_binding_table_for_capacity(capacity: u32) -> Vec<(u32, u32, &'static str)> {
     let mut expected: Vec<(u32, u32, &'static str)> = vec![
         (sc::GROUP_FRAME, sc::frame::FRAME_UBO, "uniform"),
         (sc::GROUP_FRAME, sc::frame::CROSSHAIR_UBO, "uniform"),
@@ -194,11 +198,11 @@ fn expected_binding_table() -> Vec<(u32, u32, &'static str)> {
         (sc::GROUP_FEATURE, sc::feature::SLICE_FEATURES, "uniform"),
     ];
 
-    let b = sc::texture::bindings(sc::texture::MAX_TEXTURES);
-    for i in 0..sc::texture::MAX_TEXTURES {
+    let b = sc::texture::bindings(capacity);
+    for i in 0..capacity {
         expected.push((sc::GROUP_TEXTURE, b.volume_base + i, "handle"));
     }
-    for i in 0..sc::texture::MAX_TEXTURES {
+    for i in 0..capacity {
         expected.push((sc::GROUP_TEXTURE, b.mask_base + i, "handle"));
     }
     expected.push((sc::GROUP_TEXTURE, b.sampler_linear, "handle"));
@@ -207,6 +211,37 @@ fn expected_binding_table() -> Vec<(u32, u32, &'static str)> {
 
     expected.sort();
     expected
+}
+
+#[test]
+fn adaptive_shaders_validate_and_preserve_all_struct_layouts() {
+    use render_loop::shaders::compose_shader_source_with_capacity;
+    for capacity in [1, 4, 7, 13] {
+        for (name, source) in shaders() {
+            let expanded = compose_shader_source_with_capacity(source, capacity).unwrap();
+            let module = parse(name, &expanded);
+            assert_eq!(
+                binding_table(&module),
+                expected_binding_table_for_capacity(capacity),
+                "{name} capacity={capacity}"
+            );
+            for (name, expected) in [
+                ("FrameUbo", expected_frame_layout()),
+                ("LayerData", expected_layer_layout()),
+                ("SliceFeatureUbo", expected_feature_layout()),
+                ("LayerMetadata", expected_metadata_layout()),
+            ] {
+                assert_eq!(
+                    struct_layout(&module, name),
+                    expected,
+                    "capacity={capacity} {name}"
+                );
+            }
+        }
+    }
+    for invalid in [0, 14] {
+        assert!(compose_shader_source_with_capacity(MASKED, invalid).is_err());
+    }
 }
 
 #[test]

@@ -2,11 +2,12 @@ import { createStore } from 'zustand/vanilla';
 import { RenderClient } from '@brainflow/api';
 import type { DecodedRawRgbaFrame, RenderViewPayload, RenderViewType } from '@brainflow/api';
 import { BrowserTransport } from './transport';
-import type { BrowserVolume } from './protocol';
+import type { BrowserVolume, BrowserGpuCapabilities } from './protocol';
 
 export const orientations: RenderViewType[] = ['axial', 'coronal', 'sagittal'];
 export type BrowserLayer = BrowserVolume & { window: [number, number]; opacity: number };
 export interface BrowserState {
+  gpu: BrowserGpuCapabilities | null;
   ready: boolean;
   loading: boolean;
   error: string | null;
@@ -16,6 +17,7 @@ export interface BrowserState {
   frameRevision: number;
 }
 const initial = (): BrowserState => ({
+  gpu: null,
   ready: false,
   loading: false,
   error: null,
@@ -43,8 +45,8 @@ export class BrowserSession {
   }
   async initialize() {
     try {
-      await this.transport.invoke('initialize');
-      if (!this.closed) this.store.setState({ ready: true });
+      const gpu = await this.transport.invoke<BrowserGpuCapabilities>('initialize');
+      if (!this.closed) this.store.setState({ ready: true, gpu });
     } catch (e) {
       this.error(e);
     }

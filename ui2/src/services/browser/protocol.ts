@@ -8,6 +8,12 @@ export interface BrowserVolume {
   range: [number, number];
 }
 
+export interface BrowserGpuCapabilities {
+  volumeSlots: number;
+  sampledTextureLimit: number;
+  float32Filterable: boolean;
+}
+
 export const browserCapabilities = Object.freeze({
   localNifti3D: true,
   scalarOverlays: true,

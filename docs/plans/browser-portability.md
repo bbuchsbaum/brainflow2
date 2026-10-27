@@ -384,3 +384,48 @@ Remaining product work is broader desktop parity (labels, time series, surfaces,
 atlas/template catalogs and native services), more browsers/adapters, lower-limit
 WebGPU devices, and optional direct canvas presentation. These are outside the
 first volume-viewing milestone and must not be inferred from these checks.
+
+## Sixth slice: adapter-sized GPU layouts (2026-10-27)
+
+The browser host now opts into `RendererCapacityPolicy::FitAdapter`. A single
+resolved capacity drives the texture manager, binding layouts, device request
+and both authoritative masked WGSL shaders. Shared composition generates only
+resource declarations and explicit texture sampling switches; geometry,
+thresholding, compositing, physical scalar units and the readback Y-flip stay
+in the existing kernels. Native callers keep the fixed 13-slot default and
+smaller-request padding. The alternate smart texture manager rejects a reduced
+layout before changing state.
+
+A 16-sampled-texture device uses seven volume/mask pairs and the shared colormap.
+The browser reports actual device/layout capabilities and limits resident files
+to the lesser of four or its slot count. Missing adapters, inadequate texture
+budgets and absent R32Float filtering fail at startup with recovery guidance.
+There is no reduced-precision fallback or WGPU dependency upgrade.
+
+Local receipts are in `cruft/gpu-compatibility/` (Mote
+`bd-01M5ZTT333ZBK61E557RN8EKW3`):
+
+- Both shaders validate and reflect the same Rust struct/binding contracts at
+  1, 4, 7 and 13 slots. The full native renderer suite passes 246 tests, with
+  19 ignored and no explicit GPU-skip lines. Its constrained 16-texture device
+  matches desktop pixels in both interpolation modes and for last-slot legacy
+  alpha masks, then checks exhaustion, slot reuse and staging teardown.
+- Two real native browser-host tests cover independent oblique geometry/pixels,
+  input/upload failure cleanup, unload and actual one-slot residency/reuse.
+- WASM release/static PWA build and TypeScript compilation pass. Six actual
+  Chromium 156/Metal tests cover default/adaptive pixels, constrained-device
+  cancellation/unload, insufficient texture and missing-f32 startup rejection,
+  linked controls, offline reload and installability. Native/all-target Clippy,
+  WASM Clippy and scoped UI lint pass; WASM Clippy retains existing shared
+  `Arc` warnings and ts-rs attribute warnings.
+- Firefox 157 exposes WebGPU but returns no adapter on this Mac. Its actual
+  viewer startup failure and recovery message pass. The installed frozen
+  Playwright WebKit build for macOS 14 crashes before page creation. Neither
+  result qualifies rendering on those engines; another supported machine/adapter
+  is required for that evidence.
+
+The mask check uses the legacy alpha-mask API: declarative `ViewState` does not
+carry mask ownership. That pre-existing API boundary is unchanged. Broader
+desktop features, additional working browser/adapter combinations and optional
+direct canvas presentation remain future slices. No deployment or hosted CI
+run was performed.

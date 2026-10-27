@@ -188,8 +188,9 @@ function Viewer({ session }: { session: BrowserSession }) {
           <details>
             <summary>Browser support</summary>
             <p>
-              Up to four scalar 3D NIfTI images and overlays: 32 million voxels per file, 64 million
-              resident voxels total, and 256 MiB compressed or expanded input.
+              Up to {Math.min(4, state.gpu?.volumeSlots ?? 4)} scalar 3D NIfTI images and overlays:
+              32 million voxels per file, 64 million resident voxels total, and 256 MiB compressed
+              or expanded input.
             </p>
             <p>
               Labels, time series, surfaces, remote mounts, native paths and external analysis tools
@@ -202,7 +203,9 @@ function Viewer({ session }: { session: BrowserSession }) {
             {state.loading
               ? 'Loading image…'
               : !state.ready
-                ? 'Preparing WebGPU…'
+                ? state.error
+                  ? 'Browser GPU unavailable.'
+                  : 'Preparing WebGPU…'
                 : state.layers.length
                   ? 'Click a slice to move the linked crosshair.'
                   : 'Open a NIfTI file to view linked slices.'}

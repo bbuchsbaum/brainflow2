@@ -30,10 +30,21 @@ pub struct BrowserHost {
 
 impl BrowserHost {
     pub async fn configure() -> Result<Self, String> {
+        Self::configure_with_texture_limit(None).await
+    }
+
+    /// Optional device ceiling is useful for embedded hosts and qualification.
+    /// It constrains the actual requested device, not just reported diagnostics.
+    pub async fn configure_with_texture_limit(
+        sampled_texture_limit: Option<u32>,
+    ) -> Result<Self, String> {
         let mut config = WgpuSliceRendererConfig::default();
         // The facade's declarative path uses dedicated volume textures; avoid
         // reserving the desktop's large legacy atlas in every worker.
         config.atlas.dimensions = [1, 1, 1];
+        config.atlas.capacity_policy = render_loop::RendererCapacityPolicy::FitAdapter;
+        config.device.limits.max_sampled_textures_per_shader_stage = sampled_texture_limit;
+        config.device.float32_filterable = render_loop::RendererFeaturePolicy::Require;
         #[cfg(target_arch = "wasm32")]
         {
             config.adapter.backends = render_loop::RendererBackends::BrowserWebGpu;
@@ -41,10 +52,14 @@ impl BrowserHost {
         Ok(Self {
             renderer: WgpuSliceRenderer::configure(config)
                 .await
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| format!("Browser GPU startup failed: {e}. Use a compatible WebGPU browser or the desktop app."))?,
             repository: Repository::default(),
             next_id: 0,
         })
+    }
+
+    pub fn capabilities(&self) -> render_loop::RendererCapabilities {
+        self.renderer.capabilities()
     }
 
     pub async fn load_nifti(
@@ -54,11 +69,9 @@ impl BrowserHost {
     ) -> Result<BrowserVolume, String> {
         let remaining_voxels = {
             let volumes = self.repository.volumes.lock().unwrap();
-            if volumes.len() >= 4 {
-                return Err(
-                    "Unload an image before opening another: the browser limit is four volumes"
-                        .into(),
-                );
+            let max_volumes = 4.min(self.renderer.capabilities().volume_slots as usize);
+            if volumes.len() >= max_volumes {
+                return Err(format!("Unload an image before opening another: this browser device supports up to {max_volumes} volumes"));
             }
             let used: usize = volumes
                 .values()
@@ -175,13 +188,17 @@ mod wasm {
     }
     #[wasm_bindgen(js_class = BrowserHost)]
     impl WasmHost {
-        pub async fn create() -> Result<WasmHost, JsValue> {
+        pub async fn create(sampled_texture_limit: Option<u32>) -> Result<WasmHost, JsValue> {
             console_error_panic_hook::set_once();
             Ok(Self {
-                inner: BrowserHost::configure()
+                inner: BrowserHost::configure_with_texture_limit(sampled_texture_limit)
                     .await
                     .map_err(|e| JsValue::from_str(&e))?,
             })
+        }
+        pub fn capabilities(&self) -> String {
+            serde_json::to_string(&self.inner.capabilities())
+                .expect("finite GPU capability integers")
         }
         pub async fn load_nifti(
             &mut self,

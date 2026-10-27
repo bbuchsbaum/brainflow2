@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 const fixture=resolve(__dirname,'../../test-data/browser/oblique.nii');
 const compressed=resolve(__dirname,'../../test-data/browser/oblique.nii.gz');
 const request=JSON.parse(readFileSync(resolve(__dirname,'../../test-data/browser/frame.json'),'utf8'));
-const witness=JSON.parse(readFileSync(resolve(__dirname,'../../cruft/browser-portability/native-witness.json'),'utf8'));
+const witness=JSON.parse(readFileSync(process.env.BROWSER_NATIVE_WITNESS ?? resolve(__dirname,'../../cruft/browser-portability/native-witness.json'),'utf8'));
 
 test('actual WASM worker agrees with analytic/native pixels, cancels and unloads',async({page})=>{
   await page.goto('/browser.html');
@@ -42,6 +42,62 @@ test('actual WASM worker agrees with analytic/native pixels, cancels and unloads
   expect(result.stale).toBe(true);expect(result.unsupported).toBe('UNSUPPORTED_BROWSER_CAPABILITY');
   expect(result.cancellation).toBe('AbortError');expect(result.gzip).toEqual([4,-1,21]);
   await test.info().attach('browser-native-comparison',{body:JSON.stringify(result),contentType:'application/json'});
+});
+
+test('a real 16-texture device renders and tears down the adaptive layout',async({page})=>{
+  await page.goto('/browser.html');
+  const result=await page.evaluate(async({bytes,frame})=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');
+    const transport=new BrowserTransport();
+    try {
+      const gpu=await transport.invoke('initialize',{maxSampledTextures:16});
+      const volume=await transport.invoke('load_file',{file:new File([new Uint8Array(bytes)],'oblique.nii')});
+      const packet=await transport.invoke('render_view',{stateJson:JSON.stringify(frame),format:'rgba'});
+      await transport.invoke('unload_volume',{volumeId:volume.id});
+      const abort=new AbortController();
+      const cancelled=transport.request('load_file',{file:new File([new Uint8Array(bytes)],'cancel.nii')},abort.signal).catch(e=>e.name);
+      const until=performance.now()+100;while(performance.now()<until){}
+      abort.abort();const cancellation=await cancelled;
+      return {gpu,packet:[...packet],cancellation,empty:await transport.invoke('diagnostics')};
+    } finally {transport.dispose();}
+  },{bytes:[...readFileSync(fixture)],frame:request});
+  expect(result.gpu).toEqual({volumeSlots:7,sampledTextureLimit:16,float32Filterable:true});
+  expect(result.packet.length).toBe(witness.packet.length);
+  expect(Math.max(...result.packet.map((v,i)=>Math.abs(v-witness.packet[i])))).toBeLessThanOrEqual(1);
+  expect(result.cancellation).toBe('AbortError');
+  expect(result.empty).toEqual({volumes:0,stagingBuffers:0,stagingBytes:0});
+});
+
+test('insufficient texture limits reject initialization before loading',async({page})=>{
+  await page.goto('/browser.html');
+  const error=await page.evaluate(async()=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');const transport=new BrowserTransport();
+    try {await transport.invoke('initialize',{maxSampledTextures:2});return null;} catch(e) {return String(e);} finally {transport.dispose();}
+  });
+  expect(error).toContain('GPU cannot support the requested texture layout');
+});
+
+test('missing R32Float filtering rejects startup instead of silently reducing precision',async({page})=>{
+  await page.goto('/browser.html');
+  const created=page.waitForEvent('worker',worker=>worker.url().includes('missing-float32'));
+  await page.evaluate(async()=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');
+    globalThis.__gpuCapabilityTest=new BrowserTransport(new Worker('/src/services/browser/worker.ts?missing-float32',{type:'module'}));
+  });
+  const worker=await created;
+  await worker.evaluate(()=>{
+    const gpu=navigator.gpu;const original=gpu.requestAdapter;
+    gpu.requestAdapter=async function(...args){
+      const adapter=await original.apply(this,args);
+      if(adapter)Object.defineProperty(adapter,'features',{value:new Set([...adapter.features].filter(feature=>feature!=='float32-filterable'))});
+      return adapter;
+    };
+  });
+  const error=await page.evaluate(async()=>{
+    const transport=globalThis.__gpuCapabilityTest;
+    try{await transport.invoke('initialize');return null;}catch(e){return String(e);}finally{transport.dispose();delete globalThis.__gpuCapabilityTest;}
+  });
+  expect(error).toContain('requires FLOAT32_FILTERABLE');
 });
 
 test('linked slices, window, overlay and teardown work at desktop and narrow sizes',async({page})=>{
