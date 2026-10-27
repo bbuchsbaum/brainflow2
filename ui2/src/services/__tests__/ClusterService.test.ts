@@ -67,7 +67,8 @@ describe('ClusterService', () => {
     const t = transport(TABLE);
     await new ClusterService(t).compute({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
     expect(t.invoke).toHaveBeenCalledWith('compute_clusters', {
-      request: { layerId: 'z', volumeId: 'vol-z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 },
+      // The cluster-id label volume is always asked for (a row can be a series region, E3).
+      request: { layerId: 'z', volumeId: 'vol-z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1, emitLabelVolume: true },
     });
     const state = useClusterStore.getState();
     expect(state.status).toBe('ready');

@@ -1,4 +1,5 @@
 import type { PopulationMask } from '@/types/population';
+import type { RegionLocus } from '@brainflow/api';
 /**
  * Grammar-of-graphics-lite plotting primitives.
  *
@@ -93,11 +94,17 @@ export type WorldMm = readonly [number, number, number];
  * regions of an atlas → a region × stat frame).
  */
 export type Locus =
-  | { readonly kind: 'point'; readonly worldMm: WorldMm }
+  | {
+      readonly kind: 'point';
+      readonly worldMm: WorldMm;
+      /** A region instead of the point (phase 4 E2): `worldMm` is then ignored by the sampler. */
+      readonly region?: RegionLocus;
+    }
   | {
       readonly kind: 'sphere';
       readonly worldMm: WorldMm;
       readonly radiusMm: number;
+      readonly region?: RegionLocus;
     }
   | {
       readonly kind: 'roi';
@@ -108,6 +115,12 @@ export type Locus =
   | {
       readonly kind: 'set';
       readonly mask?: PopulationMask;
+      /**
+       * A region (atlas parcel, label region, cluster) instead of the
+       * point / sphere (phase 4 E2/E3): each member is reduced over the
+       * region's voxels; `worldMm` / `radiusMm` are ignored by the sampler.
+       */
+      readonly region?: RegionLocus;
       readonly worldMm: WorldMm;
       readonly radiusMm: number;
       readonly members: readonly {

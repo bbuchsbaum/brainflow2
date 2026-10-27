@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { extentModel, latticeResels, normalSf, tSf, applyExtentInference } from '../rftExtent';
+import { extentModel, latticeResels, applyExtentInference } from '../rftExtent';
+import { normalSf, tSf } from '@/utils/distributions';
 import type { ClusterTable } from '@brainflow/api';
 
 const close = (actual: number, expected: number, rel: number) =>

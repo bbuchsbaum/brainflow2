@@ -162,3 +162,110 @@ it('combines probes without multiplying overlapping observations and rejects inc
   incompatible.frame.columns.find((c) => c.name === 'value')!.unit = 't';
   expect(() => combinePopulationPlots([a, incompatible])).toThrow('units');
 });
+
+// Phase 4 E4: population-stage bands and declared collapse transforms.
+// A 3 participant × 2 condition × 4 lag FIR table with known answers.
+const fir: SampleFrame = {
+  columns: [
+    { name: 'member', role: 'nominal' },
+    { name: 'subject', role: 'nominal' },
+    { name: 'condition', role: 'nominal' },
+    { name: 'lag', role: 'quantitative' },
+    { name: 'value', role: 'quantitative' },
+  ],
+  rows: ['s1', 's2', 's3'].flatMap((subject, si) =>
+    ['faces', 'houses'].flatMap((condition) =>
+      [0, 1, 2, 3].map((lag) => ({
+        member: `${subject}_${condition}_${lag}`,
+        subject,
+        condition,
+        lag,
+        // faces peak at lag 2, houses at lag 3; subject offsets 0, 1, 2.
+        value: (condition === 'faces' ? [0, 2, 4, 1][lag] : [0, 1, 2, 5][lag]) + si,
+      })),
+    ),
+  ),
+};
+const firRecipe = {
+  ...base,
+  x: 'lag',
+  axis: 'number' as const,
+  color: 'condition',
+  detail: 'subject',
+  mark: 'line' as const,
+  summary: 'mean' as const,
+};
+const at = (rows: readonly Record<string, unknown>[], condition: string, lag: number | string) =>
+  rows.find((r) => r.condition === condition && r.lag === lag)!;
+
+it('t-based ci95: mean ± t(0.975, n−1)·SD/√n (E4)', () => {
+  const out = composePopulationPlot(fir, { ...firRecipe, band: 'ci95' });
+  // faces, lag 2: values 4, 5, 6 → mean 5, SD 1, n 3, t(0.975, 2) = 4.302652729911275.
+  const row = at(out.frame.rows, 'faces', 2);
+  expect(row.value).toBe(5);
+  expect(row.lower).toBeCloseTo(5 - 4.302652729911275 / Math.sqrt(3), 9);
+  expect(row.upper).toBeCloseTo(5 + 4.302652729911275 / Math.sqrt(3), 9);
+  expect(out.frame.meta?.populationReduction).toMatchObject({ band: 'ci95', bandDefinition: 'mean ± t(0.975, n − 1) · SD / √n' });
+});
+
+it('median with the IQR band; mismatched centre/band pairs are refused (E4)', () => {
+  const out = composePopulationPlot(fir, { ...firRecipe, summary: 'median', band: 'iqr' });
+  const row = at(out.frame.rows, 'houses', 3); // 5, 6, 7
+  expect([row.value, row.lower, row.upper]).toEqual([6, 5.5, 6.5]);
+  expect(() => composePopulationPlot(fir, { ...firRecipe, summary: 'median', band: 'ci95' })).toThrow(/IQR/);
+  expect(() => composePopulationPlot(fir, { ...firRecipe, band: 'iqr' })).toThrow(/median/);
+});
+
+it('baseline subtraction removes each line’s pre-onset mean (E4)', () => {
+  const out = composePopulationPlot(fir, {
+    ...firRecipe,
+    band: 'none',
+    transforms: [{ kind: 'baseline', from: 0, to: 0 }],
+  });
+  // Subject offsets cancel: every subject's faces lag 2 is 4 after the baseline.
+  expect(at(out.frame.rows, 'faces', 2)).toMatchObject({ value: 4, count: 3 });
+  expect(out.frame.meta?.populationTransforms).toEqual([
+    { transform: { kind: 'baseline', from: 0, to: 0 }, linesIn: 6, linesOut: 6, dropped: [] },
+  ]);
+});
+
+it('condition difference is paired per participant; unpaired participants are dropped and named (E4)', () => {
+  const missing = { ...fir, rows: fir.rows.filter((r) => !(r.subject === 's3' && r.condition === 'houses')) };
+  const out = composePopulationPlot(missing, {
+    ...firRecipe,
+    band: 'sd',
+    transforms: [{ kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' }],
+  });
+  const lag3 = at(out.frame.rows, 'faces − houses', 3);
+  expect(lag3).toMatchObject({ value: -4, count: 2 });
+  expect(out.frame.meta?.populationTransforms).toEqual([
+    {
+      transform: { kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' },
+      linesIn: 3,
+      linesOut: 2,
+      dropped: ['s3'],
+    },
+  ]);
+});
+
+it('window mean collapses lags to one value per line, after a difference (E4)', () => {
+  const out = composePopulationPlot(fir, {
+    ...firRecipe,
+    mark: 'point',
+    band: 'ci95',
+    transforms: [
+      { kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' },
+      { kind: 'windowMean', from: 1, to: 2 },
+    ],
+  });
+  // faces − houses at lags 1, 2: 1, 2 → mean 1.5 for every subject; SD 0.
+  expect(out.frame.rows).toHaveLength(1);
+  expect(out.frame.rows[0]).toMatchObject({ lag: '1–2', condition: 'faces − houses', value: 1.5, lower: 1.5, upper: 1.5, count: 3 });
+  expect(out.frame.columns.find((c) => c.name === 'lag')?.role).toBe('nominal');
+  expect(() =>
+    composePopulationPlot(fir, { ...firRecipe, transforms: [{ kind: 'windowMean', from: 1, to: 2 }] }),
+  ).toThrow(/use points/);
+  expect(() =>
+    composePopulationPlot(fir, { ...firRecipe, axis: 'category', transforms: [{ kind: 'baseline', from: 0, to: 0 }] }),
+  ).toThrow(/measured/);
+});

@@ -541,6 +541,79 @@ async function activateSurfaceView(): Promise<void> {
   noteStep(`active view: ${useActiveRenderContextStore.getState().activeId}`);
 }
 
+/**
+ * Phase 4 E6: the synthetic FIR study (firStudy.ts) as the active dataset,
+ * the crosshair at its response centre, and the Plot dock's Series mode.
+ * Notes every plotted population value (recomputed through the same
+ * composer) so the fidelity critic can check them against firValue.
+ */
+async function firSeries(
+  variant: '3d' | '4d',
+  settings: Partial<import('@/stores/seriesStore').SeriesSettings>,
+  before?: () => Promise<void>,
+): Promise<void> {
+  await p3Base(['anat']);
+  if (before) await before();
+  const { useSetStudioStore } = await import('@/stores/setStudioStore');
+  const { firSet, FIR_CENTRE } = await import('./firStudy');
+  useSetStudioStore.getState().bootstrapStudio({
+    set: firSet(variant),
+    features: [{ id: 'fir', label: 'FIR beta', kind: 'volume' }],
+    cohorts: [],
+    expressions: [],
+  } as never);
+  noteStep(`dataset ${firSet(variant).name}: ${firSet(variant).memberCount} members`);
+  if (!settings.locus || settings.locus !== 'cluster') await navigateTo([...FIR_CENTRE] as [number, number, number]);
+  const { useSeriesStore } = await import('@/stores/seriesStore');
+  useSeriesStore.getState().reset();
+  useSeriesStore.getState().update(settings);
+  const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
+  const { usePlotModeStore } = await import('@/stores/plotModeStore');
+  useLayoutSettingsStore.getState().setBottomDockOpen(true);
+  useLayoutSettingsStore.getState().setBottomDockActiveTab('plot');
+  useLayoutSettingsStore.getState().setBottomDockHeight(380);
+  usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
+  await until(
+    () => !!document.querySelector('[data-testid="series-plot"] svg') && !/sampling/.test(document.querySelector('[data-testid="series-caption"]')?.textContent ?? ''),
+    'series plotted',
+  );
+  await noteSeriesValues();
+  await frames(5);
+}
+
+async function noteSeriesValues(): Promise<void> {
+  const { useSetStudioStore } = await import('@/stores/setStudioStore');
+  const { useSeriesStore } = await import('@/stores/seriesStore');
+  const { useViewStateStore } = await import('@/stores/viewStateStore');
+  const { sampleSetSeries } = await import('@/services/series/sampleSetSeries');
+  const { seriesRecipe } = await import('@/services/series/seriesRecipe');
+  const { SERIES_X } = await import('@/services/series/seriesBinding');
+  const { composePopulationPlot } = await import('@/services/studio/populationPlot');
+  const settings = useSeriesStore.getState();
+  const view = useViewStateStore.getState();
+  const { regionAtCrosshair, selectedClusterRegion } = await import('@/services/series/seriesRegion');
+  const { seriesRadiusMm } = await import('@/stores/seriesStore');
+  const world = view.viewState.crosshair.world_mm;
+  const region =
+    settings.locus === 'region' ? await regionAtCrosshair(world) : settings.locus === 'cluster' ? selectedClusterRegion() : null;
+  if (region && !region.region) throw new Error(region.issue);
+  if (region?.region) noteStep(`series region: ${region.label} ${JSON.stringify(region.region)}`);
+  const { frame, binding } = await sampleSetSeries(
+    useSetStudioStore.getState(),
+    view.activeWorkspaceKey,
+    { worldMm: world, radiusMm: seriesRadiusMm(settings), reduce: 'mean', region: region?.region ?? null },
+    new AbortController().signal,
+  );
+  const out = composePopulationPlot(frame, seriesRecipe(binding, settings)).frame;
+  noteStep(`series caption: ${document.querySelector('[data-testid="series-caption"]')?.textContent}`);
+  for (const row of out.rows) {
+    const f = (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : String(v));
+    noteStep(
+      `series ${row[binding.conditionColumn ?? ''] ?? ''} x=${row[SERIES_X]}: value ${f(row.value)} [${f(row.lower)}, ${f(row.upper)}] n=${row.count ?? 1}`,
+    );
+  }
+}
+
 async function exportSettled(): Promise<void> {
   const { useExportDialogStore } = await import('@/stores/exportDialogStore');
   await frames(2);
@@ -1070,7 +1143,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   },
   // Phase 4 D2: the grey folding underlay (synthetic sulc file next to the
   // mesh) under the thresholded overlay, with the orientation glyph (D5).
-  'surface-curvature': async () => {
+  'surface-folding': async () => {
     await figureSurfaces([FIG_LH_PATH, FIG_LH_OVERLAY_PATH], 'lh.inflated.gii');
     // The mesh's Inspector Geometry section: the "Folding" switch and its source.
     const { useLayerStore } = await import('@/stores/layerStore');
@@ -1101,7 +1174,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   },
   // Phase 4 D3/D4: "Surface lateral + medial" for both hemispheres at
   // 183 mm, 300 dpi (Figure preset): four poses, one colorbar, a glyph each.
-  'surface-export-latmed': async () => {
+  'surface-lat-med': async () => {
     await figureSurfaces(
       [FIG_LH_PATH, FIG_LH_OVERLAY_PATH, FIG_RH_PATH, FIG_RH_OVERLAY_PATH],
       'lh.inflated.gii',
@@ -1123,7 +1196,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   // Phase 4 D1: the status bar's Vertex slot on the inflated view, read on
   // the (synthetic) midthickness: the vertex at the overlay's peak, with an
   // independent nearest-vertex check of the displayed index and value.
-  'surface-status-vertex': async (ctx) => {
+  'surface-vertex': async (ctx) => {
     await figureSurfaces([FIG_LH_PATH, FIG_LH_OVERLAY_PATH, FIG_LH_MID_PATH], 'lh.midthickness.gii');
     await clickByText('.lm_tab .lm_title', 'lh.inflated.gii');
     await frames(10);
@@ -1152,6 +1225,76 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     noteStep(`crosshair ${c.map((x) => x.toFixed(1)).join(' ')}; peak vertex ${peak}; nearest ${best} at ${Math.sqrt(bestD).toFixed(2)} mm, value ${overlay[best]}`);
     noteStep(`status Vertex: ${shown}`);
     if (shown.replace(/,/g, '').trim().split(/\s+/)[0] !== String(best)) throw new Error(`status shows "${shown}", expected vertex ${best}`);
+  },
+  // Phase 4 E6: FIR series (3D lag maps), 6 mm sphere, mean ± 95% CI (t).
+  'series-fir-sphere': async () => firSeries('3d', { radiusMm: 6, band: 'ci95' }),
+  // Phase 4 E6: the same study as 4D lag series, faces − houses (paired) with
+  // a 0–0 TR baseline: one difference line, mean ± 1.96 SE.
+  'series-fir-diff': async () =>
+    firSeries('4d', {
+      radiusMm: 6,
+      band: 'sem95',
+      transforms: [
+        { kind: 'baseline', from: 0, to: 0 },
+        { kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' },
+      ],
+    }),
+  // Phase 4 E6 (E2): the FIR series over the atlas region at the response
+  // centre (L_sensorimotor of the harness atlas, hidden), mean ± 95% CI.
+  'series-region': async () =>
+    firSeries('3d', { locus: 'region', band: 'ci95' }, async () => {
+      await loadVolume(ATLAS_PATH, 'add-layer');
+      const atlasId = await layerIdForPath(ATLAS_PATH);
+      const { useViewStateStore } = await import('@/stores/viewStateStore');
+      useViewStateStore.getState().setViewState((state) => {
+        const atlas = state.layers.find((l) => l.id === atlasId);
+        if (atlas) atlas.opacity = 0;
+      });
+      noteStep('atlas loaded, opacity 0 (region source only)');
+    }),
+  // Phase 4 E6 (E3): the FIR series over cluster 1 of the z map at |z| > 3.1
+  // (26-connected, the cluster-id label volume), 4D members.
+  'series-cluster': async () =>
+    firSeries('4d', { locus: 'cluster', band: 'ci95' }, async () => {
+      await loadZ();
+      const zId = await layerIdForPath(ZMAP_PATH);
+      const { getClusterService } = await import('@/services/ClusterService');
+      const { useClusterStore } = await import('@/stores/clusterStore');
+      await getClusterService().compute({ layerId: zId, threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
+      await getClusterService().selectCluster(1);
+      const t = useClusterStore.getState().result!.table;
+      noteStep(`clusters: ${t.clusters.length}, row 1 ${t.clusters[0].voxelCount} vox, label volume ${t.labelVolumeId}`);
+    }),
+  // Phase 4 E6: the FIR series at the narrow window (1280 × 800 variant).
+  'series-1280': async () => firSeries('3d', { radiusMm: 6, band: 'ci95' }),
+  // Phase 4 E6: a raw 4D layer (one subject's faces FIR series) at the
+  // crosshair: the Series mode on the layer, frame 2 selected from the plot.
+  'series-raw4d': async () => {
+    await p3Base(['anat']);
+    const { fir4dPath, FIR_CENTRE } = await import('./firStudy');
+    const path = fir4dPath('s01', 'faces');
+    await loadVolume(path, 'add-layer');
+    await selectLayer(path);
+    await navigateTo([...FIR_CENTRE] as [number, number, number]);
+    const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
+    const { usePlotModeStore } = await import('@/stores/plotModeStore');
+    useLayoutSettingsStore.getState().setBottomDockOpen(true);
+    useLayoutSettingsStore.getState().setBottomDockActiveTab('plot');
+    useLayoutSettingsStore.getState().setBottomDockHeight(320);
+    usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
+    await until(() => document.querySelectorAll('[data-testid="crosshair-ts-plot-body"] [data-datum-id]').length >= 8, 'raw 4D series points');
+    (document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="2"]') as SVGElement).dispatchEvent(
+      new MouseEvent('click', { bubbles: true }),
+    );
+    const { useLayerStore } = await import('@/stores/layerStore');
+    const id = await layerIdForPath(path);
+    await until(() => useLayerStore.getState().layers.find((l) => l.id === id)?.currentTimepoint === 2, 'frame 2 selected');
+    noteStep(
+      `raw 4D points: ${Array.from(document.querySelectorAll('[data-testid="crosshair-ts-plot-body"] [data-datum-id]'))
+        .map((el) => el.getAttribute('aria-label'))
+        .join(' | ')}`,
+    );
+    await frames(5);
   },
   // v4 fidelity critic: the live crosshair must not run through the
   // orientation letters (it bisected "P", which read as "R"). Fails when any

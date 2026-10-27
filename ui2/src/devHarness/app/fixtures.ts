@@ -19,6 +19,8 @@ export interface VolumeFixture {
   range: [number, number];
   /** NIfTI header extras served by get_nifti_header_info / load_file (Phase 3 fixtures only). */
   header?: StatHeader;
+  /** 4D fixtures (phase 4 E6): one array per frame; `data` is the frame on display. */
+  frames?: Float32Array[];
 }
 
 /** NIfTI intent and description fields of a synthetic Phase 3 fixture (p3_fixtures.json). */

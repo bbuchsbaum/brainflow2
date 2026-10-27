@@ -9,7 +9,7 @@
  * `APP_HARNESS_SCENARIOS=volume,overlay` restricts the run.
  * `APP_HARNESS_DIRECTION=<id>` captures under a direction palette (see build-direction-tokens.mjs).
  * Phase 3 specimens (P3_SCENARIOS, P3_VARIANTS) are opt-in the same way: listed
- * by name, or all of them with `p3`.
+ * by name, or all of them with `p3` (Phase 4: P4_SCENARIOS / P4_VARIANTS, `p4`).
  * `primitives` (opt-in: only when listed in APP_HARNESS_SCENARIOS) captures the
  * shared-primitives gallery (primitives-harness.html) as primitives.png,
  * primitives-2.png, primitives-3.png and primitives-4.png, full page.
@@ -21,6 +21,8 @@ import {
   FREEZE_CSS,
   P3_SCENARIOS,
   P3_VARIANTS,
+  P4_SCENARIOS,
+  P4_VARIANTS,
   PRIMITIVE_PAGES,
   SCENARIOS,
   VARIANTS,
@@ -110,6 +112,23 @@ for (const scenario of P3_SCENARIOS) {
 
 for (const [scenario, width, height] of P3_VARIANTS) {
   if (!p3Selected(scenario)) continue;
+  test(`capture ${scenario} @${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await capture(page, scenario, `${scenario}@${width}x${height}`);
+  });
+}
+
+const p4Selected = (scenario: string) => !!ONLY && (ONLY.includes(scenario) || ONLY.includes('p4'));
+
+for (const scenario of P4_SCENARIOS) {
+  if (!p4Selected(scenario)) continue;
+  test(`capture ${scenario}`, async ({ page }) => {
+    await capture(page, scenario, scenario);
+  });
+}
+
+for (const [scenario, width, height] of P4_VARIANTS) {
+  if (!p4Selected(scenario)) continue;
   test(`capture ${scenario} @${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await capture(page, scenario, `${scenario}@${width}x${height}`);

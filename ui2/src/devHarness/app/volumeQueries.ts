@@ -79,6 +79,40 @@ export interface ClusterQuery {
   maxPeaksPerCluster?: number | null;
   minPeakDistanceMm?: number | null;
   extent?: ExtentRequest | null;
+  emitLabelVolume?: boolean | null;
+}
+
+/** Cluster ids (1-based rank, 0 elsewhere) on the analysed grid, as compute_clusters emits them (E3). */
+export function clusterLabelData(vol: VolumeFixture, query: ClusterQuery, table: ClusterTable): Float32Array {
+  // Same components as findClusters: re-flood from each row's peak with its sign.
+  const [nx, ny, nz] = vol.dims;
+  const out = new Float32Array(vol.data.length);
+  const offsets = neighbourOffsets(query.connectivity ?? 26);
+  const t = Math.fround(query.threshold);
+  for (const c of table.clusters) {
+    const s = c.sign === 'positive' ? 1 : -1;
+    const seed = c.peakIjk[0] + nx * (c.peakIjk[1] + ny * c.peakIjk[2]);
+    const stack = [seed];
+    out[seed] = c.id;
+    while (stack.length) {
+      const n = stack.pop()!;
+      const i = n % nx;
+      const j = Math.floor(n / nx) % ny;
+      const k = Math.floor(n / (nx * ny));
+      for (const [di, dj, dk] of offsets) {
+        const a = i + di;
+        const b = j + dj;
+        const cc = k + dk;
+        if (a < 0 || b < 0 || cc < 0 || a >= nx || b >= ny || cc >= nz) continue;
+        const m = a + nx * (b + ny * cc);
+        if (out[m] === 0 && Number.isFinite(vol.data[m]) && vol.data[m] * s > t) {
+          out[m] = c.id;
+          stack.push(m);
+        }
+      }
+    }
+  }
+  return out;
 }
 
 export function findClusters(vol: VolumeFixture, query: ClusterQuery): ClusterTable {

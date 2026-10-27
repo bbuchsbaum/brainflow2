@@ -17,9 +17,11 @@
  *     inflight requests via a monotonic token.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { sampleProvider } from "@/services/SampleProvider";
+import { getTimeNavigationService } from "@/services/TimeNavigationService";
+import { useLayerStore } from "@/stores/layerStore";
 import { usePlotSpecStore } from "@/stores/plotSpecStore";
 import type { Locus, SampleFrame } from "@/plotting";
 
@@ -31,6 +33,8 @@ import {
 import type { PlotModeContext } from "./plotHost.types";
 
 const PLOT_PADDING = 12;
+/** Frame index column (string ids for the plot's datum links). */
+const FRAME_ID = "__frame";
 const MIN_PLOT_W = 80;
 const MIN_PLOT_H = 60;
 
@@ -154,6 +158,27 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerId, crosshairMm, radiusMm, reduce]);
 
+  // Phase 4 E5: each sample is a frame of the layer; the current frame is
+  // marked, and clicking a sample moves to that frame.
+  const currentTimepoint = useLayerStore((s) =>
+    layerId ? (s.layers.find((l) => l.id === layerId)?.currentTimepoint ?? 0) : 0,
+  );
+  const linked = useMemo<SampleFrame | null>(
+    () =>
+      frame && frame.rows.length > 1
+        ? {
+            ...frame,
+            columns: [...frame.columns, { name: FRAME_ID, label: "Frame", role: "index" }],
+            rows: frame.rows.map((row, i) => ({ ...row, [FRAME_ID]: String(i) })),
+          }
+        : frame,
+    [frame],
+  );
+  const frameIds = useMemo(
+    () => new Set((linked?.rows ?? []).map((row) => String(row[FRAME_ID]))),
+    [linked],
+  );
+
   const plotWidth = Math.max(width - PLOT_PADDING * 2, MIN_PLOT_W);
   const plotHeight = Math.max(height - PLOT_PADDING * 2, MIN_PLOT_H);
 
@@ -185,10 +210,23 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
           {error.message}
         </div>
       )}
-      {frame && (
+      {linked && (
         <EncodedPlotView
           modeId={TIME_SERIES_MODE_ID}
-          frame={frame}
+          frame={linked}
+          context={
+            linked.rows.length > 1
+              ? {
+                  datumLink: {
+                    idColumn: FRAME_ID,
+                    focusedId: String(currentTimepoint),
+                    selectedIds: frameIds,
+                    onFocus: (id) => getTimeNavigationService().setTimepoint(Number(id)),
+                    onToggleSelection: () => undefined,
+                  },
+                }
+              : undefined
+          }
           width={plotWidth}
           height={plotHeight}
           showLocus

@@ -85,6 +85,8 @@ export class ClusterService {
       sign: input.sign,
       connectivity: input.connectivity,
       minVoxels: input.minVoxels,
+      // The cluster-id label volume, so a row can be a series region (E3).
+      emitLabelVolume: true,
       ...(input.extent
         ? {
             extent: {

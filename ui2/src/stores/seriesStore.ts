@@ -1,0 +1,52 @@
+/**
+ * Series plot settings (phase 4 E5): which source the Series mode shows and
+ * how the population stage reduces it. Shared by every Plot dock root
+ * (GoldenLayout panels have separate React roots); not persisted.
+ */
+import { create } from 'zustand';
+import type { PopulationPlotRecipe, PopulationTransform } from '@/services/studio/populationPlot';
+
+export type SeriesSourceChoice = 'auto' | 'layer' | 'set';
+export type SeriesLocusKind = 'point' | 'sphere' | 'region' | 'cluster';
+
+export interface SeriesSettings {
+  source: SeriesSourceChoice;
+  /**
+   * Locus: the voxel nearest the crosshair, a sphere around it, the atlas /
+   * label region at the crosshair (E2), or the cluster row selected in the
+   * Clusters tab (E3).
+   */
+  locus: SeriesLocusKind;
+  /** Sphere radius (mm) when `locus` is a sphere. */
+  radiusMm: number;
+  summary: 'mean' | 'median';
+  band: PopulationPlotRecipe['band'];
+  /** Population summary lines, or one line per participant (click focuses). */
+  display: 'summary' | 'participants';
+  transforms: PopulationTransform[];
+}
+
+interface SeriesStore extends SeriesSettings {
+  update: (patch: Partial<SeriesSettings>) => void;
+  reset: () => void;
+}
+
+export const DEFAULT_SERIES_SETTINGS: SeriesSettings = {
+  source: 'auto',
+  locus: 'sphere',
+  radiusMm: 6,
+  summary: 'mean',
+  band: 'ci95',
+  display: 'summary',
+  transforms: [],
+};
+
+export const useSeriesStore = create<SeriesStore>((set) => ({
+  ...DEFAULT_SERIES_SETTINGS,
+  update: (patch) => set(patch),
+  reset: () => set({ ...DEFAULT_SERIES_SETTINGS }),
+}));
+
+/** The sampling radius the settings ask for (0 for a point; regions ignore it). */
+export const seriesRadiusMm = (s: Pick<SeriesSettings, 'locus' | 'radiusMm'>) =>
+  s.locus === 'sphere' ? s.radiusMm : 0;

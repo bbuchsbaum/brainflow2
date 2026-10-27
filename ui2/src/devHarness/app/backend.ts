@@ -6,7 +6,7 @@
  * packages/api/src/generated. IDs come from counters, never clocks/RNG.
  */
 import type { ExtremumKind, StatisticInfo, StatisticKind } from '@brainflow/api';
-import { findClusters, findExtremum, nonzeroBbox, type ClusterQuery } from './volumeQueries';
+import { clusterLabelData, findClusters, findExtremum, nonzeroBbox, type ClusterQuery } from './volumeQueries';
 
 interface QueryTarget {
   volumeId?: string | null;
@@ -26,6 +26,15 @@ import {
 } from './geometry';
 import { renderSlice, type SliceFrame, type SliceLayer } from './slicer';
 import { noteStep } from './harnessLog';
+import {
+  FIR_LAGS,
+  firRevision,
+  firValue,
+  locusVoxels,
+  parseFirPath,
+  sampleFirMember,
+  sampleFirVoxels,
+} from './firStudy';
 import { computeSurfaceSulcalDepth } from '@brainflow/visualization/surface';
 import {
   ANALYSIS_DESCRIPTORS,
@@ -77,12 +86,20 @@ export const ZMAP_MULTIPEAK_PATH = `${HARNESS_ROOT}/stats/zmap_multipeak.nii.gz`
 export const ATLAS_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.nii.gz`;
 export const ATLAS_LUT_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.tsv`;
 
+/** The E2 `region` argument of the sampling commands. */
+type RegionArg = {
+  labelSource: { type: 'layer'; layerId: string } | { type: 'volume'; volumeId: string } | { type: 'path'; path: string };
+  labelIds: number[];
+};
+
 interface VolumeEntry {
   id: string;
   name: string;
   path: string;
   fixture: VolumeFixture;
   worldToVoxel: number[][];
+  /** 4D fixtures: the frame on display. */
+  timepoint?: number;
 }
 
 interface LayerEntry {
@@ -347,12 +364,67 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   const categoricalLuts = new Map<number, Uint8Array>();
   const categoricalKeys = new Map<string, number>();
 
+  // FIR 4D fixtures, built once per path (8 frames on the MNI grid).
+  const firFixtures = new Map<string, VolumeFixture>();
+  const firFixture = (path: string): VolumeFixture => {
+    const cached = firFixtures.get(path);
+    if (cached) return cached;
+    const id = parseFirPath(path, 0)!;
+    const { dims, affine } = fixtures.mni;
+    const [nx, ny, nz] = dims;
+    const frames = FIR_LAGS.map((lag) => {
+      const data = new Float32Array(nx * ny * nz);
+      for (let k = 0; k < nz; k += 1)
+        for (let j = 0; j < ny; j += 1)
+          for (let i = 0; i < nx; i += 1) {
+            const w = [0, 1, 2].map((r) => affine[r][0] * i + affine[r][1] * j + affine[r][2] * k + affine[r][3]);
+            data[i + nx * (j + ny * k)] = firValue(w, id.subject, id.condition, lag);
+          }
+      return data;
+    });
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const f of frames) for (const v of f) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    const fixture: VolumeFixture = { dims: [nx, ny, nz], affine, data: frames[0], frames, range: [lo, hi] };
+    firFixtures.set(path, fixture);
+    return fixture;
+  };
+
+  /** Voxel centres (world mm) of a region locus; error 2027 when it holds none. */
+  const regionVoxels = (region: RegionArg): number[][] => {
+    const src = region.labelSource;
+    const vol =
+      src.type === 'layer'
+        ? volumeForLayer(src.layerId).fixture
+        : src.type === 'volume'
+          ? volumeFor(src.volumeId).fixture
+          : fixtureForPath(src.path);
+    if (!vol) throw Object.assign(new Error(`Label source not found: ${JSON.stringify(src)}`), { code: 2027 });
+    const ids = new Set(region.labelIds);
+    const [nx, ny, nz] = vol.dims;
+    const a = vol.affine;
+    const out: number[][] = [];
+    for (let k = 0; k < nz; k += 1)
+      for (let j = 0; j < ny; j += 1)
+        for (let i = 0; i < nx; i += 1)
+          if (ids.has(Math.round(vol.data[i + nx * (j + ny * k)])))
+            out.push([0, 1, 2].map((r) => a[r][0] * i + a[r][1] * j + a[r][2] * k + a[r][3]));
+    if (!out.length)
+      throw Object.assign(new Error(`The region holds no voxels (labels ${region.labelIds.join(', ')})`), { code: 2027 });
+    return out;
+  };
+
   const fixtureForPath = (path: string): VolumeFixture | null => {
     if (path === MNI_PATH) return fixtures.mni;
     if (path === STATS_PATH) return fixtures.stats;
     if (path === ZMAP_PATH) return fixtures.zmap;
     if (path === TMAP_PATH) return fixtures.tmap;
     if (path === ZMAP_NOISY_PATH) return fixtures.zmapNoisy;
+    // Phase 4 E6: a FIR study's 4D lag series (one subject × condition), on the MNI grid.
+    if (parseFirPath(path, 0) && path.endsWith('_fir.nii.gz')) return firFixture(path);
     if (path === ZMAP_MULTIPEAK_PATH) return fixtures.zmapMultipeak;
     if (path === TMAP_NOISY_PATH) return fixtures.tmapNoisy;
     if (path === ATLAS_PATH) return fixtures.atlas;
@@ -362,7 +434,23 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   const registerVolume = (path: string, name: string, fixture: VolumeFixture) => {
     volumeCounter += 1;
     const id = `vol-${volumeCounter}`;
-    volumes.set(id, { id, name, path, fixture, worldToVoxel: invertAffine(fixture.affine) });
+    // Each registration displays its own frame (a fresh `data` reference).
+    const own = fixture.frames ? { ...fixture, data: fixture.frames[0] } : fixture;
+    volumes.set(id, { id, name, path, fixture: own, worldToVoxel: invertAffine(fixture.affine), timepoint: fixture.frames ? 0 : undefined });
+    const frames = fixture.frames?.length ?? 0;
+    if (frames > 1) {
+      return {
+        id,
+        name,
+        dims: [...fixture.dims, frames],
+        dtype: 'f32',
+        volume_type: 'TimeSeries4D',
+        num_timepoints: frames,
+        current_timepoint: 0,
+        time_series_info: { num_timepoints: frames, tr: null, temporal_unit: null, acquisition_time: null },
+        ...handleStatistic(fixture),
+      };
+    }
     return {
       id,
       name,
@@ -622,8 +710,83 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
           : statisticForHeader({ ...NO_INTENT }),
       };
     },
-    get_volume_timepoint: () => 0,
-    set_volume_timepoint: () => null,
+    get_volume_timepoint: ({ volumeId }: { volumeId?: string } = {}) =>
+      (volumeId && volumes.get(volumeId)?.timepoint) ?? 0,
+    // 4D fixtures display the requested frame; 3D ones ignore it.
+    set_volume_timepoint: ({ volumeId, timepoint }: { volumeId: string; timepoint: number }) => {
+      const entry = volumes.get(volumeId);
+      const frames = entry?.fixture.frames;
+      if (entry && frames) {
+        const t = Math.max(0, Math.min(frames.length - 1, Math.round(timepoint)));
+        entry.timepoint = t;
+        entry.fixture = { ...entry.fixture, data: frames[t] };
+      }
+      return null;
+    },
+    // sample_stack: the locus (nearest voxel, or a sphere reduced by `reduce`)
+    // per frame of a 4D layer, one value for a 3D layer.
+    sample_stack: ({
+      layerId,
+      worldMm,
+      radiusMm,
+      reduce,
+      region,
+    }: {
+      layerId: string;
+      worldMm: [number, number, number];
+      radiusMm: number;
+      reduce?: string;
+      region?: RegionArg;
+    }) => {
+      const entry = volumeForLayer(layerId);
+      const vol = entry.fixture;
+      const [nx, ny] = vol.dims;
+      const voxels = (region ? regionVoxels(region) : locusVoxels(vol, worldMm, radiusMm)).map((w) =>
+        [0, 1, 2].map((r) => Math.round((w[r] - vol.affine[r][3]) / vol.affine[r][r])),
+      );
+      const frames = vol.frames ?? [vol.data];
+      return frames.map((data) => {
+        const values = voxels.map(([i, j, k]) => data[i + nx * (j + ny * k)]);
+        if (!values.length) return Number.NaN;
+        if (reduce === 'median') {
+          const sorted = [...values].sort((a, b) => a - b);
+          const m = sorted.length >> 1;
+          return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+        }
+        return values.reduce((a, b) => a + b, 0) / values.length;
+      });
+    },
+    // sample_set_at_world (phase 4 E6): the synthetic FIR study's members,
+    // evaluated analytically at voxel centres of the MNI grid (firStudy.ts).
+    sample_set_at_world: ({
+      members,
+      worldMm,
+      radiusMm,
+      reduce,
+      region,
+    }: {
+      members: Array<{ memberId: string; sourcePath: string; stackIndex?: number }>;
+      worldMm: [number, number, number];
+      radiusMm: number;
+      reduce?: 'mean' | 'median';
+      region?: RegionArg;
+    }) => {
+      // E2: a region replaces the point / sphere (its voxel centres).
+      const voxels = region ? regionVoxels(region) : null;
+      return members.map((m) => {
+        const sampled = voxels
+          ? sampleFirVoxels(m.sourcePath, m.stackIndex, voxels, reduce ?? 'mean')
+          : sampleFirMember(fixtures.mni, m.sourcePath, m.stackIndex, worldMm, radiusMm, reduce ?? 'mean');
+        if (!sampled) throw new Error(`harness: no set sampling fixture for ${m.sourcePath}`);
+        return {
+          memberId: m.memberId,
+          value: sampled.value,
+          count: sampled.count,
+          sourceRevision: { sha256: firRevision(m.sourcePath), sourceBytes: 1 },
+          error: null,
+        };
+      });
+    },
 
     request_layer_gpu_resources: ({
       layerSpec,
@@ -871,8 +1034,22 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
     // Volume queries (clusters.rs / volume_queries.rs), computed on the
     // fixture arrays by the mirrors in volumeQueries.ts.
-    compute_clusters: ({ request }: { request: ClusterQuery & QueryTarget }) =>
-      findClusters(targetVolume(request).fixture, request),
+    compute_clusters: ({ request }: { request: ClusterQuery & QueryTarget }) => {
+      const entry = targetVolume(request);
+      const table = findClusters(entry.fixture, request);
+      // E3: the cluster-id label volume, registered (hidden) so a row can be a region.
+      if (request.emitLabelVolume) {
+        const labels = clusterLabelData(entry.fixture, request, table);
+        const info = registerVolume(`${entry.path}#clusters`, `${entry.name} clusters`, {
+          dims: entry.fixture.dims,
+          affine: entry.fixture.affine,
+          data: labels,
+          range: [0, table.clusters.length],
+        });
+        table.labelVolumeId = info.id;
+      }
+      return table;
+    },
     volume_extremum: ({ request }: { request: QueryTarget & { kind: ExtremumKind } }) =>
       findExtremum(targetVolume(request).fixture, request.kind),
     volume_nonzero_bbox: ({ request }: { request: QueryTarget & { threshold?: number | null } }) =>

@@ -143,7 +143,8 @@ describe("crosshairTimeSeriesPlot.supports", () => {
 
   it("declares the time-series plot identity", () => {
     expect(crosshairTimeSeriesPlot.id).toBe("crosshair-time-series");
-    expect(crosshairTimeSeriesPlot.label).toBe("Time series");
+    // Phase 4 E5: one "Series" mode (4D layer or a dataset with a lag / time axis).
+    expect(crosshairTimeSeriesPlot.label).toBe("Series");
   });
 });
 

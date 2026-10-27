@@ -182,7 +182,7 @@ describe('PlotPanel ↔ plotModeStore handshake (6c)', () => {
 
     render(<PlotPanel defaultMode="histogram" />);
 
-    const tab = screen.getByRole('radio', { name: 'Time series' });
+    const tab = screen.getByRole('radio', { name: 'Series' });
     act(() => {
       fireEvent.click(tab);
     });
