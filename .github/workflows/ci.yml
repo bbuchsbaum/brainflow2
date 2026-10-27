@@ -230,8 +230,14 @@ jobs:
           e2e/playwright-report/
           e2e/test-results/
 
-    - name: Build WASM Target (for volmath - adjust if needed)
-      run: cargo build --package volmath --target wasm32-unknown-unknown --verbose
+    - name: Check portable render contracts
+      run: cargo check --locked --package render_contracts --lib --target wasm32-unknown-unknown
+
+    - name: Check portable volume lifecycle
+      run: cargo check --locked --package volume_service --lib --features web --target wasm32-unknown-unknown
+
+    - name: Build volmath for JavaScript-hosted WASM
+      run: cargo build --locked --package volmath --lib --features web --target wasm32-unknown-unknown --verbose
 
     - name: Run Upload Benchmark
       if: matrix.os == 'ubuntu-latest' # Run only where GPU likely available
@@ -279,4 +285,4 @@ jobs:
     # - name: Install wasm-pack
     #   run: cargo install wasm-pack
     # - name: Run WASM Tests (volmath)
-    #   run: cd core/volmath && wasm-pack test --headless --chrome # Firefox might be flaky 
+    #   run: cd core/volmath && wasm-pack test --headless --chrome # Firefox might be flaky

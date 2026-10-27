@@ -90,6 +90,7 @@ mod render_lifecycle;
 mod stat_metadata;
 mod surface_loading;
 mod user_errors;
+mod volume_loading;
 mod volume_queries;
 use command_registry::bridge_commands;
 use error_context::*;
@@ -1031,15 +1032,7 @@ pub struct VolumeEntry {
     pub metadata: VolumeMetadataInfo,
 }
 
-/// Enhanced metadata for volumes
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VolumeMetadataInfo {
-    pub name: String,
-    pub path: String,
-    pub dtype: String,
-    pub volume_type: bridge_types::VolumeType,
-    pub time_series_info: Option<bridge_types::TimeSeriesInfo>,
-}
+pub use volume_service::VolumeMetadataInfo;
 
 /// Compute the expected neuroatlas cache directory used for atlas NIfTI files.
 fn neuroatlas_cache_dir() -> std::path::PathBuf {
@@ -1431,6 +1424,7 @@ pub struct BridgeState {
     >,
     // Removed: pub loader_registry: Arc<Mutex<LoaderRegistry>>,
     pub volume_registry: Arc<Mutex<VolumeRegistry>>,
+    volume_operations: Arc<Mutex<()>>,
     pub surface_registry: Arc<Mutex<SurfaceRegistry>>,
     pub render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
     // NEW: Map UI layer ID to GPU texture atlas layer index
@@ -1489,6 +1483,7 @@ impl BridgeState {
         Self {
             surface_parcel_dictionaries: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             /* Removed loader_registry field */ volume_registry,
+            volume_operations: Arc::new(Mutex::new(())),
             surface_registry,
             render_loop_service,
             layer_to_atlas_map,
@@ -2700,229 +2695,16 @@ async fn handle_remote_connect_outcome<R: Runtime>(
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_file")]
 async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<VolumeHandleInfo> {
-    info!("Bridge: load_file called with path: {}", path);
-    let load_start = Instant::now();
-
-    // Materialize a remote-backed file into local cache when needed.
-    let file_path = PathBuf::from(&path);
-    materialize_remote_file_if_needed(state.inner(), &file_path).await?;
-
-    // Validate that the file exists and is loadable.
-    if !file_path.exists() {
-        return Err(BridgeError::Io {
-            code: 1001,
-            details: format!("File not found: {}", path),
-        });
-    }
-
-    if !core_loaders::is_loadable(&file_path) {
-        return Err(BridgeError::Input {
-            code: 1002,
-            details: format!("File format not supported: {}", path),
-        });
-    }
-
-    // Load the volume data.
-    // [perf] The decode (gzip inflate + full f32 materialization) is CPU-bound
-    // and ~100ms+ on a real volume. Run it on a blocking thread so it does not
-    // stall the async runtime (and every other in-flight command) for that span.
-    let decode_start = Instant::now();
-    let decode_path = file_path.clone();
-    let (volume_sendable, _affine) =
-        tokio::task::spawn_blocking(move || nifti_loader::load_nifti_volume_auto(&decode_path))
-            .await
-            .map_err(|e| BridgeError::Internal {
-                code: 1004,
-                details: format!("Volume decode task failed for {}: {}", path, e),
-            })?
-            .map_err(|e| BridgeError::Loader {
-                code: 1003,
-                details: format!("Failed to load file {}: {}", path, e),
-            })?;
-    info!(
-        "[perf] load_file decode (spawn_blocking, off async runtime): {} ms ({})",
-        decode_start.elapsed().as_millis(),
-        path
-    );
-
-    // 4D files carry a repetition time (TR) in the NIfTI header that the loaded
-    // volume does not retain. Re-read it lazily (header only — cheap) *inside*
-    // this closure so only 4D loads pay for it; the 3D arms never call it. `tr`
-    // is normalized to seconds.
-    let make_time_series_info = |num_timepoints: usize| {
-        let temporal_meta = nifti_loader::read_temporal_metadata(&file_path);
-        bridge_types::TimeSeriesInfo {
-            num_timepoints,
-            tr: temporal_meta.tr_seconds,
-            temporal_unit: temporal_meta.temporal_unit,
-            acquisition_time: temporal_meta
-                .tr_seconds
-                .map(|tr| tr * num_timepoints as f32),
-        }
-    };
-
-    // Derive dimensions/type metadata directly from the already-loaded volume.
-    // This avoids a second full parse/decode pass through NiftiLoader::load.
-    let (dims, dtype, volume_type, time_series_info) = match &volume_sendable {
-        VolumeSendable::VolF32(vol, _) => (
-            vol.space().dim.clone(),
-            "f32".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolI16(vol, _) => (
-            vol.space().dim.clone(),
-            "i16".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolU8(vol, _) => (
-            vol.space().dim.clone(),
-            "u8".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolI8(vol, _) => (
-            vol.space().dim.clone(),
-            "i8".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolU16(vol, _) => (
-            vol.space().dim.clone(),
-            "u16".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolI32(vol, _) => (
-            vol.space().dim.clone(),
-            "i32".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolU32(vol, _) => (
-            vol.space().dim.clone(),
-            "u32".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolF64(vol, _) => (
-            vol.space().dim.clone(),
-            "f64".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::Vec4DF32(vec) => (
-            vec.space().dim.clone(),
-            "f32".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DI16(vec) => (
-            vec.space().dim.clone(),
-            "i16".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DU8(vec) => (
-            vec.space().dim.clone(),
-            "u8".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DI8(vec) => (
-            vec.space().dim.clone(),
-            "i8".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DU16(vec) => (
-            vec.space().dim.clone(),
-            "u16".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DI32(vec) => (
-            vec.space().dim.clone(),
-            "i32".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DU32(vec) => (
-            vec.space().dim.clone(),
-            "u32".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DF64(vec) => (
-            vec.space().dim.clone(),
-            "f64".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-    };
-
-    // Generate a unique handle ID based on the file name
-    let file_name = file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown");
-    let handle_id = format!("volume_{}", uuid::Uuid::new_v4());
-
-    // Create volume metadata
-    let metadata = VolumeMetadataInfo {
-        name: file_name.to_string(),
-        path: path.clone(),
-        dtype: dtype.clone(),
-        volume_type: volume_type.clone(),
-        time_series_info: time_series_info.clone(),
-    };
-
-    // Register the volume in the state
-    let mut registry = state.volume_registry.lock().await;
-    registry.insert(handle_id.clone(), volume_sendable, metadata);
-    drop(registry);
-
-    info!(
-        "Bridge: Successfully loaded volume with handle: {} (dtype={}, dims={:?}, elapsed={}ms)",
-        handle_id,
-        dtype,
-        dims,
-        load_start.elapsed().as_millis()
-    );
-
-    // Statistic/label intent from one header read, off the async runtime.
-    let intent = stat_metadata::read_volume_intent(file_path.clone()).await;
-
-    // Return the handle
-    Ok(VolumeHandleInfo {
-        id: handle_id,
-        name: file_name.to_string(),
-        dims,
-        dtype,
-        volume_type,
-        num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
-        current_timepoint: None,
-        time_series_info,
-        statistic: intent.statistic,
-        is_label_map: intent.is_label_map,
-    })
+    let scope = volume_service::LoadScope::default();
+    volume_service::VolumeLoadingService::load(
+        &volume_loading::NativeVolumeSource {
+            path,
+            state: state.inner(),
+        },
+        &volume_loading::DesktopVolumeRepository(state.inner()),
+        &scope,
+    )
+    .await
 }
 
 #[command]
@@ -3330,48 +3112,11 @@ async fn unload_volume(
     volume_id: String,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<ReleaseResult> {
-    info!("Bridge: unload_volume called for volume: {}", volume_id);
-
-    let active_layer_ids: Vec<String> = {
-        let layer_to_volume = state.layer_to_volume_map.lock().await;
-        layer_to_volume
-            .iter()
-            .filter_map(|(layer_id, mapped_volume_id)| {
-                if mapped_volume_id == &volume_id {
-                    Some(layer_id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
-
-    if !active_layer_ids.is_empty() {
-        return Err(BridgeError::Input {
-            code: 4048,
-            details: format!(
-                "Cannot unload volume '{}' while active layer mappings exist: {}",
-                volume_id,
-                active_layer_ids.join(", ")
-            ),
-        });
-    }
-
-    let mut volume_registry = state.volume_registry.lock().await;
-    volume_registry
-        .remove(&volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound {
-            code: 4041,
-            details: volume_id.clone(),
-        })?;
-    drop(volume_registry);
-    if let Some(service) = state.render_loop_service.lock().await.as_ref() {
-        service
-            .lock()
-            .await
-            .remove_custom_colormap(&format!("parcel:{}", volume_id));
-    }
-
+    volume_service::VolumeLoadingService::unload(
+        &volume_loading::DesktopVolumeRepository(state.inner()),
+        &volume_id,
+    )
+    .await?;
     Ok(ReleaseResult {
         success: true,
         message: format!("Unloaded volume '{}'", volume_id),
@@ -4120,6 +3865,17 @@ pub async fn request_layer_gpu_resources_for_testing(
     metadata_only: Option<bool>,
     bridge_state: &BridgeState,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
+    request_layer_gpu_resources_with_upload_hook(layer_spec, metadata_only, bridge_state, || Ok(()))
+        .await
+}
+
+async fn request_layer_gpu_resources_with_upload_hook(
+    layer_spec: LayerSpec,
+    metadata_only: Option<bool>,
+    bridge_state: &BridgeState,
+    after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
+) -> BridgeResult<VolumeLayerGpuInfo> {
+    let _operation = bridge_state.volume_operations.lock().await;
     let state = bridge_state;
     // Update return type
     info!(
@@ -4134,6 +3890,18 @@ pub async fn request_layer_gpu_resources_for_testing(
             let source_volume_id = vol_spec.source_resource_id.clone();
             let ui_layer_id = vol_spec.id.clone();
             let metadata_only_flag = metadata_only.unwrap_or(false);
+            if !metadata_only_flag
+                && state
+                    .layer_to_atlas_map
+                    .lock()
+                    .await
+                    .contains_key(&ui_layer_id)
+            {
+                return Err(BridgeError::Input {
+                    code: 1006,
+                    details: format!("Layer '{}' already owns GPU resources", ui_layer_id),
+                });
+            }
 
             info!(
                 "Requesting {} for UI layer '{}' (source volume '{}')",
@@ -4245,21 +4013,27 @@ pub async fn request_layer_gpu_resources_for_testing(
 
             // Upload the entire volume as a 3D texture and get the world-to-voxel transform
             // Skip if metadata_only is true
-            let (atlas_layer_idx, volume_world_to_voxel) = if metadata_only_flag {
-                info!("Metadata-only mode: skipping GPU upload");
-                (u32::MAX, nalgebra::Matrix4::<f32>::identity()) // Dummy values
-            } else {
-                debug!("About to upload volume to GPU (off the async reactor)");
-                // Run the heavy convert + GPU write on a blocking thread so the async
-                // reactor stays responsive, holding ONLY the render-service lock (the
-                // registry lock was already dropped). The volume is an Arc clone.
-                let upload_service = service_arc
-                    .clone()
-                    .expect("service arc present when not in metadata_only mode");
-                let upload_volume = volume_arc.clone();
-                let upload_ui_layer_id = ui_layer_id.clone();
-                tokio::task::spawn_blocking(
-                    move || -> BridgeResult<(u32, nalgebra::Matrix4<f32>)> {
+            let (atlas_layer_idx, volume_world_to_voxel, mut provisional_upload) =
+                if metadata_only_flag {
+                    info!("Metadata-only mode: skipping GPU upload");
+                    (u32::MAX, nalgebra::Matrix4::<f32>::identity(), None) // No allocation
+                } else {
+                    debug!("About to upload volume to GPU (off the async reactor)");
+                    // Run the heavy convert + GPU write on a blocking thread so the async
+                    // reactor stays responsive, holding ONLY the render-service lock (the
+                    // registry lock was already dropped). The volume is an Arc clone.
+                    let upload_service = service_arc
+                        .clone()
+                        .expect("service arc present when not in metadata_only mode");
+                    let upload_owner = volume_loading::UploadOwner::new(
+                        state,
+                        Arc::clone(&upload_service),
+                        ui_layer_id.clone(),
+                    );
+                    let upload_volume = volume_arc.clone();
+                    let upload_ui_layer_id = ui_layer_id.clone();
+                    tokio::task::spawn_blocking(
+                    move || -> BridgeResult<(u32, nalgebra::Matrix4<f32>, Option<volume_loading::ProvisionalUpload>)> {
                         let mut render_service_guard = upload_service.blocking_lock();
                         let render_service = &mut *render_service_guard;
                         let volume_data: &VolumeSendable = upload_volume.as_ref();
@@ -4453,7 +4227,9 @@ pub async fn request_layer_gpu_resources_for_testing(
                                 }
                             }
                         };
-                        Ok(upload_result)
+                        let guard = volume_loading::ProvisionalUpload::new(upload_result.0, upload_owner);
+                        after_upload()?;
+                        Ok((upload_result.0, upload_result.1, Some(guard)))
                     },
                 )
                 .await
@@ -4461,7 +4237,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                     code: 5099,
                     details: format!("GPU upload task panicked: {e}"),
                 })??
-            };
+                };
 
             // Re-acquire the render-service lock for the light post-upload bookkeeping
             // below (data range, declarative registration, layer add). It was released
@@ -4993,6 +4769,10 @@ pub async fn request_layer_gpu_resources_for_testing(
                     Arc::clone(&state.resident_image_sets),
                 );
 
+                if let Some(upload) = provisional_upload.as_mut() {
+                    upload.transfer_to_lease();
+                }
+
                 {
                     let mut lease_map = state.layer_leases.lock().await;
                     lease_map.insert(ui_layer_id.clone(), Arc::new(lease));
@@ -5035,6 +4815,7 @@ async fn release_layer_gpu_resources_internal(
     layer_id: String,
     bridge_state: &BridgeState,
 ) -> BridgeResult<ReleaseResult> {
+    let _operation = bridge_state.volume_operations.lock().await;
     info!(
         "Bridge: release_layer_gpu_resources called for layer {}",
         layer_id
@@ -6800,6 +6581,7 @@ pub struct SamplerInfoResult {
 /// Precomputed sampler held on `BridgeState`.
 pub struct SurfaceSamplerEntry {
     pub surface_id: String,
+    pub template_volume_id: String,
     pub sampler: neurosurf_rs::analysis::SurfaceSampler,
     pub volume_dims: [u32; 3],
     pub vertex_count: usize,
@@ -7097,11 +6879,24 @@ async fn create_surface_sampler_impl(
                 details: "Surface was unloaded while preparing its sampler".into(),
             });
         }
+        let _operation = bridge_state.volume_operations.lock().await;
+        if !bridge_state
+            .volume_registry
+            .lock()
+            .await
+            .contains(&template_volume_id)
+        {
+            return Err(BridgeError::VolumeNotFound {
+                code: 4041,
+                details: "Template volume was unloaded while preparing its sampler".into(),
+            });
+        }
         let mut samplers = bridge_state.surface_samplers.lock().await;
         samplers.insert(
             handle.clone(),
             SurfaceSamplerEntry {
                 surface_id: surface_id.clone(),
+                template_volume_id: template_volume_id.clone(),
                 sampler,
                 volume_dims: vol.dims,
                 vertex_count,
@@ -14329,6 +14124,24 @@ mod tests {
         assert!((vals[0] - 1.0).abs() < 1e-3, "v0={}", vals[0]);
         assert!((vals[1] - 112.0).abs() < 1e-3, "v1={}", vals[1]);
         assert!((vals[2] - 223.0).abs() < 1e-3, "v2={}", vals[2]);
+    }
+
+    #[tokio::test]
+    async fn volume_unload_reclaims_template_samplers() {
+        let state = BridgeState::default().unwrap();
+        register_surface_and_volume_for_projection(&state).await;
+        create_surface_sampler_impl("proj_surf".into(), None, "proj_vol".into(), None, &state)
+            .await
+            .unwrap();
+        assert_eq!(state.surface_samplers.lock().await.len(), 1);
+        volume_service::VolumeLoadingService::unload(
+            &volume_loading::DesktopVolumeRepository(&state),
+            "proj_vol",
+        )
+        .await
+        .unwrap();
+        assert!(state.surface_samplers.lock().await.is_empty());
+        assert!(!state.volume_registry.lock().await.contains("proj_vol"));
     }
 
     #[tokio::test]

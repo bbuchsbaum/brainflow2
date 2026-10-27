@@ -251,7 +251,7 @@ dependencies = [
  "ndarray 0.16.1",
  "neuro-types",
  "neuroatlas",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "neurosurf-rs",
  "nifti 0.17.0",
  "nifti-loader",
@@ -274,6 +274,7 @@ dependencies = [
  "ts-rs 10.1.0",
  "uuid",
  "volmath",
+ "volume_service",
  "walkdir",
  "wgpu",
 ]
@@ -960,7 +961,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "nalgebra 0.32.6",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -4844,7 +4845,7 @@ dependencies = [
  "memmap2",
  "nalgebra 0.33.2",
  "ndarray 0.16.1",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=78d4e61f3e7dc7e759f38d02b85f9da41ee70d8a)",
  "neurosurf-rs",
  "nifti 0.17.0",
  "num-traits 0.2.19",
@@ -4861,6 +4862,29 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "neuroim"
+version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417#0fbedb93b4bb4e7aec663c7466c39a0eb6760417"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "flate2",
+ "glob",
+ "image 0.24.9",
+ "lazy_static",
+ "memmap2",
+ "nalgebra 0.32.6",
+ "ndarray 0.16.1",
+ "nifti 0.17.0",
+ "num-traits 0.2.19",
+ "rand 0.8.5",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4970,7 +4994,7 @@ dependencies = [
  "flate2",
  "log",
  "nalgebra 0.32.6",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "nifti 0.16.0",
  "num-traits 0.2.19",
  "serde",
@@ -9352,10 +9376,11 @@ dependencies = [
  "approx 0.5.1",
  "bytemuck",
  "console_error_panic_hook",
+ "getrandom 0.2.16",
  "half",
  "nalgebra 0.32.6",
  "ndarray 0.16.1",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "num-traits 0.2.19",
  "once_cell",
  "rayon",
@@ -9364,6 +9389,17 @@ dependencies = [
  "ts-rs 8.1.0",
  "wasm-bindgen",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "volume_service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bridge_types",
+ "serde",
+ "tokio",
+ "volmath",
 ]
 
 [[package]]
