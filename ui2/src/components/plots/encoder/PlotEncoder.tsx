@@ -109,7 +109,8 @@ export function PlotEncoder({ frame, spec, width, height, context }: PlotEncoder
       : Math.max(180, height / Math.ceil(groups.size / n) - 24);
     const hidden = fixed ? Math.max(0, groups.size - n) : 0;
     const facetLabel =
-      typeof spec.params.facetLabel === 'string'
+      // facetPrefix: false drops the "<column>: " prefix (segments are self-naming).
+      spec.params.facetPrefix === false
         ? null
         : (renderFrame.columns.find((column) => column.name === facet)?.label ?? facet);
     return (

@@ -646,12 +646,15 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     g.filter((p) => Number.isFinite(p.y) && typeof linkedIds(p) === 'string').sort((a, b) => a.xNum - b.xNum),
   );
   const allLinked = lines.flat();
+  const entry = link?.entryIds ? allLinked.find((p) => link.entryIds!.has(linkedIds(p) as string)) : undefined;
   const tabStopId =
     link && allLinked.some((p) => linkedIds(p) === link.focusedId)
       ? link.focusedId
-      : allLinked.length
-        ? (linkedIds(allLinked[0]) as string)
-        : null;
+      : entry
+        ? (linkedIds(entry) as string)
+        : allLinked.length
+          ? (linkedIds(allLinked[0]) as string)
+          : null;
   const selectable = link?.selectable !== false;
   const moveFrom = (event: React.KeyboardEvent<SVGElement>, id: string) => {
     if (!link) return;
@@ -753,7 +756,12 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
   // so a forced 0 ± 0 does not read as an estimate (v1 user 7).
   const baselineRange = spec.params.baselineRange;
   const hollow =
-    Array.isArray(baselineRange) && baselineRange.length === 2 && !scales.catMode
+    // Only a single-position baseline is 0 by construction (REVIEW m7); over
+    // a window each position is a real deviation from the window mean.
+    Array.isArray(baselineRange) &&
+    baselineRange.length === 2 &&
+    Number(baselineRange[0]) === Number(baselineRange[1]) &&
+    !scales.catMode
       ? points
           .filter((p) => Number.isFinite(p.y) && p.xNum >= Number(baselineRange[0]) && p.xNum <= Number(baselineRange[1]))
           .map((p, i) => (

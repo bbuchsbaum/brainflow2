@@ -32,6 +32,12 @@ describe('series presentation (v1 F6/F7/F11)', () => {
     ).toBe('mean ± 95% CI (t, df = 5) · 6 participants · 6 mm sphere at −39.5, −19.5, 50.5 mm, 123 voxels · Baseline 0–0 subtracted');
   });
 
+  it('participants mode names its unit once (v4 user)', () => {
+    const text = seriesCaption({ binding, recipe: { ...recipe, summary: 'none', band: 'none' }, participants: 6, locus: 'x', voxels: null, transforms: '' });
+    expect(text).toBe('6 participants, one line each · x');
+    expect(text).not.toContain('participants · 6');
+  });
+
   it('± 1.96 SE at small n says it is a normal approximation', () => {
     expect(seriesCaption({ binding, recipe: { ...recipe, band: 'sem95' }, participants: 6, locus: 'x', voxels: null, transforms: '' })).toContain(
       'mean ± 1.96 SE (normal approx., n = 6)',

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PopulationProbePanel } from '../PopulationProbePanel';
 import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
+import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import type { SampleRequest, SampleFrame } from '@/plotting';
@@ -298,7 +299,35 @@ describe('PopulationProbePanel region locus', () => {
     expect(screen.getByRole('radio', { name: 'Region' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Cluster' })).not.toBeChecked();
     expect(screen.getByRole('button', { name: 'Open Clusters' })).toBeInTheDocument();
+    // Focus lands on the alert's action, not <body> (v4 function).
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open Clusters' })));
     expect(screen.getByRole('status')).toHaveTextContent(/region .*occipitotemporal/);
+  });
+
+  it('a point pin after a region pin puts the control back on Point / sphere (REVIEW m3)', async () => {
+    const { useLayerStore } = await import('@/stores/layerStore');
+    useLayerStore.setState({
+      layers: [
+        {
+          id: 'atlas',
+          name: 'atlas',
+          volumeId: 'atlas',
+          type: 'label',
+          visible: true,
+          order: 0,
+          atlasPaletteLegend: [{ label_id: 2, roi: 'R_occipitotemporal', color: [0, 255, 0] }],
+        },
+      ],
+    } as never);
+    const { sample } = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+    await waitFor(() => expect(sample).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('radio', { name: 'Region' }));
+    fireEvent.change(await screen.findByLabelText('Probe region'), { target: { value: '2' } });
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Region' })).toBeChecked());
+    // A point pin from elsewhere (the viewer) replaces the region probe.
+    act(() => populationProbeActions.pin(0, false));
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Point / sphere' })).toBeChecked());
   });
 
   it('a failed Region with no atlas offers Load atlas…', async () => {

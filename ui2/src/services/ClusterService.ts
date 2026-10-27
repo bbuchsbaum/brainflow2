@@ -113,9 +113,15 @@ export class ClusterService {
         useClusterStore.getState().setError('The layer was removed while clusters were computed');
         return null;
       }
+      // The mask's name as it was at compute time: the methods keep naming it
+      // after the layer is removed (v4 function 3).
+      const maskLayer = input.searchMask
+        ? useLayerStore.getState().layers.find((l) => l.volumeId === input.searchMask)
+        : undefined;
       useClusterStore.getState().setResult({
         layerId: input.layerId,
         layerName: layer?.name ?? input.layerId,
+        maskName: maskLayer?.name ?? null,
         table,
         regions,
         subPeakRegions,
@@ -249,20 +255,23 @@ const fixedThousands = (n: number, digits: number) =>
 
 /**
  * Mask voxels where the map is 0 or non-finite (round 3 T2): searched but
- * with no data. `maskVoxelsOutsideMap` is not in the generated bindings yet
- * (asked of p3-backend); read it when present.
+ * with no data (SearchVolume.maskVoxelsOutsideMap, null without a mask).
  */
 export function maskVoxelsOutsideMap(table: ClusterTable): number | null {
-  const n = (table.searchVolume as { maskVoxelsOutsideMap?: unknown } | undefined)?.maskVoxelsOutsideMap;
+  const n = table.searchVolume?.maskVoxelsOutsideMap;
   return table.searchVolume?.kind === 'mask' && typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
 
-/** "non-zero voxels of the map" / "brain mask T1" (what the backend searched). */
+/**
+ * "non-zero voxels of the map" / "restricted to mask <name>" (what the
+ * backend searched). A mask may be a small ROI, so nothing implies a
+ * whole-brain search (v4 fidelity 2).
+ */
 function searchDescription(table: ClusterTable, label?: ClusterSearchLabel): string {
   if (table.searchVolume?.kind === 'mask') {
-    const name = label?.maskName ?? table.searchVolume.maskVolumeId ?? 'a mask';
+    const name = label?.maskName ?? 'a mask volume';
     const outside = maskVoxelsOutsideMap(table);
-    return `brain mask ${name}${outside ? `; ${thousands(outside)} mask voxel${outside === 1 ? '' : 's'} where the map is 0 or non-finite` : ''}`;
+    return `restricted to mask ${name}${outside ? `; ${thousands(outside)} mask voxel${outside === 1 ? '' : 's'} where the map is 0 or non-finite` : ''}`;
   }
   return 'non-zero voxels of the map';
 }
@@ -280,9 +289,12 @@ export function isMaskLike(
   layer: { name?: string; type?: string; sourcePath?: string },
   metadata?: { isBinaryLike?: boolean; dataRange?: { min: number; max: number } } | null,
 ): boolean {
-  if (metadata?.isBinaryLike === false) return false;
-  if (metadata?.isBinaryLike === true) return true;
+  // The native flag is a true {0, 1} test (B14): it decides when present. An
+  // empty volume has nothing to search.
   const range = metadata?.dataRange;
+  if (metadata?.isBinaryLike === false) return false;
+  if (metadata?.isBinaryLike === true) return !(range && range.max === 0);
+  // No flag: a range of exactly 0..1, else the file name.
   if (range && range.min === 0 && range.max === 1) return true;
   if (range && !(range.min >= 0 && range.max <= 1)) return false;
   const base = (path: string | undefined) => (path ?? '').split(/[\\/]/).pop() ?? '';
@@ -405,8 +417,10 @@ export function parseFwhm(text: string): FwhmMm | null {
 export function formatClusterP(p: number | null | undefined): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return '—';
   if (p < 0.001) return '< 0.001';
-  // Near 1, three decimals would round 0.9996 up to "1.000" (round 4 C9).
-  return p > 0.999 && p < 1 ? p.toFixed(4) : p.toFixed(3);
+  // Near 1, three decimals would round 0.9996 up to "1.000" (round 4 C9), and
+  // four decimals 0.99996 up to "1.0000" (v4 fidelity 4): never print 1 for p < 1.
+  if (p > 0.999 && p < 1) return p.toFixed(4) === '1.0000' ? '> 0.9999' : p.toFixed(4);
+  return p.toFixed(3);
 }
 
 function stripDof(symbol: string): string {
@@ -430,7 +444,8 @@ export function clusterTableCsv(
 ): string {
   // Coordinates at 2 decimals (ASCII minus): centroids are not on voxel centres.
   const mm = (v: readonly number[]) => v.map((x) => Number(x.toFixed(2)));
-  const extent = !!table.extentInference;
+  // Withheld cluster p (B12) keeps the columns, empty, with the reason as a "#" line.
+  const extent = !!table.extentInference || !!table.extentWithheld;
   const header = [
     'cluster',
     // 1: the cluster's peak (its row); 2.. its sub-peaks (rows with only the
@@ -507,6 +522,8 @@ export function clusterTableCsv(
   ];
   const caveats = clusterCaveats(table);
   if (caveats) comments.push(`# ${ascii([caveats.assumptions, caveats.warning].filter(Boolean).join(' '))}`);
+  // B12: a pre-thresholded map without a search mask gets no cluster p; say why.
+  if (table.extentWithheld) comments.push(`# cluster p withheld: ${ascii(table.extentWithheld.reason)}`);
   return (
     [...comments, header.join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n') + '\n'
   );

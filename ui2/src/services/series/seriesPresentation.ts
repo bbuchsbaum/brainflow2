@@ -169,9 +169,11 @@ export function seriesCaption(input: SeriesCaptionInput): string {
       : recipe.band === 'sem95' && n < 30
         ? `${bandDescription(recipe)} (normal approx., n = ${n})`
         : bandDescription(recipe);
+  const who = `${participants} participant${participants === 1 ? '' : 's'}`;
+  const one = (recipe.transforms ?? []).some((t) => t.kind === 'windowMean') ? 'point' : 'line';
   const parts = [
-    band,
-    `${participants} participant${participants === 1 ? '' : 's'}`,
+    // Participants mode names its unit once (v4 user: not "participants · 6 participants").
+    ...(recipe.summary === 'none' ? [`${who}, one ${one} each`] : [band, who]),
     input.voxels !== null ? `${input.locus}, ${input.voxels.toLocaleString('en-US')} voxel${input.voxels === 1 ? '' : 's'}` : input.locus,
   ];
   if (input.transforms) parts.push(input.transforms.replace(/\.$/, ''));

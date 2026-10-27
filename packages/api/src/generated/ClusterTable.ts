@@ -2,6 +2,7 @@
 import type { ClusterExtentInference } from "./ClusterExtentInference";
 import type { ClusterSign } from "./ClusterSign";
 import type { ClusterSummary } from "./ClusterSummary";
+import type { ExtentWithheld } from "./ExtentWithheld";
 import type { SearchVolume } from "./SearchVolume";
 
 export type ClusterTable = { clusters: Array<ClusterSummary>, threshold: number, sign: ClusterSign, connectivity: number, minVoxels: number, 
@@ -35,4 +36,10 @@ labelVolumeId?: string,
  * Search volume used for cluster formation and extent inference (always
  * set by `compute_clusters`).
  */
-searchVolume?: SearchVolume, };
+searchVolume?: SearchVolume, 
+/**
+ * Set when `extent` was requested but its p values were withheld (e.g. a
+ * pre-thresholded map without `searchMask`); `extentInference` and every
+ * `pFweExtent`/`pUncorrectedExtent` are then null.
+ */
+extentWithheld?: ExtentWithheld, };

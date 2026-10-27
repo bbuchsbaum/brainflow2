@@ -118,7 +118,8 @@ describe('cluster methods sentence and CSV', () => {
     expect(clusterMethodsSentence({ ...TABLE, sign: 'negative' }, 'z')).toBe(
       '26-connected clusters of z < \u22123.1, one-tailed (negative), uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels.',
     );
-    // A brain-mask search without p values (S3): said once, with the mask's name.
+    // A mask search without p values (S3): said once, with the mask's name; "restricted to",
+    // never "brain mask" (a mask may be a small ROI; deliberate wording change, v4 fidelity 2).
     expect(
       clusterMethodsSentence(
         { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 228483 } },
@@ -127,7 +128,7 @@ describe('cluster methods sentence and CSV', () => {
       ),
     ).toBe(
       '26-connected clusters of |z| > 3.1, two-tailed, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels; ' +
-        'search volume 228,483 voxels (brain mask MNI152_T1_2mm_brain_mask).',
+        'search volume 228,483 voxels (restricted to mask MNI152_T1_2mm_brain_mask).',
     );
     // Mask voxels with no map data are reported when the backend counts them (round 3 T2).
     expect(
@@ -136,14 +137,14 @@ describe('cluster methods sentence and CSV', () => {
         'z',
         { maskName: 'brain_mask' },
       ),
-    ).toContain('search volume 228,483 voxels (brain mask brain_mask; 1,204 mask voxels where the map is 0 or non-finite).');
+    ).toContain('search volume 228,483 voxels (restricted to mask brain_mask; 1,204 mask voxels where the map is 0 or non-finite).');
     expect(
       clusterMethodsSentence(
         { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 10, maskVoxelsOutsideMap: 0 } as never },
         'z',
         { maskName: 'brain_mask' },
       ),
-    ).toContain('(brain mask brain_mask).');
+    ).toContain('(restricted to mask brain_mask).');
   });
 
   it('offers only binary volumes or whole-token "mask" names as a search volume (round 4 C7)', () => {
@@ -160,6 +161,11 @@ describe('cluster methods sentence and CSV', () => {
     // A probability map is never a mask, whatever its name.
     expect(isMaskLike({ name: 'GM_mask_prob.nii.gz' }, { isBinaryLike: false, dataRange: { min: 0, max: 1 } })).toBe(false);
     expect(isMaskLike({ name: 'gm_probseg.nii.gz' }, { isBinaryLike: false, dataRange: { min: 0, max: 0.98 } })).toBe(false);
+    // B14: the native flag is a true {0, 1} test and decides (deliberate change: a flagged volume is trusted;
+    // an all-ones whole-grid mask, range 1..1, is a mask).
+    expect(isMaskLike({ name: 'grid' }, { isBinaryLike: true, dataRange: { min: 1, max: 1 } })).toBe(true);
+    expect(isMaskLike({ name: 'empty_mask' }, { isBinaryLike: true, dataRange: { min: 0, max: 0 } })).toBe(false);
+    expect(isMaskLike({ name: 'amygdala_roi' }, { isBinaryLike: true, dataRange: { min: 0, max: 1 } })).toBe(true);
     // An anatomical image is not offered.
     expect(isMaskLike({ name: 'MNI152_T1_2mm_brain.nii.gz' }, { dataRange: { min: 0, max: 8364 } })).toBe(false);
   });
@@ -169,6 +175,8 @@ describe('cluster methods sentence and CSV', () => {
     expect(formatClusterP(0.0079)).toBe('0.008');
     expect(formatClusterP(0.0004)).toBe('< 0.001');
     expect(formatClusterP(1)).toBe('1.000');
+    // Never 1 for p < 1 (v4 fidelity 4).
+    expect(formatClusterP(0.99996)).toBe('> 0.9999');
   });
 
 
@@ -179,6 +187,30 @@ describe('cluster methods sentence and CSV', () => {
     const at = (name: string) => row[header.indexOf(name)];
     expect(at('centroid_x_mm')).toBe('-39.91');
     expect([at('cog_abs_weighted_x_mm'), at('cog_abs_weighted_y_mm'), at('cog_abs_weighted_z_mm')]).toEqual(['', '', '']);
+  });
+
+  it('withheld cluster p: empty p columns and the reason as a "#" line (B12)', () => {
+    const reason =
+      'This map looks pre-thresholded (no |z| < 3.1 among non-zero voxels); cluster p needs the unthresholded map or a search mask.';
+    const withheld: ClusterTable = { ...TABLE, extentInference: null, extentWithheld: { code: 4080, reason } };
+    const csv = clusterTableCsv(withheld, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }).split('\n');
+    expect(csv).toContain(`# cluster p withheld: ${reason}`);
+    const header = csv.find((l) => l.startsWith('cluster,'))!.split(',');
+    const row = csv[csv.indexOf(header.join(',')) + 1].split(',');
+    expect(row[header.indexOf('p_fwe_extent')]).toBe('');
+    expect(row[header.indexOf('p_unc_extent')]).toBe('');
+  });
+
+  it('the methods state mask voxels outside the map from searchVolume.maskVoxelsOutsideMap', () => {
+    const masked: ClusterTable = {
+      ...TABLE,
+      searchVolume: { kind: 'mask', maskVolumeId: 'm', voxels: 5000, maskVoxelsOutsideMap: 321 },
+    };
+    expect(clusterMethodsSentence(masked, 'z', { maskName: 'brain_mask' })).toContain(
+      'restricted to mask brain_mask; 321 mask voxels where the map is 0 or non-finite',
+    );
+    const none: ClusterTable = { ...masked, searchVolume: { ...masked.searchVolume!, maskVoxelsOutsideMap: null } };
+    expect(clusterMethodsSentence(none, 'z', { maskName: 'brain_mask' })).not.toContain('where the map is 0');
   });
 
   it('writes an ASCII CSV with a parameter comment line', () => {

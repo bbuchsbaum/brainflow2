@@ -5,6 +5,7 @@
  * the image. A sibling's window is updated only while it still shows the
  * window this module last set (a user's window is left alone).
  */
+import { getEventBus } from '@/events/EventBus';
 import { useLayerStore } from '@/stores/layerStore';
 import { runGroupFor } from './seriesSegments';
 
@@ -12,6 +13,17 @@ type Window = [number, number];
 
 const own = new Map<string, Window>();
 const applied = new Map<string, Window>();
+
+// A removed layer leaves the pool (REVIEW m15).
+let pruning = false;
+function prune(): void {
+  if (pruning) return;
+  pruning = true;
+  getEventBus().on('layer.removed', ({ layerId }: { layerId: string }) => {
+    own.delete(layerId);
+    applied.delete(layerId);
+  });
+}
 
 const same = (a: readonly number[] | undefined, b: readonly number[] | undefined) =>
   !!a && !!b && Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
@@ -26,6 +38,7 @@ export function shareRunWindow(
   current: (id: string) => readonly number[] | undefined,
   apply: (id: string, window: Window) => void,
 ): Window {
+  prune();
   own.set(layerId, window);
   const { layers, layerMetadata } = useLayerStore.getState();
   const grid = (id: string) => {

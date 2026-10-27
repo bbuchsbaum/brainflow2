@@ -325,8 +325,8 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
             <Select
               aria-label="Series runs"
               className="w-auto"
-              value={settings.segmentLayout === 'faceted' ? 'faceted' : 'pooled'}
-              onValueChange={(v) => settings.update({ segmentLayout: v === 'faceted' ? 'faceted' : null })}
+              value={settings.datasetRunsFaceted ? 'faceted' : 'pooled'}
+              onValueChange={(v) => settings.update({ datasetRunsFaceted: v === 'faceted' })}
               options={[
                 { value: 'pooled', label: 'Pooled within participant' },
                 { value: 'faceted', label: `Faceted by ${binding.segmentColumn}` },

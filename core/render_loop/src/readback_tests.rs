@@ -202,3 +202,39 @@ async fn mapping_failure_is_an_error_and_reclaims_payload() {
     assert!(pending.complete().await.is_err());
     drained(&service.readback_monitor()).await;
 }
+
+#[tokio::test]
+async fn exhausted_staging_budget_is_classified_for_graceful_degradation() {
+    let service = service().await;
+    let texture = texture(&service, [4, 2]);
+    let pause = Pause(Arc::clone(&service.readback_driver.gate));
+    *pause.0.paused.lock().unwrap() = true;
+    // Sixteen staged readbacks fill the budget; the seventeenth is refused
+    // with the code the frame path turns into a placeholder frame.
+    let pending: Vec<_> = (0..16)
+        .map(|_| {
+            service
+                .submit_texture_readback(&texture, [4, 2], vec![])
+                .unwrap()
+        })
+        .collect();
+    let refused = service
+        .submit_texture_readback(&texture, [4, 2], vec![])
+        .err()
+        .expect("budget exhausted");
+    assert!(super::is_staging_budget_exhausted(&refused));
+    assert!(!super::is_staging_budget_exhausted(
+        &RenderLoopError::Internal {
+            code: 1,
+            details: String::new(),
+        }
+    ));
+    let grey = super::placeholder_frame([4, 2]);
+    assert_eq!(grey.len(), 4 * 2 * 4);
+    assert!(grey.chunks_exact(4).all(|px| px == [128, 128, 128, 255]));
+    drop(pause);
+    for readback in pending {
+        readback.complete().await.unwrap();
+    }
+    drained(&service.readback_monitor()).await;
+}

@@ -5043,16 +5043,30 @@ impl RenderLoopService {
         let prepare_ms = request_start.elapsed().as_secs_f32() * 1000.0 - render_ms;
 
         let readback_start = std::time::Instant::now();
+        let mut image_data = Vec::new();
         let readback = if matches!(options.readback_mode, FrameReadbackMode::Skip) {
             None
         } else {
-            Some(self.submit_texture_readback(
+            match self.submit_texture_readback(
                 &self.views[&view_id].render_texture,
                 viewport_size,
                 vec![stamp.clone()],
-            )?)
+            ) {
+                Ok(readback) => Some(readback),
+                // Too many frames still mapping: degrade to a grey placeholder
+                // frame with a warning instead of failing the request.
+                Err(error) if readback::is_staging_budget_exhausted(&error) => {
+                    log::warn!("{error}; returning a placeholder frame");
+                    warnings.push(
+                        "Readback staging budget exhausted; frame skipped (grey placeholder)."
+                            .to_string(),
+                    );
+                    image_data = readback::placeholder_frame(viewport_size);
+                    None
+                }
+                Err(error) => return Err(error),
+            }
         };
-        let image_data = Vec::new();
         let readback_ms = 0.;
 
         // Calculate render time

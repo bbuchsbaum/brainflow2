@@ -363,14 +363,43 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
                 details: volume_id.into(),
             });
         }
-        if let Some(renderer) = renderer.as_mut() {
-            renderer.remove_custom_colormap(&format!("parcel:{}", volume_id));
+        release_volume(
+            renderer.as_deref_mut(),
+            &mut samplers,
+            &mut registry,
+            volume_id,
+        );
+        // A cluster label volume owned by this source goes with it (unless a
+        // layer displays it), through the same release.
+        if let Some(label_id) = crate::cluster_labels::owned_after_removal(volume_id, &displayed) {
+            release_volume(
+                renderer.as_deref_mut(),
+                &mut samplers,
+                &mut registry,
+                &label_id,
+            );
         }
-        samplers.retain(|_, entry| entry.template_volume_id != volume_id);
-        registry.remove(volume_id);
-        crate::cluster_labels::on_volume_removed(&mut registry, volume_id, &displayed);
+        crate::clusters::forget_generation(volume_id);
         Ok(())
     }
+}
+
+/// Host-side release of one registered volume: its parcel colormap, the
+/// surface samplers bound to it, and its registry entry (with dictionaries
+/// and overlays). Callers hold `volume_operations`, and take the renderer,
+/// sampler and registry locks in that order (after any layer-map snapshot),
+/// so no layer allocation can interleave with the removal.
+pub(crate) fn release_volume(
+    renderer: Option<&mut RenderLoopService>,
+    samplers: &mut HashMap<String, SurfaceSamplerEntry>,
+    registry: &mut VolumeRegistry,
+    volume_id: &str,
+) {
+    if let Some(renderer) = renderer {
+        renderer.remove_custom_colormap(&format!("parcel:{}", volume_id));
+    }
+    samplers.retain(|_, entry| entry.template_volume_id != volume_id);
+    registry.remove(volume_id);
 }
 
 #[cfg(test)]

@@ -40,6 +40,8 @@ export interface ClusterResult {
   regions: Array<string | null>;
   /** Region at each sub-peak (`subPeakRegions[i][j]` for `table.clusters[i].subPeaks[j]`). */
   subPeakRegions?: Array<Array<string | null>>;
+  /** Name of the search mask layer at compute time (null: the map's non-zero voxels). */
+  maskName?: string | null;
   computedAt: number;
 }
 

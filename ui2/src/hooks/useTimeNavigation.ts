@@ -87,8 +87,9 @@ export function useTimeNavigation(): TimeNavigationActions {
       return null;
     }
 
-    const currentTimepoint = viewState.timepoint ?? 0;
     const { num_timepoints, tr } = timeSeriesInfo;
+    // Clamped to the lead layer (REVIEW m8: "31/20" after selecting a shorter run).
+    const currentTimepoint = Math.max(0, Math.min(num_timepoints - 1, viewState.timepoint ?? 0));
 
     return {
       currentTimepoint,

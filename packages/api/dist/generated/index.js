@@ -160,6 +160,7 @@ export * from './AnalysisArtifactKind';
 export * from './BatchRenderRequest';
 export * from './VolumeLayerGpuInfo';
 export * from './SurfaceHemisphere';
+export * from './ExtentWithheld';
 export * from './AnalysisJobStatus';
 export * from './SliceAxisMeta';
 export * from './CameraState';

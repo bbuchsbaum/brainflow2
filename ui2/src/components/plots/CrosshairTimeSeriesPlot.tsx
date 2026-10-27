@@ -110,6 +110,11 @@ function readSidecar(path: string): Promise<string | null> {
         if (!isMissingFileError(error))
           console.warn(`[Series] Runs sidecar ${path} could not be read:`, error);
         return null;
+      })
+      .then((text) => {
+        // A missing or unreadable sidecar is asked again next time (REVIEW m13).
+        if (text === null) sidecarTexts.delete(path);
+        return text;
       });
     sidecarTexts.set(path, pending);
   }
@@ -175,6 +180,21 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
     sidecar,
     sidecarPath,
   ]);
+  // Whether runs can be found for the layer, whatever the current choice.
+  const autoAvailable = useMemo(() => {
+    if (!layer || !layers?.length) return false;
+    if (sidecar && sidecar.path === sidecarPath && sidecar.text) {
+      try {
+        parseRunsSidecar(sidecar.text, layer);
+        return true;
+      } catch {
+        /* falls through to BIDS runs */
+      }
+    }
+    return runGroupFor(layer.id, layers, grid) !== null;
+    // grid reads `metadata`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layer, layers, metadata, sidecar, sidecarPath]);
   // Offered when the layer is alone: every 4D layer on its grid, by hand.
   const groupable = useMemo(() => {
     if (!layer) return [] as string[];
@@ -338,8 +358,9 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
     if (!sample) return null;
     if (group) {
       const samples = group.segments
-        .map((segment) => ({
+        .map((segment, index) => ({
           segment,
+          index,
           values: (sample.values.get(segment.layerId) ?? []).slice(
             segment.frameStart,
             segment.frameStart + segment.frames,
@@ -410,7 +431,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
           // Overlaid runs: a fixed, well-separated palette (round 3 C9).
           ...(legend.length ? { colorMap: Object.fromEntries(legend.map((e) => [e.label, e.color])) } : {}),
           // Faceted runs: one row up to four panels on a shared y (round 3 T3).
-          ...(plotted.segments && layout === 'faceted' ? { facetColumns: Math.min(4, plotted.segments.length), facetLabel: 'Run' } : {}),
+          ...(plotted.segments && layout === 'faceted' ? { facetColumns: Math.min(4, plotted.segments.length), facetPrefix: false } : {}),
           ...(datasetAxis?.condition ? { seriesColor: populationCategoryColor(datasetAxis.condition) } : {}),
           ariaLabel: `${yTitle} by ${plotted.xTitle.toLowerCase()}${layerName ? `, ${shortLayerLabel(layerName)}` : ''}`,
         },
@@ -424,6 +445,16 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       ? `${here.index}:${currentTimepoint}`
       : null
     : String(`0:${currentTimepoint}`);
+  const withinNow = here ? here.frame - 1 : currentTimepoint;
+  const entryIds = useMemo(
+    () =>
+      new Set(
+        group
+          ? group.segments.map((s, i) => `${i}:${s.frameStart + Math.min(withinNow, s.frames - 1)}`)
+          : [`0:${currentTimepoint}`],
+      ),
+    [group, withinNow, currentTimepoint],
+  );
   const segmentIds = useMemo(
     () => new Set((plotted?.frame.rows ?? []).map((r) => String(r[SEGMENT_FRAME_ID]))),
     [plotted],
@@ -451,6 +482,26 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
     // layerId is read once at formation; a later focus is an activation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group?.key]);
+  // Leaving the Series view (another plot mode, the dock closed) restores what
+  // the view changed (REVIEW m4).
+  useEffect(
+    () => () => {
+      if (formedKey.current) restoreRunGroup(formedKey.current);
+      formedKey.current = null;
+    },
+    [],
+  );
+  // A run selected elsewhere (Inspector, layer list) is shown like one
+  // activated in the plot (v4 function 1).
+  const shownLayer = useRef(layerId);
+  useEffect(() => {
+    const previous = shownLayer.current;
+    shownLayer.current = layerId;
+    if (group && layerId && previous && previous !== layerId && group.segments.some((s) => s.layerId === layerId))
+      activateRun(group, layerId, previous);
+    // group is the current group; the effect follows the selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layerId]);
   const datumLabel = (i: number) => {
     const row = plotted?.frame.rows[i];
     if (!row) return '';
@@ -496,10 +547,16 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
     : datasetAxis
       ? `${axis.describe(currentTimepoint)} (frame ${currentTimepoint + 1} of ${layer?.timeSeriesInfo?.num_timepoints ?? '?'})`
       : null;
+  // The source once (v4 user: the caption repeated the layer): a group names
+  // its runs, their TR and frames; a dataset member names its dataset.
+  const runTrs = group ? [...new Set(group.segments.map((s) => s.tr))] : [];
   const source = group
-    ? group.title
+    ? `${group.title}: ${group.segments.length} ${group.factor === 'session' ? 'sessions' : group.factor === 'run' ? 'runs' : 'segments'}${
+        runTrs.length === 1 && runTrs[0] ? `, TR ${runTrs[0]} s` : runTrs.every((t) => t) ? `, TR ${runTrs.join('/')} s` : ''
+      }, ${group.segments.map((s) => s.frames).join('/')} frames`
     : [
-        layerName ? shortLayerLabel(layerName) : null,
+        layerName && !locusText.includes(shortLayerLabel(layerName)) ? shortLayerLabel(layerName) : null,
+        datasetAxis?.dataset ?? null,
         // The member, unless the layer name already says it ("fir (sub-s01, faces)").
         member && !member.split(' · ').every((part) => (layerName ?? '').includes(part)) ? member : null,
       ]
@@ -518,6 +575,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
 
   const copyCsv = async () => {
     if (!plotted || !sample) return;
+    const allTr = !!plotted.segments?.every((s) => s.tr !== null);
     const rows = group
       ? plotted.segments!.flatMap((segment) =>
           (sample.values.get(segment.layerId) ?? [])
@@ -528,7 +586,10 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
               volumeIndex: segment.frameStart + i,
               frame: i + 1,
               tr: segment.tr,
-              tWithin: segment.tr ? Number((i * segment.tr).toFixed(6)) : i + 1,
+              // One unit for the whole column (REVIEW m9): seconds only when every run has a TR.
+              tWithin: allTr ? Number((i * segment.tr!).toFixed(6)) : i + 1,
+              // Each row's locus on its own run's grid (v4 fidelity).
+              locusLabel: radiusMm > 0 || regionLocus || !crosshairMm ? undefined : voxelLocusText(segment.layerId, layers.find((l) => l.id === segment.layerId)?.name, crosshairMm),
               t: null as number | null,
               value: Number.isFinite(v) ? v : null,
               layer: layers.find((l) => l.id === segment.layerId)?.name ?? segment.layerId,
@@ -632,6 +693,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
               <Select
                 aria-label="Series runs"
                 className="w-auto max-w-[260px]"
+                // Fixed option names (v4 function 5): the choice never renames itself.
                 value={settings.segments === 'off' || !group ? 'off' : settings.segments}
                 onValueChange={(v) =>
                   settings.update(
@@ -642,12 +704,8 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
                 }
                 options={[
                   { value: 'off', label: 'This layer only' },
-                  ...(settings.segments !== 'manual' && (group || settings.segments === 'off')
-                    ? [{ value: 'auto', label: group?.title ?? 'Runs of this layer' }]
-                    : []),
-                  ...(groupable.length > 1
-                    ? [{ value: 'manual', label: `All ${groupable.length} 4D layers on this grid` }]
-                    : []),
+                  ...(autoAvailable ? [{ value: 'auto', label: 'Runs of this acquisition' }] : []),
+                  ...(groupable.length > 1 ? [{ value: 'manual', label: 'All 4D layers on this grid' }] : []),
                 ]}
               />
             </ToolbarField>
@@ -702,6 +760,8 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
                   selectable: false,
                   activateOnMove: true,
                   label: datumLabel,
+                  // A facet is entered at the shared frame, clamped to its run (v4 function).
+                  entryIds: entryIds,
                   action: group ? "Click to show this run's frame" : 'Click to show this frame',
                 },
               }}

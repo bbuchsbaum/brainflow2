@@ -63,6 +63,21 @@ describe('Series for this cluster (E3)', () => {
     expect(useLayerStore.getState().selectedLayerId).toBe('bold');
   });
 
+  it('without a dataset: keeps the selected 4D layer (another run), not the first one (review m14)', () => {
+    useLayerStore.setState({
+      layers: [
+        { id: 'z', name: 'zmap', volumeId: 'z', type: 'volume', visible: true, order: 0 },
+        { id: 'run1', name: 'run 1', volumeId: 'r1', type: 'volume', visible: true, order: 1, timeSeriesInfo: { num_timepoints: 8 } },
+        { id: 'run2', name: 'run 2', volumeId: 'r2', type: 'volume', visible: true, order: 2, timeSeriesInfo: { num_timepoints: 8 } },
+      ],
+      selectedLayerId: 'run2',
+    } as never);
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap', table: table('labels-1'), regions: [], computedAt: 0 });
+    useClusterStore.getState().select(1);
+    openClusterSeries();
+    expect(useLayerStore.getState().selectedLayerId).toBe('run2');
+  });
+
   it('keeps keyboard focus: moves it to the Series plot once it shows values (round 3 S3)', async () => {
     useSetStudioStore.getState().bootstrapStudio({ set: firSet('3d'), features: [{ id: 'fir', label: 'FIR', kind: 'volume' }], cohorts: [], expressions: [] } as never);
     useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap', table: table('labels-1'), regions: [], computedAt: 0 });

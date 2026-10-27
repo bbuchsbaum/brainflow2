@@ -171,7 +171,13 @@ describe('harness compute_clusters search mask (S3)', () => {
     const mask = resampleMaskNearest(all(zmap, 1), zmap);
     const masked = findClusters(zmap, { threshold: 3.1 }, mask, 'vol-mask');
     expect(masked.clusters.map((c) => c.voxelCount)).toEqual(plain.clusters.map((c) => c.voxelCount));
-    expect(plain.searchVolume).toEqual({ kind: 'map-nonzero', maskVolumeId: null, voxels: zmap.data.filter((v) => Number.isFinite(v) && v !== 0).length });
+    // maskVoxelsOutsideMap is null without a mask, as the backend binding has it (deliberate: the field is now always set).
+    expect(plain.searchVolume).toEqual({
+      kind: 'map-nonzero',
+      maskVolumeId: null,
+      voxels: zmap.data.filter((v) => Number.isFinite(v) && v !== 0).length,
+      maskVoxelsOutsideMap: null,
+    });
     expect(masked.searchVolume).toEqual({
       kind: 'mask',
       maskVolumeId: 'vol-mask',
@@ -239,5 +245,24 @@ describe('harness masked RFT search matches the p4 truth (round 3 S7)', () => {
     expect(t.clusters.map((c) => c.voxelCount)).toEqual(truth.clusters.map((c) => c.voxels));
     // The truth uses the closed-form extent p; the mirror evaluates spm_P_RF (agrees to ~1e-6).
     t.clusters.forEach((c, i) => expect(c.pFweExtent!).toBeCloseTo(truth.clusters[i].pFweExtent, 5));
+  });
+
+});
+
+describe('cluster p on a pre-thresholded map (B12 mirror)', () => {
+  const thresholded = { ...zmap, data: Float32Array.from(zmap.data, (v) => (Math.abs(v) > 3.1 ? v : 0)) };
+  it('withholds p with the reason when no search mask is given', () => {
+    const t = findClusters(thresholded, { threshold: 3.1, connectivity: 26, extent: { fwhmMm: 8, statistic: 'z' } });
+    expect(t.extentInference).toBeNull();
+    expect(t.clusters.every((c) => c.pFweExtent == null)).toBe(true);
+    expect(t.extentWithheld).toEqual({
+      code: 4080,
+      reason: 'This map looks pre-thresholded (no |z| < 3.1 among non-zero voxels); cluster p needs the unthresholded map or a search mask.',
+    });
+  });
+  it('computes p on an unthresholded map', () => {
+    const t = findClusters(zmap, { threshold: 3.1, connectivity: 26, extent: { fwhmMm: 8, statistic: 'z' } });
+    expect(t.extentWithheld).toBeUndefined();
+    expect(t.extentInference).not.toBeNull();
   });
 });

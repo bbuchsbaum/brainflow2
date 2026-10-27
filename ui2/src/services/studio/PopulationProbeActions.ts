@@ -5,6 +5,46 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import { resolvePopulation } from './populationContext';
 import { populationSupportKey } from './PopulationProbeController';
+import { useClusterStore, type ClusterResult } from '@/stores/clusterStore';
+import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
+
+/**
+ * A pinned cluster probe after the cluster table changes (REVIEW M2): the
+ * label volume it samples is replaced by every Compute, and ids re-rank. The
+ * same cluster (same peak voxel and sign) is re-pinned on the new table;
+ * otherwise the probe returns to a point and `onIssue` says why. A probe never
+ * samples an old label volume under a new table's caption.
+ */
+function syncClusterProbe(
+  previous: ClusterResult | null,
+  next: ClusterResult | null,
+  onIssue: (message: string) => void,
+): void {
+  const state = useSetStudioStore.getState();
+  const region = state.population.pinnedProbe?.region;
+  const source = region?.locus.labelSource;
+  if (!region || source?.type !== 'volume') return;
+  if (next?.table.labelVolumeId && source.volumeId === next.table.labelVolumeId) return;
+  const old =
+    previous && previous.table.labelVolumeId === source.volumeId
+      ? previous.table.clusters.find((c) => c.id === region.locus.labelIds[0])
+      : undefined;
+  const same =
+    old && next?.table.labelVolumeId
+      ? next.table.clusters.find(
+          (c) => c.sign === old.sign && c.peakMm.every((v, i) => Math.abs(v - old.peakMm[i]) < 1e-3),
+        )
+      : undefined;
+  if (same && next?.table.labelVolumeId) {
+    populationProbeActions.pinRegion({
+      locus: { labelSource: { type: 'volume', volumeId: next.table.labelVolumeId }, labelIds: [same.id] },
+      label: `cluster ${same.id} of ${shortLayerLabel(next.layerName)}`,
+    });
+    return;
+  }
+  populationProbeActions.clearRegion();
+  onIssue('The cluster table changed and the pinned cluster is not in it. Select a cluster row and choose Cluster again.');
+}
 
 /** UI commands share the canonical Studio selection/probe state. Sample frames
  * remain owned by the panel's controller, outside the global stores. */
@@ -104,6 +144,17 @@ export const populationProbeActions = {
       },
       'pin',
     );
+  },
+  /**
+   * Keep a pinned cluster probe on the current cluster table (REVIEW M2). The
+   * caller owns the subscription; a probe already stale when it starts (the
+   * table changed while no panel listened) is resolved at once.
+   */
+  followClusterTable(onIssue: (message: string) => void): () => void {
+    syncClusterProbe(null, useClusterStore.getState().result, onIssue);
+    return useClusterStore.subscribe((now, before) => {
+      if (now.result !== before.result) syncClusterProbe(before.result, now.result, onIssue);
+    });
   },
   /** Back to a point probe at the pinned location (no region). */
   clearRegion() {

@@ -10,7 +10,7 @@
 //!   (e.g. `[x, y, z, time]`). `logical.axis_domains.<axis>` may declare
 //!   `unit`, `start` and `step`; the count comes from `logical.shape` or the
 //!   domain `size`.
-use crate::neurotabs::{NeuroTabsIssue, NeuroTabsManifest, ScalarDType};
+use crate::neurotabs::{LogicalKind, NeuroTabsIssue, NeuroTabsManifest, ScalarDType};
 use bridge_types::{SeriesAxis, SeriesAxisAlignment, SeriesAxisKind, SeriesAxisSource};
 
 fn is_numeric(dtype: ScalarDType) -> bool {
@@ -120,6 +120,60 @@ pub(crate) fn validate_series_axes(manifest: &NeuroTabsManifest, issues: &mut Ve
         check_unit(kind, schema.unit.as_deref(), format!("{path}.unit"), issues);
     }
     for (feature_id, feature) in &manifest.features {
+        let series_positions: Vec<usize> = feature
+            .logical
+            .axes
+            .iter()
+            .enumerate()
+            .filter(|(_, axis)| SeriesAxisKind::from_convention_name(axis).is_some())
+            .map(|(position, _)| position)
+            .collect();
+        let axes_path = format!("$.features.{feature_id}.logical.axes");
+        if series_positions.len() > 1 {
+            issues.push(NeuroTabsIssue::new(
+                axes_path.clone(),
+                "declare at most one lag or time axis",
+            ));
+        }
+        // Volume members are [x, y, z] plus at most one series axis, 4th.
+        if feature.logical.kind == LogicalKind::Volume
+            && series_positions.iter().any(|position| *position != 3)
+        {
+            issues.push(NeuroTabsIssue::new(
+                axes_path.clone(),
+                "a volume's lag or time axis must be the 4th axis ([x, y, z, lag|time])",
+            ));
+        }
+        for &position in &series_positions {
+            let axis = &feature.logical.axes[position];
+            // The frame count is part of the contract: members are checked
+            // against it, and members of different lengths cannot be stacked.
+            let from_shape = feature
+                .logical
+                .shape
+                .as_ref()
+                .and_then(|shape| shape.get(position).copied());
+            let from_domain = feature.logical.axis_domains.get(axis).and_then(|d| d.size);
+            let count_path = format!("$.features.{feature_id}.logical");
+            match (from_shape, from_domain) {
+                (None, None) => issues.push(NeuroTabsIssue::new(
+                    count_path,
+                    format!(
+                        "the {axis} axis needs a sample count (logical.shape[{position}] or \
+                         axis_domains.{axis}.size)"
+                    ),
+                )),
+                (Some(a), Some(b)) if a != b => issues.push(NeuroTabsIssue::new(
+                    count_path,
+                    format!("logical.shape[{position}] = {a} disagrees with axis_domains.{axis}.size = {b}"),
+                )),
+                (Some(0), _) | (_, Some(0)) => issues.push(NeuroTabsIssue::new(
+                    count_path,
+                    format!("the {axis} axis must have at least one sample"),
+                )),
+                _ => {}
+            }
+        }
         for axis in &feature.logical.axes {
             let Some(kind) = SeriesAxisKind::from_convention_name(axis) else {
                 continue;
@@ -282,5 +336,39 @@ supports:
             .replace("time: { unit", "t: { unit");
         let manifest = parse(&text).expect("valid manifest");
         assert!(manifest.series_axes().is_empty());
+    }
+
+    #[test]
+    fn series_axis_needs_one_consistent_count_in_fourth_position() {
+        // No count at all.
+        let no_count = FIR_MANIFEST.replace("      shape: [4, 4, 4, 12]\n", "");
+        let error = parse(&no_count).expect_err("count required");
+        assert!(error.contains("time axis needs a sample count"), "{error}");
+        // The domain size alone is enough.
+        let by_size = no_count.replace("time: { unit", "time: { size: 12, unit");
+        assert_eq!(parse(&by_size).unwrap().series_axes()[1].count, Some(12));
+        // Shape and size disagree.
+        let disagree = FIR_MANIFEST.replace("time: { unit", "time: { size: 10, unit");
+        assert!(parse(&disagree).unwrap_err().contains("disagrees"));
+        // Zero samples.
+        let zero = FIR_MANIFEST.replace("shape: [4, 4, 4, 12]", "shape: [4, 4, 4, 0]");
+        assert!(parse(&zero).unwrap_err().contains("at least one sample"));
+        // A volume's series axis must be 4th, and only one is allowed.
+        let first = FIR_MANIFEST
+            .replace(
+                r#"axes: ["x", "y", "z", "time"]"#,
+                r#"axes: ["time", "x", "y", "z"]"#,
+            )
+            .replace("shape: [4, 4, 4, 12]", "shape: [12, 4, 4, 4]");
+        assert!(parse(&first).unwrap_err().contains("must be the 4th axis"));
+        let two = FIR_MANIFEST
+            .replace(
+                r#"axes: ["x", "y", "z", "time"]"#,
+                r#"axes: ["x", "y", "z", "time", "lag"]"#,
+            )
+            .replace("shape: [4, 4, 4, 12]", "shape: [4, 4, 4, 12, 3]");
+        assert!(parse(&two)
+            .unwrap_err()
+            .contains("at most one lag or time axis"));
     }
 }

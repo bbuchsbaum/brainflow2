@@ -271,9 +271,20 @@ fn sampleLayerLabelIdOptimized(layer: LayerData, world_mm: vec3<f32>) -> u32 {
     return u32(max(round(raw_value), 0.0));
 }
 
+// Label LUT texel for an integer label id. Ids outside the LUT width (e.g.
+// >= 2048) are transparent: out-of-bounds textureLoad results are
+// implementation-defined, so they are never read.
+fn labelLutTexel(colormap_id: u32, label_id: i32) -> vec4<f32> {
+    let width = i32(textureDimensions(colormapLutTexture).x);
+    if (label_id < 0 || label_id >= width) {
+        return vec4<f32>(0.0);
+    }
+    return textureLoad(colormapLutTexture, vec2<i32>(label_id, 0), i32(colormap_id), 0);
+}
+
 fn labelOutlineTexel(layer: LayerData, label_id: u32) -> vec4<f32> {
     // Per-region colour: the label's LUT texel (alpha encodes visibility).
-    return textureLoad(colormapLutTexture, vec2<i32>(i32(label_id), 0), i32(layer.colormap_id), 0);
+    return labelLutTexel(layer.colormap_id, i32(min(label_id, 0x7fffffffu)));
 }
 
 fn labelOutlineColor(layer: LayerData, label_id: u32) -> vec4<f32> {
@@ -537,7 +548,7 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
         if (label_id <= 0) {
             return vec4<f32>(0.0);
         }
-        let lut_texel = textureLoad(colormapLutTexture, vec2<i32>(label_id, 0), i32(layer.colormap_id), 0);
+        let lut_texel = labelLutTexel(layer.colormap_id, label_id);
         return vec4<f32>(lut_texel.rgb, alpha * lut_texel.a);
     }
 

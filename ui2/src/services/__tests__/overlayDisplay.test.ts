@@ -94,6 +94,21 @@ describe('a 4D series display (v1 G4, round 2 R3, round 3 F1)', () => {
     expect(shown.intensity).toEqual([102, 122]);
   });
 
+  it('an unnamed EPI with a noisy background (swraf*.nii) is an image, not a hot overlay (REVIEW M3)', () => {
+    // 60% background noise 0.5–20, the brain 600–1200: p2 near 0, all positive.
+    const bins = [
+      { x0: 0.5, x1: 20, count: 6000 },
+      { x0: 600, x1: 900, count: 2000 },
+      { x0: 900, x1: 1200, count: 2000 },
+    ];
+    const run = { ...fourD, name: 'swrafunc', sourcePath: '/spm/swrafunc.nii' };
+    const shown = overlayDisplay(run, range, { min: 0, max: 1200 }, false, { bins, totalCount: 10000, minValue: 0.5, maxValue: 1200 });
+    expect(shown.suggestedColormap).toBe('gray');
+    expect(shown.threshold).toEqual([0, 0]);
+    // A lower-case "bold" in the layer name counts too.
+    expect(overlayDisplay({ ...fourD, name: 'func_bold_mcf' }, range, { min: -1, max: 2 }, false).suggestedColormap).toBe('gray');
+  });
+
   it('a positive large-baseline series is BOLD-like by its values, without the name', () => {
     const bins = Array.from({ length: 10 }, (_, i) => ({
       x0: 900 + i * 40,

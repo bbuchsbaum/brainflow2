@@ -219,7 +219,10 @@ export async function captureSurfaceComposite(
   const images: ExportPane[][] = [];
   try {
     for (const row of plan) {
+      // Registered before its panes are captured, so a failure mid-row closes
+      // the bitmaps already made for this row too (review m10).
       const out: ExportPane[] = [];
+      images.push(out);
       for (const { pose, title } of row) {
         if (request.signal?.aborted)
           throw new DOMException('Export capture superseded', 'AbortError');
@@ -250,7 +253,6 @@ export async function captureSurfaceComposite(
           },
         });
       }
-      images.push(out);
     }
   } catch (error) {
     for (const p of images.flat()) (p.image as Partial<ImageBitmap>).close?.();

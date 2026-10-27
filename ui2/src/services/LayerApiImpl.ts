@@ -637,18 +637,29 @@ export class LayerApiImpl implements LayerApi {
     }
   }
 
+  /** Latest visibility request per layer (updateLayer ordering). */
+  private readonly visibilitySeq = new Map<string, number>();
+
   async updateLayer(id: string, updates: Partial<Layer>): Promise<Layer> {
     // For now, layer metadata is managed on frontend only
     // Backend only cares about render properties
 
     // If visibility changed, update opacity
     if ('visible' in updates) {
+      // A newer visibility request for the layer supersedes this one: a show
+      // that finishes its GPU promotion after a later hide must not re-show the
+      // layer (show → hide in quick succession left it drawn).
+      const seq = (this.visibilitySeq.get(id) ?? 0) + 1;
+      this.visibilitySeq.set(id, seq);
+      const current = () => this.visibilitySeq.get(id) === seq;
       if (updates.visible) {
         await this.ensureGpuResidentForLayer(id);
       }
+      if (!current()) return { id, ...updates } as Layer;
       await this.patchLayerRender(id, {
         opacity: updates.visible ? 1.0 : 0.0,
       });
+      if (!current()) return { id, ...updates } as Layer;
       this.setViewLayerVisibility(id, updates.visible ?? true);
       if (updates.visible) {
         await this.reconcileGpuResidency(id);
@@ -743,9 +754,8 @@ export class LayerApiImpl implements LayerApi {
 /**
  * The display of a 4D, non-statistic, non-label series (phase 4 v1 user 6,
  * round 3 F1). Two kinds:
- * - BOLD-like (positive with a large baseline: robust p2 > 0 and
- *   (p98 − p2) / p98 < 0.5, or a BIDS `_bold` name): an EPI image, greyscale
- *   with a robust p2–p98 window over all frames;
+ * - an image (a BIDS `_bold` / "bold" name, or any series that never goes
+ *   below zero): an EPI, greyscale with a robust p2–p98 window over all frames;
  * - signed / zero-centred maps (FIR betas) added ON TOP of another volume: an
  *   intensity overlay, the hot ramp with the bulk (≤ p90 + 10% of the way to
  *   the robust high) hidden so the anatomy shows through. The window keeps to
@@ -780,10 +790,14 @@ export function overlayDisplay<T extends { intensity: [number, number]; threshol
   const floor = (a: number, b: number): [number, number] =>
     b - a >= 0.05 * (hi - lo) || !(hi > lo) ? [a, b] : [lo, hi];
 
-  const named = /_bold(\.nii(\.gz)?)?$/i.test(layer.sourcePath ?? '') || /\bBOLD\b/.test(layer.name ?? '');
+  const named = /_bold(\.nii(\.gz)?)?$/i.test(layer.sourcePath ?? '') || /(^|[^a-z])bold([^a-z]|$)/i.test(layer.name ?? '');
   const p2 = has ? pct(2) : null;
   const p98 = has ? pct(98) : null;
-  const boldLike = named || (p2 !== null && p98 !== null && p2 > 0 && p98 > 0 && (p98 - p2) / p98 < 0.5);
+  // Only signed / zero-centred series (FIR betas, contrasts) are overlays; any
+  // all-positive series is an image — real EPI (swraf*.nii, rest.nii) has a
+  // noisy, non-zero background, so its p2 sits near 0 (REVIEW M3).
+  const signed = Math.min(lo, p2 ?? lo) < 0;
+  const boldLike = named || !signed;
   if (boldLike) {
     const intensity = p2 !== null && p98 !== null ? floor(p2, p98) : range.intensity;
     return { ...range, intensity, threshold: [0, 0], suggestedColormap: 'gray' };

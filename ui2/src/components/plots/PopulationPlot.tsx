@@ -346,7 +346,8 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
           <PopulationTransformControls
             frame={p.frame}
             recipe={p.recipe}
-            axisRange={numericRange(composed.frame, p.recipe.x)}
+            // The sampled frame's axis: after a window mean x holds labels (REVIEW m6).
+            axisRange={numericRange(p.frame, p.recipe.x)}
             onChange={(transforms) => apply({ transforms })}
           />
           <p className="text-muted-foreground">

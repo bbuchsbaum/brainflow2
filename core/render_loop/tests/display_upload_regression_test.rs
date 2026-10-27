@@ -371,23 +371,26 @@ fn composite_adapter_renders_nearest_window_and_inclusive_thresholds() {
 }
 
 #[test]
-fn full_precision_without_filtering_support_fails_without_allocating() {
+fn full_precision_without_filtering_support_falls_back_to_r16_for_automatic_uploads() {
     pollster::block_on(async {
         let mut config = WgpuSliceRendererConfig::default();
         config.device.float32_filterable = render_loop::RendererFeaturePolicy::Disable;
         let mut service = RenderLoopService::new_with_config(config).await.unwrap();
         let volume = DenseVolume3::from_data(space(), vec![70_000f32; 512]);
-        assert!(service.upload_volume_3d(&volume).is_err());
+        // An explicit R32Float request still fails and allocates nothing.
         assert!(service
             .upload_volume_3d_with_format(&volume, wgpu::TextureFormat::R32Float)
             .is_err());
+        let manager = service.multi_texture_manager.as_ref().unwrap();
+        assert_eq!(manager.resident_slot_count(), 0);
+        // An automatic upload that would promote to R32Float falls back to
+        // R16Float (70000 clamps to 65504) instead of failing.
+        let (slot, _) = service.upload_volume_3d(&volume).unwrap();
+        let manager = service.multi_texture_manager.as_ref().unwrap();
+        assert_eq!(manager.resident_slot_count(), 1);
         assert_eq!(
-            service
-                .multi_texture_manager
-                .as_ref()
-                .unwrap()
-                .resident_slot_count(),
-            0
+            manager.get_texture_info(slot).unwrap().format,
+            wgpu::TextureFormat::R16Float
         );
     });
 }

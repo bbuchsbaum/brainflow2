@@ -24,13 +24,17 @@ export function SeriesLocusControls({ resolvedRegion = null }: { resolvedRegion?
   const radiusMm = useSeriesStore((s) => s.radiusMm);
   const regionPick = useSeriesStore((s) => s.regionPick);
   const update = useSeriesStore((s) => s.update);
-  // The region source: the first label layer that names regions.
-  const atlas = useLayerStore((s) => s.layers.find(isRegionSource));
+  // The region source: the layer of the picked parcel while it exists (what
+  // is sampled, REVIEW m11), else the first label layer that names regions.
+  const atlas = useLayerStore(
+    (s) => (regionPick ? s.layers.find((l) => l.id === regionPick.layerId && isRegionSource(l)) : undefined) ?? s.layers.find(isRegionSource),
+  );
   const legend = atlas?.atlasPaletteLegend ?? [];
   const pickValue = regionPick && regionPick.layerId === atlas?.id ? String(regionPick.labelId) : AT_CROSSHAIR;
   // "Crosshair: L_sensorimotor" (the atlas is named in the caption).
   const shortRegion = resolvedRegion ? resolvedRegion.replace(/\s*\(.*\)$/, '') : null;
-  const crosshairLabel = shortRegion ? `Crosshair: ${shortRegion}` : 'At the crosshair';
+  // Closed, the select shows the region's name only (v4 visual); the title says it is the crosshair's.
+  const crosshairLabel = shortRegion ?? 'At the crosshair';
   const picked = legend.find((e) => String(e.label_id) === pickValue);
   const pickTitle =
     pickValue === AT_CROSSHAIR
@@ -39,7 +43,8 @@ export function SeriesLocusControls({ resolvedRegion = null }: { resolvedRegion?
         : 'The region at the crosshair'
       : (picked?.displayName ?? picked?.roi);
   return (
-    <>
+    // One no-wrap group: the locus and its parameter never split across rows (v4 visual).
+    <span className="inline-flex items-center gap-2 whitespace-nowrap" data-testid="series-locus-group">
       <SegmentedControl
         aria-label="Series locus"
         options={LOCUS_OPTIONS}
@@ -85,6 +90,6 @@ export function SeriesLocusControls({ resolvedRegion = null }: { resolvedRegion?
           />
         </ToolbarField>
       ) : null}
-    </>
+    </span>
   );
 }

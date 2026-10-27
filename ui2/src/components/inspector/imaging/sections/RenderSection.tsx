@@ -153,6 +153,11 @@ function VolumeRenderRows({
     compare && !isFieldLinked(compare.mode, field) ? panelOverride?.[field] : undefined;
   const intensity = own("intensity") ?? viewLayer.intensity;
   const threshold = own("threshold") ?? viewLayer.threshold;
+  // A greyscale EPI series hides nothing: no "0 to 0" Threshold row (v4 visual).
+  const epiImage =
+    (own("colormap") ?? viewLayer.colormap) === "gray" &&
+    !isThresholdActive(threshold) &&
+    (layer?.timeSeriesInfo?.num_timepoints ?? 0) >= 2;
   // One ruler for Intensity, Threshold and the colormap strip: the union of
   // the data range and the window. The thumbs, the strip's gradient span and
   // both hidden-band cut-outs then sit at the same x for the same value; the
@@ -286,7 +291,7 @@ function VolumeRenderRows({
         <OverrideMark compare={compare} layerId={layerId} field="intensity" label="Intensity" />
       ) : null}
 
-      {kind === "overlay" && layerMode !== "label" ? (
+      {kind === "overlay" && layerMode !== "label" && !epiImage ? (
         <InspectorRange
           label="Threshold"
           mode="hidden"
@@ -311,7 +316,7 @@ function VolumeRenderRows({
           Default threshold (the file sets none); the cluster table uses the same.
         </p>
       ) : null}
-      {kind === "overlay" && layerMode !== "label" ? (
+      {kind === "overlay" && layerMode !== "label" && !epiImage ? (
         <OverrideMark compare={compare} layerId={layerId} field="threshold" label="Threshold" />
       ) : null}
 

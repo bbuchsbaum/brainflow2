@@ -677,6 +677,32 @@ mod tests {
             }
             other => panic!("expected a pin requirement, got {other:?}"),
         }
+        // Layer and registered-volume regions cannot be pinned: refused.
+        let layer = RegionLocus {
+            label_source: LabelSource::Layer {
+                layer_id: "atlas-layer".into(),
+            },
+            label_ids: vec![3],
+        };
+        match crate::sample_set_trace_at_locus_impl(
+            &frozen,
+            &[],
+            0.0,
+            "mean",
+            "none",
+            &state,
+            &SampleCancellation::default(),
+            None,
+            Some(&layer),
+        )
+        .await
+        {
+            Err(BridgeError::Input { code, details }) => {
+                assert_eq!(code, 2027);
+                assert!(details.contains("cannot be pinned"), "{details}");
+            }
+            other => panic!("expected a frozen-layer refusal, got {other:?}"),
+        }
         let label_sha = traces[0].region_revision.as_ref().unwrap().sha256.clone();
         let pinned_ok = RegionLocus {
             label_source: LabelSource::Path {

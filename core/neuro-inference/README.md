@@ -52,7 +52,7 @@ single component SPM. Resel counts follow SPM's `spm_resels_vol`.
 4. For a cluster of `k` resels (voxels × resels per voxel),
    `p(n ≥ k) = exp(-β k^(2/3))` with `β = (Γ(5/2) / Ek)^(2/3)`. This is the
    uncorrected extent p.
-5. The FWE-corrected p is `1 - exp(-(Ec + eps) p(n ≥ k))` (Poisson clumping).
+5. The FWE-corrected p is `1 - exp(-(Ec + eps) p(n ≥ k))` (Poisson clumping). `Ec` is floored at 0 (it can turn negative for a search volume with many holes), which keeps p in [0, 1]; SPM leaves it unguarded.
 6. Tails: `ClusterSearch` says whether one sign or both signs (Z and T fields)
    were searched. With two tails the family-wise p is `1 - (1 - P)^2` over the
    tails (Šidák; `familywise_over_tails`), which here equals doubling `Ec`.
@@ -89,8 +89,11 @@ single component SPM. Resel counts follow SPM's `spm_resels_vol`.
   counts equal Worsley's closed form `[1, a+b+c, ab+bc+ca, abc]`, isotropic and
   anisotropic. The Euler characteristic is 2 for two disjoint boxes and for a
   hollow shell.
-- **Formulas:** `tests/fixtures/rft_reference.py` is an independent
-  numpy/scipy implementation of the same SPM formulas, with scipy.stats tails.
+- **Formulas:** `tests/fixtures/rft_reference.py` is a second, separately
+  written numpy/scipy transcription of the same SPM formulas. Its distribution
+  tails come from scipy.stats (independent); the EC densities, `Ec` and `Ek`
+  are the same equations written twice, so it checks the arithmetic, not the
+  formulas, which were checked by hand against the SPM12 source.
   The crate agrees to a relative error of 1e-9 on Z, T and F cases (`P`, `p`,
   `Ec`, `Ek`), and its normal, t and F tails agree to 1e-10. SPM itself was not
   executed for these tests.

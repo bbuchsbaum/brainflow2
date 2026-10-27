@@ -110,10 +110,33 @@ export function PopulationProbePanel({
   } | null>(null);
   const [atlasPicker, setAtlasPicker] = useState(false);
   const regionAtlas = useLayerStore((s) => s.layers.find(isRegionSource));
+  // The control follows the pinned probe (REVIEW m3): a pin from the viewer
+  // (a point) or a re-pinned cluster replaces a requested locus.
+  useEffect(() => {
+    setRequestedLocus(null);
+  }, [population.probe]);
+  // A pinned cluster stays on the current cluster table (REVIEW M2).
+  useEffect(
+    () => populationProbeActions.followClusterTable((message) => setLocusIssue({ kind: 'cluster', message })),
+    [],
+  );
+  // Only the latest locus choice may apply (REVIEW m3: Region → Cluster resolved out of order).
+  const locusRequest = useRef(0);
+  // A failed Region / Cluster choice moves focus to the alert's action, never
+  // to <body> (the segment that had it reverts, v4 function).
+  const issueRef = useRef<HTMLDivElement>(null);
+  const focusIssueAction = useRef(false);
+  useEffect(() => {
+    if (!locusIssue || !focusIssueAction.current) return;
+    focusIssueAction.current = false;
+    const id = requestAnimationFrame(() => issueRef.current?.querySelector<HTMLElement>('button, select')?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [locusIssue]);
   const chooseProbeLocus = async (
     kind: 'point' | 'region' | 'cluster',
     pick: { layerId: string; labelId: number } | null = null,
   ) => {
+    const request = ++locusRequest.current;
     if (kind === 'point') {
       setRequestedLocus(kind);
       setLocusIssue(null);
@@ -122,7 +145,9 @@ export function PopulationProbePanel({
     }
     const crosshair = useViewStateStore.getState().viewState.crosshair.world_mm;
     const resolved = await resolveSeriesRegion({ locus: kind, regionPick: pick }, crosshair);
+    if (request !== locusRequest.current) return;
     if (!resolved?.region) {
+      focusIssueAction.current = true;
       setLocusIssue({ kind, message: resolved?.issue ?? 'No region here.' });
       return;
     }
@@ -336,7 +361,7 @@ export function PopulationProbePanel({
         </p>
       )}
       {locusIssue && (
-        <Notice role="alert" severity="danger" className="mt-2">
+        <Notice ref={issueRef} role="alert" severity="danger" className="mt-2">
           <span>
             No {locusIssue.kind}: {locusIssue.message} Kept the previous locus.
           </span>

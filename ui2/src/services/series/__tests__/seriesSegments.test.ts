@@ -54,6 +54,19 @@ describe('run groups (E5b)', () => {
     expect(runGroupFor('run1', [run(1, 20)], grid)).toBeNull();
   });
 
+  it('two subjects\' run-1 grouped by hand stay two segments (REVIEW m2)', () => {
+    const other = { ...run(1, 20), id: 's2r1', name: 'Faces BOLD (sub-02, run-1)', sourcePath: '/data/multirun/sub-02_task-faces_run-1_bold.nii' };
+    const group = manualSegmentGroup(['run1', 's2r1'], [...layers, other])!;
+    expect(new Set(group.segments.map((s) => s.id)).size).toBe(2);
+    expect(group.segments.map((s) => s.label)).toEqual(['run 1', 'Faces BOLD (sub-02, run-1)']);
+  });
+
+  it('datum ids carry the group index, not the position among sampled runs (REVIEW m1)', () => {
+    const group = runGroupFor('run2', layers, grid)!;
+    const { frame } = segmentedSeriesFrame([{ segment: group.segments[2], values: [1, 2], index: 2 }], 'concatenated');
+    expect(frame.rows.map((r) => r[SEGMENT_FRAME_ID])).toEqual(['2:0', '2:1']);
+  });
+
   it('groups by hand in the order given', () => {
     const group = manualSegmentGroup(['run3', 'run1'], layers)!;
     expect(group.segments.map((s) => s.id)).toEqual(['run-3', 'run-1']);

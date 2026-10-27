@@ -140,6 +140,8 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     fireEvent.click(screen.getByRole('button', { name: /Transforms/ }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Mean over window' }));
     expect(screen.getByText('Set a window')).toBeInTheDocument();
+    // The window row is named (v4 function).
+    expect(screen.getByTestId('window-row-label')).toHaveTextContent('Window');
     expect(screen.getByLabelText('Window from')).toHaveValue(null);
     expect(useSeriesStore.getState().transforms).toEqual([]);
     expect(screen.queryAllByTestId('plot-error-bar')).toHaveLength(0);

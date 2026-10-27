@@ -104,8 +104,12 @@ class TimeNavigationService {
     }
 
     const viewState = useViewStateStore.getState().viewState;
-    const currentTimepoint = viewState.timepoint ?? layer4D.currentTimepoint ?? 0;
     const totalTimepoints = layer4D.timeSeriesInfo.num_timepoints;
+    // A longer run's frame never reads past the lead layer ("31/20", REVIEW m8).
+    const currentTimepoint = Math.max(
+      0,
+      Math.min(totalTimepoints - 1, viewState.timepoint ?? layer4D.currentTimepoint ?? 0),
+    );
     // Preserve a genuinely-missing TR as null; don't fabricate a 1s default
     // here. Consumers that need a number apply their own fallback, and the
     // elapsed-time fields stay null so the UI shows frame-only readouts.

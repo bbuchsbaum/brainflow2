@@ -141,16 +141,26 @@ async fn dropped_submissions_are_bounded_and_do_not_exhaust_future_reads() {
                 .unwrap(),
         );
     }
-    let overflow = renderer.submit_frame_with_options(
-        ViewId::new("overflow"),
-        state([65, 47]),
-        FrameRequestOptions::default(),
-    );
-    assert!(matches!(
-        overflow,
-        Err(RenderLoopError::Internal { code: 8013, .. })
-    ));
+    // A seventeenth frame degrades gracefully: no staging buffer, a grey
+    // placeholder frame and a warning, instead of an error.
+    let overflow = renderer
+        .submit_frame_with_options(
+            ViewId::new("overflow"),
+            state([65, 47]),
+            FrameRequestOptions::default(),
+        )
+        .unwrap();
     assert_eq!(monitor.snapshot().buffers, 16);
+    let placeholder = overflow.complete().await.unwrap();
+    assert!(placeholder
+        .warnings
+        .iter()
+        .any(|w| w.contains("staging budget exhausted")));
+    assert_eq!(placeholder.image_data.len(), 65 * 47 * 4);
+    assert!(placeholder
+        .image_data
+        .chunks_exact(4)
+        .all(|px| px == [128, 128, 128, 255]));
     drop(pending);
     drained(&monitor).await;
     for _ in 0..40 {

@@ -21,9 +21,9 @@ export type SegmentFactor = 'run' | 'session' | 'segment';
 export type SegmentLayout = 'concatenated' | 'faceted' | 'overlaid';
 
 export interface SeriesSegment {
-  /** Stable id, BIDS style ("run-1", "ses-2"); the CSV `segment` column. */
+  /** Stable id, BIDS style ("run-1", "ses-2"), unique in its group. */
   id: string;
-  /** How it reads on screen ("run 1"). */
+  /** How it reads on screen and in the CSV `segment` column ("run 1"), unique in its group. */
   label: string;
   layerId: string;
   /** First frame of the segment in its layer (a sidecar splits one volume). */
@@ -178,19 +178,44 @@ export function manualSegmentGroup(
     title: `${members.length} grouped layers`,
     factor: 'segment',
     source: 'manual',
-    segments: members.map((l, i) => {
-      const id = runIdentity(l.sourcePath);
-      const segmentId = id?.run ? `run-${id.run}` : id?.ses ? `ses-${id.ses}` : `segment-${i + 1}`;
-      return {
-        id: segmentId,
-        label: id ? segmentLabel(segmentId) : l.name,
-        layerId: l.id,
-        frameStart: 0,
-        frames: frameCount(l),
-        tr: trOf(l),
-      };
-    }),
+    segments: uniqueSegments(
+      members.map((l, i) => {
+        const id = runIdentity(l.sourcePath);
+        const segmentId = id?.run ? `run-${id.run}` : id?.ses ? `ses-${id.ses}` : `segment-${i + 1}`;
+        return {
+          id: segmentId,
+          label: id ? segmentLabel(segmentId) : l.name,
+          layerId: l.id,
+          frameStart: 0,
+          frames: frameCount(l),
+          tr: trOf(l),
+        };
+      }),
+      (i) => members[i].name,
+    ),
   };
+}
+
+/**
+ * Ids and labels unique within a group (REVIEW m2): two subjects' run-1 in a
+ * manual group, or a sidecar repeating a label, must not merge into one line,
+ * panel or CSV segment. A repeat takes `fallback(i)` (the layer name), then a
+ * numeric suffix.
+ */
+function uniqueSegments(segments: SeriesSegment[], fallback: (i: number) => string): SeriesSegment[] {
+  const ids = new Set<string>();
+  const labels = new Set<string>();
+  return segments.map((segment, i) => {
+    let { id, label } = segment;
+    if (ids.has(id) || labels.has(label)) {
+      label = fallback(i);
+      id = `${segment.id}-${i + 1}`;
+    }
+    for (let n = 2; labels.has(label); n += 1) label = `${fallback(i)} (${n})`;
+    ids.add(id);
+    labels.add(label);
+    return { ...segment, id, label };
+  });
 }
 
 /** `<stem>_runs.json` next to a NIfTI image, or null for another file type. */
@@ -250,7 +275,7 @@ export function parseRunsSidecar(text: string, layer: SegmentLayer): SegmentGrou
     title: `${segments.length} ${factor === 'session' ? 'sessions' : factor === 'run' ? 'runs' : 'segments'} of ${layer.name}`,
     factor,
     source: 'sidecar',
-    segments,
+    segments: uniqueSegments(segments, (i) => `segment ${i + 1}`),
   };
 }
 
@@ -258,6 +283,8 @@ export function parseRunsSidecar(text: string, layer: SegmentLayer): SegmentGrou
 export interface SegmentSamples {
   segment: SeriesSegment;
   values: readonly number[];
+  /** The segment's index in its group (datum ids use it, REVIEW m1); default: the position here. */
+  index?: number;
 }
 
 export interface SegmentedSeries {
@@ -286,11 +313,12 @@ export function segmentedSeriesFrame(
   const rows: FrameRow[] = [];
   const rules: { x: number; label: string; line: boolean }[] = [];
   let offset = 0;
-  samples.forEach(({ segment, values }, si) => {
+  samples.forEach(({ segment, values, index }, position) => {
+    const si = index ?? position;
     const step = seconds ? segment.tr! : 1;
     const within = (i: number) => (seconds ? i * step : i + 1);
     // The boundary is the next run's onset (truth: run 2 at 40 s, run 3 at 88 s).
-    if (layout === 'concatenated') rules.push({ x: offset + within(0), label: segment.label, line: si > 0 });
+    if (layout === 'concatenated') rules.push({ x: offset + within(0), label: segment.label, line: position > 0 });
     values.forEach((value, i) => {
       rows.push({
         t: layout === 'concatenated' ? offset + within(i) : within(i),
@@ -363,6 +391,8 @@ export function rawSeriesCsv(input: {
     tWithin: number | null;
     /** Seconds per frame, or null when unknown. */
     tr: number | null;
+    /** This row's locus when it differs by run (the voxel on the row's own grid). */
+    locusLabel?: string;
     t: number | null;
     value: number | null;
     layer: string;
@@ -395,7 +425,7 @@ export function rawSeriesCsv(input: {
       r.tr ?? '',
       r.value ?? '',
       input.locus.kind,
-      input.locus.label.replace(/[−−–]/g, '-'),
+      (r.locusLabel ?? input.locus.label).replace(/[−−–]/g, '-'),
       input.locus.voxels ?? '',
       r.layer,
     ]

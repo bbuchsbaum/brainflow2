@@ -73,4 +73,29 @@ describe('faceted datum labels', () => {
     }
     expect(container.querySelectorAll('[role="heading"]').length).toBe(3);
   });
+
+  it('each facet is entered at the shared frame, clamped to its run (v4 function)', () => {
+    const { frame } = segmentedSeriesFrame(samples, 'faceted');
+    const { container } = render(
+      <PlotEncoder
+        frame={frame}
+        spec={{ mark: 'line', encoding: { x: 't', y: 'value', facet: '__seriesSegment' }, transforms: [], params: { facetColumns: 3 } }}
+        width={900}
+        height={240}
+        context={{
+          datumLink: {
+            idColumn: SEGMENT_FRAME_ID,
+            focusedId: '1:12',
+            selectedIds: new Set(frame.rows.map((r) => String(r[SEGMENT_FRAME_ID]))),
+            onFocus: () => undefined,
+            onToggleSelection: () => undefined,
+            selectable: false,
+            entryIds: new Set(['0:12', '1:12', '2:12']),
+          },
+        }}
+      />,
+    );
+    const stops = [...container.querySelectorAll('[data-datum-id][tabindex="0"]')].map((e) => e.getAttribute('data-datum-id'));
+    expect(stops).toEqual(['0:12', '1:12', '2:12']);
+  });
 });

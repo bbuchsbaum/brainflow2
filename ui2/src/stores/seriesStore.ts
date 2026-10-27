@@ -37,8 +37,10 @@ export interface SeriesSettings {
    */
   segments: 'auto' | 'off' | 'manual';
   manualSegmentLayerIds: string[];
-  /** Null: the default (concatenated; overlaid when a condition factor is present). */
+  /** The 4D-layer series' run layout; null: concatenated. */
   segmentLayout: SegmentLayout | null;
+  /** The dataset series' runs: one panel per run (true) or pooled within participant (REVIEW n4: not shared with the 4D layout). */
+  datasetRunsFaceted: boolean;
 }
 
 interface SeriesStore extends SeriesSettings {
@@ -58,6 +60,7 @@ export const DEFAULT_SERIES_SETTINGS: SeriesSettings = {
   segments: 'auto',
   manualSegmentLayerIds: [],
   segmentLayout: null,
+  datasetRunsFaceted: false,
 };
 
 export const useSeriesStore = create<SeriesStore>((set) => ({

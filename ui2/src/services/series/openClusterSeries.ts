@@ -14,12 +14,17 @@ import { activeSetSeriesBinding } from './sampleSetSeries';
 /** The series mode's id (kept from the Phase 4c time-series mode). */
 const SERIES_MODE_ID = 'crosshair-time-series';
 
-/** A loaded 4D layer (the first one), for a cluster series without a dataset. */
+const isFourD = (l: unknown) => ((l as { timeSeriesInfo?: { num_timepoints: number } }).timeSeriesInfo?.num_timepoints ?? 0) >= 2;
+
+/**
+ * The 4D layer for a cluster series without a dataset: the selected layer
+ * when it is 4D (another run, another subject; review m14), else the first.
+ */
 function fourDLayerId(): string | null {
-  const layer = useLayerStore
-    .getState()
-    .layers.find((l) => ((l as { timeSeriesInfo?: { num_timepoints: number } }).timeSeriesInfo?.num_timepoints ?? 0) >= 2);
-  return layer?.id ?? null;
+  const { layers, selectedLayerId } = useLayerStore.getState();
+  const selected = layers.find((l) => l.id === selectedLayerId);
+  if (selected && isFourD(selected)) return selected.id;
+  return layers.find(isFourD)?.id ?? null;
 }
 
 /** Why a cluster series cannot be shown now, or null when it can. */

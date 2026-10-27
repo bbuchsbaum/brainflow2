@@ -211,9 +211,11 @@ pub(crate) async fn save_image_bytes<R: Runtime>(
     app: tauri::AppHandle<R>,
     request: tauri::ipc::Request<'_>,
 ) -> BridgeResult<Option<String>> {
-    let bytes = crate::raw_ipc::raw_body(request.body(), "save_image_bytes")?.to_vec();
+    // Validate (including the size cap) before copying the body.
+    let body = crate::raw_ipc::raw_body(request.body(), "save_image_bytes")?;
+    let kind = validate_image_bytes(body)?;
+    let bytes = body.to_vec();
     let suggested_name = crate::raw_ipc::header(request.headers(), SUGGESTED_NAME_HEADER)?;
-    let kind = validate_image_bytes(&bytes)?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()

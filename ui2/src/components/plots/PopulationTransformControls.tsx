@@ -73,7 +73,8 @@ export function PopulationTransformControls({
   // "Mean over window" switched on but no window yet: nothing is applied.
   const [windowPending, setWindowPending] = useState(false);
   const unit = recipe.axisUnit;
-  const peak = () => conditionAveragedPeakWindow(frame, { x: recipe.x, color: conditionColumn });
+  // On the reduced, transformed curve (participants weigh equally, REVIEW m12).
+  const peak = () => conditionAveragedPeakWindow(frame, { ...recipe, color: conditionColumn });
   return (
     <Toolbar
       aria-label="Collapse transforms"
@@ -246,6 +247,12 @@ function WindowFields({
   );
   return (
     <>
+      {/* The window's fields wrap to their own row: name it (v4 function). */}
+      {label === 'Window' ? (
+        <span className="text-bf-text-secondary" data-testid="window-row-label">
+          Window
+        </span>
+      ) : null}
       {field('from')}
       {field('to')}
       {problem ? (

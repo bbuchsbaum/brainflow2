@@ -263,6 +263,23 @@ describe('LayerApiImpl', () => {
     expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
   });
 
+  it('a show still promoting to the GPU does not undo a later hide', async () => {
+    const api = new LayerApiImpl();
+    mockLayerStoreState.getLayer.mockReturnValue({ id: 'layer-1', name: 'Run', volumeId: 'vol-1', visible: false, type: 'anatomical' });
+    mockLayerStoreState.layerMetadata.set('layer-1', { gpuResident: false });
+    let release: () => void = () => undefined;
+    mockApiService.requestLayerGpuResources.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({}); }),
+    );
+    const viewLayer = { id: 'layer-1', visible: false, opacity: 0 };
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: { layers: unknown[] }) => void) => update({ layers: [viewLayer] }));
+    const show = api.updateLayer('layer-1', { visible: true });
+    await api.updateLayer('layer-1', { visible: false });
+    release();
+    await show;
+    expect(viewLayer.visible).toBe(false);
+  });
+
   it('loadLayerData promotes a deferred layer to GPU residency without changing visibility', async () => {
     const api = new LayerApiImpl();
     mockLayerStoreState.getLayer.mockReturnValue({

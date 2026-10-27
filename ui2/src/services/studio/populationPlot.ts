@@ -149,6 +149,35 @@ export function validatePlotRecipe(frame: SampleFrame, r: PopulationPlotRecipe) 
   if (r.summary !== 'none' && !r.detail)
     throw new Error('Choose a participant identity before calculating population summaries.');
 }
+/**
+ * The transform stages in contract order (REVIEW m5): baseline, then the
+ * condition difference, then the window mean (which turns the axis into a
+ * label). A recipe in another order is applied in this one, never in array
+ * order, so no stage can silently drop the lines of a later one.
+ */
+export const TRANSFORM_STAGE: Readonly<Record<PopulationTransform['kind'], number>> = {
+  baseline: 0,
+  conditionDifference: 1,
+  windowMean: 2,
+};
+
+/** The recipe's transforms in stage order (stable within a stage). */
+export function orderedTransforms(transforms: readonly PopulationTransform[] | undefined): PopulationTransform[] {
+  return [...(transforms ?? [])].sort((a, b) => TRANSFORM_STAGE[a.kind] - TRANSFORM_STAGE[b.kind]);
+}
+
+/**
+ * Columns a condition difference pairs on that no encoding carries (REVIEW
+ * M1): the within-participant cells and the transform lines keep their levels
+ * apart, so A and B are not averaged together before they are paired.
+ */
+function pairedColumns(r: PopulationPlotRecipe): string[] {
+  return (r.transforms ?? [])
+    .filter((t): t is Extract<PopulationTransform, { kind: 'conditionDifference' }> => t.kind === 'conditionDifference')
+    .map((t) => t.column)
+    .filter((c) => c !== r.color && c !== r.facet && c !== r.detail && c !== r.x);
+}
+
 /** Cached tidy samples -> view. Appearance and regrouping never perform image I/O. */
 export function composePopulationPlot(
   frame: SampleFrame,
@@ -180,13 +209,14 @@ export function composePopulationPlot(
   );
   if (r.mark === 'line' && r.axis !== 'category')
     rows.sort((a, b) => Number(a[r.x]) - Number(b[r.x]));
-  const transforms = r.transforms ?? [];
+  const transforms = orderedTransforms(r.transforms);
+  const paired = pairedColumns(r);
   if (r.mark === 'line' || r.summary !== 'none' || transforms.length) {
     const cells = new Map<string, FrameRow[]>();
     for (const row of rows) {
       if (row[r.detail!] === null || row[r.detail!] === undefined || row[r.detail!] === '')
         throw new Error('Every plotted observation needs an explicit participant/line identity.');
-      const k = key(row, [r.x, r.color, r.facet, r.detail]);
+      const k = key(row, [r.x, r.color, r.facet, r.detail, ...paired]);
       cells.set(k, [...(cells.get(k) ?? []), row]);
     }
     if (r.within === 'single' && [...cells.values()].some((cell) => cell.length > 1))
@@ -349,7 +379,7 @@ function applyTransform(
 ): { rows: ReducedRow[]; columns: SampleFrame['columns']; record: PopulationTransformRecord } {
   const lineKey = (row: FrameRow, except: string | null = null) =>
     JSON.stringify(
-      [r.color, r.facet, r.detail]
+      [r.color, r.facet, r.detail, ...pairedColumns(r)]
         .filter((f): f is string => !!f && f !== except)
         .map((f) => row[f] ?? null),
     );
@@ -399,7 +429,9 @@ function applyTransform(
   const pairKey = (row: FrameRow) =>
     JSON.stringify([
       row[r.x] ?? null,
-      ...[r.color, r.facet, r.detail].filter((f): f is string => !!f && f !== t.column).map((f) => row[f] ?? null),
+      ...[r.color, r.facet, r.detail, ...pairedColumns(r)]
+        .filter((f): f is string => !!f && f !== t.column)
+        .map((f) => row[f] ?? null),
     ]);
   const pairs = new Map<string, { a?: ReducedRow; b?: ReducedRow }>();
   for (const row of rows) {
@@ -511,10 +543,28 @@ export function populationTransformSummary(frame: SampleFrame): string {
  */
 export function conditionAveragedPeakWindow(
   frame: SampleFrame,
-  r: Pick<PopulationPlotRecipe, 'x' | 'color'>,
+  r: Pick<PopulationPlotRecipe, 'x' | 'color'> | PopulationPlotRecipe,
 ): [number, number] | null {
+  // With the full recipe (REVIEW m12): the curve after the within-participant
+  // mean and the declared stages before the window, as population means, so
+  // each participant counts once and a baseline or difference is respected.
+  let rows = frame.rows;
+  if ('detail' in r && r.detail) {
+    try {
+      rows = composePopulationPlot(frame, {
+        ...r,
+        mark: 'line',
+        summary: 'mean',
+        band: 'none',
+        within: 'mean',
+        transforms: orderedTransforms(r.transforms).filter((t) => t.kind !== 'windowMean'),
+      }).frame.rows;
+    } catch {
+      rows = frame.rows;
+    }
+  }
   const cells = new Map<number, Map<string, { s: number; n: number }>>();
-  for (const row of frame.rows) {
+  for (const row of rows) {
     const x = Number(row[r.x]);
     const v = row.value;
     if (!Number.isFinite(x) || typeof v !== 'number' || !Number.isFinite(v)) continue;

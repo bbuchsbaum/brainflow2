@@ -86,10 +86,19 @@ axis:
   member identity, so each lag is its own observation.
 - A `lag` or `time` factor whose values are all numeric is marked
   `seriesAxis: "lag" | "time"` on `StudioFolderOntologyFactor`.
-- On promotion to a NeuroTabs package, such a column is written as `float64`
-  with `semantic_role` equal to its name, which is convention 1.
+- On promotion to a NeuroTabs package, a numeric `lag` column is written as
+  `float64` with `semantic_role: lag` (convention 1, unit unset, so lags are
+  bins). A numeric `time` column is written as `float64` without a role,
+  because a time axis needs a unit that file names cannot supply. Non-numeric
+  (or NaN/inf) `lag`/`time` values stay plain string factors.
 
-Units cannot be inferred from file names; add `unit` in the manifest.
+Units cannot be inferred from file names: add `unit` (and `semantic_role:
+time` for time) in the manifest.
+
+A volume feature may carry at most one series axis, as its 4th axis
+(`[x, y, z, lag|time]`), and must declare its sample count
+(`logical.shape[3]` or `axis_domains.<axis>.size`, which must agree). Every
+member, 3D or 4D, must have exactly that many frames.
 
 ## Worked example: an FIR study
 

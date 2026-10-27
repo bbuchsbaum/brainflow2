@@ -396,12 +396,13 @@ describe('ClusterPanel', () => {
     render(<ClusterPanel />);
     const search = screen.getByLabelText('Search');
     // Only masks are offered (round 3 T2): the T1 would search its own non-zero support.
-    // Deliberate change (round 4 C4): the option is the mask's name under a "Brain mask" group.
+    // Deliberate change (final batch, v4 fidelity 2): a mask may be a small ROI, so
+    // it is "Mask <name>", never "brain mask", under "Restrict to a mask".
     expect(Array.from((search as HTMLSelectElement).options).map((o) => o.text)).toEqual([
       'Non-zero voxels of the map',
-      'brain_mask',
+      'Mask brain_mask',
     ]);
-    expect(search.querySelector('optgroup')).toHaveAttribute('label', 'Brain mask');
+    expect(search.querySelector('optgroup')).toHaveAttribute('label', 'Restrict to a mask');
     fireEvent.change(search, { target: { value: 'mask' } });
     fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
     expect(compute).toHaveBeenLastCalledWith(expect.objectContaining({ searchMask: 'vol-mask' }));
@@ -415,7 +416,7 @@ describe('ClusterPanel', () => {
       }),
     );
     expect(screen.queryByTestId('cluster-stale')).toBeNull();
-    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('search volume 2,000 voxels (brain mask brain_mask)');
+    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('search volume 2,000 voxels (restricted to mask brain_mask)');
     fireEvent.change(search, { target: { value: '' } });
     expect(screen.getByTestId('cluster-stale')).toHaveTextContent('Parameters changed since this table.');
   });
@@ -432,6 +433,8 @@ describe('ClusterPanel', () => {
         layerName: 'zmap_synthetic.nii.gz',
         table: { ...TABLE, searchVolume: { kind: 'mask', maskVolumeId: 'vol-mask', voxels: 2000 } },
         regions: [null, null],
+        // As compute captures it.
+        maskName: 'brain_mask.nii.gz',
         computedAt: 0,
       }),
     );
@@ -442,10 +445,35 @@ describe('ClusterPanel', () => {
     // Round 4 C5: the control stays, disabled, with a hint; the stale notice is said once
     // and the methods sentence that explains the shown values stays, marked stale.
     expect(screen.getByLabelText('Search')).toBeDisabled();
-    expect(screen.getByTestId('cluster-search-hint')).toHaveTextContent('Load a brain mask…');
+    expect(screen.getByTestId('cluster-search-hint')).toHaveTextContent('No mask loaded');
     expect(screen.getAllByText(/The search mask of this table was removed\./)).toHaveLength(1);
     expect(screen.getByTestId('cluster-methods')).toHaveTextContent('(Stale)');
-    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('brain mask');
+    // v4 function 3: the stale methods name the mask captured at compute time, not its volume id.
+    expect(screen.getByTestId('cluster-methods')).toHaveTextContent('restricted to mask brain_mask');
+    expect(screen.getByTestId('cluster-methods')).not.toHaveTextContent('vol-mask');
+  });
+
+  it('a chosen mask whose metadata is still loading keeps the choice (review m16)', () => {
+    useLayerStore.setState((st) => ({
+      layers: [...st.layers, { id: 'mask', name: 'brain_mask.nii.gz', volumeId: 'vol-mask', type: 'volume', visible: true, order: 2 } as never],
+    }));
+    render(<ClusterPanel />);
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'mask' } });
+    // A reload re-adds the layer under a name that is not yet recognised as a mask.
+    act(() =>
+      useLayerStore.setState((st) => ({
+        layers: st.layers.map((l) => (l.id === 'mask' ? ({ ...l, name: 'loading' } as never) : l)),
+      })),
+    );
+    expect(useClusterStore.getState().params.searchMaskLayerId).toBe('mask');
+  });
+
+  it('the RFT checkbox and FWHM wrap as one group (v4 visual 3)', () => {
+    useClusterStore.getState().setParams({ extentP: true });
+    render(<ClusterPanel />);
+    const group = screen.getByTestId('cluster-rft-group');
+    expect(group).toHaveClass('whitespace-nowrap');
+    expect(group).toContainElement(screen.getByLabelText('FWHM'));
   });
 
   it('the Search control is shown, disabled with a hint, when no brain mask is loaded (round 4 C5)', () => {
@@ -453,7 +481,32 @@ describe('ClusterPanel', () => {
     const search = screen.getByLabelText('Search');
     expect(search).toBeDisabled();
     expect(search).toHaveValue('');
-    expect(screen.getByTestId('cluster-search-hint')).toHaveTextContent('Load a brain mask…');
+    expect(screen.getByTestId('cluster-search-hint')).toHaveTextContent('No mask loaded');
+  });
+
+  it('cluster p withheld on a pre-thresholded map: the p columns say so and the methods give the reason (B12)', () => {
+    const reason =
+      'This map looks pre-thresholded (no |z| < 3.1 among non-zero voxels); cluster p needs the unthresholded map or a search mask.';
+    useClusterStore.getState().setParams({ extentP: true, fwhmText: '8' });
+    useClusterStore.getState().setResult({
+      layerId: 'z',
+      layerName: 'zmap_synthetic.nii.gz',
+      table: {
+        ...TABLE,
+        extentInference: null,
+        clusters: TABLE.clusters.map((c) => ({ ...c, pFweExtent: null, pUncorrectedExtent: null })),
+        extentWithheld: { code: 4080, reason },
+      },
+      regions: [null, null],
+      computedAt: 1,
+    } as never);
+    render(<ClusterPanel />);
+    const cell = screen.getByTestId('cluster-pfwe-1');
+    expect(cell).toHaveTextContent('withheld');
+    expect(cell).toHaveAttribute('title', reason);
+    expect(screen.getByTestId('cluster-p-withheld')).toHaveTextContent(`Cluster p withheld: ${reason} Choose a brain mask under Search`);
+    // Not stale: the table answers the request (cluster p was asked for).
+    expect(screen.queryByTestId('cluster-stale')).toBeNull();
   });
 
   it('arrow keys the table handles never reach window shortcuts (v1 function 6)', () => {

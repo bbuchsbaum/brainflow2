@@ -28,6 +28,11 @@ export interface EncoderContext {
     readonly activateOnMove?: boolean;
     /** Accessible name of a point (row index into the frame). */
     readonly label?: (rowIndex: number) => string;
+    /**
+     * Where Tab enters a set that does not hold the focused point (a facet):
+     * the first point whose id is listed, else the first point.
+     */
+    readonly entryIds?: ReadonlySet<string>;
     /** What a click does, concretely ("Click to show this frame"); omitted: the tooltip is the label. */
     readonly action?: string;
   };

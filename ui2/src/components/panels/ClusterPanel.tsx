@@ -189,6 +189,22 @@ function selectStatLayer(layerId: string): void {
 const CSV_COMMENT_HINT =
   "The methods are '#' comment lines: read with pandas.read_csv(…, comment='#') or R read.csv(…, comment.char = '#').";
 
+/**
+ * A file name elided in the middle so its distinctive end stays
+ * ("MNI152…brain_mask"; v4 visual 4), at most `max` characters.
+ */
+function middleElide(name: string, max: number): string {
+  if (name.length <= max) return name;
+  const tail = Math.ceil((max - 1) * 0.6);
+  return `${name.slice(0, max - 1 - tail)}…${name.slice(name.length - tail)}`;
+}
+
+/** "Mask MNI152…brain_mask (244,022 voxels)": the count when the loader reported it. */
+function maskOptionLabel(name: string, voxels: number | null, max: number): string {
+  const n = voxels !== null ? ` (${voxels.toLocaleString('en-US')} voxels)` : '';
+  return `Mask ${middleElide(shortLayerLabel(name), max)}${n}`;
+}
+
 /** |z| / |t| threshold seeded for a map with no display threshold. */
 const DEFAULT_STAT_THRESHOLD = 3.1;
 
@@ -239,12 +255,18 @@ export function ClusterPanel() {
   const selectedId = useClusterStore((s) => s.selectedId);
   const setParams = useClusterStore((s) => s.setParams);
   const maskLayer = maskCandidates.find((l) => l.id === params.searchMaskLayerId) ?? null;
+  const maskVoxels = (id: string) => {
+    const n = layerMetadata.get(id)?.nonZeroVoxels;
+    return typeof n === 'number' && Number.isFinite(n) ? n : null;
+  };
   const maskVolumeId = maskLayer?.volumeId ?? null;
-  // A chosen mask that was removed (or is no longer a mask): the choice
-  // resets to the map's non-zero voxels, visibly, and its table goes stale.
+  // A chosen mask layer that was removed: the choice resets to the map's
+  // non-zero voxels, visibly, and its table goes stale. Only on removal, not
+  // while the layer's metadata is still loading (review m16).
+  const maskLayerExists = allLayers.some((l) => l.id === params.searchMaskLayerId);
   useEffect(() => {
-    if (params.searchMaskLayerId && !maskLayer) setParams({ searchMaskLayerId: null });
-  }, [params.searchMaskLayerId, maskLayer, setParams]);
+    if (params.searchMaskLayerId && !maskLayerExists) setParams({ searchMaskLayerId: null });
+  }, [params.searchMaskLayerId, maskLayerExists, setParams]);
 
   // f32 thresholds (3.0999999046) shown and used at display precision (3.1).
   const rawLayerThreshold = displayThresholdMagnitude(target?.threshold);
@@ -314,11 +336,15 @@ export function ClusterPanel() {
   );
   const resultVariable = resultSymbol ? resultSymbol.replace(/\(.*\)$/, '') : 'value';
   // The mask a table was computed with, by name (the methods paragraph).
-  const resultMaskName = useLayerStore((s) => {
+  // Captured at compute time (v4 function 3: after the mask layer is removed
+  // the stale methods named its volume id); else the live layer.
+  const liveMaskName = useLayerStore((s) => {
     const id = result?.table.searchVolume?.kind === 'mask' ? result.table.searchVolume.maskVolumeId : null;
     const mask = id ? s.layers.find((l) => l.volumeId === id) : undefined;
-    return mask ? shortLayerLabel(mask.name) : null;
+    return mask ? mask.name : null;
   });
+  const capturedMask = result?.maskName ?? liveMaskName;
+  const resultMaskName = capturedMask ? shortLayerLabel(capturedMask) : null;
 
   // A table for a layer that is not the active one (v1 function 2): still
   // valid for its own layer, so it stays readable and usable; the footer
@@ -338,7 +364,7 @@ export function ClusterPanel() {
       t.sign !== params.sign ||
       t.connectivity !== params.connectivity ||
       t.minVoxels !== params.minVoxels ||
-      !!t.extentInference !== params.extentP ||
+      (!!t.extentInference || !!t.extentWithheld) !== params.extentP ||
       tableMask !== maskVolumeId ||
       (t.extentInference !== null && t.extentInference !== undefined && !sameFwhm(t.extentInference.fwhmMm, fwhm));
     return changed ? 'Parameters changed since this table.' : null;
@@ -358,7 +384,10 @@ export function ClusterPanel() {
     result?.table.clusters.forEach((c, i) => map.set(c.id, result.subPeakRegions?.[i] ?? []));
     return map;
   }, [result]);
-  const hasExtentP = !!result?.table.extentInference;
+  // Cluster p withheld by the backend (a pre-thresholded map without a search
+  // mask, B12): the p columns stay, reading "withheld", and the methods say why.
+  const withheld = result?.table.extentWithheld ?? null;
+  const hasExtentP = !!result?.table.extentInference || !!withheld;
   // Clusters whose sub-peaks are shown (reset with each new table).
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
   const [expandedFor, setExpandedFor] = useState(result);
@@ -548,24 +577,24 @@ export function ClusterPanel() {
         </label>
         <Select
           id="cluster-search"
-          className="w-[22ch] truncate"
+          className="w-auto max-w-[34ch] truncate"
           value={maskLayer?.id ?? ''}
           disabled={maskCandidates.length === 0}
           title={
             maskCandidates.length === 0
-              ? 'Load a brain mask (a binary 0/1 volume) to bound the search; until then the map’s non-zero voxels are searched'
+              ? 'Load a mask (a binary 0/1 volume) to restrict the search; until then the map’s non-zero voxels are searched'
               : maskLayer
-                ? `Brain mask ${maskLayer.name} (voxels searched for clusters and the RFT search volume)`
+                ? `${maskOptionLabel(maskLayer.name, maskVoxels(maskLayer.id), Infinity)}: the voxels searched for clusters and the RFT search volume`
                 : 'Non-zero voxels of the map (voxels searched for clusters and the RFT search volume)'
           }
           onValueChange={(v) => setParams({ searchMaskLayerId: v || null })}
         >
           <option value="">Non-zero voxels of the map</option>
           {maskCandidates.length > 0 ? (
-            <optgroup label="Brain mask">
+            <optgroup label="Restrict to a mask">
               {maskCandidates.map((l) => (
-                <option key={l.id} value={l.id} title={l.name}>
-                  {shortLayerLabel(l.name)}
+                <option key={l.id} value={l.id} title={maskOptionLabel(l.name, maskVoxels(l.id), Infinity)}>
+                  {maskOptionLabel(l.name, maskVoxels(l.id), 18)}
                 </option>
               ))}
             </optgroup>
@@ -573,12 +602,15 @@ export function ClusterPanel() {
         </Select>
         {maskCandidates.length === 0 ? (
           <span className="text-bf-2xs text-bf-text-muted" data-testid="cluster-search-hint">
-            Load a brain mask…
+            No mask loaded
           </span>
         ) : null}
         {/* Opt-in cluster-level p: off by default, and only with a stated
             smoothness (never estimated from the map). Same type as the
             neighbouring labels (v1 visual 11). */}
+        {/* One group that wraps as a unit: the RFT label never leaves FWHM
+            alone on the next row (v4 visual 3). */}
+        <span className="inline-flex items-center gap-x-2 whitespace-nowrap" data-testid="cluster-rft-group">
         <Checkbox
           className="text-bf-xs text-bf-text-secondary"
           checked={params.extentP}
@@ -609,6 +641,7 @@ export function ClusterPanel() {
             </span>
           </>
         ) : null}
+        </span>
         {/* Why Compute is off, as text (a disabled button's tooltip is out
             of reach without a mouse); the default threshold is said too. */}
         {computeReason || seededDefault !== null ? (
@@ -816,11 +849,18 @@ export function ClusterPanel() {
                     <td className="px-2 text-right">{Math.round(c.volumeMm3)}</td>
                     {hasExtentP ? (
                       <>
-                        <td className="whitespace-nowrap px-2 text-right" data-testid={`cluster-pfwe-${c.id}`}>
-                          {formatClusterP(c.pFweExtent)}
+                        <td
+                          className={cn('whitespace-nowrap px-2 text-right', withheld && 'font-sans text-bf-text-muted')}
+                          data-testid={`cluster-pfwe-${c.id}`}
+                          title={withheld?.reason}
+                        >
+                          {withheld ? 'withheld' : formatClusterP(c.pFweExtent)}
                         </td>
-                        <td className="whitespace-nowrap px-2 text-right text-bf-text-muted">
-                          {formatClusterP(c.pUncorrectedExtent)}
+                        <td
+                          className={cn('whitespace-nowrap px-2 text-right text-bf-text-muted', withheld && 'font-sans')}
+                          title={withheld?.reason}
+                        >
+                          {withheld ? 'withheld' : formatClusterP(c.pUncorrectedExtent)}
                         </td>
                       </>
                     ) : null}
@@ -934,6 +974,12 @@ export function ClusterPanel() {
               variable={resultVariable}
             />
             {result.table.truncated ? ` First ${result.table.clusters.length} shown.` : ''}
+            {withheld ? (
+              <span className="text-bf-warning" data-testid="cluster-p-withheld">
+                {' '}
+                Cluster p withheld: {withheld.reason} Choose a brain mask under Search to compute it.
+              </span>
+            ) : null}
             {caveats ? (
               <>
                 {caveats.warning ? (

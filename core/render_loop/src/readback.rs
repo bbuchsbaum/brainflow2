@@ -14,6 +14,19 @@ fn error(code: u16, details: impl Into<String>) -> RenderLoopError {
     }
 }
 
+/// Error code of an exhausted readback staging budget (too many buffers in
+/// flight or too many bytes).
+pub(crate) const STAGING_BUDGET_EXHAUSTED: u16 = 8013;
+
+pub(crate) fn is_staging_budget_exhausted(error: &RenderLoopError) -> bool {
+    matches!(error, RenderLoopError::Internal { code, .. } if *code == STAGING_BUDGET_EXHAUSTED)
+}
+
+/// Opaque mid-grey RGBA frame shown when a readback could not be staged.
+pub(crate) fn placeholder_frame(size: [u32; 2]) -> Vec<u8> {
+    [128u8, 128, 128, 255].repeat(size[0] as usize * size[1] as usize)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReadbackMetrics {
     /// Owned staging allocations, including completed results not yet consumed.
@@ -130,7 +143,10 @@ impl ReadbackDriver {
             .checked_add(size)
             .ok_or_else(|| error(8013, "Readback byte count overflow"))?;
         if size == 0 || counts.buffers >= 16 || bytes > self.device.limits().max_buffer_size {
-            return Err(error(8013, "Readback staging budget is exhausted"));
+            return Err(error(
+                STAGING_BUDGET_EXHAUSTED,
+                "Readback staging budget is exhausted",
+            ));
         }
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),

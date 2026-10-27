@@ -1,7 +1,7 @@
 // Multi-texture management for world-space rendering
 
 use crate::RenderLoopError;
-use log::debug;
+use log::{debug, warn};
 use nalgebra::Matrix4;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -243,16 +243,16 @@ impl MultiTextureManager {
         }
 
         let (format, texture_data) = encode_with_policy(volume, policy)?;
-        if require_filterable
-            && format == wgpu::TextureFormat::R32Float
-            && !device
-                .features()
-                .contains(wgpu::Features::FLOAT32_FILTERABLE)
-        {
-            return Err(conversion_error(
-                "R32Float requires FLOAT32_FILTERABLE for the active slice texture layout",
-            ));
-        }
+        let (format, texture_data) = fit_filterable_format(
+            volume,
+            policy,
+            format,
+            texture_data,
+            require_filterable
+                && !device
+                    .features()
+                    .contains(wgpu::Features::FLOAT32_FILTERABLE),
+        )?;
 
         // Create 3D texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -721,22 +721,22 @@ impl MultiTextureManager {
             }
             policy => encode_with_policy(volume, policy)?,
         };
+        let (format, texture_data) = fit_filterable_format(
+            volume,
+            entry.policy,
+            format,
+            texture_data,
+            entry.require_filterable
+                && !device
+                    .features()
+                    .contains(wgpu::Features::FLOAT32_FILTERABLE),
+        )?;
         let size = wgpu::Extent3d {
             width: entry.dimensions[0],
             height: entry.dimensions[1],
             depth_or_array_layers: entry.dimensions[2],
         };
         if format != entry.format {
-            if entry.require_filterable
-                && format == wgpu::TextureFormat::R32Float
-                && !device
-                    .features()
-                    .contains(wgpu::Features::FLOAT32_FILTERABLE)
-            {
-                return Err(conversion_error(
-                    "R32Float requires FLOAT32_FILTERABLE for the active slice texture layout",
-                ));
-            }
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(&format!("Volume Texture {}", index)),
                 size,
@@ -963,6 +963,69 @@ fn checked_automatic_value<T: num_traits::NumCast + Copy + PartialEq>(
     Ok(value)
 }
 
+/// R32Float needs FLOAT32_FILTERABLE in the filterable slice layout. When
+/// the adapter lacks it (`r32_unfilterable`), an *automatic* scalar upload
+/// that was promoted to R32Float falls back to R16Float: magnitudes above the
+/// f16 range clamp to ±65504 and values below its smallest subnormal flush
+/// to zero, with a warning. Label-preserving and explicitly requested R32Float
+/// uploads keep the error, because f16 cannot hold them exactly.
+pub(crate) fn fit_filterable_format<T>(
+    volume: &DenseVolume3<T>,
+    policy: UploadFormat,
+    format: wgpu::TextureFormat,
+    data: Vec<u8>,
+    r32_unfilterable: bool,
+) -> Result<(wgpu::TextureFormat, Vec<u8>), RenderLoopError>
+where
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
+{
+    if !(r32_unfilterable && format == wgpu::TextureFormat::R32Float) {
+        return Ok((format, data));
+    }
+    if !matches!(
+        policy,
+        UploadFormat::Automatic {
+            preserve_labels: false
+        }
+    ) {
+        return Err(conversion_error(
+            "R32Float requires FLOAT32_FILTERABLE for the active slice texture layout",
+        ));
+    }
+    drop(data);
+    let (bytes, clamped, flushed) = encode_r16_lossy(volume)?;
+    warn!(
+        "Adapter lacks FLOAT32_FILTERABLE: volume uploaded as R16Float instead of R32Float \
+         ({clamped} voxels clamped to ±65504, {flushed} flushed to zero)"
+    );
+    Ok((wgpu::TextureFormat::R16Float, bytes))
+}
+
+/// Lossy R16Float encoding: clamp finite magnitudes to ±65504; values too
+/// small for f16 flush to zero. Returns (bytes, clamped, flushed).
+fn encode_r16_lossy<T>(volume: &DenseVolume3<T>) -> Result<(Vec<u8>, usize, usize), RenderLoopError>
+where
+    T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
+{
+    let values = volume.values_contiguous();
+    let mut bytes = Vec::with_capacity(values.len() * 2);
+    let (mut clamped, mut flushed) = (0usize, 0usize);
+    let max = half::f16::MAX.to_f32();
+    for &original in values.iter() {
+        let mut value = voxel_as_f32(original)?;
+        if value.is_finite() && value.abs() > max {
+            value = value.clamp(-max, max);
+            clamped += 1;
+        }
+        let half = half::f16::from_f32(value);
+        if value != 0.0 && value.is_finite() && half.to_f32() == 0.0 {
+            flushed += 1;
+        }
+        bytes.extend_from_slice(&half.to_ne_bytes());
+    }
+    Ok((bytes, clamped, flushed))
+}
+
 fn encode_automatic_r32<T>(
     volume: &DenseVolume3<T>,
     preserve_labels: bool,
@@ -1163,6 +1226,71 @@ mod tests {
         .is_err());
         let overflow = DenseVolume3::from_data(space, vec![1e100f64]);
         assert!(convert_to_r32float(&overflow).is_err());
+    }
+
+    #[test]
+    fn unfilterable_r32_falls_back_to_lossy_r16_for_scalars_only() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![3, 1, 1], vec![1.; 3], vec![0.; 3]).unwrap();
+        // 1e6 overflows f16 and 1e-9 underflows it: automatic encoding promotes.
+        let volume = DenseVolume3::from_data(space.clone(), vec![1e6f32, 1e-9, 3.0]);
+        let scalar = UploadFormat::Automatic {
+            preserve_labels: false,
+        };
+        let (format, bytes) = encode_with_policy(&volume, scalar).unwrap();
+        assert_eq!(format, wgpu::TextureFormat::R32Float);
+        // Filterable adapter: R32Float is kept.
+        let kept = fit_filterable_format(&volume, scalar, format, bytes.clone(), false).unwrap();
+        assert_eq!(kept.0, wgpu::TextureFormat::R32Float);
+        // Unfilterable adapter: R16Float with clamp and flush.
+        let (format, bytes) = fit_filterable_format(&volume, scalar, format, bytes, true).unwrap();
+        assert_eq!(format, wgpu::TextureFormat::R16Float);
+        let decoded: Vec<f32> = bytes
+            .chunks_exact(2)
+            .map(|b| half::f16::from_ne_bytes([b[0], b[1]]).to_f32())
+            .collect();
+        assert_eq!(decoded, vec![65504.0, 0.0, 3.0]);
+        // Labels and explicit R32Float keep the error.
+        let labels = DenseVolume3::from_data(space, vec![1u32, 2049, 7]);
+        let label_policy = UploadFormat::Automatic {
+            preserve_labels: true,
+        };
+        let (format, bytes) = encode_with_policy(&labels, label_policy).unwrap();
+        assert!(fit_filterable_format(&labels, label_policy, format, bytes, true).is_err());
+        let explicit = UploadFormat::Explicit(wgpu::TextureFormat::R32Float);
+        let (format, bytes) = encode_with_policy(&volume, explicit).unwrap();
+        assert!(fit_filterable_format(&volume, explicit, format, bytes, true).is_err());
+    }
+
+    #[test]
+    fn unfilterable_device_uploads_promoted_scalar_volume_as_r16() {
+        use volmath::{NeuroSpace, NeuroSpaceExt};
+        // The default device descriptor does not enable FLOAT32_FILTERABLE.
+        let (device, queue) = pollster::block_on(create_test_device());
+        assert!(!device
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE));
+        let mut manager = MultiTextureManager::new(&device, &queue, 4);
+        let space =
+            NeuroSpace::from_dims_spacing_origin(vec![2, 2, 2], vec![1.; 3], vec![0.; 3]).unwrap();
+        let volume =
+            DenseVolume3::from_data(space, vec![1e6f32, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let (index, _) = manager
+            .upload_volume_with_policy(
+                &device,
+                &queue,
+                &volume,
+                UploadFormat::Automatic {
+                    preserve_labels: false,
+                },
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            manager.textures.get(&index).unwrap().format,
+            wgpu::TextureFormat::R16Float
+        );
     }
 
     #[test]

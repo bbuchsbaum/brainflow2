@@ -112,3 +112,14 @@ describe('SurfaceCurvatureService (D2: underlay sources)', () => {
     service.stop();
   });
 });
+
+describe('toBytes (review n5)', () => {
+  it('a typed-array view keeps its own window of a larger buffer', async () => {
+    const { toBytes } = await import('../SurfaceCurvatureService');
+    const backing = new Uint8Array([9, 9, 1, 2, 3, 9]);
+    const view = new DataView(backing.buffer, 2, 3);
+    expect(Array.from(toBytes(view)!)).toEqual([1, 2, 3]);
+    expect(Array.from(toBytes(backing.subarray(2, 5))!)).toEqual([1, 2, 3]);
+    expect(Array.from(toBytes([4, 5])!)).toEqual([4, 5]);
+  });
+});

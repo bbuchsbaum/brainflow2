@@ -283,7 +283,8 @@ pub struct ClusterExtentInference {
     /// `expectedClusters` is per tail.
     #[ts(type = "1 | 2")]
     pub tails: u8,
-    /// Search volume: finite, non-zero voxels of the analysed frame.
+    /// Searched voxels: the finite non-zero voxels of the analysed frame, or
+    /// with `searchMask` the mask ∩ finite map voxels (see `SearchVolume`).
     #[ts(type = "number")]
     pub search_voxels: u64,
     /// Resel counts `[R0, R1, R2, R3]` of the search volume.
@@ -332,6 +333,23 @@ pub struct ClusterTable {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub search_volume: Option<SearchVolume>,
+    /// Set when `extent` was requested but its p values were withheld (e.g. a
+    /// pre-thresholded map without `searchMask`); `extentInference` and every
+    /// `pFweExtent`/`pUncorrectedExtent` are then null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub extent_withheld: Option<ExtentWithheld>,
+}
+
+/// Why requested cluster-extent p values were not computed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtentWithheld {
+    /// Error code the request would otherwise have failed with (4080).
+    pub code: u16,
+    /// User-facing explanation.
+    pub reason: String,
 }
 
 pub(crate) struct ClusterParams {
@@ -360,6 +378,25 @@ pub(crate) struct ClusterRun {
 fn generations() -> &'static Mutex<HashMap<String, Arc<AtomicU64>>> {
     static GENERATIONS: OnceLock<Mutex<HashMap<String, Arc<AtomicU64>>>> = OnceLock::new();
     GENERATIONS.get_or_init(Default::default)
+}
+
+#[cfg(test)]
+pub(crate) fn has_generation(volume_id: &str) -> bool {
+    generations()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains_key(volume_id)
+}
+
+/// Drop the generation counter of an unloaded volume (unload path), so the
+/// map does not grow with every volume ever clustered. A computation still
+/// running for it keeps its own `Arc` and finishes or is refused at
+/// registration.
+pub(crate) fn forget_generation(volume_id: &str) {
+    generations()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(volume_id);
 }
 
 #[derive(Clone)]
@@ -576,8 +613,11 @@ fn validate_peak_params(
 
 /// Local maxima of `value × polarity` among a cluster's voxels (neighbours
 /// under the clustering connectivity, restricted to the same cluster), with
-/// ties broken by the lower linear index so a plateau yields one maximum.
-/// Returns indices, strongest first.
+/// ties broken by the lower linear index: in a plateau of equal values only
+/// voxels with no equal neighbour of lower index qualify. That is exactly one
+/// voxel for a convex (box-like) plateau; a non-convex plateau can yield
+/// several, which the distance rule in [`select_peaks`] then thins. Returns
+/// indices, strongest first.
 fn local_maxima(
     frame: &Frame,
     labels: &[u32],
@@ -644,6 +684,12 @@ pub(crate) fn find_clusters(
     search_mask: Option<&[bool]>,
     is_superseded: &dyn Fn() -> bool,
 ) -> BridgeResult<ClusterRun> {
+    if u32::try_from(frame.values.len()).is_err() {
+        return Err(BridgeError::Input {
+            code: 4082,
+            details: "The volume has more voxels than cluster labelling supports (2^32).".into(),
+        });
+    }
     let threshold = params.threshold;
     // Voxels outside an explicit search mask never pass.
     let polarity_of = |index: usize| -> Option<ClusterPolarity> {
@@ -689,6 +735,7 @@ pub(crate) fn find_clusters(
             if work.is_multiple_of(65_536) && is_superseded() {
                 return Err(cancelled());
             }
+            // Checked at entry: every index fits in u32.
             members.push(index as u32);
             let ijk = frame.ijk(index);
             acc.add(index, ijk, frame.values[index]);
@@ -779,6 +826,7 @@ pub(crate) fn find_clusters(
         extent_inference: None,
         label_volume_id: None,
         search_volume: None,
+        extent_withheld: None,
     };
     Ok(ClusterRun { table, label_image })
 }
@@ -867,6 +915,36 @@ fn voxel_sizes(frame: &Frame) -> [f64; 3] {
     [0, 1, 2].map(|c| f64::from((m[(0, c)].powi(2) + m[(1, c)].powi(2) + m[(2, c)].powi(2)).sqrt()))
 }
 
+/// Why cluster-extent p is withheld for a pre-thresholded map (also the 4080
+/// error text when `apply_extent_inference` is called directly).
+pub(crate) fn pre_thresholded_reason(kind: FieldKind, threshold: f32) -> String {
+    let stat = match kind {
+        FieldKind::Z => "z",
+        FieldKind::T { .. } => "t",
+        FieldKind::F { .. } => "F",
+    };
+    format!(
+        "This map looks pre-thresholded (no |{stat}| < {threshold} among non-zero voxels); \
+         cluster p needs the unthresholded map or a search mask."
+    )
+}
+
+/// A map whose finite non-zero voxels all exceed the threshold (|v| > u) was
+/// thresholded before export (e.g. SPM `_thresh`, FSL `thresh_zstat`): its
+/// non-zero support is the union of its clusters, not a search volume.
+pub(crate) fn looks_pre_thresholded(frame: &Frame, threshold: f32) -> bool {
+    let mut nonzero = 0usize;
+    for v in frame.values.iter() {
+        if v.is_finite() && *v != 0.0 {
+            if v.abs() <= threshold {
+                return false;
+            }
+            nonzero += 1;
+        }
+    }
+    nonzero > 0
+}
+
 /// The searched voxels: `mask ∩ finite` with an explicit mask, else the map's
 /// finite non-zero voxels.
 pub(crate) fn search_voxels(frame: &Frame, search_mask: Option<&[bool]>) -> Vec<bool> {
@@ -891,6 +969,17 @@ pub(crate) fn apply_extent_inference(
     field: ResolvedField,
     search_mask: Option<&[bool]>,
 ) -> BridgeResult<()> {
+    if matches!(field.kind, FieldKind::F { .. }) && table.sign == ClusterSign::Negative {
+        return Err(extent_error(
+            "F maps are non-negative: search positive clusters for cluster-extent p.",
+        ));
+    }
+    if search_mask.is_none() && looks_pre_thresholded(frame, table.threshold) {
+        return Err(extent_error(pre_thresholded_reason(
+            field.kind,
+            table.threshold,
+        )));
+    }
     let mask = search_voxels(frame, search_mask);
     let stat_field = StatField::new(field.kind, frame.dims, voxel_sizes(frame), &mask)
         .map_err(inference_error)?;
@@ -1056,7 +1145,15 @@ pub(crate) async fn compute_clusters_impl(
             mask_voxels_outside_map,
         });
         if let Some((fwhm_mm, field)) = extent {
-            apply_extent_inference(&mut table, &frame, fwhm_mm, field, search_mask.as_deref())?;
+            if search_mask.is_none() && looks_pre_thresholded(&frame, table.threshold) {
+                // Clusters and peaks stand; only the extent p is withheld.
+                table.extent_withheld = Some(ExtentWithheld {
+                    code: 4080,
+                    reason: pre_thresholded_reason(field.kind, table.threshold),
+                });
+            } else {
+                apply_extent_inference(&mut table, &frame, fwhm_mm, field, search_mask.as_deref())?;
+            }
         }
         if generation.is_superseded() {
             return Err(cancelled());
@@ -1567,6 +1664,54 @@ mod tests {
     }
 
     #[test]
+    fn pre_thresholded_maps_need_a_search_mask() {
+        // Zero background with only suprathreshold blobs: an exported
+        // thresholded map. Its non-zero voxels are not a search volume.
+        let values: Vec<f32> = extent_frame()
+            .values
+            .iter()
+            .map(|v| if *v > 3.1 { *v } else { 0.0 })
+            .collect();
+        let frame = frame_3d([20, 20, 20], [2.0; 3], [0.0; 3], values);
+        assert!(looks_pre_thresholded(&frame, 3.1));
+        assert!(!looks_pre_thresholded(&extent_frame(), 3.1));
+        let z = ResolvedField {
+            kind: FieldKind::Z,
+            from_request: false,
+        };
+        let mut p = peak_params(3.1, 3, 8.0);
+        p.sign = ClusterSign::Positive;
+        let mut table = find_clusters(&frame, &p);
+        match apply_extent_inference(&mut table, &frame, [4.0; 3], z, None) {
+            Err(BridgeError::Input { code, details }) => {
+                assert_eq!(code, 4080);
+                assert!(details.contains("pre-thresholded"), "{details}");
+            }
+            other => panic!("expected a pre-threshold refusal, got {other:?}"),
+        }
+        // With an explicit (whole-grid) mask the same map is fine, and gives
+        // the same answer as the unthresholded map over the same grid.
+        let whole = vec![true; 8000];
+        apply_extent_inference(&mut table, &frame, [4.0; 3], z, Some(&whole)).unwrap();
+        close(
+            table.clusters[0].p_fwe_extent.unwrap(),
+            9.833503809353328e-05,
+        );
+        // F maps cannot be searched for negative clusters.
+        let f = ResolvedField {
+            kind: FieldKind::F {
+                df1: 2.0,
+                df2: 30.0,
+            },
+            from_request: true,
+        };
+        let mut n = peak_params(3.1, 3, 8.0);
+        n.sign = ClusterSign::Negative;
+        let mut negative = find_clusters(&extent_frame(), &n);
+        assert!(apply_extent_inference(&mut negative, &extent_frame(), [4.0; 3], f, None).is_err());
+    }
+
+    #[test]
     fn extent_inference_is_off_by_default_and_validates_inputs() {
         let frame = extent_frame();
         let table = find_clusters(&frame, &peak_params(3.1, 3, 8.0));
@@ -1977,5 +2122,59 @@ mod tests {
             Err(BridgeError::Input { code, .. }) => assert_eq!(code, 4081),
             other => panic!("expected empty-mask error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn pre_thresholded_map_keeps_clusters_and_withholds_extent_p() {
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        let stat = format!("stat-thresh-{}", uuid::Uuid::new_v4());
+        let thresholded: Vec<f32> = extent_frame()
+            .values
+            .iter()
+            .map(|v| if *v > 3.1 { *v } else { 0.0 })
+            .collect();
+        register_volume(
+            &state,
+            &stat,
+            volume_3d([20; 3], [2.0; 3], [0.0; 3], thresholded),
+        )
+        .await;
+        register_volume(
+            &state,
+            "mask-whole",
+            volume_3d([20; 3], [2.0; 3], [0.0; 3], vec![1.0; 8000]),
+        )
+        .await;
+        let run = |mask: Option<&str>| {
+            let mask = mask
+                .map(|m| format!(r#","searchMask":"{m}""#))
+                .unwrap_or_default();
+            serde_json::from_str::<ComputeClustersRequest>(&format!(
+                r#"{{"volumeId":"{stat}","threshold":3.1,"sign":"positive"{mask},
+                    "extent":{{"method":"rft-extent","fwhmMm":4,"statistic":"z"}}}}"#
+            ))
+            .unwrap()
+        };
+        let withheld = compute_clusters_impl(run(None), &state).await.unwrap();
+        assert_eq!(withheld.clusters.len(), 2, "clusters still computed");
+        assert!(withheld.extent_inference.is_none());
+        assert!(withheld.clusters.iter().all(|c| c.p_fwe_extent.is_none()));
+        let reason = withheld.extent_withheld.expect("withheld");
+        assert_eq!(reason.code, 4080);
+        assert_eq!(
+            reason.reason,
+            "This map looks pre-thresholded (no |z| < 3.1 among non-zero voxels); cluster p \
+             needs the unthresholded map or a search mask."
+        );
+        // A search mask lifts the refusal and reproduces the reference p.
+        let masked = compute_clusters_impl(run(Some("mask-whole")), &state)
+            .await
+            .unwrap();
+        assert!(masked.extent_withheld.is_none());
+        close(
+            masked.clusters[0].p_fwe_extent.unwrap(),
+            9.833503809353328e-05,
+        );
     }
 }

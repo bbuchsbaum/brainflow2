@@ -17,7 +17,7 @@
 //! here and is released by the normal layer unload path
 //! (`release_layer_gpu_resources` removes the mapping, then `unload_volume`).
 use crate::clusters::{cancelled, Generation};
-use crate::{BridgeState, VolumeRegistry};
+use crate::BridgeState;
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
@@ -79,10 +79,20 @@ pub(crate) fn cluster_dictionary(
 }
 
 /// Register `volume` (with `clusters` ids) as the label volume of
-/// `source_id`. Supersession is re-checked under the registry lock, so a stale
-/// computation finishing late cannot replace a newer emission. The previous
-/// label volume for the source is unloaded, or handed to the layer that
-/// displays it.
+/// `source_id`.
+///
+/// Locking: `volume_operations` → layer map (snapshot, released) → renderer →
+/// surface samplers → registry, the order the unload path uses. Holding
+/// `volume_operations` serializes this with `request_layer_gpu_resources` and
+/// unload, so no layer can be mapped to the previous label volume between
+/// the displayed-volume snapshot and its removal. Under the registry lock:
+/// - a superseded computation is refused (4077), so a stale run finishing
+///   late cannot replace a newer emission;
+/// - a source unloaded while clusters were computed is refused (4041), so its
+///   label volume cannot outlive it.
+///
+/// The previous label volume of the source is released (colormap, samplers,
+/// registry), or handed to the layer that displays it.
 pub(crate) async fn register(
     state: &BridgeState,
     source_id: &str,
@@ -98,7 +108,7 @@ pub(crate) async fn register(
         volume_type: bridge_types::VolumeType::Volume3D,
         time_series_info: None,
     };
-    // Same lock order as the unload path: layer mappings, then the registry.
+    let _operation = state.volume_operations.lock().await;
     let displayed: HashSet<String> = state
         .layer_to_volume_map
         .lock()
@@ -106,13 +116,30 @@ pub(crate) async fn register(
         .values()
         .cloned()
         .collect();
+    let renderer = state.render_loop_service.lock().await.clone();
+    let mut renderer = match &renderer {
+        Some(service) => Some(service.lock().await),
+        None => None,
+    };
+    let mut samplers = state.surface_samplers.lock().await;
     let mut registry = state.volume_registry.lock().await;
     if generation.is_superseded() {
         return Err(cancelled());
     }
+    if !registry.contains(source_id) {
+        return Err(BridgeError::VolumeNotFound {
+            code: 4041,
+            details: format!("Source volume {source_id} was unloaded while clusters were computed"),
+        });
+    }
     let previous = emitted_map().insert(source_id.to_string(), label_id.clone());
     if let Some(previous) = previous.filter(|previous| !displayed.contains(previous)) {
-        registry.remove(&previous);
+        crate::volume_loading::release_volume(
+            renderer.as_deref_mut(),
+            &mut samplers,
+            &mut registry,
+            &previous,
+        );
     }
     registry.insert(label_id.clone(), volume, metadata);
     registry.parcel_dictionaries.insert(
@@ -122,21 +149,17 @@ pub(crate) async fn register(
     Ok(label_id)
 }
 
-/// Unload hook (called with the registry lock held, after `volume_id` was
-/// removed): release the label volume owned for a removed source unless a
-/// layer displays it, and forget a removed label volume.
-pub(crate) fn on_volume_removed(
-    registry: &mut VolumeRegistry,
-    volume_id: &str,
-    displayed: &HashSet<String>,
-) {
+/// Unload bookkeeping, called by the unload path after `volume_id` was
+/// released: returns the label volume owned for a removed source unless a
+/// layer displays it (the caller releases it), and forgets a removed label
+/// volume.
+pub(crate) fn owned_after_removal(volume_id: &str, displayed: &HashSet<String>) -> Option<String> {
     let mut map = emitted_map();
-    if let Some(label_id) = map.remove(volume_id) {
-        if !displayed.contains(&label_id) {
-            registry.remove(&label_id);
-        }
-    }
+    let owned = map
+        .remove(volume_id)
+        .filter(|label_id| !displayed.contains(label_id));
     map.retain(|_, label_id| label_id != volume_id);
+    owned
 }
 
 #[cfg(test)]
@@ -319,9 +342,12 @@ mod tests {
         let source = format!("src-{}", uuid::Uuid::new_v4());
         let state = setup(&source).await;
         let label = emit(&state, &source).await;
+        assert!(crate::clusters::has_generation(&source));
         unload(&state, &source).await.unwrap();
         assert!(!state.volume_registry.lock().await.contains(&label));
         assert_eq!(owned_label_volume(&source), None);
+        // The generation counter is pruned with the source.
+        assert!(!crate::clusters::has_generation(&source));
         // Unloading a label volume directly forgets it.
         let source2 = format!("src-{}", uuid::Uuid::new_v4());
         state.volume_registry.lock().await.insert(
@@ -362,5 +388,57 @@ mod tests {
         }
         assert_eq!(owned_label_volume(&source), Some(current.clone()));
         assert!(state.volume_registry.lock().await.contains(&current));
+    }
+
+    #[tokio::test]
+    async fn source_unloaded_during_compute_is_refused_without_a_leak() {
+        let source = format!("src-{}", uuid::Uuid::new_v4());
+        let state = setup(&source).await;
+        let generation = Generation::begin(&source);
+        // The source disappears after the frame was read but before register.
+        unload(&state, &source).await.unwrap();
+        let volume = label_volume_from_image(
+            vec![0.0; 512],
+            [8, 8, 8],
+            crate::get_affine_from_volume(&stat_volume()).unwrap(),
+        )
+        .unwrap();
+        match register(&state, &source, volume, 1, &generation).await {
+            Err(BridgeError::VolumeNotFound { code, .. }) => assert_eq!(code, 4041),
+            other => panic!("expected a refused registration, got {other:?}"),
+        }
+        assert_eq!(owned_label_volume(&source), None);
+        let registry = state.volume_registry.lock().await;
+        assert!(registry.keys().all(|id| !id.starts_with("clusters_")));
+    }
+
+    #[tokio::test]
+    async fn register_waits_for_volume_operations() {
+        let source = format!("src-{}", uuid::Uuid::new_v4());
+        let state = std::sync::Arc::new(setup(&source).await);
+        let generation = Generation::begin(&source);
+        // A layer allocation (or unload) in progress holds volume_operations.
+        let operation = state.volume_operations.lock().await;
+        let task = {
+            let state = std::sync::Arc::clone(&state);
+            let source = source.clone();
+            tokio::spawn(async move {
+                let volume = label_volume_from_image(
+                    vec![0.0; 512],
+                    [8, 8, 8],
+                    crate::get_affine_from_volume(&stat_volume()).unwrap(),
+                )
+                .unwrap();
+                register(&state, &source, volume, 1, &generation).await
+            })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            !task.is_finished(),
+            "register must wait for volume_operations"
+        );
+        drop(operation);
+        let label = task.await.unwrap().unwrap();
+        assert!(state.volume_registry.lock().await.contains(&label));
     }
 }

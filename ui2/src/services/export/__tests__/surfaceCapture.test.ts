@@ -100,6 +100,32 @@ describe('captureSurfaceComposite (D4)', () => {
     expect(capture.target.viewType).toBeNull();
   });
 
+  it('a pose that fails mid-row closes every bitmap already made, that row included (review m10)', async () => {
+    const closes: ReturnType<typeof vi.fn>[] = [];
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => {
+        const close = vi.fn();
+        closes.push(close);
+        return { close };
+      }),
+    );
+    const exporter = fakeExporter(['left', 'right']);
+    // Row 1 (lateral lh, rh) succeeds; row 2 fails on its second pose.
+    let n = 0;
+    exporter.capturePose.mockImplementation(async () => {
+      n += 1;
+      if (n === 4) throw new Error('GPU lost');
+      return { bytes: new Uint8Array([1]), basis: BASIS, hemispheres: ['left', 'right'] as Array<'left' | 'right'> };
+    });
+    exporterState.exporter = exporter;
+    await expect(
+      captureSurfaceComposite('surface-lat-med', 'png', { frame: EXPORT_PRESETS.figure, size: { kind: 'screen', scale: 1 } }),
+    ).rejects.toThrow('GPU lost');
+    expect(closes).toHaveLength(3);
+    for (const close of closes) expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a pane past the GPU limit or a composition past the canvas limit, before rendering', async () => {
     const small = fakeExporter(['left'], 1000);
     exporterState.exporter = small;

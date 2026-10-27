@@ -108,7 +108,7 @@ use error_helpers::*;
 use clusters::compute_clusters;
 pub use clusters::{
     ClusterExtentInference, ClusterExtentMethodRequest, ClusterPolarity, ClusterSign,
-    ClusterSummary, ClusterTable, ComputeClustersRequest, ExtentStatistic, FwhmMm,
+    ClusterSummary, ClusterTable, ComputeClustersRequest, ExtentStatistic, ExtentWithheld, FwhmMm,
     RftExtentRequest, SubPeak,
 };
 use image_export::save_image_bytes;
@@ -4616,7 +4616,10 @@ async fn request_layer_gpu_resources_with_upload_hook(
                         compute_data_range_from_volume(volume_data)
                     })
             };
-            let is_binary_like = (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0);
+            // Display uses the 0-1 window for any data within [0, 1]; the
+            // reported mask flag requires a true {0, 1} image.
+            let in_unit_range = min_val >= 0.0 && max_val <= 1.0;
+            let is_binary_like = in_unit_range && volume_queries::is_binary_volume(volume_data);
             let data_range = Some(DataRange {
                 min: min_val,
                 max: max_val,
@@ -4696,7 +4699,7 @@ async fn request_layer_gpu_resources_with_upload_hook(
                 let (display_min, display_max) = if is_u8 {
                     // For U8 data, always use 0-1 range because R8Unorm normalizes to this range
                     (0.0, 1.0)
-                } else if is_binary_like && max_val <= 1.0 {
+                } else if in_unit_range {
                     // For float data that's already 0-1
                     (0.0, 1.0)
                 } else {
@@ -4720,7 +4723,7 @@ async fn request_layer_gpu_resources_with_upload_hook(
                     &volume_data,
                     VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_)
                 );
-                let (display_min, display_max) = if is_u8 || (is_binary_like && max_val <= 1.0) {
+                let (display_min, display_max) = if is_u8 || in_unit_range {
                     (0.0, 1.0)
                 } else {
                     (min_val, max_val)
@@ -7848,7 +7851,10 @@ async fn allocate_gpu_resources_for_layer(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs(),
-        is_binary_like: (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0),
+        // A true {0, 1} image, not merely data within [0, 1].
+        is_binary_like: min_val >= 0.0
+            && max_val <= 1.0
+            && volume_queries::is_binary_volume(volume_to_upload.as_ref()),
     })
 }
 
@@ -12638,13 +12644,26 @@ async fn sample_set_trace_at_locus_impl(
     };
     // A path-backed region label joins the whole-query source guard. A frozen
     // query (pinned member or mask digests) must also pin the label digest.
+    let frozen = members.iter().any(|m| m.expected_sha256.is_some())
+        || mask.is_some_and(|m| m.expected_sha256.is_some());
     let region_path = match region.map(|locus| &locus.label_source) {
+        // In-memory layers and registered volumes have no digest to pin, so a
+        // frozen query cannot reproduce them.
+        Some(
+            region_locus::LabelSource::Layer { .. } | region_locus::LabelSource::Volume { .. },
+        ) if frozen => {
+            return Err(BridgeError::Input {
+                code: 2027,
+                details: "A frozen population query needs a region label file \
+                          (labelSource type \"path\" with expectedSha256); layer and \
+                          registered-volume regions cannot be pinned."
+                    .into(),
+            });
+        }
         Some(region_locus::LabelSource::Path {
             path,
             expected_sha256,
         }) => {
-            let frozen = members.iter().any(|m| m.expected_sha256.is_some())
-                || mask.is_some_and(|m| m.expected_sha256.is_some());
             if frozen && expected_sha256.is_none() {
                 return Err(BridgeError::Input {
                     code: 2027,
@@ -12877,7 +12896,15 @@ async fn replay_population_summary(
 /// (percent-encoded) carry the destination and "png" | "json".
 #[command]
 async fn export_population_plot(request: tauri::ipc::Request<'_>) -> BridgeResult<String> {
-    let bytes = raw_ipc::raw_body(request.body(), "export_population_plot")?.to_vec();
+    let body = raw_ipc::raw_body(request.body(), "export_population_plot")?;
+    // Same cap as population_plot_export::save, checked before copying.
+    if body.len() > population_plot_export::MAX_PLOT_BYTES {
+        return Err(BridgeError::Input {
+            code: 6451,
+            details: "Plot exports are limited to 16 MiB.".into(),
+        });
+    }
+    let bytes = body.to_vec();
     let path = raw_ipc::required_header(request.headers(), "x-brainflow-path")?;
     let format = raw_ipc::required_header(request.headers(), "x-brainflow-format")?;
     tokio::task::spawn_blocking(move || population_plot_export::save(&path, &bytes, &format))

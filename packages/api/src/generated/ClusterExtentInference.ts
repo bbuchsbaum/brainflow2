@@ -33,7 +33,8 @@ statisticSource: string, clusterFormingThreshold: number,
  */
 tails: 1 | 2, 
 /**
- * Search volume: finite, non-zero voxels of the analysed frame.
+ * Searched voxels: the finite non-zero voxels of the analysed frame, or
+ * with `searchMask` the mask ∩ finite map voxels (see `SearchVolume`).
  */
 searchVoxels: number, 
 /**

@@ -27,6 +27,8 @@ export interface RawSeriesAxis {
   measure: string | null;
   /** The member's condition ("faces"): its line takes the condition's colour. */
   condition?: string | null;
+  /** The dataset the member belongs to ("FIR study (4D lag series)"). */
+  dataset?: string | null;
 }
 
 type StudioState = ReturnType<typeof useSetStudioStore.getState>;
@@ -76,6 +78,7 @@ export function datasetAxisFor(
       member: memberLabel || null,
       measure: feature?.label ?? null,
       condition: binding.conditionColumn ? (design[binding.conditionColumn] ?? null) : null,
+      dataset: set.name ?? null,
     };
   }
   return null;

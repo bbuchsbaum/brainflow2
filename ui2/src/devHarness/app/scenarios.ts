@@ -344,6 +344,14 @@ async function seriesRuns(): Promise<void> {
   useLayoutSettingsStore.getState().setBottomDockHeight(320);
   usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
   await until(() => document.querySelectorAll('[data-testid="plot-x-rule"]').length === 3, 'three run boundaries');
+  {
+    const { useLayerStore: store } = await import('@/stores/layerStore');
+    const { useViewStateStore: vs } = await import('@/stores/viewStateStore');
+    const snap = (tag: string) =>
+      noteStep(`${tag}: ${store.getState().layers.map((l) => `${l.name}=${l.visible ? 'shown' : 'hidden'}/${vs.getState().viewState.layers.find((x) => x.id === l.id)?.visible}`).join(' | ')}`);
+    snap('formed');
+
+  }
   // Round 3 C2: Right from run 1's last frame goes to run 2's first.
   {
     const last = document.querySelector<SVGElement>('[data-testid="crosshair-ts-plot-body"] [data-datum-id="0:19"]')!;
@@ -351,6 +359,11 @@ async function seriesRuns(): Promise<void> {
     last.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
     await until(() => document.activeElement?.getAttribute('data-datum-id') === '1:0', 'ArrowRight into run 2');
     noteStep(`keys: run 1 frame 20 → ${document.activeElement?.getAttribute('aria-label')}`);
+    {
+      const { useLayerStore: store } = await import('@/stores/layerStore');
+      const { useViewStateStore: vs } = await import('@/stores/viewStateStore');
+      noteStep(`after keys: ${store.getState().layers.map((l) => `${l.name}=${l.visible ? 'shown' : 'hidden'}/${vs.getState().viewState.layers.find((x) => x.id === l.id)?.visible}`).join(' | ')}`);
+    }
   }
   (document.querySelector('[data-testid="crosshair-ts-plot-body"] [data-datum-id="1:12"]') as SVGElement).dispatchEvent(
     new MouseEvent('click', { bubbles: true }),

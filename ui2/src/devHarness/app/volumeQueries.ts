@@ -371,11 +371,31 @@ export function findClusters(
       kind: mask ? 'mask' : 'map-nonzero',
       maskVolumeId,
       voxels: searchedCount,
-      ...(mask ? { maskVoxelsOutsideMap: outsideMap } : {}),
+      maskVoxelsOutsideMap: mask ? outsideMap : null,
     } as ClusterTable['searchVolume'],
   };
-  if (query.extent) applyExtentInference(table, vol, query.extent, searched);
+  if (query.extent && !mask && looksPreThresholded(vol, threshold)) {
+    // B12 (mirrors api_bridge): a pre-thresholded map without a search mask
+    // gets no cluster p; the table says why.
+    const letter =
+      query.extent.statistic ?? (vol.header?.intentCode === 5 ? 'z' : vol.header?.intentCode === 3 ? 't' : 'F');
+    table.extentWithheld = {
+      code: 4080,
+      reason: `This map looks pre-thresholded (no |${letter}| < ${query.threshold} among non-zero voxels); cluster p needs the unthresholded map or a search mask.`,
+    };
+  } else if (query.extent) applyExtentInference(table, vol, query.extent, searched);
   return table;
+}
+
+/** Every finite non-zero voxel above the threshold in magnitude (nothing sub-threshold left). */
+function looksPreThresholded(vol: VolumeFixture, threshold: number): boolean {
+  let any = false;
+  for (const v of vol.data) {
+    if (!Number.isFinite(v) || v === 0) continue;
+    any = true;
+    if (Math.abs(v) <= threshold) return false;
+  }
+  return any;
 }
 
 /** First voxel (x-fastest) holding the max / min / largest-|value| finite value. */

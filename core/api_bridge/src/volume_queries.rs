@@ -256,6 +256,56 @@ pub(crate) struct ResolvedVolume {
     pub path: String,
 }
 
+/// True {0, 1} test for "binary-like" volumes (masks): every finite voxel is
+/// 0 or 1 within 1e-6, non-finite voxels are ignored, and at least one voxel
+/// is 1. An all-zero image is not reported as a mask (it has no foreground).
+/// The scan stops at the first voxel outside {0, 1}, so non-mask maps are
+/// rejected early; 4D volumes are tested over every frame.
+pub(crate) fn is_binary_volume(volume: &VolumeSendable) -> bool {
+    fn scan<I: Iterator<Item = f32>>(values: I) -> bool {
+        let mut any_one = false;
+        for v in values {
+            if !v.is_finite() {
+                continue;
+            }
+            if (v - 1.0).abs() <= 1e-6 {
+                any_one = true;
+            } else if v.abs() > 1e-6 {
+                return false;
+            }
+        }
+        any_one
+    }
+    macro_rules! scan_3d {
+        ($vol:expr) => {
+            scan($vol.values_contiguous().iter().map(|v| *v as f32))
+        };
+    }
+    macro_rules! scan_4d {
+        ($vec:expr) => {
+            scan($vec.data.iter().map(|v| *v as f32))
+        };
+    }
+    match volume {
+        VolumeSendable::VolF32(v, _) => scan_3d!(v),
+        VolumeSendable::VolF64(v, _) => scan_3d!(v),
+        VolumeSendable::VolI16(v, _) => scan_3d!(v),
+        VolumeSendable::VolI32(v, _) => scan_3d!(v),
+        VolumeSendable::VolU8(v, _) => scan_3d!(v),
+        VolumeSendable::VolU16(v, _) => scan_3d!(v),
+        VolumeSendable::VolU32(v, _) => scan_3d!(v),
+        VolumeSendable::VolI8(v, _) => scan_3d!(v),
+        VolumeSendable::Vec4DF32(v) => scan_4d!(v),
+        VolumeSendable::Vec4DF64(v) => scan_4d!(v),
+        VolumeSendable::Vec4DI16(v) => scan_4d!(v),
+        VolumeSendable::Vec4DI32(v) => scan_4d!(v),
+        VolumeSendable::Vec4DU8(v) => scan_4d!(v),
+        VolumeSendable::Vec4DU16(v) => scan_4d!(v),
+        VolumeSendable::Vec4DU32(v) => scan_4d!(v),
+        VolumeSendable::Vec4DI8(v) => scan_4d!(v),
+    }
+}
+
 /// A binary search mask on `frame`'s grid from a mask volume: a frame voxel is
 /// inside when the nearest mask voxel (by world position, as region loci map
 /// labels) holds a finite non-zero value. The mask must have one frame.
@@ -853,5 +903,25 @@ mod tests {
         )
         .await
         .is_err());
+    }
+
+    #[test]
+    fn binary_test_requires_values_in_zero_one_with_foreground() {
+        let mask = volume_3d([2, 2, 1], [1.0; 3], [0.0; 3], vec![0.0, 1.0, 1.0, f32::NAN]);
+        assert!(is_binary_volume(&mask), "{{0, 1}} mask (NaN ignored)");
+        let probability = volume_3d([2, 2, 1], [1.0; 3], [0.0; 3], vec![0.0, 0.25, 0.9, 1.0]);
+        assert!(!is_binary_volume(&probability), "0-1 probability map");
+        let zeros = volume_3d([2, 2, 1], [1.0; 3], [0.0; 3], vec![0.0; 4]);
+        assert!(!is_binary_volume(&zeros), "all-zero has no foreground");
+        let near = volume_3d([2, 1, 1], [1.0; 3], [0.0; 3], vec![1.0 + 5e-7, 0.0]);
+        assert!(is_binary_volume(&near), "within 1e-6");
+        let space = NeuroSpace::new(vec![2, 1, 1, 2], None, None, None, None).unwrap();
+        let mut vec4d = DenseNeuroVec::<f32>::zeros(space).unwrap();
+        vec4d.data[[0, 0, 0, 0]] = 1.0;
+        vec4d.data[[1, 0, 0, 1]] = 0.5;
+        assert!(
+            !is_binary_volume(&VolumeSendable::Vec4DF32(vec4d)),
+            "any frame counts"
+        );
     }
 }

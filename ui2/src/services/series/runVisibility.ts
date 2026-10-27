@@ -9,6 +9,7 @@
  */
 import { getLayerService } from '@/services/LayerService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import type { SegmentGroup } from './seriesSegments';
 
 interface Tracked {
@@ -19,7 +20,16 @@ interface Tracked {
 }
 
 const tracked = new Map<string, Map<string, Tracked>>();
+/**
+ * Layers whose visibility the user set against the view: no later group
+ * hides them again (REVIEW m4: "All 3 4D layers" re-hid a T1 the user showed).
+ */
+const userChoice = new Set<string>();
+/** Series views showing each group (several Plot docks can show one series): the last to leave restores. */
+const holders = new Map<string, number>();
 
+const viewVisible = (id: string) =>
+  useViewStateStore.getState().viewState?.layers?.find?.((l) => l.id === id)?.visible ?? isVisible(id);
 const isVisible = (id: string) =>
   useLayerStore.getState().layers?.find?.((l) => l.id === id)?.visible !== false;
 
@@ -38,10 +48,16 @@ function setVisible(key: string, id: string, want: boolean): void {
   const current = isVisible(id);
   const t = layers.get(id);
   // A layer the user changed since the view last set it is the user's.
-  if (t && current !== t.lastSet) return;
-  if (!t) layers.set(id, { original: current, lastSet: want });
+  if (t && current !== t.lastSet) {
+    userChoice.add(id);
+    return;
+  }
+  if (!want && userChoice.has(id)) return;
+  if (!t) layers.set(id, { original: viewVisible(id), lastSet: want });
   else t.lastSet = want;
-  if (current !== want) getLayerService().toggleVisibility(id, want);
+  // The view state can disagree with the layer store (a layer added hidden):
+  // what is drawn must follow too.
+  if (current !== want || viewVisible(id) !== want) getLayerService().toggleVisibility(id, want);
 }
 
 const runIds = (group: SegmentGroup) => [...new Set(group.segments.map((s) => s.layerId))];
@@ -58,7 +74,9 @@ function baseIds(group: SegmentGroup): string[] {
 
 /** Once per group: show the focused run only, over nothing. Sidecar groups are one layer. */
 export function formRunGroup(group: SegmentGroup, focusedId: string): void {
-  if (group.source === 'sidecar' || tracked.has(group.key)) return;
+  if (group.source === 'sidecar') return;
+  holders.set(group.key, (holders.get(group.key) ?? 0) + 1);
+  if (tracked.has(group.key)) return;
   tracked.set(group.key, new Map());
   for (const id of runIds(group)) setVisible(group.key, id, id === focusedId);
   for (const id of baseIds(group)) setVisible(group.key, id, false);
@@ -83,15 +101,24 @@ export function activateRun(
 
 /** "This layer only" (the group dissolves): undo what the view changed and the user did not. */
 export function restoreRunGroup(key: string): void {
+  const held = (holders.get(key) ?? 1) - 1;
+  if (held > 0) {
+    holders.set(key, held);
+    return;
+  }
+  holders.delete(key);
   const layers = tracked.get(key);
   if (!layers) return;
   tracked.delete(key);
-  for (const [id, t] of layers)
-    if (isVisible(id) === t.lastSet && t.original !== t.lastSet)
-      getLayerService().toggleVisibility(id, t.original);
+  for (const [id, t] of layers) {
+    if (isVisible(id) !== t.lastSet) userChoice.add(id);
+    else if (t.original !== t.lastSet) getLayerService().toggleVisibility(id, t.original);
+  }
 }
 
 /** Test hook. */
 export function resetRunVisibility(): void {
   tracked.clear();
+  userChoice.clear();
+  holders.clear();
 }

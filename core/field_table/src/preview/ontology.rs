@@ -951,7 +951,11 @@ pub(super) fn proposed_series_axis(
     values: &BTreeSet<String>,
 ) -> Option<bridge_types::SeriesAxisKind> {
     let kind = bridge_types::SeriesAxisKind::from_convention_name(name)?;
-    (!values.is_empty() && values.iter().all(|v| v.trim().parse::<f64>().is_ok())).then_some(kind)
+    (!values.is_empty()
+        && values
+            .iter()
+            .all(|v| v.trim().parse::<f64>().is_ok_and(f64::is_finite)))
+    .then_some(kind)
 }
 
 fn factor_source(name: &str) -> &'static str {

@@ -72,7 +72,7 @@ describe('series bindings (E5)', () => {
     const binding = resolveSetSeriesBinding(set4, { columns: ['condition', 'run', 'subject'], rows })!;
     expect(binding.segmentColumn).toBe('run');
     expect(seriesRecipe(binding, DEFAULT_SERIES_SETTINGS).facet).toBeNull();
-    expect(seriesRecipe(binding, { ...DEFAULT_SERIES_SETTINGS, segmentLayout: 'faceted' }).facet).toBe('run');
+    expect(seriesRecipe(binding, { ...DEFAULT_SERIES_SETTINGS, datasetRunsFaceted: true }).facet).toBe('run');
     // One value only: not a factor.
     const single = new Map([...rows].map(([id, r]) => [id, { ...r, run: '1' }]));
     expect(resolveSetSeriesBinding(set4, { columns: ['condition', 'run', 'subject'], rows: single })!.segmentColumn).toBeNull();

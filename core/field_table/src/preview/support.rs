@@ -244,32 +244,33 @@ pub(super) fn validate_nifti_volume_support(
             }];
         }
     };
-    if frames > 1 {
-        // A 4D member is unambiguous only when the feature declares a series
-        // axis (e.g. `axes: [x, y, z, lag]`); members are then expanded per
-        // frame by stack index. Without it, the 4th axis needs review.
-        match declared_series_frames(feature) {
-            None => {
-                return vec![StudioJoinIssueDetail {
-                    message: format!(
-                        "{} is a 4D series; declare a lag or time axis (logical.axes \
-                         [x, y, z, lag|time]) to compare its frames.",
-                        path.display()
-                    ),
-                    member_ids: vec![row_id.to_string()],
-                }];
-            }
-            Some(Some(declared)) if declared != frames => {
-                return vec![StudioJoinIssueDetail {
-                    message: format!(
-                        "Row {} has {} frames but the series axis declares {}.",
-                        row_id, frames, declared
-                    ),
-                    member_ids: vec![row_id.to_string()],
-                }];
-            }
-            Some(_) => {}
+    // A 4D member is unambiguous only when the feature declares a series axis
+    // (e.g. `axes: [x, y, z, lag]`). Import only validates frame counts: every
+    // member, 3D or 4D, must match the declared count (strict manifest
+    // validation requires one, so members of different lengths cannot form a
+    // set). Expansion into one observation per frame (stackIndex) happens
+    // later, in the UI's series mode.
+    match (frames > 1, declared_series_frames(feature)) {
+        (true, None) => {
+            return vec![StudioJoinIssueDetail {
+                message: format!(
+                    "{} is a 4D series; declare a lag or time axis (logical.axes \
+                     [x, y, z, lag|time]) to compare its frames.",
+                    path.display()
+                ),
+                member_ids: vec![row_id.to_string()],
+            }];
         }
+        (_, Some(Some(declared))) if declared != frames => {
+            return vec![StudioJoinIssueDetail {
+                message: format!(
+                    "Row {} has {} frames but the series axis declares {}.",
+                    row_id, frames, declared
+                ),
+                member_ids: vec![row_id.to_string()],
+            }];
+        }
+        _ => {}
     }
     let Some(shape) = &feature.logical.shape else {
         return Vec::new();

@@ -328,3 +328,95 @@ it('the condition-averaged peak weighs conditions equally, ± one axis step (rou
   const houses = { ...fir, rows: fir.rows.filter((r) => r.condition === 'houses') };
   expect(conditionAveragedPeakWindow(houses, { x: 'lag', color: 'condition' })).toEqual([2, 3]);
 });
+
+// Final batch (REVIEW M1 / m5 / m12).
+const conditions: SampleFrame = {
+  columns: [
+    { name: 'member', role: 'nominal' },
+    { name: 'subject', role: 'nominal' },
+    { name: 'condition', role: 'nominal' },
+    { name: 'lag', role: 'quantitative' },
+    { name: 'value', role: 'quantitative' },
+  ],
+  rows: ['s1', 's2', 's3'].flatMap((s, i) =>
+    [0, 1, 2].flatMap((lag) => [
+      { member: `${s}-f-${lag}`, subject: s, condition: 'faces', lag, value: 10 * lag + i },
+      { member: `${s}-h-${lag}`, subject: s, condition: 'houses', lag, value: lag + i },
+    ]),
+  ),
+};
+const lineRecipe = {
+  ...base,
+  x: 'lag',
+  axis: 'number' as const,
+  axisUnit: 'TR',
+  detail: 'subject',
+  mark: 'line' as const,
+  summary: 'mean' as const,
+  band: 'none' as const,
+  within: 'mean' as const,
+};
+
+it('a condition difference on a column no encoding carries pairs per participant (REVIEW M1)', () => {
+  const result = composePopulationPlot(conditions, {
+    ...lineRecipe,
+    color: null,
+    transforms: [{ kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' }],
+  });
+  // Was 0 rows ("0 of 3 participants paired"): faces and houses were averaged before pairing.
+  expect(result.frame.rows.map((r) => [r.lag, r.value, r.count])).toEqual([
+    [0, 0, 3],
+    [1, 9, 3],
+    [2, 18, 3],
+  ]);
+  // Repeated faces/houses rows are not "repeated rows" under within: 'single'.
+  expect(() =>
+    composePopulationPlot(conditions, {
+      ...lineRecipe,
+      color: null,
+      within: 'single',
+      transforms: [{ kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' }],
+    }),
+  ).not.toThrow();
+});
+
+it('transforms apply in stage order whatever the recipe order (REVIEW m5)', () => {
+  const declared = composePopulationPlot(conditions, {
+    ...lineRecipe,
+    color: 'condition',
+    mark: 'point',
+    transforms: [
+      { kind: 'windowMean', from: 1, to: 2 },
+      { kind: 'baseline', from: 0, to: 0 },
+    ],
+  });
+  const canonical = composePopulationPlot(conditions, {
+    ...lineRecipe,
+    color: 'condition',
+    mark: 'point',
+    transforms: [
+      { kind: 'baseline', from: 0, to: 0 },
+      { kind: 'windowMean', from: 1, to: 2 },
+    ],
+  });
+  expect(declared.frame.rows.length).toBe(2);
+  expect(declared.frame.rows).toEqual(canonical.frame.rows);
+});
+
+it('the peak window weighs participants, not rows, and follows the declared stages (REVIEW m12)', () => {
+  // s1 has ten repeated faces rows at lag 0 (pooled runs) at −40. Weighting rows, lag 0
+  // would dominate (|−14.8| > 12); weighting participants, lag 2 does (12 > |−5.1|).
+  const repeated: SampleFrame = {
+    ...conditions,
+    rows: [
+      ...conditions.rows,
+      ...Array.from({ length: 10 }, (_, k) => ({ member: `s1-f-0-${k}`, subject: 's1', condition: 'faces', lag: 0, value: -40 })),
+    ],
+  };
+  expect(conditionAveragedPeakWindow(repeated, { x: 'lag', color: 'condition' })).toEqual([0, 1]);
+  expect(conditionAveragedPeakWindow(repeated, { ...lineRecipe, color: 'condition' })).toEqual([1, 2]);
+  // A declared baseline at lag 2 is applied before the peak is found.
+  expect(
+    conditionAveragedPeakWindow(conditions, { ...lineRecipe, color: 'condition', transforms: [{ kind: 'baseline', from: 2, to: 2 }] }),
+  ).toEqual([0, 1]);
+});

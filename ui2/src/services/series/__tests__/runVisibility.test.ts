@@ -52,6 +52,11 @@ describe('run visibility (round 3 C3)', () => {
     toggle.mockClear();
     formRunGroup(group, 'r2');
     expect(toggle).not.toHaveBeenCalled();
+    // Two views hold the group: the first to leave restores nothing.
+    restoreRunGroup(group.key);
+    expect(toggle).not.toHaveBeenCalled();
+    restoreRunGroup(group.key);
+    expect(['t1', 'r1', 'r2', 'r3'].map(visible)).toEqual([true, true, true, true]);
   });
 
   it('activating another run shows it and hides the previous one', () => {
@@ -70,6 +75,14 @@ describe('run visibility (round 3 C3)', () => {
     toggle.mockClear();
     activateRun(group, 'r2', 'r2');
     expect(toggle).not.toHaveBeenCalled();
+  });
+
+  it('a T1 the user showed is not hidden again by the next group (REVIEW m4)', () => {
+    formRunGroup(group, 'r2');
+    setVisible('t1', true); // the user shows the anatomy
+    restoreRunGroup(group.key);
+    formRunGroup({ ...group, key: 'manual:r1,r2,r3', source: 'manual' }, 'r2');
+    expect(visible('t1')).toBe(true);
   });
 
   it('"This layer only" restores what the view changed and the user did not', () => {

@@ -22,11 +22,15 @@ import { curvatureSidecarCandidates, parseFreeSurferCurv } from '@/utils/surface
 
 export const READ_FILE_COMMAND = 'plugin:fs|read_file';
 
-function toBytes(raw: unknown): Uint8Array | null {
+/** The bytes of an IPC answer; a typed-array view keeps its own window of the buffer (review n5). */
+export function toBytes(raw: unknown): Uint8Array | null {
   if (raw instanceof Uint8Array) return raw;
   if (Object.prototype.toString.call(raw) === '[object ArrayBuffer]')
     return new Uint8Array(raw as ArrayBuffer);
-  if (ArrayBuffer.isView(raw)) return new Uint8Array((raw as ArrayBufferView).buffer);
+  if (ArrayBuffer.isView(raw)) {
+    const view = raw as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
   if (Array.isArray(raw)) return Uint8Array.from(raw as number[]);
   return null;
 }
