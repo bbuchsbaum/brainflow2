@@ -39,17 +39,20 @@ impl VolumeSource for NativeVolumeSource<'_> {
         // stall the async runtime (and every other in-flight command) for that span.
         let decode_start = Instant::now();
         let decode_path = file_path.clone();
-        let (volume_sendable, _affine) =
-            tokio::task::spawn_blocking(move || nifti_loader::load_nifti_volume_auto(&decode_path))
-                .await
-                .map_err(|e| BridgeError::Internal {
-                    code: 1004,
-                    details: format!("Volume decode task failed for {}: {}", path, e),
-                })?
-                .map_err(|e| BridgeError::Loader {
-                    code: 1003,
-                    details: format!("Failed to load file {}: {}", path, e),
-                })?;
+        // Dispatches on the header: multi-frame files load every frame as a
+        // TimeSeries4D (the 3D-only loader would keep frame 0).
+        let volume_sendable = tokio::task::spawn_blocking(move || {
+            nifti_loader::load_nifti_auto_dimension(&decode_path)
+        })
+        .await
+        .map_err(|e| BridgeError::Internal {
+            code: 1004,
+            details: format!("Volume decode task failed for {}: {}", path, e),
+        })?
+        .map_err(|e| BridgeError::Loader {
+            code: 1003,
+            details: format!("Failed to load file {}: {}", path, e),
+        })?;
         info!(
             "[perf] load_file decode (spawn_blocking, off async runtime): {} ms ({})",
             decode_start.elapsed().as_millis(),
@@ -531,6 +534,116 @@ mod tests {
             .await
             .unwrap();
         assert!(observed.upgrade().is_none());
+    }
+
+    /// A single-file NIfTI-1 written byte for byte like the native-check
+    /// fixture generator (.hillclimb/native-check/p4/gen/make_fixtures.py
+    /// `write_nifti`): x-fastest float32, sform code 4, xyzt_units mm + s,
+    /// pixdim[4] = TR, 4 empty extension bytes.
+    fn write_fixture_style_nifti(path: &std::path::Path, dims: [usize; 4], tr: f32) {
+        let mut header = vec![0u8; 348];
+        header[0..4].copy_from_slice(&348i32.to_le_bytes());
+        let dim: [i16; 8] = [
+            4,
+            dims[0] as i16,
+            dims[1] as i16,
+            dims[2] as i16,
+            dims[3] as i16,
+            1,
+            1,
+            1,
+        ];
+        for (index, value) in dim.iter().enumerate() {
+            header[40 + 2 * index..42 + 2 * index].copy_from_slice(&value.to_le_bytes());
+        }
+        header[70..72].copy_from_slice(&16i16.to_le_bytes()); // float32
+        header[72..74].copy_from_slice(&32i16.to_le_bytes());
+        let pixdim = [1.0f32, 4.0, 4.0, 4.0, tr, 1.0, 1.0, 1.0];
+        for (index, value) in pixdim.iter().enumerate() {
+            header[76 + 4 * index..80 + 4 * index].copy_from_slice(&value.to_le_bytes());
+        }
+        header[108..112].copy_from_slice(&352f32.to_le_bytes()); // vox_offset
+        header[112..116].copy_from_slice(&1f32.to_le_bytes()); // scl_slope
+        header[123] = 2 | 8; // mm + seconds
+        header[254..256].copy_from_slice(&4i16.to_le_bytes()); // sform_code (MNI)
+        for axis in 0..3 {
+            let mut row = [0f32; 4];
+            row[axis] = 4.0;
+            for (index, value) in row.iter().enumerate() {
+                let at = 280 + 16 * axis + 4 * index;
+                header[at..at + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        header[344..348].copy_from_slice(b"n+1\0");
+        header.extend_from_slice(&[0u8; 4]);
+        // Frame t holds t + 1 everywhere (x-fastest within each frame).
+        for t in 0..dims[3] {
+            for _ in 0..dims[0] * dims[1] * dims[2] {
+                header.extend_from_slice(&((t + 1) as f32).to_le_bytes());
+            }
+        }
+        std::fs::write(path, header).unwrap();
+    }
+
+    #[tokio::test]
+    async fn four_d_file_loads_every_frame_through_the_native_path() {
+        let path = std::env::temp_dir().join(format!("brainflow-4d-{}.nii", uuid::Uuid::new_v4()));
+        write_fixture_style_nifti(&path, [4, 3, 2, 5], 2.0);
+        let state = BridgeState::default().unwrap();
+        let handle = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(handle.volume_type, bridge_types::VolumeType::TimeSeries4D);
+        assert_eq!(handle.dims, vec![4, 3, 2, 5]);
+        assert_eq!(handle.num_timepoints, Some(5));
+        let series = handle.time_series_info.as_ref().unwrap();
+        assert_eq!((series.num_timepoints, series.tr), (5, Some(2.0)));
+        // Every frame is resident: the last frame holds 5.
+        let registry = state.volume_registry.lock().await;
+        let volume = registry.get(&handle.id).unwrap();
+        assert_eq!(
+            crate::read_member_frame_at_voxel(volume, 3, 2, 1, 4),
+            Some(5.0)
+        );
+        assert_eq!(
+            crate::read_member_frame_at_voxel(volume, 0, 0, 0, 0),
+            Some(1.0)
+        );
+    }
+
+    #[tokio::test]
+    async fn gzipped_fir_map_loads_all_lags_through_the_native_path() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../field_table/fixtures/neurotabs/fir4d/maps/sub-01_task-faces_fir.nii.gz");
+        let state = BridgeState::default().unwrap();
+        let handle = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(handle.dims, vec![41, 49, 40, 6]);
+        assert_eq!(handle.num_timepoints, Some(6));
+        let registry = state.volume_registry.lock().await;
+        let volume = registry.get(&handle.id).unwrap();
+        let lags: Vec<f32> = (0..6)
+            .map(|lag| crate::read_member_frame_at_voxel(volume, 7, 23, 30, lag).unwrap())
+            .collect();
+        for (got, want) in lags.iter().zip([0.1f32, 0.6, 1.1, 0.7, 0.3, 0.1]) {
+            assert!((got - want).abs() < 1e-6, "{lags:?}");
+        }
     }
 
     #[tokio::test]

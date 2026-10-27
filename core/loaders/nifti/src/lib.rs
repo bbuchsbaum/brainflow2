@@ -22,6 +22,22 @@ pub enum NiftiError {
     DimensionMismatch(usize),
     #[error("ScalingError: {0}")]
     ScalingError(String),
+    #[error(
+        "NIfTI header declares {0} frames; a multi-frame file cannot be loaded as one 3D volume"
+    )]
+    MultipleFrames(usize),
+}
+
+/// Number of frames (product of dims 4..=dim[0]) a NIfTI header declares; 1 for
+/// a 3D file. Header-only read.
+pub fn header_frame_count(path: &Path) -> Result<usize, NiftiError> {
+    let header = nifti::NiftiHeader::from_file(path)
+        .map_err(|e| NiftiError::ScalingError(format!("Failed to read NIfTI header: {e}")))?;
+    let rank = (header.dim[0] as usize).min(7);
+    Ok(header.dim[4..=rank.max(3)]
+        .iter()
+        .map(|&extent| extent.max(1) as usize)
+        .product())
 }
 
 // --- Loading Function using neuroim ---
@@ -469,9 +485,10 @@ fn statistic_metadata_from_header(header: &nifti::NiftiHeader) -> StatisticMetad
 // Try loading 4D volume with different data types
 pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
     // Try loading as f32 first (most common for fMRI)
-    if let Ok(result) = load_nifti_4d_neuroim::<f32>(path) {
-        return Ok(result);
-    }
+    let f32_error = match load_nifti_4d_neuroim::<f32>(path) {
+        Ok(result) => return Ok(result),
+        Err(error) => error,
+    };
 
     // Try i16
     if let Ok(result) = load_nifti_4d_neuroim::<i16>(path) {
@@ -488,9 +505,9 @@ pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
         return Ok(result);
     }
 
-    Err(NiftiError::ScalingError(
-        "Could not load 4D file with any supported data type".to_string(),
-    ))
+    Err(NiftiError::ScalingError(format!(
+        "Could not load 4D file with any supported data type: {f32_error}"
+    )))
 }
 
 /// Attempt a native-dtype 3D load for truly-integer, unscaled files.
@@ -548,6 +565,14 @@ fn try_load_native_3d(path: &Path) -> Option<(VolumeSendable, Affine3<f32>)> {
 
 // Simplified load function that tries different types (3D only)
 pub fn load_nifti_volume_auto(path: &Path) -> Result<(VolumeSendable, Affine3<f32>), NiftiError> {
+    // The f32 fallback below reads only frame 0 of a multi-frame file; refuse
+    // rather than silently drop frames (use `load_nifti_auto_dimension`).
+    if let Ok(frames) = header_frame_count(path) {
+        if frames > 1 {
+            return Err(NiftiError::MultipleFrames(frames));
+        }
+    }
+
     // Native fast path: unscaled integer files keep their on-disk dtype (2 bytes/
     // voxel for int16, 1 for u8) instead of being inflated to f32. Returns None
     // for scaled/float files and on any native read failure, falling through to
@@ -608,6 +633,10 @@ impl From<NiftiError> for BridgeError {
             NiftiError::ScalingError(msg) => BridgeError::Loader {
                 code: 5006,
                 details: format!("NIFTI scaling error: {}", msg),
+            },
+            frames @ NiftiError::MultipleFrames(_) => BridgeError::Loader {
+                code: 5007,
+                details: frames.to_string(),
             },
         }
     }
@@ -709,6 +738,36 @@ mod tests {
             .join("..") // Go up to workspace root
             .join("test-data")
             .join("unit")
+    }
+
+    /// 41x49x40x6 float32 FIR map (gzip) written by the native-check fixture
+    /// generator; voxel (7, 23, 30) holds 0.1, 0.6, 1.1, 0.7, 0.3, 0.1 over lags.
+    fn fir4d_fixture() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../field_table/fixtures/neurotabs/fir4d/maps/sub-01_task-faces_fir.nii.gz")
+    }
+
+    #[test]
+    fn three_d_loader_refuses_multi_frame_files() {
+        let path = fir4d_fixture();
+        assert_eq!(header_frame_count(&path).unwrap(), 6);
+        match load_nifti_volume_auto(&path) {
+            Err(NiftiError::MultipleFrames(6)) => {}
+            other => panic!("expected MultipleFrames(6), got {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn auto_dimension_loads_every_frame_of_a_4d_file() {
+        let VolumeSendable::Vec4DF32(vec) = load_nifti_auto_dimension(&fir4d_fixture()).unwrap()
+        else {
+            panic!("expected Vec4DF32");
+        };
+        assert_eq!(vec.space().dim, vec![41, 49, 40, 6]);
+        let expected = [0.1f32, 0.6, 1.1, 0.7, 0.3, 0.1];
+        for (frame, value) in expected.iter().enumerate() {
+            assert_relative_eq!(vec.data[[7, 23, 30, frame]], *value, epsilon = 1e-6);
+        }
     }
 
     // Helper to get the full path to a specific unit test file
