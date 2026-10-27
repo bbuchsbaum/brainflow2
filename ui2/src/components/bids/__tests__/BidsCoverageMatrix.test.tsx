@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BidsCoverageMatrix } from '../BidsCoverageMatrix';
 import { useBidsStore } from '@/stores/bidsStore';
@@ -92,5 +92,58 @@ describe('BidsCoverageMatrix', () => {
     // 3 subjects × 2 columns = 6 gridcell elements
     const cells = screen.getAllByRole('gridcell');
     expect(cells).toHaveLength(6);
+  });
+
+  it('has real grid structure: rows of column headers, a row header and gridcells', () => {
+    useBidsStore.setState({ summary: makeSummary() });
+    render(<BidsCoverageMatrix />);
+    const grid = screen.getByRole('grid', { name: 'BIDS coverage matrix' });
+    const rows = within(grid).getAllByRole('row');
+    expect(rows).toHaveLength(4); // header + 3 subjects
+    expect(within(rows[0]).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Subject',
+      'T1w',
+      'rest/bold',
+    ]);
+    expect(within(rows[2]).getByRole('rowheader')).toHaveTextContent('sub-02');
+    expect(within(rows[2]).getAllByRole('gridcell')).toHaveLength(2);
+    expect(within(rows[2]).getAllByRole('gridcell')[1]).toHaveAccessibleName('sub-02 rest/bold: missing');
+  });
+
+  it('shows the run count as text, or an em dash for a missing cell (not fill alone)', () => {
+    useBidsStore.setState({ summary: makeSummary() });
+    render(<BidsCoverageMatrix />);
+    const cells = screen.getAllByRole('gridcell');
+    expect(cells.map((c) => c.textContent)).toEqual(['1', '2', '1', '\u2014', '\u2014', '\u2014']);
+    // The accessible name stays the full sentence.
+    expect(cells[1]).toHaveAccessibleName('sub-01 rest/bold: 2 runs');
+  });
+
+  it('one roving tab stop; arrows / Home / End move focus; Enter selects the run', () => {
+    useBidsStore.setState({ summary: makeSummary() });
+    render(<BidsCoverageMatrix />);
+    const cells = screen.getAllByRole('gridcell');
+    expect(cells.filter((c) => c.tabIndex === 0)).toHaveLength(1);
+    expect(cells[0].tabIndex).toBe(0);
+
+    cells[0].focus();
+    fireEvent.keyDown(cells[0], { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(cells[1]);
+    fireEvent.keyDown(cells[1], { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(cells[3]);
+    expect(cells[3].tabIndex).toBe(0);
+    expect(cells[0].tabIndex).toBe(-1);
+    fireEvent.keyDown(cells[3], { key: 'Home' });
+    expect(document.activeElement).toBe(cells[2]);
+    fireEvent.keyDown(cells[2], { key: 'End', ctrlKey: true });
+    expect(document.activeElement).toBe(cells[5]);
+    fireEvent.keyDown(cells[5], { key: 'ArrowRight' }); // stays at the edge
+    expect(document.activeElement).toBe(cells[5]);
+
+    fireEvent.keyDown(cells[1], { key: 'Enter' });
+    const sel = useBidsStore.getState().selection;
+    expect(sel.subjectId).toBe('01');
+    expect(sel.modality).toBe('bold');
+    expect(cells[1]).toHaveAttribute('aria-selected', 'true');
   });
 });

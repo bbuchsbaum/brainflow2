@@ -1,6 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { IconButton, SELECTED_EDGE } from '@/components/ui/bf';
+import { getEventBus } from '@/events/EventBus';
+import { formatTauriError } from '@/utils/formatTauriError';
+
+/** Two frames: the closing Modal has unmounted and returned focus. */
+function afterFocusReturn(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') {
+      setTimeout(resolve, 0);
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
 
 export interface CommandPaletteCommand {
   id: string;
@@ -79,12 +93,22 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
       return;
     }
 
+    // Close first and let the palette restore focus, THEN run the command:
+    // a command that opens a dialog (Export, Go to, Crosshair settings) or
+    // moves focus (Show Clusters) must not have its focus undone by the
+    // palette's own focus return (v3 function critic).
+    setRunningCommandId(command.id);
+    onClose();
+    await afterFocusReturn();
     try {
-      setRunningCommandId(command.id);
       await Promise.resolve(command.run());
-      onClose();
     } catch (error) {
       console.error('[CommandPaletteDialog] Command failed:', command.id, error);
+      // Failures are shown (status message, role=alert), not only logged.
+      getEventBus().emit('ui.notification', {
+        type: 'error',
+        message: `${command.title}: ${formatTauriError(error) || 'failed'}`,
+      });
     } finally {
       setRunningCommandId(null);
     }
@@ -136,7 +160,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
       overlayClassName="items-start pt-20 bg-black/55"
       className="max-w-2xl overflow-hidden rounded-sm border shadow-2xl"
     >
-        <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--app-border-subtle, #e2e8f0)' }}>
+        <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--bf-border-subtle)' }}>
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
             ref={inputRef}
@@ -147,9 +171,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
             className="flex-1 bg-transparent text-sm outline-none"
             aria-label="Command search"
           />
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close command palette">
-            <X className="h-4 w-4" />
-          </button>
+          <IconButton size="xs" icon={<X />} onClick={onClose} aria-label="Close command palette" />
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto py-1" role="listbox" aria-label="Command results">
@@ -166,7 +188,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? 'bg-accent/60' : 'hover:bg-accent/30'}`}
+                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? `bg-accent ${SELECTED_EDGE}` : 'hover:bg-accent'}`}
                   onMouseEnter={() => setSelectedIndex(index)}
                   onClick={() => {
                     void executeCommand(command);
@@ -178,7 +200,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
                       <div className="mt-0.5 text-xs text-muted-foreground">{command.subtitle}</div>
                     ) : null}
                   </div>
-                  <div className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                  <div className="shrink-0 text-bf-2xs text-muted-foreground">
                     {running ? 'Running...' : command.shortcut ?? command.group ?? ''}
                   </div>
                 </button>
@@ -187,7 +209,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
           )}
         </div>
 
-        <div className="border-t px-3 py-2 text-xs text-muted-foreground" style={{ borderColor: 'var(--app-border-subtle, #e2e8f0)' }}>
+        <div className="border-t px-3 py-2 text-xs text-muted-foreground" style={{ borderColor: 'var(--bf-border-subtle)' }}>
           Use ↑/↓ to navigate, Enter to run, Esc to close.
         </div>
     </Modal>

@@ -113,11 +113,17 @@ export const apiBridgeCommands = [
   "sample_set_at_world",
   "cancel_population_sample",
   "evaluate_population_slice",
+  "fit_population_relationship",
   "export_population_summary",
   "replay_population_summary",
   "open_population_summary",
+  "export_population_plot",
   "release_population_slice",
   "sample_set_trace_at_world",
+  "save_image_bytes",
+  "compute_clusters",
+  "volume_extremum",
+  "volume_nonzero_bbox",
 ] as const;
 
 export type ApiBridgeCommand = (typeof apiBridgeCommands)[number];

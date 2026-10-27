@@ -6,8 +6,17 @@
  * relationship. Three states (driven by `useSurfaceAssociationState`):
  *
  *   missing         → "No surface loaded" with a "Load surface…" CTA.
- *   loaded-unlinked → orange unlinked indicator + a hint about how to link.
+ *   loaded-unlinked → warning-toned unlinked indicator + the reason.
  *   loaded-linked   → quiet linked indicator naming the source volume.
+ *
+ * Colour policy: the unlinked state is a warning (`--bf-warning`); the
+ * pial/white coordinate-linking note is neutral (an optional surface). The template note is neutral guidance; the linked
+ * state carries `--bf-success` on its icon only. Amber is reserved for the
+ * accent, so none of these states use it.
+ *
+ * Form: a bf `Notice`. Inline (the Integrated surface pane's top strip) it is
+ * the panel form (left hairline + icon + text, no box); as an overlay on the
+ * canvas it is the boxed canvas form.
  *
  * The badge is **non-blocking** — it sits in the top-left of the surface
  * canvas at low opacity until hovered. Surface canvas interactions
@@ -19,6 +28,7 @@ import { useSurfaceStore } from "@/stores/surfaceStore";
 import { collectRenderSurfaces } from "./surfaceRenderSurfaces";
 import { resolveCursorAnatomy } from "./surfaceLink";
 import { Brain, Link, Link2Off } from "lucide-react";
+import { Notice, type NoticeSeverity } from "@/components/ui/bf";
 
 import { useSurfaceAssociationState } from "./surfaceAssociation.helpers";
 
@@ -29,28 +39,64 @@ const ABS_OVERLAY_STYLE: React.CSSProperties = {
   zIndex: 4,
   pointerEvents: "none",
   display: "flex",
-};
-
-const CARD_BASE_STYLE: React.CSSProperties = {
-  pointerEvents: "auto",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "6px",
-  padding: "4px 8px",
-  background: "rgba(8, 17, 28, 0.86)",
-  border: "1px solid var(--app-border-subtle)",
-  borderRadius: "4px",
-  color: "var(--app-text-secondary)",
-  fontSize: "var(--app-role-section-size)",
-  letterSpacing: "var(--app-role-section-tracking)",
-  textTransform: "uppercase",
-  fontWeight: 600,
-  backdropFilter: "blur(6px)",
-  whiteSpace: "nowrap",
   maxWidth: "320px",
 };
 
-export const SurfaceAssociationBadge: React.FC = () => {
+// Inline: the badge is the surface pane's top-margin status strip. It sits
+// over the pane's top 28px (the surface panel keeps the full pane so its
+// camera framing is unchanged).
+const INLINE_STRIP_STYLE: React.CSSProperties = {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: "44px",
+  height: "28px",
+  zIndex: 4,
+  pointerEvents: "none",
+  display: "flex",
+  alignItems: "center",
+  padding: "0 10px",
+  minWidth: 0,
+};
+
+const ICON = "mt-px h-3 w-3 shrink-0";
+
+interface BadgeNoticeProps {
+  inline: boolean;
+  state: string;
+  severity: NoticeSeverity;
+  icon: React.ReactNode;
+  title: string;
+  reason?: string;
+  children: React.ReactNode;
+}
+
+function BadgeNotice({ inline, state, severity, icon, title, reason, children }: BadgeNoticeProps) {
+  return (
+    <div
+      style={inline ? INLINE_STRIP_STYLE : ABS_OVERLAY_STYLE}
+      data-placement={inline ? "strip" : "overlay"}
+    >
+      <Notice
+        data-testid="surface-association-badge"
+        data-state={state}
+        data-reason={reason}
+        severity={severity}
+        surface={inline ? "panel" : "canvas"}
+        icon={icon}
+        title={title}
+        className="pointer-events-auto min-w-0 max-w-full whitespace-nowrap"
+      >
+        <span className="block truncate">{children}</span>
+      </Notice>
+    </div>
+  );
+}
+
+export const SurfaceAssociationBadge: React.FC<{
+  /** Render as a top-margin strip instead of an overlay on the canvas. */
+  inline?: boolean;
+}> = ({ inline = false }) => {
   const association = useSurfaceAssociationState();
   const surfaces = useSurfaceStore(state => state.surfaces);
   const activeSurfaceId = useSurfaceStore(state => state.activeSurfaceId);
@@ -70,14 +116,17 @@ export const SurfaceAssociationBadge: React.FC = () => {
 
   if (missingAnatomy) {
     return (
-      <div style={ABS_OVERLAY_STYLE}>
-        <div data-testid="surface-association-badge" data-state="cursor-unavailable"
-          style={{ ...CARD_BASE_STYLE, color: 'var(--app-warning, #f59e0b)' }}
-          title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates.">
-          <Link2Off width={12} height={12} aria-hidden="true" />
-          <span>Load matching pial/white surface to link coordinates</span>
-        </div>
-      </div>
+      <BadgeNotice
+        inline={inline}
+        state="cursor-unavailable"
+        // An optional surface is missing, not a fault: a muted note, no
+        // warning bar (P3.10, v0 visual critic).
+        severity="neutral"
+        icon={<Link2Off className={`${ICON} text-muted-foreground`} />}
+        title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates."
+      >
+        <span className="text-muted-foreground">Load matching pial/white surface to link coordinates</span>
+      </BadgeNotice>
     );
   }
 
@@ -87,97 +136,53 @@ export const SurfaceAssociationBadge: React.FC = () => {
         ? "Source volume not loaded"
         : "No source volume";
     return (
-      <div style={ABS_OVERLAY_STYLE}>
-        <div
-          data-testid="surface-association-badge"
-          data-state="loaded-unlinked"
-          data-reason={association.reason}
-          style={{
-            ...CARD_BASE_STYLE,
-            color: "var(--app-warning, #f59e0b)",
-            borderColor: "rgba(245, 158, 11, 0.45)",
-          }}
-          title={`${association.surfaceName}: ${reasonLabel}`}
-        >
-          <Link2Off width={12} height={12} aria-hidden="true" />
-          <span data-testid="surface-association-state">Source unlinked</span>
-          <span
-            data-testid="surface-association-detail"
-            style={{
-              color: "var(--app-text-muted)",
-              fontWeight: 450,
-              textTransform: "none",
-              letterSpacing: 0,
-            }}
-          >
-            · {reasonLabel}
-          </span>
-        </div>
-      </div>
+      <BadgeNotice
+        inline={inline}
+        state="loaded-unlinked"
+        reason={association.reason}
+        severity="warning"
+        icon={<Link2Off className={ICON} />}
+        title={`${association.surfaceName}: ${reasonLabel}`}
+      >
+        <span data-testid="surface-association-state">Source unlinked</span>
+        <span data-testid="surface-association-detail" className="text-muted-foreground">
+          {" "}· {reasonLabel}
+        </span>
+      </BadgeNotice>
     );
   }
 
   if (association.kind === "template-underlay") {
     return (
-      <div style={ABS_OVERLAY_STYLE}>
-        <div
-          data-testid="surface-association-badge"
-          data-state="template-underlay"
-          style={{
-            ...CARD_BASE_STYLE,
-            color: "var(--app-accent, #5b9dff)",
-            borderColor: "rgba(91, 157, 255, 0.45)",
-          }}
-          title={`${association.surfaceName}: Template surface; coordinate linking requires a volume in the same world space`}
-        >
-          <Brain width={12} height={12} aria-hidden="true" />
-          <span data-testid="surface-association-state">Template surface</span>
-          <span
-            data-testid="surface-association-detail"
-            style={{
-              color: "var(--app-text-muted)",
-              fontWeight: 450,
-              textTransform: "none",
-              letterSpacing: 0,
-            }}
-          >
-            · template surface
-          </span>
-        </div>
-      </div>
+      <BadgeNotice
+        inline={inline}
+        state="template-underlay"
+        severity="neutral"
+        icon={<Brain className={`${ICON} text-muted-foreground`} />}
+        title={`${association.surfaceName}: Template surface; coordinate linking requires a volume in the same world space`}
+      >
+        <span data-testid="surface-association-state">Template surface</span>
+        <span data-testid="surface-association-detail" className="text-muted-foreground">
+          {" "}· template surface
+        </span>
+      </BadgeNotice>
     );
   }
 
-  // loaded-linked
+  // loaded-linked: success colour on the icon only; the text stays neutral.
   return (
-    <div style={ABS_OVERLAY_STYLE}>
-      <div
-        data-testid="surface-association-badge"
-        data-state="loaded-linked"
-        style={{
-          ...CARD_BASE_STYLE,
-          color: "var(--app-success, #35d36b)",
-          borderColor: "rgba(53, 211, 107, 0.45)",
-        }}
-        title={`${association.surfaceName} ↔ ${association.volumeName}`}
-      >
-        <Link width={12} height={12} aria-hidden="true" />
-        <span data-testid="surface-association-state">Source linked</span>
-        <span
-          data-testid="surface-association-volume"
-          style={{
-            color: "var(--app-text-muted)",
-            fontWeight: 450,
-            textTransform: "none",
-            letterSpacing: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          · {association.volumeName}
-        </span>
-      </div>
-    </div>
+    <BadgeNotice
+      inline={inline}
+      state="loaded-linked"
+      severity="neutral"
+      icon={<Link className={`${ICON} text-bf-success`} />}
+      title={`${association.surfaceName} ↔ ${association.volumeName}`}
+    >
+      <span data-testid="surface-association-state">Source linked</span>
+      <span data-testid="surface-association-volume" className="text-muted-foreground">
+        {" "}· {association.volumeName}
+      </span>
+    </BadgeNotice>
   );
 };
 

@@ -198,3 +198,241 @@ it('discards a completion after another import and forwards cancellation without
   );
   expect(useSetStudioStore.getState()).toBe(latest);
 });
+
+it('reopens a frozen order and montage, but refuses a fitted order with changed frame bindings', () => {
+  const record = opened();
+  const order = {
+    featureId: 'old-feature',
+    rule: 'response',
+    tieRule: 'source',
+    orderedIds: ['c', 'b', 'a'],
+    unavailableIds: ['a'],
+    label: 'Response order at pinned point',
+    probe: { supportKey: 'old', worldMm: [1, 2, 3], radiusMm: 0, reduce: 'mean' },
+    bindings: structuredClone(record.calculation.members),
+    mask: record.calculation.mask,
+  };
+  record.context = {
+    ...(record.context as object),
+    presentation: { arrangement: 'montage', order },
+  };
+  const restored = preparePopulationRestore(record, 'w', 7);
+  expect(restored.population.presentation).toMatchObject({
+    arrangement: 'montage',
+    order: { orderedIds: ['c', 'b', 'a'], featureId: restored.features[0].id },
+  });
+  expect(restored.selection.activeMemberId).toBe('c');
+  expect(restored.population.working).toMatchObject({ memberIds: ['a', 'b'] });
+  order.bindings[0].stackIndex = 99;
+  const invalid = preparePopulationRestore(record, 'w', 8);
+  expect(invalid.population.presentation?.order).toBeNull();
+  expect(invalid.set.savedPopulation?.notices.join(' ')).toMatch(/order could not be verified/);
+});
+
+it('restores factor membership and authoritative A/B operands for continued exploration', () => {
+  const record = opened();
+  record.calculation.summary = 'mean';
+  record.calculation.aggregation = null;
+  record.calculation.reference = { id: 'B', memberIds: ['b', 'c'] };
+  record.calculation.difference = true;
+  record.context = {
+    ...record.context,
+    metadata: { a: { site: 'A' }, b: { site: 'B' }, c: { site: 'B' } },
+    exploration: {
+      version: 1,
+      cohorts: [{ id: 'old-cohort', label: 'Other set', memberIds: ['a'] }],
+      partition: {
+        setId: 'old',
+        column: 'site',
+        contextIds: ['a', 'b', 'c'],
+        origin: 'metadata',
+        groups: [
+          { id: 'A', label: 'Site A', value: 'A', memberIds: ['a'] },
+          { id: 'B', label: 'Site B', value: 'B', memberIds: ['b', 'c'] },
+        ],
+      },
+      partitionPast: [null],
+    },
+  };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.presentation.arrangement).toBe('difference');
+  expect(state.cohorts[state.selection.compareCohortId!].memberIds).toEqual(['b', 'c']);
+  expect(state.population.partition?.groups[1].memberIds).toEqual(['b', 'c']);
+  expect(state.population.partitionPast).toEqual([null]);
+  expect(studioMetadata(payload.set, ['a', 'b', 'c']).issue).toBeNull();
+  const result = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [3, 4, 5],
+    orientation: 'coronal',
+    dimPx: [10, 10],
+    zoom: 2,
+    summary: 'mean',
+  }).query!;
+  expect(result.request.reference?.memberIds).toEqual(['b', 'c']);
+  expect(result.request.workingMemberIds).toEqual(['a', 'b']);
+  expect(result.request.difference).toBe(true);
+});
+
+it('restores the executable null, units, channel and exploratory origin ahead of descriptive context', () => {
+  const record = opened();
+  record.calculation.aggregation = {
+    within: 'single',
+    groups: record.calculation.members
+      .map((m) => ({ participantId: m.memberId, memberIds: [m.memberId] }))
+      .filter((g) => record.calculation.workingMemberIds.includes(g.participantId)),
+  };
+  record.calculation.inference = {
+    method: 'oneSample',
+    role: 'effect',
+    units: '% signal change',
+    nullValue: 2,
+    independentParticipants: true,
+    selectionOrigin: 'map-derived',
+    channel: 't',
+  };
+  record.context = { selectionContext: { working: { origin: 'manual' } } };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.inference).toMatchObject({
+    ...record.calculation.inference,
+    featureId: state.selection.activeFeatureId,
+    setId: state.selection.activeSetId,
+  });
+  expect(state.population.working).toMatchObject({ origin: 'map-derived', memberIds: ['a', 'b'] });
+  const q = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [0, 0, 0],
+    orientation: 'axial',
+    dimPx: [2, 2],
+    zoom: 1,
+    summary: 'mean',
+  }).query!;
+  expect(q.request.inference).toEqual(record.calculation.inference);
+});
+
+it('reopens independent-group inference in Inspect with both participant partitions and channel intact', () => {
+  const record = opened();
+  record.calculation.members.push({
+    ...record.calculation.members[2],
+    memberId: 'd',
+    stackIndex: 3,
+  });
+  const aggregation = (ids: string[]) => ({
+    within: 'single' as const,
+    groups: ids.map((id) => ({ participantId: id, memberIds: [id] })),
+  });
+  record.calculation.summary = 'mean';
+  record.calculation.aggregation = aggregation(['a', 'b']);
+  record.calculation.reference = {
+    id: 'B',
+    memberIds: ['c', 'd'],
+    aggregation: aggregation(['c', 'd']),
+  };
+  record.calculation.inference = {
+    method: 'welch',
+    role: 'effect',
+    units: 'a.u.',
+    nullValue: 1,
+    independentParticipants: true,
+    selectionOrigin: 'map-derived',
+    channel: 'countB',
+  };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.presentation.arrangement).toBe('inspect');
+  expect(state.selection.activeMemberId).toBe('c');
+  expect(state.population.inference).toMatchObject({
+    method: 'welch',
+    channel: 'countB',
+    setId: state.selection.activeSetId,
+  });
+  const built = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [3, 4, 5],
+    orientation: 'coronal',
+    dimPx: [10, 10],
+    zoom: 2,
+    summary: 'mean',
+  });
+  expect(built.issue).toBeNull();
+  expect(built.query!.request.reference?.aggregation).toEqual(
+    record.calculation.reference.aggregation,
+  );
+  expect(built.query!.request.aggregation).toEqual(record.calculation.aggregation);
+  expect(built.query!.request.inference).toEqual(record.calculation.inference);
+});
+
+it('reopens paired inference in Inspect with both participant partitions and channel intact', () => {
+  const record = opened();
+  record.calculation.members.push({
+    ...record.calculation.members[2],
+    memberId: 'd',
+    stackIndex: 3,
+  });
+  const aggregation = (ids: string[]) => ({
+    within: 'single' as const,
+    groups: ids.map((id) => ({ participantId: id, memberIds: [id] })),
+  });
+  record.calculation.summary = 'mean';
+  record.calculation.aggregation = aggregation(['a', 'b']);
+  record.calculation.reference = {
+    id: 'B',
+    memberIds: ['c', 'd'],
+    aggregation: {
+      within: 'single',
+      groups: [
+        { participantId: 'b', memberIds: ['d'] },
+        { participantId: 'a', memberIds: ['c'] },
+      ],
+    },
+  };
+  record.calculation.inference = {
+    method: 'paired',
+    role: 'effect',
+    units: 'a.u.',
+    nullValue: 1,
+    independentParticipants: true,
+    selectionOrigin: 'map-derived',
+    channel: 'count',
+  };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.presentation.arrangement).toBe('inspect');
+  expect(state.selection.activeMemberId).toBe('c');
+  expect(state.population.inference).toMatchObject({
+    method: 'paired',
+    channel: 'count',
+    setId: state.selection.activeSetId,
+  });
+  const built = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [3, 4, 5],
+    orientation: 'coronal',
+    dimPx: [10, 10],
+    zoom: 2,
+    summary: 'mean',
+  });
+  expect(built.issue).toBeNull();
+  expect(built.query!.request.reference?.aggregation?.within).toBe('single');
+  expect(built.query!.request.reference?.aggregation?.groups).toEqual(
+    expect.arrayContaining(record.calculation.reference.aggregation!.groups),
+  );
+  expect(built.query!.request.reference?.aggregation?.groups).toHaveLength(2);
+  expect(built.query!.request.aggregation).toEqual(record.calculation.aggregation);
+  expect(built.query!.request.inference).toEqual(record.calculation.inference);
+});
+it('retains descriptive imported feature semantics and refuses unknown saved roles', () => {
+  const record = opened();
+  record.context = {
+    ...(record.context as object),
+    featureContract: { valueRole: 'effect', units: 'percent signal change' },
+  };
+  const restored = preparePopulationRestore(record, 'workspace', 2);
+  expect(restored.features[0]).toMatchObject({
+    valueRole: 'effect',
+    units: 'percent signal change',
+  });
+  record.context = { featureContract: { valueRole: 'unknownStatistic' } };
+  expect(() => preparePopulationRestore(record, 'workspace', 2)).toThrow('Unknown saved feature');
+});

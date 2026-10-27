@@ -1,12 +1,13 @@
 import type { MouseEvent } from 'react';
 import { SliceRenderer } from './SliceRenderer';
 import type { SliceRendererProps } from './SliceRenderer';
-import type { CrosshairStyle } from '@/utils/crosshairUtils';
+import type { CrosshairRect, CrosshairStyle } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
 import type { RenderContext } from '@/types/renderContext';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
 import { useRenderContextRegistration } from './viewport/useRenderContextRegistration';
 import { ReusableSliceViewport } from './sliceViewer';
+import type { CrosshairWorldBounds } from './sliceViewer/ReusableSliceViewport';
 
 export interface SliceViewportPlacement {
   x: number;
@@ -28,6 +29,10 @@ interface SliceViewportProps {
     world_mm: [number, number, number];
   } | null;
   crosshairStyle?: CrosshairStyle | null;
+  /** Client-space boxes (orientation letters) the crosshair stroke avoids. */
+  getCrosshairKnockouts?: () => CrosshairRect[];
+  /** Clip the crosshair stroke to this world extent (see ReusableSliceViewport). */
+  crosshairWorldBounds?: CrosshairWorldBounds | null;
   showSliceBorder?: boolean;
   sliceBorderWidth?: number;
   className?: string;
@@ -58,6 +63,8 @@ export function SliceViewport({
   viewPlane,
   crosshair,
   crosshairStyle,
+  getCrosshairKnockouts,
+  crosshairWorldBounds,
   showSliceBorder = false,
   sliceBorderWidth = 1,
   className = '',
@@ -81,6 +88,10 @@ export function SliceViewport({
 }: SliceViewportProps) {
   useRenderContextRegistration(context);
 
+  // The Brainflow ReusableSliceViewport draws the crosshair itself (halo +
+  // pixel-snapped core, centre gap, compact weight in small views, clipped
+  // around orientation letters) with the shared viewer's projection:
+  // styling only, geometry unchanged.
   return (
     <ReusableSliceViewport
       width={width}
@@ -88,6 +99,8 @@ export function SliceViewport({
       viewPlane={viewPlane}
       crosshair={crosshair}
       crosshairStyle={crosshairStyle}
+      getCrosshairKnockouts={getCrosshairKnockouts}
+      crosshairWorldBounds={crosshairWorldBounds}
       showSliceBorder={showSliceBorder}
       sliceBorderWidth={sliceBorderWidth}
       className={className}

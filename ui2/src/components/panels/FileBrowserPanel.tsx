@@ -22,16 +22,23 @@ import {
 import { PanelErrorBoundary } from "../common/PanelErrorBoundary";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { RemoteMountDialog } from "./RemoteMountDialog";
-import { FileTreeRow, type FileNodeData } from "./files/FileTreeRow";
+import {
+  FileTreeItemRow,
+  FileTreeRow,
+  type FileNodeData,
+} from "./files/FileTreeRow";
+import { handleTreeTabCapture } from "./files/treeTabEscape";
 import { FilesStartPanel } from "./files/FilesStartPanel";
 import { SourceHeader } from "./files/SourceHeader";
 import { FilterBar } from "./files/FilterBar";
 import { SelectedFileSummary } from "./files/SelectedFileSummary";
 import { FilesFooterStatus } from "./files/FilesFooterStatus";
-import { ViewModeTabs } from "./files/ViewModeTabs";
+import { ViewModeTabs, filesViewPanelProps } from "./files/ViewModeTabs";
+import { Button, Notice } from "@/components/ui/bf";
 import { ImagesView } from "./files/ImagesView";
 import { LoadedView } from "./files/LoadedView";
 import { BidsView } from "./files/BidsView";
+import { useKeyboardNavWithin } from "./files/useKeyboardNavWithin";
 
 const FileBrowserPanelContent: React.FC = () => {
   const fileBrowserStore = useFileBrowserStore();
@@ -101,7 +108,12 @@ const FileBrowserPanelContent: React.FC = () => {
   // null ref (empty state), bail, and never re-attach — freezing the Tree at
   // its fallback width. The callback ref attaches the ResizeObserver whenever
   // the node appears (and disconnects when it unmounts).
+  // Gate the tree's focus ring on keyboard navigation inside the tree (see
+  // useKeyboardNavWithin): react-arborist parks DOM focus on a row, which
+  // otherwise stays ringed while the user works elsewhere.
+  const kbdNavRef = useKeyboardNavWithin();
   const setTreeContainer = useCallback((node: HTMLDivElement | null) => {
+    kbdNavRef(node);
     treeContainerRef.current = node;
     treeResizeObserverRef.current?.disconnect();
     treeResizeObserverRef.current = null;
@@ -124,7 +136,15 @@ const FileBrowserPanelContent: React.FC = () => {
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     treeResizeObserverRef.current = observer;
-  }, []);
+  }, [kbdNavRef]);
+
+  // react-arborist renders an unnamed role="tree"; name it "Files".
+  useEffect(() => {
+    const tree = treeContainerRef.current?.querySelector('[role="tree"]');
+    if (tree && tree.getAttribute("aria-label") !== "Files") {
+      tree.setAttribute("aria-label", "Files");
+    }
+  });
 
   useEffect(
     () => () => {
@@ -370,7 +390,7 @@ const FileBrowserPanelContent: React.FC = () => {
   const selectedFolderForSet =
     selectedFileNode?.type === "directory"
       ? selectedFileNode.path
-      : selectedRootMount?.path ?? rootNode?.path ?? null;
+      : null;
 
   return (
     <div
@@ -408,7 +428,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "unmount-selected",
-              label: "Unmount Selected",
+              label: "Unmount selected",
               onClick: () => {
                 void unmountSelectedRoot();
               },
@@ -426,7 +446,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "open-folder-image-set",
-              label: "Open folder as image set…",
+              label: "Open as switchable layer…",
               onClick: () => {
                 if (selectedFolderForSet) void getImageSetService().openFolder(selectedFolderForSet);
               },
@@ -434,7 +454,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "create-set-from-folder",
-              label: "Create Set from Folder",
+              label: "Open in Set studio…",
               onClick: () => {
                 if (!selectedFolderForSet) return;
                 void getSetStudioService().openFolderOntologyInStudio({
@@ -453,7 +473,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "refresh",
-              label: "Refresh Directory",
+              label: "Refresh directory",
               onClick: () => {
                 if (!canRefresh) return;
                 void fileBrowserStore.refreshDirectory(refreshTargetPath);
@@ -462,7 +482,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "clear-search",
-              label: "Clear Search",
+              label: "Clear search",
               onClick: handleNoResultsReset,
               disabled: searchQuery.trim().length === 0,
             },
@@ -494,9 +514,9 @@ const FileBrowserPanelContent: React.FC = () => {
       )}
 
       {mountActionError && hasMountedDirectory && (
-        <div className="fb-inline-error" role="status">
+        <Notice severity="danger" className="fb-inline-error">
           {mountActionError}
-        </div>
+        </Notice>
       )}
 
       <div className="tree-container">
@@ -507,18 +527,23 @@ const FileBrowserPanelContent: React.FC = () => {
           </div>
         ) : error ? (
           <div className="error-state">
-            <div className="error-icon">⚠️</div>
-            <div className="error-title">Error loading directory</div>
-            <div className="error-message">{error}</div>
-            <button
-              type="button"
-              className="retry-button"
-              onClick={() =>
-                void fileBrowserStore.refreshDirectory(currentPath)
+            <Notice
+              severity="danger"
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    void fileBrowserStore.refreshDirectory(currentPath)
+                  }
+                >
+                  Retry
+                </Button>
               }
             >
-              Retry
-            </button>
+              <div className="font-medium">Error loading directory</div>
+              <div className="error-message">{error}</div>
+            </Notice>
           </div>
         ) : !hasMountedDirectory ? (
           <FilesStartPanel
@@ -546,6 +571,9 @@ const FileBrowserPanelContent: React.FC = () => {
             */}
             <div
               ref={setTreeContainer}
+              onKeyDownCapture={handleTreeTabCapture}
+              {...filesViewPanelProps("tree")}
+              className="fb-tree-container"
               style={{
                 width: "100%",
                 height: "100%",
@@ -556,19 +584,19 @@ const FileBrowserPanelContent: React.FC = () => {
               {isSearchEmptyState && treeData.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-state-card">
-                    <p className="empty-state-kicker">No Matching Files</p>
+                    <p className="empty-state-kicker">No matching files</p>
                     <p className="empty-state-message">
                       No neuroimaging files match your current search. Reset
                       search or mount another folder.
                     </p>
                     <div className="empty-state-actions">
-                      <button
-                        type="button"
-                        className="empty-state-button secondary"
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={handleNoResultsReset}
                       >
-                        Clear Search
-                      </button>
+                        Clear search
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -580,10 +608,11 @@ const FileBrowserPanelContent: React.FC = () => {
                   openByDefault={false}
                   width={treeSize.width || 300}
                   height={treeSize.height || 400}
-                  indent={16}
-                  rowHeight={28}
+                  indent={12}
+                  rowHeight={24}
                   overscanCount={5}
                   className="react-arborist"
+                  renderRow={FileTreeItemRow}
                   onActivate={(node) => {
                     fileBrowserStore.selectFile(node.data.path);
                     if (node.isInternal) {
@@ -612,13 +641,17 @@ const FileBrowserPanelContent: React.FC = () => {
                 </div>
               )}
             </div>
-            {viewMode === "images" ? (
-              <ImagesView rootNode={rootNode} selectedPath={selectedPath} />
-            ) : viewMode === "loaded" ? (
-              <LoadedView />
-            ) : viewMode === "bids" ? (
-              <BidsView rootNode={rootNode} />
-            ) : null}
+            {viewMode !== "tree" && (
+              <div {...filesViewPanelProps(viewMode)} className="fb-view-panel">
+                {viewMode === "images" ? (
+                  <ImagesView rootNode={rootNode} selectedPath={selectedPath} />
+                ) : viewMode === "loaded" ? (
+                  <LoadedView />
+                ) : (
+                  <BidsView rootNode={rootNode} />
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

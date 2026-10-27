@@ -343,3 +343,137 @@ it('preserves the compatible effect scale while replacing masked support', async
   expect(service.getSnapshot().displayed!.effectLimit).toBe(limit);
   service.stop();
 });
+
+it('presents cached original focus without resampling or rebuilding the anchored summary, then revalidates on expiry', async () => {
+  const { service, evaluate, bitmap, bitmaps } = setup();
+  const first = data();
+  first.focusWindow = [{ memberId: 'b', values: [-2, null], validPixels: 1 }];
+  evaluate.mockResolvedValue(first);
+  service.request(query());
+  await vi.runAllTimersAsync();
+  const summary = service.getSnapshot().displayed!.images.summary;
+  const next = query('focus-b');
+  next.request.focusMemberId = 'b';
+  service.request(next);
+  await vi.runAllTimersAsync();
+  expect(evaluate).toHaveBeenCalledTimes(1);
+  expect(bitmap).toHaveBeenCalledTimes(3);
+  expect(service.getSnapshot().displayed!.data.focused).toEqual([-2, null]);
+  expect(service.getSnapshot().displayed!.images.summary).toBe(summary);
+  await vi.advanceTimersByTimeAsync(1100);
+  evaluate.mockResolvedValue({ ...data(), summary: [], validCounts: [], focusWindow: [] });
+  service.request(query('back-a'));
+  await vi.runAllTimersAsync();
+  // Expired windows require native freshness validation before reusing the summary.
+  expect(evaluate).toHaveBeenCalledTimes(2);
+  expect(evaluate.mock.calls[1][0]).toMatchObject({ focusOnly: true });
+  expect(service.getSnapshot().error).toBeNull();
+  service.stop();
+  expect(bitmaps.every((image) => vi.mocked(image.close).mock.calls.length === 1)).toBe(true);
+});
+
+it('does not combine an old summary with a new source revision on a focus-only miss', async () => {
+  const { service, evaluate } = setup();
+  service.request(query());
+  await vi.runAllTimersAsync();
+  const changed = {
+    ...data(),
+    sources: data().sources.map((s) => ({ ...s, revision: { ...s.revision, sha256: 'new' } })),
+  };
+  evaluate
+    .mockResolvedValueOnce({ ...changed, summary: [], validCounts: [] })
+    .mockResolvedValueOnce({ ...changed, summary: [9, null] });
+  const next = query('b');
+  next.request.focusMemberId = 'b';
+  service.request(next);
+  await vi.runAllTimersAsync();
+  expect(evaluate).toHaveBeenCalledTimes(3);
+  expect(evaluate.mock.calls[1][0]).toMatchObject({ focusOnly: true });
+  expect(service.getSnapshot().displayed!.data.summary).toEqual([9, null]);
+  expect(service.getSnapshot().displayed!.data.sources[0].revision.sha256).toBe('new');
+  service.stop();
+});
+
+it('retains group/reference bitmaps across focus-only results and releases each exactly once', async () => {
+  const { service, evaluate, bitmaps } = setup();
+  const first = query();
+  first.request.reference = { id: 'B', memberIds: ['b'] };
+  first.request.groups = [{ id: 'G', memberIds: ['a'] }];
+  const group = { id: 'G', values: [3, null], validCounts: [1, 0], eligibleCount: 1, unitCount: 1 };
+  evaluate.mockResolvedValue({ ...data(), groups: [group], reference: { ...group, id: 'B' } });
+  service.request(first);
+  await vi.runAllTimersAsync();
+  const initial = service.getSnapshot().displayed!;
+  expect(initial.images.groups.G).toBeDefined();
+  expect(initial.images.reference).toBeDefined();
+  const release = initial.images.retain();
+  const next = structuredClone(first);
+  next.key = 'focus-b';
+  next.request.focusMemberId = 'b';
+  evaluate.mockResolvedValue({
+    ...data(),
+    summary: [],
+    validCounts: [],
+    groups: [],
+    reference: null,
+  });
+  service.request(next);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toBeNull();
+  expect(service.getSnapshot().displayed!.images.groups.G).toBe(initial.images.groups.G);
+  expect(service.getSnapshot().displayed!.images.reference).toBe(initial.images.reference);
+  service.stop();
+  expect(initial.images.reference!.close).not.toHaveBeenCalled();
+  release();
+  expect(bitmaps.every((b) => vi.mocked(b.close).mock.calls.length === 1)).toBe(true);
+});
+
+it('switches retained test channels without resampling within the freshness lease', async () => {
+  const { service, evaluate } = setup();
+  const q = query();
+  q.request.inference = {
+    method: 'oneSample',
+    role: 'effect',
+    units: 'a.u.',
+    nullValue: 0,
+    independentParticipants: true,
+    selectionOrigin: 'manual',
+    channel: 'effect',
+  };
+  q.request.aggregation = {
+    within: 'single',
+    groups: ['a', 'b'].map((id) => ({ participantId: id, memberIds: [id] })),
+  };
+  const result = data();
+  result.inference = {
+    effect: [1, null],
+    standardError: [0.5, null],
+    t: [2, null],
+    df: [1, null],
+    count: [2, 0],
+  };
+  evaluate.mockResolvedValue(result);
+  service.request(q);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toBeNull();
+  const t = structuredClone(q);
+  t.key = 't-channel';
+  t.request.inference!.channel = 't';
+  service.request(t);
+  await vi.runAllTimersAsync();
+  expect(evaluate).toHaveBeenCalledTimes(1);
+  expect(service.getSnapshot().displayed?.data.summary).toEqual([2, null]);
+  expect(service.getSnapshot().displayed?.summaryLimit).toBe(5);
+  await vi.advanceTimersByTimeAsync(1001);
+  const df = structuredClone(q);
+  df.key = 'df-channel';
+  df.request.inference!.channel = 'df';
+  service.request(df);
+  await vi.runAllTimersAsync();
+  expect(evaluate).toHaveBeenCalledTimes(2);
+  evaluate.mockResolvedValue({ ...result, summary: [99, null] });
+  service.request(q, true);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toMatch(/result family/);
+  service.stop();
+});

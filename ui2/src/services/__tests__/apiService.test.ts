@@ -108,6 +108,8 @@ describe('ApiService', () => {
       const args = calls[0].args;
       const serializedState = JSON.parse(args.stateJson);
       expect(serializedState.crosshair.world_mm).toEqual([10, 20, 30]);
+      // The canvas overlay draws the crosshair; the renderer's tick is off.
+      expect(serializedState.crosshair.visible).toBe(false);
     });
 
     it('should use render_view for single-view rendering', async () => {
@@ -181,6 +183,7 @@ describe('ApiService', () => {
       const renderViewsCall = calls.find((c) => c.cmd === 'render_views');
       expect(renderViewsCall).toBeDefined();
       expect(JSON.parse(renderViewsCall!.args.stateJson).timepoint).toBe(11);
+      expect(JSON.parse(renderViewsCall!.args.stateJson).crosshair.visible).toBe(false);
       expect(
         getRenderDiagnostics().find((entry) => entry.stage === 'api.render_views')?.detail,
       ).toMatchObject({

@@ -34,6 +34,7 @@ struct Revision {
 #[serde(rename_all = "camelCase")]
 struct Record {
     schema: String,
+    method_contract: Option<serde_json::Value>,
     calculation: PopulationSliceRequest,
     context: serde_json::Value,
     sources: Vec<Source>,
@@ -82,6 +83,14 @@ fn hash_file(path: &Path, limit: u64, token: &SampleCancellation) -> BridgeResul
     }
     Ok((format!("{:x}", hash.finalize()), bytes))
 }
+fn artifact_names(query: &PopulationSliceRequest) -> Vec<&'static str> {
+    let mut names = vec!["summary.nii.gz", "coverage.nii.gz"];
+    names.extend(inference::artifact_names(query));
+    if query.reference.is_some() {
+        names.extend(["reference.nii.gz", "reference-coverage.nii.gz"]);
+    }
+    names
+}
 fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record, String)> {
     token.check()?;
     let file = File::open(path)?;
@@ -98,8 +107,20 @@ fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record,
     token.check()?;
     let record: Record = serde_json::from_slice(&bytes)
         .map_err(|e| input(format!("Invalid population calculation record: {e}")))?;
-    if record.schema != "brainflow.population-export.v1" {
+    if record.schema != inference::schema(&record.calculation) {
         return Err(input("Unsupported population calculation schema."));
+    }
+    let expected_contract = record
+        .calculation
+        .inference
+        .as_ref()
+        .map(|s| serde_json::to_value(s.method.descriptor()).expect("serializable catalog"));
+    if (record.method_contract.is_some() || record.schema == "brainflow.population-export.v4")
+        && record.method_contract != expected_contract
+    {
+        return Err(input(
+            "Saved statistical method contract/version is not supported by this build.",
+        ));
     }
     // The descriptive context is never interpreted as executable selection/weighting.
     let mut query = record.calculation.clone();
@@ -136,8 +157,9 @@ fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record,
                 && mask.expected_sha256.as_deref() == Some(&revision.sha256) => {}
         _ => return Err(input("Saved mask definition and revision disagree.")),
     }
-    if record.artifacts.len() != 2
-        || ["summary.nii.gz", "coverage.nii.gz"].iter().any(|name| {
+    let names = artifact_names(&record.calculation);
+    if record.artifacts.len() != names.len()
+        || names.iter().any(|name| {
             record.artifacts.get(*name).is_none_or(|a| {
                 !valid_digest(&a.sha256) || a.bytes == 0 || a.bytes > MAX_ARTIFACT_BYTES
             })
@@ -168,20 +190,31 @@ async fn verified_bundle(
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| input("Choose the exported provenance.json inside its bundle directory."))?;
     // Fixed filenames only: record-provided artifact keys never become arbitrary paths.
-    let bundle_paths = vec![
+    let mut bundle_paths = vec![
         path.clone(),
         parent.join("summary.nii.gz"),
         parent.join("coverage.nii.gz"),
+        parent.join("reference.nii.gz"),
+        parent.join("reference-coverage.nii.gz"),
     ];
+    for method in field_table::population_inference::catalog::methods() {
+        for channel in &method.channels {
+            let artifact = parent.join(&channel.artifact);
+            if !bundle_paths.contains(&artifact) {
+                bundle_paths.push(artifact);
+            }
+        }
+    }
     let guard = QuerySourceGuard::capture(bundle_paths, token.clone()).await?;
     let check = token.clone();
     let (record, record_sha256, artifacts) =
         tokio::task::spawn_blocking(move || -> BridgeResult<_> {
             let _permit = worker_permit;
-            let (record, hash) = read_record(&path, &check)?;
+            let (mut record, hash) = read_record(&path, &check)?;
             let parent = path.parent().unwrap();
+            retention::resolve(&mut record.calculation, parent)?;
             let mut artifacts = serde_json::Map::new();
-            for name in ["summary.nii.gz", "coverage.nii.gz"] {
+            for name in artifact_names(&record.calculation) {
                 let expected = &record.artifacts[name];
                 let (digest, bytes) = hash_file(&parent.join(name), MAX_ARTIFACT_BYTES, &check)?;
                 if digest != expected.sha256 || bytes != expected.bytes {
@@ -223,6 +256,7 @@ pub async fn replay(
     let (record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
     export_checked(
         ExportRequest {
+            include_inputs: false,
             population: record.calculation,
             destination_directory,
             context: record.context,
@@ -243,14 +277,84 @@ pub struct OpenedCalculation {
     pub context: serde_json::Value,
 }
 
+/// An explicit directory substitution. Contents, frames and grids still have to
+/// match the saved record; this never changes digests or rewrites provenance.
+#[derive(serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceRelocation {
+    pub from_directory: String,
+    pub to_directory: String,
+}
+fn relocate(query: &mut PopulationSliceRequest, mapping: &SourceRelocation) -> BridgeResult<()> {
+    let from = Path::new(&mapping.from_directory);
+    let to = Path::new(&mapping.to_directory);
+    if !from.is_absolute()
+        || !to.is_absolute()
+        || from
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(input(
+            "Relocation requires absolute directory paths without parent traversal.",
+        ));
+    }
+    let to = std::fs::canonicalize(to)?;
+    if !to.is_dir() {
+        return Err(input("Choose an existing destination directory."));
+    }
+    let mut count = 0;
+    let mut replace = |source: &mut String| -> BridgeResult<()> {
+        if let Ok(relative) = Path::new(source).strip_prefix(from) {
+            if relative
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+                || relative.as_os_str().is_empty()
+            {
+                return Err(input("Invalid relative source path in relocation."));
+            }
+            let candidate = std::fs::canonicalize(to.join(relative))?;
+            if !candidate.starts_with(&to) {
+                return Err(input("Relocated source escapes the chosen directory."));
+            }
+            *source = candidate.to_string_lossy().into_owned();
+            count += 1;
+        }
+        Ok(())
+    };
+    for member in &mut query.members {
+        replace(&mut member.source_path)?;
+    }
+    if let Some(mask) = &mut query.mask {
+        replace(&mut mask.source_path)?;
+    }
+    if count == 0 {
+        return Err(input(
+            "The original directory does not match any saved source or mask path.",
+        ));
+    }
+    Ok(())
+}
+
 /// Validate original inputs and bundle integrity without creating output files.
 /// This is source verification, not a claim of full artifact recalculation.
+#[cfg(test)]
 pub async fn open(
     provenance_path: String,
     state: &BridgeState,
     token: SampleCancellation,
 ) -> BridgeResult<OpenedCalculation> {
-    let (record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
+    open_relocated(provenance_path, None, state, token).await
+}
+pub async fn open_relocated(
+    provenance_path: String,
+    relocation: Option<SourceRelocation>,
+    state: &BridgeState,
+    token: SampleCancellation,
+) -> BridgeResult<OpenedCalculation> {
+    let (mut record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
+    if let Some(mapping) = &relocation {
+        relocate(&mut record.calculation, mapping)?;
+    }
     let mut query = record.calculation.clone();
     query.dim_px = [1, 1];
     query.cutouts = None;

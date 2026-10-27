@@ -308,6 +308,11 @@ fn main() {
                 .id("open_file")
                 .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
+            // Opens the UI's export dialog (ui2 useExportMenuListener).
+            let export_view = MenuItemBuilder::new("Export View as Image...")
+                .id("export_view_image")
+                .accelerator("CmdOrCtrl+Shift+E")
+                .build(app)?;
 
             // Build templates menu directly
             let templates_menu = {
@@ -490,6 +495,8 @@ fn main() {
                             .separator()
                             .item(&mount_dir)
                             .separator()
+                            .item(&export_view)
+                            .separator()
                             .item(&PredefinedMenuItem::close_window(app, None)?);
 
                         #[cfg(not(target_os = "macos"))]
@@ -516,6 +523,8 @@ fn main() {
                             )
                             .separator()
                             .item(&mount_dir)
+                            .separator()
+                            .item(&export_view)
                             .separator()
                             .item(&PredefinedMenuItem::close_window(app, None)?)
                             .separator()
@@ -550,6 +559,15 @@ fn main() {
                                 .build(app)?,
                         )
                         .separator()
+                        // Opens the UI's image header dialog for the selected
+                        // layer (ui2 App: "image-header-action").
+                        .item(
+                            &MenuItemBuilder::new("Image Header...")
+                                .id("image_header")
+                                .accelerator("CmdOrCtrl+I")
+                                .build(app)?,
+                        )
+                        .separator()
                         .item(
                             &SubmenuBuilder::new(app, "Panels")
                                 .item(
@@ -574,6 +592,12 @@ fn main() {
                                     &MenuItemBuilder::new("Plot Panel")
                                         .id("panel_plot")
                                         .accelerator("CmdOrCtrl+P")
+                                        .build(app)?,
+                                )
+                                .item(
+                                    // Opens the bottom dock's Clusters tab (ui2 GoldenLayoutRoot).
+                                    &MenuItemBuilder::new("Clusters")
+                                        .id("panel_clusters")
                                         .build(app)?,
                                 )
                                 .build()?,
@@ -667,6 +691,14 @@ fn main() {
                         let handle = app.app_handle().clone();
                         open_file_dialog(handle, Some("comparison".to_string()));
                     }
+                    "export_view_image" => {
+                        if let Err(e) = app.emit(
+                            "export-active-view",
+                            serde_json::json!({ "action": "export-image" }),
+                        ) {
+                            eprintln!("Failed to emit export-active-view event: {}", e);
+                        }
+                    }
                     "toggle_crosshair" => {
                         println!("Toggle crosshair menu item clicked");
                         match app.emit(
@@ -677,6 +709,11 @@ fn main() {
                         ) {
                             Ok(_) => println!("Crosshair toggle event emitted successfully"),
                             Err(e) => eprintln!("Failed to emit crosshair toggle event: {}", e),
+                        }
+                    }
+                    "image_header" => {
+                        if let Err(e) = app.emit("image-header-action", serde_json::json!({})) {
+                            eprintln!("Failed to emit image-header-action event: {}", e);
                         }
                     }
                     "crosshair_settings" => {
@@ -698,6 +735,7 @@ fn main() {
                             "panel_layer_manager" => "LayerPanel",
                             "panel_atlas_browser" => "AtlasPanel",
                             "panel_plot" => "PlotPanel",
+                            "panel_clusters" => "ClusterPanel",
                             _ => return,
                         };
 

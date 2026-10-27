@@ -24,6 +24,11 @@ approx = "0.5"
 wasm-bindgen = "0.2"
 half = { version = "2.3", features = ["serde", "bytemuck"] }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+# neuroim's rand dependency needs host entropy on browser/Node WASM targets.
+# Keep this off native targets; do not substitute deterministic/random stubs.
+getrandom = { version = "0.2", features = ["js"], optional = true }
+
 [dev-dependencies]
 approx = "0.5"
 wasm-bindgen-test = "0.3"
@@ -31,5 +36,6 @@ console_error_panic_hook = "0.1"
 
 [features]
 default = []
+web = ["dep:getrandom"]
 # parallel = ["rayon"]
 # gpu = ["wgpu"] # Placeholder

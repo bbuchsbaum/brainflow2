@@ -1,0 +1,106 @@
+{
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Workstation"
+    },
+    {
+      "id": "page-2",
+      "name": "Other directions"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Workstation · loaded",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "page": "page-1"
+    },
+    {
+      "file": "EmptyState.dc.html",
+      "title": "Workstation · nothing loaded",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "page": "page-1"
+    },
+    {
+      "file": "Lightbox.dc.html",
+      "title": "B · Lightbox",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "page": "page-2"
+    },
+    {
+      "file": "LightboxEmpty.dc.html",
+      "title": "B · Empty viewport",
+      "x": 0,
+      "y": 1040,
+      "w": 430,
+      "h": 250,
+      "page": "page-2"
+    },
+    {
+      "file": "Darkroom.dc.html",
+      "title": "C · Darkroom",
+      "x": 1600,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "page": "page-2"
+    },
+    {
+      "file": "DarkroomEmpty.dc.html",
+      "title": "C · Empty viewport",
+      "x": 1600,
+      "y": 1040,
+      "w": 430,
+      "h": 250,
+      "page": "page-2"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "dir-a",
+      "x": 0,
+      "y": -290,
+      "w": 720,
+      "page": "page-1",
+      "text": "Workstation. Instrument, not dashboard. Warm neutral grays (#161615 / #1e1e1d / #282827), IBM Plex Sans 12px + Plex Mono 11px, sentence case everywhere, 2px radii, 28px controls, one amber accent (#e0a63f) shared by active states and the crosshair. Viewports carry a 22px header with the plane and the slice coordinate; active tabs sit flush with their panel instead of taking an underline; the primary button is inverted rather than filled blue.\nEmpty states are text only: a plane header with a dash, a sentence, and a mono hint."
+    },
+    {
+      "id": "what-reads-saas",
+      "x": 1560,
+      "y": -290,
+      "w": 720,
+      "page": "page-1",
+      "text": "Dropped from the current build: tracked-uppercase labels (VOLUME BUFFER EMPTY, tab names, section kickers), the filled Tailwind-blue button, blue tab underlines and the blue top stripe, navy grounds (#05080c / #0b1521), Inter, the cube and hexagon empty-state icons with 'awaiting input stream' copy, and the circular V / S badges in the scene list. Layout, the 17 / 60 / 23 panel split, and every existing control are unchanged."
+    },
+    {
+      "id": "dir-b",
+      "x": 0,
+      "y": -290,
+      "w": 720,
+      "page": "page-2",
+      "text": "B · Lightbox. Paper chrome around black plates, film on a light table. Newsreader for headings and plate captions, Source Sans for controls, one signal red for the crosshair and its readout. Slice sliders live in the caption row.\nTradeoff: light chrome beside grayscale images costs some contrast perception in a dark reading room, and it is the biggest break from what exists.\nNot chosen; kept for reference."
+    },
+    {
+      "id": "dir-c",
+      "x": 1600,
+      "y": -290,
+      "w": 720,
+      "page": "page-2",
+      "text": "C · Darkroom. Neutral black, hairlines instead of borders, no accent in the chrome at all: hierarchy comes from text brightness and weight, and the only color on screen belongs to the data: the crosshair and its readout. Instrument Sans + JetBrains Mono.\nTradeoff: quiet to the point of being under-signposted for a new user; the primary action relies on one inverted button.\nNot chosen; kept for reference."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
+}

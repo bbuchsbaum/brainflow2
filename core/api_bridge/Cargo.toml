@@ -35,6 +35,7 @@ uuid = { version = "1.4", features = ["v4"] } # For generating IDs
 futures = "0.3" # For block_on (though consider replacing with async runtime)
 bridge_types = { path = "../bridge_types" } # NEW: Shared types/traits
 field_table = { path = "../field_table" }
+volume_service = { path = "../volume_service" }
 nifti_loader = { path = "../loaders/nifti", package = "nifti-loader" } # Keep for NiftiLoader registration
 gifti_loader = { path = "../loaders/gifti", package = "gifti-loader" } # GIFTI support
 brainflow-loaders = { path = "../loaders" } # CORRECTED: Match package name
@@ -48,7 +49,8 @@ flate2 = "1.0" # For gzip decompression
 ts-rs = { workspace = true } # For generating TypeScript types
 base64 = "0.22" # For encoding rendered images
 colormap = { path = "../colormap" } # Colormap system
-image = { version = "0.25", default-features = false, features = ["png"] } # For PNG encoding
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] } # PNG/JPEG export encoding
+tauri-plugin-dialog = "2.2.1" # Native save dialog for save_image_bytes (already used by src-tauri)
 neuro-types = { path = "../neuro-types" } # For ViewRectMm and geometry types
 atlases = { path = "../atlases" } # Atlas service
 templates = { path = "../templates" } # Template service

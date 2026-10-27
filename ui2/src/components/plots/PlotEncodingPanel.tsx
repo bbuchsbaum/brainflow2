@@ -17,51 +17,17 @@ import { resolveSpec } from '@/plotting';
 import type { Encoding, Mark, ReduceOp, SampleFrame, Transform } from '@/plotting';
 import { usePlotSpecStore } from '@/stores/plotSpecStore';
 
+import { Select, Toolbar, ToolbarField } from '@/components/ui/bf';
+
 import { SUPPORTED_MARKS } from './encoder/registry';
+import { MARK_LABELS } from './encoder/markLabels';
 
 /** Sphere radii (mm) offered for spatial sampling. 0 == single voxel. */
 const RADIUS_PRESETS_MM = [0, 2, 4, 6, 8, 10] as const;
 const REDUCERS: ReduceOp[] = ['mean', 'median', 'min', 'max', 'sum'];
-const MARK_LABELS: Record<Mark, string> = {
-  line: 'Line',
-  area: 'Area',
-  point: 'Points',
-  bar: 'Bars',
-  hist: 'Histogram',
-  box: 'Box',
-  violin: 'Violin',
-  heatmap: 'Heatmap',
-};
 
-const labelStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 4,
-  fontSize: 11,
-  color: 'var(--app-text-muted)',
-  whiteSpace: 'nowrap',
-};
-const selectStyle: React.CSSProperties = {
-  // Flatten the native macOS select chrome (the glossy "3D bubble" + steppers)
-  // to match the app's flat dark controls, and draw our own chevron.
-  appearance: 'none',
-  WebkitAppearance: 'none',
-  MozAppearance: 'none',
-  fontSize: 11,
-  height: 20,
-  padding: '0 18px 0 6px',
-  borderRadius: 'var(--app-radius-sm, 4px)',
-  border: '1px solid var(--app-border, #2a2a2a)',
-  backgroundColor: 'var(--app-input-bg, rgba(255, 255, 255, 0.04))',
-  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%238a93a3' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-  backgroundRepeat: 'no-repeat',
-  backgroundPosition: 'right 6px center',
-  color: 'var(--app-text-primary, var(--app-text, inherit))',
-  cursor: 'pointer',
-  outline: 'none',
-  maxWidth: 130,
-};
 
+/** One labelled toolbar select ("Mark [Line ▾]"); the select keeps its own accessible name. */
 function LabeledSelect({
   label,
   value,
@@ -76,17 +42,16 @@ function LabeledSelect({
   children: React.ReactNode;
 }) {
   return (
-    <label style={labelStyle}>
-      {label}
-      <select
+    <ToolbarField label={label}>
+      <Select
         aria-label={ariaLabel}
         value={value}
-        onChange={(e) => onChange(e.currentTarget.value)}
-        style={selectStyle}
+        onValueChange={onChange}
+        className="w-auto max-w-[130px]"
       >
         {children}
-      </select>
-    </label>
+      </Select>
+    </ToolbarField>
   );
 }
 
@@ -178,16 +143,10 @@ export function PlotEncodingPanel({
   );
 
   return (
-    <div
+    <Toolbar
+      aria-label="Plot encoding"
       data-testid="plot-encoding-panel"
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 10,
-        padding: '4px 8px',
-        borderBottom: '1px solid var(--app-border, #2a2a2a)',
-      }}
+      className="border-b border-bf-border"
     >
       <LabeledSelect
         label="Mark"
@@ -250,7 +209,7 @@ export function PlotEncodingPanel({
           ))}
         </LabeledSelect>
       )}
-    </div>
+    </Toolbar>
   );
 }
 

@@ -29,10 +29,18 @@ export interface UseHoverInfoOptions {
   activeLayerId?: string;
   /** ID of the active atlas layer (if any) */
   activeAtlasId?: string;
-  /** Callback to convert canvas coordinates to world coordinates */
+  /** Layers whose values the tooltip reports (see HoverContext.layerIds). */
+  layerIds?: string[];
+  /**
+   * Convert a pointer position to world mm. Gets the position relative to
+   * the hovered element and the raw client position; views should map the
+   * client position through the same path as click-to-world.
+   */
   canvasToWorld: (
     canvasX: number,
     canvasY: number,
+    clientX: number,
+    clientY: number,
   ) => [number, number, number] | null;
   /** Called when hover starts/updates (for marking view as active) */
   onHoverStart?: () => void;
@@ -43,8 +51,6 @@ export interface UseHoverInfoResult {
   handleMouseMove: (event: React.MouseEvent) => void;
   /** Call this on mouse leave */
   handleMouseLeave: () => void;
-  /** Current intensity value for in-canvas overlay (null if not available) */
-  hoverValue: number | null;
   /** All current hover entries (for custom rendering) */
   hoverEntries: HoverInfoEntry[];
 }
@@ -74,12 +80,16 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
     enabled = true,
     activeLayerId,
     activeAtlasId,
+    layerIds,
     canvasToWorld,
     onHoverStart,
   } = options;
+  const layerIdsRef = useRef(layerIds);
+  useEffect(() => {
+    layerIdsRef.current = layerIds;
+  }, [layerIds]);
 
   // Local state for in-canvas hover overlay
-  const [hoverValue, setHoverValue] = useState<number | null>(null);
   const [hoverEntries, setHoverEntries] = useState<HoverInfoEntry[]>([]);
 
   // Get throttle setting
@@ -109,7 +119,6 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   }, [enabled]);
 
   const clearHoverState = useCallback(() => {
-    setHoverValue(null);
     setHoverEntries([]);
 
     const mouseStore = useMouseCoordinateStore.getState();
@@ -141,21 +150,25 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
     return throttle(
       async (sample: HoverMouseSample) => {
         try {
-          if (!enabledRef.current) {
-            clearHoverState();
-            return;
-          }
-
-          onHoverStartRef.current?.();
-
           const canvasX = sample.clientX - sample.rectLeft;
           const canvasY = sample.clientY - sample.rectTop;
 
-          const worldCoord = canvasToWorldRef.current(canvasX, canvasY);
+          const worldCoord = canvasToWorldRef.current(canvasX, canvasY, sample.clientX, sample.clientY);
           if (!worldCoord) {
             clearHoverState();
             return;
           }
+
+          if (!enabledRef.current) {
+            // Hover info is opt-in (per-layer "Show value on hover"), but the
+            // pointer position always feeds the status Mouse slot and the
+            // Inspector's per-layer readout (P3.6). No providers, no tooltip.
+            useMouseCoordinateStore.getState().setMousePosition(worldCoord, viewId);
+            useStatusBarStore.getState().setValue("mouse", formatCoord(worldCoord));
+            return;
+          }
+
+          onHoverStartRef.current?.();
 
           const ctx: HoverContext = {
             worldCoord,
@@ -163,13 +176,14 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
             screenPos: { x: sample.clientX, y: sample.clientY },
             activeLayerId: activeLayerIdRef.current,
             activeAtlasId: activeAtlasIdRef.current,
+            layerIds: layerIdsRef.current,
           };
 
           const entries = await hoverInfoService.getHoverInfo(ctx);
           setHoverEntries(entries);
 
           const mouseStore = useMouseCoordinateStore.getState();
-          mouseStore.setMousePositionThrottled(worldCoord, viewId);
+          mouseStore.setMousePosition(worldCoord, viewId);
 
           const statusStore = useStatusBarStore.getState();
           const settings = useHoverSettingsStore.getState();
@@ -195,23 +209,6 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
             });
           }
 
-          const intensityEntry = entries.find(
-            (e) => e.group === "intensity" || e.label === "Value",
-          );
-          if (intensityEntry) {
-            const value = parseFloat(intensityEntry.value);
-            setHoverValue((prev) =>
-              Number.isFinite(value) &&
-              prev !== null &&
-              Math.abs(prev - value) < 1e-6
-                ? prev
-                : Number.isFinite(value)
-                  ? value
-                  : null,
-            );
-          } else {
-            setHoverValue(null);
-          }
         } catch (err) {
           console.error("[useHoverInfo] Error handling mouse move:", err);
           clearHoverState();
@@ -248,13 +245,14 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
 
   // Handle mouse leave
   const handleMouseLeave = useCallback(() => {
+    // A trailing throttled move must not re-set the position after leaving.
+    (throttledMouseMove as ReturnType<typeof throttle>).cancel?.();
     clearHoverState();
-  }, [clearHoverState]);
+  }, [clearHoverState, throttledMouseMove]);
 
   return {
     handleMouseMove,
     handleMouseLeave,
-    hoverValue,
     hoverEntries,
   };
 }

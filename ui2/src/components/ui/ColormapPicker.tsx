@@ -1,7 +1,9 @@
+import { SELECTED_EDGE_FOCUS } from '@/components/ui/bf';
 import React, { useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
 import { cn } from '@/utils/cn';
 import { colormaps } from './colormapOptions';
+import { HIDDEN_BAND_BACKGROUND } from '@/components/views/viewportFrame/frameFormat';
 
 export type ColormapPickerVariant = 'default' | 'enhanced';
 
@@ -10,6 +12,69 @@ interface ColormapPickerProps {
   disabled?: boolean;
   onChange: (value: string) => void;
   variant?: ColormapPickerVariant;
+  /**
+   * Hidden (thresholded-out) interval as strip fractions [from, to], left to
+   * right over the intensity window. Drawn as the colorbar's hatched cut-out.
+   */
+  hiddenBand?: readonly [number, number] | null;
+  /**
+   * The intensity window as strip fractions [from, to] when the strip spans a
+   * wider ruler (data ∪ window): the gradient fills the window and the end
+   * colours (what values beyond the window are drawn in) fill the rest.
+   */
+  windowSpan?: readonly [number, number] | null;
+}
+
+/**
+ * Gradient drawn over a sub-span of the strip, with its first / last colour
+ * extended to the strip ends (an oversized copy of the gradient anchored left
+ * or right shows exactly its end colour, so no colour stops are parsed).
+ */
+function WindowedGradient({
+  gradient,
+  span,
+}: {
+  gradient: string;
+  span: readonly [number, number];
+}) {
+  const [a, b] = span;
+  const base = 'pointer-events-none absolute inset-y-0 block';
+  return (
+    <>
+      {a > 0 ? (
+        <span
+          aria-hidden
+          className={base}
+          style={{
+            left: 0,
+            width: `${a * 100}%`,
+            backgroundImage: gradient,
+            backgroundSize: '100000% 100%',
+            backgroundPosition: 'left',
+          }}
+        />
+      ) : null}
+      <span
+        aria-hidden
+        data-testid="colormap-strip-window"
+        className={base}
+        style={{ left: `${a * 100}%`, width: `${Math.max(0, b - a) * 100}%`, backgroundImage: gradient }}
+      />
+      {b < 1 ? (
+        <span
+          aria-hidden
+          className={base}
+          style={{
+            left: `${b * 100}%`,
+            right: 0,
+            backgroundImage: gradient,
+            backgroundSize: '100000% 100%',
+            backgroundPosition: 'right',
+          }}
+        />
+      ) : null}
+    </>
+  );
 }
 
 export function ColormapPicker({
@@ -17,6 +82,8 @@ export function ColormapPicker({
   disabled = false,
   onChange,
   variant = 'default',
+  hiddenBand = null,
+  windowSpan = null,
 }: ColormapPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const selectedColormap = useMemo(
@@ -30,15 +97,15 @@ export function ColormapPicker({
     <div className={cn(isEnhanced ? 'relative mb-3' : 'colormap-selector relative')}>
       {isEnhanced ? (
         <div className="mb-1.5 flex items-baseline justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--app-text-muted)]">
+          <span className="text-bf-xs font-medium text-muted-foreground">
             Colormap
           </span>
-          <span className="text-[11px] font-mono text-[var(--app-text-secondary)]">
+          <span className="text-bf-xs font-mono text-bf-text-secondary">
             {selectedColormap.label}
           </span>
         </div>
       ) : (
-        <label className="mb-1 block text-xs font-medium text-gray-700">Colormap</label>
+        <label className="mb-1 block text-bf-xs font-medium text-muted-foreground">Colormap</label>
       )}
 
       <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -48,32 +115,48 @@ export function ColormapPicker({
               type="button"
               disabled={disabled}
               className={cn(
-                'h-6 w-full overflow-hidden border transition-colors',
-                'rounded-[1px] border-[var(--app-border)]',
-                'hover:border-[var(--layer-accent)]',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--layer-accent)] focus-visible:ring-offset-1',
+                'relative h-6 w-full overflow-hidden border transition-colors',
+                'rounded-sm border-border',
+                'hover:border-primary',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
                 'disabled:cursor-not-allowed disabled:opacity-50'
               )}
-              style={{ background: selectedColormap.gradient }}
+              style={{ background: windowSpan ? 'transparent' : selectedColormap.gradient }}
               aria-label={`Select colormap. Current colormap is ${selectedColormap.label}`}
-            />
+            >
+              {windowSpan ? (
+                <WindowedGradient gradient={selectedColormap.gradient} span={windowSpan} />
+              ) : null}
+              {hiddenBand && hiddenBand[1] > hiddenBand[0] ? (
+                <span
+                  aria-hidden
+                  data-testid="colormap-strip-hidden-band"
+                  className="pointer-events-none absolute inset-y-0 block"
+                  style={{
+                    left: `${hiddenBand[0] * 100}%`,
+                    width: `${(hiddenBand[1] - hiddenBand[0]) * 100}%`,
+                    background: HIDDEN_BAND_BACKGROUND,
+                  }}
+                />
+              ) : null}
+            </button>
           ) : (
             <button
               type="button"
               disabled={disabled}
               aria-label={`Select colormap. Current colormap is ${selectedColormap.label}`}
               className={cn(
-                'flex w-full items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm',
-                'focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500',
+                'flex h-7 w-full items-center gap-2 rounded-sm border border-border bg-bf-bg-input px-2.5 text-bf-sm text-foreground',
+                'hover:border-bf-border-strong focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 'disabled:cursor-not-allowed disabled:opacity-50'
               )}
             >
               <div
-                className="h-4 flex-1 rounded border"
+                className="h-4 flex-1 rounded-sm border border-border"
                 style={{ background: selectedColormap.gradient }}
               />
-              <span className="text-gray-700">{selectedColormap.label}</span>
-              <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <span className="text-foreground">{selectedColormap.label}</span>
+              <svg className="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
@@ -85,7 +168,7 @@ export function ColormapPicker({
             side="top"
             align="start"
             sideOffset={8}
-            className="z-50 min-w-[320px] border-[var(--layer-divider)] bg-[var(--layer-bg)] p-3"
+            className="z-50 min-w-[320px] border-border bg-popover p-3"
             aria-label="Select colormap"
           >
             <div className="grid max-h-[200px] grid-cols-4 gap-2 overflow-y-auto scrollbar-thin">
@@ -98,10 +181,10 @@ export function ColormapPicker({
                     type="button"
                     aria-pressed={isSelected}
                     className={cn(
-                      'group relative rounded-[1px] p-1 transition-all',
+                      'group relative rounded-sm p-1 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
                       isSelected
-                        ? 'bg-[var(--layer-selected)] outline outline-2 outline-[var(--layer-accent)] outline-offset-[-2px]'
-                        : 'hover:bg-[var(--layer-hover)]'
+                        ? 'bg-bf-bg-selected outline outline-2 outline-primary -outline-offset-2'
+                        : 'hover:bg-accent'
                     )}
                     onClick={() => {
                       onChange(colormap.name);
@@ -109,10 +192,10 @@ export function ColormapPicker({
                     }}
                   >
                     <div
-                      className="h-4 w-12 rounded-[1px]"
+                      className="h-4 w-12 rounded-sm"
                       style={{ background: colormap.gradient }}
                     />
-                    <span className="mt-1 block truncate text-[9px] uppercase tracking-wider text-[var(--layer-text)]">
+                    <span className="mt-1 block truncate text-bf-2xs text-foreground">
                       {colormap.label}
                     </span>
                   </button>
@@ -138,8 +221,9 @@ export function ColormapPicker({
                   role="option"
                   aria-selected={isSelected}
                   className={cn(
-                    'flex w-full items-center gap-2 px-3 py-2 text-left text-sm focus:outline-none',
-                    isSelected ? 'bg-blue-50' : 'hover:bg-gray-50 focus:bg-gray-50'
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-bf-sm text-foreground focus:outline-none focus-visible:bg-accent',
+                    SELECTED_EDGE_FOCUS,
+                    isSelected ? 'bg-bf-bg-selected' : 'hover:bg-accent'
                   )}
                   onClick={() => {
                     onChange(colormap.name);
@@ -147,12 +231,12 @@ export function ColormapPicker({
                   }}
                 >
                   <div
-                    className="h-4 w-16 rounded border"
+                    className="h-4 w-16 rounded-sm border border-border"
                     style={{ background: colormap.gradient }}
                   />
-                  <span className="flex-1 text-gray-700">{colormap.label}</span>
+                  <span className="flex-1">{colormap.label}</span>
                   {isSelected && (
-                    <svg className="h-4 w-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="h-4 w-4 text-primary" fill="currentColor" viewBox="0 0 20 20">
                       <path
                         fillRule="evenodd"
                         d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"

@@ -7,7 +7,7 @@
 .status-bar {
   display: flex;
   align-items: center;
-  height: 32px;
+  height: 28px;
   /* Never let the flex column squeeze the bar — it must reserve its full height
      so the panels above end at its top edge instead of overlapping behind it.
      flex-shrink: 0 keeps the height-driven basis (incl. the responsive 28px). */
@@ -16,10 +16,10 @@
   min-width: 0;
   max-width: 100%;
   padding: 0 12px;
-  background: var(--app-bg-secondary);
-  border-top: 1px solid var(--app-border);
+  background: var(--app-bg-tertiary);
+  border-top: 1px solid var(--app-border-subtle);
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--bf-text-sm);
   font-family: var(--app-font-sans);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -43,31 +43,63 @@
 }
 
 .status-label {
-  color: var(--app-text-muted);
-  opacity: 0.85;
-  font-size: 11px;
+  /* Labels use the muted token at full strength (AA); faint is decorative only. */
+  color: var(--bf-text-muted);
+  font-size: var(--bf-text-xs);
   flex-shrink: 0;
   white-space: nowrap;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .status-value {
+  min-width: 0;
+  white-space: nowrap;
   font-family: var(--app-font-mono);
+  font-size: var(--bf-text-xs);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--app-text-primary);
+  /* Readouts can be selected and copied (the bar copies ASCII minus). */
+  user-select: text;
 }
 
-/* Bauhaus monochrome — restrained value colors.
-   Only crosshair gets the accent; everything else is neutral. */
+/* Restrained value colors. Only the crosshair readout is chromatic, and it
+   uses the crosshair's own colour (set inline from the settings store), not
+   the chrome accent. */
 .status-value--coordinate-system {
   color: var(--app-text-secondary);
 }
 
 .status-value--crosshair {
-  color: var(--app-accent);
+  color: var(--status-crosshair-color, var(--bf-crosshair));
+}
+
+/* ijk: a secondary readout beside the crosshair, mono like every value. */
+.status-value--ijk {
+  color: var(--app-text-secondary);
+}
+
+/* Statistic symbol before a value ("z 5.97"): muted, so numbers line up. */
+.status-value__symbol {
+  color: var(--bf-text-muted);
+  font-family: var(--app-font-sans);
+}
+
+/* Mouse slot: the voxel index after the mm position, muted. */
+.status-value__ijk {
+  color: var(--app-text-secondary);
+}
+
+/* Region LUT colour (data colour, not chrome). */
+.status-region-swatch {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  vertical-align: 1px;
+  border-radius: 1px;
+  outline: 1px solid var(--bf-border);
+  forced-color-adjust: none;
 }
 
 .status-value--mouse {
@@ -96,28 +128,71 @@
 }
 
 /* Right-side content area */
+/* One-line message (NotificationToast) in the free space between the
+   readouts and Diagnostics; it gives way first when the bar is narrow. */
+.status-notification {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  /* Starts after the readouts: under the centre stack, not the Inspector. */
+  justify-content: flex-start;
+  padding: 0 8px;
+  overflow: hidden;
+}
+
 .status-bar__right {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+  padding-left: 8px;
 }
+
+/* Diagnostics: developer telemetry (atlas pressure, FPS, GPU) behind one
+   compact button + popover, so it never competes with the location readouts. */
+/* Focus ring: the bar is 28px with overflow hidden (and sits on the window's
+   bottom edge), so the shared OUTER ring (offset 1 + width 2 = 3px outside
+   the 24px button) would lose its top and bottom rows. Draw this trigger's
+   ring inset instead: pixels 0-1 inside the button's own box, clear of the
+   label (8px side padding). */
+.status-bar .status-diagnostics-trigger:focus-visible,
+.status-bar .status-diagnostics-trigger[data-force-focus] {
+  outline-offset: -2px;
+}
+/* The trigger is a ghost bf Button (24px); the list is a bf KeyValue (rows). */
+.status-diagnostics-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.status-diagnostics-dot--warning {
+  background: var(--bf-warning);
+}
+
+.status-diagnostics-dot--critical {
+  background: var(--bf-danger);
+}
+
+
 
 .status-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
-  background: var(--app-bg-tertiary);
+  height: 24px;
+  padding: 0 9px;
+  background: var(--bf-bg-panel-raised);
   border-radius: var(--app-radius-sm);
   border: 1px solid var(--app-border);
 }
 
 .status-toggle span {
-  font-size: 11px;
+  font-size: var(--bf-text-xs);
   color: var(--app-text-primary);
-  letter-spacing: 0.01em;
 }
 
 .status-toggle--preset {
@@ -142,16 +217,9 @@
   text-align: left;
 }
 
-/* Responsive: hide less important items on small screens */
-@media (max-width: 1024px) {
-  .status-slot[data-priority='low'] {
-    display: none;
-  }
-}
-
 @media (max-width: 768px) {
   .status-bar {
-    font-size: 11px;
+    font-size: var(--bf-text-xs);
     height: 28px;
   }
 
@@ -160,6 +228,6 @@
   }
 
   .status-label {
-    font-size: 10px;
+    font-size: var(--bf-text-2xs);
   }
 }

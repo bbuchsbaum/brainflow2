@@ -37,7 +37,7 @@ const MODE_LABELS: Record<DisplayMode, string> = {
   integrated: 'Integrated',
   mosaic: 'Mosaic',
   compare: 'Compare',
-  'set-studio': 'Set Studio',
+  'set-studio': 'Set studio',
   bids: 'BIDS',
   analysis: 'Analysis',
   unknown: '—',

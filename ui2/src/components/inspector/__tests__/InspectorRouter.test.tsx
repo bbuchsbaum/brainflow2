@@ -74,7 +74,7 @@ describe('InspectorRouter', () => {
   });
 
   it('renders the studio body for set-studio', () => {
-    setMode('set-studio', 'Set Studio');
+    setMode('set-studio', 'Set studio');
     render(<InspectorRouter />);
     expect(screen.getByTestId('studio-body')).toBeInTheDocument();
   });
@@ -99,16 +99,30 @@ describe('InspectorRouter', () => {
     // thin context toolbar with the load action + annotate mode toggle.
     expect(screen.queryByText(/Active view:/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /load/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /annotate/i })).toBeInTheDocument();
+    // Inspect / Annotate switch the pane's content: flat tabs (V5 taxonomy).
+    expect(screen.getByRole('tablist', { name: 'Inspector mode' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /annotate/i })).toBeInTheDocument();
   });
 
-  it('toggles annotate mode via the Annotate button', () => {
+  it('toggles annotate mode via the Inspect / Annotate tabs', () => {
     setMode('integrated', 'Integrated');
     render(<InspectorRouter />);
-    const annotateBtn = screen.getByRole('button', { name: /annotate/i });
-    expect(annotateBtn).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(annotateBtn);
-    expect(annotateBtn).toHaveAttribute('aria-pressed', 'true');
+    const annotate = screen.getByRole('tab', { name: /annotate/i });
+    const inspect = screen.getByRole('tab', { name: /inspect$/i });
+    expect(annotate).toHaveAttribute('aria-selected', 'false');
+    expect(inspect).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(annotate);
+    expect(annotate).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/Annotate mode is not yet enabled/)).toBeInTheDocument();
+    // The visible body is the selected tab's panel.
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', annotate.id);
+    fireEvent.click(inspect);
+    expect(inspect).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText(/Annotate mode is not yet enabled/)).toBeNull();
+    // Keyboard: ArrowRight moves to and selects Annotate (automatic activation).
+    inspect.focus();
+    fireEvent.keyDown(inspect, { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: /annotate/i })).toHaveAttribute('aria-selected', 'true');
   });
   it('opens the canonical file dialog from both file actions', () => {
     render(<InspectorRouter />);

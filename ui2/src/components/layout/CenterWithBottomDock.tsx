@@ -23,6 +23,7 @@
  * (GPU-backed) view.
  */
 
+import { ClusterPanel } from '@/components/panels/ClusterPanel';
 import React from 'react';
 
 import { BottomWorkbenchDock } from '@/components/layout/BottomWorkbenchDock';
@@ -172,6 +173,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ chil
               plot={<PlotPanel defaultMode={defaultPlotMode} />}
               activity={<ActivityPanel />}
               log={<LogPanel />}
+              clusters={<ClusterPanel />}
               activeTab={activeTab ?? DEFAULT_DOCK_TAB}
               onActiveTabChange={setActiveTab}
               onClose={() => setBottomDockOpen(false)}

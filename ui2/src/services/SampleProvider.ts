@@ -152,6 +152,9 @@ export class SampleProvider {
       meta: {
         datasetId: request.datasetId,
         locus: 'wholeVolume',
+        // Exact zeros (background) are left out of bins and mean/std.
+        zerosExcluded: true,
+        integerValued: isLabelLayer(request.datasetId),
         min: histogram.minValue,
         max: histogram.maxValue,
         mean: histogram.mean,
@@ -465,3 +468,11 @@ export class SampleProvider {
 
 /** Process-wide singleton. */
 export const sampleProvider = SampleProvider.getInstance();
+
+/** Label maps (catalogue atlases, user label volumes) hold integer region ids. */
+function isLabelLayer(layerId: string): boolean {
+  const layer = useLayerStore.getState().getLayer(layerId) as
+    | { type?: string; isLabelMap?: boolean; source?: string }
+    | undefined;
+  return !!layer && (layer.type === 'label' || layer.isLabelMap === true || layer.source === 'atlas');
+}

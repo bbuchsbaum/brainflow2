@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileBrowserPanel } from '../FileBrowserPanel';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
@@ -99,7 +99,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Unmount Selected' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unmount selected' }));
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('remote_mount_unmount', {
@@ -132,7 +132,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Unmount Selected' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unmount selected' }));
 
     await waitFor(() => {
       const state = useFileBrowserStore.getState();
@@ -163,7 +163,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    const unmountButton = screen.getByRole('menuitem', { name: 'Unmount Selected' });
+    const unmountButton = screen.getByRole('menuitem', { name: 'Unmount selected' });
     expect(unmountButton).toBeDisabled();
   });
 
@@ -172,11 +172,11 @@ describe('FileBrowserPanel unmount overflow action', () => {
     resetStore([makeRootNode(root, { kind: 'local' })], root);
     render(<FileBrowserPanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Open folder as image set…' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open as switchable layer…' }));
     expect(openImageSetMock).toHaveBeenCalledWith(root);
   });
 
-  it('opens Set Studio folder ontology from the selected folder', () => {
+  it('opens Set studio folder ontology from the selected folder', () => {
     const invokeMock = vi.fn().mockResolvedValue({ success: true });
     setTransport({ invoke: invokeMock } as BackendTransportLike);
 
@@ -193,10 +193,29 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Create Set from Folder' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Set studio…' }));
 
     expect(openFolderOntologyInStudioMock).toHaveBeenCalledWith({
       discoveryRoot: localRoot,
     });
+  });
+
+  it('disables folder actions when the selection is absent or is a file', () => {
+    const root = makeRootNode('/tmp/local-data', { kind: 'local' });
+    root.children = [{
+      id: 'image', name: 'image.nii', path: `${root.path}/image.nii`, type: 'file', depth: 1,
+    }];
+    resetStore([root], null);
+    render(<FileBrowserPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Open in Set studio…' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Open as switchable layer…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
+    act(() => useFileBrowserStore.getState().selectFile(root.children![0].path));
+    fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Open in Set studio…' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Open as switchable layer…' })).toBeDisabled();
+    expect(openFolderOntologyInStudioMock).not.toHaveBeenCalled();
+    expect(openImageSetMock).not.toHaveBeenCalled();
   });
 });

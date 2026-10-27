@@ -100,8 +100,8 @@ const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({
     <span
       ref={textRef}
       className={cn(
-        "min-w-0 flex-1 truncate text-[13px] font-medium",
-        isSelected ? "text-accent" : "text-foreground",
+        "min-w-0 flex-1 truncate text-bf-md font-medium",
+        isSelected ? "text-primary" : "text-foreground",
       )}
     >
       {name}
@@ -220,7 +220,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         <div className="px-0.5 shrink-0">
           <LayerTypeIcon
             type={layer.layerType}
-            className={isSelected ? "text-accent" : "text-muted-foreground"}
+            className={isSelected ? "text-primary" : "text-muted-foreground"}
           />
         </div>
       )}
@@ -230,12 +230,12 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         <div className="flex min-w-0 items-center gap-1">
           <LayerNameWithTooltip name={layer.name} isSelected={isSelected} />
           {layer.loading && (
-            <span className="shrink-0 rounded border border-border bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <span className="shrink-0 rounded border border-border bg-muted px-1 py-px text-bf-2xs font-medium text-muted-foreground">
               Loading
             </span>
           )}
           {layer.error && (
-            <span className="shrink-0 rounded border border-destructive/40 bg-destructive/10 px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-destructive">
+            <span className="shrink-0 rounded border border-destructive/40 bg-destructive/10 px-1 py-px text-bf-2xs font-medium text-destructive">
               Error
             </span>
           )}
@@ -247,7 +247,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
               <button
                 className={cn(
                   "icon-btn",
-                  "rounded-md transition-colors",
+                  "rounded-sm transition-colors",
                   "hover:bg-destructive/20 active:bg-destructive/30",
                 )}
                 onClick={(e) => {
@@ -264,7 +264,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
               trigger={
                 <button
                   type="button"
-                  className="icon-btn rounded-md"
+                  className="icon-btn rounded-sm"
                   aria-label={`Layer actions for ${layer.name}`}
                 >
                   <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
@@ -297,8 +297,8 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
           </div>
         </div>
         {/* Row 2: metadata badge + opacity percentage */}
-        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="shrink-0 rounded border border-border px-1 py-px uppercase tracking-[0.08em]">
+        <div className="mt-0.5 flex items-center gap-1.5 text-bf-2xs text-muted-foreground">
+          <span className="shrink-0 rounded border border-border px-1 py-px">
             {layerKindLabel}
           </span>
           {sourceLabel && (

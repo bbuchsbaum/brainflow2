@@ -73,8 +73,8 @@ function TestProgressButtons() {
           onClick={cancelTest}
           className="py-1.5 px-3 text-xs rounded transition-colors"
           style={{
-            backgroundColor: '#ef444420',
-            color: '#ef4444'
+            backgroundColor: 'var(--bf-danger-soft)',
+            color: 'var(--bf-danger)'
           }}
         >
           Cancel
@@ -136,24 +136,24 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
           ? <VscSync className={`${iconClass} animate-spin`} />
           : <VscLoading className={`${iconClass} animate-spin`} />;
       case 'completed':
-        return <VscCheck className={`${iconClass} text-green-500`} />;
+        return <VscCheck className={`${iconClass} text-bf-success`} />;
       case 'error':
-        return <VscError className={`${iconClass} text-red-500`} />;
+        return <VscError className={`${iconClass} text-bf-danger`} />;
       case 'cancelled':
-        return <VscStopCircle className={`${iconClass} text-gray-500`} />;
+        return <VscStopCircle className={`${iconClass} text-muted-foreground`} />;
     }
   }
   
   function getStatusColor(status: ProgressTask['status']) {
     switch (status) {
       case 'active':
-        return '#10b981';  // green-500 for better visibility
+        return 'var(--bf-text-secondary)';
       case 'completed':
-        return '#10b981';  // green-500
+        return 'var(--bf-success)';
       case 'error':
-        return '#ef4444';  // red-500
+        return 'var(--bf-danger)';
       case 'cancelled':
-        return '#6b7280';  // gray-500
+        return 'var(--bf-text-muted)';
     }
   }
 
@@ -186,13 +186,13 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
           className="flex items-center justify-between p-4"
           style={{ borderBottom: '1px solid var(--layer-divider)' }}
         >
-          <h2 id={titleId} className="text-lg font-semibold" style={{ color: 'var(--layer-text)' }}>
-            Progress Tasks
+          <h2 id={titleId} className="text-bf-lg font-semibold" style={{ color: 'var(--layer-text)' }}>
+            Progress tasks
           </h2>
           <button
             ref={closeButtonRef}
             onClick={onClose}
-            className="p-1 rounded hover:bg-gray-700/50 transition-colors"
+            className="p-1 rounded-sm hover:bg-accent transition-colors"
             title="Close"
             aria-label="Close progress panel"
           >
@@ -203,19 +203,19 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
         {/* Task list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3" role="list" aria-label="Progress tasks">
           {tasks.length === 0 ? (
-            <p className="text-center py-8 text-sm" style={{ color: '#94a3b8' }}>
+            <p className="text-center py-8 text-bf-sm" style={{ color: 'var(--bf-text-muted)' }}>
               No active or recent tasks
             </p>
           ) : (
             tasks.map(task => (
               <div
                 key={task.id}
-                className="p-3 rounded-lg border transition-all"
+                className="p-3 rounded-sm border transition-all"
                 style={{
-                  backgroundColor: task.status === 'active' ? 'rgba(16, 185, 129, 0.05)' : 'transparent',  // Lighter green tint
+                  backgroundColor: task.status === 'active' ? 'var(--bf-accent-soft)' : 'transparent',
                   borderColor: task.status === 'active' 
                     ? getStatusColor(task.status) 
-                    : 'var(--app-border, #374151)', // Stronger border for better contrast
+                    : 'var(--bf-border)',
                   borderWidth: '1px',
                   borderStyle: 'solid'
                 }}
@@ -228,11 +228,11 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                   <div className="flex items-center gap-2 flex-1">
                     <div className="flex-shrink-0">{getStatusIcon(task)}</div>
                     <div className="flex-1">
-                      <h3 className="font-medium text-sm" style={{ color: 'var(--layer-text)' }}>
+                      <h3 className="font-medium text-bf-sm" style={{ color: 'var(--layer-text)' }}>
                         {task.title}
                       </h3>
                       {task.message && (
-                        <p className="text-xs mt-0.5" style={{ color: '#94a3b8' }}>
+                        <p className="text-bf-xs mt-0.5" style={{ color: 'var(--bf-text-muted)' }}>
                           {task.message}
                         </p>
                       )}
@@ -243,11 +243,11 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                   {task.status === 'active' && task.cancellable && (
                     <button
                       onClick={() => progressService.cancelTask(task.id)}
-                      className="p-1 rounded hover:bg-red-500/20 transition-colors"
+                      className="p-1 rounded-sm hover:bg-bf-danger-soft transition-colors"
                       title="Cancel task"
                       aria-label="Cancel task"
                     >
-                      <VscClose className="w-4 h-4 text-red-400" />
+                      <VscClose className="w-4 h-4 text-bf-danger" />
                     </button>
                   )}
                 </div>
@@ -258,17 +258,16 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                     {task.progress >= 0 ? (
                       // Determinate progress bar
                       <>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span style={{ color: '#94a3b8' }}>Progress</span>
-                          <span style={{ color: '#10b981', fontWeight: 600 }}>{task.progress}%</span>
+                        <div className="flex items-center justify-between text-bf-xs mb-1">
+                          <span style={{ color: 'var(--bf-text-muted)' }}>Progress</span>
+                          <span style={{ color: 'var(--bf-text-primary)', fontWeight: 600 }}>{task.progress}%</span>
                         </div>
-                        <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden shadow-inner">
+                        <div className="relative h-2 bg-bf-bg-panel-sunken rounded-sm overflow-hidden">
                           <div
-                            className="h-full transition-all duration-300 relative overflow-hidden rounded-full"
+                            className="h-full transition-all duration-300 relative overflow-hidden rounded-sm"
                             style={{
                               width: `${task.progress}%`,
                               backgroundColor: getStatusColor(task.status),
-                              backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 100%)',
                             }}
                           />
                         </div>
@@ -276,10 +275,10 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                     ) : (
                       // Indeterminate progress bar
                       <>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span style={{ color: '#94a3b8' }}>Processing...</span>
+                        <div className="flex items-center justify-between text-bf-xs mb-1">
+                          <span style={{ color: 'var(--bf-text-muted)' }}>Processing...</span>
                         </div>
-                        <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden">
+                        <div className="relative h-2 bg-bf-bg-panel-sunken rounded-sm overflow-hidden">
                           <div className="absolute inset-0 -left-full animate-pulse"
                             style={{
                               background: `linear-gradient(90deg, transparent, ${getStatusColor(task.status)}, transparent)`,
@@ -293,8 +292,8 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                 )}
                 
                 {/* Task metadata */}
-                <div className="flex items-center justify-between text-xs">
-                  <span style={{ color: '#94a3b8' }}>
+                <div className="flex items-center justify-between text-bf-xs">
+                  <span style={{ color: 'var(--bf-text-muted)' }}>
                     Duration: {formatDuration(task.startTime, task.endTime)}
                   </span>
                   <span 
@@ -308,10 +307,10 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                 {/* Error message */}
                 {task.error && (
                   <div 
-                    className="mt-2 p-2 rounded text-xs"
+                    className="mt-2 p-2 rounded-sm text-bf-xs"
                     style={{ 
-                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                      color: '#ef4444'
+                      backgroundColor: 'var(--bf-danger-soft)',
+                      color: 'var(--bf-danger)'
                     }}
                   >
                     {task.error.message}
@@ -323,10 +322,10 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                     <button
                       onClick={() => void handleRetry(task.id)}
                       disabled={task.retrying}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-sm text-bf-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{
-                        backgroundColor: 'rgba(96, 165, 250, 0.12)',
-                        color: '#60a5fa',
+                        backgroundColor: 'var(--bf-bg-hover)',
+                        color: 'var(--bf-text-primary)',
                       }}
                       title="Retry task"
                       aria-label="Retry task"
@@ -350,13 +349,13 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
           {tasks.some(t => t.status === 'completed' || t.status === 'cancelled') && (
             <button
               onClick={() => useProgressStore.getState().clearCompleted()}
-              className="w-full py-2 px-4 rounded text-sm font-medium transition-colors"
+              className="w-full py-2 px-4 rounded-sm text-bf-sm font-medium transition-colors"
               style={{
                 backgroundColor: 'var(--layer-hover)',
                 color: 'var(--layer-text)'
               }}
             >
-              Clear Completed Tasks
+              Clear completed tasks
             </button>
           )}
           

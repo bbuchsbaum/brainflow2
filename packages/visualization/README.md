@@ -54,3 +54,26 @@ import { NeuroSurfaceCanvas } from '@brainflow/visualization/surface';
 ```
 
 Brainflow app wrappers remain in `ui2`; this package is the neutral viewer layer.
+
+## Surface runtime contract
+
+The `neurosurface` import is an npm alias for **SurfView 3.1.0** in this workspace.
+The package supports compatible 3.x releases from 3.1.0 onward. Consumers must
+provide the compatible Three.js peer (`^0.185.1`); Brainflow pins both runtime
+dependencies in its workspace. The core viewer works through our React wrapper;
+we do not use SurfView's optional React adapters (whose declared peers remain
+React 18).
+
+`src/surface/surfaceRuntime.ts` owns layer construction/updates and appearance
+translation. Set the surface base color through `updateConfig({ color })`, never
+through the mesh material color: the latter tints quantitative overlays. Lighting
+uses the viewer's owned ambient/key/fill lights, with `headlight: false` to honor
+Brainflow's world-position controls. GPU volume projection explicitly requests
+linear sampling; hardware without float-linear support may use SurfView's
+documented nearest fallback. The adapter no longer recomputes normals for every
+appearance change. Grayscale aliases (`gray`, `grey`, `grays`) normalize to
+`greys` on both layer paths, avoiding the volume texture generator's palette fallback.
+
+The isolated `ui2/surfview-harness.html` exercises the real renderer with synthetic
+data. See `e2e/playwright.surfview.config.ts`; it is a development entry point,
+not part of the production app or evidence of native Tauri acceptance.

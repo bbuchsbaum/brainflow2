@@ -97,5 +97,13 @@ fn main() {
         eprintln!("Failed to export VolumeProjectionData: {}", e);
     }
 
+    // Phase 3 volume queries, cluster table (export_all pulls in the enums).
+    ComputeClustersRequest::export_all().expect("export cluster request");
+    ClusterTable::export_all().expect("export cluster table");
+    VolumeExtremumRequest::export_all().expect("export extremum request");
+    VoxelLocation::export_all().expect("export voxel location");
+    VolumeNonzeroBboxRequest::export_all().expect("export bbox request");
+    VolumeNonzeroBbox::export_all().expect("export bbox");
+
     println!("TypeScript type export completed for api_bridge");
 }

@@ -1,93 +1,287 @@
 /**
  * ExportImageDialog
  *
- * Shows a preview of the captured active view and allows choosing
- * export options before saving to disk.
+ * The export is the viewport frame at a scale factor (P3.8): the rendered
+ * slice plus the frame's crosshair, header, orientation letters, colorbar /
+ * Regions legend and a scale bar, composited on a canvas by ONE composer that
+ * also makes the preview, so the preview is the file (same bytes). Presets:
+ * "As shown" (with the crosshair, canvas black) and "Figure" (everything but
+ * the crosshair, on white; the default). Size: a screen multiple, or a print
+ * width (89 / 183 mm) at 300 / 600 dpi, written into the file. Targets: a
+ * slice view, the orthogonal layout, or the mosaic (this page or a slice
+ * range). Views that cannot be composited (surface, Compare) fall back to
+ * the plain capture.
+ *
+ * Errors show in the options column (role=alert) with the backend's reason;
+ * the footer is ruled with the format summary at left, Cancel / Save right.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Label } from '@/components/ui/shadcn/label';
-import { Switch } from '@/components/ui/shadcn/switch';
 import {
+  Button,
+  Checkbox,
+  FieldRow,
+  Notice,
+  NumberField,
+  SegmentedControl,
   Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/shadcn/select';
-import { Button } from '@/components/ui/shadcn/button';
+  Switch,
+  TextField,
+} from '@/components/ui/bf';
 import { Modal } from '@/components/ui/Modal';
 import { getViewExportService } from '@/services/ViewExportService';
-import { getTransport } from '@/services/transport';
+import {
+  availableExportTargets,
+  captureComposite,
+  currentMosaicExportSource,
+  defaultExportTarget,
+  EXPORT_TARGET_LABEL,
+  MAX_EXPORT_TILES,
+  clampMosaicRange,
+  defaultMosaicRange,
+  type ExportTarget,
+} from '@/services/export/compositeCapture';
+import {
+  outputSizeText,
+  presetOf,
+  PRINT_DPI,
+  PRINT_WIDTHS_MM,
+  type ExportBackground,
+  type FrameIncludes,
+} from '@/services/export/compositeExport';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
+import { formatTauriError } from '@/utils/formatTauriError';
+import { formatWorldMm } from '@/utils/valueFormat';
+
+/** Pause after an option change before the preview re-composes. */
+const CAPTURE_DEBOUNCE_MS = 250;
+
+const FORMAT_OPTIONS = [
+  { value: 'png', label: 'PNG' },
+  { value: 'jpg', label: 'JPG' },
+] as const;
+
+const PRESET_OPTIONS = [
+  { value: 'shown', label: 'As shown', title: 'What the view shows, crosshair included' },
+  { value: 'figure', label: 'Figure', title: 'Everything but the crosshair, on white' },
+] as const;
+
+const SIZE_KIND_OPTIONS = [
+  { value: 'screen', label: 'Screen', title: 'A multiple of the on-screen size' },
+  { value: 'print', label: 'Print', title: 'A journal column width at a print resolution' },
+] as const;
+
+const SCALE_OPTIONS = [1, 2, 3, 4].map((s) => ({
+  value: String(s),
+  label: `${s}×`,
+  'aria-label': `${s} times`,
+}));
+
+const WIDTH_OPTIONS = PRINT_WIDTHS_MM.map((mm) => ({
+  value: String(mm),
+  label: `${mm} mm (${mm === 89 ? '1 column' : '2 columns'})`,
+}));
+
+const DPI_OPTIONS = PRINT_DPI.map((dpi) => ({ value: String(dpi), label: `${dpi} dpi` }));
+
+const BACKGROUND_OPTIONS = [
+  { value: 'black', label: 'Black' },
+  { value: 'white', label: 'White' },
+  { value: 'transparent', label: 'Transparent' },
+] as const;
+
+const TILE_OPTIONS = [
+  { value: 'page', label: 'This page' },
+  { value: 'range', label: 'Range' },
+] as const;
+
+const INCLUDE: Array<{ key: keyof Omit<FrameIncludes, 'background'>; label: string }> = [
+  { key: 'colorbar', label: 'Colorbar / legend' },
+  { key: 'header', label: 'Slice position' },
+  { key: 'orientation', label: 'Orientation letters' },
+  { key: 'scaleBar', label: 'Scale bar (10 mm)' },
+  { key: 'crosshair', label: 'Crosshair' },
+];
 
 export function ExportImageDialog() {
-  const isOpen = useExportDialogStore(state => state.isOpen);
-  const imageUrl = useExportDialogStore(state => state.imageUrl);
-  const isCapturing = useExportDialogStore(state => state.isCapturing);
-  const error = useExportDialogStore(state => state.error);
-  const hasBytes = useExportDialogStore(state => state.bytes !== null);
-  const format = useExportDialogStore(state => state.format);
-  const transparentBackground = useExportDialogStore(state => state.transparentBackground);
-  const suggestedName = useExportDialogStore(state => state.suggestedName);
+  const isOpen = useExportDialogStore((state) => state.isOpen);
+  const imageUrl = useExportDialogStore((state) => state.imageUrl);
+  const isCapturing = useExportDialogStore((state) => state.isCapturing);
+  const error = useExportDialogStore((state) => state.error);
+  const hasBytes = useExportDialogStore((state) => state.bytes !== null);
+  const format = useExportDialogStore((state) => state.format);
+  const transparentBackground = useExportDialogStore((state) => state.transparentBackground);
+  const suggestedName = useExportDialogStore((state) => state.suggestedName);
+  const viewType = useExportDialogStore((state) => state.viewType);
+  const target = useExportDialogStore((state) => state.target);
+  const exportTargetChoice = useExportDialogStore((state) => state.exportTarget);
+  const composite = useExportDialogStore((state) => state.composite);
+  const size = useExportDialogStore((state) => state.size);
+  const provenance = useExportDialogStore((state) => state.provenance);
+  const mosaicTiles = useExportDialogStore((state) => state.mosaicTiles);
+  const cropToBrain = useExportDialogStore((state) => state.cropToBrain);
+  const mosaicColumns = useExportDialogStore((state) => state.mosaicColumns);
+  const outputSize = useExportDialogStore((state) => state.outputSize);
 
-  const setFormat = useExportDialogStore(state => state.setFormat);
-  const setTransparentBackground = useExportDialogStore(state => state.setTransparentBackground);
-  const setSuggestedName = useExportDialogStore(state => state.setSuggestedName);
-  const setCapturing = useExportDialogStore(state => state.setCapturing);
-  const setError = useExportDialogStore(state => state.setError);
-  const setCaptureResult = useExportDialogStore(state => state.setCaptureResult);
-  const close = useExportDialogStore(state => state.close);
+  const store = useExportDialogStore.getState;
+  const {
+    setFormat,
+    setTransparentBackground,
+    setSuggestedName,
+    setExportTarget,
+    setComposite,
+    setSize,
+    setProvenance,
+    setMosaicTiles,
+    setCropToBrain,
+    setMosaicColumns,
+    applyPreset,
+    setOutputSize,
+    setCapturing,
+    setError,
+    setCaptureResult,
+    close,
+  } = store();
 
   const bytesRef = useRef<Uint8Array | null>(null);
-  const mimeRef = useRef<string | null>(null);
   const captureSeqRef = useRef(0);
   const fileNameInputRef = useRef<HTMLInputElement | null>(null);
+  const errorRef = useRef<HTMLDivElement | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [outputDpi, setOutputDpi] = useState<number | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
+  // What can be composited here (slices + layout, or the mosaic). Empty for
+  // views without a composited exporter (surface, Compare): plain capture.
+  const targets = useMemo(() => (isOpen ? availableExportTargets() : []), [isOpen]);
+  const exportTarget: ExportTarget | null =
+    exportTargetChoice && targets.includes(exportTargetChoice)
+      ? exportTargetChoice
+      : isOpen
+        ? defaultExportTarget()
+        : null;
+  const mosaicSource = useMemo(
+    () => (isOpen && exportTarget === 'mosaic' ? currentMosaicExportSource() : null),
+    [isOpen, exportTarget],
+  );
+
+  // The File name field has initial focus; in a short window the settings
+  // column scrolls, so keep the focused field in view (v5 visual, 1280).
   useEffect(() => {
     if (!isOpen) return;
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const input = fileNameInputRef.current;
+        if (input && document.activeElement === input) input.scrollIntoView?.({ block: 'nearest' });
+      }),
+    );
+    return () => cancelAnimationFrame(raf);
+  }, [isOpen]);
+
+  // The first preview after opening starts at once; later ones are debounced.
+  const freshOpenRef = useRef(true);
+  useEffect(() => {
+    if (!isOpen) {
+      freshOpenRef.current = true;
+      return;
+    }
 
     const seq = ++captureSeqRef.current;
     setCapturing(true);
     setError(null);
 
-    getViewExportService()
-      .captureActiveView({
-        format,
-        transparentBackground: format === 'png' ? transparentBackground : false,
-      })
-      .then(({ bytes, mime, suggestedName: name }) => {
-        if (seq !== captureSeqRef.current) return;
-        bytesRef.current = bytes;
-        mimeRef.current = mime;
-        setCaptureResult(bytes, mime, name);
-      })
-      .catch((err) => {
-        if (seq !== captureSeqRef.current) return;
-        setError((err as Error).message || 'Failed to capture view');
-      })
-      .finally(() => {
-        if (seq !== captureSeqRef.current) return;
-        setCapturing(false);
-      });
-  }, [isOpen, format, transparentBackground, setCapturing, setError, setCaptureResult]);
+    // Option changes come in bursts (typing a range, stepping columns): wait
+    // for a pause, and abandon a capture a newer one supersedes, so stale
+    // full-resolution renders never queue up behind the live views (R3).
+    const controller = new AbortController();
+    let cancelled = false;
+    const timer = setTimeout(
+      () => {
+        if (cancelled) return;
+        startCapture();
+      },
+      freshOpenRef.current ? 0 : CAPTURE_DEBOUNCE_MS,
+    );
+    freshOpenRef.current = false;
+    const startCapture = () => {
+      const capture = exportTarget
+        ? captureComposite(exportTarget, format, {
+            frame: composite,
+            size,
+            provenance,
+            mosaicTiles,
+            cropToBrain,
+            mosaicColumns,
+            signal: controller.signal,
+          }).then((result) => {
+            if (seq === captureSeqRef.current) {
+              setOutputSize({ width: result.width, height: result.height });
+              setOutputDpi(result.dpi);
+              setWarning(result.warning);
+            }
+            return result;
+          })
+        : getViewExportService().captureActiveView({
+            format,
+            transparentBackground: format === 'png' ? transparentBackground : false,
+            viewType: viewType ?? undefined,
+          });
+
+      capture
+        .then(({ bytes, mime, suggestedName: name, target: captured }) => {
+          if (seq !== captureSeqRef.current) return;
+          bytesRef.current = bytes;
+          setCaptureResult(bytes, mime, name, captured ?? null);
+        })
+        .catch((err) => {
+          if (seq !== captureSeqRef.current || controller.signal.aborted) return;
+          setError(formatTauriError(err) || 'Failed to capture view');
+        })
+        .finally(() => {
+          if (seq !== captureSeqRef.current) return;
+          setCapturing(false);
+        });
+    };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    isOpen,
+    exportTarget,
+    format,
+    composite,
+    size,
+    provenance,
+    mosaicTiles,
+    cropToBrain,
+    mosaicColumns,
+    transparentBackground,
+    viewType,
+    setCapturing,
+    setError,
+    setCaptureResult,
+    setOutputSize,
+  ]);
 
   const handleSave = async () => {
     const bytes = bytesRef.current;
-    if (!bytes) return;
+    if (!bytes || isSaving) return;
 
     setIsSaving(true);
+    setError(null);
     try {
-      const transport = getTransport();
-      await transport.invoke<string | null>('save_image_bytes', {
-        bytes: Array.from(bytes),
-        suggestedName: suggestedName || undefined
-      });
-      close();
+      // null = the user cancelled the native save dialog: keep this dialog
+      // open (they may pick another name or format) and show no error.
+      const savedPath = await getViewExportService().saveImageBytes(bytes, suggestedName);
+      if (savedPath) close();
     } catch (err) {
-      setError((err as Error).message || 'Failed to save image');
+      // Tauri rejects with a plain string: keep the backend's reason, and
+      // take focus to it (the user just pressed Save; focus must not drop).
+      setError(formatTauriError(err) || 'Failed to save image');
+      requestAnimationFrame(() => errorRef.current?.focus());
     } finally {
       setIsSaving(false);
     }
@@ -95,100 +289,410 @@ export function ExportImageDialog() {
 
   if (!isOpen) return null;
 
+  const aspect =
+    outputSize && exportTarget
+      ? outputSize.width / outputSize.height
+      : target?.aspect && Number.isFinite(target.aspect)
+        ? target.aspect
+        : 4 / 3;
+  const preset = presetOf(composite);
+  const transparentPreview = exportTarget
+    ? composite.background === 'transparent'
+    : transparentBackground;
+
+  // Mosaic range default: the whole cropped brain, about 24 tiles.
+  const pageTiles = mosaicSource?.tiles ?? [];
+  const rangeSpec =
+    mosaicTiles.kind === 'range'
+      ? mosaicTiles
+      : mosaicSource?.sampling
+        ? defaultMosaicRange(mosaicSource.sampling)
+        : {
+            kind: 'range' as const,
+            fromMm: pageTiles[0]?.positionMm ?? 0,
+            toMm: pageTiles[pageTiles.length - 1]?.positionMm ?? 0,
+            every: 1,
+          };
+
+  const summary =
+    exportTarget && outputSize
+      ? size.kind === 'print' && outputDpi
+        ? `${format.toUpperCase()} · ${outputSizeText(outputSize.width, outputSize.height, outputDpi)}`
+        : `${format.toUpperCase()} · ${outputSize.width} × ${outputSize.height} px · ${
+            size.kind === 'screen' ? `${size.scale}× screen` : ''
+          }`
+      : format.toUpperCase();
+
+  // File name and format sit high in the column (above Include), so the
+  // focused File name is never below the fold (v5 function critic).
+  const formatField = (
+    <FieldRow
+      label="Format"
+      layout="stacked"
+      hint={
+        format === 'jpg' && composite.background === 'transparent' && exportTarget
+          ? 'JPG has no transparency: flattened onto black.'
+          : undefined
+      }
+    >
+      <Select
+        value={format}
+        options={FORMAT_OPTIONS}
+        onValueChange={(v) => setFormat(v === 'jpg' ? 'jpg' : 'png')}
+      />
+    </FieldRow>
+  );
+  const fileNameField = (
+    <FieldRow label="File name" layout="stacked" hint="Location is chosen in the save dialog.">
+      <TextField
+        ref={fileNameInputRef}
+        value={suggestedName}
+        onChange={(e) => setSuggestedName(e.target.value)}
+        placeholder={`view.${format}`}
+      />
+    </FieldRow>
+  );
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={close}
-      title="Export Active View"
-      ariaLabel="Export Active View"
+      title="Export view"
+      ariaLabel="Export view"
       size="xl"
       initialFocusRef={fileNameInputRef}
       closeOnOverlayClick={!isSaving}
       closeOnEscape={!isSaving}
       closeButtonDisabled={isSaving}
-      bodyClassName="p-0"
-      className="max-w-3xl rounded-sm ring-1 ring-white/10 shadow-2xl"
+      // The settings column scrolls; the preview and the ruled footer
+      // (format summary, Cancel / Save) stay in view at any window height.
+      bodyClassName="flex flex-col overflow-hidden p-0"
+      footer={
+        <div className="flex items-center justify-end gap-2 border-t border-bf-border-subtle px-3 py-3">
+          {/* Format summary: what Save writes. */}
+          <p
+            className="mr-auto min-w-0 truncate font-mono text-bf-2xs tabular-nums text-bf-text-muted"
+            data-testid="export-size"
+          >
+            {summary}
+          </p>
+          <Button variant="secondary" size="sm" onClick={close} disabled={isSaving}>
+            Cancel
+          </Button>
+          {/* While saving, Save stays focusable (aria-disabled), so focus
+        does not fall to <body> under the native save dialog. */}
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSave}
+            disabled={isCapturing || !hasBytes}
+            aria-disabled={isSaving || undefined}
+          >
+            {isSaving ? 'Saving…' : 'Save…'}
+          </Button>
+        </div>
+      }
+      className="!max-w-4xl rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
-      <div className="flex flex-col md:flex-row gap-4 p-4">
-          {/* Preview */}
-          <div className="flex-1 min-h-[300px] bg-black/40 rounded-sm flex items-center justify-center overflow-hidden">
-            {isCapturing && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 md:flex-row md:overflow-hidden">
+        {/* Preview: exactly the composited image that will be saved. */}
+        <div className="min-w-0 flex-1 md:self-start">
+          <div
+            className={`flex w-full items-center justify-center overflow-hidden rounded-sm ${
+              transparentPreview ? 'bf-checkerboard' : 'bg-bf-bg-canvas'
+            }`}
+            style={{ aspectRatio: String(aspect), maxHeight: '60vh' }}
+            data-testid="export-preview"
+          >
+            {isCapturing ? (
+              <div className="flex items-center gap-2 text-bf-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Capturing…
+                Composing…
               </div>
-            )}
-            {!isCapturing && imageUrl && (
+            ) : imageUrl ? (
               <img
                 src={imageUrl}
                 alt="Captured view preview"
-                className="max-h-[70vh] w-auto object-contain"
+                className="h-full w-full object-contain"
               />
-            )}
-            {!isCapturing && !imageUrl && !error && (
-              <div className="text-sm text-muted-foreground">No preview available</div>
-            )}
-            {error && (
-              <div className="text-sm text-destructive px-3 py-2">{error}</div>
+            ) : (
+              <div className="text-bf-sm text-muted-foreground">No preview available</div>
             )}
           </div>
+        </div>
 
-          {/* Options */}
-          <div className="w-full md:w-72 space-y-4">
-            <div className="space-y-1">
-              <Label className="text-sm text-muted-foreground">Format</Label>
-              <Select
-                value={format}
-                onValueChange={(v) => setFormat(v === 'jpg' ? 'jpg' : 'png')}
+        {/* Options */}
+        <div
+          // Padding inside the scroll box so focus rings (2px + offset) and
+          // the error alert's ring are never clipped by it (v5 visual).
+          className="w-full space-y-2 md:-mx-1.5 md:-my-1 md:min-h-0 md:w-[20.75rem] md:overflow-y-auto md:px-1.5 md:py-1 md:pb-2"
+          data-testid="export-settings"
+        >
+          {exportTarget ? (
+            <>
+              <FieldRow
+                label="View"
+                layout="stacked"
+                hint={
+                  target?.label && target.label !== EXPORT_TARGET_LABEL[exportTarget]
+                    ? target.label
+                    : undefined
+                }
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select format" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="png">PNG</SelectItem>
-                  <SelectItem value="jpg">JPG</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                <Select
+                  value={exportTarget}
+                  options={targets.map((t) => ({ value: t, label: EXPORT_TARGET_LABEL[t] }))}
+                  onValueChange={(v) => setExportTarget(v as ExportTarget)}
+                />
+              </FieldRow>
 
-            <div className="flex items-center justify-between">
-              <Label className="text-sm text-muted-foreground">Transparent background</Label>
-              <Switch
-                checked={transparentBackground}
-                onCheckedChange={(checked) => setTransparentBackground(checked)}
-                disabled={format !== 'png'}
-              />
-            </div>
+              {exportTarget === 'mosaic' && mosaicSource?.sampling ? (
+                <>
+                  <FieldRow label="Slices" layout="stacked" controlId="export-tiles">
+                    {(control) => (
+                      <SegmentedControl
+                        id={control.id}
+                        aria-labelledby={`${control.id}-label`}
+                        options={TILE_OPTIONS}
+                        value={mosaicTiles.kind}
+                        onValueChange={(v) =>
+                          setMosaicTiles(v === 'range' ? rangeSpec : { kind: 'page' })
+                        }
+                      />
+                    )}
+                  </FieldRow>
+                  {mosaicTiles.kind === 'range' ? (
+                    <div className="grid grid-cols-3 gap-2" data-testid="export-tile-range">
+                      <FieldRow label="From" layout="stacked">
+                        <NumberField
+                          step={mosaicSource.sampling.step}
+                          unit="mm"
+                          // The range as the figure takes it: "To" is the last
+                          // slice actually exported (v5: 82.5 shown, 78.5 drawn).
+                          value={clampMosaicRange(mosaicSource.sampling!, mosaicTiles).fromMm}
+                          onValueChange={(v) =>
+                            v !== null &&
+                            setMosaicTiles(
+                              clampMosaicRange(mosaicSource.sampling!, {
+                                ...mosaicTiles,
+                                fromMm: v,
+                              }),
+                            )
+                          }
+                        />
+                      </FieldRow>
+                      <FieldRow label="To" layout="stacked">
+                        <NumberField
+                          step={mosaicSource.sampling.step}
+                          unit="mm"
+                          value={clampMosaicRange(mosaicSource.sampling!, mosaicTiles).toMm}
+                          onValueChange={(v) =>
+                            v !== null &&
+                            setMosaicTiles(
+                              clampMosaicRange(mosaicSource.sampling!, { ...mosaicTiles, toMm: v }),
+                            )
+                          }
+                        />
+                      </FieldRow>
+                      <FieldRow label="Every" layout="stacked">
+                        <NumberField
+                          step={1}
+                          min={1}
+                          aria-label="Every n-th slice"
+                          value={mosaicTiles.every}
+                          onValueChange={(v) =>
+                            v !== null &&
+                            v >= 1 &&
+                            setMosaicTiles(
+                              clampMosaicRange(mosaicSource.sampling!, {
+                                ...mosaicTiles,
+                                every: Math.round(v),
+                              }),
+                            )
+                          }
+                        />
+                      </FieldRow>
+                    </div>
+                  ) : (
+                    <p className="text-bf-2xs text-bf-text-muted">
+                      {pageTiles.length > 0
+                        ? `${pageTiles.length} slices, ${formatWorldMm(pageTiles[0].positionMm)} to ${formatWorldMm(
+                            pageTiles[pageTiles.length - 1].positionMm,
+                          )} mm`
+                        : null}
+                    </p>
+                  )}
+                  {mosaicTiles.kind === 'range' ? (
+                    <p className="text-bf-2xs text-bf-text-muted">
+                      At most {MAX_EXPORT_TILES} slices; positions snap to the reference grid.
+                    </p>
+                  ) : null}
+                  <FieldRow
+                    label="Columns"
+                    layout="stacked"
+                    hint="Default: 6 at 183 mm, 4 at 89 mm, else the grid's."
+                  >
+                    <NumberField
+                      step={1}
+                      min={1}
+                      max={12}
+                      value={mosaicColumns ?? ''}
+                      placeholder="Auto"
+                      onValueChange={(v) =>
+                        setMosaicColumns(
+                          v === null ? null : Math.max(1, Math.min(12, Math.round(v))),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                </>
+              ) : null}
 
-            <div className="space-y-1">
-              <Label className="text-sm text-muted-foreground">File name</Label>
-              <input
-                ref={fileNameInputRef}
-                className="w-full rounded-md bg-background/60 border border-border px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                value={suggestedName}
-                onChange={(e) => setSuggestedName(e.target.value)}
-                placeholder={`view.${format}`}
-              />
-              <p className="text-xs text-muted-foreground">Location is chosen in the save dialog.</p>
-            </div>
+              <FieldRow label="Preset" layout="stacked" controlId="export-preset">
+                {(control) => (
+                  <SegmentedControl
+                    id={control.id}
+                    aria-labelledby={`${control.id}-label`}
+                    options={PRESET_OPTIONS}
+                    value={preset ?? ''}
+                    onValueChange={(v) => applyPreset(v as 'shown' | 'figure')}
+                  />
+                )}
+              </FieldRow>
 
-            <div className="pt-2 flex gap-2">
-              <Button
-                className="flex-1"
-                onClick={handleSave}
-                disabled={isCapturing || isSaving || !hasBytes}
-              >
-                {isSaving ? 'Saving…' : 'Save…'}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={close}
-                disabled={isSaving}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
+              <FieldRow label="Size" layout="stacked" controlId="export-size-kind">
+                {(control) => (
+                  <SegmentedControl
+                    id={control.id}
+                    aria-labelledby={`${control.id}-label`}
+                    options={SIZE_KIND_OPTIONS}
+                    value={size.kind}
+                    onValueChange={(v) =>
+                      setSize(
+                        v === 'print'
+                          ? { kind: 'print', widthMm: 89, dpi: 300 }
+                          : { kind: 'screen', scale: 2 },
+                      )
+                    }
+                  />
+                )}
+              </FieldRow>
+              {size.kind === 'screen' ? (
+                <FieldRow label="Scale" layout="stacked" controlId="export-scale">
+                  {(control) => (
+                    <SegmentedControl
+                      id={control.id}
+                      aria-labelledby={`${control.id}-label`}
+                      options={SCALE_OPTIONS}
+                      value={String(size.scale)}
+                      onValueChange={(v) => setSize({ kind: 'screen', scale: Number(v) })}
+                    />
+                  )}
+                </FieldRow>
+              ) : (
+                <>
+                  <FieldRow label="Width" layout="stacked" controlId="export-width">
+                    {(control) => (
+                      <Select
+                        {...control}
+                        value={String(size.widthMm)}
+                        options={WIDTH_OPTIONS}
+                        onValueChange={(v) => setSize({ ...size, widthMm: Number(v) })}
+                      />
+                    )}
+                  </FieldRow>
+                  <FieldRow label="Resolution" layout="stacked" controlId="export-dpi">
+                    {(control) => (
+                      <SegmentedControl
+                        id={control.id}
+                        aria-labelledby={`${control.id}-label`}
+                        options={DPI_OPTIONS}
+                        value={String(size.dpi)}
+                        onValueChange={(v) => setSize({ ...size, dpi: Number(v) })}
+                      />
+                    )}
+                  </FieldRow>
+                </>
+              )}
+
+              {formatField}
+              {fileNameField}
+
+              <fieldset className="space-y-0.5">
+                <legend className="mb-1 text-bf-xs text-bf-text-muted">Include</legend>
+                <div className="grid grid-cols-2 gap-x-2">
+                  {INCLUDE.map(({ key, label }) => (
+                    <Checkbox
+                      key={key}
+                      checked={composite[key]}
+                      onCheckedChange={(checked) => setComposite({ [key]: checked })}
+                    >
+                      {label}
+                    </Checkbox>
+                  ))}
+                  <Checkbox
+                    checked={cropToBrain}
+                    onCheckedChange={(checked) => setCropToBrain(checked)}
+                  >
+                    Crop to brain
+                  </Checkbox>
+                </div>
+              </fieldset>
+
+              <FieldRow label="Background" layout="stacked">
+                <Select
+                  value={composite.background}
+                  options={BACKGROUND_OPTIONS}
+                  onValueChange={(v) => setComposite({ background: v as ExportBackground })}
+                />
+              </FieldRow>
+            </>
+          ) : (
+            <>
+              {target?.label ? (
+                <FieldRow label="View">
+                  <span className="text-bf-sm text-bf-text-secondary">{target.label}</span>
+                </FieldRow>
+              ) : null}
+              <FieldRow label="Transparent background" labelWidth="wide">
+                <Switch
+                  checked={transparentBackground}
+                  onCheckedChange={(checked) => setTransparentBackground(checked)}
+                  disabled={format !== 'png'}
+                />
+              </FieldRow>
+              {formatField}
+              {fileNameField}
+            </>
+          )}
+
+          {exportTarget ? (
+            <Checkbox
+              checked={provenance}
+              onCheckedChange={(checked) => setProvenance(checked)}
+              title="Layers, files, windows, thresholds, statistic, crosshair and app version, embedded in the image file"
+            >
+              Embed provenance in the file
+            </Checkbox>
+          ) : null}
+
+          {warning && !error ? (
+            <Notice severity="warning" data-testid="export-warning">
+              {warning}
+            </Notice>
+          ) : null}
+          {error && (
+            <Notice
+              ref={errorRef}
+              tabIndex={-1}
+              severity="danger"
+              role="alert"
+              data-testid="export-error"
+            >
+              {error}
+            </Notice>
+          )}
+        </div>
       </div>
     </Modal>
   );

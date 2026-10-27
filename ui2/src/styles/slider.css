@@ -27,7 +27,7 @@ input[type="range"]::-moz-range-track {
 }
 
 /*
- * Circular thumb is the canonical Brainflow knob (matches
+ * The amber 6×12 rectangle is the canonical Brainflow knob (matches
  * `.bf-thumb-circle` in theme.css). Applied as the default for
  * any unscoped <input type="range"> so simple inline sliders
  * (e.g. Inspector "Opacity" / "Thickness") render consistently
@@ -36,37 +36,37 @@ input[type="range"]::-moz-range-track {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  background: hsl(199 89% 48%); /* sky-500 */
+  background: hsl(var(--primary));
   border: 0;
-  width: 12px;
+  width: 6px;
   height: 12px;
-  border-radius: 50%;
-  margin-top: -4.5px; /* center 12px thumb on 3px track */
+  border-radius: 1px;
+  margin-top: -4.5px; /* center the 12px-tall thumb on the 3px track */
   cursor: pointer;
-  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
   transition: background-color 0.15s ease;
 }
 
 input[type="range"]::-moz-range-thumb {
-  background: hsl(199 89% 48%);
+  background: hsl(var(--primary));
   border: 0;
-  width: 12px;
+  width: 6px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: 1px;
   cursor: pointer;
-  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
   transition: background-color 0.15s ease;
 }
 
 /* Hover states */
 input[type="range"]:hover::-webkit-slider-thumb,
 input[type="range"]:focus-visible::-webkit-slider-thumb {
-  background: hsl(199 89% 60%);
+  background: hsl(var(--foreground));
 }
 
 input[type="range"]:hover::-moz-range-thumb,
 input[type="range"]:focus-visible::-moz-range-thumb {
-  background: hsl(199 89% 60%);
+  background: hsl(var(--foreground));
 }
 
 /* Disabled states */
@@ -102,15 +102,15 @@ input[type="range"]:disabled::-moz-range-track {
 }
 
 .slider-thumb {
-  background-color: hsl(199 89% 48%);
+  background-color: hsl(var(--primary));
   border: 0;
-  width: 12px;
+  width: 6px;
   height: 12px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
   transition: background-color 0.15s ease;
 }
 
 .slider-thumb:hover {
-  background-color: hsl(199 89% 60%);
+  background-color: hsl(var(--foreground));
 }

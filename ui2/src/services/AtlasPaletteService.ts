@@ -98,7 +98,12 @@ export class AtlasPaletteService {
   static async applyToVolumeLayer(
     layerId: string,
     config: AtlasConfig,
-    options?: { kind?: AtlasPaletteKind; seed?: number },
+    options?: {
+      kind?: AtlasPaletteKind;
+      seed?: number;
+      /** Workspace that holds the layer (default: the active workspace). */
+      workspaceId?: string;
+    },
   ): Promise<void> {
     const patch = await AtlasPaletteService.buildVolumePalettePatch(
       config,
@@ -159,7 +164,7 @@ export class AtlasPaletteService {
       }
 
       if (!didChange) return;
-    });
+    }, options?.workspaceId);
 
     // Persist the legend on the layer metadata (separate from the render state)
     // so region-name-on-hover and the Inspector legend can resolve label ids.

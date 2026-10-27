@@ -194,12 +194,12 @@ export function ParcelTableImport({
   );
 
   return (
-    <section aria-label="Add parcel values" className="bf-parcel-form space-y-3 py-2 text-[12px]">
+    <section aria-label="Add parcel values" className="bf-parcel-form space-y-3 py-2 text-bf-sm">
       <p className="text-muted-foreground leading-relaxed">
         Target: <span className="text-foreground">{atlasName}</span>
       </p>
       {surfaceTarget && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-bf-xs text-muted-foreground">
           Applies to both hemispheres when present.
         </p>
       )}
@@ -247,7 +247,7 @@ export function ParcelTableImport({
           <summary className="cursor-pointer">Paste a table</summary>
           <textarea
             aria-label="Table text"
-            className="mt-2 h-24 w-full rounded border border-border bg-background p-2 font-mono text-[11px] text-foreground"
+            className="mt-2 h-24 w-full rounded border border-border bg-background p-2 font-mono text-bf-xs text-foreground"
             value={text}
             onChange={(e) => {
               fileGeneration.current++;
@@ -263,7 +263,7 @@ export function ParcelTableImport({
         {text && (
           <>
             {keyColumn && (
-              <p className="text-[11px] text-muted-foreground break-words">
+              <p className="text-bf-xs text-muted-foreground break-words">
                 Matching <span className="font-mono text-foreground">{keyColumn}</span> →{' '}
                 {keyKinds[keyKind]}
               </p>
@@ -285,19 +285,19 @@ export function ParcelTableImport({
               </select>
             </label>
             {current && preview && !bindingError && !hasMetric && (
-              <p className="text-[11px] text-destructive" role="status">
+              <p className="text-bf-xs text-destructive" role="status">
                 {metrics.find((c) => c.error)?.error ??
                   'No numeric display values found. Add a metric column to the table.'}
               </p>
             )}
             {current && selected?.range && (
-              <p className="text-[11px] text-muted-foreground tabular-nums">
+              <p className="text-bf-xs text-muted-foreground tabular-nums">
                 Range {selected.range[0].toLocaleString()} to {selected.range[1].toLocaleString()} ·{' '}
                 {selected.missingCount} missing cells
               </p>
             )}
             {current && preview && !bindingError && (
-              <p role="status" className="text-[11px] text-muted-foreground">
+              <p role="status" className="text-bf-xs text-muted-foreground">
                 <span className="text-foreground">
                   {preview.matchedParcels}/{preview.atlasParcels} parcels matched
                 </span>
@@ -361,7 +361,7 @@ export function ParcelTableImport({
                   Allow unmatched parcels (transparent)
                 </label>
                 {preview && (
-                  <details className="text-[11px] text-muted-foreground">
+                  <details className="text-bf-xs text-muted-foreground">
                     <summary className="cursor-pointer">
                       Expected keys · {preview.atlasParcels} parcels
                     </summary>
@@ -372,7 +372,7 @@ export function ParcelTableImport({
                     </ul>
                   </details>
                 )}
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <p className="text-bf-xs text-muted-foreground leading-relaxed">
                   Keys must match this atlas exactly; row order is ignored. Blank, NA and null cells
                   are missing. Zero is a value.
                 </p>
@@ -382,22 +382,26 @@ export function ParcelTableImport({
         )}
       </fieldset>
       {loading && (
-        <p role="status" className="text-[11px] text-muted-foreground">
+        <p role="status" className="text-bf-xs text-muted-foreground">
           Checking atlas keys…
         </p>
       )}
       {message && (
-        <div role="alert" className="space-y-1 text-[12px] leading-relaxed">
+        <div role="alert" className="space-y-1 text-bf-sm leading-relaxed">
           <p className="text-destructive">{message.message}</p>
           {message.detail && (
-            <details className="text-[11px] text-muted-foreground break-words">
+            <details className="text-bf-xs text-muted-foreground break-words">
               <summary className="cursor-pointer">Details</summary>
               <p className="mt-1">{message.detail}</p>
             </details>
           )}
         </div>
       )}
+      {/* Footer convention: Cancel (secondary) left of the primary action. */}
       <div className="flex gap-2 border-t border-border/60 pt-3">
+        <button type="button" className="bf-control-button" disabled={creating} onClick={onClose}>
+          Cancel
+        </button>
         <button
           type="button"
           className="bf-control-button bf-control-button-primary flex-1"
@@ -418,9 +422,6 @@ export function ParcelTableImport({
           }}
         >
           {creating ? 'Creating…' : 'Create overlay'}
-        </button>
-        <button type="button" className="bf-control-button" disabled={creating} onClick={onClose}>
-          Cancel
         </button>
       </div>
     </section>

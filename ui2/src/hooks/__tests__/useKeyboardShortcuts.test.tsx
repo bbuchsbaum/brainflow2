@@ -14,6 +14,7 @@ const {
   toggleModeMock,
   getSliceRangeMock,
   updateSlicePositionMock,
+  stepSliceMock,
   activeRenderContextRef,
   mouseActiveViewRef,
   layoutActiveViewRef,
@@ -49,6 +50,7 @@ const {
     toggleModeMock: vi.fn(),
     getSliceRangeMock: vi.fn(() => ({ min: 0, max: 20, step: 2, current: 10 })),
     updateSlicePositionMock: vi.fn(),
+    stepSliceMock: vi.fn(),
     activeRenderContextRef: { current: null as string | null },
     mouseActiveViewRef: { current: null as 'axial' | 'sagittal' | 'coronal' | null },
     layoutActiveViewRef: { current: 'axial' as 'axial' | 'sagittal' | 'coronal' },
@@ -82,6 +84,7 @@ vi.mock('@/services/SliceNavigationService', () => ({
   getSliceNavigationService: () => ({
     getSliceRange: getSliceRangeMock,
     updateSlicePosition: updateSlicePositionMock,
+    stepSlice: stepSliceMock,
   }),
 }));
 
@@ -153,8 +156,9 @@ describe('useKeyboardShortcuts', () => {
 
     sliceNext.handler();
 
-    expect(getSliceRangeMock).toHaveBeenCalledWith('sagittal');
-    expect(updateSlicePositionMock).toHaveBeenCalledWith('sagittal', 12);
+    // One navigation voxel up, in the active view (the service steps on the
+    // snapping reference grid; see SliceNavigationService.snap.test).
+    expect(stepSliceMock).toHaveBeenCalledWith('sagittal', 1);
   });
 
   it('keeps Arrow navigation bound to timepoints when in 4D time mode', () => {

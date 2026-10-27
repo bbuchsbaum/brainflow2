@@ -1,3 +1,4 @@
+import { PopulationBrush } from './PopulationBrush';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { sliceImagePointToWorld } from '@/components/views/sliceViewer';
 import type { PopulationSliceDisplay } from '@/services/studio/PopulationSliceService';
@@ -23,6 +24,8 @@ export function PopulationCutoutGrid({
   onToggle,
   onHover,
 }: Props) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const focusedButton = useRef<HTMLButtonElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const [measuredWidth, setMeasuredWidth] = useState(width);
@@ -67,83 +70,97 @@ export function PopulationCutoutGrid({
       );
     }
   }, [image, cutouts, availableWidth, height, columns, cellWidth, cellHeight, imageSize]);
+  useLayoutEffect(() => {
+    const scroll = scroller.current,
+      button = focusedButton.current;
+    if (!scroll || !button) return;
+    const top = button.offsetTop,
+      bottom = top + button.offsetHeight;
+    if (top < scroll.scrollTop) scroll.scrollTop = top;
+    else if (bottom > scroll.scrollTop + scroll.clientHeight)
+      scroll.scrollTop = bottom - scroll.clientHeight;
+  }, [focusedId, cutouts, columns]);
   if (!cutouts || !image) return null;
 
   return (
     <div aria-label="Individual population cutouts" className="min-w-0">
-      <p className="mb-1 text-xs text-muted-foreground">
+      <p className="mb-1 text-bf-sm text-muted-foreground">
         Click to focus. Shift-click or Shift-Enter to change selection. Outlined cells are selected;
         the focused observation has a blue border.
       </p>
-      <p aria-live="polite" className="mb-1 h-4 text-xs tabular-nums">
+      <p aria-live="polite" className="mb-1 h-4 text-bf-sm tabular-nums">
         {hover ?? 'Hover a cutout to inspect its observed value.'}
       </p>
-      <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
-        <div ref={container} className="relative" style={{ height }}>
-          <canvas
-            ref={canvas}
-            width={Math.ceil(availableWidth)}
-            height={Math.ceil(height)}
-            className="pointer-events-none absolute left-0 top-0 bg-black"
-            aria-hidden
-          />
-          <div
-            className="absolute inset-0 grid"
-            style={{
-              width: availableWidth,
-              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-              gridAutoRows: cellHeight,
-            }}
-          >
-            {cutouts.members.map((member, index) => (
-              <button
-                key={member.memberId}
-                type="button"
-                aria-label={`Focus cutout ${member.memberId}`}
-                aria-current={focusedId === member.memberId ? 'true' : undefined}
-                aria-pressed={selectedIds.has(member.memberId)}
-                title={`${member.memberId} · ${member.validPixels}/${member.values.length} valid displayed pixels`}
-                onClick={(event) =>
-                  event.shiftKey ? onToggle(member.memberId) : onFocus(member.memberId)
-                }
-                onKeyDown={(event) => {
-                  if (event.shiftKey && (event.key === 'Enter' || event.key === ' ')) {
-                    event.preventDefault();
-                    onToggle(member.memberId);
+      <PopulationBrush scope={display.query.key}>
+        <div ref={scroller} className="max-h-[520px] overflow-y-auto overflow-x-hidden">
+          <div ref={container} className="relative" style={{ height }}>
+            <canvas
+              ref={canvas}
+              width={Math.ceil(availableWidth)}
+              height={Math.ceil(height)}
+              className="pointer-events-none absolute left-0 top-0 bg-black"
+              aria-hidden
+            />
+            <div
+              className="absolute inset-0 grid"
+              style={{
+                width: availableWidth,
+                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                gridAutoRows: cellHeight,
+              }}
+            >
+              {cutouts.members.map((member, index) => (
+                <button
+                  data-datum-id={member.memberId}
+                  key={member.memberId}
+                  ref={focusedId === member.memberId ? focusedButton : undefined}
+                  type="button"
+                  aria-label={`Focus cutout ${member.memberId}`}
+                  aria-current={focusedId === member.memberId ? 'true' : undefined}
+                  aria-pressed={selectedIds.has(member.memberId)}
+                  title={`${member.memberId} · ${member.validPixels}/${member.values.length} valid displayed pixels`}
+                  onClick={(event) =>
+                    event.shiftKey ? onToggle(member.memberId) : onFocus(member.memberId)
                   }
-                }}
-                onMouseMove={(event) => {
-                  const bounds = event.currentTarget.getBoundingClientRect();
-                  const x = (event.clientX - bounds.left - 4) / imageSize;
-                  const y = (event.clientY - bounds.top - 4) / imageSize;
-                  if (x < 0 || y < 0 || x >= 1 || y >= 1) return;
-                  const [w, h] = cutouts.plane.dim_px;
-                  const px = Math.min(w - 1, Math.floor(x * w)),
-                    py = Math.min(h - 1, Math.floor(y * h));
-                  const value = member.values[py * w + px];
-                  const text = `${member.memberId}: ${value === null || !Number.isFinite(value) ? 'unavailable' : value.toPrecision(4)}`;
-                  setHover((previous) => (previous === text ? previous : text));
-                  onHover?.(sliceImagePointToWorld(px, py, cutouts.plane));
-                }}
-                className={`relative min-w-0 border p-0 bg-transparent text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${focusedId === member.memberId ? 'border-blue-400' : selectedIds.has(member.memberId) ? 'border-primary/70' : 'border-transparent'}`}
-                style={{ gridColumn: (index % columns) + 1 }}
-              >
-                {member.validPixels === 0 && (
-                  <span className="absolute inset-x-0 top-1/3 text-center text-xs text-muted-foreground">
-                    No coverage
+                  onKeyDown={(event) => {
+                    if (event.shiftKey && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      onToggle(member.memberId);
+                    }
+                  }}
+                  onMouseMove={(event) => {
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    const x = (event.clientX - bounds.left - 4) / imageSize;
+                    const y = (event.clientY - bounds.top - 4) / imageSize;
+                    if (x < 0 || y < 0 || x >= 1 || y >= 1) return;
+                    const [w, h] = cutouts.plane.dim_px;
+                    const px = Math.min(w - 1, Math.floor(x * w)),
+                      py = Math.min(h - 1, Math.floor(y * h));
+                    const value = member.values[py * w + px];
+                    const text = `${member.memberId}: ${value === null || !Number.isFinite(value) ? 'unavailable' : value.toPrecision(4)}`;
+                    setHover((previous) => (previous === text ? previous : text));
+                    onHover?.(sliceImagePointToWorld(px, py, cutouts.plane));
+                  }}
+                  className={`relative min-w-0 border p-0 bg-transparent text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring ${focusedId === member.memberId ? 'border-foreground' : selectedIds.has(member.memberId) ? 'border-primary/70' : 'border-transparent'}`}
+                  style={{ gridColumn: (index % columns) + 1 }}
+                >
+                  {member.validPixels === 0 && (
+                    <span className="absolute inset-x-0 top-1/3 text-center text-bf-sm text-muted-foreground">
+                      No coverage
+                    </span>
+                  )}
+                  <span className="absolute inset-x-0 bottom-0 bg-background/95 px-1 py-0.5 text-bf-sm">
+                    <span className="block truncate">{member.memberId}</span>
+                    <span className="block text-bf-2xs text-muted-foreground">
+                      {member.validPixels}/{member.values.length} pixels
+                    </span>
                   </span>
-                )}
-                <span className="absolute inset-x-0 bottom-0 bg-background/95 px-1 py-0.5 text-xs">
-                  <span className="block truncate">{member.memberId}</span>
-                  <span className="block text-[10px] text-muted-foreground">
-                    {member.validPixels}/{member.values.length} pixels
-                  </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </PopulationBrush>
     </div>
   );
 }

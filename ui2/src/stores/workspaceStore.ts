@@ -427,7 +427,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           mosaic: "View",
           comparison: "View",
           integrated: "View",
-          "set-studio": "Set Studio",
+          "set-studio": "Set studio",
           "bids-explorer": "BIDS Explorer",
           "analysis-workbench": "Analysis Workbench",
         };

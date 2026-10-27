@@ -43,6 +43,7 @@ When working with TypeScript packages:
 - **Type exports**: Ensure proper `types` and `exports` fields in package.json for TypeScript resolution
 - **Build output**: Compiled JavaScript + declaration files go to `dist/` directory
 - **Visualization package boundary**: `visualization/src/` must not import `ui2` stores, services, Tauri APIs, or app aliases; pass host integration through props/callbacks.
+- **Surface runtime**: `visualization/src/surface/surfaceRuntime.ts` adapts SurfView 3.1 (`neurosurface` npm alias). Keep base-layer color separate from material tint, reuse viewer-owned lights with explicit world-space lighting, and specify volume sampling. Update both workspace dependency pins together. Real WebGL regressions run through `e2e/playwright.surfview.config.ts` with synthetic data.
 
 ### Package Details
 

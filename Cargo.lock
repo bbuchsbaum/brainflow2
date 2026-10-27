@@ -251,7 +251,7 @@ dependencies = [
  "ndarray 0.16.1",
  "neuro-types",
  "neuroatlas",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "neurosurf-rs",
  "nifti 0.17.0",
  "nifti-loader",
@@ -266,6 +266,7 @@ dependencies = [
  "sha2",
  "tauri",
  "tauri-plugin",
+ "tauri-plugin-dialog",
  "templates",
  "thiserror 1.0.69",
  "tokio",
@@ -273,6 +274,7 @@ dependencies = [
  "ts-rs 10.1.0",
  "uuid",
  "volmath",
+ "volume_service",
  "walkdir",
  "wgpu",
 ]
@@ -959,7 +961,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "nalgebra 0.32.6",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -2458,6 +2460,7 @@ version = "0.1.0"
 dependencies = [
  "bridge_types",
  "csv",
+ "nalgebra 0.32.6",
  "ndarray 0.15.6",
  "nifti 0.16.0",
  "nifti-loader",
@@ -3833,6 +3836,8 @@ dependencies = [
  "byteorder-lite",
  "num-traits 0.2.19",
  "png",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -4840,7 +4845,7 @@ dependencies = [
  "memmap2",
  "nalgebra 0.33.2",
  "ndarray 0.16.1",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=78d4e61f3e7dc7e759f38d02b85f9da41ee70d8a)",
  "neurosurf-rs",
  "nifti 0.17.0",
  "num-traits 0.2.19",
@@ -4857,6 +4862,29 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "neuroim"
+version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417#0fbedb93b4bb4e7aec663c7466c39a0eb6760417"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "flate2",
+ "glob",
+ "image 0.24.9",
+ "lazy_static",
+ "memmap2",
+ "nalgebra 0.32.6",
+ "ndarray 0.16.1",
+ "nifti 0.17.0",
+ "num-traits 0.2.19",
+ "rand 0.8.5",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4966,7 +4994,7 @@ dependencies = [
  "flate2",
  "log",
  "nalgebra 0.32.6",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "nifti 0.16.0",
  "num-traits 0.2.19",
  "serde",
@@ -9348,10 +9376,11 @@ dependencies = [
  "approx 0.5.1",
  "bytemuck",
  "console_error_panic_hook",
+ "getrandom 0.2.16",
  "half",
  "nalgebra 0.32.6",
  "ndarray 0.16.1",
- "neuroim",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "num-traits 0.2.19",
  "once_cell",
  "rayon",
@@ -9360,6 +9389,17 @@ dependencies = [
  "ts-rs 8.1.0",
  "wasm-bindgen",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "volume_service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bridge_types",
+ "serde",
+ "tokio",
+ "volmath",
 ]
 
 [[package]]
@@ -10945,12 +10985,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "zune-core"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f423a2c17029964870cfaabb1f13dfab7d092a62a29a89264f4d36990ca414a"
+
+[[package]]
 name = "zune-inflate"
 version = "0.2.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73ab332fe2f6680068f3582b16a24f90ad7096d5d39b974d1c0aff0125116f02"
 dependencies = [
  "simd-adler32",
+]
+
+[[package]]
+name = "zune-jpeg"
+version = "0.4.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29ce2c8a9384ad323cf564b67da86e21d3cfdff87908bc1223ed5c99bc792713"
+dependencies = [
+ "zune-core",
 ]
 
 [[package]]

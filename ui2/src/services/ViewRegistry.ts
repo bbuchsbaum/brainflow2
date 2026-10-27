@@ -271,7 +271,7 @@ export class MosaicViewFactory implements ViewFactory {
 }
 
 /**
- * Factory for Set Studio
+ * Factory for Set studio
  */
 export class SetStudioFactory implements ViewFactory {
   getDefaultConfig(): Partial<WorkspaceConfig> {
@@ -296,7 +296,7 @@ export class SetStudioFactory implements ViewFactory {
           {
             type: 'component',
             componentType: 'SetStudioWorkspace',
-            title: 'Set Studio',
+            title: 'Set studio',
             width: 59.75,
             componentState: {}
           },

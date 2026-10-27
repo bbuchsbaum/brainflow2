@@ -47,7 +47,7 @@ export const WORKSPACE_PRESETS: WorkspacePreset[] = [
   },
   {
     id: 'studio',
-    label: 'Set Studio',
+    label: 'Set studio',
     description: 'Design-aware field-table workspace for cohort browsing and comparison.',
     workspaceType: 'set-studio',
     shortcut: 'Cmd/Ctrl+5',

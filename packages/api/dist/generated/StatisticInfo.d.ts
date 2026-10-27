@@ -1,0 +1,42 @@
+import type { StatisticKind } from "./StatisticKind";
+/**
+ * Statistic metadata decoded from a NIfTI header, for display units such as
+ * "z" or "t(24)".
+ */
+export type StatisticInfo = {
+    kind: StatisticKind;
+    /**
+     * Raw NIfTI `intent_code` (0 when the kind was inferred from `descrip`).
+     */
+    intentCode: number;
+    /**
+     * Raw NIfTI `intent_p1..p3`.
+     */
+    intentParams: [number, number, number];
+    /**
+     * NIfTI `intent_name` (trimmed; may be empty).
+     */
+    intentName: string;
+    /**
+     * Degrees of freedom for t/chi2/correlation (one value) and F (two
+     * values); empty when the kind has none or the header leaves them unset.
+     */
+    dof: Array<number>;
+    /**
+     * Short display label: "z", "t(24)", "F(2,30)", "χ²(3)", "r(18)", "p".
+     */
+    label: string;
+    /**
+     * True when the kind came from an SPM-style `descrip` such as
+     * `SPM{T_[24.0]}` because `intent_code` was unset.
+     */
+    fromDescription: boolean;
+    /**
+     * Label to show instead of `label` when every finite value is >= 0, with
+     * a warning that the sign convention is assumed: "−log10(p)" for intent
+     * 24 and "−ln(p)" for intent 23. nifti1.h defines these intents as
+     * log(p) <= 0, but many pipelines store positive −log(p) under them.
+     * `null` for every other kind.
+     */
+    positiveDataLabel: string | null;
+};

@@ -10,6 +10,7 @@
 import React from 'react';
 import type { ViewState } from '@/types/viewState';
 import type { ImagePlacement } from '@/utils/canvasUtils';
+import { formatWorldPoint } from '@/utils/valueFormat';
 
 interface RenderOverlaysProps {
   viewType: 'axial' | 'sagittal' | 'coronal';
@@ -82,7 +83,7 @@ export function RenderOverlays({
         y="20"
         fill="white"
         fontSize="14"
-        fontFamily="monospace"
+        style={{ fontFamily: 'var(--bf-font-sans, sans-serif)' }}
         opacity="0.8"
       >
         {viewType.charAt(0).toUpperCase() + viewType.slice(1)}
@@ -97,7 +98,7 @@ export function RenderOverlays({
         fontFamily="monospace"
         opacity="0.6"
       >
-        {`[${crosshairPosition.map(v => v.toFixed(1)).join(', ')}]`}
+        {`[${formatWorldPoint(crosshairPosition)}]`}
       </text>
     </svg>
   );

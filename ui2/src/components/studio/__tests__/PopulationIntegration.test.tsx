@@ -42,9 +42,9 @@ it('keeps study opening in the toolbar and prevents unsupported saved-source len
   expect(screen.getByRole('banner')).toContainElement(
     screen.getByRole('button', { name: 'Open saved population…' }),
   );
-  expect(screen.getByRole('tab', { name: 'Deck' })).toBeDisabled();
-  expect(screen.getByRole('tab', { name: 'Compare' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('tab', { name: 'Deck' }));
+  expect(screen.getByRole('radio', { name: 'Deck' })).toBeDisabled();
+  expect(screen.getByRole('radio', { name: 'Compare' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('radio', { name: 'Deck' }));
   expect(onSelectLens).not.toHaveBeenCalled();
   expect(screen.queryByText('Phase 2')).not.toBeInTheDocument();
 });

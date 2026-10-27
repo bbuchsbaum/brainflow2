@@ -76,10 +76,10 @@ describe('ReusableSliceViewport', () => {
     render(
       <ReusableSliceViewport
         width={400}
-        height={200}
+        height={300}
         viewPlane={plane}
         crosshair={{ visible: true, world_mm: [60, 0, 30] }}
-        crosshairStyle={{ color: '#fff', lineWidth: 2, lineDash: [2, 2] }}
+        crosshairStyle={{ color: '#fff', lineWidth: 2, lineDash: [2, 2], centerGap: 0 }}
         showSliceBorder
         sliceBorderWidth={3}
         onPlacementChange={onPlacementChange}
@@ -90,28 +90,63 @@ describe('ReusableSliceViewport', () => {
     await waitFor(() => expect(onPlacementChange).toHaveBeenCalledWith(placement));
 
     expect(ctx.strokeRect).toHaveBeenCalledWith(11.5, 21.5, 197, 97);
-    expect(ctx.setLineDash).toHaveBeenCalledWith([2, 2]);
+    // Dashes are laid out from the crossing outward and stroked solid.
+    expect(ctx.setLineDash).toHaveBeenCalledWith([]);
     expect(ctx.moveTo).toHaveBeenCalledWith(10, 40);
     expect(ctx.lineTo).toHaveBeenCalledWith(210, 40);
-    expect(ctx.moveTo).toHaveBeenCalledWith(60, 20);
-    expect(ctx.lineTo).toHaveBeenCalledWith(60, 120);
+    // 2/2 from y=40 up to 20: the outermost dash is 22..24 (20..22 is off).
+    expect(ctx.moveTo).toHaveBeenCalledWith(60, 22);
+    expect(ctx.moveTo).toHaveBeenCalledWith(60, 40);
+    // ... and down to 120: the last dash is 116..118.
+    expect(ctx.lineTo).toHaveBeenCalledWith(60, 118);
   });
 
   it('redraws moved or hidden crosshairs without a new image or canvas size', async () => {
     const ctx = mockContext();
-    const style = { color: '#fff', lineWidth: 2, lineDash: [] };
+    const style = { color: '#fff', lineWidth: 2, lineDash: [], centerGap: 0 };
     const surface = (props: SliceViewerSurfaceProps) => <TestSurface {...props} ctx={ctx} />;
-    const { rerender } = render(<ReusableSliceViewport width={400} height={200} viewPlane={plane}
+    const { rerender } = render(<ReusableSliceViewport width={400} height={300} viewPlane={plane}
       crosshair={{ visible: true, world_mm: [60, 0, 30] }} crosshairStyle={style} renderSurface={surface} />);
     await waitFor(() => expect(ctx.moveTo).toHaveBeenCalledWith(60, 20));
     vi.mocked(ctx.moveTo).mockClear();
-    rerender(<ReusableSliceViewport width={400} height={200} viewPlane={plane}
+    rerender(<ReusableSliceViewport width={400} height={300} viewPlane={plane}
       crosshair={{ visible: true, world_mm: [80, 0, 30] }} crosshairStyle={style} renderSurface={surface} />);
     await waitFor(() => expect(ctx.moveTo).toHaveBeenCalledWith(80, 20));
     vi.mocked(ctx.moveTo).mockClear();
-    rerender(<ReusableSliceViewport width={400} height={200} viewPlane={plane}
+    rerender(<ReusableSliceViewport width={400} height={300} viewPlane={plane}
       crosshair={{ visible: false, world_mm: [80, 0, 30] }} crosshairStyle={style} renderSurface={surface} />);
     expect(ctx.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('clears the centre gap and clips the stroke around knockout boxes', async () => {
+    const ctx = mockContext();
+    (ctx as unknown as { canvas: unknown }).canvas = {
+      width: 200,
+      height: 100,
+      getBoundingClientRect: () => ({ left: 100, top: 50, width: 200, height: 100 }),
+    };
+    render(
+      <ReusableSliceViewport
+        width={400}
+        height={300}
+        viewPlane={plane}
+        crosshair={{ visible: true, world_mm: [60, 0, 30] }}
+        crosshairStyle={{ color: '#fff', lineWidth: 2, lineDash: [6, 6], centerGap: 6 }}
+        // Client box (canvas at client 100,50 with 1:1 scale) => canvas
+        // x 50..58, y 22..30 sits on the vertical line near the top.
+        getCrosshairKnockouts={() => [{ x: 150, y: 72, width: 8, height: 8 }]}
+        renderSurface={(surfaceProps) => <TestSurface {...surfaceProps} ctx={ctx} />}
+      />
+    );
+    // Horizontal line y=40 from 10..210 with a gap of 6 around x=60.
+    await waitFor(() => expect(ctx.lineTo).toHaveBeenCalledWith(54, 40));
+    expect(ctx.moveTo).toHaveBeenCalledWith(66, 40);
+    // Vertical line x=60: the knockout (pad 3) cuts y 19..33 and the centre
+    // gap 34..46; the 1px crumb left between them is not drawn.
+    expect(ctx.moveTo).not.toHaveBeenCalledWith(60, 33);
+    expect(ctx.moveTo).toHaveBeenCalledWith(60, 46);
+    expect(ctx.lineTo).toHaveBeenCalledWith(60, 120);
+    expect(ctx.moveTo).not.toHaveBeenCalledWith(60, 20);
   });
 
   it('maps primary-button clicks inside the placement to world coordinates', async () => {

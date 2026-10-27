@@ -9,11 +9,17 @@ import { useCallback, useRef, useMemo, type MouseEvent } from 'react';
 import { SliceViewport, type SliceViewportPlacement } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { MosaicRenderService } from '@/services/MosaicRenderService';
-import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
+import {
+  adaptCrosshairStyleToViewport,
+  buildActiveCrosshairStyle,
+  drawCrosshair,
+  getLineDash,
+} from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { CoordinateTransform } from '@/utils/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
+import { isClickOnData, useLayerEdgeBounds } from './clickDataBounds';
 
 interface MosaicCellProps {
   workspaceId: string;
@@ -26,7 +32,21 @@ interface MosaicCellProps {
   onCrosshairClick?: (worldCoord: [number, number, number]) => void;
 }
 
-export function MosaicCell({
+export function MosaicCell(props: MosaicCellProps) {
+  // Guard against invalid slice indices. The early return lives here and the
+  // hooks in MosaicCellBody, so their order never changes (rules of hooks).
+  if (props.sliceIndex == null || props.sliceIndex < 0) {
+    console.warn(`[MosaicCell] Invalid sliceIndex: ${props.sliceIndex}`);
+    return (
+      <div className="flex items-center justify-center h-full text-bf-xs text-bf-text-secondary">
+        <span>No slice</span>
+      </div>
+    );
+  }
+  return <MosaicCellBody {...props} />;
+}
+
+function MosaicCellBody({
   workspaceId,
   renderService: mosaicRenderService,
   width,
@@ -36,16 +56,6 @@ export function MosaicCell({
   axis,
   onCrosshairClick
 }: MosaicCellProps) {
-  // Guard against invalid slice indices
-  if (sliceIndex == null || sliceIndex < 0) {
-    console.warn(`[MosaicCell] Invalid sliceIndex: ${sliceIndex}`);
-    return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        <span>No slice</span>
-      </div>
-    );
-  }
-  
   // Create RenderContext using the tag as the ID
   const renderContext = useMemo(() => ({
     id: tag,  // Use the tag directly as ID
@@ -62,6 +72,11 @@ export function MosaicCell({
   const axisViewPlane = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).views[axis]);
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
+  // The volume's outer voxel edges: a click in the tile padding around the
+  // brain (inside the bitmap) does not move the crosshair.
+  const viewLayers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
+  const dataLayerIds = useMemo(() => viewLayers.map(layer => layer.id), [viewLayers]);
+  const dataEdgeBounds = useLayerEdgeBounds(dataLayerIds);
   
   const slicePositionRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -112,8 +127,11 @@ export function MosaicCell({
     );
     
     // Draw crosshair if visible and we have screen coordinates
+    // One crosshair style across the montage (P3 v1 visual): only the tile
+    // holding the crosshair draws it; its label wears the crosshair colour.
+    // No mirror crosshairs in the other tiles.
     if (crosshairSettings.visible && crosshair.visible && crosshairInfo.screenCoord && 
-        (crosshairInfo.isActive || crosshairSettings.showMirror)) {
+        crosshairInfo.isActive) {
       const [screenX, screenY] = crosshairInfo.screenCoord;
       
       
@@ -126,20 +144,18 @@ export function MosaicCell({
       
       
       // Choose style based on whether this is the active slice
-      const style: CrosshairStyle = crosshairInfo.isActive 
-        ? {
-            color: crosshairSettings.activeColor,
-            lineWidth: crosshairSettings.activeThickness,
-            lineDash: getLineDash(crosshairSettings.activeStyle, crosshairSettings.activeThickness),
-            opacity: 1
-          }
+      // Mosaic cells are small: the stroke steps down to the compact weight
+      // (1px core, 4/4 dashes) below the compact threshold. Styling only.
+      const baseStyle: CrosshairStyle = crosshairInfo.isActive
+        ? buildActiveCrosshairStyle(crosshairSettings)
         : {
             color: crosshairSettings.mirrorColor,
             lineWidth: crosshairSettings.mirrorThickness,
             lineDash: getLineDash(crosshairSettings.mirrorStyle, crosshairSettings.mirrorThickness),
             opacity: crosshairSettings.mirrorOpacity
           };
-      
+      const style = adaptCrosshairStyleToViewport(baseStyle, width, height);
+
       drawCrosshair({
         ctx,
         canvasX,
@@ -148,7 +164,7 @@ export function MosaicCell({
         style
       });
     }
-  }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings, tag]);
+  }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings, tag, width, height]);
   
   const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
     canvasRef.current = canvas;
@@ -201,9 +217,11 @@ export function MosaicCell({
         break;
     }
 
+    if (!isClickOnData(finalWorldCoord, currentViewPlane, dataEdgeBounds)) return;
+
     event.preventDefault();
     onCrosshairClick(finalWorldCoord);
-  }, [axis, axisViewPlane, mosaicRenderService, onCrosshairClick, tag]);
+  }, [axis, axisViewPlane, mosaicRenderService, onCrosshairClick, tag, dataEdgeBounds]);
   
   return (
     <SliceViewport

@@ -86,6 +86,9 @@ fn build_folder_ontology(
     }
 
     let mut candidates = Vec::new();
+    if let Some(candidate) = member_folder_candidate(&file_set.files) {
+        candidates.push(candidate);
+    }
     if let Some(candidate) = maps_basename_roles_candidate(&file_set.files, file_set.files.len()) {
         candidates.push(candidate);
     }
@@ -154,9 +157,25 @@ fn collect_ontology_files(
     if root_exists {
         let mut walker = WalkDir::new(root_path);
         if let Some(depth) = request.max_depth {
-            walker = walker.max_depth(depth.saturating_add(1));
+            walker = walker.max_depth(depth);
         }
-        for entry in walker.into_iter().filter_map(Result::ok) {
+        for (visited, entry) in walker.into_iter().enumerate() {
+            if visited >= max_files.saturating_mul(32).max(1024) {
+                truncated = true;
+                break;
+            }
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    truncated = true;
+                    warnings.push(StudioFolderOntologyWarning {
+                        code: "unreadable_entry".into(),
+                        message: error.to_string(),
+                        paths: Vec::new(),
+                    });
+                    continue;
+                }
+            };
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -180,7 +199,7 @@ fn collect_ontology_files(
             }
             if files.len() >= max_files {
                 truncated = true;
-                continue;
+                break;
             }
             files.push(ontology_file(source_path, relative_path));
         }
@@ -206,7 +225,7 @@ fn collect_inventory_files(
     mut warnings: Vec<StudioFolderOntologyWarning>,
 ) -> OntologyFileSet {
     let mut files = Vec::new();
-    let mut truncated = false;
+    let mut truncated = inventory.truncated;
     for file in &inventory.files {
         if !inventory_file_within_depth(file, max_depth) {
             continue;
@@ -420,6 +439,52 @@ fn bids_entity_candidate(
     }))
 }
 
+/// Image identities retain their complete relative filename, including session folders.
+/// Neither a folder name nor a filename establishes a scientific role.
+fn member_folder_candidate(files: &[OntologyFile]) -> Option<StudioFolderOntologyCandidate> {
+    if files.is_empty() || files.iter().any(|file| file.segments.len() < 2) {
+        return None;
+    }
+    let members: BTreeSet<_> = files.iter().map(|file| &file.segments[0]).collect();
+    if members.len() < 2 {
+        return None;
+    }
+    let matches = files
+        .iter()
+        .map(|file| OntologyMatch {
+            source_path: file.source_path.clone(),
+            relative_path: file.relative_path.clone(),
+            member_id: file.segments[0].clone(),
+            role: file.segments[1..].join("/"),
+            role_confidence: 0.0,
+            design_values: vec![StudioDiscoveryDesignValue {
+                column: "member".into(),
+                value: file.segments[0].clone(),
+            }],
+        })
+        .collect();
+    let mut candidate = candidate_from_matches(CandidateSpec {
+        id: "member-folders",
+        label: "One member per folder",
+        strategy: "member_folders",
+        description: "Immediate subfolders identify members; relative filenames identify images.",
+        file_pattern: format!(r"^(?P<member>[^/]+)/(?P<image>.+{})", EXTENSION_PATTERN),
+        matches,
+        total_files: files.len(),
+        reasons: vec![
+            "The selected folder contains multiple image-bearing subfolders.".into(),
+            "Image names retain nested paths; no statistical roles are inferred.".into(),
+        ],
+        warnings: Vec::new(),
+        score_adjustment: 0.0,
+    });
+    candidate.required_roles.clear();
+    candidate.role_patterns.clear();
+    // Prefer explainable generic organization over a statistical filename interpretation.
+    candidate.score = 1.0;
+    Some(candidate)
+}
+
 fn flat_statmap_candidate(
     files: &[OntologyFile],
     total_files: usize,
@@ -430,15 +495,15 @@ fn flat_statmap_candidate(
     let matches = files
         .iter()
         .map(|file| {
-            let member_id = sanitize_identifier(&file.stem);
+            let member_id = file.relative_path.clone();
             OntologyMatch {
                 source_path: file.source_path.clone(),
                 relative_path: file.relative_path.clone(),
                 member_id: member_id.clone(),
-                role: "statmap".to_string(),
-                role_confidence: 0.5,
+                role: "image".to_string(),
+                role_confidence: 0.0,
                 design_values: vec![StudioDiscoveryDesignValue {
-                    column: "subject".to_string(),
+                    column: "member".to_string(),
                     value: member_id,
                 }],
             }
@@ -446,10 +511,10 @@ fn flat_statmap_candidate(
         .collect::<Vec<_>>();
     Some(candidate_from_matches(CandidateSpec {
         id: "flat-statmaps",
-        label: "Flat one-image-per-member collection",
+        label: "One member per file",
         strategy: "flat_statmap_fallback",
-        description: "Treat each image file as a separate member with a generic statmap role.",
-        file_pattern: format!(r".*{}", EXTENSION_PATTERN),
+        description: "Each image is a member; no statistical role is inferred.",
+        file_pattern: format!(r"^(?P<member>.+{})", EXTENSION_PATTERN),
         matches,
         total_files,
         reasons: vec![
@@ -482,7 +547,7 @@ struct CandidateSpec {
 
 fn candidate_from_matches(spec: CandidateSpec) -> StudioFolderOntologyCandidate {
     let observed_roles = observed_roles(&spec.matches);
-    let required_roles = if observed_roles.len() > 1 {
+    let required_roles = if spec.strategy != "member_folders" && observed_roles.len() > 1 {
         observed_roles.clone()
     } else {
         Vec::new()
@@ -1167,6 +1232,39 @@ mod tests {
             .iter()
             .find(|candidate| candidate.id == id)
             .expect("candidate")
+    }
+
+    #[test]
+    fn local_and_remote_inventory_use_the_same_depth_boundary() {
+        let root = make_temp_dir("depth-parity");
+        let paths = ["root.nii", "1001/contrast.nii", "1002/session/contrast.nii"];
+        for path in paths {
+            touch(&root.join(path));
+        }
+        for depth in 1..=3 {
+            let request = StudioFolderOntologyPreviewRequest {
+                root: root.to_string_lossy().into(),
+                max_depth: Some(depth),
+                max_files: Some(50),
+                include_patterns: vec![],
+                exclude_patterns: vec![],
+            };
+            let local = preview_folder_ontology(request.clone());
+            let remote = preview_folder_ontology_with_discovery_inventory(
+                request,
+                DiscoveryInventory {
+                    root_exists: true,
+                    files: paths
+                        .iter()
+                        .map(|path| inventory_file("/remote", path))
+                        .collect(),
+                    ..Default::default()
+                },
+            );
+            assert_eq!(local.neuroimaging_files, depth);
+            assert_eq!(remote.neuroimaging_files, local.neuroimaging_files);
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

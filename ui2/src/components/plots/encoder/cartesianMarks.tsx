@@ -29,10 +29,19 @@ import type { MarkRenderer, MarkRenderProps } from './types';
 // Tokens / layout
 // ---------------------------------------------------------------------------
 
+export function populationCategoryColor(label: string) {
+  let hash = 0;
+  for (const c of label) hash = (hash * 31 + c.charCodeAt(0)) | 0;
+  return `hsl(${Math.round((Math.abs(hash) * 137.508) % 360)} 60% 55%)`;
+}
+
 const lineColor = 'var(--app-plot-line)';
 const gridColor = 'var(--app-plot-grid)';
 const mutedColor = 'var(--app-text-muted)';
+const axisLabelColor = 'var(--bf-text-secondary)';
+const axisLabelSize = 'var(--bf-text-2xs)';
 const axisFontFamily = 'var(--app-font-mono, monospace)';
+const proseFontFamily = 'var(--bf-font-sans, sans-serif)';
 
 const MARGIN = { top: 8, right: 10, bottom: 22, left: 36 } as const;
 
@@ -67,7 +76,7 @@ interface SeriesPoint {
  * Build the continuous-mark series aligned to frame rows. In categorical mode
  * (`catMode`) x is the stringified value of `xName` and rows keep their order;
  * otherwise x is numeric (`xName`, or the row index when unbound) and rows with
- * a non-finite x are dropped. Rows with a non-finite y are always dropped. When
+ * a non-finite x are dropped. Rows with a non-finite y break paths. When
  * a `band` is given, each row also carries its lower/upper (`NaN` if missing).
  */
 function seriesPoints(
@@ -85,7 +94,7 @@ function seriesPoints(
   const out: SeriesPoint[] = [];
   for (let i = 0; i < ys.length; i += 1) {
     const y = ys[i];
-    if (!Number.isFinite(y)) continue;
+    // Keep unavailable y values so paths break at missing samples.
     const xNum = catMode ? i : xName ? xs[i] : i;
     if (!catMode && !Number.isFinite(xNum)) continue;
     out.push({
@@ -141,8 +150,8 @@ function EmptyMark({ kind, width, height }: { kind: MarkKind; width: number; hei
         textAnchor="middle"
         dominantBaseline="middle"
         fill={mutedColor}
-        fontSize={9}
-        fontFamily={axisFontFamily}
+        fontSize={10}
+        style={{ fontSize: axisLabelSize, fontFamily: proseFontFamily }}
       >
         No data
       </text>
@@ -172,10 +181,12 @@ interface CartesianMarkProps {
   readonly children: ReactNode;
 }
 
+// Tick numerals: mono for tabular alignment, secondary text at the 2xs step.
 const tickLabelProps = () => ({
-  fill: mutedColor,
-  fontSize: 9,
+  fill: axisLabelColor,
+  fontSize: 10,
   fontFamily: axisFontFamily,
+  style: { fontSize: axisLabelSize },
 });
 
 /**
@@ -270,11 +281,17 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     // never clipped by the line's own extent.
     const yValues: number[] = [];
     for (const p of points) {
-      yValues.push(p.y);
+      if (Number.isFinite(p.y)) yValues.push(p.y);
       if (Number.isFinite(p.lo)) yValues.push(p.lo);
       if (Number.isFinite(p.hi)) yValues.push(p.hi);
     }
-    const yDomain = paddedDomain(yValues);
+    const declaredDomain = spec.params.yDomain;
+    const yDomain =
+      Array.isArray(declaredDomain) &&
+      declaredDomain.length === 2 &&
+      declaredDomain.every(Number.isFinite)
+        ? ([Number(declaredDomain[0]), Number(declaredDomain[1])] as [number, number])
+        : paddedDomain(yValues);
     if (context?.datumLink) {
       const pad = (yDomain[1] - yDomain[0]) * 0.05;
       yDomain[0] -= pad;
@@ -286,8 +303,9 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     });
     if (catMode) {
       const xScale = scalePoint<string>({
-        domain:
-          context?.datumLink && xName
+        domain: Array.isArray(spec.params.xCategories)
+          ? (spec.params.xCategories as string[])
+          : context?.datumLink && xName
             ? columnValues(frame, xName).map((value) => String(value ?? ''))
             : points.map((p) => p.cat),
         range: [0, innerWidth],
@@ -296,15 +314,17 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       return { xScale, yScale, catMode: true as const };
     }
     const xScale = scaleLinear<number>({
-      domain: paddedDomain(points.map((p) => p.xNum)),
+      domain: Array.isArray(spec.params.xDomain)
+        ? (spec.params.xDomain as [number, number])
+        : paddedDomain(points.map((p) => p.xNum)),
       range: [0, innerWidth],
     });
     return { xScale, yScale, catMode: false as const };
-  }, [points, innerWidth, innerHeight, catMode, context?.datumLink, frame, xName]);
+  }, [points, innerWidth, innerHeight, catMode, context?.datumLink, frame, xName, spec.params]);
 
   // Empty / degenerate: line & area need >=2 finite points; point needs >=1.
   const minPoints = kind === 'point' ? 1 : 2;
-  if (frame.rows.length === 0 || points.length < minPoints) {
+  if (frame.rows.length === 0 || points.filter((p) => Number.isFinite(p.y)).length < minPoints) {
     return <EmptyMark kind={kind} width={width} height={height} />;
   }
 
@@ -323,46 +343,111 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
 
   const { yScale } = scales;
   const py = (v: number) => yScale(v) ?? 0;
-  const px = scales.catMode
+  const baseX = scales.catMode
     ? (p: SeriesPoint) => scales.xScale(p.cat) ?? 0
     : (p: SeriesPoint) => scales.xScale(p.xNum) ?? 0;
 
-  // CI/error ribbon (behind the mark), drawn whenever the spec resolved a band
-  // and at least two rows carry finite bounds.
-  const bandPoints = band
-    ? points.filter((p) => Number.isFinite(p.lo) && Number.isFinite(p.hi))
-    : [];
-  const ribbon =
-    band && bandPoints.length >= 2 ? (
-      <Group data-testid="plot-band">
-        <Area<SeriesPoint>
-          data={bandPoints}
-          x={px}
-          y0={(p) => py(p.lo)}
-          y1={(p) => py(p.hi)}
-          fill={lineColor}
-          fillOpacity={0.15}
-          stroke="none"
-        />
-      </Group>
-    ) : null;
+  const px = (p: SeriesPoint) => {
+    if (!spec.params.jitter || !scales.catMode || p.rowIndex === undefined) return baseX(p);
+    const id = String(frame.rows[p.rowIndex].member ?? p.rowIndex);
+    let hash = 2166136261;
+    for (const c of id) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619);
+    const width = Math.min(40, (innerWidth / Math.max(1, scales.xScale.domain().length)) * 0.6);
+    return baseX(p) + ((hash >>> 0) / 4294967295 - 0.5) * width;
+  };
+
+  const groups = new Map<string, SeriesPoint[]>();
+  const colorFor = (p: SeriesPoint) => {
+    if (!spec.encoding.color) return lineColor;
+    const label = String(frame.rows[p.rowIndex!]?.[spec.encoding.color] ?? '(missing)');
+    return populationCategoryColor(label);
+  };
+  for (const p of points) {
+    const row = frame.rows[p.rowIndex!];
+    const key = JSON.stringify([
+      spec.encoding.detail ? row[spec.encoding.detail] : null,
+      spec.encoding.color ? row[spec.encoding.color] : null,
+    ]);
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  const ribbon = band
+    ? [...groups].map(([key, data]) => (
+        <Group key={key} data-testid="plot-band">
+          <Area<SeriesPoint>
+            data={data}
+            defined={(p) => Number.isFinite(p.lo) && Number.isFinite(p.hi)}
+            x={px}
+            y0={(p) => py(p.lo)}
+            y1={(p) => py(p.hi)}
+            fill={colorFor(data[0])}
+            fillOpacity={0.15}
+            stroke="none"
+          />
+        </Group>
+      ))
+    : null;
+
+  const markers = points
+    .filter((p) => Number.isFinite(p.y))
+    .map((p, i) => {
+      const link = context?.datumLink;
+      const id = link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null;
+      if (!link || typeof id !== 'string')
+        return <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={colorFor(p)} />;
+      const focused = id === link.focusedId;
+      const selected = link.selectedIds.has(id);
+      return (
+        <Circle
+          key={id}
+          cx={px(p)}
+          cy={py(p.y)}
+          r={focused ? 5 : 3.5}
+          fill={colorFor(p)}
+          fillOpacity={selected ? 1 : 0.3}
+          stroke={focused ? 'var(--app-text-primary)' : 'none'}
+          strokeWidth={1.5}
+          role="button"
+          tabIndex={0}
+          data-datum-id={id}
+          aria-label={`${id}: ${p.y}`}
+          aria-pressed={selected}
+          aria-current={focused ? 'true' : undefined}
+          onClick={(event) => (event.shiftKey ? link.onToggleSelection(id) : link.onFocus(id))}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              if (event.shiftKey) link.onToggleSelection(id);
+              else link.onFocus(id);
+            }
+          }}
+        >
+          <title>
+            {id}: {p.y} · Click to focus; Shift-click to select
+          </title>
+        </Circle>
+      );
+    });
 
   let geometry: ReactNode = null;
   if (kind === 'line') {
-    geometry = (
+    geometry = [...groups].map(([key, data]) => (
       <LinePath<SeriesPoint>
-        data={points}
+        key={key}
+        data-testid="plot-series"
+        data={data}
+        defined={(p) => Number.isFinite(p.y)}
         x={px}
         y={(p) => py(p.y)}
-        stroke={lineColor}
+        stroke={colorFor(data[0])}
         strokeWidth={1.5}
         fill="none"
       />
-    );
+    ));
   } else if (kind === 'area') {
     geometry = (
       <AreaClosed<SeriesPoint>
         data={points}
+        defined={(p) => Number.isFinite(p.y)}
         x={px}
         y={(p) => py(p.y)}
         yScale={yScale}
@@ -390,44 +475,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     }
     geometry = (
       <>
-        {points.map((p, i) => {
-          const link = context?.datumLink;
-          const id =
-            link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null;
-          if (!link || typeof id !== 'string')
-            return <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={lineColor} />;
-          const focused = id === link.focusedId;
-          const selected = link.selectedIds.has(id);
-          return (
-            <Circle
-              key={id}
-              cx={px(p)}
-              cy={py(p.y)}
-              r={focused ? 5 : 3.5}
-              fill={lineColor}
-              fillOpacity={selected ? 1 : 0.3}
-              stroke={focused ? 'var(--app-text-primary)' : 'none'}
-              strokeWidth={1.5}
-              role="button"
-              tabIndex={0}
-              aria-label={`${id}: ${p.y}`}
-              aria-pressed={selected}
-              aria-current={focused ? 'true' : undefined}
-              onClick={(event) => (event.shiftKey ? link.onToggleSelection(id) : link.onFocus(id))}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  if (event.shiftKey) link.onToggleSelection(id);
-                  else link.onFocus(id);
-                }
-              }}
-            >
-              <title>
-                {id}: {p.y} · Click to focus; Shift-click to select
-              </title>
-            </Circle>
-          );
-        })}
+        {markers}
         {fitLine && (
           <LinePath<SeriesPoint>
             data={fitLine}
@@ -445,7 +493,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
 
   return (
     <CartesianMark
-      interactive={kind === 'point' && !!context?.datumLink}
+      interactive={!!context?.datumLink}
       kind={kind}
       width={width}
       height={height}
@@ -456,6 +504,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     >
       {ribbon}
       {geometry}
+      {kind !== 'point' && context?.datumLink ? markers : null}
     </CartesianMark>
   );
 }
@@ -484,7 +533,9 @@ function BarMark({ frame, spec, width, height }: MarkRenderProps) {
     const [dMin, dMax] = paddedDomain([...finiteYs, 0]);
     return {
       xScale: scaleBand<string>({
-        domain: categories,
+        domain: Array.isArray(spec.params.xCategories)
+          ? (spec.params.xCategories as string[])
+          : categories,
         range: [0, innerWidth],
         padding: 0.2,
       }),
@@ -493,7 +544,7 @@ function BarMark({ frame, spec, width, height }: MarkRenderProps) {
         range: [innerHeight, 0],
       }),
     };
-  }, [categories, ys, innerWidth, innerHeight]);
+  }, [categories, ys, innerWidth, innerHeight, spec.params.xCategories]);
 
   if (frame.rows.length === 0 || !yName) {
     return <EmptyMark kind="bar" width={width} height={height} />;
@@ -586,16 +637,20 @@ function BoxMark({ frame, spec, width, height }: MarkRenderProps) {
     const [dMin, dMax] = paddedDomain(allVals);
     return {
       xScale: scaleBand<string>({
-        domain: groups.map((g) => g.cat),
+        domain: Array.isArray(spec.params.xCategories)
+          ? (spec.params.xCategories as string[])
+          : groups.map((g) => g.cat),
         range: [0, innerWidth],
         padding: 0.3,
       }),
       yScale: scaleLinear<number>({
-        domain: [dMin, dMax],
+        domain: Array.isArray(spec.params.yDomain)
+          ? (spec.params.yDomain as [number, number])
+          : [dMin, dMax],
         range: [innerHeight, 0],
       }),
     };
-  }, [groups, innerWidth, innerHeight]);
+  }, [groups, innerWidth, innerHeight, spec.params.xCategories, spec.params.yDomain]);
 
   if (frame.rows.length === 0 || !xName || !yName || groups.length === 0) {
     return <EmptyMark kind="box" width={width} height={height} />;

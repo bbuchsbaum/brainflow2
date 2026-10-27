@@ -30,7 +30,7 @@ export function StudioRenderAdapter({
       return <SurfaceViewPanel />;
     }
     return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+      <div className="flex h-full items-center justify-center px-4 text-center text-bf-sm text-muted-foreground">
         No renderer adapter for support kind {supportKind ?? 'unknown'}
       </div>
     );
@@ -40,26 +40,26 @@ export function StudioRenderAdapter({
     <div className="border-b border-border px-4 py-3 bg-card">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-foreground">{title}</div>
-          <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
+          <div className="text-bf-md font-semibold text-foreground">{title}</div>
+          <div className="mt-1 text-bf-sm text-muted-foreground">{subtitle}</div>
         </div>
         {actions && actions.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {actions.map((action) => (
-              <Button key={action.label} variant="ghost" size="sm" onClick={action.onClick}>
+              <Button key={action.label} variant="link" className="min-h-6" size="sm" onClick={action.onClick}>
                 {action.label}
               </Button>
             ))}
           </div>
         ) : null}
       </div>
-      {footer ? <div className="mt-2 text-xs text-muted-foreground">{footer}</div> : null}
+      {footer ? <div className="mt-2 text-bf-sm text-muted-foreground">{footer}</div> : null}
     </div>
   );
 
   if (supportKind === 'volume') {
     return (
-      <div className="flex h-full min-h-[320px] flex-col overflow-hidden rounded-lg border border-border bg-black">
+      <div className="flex h-full min-h-[320px] flex-col overflow-hidden rounded-sm border border-border bg-bf-bg-canvas">
         {header}
         <div className="min-h-0 flex-1">
           <OrthogonalViewContainer className="h-full w-full" />
@@ -70,7 +70,7 @@ export function StudioRenderAdapter({
 
   if (supportKind === 'surface') {
     return (
-      <div className="flex h-full min-h-[320px] flex-col overflow-hidden rounded-lg border border-border bg-black">
+      <div className="flex h-full min-h-[320px] flex-col overflow-hidden rounded-sm border border-border bg-bf-bg-canvas">
         {header}
         <div className="min-h-0 flex-1">
           <SurfaceViewPanel />
@@ -80,11 +80,11 @@ export function StudioRenderAdapter({
   }
 
   return (
-    <div className="flex h-full min-h-[320px] items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 text-center">
+    <div className="flex h-full min-h-[320px] items-center justify-center rounded-sm border border-dashed border-border bg-card px-6 text-center">
       <div>
-        <div className="text-sm font-medium text-foreground">{title}</div>
-        <div className="mt-2 text-sm text-muted-foreground">{subtitle}</div>
-        <div className="mt-3 text-xs text-muted-foreground">
+        <div className="text-bf-md font-medium text-foreground">{title}</div>
+        <div className="mt-2 text-bf-md text-muted-foreground">{subtitle}</div>
+        <div className="mt-3 text-bf-sm text-muted-foreground">
           No renderer adapter for support kind {supportKind ?? 'unknown'}
         </div>
       </div>

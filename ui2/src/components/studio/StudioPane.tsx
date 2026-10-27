@@ -10,13 +10,17 @@ interface StudioPaneProps {
 
 export function StudioPane({ title, subtitle, headerActions, showHeader = true, children }: StudioPaneProps) {
   return (
-    <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+    // h-full: in a GoldenLayout panel the section must take the panel's
+    // height, so the body below is the scroller. Without it the section grew
+    // to its content, lm_content (overflow hidden) clipped the rail and only
+    // scrollIntoView-style scrolling of hidden ancestors could reach rows.
+    <section className="flex h-full min-h-0 flex-col bg-card">
       {showHeader ? (
         <header className="border-b border-border px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground">{title}</div>
-              {subtitle ? <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div> : null}
+              <div className="text-bf-md font-medium text-foreground">{title}</div>
+              {subtitle ? <div className="mt-1 text-bf-sm text-muted-foreground">{subtitle}</div> : null}
             </div>
             {headerActions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{headerActions}</div> : null}
           </div>

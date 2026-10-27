@@ -69,7 +69,7 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 function materializationCancelledError(): Error {
-  const error = new Error('Set Studio materialization cancelled.');
+  const error = new Error('Set studio materialization cancelled.');
   error.name = 'AbortError';
   return error;
 }

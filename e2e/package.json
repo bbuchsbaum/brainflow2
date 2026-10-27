@@ -9,6 +9,7 @@
     "test:debug": "playwright test --debug",
     "test:report": "playwright show-report",
     "update-snapshots": "playwright test --update-snapshots",
+    "test:app-harness:visual": "playwright test -c playwright.app-harness.visual.config.ts",
     "install:browsers": "playwright install"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { SpatialFieldSetSummary, StudioFeatureSummary } from '@/types/studio';
-import { Button } from '@/components/ui/Button';
+import { Button, Chip, Pager } from '@/components/ui/bf';
 import { setImportReadiness } from '@/services/studio/importContract';
 import { StudioRenderAdapter } from './StudioRenderAdapter';
 
@@ -37,9 +37,6 @@ export function DeckLens({
 }: DeckLensProps) {
   const memberIds = visibleMemberIds ?? activeSet?.memberIds ?? [];
   const memberIndex = activeMemberId ? memberIds.indexOf(activeMemberId) : -1;
-  const previousMemberId = memberIndex > 0 ? memberIds[memberIndex - 1] : null;
-  const nextMemberId =
-    memberIndex >= 0 && memberIndex < memberIds.length - 1 ? memberIds[memberIndex + 1] : null;
 
   const footer = useMemo(() => {
     if (!activeSet || !activeMemberId) {
@@ -59,58 +56,37 @@ export function DeckLens({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border bg-card px-3 py-2">
         <div>
-          <div className="text-sm font-medium text-foreground">Deck</div>
-          <div className="mt-1 text-sm text-muted-foreground">Browse members one at a time.</div>
+          <div className="text-bf-md font-medium text-foreground">Deck</div>
+          <div className="mt-1 text-bf-md text-muted-foreground">Browse members one at a time.</div>
           {searchLabel || sortLabel || (filterLabels?.length ?? 0) > 0 ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {searchLabel ? (
-                <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-[11px] text-violet-700 dark:text-violet-200">
-                  Search {searchLabel}
-                </span>
-              ) : null}
-              {sortLabel ? (
-                <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
-                  Sort {sortLabel}
-                </span>
-              ) : null}
-              {filterLabels?.map((label) => (
-                <span
-                  key={label}
-                  className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-[11px] text-violet-700 dark:text-violet-200"
-                >
-                  {label}
-                </span>
-              ))}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {searchLabel ? <Chip>Search {searchLabel}</Chip> : null}
+              {sortLabel ? <Chip>Sort {sortLabel}</Chip> : null}
+              {filterLabels?.map((label) => <Chip key={label}>{label}</Chip>)}
             </div>
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <div className="mr-2 text-xs text-muted-foreground">
-            {memberIndex >= 0 ? `${memberIndex + 1} of ${memberIds.length}` : 'No member selected'}
-          </div>
           {scopeLabel && onClearScope ? (
             <Button variant="ghost" size="sm" onClick={onClearScope}>
-              Clear Scope
+              Clear scope
             </Button>
           ) : null}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => previousMemberId && onSelectMember(previousMemberId)}
-            disabled={!previousMemberId}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => nextMemberId && onSelectMember(nextMemberId)}
-            disabled={!nextMemberId}
-          >
-            Next
-          </Button>
+          {memberIndex >= 0 ? (
+            <Pager
+              noun="member"
+              page={memberIndex + 1}
+              count={memberIds.length}
+              onPageChange={(page) => {
+                const memberId = memberIds[page - 1];
+                if (memberId) onSelectMember(memberId);
+              }}
+            />
+          ) : (
+            <span className="text-bf-sm text-muted-foreground">No member selected</span>
+          )}
         </div>
       </div>
 
@@ -122,7 +98,7 @@ export function DeckLens({
           footer={footer}
           actions={[
             { label: 'Inspect', onClick: onInspectCurrent },
-            ...(activeMemberSourcePath ? [{ label: 'Open Source', onClick: onOpenCurrentSource }] : []),
+            ...(activeMemberSourcePath ? [{ label: 'Open source', onClick: onOpenCurrentSource }] : []),
           ]}
         />
       </div>

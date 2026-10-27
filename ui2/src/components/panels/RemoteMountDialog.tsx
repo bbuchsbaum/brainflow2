@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import './RemoteMountDialog.css';
 import type { RemoteAuthChallenge, RemoteHostKeyChallenge } from '@brainflow/api';
-import { Button } from '@/components/ui/shadcn/button';
+import {
+  Button,
+  FieldRow,
+  LABEL_WIDTH,
+  Notice,
+  Select,
+  Switch,
+  TextField,
+  type SelectOption,
+} from '@/components/ui/bf';
 import { Modal } from '@/components/ui/Modal';
 import { getTransport } from '@/services/transport';
 import {
@@ -49,6 +57,13 @@ const DEFAULT_FORM: RemoteMountFormState = {
   profileName: '',
 };
 
+const AUTH_METHOD_OPTIONS: readonly SelectOption[] = [
+  { value: 'password', label: 'Password' },
+  { value: 'key_file', label: 'SSH key file' },
+  { value: 'agent', label: 'SSH Agent' },
+  { value: 'keyboard_interactive', label: 'Keyboard interactive' },
+];
+
 function normalizeAuthMethod(authMethod: string): RemoteAuthMethod {
   if (
     authMethod === 'password' ||
@@ -80,7 +95,7 @@ function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
     return (
       `${message} ` +
       'This host is not offering password authentication. ' +
-      'Switch Auth Method to SSH Agent or SSH Key File, and verify username case (typically lowercase).'
+      'Switch Auth method to SSH Agent or SSH Key File, and verify username case (typically lowercase).'
     );
   }
 
@@ -89,7 +104,7 @@ function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
       return (
         `${message} ` +
         'This host expects keyboard-interactive authentication (often MFA/Duo). ' +
-        'Switch Auth Method to Keyboard Interactive and retry.'
+        'Switch Auth method to Keyboard interactive and retry.'
       );
     }
 
@@ -443,7 +458,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Mount Remote Folder"
+      title="Mount remote folder"
       ariaLabel="Remote mount"
       size="xl"
       initialFocusRef={profileSelectRef}
@@ -453,20 +468,21 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       bodyClassName="p-0"
       className="max-w-[560px]"
     >
-      <p className="remote-mount-subtitle px-4 pt-4">
+      <p className="m-0 px-3 pt-3 text-bf-sm text-bf-text-secondary">
         Connect over SSH and mount into a local cache path.
       </p>
 
-      <div className="remote-mount-body">
-          {step === 'form' && (
-            <div className="remote-mount-form-grid">
-              <label className="remote-mount-field">
-                <span>Saved Profile</span>
-                <div className="remote-mount-profile-row">
-                  <select
+      <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+        {step === 'form' && (
+          <div className="flex flex-col">
+            <FieldRow label="Saved profile" labelWidth="wide">
+              {(field) => (
+                <div className="flex w-full min-w-0 items-center gap-1">
+                  <Select
+                    {...field}
                     ref={profileSelectRef}
                     value={selectedProfileId}
-                    onChange={(event) => handleProfileSelect(event.target.value)}
+                    onValueChange={handleProfileSelect}
                     disabled={pending || profilesLoading}
                   >
                     <option value="">New connection…</option>
@@ -475,295 +491,302 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                         {profile.name}
                       </option>
                     ))}
-                  </select>
-                  <button
-                    type="button"
+                  </Select>
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => void handleRemoveProfile()}
                     disabled={pending || !selectedProfile}
                   >
                     Remove
-                  </button>
+                  </Button>
                 </div>
-              </label>
+              )}
+            </FieldRow>
 
-              <label className="remote-mount-field">
-                <span>Host</span>
-                <input
-                  value={form.host}
-                  onChange={(event) => setForm((prev) => ({ ...prev, host: event.target.value }))}
-                  placeholder="login.example.org"
-                  disabled={pending}
-                />
-              </label>
+            <FieldRow label="Host" labelWidth="wide" disabled={pending}>
+              <TextField
+                value={form.host}
+                onChange={(event) => setForm((prev) => ({ ...prev, host: event.target.value }))}
+                placeholder="login.example.org"
+                mono
+              />
+            </FieldRow>
 
-              <div className="remote-mount-row">
-                <label className="remote-mount-field">
-                  <span>Port</span>
-                  <input
-                    value={form.port}
-                    onChange={(event) => setForm((prev) => ({ ...prev, port: event.target.value }))}
-                    placeholder="22"
-                    disabled={pending}
+            <FieldRow label="Port" labelWidth="wide" disabled={pending}>
+              <TextField
+                value={form.port}
+                onChange={(event) => setForm((prev) => ({ ...prev, port: event.target.value }))}
+                placeholder="22"
+                inputMode="numeric"
+                data-numeric="true"
+                mono
+                className="w-20"
+              />
+            </FieldRow>
+
+            <FieldRow label="User" labelWidth="wide" disabled={pending}>
+              <TextField
+                value={form.user}
+                onChange={(event) => setForm((prev) => ({ ...prev, user: event.target.value }))}
+                placeholder="alice"
+                mono
+              />
+            </FieldRow>
+
+            <FieldRow label="Remote folder" labelWidth="wide" disabled={pending}>
+              <TextField
+                value={form.remotePath}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, remotePath: event.target.value }))
+                }
+                placeholder="/data/project"
+                mono
+              />
+            </FieldRow>
+
+            <FieldRow label="Auth method" labelWidth="wide" disabled={pending}>
+              <Select
+                value={form.authMethod}
+                onValueChange={(value) => {
+                  const nextAuthMethod = normalizeAuthMethod(value);
+                  setForm((prev) => ({
+                    ...prev,
+                    authMethod: nextAuthMethod,
+                    rememberPassword:
+                      nextAuthMethod === 'password'
+                        ? selectedProfile
+                          ? profileHasStoredSecret(selectedProfile, 'password')
+                          : true
+                        : nextAuthMethod === 'key_file'
+                          ? profileHasStoredSecret(selectedProfile, 'key_file')
+                          : false,
+                  }));
+                }}
+                options={AUTH_METHOD_OPTIONS}
+              />
+            </FieldRow>
+
+            {form.authMethod === 'password' && (
+              <>
+                <FieldRow label="Password" labelWidth="wide" disabled={pending}>
+                  <TextField
+                    type="password"
+                    value={form.password}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, password: event.target.value }))
+                    }
+                    placeholder={
+                      profileHasStoredSecret(selectedProfile, 'password') ? 'Stored in keychain' : ''
+                    }
                   />
-                </label>
-                <label className="remote-mount-field">
-                  <span>User</span>
-                  <input
-                    value={form.user}
-                    onChange={(event) => setForm((prev) => ({ ...prev, user: event.target.value }))}
-                    placeholder="alice"
-                    disabled={pending}
-                  />
-                </label>
-              </div>
-
-              <label className="remote-mount-field">
-                <span>Remote Folder</span>
-                <input
-                  value={form.remotePath}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, remotePath: event.target.value }))
+                </FieldRow>
+                <SwitchRow
+                  checked={form.rememberPassword}
+                  onCheckedChange={(checked) =>
+                    setForm((prev) => ({ ...prev, rememberPassword: checked }))
                   }
-                  placeholder="/data/project"
-                  disabled={pending}
-                />
-              </label>
-
-              <label className="remote-mount-field">
-                <span>Auth Method</span>
-                <select
-                  value={form.authMethod}
-                  onChange={(event) => {
-                    const nextAuthMethod = normalizeAuthMethod(event.target.value);
-                    setForm((prev) => ({
-                      ...prev,
-                      authMethod: nextAuthMethod,
-                      rememberPassword:
-                        nextAuthMethod === 'password'
-                          ? (selectedProfile
-                              ? profileHasStoredSecret(selectedProfile, 'password')
-                              : true)
-                          : nextAuthMethod === 'key_file'
-                            ? profileHasStoredSecret(selectedProfile, 'key_file')
-                            : false,
-                    }));
-                  }}
                   disabled={pending}
                 >
-                  <option value="password">Password</option>
-                  <option value="key_file">SSH Key File</option>
-                  <option value="agent">SSH Agent</option>
-                  <option value="keyboard_interactive">Keyboard Interactive</option>
-                </select>
-              </label>
+                  {rememberSecretLabel('password')}
+                </SwitchRow>
+              </>
+            )}
 
-              {form.authMethod === 'password' && (
-                <>
-                  <label className="remote-mount-field">
-                    <span>Password</span>
-                    <input
-                      type="password"
-                      value={form.password}
-                      onChange={(event) =>
-                        setForm((prev) => ({ ...prev, password: event.target.value }))
-                      }
-                      placeholder={profileHasStoredSecret(selectedProfile, 'password') ? 'Stored in keychain' : ''}
-                      disabled={pending}
-                    />
-                  </label>
-                  <label className="remote-mount-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={form.rememberPassword}
-                      onChange={(event) =>
-                        setForm((prev) => ({ ...prev, rememberPassword: event.target.checked }))
-                      }
-                      disabled={pending}
-                    />
-                    <span>{rememberSecretLabel('password')}</span>
-                  </label>
-                </>
-              )}
-
-              {form.authMethod === 'key_file' && (
-                <>
-                  <label className="remote-mount-field">
-                    <span>SSH Key File (optional)</span>
-                    <input
-                      value={form.keyPath}
-                      onChange={(event) =>
-                        setForm((prev) => ({ ...prev, keyPath: event.target.value }))
-                      }
-                      placeholder="~/.ssh/id_ed25519"
-                      disabled={pending}
-                    />
-                  </label>
-                  <label className="remote-mount-field">
-                    <span>Key Passphrase (optional)</span>
-                    <input
-                      type="password"
-                      value={form.keyPassphrase}
-                      onChange={(event) =>
-                        setForm((prev) => ({ ...prev, keyPassphrase: event.target.value }))
-                      }
-                      placeholder={
-                        profileHasStoredSecret(selectedProfile, 'key_file')
-                          ? 'Stored in keychain'
-                          : 'Only if your key is encrypted'
-                      }
-                      disabled={pending}
-                    />
-                  </label>
-                  <label className="remote-mount-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={form.rememberPassword}
-                      onChange={(event) =>
-                        setForm((prev) => ({ ...prev, rememberPassword: event.target.checked }))
-                      }
-                      disabled={pending}
-                    />
-                    <span>{rememberSecretLabel('key_file')}</span>
-                  </label>
-                  <p className="remote-mount-step-text">
-                    Duo-enabled hosts often require a valid SSH key first, then prompt for second factor.
-                  </p>
-                </>
-              )}
-
-              <label className="remote-mount-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.saveProfile}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, saveProfile: event.target.checked }))
+            {form.authMethod === 'key_file' && (
+              <>
+                <FieldRow label="SSH key file (optional)" labelWidth="wide" disabled={pending}>
+                  <TextField
+                    value={form.keyPath}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, keyPath: event.target.value }))
+                    }
+                    placeholder="~/.ssh/id_ed25519"
+                    mono
+                  />
+                </FieldRow>
+                <FieldRow label="Key Passphrase (optional)" labelWidth="wide" disabled={pending}>
+                  <TextField
+                    type="password"
+                    value={form.keyPassphrase}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, keyPassphrase: event.target.value }))
+                    }
+                    placeholder={
+                      profileHasStoredSecret(selectedProfile, 'key_file')
+                        ? 'Stored in keychain'
+                        : 'Only if your key is encrypted'
+                    }
+                  />
+                </FieldRow>
+                <SwitchRow
+                  checked={form.rememberPassword}
+                  onCheckedChange={(checked) =>
+                    setForm((prev) => ({ ...prev, rememberPassword: checked }))
                   }
                   disabled={pending}
+                >
+                  {rememberSecretLabel('key_file')}
+                </SwitchRow>
+                <Notice severity="info" role={undefined} className="my-1">
+                  Duo-enabled hosts often require a valid SSH key first, then prompt for second
+                  factor.
+                </Notice>
+              </>
+            )}
+
+            <SwitchRow
+              checked={form.saveProfile}
+              onCheckedChange={(checked) => setForm((prev) => ({ ...prev, saveProfile: checked }))}
+              disabled={pending}
+            >
+              Save connection profile
+            </SwitchRow>
+
+            {form.saveProfile && (
+              <FieldRow label="Profile name" labelWidth="wide" disabled={pending}>
+                <TextField
+                  value={form.profileName}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, profileName: event.target.value }))
+                  }
+                  placeholder={`${form.user || 'user'}@${form.host || 'host'}:${form.remotePath || '/'}`}
                 />
-                <span>Save connection profile</span>
-              </label>
+              </FieldRow>
+            )}
+          </div>
+        )}
 
-              {form.saveProfile && (
-                <label className="remote-mount-field">
-                  <span>Profile Name</span>
-                  <input
-                    value={form.profileName}
-                    onChange={(event) =>
-                      setForm((prev) => ({ ...prev, profileName: event.target.value }))
-                    }
-                    placeholder={`${form.user || 'user'}@${form.host || 'host'}:${form.remotePath || '/'}`}
-                    disabled={pending}
-                  />
-                </label>
-              )}
-            </div>
-          )}
-
-          {step === 'host_key' && hostKeyChallenge && (
-            <div className="remote-mount-step">
-              <p className="remote-mount-step-title">
+        {step === 'host_key' && hostKeyChallenge && (
+          <div className="flex flex-col gap-2">
+            <Notice
+              severity={hostKeyChallenge.disposition === 'mismatch' ? 'danger' : 'warning'}
+              role={undefined}
+            >
+              <p className="m-0 text-bf-sm font-semibold">
                 {hostKeyChallenge.disposition === 'mismatch'
                   ? 'Host key mismatch'
                   : 'Unknown host key'}
               </p>
-              <p className="remote-mount-step-text">
-                {hostKeyChallenge.host}:{hostKeyChallenge.port}
-              </p>
-              <p className="remote-mount-step-text">
-                {hostKeyChallenge.algorithm} • {hostKeyChallenge.sha256_fingerprint}
-              </p>
-            </div>
-          )}
+            </Notice>
+            <p className="m-0 font-mono text-bf-xs text-bf-text-secondary">
+              {hostKeyChallenge.host}:{hostKeyChallenge.port}
+            </p>
+            <p className="m-0 break-all font-mono text-bf-xs text-bf-text-secondary">
+              {hostKeyChallenge.algorithm} • {hostKeyChallenge.sha256_fingerprint}
+            </p>
+          </div>
+        )}
 
-          {step === 'auth' && authChallenge && (
-            <div className="remote-mount-step">
-              <p className="remote-mount-step-title">
-                {authChallenge.name || 'Additional authentication required'}
-              </p>
-              {authChallenge.instructions && (
-                <p className="remote-mount-step-text">{authChallenge.instructions}</p>
-              )}
-              <div className="remote-mount-form-grid">
-                {authChallenge.prompts.map((prompt, index) => (
-                  <label key={`${prompt.prompt}-${index}`} className="remote-mount-field">
-                    <span>{prompt.prompt || `Response ${index + 1}`}</span>
-                    <input
-                      ref={index === 0 ? authInputRef : undefined}
-                      type={prompt.echo ? 'text' : 'password'}
-                      value={authResponses[index] ?? ''}
-                      onChange={(event) =>
-                        handleAuthResponseChange(index, event.target.value)
-                      }
-                      disabled={pending}
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="remote-mount-error" role="status">
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div className="remote-mount-footer">
-          {step === 'form' && (
-            <>
-              <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                className="primary"
-                onClick={() => void handleConnect()}
+        {step === 'auth' && authChallenge && (
+          <div className="flex flex-col gap-1">
+            <p className="m-0 text-bf-sm font-semibold text-foreground">
+              {authChallenge.name || 'Additional authentication required'}
+            </p>
+            {authChallenge.instructions && (
+              <p className="m-0 text-bf-xs text-bf-text-secondary">{authChallenge.instructions}</p>
+            )}
+            {authChallenge.prompts.map((prompt, index) => (
+              <FieldRow
+                key={`${prompt.prompt}-${index}`}
+                label={prompt.prompt || `Response ${index + 1}`}
+                labelWidth="wide"
                 disabled={pending}
               >
-                {pending ? 'Connecting…' : 'Connect'}
-              </Button>
-            </>
-          )}
+                <TextField
+                  ref={index === 0 ? authInputRef : undefined}
+                  type={prompt.echo ? 'text' : 'password'}
+                  value={authResponses[index] ?? ''}
+                  onChange={(event) => handleAuthResponseChange(index, event.target.value)}
+                />
+              </FieldRow>
+            ))}
+          </div>
+        )}
 
-          {step === 'host_key' && (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handleHostKeyDecision(false)}
-                disabled={pending}
-              >
-                Reject
-              </Button>
-              <Button
-                type="button"
-                className="primary"
-                ref={trustButtonRef}
-                onClick={() => void handleHostKeyDecision(true)}
-                disabled={pending}
-              >
-                Trust & Continue
-              </Button>
-            </>
-          )}
+        {error && (
+          <Notice severity="danger" role="status" className="mt-2">
+            {error}
+          </Notice>
+        )}
+      </div>
 
-          {step === 'auth' && (
-            <>
-              <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                className="primary"
-                onClick={() => void handleAuthSubmit()}
-                disabled={pending}
-              >
-                {pending ? 'Submitting…' : 'Continue'}
-              </Button>
-            </>
-          )}
-        </div>
+      <div className="flex justify-end gap-2 border-t border-bf-border-subtle px-3 py-2">
+        {step === 'form' && (
+          <>
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void handleConnect()}
+              disabled={pending}
+            >
+              {pending ? 'Connecting…' : 'Connect'}
+            </Button>
+          </>
+        )}
+
+        {step === 'host_key' && (
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleHostKeyDecision(false)}
+              disabled={pending}
+            >
+              Reject
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              ref={trustButtonRef}
+              onClick={() => void handleHostKeyDecision(true)}
+              disabled={pending}
+            >
+              Trust & Continue
+            </Button>
+          </>
+        )}
+
+        {step === 'auth' && (
+          <>
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void handleAuthSubmit()}
+              disabled={pending}
+            >
+              {pending ? 'Submitting…' : 'Continue'}
+            </Button>
+          </>
+        )}
+      </div>
     </Modal>
+  );
+}
+
+/** On/off form option: a bf Switch with its visible label, indented to the field column. */
+function SwitchRow({
+  checked,
+  onCheckedChange,
+  disabled,
+  children,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="py-1" style={{ paddingLeft: LABEL_WIDTH.wide + 12 }}>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled}>
+        {children}
+      </Switch>
+    </div>
   );
 }

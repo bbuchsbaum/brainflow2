@@ -8,7 +8,7 @@ export function useStudioStatusBridge() {
   const appMode = useAppModeStore((state) => state.mode);
   const studioSetName = useSetStudioStore((state) => {
     const setId = state.selection.activeSetId;
-    return setId ? (state.sets[setId]?.name ?? 'Set Studio') : 'Set Studio';
+    return setId ? (state.sets[setId]?.name ?? 'Set studio') : 'Set studio';
   });
   const studioSetMemberCount = useSetStudioStore((state) => {
     const setId = state.selection.activeSetId;

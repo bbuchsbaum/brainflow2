@@ -38,28 +38,28 @@ export const LayerEmptyState: React.FC<LayerEmptyStateProps> = ({
           strokeWidth="0.75"
           strokeLinecap="square"
           strokeLinejoin="miter"
-          className="text-muted-foreground/25 mb-3"
+          className="text-bf-text-faint mb-3"
         >
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
 
         {/* Technical status */}
-        <span className="text-[9px] font-mono text-muted-foreground/50 uppercase tracking-[0.2em]">
-          Layer Stack Empty
+        <span className="text-bf-2xs text-muted-foreground">
+          Layer stack empty
         </span>
       </div>
 
       {/* Subtle footer instruction */}
-      <p className="mt-4 text-[9px] text-muted-foreground/40 max-w-[160px] leading-relaxed font-mono uppercase tracking-wider">
-        Import volumes via File Browser
+      <p className="mt-4 text-bf-2xs text-muted-foreground max-w-[160px] leading-relaxed">
+        Import volumes via the file browser
       </p>
 
       {onOpenSetStudio ? (
         <div className="mt-4">
           <Button variant="ghost" size="sm" onClick={onOpenSetStudio}>
-            Open Set Studio
+            Open Set studio
           </Button>
-          <div className="mt-2 text-[9px] uppercase tracking-wider text-muted-foreground/40 font-mono">
+          <div className="mt-2 text-bf-2xs text-muted-foreground">
             Shortcut Cmd/Ctrl+5
           </div>
         </div>
@@ -68,7 +68,7 @@ export const LayerEmptyState: React.FC<LayerEmptyStateProps> = ({
       {showRefreshButton && onRefresh && (
         <button
           onClick={onRefresh}
-          className="mt-3 px-3 py-1 text-[9px] uppercase tracking-wider font-mono border transition-colors pointer-events-auto"
+          className="mt-3 px-3 py-1 text-bf-2xs font-mono border transition-colors pointer-events-auto"
           style={{
             borderColor: 'hsl(var(--border))',
             color: 'hsl(var(--muted-foreground))',

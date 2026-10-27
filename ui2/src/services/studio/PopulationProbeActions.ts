@@ -9,6 +9,17 @@ import { populationSupportKey } from './PopulationProbeController';
 /** UI commands share the canonical Studio selection/probe state. Sample frames
  * remain owned by the panel's controller, outside the global stores. */
 export const populationProbeActions = {
+  select(
+    ids: readonly string[],
+    operation: 'replace' | 'union' | 'intersection' | 'difference' = 'replace',
+    origin: 'manual' | 'metadata' | 'map-derived' = 'manual',
+    label = 'Selected observations',
+  ) {
+    const state = useSetStudioStore.getState();
+    return operation === 'replace'
+      ? state.selectPopulationMembers(ids, origin, label)
+      : state.combinePopulationMembers(operation, ids, origin);
+  },
   configureMask(mask: PopulationMask | null) {
     const state = useSetStudioStore.getState();
     return state.configurePopulationMask(

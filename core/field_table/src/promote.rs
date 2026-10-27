@@ -149,6 +149,7 @@ pub fn build_discovery_neurotabs_package(
         features.insert(
             role.clone(),
             FeatureSchema {
+                value_role: None,
                 logical: LogicalFeatureSchema {
                     kind: LogicalKind::Volume,
                     axes: vec!["x".to_string(), "y".to_string(), "z".to_string()],

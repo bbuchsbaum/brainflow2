@@ -19,6 +19,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/shadcn/popover";
+import { SegmentedControl } from "@/components/ui/bf";
 import {
   useLayoutSettingsStore,
   type IntegratedSplit,
@@ -36,64 +37,33 @@ const SPLITS: ReadonlyArray<{ id: IntegratedSplit; label: string }> = [
   { id: "vertical", label: "Stacked" },
 ];
 
-interface SegmentedProps<T extends string> {
-  ariaLabel: string;
-  options: ReadonlyArray<{ id: T; label: string }>;
-  value: T;
-  onChange: (id: T) => void;
-  testidPrefix: string;
-}
-
+/** Typed wrapper over the shared SegmentedControl (ui/bf). */
 function Segmented<T extends string>({
   ariaLabel,
   options,
   value,
   onChange,
   testidPrefix,
-}: SegmentedProps<T>) {
+}: {
+  ariaLabel: string;
+  options: ReadonlyArray<{ id: T; label: string }>;
+  value: T;
+  onChange: (id: T) => void;
+  testidPrefix: string;
+}) {
   return (
-    <div
-      role="radiogroup"
+    <SegmentedControl
       aria-label={ariaLabel}
-      style={{ display: "flex", gap: "2px" }}
-    >
-      {options.map((opt) => {
-        const active = opt.id === value;
-        return (
-          <button
-            key={opt.id}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            data-testid={`${testidPrefix}-${opt.id}`}
-            data-active={active ? "true" : "false"}
-            onClick={() => onChange(opt.id)}
-            className="bf-role-section"
-            style={{
-              appearance: "none",
-              flex: "1 1 auto",
-              padding: "3px 8px",
-              border: "1px solid",
-              borderColor: active
-                ? "var(--app-border-active)"
-                : "var(--app-border)",
-              background: active ? "var(--app-bg-active)" : "transparent",
-              color: active
-                ? "var(--app-text-primary)"
-                : "var(--app-text-muted)",
-              cursor: "pointer",
-              borderRadius: "var(--app-radius-sm)",
-              fontSize: "var(--app-role-section-size)",
-              letterSpacing: "var(--app-role-section-tracking)",
-              textTransform: "uppercase",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
+      fullWidth
+      value={value}
+      onValueChange={(v) => onChange(v as T)}
+      options={options.map((opt) => ({
+        value: opt.id,
+        label: opt.label,
+        testId: `${testidPrefix}-${opt.id}`,
+        data: { "data-active": opt.id === value ? "true" : "false" },
+      }))}
+    />
   );
 }
 
@@ -114,8 +84,6 @@ export const ArrangementMenu: React.FC<ArrangementMenuProps> = ({
 
   const labelStyle: React.CSSProperties = {
     color: "var(--app-text-muted)",
-    textTransform: "uppercase",
-    letterSpacing: "var(--app-role-section-tracking)",
     fontSize: "var(--app-role-section-size)",
     marginBottom: "4px",
   };

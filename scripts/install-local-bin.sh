@@ -43,10 +43,12 @@ if [[ "${BUILD_FIRST}" -eq 1 ]]; then
 fi
 
 mkdir -p "${LOCAL_BIN_DIR}"
+chmod +x "${LAUNCHER_PATH}"
 ln -snf "${LAUNCHER_PATH}" "${INSTALL_PATH}"
 
 echo "Installed launcher:"
 echo "  ${INSTALL_PATH}"
+echo "Bare 'brainflow' launches the repo-local app and mounts the current directory."
 echo
 if [[ ! -x "${APP_EXECUTABLE}" ]]; then
   echo "Release bundle is not built yet."

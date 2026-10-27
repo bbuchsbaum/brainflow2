@@ -15,6 +15,36 @@ import { VolumeHandleStore } from './VolumeHandleStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewPlane } from '@/types/coordinates';
 import type { VolumeBounds } from '@brainflow/api';
+import { alignPlaneToCrosshair } from '@/stores/viewStateGeometry';
+import { getLabelTableService } from './LabelTableService';
+import { looksLikeSegmentation } from '@/utils/labelTable';
+import { inferStatisticFromName } from '@/utils/statistic';
+
+/**
+ * Volumes worth checking for a label-table sidecar: label layers only (a
+ * segmentation name token, or the NIfTI label intent). A plain integer image
+ * is not sniffed: most T1s and BOLD runs are int16 / uint8, and a same-stem
+ * `.txt` of notes must not turn one into a label map (review D3).
+ */
+export function mayHaveLabelTable(
+  type: Layer['type'],
+  handle: Pick<VolumeHandle, 'dtype' | 'is_label_map'>,
+): boolean {
+  return type === 'label' || handle.is_label_map === true;
+}
+
+/**
+ * Default crosshair for a newly loaded volume: the backend's voxel-centred
+ * `center_voxel_world` (voxel `floor((dims - 1) / 2)`), falling back to the
+ * geometric `center` for backends that do not send it.
+ */
+export function defaultCrosshairWorld(bounds: VolumeBounds): [number, number, number] {
+  const voxelCentre = bounds.center_voxel_world;
+  if (Array.isArray(voxelCentre) && voxelCentre.length === 3 && voxelCentre.every(Number.isFinite)) {
+    return [voxelCentre[0], voxelCentre[1], voxelCentre[2]];
+  }
+  return [bounds.center[0], bounds.center[1], bounds.center[2]];
+}
 
 const DEBUG_VOLUME_LOADING =
   import.meta.env.DEV &&
@@ -160,7 +190,21 @@ export class VolumeLoadingService {
         id: volumeHandle.id,
         name: displayName,
         volumeId: volumeHandle.id,
-        type: layerType || this.inferLayerType(displayName, source),
+        // NIfTI intent 1002 (NIFTI_INTENT_LABEL) marks a label volume even
+        // when its name does not.
+        type:
+          layerType ||
+          (volumeHandle.is_label_map
+            ? 'label'
+            : // Infer from the file name, not the display name: BIDS display
+              // names drop the entities that mark a label image
+              // ("atlas-x_dseg.nii.gz" is shown as "Segmentation").
+              this.inferLayerType(
+                source === 'file' && sourcePath
+                  ? (sourcePath.split(/[\\/]/).pop() ?? displayName)
+                  : displayName,
+                source,
+              )),
         visible: visible,
         order: currentLayerCount,
         atlasMetadata,
@@ -178,6 +222,15 @@ export class VolumeLoadingService {
             }
           : undefined,
         currentTimepoint: volumeHandle.current_timepoint || 0,
+        // No intent in the header: FSL-style names (zstat/tstat) give a
+        // marked guess ("z (from name)"), never a silent statistic.
+        statistic:
+          volumeHandle.statistic ??
+          (source === 'file' && sourcePath
+            ? (inferStatisticFromName(sourcePath.split(/[\\/]/).pop() ?? '', volumeHandle.dtype) ??
+                undefined)
+            : undefined),
+        isLabelMap: volumeHandle.is_label_map === true ? true : undefined,
       };
 
       if (source === 'file' && sourcePath) {
@@ -236,20 +289,47 @@ export class VolumeLoadingService {
       // Set loading state for UI feedback (backward compatibility with LayerItem)
       useLayerStore.getState().setLayerLoading(layer.id, true);
 
+      // Default placement is a voxel centre (`center_voxel_world`), not the
+      // geometric centre, which falls on a voxel edge along even dimensions.
+      // The initial planes come from get_initial_views through the geometric
+      // centre, so slide each along its normal onto the default crosshair.
+      const initialCrosshair = defaultCrosshairWorld(volumeBounds);
+      const initialViews = newViews as import('@/types/viewState').ViewState['views'];
+      for (const plane of Object.values(initialViews)) {
+        alignPlaneToCrosshair(plane, initialCrosshair);
+      }
+
       let addedLayer: Layer | undefined;
       try {
         addedLayer = await this.layerService!.addLayer(layer, {
           workspaceId,
           ...config.replacement,
           initialGeometry: {
-            views: newViews as import('@/types/viewState').ViewState['views'],
-            crosshair: { world_mm: volumeBounds.center, visible: true },
+            views: initialViews,
+            crosshair: { world_mm: initialCrosshair, visible: true },
           },
         });
         this.eventBus!.emit('volume.loaded', {
           volumeId: volumeHandle.id,
           metadata: volumeHandle,
         });
+
+        // A label/integer volume with a label-table sidecar (BIDS dseg.tsv,
+        // FreeSurfer LUT) gets a discrete colour table and region names.
+        // Non-fatal: without a sidecar the layer keeps its plain rendering.
+        if (source === 'file' && sourcePath && mayHaveLabelTable(addedLayer.type, volumeHandle)) {
+          try {
+            const table = await getLabelTableService().applySidecar(addedLayer.id, sourcePath);
+            // A declared label map without a table still renders as
+            // categories (generated colours, ids as names).
+            const maxLabel = useLayerStore.getState().layerMetadata.get(addedLayer.id)?.dataRange?.max;
+            if (!table && volumeHandle.is_label_map && typeof maxLabel === 'number') {
+              await getLabelTableService().applyGeneratedPalette(addedLayer.id, maxLabel);
+            }
+          } catch (error) {
+            console.warn('[VolumeLoadingService] Label table sidecar failed (non-fatal):', error);
+          }
+        }
 
         // 8. Readiness/mapping is handled in LayerApiImpl request path.
         // Avoid forced flush here to keep initial load/render scheduling smooth.
@@ -384,36 +464,7 @@ export class VolumeLoadingService {
   }
 }
 
-// Filename tokens that indicate a discrete parcellation / segmentation / atlas
-// volume (integer region IDs). Such volumes MUST render with nearest-neighbour
-// sampling (label mode); trilinear interpolation averages adjacent region IDs
-// into meaningless intermediate values (e.g. labels 17 and 1024 -> ~520). The
-// list is intentionally name-driven and conservative so continuous int16
-// anatomicals are not misclassified. (Follow-up: a data-driven heuristic —
-// integer dtype + small distinct-value count — would also catch unnamed atlases
-// but needs a backend distinct-value count; see audit-backlog.)
-const SEGMENTATION_NAME_TOKENS = [
-  'seg', // aseg, dseg, *seg*
-  'parc', // aparc, wmparc, parcellation
-  'atlas',
-  'label',
-  'roi',
-  'schaefer',
-  'aal',
-  'desikan',
-  'destrieux',
-  'harvardoxford',
-  'harvard-oxford',
-  'glasser',
-  'brodmann',
-  'yeo',
-  'juelich',
-  'talairach',
-];
-
-export function looksLikeSegmentation(lowerName: string): boolean {
-  return SEGMENTATION_NAME_TOKENS.some((tok) => lowerName.includes(tok));
-}
+export { looksLikeSegmentation } from '@/utils/labelTable';
 
 /**
  * Infer a layer type from a volume's name and load source. Discrete

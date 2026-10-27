@@ -5,8 +5,8 @@
  * props and the scales, not from layout, so they are deterministic in jsdom.
  */
 
-import { describe, expect, it } from 'vitest';
-import { render, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, within } from '@testing-library/react';
 
 import { PlotEncoder } from '../encoder/PlotEncoder';
 import { column, resolveSpec } from '@/plotting';
@@ -160,4 +160,38 @@ describe('heatmap (carpet/grayplot) mark', () => {
     expect(gap?.getAttribute('fill')).toBe('none');
     expect(gap?.getAttribute('stroke')).toBeTruthy();
   });
+});
+
+it('links finite trajectory samples to mouse and keyboard focus without inventing missing points', () => {
+  const frame = traceFrame([
+    { member: 'a', value: 2, lower: null, upper: null },
+    { member: 'missing', value: null, lower: null, upper: null },
+    { member: 'b', value: 3, lower: null, upper: null },
+  ]);
+  const onFocus = vi.fn(),
+    onToggleSelection = vi.fn();
+  const { container } = render(
+    <PlotEncoder
+      frame={frame}
+      spec={resolveSpec(frame)}
+      width={W}
+      height={H}
+      context={{
+        datumLink: {
+          idColumn: 'member',
+          focusedId: 'b',
+          selectedIds: new Set(['a', 'b']),
+          onFocus,
+          onToggleSelection,
+        },
+      }}
+    />,
+  );
+  const points = container.querySelectorAll('[data-datum-id]');
+  expect(points).toHaveLength(2);
+  fireEvent.click(points[0]);
+  expect(onFocus).toHaveBeenCalledWith('a');
+  fireEvent.keyDown(points[1], { key: 'Enter', shiftKey: true });
+  expect(onToggleSelection).toHaveBeenCalledWith('b');
+  expect(points[1].getAttribute('aria-current')).toBe('true');
 });

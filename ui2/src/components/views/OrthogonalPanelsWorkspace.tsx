@@ -20,6 +20,7 @@ import { type ReactNode } from 'react';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
 import { ResizableOrthoGrid } from './ResizableOrthoGrid';
 import { ArrangementMenu } from '@/components/ui/ArrangementMenu';
+import { EmptyStackOverlay } from './EmptyStackOverlay';
 import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 import './OrthogonalPanelsWorkspace.css';
 
@@ -52,6 +53,7 @@ export function OrthogonalPanelsWorkspace({
       style={{ position: 'relative', height: '100%', width: '100%' }}
     >
       <div style={{ position: 'absolute', inset: 0 }}>{tree}</div>
+      <EmptyStackOverlay />
       {showArrangementMenu && (
         <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 10 }}>
           <ArrangementMenu />

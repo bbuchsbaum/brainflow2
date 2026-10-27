@@ -10,10 +10,13 @@ import { LoadSheet } from './imaging/LoadSheet';
 import { BidsInspector } from './bids/BidsInspector';
 import { AnalysisInspector } from './analysis/AnalysisInspector';
 import { ImagingInspector } from './imaging/ImagingInspector';
+import { Button, TabPanel, Tabs } from '@/components/ui/bf';
 
 /**
  * Right-rail Inspector shell. Owns the chrome:
- *   - a thin context toolbar (`+ Load` action + `Annotate` mode toggle)
+ *   - a thin context toolbar: flat `Inspect | Annotate` tabs (they switch the
+ *     pane's content, so they are tabs by the V5 taxonomy, not a segmented
+ *     value choice) + the `+ Load` action
  *   - the scrollable body (Inspector or Annotate)
  *   - the footer (`N scene items` / `M selected`)
  *
@@ -29,6 +32,9 @@ import { ImagingInspector } from './imaging/ImagingInspector';
  *   - bids → `<BidsInspector />` placeholder
  *   - analysis → `<AnalysisInspector />` placeholder
  */
+/** Id base of the Inspect / Annotate tabs and their panels. */
+const MODE_TABS_ID = 'inspector-mode';
+
 export function InspectorRouter() {
   const [topLevelMode, setTopLevelMode] = useState<'inspector' | 'annotate'>('inspector');
   const [loadOpen, setLoadOpen] = useState(false);
@@ -47,7 +53,12 @@ export function InspectorRouter() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {topLevelMode === 'inspector' ? <InspectorBody /> : <AnnotateBody />}
+        <TabPanel idBase={MODE_TABS_ID} value="inspector" selected={topLevelMode} focusable={false}>
+          <InspectorBody />
+        </TabPanel>
+        <TabPanel idBase={MODE_TABS_ID} value="annotate" selected={topLevelMode} focusable={false}>
+          <AnnotateBody />
+        </TabPanel>
       </div>
 
       <InspectorFooter />
@@ -68,7 +79,6 @@ function ContextToolbar({
   loadOpen: boolean;
   onCloseLoad: () => void;
 }) {
-  const annotateActive = topLevelMode === 'annotate';
   const [dialog, setDialog] = useState<'atlas' | 'projection' | null>(null);
   const openFile = () => {
     void getTransport().invoke('open_file_dialog').catch((error: unknown) => {
@@ -77,32 +87,30 @@ function ContextToolbar({
   };
 
   return (
-    <header className="relative flex items-center justify-end gap-1.5 border-b border-border/60 bg-card/40 px-3 py-2">
-      <button
-        type="button"
+    <header className="relative flex h-10 items-end justify-between gap-1.5 border-b border-border/60 bg-card/40 pl-1 pr-3">
+      <Tabs
+        aria-label="Inspector mode"
+        idBase={MODE_TABS_ID}
+        value={topLevelMode}
+        onValueChange={(value) => onSelectMode(value as 'inspector' | 'annotate')}
+        items={[
+          { value: 'inspector', label: 'Inspect' },
+          { value: 'annotate', label: 'Annotate', title: 'Toggle annotate mode' },
+        ]}
+      />
+      <Button
+        variant="secondary"
+        size="sm"
+        className="mb-2 self-end"
         onClick={onOpenLoad}
-        className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         aria-label="Load"
         title="Load"
         aria-haspopup="menu"
         aria-expanded={loadOpen}
+        icon={<span aria-hidden>+</span>}
       >
-        <span aria-hidden>+</span>
-        <span>Load</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => onSelectMode(annotateActive ? 'inspector' : 'annotate')}
-        aria-pressed={annotateActive}
-        className={`inline-flex items-center rounded-md border px-2 py-1 text-[11px] transition-colors ${
-          annotateActive
-            ? 'border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-200'
-            : 'border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground'
-        }`}
-        title="Toggle annotate mode"
-      >
-        Annotate
-      </button>
+        Load
+      </Button>
 
       <LoadSheet
         open={loadOpen}
@@ -137,7 +145,7 @@ function InspectorBody() {
     case 'unknown':
     default:
       return (
-        <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+        <div className="px-3 py-6 text-center text-bf-sm text-muted-foreground">
           No active workspace.
         </div>
       );
@@ -146,7 +154,7 @@ function InspectorBody() {
 
 function AnnotateBody() {
   return (
-    <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+    <div className="px-3 py-6 text-center text-bf-sm text-muted-foreground">
       Annotate mode is not yet enabled in this Inspector shell.
     </div>
   );
@@ -157,7 +165,7 @@ function InspectorFooter() {
   const activeId = useInspectorSelectionStore((state) => state.activeItemId);
 
   return (
-    <footer className="flex items-center justify-between border-t border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+    <footer className="flex items-center justify-between border-t border-border bg-card/40 px-3 py-1.5 text-bf-xs text-muted-foreground">
       <span
         className="tabular-nums"
         style={{ fontVariantNumeric: 'tabular-nums' }}
@@ -167,8 +175,8 @@ function InspectorFooter() {
       <span
         className={
           activeId
-            ? 'tabular-nums text-sky-600 dark:text-sky-300'
-            : 'tabular-nums text-muted-foreground/70'
+            ? 'tabular-nums text-primary'
+            : 'tabular-nums text-muted-foreground'
         }
         style={{ fontVariantNumeric: 'tabular-nums' }}
       >

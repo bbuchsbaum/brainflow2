@@ -3,11 +3,14 @@ import { useBidsStore } from '@/stores/bidsStore';
 import type { BidsDetailTab, BidsSelection, BidsEventRow } from '@/stores/bidsStore';
 import { BidsValidationPanel } from './BidsValidationPanel';
 import { BidsEventsTimeline } from './BidsEventsTimeline';
+import { Notice, TabPanel, Tabs, type TabItem } from '@/components/ui/bf';
 
-const TABS: { id: BidsDetailTab; label: string }[] = [
-  { id: 'events', label: 'EVENTS' },
-  { id: 'validation', label: 'VALIDATION' },
+const TABS: readonly TabItem[] = [
+  { value: 'events', label: 'Events' },
+  { value: 'validation', label: 'Validation' },
 ];
+
+const TABS_ID = 'bids-detail';
 
 interface EventsTabContentProps {
   selection: BidsSelection;
@@ -60,9 +63,9 @@ function EventsTabContent({ selection }: EventsTabContentProps) {
 
   if (!isFunctional) {
     return (
-      <p className="bf-role-body text-muted-foreground">
+      <Notice severity="neutral" role={undefined}>
         Select a functional run in the coverage matrix to view its event timeline
-      </p>
+      </Notice>
     );
   }
 
@@ -73,10 +76,8 @@ function EventsTabContent({ selection }: EventsTabContentProps) {
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          fontFamily: 'var(--app-font-mono)',
           fontSize: 11,
-          color: 'hsla(var(--foreground) / 0.4)',
-          letterSpacing: '0.08em',
+          color: 'hsl(var(--muted-foreground))',
         }}
       >
         <svg
@@ -90,16 +91,16 @@ function EventsTabContent({ selection }: EventsTabContentProps) {
           <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.5" className="text-border" />
           <path d="M6 2a4 4 0 0 1 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
         </svg>
-        LOADING EVENTS&hellip;
+        Loading events&hellip;
       </div>
     );
   }
 
   if (!task) {
     return (
-      <p className="bf-role-body text-muted-foreground">
+      <Notice severity="neutral" role={undefined}>
         No task identifier found for the selected run
-      </p>
+      </Notice>
     );
   }
 
@@ -117,28 +118,30 @@ export function BidsDetailTabs() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab bar */}
-      <div className="flex border-b border-border px-4 shrink-0">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setTab(tab.id)}
-            className={`bf-role-section py-2 px-3 transition-colors duration-200 ${
-              activeTab === tab.id
-                ? 'text-foreground border-b-2 border-primary'
-                : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground/70'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        idBase={TABS_ID}
+        aria-label="BIDS run details"
+        items={TABS}
+        value={activeTab}
+        onValueChange={(value) => setTab(value as BidsDetailTab)}
+        className="shrink-0 border-b border-border px-2"
+      />
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto p-4 min-h-0">
-        {activeTab === 'events' && <EventsTabContent selection={selection} />}
-        {activeTab === 'validation' && <ValidationTabContent />}
-      </div>
+      {TABS.map((tab) => (
+        <TabPanel
+          key={tab.value}
+          idBase={TABS_ID}
+          value={tab.value}
+          selected={activeTab}
+          className="min-h-0 flex-1 overflow-auto p-4"
+        >
+          {tab.value === 'events' ? (
+            <EventsTabContent selection={selection} />
+          ) : (
+            <ValidationTabContent />
+          )}
+        </TabPanel>
+      ))}
     </div>
   );
 }

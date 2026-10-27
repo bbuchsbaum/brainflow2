@@ -1,6 +1,10 @@
+import { validatePopulationPartition } from '@/services/studio/populationGroups';
 import { participantIdentity } from '@/services/studio/populationParticipants';
 import type {
   PopulationActionResult,
+  PopulationInference,
+  PopulationPresentation,
+  PopulationPartition,
   PopulationMask,
   PopulationParticipantDefinition,
   PopulationProbe,
@@ -18,6 +22,10 @@ import {
 export function initialPopulationState(sessionRevision = 0): PopulationState {
   return {
     sessionRevision,
+    inference: null,
+    partition: null,
+    partitionPast: [],
+    presentation: { arrangement: 'inspect', order: null },
     participants: null,
     mask: null,
     working: { kind: 'context' },
@@ -32,6 +40,11 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
 
 export interface PopulationSlice {
   population: PopulationState;
+  setPopulationFocusedFrame: (memberId: string, frame: number) => PopulationActionResult;
+  configurePopulationInference: (definition: PopulationInference | null) => PopulationActionResult;
+  setPopulationPartition: (partition: PopulationPartition | null) => PopulationActionResult;
+  undoPopulationPartition: () => void;
+  setPopulationPresentation: (presentation: PopulationPresentation) => PopulationActionResult;
   configurePopulationMask: (
     mask: (PopulationMask & { readonly setId: string }) | null,
   ) => PopulationActionResult;
@@ -62,7 +75,7 @@ export interface PopulationSlice {
 }
 
 type Host = PopulationContextHost & PopulationSlice;
-type Set = (state: Partial<Pick<Host, 'population'>>) => void;
+type Set = (state: Partial<Pick<Host, 'population' | 'selection'>>) => void;
 const ok: PopulationActionResult = { ok: true };
 const fail = (reason: string): PopulationActionResult => ({ ok: false, reason });
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -99,6 +112,103 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    setPopulationFocusedFrame(memberId, frame) {
+      const checked = checkedMembers([memberId]);
+      if (!checked.ok) return checked;
+      if (!Number.isSafeInteger(frame) || frame < 0)
+        return fail('Choose a nonnegative integer image frame.');
+      const state = get();
+      if (
+        state.selection.activeMemberId !== memberId ||
+        state.population.focusedFrame?.memberId !== memberId ||
+        state.population.focusedFrame.frame !== frame
+      )
+        set({
+          selection: { ...state.selection, activeMemberId: memberId },
+          population: { ...state.population, focusedFrame: { memberId, frame } },
+        });
+      return ok;
+    },
+    configurePopulationInference(definition) {
+      const state = get();
+      if (
+        definition &&
+        (definition.setId !== state.selection.activeSetId ||
+          definition.featureId !== state.selection.activeFeatureId)
+      )
+        return fail('The feature changed; declare the current feature.');
+      if (same(state.population.inference, definition)) return ok;
+      set({
+        population: {
+          ...state.population,
+          inference: definition ? structuredClone(definition) : null,
+        },
+      });
+      return ok;
+    },
+    setPopulationPartition(partition) {
+      const state = get();
+      if (partition) {
+        const context = resolvePopulationContext(state);
+        if (context.issue) return fail(context.issue);
+        const issue = validatePopulationPartition(
+          partition,
+          state.selection.activeSetId ?? '',
+          context.memberIds,
+        );
+        if (issue) return fail(issue);
+      }
+      if (same(state.population.partition, partition)) return ok;
+      set({
+        population: {
+          ...state.population,
+          partition: structuredClone(partition),
+          partitionPast: [...state.population.partitionPast, state.population.partition].slice(-20),
+          presentation: {
+            ...state.population.presentation,
+            arrangement: partition ? 'groups' : 'inspect',
+          },
+        },
+      });
+      return ok;
+    },
+    undoPopulationPartition() {
+      const { population } = get();
+      if (!population.partitionPast.length) return;
+      const partition = population.partitionPast.at(-1) ?? null;
+      set({
+        population: {
+          ...population,
+          partition,
+          partitionPast: population.partitionPast.slice(0, -1),
+          presentation: {
+            ...population.presentation,
+            arrangement: partition ? 'groups' : 'inspect',
+          },
+        },
+      });
+    },
+    setPopulationPresentation(presentation) {
+      const state = get();
+      if (
+        !['inspect', 'montage', 'groups', 'comparison', 'difference'].includes(
+          presentation.arrangement,
+        )
+      )
+        return fail('Unknown population arrangement.');
+      if (presentation.order) {
+        const checked = checkedMembers(presentation.order.orderedIds);
+        if (!checked.ok) return checked;
+        if (
+          presentation.order.featureId !== state.selection.activeFeatureId ||
+          presentation.order.orderedIds.length !== resolvePopulationContext(state).memberIds.length
+        )
+          return fail('Order must identify the complete current feature context.');
+      }
+      if (!same(state.population.presentation, presentation))
+        set({ population: { ...state.population, presentation: structuredClone(presentation) } });
+      return ok;
+    },
     configurePopulationMask(mask) {
       const state = get();
       if (

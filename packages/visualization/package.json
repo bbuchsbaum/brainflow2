@@ -27,16 +27,19 @@
     "README.md"
   ],
   "peerDependencies": {
-    "neurosurface": "*",
+    "neurosurface": "^3.1.0",
     "react": ">=18",
-    "react-dom": ">=18"
+    "react-dom": ">=18",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
-    "neurosurface": "npm:surfview@2.2.0",
+    "@types/three": "0.185.4",
+    "neurosurface": "npm:surfview@3.1.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "three": "0.185.1",
     "typescript": "^5.0.0"
   }
 }

@@ -1,7 +1,15 @@
 import React from 'react';
 import './FilterBar.css';
-import { VscChevronUp, VscChevronDown } from 'react-icons/vsc';
+import { VscChevronUp, VscChevronDown, VscClose } from 'react-icons/vsc';
+import { IconButton, Select, TextField } from '@/components/ui/bf';
 import type { FileBrowserState } from '@/types/filesystem';
+
+const SORT_OPTIONS = [
+  { value: 'name', label: 'Name' },
+  { value: 'modified', label: 'Modified' },
+  { value: 'size', label: 'Size' },
+  { value: 'type', label: 'Type' },
+] as const;
 
 interface FilterBarProps {
   searchInput: string;
@@ -30,6 +38,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         <div className="fb-search">
           <svg
             className="fb-search-icon"
+            aria-hidden
             width="14"
             height="14"
             fill="none"
@@ -43,53 +52,43 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
-          <input
+          <TextField
             type="text"
-            placeholder="Search files..."
+            placeholder="Search"
             value={searchInput}
             onChange={onSearchChange}
-            className="fb-search-input"
+            className="fb-search-input pl-7 pr-7"
             aria-label="Search files"
           />
           {searchQuery && (
-            <button
-              type="button"
-              className="fb-search-clear"
+            <IconButton
+              size="xs"
+              variant="ghost"
+              className="fb-search-clear absolute right-0 top-1/2 -translate-y-1/2"
               onClick={onClearSearch}
               aria-label="Clear search"
-            >
-              <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
+              icon={<VscClose />}
+            />
           )}
         </div>
 
         <div className="fb-sort">
-          <select
+          <Select
             value={sortBy}
-            onChange={(e) => onSortByChange(e.target.value as FileBrowserState['sortBy'])}
+            onValueChange={(v) => onSortByChange(v as FileBrowserState['sortBy'])}
             className="fb-sort-select"
             aria-label="Sort by"
-          >
-            <option value="name">Name</option>
-            <option value="modified">Modified</option>
-            <option value="size">Size</option>
-            <option value="type">Type</option>
-          </select>
-          <button
-            type="button"
+            options={SORT_OPTIONS}
+          />
+          <IconButton
+            size="xs"
+            variant="ghost"
             className="fb-sort-order"
             onClick={onToggleSortOrder}
             title={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
             aria-label={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
-          >
-            {sortOrder === 'asc' ? <VscChevronUp /> : <VscChevronDown />}
-          </button>
+            icon={sortOrder === 'asc' ? <VscChevronUp /> : <VscChevronDown />}
+          />
         </div>
       </div>
     </div>

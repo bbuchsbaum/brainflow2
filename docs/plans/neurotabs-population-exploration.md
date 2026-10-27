@@ -10,6 +10,8 @@
 
 **Planning clarification (2026-09-06):** Linked plotting across sets is part of the product architecture from M0. Full plot authoring follows the first population experience; it does not require waiting for the later surface, parcel, or model expansions. See the plotting delivery steps in section 5. Implementation progress and remaining acceptance work are tracked separately in the [implementation status](neurotabs-implementation-status.md).
 
+**Delivery update (2026-09-06):** The live population and saved-calculation foundation has landed. The [next delivery plan](neurotabs-next-delivery-plan.md) now sequences the seven remaining work areas and replaces the historical first work package below. This document remains the full product scope; the implementation ledger records evidence.
+
 ## 1. Product definition
 
 Build an instrument for exploring populations of brain maps in which every summary remains connected to its observations. A researcher can inspect an average, see the distribution and actual people behind it, reorganize those people, compare groups, and examine sensitivity while retaining anatomical and population context.
@@ -339,7 +341,7 @@ For linked plots, cover hover → pin while requests are in flight, multiple pin
 
 Human evaluation asks users to identify what produces the same mean in different populations, find influential observations, recover contributors to a comparison, and explain what a displayed t-map tests. Record interpretation errors and false subgroup conclusions alongside task time. A pleasant animation or attractive embedding is insufficient acceptance evidence.
 
-**Next implementation work package:** M0 plus one M1 vertical slice: import an audited 80-map fixture; show its live mean and a focused original; pin a location; display all values; focus from that plot without changing selection; preview the mean without that participant; release to restore. Add the cutout grid and remaining summaries only after that path is correct and meets its measured budget.
+**Historical first work package (superseded by the [next delivery plan](neurotabs-next-delivery-plan.md)):** M0 plus one M1 vertical slice: import an audited 80-map fixture; show its live mean and a focused original; pin a location; display all values; focus from that plot without changing selection; preview the mean without that participant; release to restore. Add the cutout grid and remaining summaries only after that path is correct and meets its measured budget.
 
 ## References and navigation
 

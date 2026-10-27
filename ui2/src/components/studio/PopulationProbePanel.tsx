@@ -1,3 +1,7 @@
+import { Button, Notice, NumberField } from '@/components/ui/bf';
+import { PopulationPivot } from './PopulationPivot';
+import { populationPlotService } from '@/services/studio/PopulationPlotService';
+import { PopulationBrush } from './PopulationBrush';
 import {
   resolvePopulationParticipants,
   participantProbeFrame,
@@ -20,6 +24,7 @@ import {
 } from '@/services/studio/PopulationProbeController';
 import type { PopulationProbe } from '@/types/population';
 import type { ResolvedPlotSpec } from '@/plotting';
+import { formatWorldPoint } from '@/utils/valueFormat';
 
 const pointSpec: ResolvedPlotSpec = {
   mark: 'point',
@@ -27,10 +32,8 @@ const pointSpec: ResolvedPlotSpec = {
   transforms: [],
   params: {},
 };
-const control =
-  'rounded border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40';
 const coordinates = (probe: PopulationProbe) =>
-  probe.worldMm.map((value) => value.toFixed(1)).join(', ');
+  formatWorldPoint(probe.worldMm);
 
 export function PopulationProbePanel({
   controller: suppliedController,
@@ -39,6 +42,7 @@ export function PopulationProbePanel({
   const workspaceId = useViewStateStore((state) => state.activeWorkspaceKey);
   const [controller] = useState(() => suppliedController ?? new PopulationProbeController());
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const [pinError, setPinError] = useState<string | null>(null);
   const [previewHover, setPreviewHover] = useState(false);
   const [radius, setRadius] = useState(0);
   const [nearZeroLimit, setNearZeroLimit] = useState(0);
@@ -159,26 +163,25 @@ export function PopulationProbePanel({
   return (
     <section
       aria-label="Population values"
-      className="shrink-0 rounded-lg border border-border bg-card px-3 py-2"
+      className="shrink-0 rounded-sm border border-border bg-card px-3 py-2"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-medium">
+        <div className="text-bf-md font-medium">
           Population values{' '}
-          <span className="ml-2 text-xs text-muted-foreground">
+          <span className="ml-2 text-bf-sm text-muted-foreground">
             {selected.size} selected / {population.context.memberIds.length} observations
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {result && (
-            <button
-              className={control}
+            <Button variant="secondary" size="sm"
               aria-expanded={expanded}
               onClick={() => setExpanded((value) => !value)}
             >
               {expanded ? 'Hide values' : 'Show values'}
-            </button>
+            </Button>
           )}
-          <label className="flex items-center gap-1 text-xs">
+          <label className="flex items-center gap-1 text-bf-sm">
             <input
               type="checkbox"
               checked={previewHover}
@@ -186,46 +189,43 @@ export function PopulationProbePanel({
             />{' '}
             Preview hover
           </label>
-          <label className="flex items-center gap-1 text-xs">
+          <label className="flex items-center gap-1 text-bf-sm">
             Radius{' '}
-            <input
+            <NumberField
               aria-label="Probe radius in millimetres"
-              type="number"
               min={0}
               step={1}
               value={radius}
               onChange={(event) => updateRadius(event.target.valueAsNumber)}
-              className="w-14 rounded border border-border bg-background px-1 py-0.5"
-            />{' '}
-            mm
+              fieldClassName="w-20"
+              unit="mm"
+            />
           </label>
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             onClick={() => populationProbeActions.pin(radius, previewHover)}
             disabled={!studio.selection.activeSetId}
           >
             {previewHover && studio.population.hoverProbe ? 'Pin preview' : 'Pin crosshair'}
-          </button>
+          </Button>
           {studio.population.pinnedProbe && (
-            <button className={control} onClick={populationProbeActions.unpin}>
+            <Button variant="secondary" size="sm" onClick={populationProbeActions.unpin}>
               Unpin
-            </button>
+            </Button>
           )}
-          <button
-            className={control}
+          <Button variant="secondary" size="sm"
             onClick={() => controller.request(definition.query, true)}
             disabled={!definition.query || snapshot.pending}
           >
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
       {issue && (
-        <p role="alert" className="mt-2 text-xs text-destructive">
+        <Notice role="alert" severity="danger" className="mt-2">
           {issue}
-        </p>
+        </Notice>
       )}
-      <div className="mt-1 text-xs text-muted-foreground" role="status">
+      <div className="mt-1 text-bf-sm text-muted-foreground" role="status">
         {result ? (
           <>
             Showing ({coordinates(result.query.probe)}) mm ·{' '}
@@ -241,7 +241,7 @@ export function PopulationProbePanel({
         )}
       </div>
       {snapshot.arrangement && (
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-bf-sm text-muted-foreground">
           {populationArrangementLabel(snapshot.arrangement)} · plot shows every observation
           {snapshot.arrangement.query.key !== result?.query.key &&
             ' · order fitted at an earlier probe'}
@@ -249,70 +249,97 @@ export function PopulationProbePanel({
           {orderSourceStatus === 'unknown' && ' · order source revisions unverified'}
         </p>
       )}
+      {pinError && (
+        <Notice role="alert" severity="danger">
+          {pinError}
+        </Notice>
+      )}
       <div ref={plotRef} className="min-w-0">
-        {result && plotFrame && expanded && (
-          <PlotEncoder
-            frame={plotFrame}
-            spec={pointSpec}
-            width={width}
-            height={160}
-            context={{
-              datumLink: {
-                idColumn: 'member',
-                focusedId: studio.selection.activeMemberId,
-                selectedIds: selected,
-                onFocus: populationProbeActions.focus,
-                onToggleSelection: populationProbeActions.toggle,
-              },
+        {result && plotFrame && (
+          <Button variant="secondary" size="sm"
+            disabled={snapshot.pending || result.query.key !== snapshot.requested?.key}
+            onClick={() => {
+              try {
+                populationPlotService.pin(result, plotFrame);
+                setPinError(null);
+              } catch (error) {
+                setPinError(error instanceof Error ? error.message : String(error));
+              }
             }}
-          />
+          >
+            Compose in Plot
+          </Button>
+        )}
+        {result && plotFrame && expanded && (
+          <PopulationBrush horizontal scope={definition.query?.key ?? 'no-probe'}>
+            <PlotEncoder
+              frame={plotFrame}
+              spec={pointSpec}
+              width={width}
+              height={160}
+              context={{
+                datumLink: {
+                  idColumn: 'member',
+                  focusedId: studio.selection.activeMemberId,
+                  selectedIds: selected,
+                  onFocus: populationProbeActions.focus,
+                  onToggleSelection: populationProbeActions.toggle,
+                },
+              }}
+            />
+          </PopulationBrush>
         )}
       </div>
+      {result && studio.population.partition?.factorColumns && (
+        <PopulationPivot
+          key={JSON.stringify(studio.population.partition)}
+          partition={studio.population.partition}
+          frame={result.frame}
+          current={result.query.key === definition.query?.key}
+        />
+      )}
       {result && expanded && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-bf-sm">
             <p>
               Selected mean: {mean === null ? 'unavailable' : mean.toPrecision(4)} · {count} finite{' '}
               {unit}
               {unavailable > 0 && ` · ${unavailable} unavailable ${unit}`}
             </p>
             <div className="flex gap-1">
-              <button className={control} onClick={populationProbeActions.selectAll}>
+              <Button variant="secondary" size="sm" onClick={populationProbeActions.selectAll}>
                 All
-              </button>
-              <button className={control} onClick={populationProbeActions.selectNone}>
+              </Button>
+              <Button variant="secondary" size="sm" onClick={populationProbeActions.selectNone}>
                 None
-              </button>
-              <button
-                className={control}
+              </Button>
+              <Button variant="secondary" size="sm"
                 onClick={populationProbeActions.selectFocused}
                 disabled={
                   !population.context.memberIds.includes(studio.selection.activeMemberId ?? '')
                 }
               >
                 Focused only
-              </button>
-              <button
-                className={control}
+              </Button>
+              <Button variant="secondary" size="sm"
                 onClick={populationProbeActions.undoSelection}
                 disabled={!studio.population.selectionPast.length}
               >
                 Undo selection
-              </button>
+              </Button>
             </div>
           </div>
           <div
-            className="mt-2 rounded border border-border px-2 py-1 text-xs"
+            className="mt-2 rounded-sm border border-border px-2 py-1 text-bf-sm"
             aria-label="Observed response distribution"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>Observed sign share · {unit} in working selection</span>
               <label>
                 Near zero ±{' '}
-                <input
+                <NumberField
                   aria-label="Near-zero response limit"
-                  className="w-20 rounded border border-border bg-background px-1 py-0.5"
-                  type="number"
+                  fieldClassName="w-20"
                   min={0}
                   step="any"
                   value={nearZeroLimit}
@@ -331,7 +358,7 @@ export function PopulationProbePanel({
               {distribution.positive} ({share(distribution.positive)})
             </p>
             {count > 0 && (
-              <div aria-hidden className="mt-1 flex h-2 overflow-hidden rounded">
+              <div aria-hidden className="mt-1 flex h-2 overflow-hidden rounded-sm">
                 <span
                   className="bg-blue-500"
                   style={{ width: `${(100 * distribution.negative) / count}%` }}
@@ -376,11 +403,11 @@ export function PopulationProbePanel({
               </p>
             )}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-bf-sm text-muted-foreground">
             Click a point to focus its image. Shift-click to change selection. Selection changes
             reuse these sampled values.
           </p>
-          <details className="mt-1 text-xs">
+          <details className="mt-1 text-bf-sm">
             <summary className="cursor-pointer text-muted-foreground">
               Observation values and source status
             </summary>
@@ -411,12 +438,14 @@ export function PopulationProbePanel({
                           />
                         </td>
                         <td>
-                          <button
-                            className="underline"
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="min-h-6 font-mono"
                             onClick={() => populationProbeActions.focus(id)}
                           >
                             {id}
-                          </button>
+                          </Button>
                         </td>
                         <td>{typeof row.value === 'number' ? row.value.toPrecision(4) : '—'}</td>
                         <td title={source?.sourceRevision?.sha256}>

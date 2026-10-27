@@ -6,7 +6,7 @@
  * `compute_layer_histogram` path and stashes the rich histogram payload on
  * `frame.meta.histogram`) and renders it through {@link EncodedPlotView}. The
  * `hist` mark drives the same interactive `HistogramChart` as before — intensity
- * window / threshold drag, colormap gradient, log scale, tooltips — so there is
+ * window / threshold drag, log scale, tooltips — so there is
  * no interactivity regression; the layer render props + edit callbacks are
  * threaded to the mark via the encoder context.
  *
@@ -16,23 +16,32 @@
  * invalidation; React rerenders with new render props from `viewStateStore`).
  */
 
+import { writeLayerDisplayField } from '@/utils/layerDisplayWrite';
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getEventBus } from "@/events/EventBus";
 import { sampleProvider } from "@/services/SampleProvider";
 import { useViewStateStore } from "@/stores/viewStateStore";
+import { useLayerStore } from "@/stores/layerStore";
+import { statisticUnits, statisticVariable } from "@/utils/statistic";
 import { column } from "@/plotting";
 import type { SampleFrame } from "@/plotting";
 
 import { EncodedPlotView } from "./EncodedPlotView";
+import { RegionCountBars } from "./RegionCountBars";
 import type { EncoderContext } from "./encoder/types";
 import type { PlotModeContext } from "./plotHost.types";
 
 /** Mode id — also the key under which this mode's spec/params are persisted. */
 export const HISTOGRAM_MODE_ID = "histogram";
 
-/** Body padding (px) reserved around the encoded plot. */
-const HISTOGRAM_BODY_PADDING = 16;
+/**
+ * Body padding (px) reserved around the encoded plot. Kept tight vertically:
+ * the default bottom dock leaves ~150 px for the body, and the encoding strip
+ * plus axis must still leave room for the bars.
+ */
+const HISTOGRAM_BODY_PADDING_X = 12;
+const HISTOGRAM_BODY_PADDING_Y = 6;
 /** Minimum chart dimensions enforced when the body is collapsed. */
 const HISTOGRAM_MIN_WIDTH = 100;
 const HISTOGRAM_MIN_HEIGHT = 80;
@@ -78,6 +87,27 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
     };
   }, [viewStateLayer]);
 
+  // Axis title: the statistic's variable ("z") for statistic maps.
+  const statistic = useLayerStore((state) =>
+    layerId ? state.layers.find((l) => l.id === layerId)?.statistic : undefined,
+  );
+  const dataRange = useLayerStore((state) =>
+    layerId ? state.layerMetadata.get(layerId)?.dataRange : undefined,
+  );
+  const units = statisticUnits(statistic, dataRange);
+  // Label maps get per-region counts (one histogram bin per id), not an id histogram.
+  const labelInfo = useLayerStore((state) =>
+    layerId ? state.layers.find((l) => l.id === layerId) : undefined,
+  );
+  const isLabelMap =
+    !!labelInfo && (labelInfo.type === "label" || labelInfo.isLabelMap === true);
+  const legend = labelInfo?.atlasPaletteLegend;
+  const labelBins =
+    isLabelMap && dataRange && Number.isFinite(dataRange.max) && Number.isFinite(dataRange.min)
+      ? Math.min(4096, Math.max(1, Math.round(dataRange.max - dataRange.min) + 1))
+      : null;
+  const xTitle = units ? statisticVariable(units) : null;
+
   const [frame, setFrame] = useState<SampleFrame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -99,7 +129,7 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
       .sample({
         datasetId: layerId,
         locus: { kind: "wholeVolume" },
-        binCount: 256,
+        binCount: labelBins ?? 256,
       })
       .then((result) => {
         if (cancelled) return;
@@ -119,7 +149,7 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
     return () => {
       cancelled = true;
     };
-  }, [layerId]);
+  }, [layerId, labelBins]);
 
   // Subscribe per-layer, do NOT recompute (parity with prior behaviour).
   useEffect(() => {
@@ -139,12 +169,8 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
   const handleIntensityChange = useCallback(
     (window: [number, number]) => {
       if (!layerId) return;
-      useViewStateStore.getState().setViewState((state) => {
-        const layers = state.layers.map((l) =>
-          l.id === layerId ? { ...l, intensity: window } : l,
-        );
-        return { ...state, layers };
-      });
+      // Panel-aware in an unlinked Compare (the Inspector's rule).
+      writeLayerDisplayField(layerId, 'intensity', window);
     },
     [layerId],
   );
@@ -152,23 +178,18 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
   const handleThresholdChange = useCallback(
     (threshold: [number, number]) => {
       if (!layerId) return;
-      useViewStateStore.getState().setViewState((state) => {
-        const layers = state.layers.map((l) =>
-          l.id === layerId ? { ...l, threshold } : l,
-        );
-        return { ...state, layers };
-      });
+      writeLayerDisplayField(layerId, 'threshold', threshold);
     },
     [layerId],
   );
 
-  // Padding applies on every side, so subtract twice (matches the 16px box).
+  // Padding applies on both sides of each axis, so subtract twice.
   const chartWidth = Math.max(
-    ctx.width - HISTOGRAM_BODY_PADDING * 2,
+    ctx.width - HISTOGRAM_BODY_PADDING_X * 2,
     HISTOGRAM_MIN_WIDTH,
   );
   const chartHeight = Math.max(
-    ctx.height - HISTOGRAM_BODY_PADDING * 2,
+    ctx.height - HISTOGRAM_BODY_PADDING_Y * 2,
     HISTOGRAM_MIN_HEIGHT,
   );
 
@@ -181,12 +202,14 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
       onIntensityChange: handleIntensityChange,
       onThresholdChange: handleThresholdChange,
       onLogScaleChange: setUseLogScale,
+      xTitle,
       loading,
       error,
     }),
     [
       layerRender,
       useLogScale,
+      xTitle,
       handleIntensityChange,
       handleThresholdChange,
       loading,
@@ -194,13 +217,25 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
     ],
   );
 
+  if (isLabelMap && layerId) {
+    return (
+      <div data-testid="histogram-plot-body" style={{ position: "absolute", inset: 0 }}>
+        {frame ? (
+          <RegionCountBars layerId={layerId} frame={frame} legend={legend} />
+        ) : (
+          <p className="p-3 text-bf-xs text-bf-text-muted">{loading ? "Counting voxels…" : null}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="histogram-plot-body"
       style={{
         position: "absolute",
         inset: 0,
-        padding: "16px",
+        padding: `${HISTOGRAM_BODY_PADDING_Y}px ${HISTOGRAM_BODY_PADDING_X}px`,
         overflow: "hidden",
         background: "transparent",
       }}

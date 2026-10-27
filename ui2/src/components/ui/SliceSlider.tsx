@@ -1,11 +1,25 @@
 /**
- * SliceSlider Component
- * A slider control for navigating through slices in world space coordinates
+ * SliceSlider — the viewport rail scrubber, on the bf `Slider variant="rail"`.
+ *
+ * A thin rail (3px track, 6px on hover/drag/focus) on the canvas ground with a
+ * light-neutral rect thumb that grows on hover/focus. The hit area is the
+ * whole 24px strip (WCAG 2.5.8); the rail marks a position, not a quantity,
+ * so there is no fill. The thumb is the `role="slider"`: accessible name
+ * ("Axial slice position"), value text ("z = 17.5 mm").
+ *
+ * Values are continuous (the equivalent of the old `step="any"` input):
+ * aria-valuenow is the crosshair position, never a voxel-snapped copy. Arrows
+ * move exactly one step (one voxel spacing) from the current value,
+ * PageUp/PageDown ten steps, Home/End the bounds. Pointer drags snap to the
+ * voxel grid anchored at `min`. Pointer drags (only) mark `dragSourceStore`
+ * as 'slider'; `onCommit` receives the final value of each gesture.
  */
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import type { ViewType } from '@/types/coordinates';
 import { useDragSourceStore } from '@/stores/dragSourceStore';
+import { formatWorldMmAscii } from '@/utils/valueFormat';
+import { Slider } from '@/components/ui/bf';
 
 interface SliceSliderProps {
   viewType: ViewType;
@@ -15,7 +29,13 @@ interface SliceSliderProps {
   step: number;
   disabled?: boolean;
   onChange: (value: number) => void;
+  /** Final value of a gesture (pointer release, key release). */
+  onCommit?: (value: number) => void;
+  /** Accessible name; defaults to "<Plane> slice position". Compare adds the panel's layer. */
+  ariaLabel?: string;
 }
+
+export const PAGE_STEPS = 10;
 
 export function SliceSlider({
   viewType,
@@ -24,147 +44,54 @@ export function SliceSlider({
   max,
   step,
   disabled = false,
-  onChange
+  onChange,
+  onCommit,
+  ariaLabel,
 }: SliceSliderProps) {
-  const [showValue, setShowValue] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const { setDraggingSource } = useDragSourceStore();
-  
-  
-  // Get the axis label based on view type
-  const axisLabel = viewType === 'axial' ? 'Z' : viewType === 'sagittal' ? 'X' : 'Y';
-  
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = parseFloat(e.target.value);
-    
+  const setDraggingSource = useDragSourceStore((state) => state.setDraggingSource);
+  const dragging = useRef(false);
+
+  const axisLabel = viewType === 'axial' ? 'z' : viewType === 'sagittal' ? 'x' : 'y';
+  const viewName = `${viewType.charAt(0).toUpperCase()}${viewType.slice(1)}`;
+
+  const handleChange = (next: number) => {
     // Prevent feedback loops - only update if value actually changed
-    if (Math.abs(newValue - value) < 0.01) {
-      console.log(`SliceSlider ${viewType}: onChange fired but value unchanged (${newValue} ≈ ${value}), skipping update`);
-      return;
-    }
-    
-    console.log(`SliceSlider ${viewType}: onChange fired - value changed from ${value} to ${newValue}`);
-    onChange(newValue);       // Trigger parent update
-  };
-  
-  
-  // Handle pointer events for better drag support
-  const handlePointerDown = (e: React.PointerEvent<HTMLInputElement>) => {
-    console.log(`SliceSlider ${viewType}: Pointer down - setting drag source`);
-    setIsDragging(true);
-    setDraggingSource('slider');  // Notify global state
-    // Capture pointer for consistent drag behavior
-    e.currentTarget.setPointerCapture(e.pointerId);
+    if (Math.abs(next - value) < 0.01) return;
+    onChange(next);
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLInputElement>) => {
-    console.log(`SliceSlider ${viewType}: Pointer up - clearing drag source`);
-    setIsDragging(false);
-    setDraggingSource(null);  // Clear global state
-    // Release pointer capture
-    e.currentTarget.releasePointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLInputElement>) => {
-    if (!isDragging) return;
-    
-    // Calculate value from pointer position during drag
-    const input = e.currentTarget;
-    const rect = input.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, x / rect.width));
-    const newValue = min + (max - min) * percentage;
-    
-    // Snap to step
-    const steppedValue = Math.round(newValue / step) * step;
-    const clampedValue = Math.max(min, Math.min(max, steppedValue));
-    
-    // Prevent excessive updates during drag - only update if value actually changed
-    if (Math.abs(clampedValue - value) < 0.01) {
-      return; // Skip update if value hasn't changed meaningfully
-    }
-    
-    console.log(`SliceSlider ${viewType}: Pointer move - value changed from ${value} to ${clampedValue}`);
-    onChange(clampedValue);
-  };
-
-  const handlePointerCancel = (e: React.PointerEvent<HTMLInputElement>) => {
-    // Ensure cleanup if pointer is cancelled
-    if (isDragging) {
-      console.log(`SliceSlider ${viewType}: Pointer cancel - clearing state`);
-      setIsDragging(false);
-      setDraggingSource(null);
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-  };
+  const handleDragChange = useCallback(
+    (isDragging: boolean) => {
+      dragging.current = isDragging;
+      setDraggingSource(isDragging ? 'slider' : null);
+    },
+    [setDraggingSource],
+  );
 
   // Clean up drag state on unmount
-  React.useEffect(() => {
-    return () => {
-      if (isDragging) {
-        setDraggingSource(null);
-      }
-    };
-  }, []);
-  
-  // Format the value for display
-  const displayValue = value.toFixed(1);
-  
-  // Calculate position for the value label (0-100% based on slider position)
-  const percentage = max !== min ? ((value - min) / (max - min)) * 100 : 50;
-  // Clamp percentage to keep label visible at edges
-  const clampedPercentage = Math.max(10, Math.min(90, percentage));
-  
+  useEffect(
+    () => () => {
+      if (dragging.current) setDraggingSource(null);
+    },
+    [setDraggingSource],
+  );
+
   return (
-    <div
-      className="relative h-full bg-secondary px-3"
-      style={{ boxShadow: 'inset 0 1px 0 0 hsl(var(--border))' }}
-      onMouseEnter={() => setShowValue(true)}
-      onMouseLeave={() => setShowValue(false)}
-    >
-      {/* Value indicator that appears on hover/drag */}
-      {(showValue || isDragging) && (
-        <div
-          className="absolute bottom-full mb-2 text-primary text-xs font-medium pointer-events-none whitespace-nowrap"
-          style={{
-            left: `calc(${percentage}% + 12px)`,
-            transform: 'translateX(-50%)'
-          }}
-        >
-          {axisLabel}: {displayValue}mm
-        </div>
-      )}
-      {/* Track + thumb. Use explicit absolute geometry (matching the
-          Inspector's Intensity/Threshold pattern) so the knob's vertical
-          position is independent of native <input type=range> layout
-          quirks across browsers and pane sizes. */}
-      <div className="absolute inset-y-0 left-3 right-3 flex items-center">
-        <div className="relative w-full h-3">
-          {/* Visible track */}
-          <div
-            aria-hidden
-            className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full"
-            style={{ backgroundColor: 'hsl(var(--border) / 0.8)' }}
-          />
-          {/* Native input — track painted transparent, only the circular
-              thumb is visible. `bf-thumb-circle` is the canonical 10 px
-              sky-circle thumb used elsewhere in the app. */}
-          <input
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={value}
-            disabled={disabled}
-            onChange={handleChange}
-            onPointerDown={handlePointerDown}
-            onPointerUp={handlePointerUp}
-            onPointerMove={handlePointerMove}
-            onPointerCancel={handlePointerCancel}
-            className="bf-thumb-circle absolute inset-0 w-full h-3 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-          />
-        </div>
-      </div>
-    </div>
+    <Slider
+      variant="rail"
+      className="h-full"
+      label={ariaLabel ?? `${viewName} slice position`}
+      min={min}
+      max={max}
+      step={step > 0 ? step : undefined}
+      snap={step > 0 ? step : undefined}
+      value={value}
+      disabled={disabled}
+      // aria-valuetext stays ASCII so assistive tech and parsers read "-0.5".
+      valueText={(v) => `${axisLabel} = ${formatWorldMmAscii(v)} mm`}
+      onValueChange={handleChange}
+      onValueCommit={onCommit}
+      onDragChange={handleDragChange}
+    />
   );
 }

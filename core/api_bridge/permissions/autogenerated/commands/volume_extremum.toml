@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-volume-extremum"
+description = "Enables the volume_extremum command without any pre-configured scope."
+commands.allow = ["volume_extremum"]
+
+[[permission]]
+identifier = "deny-volume-extremum"
+description = "Denies the volume_extremum command without any pre-configured scope."
+commands.deny = ["volume_extremum"]

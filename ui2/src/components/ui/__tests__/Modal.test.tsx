@@ -103,3 +103,27 @@ describe('Modal', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });
+
+describe('Modal focus return without an invoker', () => {
+  it('focuses the active viewport instead of <body>', async () => {
+    const { useActiveRenderContextStore } = await import('@/stores/activeRenderContextStore');
+    useActiveRenderContextStore.setState({ activeId: 'coronal' } as never);
+    function Host() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <div data-focus-return="viewport" data-view-id="axial" tabIndex={-1} />
+          <div data-focus-return="viewport" data-view-id="coronal" tabIndex={-1} data-testid="coronal" />
+          <Modal isOpen={open} onClose={() => setOpen(false)} title="Go to" size="sm">
+            <p>body</p>
+          </Modal>
+        </>
+      );
+    }
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    render(<Host />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('coronal')));
+  });
+});
+

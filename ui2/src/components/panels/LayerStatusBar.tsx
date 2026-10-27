@@ -29,10 +29,10 @@ export const LayerStatusBar: React.FC<LayerStatusBarProps> = ({
           style={{ backgroundColor: 'hsl(var(--destructive))', borderRadius: '1px' }}
         />
         <div className="min-w-0">
-          <div className="text-[9px] uppercase tracking-[0.15em] font-bold text-destructive">
+          <div className="text-bf-2xs font-bold text-destructive">
             Error
           </div>
-          <div className="text-[10px] font-mono text-destructive/80 truncate">
+          <div className="text-bf-2xs font-mono text-destructive/80 truncate">
             {error}
           </div>
         </div>
@@ -54,7 +54,7 @@ export const LayerStatusBar: React.FC<LayerStatusBarProps> = ({
           className="w-2 h-2 shrink-0 animate-pulse"
           style={{ backgroundColor: 'hsl(var(--primary))', borderRadius: '1px' }}
         />
-        <span className="text-[9px] uppercase tracking-[0.15em] font-mono text-primary">
+        <span className="text-bf-2xs font-mono text-primary">
           Initializing...
         </span>
       </div>

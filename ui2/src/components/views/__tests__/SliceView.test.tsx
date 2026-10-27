@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe('SliceView', () => {
-  it('renders fallback placeholder when no layers are available', () => {
+  it('an empty pane shows its plane word, not its own message (one stack-wide empty state)', () => {
     sliceViewModelMock.setFactory((viewId, dims) => createBaseModel(viewId, dims, {
       hasLayers: false,
       layers: [],
@@ -103,13 +103,9 @@ describe('SliceView', () => {
 
     render(<SliceView viewId="axial" width={256} height={256} />);
 
-    expect(screen.getByText('Volume Buffer Empty')).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) =>
-        element?.tagName === 'P' &&
-        (element.textContent?.includes('Double-click a file or drag & drop') ?? false)
-      )
-    ).toBeInTheDocument();
+    // The message and actions live once in EmptyStackOverlay (P3.11).
+    expect(screen.queryByText('No volume loaded')).toBeNull();
+    expect(screen.getByTestId('viewport-empty-plane')).toHaveTextContent('Axial');
     expect(document.querySelector('input[type="range"]')).toBeNull();
   });
 
@@ -121,7 +117,8 @@ describe('SliceView', () => {
 
     render(<SliceView viewId="sagittal" width={320} height={240} />);
 
-    expect(document.querySelector('input[type="range"]')).toBeTruthy();
+    // The slice rail (bf Slider, variant="rail") exposes a named role=slider thumb.
+    expect(screen.getByRole('slider', { name: /slice position/i })).toBeTruthy();
     expect(screen.queryByText('No volumes loaded')).toBeNull();
   });
 

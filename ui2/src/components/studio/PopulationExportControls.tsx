@@ -1,3 +1,4 @@
+import { Button, Notice } from '@/components/ui/bf';
 import { useEffect, useRef, useState } from 'react';
 import type { PopulationSliceDisplay } from '@/services/studio/PopulationSliceService';
 import {
@@ -14,6 +15,7 @@ export function PopulationExportControls({
   current: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  const [includeInputs, setIncludeInputs] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const active = useRef<AbortController | null>(null);
@@ -37,13 +39,14 @@ export function PopulationExportControls({
         : await populationExportService.chooseAndExport(
             freezePopulationExport(display!),
             controller.signal,
+            includeInputs,
           );
       if (active.current === controller)
         setMessage(
           result
             ? replay
               ? `Verified recalculation saved to ${result.directory}`
-              : `Saved summary, coverage and provenance to ${result.directory}`
+              : `Saved ${display?.query.request.inference ? 'test channels, source identities and exploratory provenance' : 'summary, coverage and provenance'} to ${result.directory}`
             : 'Export canceled.',
         );
     } catch (error) {
@@ -59,35 +62,54 @@ export function PopulationExportControls({
     }
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Population export">
-      <button
-        type="button"
-        className="rounded border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
+    <div className="flex flex-wrap items-center gap-2 text-bf-sm" aria-label="Population export">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={includeInputs}
+          disabled={busy}
+          onChange={(e) => setIncludeInputs(e.target.checked)}
+        />
+        Include source images (
+        {(
+          Array.from(
+            new Map(
+              display?.data?.sources.map((s) => [s.revision.sha256, s.revision.sourceBytes]) ?? [],
+            ).values(),
+          ).reduce((a, b) => a + b, 0) /
+          1024 /
+          1024
+        ).toFixed(1)}{' '}
+        MiB + mask; 4 GiB limit)
+      </label>
+      <Button variant="secondary" size="sm"
         disabled={!current || !display?.query.request.workingMemberIds.length || busy}
         onClick={() => void save()}
       >
-        {busy ? 'Exporting…' : 'Export summary…'}
-      </button>
-      <button
-        type="button"
-        className="rounded border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
+        {busy
+          ? 'Exporting…'
+          : display?.query.request.inference
+            ? 'Freeze discovery…'
+            : 'Export summary…'}
+      </Button>
+      <Button variant="secondary" size="sm"
         disabled={busy}
         onClick={() => void save(true)}
         title="Verify and recalculate a saved bundle from its original sources"
       >
         Recalculate saved summary…
-      </button>
+      </Button>
       {busy ? (
-        <button
-          type="button"
-          className="rounded border border-border px-2 py-1"
+        <Button variant="secondary" size="sm"
           onClick={() => active.current?.abort()}
         >
           Cancel export
-        </button>
+        </Button>
       ) : (
         <span className="text-muted-foreground">
-          Full volume · valid counts · calculation record
+          {display?.query.request.inference
+            ? 'All method result channels · frozen source identities · exploratory provenance'
+            : 'Full volume · valid counts · calculation record'}
         </span>
       )}
       {message && (
@@ -96,9 +118,9 @@ export function PopulationExportControls({
         </p>
       )}
       {error && (
-        <p role="alert" className="w-full text-destructive">
+        <Notice role="alert" severity="danger" className="w-full">
           {error}
-        </p>
+        </Notice>
       )}
     </div>
   );

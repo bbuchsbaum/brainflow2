@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CrosshairSettingsDialog } from '../CrosshairSettingsDialog';
+import { CrosshairSettingsDialog, DIALOG_COLOR_PRESETS } from '../CrosshairSettingsDialog';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';
+import { DEFAULT_SETTINGS, MEDICAL_COLOR_PRESETS } from '@/stores/crosshairSettingsStore';
 
 class ResizeObserverMock {
   observe() {}
@@ -19,7 +20,7 @@ vi.mock('@/contexts/CrosshairContext', () => ({
 
 const baseSettings: CrosshairSettings = {
   visible: true,
-  activeColor: '#ffff00',
+  activeColor: '#facc15',
   activeThickness: 1,
   activeStyle: 'solid',
   showMirror: false,
@@ -55,7 +56,7 @@ describe('CrosshairSettingsDialog', () => {
   it('reverts live preview changes when cancelled', async () => {
     const { onClose, updateSettings } = setup();
 
-    const visibleSwitch = await screen.findByRole('switch');
+    const visibleSwitch = await screen.findByRole('switch', { name: 'Show crosshairs' });
     await act(async () => {
       fireEvent.click(visibleSwitch);
     });
@@ -73,7 +74,7 @@ describe('CrosshairSettingsDialog', () => {
   it('treats overlay dismiss as cancel and restores the initial settings', async () => {
     const { onClose, updateSettings } = setup();
 
-    const visibleSwitch = await screen.findByRole('switch');
+    const visibleSwitch = await screen.findByRole('switch', { name: 'Show crosshairs' });
     await act(async () => {
       fireEvent.click(visibleSwitch);
     });
@@ -90,7 +91,7 @@ describe('CrosshairSettingsDialog', () => {
   it('keeps live preview changes when finished with the keyboard shortcut', async () => {
     const { onClose, updateSettings } = setup();
 
-    const visibleSwitch = await screen.findByRole('switch');
+    const visibleSwitch = await screen.findByRole('switch', { name: 'Show crosshairs' });
     await act(async () => {
       fireEvent.click(visibleSwitch);
     });
@@ -103,4 +104,122 @@ describe('CrosshairSettingsDialog', () => {
     expect(updateSettings).toHaveBeenCalledTimes(1);
     expect(updateSettings).toHaveBeenCalledWith({ visible: false });
   });
+
+  it('Reset restores the store defaults exactly (green crosshair)', async () => {
+    const { updateSettings } = setup();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /reset/i }));
+    });
+
+    expect(updateSettings).toHaveBeenLastCalledWith(DEFAULT_SETTINGS);
+    expect(updateSettings.mock.lastCall?.[0].activeColor).toBe('#5fe0a0');
+  });
+
+  it('offers the colour presets as named swatches with a pressed state', async () => {
+    const { updateSettings } = setup();
+
+    const group = await screen.findByRole('group', { name: 'Color presets' });
+    const swatches = Array.from(group.querySelectorAll('button'));
+    // The store's presets minus the flagged residue (orange, yellow, #00ff00).
+    expect(swatches.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Green (default)',
+      'Cyan',
+      'Blue',
+      'Magenta',
+      'White',
+    ]);
+    expect(swatches.map((b) => b.getAttribute('aria-label'))).toEqual(
+      DIALOG_COLOR_PRESETS.map((p) => p.name)
+    );
+    expect(MEDICAL_COLOR_PRESETS.length).toBeGreaterThan(DIALOG_COLOR_PRESETS.length);
+    // baseSettings.activeColor is #facc15: a custom colour now, no swatch pressed.
+    for (const swatch of swatches) expect(swatch).toHaveAttribute('aria-pressed', 'false');
+
+    // Selection is an inner ring (box-shadow), focus a separate outline, so
+    // both can show at once on a focused selected swatch.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cyan' }));
+    });
+    expect(updateSettings).toHaveBeenLastCalledWith({ activeColor: '#4fd1e8' });
+    const cyan = screen.getByRole('button', { name: 'Cyan' });
+    expect(cyan).toHaveAttribute('aria-pressed', 'true');
+    expect(cyan.style.boxShadow).toContain('inset');
+    expect(cyan.className).toContain('focus-visible:outline-2');
+    expect(cyan.className).toContain('h-5 w-5');
+    // Data colour survives forced-colors mode.
+    expect(cyan.className).toContain('[forced-color-adjust:none]');
+    expect(screen.queryByRole('button', { name: 'Amber' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Green (default)' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('offers a Centre gap switch (on when unset) and names the sliders', async () => {
+    const { updateSettings } = setup();
+    const gap = await screen.findByRole('switch', { name: 'Centre gap' });
+    expect(gap).toHaveAttribute('aria-checked', 'true');
+    await act(async () => {
+      fireEvent.click(gap);
+    });
+    expect(updateSettings).toHaveBeenLastCalledWith({ centerGap: false });
+    expect(screen.getByRole('slider', { name: 'Thickness' })).toBeTruthy();
+  });
+
+  it('does not advertise a crosshair hotkey (c is go-to-centre)', async () => {
+    setup();
+    await screen.findByRole('switch', { name: 'Show crosshairs' });
+    expect(screen.queryByText(/hotkey/i)).toBeNull();
+  });
+  it('toggles voxel snapping and re-centres the crosshair when it is turned on', async () => {
+    const setCrosshair = vi.fn().mockResolvedValue(undefined);
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    const original = useViewStateStore.getState().setCrosshair;
+    useViewStateStore.setState({ setCrosshair } as never);
+    useViewStateStore.getState().setViewState((state) => {
+      state.crosshair.world_mm = [-0.5, -18.5, 17.5];
+    });
+    try {
+      mockUseCrosshairSettings.mockReturnValue({
+        settings: { ...baseSettings, snapToVoxel: false },
+        updateSettings: vi.fn(),
+      });
+      render(<CrosshairSettingsDialog onClose={vi.fn()} />);
+      const { updateSettings } = mockUseCrosshairSettings.mock.results[0].value;
+      const snap = await screen.findByRole('switch', { name: 'Snap to voxel' });
+      expect(snap).toHaveAttribute('aria-checked', 'false');
+      await act(async () => {
+        fireEvent.click(snap);
+      });
+      expect(updateSettings).toHaveBeenCalledWith({ snapToVoxel: true });
+      expect(setCrosshair).toHaveBeenCalledWith([-0.5, -18.5, 17.5], true);
+
+      await act(async () => {
+        fireEvent.click(snap);
+      });
+      expect(updateSettings).toHaveBeenLastCalledWith({ snapToVoxel: false });
+      expect(setCrosshair).toHaveBeenCalledTimes(1);
+    } finally {
+      useViewStateStore.setState({ setCrosshair: original } as never);
+    }
+  });
+
+  it('Cancel restores a crosshair that turning snapping on re-centred', async () => {
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    useViewStateStore.getState().setViewState((state) => {
+      state.crosshair.world_mm = [-0.5, -18.5, 17.5];
+    });
+    mockUseCrosshairSettings.mockReturnValue({
+      settings: { ...baseSettings, snapToVoxel: false },
+      updateSettings: vi.fn(),
+    });
+    render(<CrosshairSettingsDialog onClose={vi.fn()} />);
+    // Simulate the snap having moved the crosshair.
+    useViewStateStore.getState().setViewState((state) => {
+      state.crosshair.world_mm = [0.5, -17.5, 18.5];
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([-0.5, -18.5, 17.5]);
+  });
 });
+

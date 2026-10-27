@@ -143,7 +143,7 @@ describe("crosshairTimeSeriesPlot.supports", () => {
 
   it("declares the time-series plot identity", () => {
     expect(crosshairTimeSeriesPlot.id).toBe("crosshair-time-series");
-    expect(crosshairTimeSeriesPlot.label).toBe("Time Series");
+    expect(crosshairTimeSeriesPlot.label).toBe("Time series");
   });
 });
 

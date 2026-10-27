@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/shadcn/button';
+import { Button } from '@/components/ui/bf';
 import { useConfirmationDialogStore } from '@/stores/confirmationDialogStore';
 import { getFocusableElements } from '@/utils/dialogFocus';
 
@@ -183,7 +183,7 @@ export function ConfirmationDialogHost() {
         <div className="border-b border-border px-5 py-3">
           <h2
             id={`confirmation-dialog-title-${requestId}`}
-            className={`text-sm font-semibold uppercase tracking-[0.08em] ${
+            className={`text-sm font-semibold ${
               isDestructive ? 'text-destructive' : 'text-foreground'
             }`}
           >
@@ -192,12 +192,12 @@ export function ConfirmationDialogHost() {
         </div>
 
         <div className="space-y-4 px-5 py-4">
-          <p className="whitespace-pre-line text-sm text-foreground/90">{activeRequest.message}</p>
+          <p className="whitespace-pre-line text-sm text-foreground">{activeRequest.message}</p>
 
           {activeRequest.kind === 'prompt' && (
             <input
               ref={promptInputRef}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-sm border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               value={promptValue}
               onChange={(event) => setPromptValue(event.target.value)}
               onKeyDown={(event) => {
@@ -216,7 +216,7 @@ export function ConfirmationDialogHost() {
 
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           {activeRequest.kind !== 'alert' && (
-            <Button type="button" variant="secondary" onClick={handleCancel}>
+            <Button type="button" variant="secondary" size="sm" onClick={handleCancel}>
               {activeRequest.cancelLabel ?? 'Cancel'}
             </Button>
           )}
@@ -224,7 +224,8 @@ export function ConfirmationDialogHost() {
             type="button"
             onClick={handleConfirm}
             ref={confirmButtonRef}
-            variant={isDestructive ? 'destructive' : 'default'}
+            variant={isDestructive ? 'danger' : 'primary'}
+            size="sm"
           >
             {activeRequest.confirmLabel ?? (activeRequest.kind === 'alert' ? 'OK' : 'Confirm')}
           </Button>

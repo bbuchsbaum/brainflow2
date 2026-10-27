@@ -203,3 +203,42 @@ expect(result).toBeDefined();
 `playwright.population.config.ts` runs only `harness/population-export.spec.ts` against an owned Vite server on port 5321 (`reuseExistingServer: false`). This is an explicit exception to the native-app tests above: the real Population controls/canvases run with labeled synthetic sampling, file choice and export IPC. It checks participant/mask export operands, fixed scales, focus, restored probe values and desktop/narrow layout; screenshots require visual inspection and are not native Tauri acceptance. Run `pnpm --dir e2e exec playwright test --config playwright.population.config.ts`; install this package's pinned Chromium first. `POPULATION_QA_BROWSER` optionally selects an automation executable, and `POPULATION_QA_OUTPUT` redirects artifacts. Perform the root browser-ownership audit before and after, and never use a user's Chrome profile.
 
 The population harness also tests saved-summary replay: its simulated chooser returns the exported JSON path, its command receipt contains only record/output paths and the ticket, and live focus/weighting stay unchanged. Desktop and narrow screenshots are produced for inspection. Native record/artifact/source integrity and byte-equivalent publication are Rust-test responsibilities.
+
+## Isolated surface renderer harness
+
+`playwright.surfview.config.ts` runs `harness/surfview.spec.ts` on an owned Vite
+server at port 5339 (`reuseExistingServer: false`). This is another explicit
+exception to native-app tests: `ui2/surfview-harness.html` mounts the real shared
+surface canvas with synthetic geometry/data, without Tauri. Run
+`pnpm --dir e2e exec playwright test --config playwright.surfview.config.ts`.
+`SURFVIEW_QA_BROWSER` selects an installed automation Chromium executable;
+`SURFVIEW_QA_OUTPUT` redirects artifacts. Perform browser-ownership audits before
+and after; preserve other sessions' browsers. Pixel, lighting and lifecycle
+checks qualify this browser integration, not native desktop or all GPU backends.
+
+## App-harness screenshot gate
+
+`playwright.app-harness.visual.config.ts` runs `harness/app-harness.visual.spec.ts`
+on an owned Vite server at port 5329 (`reuseExistingServer: false`;
+`APP_HARNESS_PORT` overrides). It renders every full-app harness scenario
+(`ui2/app-harness.html`, list shared with the capture spec in
+`harness/app-harness.scenarios.ts`), the 1280x800 variants and the four
+`primitives-harness.html` gallery pages with the capture spec's determinism
+(freeze CSS, SwiftShader, fixed locale/timezone/fonts), fails on boot, page or
+backend-handler errors, and compares each against
+`harness/__screenshots__/darwin/<name>.png`.
+
+- Run: `pnpm --dir e2e test:app-harness:visual` (or
+  `node_modules/.bin/playwright test -c playwright.app-harness.visual.config.ts`
+  from `e2e/`). `APP_HARNESS_SCENARIOS=volume,primitives` restricts the run.
+- Update baselines only for an intended visual change: rerun with
+  `--update-snapshots`, open the changed PNGs and check them, and commit them
+  with the change that caused them. Never update to make an unexplained diff pass.
+- Tolerance is `maxDiffPixels: 24, threshold: 0.1`: two specimens flake by
+  1-8 antialiased pixels between identical runs, while any real chrome change
+  moves far more. Do not loosen it to absorb a regression.
+- Sensitivity check: `APP_HARNESS_VISUAL_PROBE=1` injects a 1px body outline
+  through the init script; every specimen must then fail.
+- Baselines are tied to the pinned headless shell (`APP_HARNESS_BROWSER`
+  overrides) on macOS arm64; another platform needs its own baseline set.
+  Audit browser ownership before and after, as for the other harnesses.

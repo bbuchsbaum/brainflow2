@@ -1,104 +1,15 @@
 import { jsx as _jsx } from "react/jsx-runtime";
+import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, DataLayer, RGBALayer, VolumeProjectionLayer, LaplacianSmoothing, THREE, } from 'neurosurface';
+import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianSmoothing, THREE, } from 'neurosurface';
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
-function colorHexToNumber(value) {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (typeof value === 'number') {
-        return value;
-    }
-    return Number.parseInt(value.replace('#', ''), 16);
-}
+import { buildLayerInstance, applyLayerUpdate, applySurfaceRenderSettings, applySceneRenderSettings, } from './surfaceRuntime.js';
 function hasRenderableGeometry(surface) {
     return Boolean(surface.geometry.vertices &&
         surface.geometry.faces &&
         surface.geometry.vertices.length > 0 &&
         surface.geometry.faces.length > 0);
-}
-/**
- * Find the surface vertex nearest to a world-space point, scanning the flat
- * vertex arrays of every supplied surface. Returns the vertex position and its
- * distance (mm), or null when no surface has geometry. O(total vertices) — a
- * few hundred microseconds even for fsaverage (164k), so it is fine to run on
- * every crosshair move. Snapping uses the input (un-smoothed) geometry, which
- * matches the rendered mesh whenever display smoothing is 0 (the default).
- */
-function findNearestSurfacePoint(surfaces, world) {
-    const [wx, wy, wz] = world;
-    let bestDistSq = Infinity;
-    let best = null;
-    for (const surface of surfaces) {
-        const verts = surface.geometry?.vertices;
-        if (!verts || verts.length < 3)
-            continue;
-        for (let i = 0; i + 2 < verts.length; i += 3) {
-            const dx = verts[i] - wx;
-            const dy = verts[i + 1] - wy;
-            const dz = verts[i + 2] - wz;
-            const distSq = dx * dx + dy * dy + dz * dz;
-            if (distSq < bestDistSq) {
-                bestDistSq = distSq;
-                best = [verts[i], verts[i + 1], verts[i + 2]];
-            }
-        }
-    }
-    return best ? { position: best, distanceMm: Math.sqrt(bestDistSq) } : null;
-}
-function buildLayerInstance(spec) {
-    switch (spec.kind) {
-        case 'rgba':
-            return new RGBALayer(spec.id, spec.rgba ?? new Float32Array(0), {
-                opacity: spec.opacity,
-            });
-        case 'volume':
-            return new VolumeProjectionLayer(spec.id, new Float32Array(spec.volumeData ?? []), spec.volumeDims ?? [1, 1, 1], {
-                affineMatrix: spec.affineMatrix,
-                colormap: spec.colormap || 'viridis',
-                range: spec.range,
-                threshold: spec.threshold,
-                opacity: spec.opacity,
-            });
-        case 'data':
-        default:
-            return new DataLayer(spec.id, spec.values ?? new Float32Array(0), spec.indices ?? null, spec.colormap || 'viridis', {
-                range: spec.range,
-                threshold: spec.threshold,
-                opacity: spec.opacity,
-            });
-    }
-}
-function applyLayerUpdate(renderedSurface, spec) {
-    switch (spec.kind) {
-        case 'rgba':
-            renderedSurface.updateLayer(spec.id, {
-                rgbaData: spec.rgba,
-                opacity: spec.opacity,
-            });
-            return;
-        case 'volume':
-            renderedSurface.updateLayer(spec.id, {
-                volumeData: spec.volumeData ? new Float32Array(spec.volumeData) : undefined,
-                colormap: spec.colormap,
-                range: spec.range,
-                threshold: spec.threshold,
-                affineMatrix: spec.affineMatrix,
-                opacity: spec.opacity,
-            });
-            return;
-        case 'data':
-        default:
-            renderedSurface.updateLayer(spec.id, {
-                data: spec.values,
-                indices: spec.indices ?? undefined,
-                colorMap: spec.colormap,
-                range: spec.range,
-                threshold: spec.threshold,
-                opacity: spec.opacity,
-            });
-    }
 }
 function applySmoothingToRenderedSurface(renderedSurface, original, smoothingValue) {
     const mesh = renderedSurface?.mesh;
@@ -124,67 +35,6 @@ function applySmoothingToRenderedSurface(renderedSurface, original, smoothingVal
     }
     catch (error) {
         console.error('Failed to apply smoothing:', error);
-    }
-}
-function applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings) {
-    if (renderedSurface.updateConfig) {
-        renderedSurface.updateConfig({
-            alpha: displaySettings.opacity,
-            flatShading: displaySettings.flatShading,
-            shininess: materialSettings.shininess,
-            specularColor: colorHexToNumber(materialSettings.specularColor),
-            emissive: colorHexToNumber(materialSettings.emissiveColor),
-            emissiveIntensity: materialSettings.emissiveIntensity,
-        });
-    }
-    const mesh = renderedSurface.mesh;
-    if (!mesh || !mesh.material) {
-        return;
-    }
-    const material = mesh.material;
-    if (material.wireframe !== undefined) {
-        material.wireframe = displaySettings.wireframe;
-    }
-    if (material.flatShading !== undefined) {
-        material.flatShading = displaySettings.flatShading;
-    }
-    if (material.color && material.color.set) {
-        material.color.set(materialSettings.surfaceColor);
-    }
-    if (mesh.geometry && mesh.geometry.computeVertexNormals) {
-        mesh.geometry.computeVertexNormals();
-    }
-    material.needsUpdate = true;
-}
-function applySceneRenderSettings(viewer, lightingSettings) {
-    if (!viewer.scene) {
-        return;
-    }
-    viewer.scene.traverse((child) => {
-        if (child.isAmbientLight) {
-            child.intensity = lightingSettings.ambientLightIntensity;
-        }
-        else if (child.isDirectionalLight) {
-            if (child.userData?.role !== 'fill') {
-                child.intensity = lightingSettings.directionalLightIntensity;
-                if (lightingSettings.lightPosition) {
-                    child.position.set(...lightingSettings.lightPosition);
-                }
-            }
-        }
-    });
-    let fillLight = viewer.scene.getObjectByName('fillLight');
-    if (!fillLight &&
-        lightingSettings.fillLightIntensity &&
-        lightingSettings.fillLightIntensity > 0) {
-        fillLight = new THREE.DirectionalLight(0xffffff, lightingSettings.fillLightIntensity);
-        fillLight.name = 'fillLight';
-        fillLight.userData.role = 'fill';
-        fillLight.position.set(-100, -100, -50);
-        viewer.scene.add(fillLight);
-    }
-    else if (fillLight) {
-        fillLight.intensity = lightingSettings.fillLightIntensity || 0;
     }
 }
 function removeRenderedSurface(viewer, handle, rendered) {
@@ -215,7 +65,7 @@ function removeRenderedSurface(viewer, handle, rendered) {
         // no-op
     }
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onError, onSurfacePick, }) => {
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onError, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -238,14 +88,6 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     const renderHandlesKey = useMemo(() => surfacesToRender
         .map((item) => item.handle)
         .sort()
-        .join('|'), [surfacesToRender]);
-    // Key that also changes when geometry is swapped under an unchanged handle
-    // (load completing empty -> real vertices, or pial <-> inflated <-> white).
-    // The marker's nearest-vertex search depends on this so it re-snaps on those
-    // swaps even when the crosshair is stationary. Vertex-length + surfaceType is
-    // a cheap proxy that avoids scanning every vertex on each render.
-    const surfaceGeometryKey = useMemo(() => surfacesToRender
-        .map((item) => `${item.handle}:${item.geometry?.vertices?.length ?? 0}:${item.geometry?.surfaceType ?? ''}`)
         .join('|'), [surfacesToRender]);
     useEffect(() => {
         if (!isInitialized || !viewerRef.current?.renderer?.domElement || !onExporterChange) {
@@ -284,14 +126,16 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     useEffect(() => {
         if (!containerRef.current || isInitialized || viewerRef.current)
             return;
+        let pendingFrame = null;
+        let cancelled = false;
         const initializeWhenReady = () => {
-            if (!containerRef.current)
+            if (cancelled || !containerRef.current || viewerRef.current)
                 return;
             const rect = containerRef.current.getBoundingClientRect();
             const actualWidth = rect.width || width;
             const actualHeight = rect.height || height;
             if (actualWidth <= 0 || actualHeight <= 0) {
-                requestAnimationFrame(initializeWhenReady);
+                pendingFrame = requestAnimationFrame(initializeWhenReady);
                 return;
             }
             const buildViewer = (useShaders) => {
@@ -299,6 +143,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                     showControls,
                     useShaders,
                     controlType: 'trackball',
+                    headlight: false,
                 }, viewpoint);
             };
             try {
@@ -309,6 +154,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                     viewer = buildViewer(true);
                 }
                 if (viewer.initializationFailed) {
+                    viewer.dispose();
                     throw new Error('Surface viewer failed to initialize (both plain and SSAO paths)');
                 }
                 viewerRef.current = viewer;
@@ -333,6 +179,11 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             }
         };
         initializeWhenReady();
+        return () => {
+            cancelled = true;
+            if (pendingFrame !== null)
+                cancelAnimationFrame(pendingFrame);
+        };
     }, [isInitialized, onError, showControls, viewpoint, width, height]);
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -519,13 +370,13 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings);
         });
         viewerRef.current.requestRender();
-    }, [displaySettings, materialSettings, renderHandlesKey]);
+    }, [isInitialized, displaySettings, materialSettings, renderHandlesKey]);
     useEffect(() => {
         if (!viewerRef.current)
             return;
         applySceneRenderSettings(viewerRef.current, lightingSettings);
         viewerRef.current.requestRender();
-    }, [lightingSettings]);
+    }, [isInitialized, lightingSettings]);
     // Linked cursor: a marker sphere on the surface that tracks a world position
     // (the volume crosshair), snapped to the nearest visible-surface vertex so it
     // sits on the cortex. The mesh is created once and then repositioned / toggled
@@ -540,10 +391,20 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         if (markerWorldPosition) {
             if (markerSnapToSurface) {
                 const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
-                const nearest = findNearestSurfacePoint(snapSurfaces, markerWorldPosition);
+                const nearest = findLinkedVertex(snapSurfaces, markerWorldPosition, cursorAnatomy);
                 if (nearest &&
                     (markerMaxSnapDistanceMm == null || nearest.distanceMm <= markerMaxSnapDistanceMm)) {
-                    position = nearest.position;
+                    const rendered = renderedSurfacesRef.current.get(nearest.handle);
+                    const mesh = rendered?.mesh;
+                    const attribute = mesh?.geometry?.getAttribute('position');
+                    if (mesh && attribute) {
+                        const point = new THREE.Vector3().fromBufferAttribute(attribute, nearest.index);
+                        mesh.localToWorld(point);
+                        position = [point.x, point.y, point.z];
+                    }
+                    else {
+                        position = nearest.position;
+                    }
                 }
             }
             else {
@@ -594,8 +455,8 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         mesh.visible = true;
         viewer.requestRender();
         // markerWorldPosition is an array; depend on its components so a fresh array
-        // with identical values doesn't churn. surfaceGeometryKey re-runs the snap
-        // when geometry is swapped under an unchanged handle.
+        // with identical values doesn't churn. Immutable geometry and correspondence
+        // inputs re-snap on visibility changes and same-size mesh replacements.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         isInitialized,
@@ -606,7 +467,9 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         markerMaxSnapDistanceMm,
         markerColor,
         markerRadiusMm,
-        surfaceGeometryKey,
+        surfacesToRender,
+        cursorAnatomy,
+        displaySettings.smoothing,
     ]);
     // Dispose the reusable marker mesh on unmount only (it is kept alive across
     // updates above). Guarded because the viewer-dispose effect may run first.
@@ -664,10 +527,13 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 return;
             }
             const meshes = [];
-            for (const surface of renderedSurfacesRef.current.values()) {
-                const mesh = surface?.mesh;
-                if (mesh)
-                    meshes.push(mesh);
+            const handles = new Map();
+            for (const [handle, surface] of renderedSurfacesRef.current) {
+                const mesh = surface.mesh;
+                if (!mesh || mesh.visible === false || (cursorAnatomy && !cursorAnatomy.has(handle)))
+                    continue;
+                meshes.push(mesh);
+                handles.set(mesh, handle);
             }
             if (meshes.length === 0)
                 return;
@@ -676,10 +542,23 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 return;
             const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
             raycaster.setFromCamera(ndc, viewer.camera);
-            const hits = raycaster.intersectObjects(meshes, true);
+            const hits = raycaster.intersectObjects(meshes, false);
             if (hits.length > 0) {
-                const p = hits[0].point;
-                onSurfacePick([p.x, p.y, p.z]);
+                const hit = hits[0];
+                const handle = handles.get(hit.object);
+                const reference = cursorAnatomy
+                    ? (handle ? cursorAnatomy.get(handle) : undefined)
+                    : (handle ? originalGeometryRef.current.get(handle)?.vertices : undefined);
+                if (!reference || !hit.face)
+                    return;
+                const mesh = hit.object;
+                const positions = mesh.geometry.getAttribute('position');
+                const local = mesh.worldToLocal(hit.point.clone());
+                const indices = [hit.face.a, hit.face.b, hit.face.c];
+                const triangle = indices.map(i => [positions.getX(i), positions.getY(i), positions.getZ(i)]);
+                const world = mapPickedTriangle(reference, indices, triangle, [local.x, local.y, local.z]);
+                if (world)
+                    onSurfacePick(world);
             }
         };
         canvas.addEventListener('mousedown', onDown);
@@ -688,7 +567,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             canvas.removeEventListener('mousedown', onDown);
             canvas.removeEventListener('mouseup', onUp);
         };
-    }, [isInitialized, onSurfacePick]);
+    }, [isInitialized, onSurfacePick, cursorAnatomy]);
     return (_jsx("div", { ref: containerRef, className: className, onPointerDown: onActivate, onMouseEnter: onActivate, onContextMenu: onContextMenu, style: {
             width: '100%',
             height: '100%',

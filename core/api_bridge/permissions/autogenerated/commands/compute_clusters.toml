@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-compute-clusters"
+description = "Enables the compute_clusters command without any pre-configured scope."
+commands.allow = ["compute_clusters"]
+
+[[permission]]
+identifier = "deny-compute-clusters"
+description = "Denies the compute_clusters command without any pre-configured scope."
+commands.deny = ["compute_clusters"]

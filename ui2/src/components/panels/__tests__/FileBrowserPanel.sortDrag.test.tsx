@@ -191,7 +191,8 @@ describe('FileBrowserPanel sort + drag wiring', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /Loaded/ }));
 
-    const row = screen.getByText('study-T1w').closest('button');
+    // Loaded rows are bf SelectableRows (role="option" in a listbox), not buttons.
+    const row = screen.getByRole('option', { name: /study-T1w/ });
     expect(row).not.toBeNull();
     expect(row).toHaveAttribute('draggable', 'true');
 

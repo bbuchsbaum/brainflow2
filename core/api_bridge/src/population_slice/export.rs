@@ -11,6 +11,8 @@ use std::{
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportRequest {
+    #[serde(default)]
+    pub include_inputs: bool,
     pub population: PopulationSliceRequest,
     pub destination_directory: String,
     /// Descriptive dataset/feature/metadata context, separate from executable operands.
@@ -49,7 +51,13 @@ pub(super) async fn export_checked(
     token: SampleCancellation,
     proof: Option<super::replay::ReplayProof>,
 ) -> BridgeResult<ExportResult> {
-    let mut population = request.population.clone();
+    let mut calculation = request.population.clone();
+    calculation.focus_only = false;
+    calculation.focus_window.clear();
+    calculation.groups.clear();
+    let mut population = calculation.clone();
+    population.focus_only = false;
+    population.focus_window.clear();
     // Camera/focus are provenance only; they never restrict the exported volume.
     population.dim_px = [1, 1];
     population.cutouts = None;
@@ -114,6 +122,7 @@ pub(super) async fn export_checked(
         token.clone(),
     )
     .await?;
+    let retained_mask_path = mask_path.clone();
     let mask = match (&population.mask, mask_path) {
         (Some(source), Some(path)) => {
             Some(crate::population_mask::prepare_mask(source, path, state, &token).await?)
@@ -128,16 +137,36 @@ pub(super) async fn export_checked(
         .iter()
         .try_fold(1usize, |n, &d| n.checked_mul(d))
         .ok_or_else(|| input("Export dimensions overflow."))?;
-    // Two f32 outputs; sampling and reduction use a bounded block independently.
-    if count > 128 * 1024 * 1024 / 8 || dims.iter().any(|&d| d > i16::MAX as usize) {
+    // Admission covers every method-declared output plus summary/coverage and optional B.
+    let channel_names = inference::artifact_names(&population);
+    let output_count = 2 + channel_names.len() + if population.reference.is_some() { 2 } else { 0 };
+    if count > 128 * 1024 * 1024 / (4 * output_count) || dims.iter().any(|&d| d > i16::MAX as usize)
+    {
         return Err(input(
             "Export exceeds the 128 MiB output budget or NIfTI-1 dimensions.",
         ));
     }
     let mut summary = Vec::with_capacity(count);
     let mut coverage = Vec::with_capacity(count);
+    let mut inference_values: Vec<Vec<f32>> = channel_names
+        .iter()
+        .map(|_| Vec::with_capacity(count))
+        .collect();
+    let mut reference_values = Vec::new();
+    let mut reference_coverage = Vec::new();
+    if population.reference.is_some() {
+        reference_values.reserve(count);
+        reference_coverage.reserve(count);
+    }
     // Account for rows, voxel indices, pixel slots, moments and returned block arrays.
-    let block_size = (32 * 1024 * 1024 / (4 * population.members.len() + 256)).clamp(1, 65536);
+    let block_size = (32 * 1024 * 1024
+        / (4 * population.members.len()
+            + if population.inference.is_some() {
+                512
+            } else {
+                256
+            }))
+    .clamp(1, 65536);
     let mut sources = Vec::new();
     for start in (0..count).step_by(block_size) {
         token.check()?;
@@ -215,11 +244,44 @@ pub(super) async fn export_checked(
         let worker_permit = permit.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _permit = worker_permit;
-            reduce_plane(&cached, &query, false, &check)
+            reduce_plane(&cached, &query, false, &check, None)
         })
         .await
         .map_err(|e| input(e.to_string()))??;
         summary.extend(result.summary);
+        if let Some(channels) = result.inference {
+            for (out, channel) in inference_values.iter_mut().zip(
+                &population
+                    .inference
+                    .as_ref()
+                    .unwrap()
+                    .method
+                    .descriptor()
+                    .channels,
+            ) {
+                out.extend(
+                    channels
+                        .selected(&channel.id)
+                        .iter()
+                        .map(|v| v.unwrap_or(f32::NAN)),
+                );
+            }
+        }
+
+        if let Some(reference) = result.reference {
+            reference_values.extend(reference.values);
+            for (i, n) in reference.valid_counts.into_iter().enumerate() {
+                let index = start + i;
+                let included = mask.as_ref().is_none_or(|m| {
+                    m.includes(
+                        index % dims[0],
+                        (index / dims[0]) % dims[1],
+                        index / (dims[0] * dims[1]),
+                    )
+                });
+                reference_coverage.push(if included { n as f32 } else { f32::NAN });
+            }
+        }
         // Outside support is unavailable even for the companion coverage map.
         for (i, n) in result.valid_counts.into_iter().enumerate() {
             let index = start + i;
@@ -237,14 +299,16 @@ pub(super) async fn export_checked(
     token.check()?;
     let provenance = serde_json::json!({
         "replay": proof.as_ref().map(|p| serde_json::json!({"recordPath":p.record_path,"recordSha256":p.record_sha256,"verification":"byte-identical summary and coverage"})),
-        "schema": "brainflow.population-export.v1",
+        "schema": inference::schema(&population),
+        "methodContract": population.inference.as_ref().map(|s| s.method.descriptor()),
         "brainflowVersion": env!("CARGO_PKG_VERSION"),
-        "calculation": request.population,
+        "calculation": calculation,
         "context": request.context,
         "sources": sources,
         "maskRevision": mask.as_ref().map(|m| &m.revision),
         "grid": { "dimensions": dims, "voxelToWorld": (0..4).map(|r| (0..4).map(|c| affine[(r,c)]).collect::<Vec<_>>()).collect::<Vec<_>>(), "spatialUnits": "mm" },
-        "semantics": { "kind": "descriptive", "support": "full native grid; finite measurements within common binary mask", "missing": "NaN; measured zero is valid", "coverage": "locally valid analysis units", "withinParticipant": "finite voxelwise mean when declared; equal participant weighting", "sampleSdDof": 1, "sourceRetention": "hash-verified external sources; source images are not embedded" }
+        "semantics": { "operation": if let Some(spec) = &population.inference { spec.method.descriptor().estimand.as_str() } else if population.difference { "mean(A)-mean(B); local finite means; overlap allowed; not a t-test" } else { "population summary" },
+        "referenceCoverage": if population.reference.is_some() { "reference-coverage.nii.gz counts locally valid B analysis units; coverage.nii.gz counts A units, never an effective contrast sample size" } else { "none" }, "kind": if population.inference.is_some() { "exploratory inference; no p-values or multiplicity correction" } else { "descriptive" }, "inference": population.inference.as_ref().map(|s| &s.method.descriptor().estimand), "support": "full native grid; finite measurements within common binary mask", "missing": "NaN; measured zero is valid", "coverage": "locally valid analysis units", "withinParticipant": "finite voxelwise mean when declared; equal participant weighting", "sampleSdDof": 1, "sourceRetention": "hash-verified external sources; source images are not embedded" }
     });
     if let Some(proof) = &proof {
         if provenance["grid"] != proof.grid
@@ -257,6 +321,7 @@ pub(super) async fn export_checked(
     let check = token.clone();
     let destination_copy = destination.clone();
     let expected_artifacts = proof.as_ref().map(|p| p.artifacts.clone());
+    let include_inputs = request.include_inputs;
     let staged = tokio::task::spawn_blocking(move || -> BridgeResult<StagedBundle> {
         let _permit = permit;
         check.check()?;
@@ -269,7 +334,12 @@ pub(super) async fn export_checked(
         header.srow_y = std::array::from_fn(|c| affine[(1,c)]);
         header.srow_z = std::array::from_fn(|c| affine[(2,c)]);
         let mut artifacts = serde_json::Map::new();
-        for (name, values) in [("summary.nii.gz", summary), ("coverage.nii.gz", coverage)] {
+        let mut outputs = vec![("summary.nii.gz", summary), ("coverage.nii.gz", coverage)];
+        for (name, values) in channel_names.into_iter().zip(inference_values) {
+            outputs.push((name, values));
+        }
+        if !reference_values.is_empty() { outputs.push(("reference.nii.gz", reference_values)); outputs.push(("reference-coverage.nii.gz", reference_coverage)); }
+        for (name, values) in outputs {
             check.check()?;
             let array = ndarray::Array3::from_shape_vec((dims[0],dims[1],dims[2]).f(), values).map_err(|e| input(e.to_string()))?;
             let path = staged.path.join(name);
@@ -284,6 +354,12 @@ pub(super) async fn export_checked(
         }
         let mut provenance = provenance;
         provenance["artifacts"] = artifacts.into();
+        if include_inputs {
+            let mut calculation: PopulationSliceRequest = serde_json::from_value(provenance["calculation"].clone()).map_err(|e|input(e.to_string()))?;
+            retention::retain(&mut calculation, &paths, retained_mask_path.as_deref(), &staged.path, &check)?;
+            provenance["calculation"] = serde_json::to_value(calculation).map_err(|e|input(e.to_string()))?;
+            provenance["semantics"]["sourceRetention"] = "Included content-addressed inputs; hashes checked on every opening".into();
+        }
         fs::write(staged.path.join("provenance.json"), serde_json::to_vec_pretty(&provenance).map_err(|e| input(e.to_string()))?)?;
         check.check()?;
         Ok(staged)
@@ -322,6 +398,12 @@ mod tests {
     use crate::set_sample_cache::TestSource;
     fn query(sources: &[&TestSource]) -> PopulationSliceRequest {
         PopulationSliceRequest {
+            inference: None,
+            groups: vec![],
+            reference: None,
+            difference: false,
+            focus_only: false,
+            focus_window: vec![],
             context_key: "export-test".into(),
             mask: None,
             members: sources
@@ -337,6 +419,7 @@ mod tests {
                 })
                 .collect(),
             working_member_ids: (0..sources.len()).map(|i| format!("s{i}")).collect(),
+            focus_stack_index: None,
             focus_member_id: Some("s0".into()),
             crosshair_mm: [1.; 3],
             orientation: Orientation::Axial,
@@ -447,6 +530,7 @@ mod tests {
             let live = freeze(&mut q, &state).await;
             let result = export(
                 ExportRequest {
+                    include_inputs: false,
                     population: q.clone(),
                     destination_directory: dest.0.to_string_lossy().into(),
                     context: serde_json::json!({"feature":"contrast"}),
@@ -526,6 +610,7 @@ mod tests {
         let dest = Destination::new();
         let mut q = query(&[&source]);
         let req = |q| ExportRequest {
+            include_inputs: false,
             population: q,
             destination_directory: dest.0.to_string_lossy().into(),
             context: serde_json::json!({}),
@@ -574,6 +659,7 @@ mod tests {
         freeze(&mut q, &state).await;
         let result = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: dest.0.to_string_lossy().into(),
                 context: serde_json::json!({}),
@@ -595,6 +681,72 @@ mod tests {
         assert_eq!(header.srow_z, rows[2]);
         assert_eq!(&header.pixdim[1..4], &[2., 3., 4.]);
     }
+    #[tokio::test]
+    async fn population_comparison_bundle_replays_both_operands_and_coverage() {
+        let a = TestSource::new(&[3, 3, 3], &[3.; 27]);
+        let b = TestSource::new(&[3, 3, 3], &[-1.; 27]);
+        let state = BridgeState::default().unwrap();
+        let original = Destination::new();
+        let target = Destination::new();
+        let mut q = query(&[&a, &b]);
+        q.working_member_ids = vec!["s0".into()];
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["s1".into()],
+            aggregation: None,
+        });
+        q.difference = true;
+        freeze(&mut q, &state).await;
+        let first = export(
+            ExportRequest {
+                include_inputs: false,
+                population: q,
+                destination_directory: original.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let replayed = super::super::replay::replay(
+            first.provenance_path.clone(),
+            target.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let first_dir = Path::new(&first.provenance_path).parent().unwrap();
+        let next_dir = Path::new(&replayed.provenance_path).parent().unwrap();
+        for (name, expected) in [
+            ("summary.nii.gz", 4.),
+            ("coverage.nii.gz", 1.),
+            ("reference.nii.gz", -1.),
+            ("reference-coverage.nii.gz", 1.),
+        ] {
+            assert_eq!(
+                fs::read(first_dir.join(name)).unwrap(),
+                fs::read(next_dir.join(name)).unwrap()
+            );
+            assert_eq!(
+                values(next_dir.join(name).to_str().unwrap(), &state).await,
+                vec![expected; 27]
+            );
+        }
+        fs::write(first_dir.join("reference.nii.gz"), b"changed").unwrap();
+        let refused = Destination::new();
+        assert!(super::super::replay::replay(
+            first.provenance_path.clone(),
+            refused.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        assert_eq!(fs::read_dir(&refused.0).unwrap().count(), 0);
+    }
+
     #[tokio::test]
     async fn replay_preserves_participant_masked_maps_and_links_parent_record() {
         let a = TestSource::new(&[3, 3, 3], &[0.; 27]);
@@ -629,6 +781,7 @@ mod tests {
         freeze(&mut q, &state).await;
         let first = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: original.0.to_string_lossy().into(),
                 context: serde_json::json!({"datasetId":"saved"}),
@@ -684,6 +837,7 @@ mod tests {
         freeze(&mut q, &state).await;
         let first = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: original.0.to_string_lossy().into(),
                 context: serde_json::json!({}),
@@ -797,6 +951,7 @@ mod tests {
         let original = serde_json::to_value(&q).unwrap();
         let result = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: dest.0.to_string_lossy().into(),
                 context: serde_json::json!({"datasetName":"Saved frames"}),
@@ -875,5 +1030,594 @@ mod tests {
                 .is_err()
         );
         assert_eq!(fs::read_dir(&dest.0).unwrap().count(), 1);
+    }
+    #[tokio::test]
+    async fn one_sample_channels_match_live_export_and_replay_with_local_missingness() {
+        use field_table::population_inference::{
+            Channel, FeatureRole, Method, SelectionOrigin, Specification,
+        };
+        let mut a = vec![1.; 27];
+        let mut b = vec![3.; 27];
+        let mut c = vec![5.; 27];
+        a[0] = f32::NAN;
+        b[0] = f32::NAN;
+        c[0] = f32::NAN;
+        b[1] = f32::NAN;
+        c[1] = f32::NAN;
+        a[2] = 2.;
+        b[2] = 2.;
+        c[2] = 2.;
+        let a = TestSource::new(&[3, 3, 3], &a);
+        let b = TestSource::new(&[3, 3, 3], &b);
+        let c = TestSource::new(&[3, 3, 3], &c);
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&[&a, &b, &c]);
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Single,
+            groups: q
+                .members
+                .iter()
+                .map(|m| ParticipantGroup {
+                    participant_id: m.member_id.clone(),
+                    member_ids: vec![m.member_id.clone()],
+                })
+                .collect(),
+        });
+        q.inference = Some(Specification {
+            design: None,
+            method: Method::OneSample,
+            role: FeatureRole::Effect,
+            units: "percent signal change".into(),
+            null_value: 1.,
+            independent_participants: true,
+            selection_origin: SelectionOrigin::MapDerived,
+            channel: Channel::T,
+        });
+        let live = freeze(&mut q, &state).await;
+        assert!(live
+            .summary
+            .iter()
+            .any(|v| (*v - 3_f32.sqrt()).abs() < 1e-6));
+        assert_eq!(
+            live.inference
+                .as_ref()
+                .unwrap()
+                .selected(&Channel::T)
+                .iter()
+                .map(|v| v.unwrap_or(f32::NAN).to_bits())
+                .collect::<Vec<_>>(),
+            live.summary.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
+        let destination = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: false,
+                population: q.clone(),
+                destination_directory: destination.0.to_string_lossy().into(),
+                context: serde_json::json!({"discovery":"map-derived"}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let record: serde_json::Value =
+            serde_json::from_slice(&fs::read(&out.provenance_path).unwrap()).unwrap();
+        assert_eq!(record["schema"], "brainflow.population-export.v3");
+        assert_eq!(record["artifacts"].as_object().unwrap().len(), 7);
+        let field = |name: &str| {
+            Path::new(&out.directory)
+                .join(name)
+                .to_string_lossy()
+                .into_owned()
+        };
+        let effect = values(&field("effect.nii.gz"), &state).await;
+        let se = values(&field("standard-error.nii.gz"), &state).await;
+        let t = values(&field("t.nii.gz"), &state).await;
+        let df = values(&field("df.nii.gz"), &state).await;
+        let n = values(&field("count.nii.gz"), &state).await;
+        assert!(effect[0].is_nan());
+        assert_eq!(n[0], 0.);
+        assert_eq!(effect[1], 0.);
+        assert_eq!(n[1], 1.);
+        assert!(df[1].is_nan());
+        assert_eq!(se[2], 0.);
+        assert!(t[2].is_nan());
+        assert_eq!(effect[3], 2.);
+        assert!((se[3] - 2. / 3_f32.sqrt()).abs() < 1e-6);
+        assert!((t[3] - 3_f32.sqrt()).abs() < 1e-6);
+        assert_eq!(df[3], 2.);
+        assert_eq!(n[3], 3.);
+        super::super::replay::replay(
+            out.provenance_path.clone(),
+            destination.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let opened = super::super::replay::open(
+            out.provenance_path.clone(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            opened.calculation.inference.unwrap().units,
+            "percent signal change"
+        );
+        // A changed sibling is rejected even if summary and coverage were untouched.
+        use std::io::Write;
+        fs::OpenOptions::new()
+            .append(true)
+            .open(field("t.nii.gz"))
+            .unwrap()
+            .write_all(b"changed")
+            .unwrap();
+        assert!(super::super::replay::open(
+            out.provenance_path,
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        let mut invalid = q.clone();
+        invalid.aggregation = None;
+        assert!(validate(&invalid).is_err());
+        invalid = q.clone();
+        invalid.inference.as_mut().unwrap().role = FeatureRole::T;
+        assert!(validate(&invalid).is_err());
+        // Declared repeated rows contribute one participant mean, not two people.
+        let ids: Vec<_> = q.members.iter().map(|m| m.member_id.clone()).collect();
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Mean,
+            groups: vec![
+                ParticipantGroup {
+                    participant_id: "P1".into(),
+                    member_ids: ids[..2].to_vec(),
+                },
+                ParticipantGroup {
+                    participant_id: "P2".into(),
+                    member_ids: ids[2..].to_vec(),
+                },
+            ],
+        });
+        let reduced = freeze(&mut q, &state).await;
+        assert_eq!(reduced.unit_count, 2);
+        assert!(reduced.summary.iter().any(|v| (*v - 5. / 3.).abs() < 1e-6));
+    }
+    #[tokio::test]
+    async fn welch_channels_export_replay_and_method_contract_are_verified() {
+        use field_table::population_inference::{
+            Channel, FeatureRole, Method, SelectionOrigin, Specification,
+        };
+        let sources: Vec<_> = [1., 3., 5., 2., 6., 10.]
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                let mut x = vec![v; 27];
+                if i >= 3 {
+                    x[0] = f32::NAN;
+                }
+                if i >= 4 {
+                    x[1] = f32::NAN;
+                }
+                x[2] = 2.;
+                TestSource::new(&[3, 3, 3], &x)
+            })
+            .collect();
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&sources.iter().collect::<Vec<_>>());
+        let ids: Vec<_> = q.members.iter().map(|m| m.member_id.clone()).collect();
+        let aggregation = |ids: &[String]| {
+            Some(ParticipantAggregation {
+                within: WithinParticipant::Single,
+                groups: ids
+                    .iter()
+                    .map(|id| ParticipantGroup {
+                        participant_id: id.clone(),
+                        member_ids: vec![id.clone()],
+                    })
+                    .collect(),
+            })
+        };
+        q.working_member_ids = ids[..3].to_vec();
+        q.aggregation = aggregation(&ids[..3]);
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: ids[3..].to_vec(),
+            aggregation: aggregation(&ids[3..]),
+        });
+        q.inference = Some(Specification {
+            design: None,
+            method: Method::Welch,
+            role: FeatureRole::Effect,
+            units: "a.u.".into(),
+            null_value: 1.,
+            independent_participants: true,
+            selection_origin: SelectionOrigin::MapDerived,
+            channel: Channel::T,
+        });
+        let live = freeze(&mut q, &state).await;
+        assert!(live
+            .summary
+            .iter()
+            .any(|&v| (v - -4. / (20_f32 / 3.).sqrt()).abs() < 1e-6));
+        let dest = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: false,
+                population: q.clone(),
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let bytes = fs::read(&out.provenance_path).unwrap();
+        let mut record: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(record["schema"], "brainflow.population-export.v4");
+        assert_eq!(record["methodContract"]["id"], "welch");
+        assert_eq!(record["artifacts"].as_object().unwrap().len(), 10);
+        let field = |name: &str| {
+            Path::new(&out.directory)
+                .join(name)
+                .to_string_lossy()
+                .into_owned()
+        };
+        let effect = values(&field("effect.nii.gz"), &state).await;
+        let t = values(&field("t.nii.gz"), &state).await;
+        let df = values(&field("df.nii.gz"), &state).await;
+        let a = values(&field("count-a.nii.gz"), &state).await;
+        let b = values(&field("count-b.nii.gz"), &state).await;
+        assert!(effect[0].is_nan());
+        assert_eq!(a[0], 3.);
+        assert_eq!(b[0], 0.);
+        assert_eq!(b[1], 1.);
+        assert!(t[1].is_nan());
+        assert!(df[1].is_nan());
+        assert_eq!(effect[2], -1.);
+        assert!(t[2].is_nan());
+        assert!(df[2].is_nan());
+        assert_eq!(effect[3], -4.);
+        assert!((df[3] - 50. / 17.).abs() < 1e-6);
+        super::super::replay::replay(
+            out.provenance_path.clone(),
+            dest.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let opened = super::super::replay::open(
+            out.provenance_path.clone(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(opened.calculation.inference.unwrap().method, Method::Welch);
+        record["methodContract"]["version"] = 2.into();
+        fs::write(&out.provenance_path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(super::super::replay::open(
+            out.provenance_path.clone(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        fs::write(&out.provenance_path, &bytes).unwrap();
+        // Only a companion is altered: opening must still fail.
+        use std::io::Write;
+        fs::OpenOptions::new()
+            .append(true)
+            .open(field("count-b.nii.gz"))
+            .unwrap()
+            .write_all(b"changed")
+            .unwrap();
+        assert!(super::super::replay::open(
+            out.provenance_path,
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        let mut bad = q.clone();
+        bad.reference
+            .as_mut()
+            .unwrap()
+            .aggregation
+            .as_mut()
+            .unwrap()
+            .groups[0]
+            .participant_id = ids[0].clone();
+        assert!(validate(&bad).is_err()); // Different rows, same person.
+        bad = q.clone();
+        bad.reference.as_mut().unwrap().aggregation = None;
+        assert!(validate(&bad).is_err());
+        bad = q.clone();
+        bad.inference.as_mut().unwrap().channel = Channel::Count;
+        assert!(validate(&bad).is_err());
+    }
+    #[tokio::test]
+    async fn paired_local_counts_export_and_replay_preserve_matching() {
+        use field_table::population_inference::{
+            Channel, FeatureRole, Method, SelectionOrigin, Specification,
+        };
+        let sources: Vec<_> = [101., 202., 304., 100., 200., 300.]
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                let mut x = vec![v; 27];
+                if i == 4 {
+                    x[0] = f32::NAN;
+                }
+                if i >= 3 {
+                    x[1] = f32::NAN;
+                }
+                TestSource::new(&[3, 3, 3], &x)
+            })
+            .collect();
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&sources.iter().collect::<Vec<_>>());
+        let ids: Vec<_> = q.members.iter().map(|m| m.member_id.clone()).collect();
+        let aggregation = |ids: &[String]| {
+            Some(ParticipantAggregation {
+                within: WithinParticipant::Single,
+                groups: ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, id)| ParticipantGroup {
+                        participant_id: format!("P{i}"),
+                        member_ids: vec![id.clone()],
+                    })
+                    .collect(),
+            })
+        };
+        q.working_member_ids = ids[..3].to_vec();
+        q.aggregation = aggregation(&ids[..3]);
+        let mut b = aggregation(&ids[3..]);
+        b.as_mut().unwrap().groups.reverse(); // Identity, never positional pairing.
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: ids[3..].to_vec(),
+            aggregation: b,
+        });
+        q.inference = Some(Specification {
+            design: None,
+            method: Method::Paired,
+            role: FeatureRole::Effect,
+            units: "a.u.".into(),
+            null_value: 1.,
+            independent_participants: true,
+            selection_origin: SelectionOrigin::Metadata,
+            channel: Channel::T,
+        });
+        let live = freeze(&mut q, &state).await;
+        assert!(live
+            .summary
+            .iter()
+            .any(|&v| (v - 4. / 7_f32.sqrt()).abs() < 1e-6));
+        let dest = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: false,
+                population: q.clone(),
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let counts = values(
+            &Path::new(&out.directory)
+                .join("count.nii.gz")
+                .to_string_lossy(),
+            &state,
+        )
+        .await;
+        let effects = values(
+            &Path::new(&out.directory)
+                .join("effect.nii.gz")
+                .to_string_lossy(),
+            &state,
+        )
+        .await;
+        assert_eq!(counts[0], 2.);
+        assert_eq!(counts[1], 0.);
+        assert_eq!(effects[0], 1.5);
+        assert!(effects[1].is_nan());
+        super::super::replay::replay(
+            out.provenance_path.clone(),
+            dest.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let opened =
+            super::super::replay::open(out.provenance_path, &state, SampleCancellation::default())
+                .await
+                .unwrap();
+        assert_eq!(opened.calculation.inference.unwrap().method, Method::Paired);
+        let mut bad = q.clone();
+        bad.reference
+            .as_mut()
+            .unwrap()
+            .aggregation
+            .as_mut()
+            .unwrap()
+            .groups[0]
+            .participant_id = "unmatched".into();
+        assert!(validate(&bad).is_err());
+        bad = q.clone();
+        bad.reference.as_mut().unwrap().member_ids = q.working_member_ids.clone();
+        bad.reference.as_mut().unwrap().aggregation = q.aggregation.clone();
+        assert!(validate(&bad).is_err());
+    }
+
+    #[tokio::test]
+    async fn linear_model_channels_replay_and_external_relocation_are_verified() {
+        use field_table::population_inference::{
+            linear_model::LinearDesign, Channel, FeatureRole, Method, SelectionOrigin,
+            Specification,
+        };
+        let sources: Vec<_> = [1., 2., 5., 4., 9., 8.]
+            .iter()
+            .map(|&v| TestSource::new(&[3, 3, 3], &[v; 27]))
+            .collect();
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&sources.iter().collect::<Vec<_>>());
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Single,
+            groups: (0..6)
+                .map(|i| ParticipantGroup {
+                    participant_id: format!("p{i}"),
+                    member_ids: vec![format!("s{i}")],
+                })
+                .collect(),
+        });
+        q.inference = Some(Specification {
+            method: Method::LinearModel,
+            role: FeatureRole::Effect,
+            units: "effect".into(),
+            null_value: 0.,
+            independent_participants: true,
+            selection_origin: SelectionOrigin::Metadata,
+            channel: Channel::Effect,
+            design: Some(LinearDesign {
+                participant_ids: (0..6).map(|i| format!("p{i}")).collect(),
+                columns: vec!["intercept".into(), "x".into(), "z".into()],
+                values: (0..6).map(|i| vec![1., i as f64, (i % 2) as f64]).collect(),
+                contrast: vec![0., 1., 0.],
+                contrast_units: "effect/x".into(),
+            }),
+        });
+        let live = freeze(&mut q, &state).await;
+        assert!(live.summary.iter().any(|&v| (v - 1.75).abs() < 1e-6));
+        let dest = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: false,
+                population: q,
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let se = values(
+            &Path::new(&out.directory)
+                .join("standard-error.nii.gz")
+                .to_string_lossy(),
+            &state,
+        )
+        .await;
+        assert!((se[0] - 0.1863389981249824).abs() < 1e-6);
+        super::super::replay::replay(
+            out.provenance_path.clone(),
+            dest.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let moved = Destination::new();
+        let source = &sources[0];
+        for item in &sources {
+            fs::copy(&item.path, moved.0.join(item.path.file_name().unwrap())).unwrap();
+            fs::remove_file(&item.path).unwrap();
+        }
+        // Rebind the fixture directory while preserving every relative filename.
+        let mapping = super::super::replay::SourceRelocation {
+            from_directory: source.path.parent().unwrap().to_string_lossy().into(),
+            to_directory: moved.0.to_string_lossy().into(),
+        };
+        let opened = super::super::replay::open_relocated(
+            out.provenance_path.clone(),
+            Some(mapping.clone()),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            opened.calculation.inference.unwrap().method,
+            Method::LinearModel
+        );
+        fs::write(
+            moved.0.join(source.path.file_name().unwrap()),
+            b"not the same input",
+        )
+        .unwrap();
+        assert!(super::super::replay::open_relocated(
+            out.provenance_path,
+            Some(mapping),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+    }
+    #[tokio::test]
+    async fn retained_inputs_reopen_after_move_without_originals_and_reject_tampering() {
+        let source = TestSource::new(&[3, 3, 3], &[7.; 27]);
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&[&source, &source]);
+        freeze(&mut q, &state).await;
+        let dest = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: true,
+                population: q,
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            fs::read_dir(Path::new(&out.directory).join("inputs"))
+                .unwrap()
+                .count(),
+            1
+        );
+        let moved = dest.0.join("moved");
+        fs::rename(&out.directory, &moved).unwrap();
+        fs::remove_file(&source.path).unwrap();
+        let record = moved.join("provenance.json").to_string_lossy().into_owned();
+        let opened =
+            super::super::replay::open(record.clone(), &state, SampleCancellation::default())
+                .await
+                .unwrap();
+        assert!(opened.calculation.members[0].source_path.starts_with(
+            &fs::canonicalize(&moved)
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        ));
+        super::super::replay::replay(
+            record.clone(),
+            dest.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        fs::write(&opened.calculation.members[0].source_path, b"changed").unwrap();
+        assert!(
+            super::super::replay::open(record, &state, SampleCancellation::default())
+                .await
+                .is_err()
+        );
     }
 }

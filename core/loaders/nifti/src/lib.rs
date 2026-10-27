@@ -428,6 +428,44 @@ fn temporal_metadata_from_header(header: &nifti::NiftiHeader) -> TemporalMetadat
     }
 }
 
+/// Read the statistic intent (`intent_code`, `intent_p1..p3`, `intent_name`)
+/// and the `descrip` string from a NIfTI header (header only, no voxel data),
+/// mirroring [`read_temporal_metadata`]. Returns `None` when the header cannot
+/// be read (missing file, in-memory volume, non-NIfTI source).
+pub fn read_statistic_metadata(path: &Path) -> Option<StatisticMetadata> {
+    nifti::NiftiHeader::from_file(path)
+        .ok()
+        .map(|header| statistic_metadata_from_header(&header))
+}
+
+/// Intent and description fields of a NIfTI header, decoded for display.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StatisticMetadata {
+    pub statistic: bridge_types::StatisticInfo,
+    /// The header `descrip` field (NUL-trimmed, lossy UTF-8).
+    pub description: String,
+}
+
+fn header_text(bytes: &[u8]) -> String {
+    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).trim().to_string()
+}
+
+fn statistic_metadata_from_header(header: &nifti::NiftiHeader) -> StatisticMetadata {
+    let description = header_text(&header.descrip);
+    let intent_name = header_text(&header.intent_name);
+    let statistic = bridge_types::StatisticInfo::from_intent(
+        header.intent_code,
+        [header.intent_p1, header.intent_p2, header.intent_p3],
+        &intent_name,
+        &description,
+    );
+    StatisticMetadata {
+        statistic,
+        description,
+    }
+}
+
 // Try loading 4D volume with different data types
 pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
     // Try loading as f32 first (most common for fMRI)
@@ -744,6 +782,75 @@ mod tests {
             temporal_metadata_from_header(&header_with_time(-1.0, 8)),
             TemporalMetadata::default()
         );
+    }
+
+    // --- Statistic intent / description decoding ---
+
+    fn header_with_intent(
+        code: i16,
+        p1: f32,
+        p2: f32,
+        name: &str,
+        descrip: &str,
+    ) -> nifti::NiftiHeader {
+        let mut intent_name = [0u8; 16];
+        intent_name[..name.len()].copy_from_slice(name.as_bytes());
+        let mut descrip_bytes = descrip.as_bytes().to_vec();
+        descrip_bytes.resize(80, 0);
+        nifti::NiftiHeader {
+            intent_code: code,
+            intent_p1: p1,
+            intent_p2: p2,
+            intent_name,
+            descrip: descrip_bytes,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn statistic_metadata_decodes_t_intent_and_trims_description() {
+        let meta =
+            statistic_metadata_from_header(&header_with_intent(3, 24.0, 0.0, "", "contrast 1"));
+        assert_eq!(meta.statistic.kind, bridge_types::StatisticKind::T);
+        assert_eq!(meta.statistic.label, "t(24)");
+        assert_eq!(meta.description, "contrast 1");
+    }
+
+    #[test]
+    fn statistic_metadata_decodes_f_and_named_intents() {
+        let f = statistic_metadata_from_header(&header_with_intent(4, 2.0, 30.0, "", ""));
+        assert_eq!(f.statistic.label, "F(2,30)");
+        let named = statistic_metadata_from_header(&header_with_intent(1001, 0.0, 0.0, "beta", ""));
+        assert_eq!(named.statistic.intent_name, "beta");
+        assert_eq!(named.statistic.label, "beta");
+    }
+
+    #[test]
+    fn statistic_metadata_falls_back_to_spm_description() {
+        let meta = statistic_metadata_from_header(&header_with_intent(
+            0,
+            0.0,
+            0.0,
+            "",
+            "SPM{T_[17.0]} - contrast 2: words > rest",
+        ));
+        assert_eq!(meta.statistic.label, "t(17)");
+        assert!(meta.statistic.from_description);
+        let plain = statistic_metadata_from_header(&header_with_intent(0, 0.0, 0.0, "", ""));
+        assert_eq!(plain.statistic.kind, bridge_types::StatisticKind::None);
+        assert_eq!(plain.description, "");
+    }
+
+    #[test]
+    fn read_statistic_metadata_reads_unit_fixture_header() {
+        let test_file = get_unit_test_file("tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii");
+        if !test_file.exists() {
+            eprintln!("Test file not found: {:?}, skipping test", test_file);
+            return;
+        }
+        let meta = read_statistic_metadata(&test_file).expect("header readable");
+        assert_eq!(meta.statistic.kind, bridge_types::StatisticKind::None);
+        assert!(read_statistic_metadata(Path::new("/nonexistent/x.nii")).is_none());
     }
 
     #[test]

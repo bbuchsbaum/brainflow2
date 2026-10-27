@@ -12,7 +12,8 @@ export interface ComparisonPanelDimensions extends ComparisonGridSpec {
 }
 
 const MIN_PANEL_SIZE = 128;
-export const COMPARISON_GRID_GAP = 8;
+/** Panels are separated by a 1px splitter line (the grid gap over the splitter colour). */
+export const COMPARISON_GRID_GAP = 1;
 
 export function getComparisonGridSpec(
   panelCount: number,

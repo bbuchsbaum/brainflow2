@@ -1,4 +1,3 @@
-import { anatomicalLabels } from '@/utils/anatomicalLabels';
 /**
  * SliceViewCanvas Component
  *
@@ -7,6 +6,7 @@ import { anatomicalLabels } from '@/utils/anatomicalLabels';
  * and context menus stay here while viewport mechanics are shared.
  */
 
+import { writeLayerDisplayField } from "@/utils/layerDisplayWrite";
 import React, {
   useRef,
   useCallback,
@@ -16,11 +16,17 @@ import React, {
 } from "react";
 import { SliceViewport, type SliceViewportPlacement } from "./SliceViewport";
 import { SliceSlider } from "@/components/ui/SliceSlider";
+import { Slider } from "@/components/ui/bf";
 import { getSliceNavigationService } from "@/services/SliceNavigationService";
 import { useTransientOverlay } from "@/components/ui/TransientOverlay";
 import { getTimeNavigationService } from "@/services/TimeNavigationService";
 import { RenderErrorBoundary } from "@/components/ui/RenderErrorBoundary";
-import { getLineDash, type CrosshairStyle } from "@/utils/crosshairUtils";
+import { useCrosshairSettingsStore } from "@/stores/crosshairSettingsStore";
+import {
+  buildActiveCrosshairStyle,
+  type CrosshairRect,
+  type CrosshairStyle,
+} from "@/utils/crosshairUtils";
 import { throttle } from "lodash";
 import { useSliceViewModel } from "@/hooks/useSliceViewModel";
 import { SLIDER_HEIGHT } from "./constants";
@@ -44,8 +50,23 @@ import {
   computeTemporalHeatmapSliceIndex,
   isTemporalHeatmapEligible,
 } from "./temporalHeatmapState";
+import { useActiveLayer } from "@/utils/activeLayer";
+import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
+import { pointerToWorld } from "@/utils/slicePointer";
+import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
+import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
+import {
+  OrientationLabels,
+  ViewportColorbar,
+  ViewportHeader,
+  orientationLabelKey as buildOrientationLabelKey,
+  useColorbarHostPlane,
+  useOrientationLabelKnockouts,
+  useOverlayColorbar,
+} from "./viewportFrame";
 
-const LABEL_OFFSET = 6; // px from edge
+/** Top-right space kept for the workspace layout button (OrthogonalViewContainer). */
+const LAYOUT_BUTTON_RESERVE = 48;
 
 function getSliceAxisIndex(viewId: SliceViewCanvasProps["viewId"]): 0 | 1 | 2 {
   if (viewId === "sagittal") return 0;
@@ -71,8 +92,41 @@ function SliceViewCanvasRaw({
   className = "",
 }: SliceViewCanvasProps) {
   const model = useSliceViewModel(viewId, { width, height });
+  // The early return lives here, and every other hook in the body component,
+  // so the hook order never changes between renders (rules of hooks).
+  if (!model.viewPlane) {
+    return (
+      <div
+        className={`h-full w-full relative ${className}`}
+        data-view-id={viewId}
+      >
+        <div className="absolute inset-0 flex items-center justify-center text-bf-xs text-bf-text-secondary">
+          Loading view…
+        </div>
+      </div>
+    );
+  }
+  return (
+    <SliceViewCanvasBody
+      viewId={viewId}
+      width={width}
+      height={height}
+      className={className}
+      model={model}
+    />
+  );
+}
+
+type SliceViewModel = ReturnType<typeof useSliceViewModel>;
+
+function SliceViewCanvasBody({
+  viewId,
+  width,
+  height,
+  className,
+  model,
+}: SliceViewCanvasProps & { className: string; model: SliceViewModel }) {
   const {
-    viewPlane,
     crosshair,
     layers,
     hasLayers,
@@ -82,28 +136,14 @@ function SliceViewCanvasRaw({
     primaryLayer,
     primaryOptions,
     hoverEnabled,
+    hoverLayerIds,
   } = model;
+  const viewPlane = model.viewPlane as NonNullable<SliceViewModel["viewPlane"]>;
 
   // Access setter without subscribing to it (stable reference)
   const setCrosshair = useRef(
     useViewStateStore.getState().setCrosshair,
   ).current;
-  const setViewState = useRef(
-    useViewStateStore.getState().setViewState,
-  ).current;
-
-  if (!viewPlane) {
-    return (
-      <div
-        className={`h-full w-full relative ${className}`}
-        data-view-id={viewId}
-      >
-        <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
-          Loading view…
-        </div>
-      </div>
-    );
-  }
 
   // RenderContext registration handled by useSliceViewModel
 
@@ -176,15 +216,10 @@ function SliceViewCanvasRaw({
   const handleWindowLevelUpdate = useCallback(
     (intensity: [number, number]) => {
       if (!primaryLayer?.id) return;
-      const layerId = primaryLayer.id;
-      setViewState((state) => ({
-        ...state,
-        layers: state.layers.map((l) =>
-          l.id === layerId ? { ...l, intensity } : l,
-        ),
-      }));
+      // Panel-aware in an unlinked Compare (the Inspector's rule).
+      writeLayerDisplayField(primaryLayer.id, 'intensity', intensity);
     },
-    [primaryLayer?.id, setViewState],
+    [primaryLayer?.id],
   );
 
   // useWindowLevel hook — attaches to the canvas area div
@@ -192,6 +227,11 @@ function SliceViewCanvasRaw({
     canvasRef: containerAreaRef,
     layerId: primaryLayer?.id ?? null,
     dataRange,
+    // A drag starts from the layer's current window (never the data range).
+    getCurrentWindow: () =>
+      primaryLayer?.id
+        ? useViewStateStore.getState().viewState.layers.find((l) => l.id === primaryLayer.id)?.intensity
+        : null,
     onUpdate: handleWindowLevelUpdate,
   });
 
@@ -211,50 +251,35 @@ function SliceViewCanvasRaw({
   }, [layers]);
   const markActive = useActiveRenderable(viewId);
 
+  // Pointer -> world through the shared viewer's click-to-world path
+  // (clientPointToWorld: client point -> canvas pixels -> image -> world), so
+  // the hover readout, the status Mouse slot and a click at the same pixel
+  // agree. Measuring from the hovered container instead of the canvas put
+  // the readout about a pixel off (P3 v1 fidelity critique).
   const canvasToWorld = useCallback(
-    (canvasX: number, canvasY: number): [number, number, number] | null => {
-      if (!canvasRef.current || !imagePlacementRef.current) return null;
-
-      const currentView = viewPlaneRef.current;
-      if (!currentView) return null;
-
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-
-      const scaledX = canvasX * scaleX;
-      const scaledY = canvasY * scaleY;
-      const placement = imagePlacementRef.current;
-      if (!placement) return null;
-
-      if (
-        scaledX < placement.x ||
-        scaledX > placement.x + placement.width ||
-        scaledY < placement.y ||
-        scaledY > placement.y + placement.height
-      ) {
-        return null;
-      }
-
-      const imageX =
-        ((scaledX - placement.x) / placement.width) * placement.imageWidth;
-      const imageY =
-        ((scaledY - placement.y) / placement.height) * placement.imageHeight;
-      return CoordinateTransform.screenToWorld(imageX, imageY, currentView) as [
-        number,
-        number,
-        number,
-      ];
+    (
+      _canvasX: number,
+      _canvasY: number,
+      clientX: number,
+      clientY: number,
+    ): [number, number, number] | null => {
+      return pointerToWorld(
+        clientX,
+        clientY,
+        canvasRef.current,
+        imagePlacementRef.current,
+        viewPlaneRef.current,
+      );
     },
     [],
   );
 
-  const { handleMouseMove, handleMouseLeave, hoverValue } = useHoverInfo({
+  const { handleMouseMove, handleMouseLeave } = useHoverInfo({
     viewId,
     enabled: showHover,
     activeLayerId: primaryLayer?.id,
     activeAtlasId,
+    layerIds: hoverLayerIds,
     canvasToWorld,
     onHoverStart: markActive,
   });
@@ -262,6 +287,7 @@ function SliceViewCanvasRaw({
   // Slider navigation using the same approach as original SliceView
   const sliceNavService = getSliceNavigationService();
 
+  const snapToVoxelSetting = useCrosshairSettingsStore((s) => s.settings.snapToVoxel);
   // Get min/max/step (only depends on layers, not crosshair)
   const sliderBounds = React.useMemo(() => {
     try {
@@ -290,6 +316,8 @@ function SliceViewCanvasRaw({
     layers,
     axisIndex,
     crosshair.world_mm[axisIndex],
+    // The grid changes with the snapping setting (navigationMetadata).
+    snapToVoxelSetting,
   ]);
 
   // Current slider value mirrors crosshair position for this axis
@@ -309,21 +337,108 @@ function SliceViewCanvasRaw({
     [sliceNavService, viewId],
   );
 
+  const centerGapSetting = useCrosshairSettingsStore(
+    (state) => state.settings.centerGap,
+  );
   const crosshairStyle = useMemo<CrosshairStyle>(
-    () => ({
-      color: crosshairSettings.activeColor,
-      lineWidth: crosshairSettings.activeThickness,
-      lineDash: getLineDash(
-        crosshairSettings.activeStyle,
-        crosshairSettings.activeThickness,
-      ),
-      opacity: 1,
-    }),
+    () =>
+      buildActiveCrosshairStyle({
+        activeColor: crosshairSettings.activeColor,
+        activeThickness: crosshairSettings.activeThickness,
+        activeStyle: crosshairSettings.activeStyle,
+        centerGap: centerGapSetting,
+      }),
     [
       crosshairSettings.activeColor,
       crosshairSettings.activeThickness,
       crosshairSettings.activeStyle,
+      centerGapSetting,
     ],
+  );
+
+  // Orientation letters: the crosshair stroke is clipped around them (the
+  // letters and the line geometry are unchanged). Measured at draw time.
+  const orientationLabelKey = buildOrientationLabelKey(
+    viewPlane,
+    showMarkers && hasLayers,
+  );
+  const { refs: orientationLabelRefs, getKnockouts: getCrosshairKnockouts } =
+    useOrientationLabelKnockouts(orientationLabelKey);
+
+  // Viewport frame: header (plane, slice mm, selected layer) and the on-image
+  // colorbar for the selected overlay, hosted by the largest orthogonal view.
+  // The single active-layer rule (utils/activeLayer), shared with the
+  // status bar's Layer/Value slots and the colorbar.
+  const viewStateLayers = useViewStateStore((s) => s.viewState.layers);
+  const headerLayer = useActiveLayer(viewStateLayers);
+  const headerLayerName = headerLayer ? headerLayer.name || headerLayer.id : null;
+  // The scrub range (same as the rail): the header reserves its widest value.
+  const headerRangeMm = useMemo<[number, number]>(
+    () => [sliderBounds.min, sliderBounds.max],
+    [sliderBounds.min, sliderBounds.max],
+  );
+  // The header is clipped out of the crosshair stroke like a letter (slot 4).
+  const setHeaderElement = useCallback(
+    (el: HTMLDivElement | null) => {
+      orientationLabelRefs.current[4] = el;
+    },
+    [orientationLabelRefs],
+  );
+  const colorbarLayer = useOverlayColorbar();
+  const colorbarHost = useColorbarHostPlane();
+  const showColorbar = hasLayers && !!colorbarLayer && colorbarHost === viewId;
+  // Caret on the colorbar: the colorbar layer's value at the crosshair (the
+  // same shared, debounced sample the status bar's Value slot uses).
+  const colorbarReading = useLayerValueAtWorld(
+    showColorbar ? colorbarLayer?.layerId : null,
+    crosshair.world_mm,
+  );
+  const [placementState, setPlacementState] =
+    useState<SliceViewportPlacement | null>(null);
+  // Image rectangle and crosshair centre in canvas-area CSS px, from the
+  // placement the shared viewport computed (read-only; no new fit math).
+  const frameGeometry = useMemo(() => {
+    const canvas = canvasRef.current;
+    const p = placementState;
+    if (!canvas || !p || canvas.width === 0) return null;
+    const rect = canvas.getBoundingClientRect();
+    const k = rect.width > 0 ? rect.width / canvas.width : 1;
+    const imageRect = {
+      left: p.x * k,
+      top: p.y * k,
+      right: (p.x + p.width) * k,
+      bottom: (p.y + p.height) * k,
+    };
+    let crosshairPoint: { x: number; y: number } | null = null;
+    if (crosshair.visible && p.imageWidth > 0 && p.imageHeight > 0) {
+      const [ix, iy] = CoordinateTransform.worldToScreenUnchecked(
+        crosshair.world_mm,
+        viewPlane,
+      );
+      crosshairPoint = {
+        x: (p.x + (ix / p.imageWidth) * p.width) * k,
+        y: (p.y + (iy / p.imageHeight) * p.height) * k,
+      };
+    }
+    return { imageRect, crosshairPoint };
+  }, [placementState, crosshair, viewPlane, width, canvasHeight]);
+
+  // Publish this view's area and right-margin room for the colorbar host choice.
+  const imageRight = frameGeometry?.imageRect.right ?? null;
+  useEffect(() => {
+    const setSlot = useViewportFrameStore.getState().setSlot;
+    if (!hasLayers || imageRight === null) {
+      setSlot(viewId, null);
+      return;
+    }
+    setSlot(viewId, {
+      area: Math.round(width * canvasHeight),
+      room: Math.max(0, Math.floor(width - imageRight - 24)),
+    });
+  }, [viewId, hasLayers, width, canvasHeight, imageRight]);
+  useEffect(
+    () => () => useViewportFrameStore.getState().setSlot(viewId, null),
+    [viewId],
   );
 
   // Handle mouse clicks to update crosshair — skip if window/level drag is active
@@ -332,6 +447,11 @@ function SliceViewCanvasRaw({
     isDraggingRef.current = isDragging;
   }, [isDragging]);
 
+  // Clicks off the image data (letterbox / margin around the volume inside
+  // the bitmap) do not move the crosshair.
+  const dataLayerIds = useMemo(() => layers.map((l) => l.id), [layers]);
+  const dataEdgeBounds = useLayerEdgeBounds(dataLayerIds);
+
   const handleWorldClick = useCallback(
     (
       worldCoord: [number, number, number],
@@ -339,11 +459,12 @@ function SliceViewCanvasRaw({
     ) => {
       // Suppress crosshair update if W/L drag just ended
       if (isDraggingRef.current) return;
+      if (!isClickOnData(worldCoord, viewPlane, dataEdgeBounds)) return;
       markActive();
       // Important: pass updateViews=true to ensure all views update their crosshair
       setCrosshair(worldCoord, true);
     },
-    [setCrosshair, markActive],
+    [setCrosshair, markActive, viewPlane, dataEdgeBounds],
   );
 
   // Handle mouse wheel for time/slice navigation
@@ -352,10 +473,6 @@ function SliceViewCanvasRaw({
   useEffect(() => {
     layersRef.current = layers;
   }, [layers]);
-  const sliderBoundsRef = useRef(sliderBounds);
-  useEffect(() => {
-    sliderBoundsRef.current = sliderBounds;
-  }, [sliderBounds]);
   const showTimeOverlayRef = useRef(showTimeOverlay);
   useEffect(() => {
     showTimeOverlayRef.current = showTimeOverlay;
@@ -380,15 +497,9 @@ function SliceViewCanvasRaw({
             );
           }
         } else {
-          const { min, max, step } = sliderBoundsRef.current;
-          const curr = sliderValueRef.current;
+          // One reference voxel per notch (ten with Shift), always moving.
           const multiplier = event.shiftKey ? 10 : 1;
-          const delta =
-            event.deltaY > 0 ? step * multiplier : -step * multiplier;
-          const next = Math.max(min, Math.min(max, curr + delta));
-          if (!Object.is(next, curr)) {
-            sliceNavService.updateSlicePosition(viewId, next);
-          }
+          sliceNavService.stepSlice(viewId, event.deltaY > 0 ? multiplier : -multiplier);
         }
       },
       50,
@@ -413,6 +524,17 @@ function SliceViewCanvasRaw({
   const handlePlacementChange = useCallback(
     (placement: SliceViewportPlacement) => {
       imagePlacementRef.current = placement;
+      setPlacementState((prev) =>
+        prev &&
+        prev.x === placement.x &&
+        prev.y === placement.y &&
+        prev.width === placement.width &&
+        prev.height === placement.height &&
+        prev.imageWidth === placement.imageWidth &&
+        prev.imageHeight === placement.imageHeight
+          ? prev
+          : placement,
+      );
     },
     [],
   );
@@ -473,8 +595,22 @@ function SliceViewCanvasRaw({
   return (
     <div
       ref={containerRef}
-      className={`h-full w-full relative ${className}`}
+      className={`h-full w-full relative outline-none ${className}`}
       data-view-id={viewId}
+      // The image placement hover, click and overlay share (tests and the
+      // harness read it rather than recomputing one).
+      data-placement={
+        placementState
+          ? `${placementState.x},${placementState.y},${placementState.width},${placementState.height},${placementState.imageWidth},${placementState.imageHeight}`
+          : undefined
+      }
+      // Programmatic focus target only (not in the Tab order): dialogs opened
+      // by a shortcut return focus here instead of <body> (Modal).
+      tabIndex={-1}
+      data-focus-return="viewport"
+      // The focus-return target is a named landmark ("Axial view").
+      role="region"
+      aria-label={`${viewId.charAt(0).toUpperCase()}${viewId.slice(1)} view`}
       onPointerDown={markActive}
       onMouseEnter={markActive}
       onContextMenu={handleContextMenu}
@@ -494,6 +630,7 @@ function SliceViewCanvasRaw({
           viewPlane={viewPlane}
           crosshair={crosshair}
           crosshairStyle={crosshairStyle}
+          getCrosshairKnockouts={getCrosshairKnockouts}
           showSliceBorder={primaryOptions.showBorder}
           sliceBorderWidth={primaryOptions.borderThicknessPx}
           onCanvasReady={handleCanvasReady}
@@ -506,7 +643,9 @@ function SliceViewCanvasRaw({
           enableDragDrop={true}
           showLoading={false}
           showError={true}
-          showNoLayers={!hasLayers && !isLoadingAnyLayer}
+          // The stack shows one empty state (EmptyStackOverlay); the pane
+          // keeps its frame and plane word.
+          showNoLayers={false}
           showLoadingVolume={isLoadingAnyLayer}
           className="w-full h-full"
         />
@@ -521,6 +660,40 @@ function SliceViewCanvasRaw({
             width={width}
             height={canvasHeight}
             opacity={heatmapOpacity}
+          />
+        )}
+
+        {/* Viewport frame overlays (no layout height) */}
+        {!hasLayers && (
+          // Empty pane: just the plane word in the header position, so the
+          // layout reads before data arrives (P3.11).
+          <span
+            className="pointer-events-none absolute left-1.5 top-1 select-none text-bf-xs text-bf-text-muted"
+            data-testid="viewport-empty-plane"
+          >
+            {viewId.charAt(0).toUpperCase() + viewId.slice(1)}
+          </span>
+        )}
+        {hasLayers && (
+          <ViewportHeader
+            plane={viewId}
+            positionMm={crosshair.world_mm[axisIndex]}
+            layerName={headerLayerName}
+            elementRef={setHeaderElement}
+            width={width}
+            height={canvasHeight}
+            rangeMm={headerRangeMm}
+          />
+        )}
+        {showColorbar && colorbarLayer && (
+          <ViewportColorbar
+            layer={colorbarLayer}
+            width={width}
+            height={canvasHeight}
+            imageRect={frameGeometry?.imageRect ?? null}
+            avoidPoint={frameGeometry?.crosshairPoint ?? null}
+            topReserve={LAYOUT_BUTTON_RESERVE}
+            value={colorbarReading?.value ?? null}
           />
         )}
 
@@ -555,72 +728,32 @@ function SliceViewCanvasRaw({
             onChange={setTemporalMetric}
           />
           {temporalMetric !== "none" && (
-            <input
-              type="range"
+            <Slider
+              label="Overlay opacity"
               min={0}
               max={1}
               step={0.05}
               value={heatmapOpacity}
-              onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
-              title="Overlay opacity"
-              className="w-16 accent-blue-400"
+              onValueChange={setHeatmapOpacity}
+              format={(v) => `${Math.round(v * 100)}%`}
+              valueText={(v) => `${Math.round(v * 100)}%`}
+              className="w-16"
             />
           )}
         </div>
       )}
 
       {/* Orientation labels */}
-      {showMarkers &&
-        hasLayers &&
-        (() => {
-          const labels = anatomicalLabels(viewPlane);
-          if (!labels) return null;
-          const pillCls =
-            "absolute text-white/70 text-[11px] font-bold leading-none tracking-[0.15em] uppercase select-none pointer-events-none";
-          const labelShadow = {
-            textShadow: "0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.4)",
-          };
-          return (
-            <>
-              <span
-                className={`${pillCls} left-1/2 -translate-x-1/2`}
-                style={{ top: LABEL_OFFSET, ...labelShadow }}
-              >
-                {labels.top}
-              </span>
-              <span
-                className={`${pillCls} left-1/2 -translate-x-1/2`}
-                style={{
-                  bottom: hasLayers
-                    ? SLIDER_HEIGHT + LABEL_OFFSET
-                    : LABEL_OFFSET,
-                  ...labelShadow,
-                }}
-              >
-                {labels.bottom}
-              </span>
-              <span
-                className={`${pillCls} top-1/2 -translate-y-1/2`}
-                style={{ left: LABEL_OFFSET, ...labelShadow }}
-              >
-                {labels.left}
-              </span>
-              <span
-                className={`${pillCls} top-1/2 -translate-y-1/2`}
-                style={{ right: LABEL_OFFSET, ...labelShadow }}
-              >
-                {labels.right}
-              </span>
-            </>
-          );
-        })()}
-
-      {/* Hover value overlay */}
-      {hoverValue !== null && showHover && (
-        <div className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono tabular-nums px-1.5 py-0.5">
-          {hoverValue.toFixed(3)}
-        </div>
+      {showMarkers && hasLayers && (
+        <OrientationLabels
+          viewPlane={viewPlane}
+          refs={orientationLabelRefs}
+          bottomInset={SLIDER_HEIGHT}
+        />
       )}
+
+      {/* No in-canvas hover value: it duplicated the hover readout's value
+          without naming its layer (P3 critics). The readout names it. */}
     </div>
   );
 }

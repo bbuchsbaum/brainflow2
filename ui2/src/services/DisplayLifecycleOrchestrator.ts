@@ -20,6 +20,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
+import { looksLikeSegmentation } from '@/utils/labelTable';
 import type { Layer } from '@/types/layers';
 import { getSurfaceLoadingService, type SurfaceLoadingService } from './SurfaceLoadingService';
 import { surfaceOverlayService, type SurfaceDataLayer } from './SurfaceOverlayService';
@@ -338,10 +339,14 @@ export class DisplayLifecycleOrchestrator {
       const addedLayer = await this.volumeLoadingService.loadVolume({
         volumeHandle,
         workspaceId,
-        displayName: this.smartLayerName(volumeHandle.name || filename),
+        // Label maps keep their file name: the BIDS display name drops the
+        // entities that identify them ("atlas-synth3_dseg" -> "Segmentation").
+        displayName: isLabelImage(filename, volumeHandle)
+          ? filename
+          : this.smartLayerName(volumeHandle.name || filename),
         source: 'file',
         sourcePath: path,
-        layerType: this.inferLayerType(filename),
+        layerType: isLabelImage(filename, volumeHandle) ? 'label' : this.inferLayerType(filename),
         visible: true,
       });
 
@@ -485,6 +490,14 @@ export class DisplayLifecycleOrchestrator {
     }
     return 'anatomical';
   }
+}
+
+/**
+ * A label image: the header declares a label map (NIfTI intent 1002), or the
+ * file name carries a segmentation/atlas token (dseg, aparc, atlas, ...).
+ */
+function isLabelImage(filename: string, handle: { is_label_map?: boolean }): boolean {
+  return handle.is_label_map === true || looksLikeSegmentation(filename.toLowerCase());
 }
 
 let displayLifecycleOrchestratorInstance: DisplayLifecycleOrchestrator | null = null;

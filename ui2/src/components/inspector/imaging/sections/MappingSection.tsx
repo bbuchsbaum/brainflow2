@@ -2,7 +2,7 @@ import React from 'react';
 import { useLayerStore } from '@/stores/layerStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import type { SceneItem } from '@/types/sceneItem';
-import { InspectorSection, FieldRow } from '../InspectorSection';
+import { Button, KeyValue, Section, StatusPill } from '@/components/ui/bf';
 
 interface MappingSectionProps {
   item: SceneItem;
@@ -16,10 +16,10 @@ interface MappingSectionProps {
  * looks identical on both supports.
  */
 export function MappingSection({ item }: MappingSectionProps) {
-  if (item.ref.type !== 'mapping' && item.ref.type !== 'surface-overlay') return null;
-
+  // Hooks first: their order must not depend on the item kind.
   const surfaces = useSurfaceStore((s) => s.surfaces);
   const volumeLayers = useLayerStore((s) => s.layers);
+  if (item.ref.type !== 'mapping' && item.ref.type !== 'surface-overlay') return null;
 
   const surfaceId = item.ref.surfaceId;
   const surfaceLayerId = item.ref.surfaceLayerId;
@@ -38,74 +38,45 @@ export function MappingSection({ item }: MappingSectionProps) {
 
   return (
     <>
-      <InspectorSection label="Mapping" icon={<MappingIcon />} defaultOpen>
-        <FieldRow label="Source">
-          <span className="truncate text-[12px] text-foreground" title={sourceVolume?.name ?? volumeId}>
-            {sourceVolume?.name ?? volumeId}
-          </span>
-        </FieldRow>
-        <FieldRow label="Target">
-          <span className="truncate text-[12px] text-foreground" title={surface.name}>
-            {surface.name}
-          </span>
-        </FieldRow>
-        <FieldRow label="Method">
-          <span className="text-[12px] capitalize text-foreground">{method}</span>
-        </FieldRow>
-        <FieldRow label="Sample radius">
-          <span
-            className="font-mono text-[12px] tabular-nums text-foreground"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-          >
-            {sampleRadius != null ? `${sampleRadius.toFixed(1)} mm` : '—'}
-          </span>
-        </FieldRow>
-        <FieldRow label="Surface smoothing">
-          <span
-            className="font-mono text-[12px] tabular-nums text-foreground"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-          >
-            {smoothingKernel != null ? `${smoothingKernel.toFixed(1)} mm` : '—'}
-          </span>
-        </FieldRow>
-        <FieldRow label="Status">
-          <span className="text-[11px] text-emerald-600 dark:text-emerald-300">current</span>
-        </FieldRow>
-        <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]">
+      <Section title="Mapping" icon={<MappingIcon />} defaultOpen>
+        <KeyValue
+          layout="rows"
+          labelWidth="wide"
+          items={[
+            { label: 'Source', value: sourceVolume?.name ?? volumeId },
+            { label: 'Target', value: surface.name },
+            { label: 'Method', value: method.charAt(0).toUpperCase() + method.slice(1), mono: false },
+            {
+              label: 'Sample radius',
+              value: sampleRadius != null ? `${sampleRadius.toFixed(1)} mm` : '—',
+            },
+            {
+              label: 'Surface smoothing',
+              value: smoothingKernel != null ? `${smoothingKernel.toFixed(1)} mm` : '—',
+            },
+            { label: 'Status', value: <StatusPill status="success">Current</StatusPill>, mono: false },
+          ]}
+        />
+        <div className="mt-2 flex items-center justify-between border-t border-bf-border-subtle pt-2 text-bf-xs">
           <span className="text-muted-foreground">Action</span>
-          <button
-            type="button"
-            className="rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
+          <Button variant="secondary" size="sm">
             Recompute projection
-          </button>
+          </Button>
         </div>
-      </InspectorSection>
+      </Section>
 
-      <InspectorSection label="Linked Display" icon={<LinkIcon />} defaultOpen={false}>
-        <FieldRow label="Sync colormap">
-          <span className="text-[12px] text-muted-foreground">on</span>
-        </FieldRow>
-        <FieldRow label="Sync threshold">
-          <span className="text-[12px] text-muted-foreground">on</span>
-        </FieldRow>
-        <FieldRow label="Volume opacity">
-          <span
-            className="font-mono text-[12px] tabular-nums text-foreground"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-          >
-            85%
-          </span>
-        </FieldRow>
-        <FieldRow label="Surface opacity">
-          <span
-            className="font-mono text-[12px] tabular-nums text-foreground"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-          >
-            70%
-          </span>
-        </FieldRow>
-      </InspectorSection>
+      <Section title="Linked display" icon={<LinkIcon />} defaultOpen={false}>
+        <KeyValue
+          layout="rows"
+          labelWidth="wide"
+          items={[
+            { label: 'Sync colormap', value: 'on', mono: false },
+            { label: 'Sync threshold', value: 'on', mono: false },
+            { label: 'Volume opacity', value: '85%' },
+            { label: 'Surface opacity', value: '70%' },
+          ]}
+        />
+      </Section>
     </>
   );
 }

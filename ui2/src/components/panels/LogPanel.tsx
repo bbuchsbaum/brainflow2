@@ -36,8 +36,8 @@ const TOOLBAR_STYLE: React.CSSProperties = {
 
 const LEVEL_COLORS: Record<LogLevel, string> = {
   info: "var(--app-text-muted)",
-  warn: "var(--app-warning, #f59e0b)",
-  error: "var(--app-danger, #ef4444)",
+  warn: "var(--bf-warning)",
+  error: "var(--bf-danger)",
 };
 
 const ROW_STYLE: React.CSSProperties = {
@@ -81,8 +81,6 @@ const LogRow: React.FC<LogRowProps> = ({ entry }) => {
       </span>
       <span
         style={{
-          textTransform: "uppercase",
-          letterSpacing: "var(--app-role-section-tracking)",
           color: LEVEL_COLORS[entry.level],
           fontWeight: 600,
         }}
@@ -94,7 +92,7 @@ const LogRow: React.FC<LogRowProps> = ({ entry }) => {
         style={{
           color:
             entry.level === "error"
-              ? "var(--app-danger, #ef4444)"
+              ? "var(--bf-danger)"
               : "var(--app-text-primary)",
           minWidth: 0,
           whiteSpace: "pre-wrap",
@@ -189,8 +187,6 @@ const LogPanelContent: React.FC = () => {
                     : "var(--app-text-muted)",
                   cursor: "pointer",
                   fontSize: "var(--app-role-section-size)",
-                  letterSpacing: "var(--app-role-section-tracking)",
-                  textTransform: "uppercase",
                   borderRadius: "2px",
                 }}
               >
@@ -212,7 +208,7 @@ const LogPanelContent: React.FC = () => {
             minWidth: 0,
             height: "20px",
             padding: "0 6px",
-            background: "var(--app-bg-input, transparent)",
+            background: "var(--bf-bg-input)",
             border: "1px solid var(--app-border-subtle)",
             color: "var(--app-text-primary)",
             borderRadius: "2px",

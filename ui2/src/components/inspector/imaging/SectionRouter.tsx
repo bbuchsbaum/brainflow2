@@ -1,6 +1,7 @@
 import React from 'react';
 import type { SceneItem } from '@/types/sceneItem';
 import { ParcelValuesSection } from './sections/ParcelValuesSection';
+import { LabelLegendSection } from './sections/LabelLegendSection';
 import { RenderSection } from './sections/RenderSection';
 import { DataSection } from './sections/DataSection';
 import { GeometrySection } from './sections/GeometrySection';
@@ -14,7 +15,7 @@ import { ImageSetSection } from './sections/ImageSetSection';
  *
  *   volume-base          → Render · Data · ViewBehavior · Advanced
  *   volume-overlay       → Render · Data · Mapping (when projected) · Advanced
- *   volume-overlay-atlas → Render (categorical) · Data · Advanced
+ *   volume-overlay-atlas → Render (categorical) · Regions · Data · Advanced
  *   surface-geometry     → Render · Data · Geometry (settings behind gear)
  *   surface-overlay      → Render · Data · Mapping (when from volume) · Advanced
  *   mapping              → Mapping · Advanced
@@ -48,6 +49,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
         <>
           <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
+          <LabelLegendSection item={item} />
           <DataSection item={item} />
           <AdvancedSection item={item} />
         </>

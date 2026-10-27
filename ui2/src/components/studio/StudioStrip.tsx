@@ -1,4 +1,5 @@
 import React from 'react';
+import { Chip, Notice, SelectableRow, useRovingFocus } from '@/components/ui/bf';
 import type { StudioDesignFilter } from '@/types/studio';
 
 interface StudioStripProps {
@@ -46,17 +47,23 @@ export function StudioStrip({
       }))
     : (filterLabels ?? []).map((label) => ({ filter: null as StudioDesignFilter | null, label }));
 
+  const roving = useRovingFocus({
+    ids: memberIds,
+    activeId: activeMemberId,
+    orientation: 'horizontal',
+  });
+
   return (
     <section
-      aria-label="Set Studio strip"
-      className="col-span-3 flex flex-col gap-2 rounded-lg border border-border bg-card p-3"
+      aria-label="Set studio strip"
+      className="col-span-3 flex flex-col gap-2 rounded-sm border border-border bg-card p-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-          Studio Strip
-          <span className="text-muted-foreground/70"> — Current Set</span>
+        <div className="text-bf-xs font-medium text-muted-foreground">
+          Studio strip
+          <span className="text-muted-foreground"> — current set</span>
           <span
-            className="ml-2 font-mono text-foreground tabular-nums"
+            className="ml-2 text-foreground tabular-nums"
             style={{ fontVariantNumeric: 'tabular-nums' }}
           >
             ({memberIds.length} {memberIds.length === 1 ? 'member' : 'members'})
@@ -65,28 +72,25 @@ export function StudioStrip({
         {hasChips ? (
           <div className="flex flex-wrap items-center gap-1.5">
             {scopeLabel ? (
-              <Chip
-                tone="sky"
+              <ContextChip
                 label="Scope"
                 value={scopeLabel}
                 onClear={onClearScope}
               />
             ) : null}
             {issueFocusLabel ? (
-              <Chip tone="amber" label="Issue" value={issueFocusLabel} />
+              <ContextChip label="Issue" value={issueFocusLabel} />
             ) : null}
             {searchLabel ? (
-              <Chip
-                tone="violet"
+              <ContextChip
                 label="Search"
                 value={searchLabel}
                 onClear={onClearSearch}
               />
             ) : null}
             {filterEntries.map(({ filter, label }) => (
-              <Chip
+              <ContextChip
                 key={label}
-                tone="violet"
                 label="Filter"
                 value={label}
                 onClear={
@@ -94,47 +98,43 @@ export function StudioStrip({
                 }
               />
             ))}
-            {sortLabel ? <Chip tone="muted" label="Sort" value={sortLabel} /> : null}
+            {sortLabel ? <ContextChip label="Sort" value={sortLabel} /> : null}
           </div>
         ) : null}
       </div>
 
       {contextIssue ? (
-        <p role="alert" className="text-xs text-destructive">
+        <Notice role="alert" severity="danger">
           {contextIssue}
-        </p>
+        </Notice>
       ) : activeMemberId && !memberIds.includes(activeMemberId) ? (
-        <p role="status" className="text-xs text-muted-foreground">
+        <Notice severity="info">
           Focus: <span className="font-mono">{activeMemberId}</span> · hidden by list filters
-        </p>
+        </Notice>
       ) : null}
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {memberIds.map((memberId) => {
-          const isActive = memberId === activeMemberId;
-          return (
-            <button
-              key={memberId}
-              type="button"
-              onClick={() => onSelectMember(memberId)}
-              title={memberId}
-              className={`min-w-[112px] rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                isActive
-                  ? 'border-sky-500 bg-sky-500/10 text-foreground shadow-sm'
-                  : 'border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground'
-              }`}
-            >
-              <span
-                className="block truncate font-mono text-xs tabular-nums"
-                style={{ fontVariantNumeric: 'tabular-nums' }}
-              >
-                {memberId}
-              </span>
-            </button>
-          );
-        })}
+      <div
+        role="listbox"
+        aria-label="Members"
+        aria-orientation="horizontal"
+        onKeyDown={roving.onKeyDown}
+        className="flex gap-2 overflow-x-auto p-0.5 pb-1"
+      >
+        {memberIds.map((memberId) => (
+          <SelectableRow
+            key={memberId}
+            variant="card"
+            {...roving.getItemProps(memberId)}
+            selected={memberId === activeMemberId}
+            onSelect={() => onSelectMember(memberId)}
+            title={memberId}
+            className="min-w-[112px] shrink-0"
+          >
+            <span className="block truncate font-mono text-bf-sm tabular-nums">{memberId}</span>
+          </SelectableRow>
+        ))}
         {memberIds.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-muted-foreground">
+          <div className="px-3 py-2 text-bf-sm text-muted-foreground">
             No members in scope.
           </div>
         ) : null}
@@ -143,45 +143,24 @@ export function StudioStrip({
   );
 }
 
-type ChipTone = 'sky' | 'amber' | 'violet' | 'muted';
-
-function Chip({
-  tone,
+/** A static context chip ("Scope S001") with an optional remove button. */
+function ContextChip({
   label,
   value,
   onClear,
 }: {
-  tone: ChipTone;
   label: string;
   value: string;
   onClear?: () => void;
 }) {
-  const toneClass =
-    tone === 'sky'
-      ? 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200'
-      : tone === 'amber'
-        ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200'
-        : tone === 'violet'
-          ? 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-200'
-          : 'border-border bg-background text-muted-foreground';
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${toneClass}`}
+    <Chip
+      title={`${label} ${value}`}
+      className="max-w-[200px]"
+      onRemove={onClear}
+      removeLabel={`${label.toLowerCase()} ${value}`}
     >
-      <span className="text-[10px] font-medium uppercase tracking-[0.06em] opacity-80">
-        {label}
-      </span>
-      <span className="max-w-[160px] truncate">{value}</span>
-      {onClear ? (
-        <button
-          type="button"
-          aria-label={`Clear ${label.toLowerCase()}`}
-          onClick={onClear}
-          className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-current/70 transition-colors hover:bg-background/40 hover:text-current"
-        >
-          ×
-        </button>
-      ) : null}
-    </span>
+      <span className="text-muted-foreground">{label}</span> {value}
+    </Chip>
   );
 }

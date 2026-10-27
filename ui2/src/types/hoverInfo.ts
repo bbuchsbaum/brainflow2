@@ -29,6 +29,11 @@ export interface HoverContext {
   screenPos: { x: number; y: number };
   /** ID of the primary/active layer (if any) */
   activeLayerId?: string;
+  /**
+   * Layers whose value the hover tooltip reports (visible layers with "Show
+   * value on hover" on), top of the stack first. Falls back to activeLayerId.
+   */
+  layerIds?: string[];
   /** ID of the active atlas layer (if any) */
   activeAtlasId?: string;
 }

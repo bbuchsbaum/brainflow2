@@ -103,6 +103,8 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
                 },
             },
             features: vec![StudioFeatureSummary {
+                value_role: None,
+                units: None,
                 id: "feature-statmap".to_string(),
                 label: "Stat Map".to_string(),
                 kind: StudioSupportKind::Volume,
@@ -483,6 +485,8 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
             },
         },
         features: vec![StudioFeatureSummary {
+            value_role: None,
+            units: None,
             id: "feature-statmap".to_string(),
             label: "Stat Map".to_string(),
             kind: StudioSupportKind::Volume,

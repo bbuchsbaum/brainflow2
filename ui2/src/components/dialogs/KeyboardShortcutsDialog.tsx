@@ -52,11 +52,11 @@ export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProp
     <Modal
       isOpen={true}
       onClose={onClose}
-      title="Keyboard Shortcuts"
+      title="Keyboard shortcuts"
       ariaLabel="Keyboard shortcuts"
       size="md"
       bodyClassName="p-0"
-      className="max-w-md rounded-sm ring-1 ring-white/10 shadow-2xl"
+      className="max-w-md rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
           {categories.length === 0 && (
@@ -64,10 +64,7 @@ export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProp
           )}
           {categories.map(category => (
             <section key={category}>
-              <h3
-                className="text-xs font-semibold uppercase tracking-wider mb-3"
-                style={{ color: 'var(--app-text-muted, #64748b)' }}
-              >
+              <h3 className="m-0 mb-3 border-0 p-0 text-bf-sm font-semibold text-foreground">
                 {category}
               </h3>
               <div className="space-y-1">
@@ -79,14 +76,14 @@ export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProp
                     <kbd
                       className="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-mono font-medium"
                       style={{
-                        backgroundColor: 'var(--app-bg-tertiary, #1e293b)',
-                        color: 'var(--app-text-secondary, #94a3b8)',
-                        border: '1px solid var(--app-border, #334155)',
+                        backgroundColor: 'var(--bf-bg-panel)',
+                        color: 'var(--bf-text-secondary)',
+                        border: '1px solid var(--bf-border)',
                       }}
                     >
                       {formatShortcut(reg)}
                     </kbd>
-                    <span className="text-sm" style={{ color: 'var(--app-text-primary, #e2e8f0)' }}>
+                    <span className="text-sm" style={{ color: 'var(--bf-text-primary)' }}>
                       {reg.description}
                     </span>
                   </div>
@@ -100,8 +97,8 @@ export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProp
         <div
           className="px-6 py-3 border-t text-xs text-center"
           style={{
-            borderColor: 'var(--app-border-subtle, #1e293b)',
-            color: 'var(--app-text-muted, #64748b)',
+            borderColor: 'var(--bf-border-subtle)',
+            color: 'var(--bf-text-muted)',
           }}
         >
           Press <kbd className="px-1 font-mono">?</kbd> or <kbd className="px-1 font-mono">Esc</kbd> to close

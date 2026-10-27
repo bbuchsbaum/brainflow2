@@ -4,9 +4,6 @@ import {
   NeuroSurfaceViewer,
   SurfaceGeometry,
   MultiLayerNeuroSurface,
-  DataLayer,
-  RGBALayer,
-  VolumeProjectionLayer,
   LaplacianSmoothing,
   THREE,
 } from 'neurosurface';
@@ -21,14 +18,18 @@ import {
   DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS,
   DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS,
   type NeuroSurfaceCanvasProps,
-  type RenderableLayerSpec,
-  type SurfaceDisplaySettings,
-  type SurfaceLightingSettings,
-  type SurfaceMaterialSettings,
   type SurfaceRenderable,
 } from './types.js';
 
-interface NeuroSurfaceViewerInstance {
+import {
+  buildLayerInstance,
+  applyLayerUpdate,
+  applySurfaceRenderSettings,
+  applySceneRenderSettings,
+  type SurfaceLightingTarget,
+} from './surfaceRuntime.js';
+
+interface NeuroSurfaceViewerInstance extends SurfaceLightingTarget {
   dispose: () => void;
   resize: (width: number, height: number) => void;
   render: () => void;
@@ -51,16 +52,6 @@ interface OriginalGeometry {
   faces: Uint32Array;
 }
 
-function colorHexToNumber(value: string | number | undefined): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value === 'number') {
-    return value;
-  }
-  return Number.parseInt(value.replace('#', ''), 16);
-}
-
 function hasRenderableGeometry(surface: SurfaceRenderable): boolean {
   return Boolean(
     surface.geometry.vertices &&
@@ -68,77 +59,6 @@ function hasRenderableGeometry(surface: SurfaceRenderable): boolean {
       surface.geometry.vertices.length > 0 &&
       surface.geometry.faces.length > 0,
   );
-}
-
-function buildLayerInstance(
-  spec: RenderableLayerSpec,
-): DataLayer | RGBALayer | VolumeProjectionLayer {
-  switch (spec.kind) {
-    case 'rgba':
-      return new RGBALayer(spec.id, spec.rgba ?? new Float32Array(0), {
-        opacity: spec.opacity,
-      });
-    case 'volume':
-      return new VolumeProjectionLayer(
-        spec.id,
-        new Float32Array(spec.volumeData ?? []),
-        spec.volumeDims ?? [1, 1, 1],
-        {
-          affineMatrix: spec.affineMatrix,
-          colormap: spec.colormap || 'viridis',
-          range: spec.range,
-          threshold: spec.threshold,
-          opacity: spec.opacity,
-        },
-      );
-    case 'data':
-    default:
-      return new DataLayer(
-        spec.id,
-        spec.values ?? new Float32Array(0),
-        spec.indices ?? null,
-        spec.colormap || 'viridis',
-        {
-          range: spec.range,
-          threshold: spec.threshold,
-          opacity: spec.opacity,
-        },
-      );
-  }
-}
-
-function applyLayerUpdate(
-  renderedSurface: MultiLayerNeuroSurface,
-  spec: RenderableLayerSpec,
-): void {
-  switch (spec.kind) {
-    case 'rgba':
-      renderedSurface.updateLayer(spec.id, {
-        rgbaData: spec.rgba,
-        opacity: spec.opacity,
-      });
-      return;
-    case 'volume':
-      renderedSurface.updateLayer(spec.id, {
-        volumeData: spec.volumeData ? new Float32Array(spec.volumeData) : undefined,
-        colormap: spec.colormap,
-        range: spec.range,
-        threshold: spec.threshold,
-        affineMatrix: spec.affineMatrix,
-        opacity: spec.opacity,
-      });
-      return;
-    case 'data':
-    default:
-      renderedSurface.updateLayer(spec.id, {
-        data: spec.values,
-        indices: spec.indices ?? undefined,
-        colorMap: spec.colormap,
-        range: spec.range,
-        threshold: spec.threshold,
-        opacity: spec.opacity,
-      });
-  }
 }
 
 function applySmoothingToRenderedSurface(
@@ -171,85 +91,6 @@ function applySmoothingToRenderedSurface(
     LaplacianSmoothing.smoothGeometry(threeGeometry, iterations, lambda, method, true, -0.53);
   } catch (error) {
     console.error('Failed to apply smoothing:', error);
-  }
-}
-
-function applySurfaceRenderSettings(
-  renderedSurface: MultiLayerNeuroSurface,
-  displaySettings: SurfaceDisplaySettings,
-  materialSettings: SurfaceMaterialSettings,
-): void {
-  if (renderedSurface.updateConfig) {
-    renderedSurface.updateConfig({
-      alpha: displaySettings.opacity,
-      flatShading: displaySettings.flatShading,
-      shininess: materialSettings.shininess,
-      specularColor: colorHexToNumber(materialSettings.specularColor),
-      emissive: colorHexToNumber(materialSettings.emissiveColor),
-      emissiveIntensity: materialSettings.emissiveIntensity,
-    });
-  }
-
-  const mesh = renderedSurface.mesh;
-  if (!mesh || !mesh.material) {
-    return;
-  }
-
-  const material = mesh.material as any;
-
-  if (material.wireframe !== undefined) {
-    material.wireframe = displaySettings.wireframe;
-  }
-
-  if (material.flatShading !== undefined) {
-    material.flatShading = displaySettings.flatShading;
-  }
-
-  if (material.color && material.color.set) {
-    material.color.set(materialSettings.surfaceColor);
-  }
-
-  if (mesh.geometry && mesh.geometry.computeVertexNormals) {
-    mesh.geometry.computeVertexNormals();
-  }
-
-  material.needsUpdate = true;
-}
-
-function applySceneRenderSettings(
-  viewer: NeuroSurfaceViewerInstance,
-  lightingSettings: SurfaceLightingSettings,
-): void {
-  if (!viewer.scene) {
-    return;
-  }
-
-  viewer.scene.traverse((child: any) => {
-    if (child.isAmbientLight) {
-      child.intensity = lightingSettings.ambientLightIntensity;
-    } else if (child.isDirectionalLight) {
-      if (child.userData?.role !== 'fill') {
-        child.intensity = lightingSettings.directionalLightIntensity;
-        if (lightingSettings.lightPosition) {
-          child.position.set(...lightingSettings.lightPosition);
-        }
-      }
-    }
-  });
-
-  let fillLight = viewer.scene.getObjectByName('fillLight');
-  if (
-    !fillLight &&
-    lightingSettings.fillLightIntensity &&
-    lightingSettings.fillLightIntensity > 0
-  ) {
-    fillLight = new THREE.DirectionalLight(0xffffff, lightingSettings.fillLightIntensity);
-    fillLight.name = 'fillLight';
-    fillLight.userData.role = 'fill';
-    fillLight.position.set(-100, -100, -50);
-    viewer.scene.add(fillLight);
-  } else if (fillLight) {
-    fillLight.intensity = lightingSettings.fillLightIntensity || 0;
   }
 }
 
@@ -414,6 +255,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
             showControls,
             useShaders,
             controlType: 'trackball',
+            headlight: false,
           },
           viewpoint,
         ) as NeuroSurfaceViewerInstance;
@@ -695,14 +537,14 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     });
 
     viewerRef.current.requestRender();
-  }, [displaySettings, materialSettings, renderHandlesKey]);
+  }, [isInitialized, displaySettings, materialSettings, renderHandlesKey]);
 
   useEffect(() => {
     if (!viewerRef.current) return;
 
     applySceneRenderSettings(viewerRef.current, lightingSettings);
     viewerRef.current.requestRender();
-  }, [lightingSettings]);
+  }, [isInitialized, lightingSettings]);
 
   // Linked cursor: a marker sphere on the surface that tracks a world position
   // (the volume crosshair), snapped to the nearest visible-surface vertex so it

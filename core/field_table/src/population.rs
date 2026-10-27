@@ -277,6 +277,48 @@ impl FieldMoments {
         Ok(())
     }
 
+    /// One matched participant difference: finite mean(A) minus finite mean(B).
+    /// Both sides must have a local measurement. Means and subtraction stay f64.
+    /// The caller matches identities and validates that observations are disjoint.
+    pub fn push_mean_difference(
+        &mut self,
+        a: &[&[f32]],
+        b: &[&[f32]],
+    ) -> Result<(), PopulationError> {
+        if a.is_empty() || b.is_empty() {
+            return Err(PopulationError::EmptyGroup);
+        }
+        for field in a.iter().chain(b) {
+            if field.len() != self.locations.len() {
+                return Err(PopulationError::Shape {
+                    expected: self.locations.len(),
+                    actual: field.len(),
+                });
+            }
+        }
+        let eligible_count = self
+            .eligible_count
+            .checked_add(1)
+            .ok_or(PopulationError::CountOverflow)?;
+        for (index, moments) in self.locations.iter_mut().enumerate() {
+            let mean = |fields: &[&[f32]]| {
+                let (mut count, mut mean) = (0, 0.);
+                for field in fields {
+                    if field[index].is_finite() {
+                        count += 1;
+                        mean = updated_mean(mean, f64::from(field[index]), count);
+                    }
+                }
+                (count > 0).then_some(mean)
+            };
+            if let Some((a, b)) = mean(a).zip(mean(b)) {
+                moments.push(a - b, self.near_zero);
+            }
+        }
+        self.eligible_count = eligible_count;
+        Ok(())
+    }
+
     /// Merge disjoint observation blocks on the same spatial support. The
     /// caller owns membership validation; merging a block twice counts it twice.
     pub fn merge(&mut self, other: &Self) -> Result<(), PopulationError> {
@@ -310,4 +352,27 @@ impl FieldMoments {
     pub fn allocated_bytes(&self) -> usize {
         self.locations.capacity() * std::mem::size_of::<Moments>()
     }
+}
+
+/// Exact finite-value median and unscaled median absolute deviation.
+/// Scratch is O(number of analysis units), independent of spatial support size.
+pub fn median_mad(values: impl IntoIterator<Item = f64>) -> (Option<f64>, Option<f64>) {
+    let mut finite: Vec<_> = values.into_iter().filter(|v| v.is_finite()).collect();
+    if finite.is_empty() {
+        return (None, None);
+    }
+    fn median(v: &mut [f64]) -> f64 {
+        v.sort_by(f64::total_cmp);
+        let n = v.len();
+        if n % 2 == 1 {
+            v[n / 2]
+        } else {
+            v[n / 2 - 1] / 2. + v[n / 2] / 2.
+        }
+    }
+    let center = median(&mut finite);
+    for v in &mut finite {
+        *v = (*v - center).abs();
+    }
+    (Some(center), Some(median(&mut finite)))
 }

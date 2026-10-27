@@ -1,6 +1,6 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { SceneItem } from '@/types/sceneItem';
-import { InspectorSection, FieldRow } from '../InspectorSection';
+import { Button, FieldRow, Section, Select, Slider, Switch } from '@/components/ui/bf';
 import {
   DEFAULT_SURFACE_VIEW_ID,
   DEFAULT_SURFACE_VIEW_SETTINGS,
@@ -10,15 +10,6 @@ import {
   type SurfaceMaterialSettings,
 } from '@/stores/surfaceStore';
 import { useResolvedActiveSurfaceViewId } from '@/hooks/useResolvedActiveSurfaceViewId';
-import { SingleSlider } from '@/components/ui/SingleSlider';
-import { Switch } from '@/components/ui/shadcn/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/shadcn/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
 import { SurfaceGeometryControls } from '@/components/panels/SurfaceGeometryControls';
 import {
@@ -99,20 +90,10 @@ function GeometrySectionBody() {
   const materialPresetName = matchMaterialPreset(material);
 
   return (
-    <InspectorSection label="Geometry" icon={<GeometryIcon />} defaultOpen>
-      <div className="py-1.5">
-        <SingleSlider
-          label="Opacity"
-          min={0}
-          max={1}
-          value={display.opacity}
-          onChange={(v) => applyDisplay({ opacity: v })}
-          layout="strip"
-          compact
-          highContrast
-          formatValue={(v) => `${Math.round(v * 100)}%`}
-        />
-      </div>
+    <Section title="Geometry" icon={<GeometryIcon />} defaultOpen>
+      <FieldRow label="Opacity">
+        <SurfaceOpacitySlider value={display.opacity} onChange={(v) => applyDisplay({ opacity: v })} />
+      </FieldRow>
 
       <FieldRow label="Lighting preset">
         <Select
@@ -122,16 +103,16 @@ function GeometrySectionBody() {
             if (preset) applyLighting(preset.values);
           }}
         >
-          <SelectTrigger className="h-7 w-[128px] text-[12px]">
-            <SelectValue placeholder="Custom" />
-          </SelectTrigger>
-          <SelectContent>
-            {LIGHTING_PRESETS.map((p) => (
-              <SelectItem key={p.name} value={p.name} className="text-[12px]">
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
+          {lightingPresetName ? null : (
+            <option value="" disabled>
+              Custom
+            </option>
+          )}
+          {LIGHTING_PRESETS.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name}
+            </option>
+          ))}
         </Select>
       </FieldRow>
 
@@ -143,16 +124,16 @@ function GeometrySectionBody() {
             if (preset) applyMaterial(preset.values);
           }}
         >
-          <SelectTrigger className="h-7 w-[128px] text-[12px]">
-            <SelectValue placeholder="Custom" />
-          </SelectTrigger>
-          <SelectContent>
-            {MATERIAL_PRESETS.map((p) => (
-              <SelectItem key={p.name} value={p.name} className="text-[12px]">
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
+          {materialPresetName ? null : (
+            <option value="" disabled>
+              Custom
+            </option>
+          )}
+          {MATERIAL_PRESETS.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name}
+            </option>
+          ))}
         </Select>
       </FieldRow>
 
@@ -160,19 +141,11 @@ function GeometrySectionBody() {
         <Select
           value={display.flatShading ? 'Flat' : 'Smooth'}
           onValueChange={(v) => applyDisplay({ flatShading: v === 'Flat' })}
-        >
-          <SelectTrigger className="h-7 w-[128px] text-[12px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="Smooth" className="text-[12px]">
-              Smooth
-            </SelectItem>
-            <SelectItem value="Flat" className="text-[12px]">
-              Flat
-            </SelectItem>
-          </SelectContent>
-        </Select>
+          options={[
+            { value: 'Smooth', label: 'Smooth' },
+            { value: 'Flat', label: 'Flat' },
+          ]}
+        />
       </FieldRow>
 
       <FieldRow label="Wireframe">
@@ -185,20 +158,71 @@ function GeometrySectionBody() {
       <div className="pt-2">
         <Popover>
           <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            >
-              <GearIcon />
+            <Button variant="secondary" size="sm" className="w-full" icon={<GearIcon />}>
               Surface settings…
-            </button>
+            </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-[300px] max-h-[60vh] overflow-y-auto p-0">
+          <PopoverContent
+            aria-label="Surface settings"
+            align="end"
+            // As wide as the trigger (the Inspector column), flush with it, so no
+            // Inspector label fragments show at the popover's left edge.
+            className="w-[var(--radix-popover-trigger-width)] min-w-[300px] max-h-[60vh] overflow-y-auto p-0"
+          >
             <SurfaceGeometryControls surfaceViewId={readId} />
           </PopoverContent>
         </Popover>
       </div>
-    </InspectorSection>
+    </Section>
+  );
+}
+
+const formatPercent = (v: number) => `${Math.round(v * 100)}%`;
+
+/**
+ * Surface opacity. Like the former SingleSlider, the thumb follows the
+ * pointer locally and the (fan-out) store write is debounced by 120 ms, so a
+ * drag does not broadcast every pixel to every surface view.
+ */
+function SurfaceOpacitySlider({
+  value,
+  onChange,
+  ...field
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  id?: string;
+  'aria-describedby'?: string;
+  disabled?: boolean;
+}) {
+  const [local, setLocal] = useState(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  useEffect(() => setLocal(value), [value]);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  return (
+    <Slider
+      {...field}
+      label="Opacity"
+      value={local}
+      min={0}
+      max={1}
+      format={formatPercent}
+      valueText={formatPercent}
+      showValue
+      className="flex-1"
+      onValueChange={(v) => {
+        setLocal(v);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => latest.current(v), 120);
+      }}
+    />
   );
 }
 

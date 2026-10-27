@@ -61,7 +61,7 @@ const PANE_SLOTS: PaneSlot[] = [
     letter: 'B',
     accent: 'emerald',
     units: 'β',
-    fallbackTitle: 'Cohort Mean',
+    fallbackTitle: 'Cohort mean',
     fallbackSubtitle: 'Select a cohort to enable comparisons',
   },
   {
@@ -148,7 +148,7 @@ export function CompareLens({
             <button
               type="button"
               onClick={onOpenCompareView}
-              className="hidden text-[10px] text-muted-foreground hover:text-foreground"
+              className="hidden text-bf-2xs text-muted-foreground hover:text-foreground"
               aria-hidden
             />
           ) : null;
@@ -206,7 +206,7 @@ function CurrentPaneCanvas({
       {memberLabel ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground"
+          className="pointer-events-none absolute bottom-2 left-2 rounded-sm border border-border/60 bg-background/70 px-2 py-0.5 text-bf-2xs text-muted-foreground"
         >
           {memberLabel}
         </div>

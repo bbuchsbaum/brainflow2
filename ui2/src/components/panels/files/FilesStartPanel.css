@@ -1,22 +1,20 @@
-/* FilesStartPanel — empty-state launch chrome.
- * Tokens still target --app-* until P4 (--bf-* migration). */
+/* FilesStartPanel — empty-state launch chrome (Workstation restyle:
+ * sentence case, 28px raised controls, inverted primary action). */
 
 .files-start-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--bf-space-3);
-  padding: var(--bf-space-4) var(--bf-space-3);
+  gap: var(--bf-space-4);
+  padding: 14px var(--bf-space-3);
   overflow-y: auto;
   height: 100%;
   color: var(--bf-text-primary);
 }
 
 .files-start-kicker {
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: var(--app-role-section-tracking);
-  font-size: var(--app-role-section-size);
-  font-weight: var(--app-role-section-weight);
+  margin: 0 0 -10px;
+  font-size: var(--app-role-body-size);
+  font-weight: 600;
   color: var(--bf-text-secondary);
 }
 
@@ -24,7 +22,7 @@
   margin: 0;
   font-size: var(--app-role-body-size);
   color: var(--bf-text-muted);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .files-start-commands {
@@ -36,56 +34,10 @@
   gap: var(--bf-space-1);
 }
 
-.files-start-command {
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-2);
-  width: 100%;
-  min-height: var(--bf-panel-header-h);
-  padding: 0 var(--bf-space-3);
-  background: transparent;
-  border: 1px solid var(--bf-border-subtle);
-  border-radius: var(--bf-radius-xs);
-  color: var(--bf-text-secondary);
-  font-size: var(--app-role-body-size);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color var(--bf-motion-fast) ease,
-    border-color var(--bf-motion-fast) ease,
-    color var(--bf-motion-fast) ease;
-}
-
-.files-start-command:hover:not(:disabled) {
-  background: var(--bf-bg-hover);
-  border-color: var(--bf-border-strong);
-  color: var(--bf-text-primary);
-}
-
-.files-start-command:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-.files-start-command:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: var(--app-focus-ring-offset);
-}
-
-.files-start-command--primary {
-  background: var(--bf-accent);
-  color: #ffffff;
-  border-color: color-mix(in srgb, var(--bf-accent) 70%, #000 30%);
-}
-
-.files-start-command--primary:hover:not(:disabled) {
-  background: var(--bf-accent-hover);
-  color: #fff;
-}
-
+/* Commands are bf Buttons (24px; primary + secondary), stretched by Tailwind classes. */
 .files-start-command-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 
@@ -100,17 +52,11 @@
 .files-start-command-shortcut {
   font-family: var(--bf-font-mono);
   font-size: var(--app-text-xs);
-  color: color-mix(in srgb, currentColor 80%, transparent);
+  color: color-mix(in srgb, currentColor 70%, transparent);
 }
 
 .files-start-error {
   margin: 0;
-  padding: var(--bf-space-1) var(--bf-space-2);
-  border: 1px solid color-mix(in srgb, var(--bf-danger) 32%, transparent);
-  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
-  color: var(--bf-danger);
-  font-size: var(--app-role-label-size);
-  border-radius: var(--bf-radius-xs);
 }
 
 .files-start-section {
@@ -127,31 +73,16 @@
 }
 
 .files-start-section-title {
-  text-transform: uppercase;
-  letter-spacing: var(--app-role-section-tracking);
+  font-family: var(--bf-font-sans);
   font-size: var(--app-role-section-size);
-  font-weight: var(--app-role-section-weight);
-  color: var(--bf-text-secondary);
-}
-
-.files-start-section-link {
-  background: none;
-  border: none;
+  font-weight: 400;
   color: var(--bf-text-muted);
-  font-size: var(--app-role-label-size);
-  cursor: pointer;
-  padding: 0;
-}
-
-.files-start-section-link:hover {
-  color: var(--bf-text-secondary);
 }
 
 .files-start-empty {
   margin: 0;
   font-size: var(--app-role-label-size);
   color: var(--bf-text-muted);
-  font-style: italic;
 }
 
 .files-start-list {
@@ -169,26 +100,7 @@
   gap: 2px;
 }
 
-.files-start-row-main {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-2);
-  padding: 4px var(--bf-space-2);
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: var(--bf-radius-xs);
-  color: var(--bf-text-primary);
-  font-size: var(--app-role-body-size);
-  text-align: left;
-  cursor: pointer;
-  min-width: 0;
-}
-
-.files-start-row-main:hover {
-  background: var(--bf-bg-hover);
-}
-
+/* Row openers are ghost bf Buttons; pin / unpin is a 24px IconButton. */
 .files-start-row-icon {
   width: 14px;
   height: 14px;
@@ -211,32 +123,7 @@
   flex-shrink: 0;
 }
 
-.files-start-row-action {
-  flex: 0 0 auto;
-  width: var(--app-control-height-sm);
-  height: var(--app-control-height-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--bf-text-muted);
-  border-radius: var(--bf-radius-xs);
-  cursor: pointer;
-  transition:
-    color var(--bf-motion-fast) ease,
-    background-color var(--bf-motion-fast) ease;
-}
 
-.files-start-row-action:hover:not(:disabled) {
-  background: var(--bf-bg-hover);
-  color: var(--bf-text-secondary);
-}
-
-.files-start-row-action:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
 
 .files-start-drop {
   margin-top: auto;
@@ -245,8 +132,8 @@
   justify-content: center;
   gap: var(--bf-space-2);
   padding: var(--bf-space-2) var(--bf-space-3);
-  border: 1px dashed var(--bf-border-subtle);
-  border-radius: var(--bf-radius-md);
+  border: 1px dashed var(--bf-border);
+  border-radius: var(--bf-radius-xs);
   color: var(--bf-text-muted);
 }
 

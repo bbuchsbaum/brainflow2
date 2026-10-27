@@ -1,5 +1,7 @@
-import React, { useCallback } from "react";
-import { GripVertical } from "lucide-react";
+import { useCompareEditTarget } from "@/utils/compareDisplay";
+import React, { useCallback, useId } from "react";
+import { Copy, GripVertical } from "lucide-react";
+import { copyValuesAtCrosshair } from "@/services/readoutCopy";
 import {
   DndContext,
   PointerSensor,
@@ -17,11 +19,26 @@ import {
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
 import { useSceneStack } from "@/hooks/useSceneStack";
+import { useLayerStore } from "@/stores/layerStore";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
 import type { SceneItem } from "@/types/sceneItem";
-import { InspectorSection } from "./InspectorSection";
+import {
+  IconButton,
+  Notice,
+  Section,
+  useRovingFocus,
+  type RovingItemProps,
+  EmptyPane,
+} from "@/components/ui/bf";
 import { SceneStackItem } from "./SceneStackItem";
+import { useReadoutPoint } from "@/hooks/useReadoutPoint";
+import {
+  formatVoxelIndex,
+  resolveVoxelGridReference,
+  voxelIndexInBounds,
+  worldToVoxelIndex,
+} from "@/utils/voxelSnap";
 
 /**
  * Scene section of the imaging Inspector. Three subgroups:
@@ -43,6 +60,10 @@ export function SceneStack() {
   const setActive = useInspectorSelectionStore((state) => state.setActive);
 
   const summary = buildSummary(volumes, surfaces, mappings);
+  // Unlinked Compare (P3.9): the scene's display edits belong to one panel.
+  const compare = useCompareEditTarget();
+  const meta =
+    compare?.scope === "panel" && summary ? `Panel ${compare.letter} · ${summary}` : summary;
 
   // Reordering a volume changes its z-order: the layer-array order is the
   // render contract (index 0 = base/bottom). All the store + ViewState + render
@@ -56,36 +77,105 @@ export function SceneStack() {
       });
   }, []);
 
+  // One tab stop for the whole scene list; arrows move across the groups.
+  const ids = React.useMemo(
+    () => [...volumes, ...surfaces, ...mappings].map((item) => item.id),
+    [volumes, surfaces, mappings],
+  );
+  const roving = useRovingFocus({ ids, activeId: activeItemId });
+  const rovingFor = roving.getItemProps;
+
   return (
-    <InspectorSection
-      label="Scene"
+    <Section
+      title="Scene"
       icon={<SceneIcon />}
       defaultOpen
-      meta={summary}
+      meta={meta ?? undefined}
+      divider={false}
     >
-      <VolumeSceneGroup
-        items={volumes}
-        activeItemId={activeItemId}
-        onSelect={setActive}
-        onReorder={handleVolumeReorder}
+      <div onKeyDown={roving.onKeyDown}>
+        <VolumeSceneGroup
+          items={volumes}
+          activeItemId={activeItemId}
+          onSelect={setActive}
+          onReorder={handleVolumeReorder}
+          rovingFor={rovingFor}
+        />
+        <SceneGroup
+          title="Surface view"
+          items={surfaces}
+          emptyHint="No surfaces loaded"
+          showWhenEmpty={false}
+          activeItemId={activeItemId}
+          onSelect={setActive}
+          rovingFor={rovingFor}
+        />
+        <SceneGroup
+          title="Mappings"
+          items={mappings}
+          emptyHint="No vol-to-surface mappings yet"
+          showWhenEmpty={false}
+          activeItemId={activeItemId}
+          onSelect={setActive}
+          rovingFor={rovingFor}
+        />
+      </div>
+    </Section>
+  );
+}
+
+type RovingFor = (id: string) => RovingItemProps;
+
+function GroupTitle({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <div id={id} className="mb-1 flex items-baseline gap-2 px-2 text-bf-xs text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Right-aligned caption naming where the row values are read (P3.6): "At
+ * pointer · ijk 29 57 64" while hovering a slice, else "At crosshair".
+ */
+function ReadoutCaption() {
+  const { source, world } = useReadoutPoint();
+  const layers = useLayerStore((s) => s.layers);
+  const layerMetadata = useLayerStore((s) => s.layerMetadata);
+  const reference = React.useMemo(
+    () => resolveVoxelGridReference(layers, layerMetadata),
+    [layers, layerMetadata],
+  );
+  let ijk: string | null = null;
+  if (source === "pointer") {
+    const index = reference ? worldToVoxelIndex(world, reference) : null;
+    ijk = index && voxelIndexInBounds(index, reference?.dims) ? formatVoxelIndex(index) : null;
+  }
+  // Prose in sans, the voxel numbers in mono.
+  return (
+    <>
+      <span
+        className="ml-auto"
+        data-testid="scene-readout-caption"
+        title={reference ? `Voxel of ${reference.name}` : undefined}
+      >
+        {source === "pointer" ? "At pointer" : "At crosshair"}
+        {ijk ? (
+          <>
+            {" · ijk "}
+            <span className="font-mono tabular-nums">{ijk}</span>
+          </>
+        ) : null}
+      </span>
+      <IconButton
+        size="xs"
+        variant="ghost"
+        icon={<Copy />}
+        aria-label="Copy values at crosshair"
+        title="Copy every visible layer's value at the crosshair (TSV)"
+        onClick={() => void copyValuesAtCrosshair()}
       />
-      <SceneGroup
-        title="Surface View"
-        items={surfaces}
-        emptyHint="No surfaces loaded"
-        showWhenEmpty={false}
-        activeItemId={activeItemId}
-        onSelect={setActive}
-      />
-      <SceneGroup
-        title="Mappings"
-        items={mappings}
-        emptyHint="No vol-to-surface mappings yet"
-        showWhenEmpty={false}
-        activeItemId={activeItemId}
-        onSelect={setActive}
-      />
-    </InspectorSection>
+    </>
   );
 }
 
@@ -96,6 +186,7 @@ function SceneGroup({
   showWhenEmpty,
   activeItemId,
   onSelect,
+  rovingFor,
 }: {
   title: string;
   items: SceneItem[];
@@ -103,26 +194,25 @@ function SceneGroup({
   showWhenEmpty: boolean;
   activeItemId: string | null;
   onSelect: (item: SceneItem) => void;
+  rovingFor: RovingFor;
 }) {
+  const titleId = `scene-group-${useId().replace(/:/g, "")}`;
   if (items.length === 0 && !showWhenEmpty) return null;
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
-        {title}
-      </div>
+      <GroupTitle id={titleId}>{title}</GroupTitle>
       {items.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70">
-          {emptyHint}
-        </div>
+        <Notice role={undefined}>{emptyHint}</Notice>
       ) : (
-        <div className="flex flex-col gap-0.5">
+        <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
           {items.map((item) => (
             <SceneStackItem
               key={item.id}
               item={item}
               selected={item.id === activeItemId}
               onSelect={() => onSelect(item)}
+              roving={rovingFor(item.id)}
             />
           ))}
         </div>
@@ -143,12 +233,15 @@ function VolumeSceneGroup({
   activeItemId,
   onSelect,
   onReorder,
+  rovingFor,
 }: {
   items: SceneItem[];
   activeItemId: string | null;
   onSelect: (item: SceneItem) => void;
   onReorder: (orderedIds: string[]) => void;
+  rovingFor: RovingFor;
 }) {
+  const titleId = `scene-group-${useId().replace(/:/g, "")}`;
   const sensors = useSensors(
     // Small activation distance so a click still selects; only a real drag
     // gesture from the grip starts a reorder.
@@ -170,19 +263,27 @@ function VolumeSceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
-        Volume View
+      {/* The grid is named by the stable title only, not the caption / Copy. */}
+      <div className="mb-1 flex items-baseline gap-2 px-2 text-bf-xs text-muted-foreground">
+        <span id={titleId}>Volume view</span>
+        {items.length > 0 ? <ReadoutCaption /> : null}
       </div>
       {items.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70">
-          No volumes loaded — use + Load
-        </div>
+        // No glyph (the Notice's ring read as loading): the one empty state,
+        // left-aligned in the rail.
+        <EmptyPane
+          align="start"
+          className="h-auto p-0 px-2"
+          title="No volumes loaded"
+          hint="Use + Load above, or double-click a file in Files."
+        />
       ) : items.length === 1 ? (
-        <div className="flex flex-col gap-0.5">
+        <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
           <SceneStackItem
             item={items[0]}
             selected={items[0].id === activeItemId}
             onSelect={() => onSelect(items[0])}
+            roving={rovingFor(items[0].id)}
           />
         </div>
       ) : (
@@ -195,13 +296,14 @@ function VolumeSceneGroup({
             items={items.map((item) => item.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div className="flex flex-col gap-0.5">
+            <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
               {items.map((item) => (
                 <SortableSceneStackItem
                   key={item.id}
                   item={item}
                   selected={item.id === activeItemId}
                   onSelect={() => onSelect(item)}
+                  roving={rovingFor(item.id)}
                 />
               ))}
             </div>
@@ -220,10 +322,12 @@ function SortableSceneStackItem({
   item,
   selected,
   onSelect,
+  roving,
 }: {
   item: SceneItem;
   selected: boolean;
   onSelect: () => void;
+  roving: RovingItemProps;
 }) {
   const {
     attributes,
@@ -255,7 +359,7 @@ function SortableSceneStackItem({
       onClick={(event) => event.stopPropagation()}
       aria-label={`Drag to reorder ${item.name}`}
       title="Drag to reorder"
-      className="-ml-1 flex h-5 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground focus-visible:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
+      className="-ml-2 -mr-1 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--bf-border-focus)] group-hover:opacity-100 active:cursor-grabbing"
     >
       <GripVertical className="h-3.5 w-3.5" />
     </button>
@@ -268,6 +372,7 @@ function SortableSceneStackItem({
         selected={selected}
         onSelect={onSelect}
         dragHandle={handle}
+        roving={roving}
       />
     </div>
   );

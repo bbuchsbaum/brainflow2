@@ -41,6 +41,52 @@ export const useInspectorSelectionStore = create<InspectorSelectionState>((set) 
   clear: () => set({ activeItemId: null, activeItemKind: null }),
 }));
 
+const VOLUME_ITEM_KINDS: ReadonlySet<SceneItemKind> = new Set([
+  'volume-base',
+  'volume-overlay',
+  'volume-overlay-atlas',
+]);
+
+/**
+ * Keep the two selections in lockstep (one active-layer rule, see
+ * `utils/activeLayer`). When the Inspector shows a volume layer and the layer
+ * store's selection moves to another layer (Studio "show", "Open in dock",
+ * surface mapping controls, layer removal), the Inspector follows; when the
+ * layer selection is cleared, a volume Inspector item is cleared with it.
+ * Surface / mapping items and an empty Inspector are left alone, so a silent
+ * first-load auto-select never opens an Inspector section by itself.
+ */
+export function syncInspectorWithLayerSelection(selectedLayerId: string | null): void {
+  const { activeItemId, activeItemKind } = useInspectorSelectionStore.getState();
+  if (!activeItemId || !activeItemKind || !VOLUME_ITEM_KINDS.has(activeItemKind)) return;
+  if (activeItemId === selectedLayerId) return;
+  if (!selectedLayerId) {
+    useInspectorSelectionStore.setState({ activeItemId: null, activeItemKind: null });
+    return;
+  }
+  const layers = useLayerStore.getState().layers;
+  const layer = layers.find((l) => l.id === selectedLayerId);
+  if (!layer) return;
+  // Same base/overlay/atlas classification as the Scene stack.
+  const base = layers.find((l) => l.source !== 'atlas');
+  const kind: SceneItemKind =
+    layer.source === 'atlas'
+      ? 'volume-overlay-atlas'
+      : base?.id === layer.id
+        ? 'volume-base'
+        : 'volume-overlay';
+  useInspectorSelectionStore.setState({ activeItemId: selectedLayerId, activeItemKind: kind });
+}
+
+// Guarded: some unit tests mock `layerStore` without a real store.
+if (typeof (useLayerStore as { subscribe?: unknown } | undefined)?.subscribe === 'function') {
+  useLayerStore.subscribe((state, prev) => {
+    if (state.selectedLayerId !== prev.selectedLayerId) {
+      syncInspectorWithLayerSelection(state.selectedLayerId);
+    }
+  });
+}
+
 export function useActiveSceneItemId(): string | null {
   return useInspectorSelectionStore((state) => state.activeItemId);
 }

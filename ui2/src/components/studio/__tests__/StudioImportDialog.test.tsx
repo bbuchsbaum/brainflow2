@@ -384,21 +384,21 @@ describe('StudioImportDialog', () => {
   it('renders dialog title based on mode', () => {
     openDialog('regex');
     render(<StudioImportDialog />);
-    expect(screen.getByText('Discover Files By Regex')).toBeInTheDocument();
+    expect(screen.getByText('Discover files by regex')).toBeInTheDocument();
   });
 
   it('shows all three tab labels', () => {
     openDialog('manifest');
     render(<StudioImportDialog />);
-    expect(screen.getByText('From Table')).toBeInTheDocument();
+    expect(screen.getByText('From table')).toBeInTheDocument();
     expect(screen.getByText('NeuroTabs Manifest')).toBeInTheDocument();
-    expect(screen.getByText('Discover Files')).toBeInTheDocument();
+    expect(screen.getByText('Discover files')).toBeInTheDocument();
   });
 
   it('switches mode when clicking a tab', () => {
     openDialog('manifest');
     render(<StudioImportDialog />);
-    fireEvent.click(screen.getByText('Discover Files'));
+    fireEvent.click(screen.getByText('Discover files'));
     expect(useSetStudioStore.getState().importDialog.mode).toBe('regex');
   });
 
@@ -407,7 +407,7 @@ describe('StudioImportDialog', () => {
     render(<StudioImportDialog />);
 
     expect(screen.getByText('No preview candidate available.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import Into Studio' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import into studio' })).toBeDisabled();
   });
 
   it('starts manifest import without seeded preview data', () => {
@@ -415,7 +415,7 @@ describe('StudioImportDialog', () => {
     render(<StudioImportDialog />);
 
     expect(screen.getByText('No preview candidate available.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import Into Studio' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import into studio' })).toBeDisabled();
   });
 
   it('renders the footer buttons (Cancel + Import)', () => {
@@ -424,19 +424,19 @@ describe('StudioImportDialog', () => {
     render(<StudioImportDialog />);
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import For Compare' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import for compare' })).toBeInTheDocument();
   });
 
-  it('renders "Import For Compare" for a clean manifest candidate', () => {
+  it('renders "Import for compare" for a clean manifest candidate', () => {
     renderManifestCandidate(makeManifestCandidate(), 'backend');
 
-    expect(screen.getByRole('button', { name: 'Import For Compare' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import for compare' })).toBeInTheDocument();
   });
 
   it('shows readiness banner for clean manifest candidate', () => {
     renderManifestCandidate(makeManifestCandidate(), 'backend');
 
-    expect(screen.getByText('Studio Ready')).toBeInTheDocument();
+    expect(screen.getByText('Studio ready')).toBeInTheDocument();
     expect(screen.getByText('Ready for compare-centered reading')).toBeInTheDocument();
   });
 
@@ -444,8 +444,8 @@ describe('StudioImportDialog', () => {
     renderManifestCandidate(makeManifestCandidate(), 'backend');
 
     expect(screen.getByText('Preview source: backend')).toBeInTheDocument();
-    expect(screen.getByText('Studio Ready')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import For Compare' })).toBeInTheDocument();
+    expect(screen.getByText('Studio ready')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import for compare' })).toBeInTheDocument();
   });
 
   it('maps a backend warning candidate to the review import state', () => {
@@ -460,8 +460,8 @@ describe('StudioImportDialog', () => {
     );
 
     expect(screen.getByText('Preview source: backend')).toBeInTheDocument();
-    expect(screen.getByText('Deck First')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import For Review' })).toBeInTheDocument();
+    expect(screen.getByText('Deck first')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import for review' })).toBeInTheDocument();
   });
 
   it('maps a fallback error candidate to the blocked import state', () => {
@@ -476,8 +476,8 @@ describe('StudioImportDialog', () => {
     );
 
     expect(screen.getByText('Preview source: fallback')).toBeInTheDocument();
-    expect(screen.getByText('Audit Attention')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import For Inspection' })).toBeInTheDocument();
+    expect(screen.getByText('Audit attention')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import for inspection' })).toBeInTheDocument();
   });
 
   it('blocks importing an empty backend error candidate', () => {
@@ -525,7 +525,7 @@ describe('StudioImportDialog', () => {
     renderManifestCandidate(emptyErrorCandidate, 'backend');
 
     expect(screen.getByText('Fix the preview errors before importing this set.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import Blocked' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import blocked' })).toBeDisabled();
   });
 
   it('shows review banner for regex candidate with warnings', () => {
@@ -559,7 +559,7 @@ describe('StudioImportDialog', () => {
     useSetStudioStore.getState().setImportPreviewResult('regex', [warningCandidate], 'backend');
     render(<StudioImportDialog />);
 
-    expect(screen.getByText('Deck First')).toBeInTheDocument();
+    expect(screen.getByText('Deck first')).toBeInTheDocument();
     expect(screen.getByText('Import for review before compare')).toBeInTheDocument();
   });
 
@@ -568,8 +568,8 @@ describe('StudioImportDialog', () => {
     useSetStudioStore.getState().setImportPreviewResult('regex', [makeDiscoveryCandidate()], 'backend');
     render(<StudioImportDialog />);
 
-    expect(screen.getByText('Match Summary')).toBeInTheDocument();
-    expect(screen.getByText('Template Check')).toBeInTheDocument();
+    expect(screen.getByText('Match summary')).toBeInTheDocument();
+    expect(screen.getByText('Template check')).toBeInTheDocument();
   });
 
   it('shows import notes when present', () => {
@@ -584,15 +584,15 @@ describe('StudioImportDialog', () => {
     openDialog('regex');
     render(<StudioImportDialog />);
 
-    expect(screen.getByText('Discovery Root')).toBeInTheDocument();
-    expect(screen.getByText('File Pattern')).toBeInTheDocument();
-    expect(screen.getByText('Capture Preview')).toBeInTheDocument();
-    expect(screen.getByText('Role Mapping')).toBeInTheDocument();
-    // The store seeds the discoveryRoot value as "."
-    expect(screen.getByDisplayValue('.')).toBeInTheDocument();
+    expect(screen.getByText('Discovery root')).toBeInTheDocument();
+    expect(screen.getByText('File pattern')).toBeInTheDocument();
+    expect(screen.getByText('Capture preview')).toBeInTheDocument();
+    expect(screen.getByText('Role mapping')).toBeInTheDocument();
+    // No implicit working-directory scan.
+    expect(useSetStudioStore.getState().importDialog.discoveryRoot).toBe('');
     expect(screen.getAllByText('subject').length).toBeGreaterThan(0);
     expect(screen.getAllByText('role').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('tstat required')).toBeChecked();
+    expect(screen.getByLabelText('tstat required')).not.toBeChecked();
   });
 
   it('applies a folder ontology proposal to regex discovery controls', () => {
@@ -600,7 +600,7 @@ describe('StudioImportDialog', () => {
     useSetStudioStore.getState().setFolderOntologyPreviewResult(makeOntologySummary());
     render(<StudioImportDialog />);
 
-    expect(screen.getByText('Folder Ontology')).toBeInTheDocument();
+    expect(screen.getByText('Folder ontology')).toBeInTheDocument();
     expect(screen.getByText('Subject maps with filename condition factor')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
@@ -620,7 +620,7 @@ describe('StudioImportDialog', () => {
     fireEvent.change(screen.getByPlaceholderText('custom_role'), {
       target: { value: 'zstat' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Add Role' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add role' }));
 
     const dialog = useSetStudioStore.getState().importDialog;
     expect(dialog.discoveryMaxDepth).toBe('6');
@@ -633,7 +633,7 @@ describe('StudioImportDialog', () => {
     useSetStudioStore.getState().setImportPreviewResult('regex', [makeDiscoveryCandidate()], 'backend');
     render(<StudioImportDialog />);
 
-    expect(screen.getByText('Discovery Matrix')).toBeInTheDocument();
+    expect(screen.getByText('Discovery matrix')).toBeInTheDocument();
     expect(screen.getByText('8 matched / 0 unmatched / 0 duplicates')).toBeInTheDocument();
     expect(screen.getAllByText('1001').length).toBeGreaterThan(0);
     expect(screen.getAllByText('1002').length).toBeGreaterThan(0);
@@ -642,13 +642,13 @@ describe('StudioImportDialog', () => {
     expect(screen.getByText('Dup')).toBeInTheDocument();
   });
 
-  it('confirms a clean discovery candidate into the Set Studio store', () => {
+  it('confirms a clean discovery candidate into the Set studio store', () => {
     const candidate = makeDiscoveryCandidate();
     openDialog('regex');
     useSetStudioStore.getState().setImportPreviewResult('regex', [candidate], 'backend');
     render(<StudioImportDialog />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Import For Compare' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import for compare' }));
 
     const state = useSetStudioStore.getState();
     expect(state.importDialog.isOpen).toBe(false);
@@ -719,7 +719,7 @@ describe('StudioImportDialog', () => {
     expect(useSetStudioStore.getState().importDialog.selectedCandidateId).toBeTruthy();
     expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Import For Compare' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import for compare' }));
     // Dialog should close after confirm
     expect(useSetStudioStore.getState().importDialog.isOpen).toBe(false);
   });

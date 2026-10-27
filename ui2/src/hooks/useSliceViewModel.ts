@@ -57,7 +57,9 @@ export function useSliceViewModel(
     [hasLayers, dims.height],
   );
 
-  // Determine primary (top-most visible) layer id
+  // Primary layer: the BOTTOM-most visible layer (the base image); its display
+  // options drive the frame's border and orientation markers. Hover values are
+  // read from the opted-in layers instead (hoverLayerIds below).
   const primaryLayer = React.useMemo(
     () => layers.find((l) => l.visible),
     [layers],
@@ -92,6 +94,15 @@ export function useSliceViewModel(
         (l) =>
           l.visible && (displayOptions.get(l.id)?.showValueOnHover ?? false),
       ),
+    [layers, displayOptions],
+  );
+  // Layers the hover tooltip reports: visible, opted in, top of the stack first.
+  const hoverLayerIds = React.useMemo(
+    () =>
+      layers
+        .filter((l) => l.visible && (displayOptions.get(l.id)?.showValueOnHover ?? false))
+        .map((l) => l.id)
+        .reverse(),
     [layers, displayOptions],
   );
 
@@ -150,6 +161,7 @@ export function useSliceViewModel(
       primaryLayer,
       primaryOptions,
       hoverEnabled,
+      hoverLayerIds,
       crosshairSettings,
       adaptive,
     }),
@@ -165,6 +177,7 @@ export function useSliceViewModel(
       primaryLayer,
       primaryOptions,
       hoverEnabled,
+      hoverLayerIds,
       crosshairSettings,
       adaptive,
     ],

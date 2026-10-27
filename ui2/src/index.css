@@ -1,13 +1,12 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
-@import "./styles/theme.css";
-@import "./styles/shadcn.css";
-@import "./styles/modern-ui.css";
-@import "./styles/slider.css";
-@import "./components/ui/StatusBar.css";
+@import './styles/theme.css';
+@import './styles/shadcn.css';
+
+@import './styles/slider.css';
+@import './components/ui/StatusBar.css';
 
 /* Import GoldenLayout styles HERE so our overrides come AFTER */
-@import "golden-layout/dist/css/goldenlayout-base.css";
-@import "golden-layout/dist/css/themes/goldenlayout-dark-theme.css";
+@import 'golden-layout/dist/css/goldenlayout-base.css';
+@import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
 
 @tailwind base;
 @tailwind components;
@@ -32,24 +31,24 @@
     @apply font-medium tracking-tight;
   }
 
-  /* Blueprint label */
+  /* Small label (Workstation restyle: sentence case, no tracking) */
   .label-text {
-    @apply text-[10px] uppercase tracking-widest text-muted-foreground font-semibold;
+    @apply text-[11px] text-muted-foreground font-medium;
   }
 
-  /* Blueprint header style */
+  /* Panel header style (Workstation restyle: sentence case, hairline rule) */
+  /* Element specificity beats preflight's `font-size: inherit`; utility classes still win. */
   h3,
   h4,
   .panel-header {
-    font-family: "Inter", sans-serif;
-    font-size: 11px !important;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    font-weight: 700;
-    color: hsl(var(--muted-foreground));
-    border-bottom: 1px solid hsl(var(--border));
-    padding-bottom: 8px;
-    margin-bottom: 12px;
+    font-family: var(--bf-font-sans);
+    font-size: 12px;
+    letter-spacing: 0.01em;
+    font-weight: 600;
+    color: var(--bf-text-secondary);
+    border-bottom: 1px solid var(--bf-border-subtle);
+    padding-bottom: 6px;
+    margin-bottom: 10px;
   }
 
   /* Mechanical body text spacing */
@@ -65,7 +64,6 @@
     font-size: var(--app-role-title-size);
     font-weight: var(--app-role-title-weight);
     letter-spacing: var(--app-role-title-tracking);
-    text-transform: uppercase;
     line-height: 1.3;
   }
 
@@ -73,7 +71,6 @@
     font-size: var(--app-role-section-size);
     font-weight: var(--app-role-section-weight);
     letter-spacing: var(--app-role-section-tracking);
-    text-transform: uppercase;
     line-height: 1.25;
   }
 
@@ -133,8 +130,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* Albersdown-inspired top accent stripe — signature Bauhaus mark */
-  border-top: var(--top-accent-height, 2px) solid
-    var(--top-accent, hsl(180, 75%, 35%));
+  border-top: var(--top-accent-height, 2px) solid var(--top-accent, hsl(180, 75%, 35%));
 }
 
 #root {
@@ -163,8 +159,10 @@ button {
 
 .lm_header {
   background-color: hsl(var(--background)) !important;
-  border-bottom: 2px solid hsl(var(--border)) !important;
-  height: 32px !important;
+  border-bottom: 0 !important;
+  /* Hairline drawn as an inset shadow so the active tab can sit flush over it */
+  box-shadow: inset 0 -1px 0 var(--bf-border-subtle);
+  height: 28px !important; /* = ui/bf H_TAB */
   padding-left: 0 !important;
   overflow: visible !important;
   z-index: 1;
@@ -175,42 +173,41 @@ button {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  margin: 0 12px 0 0 !important;
-  padding: 0 20px 0 4px !important; /* Extra right padding for close button */
-  height: 30px !important;
+  margin: 0 !important;
+  padding: 0 28px 0 12px !important; /* room for the 24px close target (ui/bf Tabs) */
+  height: 28px !important;
   display: flex;
   align-items: center;
-  font-family: "Inter", sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: hsl(var(--muted-foreground)) !important;
-  opacity: 0.5;
-  transition: opacity 0.2s ease;
+  font-family: var(--bf-font-sans) !important;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--bf-text-muted) !important;
+  transition: color 0.15s ease;
   border-radius: 0 !important;
 }
 
 .lm_tab:hover {
-  opacity: 1;
-  color: hsl(var(--foreground)) !important;
+  color: var(--bf-text-primary) !important;
 }
 
+.lm_tab:not(.lm_active):hover {
+  background: var(--bf-bg-hover) !important;
+}
+
+/* Active tab: raised neutral fill + a 2px neutral bottom edge, the same flat
+ * tab form as Files view tabs and dock tabs. Only the active tab of the
+ * *focused* stack carries the amber edge (HYBRID rule 3, V5 amendment); the
+ * focused stack is tracked by components/layout/glStackFocus.ts. */
 .lm_tab.lm_active {
-  opacity: 1;
-  color: hsl(var(--foreground)) !important;
+  color: var(--bf-text-primary) !important;
+  font-weight: 500;
   position: relative;
+  background: var(--bf-bg-active) !important;
+  box-shadow: inset 0 -2px 0 var(--bf-text-muted) !important;
 }
 
-.lm_tab.lm_active::after {
-  content: "";
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background-color: hsl(var(--accent));
-  z-index: 20;
+.lm_stack.bf-stack-focused > .lm_header .lm_tab.lm_active {
+  box-shadow: inset 0 -2px 0 var(--bf-accent) !important;
 }
 
 /* Controls - "Window Latches" with high contrast */
@@ -234,7 +231,9 @@ button {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0.6;
+  /* Full opacity: the icon stroke is already the muted text colour (#a4a7ad);
+     fading it to 0.6 rendered ~3.2:1 against the header. */
+  opacity: 1;
   background-position: center center !important;
   background-repeat: no-repeat !important;
   background-size: 11px 11px;
@@ -297,9 +296,9 @@ button {
 
 /* Always-visible hairline so the panel boundary can be found at rest */
 .lm_splitter::before {
-  content: "";
+  content: '';
   position: absolute;
-  background: hsl(var(--border));
+  background: var(--bf-border-subtle);
   transition: background-color 120ms ease;
   pointer-events: none;
 }
@@ -320,10 +319,10 @@ button {
 
 /* Centered grip "grabber" that fades in on hover / while dragging */
 .lm_splitter::after {
-  content: "";
+  content: '';
   position: absolute;
   border-radius: 999px;
-  background: hsl(var(--accent));
+  background: hsl(var(--primary));
   opacity: 0;
   transition: opacity 120ms ease;
   pointer-events: none;
@@ -345,66 +344,70 @@ button {
 
 .lm_splitter:hover::before,
 .lm_splitter.lm_dragging::before {
-  background: hsl(var(--accent));
+  background: hsl(var(--primary));
 }
 .lm_splitter:hover::after,
 .lm_splitter.lm_dragging::after {
-  opacity: 1;
+/* Color: secondary text #bdbfc4 (--bf-text-secondary) at rest (>=3:1 on the header), primary text #e9eaec on hover */
 }
 
 /* GoldenLayout controls - refined hairline icons */
-/* Color: hsl(210 10% 40%) ≈ #5C6370 (Medium gray, visible but subtle) */
+/* Color: muted text #a4a7ad (--bf-text-muted) at rest, primary text #e9eaec (--bf-text-primary) on hover */
 
 .lm_controls .lm_popout {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Cpath d='M7 3h6v6M13 3L7 9M5 5H3v8h8v-2'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23bdbfc4' stroke-width='1.25'%3E%3Cpath d='M7 3h6v6M13 3L7 9M5 5H3v8h8v-2'/%3E%3C/svg%3E") !important;
 }
 .lm_controls .lm_maximise {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Crect x='3' y='3' width='10' height='10' rx='1'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23bdbfc4' stroke-width='1.5'%3E%3Crect x='3' y='3' width='10' height='10' rx='1'/%3E%3C/svg%3E") !important;
 }
 .lm_controls .lm_close {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23bdbfc4' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
 }
 .lm_maximised .lm_controls .lm_maximise {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Crect x='2' y='5' width='8' height='8' rx='1'/%3E%3Cpath d='M6 5V3.5a.5.5 0 01.5-.5h6a.5.5 0 01.5.5v6a.5.5 0 01-.5.5H11'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23bdbfc4' stroke-width='1.5'%3E%3Crect x='2' y='5' width='8' height='8' rx='1'/%3E%3Cpath d='M6 5V3.5a.5.5 0 01.5-.5h6a.5.5 0 01.5.5v6a.5.5 0 01-.5.5H11'/%3E%3C/svg%3E") !important;
 }
 
-/* Hover state: Orange accent */
+/* Hover state: primary text */
 .lm_controls .lm_popout:hover {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Cpath d='M7 3h6v6M13 3L7 9M5 5H3v8h8v-2'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23e9eaec' stroke-width='1.25'%3E%3Cpath d='M7 3h6v6M13 3L7 9M5 5H3v8h8v-2'/%3E%3C/svg%3E") !important;
 }
 .lm_controls .lm_maximise:hover {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Crect x='3' y='3' width='10' height='10' rx='1'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23e9eaec' stroke-width='1.25'%3E%3Crect x='3' y='3' width='10' height='10' rx='1'/%3E%3C/svg%3E") !important;
 }
 .lm_controls .lm_close:hover {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23e9eaec' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
 }
 .lm_maximised .lm_controls .lm_maximise:hover {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Crect x='2' y='5' width='8' height='8' rx='1'/%3E%3Cpath d='M6 5V3.5a.5.5 0 01.5-.5h6a.5.5 0 01.5.5v6a.5.5 0 01-.5.5H11'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23e9eaec' stroke-width='1.25'%3E%3Crect x='2' y='5' width='8' height='8' rx='1'/%3E%3Cpath d='M6 5V3.5a.5.5 0 01.5-.5h6a.5.5 0 01.5.5v6a.5.5 0 01-.5.5H11'/%3E%3C/svg%3E") !important;
 }
 
 /* Tab close button - refined hairline style */
 .lm_header .lm_tab .lm_close_tab {
-  width: 12px !important;
-  height: 12px !important;
+  width: 24px !important;
+  height: 24px !important;
   top: 50% !important;
   transform: translateY(-50%);
-  right: 4px !important;
-  opacity: 0;
+  right: 2px !important;
+  opacity: 0; /* inactive tabs: no glyph at rest (contrast floor); see active/hover rules */
   background: none !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a4a7ad' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
   background-position: center center !important;
   background-repeat: no-repeat !important;
-  background-size: 8px 8px;
+  background-size: 8px 8px !important;
   transition: opacity 0.15s ease;
 }
 
+.lm_header .lm_tab.lm_active .lm_close_tab {
+  opacity: 1; /* muted glyph at full strength: ~5:1 on the active tab fill */
+}
+
 .lm_header .lm_tab:hover .lm_close_tab {
-  opacity: 0.5;
+  opacity: 1;
 }
 
 .lm_header .lm_tab .lm_close_tab:hover {
   opacity: 1;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23e9eaec' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
 }
 
 /* Custom animations */
@@ -455,7 +458,7 @@ button {
 }
 
 .slider-dark::-webkit-slider-thumb:hover {
-  background: hsl(var(--accent)); /* Theme accent */
+  background: hsl(var(--foreground));
 }
 
 .slider-dark::-moz-range-thumb {
@@ -469,14 +472,14 @@ button {
 }
 
 .slider-dark::-moz-range-thumb:hover {
-  background: hsl(var(--accent)); /* Theme accent */
+  background: hsl(var(--foreground));
 }
 
 /* Range slider dark theme - using theme variables */
 .range-slider-dark .range-slider {
   --range-slider-bg: hsl(var(--secondary));
   --range-slider-thumb: hsl(var(--primary));
-  --range-slider-thumb-hover: hsl(var(--accent));
+  --range-slider-thumb-hover: hsl(var(--foreground));
   --range-slider-connect: hsl(var(--primary));
 }
 

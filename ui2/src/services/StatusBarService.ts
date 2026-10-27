@@ -9,6 +9,8 @@ import { useViewStateStore } from "@/stores/viewStateStore";
 import { useStatusBarStore } from "@/stores/statusBarStore";
 import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { useLayerStore } from "@/stores/layerStore";
+import { formatWorldMm } from "@/utils/valueFormat";
+import { resolveActiveLayerName } from "@/utils/activeLayer";
 import {
   resolveAtlasRegionAtWorld,
   formatRegionLabel,
@@ -19,7 +21,16 @@ import type { AtlasStats } from "@/types/atlas";
  * Format coordinates for display
  */
 const formatCoord = (coord: [number, number, number]): string => {
-  return `(${coord[0].toFixed(1)}, ${coord[1].toFixed(1)}, ${coord[2].toFixed(1)})`;
+  return `(${formatWorldMm(coord[0])}, ${formatWorldMm(coord[1])}, ${formatWorldMm(coord[2])})`;
+};
+
+/** Layer slot: selected layer, else top visible (shared with the viewport header). */
+const setLayerSlot = (setValue: (id: string, value: string) => void) => {
+  const name = resolveActiveLayerName(
+    useViewStateStore.getState().viewState.layers,
+    useLayerStore.getState().selectedLayerId,
+  );
+  setValue("layer", name ?? "None");
 };
 
 type AtlasSeverity = "warning" | "critical" | "recovered" | undefined;
@@ -102,11 +113,17 @@ export class StatusBarService {
       const hit = await resolveAtlasRegionAtWorld(worldMm);
       if (this.isInitialized) {
         setValue("region", hit ? formatRegionLabel(hit.entry) : "--");
+        // LUT colour of the region, for the slot's swatch.
+        setValue(
+          "regionColor",
+          hit ? `rgb(${hit.entry.color[0]}, ${hit.entry.color[1]}, ${hit.entry.color[2]})` : null,
+        );
       }
     } catch (error) {
       console.warn("[StatusBarService] Atlas region lookup failed:", error);
       if (this.isInitialized) {
         setValue("region", "--");
+        setValue("regionColor", null);
       }
     }
   }
@@ -164,12 +181,7 @@ export class StatusBarService {
         const layers = state.viewState.layers;
         const prevLayers = prevState?.viewState.layers;
         if (layers !== prevLayers) {
-          const activeLayer = layers.find((l) => l.visible);
-          if (activeLayer) {
-            setValue("layer", activeLayer.name || activeLayer.id);
-          } else {
-            setValue("layer", "None");
-          }
+          setLayerSlot(setValue);
         }
       },
     );
@@ -180,15 +192,16 @@ export class StatusBarService {
     if (isCurrentInit()) {
       setValue("crosshair", formatCoord(initialCrosshair.world_mm));
     }
-    const initialLayers = useViewStateStore.getState().viewState.layers;
     if (isCurrentInit()) {
-      const activeLayer = initialLayers.find((l) => l.visible);
-      if (activeLayer) {
-        setValue("layer", activeLayer.name || activeLayer.id);
-      } else {
-        setValue("layer", "None");
-      }
+      setLayerSlot(setValue);
     }
+    const unsubscribeSelection = useLayerStore.subscribe(
+      (state) => state.selectedLayerId,
+      () => {
+        if (isCurrentInit()) setLayerSlot(setValue);
+      },
+    );
+    this.unsubscribers.push(unsubscribeSelection);
 
     // Refresh the region readout when the layer set changes (an atlas is loaded,
     // removed, or its palette legend is populated) so the slot reflects the

@@ -1,7 +1,10 @@
 //! Visible-support evaluation for observed population fields. The retained
 //! plane matrix has a byte budget and never enters the volume/GPU registries.
 pub mod export;
+pub mod inference;
+pub mod relationship;
 pub mod replay;
+mod retention;
 use crate::{
     population_sampling::SampleCancellation,
     set_sample_cache::{QuerySourceGuard, SampleSourceRevision},
@@ -25,6 +28,8 @@ const MAX_CUTOUT_DIM: u32 = 64;
 #[serde(rename_all = "camelCase")]
 pub enum SummaryKind {
     Mean,
+    Median,
+    Mad,
     SampleSd,
     MeanAbsolute,
     Cancellation,
@@ -40,12 +45,28 @@ pub enum Orientation {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inference: Option<field_table::population_inference::Specification>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<GroupRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<GroupRequest>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub difference: bool,
+    /// Transport optimization only; never an exported calculation operand.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub focus_only: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub focus_window: Vec<String>,
     pub context_key: String,
     #[serde(default)]
     pub mask: Option<crate::population_mask::MaskSource>,
     pub members: Vec<SetMemberRef>,
     pub working_member_ids: Vec<String>,
     pub focus_member_id: Option<String>,
+    /// Display-only frame override; cohort members retain their declared frames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_stack_index: Option<usize>,
     pub crosshair_mm: [f32; 3],
     pub orientation: Orientation,
     pub dim_px: [u32; 2],
@@ -58,6 +79,28 @@ pub struct PopulationSliceRequest {
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GroupRequest {
+    pub id: String,
+    pub member_ids: Vec<String>,
+    #[serde(default)]
+    pub aggregation: Option<ParticipantAggregation>,
+}
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupResult {
+    pub id: String,
+    pub values: Vec<f32>,
+    pub valid_counts: Vec<u32>,
+    pub unit_count: usize,
+    pub eligible_count: usize,
+    #[serde(skip)]
+    means: Vec<f64>,
+    #[serde(skip)]
+    summaries: Vec<field_table::population::LocationSummary>,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+#[derive(PartialEq, Eq)]
 pub enum WithinParticipant {
     Single,
     Mean,
@@ -77,6 +120,8 @@ pub struct ParticipantAggregation {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CutoutRequest {
+    #[serde(default)]
+    pub whole_plane: bool,
     pub center_mm: [f32; 3],
     /// Width and height of the square image edges, in world millimetres.
     pub width_mm: f32,
@@ -116,6 +161,11 @@ pub struct SliceSource {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference: Option<inference::Channels>,
+    pub groups: Vec<GroupResult>,
+    pub reference: Option<GroupResult>,
+    pub focus_window: Vec<CutoutMember>,
     pub plane: Plane,
     pub center_world: [f32; 3],
     pub context_range: Option<[f32; 2]>,
@@ -211,10 +261,14 @@ impl PopulationSliceEngine {
             &request.orientation,
             request.dim_px,
             request.zoom,
-            request
-                .cutouts
-                .as_ref()
-                .map(|cutouts| (cutouts.center_mm, cutouts.width_mm, cutouts.dim_px)),
+            request.cutouts.as_ref().map(|cutouts| {
+                (
+                    cutouts.center_mm,
+                    cutouts.width_mm,
+                    cutouts.dim_px,
+                    cutouts.whole_plane,
+                )
+            }),
         ))
         .map_err(|error| input(error.to_string()))?;
         let candidate = self
@@ -256,11 +310,41 @@ impl PopulationSliceEngine {
                 built
             }
         };
+        let focused_override = if let Some(frame) = request.focus_stack_index {
+            let index = request
+                .members
+                .iter()
+                .position(|m| Some(&m.member_id) == request.focus_member_id.as_ref())
+                .ok_or_else(|| input("A focused frame requires an identified observation."))?;
+            let mut member = request.members[index].clone();
+            member.stack_index = Some(frame);
+            member.expected_sha256 = Some(cached.sources[index].revision.sha256.clone());
+            let path = crate::resolve_member_source_path(&member.source_path, state).await?;
+            let plan = Arc::clone(&cached.plan);
+            let token = cancellation.clone();
+            Some(
+                state
+                    .set_sample_cache
+                    .with_volume_cancelable(path, cancellation.clone(), move |volume, revision| {
+                        // The plane's pixel map already excludes the common mask.
+                        sample_row(volume, revision, &member, &plan, &token, None)
+                    })
+                    .await?,
+            )
+        } else {
+            None
+        };
         let guard = cached.guard.clone();
         let token = cancellation.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _permit = permit; // A canceled async caller cannot release a running reduction.
-            reduce_plane(&cached, &request, cache_hit, &cancellation)
+            reduce_plane(
+                &cached,
+                &request,
+                cache_hit,
+                &cancellation,
+                focused_override.as_deref(),
+            )
         })
         .await
         .map_err(|error| input(format!("Population reduction failed: {error}")))??;
@@ -269,6 +353,24 @@ impl PopulationSliceEngine {
     }
 }
 fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
+    if request.focus_stack_index.is_some()
+        && (request.focus_member_id.is_none() || !request.focus_window.is_empty())
+    {
+        return Err(input(
+            "A focused frame requires one observation and no canonical focus window.",
+        ));
+    }
+    let window: HashSet<_> = request.focus_window.iter().collect();
+    if window.len() != request.focus_window.len()
+        || window.len() > 8
+        || window
+            .iter()
+            .any(|id| !request.members.iter().any(|m| &m.member_id == *id))
+    {
+        return Err(input(
+            "Focus window requires at most eight unique context observations.",
+        ));
+    }
     crate::validate_set_sample_request(&request.members, &request.crosshair_mm, 0.0, "mean")?;
     let pixels = (request.dim_px[0] as usize)
         .checked_mul(request.dim_px[1] as usize)
@@ -345,6 +447,74 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
             return Err(input(
                 "Participant groups must cover every selected observation.",
             ));
+        }
+    }
+    inference::validate(request)?;
+    if request.groups.len() > 4
+        || request
+            .groups
+            .iter()
+            .map(|g| &g.id)
+            .collect::<HashSet<_>>()
+            .len()
+            != request.groups.len()
+    {
+        return Err(input(
+            "At most four uniquely identified group summaries can be displayed at once.",
+        ));
+    }
+    if request.difference
+        && (!matches!(request.summary, SummaryKind::Mean)
+            || request.reference.is_none()
+            || selected.is_empty())
+    {
+        return Err(input(
+            "A descriptive difference requires A and B and the mean reducer.",
+        ));
+    }
+    for group in request.groups.iter().chain(request.reference.iter()) {
+        if group.id.trim().is_empty() || group.member_ids.is_empty() {
+            return Err(input(
+                "Group summaries require a name and nonempty membership.",
+            ));
+        }
+        if !match (&request.aggregation, &group.aggregation) {
+            (None, None) => true,
+            (Some(a), Some(b)) => a.within == b.within,
+            _ => false,
+        } {
+            return Err(input(
+                "Group summaries must use the declared analysis unit.",
+            ));
+        }
+        let mut child = request.clone();
+        child.inference = None;
+        child.groups.clear();
+        child.reference = None;
+        child.difference = false;
+        child.working_member_ids = group.member_ids.clone();
+        child.aggregation = group.aggregation.clone();
+        validate(&child)?;
+    }
+    let mut identities = std::collections::HashMap::new();
+    for aggregation in request.aggregation.iter().chain(
+        request
+            .groups
+            .iter()
+            .chain(request.reference.iter())
+            .filter_map(|g| g.aggregation.as_ref()),
+    ) {
+        for group in &aggregation.groups {
+            for member in &group.member_ids {
+                if identities
+                    .insert(member, &group.participant_id)
+                    .is_some_and(|previous| previous != &group.participant_id)
+                {
+                    return Err(input(
+                        "An observation must identify the same participant in every group.",
+                    ));
+                }
+            }
         }
     }
     Ok(())
@@ -438,12 +608,27 @@ fn pixel_plan(
         }
     }
     let cutouts = request.cutouts.as_ref().map(|cutouts| {
-        let spacing = cutouts.width_mm / cutouts.dim_px as f32;
         let length = |v: [f32; 3]| v.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let width = if cutouts.whole_plane {
+            (length(geometry.u_mm) * geometry.dim_px[0] as f32)
+                .max(length(geometry.v_mm) * geometry.dim_px[1] as f32)
+        } else {
+            cutouts.width_mm
+        };
+        let center: [f32; 3] = if cutouts.whole_plane {
+            std::array::from_fn(|axis| {
+                geometry.origin_mm[axis]
+                    + geometry.u_mm[axis] * (geometry.dim_px[0] - 1) as f32 / 2.
+                    + geometry.v_mm[axis] * (geometry.dim_px[1] - 1) as f32 / 2.
+            })
+        } else {
+            cutouts.center_mm
+        };
+        let spacing = width / cutouts.dim_px as f32;
         let u_mm = geometry.u_mm.map(|v| v * spacing / length(geometry.u_mm));
         let v_mm = geometry.v_mm.map(|v| v * spacing / length(geometry.v_mm));
         let origin_mm = std::array::from_fn(|axis| {
-            cutouts.center_mm[axis] - (u_mm[axis] + v_mm[axis]) * (cutouts.dim_px - 1) as f32 / 2.0
+            center[axis] - (u_mm[axis] + v_mm[axis]) * (cutouts.dim_px - 1) as f32 / 2.0
         });
         let plane = Plane {
             origin_mm,
@@ -666,23 +851,19 @@ async fn build_plane(
         bytes,
     })
 }
-fn reduce_plane(
+fn collect_moments(
     cached: &CachedPlane,
-    request: &PopulationSliceRequest,
-    cache_hit: bool,
+    members: &[String],
+    aggregation: &Option<ParticipantAggregation>,
     cancellation: &SampleCancellation,
-) -> BridgeResult<PopulationSliceResult> {
-    let selected: HashSet<_> = request.working_member_ids.iter().collect();
-    let focus = request
-        .focus_member_id
-        .as_ref()
-        .and_then(|id| cached.sources.iter().position(|s| &s.member_id == id));
+) -> BridgeResult<FieldMoments> {
+    let selected: HashSet<_> = members.iter().collect();
     // A view fully outside the volume has no native samples; its entire raster
     // is unavailable. One dummy accumulator location keeps that case explicit.
     let mut moments = FieldMoments::new(cached.plan.voxels.len().max(1), 0.0)
         .map_err(|e| input(e.to_string()))?;
     if !cached.plan.voxels.is_empty() {
-        if let Some(aggregation) = &request.aggregation {
+        if let Some(aggregation) = aggregation {
             let indices: HashMap<_, _> = cached
                 .sources
                 .iter()
@@ -711,7 +892,153 @@ fn reduce_plane(
             }
         }
     }
+    Ok(moments)
+}
+fn robust_plane(
+    cached: &CachedPlane,
+    request: &PopulationSliceRequest,
+    token: &SampleCancellation,
+) -> BridgeResult<Vec<(Option<f64>, Option<f64>)>> {
+    let indices: HashMap<_, _> = cached
+        .sources
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (&s.member_id, i))
+        .collect();
+    let groups: Vec<Vec<usize>> = if let Some(aggregation) = &request.aggregation {
+        aggregation
+            .groups
+            .iter()
+            .map(|g| g.member_ids.iter().map(|id| indices[id]).collect())
+            .collect()
+    } else {
+        request
+            .working_member_ids
+            .iter()
+            .map(|id| vec![indices[id]])
+            .collect()
+    };
+    (0..cached.plan.voxels.len())
+        .map(|j| {
+            if j % 4096 == 0 {
+                token.check()?;
+            }
+            Ok(field_table::population::median_mad(groups.iter().map(
+                |g| {
+                    let (mut n, mut mean) = (0, 0.);
+                    for &i in g {
+                        let v = cached.rows[i][j];
+                        if v.is_finite() {
+                            n += 1;
+                            mean += (v as f64 - mean) / n as f64;
+                        }
+                    }
+                    if n > 0 {
+                        mean
+                    } else {
+                        f64::NAN
+                    }
+                },
+            )))
+        })
+        .collect()
+}
+fn reduce_group(
+    cached: &CachedPlane,
+    group: &GroupRequest,
+    cancellation: &SampleCancellation,
+) -> BridgeResult<GroupResult> {
+    let moments = collect_moments(cached, &group.member_ids, &group.aggregation, cancellation)?;
     let summaries: Vec<_> = moments.summaries().collect();
+    let means: Vec<_> = cached
+        .plan
+        .pixels
+        .iter()
+        .map(|slot| slot.and_then(|i| summaries[i].mean).unwrap_or(f64::NAN))
+        .collect();
+    let valid_counts = cached
+        .plan
+        .pixels
+        .iter()
+        .map(|slot| slot.map(|i| summaries[i].valid_count as u32).unwrap_or(0))
+        .collect();
+    Ok(GroupResult {
+        id: group.id.clone(),
+        values: means.iter().map(|&v| v as f32).collect(),
+        means,
+        summaries,
+        valid_counts,
+        unit_count: group
+            .aggregation
+            .as_ref()
+            .map_or(group.member_ids.len(), |a| a.groups.len()),
+        eligible_count: group.member_ids.len(),
+    })
+}
+fn reduce_plane(
+    cached: &CachedPlane,
+    request: &PopulationSliceRequest,
+    cache_hit: bool,
+    cancellation: &SampleCancellation,
+    focused_override: Option<&[f32]>,
+) -> BridgeResult<PopulationSliceResult> {
+    let selected: HashSet<_> = request.working_member_ids.iter().collect();
+    let focus = request
+        .focus_member_id
+        .as_ref()
+        .and_then(|id| cached.sources.iter().position(|s| &s.member_id == id));
+    let moments = if request.focus_only {
+        FieldMoments::new(1, 0.0).map_err(|e| input(e.to_string()))?
+    } else {
+        collect_moments(
+            cached,
+            &request.working_member_ids,
+            &request.aggregation,
+            cancellation,
+        )?
+    };
+    let reference = if request.focus_only {
+        None
+    } else {
+        request
+            .reference
+            .as_ref()
+            .map(|g| reduce_group(cached, g, cancellation))
+            .transpose()?
+    };
+    let groups = if request.focus_only {
+        Vec::new()
+    } else {
+        request
+            .groups
+            .iter()
+            .map(|g| reduce_group(cached, g, cancellation))
+            .collect::<BridgeResult<Vec<_>>>()?
+    };
+    let summaries: Vec<_> = moments.summaries().collect();
+    let inference = request
+        .inference
+        .as_ref()
+        .filter(|_| !request.focus_only)
+        .map(|spec| {
+            inference::channels(
+                cached,
+                request,
+                cancellation,
+                &summaries,
+                reference.as_ref().map(|r| r.summaries.as_slice()),
+                &cached.plan.pixels,
+                spec,
+            )
+        })
+        .transpose()?;
+    let robust = if !request.focus_only
+        && matches!(request.summary, SummaryKind::Median | SummaryKind::Mad)
+    {
+        Some(robust_plane(cached, request, cancellation)?)
+    } else {
+        None
+    };
     let mut summary = Vec::with_capacity(cached.plan.pixels.len());
     let mut focused = Vec::with_capacity(summary.capacity());
     let mut valid_counts = Vec::with_capacity(summary.capacity());
@@ -719,28 +1046,45 @@ fn reduce_plane(
         if pixel % 4096 == 0 {
             cancellation.check()?;
         }
-        let value = slot.and_then(|index| {
-            let s = &summaries[index];
-            match request.summary {
-                SummaryKind::Mean => s.mean,
-                SummaryKind::SampleSd => s.sample_sd,
-                SummaryKind::MeanAbsolute => s.mean_absolute,
-                SummaryKind::Cancellation => s.cancellation,
-                SummaryKind::Coverage => Some(s.valid_count as f64),
-            }
-        });
-        summary.push(value.map(|v| v as f32).unwrap_or(f32::NAN));
+        if !request.focus_only {
+            let value = slot.and_then(|index| {
+                let s = &summaries[index];
+                match request.summary {
+                    SummaryKind::Mean => s.mean,
+                    SummaryKind::Median => robust.as_ref().and_then(|r| r[index].0),
+                    SummaryKind::Mad => robust.as_ref().and_then(|r| r[index].1),
+                    SummaryKind::SampleSd => s.sample_sd,
+                    SummaryKind::MeanAbsolute => s.mean_absolute,
+                    SummaryKind::Cancellation => s.cancellation,
+                    SummaryKind::Coverage => Some(s.valid_count as f64),
+                }
+            });
+            let value = if let Some(channels) = &inference {
+                channels.selected(&request.inference.as_ref().unwrap().channel)[pixel]
+                    .map(f64::from)
+            } else if request.difference {
+                value.and_then(|a| {
+                    let b = reference.as_ref().unwrap().means[pixel];
+                    b.is_finite().then_some(a - b)
+                })
+            } else {
+                value
+            };
+            summary.push(value.map(|v| v as f32).unwrap_or(f32::NAN));
+            valid_counts.push(
+                slot.map(|index| summaries[index].valid_count as u32)
+                    .unwrap_or(0),
+            );
+        }
         focused.push(
-            slot.and_then(|index| focus.map(|focus| cached.rows[focus][index]))
-                .unwrap_or(f32::NAN),
-        );
-        valid_counts.push(
-            slot.map(|index| summaries[index].valid_count as u32)
-                .unwrap_or(0),
+            slot.and_then(|index| {
+                focus.map(|focus| focused_override.unwrap_or(&cached.rows[focus])[index])
+            })
+            .unwrap_or(f32::NAN),
         );
     }
     let cutouts = match (&cached.plan.cutouts, &request.cutouts) {
-        (Some(plan), Some(spec)) => {
+        (Some(plan), Some(spec)) if !request.focus_only => {
             let mut members = Vec::with_capacity(spec.member_ids.len());
             for id in &spec.member_ids {
                 cancellation.check()?;
@@ -783,7 +1127,32 @@ fn reduce_plane(
         }
     }
     cancellation.check()?;
+    let mut focus_window = Vec::new();
+    for id in &request.focus_window {
+        cancellation.check()?;
+        let row = cached
+            .sources
+            .iter()
+            .position(|s| &s.member_id == id)
+            .unwrap();
+        let values: Vec<_> = cached
+            .plan
+            .pixels
+            .iter()
+            .map(|slot| slot.map(|i| cached.rows[row][i]).unwrap_or(f32::NAN))
+            .collect();
+        let valid_pixels = values.iter().filter(|v| v.is_finite()).count();
+        focus_window.push(CutoutMember {
+            member_id: id.clone(),
+            values,
+            valid_pixels,
+        });
+    }
     Ok(PopulationSliceResult {
+        inference,
+        groups,
+        reference,
+        focus_window,
         cutouts,
         context_range: range,
         plane: cached.plan.plane.clone(),
@@ -829,10 +1198,17 @@ mod tests {
             })
             .collect();
         PopulationSliceRequest {
+            inference: None,
+            groups: vec![],
+            reference: None,
+            difference: false,
+            focus_only: false,
+            focus_window: vec![],
             mask: None,
             context_key: "workspace:dataset:revision".into(),
             working_member_ids: members.iter().map(|m| m.member_id.clone()).collect(),
             focus_member_id: Some(members[0].member_id.clone()),
+            focus_stack_index: None,
             members,
             crosshair_mm: [1., 1., 1.],
             orientation: Orientation::Axial,
@@ -858,6 +1234,111 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn population_group_difference_preserves_local_counts_and_overlap() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[2.; 27]),
+            TestSource::new(&[3, 3, 3], &[6.; 27]),
+            TestSource::new(&[3, 3, 3], &[f32::NAN; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.working_member_ids = vec!["person-0".into(), "person-2".into()];
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["person-0".into(), "person-1".into()],
+            aggregation: None,
+        });
+        q.groups = vec![q.reference.clone().unwrap()];
+        q.difference = true;
+        let result = evaluate(&state, q.clone()).await;
+        assert_eq!(result.summary, vec![-2.; 9]);
+        assert_eq!(result.valid_counts, vec![1; 9]);
+        assert_eq!(result.reference.as_ref().unwrap().valid_counts, vec![2; 9]);
+        assert_eq!(result.groups[0].values, vec![4.; 9]);
+        q.reference.as_mut().unwrap().member_ids = vec!["person-2".into()];
+        let missing = evaluate(&state, q).await;
+        assert!(missing.summary.iter().all(|v| v.is_nan()));
+        assert!(missing.source_cache_hit);
+        assert_eq!(missing.reference.unwrap().valid_counts, vec![0; 9]);
+    }
+
+    #[tokio::test]
+    async fn population_group_difference_subtracts_before_float32_rounding() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[16_777_216.; 27]),
+            TestSource::new(&[3, 3, 3], &[16_777_218.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["person-0".into()],
+            aggregation: None,
+        });
+        q.difference = true;
+        assert_eq!(evaluate(&state, q).await.summary, vec![1.; 9]);
+    }
+
+    #[tokio::test]
+    async fn population_group_participant_policy_is_consistent_across_operands() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[0.; 27]),
+            TestSource::new(&[3, 3, 3], &[4.; 27]),
+            TestSource::new(&[3, 3, 3], &[8.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Mean,
+            groups: vec![
+                ParticipantGroup {
+                    participant_id: "P".into(),
+                    member_ids: vec!["person-0".into(), "person-1".into()],
+                },
+                ParticipantGroup {
+                    participant_id: "Q".into(),
+                    member_ids: vec!["person-2".into()],
+                },
+            ],
+        });
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["person-0".into()],
+            aggregation: Some(ParticipantAggregation {
+                within: WithinParticipant::Mean,
+                groups: vec![ParticipantGroup {
+                    participant_id: "P".into(),
+                    member_ids: vec!["person-0".into()],
+                }],
+            }),
+        });
+        q.difference = true;
+        assert_eq!(evaluate(&state, q.clone()).await.summary, vec![5.; 9]);
+        q.reference
+            .as_mut()
+            .unwrap()
+            .aggregation
+            .as_mut()
+            .unwrap()
+            .groups[0]
+            .participant_id = "other".into();
+        assert!(validate(&q).is_err());
+        q.reference.as_mut().unwrap().aggregation = None;
+        assert!(validate(&q).is_err());
+        q.reference = None;
+        q.difference = false;
+        q.aggregation = None;
+        q.groups = (0..5)
+            .map(|i| GroupRequest {
+                id: i.to_string(),
+                member_ids: vec!["person-0".into()],
+                aggregation: None,
+            })
+            .collect();
+        assert!(validate(&q).is_err());
+    }
+
+    #[tokio::test]
     async fn population_mask_applies_to_fields_cutouts_and_probe_counts() {
         use crate::population_mask::MaskSource;
         let sources = vec![
@@ -873,6 +1354,7 @@ mod tests {
             expected_sha256: None,
         });
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1.; 3],
             width_mm: 3.,
             dim_px: 3,
@@ -1313,6 +1795,7 @@ mod tests {
         let state = BridgeState::default().unwrap();
         let mut req = request(&sources);
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1.; 3],
             width_mm: 3.,
             dim_px: 3,
@@ -1376,6 +1859,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn focused_time_frame_preserves_population_and_rejects_invalid_frames() {
+        let sources = vec![TestSource::new(
+            &[3, 3, 3, 2],
+            &[vec![1.; 27], vec![7.; 27]].concat(),
+        )];
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        req.members[0].stack_index = Some(0);
+        let base = evaluate(&state, req.clone()).await;
+        req.focus_stack_index = Some(1);
+        let changed = evaluate(&state, req.clone()).await;
+        assert!(changed.source_cache_hit);
+        assert_eq!(base.summary, changed.summary);
+        assert!(changed
+            .focused
+            .iter()
+            .filter(|v| v.is_finite())
+            .all(|&v| v == 7.));
+        assert!(base
+            .focused
+            .iter()
+            .filter(|v| v.is_finite())
+            .all(|&v| v == 1.));
+        req.focus_stack_index = Some(2);
+        assert!(state
+            .population_slice
+            .evaluate(req, &state, SampleCancellation::default())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("valid explicit frame"));
+    }
+
+    #[tokio::test]
     async fn population_slice_requires_matching_support_and_explicit_frames() {
         let sources = vec![
             TestSource::new(&[3, 3, 3], &[1.; 27]),
@@ -1436,6 +1953,90 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Generate the fixture with tools/create_population_movie_fixture.py; set BRAINFLOW_POPULATION_FIXTURE"]
+    async fn population_movie_fixture_native_acceptance() {
+        let root = std::path::PathBuf::from(
+            std::env::var("BRAINFLOW_POPULATION_FIXTURE").expect("fixture directory"),
+        );
+        let preview: bridge_types::StudioImportPreviewRequest =
+            serde_json::from_value(serde_json::json!({
+                "mode": "manifest", "manifestPath": root.join("nftab.json")
+            }))
+            .unwrap();
+        let candidates = field_table::preview_import_candidates(preview);
+        let candidate = &candidates[0];
+        assert_eq!(
+            candidate.contract.readiness,
+            bridge_types::StudioImportReadiness::CompareReady,
+            "{}",
+            candidate.contract.reason
+        );
+        assert_eq!(candidate.set.member_count, 80);
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("expected.json")).unwrap()).unwrap();
+        let mut req: PopulationSliceRequest = serde_json::from_value(serde_json::json!({
+            "contextKey": "audited-movie-fixture", "members": (1..=80).map(|i| {
+                let id = format!("S{i:03}");
+                serde_json::json!({"memberId":id,"sourcePath":root.join(format!("maps/{id}.nii.gz")),"expectedSha256":expected["sourceSha256"][&id]})
+            }).collect::<Vec<_>>(),
+            "workingMemberIds": (1..=20).map(|i| format!("S{i:03}")).collect::<Vec<_>>(),
+            "focusMemberId":"S001","crosshairMm":[1.,1.,1.],"orientation":"axial","dimPx":[128,128],"zoom":1.,"summary":"mean",
+            "cutouts":{"wholePlane":true,"centerMm":[1.,1.,1.],"widthMm":32.,"dimPx":40,"memberIds":(1..=80).map(|i|format!("S{i:03}")).collect::<Vec<_>>()}
+        })).unwrap();
+        let state = BridgeState::default().unwrap();
+        let start = std::time::Instant::now();
+        let full = evaluate(&state, req.clone()).await;
+        let cold = start.elapsed().as_secs_f64() * 1000.;
+        assert!(full
+            .summary
+            .iter()
+            .filter(|v| v.is_finite())
+            .all(|&v| v == 1.));
+        assert!(full.summary.iter().any(|v| v.is_nan()));
+        assert!(full.summary.iter().filter(|v| v.is_finite()).count() > 100);
+        assert_eq!(full.cutouts.as_ref().unwrap().members.len(), 80);
+        let mut times = Vec::new();
+        for i in 1..=80 {
+            req.focus_only = true;
+            req.focus_member_id = Some(format!("S{i:03}"));
+            req.focus_window = vec![format!("S{i:03}")];
+            let start = std::time::Instant::now();
+            let result = evaluate(&state, req.clone()).await;
+            times.push(start.elapsed().as_secs_f64() * 1000.);
+            assert!(result.summary.is_empty() && result.valid_counts.is_empty());
+            assert_eq!(result.sources.len(), 80);
+            assert!(result.focused.iter().filter(|v| v.is_finite()).count() > 100);
+            assert_eq!(result.focus_window[0].member_id, format!("S{i:03}"));
+            if i <= 60 {
+                let value = if i <= 20 {
+                    1.
+                } else if i <= 30 {
+                    3.
+                } else if i <= 40 {
+                    -1.
+                } else if i <= 42 {
+                    10.
+                } else {
+                    0.
+                };
+                assert!(result
+                    .focused
+                    .iter()
+                    .filter(|v| v.is_finite())
+                    .all(|&v| v == value));
+            }
+        }
+        times.sort_by(f64::total_cmp);
+        println!("POPULATION_MOVIE_FIXTURE audited=80 geometry=32x32x32 raster=128x128 cold_ms={cold:.2} focus_p50_ms={:.2} focus_p95_ms={:.2} focus_max_ms={:.2} plane_bytes={}", times[39], times[75], times[79], full.cached_bytes);
+        state
+            .population_slice
+            .release(&req.context_key)
+            .await
+            .unwrap();
+        assert!(state.population_slice.cache.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
     async fn population_slice_realistic_context_reports_warm_reduction_cost() {
         // 80 x 204,800 float32 measurements = 65,536,000 decoded bytes.
         // This measures native evaluation only; IPC/canvas presentation has a
@@ -1448,6 +2049,7 @@ mod tests {
         req.dim_px = [128, 128];
         req.crosshair_mm = [39.5, 39.5, 15.5];
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [39.5, 39.5, 12.],
             width_mm: 32.,
             dim_px: 40,
@@ -1479,6 +2081,35 @@ mod tests {
                 assert!(member.values.iter().all(|&value| value == index as f32));
             }
         }
+        let mut focus_latencies = Vec::new();
+        req.focus_only = true;
+        req.focus_window = (0..8).map(|i| format!("person-{i}")).collect();
+        for i in 0..20 {
+            req.focus_member_id = Some(format!("person-{i}"));
+            let start = std::time::Instant::now();
+            let focus = evaluate(&state, req.clone()).await;
+            focus_latencies.push(start.elapsed().as_secs_f64() * 1000.);
+            assert!(focus.source_cache_hit);
+            assert!(
+                focus.summary.is_empty()
+                    && focus.valid_counts.is_empty()
+                    && focus.cutouts.is_none()
+            );
+            assert!(focus.focused.iter().all(|&v| v == i as f32));
+            for (index, member) in focus.focus_window.iter().enumerate() {
+                assert_eq!(member.member_id, format!("person-{index}"));
+                assert!(member.values.iter().all(|&v| v == index as f32));
+            }
+        }
+        focus_latencies.sort_by(f64::total_cmp);
+        println!(
+            "POPULATION_FOCUS_NATIVE window=8 p50_ms={:.2} p95_ms={:.2} max_ms={:.2}",
+            focus_latencies[9], focus_latencies[18], focus_latencies[19]
+        );
+        req.focus_window.push("person-8".into());
+        assert!(validate(&req).is_err());
+        req.focus_window = vec!["unknown".into()];
+        assert!(validate(&req).is_err());
         latencies.sort_by(f64::total_cmp);
         println!("POPULATION_SLICE_WITH_CUTOUTS_NATIVE debug 80x204800 gallery=80x40x40 cold_ms={cold_ms:.2} warm_p50_ms={:.2} warm_p95_ms={:.2} warm_max_ms={:.2} retained_plane_bytes={}", latencies[9], latencies[18], latencies[19], result.cached_bytes);
         state
@@ -1502,6 +2133,7 @@ mod tests {
         let mut req = request(&sources);
         let main = evaluate(&state, req.clone()).await;
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1., 1., 2.],
             width_mm: 3.,
             dim_px: 3,
@@ -1543,6 +2175,7 @@ mod tests {
         let state = BridgeState::default().unwrap();
         let mut req = request(&sources);
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1., 1., 1.],
             width_mm: 3.,
             dim_px: 3,

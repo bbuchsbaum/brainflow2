@@ -8,6 +8,7 @@
 import React from 'react';
 import { useBidsStore } from '@/stores/bidsStore';
 import type { BidsDatasetSummary } from '@/stores/bidsStore';
+import { StatusPill } from '@/components/ui/bf';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,40 +34,6 @@ function formatTasks(taskIds: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// StatusDot
-// ---------------------------------------------------------------------------
-
-type DotColor = 'green' | 'red' | 'amber';
-
-const dotColors: Record<DotColor, string> = {
-  green: 'var(--app-success)',
-  red: 'var(--app-error)',
-  amber: 'var(--app-warning)',
-};
-
-interface StatusDotProps {
-  color: DotColor;
-}
-
-function StatusDot({ color }: StatusDotProps) {
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        display: 'inline-block',
-        width: '6px',
-        height: '6px',
-        borderRadius: '50%',
-        backgroundColor: dotColors[color],
-        marginRight: '5px',
-        verticalAlign: 'middle',
-        flexShrink: 0,
-      }}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
 // MetricGroup — stacked label + value, no decorative border
 // ---------------------------------------------------------------------------
 
@@ -80,16 +47,7 @@ function MetricGroup({ label, children }: MetricGroupProps) {
     <div
       style={{ display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0 }}
     >
-      <span
-        className="bf-role-section text-muted-foreground"
-        style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          whiteSpace: 'nowrap',
-        }}
-      >
+      <span className="whitespace-nowrap text-bf-xs text-muted-foreground">
         {label}
       </span>
       <span
@@ -119,27 +77,12 @@ interface ValidationMetricProps {
 
 function ValidationMetric({ validation }: ValidationMetricProps) {
   if (validation.passed) {
-    return (
-      <>
-        <StatusDot color="green" />
-        Passed
-      </>
-    );
+    return <StatusPill status="success">Passed</StatusPill>;
   }
   if (validation.critical_count > 0) {
-    return (
-      <>
-        <StatusDot color="red" />
-        {validation.critical_count} critical
-      </>
-    );
+    return <StatusPill status="failed">{validation.critical_count} critical</StatusPill>;
   }
-  return (
-    <>
-      <StatusDot color="amber" />
-      {validation.warning_count} warnings
-    </>
-  );
+  return <StatusPill status="warning">{validation.warning_count} warnings</StatusPill>;
 }
 
 // ---------------------------------------------------------------------------

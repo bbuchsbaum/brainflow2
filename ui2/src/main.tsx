@@ -3,8 +3,16 @@ import './polyfills';
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import '@fontsource/ibm-plex-sans/400.css';
+// True italic for statistic symbols (z, t): StatSymbol; no synthesized slant.
+import '@fontsource/ibm-plex-sans/400-italic.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-sans/600.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
 import './index.css';
 import App from './App.tsx';
+import { installNumericInputGuard } from './utils/numericInput';
 
 console.log('[main.tsx] React app starting...');
 
@@ -43,6 +51,10 @@ if (!rootElement) {
 
 console.log('[main.tsx] React version:', React.version);
 console.log('[main.tsx] ReactDOM:', typeof ReactDOM);
+
+// Displayed numbers use U+2212; normalise it (and other dashes) in every
+// numeric field so a pasted negative never loses its sign.
+installNumericInputGuard(document);
 
 const root = ReactDOM.createRoot(rootElement);
 

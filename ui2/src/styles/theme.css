@@ -3,8 +3,9 @@
  *
  * Two layers of tokens live here:
  *
- *   1. `--bf-*` (canonical) — the dark blue-black research palette
- *      defined in `resdesign/Design.md` §3. New surfaces should consume
+ *   1. `--bf-*` (canonical) — the warm neutral "Workstation" palette
+ *      (docs/plans/workstation-shell-restyle.md), superseding the
+ *      blue-black palette of `resdesign/Design.md` §3. New surfaces should consume
  *      these directly.
  *
  *   2. `--app-*` (legacy alias) — every existing component reads from
@@ -34,72 +35,73 @@
      * ──────────────────────────────────────────────────────────────── */
 
     /* App backgrounds */
-    --bf-bg-app: #05080c;
-    --bf-bg-shell: #07101a;
-    --bf-bg-panel: #0b1521;
-    --bf-bg-panel-raised: #101c2a;
-    --bf-bg-panel-sunken: #050b12;
-    --bf-bg-canvas: #020508;
-    --bf-bg-input: #08111c;
-    --bf-bg-hover: #122235;
-    --bf-bg-active: #16345d;
-    --bf-bg-selected: #123a72;
+    --bf-bg-app: #1b1c1f;
+    --bf-bg-shell: #222326;
+    --bf-bg-panel: #222326;
+    --bf-bg-panel-raised: #2a2b2f;
+    --bf-bg-panel-sunken: #151619;
+    --bf-bg-canvas: #000000;
+    --bf-bg-input: #1b1c1f;
+    --bf-bg-hover: #2e2f33;
+    --bf-bg-active: #36383d;
+    --bf-bg-selected: #303237;
 
     /* Borders and dividers */
-    --bf-border-subtle: rgba(148, 163, 184, 0.14);
-    --bf-border: rgba(148, 163, 184, 0.24);
-    --bf-border-strong: rgba(148, 163, 184, 0.38);
-    --bf-border-focus: #3b82f6;
-    --bf-divider: rgba(148, 163, 184, 0.16);
+    --bf-border-subtle: rgba(255, 255, 255, 0.08);
+    --bf-border: rgba(255, 255, 255, 0.16);
+    --bf-border-strong: rgba(255, 255, 255, 0.28);
+    --bf-border-field: rgba(255, 255, 255, 0.38); /* field boundary, >= 3:1 on panel (WCAG 1.4.11) */
+    --bf-border-focus: #d4a556;
+    --bf-divider: rgba(255, 255, 255, 0.08);
 
     /* Text */
-    --bf-text-primary: #e6edf7;
-    --bf-text-secondary: #b7c4d4;
-    --bf-text-muted: #7f8fa3;
-    --bf-text-faint: #566579;
-    --bf-text-inverse: #020617;
+    --bf-text-primary: #e9eaec;
+    --bf-text-secondary: #bdbfc4;
+    --bf-text-muted: #a4a7ad;
+    --bf-text-faint: #76797f;
+    --bf-text-inverse: #16171a;
 
     /* Brand and interaction */
-    --bf-brand: #7c3aed;
-    --bf-accent: #2f80ff;
-    --bf-accent-hover: #4c93ff;
-    --bf-accent-active: #1f6feb;
-    --bf-accent-soft: rgba(47, 128, 255, 0.16);
+    --bf-brand: #d4a556;
+    --bf-accent: #d4a556;
+    --bf-accent-hover: #ddb46a;
+    --bf-accent-active: #c2944a;
+    --bf-accent-soft: rgba(212, 165, 86, 0.14);
 
     /* Semantic */
-    --bf-success: #35d36b;
-    --bf-success-soft: rgba(53, 211, 107, 0.14);
-    --bf-warning: #f59e0b;
-    --bf-warning-soft: rgba(245, 158, 11, 0.14);
-    --bf-danger: #ef4444;
-    --bf-danger-soft: rgba(239, 68, 68, 0.14);
-    --bf-info: #38bdf8;
+    --bf-success: #6cc596;
+    --bf-success-soft: rgba(108, 197, 150, 0.14);
+    --bf-warning: #f28a5a;
+    --bf-warning-soft: rgba(242, 138, 90, 0.14);
+    --bf-danger: #f5868f;
+    --bf-danger-soft: rgba(245, 134, 143, 0.14);
+    --bf-info: #93b4d6;
 
     /* Anatomical orientation colors */
-    --bf-axial: #2f80ff;
-    --bf-sagittal: #40c463;
-    --bf-coronal: #ff9900;
-    --bf-crosshair: #58d957;
+    --bf-axial: #9fb7d8;
+    --bf-sagittal: #93c9b0;
+    --bf-coronal: #c9b48f;
+    --bf-crosshair: #5fe0a0;
 
     /* Files-panel file-type icon colors */
-    --bf-icon-volume: #2f80ff; /* NIfTI / volumetric data — matches --bf-axial */
-    --bf-icon-surface: #10b981; /* GIfTI surface / functional meshes */
-    --bf-icon-freesurfer: #8b5cf6; /* MGZ / MGH FreeSurfer volumes */
+    --bf-icon-volume: #9fb7d8;
+    --bf-icon-surface: #93c9b0;
+    --bf-icon-freesurfer: #b9a6d9;
 
     /* Plot colors */
-    --bf-plot-line: #38a3ff;
-    --bf-plot-grid: rgba(148, 163, 184, 0.18);
-    --bf-plot-axis: rgba(226, 232, 240, 0.55);
+    --bf-plot-line: #7fb2e5;
+    --bf-plot-grid: rgba(255, 255, 255, 0.08);
+    --bf-plot-axis: rgba(233, 234, 236, 0.72);
 
     /* Shadows */
     --bf-shadow-panel: 0 10px 32px rgba(0, 0, 0, 0.32);
     --bf-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
     /* Radii — mockup7 research scale (3-8px), replaces Bauhaus 1-2px */
-    --bf-radius-xs: 3px;
-    --bf-radius-sm: 4px;
-    --bf-radius-md: 6px;
-    --bf-radius-lg: 8px;
+    --bf-radius-xs: 2px;
+    --bf-radius-sm: 2px;
+    --bf-radius-md: 3px;
+    --bf-radius-lg: 4px;
     --bf-radius-pill: 999px;
 
     /* Spacing */
@@ -121,10 +123,16 @@
 
     /* Fonts (Design.md §4.1) */
     --bf-font-sans:
-      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-      "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --bf-font-mono:
-      "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial,
+      sans-serif;
+    --bf-font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+    /* Type scale (tailwind text-bf-2xs … text-bf-lg) */
+    --bf-text-2xs: 10px;
+    --bf-text-xs: 11px;
+    --bf-text-sm: 12px;
+    --bf-text-md: 13px;
+    --bf-text-lg: 15px;
 
     /* Motion (Design.md §18.3) */
     --bf-motion-fast: 100ms;
@@ -135,26 +143,26 @@
      * Remapped to mockup7 values so any Tailwind consumer flips along
      * with the rest of the app.
      * ──────────────────────────────────────────────────────────────── */
-    --background: 211 38% 4%; /* #05080c */
-    --foreground: 217 37% 93%; /* #e6edf7 */
-    --card: 213 35% 9%; /* #0b1521 */
-    --card-foreground: 217 37% 93%;
-    --popover: 213 35% 9%;
-    --popover-foreground: 217 37% 93%;
-    --primary: 217 100% 59%; /* #2f80ff */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 213 30% 12%;
-    --secondary-foreground: 217 37% 93%;
-    --muted: 213 30% 14%;
-    --muted-foreground: 215 17% 57%;
-    --accent: 217 100% 65%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 215 22% 30%;
-    --input: 215 30% 8%;
-    --ring: 217 100% 59%;
-    --radius: 6px;
+    --background: 225 6% 14%; /* = --bf-bg-panel (#222326); one docked ground */
+    --foreground: 220 7% 92%;
+    --card: 225 6% 14%;
+    --card-foreground: 220 7% 92%;
+    --popover: 225 6% 14%;
+    --popover-foreground: 220 7% 92%;
+    --primary: 220 9% 86%;
+    --primary-foreground: 225 8% 9%;
+    --secondary: 228 6% 17%;
+    --secondary-foreground: 220 7% 92%;
+    --muted: 228 6% 17%;
+    --muted-foreground: 220 5% 66%;
+    --accent: 228 5% 19%;
+    --accent-foreground: 220 7% 92%;
+    --destructive: 355 85% 74%;
+    --destructive-foreground: 225 7% 10%; /* dark text on the light danger fill */
+    --border: 223 6% 23%;
+    --input: 225 7% 11%;
+    --ring: 38 59% 58%;
+    --radius: 4px;
 
     /* ────────────────────────────────────────────────────────────────
      * Legacy `--app-*` aliases — every existing component reads these.
@@ -183,18 +191,18 @@
     --app-text-disabled: var(--bf-text-faint);
 
     /* Brand / accent */
-    --app-accent: var(--bf-accent);
-    --app-accent-foreground: #ffffff;
-    --app-accent-hover: var(--bf-accent-hover);
-    --app-accent-active: var(--bf-accent-active);
-    --app-accent-text: var(--bf-accent);
-    --app-accent-muted: var(--bf-accent-soft);
+    --app-accent: hsl(var(--primary));
+    --app-accent-foreground: hsl(var(--primary-foreground));
+    --app-accent-hover: hsl(var(--foreground));
+    --app-accent-active: hsl(var(--primary));
+    --app-accent-text: var(--bf-text-primary);
+    --app-accent-muted: rgba(255, 255, 255, 0.08);
 
     /* Tabs / splitters */
     --app-tab-inactive: var(--bf-bg-shell);
     --app-tab-active: var(--bf-bg-panel);
     --app-splitter: var(--bf-border);
-    --app-splitter-hover: var(--bf-accent);
+    --app-splitter-hover: var(--bf-border-strong);
 
     /* Semantic */
     --app-success: var(--bf-success);
@@ -208,7 +216,7 @@
     --layer-divider: var(--bf-divider);
     --layer-hover: var(--bf-bg-hover);
     --layer-selected: var(--bf-bg-selected);
-    --layer-accent: var(--bf-accent);
+    --layer-accent: hsl(var(--primary));
     --layer-track-bg: var(--bf-bg-panel-sunken);
 
     /* Typography (legacy aliases over the canonical sans/mono) */
@@ -225,10 +233,10 @@
     /* Semantic typography roles */
     --app-role-title-size: 13px;
     --app-role-title-weight: 600;
-    --app-role-title-tracking: 0.08em;
+    --app-role-title-tracking: 0.01em;
     --app-role-section-size: 11px;
-    --app-role-section-weight: 600;
-    --app-role-section-tracking: 0.12em;
+    --app-role-section-weight: 500;
+    --app-role-section-tracking: 0;
     --app-role-label-size: 11px;
     --app-role-label-weight: 500;
     --app-role-value-size: 13px;
@@ -273,12 +281,12 @@
     /* Unified scrollbar — toned for the dark research palette */
     --scrollbar-width: 6px;
     --scrollbar-track: transparent;
-    --scrollbar-thumb: rgba(148, 163, 184, 0.18);
-    --scrollbar-thumb-hover: rgba(148, 163, 184, 0.32);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
 
-    /* Top accent stripe — now uses the mockup7 blue */
+    /* Top accent stripe — retired in the Workstation restyle (height 0) */
     --top-accent: var(--bf-accent);
-    --top-accent-height: var(--rule-strong);
+    --top-accent-height: 0px;
 
     /* Mockup 7 / Integrated workspace surface tokens (legacy names preserved) */
     --app-surface-canvas: var(--bf-bg-canvas);
@@ -292,7 +300,7 @@
     /* Plot host palette aliases */
     --app-plot-line: var(--bf-plot-line);
     --app-plot-grid: var(--bf-plot-grid);
-    --app-plot-cursor: var(--bf-accent-hover);
+    --app-plot-cursor: var(--bf-text-secondary);
     --app-plot-zero: var(--bf-plot-axis);
 
     /* Sizing — layer colormap strip + bottom workbench dock */
@@ -324,7 +332,7 @@
  *
  * Usage: <input type="range" class="bf-thumb-circle ..." />
  */
-input[type="range"].bf-thumb-circle {
+input[type='range'].bf-thumb-circle {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
@@ -332,53 +340,53 @@ input[type="range"].bf-thumb-circle {
   margin: 0;
   padding: 0;
 }
-input[type="range"].bf-thumb-circle::-webkit-slider-thumb {
+input[type='range'].bf-thumb-circle::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: hsl(199 89% 48%); /* sky-500 */
+  width: 6px;
+  height: 12px;
+  border-radius: 1px;
+  background: hsl(var(--primary));
   border: 0;
   /*
    * WebKit/Blink vertically centre an explicit-height runnable track within
    * the input's content box, then align the thumb's TOP with that track's
    * top. With a 3px runnable track (matching the visible sibling track) the
-   * thumb needs margin-top = (3 - 10) / 2 = -3.5px to sit dead-centre on the
+   * thumb needs margin-top = (3 - 12) / 2 = -4.5px to sit dead-centre on the
    * track's midpoint. (The previous rule targeted `::-webkit-slider-track`,
    * which is NOT a real pseudo-element, so the track defaulted to full input
    * height and -5px lifted the knob ~6px above the visible track.)
    */
-  margin-top: -3.5px;
-  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  margin-top: -4.5px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
   cursor: pointer;
   pointer-events: auto;
   transition: background-color 0.15s ease;
 }
-input[type="range"].bf-thumb-circle:hover::-webkit-slider-thumb,
-input[type="range"].bf-thumb-circle:focus-visible::-webkit-slider-thumb {
-  background: hsl(199 89% 60%);
+input[type='range'].bf-thumb-circle:hover::-webkit-slider-thumb,
+input[type='range'].bf-thumb-circle:focus-visible::-webkit-slider-thumb {
+  background: hsl(var(--foreground));
   border: 0;
 }
-input[type="range"].bf-thumb-circle::-webkit-slider-runnable-track {
+input[type='range'].bf-thumb-circle::-webkit-slider-runnable-track {
   background: transparent;
   height: 3px;
   border: 0;
 }
-input[type="range"].bf-thumb-circle::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: hsl(199 89% 48%);
+input[type='range'].bf-thumb-circle::-moz-range-thumb {
+  width: 6px;
+  height: 12px;
+  border-radius: 1px;
+  background: hsl(var(--primary));
   border: 0;
   cursor: pointer;
   pointer-events: auto;
 }
-input[type="range"].bf-thumb-circle:hover::-moz-range-thumb {
-  background: hsl(199 89% 60%);
+input[type='range'].bf-thumb-circle:hover::-moz-range-thumb {
+  background: hsl(var(--foreground));
   border: 0;
 }
-input[type="range"].bf-thumb-circle::-moz-range-track {
+input[type='range'].bf-thumb-circle::-moz-range-track {
   background: transparent;
   height: 3px;
   border: 0;
@@ -396,13 +404,13 @@ select.bf-select,
   -webkit-appearance: none;
   appearance: none;
   padding: 0 24px 0 9px;
-  border: 1px solid var(--bf-border-subtle);
+  border: 1px solid var(--bf-border-field);
   border-radius: var(--bf-radius-sm);
   background-color: var(--bf-bg-input);
   color: var(--bf-text-primary);
   line-height: 1;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a4a7ad' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 10px 10px;
@@ -416,14 +424,14 @@ select:not([multiple]):not([size]) {
 }
 select.bf-select:hover,
 :where(select:not([multiple]):not([size])):hover {
-  border-color: rgba(148, 163, 184, 0.32);
+  border-color: var(--bf-text-muted);
 }
 select.bf-select:focus,
 select.bf-select:focus-visible,
 :where(select:not([multiple]):not([size])):focus-visible {
-  outline: none;
-  border-color: var(--bf-border-focus);
-  box-shadow: 0 0 0 2px rgba(47, 128, 255, 0.2);
+  outline: 2px solid var(--bf-border-focus);
+  outline-offset: 1px;
+  border-color: var(--bf-border-strong);
 }
 select.bf-select option,
 :where(select) option {
@@ -470,14 +478,14 @@ input[type='checkbox'] {
   vertical-align: middle;
 }
 input[type='checkbox']:checked {
-  border-color: var(--bf-accent);
-  background-color: var(--bf-accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2'%3E%3Cpath d='m3 8 3 3 7-7'/%3E%3C/svg%3E");
+  border-color: hsl(var(--primary));
+  background-color: hsl(var(--primary));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2316171a' stroke-width='2'%3E%3Cpath d='m3 8 3 3 7-7'/%3E%3C/svg%3E");
 }
 input[type='checkbox']:indeterminate {
-  border-color: var(--bf-accent);
-  background-color: var(--bf-accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' stroke='white' stroke-width='2'%3E%3Cpath d='M3 8h10'/%3E%3C/svg%3E");
+  border-color: hsl(var(--primary));
+  background-color: hsl(var(--primary));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' stroke='%2316171a' stroke-width='2'%3E%3Cpath d='M3 8h10'/%3E%3C/svg%3E");
 }
 input[type='checkbox']:focus-visible,
 button.bf-control-button:focus-visible {
@@ -507,14 +515,35 @@ button.bf-control-button:hover:enabled {
   color: var(--bf-text-primary);
 }
 button.bf-control-button-primary {
-  border-color: var(--bf-accent);
-  background: var(--bf-accent);
-  color: white;
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 button.bf-control-button-primary:hover:enabled {
-  background: var(--bf-accent-hover);
-  color: white;
+  background: hsl(var(--foreground));
+  color: hsl(var(--primary-foreground));
 }
 .bf-parcel-form select.bf-select {
   height: 30px;
+}
+
+/* A numeric field whose pasted text was refused as not a number
+ * (utils/numericInput.ts): shown invalid instead of a different number. */
+input[data-numeric-invalid] {
+  outline: 2px solid var(--bf-danger) !important;
+  outline-offset: 0;
+}
+
+
+/* Transparent export preview (ExportImageDialog): a quiet neutral checker
+ * shown only when the export background is Transparent. */
+.bf-checkerboard {
+  background-color: var(--bf-bg-app);
+  background-image: conic-gradient(
+    var(--bf-bg-hover) 25%,
+    transparent 0 50%,
+    var(--bf-bg-hover) 0 75%,
+    transparent 0
+  );
+  background-size: 16px 16px;
 }

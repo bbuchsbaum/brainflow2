@@ -73,20 +73,17 @@ impl CpuVolumeRenderer {
                     voxel_coord_h.z / voxel_coord_h.w,
                 );
 
-                // Check bounds
-                let dims = volume.space.dims();
-                if voxel_coord.x < 0.0
-                    || voxel_coord.x >= dims[0] as f32 - 1.0
-                    || voxel_coord.y < 0.0
-                    || voxel_coord.y >= dims[1] as f32 - 1.0
-                    || voxel_coord.z < 0.0
-                    || voxel_coord.z >= dims[2] as f32 - 1.0
-                {
+                let Some(value) = crate::interpolation::sample_trilinear_with(
+                    [
+                        volume.space.dims()[0],
+                        volume.space.dims()[1],
+                        volume.space.dims()[2],
+                    ],
+                    [voxel_coord.x, voxel_coord.y, voxel_coord.z],
+                    |[x, y, z]| volume.inner().get_at(x, y, z),
+                ) else {
                     continue;
-                }
-
-                // Sample volume using trilinear interpolation
-                let value = self.sample_trilinear(volume, voxel_coord);
+                };
 
                 // Normalize intensity
                 let intensity_delta = (intensity_max - intensity_min).max(1e-9);
@@ -116,50 +113,6 @@ impl CpuVolumeRenderer {
         // Get the world-to-voxel transform from the volume's space wrapper
         volume.space.world_to_voxel()
     }
-
-    /// Sample volume using trilinear interpolation
-    fn sample_trilinear(
-        &self,
-        volume: &CompatibleVolume<f32>,
-        coord: nalgebra::Vector3<f32>,
-    ) -> f32 {
-        let dims = volume.space.dims();
-
-        // Get integer and fractional parts
-        let x0 = coord.x.floor() as usize;
-        let y0 = coord.y.floor() as usize;
-        let z0 = coord.z.floor() as usize;
-
-        let fx = coord.x - x0 as f32;
-        let fy = coord.y - y0 as f32;
-        let fz = coord.z - z0 as f32;
-
-        // Clamp to valid range
-        let x1 = (x0 + 1).min(dims[0] - 1);
-        let y1 = (y0 + 1).min(dims[1] - 1);
-        let z1 = (z0 + 1).min(dims[2] - 1);
-
-        // Sample 8 corners using get_at from NeuroVol trait
-        let v000 = volume.inner().get_at(x0, y0, z0).unwrap_or(0.0);
-        let v001 = volume.inner().get_at(x0, y0, z1).unwrap_or(0.0);
-        let v010 = volume.inner().get_at(x0, y1, z0).unwrap_or(0.0);
-        let v011 = volume.inner().get_at(x0, y1, z1).unwrap_or(0.0);
-        let v100 = volume.inner().get_at(x1, y0, z0).unwrap_or(0.0);
-        let v101 = volume.inner().get_at(x1, y0, z1).unwrap_or(0.0);
-        let v110 = volume.inner().get_at(x1, y1, z0).unwrap_or(0.0);
-        let v111 = volume.inner().get_at(x1, y1, z1).unwrap_or(0.0);
-
-        // Trilinear interpolation
-        let v00 = v000 * (1.0 - fx) + v100 * fx;
-        let v01 = v001 * (1.0 - fx) + v101 * fx;
-        let v10 = v010 * (1.0 - fx) + v110 * fx;
-        let v11 = v011 * (1.0 - fx) + v111 * fx;
-
-        let v0 = v00 * (1.0 - fy) + v10 * fy;
-        let v1 = v01 * (1.0 - fy) + v11 * fy;
-
-        v0 * (1.0 - fz) + v1 * fz
-    }
 }
 
 impl Default for CpuVolumeRenderer {
@@ -173,6 +126,26 @@ mod tests {
     use super::*;
 
     use volmath::{NeuroSpace, NeuroSpaceExt};
+
+    #[test]
+    fn renders_final_plane_and_singleton_axis_and_rejects_outside() {
+        let space = NeuroSpace::from_dims_spacing_origin(vec![2, 2, 1], vec![1.0; 3], vec![0.0; 3])
+            .unwrap();
+        let volume = CompatibleVolume::from_data(space, vec![1.0f32; 4]);
+        let renderer = CpuVolumeRenderer::new();
+        let mut slice = SliceSpec::axial_at([0.0; 3], [1.0; 2], [1, 1]);
+        slice.origin_mm = [1.0, 1.0, 0.0];
+        slice.u_mm = [0.0; 3];
+        slice.v_mm = [0.0; 3];
+        let render = |slice: &SliceSpec| {
+            renderer
+                .render_volume_slice(&volume, slice, 0.0, 1.0, BuiltinColormap::Grayscale, 1.0)
+                .unwrap()
+        };
+        assert_ne!(render(&slice), vec![51, 51, 51, 255]);
+        slice.origin_mm[2] = 0.01;
+        assert_eq!(render(&slice), vec![51, 51, 51, 255]);
+    }
 
     #[test]
     fn test_cpu_volume_renderer() {

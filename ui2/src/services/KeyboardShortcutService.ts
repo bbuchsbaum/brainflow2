@@ -18,6 +18,12 @@ export interface ShortcutRegistration {
   handler: () => void;
   priority?: number;
   when?: () => boolean;
+  /**
+   * Also fire while a text field has focus (e.g. Cmd+K for the command
+   * palette). A field that uses the same chord itself opts out with
+   * `data-own-shortcuts`.
+   */
+  allowInInputs?: boolean;
   category: string;
   description: string;
 }
@@ -36,8 +42,26 @@ function isInputTarget(target: EventTarget | null): boolean {
   if (!target) return false;
   if (target instanceof HTMLInputElement) return true;
   if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLSelectElement) return true;
   if (target instanceof HTMLElement && target.isContentEditable) return true;
   return false;
+}
+
+/**
+ * Controls whose own activation key is Space (APG button, switch, checkbox,
+ * radio, option and tab patterns). A global Space shortcut (time play/pause)
+ * must not steal it: preventDefault on keydown cancels the button's click.
+ */
+const SPACE_OWNERS =
+  'button, summary, select, [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="tab"], [role="treeitem"], [contenteditable=""], [contenteditable="true"]';
+
+function isSpaceOwnerTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest(SPACE_OWNERS) !== null;
+}
+
+function isSpaceKey(event: KeyboardEvent): boolean {
+  return event.key === ' ' || event.key === 'Spacebar' || event.code === 'Space';
 }
 
 function modifiersMatch(event: KeyboardEvent, modifiers?: ShortcutModifiers): boolean {
@@ -97,7 +121,15 @@ class KeyboardShortcutService {
 
   private handleKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented) return;
-    if (isInputTarget(event.target)) return;
+    const inInput = isInputTarget(event.target);
+    if (
+      inInput &&
+      event.target instanceof HTMLElement &&
+      event.target.closest('[data-own-shortcuts]')
+    ) {
+      return;
+    }
+    if (isSpaceKey(event) && isSpaceOwnerTarget(event.target)) return;
 
     const eventKey = normalizeKey(event.key);
     let best: ShortcutRegistration | null = null;
@@ -107,6 +139,7 @@ class KeyboardShortcutService {
       if (regKey !== eventKey) continue;
       if (!modifiersMatch(event, reg.modifiers)) continue;
       if (reg.when && !reg.when()) continue;
+      if (inInput && !reg.allowInInputs) continue;
 
       const priority = reg.priority ?? 0;
       if (!best || priority > (best.priority ?? 0)) {

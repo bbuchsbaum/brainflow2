@@ -42,12 +42,8 @@ function resolveActiveSliceView(): ViewType {
 
 function nudgeSlice(stepMultiplier: number): void {
   const viewId = resolveActiveSliceView();
-  const sliceService = getSliceNavigationService();
-  const { min, max, step, current } = sliceService.getSliceRange(viewId);
-  const next = Math.max(min, Math.min(max, current + step * stepMultiplier));
-  if (!Object.is(next, current)) {
-    sliceService.updateSlicePosition(viewId, next);
-  }
+  // One reference voxel per step (the snapping grid), always moving.
+  getSliceNavigationService().stepSlice(viewId, stepMultiplier);
 }
 
 export function useKeyboardShortcuts() {

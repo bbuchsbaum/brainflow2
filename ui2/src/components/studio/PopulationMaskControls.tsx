@@ -1,3 +1,4 @@
+import { Button, Notice } from '@/components/ui/bf';
 import { useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
@@ -21,30 +22,26 @@ export function PopulationMaskControls() {
     }
   };
   return (
-    <div className="rounded border border-border bg-card px-3 py-2 text-xs">
+    <div className="rounded-sm border border-border bg-card px-3 py-2 text-bf-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span title={mask?.sourcePath}>
           Mask: {mask ? mask.sourcePath.split(/[\\/]/).at(-1) : 'None · finite values included'}
         </span>
-        <button
-          type="button"
+        <Button variant="secondary" size="sm"
           disabled={busy}
-          className="rounded border border-border px-2 py-1 hover:bg-accent disabled:opacity-50"
           onClick={() => void choose()}
         >
           {busy ? 'Choosing…' : mask ? 'Change mask…' : 'Choose mask…'}
-        </button>
+        </Button>
         {mask && (
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-1 hover:bg-accent"
+          <Button variant="secondary" size="sm"
             onClick={() => {
               populationProbeActions.configureMask(null);
               setError(null);
             }}
           >
             Clear mask
-          </button>
+          </Button>
         )}
       </div>
       {mask && (
@@ -54,9 +51,9 @@ export function PopulationMaskControls() {
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-1 text-destructive">
+        <Notice role="alert" severity="danger" className="mt-1">
           {error}
-        </p>
+        </Notice>
       )}
     </div>
   );

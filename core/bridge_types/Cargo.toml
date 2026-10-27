@@ -3,6 +3,10 @@ name = "bridge_types"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+web = ["volmath/web"]
+
 [[bin]]
 name = "export_types"
 path = "src/bin/export_types.rs"

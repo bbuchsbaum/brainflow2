@@ -8,6 +8,8 @@ export interface LayerDisplayOptions {
   borderThicknessPx: number;
   showOrientationMarkers: boolean;
   showValueOnHover: boolean;
+  /** On-image colorbar when this layer is the selected overlay (default on). */
+  showColorbar?: boolean;
 }
 
 export interface DisplayOptionsState {
@@ -24,6 +26,7 @@ const DEFAULT_OPTIONS: LayerDisplayOptions = Object.freeze({
   borderThicknessPx: 1,
   showOrientationMarkers: true,
   showValueOnHover: false,
+  showColorbar: true,
 });
 
 export const useDisplayOptionsStore = create<DisplayOptionsState>()(

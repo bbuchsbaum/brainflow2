@@ -1,8 +1,8 @@
 import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
-import { NotificationToast } from '@/components/ui/NotificationToast';
 import { TooltipOverlay } from '@/components/TooltipOverlay';
 import { StatusBar } from '@/components/ui/StatusBar';
 import { GlobalProgressBar } from '@/components/ui/GlobalProgressBar';
@@ -17,6 +17,14 @@ import { useStudioStatusBridge } from '@/hooks/useStudioStatusBridge';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
 import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
+import { useExportMenuListener } from '@/hooks/useExportMenuListener';
+import { useExportDialogStore } from '@/stores/exportDialogStore';
+import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
+import { openDockTab } from '@/components/layout/openDockTab';
+import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
+import { getClusterService } from '@/services/ClusterService';
+import { copyValuesAtCrosshair } from '@/services/readoutCopy';
+import { activeVolumeLayerId } from '@/utils/activeLayer';
 import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuListener';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { ProgressDebug } from '@/components/ui/ProgressDebug';
@@ -29,11 +37,12 @@ import { CrosshairSettingsDialog } from '@/components/dialogs/CrosshairSettingsD
 import { GoToCoordinateDialog } from '@/components/dialogs/GoToCoordinateDialog';
 import { ImageHeaderDialog } from '@/components/dialogs/ImageHeaderDialog';
 import { ConfirmationDialogHost } from '@/components/dialogs/ConfirmationDialogHost';
+import { ExportImageDialog } from '@/components/dialogs/ExportImageDialog';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNavigationShortcuts } from '@/hooks/useNavigationShortcuts';
 import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
-import { getEventBus } from '@/events/EventBus';
+import { getEventBus, useEvent } from '@/events/EventBus';
 import { PerformanceDashboard } from '@/components/debug/PerformanceDashboard';
 import {
   migrateLayerRenderToViewState,
@@ -62,13 +71,13 @@ import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
 function ErrorFallback({ error, resetErrorBoundary }: any) {
   return (
     <div className="h-screen bg-bf-bg-app flex items-center justify-center">
-      <div className="bg-red-900 border border-red-700 rounded-lg p-6 max-w-md">
-        <h2 className="text-red-400 text-lg font-semibold mb-2">Something went wrong</h2>
-        <pre className="text-red-300 text-sm mb-4 whitespace-pre-wrap">{error.message}</pre>
+      <div className="bg-bf-danger-soft border border-bf-danger/40 rounded-sm p-6 max-w-md">
+        <h2 className="text-bf-danger text-bf-lg font-semibold mb-2">Something went wrong</h2>
+        <pre className="text-foreground text-bf-sm mb-4 whitespace-pre-wrap">{error.message}</pre>
         <div className="flex gap-2">
           <button
             onClick={resetErrorBoundary}
-            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           >
             Try again
           </button>
@@ -77,9 +86,9 @@ function ErrorFallback({ error, resetErrorBoundary }: any) {
               localStorage.removeItem('brainflow2-workspace');
               window.location.reload();
             }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+            className="bg-bf-bg-panel-raised border border-border text-foreground hover:bg-accent px-4 py-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           >
-            Clear Cache & Reload
+            Clear cache and reload
           </button>
         </div>
       </div>
@@ -115,8 +124,6 @@ function AppContent() {
   const [showGoToCoordinate, setShowGoToCoordinate] = useState(false);
   const [showImageHeader, setShowImageHeader] = useState(false);
   const [imageHeaderVolumeId, setImageHeaderVolumeId] = useState<string | null>(null);
-  const selectedLayerId = useLayerStore((s) => s.selectedLayerId);
-  const layers = useLayerStore((s) => s.layers);
   const applyWorkspacePreset = useWorkspaceStore((s) => s.applyWorkspacePreset);
   const activeWorkspaceType = useWorkspaceStore((state) => {
     const workspaceId = state.activeWorkspaceId;
@@ -171,6 +178,8 @@ function AppContent() {
 
   // Listen for atlas and surface template menu events
   useAtlasMenuListener();
+  // File > Export View as Image… (native menu) opens the export dialog.
+  useExportMenuListener();
   useSurfaceTemplateMenuListener();
 
   // Initialize status bar service using Zustand store
@@ -210,8 +219,116 @@ function AppContent() {
         },
       },
       {
+        id: 'crosshair.settings',
+        title: 'Crosshair Settings…',
+        subtitle: 'Colour, style, mirror lines and voxel snapping.',
+        keywords: ['crosshair', 'settings', 'snap', 'voxel', 'colour', 'color'],
+        group: 'Navigation',
+        run: () => setShowCrosshairSettings(true),
+      },
+      {
+        id: 'crosshair.toggleSnap',
+        title: 'Toggle Snap to Voxel',
+        subtitle: 'Place the crosshair on voxel centres of the bottom image layer.',
+        keywords: ['snap', 'voxel', 'crosshair', 'centre', 'center'],
+        group: 'Navigation',
+        run: () => {
+          const { settings, updateSettings } = useCrosshairSettingsStore.getState();
+          const next = !settings.snapToVoxel;
+          updateSettings({ snapToVoxel: next });
+          if (next) {
+            const { viewState, setCrosshair } = useViewStateStore.getState();
+            void setCrosshair([...viewState.crosshair.world_mm], true);
+          }
+          getEventBus().emit('ui.notification', {
+            type: 'info',
+            message: next ? 'Snap to voxel on' : 'Snap to voxel off',
+          });
+        },
+      },
+      {
+        id: 'statistics.copyValues',
+        title: 'Copy Values at Crosshair',
+        subtitle: 'Every visible layer at the crosshair, as tab-separated text.',
+        keywords: ['copy', 'values', 'crosshair', 'tsv', 'readout'],
+        group: 'Statistics',
+        run: () => copyValuesAtCrosshair(),
+      },
+      {
+        id: 'hover.toggleNeurosynth',
+        title: 'Toggle Neurosynth Lookup',
+        subtitle: 'Off by default. When on, sends the cursor’s MNI coordinates to neurosynth.org.',
+        keywords: ['neurosynth', 'terms', 'meta-analysis', 'network', 'hover'],
+        group: 'Navigation',
+        run: () => {
+          const store = useHoverSettingsStore.getState();
+          const next = !store.enabledProviders.includes('neurosynth');
+          store.setProviderEnabled('neurosynth', next);
+          getEventBus().emit('ui.notification', {
+            type: 'info',
+            message: next
+              ? 'Neurosynth lookup on: the cursor’s MNI coordinates are sent to neurosynth.org'
+              : 'Neurosynth lookup off',
+          });
+        },
+      },
+      {
+        id: 'statistics.clusters',
+        title: 'Show Clusters',
+        subtitle: 'Open the cluster table in the bottom dock.',
+        keywords: ['clusters', 'peaks', 'table', 'threshold', 'statistics'],
+        group: 'Statistics',
+        run: () => openDockTab('clusters', { focus: true }),
+      },
+      {
+        id: 'statistics.goToMax',
+        title: 'Go to Max',
+        subtitle: 'Move the crosshair to the active layer\u2019s largest value.',
+        keywords: ['maximum', 'peak', 'max', 'statistics'],
+        group: 'Statistics',
+        run: async () => {
+          const layerId = activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
+          if (!layerId) throw new Error('No volume layer to search');
+          const location = await getClusterService().goToExtremum(layerId, 'max');
+          if (!location) throw new Error('The layer has no finite value');
+        },
+      },
+      {
+        id: 'statistics.goToMin',
+        title: 'Go to Min',
+        subtitle: 'Move the crosshair to the active layer\u2019s smallest value.',
+        keywords: ['minimum', 'min', 'statistics'],
+        group: 'Statistics',
+        run: async () => {
+          const layerId = activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
+          if (!layerId) throw new Error('No volume layer to search');
+          const location = await getClusterService().goToExtremum(layerId, 'min');
+          if (!location) throw new Error('The layer has no finite value');
+        },
+      },
+      {
+        id: 'info.imageHeader',
+        title: 'Image Header…',
+        subtitle: 'The selected layer\u2019s NIfTI header: dimensions, affine, intent, statistic.',
+        keywords: ['header', 'image header', 'nifti', 'info', 'sform', 'qform', 'intent', 'affine'],
+        group: 'View',
+        shortcut: 'Cmd/Ctrl+I',
+        run: () => openImageHeader(),
+      },
+      {
+        id: 'command.exportViewImage',
+        title: 'Export View as Image…',
+        subtitle: 'Save the active view as PNG or JPEG.',
+        keywords: ['export', 'image', 'png', 'jpg', 'jpeg', 'screenshot', 'save'],
+        group: 'File',
+        shortcut: 'Cmd/Ctrl+Shift+E',
+        run: () => {
+          useExportDialogStore.getState().open();
+        },
+      },
+      {
         id: 'studio.open',
-        title: 'Open Set Studio',
+        title: 'Open Set studio',
         subtitle: 'Switch into the Studio workspace.',
         keywords: ['studio', 'set', 'cohort', 'compare'],
         group: 'Studio',
@@ -222,7 +339,7 @@ function AppContent() {
       },
       {
         id: 'studio.importTable',
-        title: 'Set Studio: Import Table',
+        title: 'Set studio: Import Table',
         subtitle: 'Open the quick TSV/CSV table import flow.',
         keywords: ['studio', 'table', 'tsv', 'csv', 'import'],
         group: 'Studio',
@@ -232,7 +349,7 @@ function AppContent() {
       },
       {
         id: 'studio.importManifest',
-        title: 'Set Studio: Import NeuroTabs Manifest',
+        title: 'Set studio: Import NeuroTabs Manifest',
         subtitle: 'Open manifest preview and import for Studio.',
         keywords: ['studio', 'manifest', 'neurotabs', 'import'],
         group: 'Studio',
@@ -242,7 +359,7 @@ function AppContent() {
       },
       {
         id: 'studio.discoverFiles',
-        title: 'Set Studio: Discover Files',
+        title: 'Set studio: Discover Files',
         subtitle: 'Open regex-based file discovery for Studio.',
         keywords: ['studio', 'discover', 'regex', 'files'],
         group: 'Studio',
@@ -354,6 +471,7 @@ function AppContent() {
       id: 'app.commandPalette.meta',
       key: 'k',
       modifiers: { meta: true },
+      allowInInputs: true,
       category: 'General',
       description: 'Open command palette',
       handler: openCommandPalette,
@@ -363,6 +481,7 @@ function AppContent() {
       id: 'app.commandPalette.ctrl',
       key: 'k',
       modifiers: { ctrl: true },
+      allowInInputs: true,
       category: 'General',
       description: 'Open command palette',
       handler: openCommandPalette,
@@ -374,6 +493,33 @@ function AppContent() {
     };
   }, []);
 
+  // Image header: Cmd+I, the View menu, the command palette and the view
+  // context menu all open it for the selected layer (else the top volume).
+  const openImageHeader = useCallback((volumeId?: string) => {
+    const { layers: all, selectedLayerId: selected } = useLayerStore.getState();
+    const layer =
+      (volumeId ? all.find((l) => l.volumeId === volumeId) : undefined) ??
+      all.find((l) => l.id === selected) ??
+      [...all].reverse().find((l) => l.volumeId);
+    if (layer?.volumeId) {
+      setImageHeaderVolumeId(layer.volumeId);
+      setShowImageHeader(true);
+    }
+  }, []);
+  useEvent('ui.imageHeader.open', ({ volumeId }) => openImageHeader(volumeId));
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void safeListen('image-header-action', () => openImageHeader()).then((fn) => {
+      if (disposed) safeUnlisten(fn);
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      safeUnlisten(unlisten);
+    };
+  }, [openImageHeader]);
+
   // Register Cmd+I shortcut to open image header dialog for selected layer
   useEffect(() => {
     const service = getKeyboardShortcutService();
@@ -383,16 +529,10 @@ function AppContent() {
       modifiers: { meta: true },
       category: 'Info',
       description: 'Show image header info',
-      handler: () => {
-        const layer = layers.find((l) => l.id === selectedLayerId);
-        if (layer?.volumeId) {
-          setImageHeaderVolumeId(layer.volumeId);
-          setShowImageHeader(true);
-        }
-      },
+      handler: () => openImageHeader(),
     });
     return unregister;
-  }, [selectedLayerId, layers]);
+  }, [openImageHeader]);
 
   // Register number key shortcuts: 1-9 toggle layer visibility, 0 shows all
   useEffect(() => {
@@ -574,13 +714,13 @@ function AppContent() {
       return (
         <div className="h-screen bg-bf-bg-app flex items-center justify-center text-bf-danger">
           <div className="text-center">
-            <h2 className="text-lg font-semibold mb-2">Render Loop Detected</h2>
+            <h2 className="text-lg font-semibold mb-2">Render loop detected</h2>
             <p className="mb-4">The application encountered an infinite render loop</p>
             <button
               onClick={() => window.location.reload()}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
             >
-              Reload Application
+              Reload application
             </button>
           </div>
         </div>
@@ -610,11 +750,12 @@ function AppContent() {
         <GoldenLayoutRoot />
       </div>
       <StatusBar onCrosshairClick={() => setShowGoToCoordinate(true)} />
-      <NotificationToast />
       <ContextMenu />
       <TooltipOverlay />
       <ConfirmationDialogHost />
       <OpenImageSetDialog />
+      {/* Export View as Image (opened from the view context menu via exportDialogStore) */}
+      <ExportImageDialog />
 
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (

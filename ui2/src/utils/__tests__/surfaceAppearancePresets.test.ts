@@ -17,7 +17,7 @@ describe('surfaceAppearancePresets', () => {
   });
 
   it('matches the default lighting settings to the Default preset', () => {
-    expect(matchLightingPreset(DEFAULT_SURFACE_LIGHTING_SETTINGS)).toBe('Default');
+    expect(matchLightingPreset(DEFAULT_SURFACE_LIGHTING_SETTINGS)).toBe('Balanced');
   });
 
   it('matches a named lighting preset by intensities, ignoring light position', () => {
@@ -41,8 +41,8 @@ describe('surfaceAppearancePresets', () => {
     ).toBeNull();
   });
 
-  it('matches the default material to Gray glossy', () => {
-    expect(matchMaterialPreset(DEFAULT_SURFACE_MATERIAL_SETTINGS)).toBe('Gray glossy');
+  it('matches the default material to Matte (no specular streaks on data)', () => {
+    expect(matchMaterialPreset(DEFAULT_SURFACE_MATERIAL_SETTINGS)).toBe('Matte');
   });
 
   it('matches material case-insensitively on colors', () => {

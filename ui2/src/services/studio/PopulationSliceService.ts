@@ -1,3 +1,7 @@
+import { inferenceMethod, inferenceChannel, inferenceActive } from './inferenceCatalog';
+import { inferenceIssue, importedInferenceIssue } from './populationInference';
+import type { PopulationInferenceSpec } from '@/types/population';
+import { validatePopulationPartition } from './populationGroups';
 import type { PopulationMemberSource } from '@/types/population';
 import type { PopulationMask } from '@/types/population';
 import {
@@ -14,14 +18,40 @@ import { buildPopulationSource, populationSupportKey } from './PopulationProbeCo
 import { resolvePopulation } from './populationContext';
 import type { ViewPlane } from '@/types/coordinates';
 
-export type PopulationSummary = 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
+export type PopulationSummary =
+  | 'mean'
+  | 'median'
+  | 'mad'
+  | 'sampleSd'
+  | 'meanAbsolute'
+  | 'cancellation'
+  | 'coverage';
 export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
+export interface PopulationGroupRequest {
+  id: string;
+  memberIds: string[];
+  aggregation?: ParticipantAggregation | null;
+}
+export interface PopulationGroupData {
+  id: string;
+  values: (number | null)[];
+  validCounts: number[];
+  eligibleCount: number;
+  unitCount: number;
+}
 export interface PopulationSliceRequest {
+  inference?: PopulationInferenceSpec | null;
+  groups?: PopulationGroupRequest[];
+  reference?: PopulationGroupRequest | null;
+  difference?: boolean;
+  focusOnly?: boolean;
+  focusWindow?: string[];
   contextKey: string;
   mask?: PopulationMask | null;
   members: PopulationMemberSource[];
   workingMemberIds: string[];
   focusMemberId: string | null;
+  focusStackIndex?: number;
   crosshairMm: [number, number, number];
   orientation: PopulationOrientation;
   dimPx: [number, number];
@@ -29,6 +59,7 @@ export interface PopulationSliceRequest {
   summary: PopulationSummary;
   aggregation?: ParticipantAggregation | null;
   cutouts?: {
+    wholePlane?: boolean;
     centerMm: [number, number, number];
     widthMm: number;
     dimPx: number;
@@ -36,14 +67,20 @@ export interface PopulationSliceRequest {
   } | null;
 }
 export interface PopulationSliceQuery {
+  groupLabels?: Record<string, string>;
   /** Masks change support, not the compatible effect scale. */
   scaleKey?: string;
   initialScale?: { effectLimit?: number; summaryLimit?: number; summary: PopulationSummary };
+  focusOrder?: readonly string[];
   key: string;
   datasetKey: string;
   request: PopulationSliceRequest;
 }
 export interface PopulationSliceData {
+  inference?: Partial<Record<PopulationInferenceSpec['channel'], (number | null)[]>> | null;
+  groups?: PopulationGroupData[];
+  reference?: PopulationGroupData | null;
+  focusWindow?: { memberId: string; values: (number | null)[]; validPixels: number }[];
   plane: ViewPlane;
   centerWorld: [number, number, number];
   contextRange: [number, number] | null;
@@ -70,7 +107,20 @@ export class PopulationImages {
   readonly summary: ImageBitmap;
   readonly focused: ImageBitmap;
   readonly cutouts: ImageBitmap | null;
-  constructor(summary: ImageBitmap, focused: ImageBitmap, cutouts: ImageBitmap | null = null) {
+  readonly groups: Record<string, ImageBitmap>;
+  readonly reference: ImageBitmap | null;
+  private readonly releaseShared?: () => void;
+  constructor(
+    summary: ImageBitmap,
+    focused: ImageBitmap,
+    cutouts: ImageBitmap | null = null,
+    releaseShared?: () => void,
+    groups: Record<string, ImageBitmap> = {},
+    reference: ImageBitmap | null = null,
+  ) {
+    this.releaseShared = releaseShared;
+    this.groups = groups;
+    this.reference = reference;
     this.summary = summary;
     this.focused = focused;
     this.cutouts = cutouts;
@@ -83,9 +133,14 @@ export class PopulationImages {
   release() {
     if (this.references <= 0) return;
     if (--this.references === 0) {
-      this.summary.close();
       this.focused.close();
-      this.cutouts?.close();
+      if (this.releaseShared) this.releaseShared();
+      else {
+        this.summary.close();
+        this.cutouts?.close();
+        Object.values(this.groups).forEach((image) => image.close());
+        this.reference?.close();
+      }
     }
   }
 }
@@ -163,13 +218,24 @@ export function buildPopulationSliceQuery(
   options: Pick<
     PopulationSliceRequest,
     'crosshairMm' | 'orientation' | 'dimPx' | 'zoom' | 'summary' | 'cutouts'
-  > & { withoutFocused?: boolean; withoutParticipant?: boolean },
+  > & {
+    withoutFocused?: boolean;
+    withoutParticipant?: boolean;
+    withoutMembers?: readonly string[];
+    groupPage?: number;
+  },
 ) {
   const { source, issue } = buildPopulationSource(state, workspaceId);
   if (!source || !source.members.length)
     return { query: null, issue: issue ?? 'No eligible observations.' };
   const population = resolvePopulation(state);
-  const { withoutFocused, withoutParticipant, ...viewOptions } = options;
+  const {
+    withoutFocused,
+    withoutParticipant,
+    withoutMembers,
+    groupPage = 0,
+    ...viewOptions
+  } = options;
   const configured = resolvePopulationParticipants(state, population.workingMemberIds);
   if (configured.issue && state.population.participants?.reduction !== 'observations')
     return { query: null, issue: configured.issue };
@@ -181,23 +247,100 @@ export function buildPopulationSliceQuery(
     };
   const excludedParticipant =
     withoutFocused && withoutParticipant && focused ? configured.identity?.get(focused) : null;
-  const workingMemberIds = withoutFocused
-    ? population.workingMemberIds.filter((id) =>
-        excludedParticipant ? configured.identity?.get(id) !== excludedParticipant : id !== focused,
-      )
-    : population.workingMemberIds;
+  if (withoutMembers?.some((id) => !population.context.memberIds.includes(id)))
+    return {
+      query: null,
+      issue: 'Preview exclusion contains observations outside the current context.',
+    };
+  const workingMemberIds = withoutMembers
+    ? population.workingMemberIds.filter((id) => !withoutMembers.includes(id))
+    : withoutFocused
+      ? population.workingMemberIds.filter((id) =>
+          excludedParticipant
+            ? configured.identity?.get(id) !== excludedParticipant
+            : id !== focused,
+        )
+      : population.workingMemberIds;
   const aggregation = configured.aggregation
     ? {
         ...configured.aggregation,
         groups: groupParticipantMembers(configured.identity!, workingMemberIds),
       }
     : null;
+  const mode = state.population.presentation.arrangement;
+  const configuredTest = state.population.inference;
+  const activeTest =
+    configuredTest?.featureId === state.selection.activeFeatureId &&
+    configuredTest?.setId === state.selection.activeSetId &&
+    inferenceActive(configuredTest, mode)
+      ? configuredTest
+      : null;
+  const groupRequest = (id: string, memberIds: readonly string[]): PopulationGroupRequest => {
+    const participants = resolvePopulationParticipants(state, memberIds);
+    if (participants.issue && state.population.participants?.reduction !== 'observations')
+      throw new Error(participants.issue);
+    return { id, memberIds: [...memberIds], aggregation: participants.aggregation };
+  };
+  let groups: PopulationGroupRequest[] = [];
+  let reference: PopulationGroupRequest | null = null;
+  try {
+    if (mode === 'groups' && state.population.partition) {
+      const issue = validatePopulationPartition(
+        state.population.partition,
+        state.selection.activeSetId ?? '',
+        population.context.memberIds,
+      );
+      if (issue) throw new Error(issue);
+      groups = state.population.partition.groups
+        .slice(groupPage * 4, (groupPage + 1) * 4)
+        .map((g) => groupRequest(g.id, g.memberIds));
+    }
+    if (
+      mode === 'comparison' ||
+      mode === 'difference' ||
+      (activeTest &&
+        ['independentGroups', 'pairedGroups'].includes(inferenceMethod(activeTest.method).inputs))
+    ) {
+      if (population.referenceIssue) throw new Error(population.referenceIssue);
+      if (!population.referenceMemberIds.length || !workingMemberIds.length)
+        throw new Error('Choose nonempty populations A and B before comparing.');
+      reference = groupRequest('reference', population.referenceMemberIds);
+    }
+  } catch (error) {
+    return { query: null, issue: error instanceof Error ? error.message : String(error) };
+  }
+  let inference: PopulationInferenceSpec | undefined;
+  if (activeTest) {
+    inference = {
+      method: activeTest.method,
+      ...(activeTest.design ? { design: activeTest.design } : {}),
+      role: activeTest.role,
+      units: activeTest.units,
+      nullValue: activeTest.nullValue,
+      independentParticipants: activeTest.independentParticipants,
+      channel: activeTest.channel,
+      selectionOrigin:
+        state.population.working.kind === 'members' ? state.population.working.origin : 'manual',
+    };
+    const testIssue =
+      importedInferenceIssue(inference, state.features[state.selection.activeFeatureId ?? '']) ??
+      inferenceIssue(inference, aggregation, reference?.aggregation);
+    if (testIssue) return { query: null, issue: testIssue };
+  }
   const request: PopulationSliceRequest = {
     ...viewOptions,
+    ...(inference ? { inference, summary: 'mean' as const } : {}),
+    ...(groups.length ? { groups, summary: 'mean' as const } : {}),
+    ...(reference
+      ? { reference, difference: mode === 'difference', summary: 'mean' as const }
+      : {}),
     contextKey: source.datasetKey,
     members: source.members,
     ...(source.mask ? { mask: source.mask } : {}),
     workingMemberIds,
+    ...(state.population.focusedFrame?.memberId === state.selection.activeMemberId
+      ? { focusStackIndex: state.population.focusedFrame.frame }
+      : {}),
     aggregation,
     focusMemberId: source.members.some(
       (member) => member.memberId === state.selection.activeMemberId,
@@ -205,9 +348,13 @@ export function buildPopulationSliceQuery(
       ? state.selection.activeMemberId
       : null,
   };
+  const groupLabels = groups.length
+    ? Object.fromEntries(state.population.partition!.groups.map((g) => [g.id, g.label]))
+    : undefined;
   return {
     query: {
-      key: JSON.stringify(request),
+      groupLabels,
+      key: JSON.stringify([request, groupLabels]),
       datasetKey: source.datasetKey,
       scaleKey: source.scaleKey,
       initialScale: state.population.restoredView,
@@ -254,6 +401,52 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
   ) {
     throw new Error('Population slice result does not match its query or geometry.');
   }
+  const expectedInference = !!query.request.inference && !query.request.focusOnly;
+  if (
+    expectedInference !== !!data.inference ||
+    (data.inference &&
+      Object.keys(data.inference).length !==
+        inferenceMethod(query.request.inference!.method).channels.length) ||
+    (data.inference &&
+      inferenceMethod(query.request.inference!.method).channels.some(({ id: channel }) => {
+        const values = data.inference![channel];
+        return (
+          !Array.isArray(values) ||
+          values.length !== size ||
+          values.some((v) => v !== null && !Number.isFinite(v))
+        );
+      }))
+  )
+    throw new Error('Inference channels do not match their declared result.');
+  if (
+    data.inference &&
+    query.request.inference &&
+    data.summary.some(
+      (value, i) => !Object.is(value, data.inference![query.request.inference!.channel]![i]),
+    )
+  )
+    throw new Error('Displayed inference channel does not match its result family.');
+  const expectedGroups = [
+    ...(query.request.groups ?? []),
+    ...(query.request.reference ? [query.request.reference] : []),
+  ];
+  const actualGroups = [...(data.groups ?? []), ...(data.reference ? [data.reference] : [])];
+  if (
+    actualGroups.length !== expectedGroups.length ||
+    actualGroups.some((g, i) => {
+      const expected = expectedGroups[i];
+      const units = expected.aggregation?.groups.length ?? expected.memberIds.length;
+      return (
+        g.id !== expected.id ||
+        g.values.length !== size ||
+        g.validCounts.length !== size ||
+        g.eligibleCount !== expected.memberIds.length ||
+        g.unitCount !== units ||
+        g.validCounts.some((n) => !Number.isInteger(n) || n < 0 || n > units)
+      );
+    })
+  )
+    throw new Error('Group summaries do not match their declared populations and analysis units.');
   const expected = query.request.cutouts;
   const actual = data.cutouts;
   if (
@@ -317,10 +510,38 @@ export class PopulationSliceService {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: PopulationSliceQuery | null = null;
   private readonly owner = crypto.randomUUID();
+  // A bounded window of exact observed rasters. The one-second freshness lease
+  // forces native source-stamp revalidation during sustained playback.
+  private focusCache = new Map<string, (number | null)[]>();
+  private focusBase: PopulationSliceDisplay | null = null;
+  private releaseBase: (() => void) | null = null;
+  private focusExpires = 0;
+  private clearFocusCache() {
+    this.focusCache.clear();
+    this.releaseBase?.();
+    this.releaseBase = null;
+    this.focusBase = null;
+  }
+  private samePopulation(a: PopulationSliceQuery, b: PopulationSliceQuery) {
+    return (
+      a.datasetKey === b.datasetKey &&
+      JSON.stringify({ ...a.request, focusMemberId: null, focusStackIndex: null }) ===
+        JSON.stringify({ ...b.request, focusMemberId: null, focusStackIndex: null })
+    );
+  }
+  private sameInference(a: PopulationSliceQuery, b: PopulationSliceQuery) {
+    return (
+      !!a.request.inference &&
+      !!b.request.inference &&
+      a.datasetKey === b.datasetKey &&
+      JSON.stringify({ ...a.request, inference: { ...a.request.inference, channel: null } }) ===
+        JSON.stringify({ ...b.request, inference: { ...b.request.inference, channel: null } })
+    );
+  }
   private contexts = new Set<string>();
   private scaleDataset: string | null = null;
   private effectLimit: number | null = null;
-  private summaryLimits = new Map<PopulationSummary, number>();
+  private summaryLimits = new Map<string, number>();
   private readonly dependencies: Dependencies;
   private readonly delayMs: number;
   constructor(dependencies: Dependencies = native, delayMs = 40) {
@@ -338,6 +559,7 @@ export class PopulationSliceService {
     this.active = true;
   }
   stop() {
+    this.clearFocusCache();
     this.active = false;
     this.generation++;
     this.abort?.abort();
@@ -349,6 +571,14 @@ export class PopulationSliceService {
   }
   request(query: PopulationSliceQuery | null, force = false) {
     if (!this.active || (!force && query?.key === this.snapshot.requested?.key)) return;
+    if (
+      force ||
+      !query ||
+      (this.focusBase &&
+        !this.samePopulation(this.focusBase.query, query) &&
+        !this.sameInference(this.focusBase.query, query))
+    )
+      this.clearFocusCache();
     const copy = query ? structuredClone(query) : null;
     this.generation++;
     this.abort?.abort();
@@ -363,11 +593,11 @@ export class PopulationSliceService {
       this.effectLimit = null;
       this.summaryLimits.clear();
       if (query?.initialScale) {
-        const { effectLimit, summaryLimit, summary } = query.initialScale;
+        const { effectLimit, summaryLimit } = query.initialScale;
         if (effectLimit && Number.isFinite(effectLimit) && effectLimit > 0)
           this.effectLimit = effectLimit;
         if (summaryLimit && Number.isFinite(summaryLimit) && summaryLimit > 0)
-          this.summaryLimits.set(summary, summaryLimit);
+          this.summaryLimits.set(populationDisplayKind(query.request), summaryLimit);
       }
     }
     this.publish({
@@ -387,10 +617,12 @@ export class PopulationSliceService {
     this.request(this.snapshot.requested, true);
   }
   setSummaryLimit(limit: number) {
-    const kind = this.snapshot.requested?.request.summary;
+    const kind = this.snapshot.requested
+      ? populationDisplayKind(this.snapshot.requested.request)
+      : undefined;
     if (
       !kind ||
-      kind === 'mean' ||
+      populationSharesEffectScale(this.snapshot.requested!.request) ||
       !Number.isFinite(limit) ||
       limit <= 0 ||
       this.summaryLimits.get(kind) === limit
@@ -404,6 +636,7 @@ export class PopulationSliceService {
     if (range) this.setEffectLimit(Math.max(Math.abs(range[0]), Math.abs(range[1])) || 1);
   }
   private releaseContexts() {
+    this.clearFocusCache();
     for (const context of this.contexts) {
       void this.dependencies
         .release(context)
@@ -419,10 +652,15 @@ export class PopulationSliceService {
   }
   private schedule() {
     if (!this.active || this.busy || this.timer !== null || !this.pending) return;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.run();
-    }, this.delayMs);
+    this.timer = setTimeout(
+      () => {
+        this.timer = null;
+        void this.run();
+      },
+      this.focusBase && this.pending && this.samePopulation(this.focusBase.query, this.pending)
+        ? 0
+        : this.delayMs,
+    );
   }
   private async run() {
     if (!this.active || this.busy || !this.pending) return;
@@ -436,25 +674,138 @@ export class PopulationSliceService {
     this.contexts.add(contextKey);
     let images: PopulationImages | null = null;
     try {
-      const data = await this.dependencies.evaluate({ ...query.request, contextKey }, abort.signal);
-      if (!this.active || version !== this.generation) return;
+      const base = this.focusBase;
+      const focusChanged =
+        base &&
+        (this.snapshot.displayed?.query.request.focusMemberId !== query.request.focusMemberId ||
+          this.snapshot.displayed?.query.request.focusStackIndex !== query.request.focusStackIndex);
+      const reuse = !!focusChanged && this.samePopulation(base.query, query);
+      const cached =
+        reuse && query.request.focusStackIndex === undefined && Date.now() < this.focusExpires
+          ? this.focusCache.get(query.request.focusMemberId ?? '')
+          : undefined;
+      let data: PopulationSliceData;
+      let shared = false;
+      if (
+        base?.data.inference &&
+        query.request.inference &&
+        this.sameInference(base.query, query) &&
+        Date.now() < this.focusExpires
+      ) {
+        data = { ...base.data, summary: base.data.inference[query.request.inference.channel]! };
+      } else if (cached && base) {
+        data = { ...base.data, focused: cached, focusWindow: undefined };
+        shared = true;
+      } else {
+        const ids = query.focusOrder ?? query.request.members.map((m) => m.memberId);
+        const index = Math.max(0, ids.indexOf(query.request.focusMemberId ?? ''));
+        const count = Math.min(
+          8,
+          Math.floor((8 * 1024 * 1024) / (query.request.dimPx[0] * query.request.dimPx[1] * 8)),
+        );
+        const focusWindow =
+          query.request.focusStackIndex !== undefined
+            ? []
+            : [...ids.slice(Math.max(0, index - 1), Math.max(0, index - 1) + count)];
+        data = await this.dependencies.evaluate(
+          { ...query.request, contextKey, focusOnly: reuse, focusWindow },
+          abort.signal,
+        );
+        if (!this.active || version !== this.generation) return;
+        if (reuse && base && data.summary.length === 0) {
+          if (
+            JSON.stringify([data.sources, data.maskRevision, data.plane]) ===
+            JSON.stringify([base.data.sources, base.data.maskRevision, base.data.plane])
+          ) {
+            data = {
+              ...data,
+              summary: base.data.summary,
+              inference: base.data.inference,
+              validCounts: base.data.validCounts,
+              cutouts: base.data.cutouts,
+              groups: base.data.groups,
+              reference: base.data.reference,
+            };
+            shared = true;
+          } else {
+            data = await this.dependencies.evaluate(
+              { ...query.request, contextKey, focusWindow },
+              abort.signal,
+            );
+            if (!this.active || version !== this.generation) return;
+          }
+        }
+        const window = data.focusWindow ?? [];
+        if (
+          window.length > count ||
+          new Set(window.map((m) => m.memberId)).size !== window.length ||
+          window.some(
+            (m) =>
+              !focusWindow.includes(m.memberId) ||
+              m.values.length !== query.request.dimPx[0] * query.request.dimPx[1],
+          )
+        )
+          throw new Error('Focus window does not match its requested observations.');
+        this.focusCache.clear();
+        for (const member of window) this.focusCache.set(member.memberId, member.values);
+        this.focusExpires = Date.now() + 1000;
+      }
+      data = { ...data, focusWindow: undefined };
       validateData(data, query);
+      if (shared && base) {
+        const releaseShared = base.images.retain();
+        let focused: ImageBitmap;
+        try {
+          focused = await this.dependencies.bitmap(
+            populationRgba(data.focused, base.effectLimit, true),
+            ...data.plane.dim_px,
+          );
+        } catch (error) {
+          releaseShared();
+          throw error;
+        }
+        images = new PopulationImages(
+          base.images.summary,
+          focused,
+          base.images.cutouts,
+          releaseShared,
+          base.images.groups,
+          base.images.reference,
+        );
+        if (!this.active || version !== this.generation) {
+          images.release();
+          return;
+        }
+        this.publish({
+          requested: query,
+          displayed: { ...base, query, data, images },
+          pending: false,
+          error: null,
+        });
+        return;
+      }
       const range = data.contextRange;
       if (this.effectLimit === null && range)
         this.effectLimit = Math.max(Math.abs(range[0]), Math.abs(range[1])) || 1;
       const effectLimit = this.effectLimit ?? 1;
-      const kind = query.request.summary;
-      let summaryLimit = kind === 'mean' ? effectLimit : this.summaryLimits.get(kind);
+      const kind = populationDisplayKind(query.request);
+      let summaryLimit = populationSharesEffectScale(query.request)
+        ? effectLimit
+        : this.summaryLimits.get(kind);
       if (summaryLimit === undefined) {
+        const channel = query.request.inference ? inferenceChannel(query.request.inference) : null;
+        const count = channel?.countPopulation === 'B' ? data.reference?.unitCount : data.unitCount;
         summaryLimit =
-          kind === 'coverage'
-            ? (query.request.aggregation?.groups.length ?? query.request.members.length) || 1
-            : data.summary.reduce<number>((max, value) => Math.max(max, value ?? 0), 0) || 1;
+          channel?.initialLimit ??
+          (channel?.countPopulation || kind === 'coverage'
+            ? count || 1
+            : data.summary.reduce<number>((max, value) => Math.max(max, Math.abs(value ?? 0)), 0) ||
+              1);
         this.summaryLimits.set(kind, summaryLimit);
       }
       const [w, h] = data.plane.dim_px;
       const summary = await this.dependencies.bitmap(
-        populationRgba(data.summary, summaryLimit, kind === 'mean'),
+        populationRgba(data.summary, summaryLimit, populationDiverging(query.request)),
         w,
         h,
       );
@@ -470,24 +821,44 @@ export class PopulationSliceService {
         throw error;
       }
       let cutouts: ImageBitmap | null = null;
+      const groups: Record<string, ImageBitmap> = Object.create(null);
+      let reference: ImageBitmap | null = null;
       try {
         if (data.cutouts) {
           const packed = packPopulationCutouts(data.cutouts, effectLimit);
           cutouts = await this.dependencies.bitmap(packed.rgba, packed.width, packed.height);
         }
+        for (const group of data.groups ?? [])
+          groups[group.id] = await this.dependencies.bitmap(
+            populationRgba(group.values, effectLimit, true),
+            w,
+            h,
+          );
+        if (data.reference)
+          reference = await this.dependencies.bitmap(
+            populationRgba(data.reference.values, effectLimit, true),
+            w,
+            h,
+          );
       } catch (error) {
         summary.close();
         focused.close();
+        cutouts?.close();
+        Object.values(groups).forEach((image) => image.close());
+        reference?.close();
         throw error;
       }
-      images = new PopulationImages(summary, focused, cutouts);
+      images = new PopulationImages(summary, focused, cutouts, undefined, groups, reference);
       if (!this.active || version !== this.generation) {
         images.release();
         return;
       }
+      this.releaseBase?.();
+      this.focusBase = { query, data, images, effectLimit, summaryLimit };
+      this.releaseBase = images.retain();
       this.publish({
         requested: query,
-        displayed: { query, data, images, effectLimit, summaryLimit },
+        displayed: this.focusBase,
         pending: false,
         error: null,
       });
@@ -572,3 +943,20 @@ export const populationSliceActions = {
     }
   },
 };
+
+export function populationDisplayKind(request: PopulationSliceRequest) {
+  return request.inference
+    ? `${request.inference.method}:${request.inference.channel}`
+    : request.summary;
+}
+export function populationDiverging(request: PopulationSliceRequest) {
+  return request.inference
+    ? inferenceChannel(request.inference).scale !== 'nonnegative'
+    : ['mean', 'median'].includes(request.summary);
+}
+
+export function populationSharesEffectScale(request: PopulationSliceRequest) {
+  return request.inference
+    ? inferenceChannel(request.inference).scale === 'effect'
+    : ['mean', 'median'].includes(request.summary);
+}

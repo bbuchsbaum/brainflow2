@@ -57,11 +57,51 @@ export interface PopulationRelationship {
   readonly distance: 'effect' | 'pattern-shape';
 }
 
+export interface PopulationOrder {
+  readonly featureId: string;
+  readonly rule: 'response' | 'similarity';
+  readonly fitId?: string;
+  readonly orderedIds: readonly string[];
+  readonly unavailableIds: readonly string[];
+  readonly label: string;
+  readonly probe: PopulationProbe | null;
+  readonly bindings: readonly PopulationMemberSource[];
+  readonly mask: PopulationMask | null;
+  readonly tieRule: 'source';
+}
+export interface PopulationPresentation {
+  readonly arrangement: 'inspect' | 'montage' | 'groups' | 'comparison' | 'difference';
+  readonly gallery?: 'context' | 'working';
+  readonly contributorsGroupId?: string;
+  readonly montageScope?: 'plane' | 'probe';
+  readonly order: PopulationOrder | null;
+}
+
+export interface PopulationPartition {
+  readonly factorColumns?: readonly [string, string];
+  readonly setId: string;
+  readonly column: string;
+  readonly contextIds: readonly string[];
+  readonly groups: readonly {
+    id: string;
+    label: string;
+    value: string | null;
+    memberIds: readonly string[];
+  }[];
+  readonly origin: 'metadata' | 'map-derived';
+  readonly fitId?: string;
+}
+
 export interface PopulationState {
+  readonly focusedFrame?: { readonly memberId: string; readonly frame: number } | null;
+  readonly inference: PopulationInference | null;
+  readonly partition: PopulationPartition | null;
+  readonly partitionPast: readonly (PopulationPartition | null)[];
+  readonly presentation: PopulationPresentation;
   /** Applied once on restore; subsequent exploration is ordinary live state. */
   readonly restoredView?: {
     orientation: 'axial' | 'coronal' | 'sagittal';
-    summary: 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
+    summary: 'mean' | 'median' | 'mad' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
     zoom: number;
     effectLimit?: number;
     summaryLimit?: number;
@@ -89,4 +129,26 @@ export type PopulationActionResult =
 export interface PopulationContext {
   readonly memberIds: readonly string[];
   readonly issue: string | null;
+}
+
+/** User-declared feature meaning; input roles are never inferred from filenames. */
+export interface PopulationInferenceSpec {
+  method: 'oneSample' | 'welch' | 'paired' | 'linearModel';
+  design?: {
+    participantIds: string[];
+    columns: string[];
+    values: number[][];
+    contrast: number[];
+    contrastUnits: string;
+  };
+  role: 'effect' | 'standardError' | 'variance' | 't' | 'z' | 'label' | 'other';
+  units: string;
+  nullValue: number;
+  independentParticipants: boolean;
+  selectionOrigin: PopulationSelectionOrigin;
+  channel: 'effect' | 'standardError' | 't' | 'df' | 'count' | 'countA' | 'countB';
+}
+export interface PopulationInference extends PopulationInferenceSpec {
+  setId: string;
+  featureId: string;
 }

@@ -37,6 +37,7 @@ import {
   type WorkspacePresetId,
 } from "@/types/workspacePresets";
 import { cn } from "@/utils/cn";
+import { Button } from "./Button";
 
 const PRESET_ORDER: WorkspacePresetId[] = [
   "read",
@@ -160,7 +161,7 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
           {preset.id === activePresetId ? "● " : ""}
           {preset.label}
         </span>
-        <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+        <span className="shrink-0 text-bf-2xs text-muted-foreground">
           {preset.shortcut}
         </span>
       </div>
@@ -230,15 +231,16 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
     <DropdownMenu
       position="bottom-right"
       trigger={
-        <button
-          type="button"
-          className={cn("status-toggle status-toggle--workspace", className)}
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("status-toggle--workspace", className)}
           aria-label="Workspace and layouts"
+          icon={<LayoutGrid className="h-3.5 w-3.5" />}
         >
-          <LayoutGrid className="h-3.5 w-3.5" />
           <span>Workspace</span>
-          <ChevronDown className="h-3.5 w-3.5 opacity-70" />
-        </button>
+          <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+        </Button>
       }
       items={items}
     />

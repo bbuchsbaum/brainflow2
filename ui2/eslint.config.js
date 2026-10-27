@@ -1,9 +1,10 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import tseslint from 'typescript-eslint'
-import { globalIgnores } from 'eslint/config'
+import js from '@eslint/js';
+import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import tseslint from 'typescript-eslint';
+import { globalIgnores } from 'eslint/config';
+import { ratchetConfigs } from './eslint.ratchet.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Brainflow UI design discipline — see docs/design-system/ui-contract.md §8.
@@ -22,10 +23,10 @@ import { globalIgnores } from 'eslint/config'
 const designTokenRule = {
   // Match string literals that are exactly a 6-digit hex color (no alpha).
   // 8-digit (#rrggbbaa) is much rarer in this codebase; keep the rule simple.
-  selector: "Literal[value=/^#[0-9a-fA-F]{6}$/]",
+  selector: 'Literal[value=/^#[0-9a-fA-F]{6}$/]',
   message:
     'Raw hex color literal. Use a --bf-* token from theme.css or a bf-* Tailwind class (see resdesign/Design.md §3.1 and docs/design-system/ui-contract.md §2).',
-}
+};
 
 export default tseslint.config([
   globalIgnores(['dist']),
@@ -68,4 +69,7 @@ export default tseslint.config([
       'no-restricted-syntax': 'off',
     },
   },
-])
+  // Chrome ratchet (errors) and its shrink-only allowlist; see eslint.ratchet.js.
+  // BF_RATCHET_IGNORE_ALLOWLIST=1 drops the allowlist (used by the shrink test).
+  ...ratchetConfigs({ ignoreAllowlist: process.env.BF_RATCHET_IGNORE_ALLOWLIST === '1' }),
+]);

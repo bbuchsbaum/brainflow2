@@ -1,5 +1,6 @@
 pub mod atlas_roi;
 mod population_mask;
+mod population_plot_export;
 mod population_sampling;
 mod population_slice;
 mod set_sample_cache;
@@ -73,10 +74,12 @@ use brainflow_loaders as core_loaders;
 
 // Import error helpers
 mod analysis;
+mod clusters;
 mod command_registry;
 mod error_context;
 mod error_helpers;
 mod histogram;
+mod image_export;
 pub mod image_set;
 mod materialization;
 mod projection_geometry;
@@ -84,8 +87,11 @@ mod remote_cache;
 mod remote_transfer;
 mod render_bridge_adapter;
 mod render_lifecycle;
+mod stat_metadata;
 mod surface_loading;
 mod user_errors;
+mod volume_loading;
+mod volume_queries;
 use command_registry::bridge_commands;
 use error_context::*;
 use projection_geometry::build_volume3d_from_projection;
@@ -94,6 +100,17 @@ use projection_geometry::build_volume3d_from_projection;
 // them as bare identifiers alongside the commands defined in this file.
 use analysis::{cancel_analysis, get_analysis_job_status, list_analyses, start_analysis};
 use error_helpers::*;
+// Phase 3 command modules (export, clusters, voxel queries), re-exported so
+// `command_list.rs` and the TS exporter see them at the crate root.
+use clusters::compute_clusters;
+pub use clusters::{
+    ClusterPolarity, ClusterSign, ClusterSummary, ClusterTable, ComputeClustersRequest,
+};
+use image_export::save_image_bytes;
+use volume_queries::{volume_extremum, volume_nonzero_bbox};
+pub use volume_queries::{
+    ExtremumKind, VolumeExtremumRequest, VolumeNonzeroBbox, VolumeNonzeroBboxRequest, VoxelLocation,
+};
 
 // Import atlas system
 use atlases::{
@@ -152,6 +169,11 @@ pub struct VolumeBounds {
     pub max: [f32; 3],
     pub center: [f32; 3],
     pub dims: [u32; 3],
+    /// World centre of voxel `floor((dims - 1) / 2)`: a voxel-centred default
+    /// position (`center` falls on a voxel edge along even dimensions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub center_voxel_world: Option<[f32; 3]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)] // Add derives
@@ -1010,15 +1032,7 @@ pub struct VolumeEntry {
     pub metadata: VolumeMetadataInfo,
 }
 
-/// Enhanced metadata for volumes
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VolumeMetadataInfo {
-    pub name: String,
-    pub path: String,
-    pub dtype: String,
-    pub volume_type: bridge_types::VolumeType,
-    pub time_series_info: Option<bridge_types::TimeSeriesInfo>,
-}
+pub use volume_service::VolumeMetadataInfo;
 
 /// Compute the expected neuroatlas cache directory used for atlas NIfTI files.
 fn neuroatlas_cache_dir() -> std::path::PathBuf {
@@ -1410,6 +1424,7 @@ pub struct BridgeState {
     >,
     // Removed: pub loader_registry: Arc<Mutex<LoaderRegistry>>,
     pub volume_registry: Arc<Mutex<VolumeRegistry>>,
+    volume_operations: Arc<Mutex<()>>,
     pub surface_registry: Arc<Mutex<SurfaceRegistry>>,
     pub render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
     // NEW: Map UI layer ID to GPU texture atlas layer index
@@ -1468,6 +1483,7 @@ impl BridgeState {
         Self {
             surface_parcel_dictionaries: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             /* Removed loader_registry field */ volume_registry,
+            volume_operations: Arc::new(Mutex::new(())),
             surface_registry,
             render_loop_service,
             layer_to_atlas_map,
@@ -2679,224 +2695,16 @@ async fn handle_remote_connect_outcome<R: Runtime>(
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_file")]
 async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<VolumeHandleInfo> {
-    info!("Bridge: load_file called with path: {}", path);
-    let load_start = Instant::now();
-
-    // Materialize a remote-backed file into local cache when needed.
-    let file_path = PathBuf::from(&path);
-    materialize_remote_file_if_needed(state.inner(), &file_path).await?;
-
-    // Validate that the file exists and is loadable.
-    if !file_path.exists() {
-        return Err(BridgeError::Io {
-            code: 1001,
-            details: format!("File not found: {}", path),
-        });
-    }
-
-    if !core_loaders::is_loadable(&file_path) {
-        return Err(BridgeError::Input {
-            code: 1002,
-            details: format!("File format not supported: {}", path),
-        });
-    }
-
-    // Load the volume data.
-    // [perf] The decode (gzip inflate + full f32 materialization) is CPU-bound
-    // and ~100ms+ on a real volume. Run it on a blocking thread so it does not
-    // stall the async runtime (and every other in-flight command) for that span.
-    let decode_start = Instant::now();
-    let decode_path = file_path.clone();
-    let (volume_sendable, _affine) =
-        tokio::task::spawn_blocking(move || nifti_loader::load_nifti_volume_auto(&decode_path))
-            .await
-            .map_err(|e| BridgeError::Internal {
-                code: 1004,
-                details: format!("Volume decode task failed for {}: {}", path, e),
-            })?
-            .map_err(|e| BridgeError::Loader {
-                code: 1003,
-                details: format!("Failed to load file {}: {}", path, e),
-            })?;
-    info!(
-        "[perf] load_file decode (spawn_blocking, off async runtime): {} ms ({})",
-        decode_start.elapsed().as_millis(),
-        path
-    );
-
-    // 4D files carry a repetition time (TR) in the NIfTI header that the loaded
-    // volume does not retain. Re-read it lazily (header only — cheap) *inside*
-    // this closure so only 4D loads pay for it; the 3D arms never call it. `tr`
-    // is normalized to seconds.
-    let make_time_series_info = |num_timepoints: usize| {
-        let temporal_meta = nifti_loader::read_temporal_metadata(&file_path);
-        bridge_types::TimeSeriesInfo {
-            num_timepoints,
-            tr: temporal_meta.tr_seconds,
-            temporal_unit: temporal_meta.temporal_unit,
-            acquisition_time: temporal_meta
-                .tr_seconds
-                .map(|tr| tr * num_timepoints as f32),
-        }
-    };
-
-    // Derive dimensions/type metadata directly from the already-loaded volume.
-    // This avoids a second full parse/decode pass through NiftiLoader::load.
-    let (dims, dtype, volume_type, time_series_info) = match &volume_sendable {
-        VolumeSendable::VolF32(vol, _) => (
-            vol.space().dim.clone(),
-            "f32".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolI16(vol, _) => (
-            vol.space().dim.clone(),
-            "i16".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolU8(vol, _) => (
-            vol.space().dim.clone(),
-            "u8".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolI8(vol, _) => (
-            vol.space().dim.clone(),
-            "i8".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolU16(vol, _) => (
-            vol.space().dim.clone(),
-            "u16".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolI32(vol, _) => (
-            vol.space().dim.clone(),
-            "i32".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolU32(vol, _) => (
-            vol.space().dim.clone(),
-            "u32".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::VolF64(vol, _) => (
-            vol.space().dim.clone(),
-            "f64".to_string(),
-            bridge_types::VolumeType::Volume3D,
-            None,
-        ),
-        VolumeSendable::Vec4DF32(vec) => (
-            vec.space().dim.clone(),
-            "f32".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DI16(vec) => (
-            vec.space().dim.clone(),
-            "i16".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DU8(vec) => (
-            vec.space().dim.clone(),
-            "u8".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DI8(vec) => (
-            vec.space().dim.clone(),
-            "i8".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DU16(vec) => (
-            vec.space().dim.clone(),
-            "u16".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DI32(vec) => (
-            vec.space().dim.clone(),
-            "i32".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DU32(vec) => (
-            vec.space().dim.clone(),
-            "u32".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-        VolumeSendable::Vec4DF64(vec) => (
-            vec.space().dim.clone(),
-            "f64".to_string(),
-            bridge_types::VolumeType::TimeSeries4D,
-            Some(make_time_series_info(
-                vec.space().dim.get(3).copied().unwrap_or(1),
-            )),
-        ),
-    };
-
-    // Generate a unique handle ID based on the file name
-    let file_name = file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown");
-    let handle_id = format!("volume_{}", uuid::Uuid::new_v4());
-
-    // Create volume metadata
-    let metadata = VolumeMetadataInfo {
-        name: file_name.to_string(),
-        path: path.clone(),
-        dtype: dtype.clone(),
-        volume_type: volume_type.clone(),
-        time_series_info: time_series_info.clone(),
-    };
-
-    // Register the volume in the state
-    let mut registry = state.volume_registry.lock().await;
-    registry.insert(handle_id.clone(), volume_sendable, metadata);
-    drop(registry);
-
-    info!(
-        "Bridge: Successfully loaded volume with handle: {} (dtype={}, dims={:?}, elapsed={}ms)",
-        handle_id,
-        dtype,
-        dims,
-        load_start.elapsed().as_millis()
-    );
-
-    // Return the handle
-    Ok(VolumeHandleInfo {
-        id: handle_id,
-        name: file_name.to_string(),
-        dims,
-        dtype,
-        volume_type,
-        num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
-        current_timepoint: None,
-        time_series_info,
-    })
+    let scope = volume_service::LoadScope::default();
+    volume_service::VolumeLoadingService::load(
+        &volume_loading::NativeVolumeSource {
+            path,
+            state: state.inner(),
+        },
+        &volume_loading::DesktopVolumeRepository(state.inner()),
+        &scope,
+    )
+    .await
 }
 
 #[command]
@@ -3304,48 +3112,11 @@ async fn unload_volume(
     volume_id: String,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<ReleaseResult> {
-    info!("Bridge: unload_volume called for volume: {}", volume_id);
-
-    let active_layer_ids: Vec<String> = {
-        let layer_to_volume = state.layer_to_volume_map.lock().await;
-        layer_to_volume
-            .iter()
-            .filter_map(|(layer_id, mapped_volume_id)| {
-                if mapped_volume_id == &volume_id {
-                    Some(layer_id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
-
-    if !active_layer_ids.is_empty() {
-        return Err(BridgeError::Input {
-            code: 4048,
-            details: format!(
-                "Cannot unload volume '{}' while active layer mappings exist: {}",
-                volume_id,
-                active_layer_ids.join(", ")
-            ),
-        });
-    }
-
-    let mut volume_registry = state.volume_registry.lock().await;
-    volume_registry
-        .remove(&volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound {
-            code: 4041,
-            details: volume_id.clone(),
-        })?;
-    drop(volume_registry);
-    if let Some(service) = state.render_loop_service.lock().await.as_ref() {
-        service
-            .lock()
-            .await
-            .remove_custom_colormap(&format!("parcel:{}", volume_id));
-    }
-
+    volume_service::VolumeLoadingService::unload(
+        &volume_loading::DesktopVolumeRepository(state.inner()),
+        &volume_id,
+    )
+    .await?;
     Ok(ReleaseResult {
         success: true,
         message: format!("Unloaded volume '{}'", volume_id),
@@ -3418,6 +3189,7 @@ async fn get_volume_bounds(
         max: max_bounds,
         center: [center_world[0], center_world[1], center_world[2]],
         dims: [dims[0] as u32, dims[1] as u32, dims[2] as u32],
+        center_voxel_world: Some(volume_queries::centre_voxel_world(&affine, dims)),
     })
 }
 
@@ -3492,9 +3264,19 @@ async fn get_volume_info(
             .map(|ts| ts.num_timepoints),
         current_timepoint: entry.current_timepoint,
         time_series_info: entry.metadata.time_series_info.clone(),
+        statistic: None,
+        is_label_map: None,
     };
+    // Read the header after releasing the registry lock.
+    let path = PathBuf::from(&entry.metadata.path);
+    drop(registry);
+    let intent = stat_metadata::read_volume_intent(path).await;
 
-    Ok(handle_info)
+    Ok(VolumeHandleInfo {
+        statistic: intent.statistic,
+        is_label_map: intent.is_label_map,
+        ..handle_info
+    })
 }
 
 /// Derive an orientation string (e.g. "RAS", "LPI") from the voxel-to-world affine.
@@ -3752,6 +3534,9 @@ async fn get_nifti_header_info(
             .unwrap_or((0, 0));
     let coordinate_space = detect_coordinate_space(sform_code, qform_code, &entry.metadata.path);
 
+    let header_statistic =
+        nifti_loader::read_statistic_metadata(std::path::Path::new(&entry.metadata.path));
+
     // Extract 4D metadata if available
     let (num_timepoints, tr_seconds, temporal_units) = match &entry.metadata.time_series_info {
         Some(ts) => (Some(ts.num_timepoints), ts.tr, ts.temporal_unit.clone()),
@@ -3774,8 +3559,12 @@ async fn get_nifti_header_info(
         temporal_units,
         tr_seconds,
         num_timepoints,
-        description: String::new(),
+        description: header_statistic
+            .as_ref()
+            .map(|meta| meta.description.clone())
+            .unwrap_or_default(),
         data_range: None,
+        statistic: header_statistic.map(|meta| meta.statistic),
     })
 }
 
@@ -4076,6 +3865,17 @@ pub async fn request_layer_gpu_resources_for_testing(
     metadata_only: Option<bool>,
     bridge_state: &BridgeState,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
+    request_layer_gpu_resources_with_upload_hook(layer_spec, metadata_only, bridge_state, || Ok(()))
+        .await
+}
+
+async fn request_layer_gpu_resources_with_upload_hook(
+    layer_spec: LayerSpec,
+    metadata_only: Option<bool>,
+    bridge_state: &BridgeState,
+    after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
+) -> BridgeResult<VolumeLayerGpuInfo> {
+    let _operation = bridge_state.volume_operations.lock().await;
     let state = bridge_state;
     // Update return type
     info!(
@@ -4090,6 +3890,18 @@ pub async fn request_layer_gpu_resources_for_testing(
             let source_volume_id = vol_spec.source_resource_id.clone();
             let ui_layer_id = vol_spec.id.clone();
             let metadata_only_flag = metadata_only.unwrap_or(false);
+            if !metadata_only_flag
+                && state
+                    .layer_to_atlas_map
+                    .lock()
+                    .await
+                    .contains_key(&ui_layer_id)
+            {
+                return Err(BridgeError::Input {
+                    code: 1006,
+                    details: format!("Layer '{}' already owns GPU resources", ui_layer_id),
+                });
+            }
 
             info!(
                 "Requesting {} for UI layer '{}' (source volume '{}')",
@@ -4201,21 +4013,27 @@ pub async fn request_layer_gpu_resources_for_testing(
 
             // Upload the entire volume as a 3D texture and get the world-to-voxel transform
             // Skip if metadata_only is true
-            let (atlas_layer_idx, volume_world_to_voxel) = if metadata_only_flag {
-                info!("Metadata-only mode: skipping GPU upload");
-                (u32::MAX, nalgebra::Matrix4::<f32>::identity()) // Dummy values
-            } else {
-                debug!("About to upload volume to GPU (off the async reactor)");
-                // Run the heavy convert + GPU write on a blocking thread so the async
-                // reactor stays responsive, holding ONLY the render-service lock (the
-                // registry lock was already dropped). The volume is an Arc clone.
-                let upload_service = service_arc
-                    .clone()
-                    .expect("service arc present when not in metadata_only mode");
-                let upload_volume = volume_arc.clone();
-                let upload_ui_layer_id = ui_layer_id.clone();
-                tokio::task::spawn_blocking(
-                    move || -> BridgeResult<(u32, nalgebra::Matrix4<f32>)> {
+            let (atlas_layer_idx, volume_world_to_voxel, mut provisional_upload) =
+                if metadata_only_flag {
+                    info!("Metadata-only mode: skipping GPU upload");
+                    (u32::MAX, nalgebra::Matrix4::<f32>::identity(), None) // No allocation
+                } else {
+                    debug!("About to upload volume to GPU (off the async reactor)");
+                    // Run the heavy convert + GPU write on a blocking thread so the async
+                    // reactor stays responsive, holding ONLY the render-service lock (the
+                    // registry lock was already dropped). The volume is an Arc clone.
+                    let upload_service = service_arc
+                        .clone()
+                        .expect("service arc present when not in metadata_only mode");
+                    let upload_owner = volume_loading::UploadOwner::new(
+                        state,
+                        Arc::clone(&upload_service),
+                        ui_layer_id.clone(),
+                    );
+                    let upload_volume = volume_arc.clone();
+                    let upload_ui_layer_id = ui_layer_id.clone();
+                    tokio::task::spawn_blocking(
+                    move || -> BridgeResult<(u32, nalgebra::Matrix4<f32>, Option<volume_loading::ProvisionalUpload>)> {
                         let mut render_service_guard = upload_service.blocking_lock();
                         let render_service = &mut *render_service_guard;
                         let volume_data: &VolumeSendable = upload_volume.as_ref();
@@ -4409,7 +4227,9 @@ pub async fn request_layer_gpu_resources_for_testing(
                                 }
                             }
                         };
-                        Ok(upload_result)
+                        let guard = volume_loading::ProvisionalUpload::new(upload_result.0, upload_owner);
+                        after_upload()?;
+                        Ok((upload_result.0, upload_result.1, Some(guard)))
                     },
                 )
                 .await
@@ -4417,7 +4237,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                     code: 5099,
                     details: format!("GPU upload task panicked: {e}"),
                 })??
-            };
+                };
 
             // Re-acquire the render-service lock for the light post-upload bookkeeping
             // below (data range, declarative registration, layer add). It was released
@@ -4949,6 +4769,10 @@ pub async fn request_layer_gpu_resources_for_testing(
                     Arc::clone(&state.resident_image_sets),
                 );
 
+                if let Some(upload) = provisional_upload.as_mut() {
+                    upload.transfer_to_lease();
+                }
+
                 {
                     let mut lease_map = state.layer_leases.lock().await;
                     lease_map.insert(ui_layer_id.clone(), Arc::new(lease));
@@ -4991,6 +4815,7 @@ async fn release_layer_gpu_resources_internal(
     layer_id: String,
     bridge_state: &BridgeState,
 ) -> BridgeResult<ReleaseResult> {
+    let _operation = bridge_state.volume_operations.lock().await;
     info!(
         "Bridge: release_layer_gpu_resources called for layer {}",
         layer_id
@@ -5478,11 +5303,17 @@ async fn list_remote_discovery_inventory_files(
     let mut queue = VecDeque::from([(remote_root.to_string(), PathBuf::new())]);
     let mut files = Vec::new();
     let mut truncated = false;
+    let mut visited = 0usize;
 
-    while let Some((remote_dir, relative_dir)) = queue.pop_front() {
+    'scan: while let Some((remote_dir, relative_dir)) = queue.pop_front() {
         let entries = remote_transfer::list_owned(mount.clone(), remote_dir.clone()).await?;
 
         for entry in entries {
+            visited += 1;
+            if visited > max_inventory_files.saturating_mul(32).max(1024) {
+                truncated = true;
+                break 'scan;
+            }
             let child_relative = if relative_dir.as_os_str().is_empty() {
                 PathBuf::from(&entry.name)
             } else {
@@ -5507,7 +5338,7 @@ async fn list_remote_discovery_inventory_files(
 
             if files.len() >= max_inventory_files {
                 truncated = true;
-                continue;
+                break 'scan;
             }
 
             files.push(field_table::DiscoveryInventoryFile {
@@ -5591,6 +5422,7 @@ async fn remote_discovery_inventory_for_request(
 
     let mut inventory = field_table::DiscoveryInventory {
         root_exists: true,
+        truncated: inventory_truncated,
         source_label: Some(mount.origin_label.clone()),
         files,
         notes,
@@ -5680,6 +5512,7 @@ async fn remote_discovery_inventory_for_folder_ontology_request(
 
     Ok(Some(field_table::DiscoveryInventory {
         root_exists: true,
+        truncated: inventory_truncated,
         source_label: Some(mount.origin_label.clone()),
         files,
         notes,
@@ -6446,305 +6279,10 @@ async fn sample_world_coordinate_impl(
     // Get current timepoint for 4D volumes
     let timepoint = registry.get_timepoint(handle_id).unwrap_or(0);
 
-    // Check bounds and sample
-    let value = match volume_data {
-        VolumeSendable::VolF32(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                // Use nearest neighbor interpolation
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).unwrap_or(0.0)
-            } else {
-                0.0 // Out of bounds
-            }
-        }
-        VolumeSendable::VolF64(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolI16(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolI32(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolU8(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolU16(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolI8(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolU32(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        // 4D volumes - sample from the current timepoint
-        VolumeSendable::Vec4DF32(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]]
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DI16(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DU8(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DI8(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DU16(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DI32(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DU32(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DF64(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-    };
+    // Nearest voxel: voxel i covers [i - 0.5, i + 0.5). Matches the renderer
+    // for interior voxels only; see the edge-mismatch note in volume_queries.rs
+    // (mote bd-01M5WG08FCQG23AMQBQH1CD97X). Out-of-range 4D timepoints error.
+    let value = volume_queries::sample_nearest(volume_data, voxel_coords, timepoint)?;
 
     info!(
         "Sampled value: {} at voxel coords {:?}",
@@ -7043,6 +6581,7 @@ pub struct SamplerInfoResult {
 /// Precomputed sampler held on `BridgeState`.
 pub struct SurfaceSamplerEntry {
     pub surface_id: String,
+    pub template_volume_id: String,
     pub sampler: neurosurf_rs::analysis::SurfaceSampler,
     pub volume_dims: [u32; 3],
     pub vertex_count: usize,
@@ -7340,11 +6879,24 @@ async fn create_surface_sampler_impl(
                 details: "Surface was unloaded while preparing its sampler".into(),
             });
         }
+        let _operation = bridge_state.volume_operations.lock().await;
+        if !bridge_state
+            .volume_registry
+            .lock()
+            .await
+            .contains(&template_volume_id)
+        {
+            return Err(BridgeError::VolumeNotFound {
+                code: 4041,
+                details: "Template volume was unloaded while preparing its sampler".into(),
+            });
+        }
         let mut samplers = bridge_state.surface_samplers.lock().await;
         samplers.insert(
             handle.clone(),
             SurfaceSamplerEntry {
                 surface_id: surface_id.clone(),
+                template_volume_id: template_volume_id.clone(),
                 sampler,
                 volume_dims: vol.dims,
                 vertex_count,
@@ -8476,6 +8028,7 @@ async fn invalidate_cached_layer_for_render(
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum RenderFormat {
     Png,
+    Jpeg,
     RawRgba,
 }
 
@@ -8483,6 +8036,7 @@ impl RenderFormat {
     fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "png" => Some(RenderFormat::Png),
+            "jpg" | "jpeg" => Some(RenderFormat::Jpeg),
             "rgba" | "raw" => Some(RenderFormat::RawRgba),
             _ => None,
         }
@@ -8948,7 +8502,10 @@ async fn render_frontend_view_with_diagnostics(
     );
     let target_setup_start = std::time::Instant::now();
     service
-        .create_offscreen_target(width, height)
+        .ensure_view(
+            render_loop::view_state::ViewId::new(render_view_id),
+            [width, height],
+        )
         .map_err(|e| BridgeError::GpuError {
             code: 5021,
             details: format!(
@@ -9165,11 +8722,16 @@ async fn render_frontend_view_with_diagnostics(
         (raw_buffer, std::time::Duration::ZERO)
     } else {
         let png_encode_start = std::time::Instant::now();
-        let png_data = render_bridge_adapter::encode_png_frame(width, height, rgba_data)?;
+        let png_data = image_export::encode_still_frame(format, width, height, rgba_data)?;
         let png_encode_time = png_encode_start.elapsed();
-        info!("⏱️  PNG encoding took: {:?}", png_encode_time);
         info!(
-            "Backend: Encoded RGBA to PNG - {} bytes ({}x{})",
+            "⏱️  {} encoding took: {:?}",
+            format.label(),
+            png_encode_time
+        );
+        info!(
+            "Backend: Encoded RGBA to {} - {} bytes ({}x{})",
+            format.label(),
             png_data.len(),
             width,
             height
@@ -9442,7 +9004,7 @@ async fn render_views_process_with_diagnostics(
         let payload = if format == RenderFormat::RawRgba {
             rgba
         } else {
-            render_bridge_adapter::encode_png_frame(width, height, rgba)?
+            image_export::encode_still_frame(format, width, height, rgba)?
         };
         per_view[index].format = format.label().to_string();
         per_view[index].encode_ms = duration_ms(encode_start.elapsed());
@@ -10400,6 +9962,8 @@ async fn load_atlas<R: Runtime>(
         num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
         current_timepoint: None,
         time_series_info,
+        statistic: None,
+        is_label_map: None,
     };
 
     Ok(AtlasLoadResult {
@@ -10808,13 +10372,73 @@ async fn clear_template_cache(state: State<'_, BridgeState>) -> BridgeResult<()>
     Ok(())
 }
 
+// A cancelled caller cannot stop an already-running filesystem walk. Keep its
+// admission permit with the blocking worker so replacement scans cannot pile up.
+static LOCAL_IMPORT_PREVIEW_ADMISSION: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(1);
+
+async fn run_local_import_preview<T: Send + 'static>(
+    preview: impl FnOnce() -> T + Send + 'static,
+) -> BridgeResult<T> {
+    let permit = LOCAL_IMPORT_PREVIEW_ADMISSION
+        .acquire()
+        .await
+        .map_err(|error| BridgeError::Internal {
+            code: 9603,
+            details: error.to_string(),
+        })?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        preview()
+    })
+    .await
+    .map_err(|error| BridgeError::Internal {
+        code: 9603,
+        details: error.to_string(),
+    })
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn cancelled_local_import_preview_retains_worker_admission() {
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (finish_tx, finish_rx) = std::sync::mpsc::channel::<()>();
+    let caller = tokio::spawn(run_local_import_preview(move || {
+        let _ = started_tx.send(());
+        let _ = finish_rx.recv();
+    }));
+    started_rx.await.unwrap();
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    assert_eq!(LOCAL_IMPORT_PREVIEW_ADMISSION.available_permits(), 0);
+    finish_tx.send(()).unwrap();
+    let _permit = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        LOCAL_IMPORT_PREVIEW_ADMISSION.acquire(),
+    )
+    .await
+    .expect("worker must release admission after completion")
+    .unwrap();
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.preview_set_studio_imports")]
 async fn preview_set_studio_imports(
     request: StudioImportPreviewRequest,
+    ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<StudioImportCandidate>> {
-    preview_set_studio_imports_impl(request, Some(state.inner())).await
+    // Reuse the bounded query-ticket registry; cancellation stops further remote I/O.
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    cancellation.check()?;
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(population_sampling::cancelled()),
+        result = preview_set_studio_imports_impl(request, Some(state.inner())) => result,
+    }
 }
 
 #[doc(hidden)]
@@ -10843,16 +10467,27 @@ async fn preview_set_studio_imports_impl(
         }
     }
 
-    Ok(field_table::preview_import_candidates(request))
+    run_local_import_preview(move || field_table::preview_import_candidates(request)).await
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.preview_folder_ontology")]
 async fn preview_folder_ontology(
     request: StudioFolderOntologyPreviewRequest,
+    ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<StudioFolderOntologySummary> {
-    preview_folder_ontology_impl(request, Some(state.inner())).await
+    // Reuse the bounded query-ticket registry; cancellation stops further remote I/O.
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    cancellation.check()?;
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(population_sampling::cancelled()),
+        result = preview_folder_ontology_impl(request, Some(state.inner())) => result,
+    }
 }
 
 #[doc(hidden)]
@@ -10877,7 +10512,7 @@ async fn preview_folder_ontology_impl(
         }
     }
 
-    Ok(field_table::preview_folder_ontology(request))
+    run_local_import_preview(move || field_table::preview_folder_ontology(request)).await
 }
 
 #[command]
@@ -12913,6 +12548,21 @@ async fn evaluate_population_slice(
         .await
 }
 
+/// Fit exact spatial relationships on a declared common finite support.
+#[command]
+async fn fit_population_relationship(
+    request: population_slice::relationship::Request,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::relationship::Result> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::relationship::evaluate(request, state.inner(), cancellation).await
+}
+
 /// Save a full native-grid summary, coverage and frozen calculation provenance.
 #[command]
 async fn export_population_summary(
@@ -12950,10 +12600,26 @@ async fn replay_population_summary(
     .await
 }
 
+/// Save a bounded population graphic or recipe to a newly chosen output file.
+#[command]
+async fn export_population_plot(
+    path: String,
+    bytes: Vec<u8>,
+    format: String,
+) -> BridgeResult<String> {
+    tokio::task::spawn_blocking(move || population_plot_export::save(&path, &bytes, &format))
+        .await
+        .map_err(|e| BridgeError::Input {
+            code: 6451,
+            details: e.to_string(),
+        })?
+}
+
 /// Reopen a saved descriptive calculation after verifying its bundle and inputs.
 #[command]
 async fn open_population_summary(
     provenance_path: String,
+    relocation: Option<population_slice::replay::SourceRelocation>,
     ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<population_slice::replay::OpenedCalculation> {
@@ -12962,7 +12628,13 @@ async fn open_population_summary(
         .map(|ticket| state.population_sampling.begin(ticket))
         .transpose()?
         .unwrap_or_default();
-    population_slice::replay::open(provenance_path, state.inner(), cancellation).await
+    population_slice::replay::open_relocated(
+        provenance_path,
+        relocation,
+        state.inner(),
+        cancellation,
+    )
+    .await
 }
 
 /// Release the plane matrix owned by a particular mounted population view.
@@ -14452,6 +14124,24 @@ mod tests {
         assert!((vals[0] - 1.0).abs() < 1e-3, "v0={}", vals[0]);
         assert!((vals[1] - 112.0).abs() < 1e-3, "v1={}", vals[1]);
         assert!((vals[2] - 223.0).abs() < 1e-3, "v2={}", vals[2]);
+    }
+
+    #[tokio::test]
+    async fn volume_unload_reclaims_template_samplers() {
+        let state = BridgeState::default().unwrap();
+        register_surface_and_volume_for_projection(&state).await;
+        create_surface_sampler_impl("proj_surf".into(), None, "proj_vol".into(), None, &state)
+            .await
+            .unwrap();
+        assert_eq!(state.surface_samplers.lock().await.len(), 1);
+        volume_service::VolumeLoadingService::unload(
+            &volume_loading::DesktopVolumeRepository(&state),
+            "proj_vol",
+        )
+        .await
+        .unwrap();
+        assert!(state.surface_samplers.lock().await.is_empty());
+        assert!(!state.volume_registry.lock().await.contains("proj_vol"));
     }
 
     #[tokio::test]

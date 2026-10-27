@@ -2,12 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Layers, Loader2, Search } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { Button, Notice } from '@/components/ui/bf';
 import { useImageSetStore } from '@/stores/imageSetStore';
 import { folderName, getImageSetService } from '@/services/ImageSetService';
 import type { ImageSetPreview } from '@/types/imageSet';
-
-const button =
-  'rounded border border-border px-3 py-1.5 text-xs hover:bg-accent/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40';
 
 export function OpenImageSetDialog() {
   const preview = useImageSetStore((state) => state.preview);
@@ -57,8 +55,8 @@ function ImageSetChecklist({ preview }: { preview: ImageSetPreview }) {
           Choose images for one layer. Switch between them in the Inspector.
         </p>
       </div>
-      <label className="block space-y-1.5 text-xs font-medium">
-        <span>Set name</span>
+      <label className="block space-y-1.5 text-bf-sm">
+        <span className="text-muted-foreground">Set name</span>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
@@ -79,22 +77,22 @@ function ImageSetChecklist({ preview }: { preview: ImageSetPreview }) {
                 className="w-full rounded border border-border bg-[var(--bf-bg-input)] py-1.5 pl-7 pr-2 text-xs"
               />
             </label>
-            <button
-              type="button"
-              className={button}
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={preview.opening}
               onClick={() => setSelected(new Set(preview.members.map((member) => member.path)))}
             >
               All
-            </button>
-            <button
-              type="button"
-              className={button}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={preview.opening}
               onClick={() => setSelected(new Set())}
             >
               None
-            </button>
+            </Button>
           </div>
           <div
             className="max-h-[40vh] overflow-y-auto rounded border border-border"
@@ -131,34 +129,33 @@ function ImageSetChecklist({ preview }: { preview: ImageSetPreview }) {
         )
       )}
       {preview.error && (
-        <p
-          role="alert"
-          className="break-words rounded border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
-        >
+        <Notice severity="danger" role="alert" className="break-words">
           {preview.error}
-        </p>
+        </Notice>
       )}
       <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
-        <button
-          type="button"
-          className={button}
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => getImageSetService().closePreview()}
         >
           Cancel
-        </button>
-        <button
-          type="button"
-          className={`${button} flex items-center gap-2 border-transparent bg-primary text-primary-foreground hover:bg-primary/90`}
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           disabled={!selected.size || preview.opening}
+          icon={
+            preview.opening ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Layers className="h-3.5 w-3.5" />
+            )
+          }
           onClick={() => void getImageSetService().confirmPreview([...selected], name)}
         >
-          {preview.opening ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Layers className="h-3.5 w-3.5" />
-          )}
           {preview.opening ? 'Opening first image…' : `Open image set (${selected.size})`}
-        </button>
+        </Button>
       </div>
     </div>
   );

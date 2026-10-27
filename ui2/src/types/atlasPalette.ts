@@ -25,6 +25,12 @@ export interface AtlasPaletteLegendEntry {
   color: [number, number, number];
   network?: string | null;
   hemisphere?: string | null;
+  /**
+   * Region text shown verbatim (status Region slot, hover). Set for label
+   * tables the user supplied (BIDS dseg TSV / FreeSurfer LUT sidecars), whose
+   * names must not be reformatted; catalogue atlases leave it unset.
+   */
+  displayName?: string;
 }
 
 export interface AtlasPaletteResponse {

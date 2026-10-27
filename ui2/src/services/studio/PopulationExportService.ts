@@ -1,3 +1,6 @@
+import { populationPlotService } from './PopulationPlotService';
+import { populationRelationshipService } from './PopulationRelationshipService';
+import { resolvePopulationParticipants, groupParticipantMembers } from './populationParticipants';
 import { buildPopulationSource } from './PopulationProbeController';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { PopulationSliceDisplay } from './PopulationSliceService';
@@ -25,12 +28,19 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
     );
   if (!set || !feature) throw new Error('A population dataset and feature are required.');
   const request = structuredClone(display.query.request);
+  delete request.focusOnly;
+  delete request.focusWindow;
+  delete request.groups;
   const revisions = new Map(
     display.data.sources.map((source) => [source.memberId, source.revision]),
   );
   if (revisions.size !== request.members.length)
     throw new Error('Refresh the population view before export.');
-  const metadata = studioMetadata(set, request.workingMemberIds);
+  const allIds = request.members.map((member) => member.memberId);
+  const fullMetadata = studioMetadata(set, allIds);
+  const metadataIds = fullMetadata.issue ? request.workingMemberIds : allIds;
+  const metadata = fullMetadata.issue ? studioMetadata(set, metadataIds) : fullMetadata;
+  const participants = resolvePopulationParticipants(state, allIds);
   const members = request.members.map((member) => {
     const revision = revisions.get(member.memberId);
     if (!revision || !/^[a-f0-9]{64}$/i.test(revision.sha256))
@@ -51,10 +61,27 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
             recordSha256: set.savedPopulation.recordSha256,
           }
         : null,
+      presentation: state.population.presentation,
+      relationship: populationRelationshipService.exportFor(members, mask),
+      orderRelationship: populationRelationshipService.exportOrderFor(members, mask),
+      exploration: {
+        version: 1,
+        partition: state.population.partition,
+        partitionPast: state.population.partitionPast,
+        cohorts: set.savedCohortIds
+          .map((id) => state.cohorts[id])
+          .filter((c) => c && c.memberIds.every((id) => allIds.includes(id))),
+        participantGroups:
+          !participants.issue && participants.identity
+            ? groupParticipantMembers(participants.identity, allIds)
+            : null,
+      },
       datasetId: set.id,
       datasetName: set.name,
       featureId: feature.id,
       featureLabel: feature.label,
+      plots: populationPlotService.savedFor(display.query.datasetKey),
+      featureContract: { valueRole: feature.valueRole, units: feature.units },
       participantDefinition: structuredClone(state.population.participants),
       selectionContext: {
         working: state.population.working,
@@ -65,7 +92,7 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
       },
       metadata: metadata.issue
         ? null
-        : Object.fromEntries(request.workingMemberIds.map((id) => [id, metadata.rows.get(id)])),
+        : Object.fromEntries(metadataIds.map((id) => [id, metadata.rows.get(id)])),
       metadataUnavailableReason: metadata.issue,
       displayScale: { effectLimit: display.effectLimit, summaryLimit: display.summaryLimit },
     },
@@ -95,6 +122,7 @@ export const populationExportService = {
   async chooseAndExport(
     frozen: ReturnType<typeof freezePopulationExport>,
     signal: AbortSignal,
+    includeInputs = false,
   ): Promise<PopulationExportResult | null> {
     const path = await getTransport().invoke<string | null>('plugin:dialog|open', {
       options: {
@@ -106,7 +134,13 @@ export const populationExportService = {
     if (!path || signal.aborted) return null;
     return invokeCancelable<PopulationExportResult>(
       'export_population_summary',
-      { request: { ...frozen, destinationDirectory: path } },
+      {
+        request: {
+          ...frozen,
+          destinationDirectory: path,
+          ...(includeInputs ? { includeInputs: true } : {}),
+        },
+      },
       signal,
     );
   },

@@ -1,6 +1,7 @@
 mod materialize;
 pub mod neurotabs;
 pub mod population;
+pub mod population_inference;
 mod preview;
 mod promote;
 
@@ -359,7 +360,8 @@ mod tests {
         assert_eq!(discovery.matched_files, 8);
         assert_eq!(discovery.unmatched_files, 1);
         assert_eq!(discovery.groups.len(), 2);
-        assert!(preview.set.ingest_audit.support.ready_for_compare);
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Unknown);
         assert!(preview
             .set
             .ingest_audit
@@ -693,6 +695,111 @@ mod tests {
         assert!(roundtrip.set.ingest_audit.support.ready_for_compare);
 
         fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn generic_folder_review_preserves_images_and_opens_real_sources() {
+        let root = make_temp_dir("generic-folder-review");
+        for member in ["1001", "1002"] {
+            for image in ["rsa-A.nii.gz", "rsa_A.nii.gz", "session-2/rsa-A.nii.gz"] {
+                if member == "1002" && image == "rsa_A.nii.gz" {
+                    continue;
+                }
+                let path = root.join(member).join(image);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                save_test_nifti(&path, &[1.0, 3.0], [2, 1, 1]);
+            }
+        }
+        let ontology = preview_folder_ontology(StudioFolderOntologyPreviewRequest {
+            root: root.to_string_lossy().into(),
+            max_depth: Some(4),
+            max_files: Some(50),
+            include_patterns: vec![],
+            exclude_patterns: vec![],
+        });
+        let proposal = &ontology.candidates[0];
+        assert_eq!(proposal.id, "member-folders");
+        assert!(proposal.required_roles.is_empty());
+        assert_eq!(proposal.observed_roles.len(), 3);
+        let mut request = remote_discovery_request(&root.to_string_lossy(), false);
+        request.file_pattern = Some(proposal.file_pattern.clone());
+        request.discovery_required_roles = Some(vec![]);
+        request.discovery_role_patterns = Some(vec![]);
+        let discovered = preview_import_candidates(request.clone()).remove(0);
+        if let Ok(path) = std::env::var("BRAINFLOW_FOLDER_REVIEW_FIXTURE") {
+            fs::write(
+                path,
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "root": root.to_string_lossy(), "ontology": ontology, "candidate": discovered,
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        assert!(discovered.contract.can_import);
+        assert!(!discovered.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            discovered.set.alignment_class,
+            StudioAlignmentClass::Unknown
+        );
+        assert_eq!(discovered.set.member_ids, ["1001", "1002"]);
+        assert!(discovered
+            .features
+            .iter()
+            .all(|feature| feature.value_role.is_none()));
+        let groups = &discovered.discovery.as_ref().unwrap().groups;
+        assert_eq!(groups[0].bindings.len(), 3);
+        assert_eq!(groups[1].bindings.len(), 2);
+        assert!(groups.iter().all(|group| group.missing_roles.is_empty()));
+        for group in groups {
+            for binding in &group.bindings {
+                assert_eq!(
+                    binding.relative_path,
+                    format!("{}/{}", group.member_id, binding.role)
+                );
+                assert!(Path::new(&binding.source_path).is_file());
+                let (volume, _) =
+                    nifti_loader::load_nifti_volume_auto(Path::new(&binding.source_path)).unwrap();
+                let (values, _) = extract_volume_values(&volume).unwrap();
+                assert_eq!(values, vec![1.0, 3.0]);
+            }
+        }
+        // Only a complete local header check can grant comparison readiness.
+        request.discovery_sample_headers = Some(true);
+        assert!(
+            preview_import_candidates(request)
+                .remove(0)
+                .set
+                .ingest_audit
+                .support
+                .ready_for_compare
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn upstream_inventory_truncation_blocks_opening_even_below_match_limit() {
+        let root = "/remote-origin/study";
+        let mut inventory = complete_remote_inventory(root);
+        inventory.truncated = true;
+        let preview = preview_import_candidates_with_discovery_inventory(
+            remote_discovery_request(root, false),
+            Some(inventory.clone()),
+        )
+        .remove(0);
+        assert!(preview.discovery.unwrap().truncated);
+        assert!(!preview.contract.can_import);
+        let summary = preview_folder_ontology_with_discovery_inventory(
+            StudioFolderOntologyPreviewRequest {
+                root: root.into(),
+                max_depth: None,
+                max_files: Some(500),
+                include_patterns: vec![],
+                exclude_patterns: vec![],
+            },
+            inventory,
+        );
+        assert!(summary.truncated);
     }
 
     #[test]

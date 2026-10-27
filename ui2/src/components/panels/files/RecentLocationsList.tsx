@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button, IconButton } from '@/components/ui/bf';
 import { VscHistory, VscPin, VscClose } from 'react-icons/vsc';
 import { useFileBrowserStore, type RecentLocation } from '@/stores/fileBrowserStore';
 
@@ -44,14 +45,15 @@ export const RecentLocationsList: React.FC<RecentLocationsListProps> = ({
     <section className="files-start-section" aria-label="Recent locations">
       <header className="files-start-section-header">
         <span className="files-start-section-title">Recents</span>
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="sm"
           className="files-start-section-link"
           onClick={clearRecents}
           title="Clear recent locations"
         >
           Clear
-        </button>
+        </Button>
       </header>
       <ul className="files-start-list">
         {recents.map((recent) => {
@@ -59,9 +61,10 @@ export const RecentLocationsList: React.FC<RecentLocationsListProps> = ({
           const isRemote = recent.mountSource.kind === 'remote';
           return (
             <li key={recent.path} className="files-start-row">
-              <button
-                type="button"
-                className="files-start-row-main"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="files-start-row-main min-w-0 flex-1 justify-start font-normal"
                 onClick={() =>
                   isRemote ? onMountRemote(recent) : onMountLocal()
                 }
@@ -73,9 +76,10 @@ export const RecentLocationsList: React.FC<RecentLocationsListProps> = ({
                   {isRemote ? 'Remote · ' : ''}
                   {formatRelativeTime(recent.lastOpened)}
                 </span>
-              </button>
-              <button
-                type="button"
+              </Button>
+              <IconButton
+                size="xs"
+                variant="ghost"
                 className="files-start-row-action"
                 aria-label={pinned ? 'Already pinned' : 'Pin location'}
                 title={pinned ? 'Already pinned' : 'Pin location'}
@@ -88,9 +92,8 @@ export const RecentLocationsList: React.FC<RecentLocationsListProps> = ({
                     mountSource: recent.mountSource,
                   })
                 }
-              >
-                <VscPin />
-              </button>
+                icon={<VscPin />}
+              />
             </li>
           );
         })}
@@ -114,9 +117,10 @@ export const PinnedLocationsList: React.FC<{ onActivate: (item: { path: string; 
       <ul className="files-start-list">
         {pinned.map((item) => (
           <li key={item.id} className="files-start-row">
-            <button
-              type="button"
-              className="files-start-row-main"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="files-start-row-main min-w-0 flex-1 justify-start font-normal"
               onClick={() => onActivate({ path: item.path, mountSource: item.mountSource })}
               title={item.path}
             >
@@ -125,16 +129,16 @@ export const PinnedLocationsList: React.FC<{ onActivate: (item: { path: string; 
               <span className="files-start-row-meta">
                 {item.mountSource.kind === 'remote' ? 'Remote' : 'Local'}
               </span>
-            </button>
-            <button
-              type="button"
+            </Button>
+            <IconButton
+              size="xs"
+              variant="ghost"
               className="files-start-row-action"
               aria-label={`Unpin ${item.label}`}
               title="Unpin"
               onClick={() => unpinLocation(item.id)}
-            >
-              <VscClose />
-            </button>
+              icon={<VscClose />}
+            />
           </li>
         ))}
       </ul>

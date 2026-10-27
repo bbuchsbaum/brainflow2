@@ -9,7 +9,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
-import { throttle } from 'lodash';
 
 export interface MouseCoordinateState {
   // Current world coordinates (null when mouse not over any view)
@@ -34,39 +33,12 @@ interface MouseCoordinateStore extends MouseCoordinateState {
     intensity?: number
   ) => void;
   clearMousePosition: () => void;
-  
-  // Throttled version for high-frequency updates
-  setMousePositionThrottled: (
-    worldCoords: [number, number, number],
-    viewType: 'axial' | 'sagittal' | 'coronal',
-    voxelCoords?: [number, number, number],
-    intensity?: number
-  ) => void;
 }
 
 // Create the store
 export const useMouseCoordinateStore = create<MouseCoordinateStore>()(
   devtools(
     subscribeWithSelector((set, get) => {
-      // Create throttled update function (50ms throttle for smooth updates)
-      const throttledUpdate = throttle(
-        (
-          worldCoords: [number, number, number],
-          viewType: 'axial' | 'sagittal' | 'coronal',
-          voxelCoords?: [number, number, number],
-          intensity?: number
-        ) => {
-          set({
-            worldCoordinates: worldCoords,
-            activeView: viewType,
-            voxelCoordinates: voxelCoords || null,
-            intensity: intensity !== undefined ? intensity : null
-          });
-        },
-        50, // Update at most every 50ms
-        { leading: true, trailing: true }
-      );
-      
       return {
         // Initial state
         worldCoordinates: null,
@@ -83,8 +55,6 @@ export const useMouseCoordinateStore = create<MouseCoordinateStore>()(
             intensity: intensity !== undefined ? intensity : null
           });
         },
-        
-        setMousePositionThrottled: throttledUpdate,
         
         clearMousePosition: () => {
           set({

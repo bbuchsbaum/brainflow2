@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brainflow app harness</title>
+    <script>
+      // Early polyfills for compatibility
+      if (!String.prototype.trimStart) {
+        String.prototype.trimStart = function() {
+          return this.replace(/^[\s\uFEFF\xA0]+/, '');
+        };
+        String.prototype.trimLeft = String.prototype.trimStart;
+      }
+      if (!String.prototype.trimEnd) {
+        String.prototype.trimEnd = function() {
+          return this.replace(/[\s\uFEFF\xA0]+$/, '');
+        };
+        String.prototype.trimRight = String.prototype.trimEnd;
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/devHarness/appHarness.tsx"></script>
+  </body>
+</html>

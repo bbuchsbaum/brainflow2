@@ -100,7 +100,7 @@ describe("workspaceTabLabel", () => {
   });
 
   it("labels tool workspaces by their descriptive name", () => {
-    expect(workspaceTabLabel({ type: "set-studio" })).toBe("Set Studio");
+    expect(workspaceTabLabel({ type: "set-studio" })).toBe("Set studio");
     expect(workspaceTabLabel({ type: "bids-explorer" })).toBe("BIDS Explorer");
     expect(workspaceTabLabel({ type: "analysis-workbench" })).toBe(
       "Analysis Workbench",

@@ -13,22 +13,25 @@ export const DOCK_COLLAPSED_LOG_WIDTH = 24;
 /**
  * Bottom-dock tabs. The dock is a single tabbed container (Design.md §11.1 /
  * §20: "Bottom dock uses `Activity | Plot | Log`"), one panel full-width at a
- * time. Order and labels follow the spec exactly.
+ * time. Phase 3 (P3.5) adds "Clusters" beside Plot: the cluster table is an
+ * analysis readout like the plot, never a centre-stack or side-column panel.
  */
-export type DockTabId = 'activity' | 'plot' | 'log';
+export type DockTabId = 'activity' | 'plot' | 'clusters' | 'log';
 
 export const DOCK_TABS: ReadonlyArray<{ id: DockTabId; label: string }> = [
   { id: 'activity', label: 'Activity' },
   { id: 'plot', label: 'Plot' },
+  { id: 'clusters', label: 'Clusters' },
   { id: 'log', label: 'Log' },
 ] as const;
 
 /** Default active tab — Plot is first-class (Design.md §1.5) and the user's focus. */
 export const DEFAULT_DOCK_TAB: DockTabId = 'plot';
 
-/** Tab-bar height (px) — Design.md §11.2 (`grid-template-rows: 34px 1fr`).
- *  Also the dock's total height when minimized (collapsed to just the tab bar). */
-export const DOCK_TAB_BAR_HEIGHT = 34;
+/** Tab-bar height (px): the bf flat-tab strip (28px, `H_TAB`) plus its 1px
+ *  bottom hairline. Also the dock's total height when minimized (collapsed to
+ *  just the tab bar). Was 34 (Design.md §11.2) before the bf Tabs migration. */
+export const DOCK_TAB_BAR_HEIGHT = 29;
 
 /** Bottom-dock height tokens (px), Design.md §2.2. */
 export const DOCK_HEIGHT_PREFERRED = 220;

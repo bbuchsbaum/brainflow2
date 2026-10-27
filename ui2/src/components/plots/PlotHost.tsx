@@ -18,6 +18,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { EmptyPane, SegmentedControl, Select } from '@/components/ui/bf';
+
 import type { PlotHostProps, PlotMode, PlotModeContext, PlotModeSupport } from './plotHost.types';
 
 const HOST_HEADER_HEIGHT = 28;
@@ -43,6 +45,28 @@ interface EmptyStateProps {
   testid: string;
 }
 
+/**
+ * The empty dock (P3.11): the plot frame with empty axes and one line, not
+ * a second "No volume" message (the panes already say that).
+ */
+function EmptyAxes({ testid }: { testid: string }) {
+  return (
+    <div data-testid={testid} style={{ position: 'absolute', inset: 0 }}>
+      <EmptyPane
+        title="Load a volume to see its histogram"
+        hint="The selected layer's histogram appears here."
+        backdrop={
+          // Axes: the loaded histogram's frame (same margins), empty.
+          <div
+            className="absolute border-b border-l border-bf-border"
+            style={{ left: 12, right: 12, top: 28, bottom: 22 }}
+          />
+        }
+      />
+    </div>
+  );
+}
+
 function EmptyState({ title, detail, testid }: EmptyStateProps) {
   return (
     <div
@@ -54,28 +78,18 @@ function EmptyState({ title, detail, testid }: EmptyStateProps) {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: '6px',
-        color: 'var(--app-text-muted)',
+        gap: '4px',
+        color: 'var(--bf-text-muted)',
         textAlign: 'center',
         padding: '12px',
         userSelect: 'none',
       }}
     >
-      <span
-        className="bf-role-section"
-        style={{
-          color: 'var(--app-text-muted)',
-          letterSpacing: 'var(--app-role-section-tracking)',
-          textTransform: 'uppercase',
-        }}
-      >
+      <span className="text-bf-sm font-medium" style={{ color: 'var(--bf-text-secondary)' }}>
         {title}
       </span>
       {detail ? (
-        <span
-          className="bf-role-body"
-          style={{ color: 'var(--app-text-disabled)', maxWidth: '32ch' }}
-        >
+        <span className="text-bf-xs" style={{ color: 'var(--bf-text-muted)', maxWidth: '36ch' }}>
           {detail}
         </span>
       ) : null}
@@ -89,82 +103,55 @@ interface ModeSelectorProps {
   onChange: (id: string) => void;
 }
 
+/**
+ * Plot modes: a joined segmented group (V5 navigation kind 2, bf
+ * SegmentedControl: radio semantics, arrows move and select) for up to four
+ * modes, a bf Select beyond that. A single mode still shows its name, so the
+ * pane says which plot it holds.
+ */
+/** The empty dock keeps the loaded chrome: the Histogram tab, disabled. */
+const EMPTY_MODE_OPTIONS = [{ value: 'histogram', label: 'Histogram' }] as const;
+
 function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
-  if (modes.length === 0) return null;
+  const options = useMemo(() => modes.map((m) => ({ value: m.id, label: m.label })), [modes]);
+  // Nothing to plot yet: the same chrome as a loaded dock, the default mode
+  // named but inert (P3.11).
+  if (modes.length === 0) {
+    return (
+      <SegmentedControl
+        aria-label="Plot mode"
+        data-testid="plot-host-mode-empty"
+        options={EMPTY_MODE_OPTIONS}
+        value="histogram"
+        onValueChange={() => undefined}
+        disabled
+        hideWhenSingle={false}
+      />
+    );
+  }
 
   if (modes.length > 4) {
     return (
-      <select
+      <Select
         aria-label="Plot mode"
         data-testid="plot-host-mode-select"
+        className="w-auto"
         value={activeId}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          appearance: 'none',
-          WebkitAppearance: 'none',
-          MozAppearance: 'none',
-          height: '20px',
-          padding: '0 18px 0 6px',
-          background: 'transparent',
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%238a93a3' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'right 6px center',
-          color: 'var(--app-text-primary)',
-          border: '1px solid var(--app-border)',
-          borderRadius: 'var(--app-radius-sm)',
-          fontSize: 'var(--app-role-section-size)',
-          cursor: 'pointer',
-          outline: 'none',
-        }}
-      >
-        {modes.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
+        options={options}
+        onValueChange={onChange}
+      />
     );
   }
 
   return (
-    <div
-      role="tablist"
+    <SegmentedControl
       aria-label="Plot mode"
       data-testid="plot-host-mode-tabs"
-      style={{ display: 'inline-flex', gap: '2px' }}
-    >
-      {modes.map((m) => {
-        const active = m.id === activeId;
-        return (
-          <button
-            key={m.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            data-testid={`plot-host-mode-${m.id}`}
-            data-active={active ? 'true' : 'false'}
-            onClick={() => onChange(m.id)}
-            className="bf-role-section"
-            style={{
-              appearance: 'none',
-              padding: '2px 8px',
-              height: '20px',
-              border: '1px solid var(--app-border)',
-              borderColor: active ? 'var(--app-border-active)' : 'var(--app-border)',
-              background: active ? 'var(--app-bg-active)' : 'transparent',
-              color: active ? 'var(--app-text-primary)' : 'var(--app-text-muted)',
-              cursor: 'pointer',
-              borderRadius: 'var(--app-radius-sm)',
-              fontSize: 'var(--app-role-section-size)',
-              letterSpacing: 'var(--app-role-section-tracking)',
-              textTransform: 'uppercase',
-            }}
-          >
-            {m.label}
-          </button>
-        );
-      })}
-    </div>
+      options={options}
+      value={activeId}
+      onValueChange={onChange}
+      singleLabel
+    />
   );
 }
 
@@ -178,6 +165,7 @@ export function PlotHost({
   crosshairMm,
   atlasLayerId,
   hasCohort,
+  hasPopulation,
   loading = false,
   error = null,
   className,
@@ -241,10 +229,11 @@ export function PlotHost({
       crosshairMm,
       atlasLayerId,
       hasCohort,
+      hasPopulation,
       width: bodySize.width,
       height: bodySize.height,
     }),
-    [layerId, layerName, crosshairMm, atlasLayerId, hasCohort, bodySize.width, bodySize.height],
+    [layerId, layerName, crosshairMm, atlasLayerId, hasCohort, hasPopulation, bodySize.width, bodySize.height],
   );
 
   const { mode, support } = useMemo(
@@ -256,13 +245,7 @@ export function PlotHost({
   let bodyState: string;
   if (modes.length === 0) {
     bodyState = 'no-modes';
-    body = (
-      <EmptyState
-        title="No plot modes"
-        detail="Register a plot mode to display data here."
-        testid="plot-host-empty-no-modes"
-      />
-    );
+    body = <EmptyAxes testid="plot-host-empty-no-modes" />;
   } else if (loading) {
     bodyState = 'loading';
     body = <EmptyState title="Loading…" testid="plot-host-loading" />;
@@ -270,13 +253,19 @@ export function PlotHost({
     bodyState = 'error';
     body = <EmptyState title="Plot error" detail={error.message} testid="plot-host-error" />;
   } else if (!mode) {
+    // The requested mode is not among the modes on offer. PlotPanel passes
+    // only modes whose `supports()` currently passes, so the auto default
+    // ("histogram") is absent until a layer is selected. Treat this as an
+    // ordinary empty state; never surface a registry id to the user.
     bodyState = 'no-mode';
-    body = (
+    body = layerId ? (
       <EmptyState
-        title="Unknown plot mode"
-        detail={`No registered mode with id "${activeId}".`}
+        title="Plot not available"
+        detail="This plot does not apply to the selected layer. Choose another plot above."
         testid="plot-host-empty-no-mode"
       />
+    ) : (
+      <EmptyAxes testid="plot-host-empty-no-mode" />
     );
   } else if (support && support.supported === false) {
     bodyState = support.reason;
@@ -324,8 +313,8 @@ export function PlotHost({
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: 'var(--app-surface-panel-raised)',
-        color: 'var(--app-text-primary)',
+        background: 'var(--bf-bg-panel)',
+        color: 'var(--bf-text-primary)',
         overflow: 'hidden',
       }}
     >
@@ -339,7 +328,7 @@ export function PlotHost({
           padding: '0 8px',
           height: `${HOST_HEADER_HEIGHT}px`,
           minHeight: `${HOST_HEADER_HEIGHT}px`,
-          borderBottom: '1px solid var(--app-border-subtle)',
+          borderBottom: '1px solid var(--bf-border-subtle)',
           flex: '0 0 auto',
         }}
       >
@@ -359,6 +348,8 @@ export function PlotHost({
           flex: '1 1 auto',
           minHeight: 0,
           overflow: 'hidden',
+          // The drawing area sits one step below the panel ground.
+          background: 'var(--bf-bg-app)',
         }}
       >
         {body}

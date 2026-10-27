@@ -3,6 +3,8 @@
  * Main panel for 3D brain surface visualization using neurosurface library
  */
 
+import { SurfaceFrame } from './surfaceFrame/SurfaceFrame';
+import { cssLengthPx } from './surfaceFrame/surfaceColorbar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SURFACE_VIEW_ID, useSurfaceStore } from '@/stores/surfaceStore';
 import { SurfaceViewCanvas } from './SurfaceViewCanvas';
@@ -211,7 +213,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
           load CTA stays reachable (no dead-end spinner/banner). */}
       {loadError && activeSurface && (
         <div className="absolute top-4 left-4 right-4 z-20">
-          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 flex items-start gap-2">
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-sm p-3 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <div className="flex-1 text-sm">{loadError}</div>
             <button
@@ -259,33 +261,13 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         <div
           data-testid="surface-view-empty-state"
           data-error={loadError ? 'true' : 'false'}
-          className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted/10 px-4 text-center select-none"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center select-none"
         >
-          {/* Quiet surface-mesh glyph */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="56"
-            height="56"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="0.5"
-            strokeLinecap="square"
-            strokeLinejoin="miter"
-            className="text-foreground/20"
-            aria-hidden="true"
-          >
-            <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5" />
-            <line x1="12" y1="2" x2="12" y2="22" />
-            <line x1="2" y1="8.5" x2="22" y2="15.5" />
-            <line x1="22" y1="8.5" x2="2" y2="15.5" />
-          </svg>
-
-          <div className="space-y-1">
-            <p className="text-[13px] text-foreground/80">
+          <div className="space-y-1.5">
+            <p className="text-bf-sm font-medium" style={{ color: 'var(--bf-text-secondary)' }}>
               {loadError ? 'Couldn’t load surface' : 'No surface loaded'}
             </p>
-            <p className="mx-auto max-w-[260px] text-[11px] text-muted-foreground/70">
+            <p className="mx-auto max-w-[280px] text-bf-sm text-muted-foreground">
               {loadError ?? 'Load a cortical surface to view it alongside the volume.'}
             </p>
           </div>
@@ -303,7 +285,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
                   console.error('[SurfaceViewPanel] Failed to open surface picker:', error),
                 );
             }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-[11px] text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="mt-1.5 inline-flex h-7 items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 text-bf-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             <span aria-hidden>+</span>
             Load surface…
@@ -311,43 +293,15 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         </div>
       )}
 
-      {/* Surface info overlay - Technical readout style */}
+      {/* Viewport frame (P3.10): header + counts disclosure, camera presets
+          and the overlay colorbar, the slice panes' grammar. */}
       {activeSurface && activeSurface.metadata && (
-        <div
-          className="absolute left-3 p-2 border"
-          style={{
-            top: infoOverlayTop,
-            backgroundColor: 'hsl(var(--background) / 0.9)',
-            borderColor: 'hsl(var(--border))',
-            borderRadius: '1px',
-          }}
-        >
-          <div className="space-y-1">
-            <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-foreground truncate max-w-[160px]">
-              {activeSurface.name}
-            </div>
-            {activeSurface.metadata.vertexCount !== undefined && (
-              <div className="text-[9px] font-mono text-muted-foreground/70">
-                V: {activeSurface.metadata.vertexCount.toLocaleString()}
-              </div>
-            )}
-            {activeSurface.metadata.faceCount !== undefined && (
-              <div className="text-[9px] font-mono text-muted-foreground/70">
-                F: {activeSurface.metadata.faceCount.toLocaleString()}
-              </div>
-            )}
-            {activeSurface.metadata.hemisphere && (
-              <div className="text-[9px] font-mono text-muted-foreground/70 uppercase">
-                {activeSurface.metadata.hemisphere}
-              </div>
-            )}
-            {activeSurface.metadata.surfaceType && (
-              <div className="text-[9px] font-mono text-muted-foreground/70 uppercase">
-                {activeSurface.metadata.surfaceType}
-              </div>
-            )}
-          </div>
-        </div>
+        <SurfaceFrame
+          surface={activeSurface}
+          width={dimensions.width}
+          height={dimensions.height}
+          topInset={cssLengthPx(infoOverlayTop) - 12}
+        />
       )}
     </div>
   );

@@ -109,38 +109,38 @@ export class RenderErrorBoundary extends Component<Props, State> {
       
       // Default error UI
       return (
-        <div className="flex flex-col items-center justify-center h-full bg-gray-900/50 text-gray-300 p-4">
-          <AlertCircle className="w-12 h-12 text-yellow-500 mb-3" />
+        <div className="flex flex-col items-center justify-center h-full bg-bf-bg-panel-sunken text-bf-text-secondary p-4">
+          <AlertCircle className="w-12 h-12 text-bf-warning mb-3" />
           
-          <h3 className="text-lg font-semibold mb-2">
-            Rendering Error {viewId && `in ${viewId}`}
+          <h3 className="text-bf-lg font-semibold text-foreground mb-2">
+            Rendering error {viewId && `in ${viewId}`}
           </h3>
           
-          <p className="text-sm text-gray-400 mb-4 text-center max-w-md">
+          <p className="text-bf-sm text-bf-text-secondary mb-4 text-center max-w-md">
             {error?.message || 'An unexpected error occurred while rendering'}
           </p>
           
           {errorCount > 2 && (
-            <p className="text-xs text-orange-400 mb-3">
+            <p className="text-bf-xs text-bf-warning mb-3">
               Multiple errors detected - rendering may be unstable
             </p>
           )}
           
           <button
             onClick={this.handleReset}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 
-                     text-white rounded transition-colors text-sm"
+            className="flex items-center gap-2 h-7 px-2.5 bg-foreground text-background hover:brightness-110
+                     rounded-sm transition-colors text-bf-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           >
             <RefreshCw className="w-4 h-4" />
-            Retry Render
+            Retry render
           </button>
           
           {process.env.NODE_ENV === 'development' && error && (
-            <details className="mt-4 text-xs text-gray-500 max-w-full">
-              <summary className="cursor-pointer hover:text-gray-400">
-                Error Details (Development Only)
+            <details className="mt-4 text-bf-xs text-muted-foreground max-w-full">
+              <summary className="cursor-pointer hover:text-bf-text-secondary">
+                Error details (development only)
               </summary>
-              <pre className="mt-2 p-2 bg-gray-800 rounded overflow-auto max-h-32">
+              <pre className="mt-2 p-2 bg-card rounded-sm overflow-auto max-h-32">
                 {error.stack}
               </pre>
             </details>

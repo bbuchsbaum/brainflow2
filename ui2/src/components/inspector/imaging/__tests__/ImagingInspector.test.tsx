@@ -109,8 +109,8 @@ describe("ImagingInspector", () => {
     // Volume View is always rendered; Surface View shows because the sample
     // stack has one surface; Mappings group is hidden because it's empty
     // (Stage A: empty groups no longer render permanent rail noise).
-    expect(screen.getByText("Volume View")).toBeInTheDocument();
-    expect(screen.getByText("Surface View")).toBeInTheDocument();
+    expect(screen.getByText("Volume view")).toBeInTheDocument();
+    expect(screen.getByText("Surface view")).toBeInTheDocument();
     expect(screen.queryByText("Mappings")).not.toBeInTheDocument();
   });
 

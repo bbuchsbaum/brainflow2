@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SURFACE_MATERIAL_SETTINGS,
   type SurfaceLightingSettings,
   type SurfaceMaterialSettings,
 } from '@/stores/surfaceStore';
@@ -42,7 +41,9 @@ export const LIGHTING_PRESETS: Array<SurfaceAppearancePreset<LightingPresetValue
     values: { ambientLightIntensity: 1.1, directionalLightIntensity: 1.0, fillLightIntensity: 0.8 },
   },
   {
-    name: 'Default',
+    // The out-of-the-box intensities. Not called "Default": the light
+    // Position control already has a "Default" direction, a separate concept.
+    name: 'Balanced',
     values: { ambientLightIntensity: 0.4, directionalLightIntensity: 1.0, fillLightIntensity: 0.5 },
   },
 ];
@@ -59,10 +60,16 @@ export const MATERIAL_PRESETS: Array<SurfaceAppearancePreset<SurfaceMaterialSett
     },
   },
   {
-    // Mirrors the store default so the out-of-the-box material always reports
-    // as this preset (and stays in sync if the default ever changes).
+    // The former default; the out-of-the-box material is now Matte
+    // (specular streaks read as high data values, v3 user critic).
     name: 'Gray glossy',
-    values: { ...DEFAULT_SURFACE_MATERIAL_SETTINGS },
+    values: {
+      surfaceColor: '#CCCCCC',
+      shininess: 30,
+      specularColor: '#ffffff',
+      emissiveColor: '#000000',
+      emissiveIntensity: 0,
+    },
   },
   {
     name: 'White matte',

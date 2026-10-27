@@ -3,7 +3,10 @@
  * Manages layout with Axial on top, Sagittal and Coronal on bottom
  */
 
+import { EmptyStackOverlay } from './EmptyStackOverlay';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Lock, Unlock } from 'lucide-react';
+import { IconButton } from '@/components/ui/bf';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
 import { ResizableOrthoGrid } from './ResizableOrthoGrid';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
@@ -135,41 +138,18 @@ export function OrthogonalViewContainer({
   return (
     <div
       ref={containerRef}
-      className={`orthogonal-view-container ${className} h-full w-full relative bg-gray-900`}
+      className={`orthogonal-view-container ${className} h-full w-full relative bg-background`}
     >
       {/* Toggle button - minimal design */}
-      <button
-        className="absolute top-3 right-3 z-20 p-2
-                   bg-gray-800/60 hover:bg-gray-700/60 
-                   text-gray-300 hover:text-white
-                   rounded border border-gray-700/50
-                   transition-all duration-150"
+      <IconButton
+        variant="secondary"
+        size="sm"
+        className="absolute top-3 right-3 z-20 bg-card/60"
+        icon={isLocked() ? <Lock /> : <Unlock />}
         onClick={toggleMode}
+        aria-label={isLocked() ? 'Unlock views' : 'Lock views together'}
         title={isLocked() ? 'Unlock views for flexible layout (⌘L)' : 'Lock views together (⌘L)'}
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          {isLocked() ? (
-            // Lock icon
-            <>
-              <rect x="5" y="11" width="14" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0110 0v4" />
-            </>
-          ) : (
-            // Unlock icon
-            <>
-              <rect x="5" y="11" width="14" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0110 0" />
-            </>
-          )}
-        </svg>
-      </button>
+      />
 
       {/* Layout: Axial on top, Sagittal | Coronal below — with draggable
           resize gutters (ResizableOrthoGrid). */}
@@ -181,15 +161,16 @@ export function OrthogonalViewContainer({
           coronal={<FlexibleSlicePanel viewId="coronal" title="Coronal" />}
         />
       </div>
+      <EmptyStackOverlay />
 
       {/* Container-level drag overlay */}
       {isDragging && (
-        <div className="absolute inset-0 bg-blue-500 bg-opacity-10 pointer-events-none flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg px-6 py-4 shadow-2xl">
-            <div className="text-blue-600 font-semibold text-lg">
+        <div className="absolute inset-0 bg-primary/10 pointer-events-none flex items-center justify-center z-50">
+          <div className="rounded-sm border border-border bg-popover px-6 py-4 shadow-2xl">
+            <div className="text-primary font-semibold text-bf-lg">
               Drop neuroimaging files to load
             </div>
-            <div className="text-gray-500 text-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
+            <div className="text-muted-foreground text-bf-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
           </div>
         </div>
       )}

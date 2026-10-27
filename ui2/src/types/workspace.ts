@@ -82,7 +82,7 @@ export const WORKSPACE_METADATA: Record<WorkspaceType, { category: WorkspaceCate
   'mosaic': { category: 'visualization', name: 'Mosaic View' },
   'comparison': { category: 'visualization', name: 'Comparison View' },
   'integrated': { category: 'visualization', name: 'Integrated Workspace' },
-  'set-studio': { category: 'analysis', name: 'Set Studio', singleton: true },
+  'set-studio': { category: 'analysis', name: 'Set studio', singleton: true },
   'bids-explorer': { category: 'analysis', name: 'BIDS Explorer', singleton: true },
   'analysis-workbench': { category: 'analysis', name: 'Analysis Workbench', singleton: true },
 };

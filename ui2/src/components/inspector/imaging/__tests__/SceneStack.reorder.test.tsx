@@ -110,4 +110,39 @@ describe("SceneStack reordering", () => {
     expect(setActiveSpy).toHaveBeenCalledTimes(1);
     expect(setActiveSpy.mock.calls[0][0].id).toBe("v2");
   });
+
+  it("clicking or pressing keys on the drag handle never selects the row", () => {
+    render(<SceneStack />);
+    const handle = screen.getByLabelText("Drag to reorder MNI152 T1w");
+    fireEvent.click(handle);
+    fireEvent.keyDown(handle, { key: "Enter" });
+    expect(setActiveSpy).not.toHaveBeenCalled();
+  });
+
+  it("rows are one tab stop; arrows move focus across groups, Enter selects", () => {
+    render(<SceneStack />);
+    const rows = screen.getAllByRole("row");
+    expect(rows.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1", "-1"]);
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "ArrowDown" });
+    expect(rows[1]).toHaveFocus();
+    fireEvent.keyDown(rows[1], { key: "ArrowDown" });
+    // Across the group boundary: Volume view -> Surface view.
+    expect(rows[2]).toHaveFocus();
+    fireEvent.keyDown(rows[2], { key: "Home" });
+    expect(rows[0]).toHaveFocus();
+    expect(setActiveSpy).not.toHaveBeenCalled();
+    fireEvent.keyDown(rows[0], { key: "Enter" });
+    expect(setActiveSpy).toHaveBeenCalledTimes(1);
+    expect(setActiveSpy.mock.calls[0][0].id).toBe("v1");
+  });
+
+  it("the Scene section uses the shared chevron convention (open = expanded)", () => {
+    render(<SceneStack />);
+    const header = screen.getByRole("button", { name: /Scene/ });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Accuracy.nii.gz")).toBeNull();
+  });
 });

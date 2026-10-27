@@ -3,6 +3,7 @@
  * Connects LayerService to Tauri backend commands
  */
 
+import type { StatisticInfo } from '@brainflow/api';
 import type { LayerApi, LayerLoadContext } from './LayerService';
 import type { Layer, LayerRender } from '@/types/layers';
 import { getApiService } from './apiService';
@@ -16,6 +17,8 @@ import { histogramService } from './HistogramService';
 import {
   computeAdaptiveIntensityRange,
   computeFallbackIntensityRange,
+  statisticDefaultRange,
+  statisticDefaultRangeFromHistogram,
   type IntensityRangeOptions,
 } from './IntensityRangeComputer';
 import { getEventBus } from '@/events/EventBus';
@@ -34,6 +37,14 @@ const layerDebugLog = (...args: unknown[]) => {
     console.log(...args);
   }
 };
+
+/** The statistic the loader attached (VolumeLoadingService), if any. */
+function statisticOf(layer: object): StatisticInfo | undefined {
+  return (layer as { statistic?: StatisticInfo }).statistic;
+}
+
+/** Layers whose first paint used the statistic default (never refined). */
+const statisticFirstPaint = new Set<string>();
 
 export class LayerApiImpl implements LayerApi {
   private apiService = getApiService();
@@ -267,7 +278,13 @@ export class LayerApiImpl implements LayerApi {
       // IPC) is computed in the background and applied as a refinement once the
       // layer is on screen (see refineIntensityFromHistogram). It used to be
       // awaited here, which put a 34MB clone + full scan on the first-pixel path.
-      const rangeResult = computeFallbackIntensityRange(rangeOptions);
+      // A statistic map (declared or inferred) is shown as one from the
+      // first paint: symmetric window ±max|v|, |z| ≤ 3.1 hidden (see
+      // statisticDefaultRange). It is final: no histogram refinement later
+      // changes it, so nothing but the user moves its window (native v6).
+      const statisticRange = isLabelLike ? null : statisticDefaultRange(statisticOf(newLayer), dataRange);
+      const rangeResult = statisticRange ?? computeFallbackIntensityRange(rangeOptions);
+      if (statisticRange) statisticFirstPaint.add(newLayer.id);
 
       renderProps = {
         opacity: newLayer.visible ? 1.0 : 0.0,
@@ -296,7 +313,9 @@ export class LayerApiImpl implements LayerApi {
         throw new Error('The image set was removed while loading');
       }
       context?.beforeCommit?.();
-      const metadata = this.buildLayerMetadata(earlyMetadata, gpuInfo, renderProps, !metadataOnly);
+      const built = this.buildLayerMetadata(earlyMetadata, gpuInfo, renderProps, !metadataOnly);
+      const defaultCut = statisticRange ? Math.max(Math.abs(statisticRange.threshold[0]), Math.abs(statisticRange.threshold[1])) : 0;
+      const metadata = defaultCut > 0 ? { ...built, statisticDefaultThreshold: defaultCut } : built;
       layerDebugLog(
         `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`,
         JSON.stringify(metadata),
@@ -356,7 +375,12 @@ export class LayerApiImpl implements LayerApi {
     // [perf] Refine the intensity window from the histogram in the background so
     // it never blocks the first paint. Fire-and-forget; on failure the layer
     // keeps the synchronous fallback range it was committed with.
-    if (!metadataOnly && rangeOptions && !context?.memberRender?.[context.workspaceId]) {
+    if (
+      !metadataOnly &&
+      rangeOptions &&
+      !context?.memberRender?.[context.workspaceId] &&
+      !statisticFirstPaint.has(newLayer.id)
+    ) {
       this.refineIntensityFromHistogram(newLayer, rangeOptions, context?.workspaceId).catch((err) =>
         console.warn(
           `[LayerApiImpl] Background intensity refinement failed for ${newLayer.id}:`,
@@ -459,7 +483,11 @@ export class LayerApiImpl implements LayerApi {
       return;
     }
 
-    const rangeResult = computeAdaptiveIntensityRange(histogram, rangeOptions);
+    // A statistic whose data range was not finite (NaN / Inf): the
+    // statistic rule from the histogram's 0.1 / 99.9 percentiles.
+    const rangeResult =
+      (layer.type === 'label' ? null : statisticDefaultRangeFromHistogram(statisticOf(layer), histogram)) ??
+      computeAdaptiveIntensityRange(histogram, rangeOptions);
     const isLabelLike = layer.type === 'label';
     const refined: LayerRender = {
       opacity: layer.visible ? 1.0 : 0.0,

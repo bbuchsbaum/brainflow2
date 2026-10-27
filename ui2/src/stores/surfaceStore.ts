@@ -135,8 +135,9 @@ export const DEFAULT_SURFACE_LIGHTING_SETTINGS: SurfaceLightingSettings = {
 
 export const DEFAULT_SURFACE_MATERIAL_SETTINGS: SurfaceMaterialSettings = {
   surfaceColor: '#CCCCCC',
-  shininess: 30,
-  specularColor: '#ffffff',
+  // Matte by default: specular streaks read as high data values (v3 critic).
+  shininess: 4,
+  specularColor: '#1a1a1a',
   emissiveColor: '#000000',
   emissiveIntensity: 0.0,
 };
@@ -293,6 +294,12 @@ interface SurfaceState {
   setSurfaceVisibility: (surfaceId: string, visible: boolean) => void;
   removeSurface: (surfaceId: string) => void;
   setViewpoint: (viewpoint: string) => void;
+  /**
+   * Bumped to re-apply the current viewpoint (the preset pressed again after
+   * an orbit): the canvas passes the viewer a new prop value for the same view.
+   */
+  viewpointNonce: number;
+  reapplyViewpoint: () => void;
   registerSurfaceView: (surfaceViewId: string, surfaceHandle: string) => void;
   unregisterSurfaceView: (surfaceViewId: string) => void;
   activateSurfaceView: (surfaceViewId: string) => void;
@@ -342,6 +349,7 @@ export const useSurfaceStore = create<SurfaceState>()(
       isLoading: false,
       loadError: null,
       viewpoint: 'lateral',
+      viewpointNonce: 0,
       showControls: false,
       surfaceViewSettings: new Map(),
       surfaceViewHandles: new Map(),
@@ -645,6 +653,10 @@ export const useSurfaceStore = create<SurfaceState>()(
       },
 
       // Set viewpoint
+      reapplyViewpoint: () => {
+        set((state) => ({ viewpointNonce: state.viewpointNonce + 1 }));
+      },
+
       setViewpoint: (viewpoint: string) => {
         set({ viewpoint });
       },

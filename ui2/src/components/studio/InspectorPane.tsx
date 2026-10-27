@@ -1,6 +1,6 @@
 import React from 'react';
-import { Button } from '@/components/ui/Button';
-import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
+import { Button, KeyValue, Notice, SELECTED, Section } from '@/components/ui/bf';
+import { cn } from '@/utils/cn';
 import { getEventBus } from '@/events/EventBus';
 import { getConfirmationService } from '@/services/ConfirmationService';
 import { StudioPane } from './StudioPane';
@@ -56,9 +56,9 @@ export function InspectorPane({
   if (!activeSet && !activeArtifact && !activeMemberId) {
     return (
       <StudioPane title="Details" showHeader={false}>
-        <div className="rounded-lg border border-border bg-background px-3 py-3">
-          <div className="text-sm font-medium text-foreground">Nothing selected</div>
-          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+        <div className="rounded-sm border border-border bg-background px-3 py-3">
+          <div className="text-bf-md font-medium text-foreground">Nothing selected</div>
+          <div className="mt-1 text-bf-sm leading-5 text-muted-foreground">
             Select a member or compare result to inspect it here.
           </div>
         </div>
@@ -195,7 +195,7 @@ export function InspectorPane({
 
     const requestedTitle = (
       await getConfirmationService().prompt({
-        title: 'Save Recipe',
+        title: 'Save recipe',
         message: 'Save the current Studio recipe as:',
         defaultValue: activeArtifact.title,
         confirmLabel: 'Save',
@@ -238,75 +238,93 @@ export function InspectorPane({
       title="Details"
       showHeader={false}
     >
-      <div className="space-y-4 text-sm text-foreground">
+      <div className="space-y-4 text-bf-md text-foreground">
         {!activeArtifact && !activeMemberId ? (
-          <div className="rounded-lg border border-border bg-background px-3 py-3">
-            <div className="text-sm font-medium text-foreground">Nothing selected</div>
-            <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              Select a member or compare result to inspect it here.
-            </div>
-          </div>
+          <Notice role={undefined} severity="neutral">
+            <div className="font-medium text-foreground">Nothing selected</div>
+            <div>Select a member or compare result to inspect it here.</div>
+          </Notice>
         ) : (
-          <div className="space-y-4 divide-y divide-border rounded-lg border border-border bg-background px-3 py-3">
-            <DetailSection title="Current">
-              <InfoRow label="Active" value={activeArtifact?.title ?? activeMemberId ?? 'No member selected'} />
-              <InfoRow label="Source" value={activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No bound file path'} />
-              <InfoRow label="Expression" value={activeArtifact?.recipe ?? activeExpression?.recipe ?? 'Deck(member)'} />
-              <InfoRow label="Compare" value={activeCompareLabel} />
-              <InfoRow label="Scope" value={scopeCohort?.label ?? 'All members'} />
-              <InfoRow label="Cache" value={cacheLabel(activeArtifact)} />
-              <InfoRow
-                label="Provenance"
-                value={activeArtifact?.provenancePath ?? 'No manifest-backed provenance path'}
+          <div className="rounded-sm border border-border bg-background">
+            <Section variant="static" divider={false} title="Current">
+              <KeyValue
+                columns={1}
+                items={[
+                  { label: 'Active', value: activeArtifact?.title ?? activeMemberId ?? 'No member selected' },
+                  {
+                    label: 'Source',
+                    value: activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No bound file path',
+                  },
+                  {
+                    label: 'Expression',
+                    value: activeArtifact?.recipe ?? activeExpression?.recipe ?? 'Deck(member)',
+                  },
+                  { label: 'Compare', value: activeCompareLabel, mono: false },
+                  { label: 'Scope', value: scopeCohort?.label ?? 'All members', mono: false },
+                  { label: 'Cache', value: cacheLabel(activeArtifact), mono: false },
+                  {
+                    label: 'Provenance',
+                    value: activeArtifact?.provenancePath ?? 'No manifest-backed provenance path',
+                  },
+                ]}
               />
-            </DetailSection>
+            </Section>
 
             {activeSet ? (
-              <DetailSection title="Dataset">
-                <InfoRow label="Support" value={activeSet.supportLabel} />
-                <InfoRow label="Alignment" value={activeSet.alignmentClass} />
-                <InfoRow
-                  label="Import"
-                  value={`${activeSet.ingestAudit.join.matchedRows} matched · ${activeSet.ingestAudit.join.unmatchedRows} unmatched`}
+              <Section variant="static" title="Dataset">
+                <KeyValue
+                  columns={1}
+                  items={[
+                    { label: 'Support', value: activeSet.supportLabel },
+                    { label: 'Alignment', value: activeSet.alignmentClass },
+                    {
+                      label: 'Import',
+                      value: `${activeSet.ingestAudit.join.matchedRows} matched · ${activeSet.ingestAudit.join.unmatchedRows} unmatched`,
+                    },
+                    {
+                      label: 'Cache',
+                      value: `warm ${materialization.warm} · preview ${materialization.preview} · pending ${materialization.pending}`,
+                    },
+                  ]}
                 />
-                <InfoRow
-                  label="Cache"
-                  value={`warm ${materialization.warm} · preview ${materialization.preview} · pending ${materialization.pending}`}
-                />
-              </DetailSection>
+              </Section>
             ) : null}
 
-            <DetailSection title="Actions">
-              <div className="flex flex-wrap gap-2">
+            <Section variant="static" title="Actions">
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
                 <Button
-                  variant="ghost"
+                  variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.recipe ?? activeExpression?.recipe ?? null, 'Recipe');
                   }}
                 >
-                  Copy Recipe
+                  Copy recipe
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? null, 'Source path');
                   }}
                 >
-                  Copy Path
+                  Copy path
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.provenancePath ?? null, 'Provenance path');
                   }}
                 >
-                  Copy Provenance Path
+                  Copy provenance path
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void copyText(provenanceJson, 'Provenance JSON');
@@ -315,44 +333,44 @@ export function InspectorPane({
                   Copy JSON
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
+                  className="min-h-6"
                   size="sm"
                   onClick={() => {
                     void saveCurrentRecipe();
                   }}
                 >
-                  Save Recipe
+                  Save recipe
                 </Button>
               </div>
-            </DetailSection>
+            </Section>
           </div>
         )}
 
-        <div className="rounded-lg border border-border bg-background p-3">
-          <CollapsibleSection title={`Saved recipes (${savedRecipes.length})`} defaultExpanded={false}>
+        <Section title="Saved recipes" meta={String(savedRecipes.length)} defaultOpen={false}>
             {savedRecipes.length === 0 ? (
-              <div className="text-xs text-muted-foreground">No saved recipes yet.</div>
+              <div className="text-bf-sm text-muted-foreground">No saved recipes yet.</div>
             ) : (
               <div className="space-y-2">
                 {savedRecipes.map((recipe) => (
-                  <div key={recipe.id} className="rounded-md border border-border bg-card px-3 py-2">
+                  <div key={recipe.id} className="rounded-sm border border-border bg-card px-3 py-2">
                     <button
                       type="button"
                       onClick={() => onSelectArtifact(recipe.artifact)}
                       className="w-full text-left"
                     >
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-bf-sm text-muted-foreground">
                         saved {formatTimestamp(recipe.savedAtMs)}
                       </div>
-                      <div className="mt-1 text-sm text-foreground">{recipe.title}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-md text-foreground">{recipe.title}</div>
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         {recipe.subtitle ?? recipe.artifact.recipe ?? 'No recipe subtitle'}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         {formatSavedRecipeSummary(recipe)}
                       </div>
                       {recipe.scopeCohortLabel ? (
-                        <div className="mt-1 text-xs text-muted-foreground">
+                        <div className="mt-1 text-bf-sm text-muted-foreground">
                           scope {formatCapturedCohortOrigin(
                             recipe.scopeCohortLabel,
                             recipe.scopeCohortOriginKind,
@@ -375,7 +393,7 @@ export function InspectorPane({
                           void copyText(recipe.artifact.recipe, 'Saved recipe');
                         }}
                       >
-                        Copy Recipe
+                        Copy recipe
                       </Button>
                       <Button
                         variant="ghost"
@@ -402,20 +420,18 @@ export function InspectorPane({
                 ))}
               </div>
             )}
-          </CollapsibleSection>
-        </div>
-        <div className="rounded-lg border border-border bg-background p-3">
-          <CollapsibleSection title={`Recent artifacts (${artifactHistory.length})`} defaultExpanded={false}>
+        </Section>
+        <Section title="Recent artifacts" meta={String(artifactHistory.length)} defaultOpen={false}>
             {artifactHistory.length === 0 ? (
-              <div className="text-xs text-muted-foreground">No artifact history yet.</div>
+              <div className="text-bf-sm text-muted-foreground">No artifact history yet.</div>
             ) : (
               <div className="space-y-2">
                 {artifactHistory.map((artifact) => (
                   <div
                     key={artifact.id}
-                    className={`rounded-md border px-3 py-2 transition-colors ${
+                    className={`rounded-sm border px-3 py-2 transition-colors ${
                       activeArtifact?.id === artifact.id
-                        ? 'border-sky-500/60 bg-sky-500/10'
+                        ? cn('border-border', SELECTED)
                         : 'border-border bg-card'
                     }`}
                   >
@@ -424,17 +440,17 @@ export function InspectorPane({
                       onClick={() => onSelectArtifact(artifact)}
                       className="w-full text-left"
                     >
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-bf-sm text-muted-foreground">
                         {artifact.lens} {artifact.paneId ? `· ${artifact.paneId}` : ''} · inspected {formatTimestamp(artifact.capturedAtMs)}
                       </div>
-                      <div className="mt-1 text-sm text-foreground">{artifact.title}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-md text-foreground">{artifact.title}</div>
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         {artifactBindingLabel(artifact)}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         materialized {materializedLabel(artifact)}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         cohort {formatCapturedCohortOrigin(
                           artifact.cohortLabel,
                           artifact.cohortOriginKind,
@@ -456,28 +472,9 @@ export function InspectorPane({
                 ))}
               </div>
             )}
-          </CollapsibleSection>
-        </div>
+        </Section>
       </div>
     </StudioPane>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-sm text-foreground">{value}</div>
-    </div>
-  );
-}
-
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="pt-4 first:pt-0">
-      <div className="text-sm font-medium text-foreground">{title}</div>
-      <div className="mt-2 space-y-2">{children}</div>
-    </section>
   );
 }
 

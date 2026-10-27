@@ -1,6 +1,6 @@
 import React from 'react';
 import type { SceneItem } from '@/types/sceneItem';
-import { InspectorSection, FieldRow } from '../InspectorSection';
+import { KeyValue, Section } from '@/components/ui/bf';
 
 interface ViewBehaviorSectionProps {
   item: SceneItem;
@@ -15,17 +15,17 @@ export function ViewBehaviorSection({ item }: ViewBehaviorSectionProps) {
   if (item.kind !== 'volume-base') return null;
 
   return (
-    <InspectorSection label="View Behavior" icon={<EyeIcon />} defaultOpen={false}>
-      <FieldRow label="Orientation markers">
-        <span className="text-[12px] text-muted-foreground">on</span>
-      </FieldRow>
-      <FieldRow label="Hover sampling">
-        <span className="text-[12px] text-muted-foreground">on</span>
-      </FieldRow>
-      <FieldRow label="Slice border">
-        <span className="text-[12px] text-muted-foreground">off</span>
-      </FieldRow>
-    </InspectorSection>
+    <Section title="View behavior" icon={<EyeIcon />} defaultOpen={false}>
+      <KeyValue
+        layout="rows"
+        labelWidth="wide"
+        items={[
+          { label: 'Orientation markers', value: 'on', mono: false },
+          { label: 'Hover sampling', value: 'on', mono: false },
+          { label: 'Slice border', value: 'off', mono: false },
+        ]}
+      />
+    </Section>
   );
 }
 

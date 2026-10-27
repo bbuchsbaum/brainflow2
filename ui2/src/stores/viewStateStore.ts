@@ -33,6 +33,8 @@ import {
   createInitialViewStateRevisions,
 } from "@/utils/viewStateTracking";
 import { useWorkspaceStore } from "./workspaceStore";
+import { useCrosshairSettingsStore } from "./crosshairSettingsStore";
+import { currentVoxelGridReference, snapWorldToVoxelCentre } from "@/utils/voxelSnap";
 
 enablePatches();
 
@@ -97,6 +99,17 @@ function cloneViewState(viewState: ViewState): ViewState {
   return cloneValue(viewState);
 }
 
+/**
+ * Snap a crosshair position to the reference voxel grid when the crosshair
+ * setting `snapToVoxel` is on and a volume with an affine is loaded;
+ * otherwise return it unchanged.
+ */
+export function snapCrosshairToVoxelGrid(position: WorldCoordinates): WorldCoordinates {
+  if (!useCrosshairSettingsStore.getState().settings.snapToVoxel) return position;
+  const reference = currentVoxelGridReference();
+  return reference ? snapWorldToVoxelCentre(position, reference) : position;
+}
+
 function toWorkspaceKey(workspaceId?: string | null): string {
   return workspaceId ?? DEFAULT_WORKSPACE_KEY;
 }
@@ -118,6 +131,11 @@ interface ViewStateStore {
     updateViews?: boolean,
     immediate?: boolean,
     workspaceId?: string,
+    /**
+     * `snap: false` places the crosshair exactly (an explicit go-to-peak on
+     * a layer finer than the snapping reference); default: snapped.
+     */
+    options?: { snap?: boolean },
   ) => Promise<void>;
   setCrosshairVisible: (visible: boolean) => void;
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
@@ -236,6 +254,7 @@ const createViewStateStore = () =>
               updateViews = false,
               immediate = false,
               workspaceId,
+              options,
             ) => {
               storeLog("viewStateStore", "setCrosshair called with:", {
                 position,
@@ -251,6 +270,13 @@ const createViewStateStore = () =>
                   `setCrosshair expects position as [x, y, z] array, got: ${JSON.stringify(position)}`,
                 );
               }
+
+              // Voxel-exact navigation: with "Snap to voxel" on (the default),
+              // every crosshair placement (clicks, Go-to, keyboard, surface
+              // picks) lands on the nearest voxel centre of the reference grid
+              // (see utils/voxelSnap.ts). Click-to-world mapping is untouched;
+              // the snap is applied here, after it.
+              if (options?.snap !== false) position = snapCrosshairToVoxelGrid(position);
 
               const currentState = get();
               const workspaceKey = workspaceId && currentState.workspaceViewStates.has(workspaceId)

@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Button, Notice } from '@/components/ui/bf';
+import { useFittedName } from './shared/useFittedName';
 import "./SelectedFileSummary.css";
 import { getEventBus } from "@/events/EventBus";
 import { getTransport } from "@/services/transport";
@@ -129,6 +131,8 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
     };
   }, [selectedPath, selectedNodeType, selectedNodeName]);
 
+  const fittedName = useFittedName<HTMLSpanElement>(selectedNodeName ?? "");
+
   if (!selectedPath || !selectedNode || selectedNode.type !== "file") {
     return null;
   }
@@ -155,8 +159,12 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
     >
       <div className="fb-selected-row">
         <FileTypeBadge info={typeInfo} />
-        <span className="fb-selected-name" title={selectedPath}>
-          {selectedNode.name}
+        <span
+          ref={fittedName.ref}
+          className="fb-selected-name font-mono text-bf-xs"
+          title={selectedPath}
+        >
+          {fittedName.text}
         </span>
       </div>
 
@@ -199,26 +207,28 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
       </div>
 
       {peekError && !peek && (
-        <p className="fb-selected-fallback" role="status">
+        <Notice severity="info" className="fb-selected-fallback">
           Quick preview unavailable.
-        </p>
+        </Notice>
       )}
 
       <div className="fb-selected-actions">
-        <button
-          type="button"
-          className="fb-selected-button fb-selected-button--primary"
+        <Button
+          variant="primary"
+          size="sm"
+          className="flex-1"
           onClick={() => fireOpen("default")}
         >
           Load
-        </button>
-        <button
-          type="button"
-          className="fb-selected-button"
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="flex-1"
           onClick={() => fireOpen("add-layer")}
         >
-          Add Layer
-        </button>
+          Add layer
+        </Button>
       </div>
     </div>
   );

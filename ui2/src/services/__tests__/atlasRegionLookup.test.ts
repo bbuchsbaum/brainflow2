@@ -126,3 +126,28 @@ describe("atlasRegionLookup", () => {
     });
   });
 });
+
+describe("user-loaded label tables (P3 item 4)", () => {
+  it("finds a label layer that has only a sidecar legend and shows its names verbatim", async () => {
+    layersRef.current = [
+      { id: "t1", type: "volume" },
+      {
+        id: "dseg",
+        type: "label",
+        atlasPaletteLegend: [
+          { label_id: 2, roi: "R_occipitotemporal", displayName: "R_occipitotemporal", color: [0, 0, 0] },
+        ],
+      },
+    ];
+    expect(findActiveAtlasLayer()?.id).toBe("dseg");
+    mockSample.mockResolvedValue({ value: 2 });
+    const hit = await resolveAtlasRegionAtWorld([42.5, -59.5, -9.5]);
+    expect(hit?.labelId).toBe(2);
+    expect(formatRegionLabel(hit!.entry)).toBe("R_occipitotemporal");
+  });
+
+  it("ignores label layers with neither atlas metadata nor a legend", () => {
+    layersRef.current = [{ id: "seg", type: "label" }];
+    expect(findActiveAtlasLayer()).toBeUndefined();
+  });
+});

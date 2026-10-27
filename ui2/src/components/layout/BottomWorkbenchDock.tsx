@@ -12,7 +12,9 @@
  * the other layout preferences.
  */
 
-import { useCallback, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { IconButton, Tabs, tabIds } from '@/components/ui/bf';
 import {
   DEFAULT_DOCK_TAB,
   DOCK_TAB_BAR_HEIGHT,
@@ -27,6 +29,8 @@ export interface BottomWorkbenchDockProps {
   activity: ReactNode;
   /** Log slot content. */
   log: ReactNode;
+  /** Clusters slot content (P3.5 cluster table). */
+  clusters?: ReactNode;
   /** Controlled active tab. When provided, the dock reflects it (and external
    *  changes, e.g. the inspector's "Open in dock") rather than only its own
    *  local state. */
@@ -49,26 +53,18 @@ export interface BottomWorkbenchDockProps {
 
 const TAB_BAR_HEIGHT = DOCK_TAB_BAR_HEIGHT;
 
-/** Shared style for the tab-bar trailing controls (minimize / restore / close). */
-const iconButtonStyle: CSSProperties = {
-  appearance: 'none',
-  background: 'transparent',
-  border: 'none',
-  padding: '0 4px',
-  cursor: 'pointer',
-  color: 'var(--app-text-muted)',
-  fontSize: '12px',
-  lineHeight: 1,
-  height: '20px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
+const DOCK_ID_BASE = 'bottom-dock';
+const DOCK_TAB_ITEMS = DOCK_TABS.map(({ id, label }) => ({
+  value: id,
+  label,
+  testId: `bottom-dock-tab-${id}`,
+}));
 
 export function BottomWorkbenchDock({
   plot,
   activity,
   log,
+  clusters = null,
   activeTab: controlledTab,
   defaultActiveTab = DEFAULT_DOCK_TAB,
   onActiveTabChange,
@@ -96,7 +92,7 @@ export function BottomWorkbenchDock({
     [activeTab, isControlled, onActiveTabChange, minimized, onRestore],
   );
 
-  const slots: Record<DockTabId, ReactNode> = { activity, plot, log };
+  const slots: Record<DockTabId, ReactNode> = { activity, plot, clusters, log };
 
   return (
     <div
@@ -109,103 +105,61 @@ export function BottomWorkbenchDock({
         minHeight: 0,
         display: 'grid',
         gridTemplateRows: minimized ? `${TAB_BAR_HEIGHT}px` : `${TAB_BAR_HEIGHT}px 1fr`,
-        background: 'var(--app-bg-primary)',
+        // Dock content sits on the panel ground, like every docked panel.
+        background: 'var(--bf-bg-panel)',
         color: 'var(--app-text-primary)',
       }}
     >
       <div
-        role="tablist"
-        aria-label="Bottom dock"
-        data-testid="bottom-dock-tablist"
-        className="bf-bottom-dock-tabbar"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '2px',
-          padding: '0 8px',
-          borderBottom: '1px solid var(--app-border-subtle)',
-          background: 'var(--app-surface-panel-raised)',
-        }}
+        className="bf-bottom-dock-tabbar flex min-w-0 items-stretch border-b border-bf-border-subtle bg-bf-bg-shell px-1.5"
       >
-        {DOCK_TABS.map(({ id, label }) => {
-          const active = id === activeTab;
-          return (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              id={`bottom-dock-tab-${id}`}
-              aria-selected={active}
-              aria-controls={`bottom-dock-panel-${id}`}
-              data-testid={`bottom-dock-tab-${id}`}
-              data-active={active ? 'true' : 'false'}
-              onClick={() => handleSelect(id)}
-              className="bf-role-section"
-              style={{
-                appearance: 'none',
-                padding: '2px 10px',
-                height: '22px',
-                border: '1px solid',
-                borderColor: active ? 'var(--app-border-active)' : 'transparent',
-                background: active ? 'var(--app-bg-active)' : 'transparent',
-                color: active ? 'var(--app-text-primary)' : 'var(--app-text-muted)',
-                cursor: 'pointer',
-                borderRadius: 'var(--app-radius-sm)',
-                fontSize: 'var(--app-role-section-size)',
-                letterSpacing: 'var(--app-role-section-tracking)',
-                textTransform: 'uppercase',
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
+        {/* Flat tabs (bf Tabs, neutral edge): ids `bottom-dock-tab-<id>` /
+            `bottom-dock-panel-<id>`. A click on any tab (even the active one)
+            reaches handleSelect, which restores a minimized dock. */}
+        <Tabs
+          idBase={DOCK_ID_BASE}
+          items={DOCK_TAB_ITEMS}
+          value={activeTab}
+          onValueChange={(tab) => handleSelect(tab as DockTabId)}
+          aria-label="Bottom dock"
+          data-testid="bottom-dock-tablist"
+        />
 
         {(onMinimize || onRestore || onClose) && (
-          <div
-            style={{
-              marginLeft: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '2px',
-            }}
-          >
+          <div className="ml-auto inline-flex items-center gap-0.5">
             {minimized
               ? onRestore && (
-                  <button
-                    type="button"
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
                     aria-label="Restore bottom dock"
                     title="Restore bottom dock"
                     data-testid="bottom-dock-restore"
                     onClick={onRestore}
-                    style={iconButtonStyle}
-                  >
-                    ▴
-                  </button>
+                    icon={<ChevronUp />}
+                  />
                 )
               : onMinimize && (
-                  <button
-                    type="button"
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
                     aria-label="Minimize bottom dock"
                     title="Minimize bottom dock"
                     data-testid="bottom-dock-minimize"
                     onClick={onMinimize}
-                    style={iconButtonStyle}
-                  >
-                    ▾
-                  </button>
+                    icon={<ChevronDown />}
+                  />
                 )}
             {onClose ? (
-              <button
-                type="button"
+              <IconButton
+                size="xs"
+                variant="ghost"
                 aria-label="Hide bottom dock"
                 title="Hide bottom dock"
                 data-testid="bottom-dock-close"
                 onClick={onClose}
-                style={iconButtonStyle}
-              >
-                ✕
-              </button>
+                icon={<X />}
+              />
             ) : null}
           </div>
         )}
@@ -214,8 +168,8 @@ export function BottomWorkbenchDock({
       {!minimized && (
         <div
           role="tabpanel"
-          id={`bottom-dock-panel-${activeTab}`}
-          aria-labelledby={`bottom-dock-tab-${activeTab}`}
+          id={tabIds(DOCK_ID_BASE, activeTab).panel}
+          aria-labelledby={tabIds(DOCK_ID_BASE, activeTab).tab}
           data-testid="bottom-dock-panel"
           style={{
             position: 'relative',

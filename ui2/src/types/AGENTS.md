@@ -19,7 +19,6 @@ TypeScript type definitions and interfaces for the UI2 frontend. Contains 21 typ
 | rustViewState.ts | Rust ViewState mapping types - 3KB |
 | atlas.ts | Brain atlas types - 4KB |
 | atlasPalette.ts | Atlas palette types - 0.8KB |
-| alphaMask.ts | Alpha mask types - 0.8KB |
 | coordinates.ts | Coordinate system types - 1KB |
 | hoverInfo.ts | Hover information types - 2KB |
 | histogram.ts | Histogram data types - 2KB |

@@ -1,3 +1,6 @@
+import { attachObservationMetadata } from '@/plotting/attachObservationMetadata';
+import { PopulationPlot } from '@/components/plots/PopulationPlot';
+import type { PopulationSliceData } from '@/services/studio/PopulationSliceService';
 import { PopulationUnitControls } from '@/components/studio/PopulationUnitControls';
 import { setTransport } from '@/services/transport';
 import { PopulationInspector } from '@/components/studio/PopulationInspector';
@@ -19,6 +22,8 @@ if (!import.meta.env.DEV) throw new Error('This synthetic harness is development
 document.documentElement.classList.add('dark');
 const maskMode = new URLSearchParams(location.search).has('mask');
 const exportMode = new URLSearchParams(location.search).has('export');
+const pairedMode = new URLSearchParams(location.search).has('paired');
+let savedReceipt: { population: unknown; context: unknown } | null = null;
 const fakeHash = 'a'.repeat(64);
 const fakeMaskHash = 'b'.repeat(64);
 if (maskMode || exportMode)
@@ -31,7 +36,108 @@ if (maskMode || exportMode)
         )
       )
         return '/synthetic/export/population-demo/provenance.json' as T;
+      if (command === 'sample_set_at_world') {
+        const members = args!.members as { memberId: string; stackIndex?: number }[];
+        return members.map((m) => ({
+          memberId: m.memberId,
+          value: m.stackIndex ?? 1,
+          count: 1,
+          sourceRevision: { sha256: fakeHash, sourceBytes: 0 },
+          ...(args!.mask ? { maskRevision: { sha256: fakeMaskHash, sourceBytes: 0 } } : {}),
+          error: null,
+        })) as T;
+      }
+      if (command === 'cancel_population_sample') return undefined as T;
+      if (command === 'fit_population_relationship') {
+        const request = args!
+          .request as import('@/services/studio/PopulationRelationshipService').RelationshipRequest & {
+          explanation?: {
+            field: { kind: string };
+            orientation: string;
+            crosshairMm: [number, number, number];
+          };
+        };
+        if (request.distance === 'pattern-shape')
+          throw new Error('S001 is constant on common support; pattern shape is undefined.');
+        const members = request.members.map((m) => ({ ...m, expectedSha256: fakeHash })),
+          n = members.length;
+        const values = members.map((m) => (ids.indexOf(m.memberId) < 40 ? 3 : -1)),
+          mean = values.reduce((a, b) => a + b, 0) / n;
+        const merges: { left: number; right: number; distance: number; count: number }[] = [];
+        const roots: number[] = [];
+        for (const value of [3, -1]) {
+          const positions = values.flatMap((v, i) => (v === value ? [i] : []));
+          let root = positions[0];
+          for (let j = 1; j < positions.length; j++) {
+            merges.push({ left: root, right: positions[j], distance: 0, count: j + 1 });
+            root = n + merges.length - 1;
+          }
+          roots.push(root);
+        }
+        merges.push({ left: roots[0], right: roots[1], distance: 4, count: n });
+        return {
+          fitId: (request.region ? 'e' : 'd').repeat(64),
+          request: {
+            ...request,
+            members,
+            mask: request.mask ? { ...request.mask, expectedSha256: fakeMaskHash } : null,
+          },
+          ...(request.explanation
+            ? {
+                explanation: {
+                  values: Array.from({ length: 128 * 128 }, (_, i) =>
+                    ((i % 128) - 64) ** 2 + (Math.floor(i / 128) - 64) ** 2 < 1800
+                      ? Math.sin(i / 128)
+                      : null,
+                  ),
+                  total: 16,
+                  label:
+                    request.explanation.field.kind === 'reconstruction'
+                      ? 'Reconstruction in original effect units'
+                      : 'Spatial loading in fitted space',
+                  plane: {
+                    origin_mm: [-32, 32, 0],
+                    u_mm: [0.5, 0, 0],
+                    v_mm: [0, -0.5, 0],
+                    dim_px: [128, 128],
+                  },
+                },
+              }
+            : {}),
+          supportSha256: 'f'.repeat(64),
+          candidateVoxels: 100,
+          commonVoxels: 90,
+          finiteCounts: Array(n).fill(95),
+          dimensions: [5, 5, 4],
+          affine: [
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+          ],
+          geometry: {
+            componentScores: values.map((v) => [v - mean]),
+            coordinates: values.map((v) => [v - mean, 0]),
+            distances: values.map((v) => values.map((w) => Math.abs(v - w))),
+            eigenvalues: [
+              values.reduce((sum, v) => sum + (v - mean) ** 2, 0),
+              ...Array(n - 1).fill(0),
+            ],
+            explainedFraction: 1,
+            stress: 0,
+            orderable: true,
+            merges,
+          },
+        } as T;
+      }
       if (command === 'open_population_summary') {
+        if (new URLSearchParams(location.search).has('roundtrip') && savedReceipt)
+          return {
+            recordPath: '/synthetic/export/population-demo/provenance.json',
+            recordSha256: 'c'.repeat(64),
+            calculation: savedReceipt.population,
+            context: savedReceipt.context,
+          } as T;
         if (new URLSearchParams(location.search).has('open-error'))
           throw new Error('Saved source hash changed. Original population preserved.');
         return {
@@ -83,6 +189,7 @@ if (maskMode || exportMode)
             : '/synthetic/left-half-mask.nii'
         ) as T;
       if (command === 'export_population_summary') {
+        savedReceipt = structuredClone(args?.request) as typeof savedReceipt;
         window.dispatchEvent(new CustomEvent('synthetic-export', { detail: args?.request }));
         return {
           directory: '/synthetic/export/population-demo',
@@ -101,8 +208,13 @@ const ids = Array.from(
 );
 const metadataFor = (id: string, i: number) => ({
   observation: id,
+  ...(new URLSearchParams(location.search).has('ols') ? { age: String(20 + i) } : {}),
   group: i < 40 ? 'A' : 'B',
-  participant: i < 40 ? 'P001' : `P${String(i - 38).padStart(3, '0')}`,
+  participant: pairedMode
+    ? `P${String((i % 40) + 1).padStart(3, '0')}`
+    : i < 40
+      ? 'P001'
+      : `P${String(i - 38).padStart(3, '0')}`,
   site: i < 80 ? 'early-site' : 'late-site',
 });
 const state = useSetStudioStore.getState();
@@ -134,7 +246,13 @@ demo.bootstrapStudio({
       },
       notes: [],
     },
-    designColumns: ['observation', 'group', 'participant', 'site'],
+    designColumns: [
+      'observation',
+      'group',
+      'participant',
+      'site',
+      ...(new URLSearchParams(location.search).has('ols') ? ['age'] : []),
+    ],
     designTablePreview: {
       columns: ['observation', 'group', 'participant', 'site'],
       rows: ids.slice(0, 6).map((id, i) => ({
@@ -143,60 +261,102 @@ demo.bootstrapStudio({
       })),
     },
   },
-  features: Object.values(demo.features),
+  features: Object.values(demo.features).map((f) =>
+    new URLSearchParams(location.search).has('combine') ? { ...f, units: 'a.u.' } : f,
+  ),
   cohorts: [],
   expressions: [],
   selection: { activeMemberId: ids[0] },
 });
-const controller = new PopulationProbeController(async (request) => ({
-  columns: [
-    { name: 'member', role: 'nominal' },
-    { name: 'value', role: 'quantitative' },
-  ],
-  rows:
-    request.locus.kind === 'set'
-      ? request.locus.members.map((member) => ({
-          member: member.memberId,
-          value:
+const controller = new PopulationProbeController(async (request) =>
+  attachObservationMetadata(
+    {
+      columns: [
+        { name: 'member', role: 'nominal' },
+        { name: 'value', role: 'quantitative' },
+      ],
+      rows:
+        request.locus.kind === 'set'
+          ? request.locus.members.map((member) => ({
+              member: member.memberId,
+              value:
+                request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0
+                  ? null
+                  : ids.indexOf(member.memberId) < 40
+                    ? 3
+                    : -1,
+            }))
+          : [],
+      meta: {
+        synthetic: true,
+        sources: ids.map((memberId) => ({
+          memberId,
+          sourceRevision: { sha256: fakeHash, sourceBytes: 0 },
+          ...(request.locus.kind === 'set' && request.locus.mask
+            ? { maskRevision: { sha256: fakeMaskHash, sourceBytes: 0 } }
+            : {}),
+          stackIndex: null,
+          validCount:
             request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0
-              ? null
-              : ids.indexOf(member.memberId) < 40
-                ? 3
-                : -1,
-        }))
-      : [],
-  meta: {
-    synthetic: true,
-    sources: ids.map((memberId) => ({
-      memberId,
-      sourceRevision: { sha256: fakeHash, sourceBytes: 0 },
-      ...(request.locus.kind === 'set' && request.locus.mask
-        ? { maskRevision: { sha256: fakeMaskHash, sourceBytes: 0 } }
-        : {}),
-      stackIndex: null,
-      validCount:
-        request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0 ? 0 : 1,
-      error: null,
-    })),
-  },
-}));
+              ? 0
+              : 1,
+          error: null,
+        })),
+      },
+    },
+    request.locus.kind === 'set' ? request.locus.members : [],
+  ),
+);
 const slices = new PopulationSliceService(
   {
     async evaluate(request) {
-      const dimension = 64;
+      const [width, height] = request.dimPx;
       const field = (value: number) =>
-        Array.from({ length: dimension * dimension }, (_, i) => {
-          const x = (i % dimension) - 31.5,
-            y = Math.floor(i / dimension) - 31.5;
-          return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0) ? value : null;
+        Array.from({ length: width * height }, (_, i) => {
+          const x = ((i % width) * 64) / width - 31.5,
+            y = (Math.floor(i / width) * 64) / height - 31.5;
+          return Number.isFinite(value) &&
+            (x * x) / 400 + (y * y) / 625 <= 1 &&
+            (!request.mask || x < 0)
+            ? value
+            : null;
         });
-      const observed = (id: string) => (ids.indexOf(id) < 40 ? 3 : -1);
-      const values = request.aggregation
+      const observed = (id: string) =>
+        ids.indexOf(id) < 40 ? (pairedMode ? 3 + (ids.indexOf(id) % 3) : 3) : -1;
+      const rawValues = request.aggregation
         ? request.aggregation.groups.map(
             (group) =>
               group.memberIds.reduce((sum, id) => sum + observed(id), 0) / group.memberIds.length,
           )
         : request.workingMemberIds.map(observed);
+      const values =
+        request.inference?.method === 'paired'
+          ? request.aggregation!.groups.map((g) => {
+              const b = request.reference!.aggregation!.groups.find(
+                (b) => b.participantId === g.participantId,
+              )!;
+              return (
+                g.memberIds.reduce((s, id) => s + observed(id), 0) / g.memberIds.length -
+                b.memberIds.reduce((s, id) => s + observed(id), 0) / b.memberIds.length
+              );
+            })
+          : rawValues;
+      const groupData = (group: NonNullable<typeof request.reference>) => {
+        const units = group.aggregation
+          ? group.aggregation.groups.map(
+              (g) => g.memberIds.reduce((sum, id) => sum + observed(id), 0) / g.memberIds.length,
+            )
+          : group.memberIds.map(observed);
+        return {
+          id: group.id,
+          values: field(units.reduce((a, b) => a + b, 0) / units.length),
+          validCounts: field(units.length).map((v) => v ?? 0),
+          eligibleCount: group.memberIds.length,
+          unitCount: units.length,
+        };
+      };
+      const reference =
+        request.reference && !request.focusOnly ? groupData(request.reference) : null;
       const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : NaN;
       const summary =
         request.summary === 'coverage'
@@ -210,57 +370,115 @@ const slices = new PopulationSliceService(
                     values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1),
                   )
                 : mean;
+      const spec = request.inference;
+      const se =
+        values.length > 1
+          ? Math.sqrt(
+              values.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
+                (values.length - 1) /
+                values.length,
+            )
+          : NaN;
+      const bValues = request.reference?.aggregation
+        ? request.reference.aggregation.groups.map(
+            (g) => g.memberIds.reduce((sum, id) => sum + observed(id), 0) / g.memberIds.length,
+          )
+        : (request.reference?.memberIds ?? []).map(observed);
+      const bMean = bValues.reduce((a, b) => a + b, 0) / bValues.length;
+      const bSe2 =
+        bValues.reduce((sum, v) => sum + (v - bMean) ** 2, 0) /
+        (bValues.length - 1) /
+        bValues.length;
+      const testSe = spec?.method === 'welch' ? Math.sqrt(se * se + bSe2) : se;
+      const effect = mean - (spec?.method === 'welch' ? bMean : 0) - (spec?.nullValue ?? 0);
+      const df =
+        spec?.method === 'welch'
+          ? (se * se + bSe2) ** 2 /
+            (se ** 4 / (values.length - 1) + (bSe2 * bSe2) / (bValues.length - 1))
+          : values.length - 1;
+      const inference: PopulationSliceData['inference'] =
+        spec && !request.focusOnly
+          ? {
+              effect: field(effect),
+              standardError: field(testSe),
+              t: field(testSe > 0 ? effect / testSe : NaN),
+              df: field(df),
+              ...(spec.method === 'welch'
+                ? { countA: field(values.length), countB: field(bValues.length) }
+                : { count: field(values.length) }),
+            }
+          : undefined;
       return {
+        inference,
         plane: {
           origin_mm: [-31.5, 31.5, request.crosshairMm[2]],
-          u_mm: [1, 0, 0],
-          v_mm: [0, -1, 0],
-          dim_px: [dimension, dimension],
+          u_mm: [64 / width, 0, 0],
+          v_mm: [0, -64 / height, 0],
+          dim_px: [width, height],
         },
         centerWorld: [0, 0, 0],
         contextRange: [-1, 3],
-        summary: field(summary),
-        focused: field(request.focusMemberId ? observed(request.focusMemberId) : NaN),
-        validCounts: field(values.length).map((v) => v ?? 0),
+        summary: request.focusOnly
+          ? []
+          : inference && spec
+            ? inference[spec.channel]!
+            : request.difference && reference
+              ? field(mean).map((v, i) =>
+                  v === null || reference.values[i] === null ? null : v - reference.values[i]!,
+                )
+              : field(summary),
+        reference,
+        groups: request.focusOnly ? [] : (request.groups ?? []).map(groupData),
+        focusWindow: (request.focusWindow ?? []).map((memberId) => ({
+          memberId,
+          values: field(observed(memberId)),
+          validPixels: field(observed(memberId)).filter((v) => v !== null).length,
+        })),
+        focused: field(
+          request.focusStackIndex ??
+            (request.focusMemberId ? observed(request.focusMemberId) : NaN),
+        ),
+        validCounts: request.focusOnly ? [] : field(values.length).map((v) => v ?? 0),
         eligibleCount: request.workingMemberIds.length,
         unitCount: values.length,
         sources: request.members.map((member) => ({
           memberId: member.memberId,
           revision: { sha256: fakeHash, sourceBytes: 0 },
         })),
-        cutouts: request.cutouts
-          ? (() => {
-              const { centerMm, widthMm, dimPx, memberIds } = request.cutouts;
-              const spacing = widthMm / dimPx;
-              const origin: [number, number, number] = [
-                centerMm[0] - (spacing * (dimPx - 1)) / 2,
-                centerMm[1] + (spacing * (dimPx - 1)) / 2,
-                centerMm[2],
-              ];
-              return {
-                plane: {
-                  origin_mm: origin,
-                  u_mm: [spacing, 0, 0] as [number, number, number],
-                  v_mm: [0, -spacing, 0] as [number, number, number],
-                  dim_px: [dimPx, dimPx] as [number, number],
-                },
-                members: memberIds.map((memberId) => {
-                  const samples = Array.from({ length: dimPx ** 2 }, (_, i) => {
-                    const x = origin[0] + (i % dimPx) * spacing,
-                      y = origin[1] - Math.floor(i / dimPx) * spacing;
-                    return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0)
-                      ? observed(memberId)
-                      : null;
-                  });
-                  return {
-                    memberId,
-                    values: samples,
-                    validPixels: samples.filter((v) => v !== null).length,
-                  };
-                }),
-              };
-            })()
-          : null,
+        cutouts:
+          request.cutouts && !request.focusOnly
+            ? (() => {
+                const { centerMm, widthMm, dimPx, memberIds } = request.cutouts;
+                const spacing = (request.cutouts.wholePlane ? 64 : widthMm) / dimPx;
+                const origin: [number, number, number] = [
+                  centerMm[0] - (spacing * (dimPx - 1)) / 2,
+                  centerMm[1] + (spacing * (dimPx - 1)) / 2,
+                  centerMm[2],
+                ];
+                return {
+                  plane: {
+                    origin_mm: origin,
+                    u_mm: [spacing, 0, 0] as [number, number, number],
+                    v_mm: [0, -spacing, 0] as [number, number, number],
+                    dim_px: [dimPx, dimPx] as [number, number],
+                  },
+                  members: memberIds.map((memberId) => {
+                    const samples = Array.from({ length: dimPx ** 2 }, (_, i) => {
+                      const x = origin[0] + (i % dimPx) * spacing,
+                        y = origin[1] - Math.floor(i / dimPx) * spacing;
+                      return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0)
+                        ? observed(memberId)
+                        : null;
+                    });
+                    return {
+                      memberId,
+                      values: samples,
+                      validPixels: samples.filter((v) => v !== null).length,
+                    };
+                  }),
+                };
+              })()
+            : null,
         maskRevision: request.mask ? { sha256: fakeMaskHash, sourceBytes: 0 } : null,
         sourceCacheHit: true,
         cachedBytes: 0,
@@ -319,6 +537,19 @@ function Harness() {
           />
           <PopulationLens service={slices} probeController={controller} />
           <PopulationProbePanel controller={controller} />
+          {new URLSearchParams(location.search).has('plots') && (
+            <div style={{ height: 600 }}>
+              <PopulationPlot
+                ctx={{
+                  width: Math.min(760, window.innerWidth - 48),
+                  height: 600,
+                  layerId: undefined,
+                  layerName: undefined,
+                  crosshairMm: undefined,
+                }}
+              />
+            </div>
+          )}
         </div>
         <aside className="min-w-0 border-l border-border" aria-label="Inspector">
           <PopulationInspector />

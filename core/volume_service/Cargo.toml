@@ -1,0 +1,18 @@
+[package]
+name = "volume_service"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+web = ["bridge_types/web"]
+
+[dependencies]
+async-trait = "0.1"
+bridge_types = { path = "../bridge_types" }
+serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "sync"] }
+volmath = { path = "../volmath" }

@@ -41,6 +41,7 @@ impl RenderFormat {
     pub(crate) fn label(self) -> &'static str {
         match self {
             RenderFormat::Png => "png",
+            RenderFormat::Jpeg => "jpeg",
             RenderFormat::RawRgba => "rgba",
         }
     }

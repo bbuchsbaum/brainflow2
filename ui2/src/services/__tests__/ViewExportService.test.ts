@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ViewExportService } from "@/services/ViewExportService";
+import { ViewExportService, sliceExportFileName, withImageExtension } from "@/services/ViewExportService";
 import { useActivePanelStore } from "@/stores/activePanelStore";
 import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
 import { useSurfaceStore } from "@/stores/surfaceStore";
@@ -19,15 +19,21 @@ function makeWorkspace(id: string, type: WorkspaceType): Workspace {
   };
 }
 
+const { invokeMock, emitMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  emitMock: vi.fn(),
+}));
+
 vi.mock("@/services/transport", () => ({
   getTransport: () => ({
-    invoke: vi.fn(),
+    invoke: invokeMock,
   }),
 }));
 
 vi.mock("@/events/EventBus", () => ({
   getEventBus: () => ({
-    emit: vi.fn(),
+    emit: emitMock,
+    on: vi.fn(() => () => {}),
   }),
 }));
 
@@ -35,6 +41,8 @@ describe("ViewExportService", () => {
   let service: ViewExportService;
 
   beforeEach(() => {
+    invokeMock.mockReset();
+    emitMock.mockReset();
     service = new ViewExportService();
     useActivePanelStore.setState({
       componentType: null,
@@ -60,6 +68,32 @@ describe("ViewExportService", () => {
       surfaceViewHandles: new Map(),
       surfaceViewSelections: new Map(),
     });
+  });
+
+  it("renders export panes to bytes for the export alone: no render.complete, nothing shared on screen", async () => {
+    // compositeCapture decodes these bytes into its own ImageBitmaps and
+    // closes them after compose (ui2/CLAUDE.md MosaicView rule 3 is about
+    // bitmaps handed to on-screen canvases; these never are).
+    const { useViewStateStore } = await import("@/stores/viewStateStore");
+    invokeMock.mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+    const base = useViewStateStore.getState().viewState;
+    const viewState = {
+      ...base,
+      layers: [
+        { id: "t1", name: "t1", volumeId: "v1", visible: true, opacity: 1, colormap: "gray", intensity: [0, 100], threshold: [0, 0] },
+      ],
+    } as never;
+    const bytes = await service.renderViewToBytes(
+      viewState,
+      "axial",
+      64,
+      64,
+      "png",
+      false,
+    );
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(invokeMock).toHaveBeenCalledWith("render_view", expect.objectContaining({ format: "png" }));
+    expect(emitMock).not.toHaveBeenCalled();
   });
 
   it("uses the active surface renderable exporter key directly", async () => {
@@ -135,4 +169,65 @@ describe("ViewExportService", () => {
     expect(result.bytes).toEqual(bytes);
     expect(result.suggestedName).toMatch(/^surface-surface-b-.*\.png$/);
   });
+  it("saves through save_image_bytes and reports the written path", async () => {
+    invokeMock.mockResolvedValue("/tmp/out/slice.png");
+
+    const path = await service.saveImageBytes(
+      new Uint8Array([137, 80]),
+      "slice.png",
+    );
+
+    expect(path).toBe("/tmp/out/slice.png");
+    expect(invokeMock).toHaveBeenCalledWith("save_image_bytes", {
+      bytes: [137, 80],
+      suggestedName: "slice.png",
+    });
+    expect(emitMock).toHaveBeenCalledWith("ui.notification", {
+      type: "info",
+      message: "Saved image to /tmp/out/slice.png",
+    });
+  });
+
+  it("treats a cancelled save dialog (null) as no-op, not an error", async () => {
+    invokeMock.mockResolvedValue(null);
+
+    await expect(
+      service.saveImageBytes(new Uint8Array([1]), ""),
+    ).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith("save_image_bytes", {
+      bytes: [1],
+      suggestedName: undefined,
+    });
+    expect(emitMock).not.toHaveBeenCalled();
+  });
+
+  it("exportActiveView stays silent when the user cancels the save dialog", async () => {
+    service.registerExporter("surfaceview:s:v", async () => new Uint8Array([7]));
+    useActiveRenderContextStore.setState({ activeId: "surfaceview:s:v" });
+    invokeMock.mockResolvedValue(null);
+
+    await service.exportActiveView({ format: "jpg" });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_image_bytes",
+      expect.objectContaining({ bytes: [7] }),
+    );
+    expect(emitMock).not.toHaveBeenCalled();
+  });
 });
+
+describe("export file names", () => {
+  // The shared rule (utils/exportFileName): the axis letter before the
+  // signed position, so a name never reads "_-".
+  it("names a slice export by layer, plane and position", () => {
+    expect(sliceExportFileName("zmap_synthetic.nii.gz", "axial", 50.5, "png")).toBe("zmap_synthetic_axial_z50.5mm.png");
+    expect(sliceExportFileName("my map (v2).nii", "coronal", -19.5, "jpg")).toBe("my_map_v2_coronal_y-19.5mm.jpg");
+    expect(sliceExportFileName(null, "sagittal", -0.04, "png")).toBe("view_sagittal_x0.0mm.png");
+  });
+
+  it("swaps only the extension of a typed name", () => {
+    expect(withImageExtension("figure2a.png", "jpg")).toBe("figure2a.jpg");
+    expect(withImageExtension("figure2a", "png")).toBe("figure2a.png");
+  });
+});
+

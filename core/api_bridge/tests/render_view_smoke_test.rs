@@ -200,6 +200,13 @@ async fn render_view_returns_rgba_buffer() {
 
     let rgba = &result[8..];
     assert_has_visible_content(rgba, width, height);
+
+    // "jpg" used to fall back to raw RGBA; it must now be a real JPEG stream.
+    let jpeg = render_view_for_testing(payload.to_string(), &bridge_state, Some("jpg"))
+        .await
+        .expect("render_view jpg succeeded");
+    assert_eq!(&jpeg[..2], &[0xFF, 0xD8], "JPEG SOI marker");
+    assert_eq!(&jpeg[jpeg.len() - 2..], &[0xFF, 0xD9], "JPEG EOI marker");
 }
 
 #[tokio::test]

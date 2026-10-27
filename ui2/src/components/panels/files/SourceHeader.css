@@ -46,26 +46,7 @@
   color: var(--bf-text-primary);
 }
 
-.fb-source-kind {
-  flex-shrink: 0;
-  font-family: var(--bf-font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  border: 1px solid var(--bf-border-subtle);
-  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
-  color: var(--bf-text-secondary);
-  line-height: 1.2;
-}
-
-.fb-source-kind--remote {
-  border-color: color-mix(in srgb, var(--bf-accent) 50%, transparent);
-  color: var(--bf-accent);
-  background: color-mix(in srgb, var(--bf-accent) 10%, transparent);
-}
+/* The SSH / Local tag is a bf Chip (static tag). */
 
 .fb-source-breadcrumb {
   display: flex;

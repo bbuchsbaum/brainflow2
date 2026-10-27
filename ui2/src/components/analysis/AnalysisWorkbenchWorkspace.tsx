@@ -8,6 +8,19 @@ import type {
 import { useSelectedLayer, useSelectedLayerId, useLayerMetadata } from '@/stores/layerStore';
 import { getAnalysisService } from '@/services/analysis/AnalysisService';
 import { buildAnalysisStartRequest, useAnalysisStore } from '@/stores/analysisStore';
+import {
+  Button,
+  Chip,
+  FieldRow,
+  KeyValue,
+  Notice,
+  Section,
+  SelectableRow,
+  TextArea,
+  useRovingFocus,
+  type KeyValueItem,
+} from '@/components/ui/bf';
+import { JobStatusPill } from './JobStatusPill';
 
 interface AnalysisWorkbenchWorkspaceProps {
   workspaceId: string;
@@ -15,23 +28,6 @@ interface AnalysisWorkbenchWorkspaceProps {
 
 function runnerLabel(descriptor: AnalysisDescriptor): string {
   return descriptor.runner.type === 'builtin' ? 'Builtin' : 'Sidecar';
-}
-
-function stateLabel(job: AnalysisJobStatus): string {
-  switch (job.state) {
-    case 'queued':
-      return 'Queued';
-    case 'running':
-      return 'Running';
-    case 'completed':
-      return 'Completed';
-    case 'failed':
-      return 'Failed';
-    case 'cancelled':
-      return 'Cancelled';
-    default:
-      return job.state;
-  }
 }
 
 function isArtifactOpenable(artifact: AnalysisArtifact): boolean {
@@ -105,88 +101,89 @@ function JobCard({
     typeof job.progress === 'number'
       ? Math.max(0, Math.min(100, Math.round(job.progress * 100)))
       : null;
+  const showProgress =
+    progressPct !== null &&
+    (job.state === 'queued' || job.state === 'running' || job.state === 'completed');
+
+  const facts: KeyValueItem[] = [{ key: 'job', label: 'Job id', value: job.job_id, wide: true }];
+  if (showProgress) {
+    facts.push({ key: 'progress', label: 'Progress', value: `${progressPct}%` });
+    facts.push({
+      key: 'message',
+      label: 'Message',
+      value: job.message ?? 'No status message',
+      mono: false,
+    });
+  }
 
   return (
-    <div className="rounded-appsm border border-border bg-card p-3 space-y-3">
+    <div className="space-y-2 rounded-sm border border-bf-border-subtle bg-card p-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="bf-role-section text-muted-foreground">Job</p>
-          <p className="bf-role-body text-foreground truncate">
-            {descriptor?.name ?? job.analysis_id}
-          </p>
-          <p className="bf-role-mono text-[10px] text-muted-foreground mt-1 truncate">
-            {job.job_id}
-          </p>
-        </div>
-        <span className="rounded-appsm border border-border px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-          {stateLabel(job)}
-        </span>
+        <p className="min-w-0 truncate text-bf-sm font-semibold text-foreground">
+          {descriptor?.name ?? job.analysis_id}
+        </p>
+        <JobStatusPill state={job.state} />
       </div>
 
-      {progressPct !== null && (job.state === 'queued' || job.state === 'running' || job.state === 'completed') && (
-        <div className="space-y-1">
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full bg-primary transition-[width]"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>{job.message ?? 'No status message'}</span>
-            <span>{progressPct}%</span>
-          </div>
+      {showProgress && (
+        <div
+          role="progressbar"
+          aria-label="Job progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progressPct ?? undefined}
+          className="h-1 overflow-hidden rounded-sm bg-bf-bg-panel-sunken"
+        >
+          <div className="h-full bg-primary transition-[width]" style={{ width: `${progressPct}%` }} />
         </div>
       )}
 
+      <KeyValue items={facts} />
+
       {job.error && (
-        <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+        <Notice severity="danger" role={undefined}>
           {job.error}
-        </div>
+        </Notice>
       )}
 
       {job.artifacts && job.artifacts.length > 0 && (
-        <div className="space-y-2">
-          <p className="bf-role-section text-muted-foreground">Artifacts</p>
+        <div className="space-y-1">
+          <p className="text-bf-xs text-muted-foreground">Artifacts</p>
           {job.artifacts.map((artifact, index) => (
             <div
               key={`${job.job_id}-${artifact.path}-${index}`}
-              className="rounded-appsm border border-border/70 bg-muted/20 px-3 py-2"
+              className="flex items-start justify-between gap-3 rounded-sm border border-bf-border-subtle bg-bf-bg-panel-sunken px-2 py-1.5"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground truncate">
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-bf-sm text-foreground">
                     {artifact.name ?? artifact.kind}
-                  </p>
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground mt-1">
-                    {artifact.kind}
-                  </p>
-                  <p className="bf-role-mono text-[10px] text-muted-foreground truncate mt-1">
-                    {artifact.path}
-                  </p>
+                  </span>
+                  <Chip>{artifact.kind}</Chip>
                 </div>
-                {isArtifactOpenable(artifact) && (
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-appsm border border-border px-2.5 py-1 text-[10px] uppercase tracking-[0.08em] text-foreground hover:bg-muted/50"
-                    onClick={() => onOpenArtifact(artifact)}
-                  >
-                    Open
-                  </button>
-                )}
+                <p className="truncate font-mono text-bf-2xs text-muted-foreground" title={artifact.path}>
+                  {artifact.path}
+                </p>
               </div>
+              {isArtifactOpenable(artifact) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => onOpenArtifact(artifact)}
+                >
+                  Open
+                </Button>
+              )}
             </div>
           ))}
         </div>
       )}
 
       {(job.state === 'queued' || job.state === 'running') && (
-        <button
-          type="button"
-          className="rounded-appsm border border-border px-3 py-1.5 text-[10px] uppercase tracking-[0.08em] text-foreground hover:bg-muted/50"
-          onClick={() => onCancel(job.job_id)}
-        >
-          Cancel Job
-        </button>
+        <Button variant="secondary" size="sm" onClick={() => onCancel(job.job_id)}>
+          Cancel job
+        </Button>
       )}
     </div>
   );
@@ -252,6 +249,11 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
   );
 
   const paramDraft = selectedDescriptor ? paramDrafts[selectedDescriptor.id] ?? '{}' : '{}';
+  // Inline JSON validation (empty = no parameters, as buildAnalysisStartRequest).
+  const paramsError = useMemo(() => parametersJsonError(paramDraft), [paramDraft]);
+
+  const analysisIds = useMemo(() => descriptors.map((descriptor) => descriptor.id), [descriptors]);
+  const roving = useRovingFocus({ ids: analysisIds, activeId: selectedAnalysisId ?? null });
 
   const handleRun = async () => {
     if (!selectedDescriptor) {
@@ -280,190 +282,213 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
     }
   };
 
+  const boundInput = bindingState.inputs[0];
+  const contractItems: KeyValueItem[] = selectedDescriptor
+    ? [
+        {
+          key: 'inputs',
+          label: 'Inputs',
+          value:
+            selectedDescriptor.inputs.length > 0 ? (
+              <>
+                {selectedDescriptor.inputs.map((input) => (
+                  <Chip key={input} mono>
+                    {input}
+                  </Chip>
+                ))}
+              </>
+            ) : (
+              'None'
+            ),
+          mono: selectedDescriptor.inputs.length > 0,
+        },
+        {
+          key: 'outputs',
+          label: 'Outputs',
+          value:
+            selectedDescriptor.outputs.length > 0 ? (
+              <>
+                {selectedDescriptor.outputs.map((output) => (
+                  <Chip key={output} mono>
+                    {output}
+                  </Chip>
+                ))}
+              </>
+            ) : (
+              'None'
+            ),
+          mono: selectedDescriptor.outputs.length > 0,
+        },
+      ]
+    : [];
+  const boundItems: KeyValueItem[] = boundInput
+    ? [
+        {
+          key: 'name',
+          label: 'Volume',
+          value: boundInput.name ?? boundInput.handle,
+          wide: true,
+        },
+        { key: 'path', label: 'Path', value: boundInput.path ?? '', wide: true },
+      ]
+    : [];
+
   return (
     <div className="absolute inset-0 flex overflow-hidden bg-background text-foreground">
-      <aside className="w-72 shrink-0 border-r border-border bg-card/40 p-4 overflow-y-auto">
-        <div className="space-y-2">
-          <p className="bf-role-section text-muted-foreground">Analyses</p>
-          <h2 className="bf-role-title text-foreground">Analysis Workbench</h2>
-          <p className="bf-role-body text-muted-foreground">
+      <aside className="w-72 shrink-0 overflow-y-auto border-r border-border bg-card/40 p-3">
+        <div className="space-y-1">
+          <h2 className="bf-role-title text-foreground">Analysis workbench</h2>
+          <p className="text-bf-sm text-muted-foreground">
             Builtin and sidecar analysis descriptors discovered from the backend.
           </p>
         </div>
 
-        <div className="mt-4 space-y-2">
-          {loadStatus === 'loading' && (
-            <div className="rounded-appsm border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-              Loading analyses…
-            </div>
-          )}
+        <div className="mt-3 space-y-2">
+          {loadStatus === 'loading' && <Notice severity="neutral">Loading analyses…</Notice>}
           {loadError && (
-            <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <Notice severity="danger" role="alert">
               {loadError}
+            </Notice>
+          )}
+          {descriptors.length > 0 && (
+            <div
+              role="listbox"
+              aria-label="Analyses"
+              className="space-y-1.5"
+              onKeyDown={roving.onKeyDown}
+            >
+              {descriptors.map((descriptor) => {
+                const isSelected = descriptor.id === selectedAnalysisId;
+                return (
+                  <SelectableRow
+                    key={descriptor.id}
+                    variant="card"
+                    selected={isSelected}
+                    onSelect={() => selectAnalysis(descriptor.id)}
+                    {...roving.getItemProps(descriptor.id)}
+                  >
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <span className="truncate text-bf-sm font-medium text-foreground">
+                        {descriptor.name}
+                      </span>
+                      <Chip>{runnerLabel(descriptor)}</Chip>
+                    </div>
+                    <p className="truncate text-bf-xs text-muted-foreground">
+                      {descriptor.description ?? 'No description'}
+                    </p>
+                  </SelectableRow>
+                );
+              })}
             </div>
           )}
-          {descriptors.map((descriptor) => {
-            const isSelected = descriptor.id === selectedAnalysisId;
-            return (
-              <button
-                key={descriptor.id}
-                type="button"
-                onClick={() => selectAnalysis(descriptor.id)}
-                className={`w-full rounded-appsm border px-3 py-3 text-left transition-colors ${
-                  isSelected
-                    ? 'border-primary/60 bg-primary/10'
-                    : 'border-border bg-card hover:bg-muted/30'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-foreground">{descriptor.name}</span>
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                    {runnerLabel(descriptor)}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1 truncate">
-                  {descriptor.description ?? 'No description'}
-                </p>
-              </button>
-            );
-          })}
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 overflow-y-auto p-5">
+      <main className="min-w-0 flex-1 overflow-y-auto p-5">
         {!selectedDescriptor ? (
-          <div className="h-full flex items-center justify-center text-muted-foreground">
-            Select an analysis to inspect its contract.
+          <div className="flex h-full items-center justify-center">
+            <Notice severity="neutral" role={undefined}>
+              Select an analysis to inspect its contract.
+            </Notice>
           </div>
         ) : (
-          <div className="space-y-5">
-            <header className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="rounded-appsm border border-border px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                  {runnerLabel(selectedDescriptor)}
-                </span>
-                <span className="rounded-appsm border border-border px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                  v{selectedDescriptor.version}
-                </span>
+          <div className="space-y-4">
+            <header className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Chip>{runnerLabel(selectedDescriptor)}</Chip>
+                <Chip mono>v{selectedDescriptor.version}</Chip>
               </div>
               <h1 className="bf-role-title text-foreground">{selectedDescriptor.name}</h1>
-              <p className="bf-role-body text-muted-foreground">
+              <p className="text-bf-sm text-muted-foreground">
                 {selectedDescriptor.description ?? 'No description provided.'}
               </p>
             </header>
 
             <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="space-y-5">
-                <div className="rounded-appsm border border-border bg-card p-4 space-y-4">
-                  <div>
-                    <p className="bf-role-section text-muted-foreground">Contract</p>
-                    <div className="mt-3 grid gap-4 md:grid-cols-2">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Inputs</p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {selectedDescriptor.inputs.length > 0 ? (
-                            selectedDescriptor.inputs.map((inputKind) => (
-                              <span
-                                key={inputKind}
-                                className="rounded-appsm border border-border px-2 py-1 text-[11px] text-foreground"
-                              >
-                                {inputKind}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-sm text-muted-foreground">No inputs</span>
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Outputs</p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {selectedDescriptor.outputs.map((outputKind) => (
-                            <span
-                              key={outputKind}
-                              className="rounded-appsm border border-border px-2 py-1 text-[11px] text-foreground"
-                            >
-                              {outputKind}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+              <div className="min-w-0 rounded-sm border border-bf-border-subtle bg-card">
+                <Section variant="static" divider={false} title="Contract">
+                  <KeyValue columns={1} wrap items={contractItems} />
+                </Section>
 
-                  <div className="rounded-appsm border border-border/70 bg-muted/20 p-3">
-                    <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Bound Input</p>
-                    {bindingState.inputs[0] ? (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-sm text-foreground">{bindingState.inputs[0].name ?? bindingState.inputs[0].handle}</p>
-                        <p className="bf-role-mono text-[10px] text-muted-foreground truncate">
-                          {bindingState.inputs[0].path}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-muted-foreground">{bindingState.reason}</p>
-                    )}
-                  </div>
+                <Section variant="static" title="Bound input">
+                  {boundInput ? (
+                    <KeyValue items={boundItems} columns={1} />
+                  ) : (
+                    <Notice severity="neutral" role={undefined}>
+                      {bindingState.reason}
+                    </Notice>
+                  )}
+                  <p className="mt-2 text-bf-xs text-muted-foreground">
+                    The current workbench slice supports runnable single-volume analyses.
+                  </p>
+                </Section>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Parameters (JSON)</p>
-                      <button
-                        type="button"
-                        className="rounded-appsm border border-border px-2.5 py-1 text-[10px] uppercase tracking-[0.08em] text-foreground hover:bg-muted/50"
+                <Section variant="static" title="Parameters">
+                  <FieldRow
+                    layout="stacked"
+                    label="JSON"
+                    // Validated on every edit: the message sits under the
+                    // field (aria-invalid + aria-describedby via FieldRow) and
+                    // Run Analysis stays disabled until the JSON parses.
+                    error={paramsError ?? undefined}
+                    meta={
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="font-sans"
                         onClick={() => setParamDraft(selectedDescriptor.id, '{}')}
                       >
                         Clear
-                      </button>
-                    </div>
-                    <textarea
+                      </Button>
+                    }
+                  >
+                    <TextArea
+                      mono
                       value={paramDraft}
                       onChange={(event) => setParamDraft(selectedDescriptor.id, event.target.value)}
                       spellCheck={false}
-                      className="min-h-[220px] w-full rounded-appsm border border-border bg-background px-3 py-2 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="min-h-[220px]"
                     />
-                  </div>
+                  </FieldRow>
 
                   {startError && (
-                    <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    <Notice severity="danger" role="alert" className="mt-2">
                       {startError}
-                    </div>
+                    </Notice>
                   )}
 
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">
-                      The current workbench slice supports runnable single-volume analyses.
-                    </p>
-                    <button
+                  {/* The workbench's one primary action: its own row, the md
+                      (28px) step above the 24px panel controls. */}
+                  <div className="mt-3 flex items-center border-t border-bf-border-subtle pt-3">
+                    <Button
                       type="button"
-                      className="rounded-appsm border border-primary/60 bg-primary/10 px-4 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={isStarting || bindingState.inputs.length === 0}
+                      variant="primary"
+                      size="md"
+                      className="shrink-0"
+                      disabled={isStarting || bindingState.inputs.length === 0 || paramsError !== null}
                       onClick={handleRun}
                     >
                       {isStarting ? 'Starting…' : 'Run Analysis'}
-                    </button>
+                    </Button>
                   </div>
-                </div>
+                </Section>
               </div>
 
-              <aside className="space-y-4">
-                <div>
-                  <p className="bf-role-section text-muted-foreground">Jobs</p>
-                  <h2 className="bf-role-title text-foreground mt-1">Run History</h2>
-                </div>
+              <aside className="min-w-0 space-y-3">
+                <h2 className="bf-role-title text-foreground">Run history</h2>
 
                 {artifactError && (
-                  <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <Notice severity="danger" role="alert">
                     {artifactError}
-                  </div>
+                  </Notice>
                 )}
 
                 {jobs.length === 0 ? (
-                  <div className="rounded-appsm border border-border bg-card p-4 text-sm text-muted-foreground">
+                  <Notice severity="neutral" role={undefined}>
                     No analysis jobs yet. Run the selected analysis to populate this panel.
-                  </div>
+                  </Notice>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {jobs.map((job) => (
                       <JobCard
                         key={job.job_id}
@@ -482,4 +507,16 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
       </main>
     </div>
   );
+}
+
+/** Sentence-case message for parameters text that is not valid JSON, or null. */
+export function parametersJsonError(text: string): string | null {
+  if (text.trim().length === 0) return null;
+  try {
+    JSON.parse(text);
+    return null;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `Not valid JSON: ${detail.charAt(0).toLowerCase()}${detail.slice(1)}`;
+  }
 }

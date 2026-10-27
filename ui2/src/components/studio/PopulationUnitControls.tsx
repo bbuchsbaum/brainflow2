@@ -1,3 +1,4 @@
+import { Notice, Select } from '@/components/ui/bf';
 import { studioMetadata } from '@/services/studio/studioMetadata';
 import { useEffect, useMemo, useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -6,8 +7,6 @@ import { resolvePopulation } from '@/services/studio/populationContext';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 import type { PopulationParticipantDefinition } from '@/types/population';
 
-const control =
-  'w-full min-w-0 max-w-full rounded border border-border bg-background px-2 py-1 text-xs text-foreground';
 export function PopulationUnitControls() {
   const state = useSetStudioStore();
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +45,7 @@ export function PopulationUnitControls() {
   };
   if (!set) return null;
   return (
-    <details className="rounded border border-border bg-card px-3 py-2 text-xs">
+    <details className="rounded-sm border border-border bg-card px-3 py-2 text-bf-sm">
       <summary className="cursor-pointer">
         Analysis unit:{' '}
         {definition && definition.reduction !== 'observations' ? 'participants' : 'observations'} ·{' '}
@@ -60,9 +59,8 @@ export function PopulationUnitControls() {
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="block w-full min-w-0">
           Participant identity{' '}
-          <select
+          <Select
             aria-label="Participant identity"
-            className={control}
             value={choice}
             onChange={(event) => {
               const value = event.target.value;
@@ -90,13 +88,12 @@ export function PopulationUnitControls() {
                 {column}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="block w-full min-w-0">
           Summarize{' '}
-          <select
+          <Select
             aria-label="Population analysis unit"
-            className={control}
             value={definition?.reduction ?? 'observations'}
             onChange={(event) => {
               if (definition)
@@ -110,7 +107,7 @@ export function PopulationUnitControls() {
             <option value="observations">Observations: equal row weights</option>
             <option value="single">Participants: one selected row each</option>
             <option value="mean">Participants: mean selected rows first</option>
-          </select>
+          </Select>
         </label>
       </div>
       {selected.identity && (
@@ -127,9 +124,9 @@ export function PopulationUnitControls() {
         </p>
       )}
       {issue && (
-        <p role="alert" className="mt-1 text-destructive">
+        <Notice role="alert" severity="danger" className="mt-1">
           {issue}
-        </p>
+        </Notice>
       )}
     </details>
   );

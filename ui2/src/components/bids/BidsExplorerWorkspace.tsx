@@ -4,6 +4,7 @@ import { BidsEmptyState } from './BidsEmptyState';
 import { BidsSummaryStrip } from './BidsSummaryStrip';
 import { BidsDetailTabs } from './BidsDetailTabs';
 import { BidsCoverageMatrix } from './BidsCoverageMatrix';
+import { Button, Notice } from '@/components/ui/bf';
 
 // ---------------------------------------------------------------------------
 // Scanning state
@@ -73,36 +74,26 @@ function BidsErrorState({ message, datasetPath }: BidsErrorStateProps) {
       role="alert"
     >
       <div className="w-full px-8" style={{ maxWidth: '720px' }}>
-        <p className="bf-role-section" style={{ color: 'var(--app-error)' }}>
-          SCAN FAILED
-        </p>
+        <h2 className="bf-role-title text-foreground">Scan failed</h2>
 
-        <p className="bf-role-body text-foreground/80 leading-relaxed" style={{ marginTop: '32px' }}>
+        <Notice severity="danger" role={undefined} className="mt-4">
           {message}
-        </p>
+        </Notice>
 
-        <p className="bf-role-body text-muted-foreground" style={{ marginTop: '8px' }}>
+        <p className="mt-2 text-bf-sm text-muted-foreground">
           {datasetPath
             ? 'Verify the path is a valid BIDS dataset, then retry.'
             : 'No dataset path is set. Open a dataset to begin.'}
         </p>
 
-        <div className="flex gap-3" style={{ marginTop: '24px' }}>
-          <button
-            type="button"
-            className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground transition-colors hover:border-primary hover:text-primary"
-            onClick={handleRetry}
-          >
-            {datasetPath ? 'Retry' : 'Open Dataset'}
-          </button>
+        <div className="mt-5 flex gap-2">
+          <Button variant="primary" size="sm" onClick={handleRetry}>
+            {datasetPath ? 'Retry' : 'Open dataset'}
+          </Button>
           {datasetPath && (
-            <button
-              type="button"
-              className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-              onClick={reset}
-            >
+            <Button variant="secondary" size="sm" onClick={reset}>
               Clear
-            </button>
+            </Button>
           )}
         </div>
       </div>

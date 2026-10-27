@@ -10,6 +10,7 @@ members = [
   "core/volmath",
   "core/api_bridge",
   "core/bridge_types",
+  "core/volume_service",
   "core/field_table",
   "core/atlases",
   "core/templates",
@@ -54,7 +55,7 @@ neuroatlas = { git = "https://github.com/bbuchsbaum/neuroatlas-rs", rev = "6f0ad
 # --- Surface and GIFTI support ---
 neurosurf-rs = { git = "https://github.com/bbuchsbaum/neurosurf-rs", rev = "01155a5974e390f36949752f87098856f8d35c57", features = ["gifti-support"] }
 gifti = { git = "https://github.com/bbuchsbaum/gifti-rs", rev = "00520ee8d00f8a223a440fd3c7381d63c4a36e75" }
-neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "78d4e61f3e7dc7e759f38d02b85f9da41ee70d8a" }
+neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "0fbedb93b4bb4e7aec663c7466c39a0eb6760417" }
 
 # --- BIDS support ---
 bids-rs = { git = "ssh://git@github.com/bbuchsbaum/bids-rs.git", branch = "main" }

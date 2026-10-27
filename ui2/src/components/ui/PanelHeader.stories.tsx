@@ -3,7 +3,7 @@ import { Activity, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { PanelHeader } from './PanelHeader'
 
 // `PanelHeader` is the canonical `bf-panel-header` per Design.md §5.3 / §7.
-// Headers are 34px (`--bf-panel-header-h`), uppercase section title with the
+// Headers are 34px (`--bf-panel-header-h`), sentence-case section title with the
 // `bf-role-section` typography role, and host a single primary action plus
 // an overflow menu. See ui-contract §5.
 const meta = {

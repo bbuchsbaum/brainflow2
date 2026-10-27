@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { Notice } from '@/components/ui/bf';
 
 interface LoadingOverlayProps {
   message?: string;
@@ -14,7 +15,7 @@ interface LoadingOverlayProps {
 export function LoadingOverlay({ message = 'Loading...' }: LoadingOverlayProps) {
   return (
     <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="text-white text-sm">{message}</div>
+      <div className="text-foreground text-bf-sm">{message}</div>
     </div>
   );
 }
@@ -29,10 +30,19 @@ export function ErrorOverlay({ error }: ErrorOverlayProps) {
   const errorMessage = error instanceof Error ? error.message : error;
   
   return (
-    <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
-      <div className="text-white text-sm text-center p-2">
-        {errorMessage}
-      </div>
+    // Dark scrim, not a tinted fill: a translucent danger fill under light text
+    // fell to ~3.5:1 over black and lower over tissue. At 85% black the worst
+    // case (scrim over white matter) is #262626, where the danger title is
+    // ~6.3:1 and primary text ~13:1.
+    // The message itself is the canvas Notice (danger, boxed on black).
+    <div
+      role="alert"
+      className="absolute inset-0 bg-black/[0.85] flex items-center justify-center p-2"
+    >
+      <Notice severity="danger" surface="canvas" role={undefined} className="max-w-full">
+        <div className="text-bf-danger text-bf-sm font-medium">Render error</div>
+        <div className="text-bf-text-primary text-bf-sm break-words">{errorMessage}</div>
+      </Notice>
     </div>
   );
 }
@@ -45,7 +55,7 @@ export function DragOverlay({ message = 'Drop file to load' }: DragOverlayProps)
   return (
     <div className="absolute inset-0 bg-primary/15 pointer-events-none flex items-center justify-center">
       <div className="bg-card px-4 py-2 shadow-lg border border-primary/30">
-        <div className="text-primary font-medium text-xs uppercase tracking-wider">{message}</div>
+        <div className="text-primary font-medium text-bf-sm">{message}</div>
       </div>
     </div>
   );
@@ -65,7 +75,7 @@ export function LabelOverlay({ label, position = 'bottom-left' }: LabelOverlayPr
   };
   
   return (
-    <div className={`absolute ${positionClasses[position]} text-xs text-white bg-black/50 px-1`}>
+    <div className={`absolute ${positionClasses[position]} text-bf-xs text-foreground bg-black/50 px-1`}>
       {label}
     </div>
   );
@@ -89,7 +99,7 @@ export function CoordinateDisplay({ coordinates, position = 'top-left' }: Coordi
   };
   
   return (
-    <div className={`absolute ${positionClasses[position]} bg-black bg-opacity-75 text-white text-xs px-2 py-1`}>
+    <div className={`absolute ${positionClasses[position]} bg-black bg-opacity-75 text-foreground text-bf-xs px-2 py-1`}>
       {formatCoordinate(coordinates)}
     </div>
   );
@@ -100,41 +110,22 @@ interface NoLayersOverlayProps {
 }
 
 /**
- * Bauhaus Empty State: Pure Geometry & Typography
- * Replaces the organic brain emoji with abstract volumetric representation
+ * Text-only empty state (Workstation restyle): one sentence plus a sans hint
+ * (mono is reserved for identifiers, paths and numbers),
+ * no illustration.
  */
 export function NoLayersOverlay({ showLoadingHint = true }: NoLayersOverlayProps) {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none bg-muted/10 select-none">
-      {/* Wireframe Cube - representing volumetric 3D space */}
-      {/* Ultra-thin stroke (0.5px) for drafting pen aesthetic */}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="64"
-        height="64"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="0.5"
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-        className="text-foreground/20 mb-6"
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none select-none text-center">
+      <p
+        className="text-bf-sm font-medium"
+        style={{ color: "var(--bf-text-secondary)" }}
       >
-        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-        <line x1="12" y1="22.08" x2="12" y2="12" />
-      </svg>
-
-      {/* Technical specification header */}
-      <h3 className="text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground border-b border-muted-foreground/20 pb-1 mb-2">
-        Volume Buffer Empty
-      </h3>
-
-      {/* Monospace coordinate-style instruction */}
+        No volume loaded
+      </p>
       {showLoadingHint && (
-        <p className="text-[9px] font-mono text-muted-foreground/50 text-center uppercase tracking-wider">
-          Awaiting Input Stream<br/>
-          Double-click a file or drag &amp; drop
+        <p className="text-bf-sm text-muted-foreground">
+          Double-click a file in Files, or drop one here
         </p>
       )}
     </div>
@@ -154,7 +145,7 @@ export function LoadingVolumeOverlay({ position = 'top-right' }: LoadingVolumeOv
   };
 
   return (
-    <div className={`absolute ${positionClasses[position]} bg-card border-l-2 border-primary text-foreground text-[10px] uppercase tracking-wider font-medium px-2 py-1`}>
+    <div className={`absolute ${positionClasses[position]} bg-card border-l-2 border-primary text-foreground font-sans text-bf-xs px-2 py-1`}>
       Loading volume…
     </div>
   );

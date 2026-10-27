@@ -10,6 +10,31 @@ export function transformWorldToVoxelColumnMajor(
   matrix: number[],
   world: WorldCoord3
 ): WorldCoord3 {
+  return applyColumnMajor4x4(matrix, world);
+}
+
+/**
+ * Voxel index (i, j, k) -> world mm through the backend's column-major
+ * `voxel_to_world` (the GPU info / `VolumeMetadata.voxelToWorld` layout).
+ * Fractional indices are allowed (voxel centres are integers).
+ */
+export function transformVoxelToWorldColumnMajor(
+  matrix: number[],
+  voxel: WorldCoord3
+): WorldCoord3 {
+  return applyColumnMajor4x4(matrix, voxel);
+}
+
+/** True when `matrix` is a usable flattened 4x4 (16 finite numbers). */
+export function isAffine4x4(matrix: unknown): matrix is number[] {
+  return (
+    Array.isArray(matrix) &&
+    matrix.length >= 16 &&
+    matrix.slice(0, 16).every((v) => typeof v === 'number' && Number.isFinite(v))
+  );
+}
+
+function applyColumnMajor4x4(matrix: number[], world: WorldCoord3): WorldCoord3 {
   if (matrix.length < 16) {
     throw new Error(`Expected 16 matrix elements, received ${matrix.length}`);
   }

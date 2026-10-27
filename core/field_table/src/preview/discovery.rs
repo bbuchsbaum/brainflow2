@@ -22,6 +22,7 @@ use walkdir::WalkDir;
 #[derive(Clone, Debug, Default)]
 pub struct DiscoveryInventory {
     pub root_exists: bool,
+    pub truncated: bool,
     pub source_label: Option<String>,
     pub root_issue: Option<String>,
     pub files: Vec<DiscoveryInventoryFile>,
@@ -80,8 +81,19 @@ pub(super) fn regex_candidate(
     let features = feature_roles
         .iter()
         .map(|role| StudioFeatureSummary {
+            value_role: None,
+            units: None,
             id: role.clone(),
-            label: title_case(role),
+            label: if discovery
+                .summary
+                .capture_names
+                .iter()
+                .any(|name| name == "image" || name == "member")
+            {
+                role.clone()
+            } else {
+                title_case(role)
+            },
             kind: StudioSupportKind::Volume,
         })
         .collect::<Vec<_>>();
@@ -115,24 +127,33 @@ pub(super) fn regex_candidate(
         });
     }
 
+    let mut contract = import_contract(ImportContractInput {
+        provenance_kind: StudioImportProvenanceKind::RegexDiscovery,
+        provenance_label: discovery.source_hint.clone(),
+        member_count: regex_member_ids.len(),
+        support_kind: StudioSupportKind::Volume,
+        join_severity: &discovery.join_severity,
+        support_severity: &discovery.support_severity,
+        unmatched_rows: discovery.summary.unmatched_files,
+        duplicate_keys: discovery.summary.duplicate_keys,
+        ready_for_compare: discovery.ready_for_compare,
+        extra_capabilities: vec![StudioImportCapability::ExportNeurotabs],
+    });
+    if discovery.summary.truncated || discovery.summary.duplicate_keys > 0 {
+        contract.can_import = false;
+        contract.readiness = bridge_types::StudioImportReadiness::Blocked;
+        contract.capabilities.clear();
+        contract.reason =
+            "Resolve duplicate assignments or narrow the incomplete scan before opening.".into();
+    }
+
     StudioImportCandidate {
         id: "candidate-regex-b".to_string(),
         label: "Regex discovery preview".to_string(),
         description: discovery.description.clone(),
         mode: StudioImportMode::Regex,
         source_hint: discovery.source_hint.clone(),
-        contract: import_contract(ImportContractInput {
-            provenance_kind: StudioImportProvenanceKind::RegexDiscovery,
-            provenance_label: discovery.source_hint.clone(),
-            member_count: regex_member_ids.len(),
-            support_kind: StudioSupportKind::Volume,
-            join_severity: &discovery.join_severity,
-            support_severity: &discovery.support_severity,
-            unmatched_rows: discovery.summary.unmatched_files,
-            duplicate_keys: discovery.summary.duplicate_keys,
-            ready_for_compare: discovery.ready_for_compare,
-            extra_capabilities: vec![StudioImportCapability::ExportNeurotabs],
-        }),
+        contract,
         set: SpatialFieldSetSummary {
             id: "study-regex-preview".to_string(),
             name: discovery.set_name.clone(),
@@ -280,7 +301,7 @@ fn build_discovery_preview(
         });
     }
 
-    let (matches, unmatched_files, truncated) = if root_exists {
+    let (matches, unmatched_files, mut truncated) = if root_exists {
         match regex {
             Some(regex) => {
                 if let Some(inventory) = discovery_inventory {
@@ -313,6 +334,7 @@ fn build_discovery_preview(
     };
 
     let grouped = group_discovery_matches(matches, request.discovery_required_roles.as_deref());
+    truncated |= discovery_inventory.is_some_and(|inventory| inventory.truncated);
     let observed_roles = grouped.observed_roles.clone();
     let required_roles = grouped.required_roles.clone();
     let design_columns = grouped.design_columns.clone();
@@ -400,7 +422,7 @@ fn build_discovery_preview(
     }
 
     let mut support_label = "headers not sampled".to_string();
-    let mut alignment_class = StudioAlignmentClass::SameSpace;
+    let mut alignment_class = StudioAlignmentClass::Unknown;
     let mut support_severity = StudioAuditSeverity::Ok;
     if sample_headers {
         if discovery_inventory.is_none() {
@@ -483,7 +505,11 @@ fn build_discovery_preview(
     } else {
         StudioAuditSeverity::Ok
     };
-    let ready_for_compare = root_exists
+    let ready_for_compare = sample_headers
+        && discovery_inventory.is_none()
+        && alignment_class == StudioAlignmentClass::SameGrid
+        && !truncated
+        && root_exists
         && regex.is_some()
         && !grouped.groups.is_empty()
         && duplicate_keys == 0
@@ -710,14 +736,22 @@ fn discover_grouped_files(
     let root_path = Path::new(root);
     let mut walker = WalkDir::new(root_path);
     if let Some(depth) = max_depth {
-        walker = walker.max_depth(depth.saturating_add(1));
+        walker = walker.max_depth(depth);
     }
 
     let mut matches = Vec::new();
     let mut unmatched_files = Vec::new();
     let mut truncated = false;
 
-    for entry in walker.into_iter().filter_map(Result::ok) {
+    for (visited, entry) in walker.into_iter().enumerate() {
+        if visited >= max_files.saturating_mul(32).max(1024) {
+            truncated = true;
+            break;
+        }
+        let Ok(entry) = entry else {
+            truncated = true;
+            continue;
+        };
         if !entry.file_type().is_file() {
             continue;
         }
@@ -757,15 +791,21 @@ fn discover_grouped_files(
         }
 
         let member_id = derive_discovery_member_id(&captures, &relative_path, matches.len());
-        let (role, role_confidence) = captures
-            .get("role")
-            .map(|value| {
-                let normalized = normalize_role(value, role_patterns).unwrap_or_else(|| {
-                    sanitize_role(value).unwrap_or(DEFAULT_DISCOVERY_ROLE.to_string())
-                });
-                (normalized, 1.0)
-            })
-            .unwrap_or_else(|| infer_role_from_path(&relative_path, role_patterns));
+        let (role, role_confidence) = if let Some(image) = captures.get("image") {
+            (image.clone(), 0.0)
+        } else if captures.contains_key("member") {
+            ("image".to_string(), 0.0)
+        } else {
+            captures
+                .get("role")
+                .map(|value| {
+                    let normalized = normalize_role(value, role_patterns).unwrap_or_else(|| {
+                        sanitize_role(value).unwrap_or(DEFAULT_DISCOVERY_ROLE.to_string())
+                    });
+                    (normalized, 1.0)
+                })
+                .unwrap_or_else(|| infer_role_from_path(&relative_path, role_patterns))
+        };
         let design_values = discovery_design_values(&captures, &member_id);
 
         matches.push(DiscoveryFileMatch {
@@ -834,15 +874,21 @@ fn discover_grouped_inventory_files(
         }
 
         let member_id = derive_discovery_member_id(&captures, &relative_path, matches.len());
-        let (role, role_confidence) = captures
-            .get("role")
-            .map(|value| {
-                let normalized = normalize_role(value, role_patterns).unwrap_or_else(|| {
-                    sanitize_role(value).unwrap_or(DEFAULT_DISCOVERY_ROLE.to_string())
-                });
-                (normalized, 1.0)
-            })
-            .unwrap_or_else(|| infer_role_from_path(&relative_path, role_patterns));
+        let (role, role_confidence) = if let Some(image) = captures.get("image") {
+            (image.clone(), 0.0)
+        } else if captures.contains_key("member") {
+            ("image".to_string(), 0.0)
+        } else {
+            captures
+                .get("role")
+                .map(|value| {
+                    let normalized = normalize_role(value, role_patterns).unwrap_or_else(|| {
+                        sanitize_role(value).unwrap_or(DEFAULT_DISCOVERY_ROLE.to_string())
+                    });
+                    (normalized, 1.0)
+                })
+                .unwrap_or_else(|| infer_role_from_path(&relative_path, role_patterns))
+        };
         let design_values = discovery_design_values(&captures, &member_id);
 
         matches.push(DiscoveryFileMatch {
@@ -894,7 +940,6 @@ fn group_discovery_matches(
                 .filter_map(|role| sanitize_role(role))
                 .collect::<Vec<_>>()
         })
-        .filter(|roles| !roles.is_empty())
         .unwrap_or_else(|| {
             if observed_roles.len() > 1 {
                 observed_roles.clone()
@@ -1086,6 +1131,9 @@ fn derive_discovery_member_id(
     relative_path: &str,
     fallback_index: usize,
 ) -> String {
+    if let Some(member) = captures.get("member") {
+        return member.clone();
+    }
     let mut parts = Vec::new();
     if let Some(subject) = captures.get("subject").or_else(|| captures.get("sub")) {
         if !subject.trim().is_empty() {
@@ -1130,7 +1178,7 @@ fn discovery_design_values(
             }
         }
     }
-    if !seen.contains("subject") {
+    if !seen.contains("subject") && !captures.contains_key("member") {
         values.insert(
             0,
             StudioDiscoveryDesignValue {
@@ -1146,7 +1194,7 @@ fn discovery_design_values(
         .filter(|key| {
             !matches!(
                 key.as_str(),
-                "role" | "sub" | "subject" | "session" | "contrast"
+                "role" | "image" | "sub" | "subject" | "session" | "contrast"
             )
         })
         .cloned()

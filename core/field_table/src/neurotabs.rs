@@ -192,6 +192,17 @@ impl NeuroTabsManifest {
         issues: &mut Vec<NeuroTabsIssue>,
     ) {
         let feature_path = format!("$.features.{feature_id}");
+        if feature
+            .logical
+            .unit
+            .as_ref()
+            .is_some_and(|unit| unit.trim().is_empty() || unit.len() > 128)
+        {
+            issues.push(NeuroTabsIssue::new(
+                format!("{feature_path}.logical.unit"),
+                "units must be nonempty and at most 128 bytes",
+            ));
+        }
 
         if feature.logical.axes.is_empty() {
             issues.push(NeuroTabsIssue::new(
@@ -399,6 +410,9 @@ pub enum ScalarDType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FeatureSchema {
+    /// Optional Brainflow measurement-role declaration; never inferred from the feature ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_role: Option<bridge_types::StudioValueRole>,
     pub logical: LogicalFeatureSchema,
     pub encodings: Vec<FeatureEncoding>,
     #[serde(default)]
@@ -929,6 +943,29 @@ features:
         parse_manifest_str(text, Path::new("nftab.yaml"))
     }
 
+    #[test]
+    fn feature_measurement_contract_is_typed_and_units_are_validated() {
+        let text = FACES_DEMO_MANIFEST
+            .replacen("  statmap:\n", "  statmap:\n    value_role: effect\n", 1)
+            .replacen(
+                "      dtype: float32",
+                "      unit: percent signal change\n      dtype: float32",
+                1,
+            );
+        let manifest = parse_yaml(&text).unwrap();
+        assert_eq!(
+            manifest.features["statmap"].value_role,
+            Some(bridge_types::StudioValueRole::Effect)
+        );
+        assert_eq!(
+            manifest.features["statmap"].logical.unit.as_deref(),
+            Some("percent signal change")
+        );
+        assert!(
+            parse_yaml(&text.replace("value_role: effect", "value_role: unknownStatistic"))
+                .is_err()
+        );
+    }
     #[test]
     fn parses_faces_demo_manifest_shape() {
         let manifest = parse_yaml(FACES_DEMO_MANIFEST).expect("parse faces-demo manifest");

@@ -11,6 +11,7 @@ import type { Layer, LayerRender } from "@/types/layers";
 import type { DataRange } from "@brainflow/api";
 import { getEventBus } from "@/events/EventBus";
 import { storeLog, storeWarn } from "@/utils/debugLog";
+import { resolveVoxelGridReference, setVoxelGridReferenceProvider } from "@/utils/voxelSnap";
 
 // Enable Map and Set support in Immer
 enableMapSet();
@@ -19,6 +20,11 @@ enableMapSet();
 export interface VolumeMetadata {
   // Existing fields
   dataRange?: DataRange;
+  /**
+   * |v| hidden at first paint by the statistic default (3.1 for z / t), when
+   * the file set no threshold: the Inspector says the threshold is a default.
+   */
+  statisticDefaultThreshold?: number;
   centerWorld?: [number, number, number];
   isBinaryLike?: boolean;
   worldBounds?: {
@@ -76,6 +82,17 @@ export interface LayerInfo extends Layer {
     acquisition_time: number | null;
   };
   currentTimepoint?: number;
+  /**
+   * Statistic declared by the source header (NIfTI intent or an SPM-style
+   * description): drives the value units ("z", "t(24)") in the colorbar,
+   * the status Value readout and the Inspector. See utils/statistic.ts.
+   */
+  statistic?: import("@brainflow/api").StatisticInfo;
+  /**
+   * A categorical label map (NIfTI intent 1002 or a label-table sidecar):
+   * the Inspector treats it like an atlas (regions legend, no window).
+   */
+  isLabelMap?: boolean;
   /**
    * Per-label legend for an atlas/parcellation layer (label id -> name, network,
    * hemisphere, color). Populated when the atlas palette is applied; used for
@@ -430,6 +447,13 @@ export const useLayerStore: ReturnType<typeof createLayerStore> = (() => {
 
   return store;
 })();
+
+// Voxel-exact navigation reads its reference grid (the bottom volume layer)
+// from here; see utils/voxelSnap.ts.
+setVoxelGridReferenceProvider(() => {
+  const { layers, layerMetadata } = useLayerStore.getState();
+  return resolveVoxelGridReference(layers, layerMetadata);
+});
 
 // Subscribe to service events for error propagation
 const eventBus = getEventBus();

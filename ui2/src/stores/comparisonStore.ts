@@ -7,7 +7,13 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { enableMapSet } from 'immer';
-import type { ComparisonPanelConfig, ComparisonLayout } from '@/types/comparison';
+import type {
+  ComparisonPanelConfig,
+  ComparisonLayout,
+  CompareLinkMode,
+  LayerRenderOverride,
+  PanelOverrideField,
+} from '@/types/comparison';
 import type { ViewPlane } from '@/types/coordinates';
 
 enableMapSet();
@@ -26,6 +32,12 @@ interface ComparisonState {
   globalViewTypes: Map<string, 'axial' | 'sagittal' | 'coronal'>;
   /** Resolved per-panel views used for rendering/crosshair projection */
   panelViewPlanes: Map<string, ViewPlane>;
+  /** "Link" per workspace (P3.9). Absent = "all" (today's behaviour). */
+  linkModes: Map<string, CompareLinkMode>;
+  /** The panel Inspector edits go to while unlinked, per workspace. */
+  activePanelIds: Map<string, string>;
+  /** Unlinked edit scope: the active panel only, or every panel ("Both"). */
+  editScopes: Map<string, 'panel' | 'all'>;
 }
 
 interface ComparisonActions {
@@ -75,6 +87,32 @@ interface ComparisonActions {
   /** Read the resolved view plane for a panel */
   getPanelViewPlane: (panelId: string) => ViewPlane | undefined;
 
+  /** Which display properties the panels share (window, threshold, colormap). */
+  setLinkMode: (workspaceId: string, mode: CompareLinkMode) => void;
+
+  /** Make a panel the target of unlinked Inspector edits. */
+  setActivePanel: (workspaceId: string, panelId: string) => void;
+
+  /** Unlinked edit scope: the active panel, or all panels. */
+  setEditScope: (workspaceId: string, scope: 'panel' | 'all') => void;
+
+  /** Set one display override of a layer in one panel. */
+  setPanelOverride: <K extends PanelOverrideField>(
+    workspaceId: string,
+    panelId: string,
+    layerId: string,
+    field: K,
+    value: LayerRenderOverride[K],
+  ) => void;
+
+  /** Drop a layer's override (one field, or all) in one panel, or in every panel when panelId is null. */
+  clearPanelOverride: (
+    workspaceId: string,
+    panelId: string | null,
+    layerId: string,
+    field?: PanelOverrideField,
+  ) => void;
+
   /** Clear a workspace's comparison config */
   clearWorkspace: (workspaceId: string) => void;
 }
@@ -95,6 +133,75 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
       layouts: new Map(),
       globalViewTypes: new Map(),
       panelViewPlanes: new Map(),
+      linkModes: new Map(),
+      activePanelIds: new Map(),
+      editScopes: new Map(),
+
+      setLinkMode: (workspaceId, mode) => {
+        set((state) => {
+          if ((state.linkModes.get(workspaceId) ?? 'all') === mode) return;
+          state.linkModes.set(workspaceId, mode);
+          const panels = state.panels.get(workspaceId) ?? [];
+          if (mode !== 'all' && !state.activePanelIds.has(workspaceId) && panels[0]) {
+            state.activePanelIds.set(workspaceId, panels[0].id);
+          }
+        });
+      },
+
+      setActivePanel: (workspaceId, panelId) => {
+        set((state) => {
+          if (state.activePanelIds.get(workspaceId) === panelId) return;
+          state.activePanelIds.set(workspaceId, panelId);
+        });
+      },
+
+      setEditScope: (workspaceId, scope) => {
+        set((state) => {
+          if ((state.editScopes.get(workspaceId) ?? 'panel') === scope) return;
+          state.editScopes.set(workspaceId, scope);
+        });
+      },
+
+      setPanelOverride: (workspaceId, panelId, layerId, field, value) => {
+        set((state) => {
+          const panels = state.panels.get(workspaceId);
+          if (!panels) return;
+          state.panels.set(
+            workspaceId,
+            panels.map((panel) => {
+              if (panel.id !== panelId) return panel;
+              const overrides = { ...(panel.renderOverrides ?? {}) };
+              overrides[layerId] = { ...(overrides[layerId] ?? {}), [field]: value };
+              return { ...panel, renderOverrides: overrides };
+            })
+          );
+        });
+      },
+
+      clearPanelOverride: (workspaceId, panelId, layerId, field) => {
+        set((state) => {
+          const panels = state.panels.get(workspaceId);
+          if (!panels) return;
+          let changed = false;
+          const next = panels.map((panel) => {
+            if (panelId !== null && panel.id !== panelId) return panel;
+            const current = panel.renderOverrides?.[layerId];
+            if (!current || (field && current[field] === undefined)) return panel;
+            const overrides = { ...(panel.renderOverrides ?? {}) };
+            if (field) {
+              const rest = { ...current };
+              delete rest[field];
+              if (Object.keys(rest).length > 0) overrides[layerId] = rest;
+              else delete overrides[layerId];
+            } else {
+              delete overrides[layerId];
+            }
+            changed = true;
+            return { ...panel, renderOverrides: overrides };
+          });
+          if (changed) state.panels.set(workspaceId, next);
+        });
+      },
 
       initFromLayers: (workspaceId, layerIds, layerLabels) => {
         set(state => {
@@ -293,6 +400,9 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
           state.panels.delete(workspaceId);
           state.layouts.delete(workspaceId);
           state.globalViewTypes.delete(workspaceId);
+          state.linkModes.delete(workspaceId);
+          state.activePanelIds.delete(workspaceId);
+          state.editScopes.delete(workspaceId);
         });
       },
     }))

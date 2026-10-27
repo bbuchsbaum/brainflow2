@@ -1,9 +1,16 @@
+import { formatDataRange, formatDims, formatVoxelSize } from "@/utils/valueFormat";
+import { asciiCopyHandler } from "@/utils/numericInput";
+import { describeStatistic, isInferredStatistic, statisticPhrase } from "@/utils/statistic";
+import { StatSymbol } from "@/components/ui/StatSymbol";
+import { getClusterService } from "@/services/ClusterService";
+import { getEventBus } from "@/events/EventBus";
+import { formatTauriError } from "@/utils/formatTauriError";
 import React from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import { useSurfaceStore } from "@/stores/surfaceStore";
 import type { SceneItem } from "@/types/sceneItem";
-import { InspectorSection, FactGrid } from "../InspectorSection";
+import { Button, KeyValue, Notice, Section } from "@/components/ui/bf";
 import { InlineHistogramPreview } from "./InlineHistogramPreview";
 
 interface DataSectionProps {
@@ -54,7 +61,7 @@ export function DataSection({ item }: DataSectionProps) {
       : null;
 
   return (
-    <InspectorSection label="Data" icon={<DataIcon />} defaultOpen>
+    <Section title="Data" icon={<DataIcon />} defaultOpen>
       {(() => {
         switch (item.kind) {
           case "volume-base":
@@ -72,7 +79,7 @@ export function DataSection({ item }: DataSectionProps) {
         <InlineHistogramPreview layerId={previewLayerId} onOpen={handleOpen} />
       )}
       <OpenInDockLink item={item} onOpen={handleOpen} />
-    </InspectorSection>
+    </Section>
   );
 }
 
@@ -87,27 +94,51 @@ function VolumeFacts({ item }: { item: SceneItem }) {
 
   if (!layer) return null;
 
-  const facts: Array<{ label: string; value: string }> = [];
+  const facts: Array<{ label: string; value: React.ReactNode }> = [];
   const dim = metadata?.dimensions;
   const ts = layer.timeSeriesInfo;
   if (dim) {
-    const shape = ts
-      ? `${dim[0]}×${dim[1]}×${dim[2]}×${ts.num_timepoints}`
-      : `${dim[0]}×${dim[1]}×${dim[2]}`;
+    const shape = formatDims(
+      ts ? [dim[0], dim[1], dim[2], ts.num_timepoints] : [dim[0], dim[1], dim[2]],
+    );
     facts.push({ label: "Shape", value: shape });
   }
   if (metadata?.dataRange) {
     const { min, max } = metadata.dataRange;
     facts.push({
       label: "Range",
-      value: `${formatNum(min)} — ${formatNum(max)}`,
+      value: formatDataRange(min, max),
+    });
+  }
+  // Statistic maps: "t(24)", "z score", "z score (from name)" (utils/statistic.ts).
+  const phrase = layer.statistic ? statisticPhrase(layer.statistic, metadata?.dataRange) : null;
+  if (layer.statistic && phrase) {
+    // "z score", "t(24)" with the variable in italic; the source in the
+    // tooltip ("t(24) · t-stat").
+    const description = describeStatistic(layer.statistic, metadata?.dataRange);
+    facts.push({
+      label: "Statistic",
+      value: (
+        // A statistic guessed from the file name is marked "z*" (the symbol
+        // says it); the tooltip spells it out, no "(from name)" repeat.
+        <span
+          title={
+            isInferredStatistic(layer.statistic)
+              ? `${description} · inferred from file name`
+              : description
+          }
+        >
+          <StatSymbol label={phrase.variable} />
+          {phrase.rest}
+        </span>
+      ),
     });
   }
   if (metadata?.spacing) {
     const [sx, sy, sz] = metadata.spacing;
     facts.push({
       label: "Voxel size",
-      value: `${formatNum(sx)}×${formatNum(sy)}×${formatNum(sz)} mm`,
+      value: `${formatVoxelSize([sx, sy, sz])} mm`,
     });
   }
   if (ts?.tr != null) {
@@ -119,7 +150,43 @@ function VolumeFacts({ item }: { item: SceneItem }) {
     facts.push({ label: "Space", value: metadata.orientation });
   }
 
-  return facts.length > 0 ? <FactGrid facts={facts} /> : <EmptyFacts />;
+  return facts.length > 0 ? (
+    // Copying a fact puts ASCII minus on the clipboard.
+    <div className="contents" onCopy={asciiCopyHandler}>
+      <KeyValue boxed items={facts} />
+      {phrase && layerId ? <ExtremumLinks layerId={layerId} /> : null}
+    </div>
+  ) : (
+    <EmptyFacts />
+  );
+}
+
+/**
+ * Statistic layers: move the crosshair to the largest / smallest value
+ * (`volume_extremum`), next to the Range the numbers come from.
+ */
+function ExtremumLinks({ layerId }: { layerId: string }) {
+  const go = (kind: "max" | "min") => {
+    void getClusterService()
+      .goToExtremum(layerId, kind)
+      .catch((err) =>
+        getEventBus().emit("ui.notification", {
+          type: "error",
+          message: `Could not find the ${kind}: ${formatTauriError(err)}`,
+        }),
+      );
+  };
+  return (
+    // Same control as the Clusters footer: secondary buttons (24px targets).
+    <div className="mt-1 flex items-center gap-1 text-bf-xs" data-testid="extremum-links">
+      <Button variant="secondary" size="sm" onClick={() => go("max")}>
+        Go to max
+      </Button>
+      <Button variant="secondary" size="sm" onClick={() => go("min")}>
+        Go to min
+      </Button>
+    </div>
+  );
 }
 
 function SurfaceFacts({ item }: { item: SceneItem }) {
@@ -150,7 +217,7 @@ function SurfaceFacts({ item }: { item: SceneItem }) {
   if (surface.metadata.surfaceType) {
     facts.push({ label: "Type", value: surface.metadata.surfaceType });
   }
-  return facts.length > 0 ? <FactGrid facts={facts} /> : <EmptyFacts />;
+  return facts.length > 0 ? <KeyValue boxed items={facts} /> : <EmptyFacts />;
 }
 
 function OpenInDockLink({
@@ -168,49 +235,40 @@ function OpenInDockLink({
   if (!showsPlot) return null;
 
   return (
-    <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]">
+    <div className="mt-2 flex items-center justify-between border-t border-bf-border-subtle pt-2 text-bf-xs">
       <span className="text-muted-foreground">Full plot</span>
-      <button
-        type="button"
+      <Button
+        variant="link"
+        size="sm"
         onClick={onOpen}
         data-testid="open-in-dock"
-        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sky-600 transition-colors hover:bg-accent/40 dark:text-sky-300"
         title="Open this layer's plot in the bottom dock"
+        iconPosition="right"
+        icon={
+          <svg
+            viewBox="0 0 16 16"
+            className="min-h-6 h-3 w-3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden
+          >
+            <path
+              d="M5 8h6M8 5l3 3-3 3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        }
       >
-        <span>Open in dock</span>
-        <svg
-          viewBox="0 0 16 16"
-          className="h-3 w-3"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          aria-hidden
-        >
-          <path
-            d="M5 8h6M8 5l3 3-3 3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+        Open in dock
+      </Button>
     </div>
   );
 }
 
 function EmptyFacts() {
-  return (
-    <div className="rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70">
-      No metadata yet.
-    </div>
-  );
-}
-
-function formatNum(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  const abs = Math.abs(value);
-  if (abs === 0) return "0";
-  if (abs >= 1000 || abs < 0.01) return value.toExponential(2);
-  return value.toFixed(2);
+  return <Notice role={undefined}>No metadata yet.</Notice>;
 }
 
 function DataIcon() {

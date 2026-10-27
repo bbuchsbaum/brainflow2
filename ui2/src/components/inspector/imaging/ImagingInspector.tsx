@@ -3,6 +3,7 @@ import { useSceneStack } from '@/hooks/useSceneStack';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import type { SceneItem } from '@/types/sceneItem';
 import { SceneStack } from './SceneStack';
+import { CompareEditBar } from './CompareEditBar';
 import { SectionRouter } from './SectionRouter';
 
 /**
@@ -31,6 +32,7 @@ export function ImagingInspector() {
 
   return (
     <div className="flex flex-col">
+      <CompareEditBar />
       <SceneStack />
       {activeItem ? <SectionRouter item={activeItem} /> : <NoSelectionHint />}
     </div>
@@ -39,7 +41,7 @@ export function ImagingInspector() {
 
 function NoSelectionHint() {
   return (
-    <div className="border-t border-border/60 px-3 py-6 text-center text-[11px] text-muted-foreground/80">
+    <div className="border-t border-border/60 px-3 py-6 text-center text-bf-xs text-muted-foreground">
       Select a scene item above to edit its render, data, or mapping settings.
     </div>
   );

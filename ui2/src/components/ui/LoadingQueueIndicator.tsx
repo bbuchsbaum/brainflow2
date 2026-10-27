@@ -27,19 +27,19 @@ export const LoadingQueueIndicator: React.FC<LoadingQueueIndicatorProps> = ({
   
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-      <span className="text-sm text-gray-600">
+      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+      <span className="text-bf-sm text-bf-text-secondary">
         {activeCount > 0 && `Loading ${activeCount} file${activeCount > 1 ? 's' : ''}`}
         {queuedCount > 0 && ` (${queuedCount} queued)`}
       </span>
       
       {showDetails && activeLoads.length > 0 && (
-        <div className="absolute bottom-full left-0 mb-2 p-2 bg-white border rounded-md shadow-lg min-w-[200px]">
+        <div className="absolute bottom-full left-0 mb-2 p-2 bg-popover text-popover-foreground border border-border rounded-sm shadow-lg min-w-[200px]">
           {activeLoads.map(item => (
             <div key={item.id} className="flex items-center justify-between gap-2 py-1">
-              <span className="text-xs truncate flex-1">{item.displayName}</span>
+              <span className="text-bf-xs truncate flex-1">{item.displayName}</span>
               {item.progress !== undefined && (
-                <span className="text-xs text-gray-500">{item.progress}%</span>
+                <span className="text-bf-xs text-muted-foreground">{item.progress}%</span>
               )}
             </div>
           ))}

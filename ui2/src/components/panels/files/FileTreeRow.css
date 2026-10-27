@@ -1,17 +1,17 @@
 /* FileTreeRow — chrome rendered for each react-arborist row. */
+/* Row geometry and states come from the bf SelectableRow vocabulary (classes
+   applied in FileTreeRow.tsx): 24px row, 8px inset + 12px per level, selected
+   = #36383d fill + 2px inset amber left edge (x 0-1), hover = neutral hover
+   fill on unselected rows. This file keeps only what Tailwind cannot express:
+   the keyboard-gated focus ring on react-arborist's treeitem wrapper. */
 .file-tree-item {
   user-select: none;
   cursor: pointer;
-  display: flex;
-  align-items: center;
   width: 100%;
   height: 100%;
-  padding: var(--bf-space-1) var(--bf-space-3);
-  font-size: var(--app-text-base);
-  color: var(--bf-text-primary);
-  transition: background-color var(--bf-motion-fast) ease;
-  position: relative;
+  padding-right: var(--bf-space-2);
   white-space: nowrap;
+  transition: background-color var(--bf-motion-fast) ease;
 }
 
 .file-tree-item[draggable='true'] {
@@ -22,26 +22,23 @@
   cursor: grabbing;
 }
 
-.file-tree-item:hover {
-  background-color: var(--bf-bg-hover);
+/* Keyboard focus (react-arborist focuses the treeitem wrapper, not this row).
+   Same geometry as SelectableRow's FOCUS_RING_INSET: a 2px amber outline at
+   outline-offset -6px, i.e. edge (x 0-1) · gap (2-3) · ring (4-5), so focus
+   and selection never fuse. Gated on [data-kbd-nav] (useKeyboardNavWithin):
+   react-arborist keeps DOM focus on a row after pointer or programmatic
+   selection, and :focus-visible alone would leave that parked row ringed. */
+.fb-tree-container [role='treeitem']:focus {
+  outline: none;
 }
 
-.file-tree-item.selected {
-  background-color: var(--bf-accent-active);
-  color: hsl(var(--primary-foreground));
-}
-
-.file-tree-item.selected:hover {
-  background-color: var(--bf-accent-soft);
-}
-
-.file-tree-item:active {
-  background-color: var(--bf-bg-active);
+.fb-tree-container[data-kbd-nav='true'] [role='treeitem']:focus > .file-tree-item {
+  outline: 2px solid var(--bf-border-focus);
+  outline-offset: -6px;
 }
 
 .file-tree-item.font-medium {
   font-weight: 500;
-  color: var(--bf-text-primary);
 }
 
 .file-tree-item .expand-button {
@@ -58,6 +55,11 @@
   height: 16px;
   flex-shrink: 0;
   margin-right: var(--bf-space-1);
+}
+
+.file-tree-item .expand-button:focus-visible {
+  outline: 2px solid var(--bf-border-focus);
+  outline-offset: 1px;
 }
 
 .file-tree-item .expand-button:hover {
@@ -97,73 +99,27 @@
   min-width: 0;
 }
 
+/* The name column: its width never depends on its text (flex 1, min-width
+   0), so useFittedName can measure it and render formatName's middle
+   truncation (extension kept whole). The end ellipsis is only a fallback for
+   search highlighting and the first frame before measurement. */
 .file-tree-item .file-name-text {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  flex: 1 1 auto;
-  min-width: 0;
-  /* No `overflow: hidden` here — that previously clipped the start of the
-     name when the head was already a complete string, hiding the extension
-     and the readable beginning at the same time. Children manage their own
-     overflow + ellipsis. */
-  white-space: nowrap;
-}
-
-.file-tree-item .file-name-head {
-  flex: 1 1 auto;
+  display: block;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-tree-item .file-name-tail {
-  flex-shrink: 0;
-  color: var(--bf-text-secondary);
-  font-family: var(--bf-font-mono);
-}
-
-.file-tree-item.selected .file-name-tail {
-  color: hsl(var(--primary));
-}
-
+/* Remote provenance tags are bf Chips (static tag form); only their share of
+   the name column is set here. */
 .file-tree-item .remote-origin-badge {
-  font-size: var(--app-text-xs);
-  font-family: var(--bf-font-mono);
-  color: var(--bf-text-secondary);
-  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
-  border: 1px solid var(--bf-border-subtle);
-  border-radius: 999px;
-  padding: 1px 6px;
   max-width: 36%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-item.selected .remote-origin-badge {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary));
 }
 
 .file-tree-item .remote-root-badge {
-  font-size: var(--app-text-xs);
-  font-family: var(--bf-font-mono);
-  color: color-mix(in srgb, var(--bf-text-secondary) 88%, var(--bf-accent) 12%);
-  background: color-mix(in srgb, var(--bf-bg-panel) 72%, var(--bf-accent) 8%);
-  border: 1px solid color-mix(in srgb, var(--bf-border-subtle) 80%, var(--bf-accent) 20%);
-  border-radius: 999px;
-  padding: 1px 6px;
   max-width: 52%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-item.selected .remote-root-badge {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary));
 }
 
 .file-tree-item .file-meta {
@@ -175,18 +131,22 @@
 }
 
 .file-tree-item .file-size {
+  font-family: var(--bf-font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--app-text-xs);
   color: var(--bf-text-muted);
   white-space: nowrap;
 }
 
 .file-tree-item.selected .file-size {
-  color: hsl(var(--primary));
+  color: var(--bf-text-secondary);
 }
 
 .file-tree-item mark {
-  background-color: var(--bf-warning);
-  color: hsl(var(--foreground));
+  background-color: var(--bf-bg-active);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--bf-text-primary);
   padding: 0 2px;
   border-radius: 2px;
   font-weight: 500;

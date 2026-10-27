@@ -63,4 +63,29 @@ describe('KeyboardShortcutService', () => {
     unregister();
     target.remove();
   });
+
+  it('fires allowInInputs shortcuts from a text field, unless the field owns its shortcuts', () => {
+    const palette = vi.fn();
+    const plain = vi.fn();
+    const off1 = service.register({ id: 't.palette', key: 'k', modifiers: { meta: true }, allowInInputs: true, category: 'T', description: 'p', handler: palette });
+    const off2 = service.register({ id: 't.plain', key: 'g', category: 'T', description: 'g', handler: plain });
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true }));
+    expect(palette).toHaveBeenCalledTimes(1);
+    expect(plain).not.toHaveBeenCalled();
+    const owner = document.createElement('div');
+    owner.setAttribute('data-own-shortcuts', '');
+    const editor = document.createElement('textarea');
+    owner.appendChild(editor);
+    document.body.appendChild(owner);
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }));
+    expect(palette).toHaveBeenCalledTimes(1);
+    off1();
+    off2();
+    input.remove();
+    owner.remove();
+  });
 });
+

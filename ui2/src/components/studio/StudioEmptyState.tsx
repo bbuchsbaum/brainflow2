@@ -1,6 +1,8 @@
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import { getSetStudioService, selectedStudioFolder } from '@/services/studio/SetStudioService';
 import { PopulationOpenControls } from './PopulationOpenControls';
 import React from 'react';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/bf';
 
 interface StudioEmptyStateProps {
   onImportTable: () => void;
@@ -15,29 +17,46 @@ export function StudioEmptyState({
   onDiscoverFiles,
   onLoadDemo,
 }: StudioEmptyStateProps) {
+  const entries = useFileBrowserStore((state) => state.entries);
+  const selectedPath = useFileBrowserStore((state) => state.selectedPath);
+  const folder = React.useMemo(
+    () => selectedStudioFolder(entries, selectedPath),
+    [entries, selectedPath],
+  );
   return (
     <div className="flex h-full items-center justify-center bg-background p-6">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="text-xs font-medium text-muted-foreground">Set Studio</div>
-        <h1 className="mt-2 text-xl font-semibold text-foreground">No study loaded</h1>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Import a table, manifest, or discovered file set to start browsing members and comparing
-          groups.
+      <div className="w-full max-w-lg rounded-sm border border-border bg-card p-6 shadow-sm">
+        <div className="text-bf-sm font-medium text-muted-foreground">Set studio</div>
+        <h1 className="mt-2 text-bf-lg font-semibold text-foreground">Open a set</h1>
+        <p className="mt-2 text-bf-md leading-6 text-muted-foreground">
+          Browse images together, organize members, and compare compatible data.
         </p>
 
+        {folder && (
+          <Button
+            variant="secondary" size="sm"
+            className="mt-4 max-w-full"
+            title={folder.path}
+            onClick={() =>
+              void getSetStudioService().openFolderOntologyInStudio({ discoveryRoot: folder.path })
+            }
+          >
+            <span className="truncate">Use selected folder: {folder.name}</span>
+          </Button>
+        )}
         <div className="mt-4">
           <PopulationOpenControls />
         </div>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Button onClick={onImportTable}>Import Table (TSV/CSV)</Button>
-          <Button variant="secondary" onClick={onImportManifest}>
-            NeuroTabs Manifest
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button variant="primary" size="sm" onClick={onImportTable}>Import table…</Button>
+          <Button variant="secondary" size="sm" onClick={onImportManifest}>
+            Open NeuroTabs manifest…
           </Button>
-          <Button variant="secondary" onClick={onDiscoverFiles}>
-            Discover Files
+          <Button variant="secondary" size="sm" onClick={onDiscoverFiles}>
+            Choose a folder…
           </Button>
-          <Button variant="ghost" onClick={onLoadDemo}>
-            Load Demo
+          <Button variant="ghost" size="sm" onClick={onLoadDemo}>
+            Try an example
           </Button>
         </div>
       </div>

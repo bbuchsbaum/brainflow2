@@ -1,5 +1,5 @@
 /**
- * Pure state machine for the Set Studio "NeuroTabs import" dialog.
+ * Pure state machine for the Set studio "NeuroTabs import" dialog.
  *
  * This module owns the entire import-dialog behaviour as a hand-rolled reducer:
  * `importReducer(context, event) -> { context, effects }`. It is intentionally
@@ -60,7 +60,7 @@ const DEFAULT_DISCOVERY_ROLE_PATTERNS: StudioDiscoveryRolePattern[] = [
   { role: 'statmap', patterns: ['statmap', 'zstat', 'zmap'] },
 ];
 
-const DEFAULT_DISCOVERY_REQUIRED_ROLES = ['tstat'];
+const DEFAULT_DISCOVERY_REQUIRED_ROLES: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Pure helpers (moved verbatim from the previous importSlice implementation)
@@ -332,6 +332,8 @@ export type ImportOntologyPhase =
   | { status: 'error'; message: string };
 
 export interface ImportContext {
+  folderReview: boolean;
+  folderSource?: StudioImportDialogState['folderSource'];
   isOpen: boolean;
   mode: StudioImportMode;
   selectedCandidateId: string | null;
@@ -367,16 +369,17 @@ export function createInitialImportRequestState(): ImportRequestState {
 export function createInitialImportContext(): ImportContext {
   return {
     isOpen: false,
+    folderReview: false,
     mode: 'table',
     selectedCandidateId: null,
     preview: { status: 'idle' },
     ontology: { status: 'idle' },
     manifestPath: '/data/studyA/studyA.neurotabs.yaml',
-    discoveryRoot: '.',
+    discoveryRoot: '',
     filePattern: DEFAULT_DISCOVERY_FILE_PATTERN,
     discoveryMaxDepth: '4',
     discoveryMaxFiles: '500',
-    discoverySampleHeaders: true,
+    discoverySampleHeaders: false,
     discoveryRequiredRoles: DEFAULT_DISCOVERY_REQUIRED_ROLES,
     discoveryRolePatterns: DEFAULT_DISCOVERY_ROLE_PATTERNS,
     discoveryCustomRole: '',
@@ -428,6 +431,8 @@ export function toDialogState(context: ImportContext): StudioImportDialogState {
   const ontology = deriveOntology(context.ontology);
   return {
     isOpen: context.isOpen,
+    folderReview: context.folderReview,
+    folderSource: context.folderSource,
     mode: context.mode,
     selectedCandidateId: context.selectedCandidateId,
     isLoading: preview.isLoading,
@@ -497,6 +502,8 @@ export function fromDialogState(
 
   return {
     isOpen: dialog.isOpen,
+    folderReview: dialog.folderReview ?? false,
+    folderSource: dialog.folderSource,
     mode: dialog.mode,
     selectedCandidateId: dialog.selectedCandidateId,
     preview,
@@ -582,9 +589,10 @@ export function buildTsvCandidate(
 
   if (
     new Set(headers).size !== headers.length ||
-    headers.some(header => !header.trim() || header !== header.trim()) ||
-    rows.some(row => row.length !== headers.length)
-  ) return null;
+    headers.some((header) => !header.trim() || header !== header.trim()) ||
+    rows.some((row) => row.length !== headers.length)
+  )
+    return null;
   const fileColIdx = headers.indexOf(columnMapping.filePathColumn);
   const subjectColIdx = headers.indexOf(columnMapping.subjectIdColumn);
   if (fileColIdx < 0 || subjectColIdx < 0) {
@@ -625,8 +633,9 @@ export function buildTsvCandidate(
     sourcePath: detail.sourcePath,
     designValues: Object.fromEntries(
       [headers[subjectColIdx], ...designColumns].map((column) => [
-        column, detail.row[headers.indexOf(column)],
-      ])
+        column,
+        detail.row[headers.indexOf(column)],
+      ]),
     ),
   }));
   const memberIds = memberSummaries.map((m) => m.id);
@@ -802,6 +811,7 @@ export type ImportEvent =
   | { type: 'CANDIDATE_SELECTED'; candidateId: string }
   | { type: 'CONFIRM_REQUESTED' }
   // Ontology lifecycle — guarded
+  | { type: 'FOLDER_REVIEW_OPENED'; root: string; source?: StudioImportDialogState['folderSource'] }
   | { type: 'ONTOLOGY_REQUESTED'; root: string | null; requestId: number }
   | { type: 'ONTOLOGY_SUCCEEDED'; requestId: number; summary: StudioFolderOntologySummary }
   | { type: 'ONTOLOGY_FAILED'; requestId: number; message: string }
@@ -952,6 +962,16 @@ function result(context: ImportContext, effects: ImportEffect[] = NO_EFFECTS): I
 
 export function importReducer(context: ImportContext, event: ImportEvent): ImportReducerResult {
   switch (event.type) {
+    case 'FOLDER_REVIEW_OPENED': {
+      return result({
+        ...createInitialImportContext(),
+        isOpen: true,
+        mode: 'regex',
+        folderReview: true,
+        folderSource: event.source,
+        discoveryRoot: event.root,
+      });
+    }
     case 'OPEN_DIALOG': {
       const { mode } = event;
       const candidateForMode =
@@ -964,6 +984,7 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
         ...context,
         isOpen: true,
         mode,
+        folderReview: false,
         selectedCandidateId: candidateForMode,
         preview: { status: 'idle' },
       });
@@ -973,7 +994,12 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
       if (!context.isOpen) {
         return result(context);
       }
-      return result({ ...context, isOpen: false });
+      return result({
+        ...context,
+        isOpen: false,
+        preview: { status: 'idle' },
+        ontology: context.ontology.status === 'scanning' ? { status: 'idle' } : context.ontology,
+      });
     }
 
     case 'PREVIEW_REQUESTED': {
@@ -1054,7 +1080,12 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
       const candidate = context.selectedCandidateId
         ? (context.candidates[context.selectedCandidateId] ?? null)
         : null;
-      if (!candidate || !canImportCandidate(candidate)) {
+      if (
+        !candidate ||
+        !canImportCandidate(candidate) ||
+        context.preview.status !== 'loaded' ||
+        context.ontology.status === 'scanning'
+      ) {
         return result(context);
       }
       return result({ ...context, isOpen: false }, [
@@ -1070,6 +1101,8 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
           isOpen: true,
           mode: 'regex',
           selectedCandidateId: null,
+          preview: { status: 'idle' },
+          candidates: withoutImportCandidatesForMode(context.candidates, 'regex'),
           discoveryRoot,
           ontology: { status: 'scanning', requestId: event.requestId, root: discoveryRoot },
         },
@@ -1115,7 +1148,9 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
         filePattern: candidate.filePattern,
         discoveryRequiredRoles: candidate.requiredRoles,
         discoveryRolePatterns: candidate.rolePatterns,
-        preview: clearPreviewError(context.preview),
+        preview: { status: 'idle' },
+        selectedCandidateId: null,
+        candidates: withoutImportCandidatesForMode(context.candidates, 'regex'),
       });
     }
 
@@ -1123,47 +1158,78 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
       if (context.manifestPath === event.path) {
         return result(context);
       }
-      return result({ ...context, manifestPath: event.path });
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        selectedCandidateId: null,
+        manifestPath: event.path,
+      });
     }
 
     case 'DISCOVERY_ROOT_SET': {
       if (context.discoveryRoot === event.root) {
         return result(context);
       }
-      // Match the legacy action: clear a settled ontology result, but leave an
-      // in-flight scan alone (its eventual result is invalidated by the root
-      // mismatch guard).
-      const ontology: ImportOntologyPhase =
-        context.ontology.status === 'scanning' ? context.ontology : { status: 'idle' };
-      return result({ ...context, discoveryRoot: event.root, ontology });
+      // Invalidate identity as well as the path: changing away and back must not revive a scan.
+      const ontology: ImportOntologyPhase = { status: 'idle' };
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        selectedCandidateId: null,
+        discoveryRoot: event.root,
+        ontology,
+      });
     }
 
     case 'FILE_PATTERN_SET': {
       if (context.filePattern === event.pattern) {
         return result(context);
       }
-      return result({ ...context, filePattern: event.pattern });
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        selectedCandidateId: null,
+        filePattern: event.pattern,
+        ontology: context.ontology.status === 'scanning' ? { status: 'idle' } : context.ontology,
+      });
     }
 
     case 'DISCOVERY_MAX_DEPTH_SET': {
       if (context.discoveryMaxDepth === event.value) {
         return result(context);
       }
-      return result({ ...context, discoveryMaxDepth: event.value });
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        ontology: { status: 'idle' },
+        selectedCandidateId: null,
+        discoveryMaxDepth: event.value,
+      });
     }
 
     case 'DISCOVERY_MAX_FILES_SET': {
       if (context.discoveryMaxFiles === event.value) {
         return result(context);
       }
-      return result({ ...context, discoveryMaxFiles: event.value });
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        ontology: { status: 'idle' },
+        selectedCandidateId: null,
+        discoveryMaxFiles: event.value,
+      });
     }
 
     case 'DISCOVERY_SAMPLE_HEADERS_SET': {
       if (context.discoverySampleHeaders === event.enabled) {
         return result(context);
       }
-      return result({ ...context, discoverySampleHeaders: event.enabled });
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        selectedCandidateId: null,
+        discoverySampleHeaders: event.enabled,
+      });
     }
 
     case 'DISCOVERY_ROLE_PATTERN_SET': {
@@ -1184,7 +1250,12 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
             ...context.discoveryRolePatterns,
             { role: normalizedRole, patterns: normalizedPatterns },
           ];
-      return result({ ...context, discoveryRolePatterns: nextPatterns });
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        selectedCandidateId: null,
+        discoveryRolePatterns: nextPatterns,
+      });
     }
 
     case 'DISCOVERY_ROLE_REQUIRED_SET': {
@@ -1202,7 +1273,12 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
       } else {
         requiredSet.delete(normalizedRole);
       }
-      return result({ ...context, discoveryRequiredRoles: Array.from(requiredSet) });
+      return result({
+        ...context,
+        preview: { status: 'idle' },
+        selectedCandidateId: null,
+        discoveryRequiredRoles: Array.from(requiredSet),
+      });
     }
 
     case 'DISCOVERY_CUSTOM_ROLE_SET': {
@@ -1318,6 +1394,7 @@ function isCurrentPreview(
   mode: StudioImportMode,
 ): boolean {
   return (
+    context.isOpen &&
     context.preview.status === 'loading' &&
     context.preview.requestId === requestId &&
     context.preview.mode === mode
@@ -1326,16 +1403,10 @@ function isCurrentPreview(
 
 function isCurrentOntology(context: ImportContext, requestId: number): boolean {
   return (
+    context.isOpen &&
     context.mode === 'regex' &&
     context.ontology.status === 'scanning' &&
     context.ontology.requestId === requestId &&
     context.discoveryRoot === context.ontology.root
   );
-}
-
-function clearPreviewError(preview: ImportPreviewPhase): ImportPreviewPhase {
-  if (preview.status === 'loaded' && preview.error !== null) {
-    return { status: 'loaded', source: preview.source, error: null };
-  }
-  return preview;
 }

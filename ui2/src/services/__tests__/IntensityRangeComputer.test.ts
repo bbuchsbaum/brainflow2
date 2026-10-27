@@ -197,3 +197,32 @@ describe('computeFallbackIntensityRange', () => {
     expect(result.intensity).toEqual([0, 100]);
   });
 });
+
+
+import { statisticDefaultRange, statisticDefaultRangeFromHistogram } from '../IntensityRangeComputer';
+
+describe('statisticDefaultRange (native v6: statistic first paint)', () => {
+  it('z / t: symmetric ±max|v|, |v| ≤ 3.1 hidden, fmri', () => {
+    expect(statisticDefaultRange({ kind: 'z' }, { min: -5, max: 6 })).toMatchObject({
+      intensity: [-6, 6],
+      threshold: [-3.1, 3.1],
+      suggestedColormap: 'fmri',
+    });
+    expect(statisticDefaultRange({ kind: 't' }, { min: -7.5, max: 4 })?.intensity).toEqual([-7.5, 7.5]);
+  });
+  it('r: symmetric, nothing hidden; F / −log p: one-sided, no default cut', () => {
+    expect(statisticDefaultRange({ kind: 'correlation' }, { min: -0.6, max: 0.8 })?.threshold).toEqual([0, 0]);
+    expect(statisticDefaultRange({ kind: 'f' }, { min: 0, max: 40 })).toMatchObject({ intensity: [0, 40], threshold: [0, 0] });
+  });
+  it('anatomy, unknown kinds and non-finite ranges: no statistic default', () => {
+    expect(statisticDefaultRange(undefined, { min: 0, max: 900 })).toBeNull();
+    expect(statisticDefaultRange({ kind: 'estimate' }, { min: -2, max: 2 })).toBeNull();
+    expect(statisticDefaultRange({ kind: 'z' }, { min: -Infinity, max: 6 })).toBeNull();
+  });
+  it('from a histogram (NaN / Inf in the file): the 0.1 / 99.9 percentile ends', () => {
+    const bins = Array.from({ length: 100 }, (_, i) => ({ x0: -5 + i * 0.1, x1: -5 + (i + 1) * 0.1, count: 10 }));
+    const r = statisticDefaultRangeFromHistogram({ kind: 'z' }, { bins, totalCount: 1000, mean: 0 } as never);
+    expect(r?.intensity[1]).toBeGreaterThan(4.9);
+    expect(r?.threshold).toEqual([-3.1, 3.1]);
+  });
+});

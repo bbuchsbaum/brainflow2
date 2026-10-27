@@ -252,7 +252,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
                   type="button"
                   onClick={onPinToggle}
                   className={cn(
-                    "p-2 rounded-md transition-colors",
+                    "p-2 rounded-sm transition-colors",
                     "hover:bg-accent/20",
                     "text-muted-foreground hover:text-foreground"
                   )}
@@ -282,7 +282,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
               <div
                 key={section.title}
                 className={cn(
-                  "rounded-lg overflow-hidden",
+                  "rounded-sm overflow-hidden",
                   "border bg-card"
                 )}
               >
@@ -333,7 +333,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
                                 className={cn(
                                   "p-1 rounded transition-all",
                                   "hover:bg-accent/20",
-                                  isCopied ? "text-green-500" : "text-muted-foreground hover:text-foreground"
+                                  isCopied ? "text-bf-success" : "text-muted-foreground hover:text-foreground"
                                 )}
                                 title="Copy to clipboard"
                               >

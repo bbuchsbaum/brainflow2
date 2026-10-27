@@ -1,0 +1,15 @@
+{
+  "_comment": "Shrink-only allowlist for the bf-ratchet ESLint rules (eslint.ratchet.js). Each entry: file (relative to ui2/), the ratchet rules it may violate, and a one-line reason. Data colours only, never chrome. src/__tests__/ratchetAllowlist.test.ts fails when an entry no longer violates one of its rules; remove the entry then.",
+  "entries": [
+    {
+      "file": "src/components/studio/PopulationProbePanel.tsx",
+      "rules": ["no-palette-class"],
+      "reason": "Sign-distribution bar (negative/near-zero/positive) is a diverging data encoding, not chrome."
+    },
+    {
+      "file": "src/components/studio/StudioComparePane.tsx",
+      "rules": ["no-palette-class"],
+      "reason": "Colorbar chip gradient is a diverging colormap swatch (data colours)."
+    }
+  ]
+}

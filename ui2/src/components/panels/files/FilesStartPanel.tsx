@@ -5,6 +5,7 @@ import {
   PinnedLocationsList,
 } from "./RecentLocationsList";
 import { DropTargetFooter } from "./DropTargetFooter";
+import { Button, Notice } from "@/components/ui/bf";
 import "./FilesStartPanel.css";
 
 interface FilesStartPanelProps {
@@ -34,55 +35,50 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
 
       <ul className="files-start-commands">
         <li>
-          <button
-            type="button"
-            className="files-start-command files-start-command--primary"
+          <Button
+            variant="primary"
+            size="sm"
+            className="files-start-command w-full justify-start"
             onClick={onMountLocal}
             disabled={pending}
+            icon={<VscFolderOpened className="files-start-command-icon" />}
           >
-            <VscFolderOpened
-              className="files-start-command-icon"
-              aria-hidden="true"
-            />
-            <span className="files-start-command-label">Mount Directory</span>
+            <span className="files-start-command-label">Mount directory</span>
             <span className="files-start-command-shortcut">
               {shortcutLabel}
             </span>
-          </button>
+          </Button>
         </li>
         <li>
-          <button
-            type="button"
-            className="files-start-command"
+          <Button
+            variant="secondary"
+            size="sm"
+            className="files-start-command w-full justify-start"
             onClick={onMountRemote}
             disabled={pending}
+            icon={<VscRemote className="files-start-command-icon" />}
           >
-            <VscRemote
-              className="files-start-command-icon"
-              aria-hidden="true"
-            />
-            <span className="files-start-command-label">
-              Mount Remote (SSH)…
-            </span>
-          </button>
+            <span className="files-start-command-label">Mount remote (SSH)…</span>
+          </Button>
         </li>
         <li>
-          <button
-            type="button"
-            className="files-start-command"
+          <Button
+            variant="secondary"
+            size="sm"
+            className="files-start-command w-full justify-start"
             onClick={onOpenFile}
             disabled={pending}
+            icon={<VscFile className="files-start-command-icon" />}
           >
-            <VscFile className="files-start-command-icon" aria-hidden="true" />
-            <span className="files-start-command-label">Open File…</span>
-          </button>
+            <span className="files-start-command-label">Open file…</span>
+          </Button>
         </li>
       </ul>
 
       {errorMessage && (
-        <p className="files-start-error" role="status">
+        <Notice severity="danger" className="files-start-error">
           {errorMessage}
-        </p>
+        </Notice>
       )}
 
       <PinnedLocationsList

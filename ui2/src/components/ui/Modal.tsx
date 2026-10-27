@@ -1,3 +1,4 @@
+import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import React, { useEffect, useId, useRef } from 'react';
 import { IconButton } from './IconButton';
 import { getFocusableElements } from '@/utils/dialogFocus';
@@ -16,8 +17,33 @@ interface ModalProps {
   closeOnEscape?: boolean;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   bodyClassName?: string;
+  /**
+   * Pinned under the scrolling body (e.g. Cancel / Save), so it stays
+   * visible however tall the content is.
+   */
+  footer?: React.ReactNode;
   overlayClassName?: string;
   className?: string;
+}
+
+/**
+ * Return focus to the element that opened the dialog. When there is none
+ * (opened by a shortcut while <body> had focus) or it is gone, focus the
+ * active viewport (`data-focus-return="viewport"`, the last interacted one
+ * first) so keyboard users do not land on <body>.
+ */
+function returnFocus(previous: HTMLElement | null): void {
+  if (previous?.isConnected && previous !== document.body) {
+    previous.focus();
+    return;
+  }
+  const activeId = useActiveRenderContextStore.getState().activeId;
+  const viewports = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-focus-return="viewport"]'),
+  );
+  const target =
+    viewports.find((el) => el.dataset.viewId === activeId) ?? viewports[0] ?? null;
+  target?.focus();
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -33,6 +59,7 @@ export const Modal: React.FC<ModalProps> = ({
   closeOnEscape = true,
   initialFocusRef,
   bodyClassName = '',
+  footer,
   overlayClassName = '',
   className = ''
 }) => {
@@ -101,9 +128,7 @@ export const Modal: React.FC<ModalProps> = ({
       wasOpenRef.current = false;
       const previousFocusedElement = previousFocusedElementRef.current;
       previousFocusedElementRef.current = null;
-      if (previousFocusedElement?.isConnected) {
-        previousFocusedElement.focus();
-      }
+      returnFocus(previousFocusedElement);
     }
   }, [isOpen]);
 
@@ -114,10 +139,7 @@ export const Modal: React.FC<ModalProps> = ({
       }
 
       document.body.style.overflow = previousBodyOverflowRef.current;
-      const previousFocusedElement = previousFocusedElementRef.current;
-      if (previousFocusedElement?.isConnected) {
-        previousFocusedElement.focus();
-      }
+      returnFocus(previousFocusedElementRef.current);
     };
   }, []);
 
@@ -164,7 +186,9 @@ export const Modal: React.FC<ModalProps> = ({
     >
       <div 
         ref={panelRef}
-        className={`relative w-full ${sizeClasses[size]} rounded-lg border border-border bg-background text-foreground shadow-xl ${className}`}
+        // Capped to the viewport (the overlay's padding is the margin): the
+        // body scrolls, the header and footer stay put.
+        className={`relative flex max-h-full w-full flex-col ${sizeClasses[size]} rounded-sm border border-border bg-background text-foreground shadow-xl ${className}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -174,7 +198,7 @@ export const Modal: React.FC<ModalProps> = ({
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-center justify-between border-b border-border p-4">
+          <div className="flex shrink-0 items-center justify-between border-b border-border p-4">
             {title && (
               <h2 id={titleId} className="text-lg font-semibold text-foreground">{title}</h2>
             )}
@@ -193,9 +217,10 @@ export const Modal: React.FC<ModalProps> = ({
         )}
 
         {/* Content */}
-        <div className={bodyClassName || 'p-4'}>
+        <div className={cn('min-h-0 flex-1 overflow-y-auto', bodyClassName || 'p-4')}>
           {children}
         </div>
+        {footer ? <div className="shrink-0">{footer}</div> : null}
       </div>
     </div>
   );

@@ -1,3 +1,5 @@
+import { useSetStudioStore } from '@/stores/setStudioStore';
+import { StudioFolderReview } from './StudioFolderReview';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
 import { StudioAuditBanner } from './StudioAuditBanner';
@@ -7,8 +9,13 @@ import { StudioImportDialog } from './StudioImportDialog';
 import { StudioToolbar } from './StudioToolbar';
 
 export function SetStudioWorkspace() {
+  const reviewingFolder = useSetStudioStore(
+    (state) => state.importDialog.isOpen && !!state.importDialog.folderReview,
+  );
   const studioService = getSetStudioService();
   const { activeSet, workspaceReadiness } = useStudioDerivedState();
+
+  if (reviewingFolder) return <StudioFolderReview />;
 
   if (!activeSet) {
     return (
@@ -22,7 +29,7 @@ export function SetStudioWorkspace() {
             void studioService.openManifestInStudio();
           }}
           onDiscoverFiles={() => {
-            void studioService.openRegexDiscoveryInStudio();
+            void studioService.openFolderOntologyInStudio();
           }}
           onLoadDemo={() => {
             void studioService.openDemoInStudio();

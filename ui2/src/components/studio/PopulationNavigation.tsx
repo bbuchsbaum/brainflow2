@@ -1,0 +1,134 @@
+import { Button, Select, Slider } from '@/components/ui/bf';
+import { useEffect, useState } from 'react';
+
+
+/** Discrete observations, never interpolated frames. Each completed display
+ * receives its full dwell time; a cache miss slows playback rather than skipping. */
+export function PopulationNavigation({
+  ids,
+  focusedId,
+  ready,
+  failed,
+  scope,
+  onFocus,
+  label,
+}: {
+  ids: readonly string[];
+  focusedId: string | null;
+  ready: boolean;
+  failed: boolean;
+  scope: string;
+  onFocus: (id: string) => void;
+  label: string;
+}) {
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(5);
+  const [direction, setDirection] = useState(1);
+  const index = ids.indexOf(focusedId ?? '');
+  useEffect(() => setPlaying(false), [scope, ids]);
+  useEffect(() => {
+    if (failed) setPlaying(false);
+  }, [failed]);
+  useEffect(() => {
+    if (!playing || !ready) return;
+    const next = index + direction;
+    if (next < 0 || next >= ids.length) {
+      setPlaying(false);
+      return;
+    }
+    const timer = setTimeout(() => onFocus(ids[next]), 1000 / speed);
+    return () => clearTimeout(timer);
+  }, [playing, ready, index, ids, speed, direction, onFocus]);
+  const move = (next: number) => {
+    setPlaying(false);
+    if (ids[next]) onFocus(ids[next]);
+  };
+  return (
+    <div
+      aria-label="Population navigation"
+      tabIndex={0}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPlaying(false);
+      }}
+      className="rounded-sm border border-border bg-muted/20 p-2 space-y-2"
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === ' ') {
+          event.preventDefault();
+          setPlaying((value) => !value);
+        }
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault();
+          move(index + (event.key === 'ArrowLeft' ? -1 : 1));
+        }
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-bf-sm">
+        <Button variant="secondary" size="sm"
+          aria-label="Previous observation"
+          disabled={index <= 0}
+          onClick={() => move(index - 1)}
+        >
+          ←
+        </Button>
+        <Button variant="secondary" size="sm"
+          disabled={!ids.length || failed}
+          onClick={() => setPlaying((value) => !value)}
+        >
+          {playing ? 'Pause' : 'Play'}
+        </Button>
+        <Button variant="secondary" size="sm"
+          aria-label="Next observation"
+          disabled={index + 1 >= ids.length}
+          onClick={() => move(index + 1)}
+        >
+          →
+        </Button>
+        <span className="min-w-[130px] flex-1 tabular-nums">
+          {focusedId ?? 'No focus'} · {index + 1} / {ids.length}
+        </span>
+        <Select className="w-auto max-w-full"
+          aria-label="Playback direction"
+          value={direction}
+          onChange={(e) => {
+            setPlaying(false);
+            setDirection(Number(e.target.value));
+          }}
+        >
+          <option value={1}>Forward</option>
+          <option value={-1}>Reverse</option>
+        </Select>
+        <Select className="w-auto max-w-full"
+          aria-label="Playback speed"
+          value={speed}
+          onChange={(e) => setSpeed(Number(e.target.value))}
+        >
+          <option value={5}>5 observations/s</option>
+          <option value={10}>10 observations/s</option>
+        </Select>
+      </div>
+      <Slider
+        className="w-full"
+        label="Focus observation"
+        min={0}
+        max={Math.max(0, ids.length - 1)}
+        step={1}
+        snap={1}
+        fill={false}
+        value={Math.max(0, index)}
+        disabled={!ids.length}
+        valueText={(v) => `Observation ${Math.round(v) + 1} of ${ids.length}`}
+        onDragChange={(dragging) => {
+          if (dragging) setPlaying(false);
+        }}
+        onValueChange={(v) => {
+          const next = Math.round(v);
+          if (next !== index) move(next);
+        }}
+      />
+      <p className="text-bf-sm text-muted-foreground" title={label}>
+        {label} · Show every observation{playing && !ready ? ' · Buffering…' : ''}
+      </p>
+    </div>
+  );
+}

@@ -31,12 +31,12 @@ export function TemporalMetricSelector({
 }: TemporalMetricSelectorProps) {
   return (
     <div className={`flex items-center gap-1 ${className}`}>
-      <span className="text-xs text-gray-400 whitespace-nowrap">Temporal:</span>
+      <span className="text-bf-xs text-bf-text-secondary whitespace-nowrap">Temporal:</span>
       <select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as TemporalMetricOption)}
-        className="bg-gray-800 text-gray-200 text-xs border border-gray-600 rounded px-1 py-0.5 focus:outline-none focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="bg-bf-bg-input text-foreground text-bf-xs border border-border rounded-sm px-1 py-0.5 focus:outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
