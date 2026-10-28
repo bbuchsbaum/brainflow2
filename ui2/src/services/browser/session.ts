@@ -2,6 +2,9 @@ import { createStore } from 'zustand/vanilla';
 import { RenderClient } from '@brainflow/api';
 import type { DecodedRawRgbaFrame, RenderViewPayload, RenderViewType } from '@brainflow/api';
 import { BrowserTransport } from './transport';
+import type { BrowserSessionRecord } from './sessionRecord';
+import type { SurfaceCanvasExporter, SurfaceCameraState } from '@brainflow/visualization/surface';
+import type { SessionSource } from './sessionSources';
 import type {
   BrowserVolume,
   BrowserGpuCapabilities,
@@ -58,9 +61,53 @@ const initial = (): BrowserState => ({
 export class BrowserSession {
   readonly store = createStore<BrowserState>(initial);
   readonly frames = new Map<RenderViewType, ImageBitmap>();
+  surfaceExporter: SurfaceCanvasExporter | null = null;
+  surfaceCamera: SurfaceCameraState | null = null;
+  recordSurfaceCamera(state: SurfaceCameraState) {
+    this.surfaceCamera = state;
+  }
+  private presented: BrowserState | null = null;
+  private presentedRevision = -1;
+  get presentedState(): BrowserState | null {
+    return this.presented;
+  }
+  /** Wait for the current requested slice state, including GPU/frame conversion failures. */
+  async whenPresented(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    if (!this.store.getState().layers.length) return;
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: unknown) => {
+        unsubscribe();
+        signal.removeEventListener('abort', abort);
+        clearTimeout(timeout);
+        if (error) reject(error);
+        else resolve();
+      };
+      const abort = () => finish(new DOMException('Operation cancelled', 'AbortError'));
+      const check = () => {
+        const state = this.store.getState();
+        if (this.closed || signal.aborted) abort();
+        else if (state.error) finish(new Error(state.error));
+        else if (this.presentedRevision === this.revision) finish();
+      };
+      const unsubscribe = this.store.subscribe(check);
+      const timeout = setTimeout(
+        () => finish(new Error('Timed out waiting for restored images.')),
+        60_000,
+      );
+      signal.addEventListener('abort', abort, { once: true });
+      check();
+    });
+  }
+  private volumeSources = new Map<string, { file: File; labels: boolean; table?: File }>();
+  private surfaceSource: File | null = null;
+  private overlaySource: File | null = null;
   private client: RenderClient;
   private closed = false;
   private generation = 0;
+  get workspaceGeneration() {
+    return this.generation;
+  }
   private revision = 0;
   private rendering = false;
   private dirty = false;
@@ -75,6 +122,71 @@ export class BrowserSession {
   constructor(transport = new BrowserTransport()) {
     this.transport = transport;
     this.client = new RenderClient(transport);
+  }
+  /** Freeze settings and File references before hashing; later edits cannot change this save. */
+  async saveRecord(signal?: AbortSignal): Promise<BrowserSessionRecord> {
+    signal?.throwIfAborted();
+    if (this.closed) throw new Error('Browser viewer is closed');
+    const state = structuredClone(this.store.getState());
+    if (state.loading) throw new Error('Wait for loading to finish before saving the session.');
+    const sources = state.layers.map((layer) => {
+      const source = this.volumeSources.get(layer.id);
+      if (!source) throw new Error('The original image source is unavailable.');
+      return source;
+    });
+    const surface = this.surfaceSource;
+    const camera = structuredClone(this.surfaceExporter?.captureCamera?.() ?? this.surfaceCamera);
+    const overlay = this.overlaySource;
+    const generation = this.generation;
+    const describe = async (file: File) => {
+      const source = await this.transport.request<SessionSource>(
+        'describe_source',
+        { file },
+        signal,
+      );
+      if (this.closed || generation !== this.generation)
+        throw new DOMException('Workspace closed', 'AbortError');
+      return source;
+    };
+    const volumes: BrowserSessionRecord['volumes'] = [];
+    for (const [index, source] of sources.entries()) {
+      const layer = state.layers[index];
+      volumes.push({
+        source: await describe(source.file),
+        ...(source.table ? { table: await describe(source.table) } : {}),
+        labels: source.labels,
+        window: layer.window,
+        opacity: layer.opacity,
+        colormap: layer.colormap ?? (index ? 'hot' : 'gray'),
+        frame: layer.currentFrame,
+      });
+    }
+    const record: BrowserSessionRecord = {
+      format: 'brainflow-browser-session',
+      version: 1,
+      volumes,
+      selected:
+        state.selected === null
+          ? null
+          : state.layers.findIndex((layer) => layer.id === state.selected),
+      crosshair: state.crosshair,
+      view: state.view,
+    };
+    if (surface) {
+      record.surface = { source: await describe(surface), ...(camera ? { camera } : {}) };
+      if (overlay && state.surfaceOverlay) {
+        const settings = state.surfaceOverlay;
+        record.surface.overlay = {
+          source: await describe(overlay),
+          kind: settings.kind,
+          opacity: settings.opacity,
+          ...(settings.kind === 'scalar'
+            ? { range: settings.range, colormap: settings.colormap }
+            : {}),
+        };
+      }
+    }
+    return record;
   }
   async initialize() {
     try {
@@ -103,6 +215,7 @@ export class BrowserSession {
         await this.transport.invoke('unload_volume', { volumeId: volume.id });
         return;
       }
+      this.volumeSources.set(volume.id, { file, labels, table });
       const layers = this.store.getState().layers;
       const range: [number, number] =
         volume.range[0] < volume.range[1]
@@ -146,6 +259,8 @@ export class BrowserSession {
       if (this.closed || generation !== this.generation || request !== this.surfaceRequest) return;
       this.removeSurfaceOverlay();
       this.surfaceGeometry = mesh;
+      this.surfaceSource = file;
+      this.surfaceCamera = null;
       this.stopPlayback();
       this.store.setState({
         surface: {
@@ -168,6 +283,9 @@ export class BrowserSession {
     ++this.surfaceRequest;
     this.removeSurfaceOverlay();
     this.surfaceGeometry = null;
+    this.surfaceExporter = null;
+    this.surfaceSource = null;
+    this.surfaceCamera = null;
     this.store.setState({ surface: null, surfacePick: null, view: 'slices' });
   }
   async loadSurfaceOverlay(file: File, labels = false) {
@@ -226,6 +344,7 @@ export class BrowserSession {
         this.surfaceLabels = decoded;
         this.surfaceValues = null;
       }
+      this.overlaySource = file;
       this.store.setState({ surfaceOverlay: overlay, view: 'surface' });
     } catch (error) {
       if (this.surfaceGeometry === mesh && request === this.overlayRequest) this.error(error);
@@ -236,6 +355,7 @@ export class BrowserSession {
   }
   removeSurfaceOverlay() {
     ++this.overlayRequest;
+    this.overlaySource = null;
     this.surfaceValues = null;
     this.surfaceLabels = null;
     this.store.setState({ surfaceOverlay: null });
@@ -338,6 +458,7 @@ export class BrowserSession {
     this.schedule();
   }
   async remove(id: string) {
+    this.volumeSources.delete(id);
     const layers = this.store.getState().layers.filter((l) => l.id !== id);
     if (this.store.getState().playing === id) this.stopPlayback();
     this.store.setState({ layers, selected: layers.at(-1)?.id ?? null, selectedLabel: null });
@@ -351,6 +472,7 @@ export class BrowserSession {
     }
   }
   async reset() {
+    this.volumeSources.clear();
     ++this.generation;
     ++this.revision;
     this.cancelLoads();
@@ -477,6 +599,8 @@ export class BrowserSession {
           results.forEach(([, image]) => image.close());
           continue;
         }
+        this.presented = structuredClone(snapshot);
+        this.presentedRevision = revision;
         for (const [view, image] of results) {
           this.frames.get(view)?.close();
           this.frames.set(view, image);
@@ -493,6 +617,8 @@ export class BrowserSession {
     }
   }
   private clearFrames() {
+    this.presented = null;
+    this.presentedRevision = -1;
     this.frames.forEach((f) => f.close());
     this.frames.clear();
     this.store.setState((s) => ({ frameRevision: s.frameRevision + 1, selectedLabel: null }));
@@ -533,6 +659,7 @@ export class BrowserSession {
     if (this.store.getState().playing) this.store.setState({ playing: null });
   }
   dispose() {
+    this.volumeSources.clear();
     this.closed = true;
     ++this.generation;
     ++this.revision;

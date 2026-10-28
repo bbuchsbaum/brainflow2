@@ -1,3 +1,4 @@
+import type { SurfaceCameraState } from './cameraState.js';
 import type React from 'react';
 export type SurfaceLayerKind = 'data' | 'rgba' | 'volume';
 export interface SurfaceRenderableGeometry {
@@ -131,6 +132,7 @@ export type SurfaceCanvasExporter = ((options: {
      * camera, visibility and marker restored). Present on viewers that support
      * figure capture.
      */
+    captureCamera?: () => SurfaceCameraState | null;
     capturePose?: (options: {
         pose: SurfaceExportPose;
         width: number;
@@ -158,6 +160,9 @@ export interface NeuroSurfaceCanvasProps {
     width: number;
     height: number;
     viewpoint?: string;
+    /** Applied once after the initial mesh fit; subsequent preset controls remain active. */
+    initialCameraState?: SurfaceCameraState | null;
+    onCameraStateChange?: (state: SurfaceCameraState) => void;
     showControls?: boolean;
     lightingSettings?: SurfaceLightingSettings;
     displaySettings?: SurfaceDisplaySettings;

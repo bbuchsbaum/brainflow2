@@ -13,6 +13,23 @@ class FakeWorker {
 }
 
 describe('browser host ownership and service boundaries', () => {
+  it('routes source verification through its worker and cancels pending verification', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserTransport(worker as unknown as Worker);
+    const abort = new AbortController();
+    const file = new File(['abc'], 'source.nii');
+    const request = transport.request('describe_source', { file }, abort.signal);
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      id: 1,
+      cmd: 'describe_source',
+      args: { file },
+    });
+    abort.abort();
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    expect(worker.postMessage).toHaveBeenCalledWith({ cancel: 1 });
+    transport.dispose();
+  });
+
   it('routes domain helpers through the selected host and retains injected service ownership', async () => {
     const a = new MockTransport();
     const b = new MockTransport();

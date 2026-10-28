@@ -50,6 +50,7 @@ export class BrowserTransport implements BackendTransport {
     if (
       ![
         'initialize',
+        'describe_source',
         'load_file',
         'load_surface',
         'load_surface_scalar',

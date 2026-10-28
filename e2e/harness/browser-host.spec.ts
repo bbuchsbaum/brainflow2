@@ -487,3 +487,78 @@ test('surface labels preserve sparse integer IDs, embedded names and alpha witho
   expect(result.legend.find(e=>e.id===16777217)).toMatchObject({name:'Region & left',rgba:[0,1,0,0.5]});
   expect(result.legend.find(e=>e.id===16777218).name).toBe('Label 16777218');
 });
+
+test('session settings verify sources before replacement and export presented slices', async ({page}) => {
+  await page.goto('/browser.html');
+  await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+  await page.getByLabel('Choose NIfTI file',{exact:true}).setInputFiles(fixture);
+  await expect(page.getByRole('button',{name:'Unload oblique.nii',exact:true})).toBeVisible();
+  await expect(page.locator('.browser-raster canvas').first()).toBeVisible();
+  const savedEvent=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Save session',exact:true}).click();
+  const saved=await savedEvent;
+  const settings=readFileSync((await saved.path())!);
+  const parsed=JSON.parse(settings.toString());
+  expect(parsed.volumes[0].source.sha256).toBe(createHash('sha256').update(readFileSync(fixture)).digest('hex'));
+  await page.getByLabel('Choose session settings',{exact:true}).setInputFiles({name:'session.json',mimeType:'application/json',buffer:settings});
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toBeVisible();
+  const changed=Buffer.from(readFileSync(fixture));changed[changed.length-1]^=1;
+  await page.getByLabel('Choose session sources',{exact:true}).setInputFiles({name:'oblique.nii',mimeType:'application/octet-stream',buffer:changed});
+  await expect(page.getByRole('alert')).toContainText('original contents');
+  await expect(page.getByRole('button',{name:'Unload oblique.nii',exact:true})).toBeVisible();
+  await page.getByLabel('Choose session sources',{exact:true}).setInputFiles({name:'renamed.nii',mimeType:'application/octet-stream',buffer:readFileSync(fixture)});
+  await expect(page.getByRole('button',{name:'Unload renamed.nii',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toHaveCount(0);
+  // Wait for the restored render to publish before exporting it.
+  await expect(page.locator('[data-frame-revision]')).toHaveAttribute('data-frame-revision', /[1-9]\d*/);
+  const pngEvent=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Export PNG',exact:true}).click();
+  const png=readFileSync((await (await pngEvent).path())!);
+  expect(Array.from(png.subarray(0,8))).toEqual([137,80,78,71,13,10,26,10]);
+  expect(png.readUInt32BE(16)).toBeGreaterThan(1536);
+  expect(png.toString('latin1')).toContain('brainflow-browser-image');
+});
+
+test('surface session restores orbit and zoom and exports its shared canvas', async ({page}) => {
+  page.on('pageerror', error => console.log('SURFACE PAGE ERROR', error.message));
+  page.on('console', message => { if(message.type()==='error') console.log('SURFACE CONSOLE ERROR',message.text()); });
+  await page.goto('/browser.html');
+  await page.addStyleTag({content:'.browser-surface-canvas { flex: none !important; width: 600px !important; height: 600px !important; }'});
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(surfaceFixture);
+  const canvas=page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas');
+  await expect(canvas).toBeVisible();
+  const save=async()=>{
+    const event=page.waitForEvent('download');
+    await page.getByRole('button',{name:'Save session',exact:true}).click();
+    return readFileSync((await (await event).path())!);
+  };
+  const initial=JSON.parse((await save()).toString());
+  expect(initial.surface.camera).toBeTruthy();
+  const bounds=(await canvas.boundingBox())!;
+  await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);
+  await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.7,bounds.y+bounds.height*.6,{steps:8});await page.mouse.up();
+  await page.mouse.wheel(0,150);
+  // Wait for orbit-control damping to settle before capturing exact camera state.
+  await page.waitForTimeout(700);
+  const settings=await save();
+  const saved=JSON.parse(settings.toString());
+  expect(saved.surface.camera.position).not.toEqual(initial.surface.camera.position);
+  await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
+  await page.getByLabel('Choose session settings',{exact:true}).setInputFiles({name:'session.json',mimeType:'application/json',buffer:settings});
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toBeVisible();
+  await page.getByLabel('Choose session sources',{exact:true}).setInputFiles(surfaceFixture);
+  await expect(canvas).toBeVisible().catch(async error => { console.log('RESTORE BODY',await page.locator('body').innerText());throw error; });
+  await page.waitForTimeout(100);
+  const restored=JSON.parse((await save()).toString());
+  await test.info().attach('camera-round-trip', { body: JSON.stringify({saved:saved.surface.camera,restored:restored.surface.camera},null,2), contentType:'application/json' });
+  for (const key of ['position','target','rotation']) {
+    for (let i=0;i<3;i++) expect(restored.surface.camera[key][i]).toBeCloseTo(saved.surface.camera[key][i],6);
+  }
+  expect(restored.surface.camera.zoom).toBe(saved.surface.camera.zoom);
+  const event=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Export PNG',exact:true}).click();
+  const png=readFileSync((await (await event).path())!);
+  expect(png.readUInt32BE(16)).toBe(600);
+  expect(png.readUInt32BE(20)).toBe(600);
+  await page.screenshot({path:test.info().outputPath('surface-session-restored.png')});
+});

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
+import type { SurfaceCanvasExporter, SurfaceCameraState } from '@brainflow/visualization/surface';
 import { NeuroSurfaceCanvas } from '@brainflow/visualization/surface';
 import { Button } from '../components/ui/Button';
 import type { BrowserSession } from '../services/browser/session';
@@ -50,6 +51,16 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
     (error: unknown) => session.surfaceError(state.surface?.id, error),
     [session, state.surface?.id],
   );
+  const onCameraStateChange = useCallback(
+    (state: SurfaceCameraState) => session.recordSurfaceCamera(state),
+    [session],
+  );
+  const onExporterChange = useCallback(
+    (exporter: SurfaceCanvasExporter | null) => {
+      session.surfaceExporter = exporter;
+    },
+    [session],
+  );
   return (
     <section className="browser-surface" aria-label="Surface view">
       <header>
@@ -69,6 +80,9 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
           showControls={false}
           onSurfacePick={onPick}
           onError={onError}
+          onExporterChange={onExporterChange}
+          initialCameraState={session.surfaceCamera}
+          onCameraStateChange={onCameraStateChange}
         />
       </div>
     </section>

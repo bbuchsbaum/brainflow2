@@ -11,6 +11,7 @@ import { Slider } from '../components/ui/bf/Slider';
 import { BrowserSession, orientations, browserColormaps } from '../services/browser/session';
 import { setTransport } from '../services/transport';
 import { DEFAULT_CROSSHAIR_COLOR } from '../stores/crosshairSettingsStore';
+import { BrowserSessionFiles } from './BrowserSessionFiles';
 const BrowserSurfaceView = lazy(() => import('./BrowserSurfaceView'));
 
 function Slice({ session, view }: { session: BrowserSession; view: RenderViewType }) {
@@ -50,7 +51,13 @@ function Slice({ session, view }: { session: BrowserSession; view: RenderViewTyp
   );
 }
 
-function Viewer({ session }: { session: BrowserSession }) {
+function Viewer({
+  session,
+  onRestore,
+}: {
+  session: BrowserSession;
+  onRestore: (session: BrowserSession) => void;
+}) {
   const state = useStore(session.store);
   const chooser = useRef<HTMLInputElement>(null);
   const labelChooser = useRef<HTMLInputElement>(null);
@@ -103,6 +110,7 @@ function Viewer({ session }: { session: BrowserSession }) {
         <h1>
           Brainflow <span>Browser viewer</span>
         </h1>
+        <BrowserSessionFiles session={session} onRestore={onRestore} />
         <Button disabled={!state.ready} onClick={() => chooser.current?.click()}>
           {state.layers.length ? 'Add overlay' : 'Open NIfTI'}
         </Button>
@@ -449,12 +457,31 @@ function Viewer({ session }: { session: BrowserSession }) {
 
 export function BrowserApp() {
   const [session, setSession] = useState<BrowserSession | null>(null);
+  const owner = useRef<BrowserSession | null>(null);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     const s = new BrowserSession();
+    owner.current = s;
     setTransport(s.transport);
     setSession(s);
     void s.initialize();
-    return () => s.dispose();
+    return () => {
+      owner.current?.dispose();
+      owner.current = null;
+    };
   }, []);
-  return session ? <Viewer session={session} /> : <p role="status">Starting Brainflow…</p>;
+  const replace = (next: BrowserSession) => {
+    const previous = owner.current;
+    owner.current = next;
+    setTransport(next.transport);
+    setSession(next);
+    setRevision((value) => value + 1);
+    previous?.dispose();
+    if (!next.store.getState().ready) void next.initialize();
+  };
+  return session ? (
+    <Viewer key={revision} session={session} onRestore={replace} />
+  ) : (
+    <p role="status">Starting Brainflow…</p>
+  );
 }

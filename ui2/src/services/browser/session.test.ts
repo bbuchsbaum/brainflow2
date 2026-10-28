@@ -390,3 +390,20 @@ describe('BrowserSession categorical surface attachment', () => {
     },
   );
 });
+
+describe('restored presentation ownership', () => {
+  it('rejects render failures and cancellation rather than accepting an unpresented workspace', async () => {
+    const transport = { dispose: vi.fn() } as unknown as BrowserTransport;
+    const session = new BrowserSession(transport);
+    session.store.setState({ layers: [{ ...movie, window: [0, 1], opacity: 1 }] });
+    const first = session.whenPresented(new AbortController().signal);
+    session.store.setState({ error: 'GPU conversion failed' });
+    await expect(first).rejects.toThrow('GPU conversion failed');
+    session.store.setState({ error: null });
+    const abort = new AbortController();
+    const second = session.whenPresented(abort.signal);
+    abort.abort();
+    await expect(second).rejects.toMatchObject({ name: 'AbortError' });
+    session.dispose();
+  });
+});

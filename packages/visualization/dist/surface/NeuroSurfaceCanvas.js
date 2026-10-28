@@ -1,4 +1,5 @@
 import { jsx as _jsx } from "react/jsx-runtime";
+import { isSurfaceCameraState } from './cameraState.js';
 import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianSmoothing, THREE, normalizeCurvature, } from 'neurosurface';
@@ -114,7 +115,12 @@ function removeRenderedSurface(viewer, handle, rendered) {
         // no-op
     }
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, viewpointNonce, onError, onSurfacePick, }) => {
+function captureCamera(viewer) {
+    const pose = viewer?.getCameraState?.();
+    const state = pose ? { ...pose, up: viewer?.camera?.up?.toArray(), zoom: viewer?.camera?.zoom ?? 1 } : null;
+    return isSurfaceCameraState(state) ? state : null;
+}
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -123,6 +129,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     const markerMeshRef = useRef(null);
     const [isInitialized, setIsInitialized] = useState(false);
     const hasCenteredCamera = useRef(false);
+    const initialCameraRef = useRef(initialCameraState);
     const lastSmoothingValue = useRef(0);
     const lastUseGPUProjectionRef = useRef(projectionSettings.useGPUProjection);
     const viewpointRef = useRef(viewpoint);
@@ -303,6 +310,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 maxSide,
             };
         };
+        exporter.captureCamera = () => captureCamera(viewerRef.current);
         onExporterChange(exporter);
         return () => onExporterChange(null);
     }, [isInitialized, onExporterChange]);
@@ -518,6 +526,13 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 if (controls && controls.autoRotate !== undefined) {
                     controls.autoRotate = wasAutoRotating;
                 }
+                const saved = initialCameraRef.current;
+                if (saved && isSurfaceCameraState(saved)) {
+                    viewer.camera.up.fromArray(saved.up);
+                    viewer.setCameraState?.(saved);
+                    viewer.camera.zoom = saved.zoom;
+                    viewer.camera.updateProjectionMatrix();
+                }
                 viewer.requestRender();
                 hasCenteredCamera.current = true;
                 requestAnimationFrame(() => {
@@ -564,24 +579,33 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     }, [isInitialized, displaySettings.showCurvature, renderHandlesKey]);
     // D5: report the camera's screen basis when it changes (orientation glyph).
     useEffect(() => {
-        if (!isInitialized || !onCameraChange)
+        if (!isInitialized || (!onCameraChange && !onCameraStateChange))
             return;
         let frame = 0;
         let last = '';
+        let lastState = '';
         const tick = () => {
             const basis = cameraBasis(viewerRef.current?.camera);
             if (basis) {
                 const key = [...basis.right, ...basis.up].map((v) => v.toFixed(3)).join(',');
                 if (key !== last) {
                     last = key;
-                    onCameraChange(basis);
+                    onCameraChange?.(basis);
+                }
+            }
+            if (hasCenteredCamera.current && onCameraStateChange) {
+                const state = captureCamera(viewerRef.current);
+                const key = JSON.stringify(state);
+                if (state && key !== lastState) {
+                    lastState = key;
+                    onCameraStateChange(state);
                 }
             }
             frame = requestAnimationFrame(tick);
         };
         frame = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(frame);
-    }, [isInitialized, onCameraChange]);
+    }, [isInitialized, onCameraChange, onCameraStateChange]);
     useEffect(() => {
         if (viewerRef.current) {
             viewerRef.current.requestRender();

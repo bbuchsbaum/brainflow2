@@ -14,6 +14,7 @@ import type {
   WorkerRequest,
 } from './protocol';
 import { installWgpu20Compatibility } from './webgpuCompatibility';
+import { describeSessionSource } from './sessionSources';
 
 import {
   buildLabelPalette,
@@ -41,6 +42,11 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
   if (cancelled.delete(id)) return;
   try {
     const args = (message.args ?? {}) as Record<string, unknown>;
+    if (cmd === 'describe_source') {
+      const value = await describeSessionSource(args.file as File, () => cancelled.has(id));
+      if (!cancelled.delete(id)) scope.postMessage({ id, value } satisfies WorkerReply);
+      return;
+    }
     if (cmd === 'load_surface' || cmd === 'load_surface_scalar' || cmd === 'load_surface_labels') {
       if (!(args.file instanceof File) || args.file.size > 64 * 1024 * 1024)
         throw new Error('Select a self-contained GIfTI no larger than 64 MiB.');

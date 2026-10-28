@@ -593,7 +593,7 @@ adapters; a browser implementation must expose genuine supported operations.
 | Area | Required outcome and acceptance evidence | Status |
 | --- | --- | --- |
 | 1. Shared controls | Store-free range/opacity/palette controls used by desktop and browser; explicit host capability differences; native/browser compatibility regression matrix and real UI checks | Verified; receipt below |
-| 2. Save/restore | Versioned session settings and browser image export; reselect files with identity validation, restore display/frame/cursor/scene settings; cancellation, mismatches and reload tested | Pending |
+| 2. Save/restore | Versioned session settings and browser image export; reselect files with identity validation, restore display/frame/cursor/scene settings; cancellation, mismatches and reload tested | Implemented; receipt below |
 | 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Pending |
 | 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Pending |
 | 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Pending |
@@ -610,9 +610,8 @@ Relevant entry points: `ui2/src/browser`, `ui2/src/services/browser`, shared
 is under `cruft/browser-*`; completion must be established against the current
 code, not inferred from earlier per-slice checks.
 
-Next action: extract shared display controls without moving desktop stores or
-host policies into presentation components; run existing native control suites
-and the real browser harness before extending persistence and scene ownership.
+Next action: area 3, paired hemisphere ownership, linked volume/surface navigation
+and projection through shared numerical code. Areas 4–6 remain required.
 
 
 ### Area 1 receipt: shared display controls
@@ -641,3 +640,32 @@ Evidence: `cruft/browser-completion/controls-*` and `desktop-controls.log`.
 Area 2 next: persist versioned source/display descriptors, validate reselected
 file contents before replacement, and use the existing frame/surface composers
 with a browser download sink. File contents must not enter service-worker caches.
+
+### Area 2 receipt: session restoration and image export
+
+Version-1 browser settings contain SHA-256 source identities (names are hints),
+volume windows/palettes/opacity/frames, selected layer and crosshair, and surface
+map settings plus camera position/target/rotation/up/zoom. Selected File objects
+are retained with session resources; bytes are hashed sequentially in the worker
+only on save/restore, with a 256 MiB per-source ceiling. Data are not embedded
+in settings, localStorage or the service-worker cache.
+
+Restore validates every source before loading a provisional session. Changed
+contents with the same name are rejected; renamed identical sources work.
+Decoding/upload/render failure or cancellation retires the provisional worker;
+workspace reset invalidates late replacement. Volume restoration waits for its
+complete presented frame before swapping. Surface canvas initialization still
+occurs on mounting the restored surface and uses the existing error/cleanup path.
+
+PNG slices use the existing composition/encoding code, synchronously drawing
+from a completed frame and matching metadata before async encoding. PNG embeds
+frame/window/palette/opacity/crosshair provenance. Surface PNG uses the shared
+canvas exporter. Saved camera restoration is optional in the shared canvas and
+is applied after initial mesh fitting; default desktop behavior is unchanged.
+
+Evidence: 39 unit/service tests; 18 actual Chromium/Metal browser tests including
+source mismatch, renamed-file restoration, surface orbit/zoom round trip and
+PNG downloads; TypeScript and scoped UI lint; production WASM/PWA build.
+The camera test caught the renderer getter's omitted up vector; the saved camera
+contract now includes it. Restored-surface screenshot inspected. Evidence and
+logs are in `cruft/browser-completion/session-*` and `camera-*`.

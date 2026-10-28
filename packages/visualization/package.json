@@ -17,6 +17,10 @@
     "./surface": {
       "types": "./dist/surface/index.d.ts",
       "import": "./dist/surface/index.js"
+    },
+    "./surface/camera": {
+      "types": "./dist/surface/cameraState.d.ts",
+      "import": "./dist/surface/cameraState.js"
     }
   },
   "scripts": {
