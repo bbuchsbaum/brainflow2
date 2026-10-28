@@ -11,6 +11,7 @@ interface Pending {
 /** One owner per viewer. File objects are cloned to the worker; frame buffers transfer back. */
 export class BrowserTransport implements BackendTransport {
   readonly capabilities = browserCapabilities;
+  onFailure?: (error: Error) => void;
   private serial = 0;
   private pending = new Map<number, Pending>();
   private disposed = false;
@@ -20,6 +21,10 @@ export class BrowserTransport implements BackendTransport {
   ) {
     this.worker = worker;
     worker.onmessage = ({ data }: MessageEvent<WorkerReply>) => {
+      if (data.fatal) {
+        this.shutdown(new Error(data.error || 'Browser worker failed'));
+        return;
+      }
       const p = this.pending.get(data.id);
       if (!p) {
         worker.postMessage({ cancel: data.id } satisfies WorkerRequest);
@@ -32,12 +37,10 @@ export class BrowserTransport implements BackendTransport {
       else p.resolve(data.value);
     };
     worker.onerror = (event) => {
-      this.fail(new Error(event.message || 'Browser worker failed'));
-      this.dispose();
+      this.shutdown(new Error(event.message || 'Browser worker failed'));
     };
     worker.onmessageerror = () => {
-      this.fail(new Error('Browser worker response could not be decoded'));
-      this.dispose();
+      this.shutdown(new Error('Browser worker response could not be decoded'));
     };
   }
 
@@ -101,6 +104,12 @@ export class BrowserTransport implements BackendTransport {
     });
   }
 
+  private shutdown(error: Error) {
+    if (this.disposed) return;
+    this.fail(error);
+    this.dispose();
+    this.onFailure?.(error);
+  }
   private fail(error: Error) {
     for (const p of this.pending.values()) {
       p.clean();

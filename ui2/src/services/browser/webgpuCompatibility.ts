@@ -5,6 +5,7 @@ interface Descriptor {
 interface Adapter {
   limits: Record<string, number>;
   requestDevice(descriptor: Descriptor): Promise<{
+    lost: Promise<{ reason: string; message: string }>;
     addEventListener(
       type: string,
       listener: (event: Event & { error?: { message?: string } }) => void,
@@ -38,7 +39,7 @@ export function adaptWgpu20Descriptor(
   return { ...descriptor, requiredLimits };
 }
 
-export function installWgpu20Compatibility() {
+export function installWgpu20Compatibility(onFatal: (message: string) => void) {
   // Some engines expose GPUAdapter's constructor only after adapter discovery.
   // Adapt returned instances, rather than depending on that global constructor.
   const gpu = (
@@ -56,8 +57,11 @@ export function installWgpu20Compatibility() {
           adaptWgpu20Descriptor(descriptor, adapter.limits),
         );
         device.addEventListener('uncapturederror', (event) => {
-          throw new Error(
-            `WebGPU validation failed: ${event.error?.message ?? 'unknown device error'}`,
+          onFatal(`WebGPU validation failed: ${event.error?.message ?? 'unknown device error'}`);
+        });
+        void device.lost.then((info) => {
+          onFatal(
+            `GPU device was lost (${info.reason}): ${info.message || 'device unavailable'}. Restart the viewer and reopen your files.`,
           );
         });
         return device;

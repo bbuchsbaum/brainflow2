@@ -40,6 +40,7 @@ export type WorkerRequest =
   | { cancel: number }
   | { ack: number };
 export interface WorkerReply {
+  fatal?: boolean;
   id: number;
   value?: unknown;
   error?: string;

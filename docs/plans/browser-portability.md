@@ -788,3 +788,34 @@ resource release. Error/cancellation checks retain the pre-existing workspace.
 Template and atlas captures were inspected. Logs are under
 `cruft/browser-completion/catalog-*`; browser ownership audit reports no remaining
 automated processes. This is local evidence, not hosted or native Tauri acceptance.
+
+
+### Area 5 interim receipt: failure recovery and runtime checks
+
+A fatal worker error or actual GPU device loss now takes one teardown path:
+pending operations reject, the worker terminates, image bitmaps and surface
+buffers are released, and the UI offers a new viewer session. No stale frame is
+kept as a live result. Recovery requires reopening files; it does not silently
+attempt to reconstruct lost GPU state.
+
+Qualification: all 31 Chromium/Metal browser tests pass, including real
+`GPUDevice.destroy()` while idle, fresh-worker recovery, a rendered UI restart,
+three 27 MiB (192³ f32) load/render/unload cycles, oversized input/dimension
+rejection, and the previous numerical/ownership/catalog cases. All 51 browser
+service tests, TypeScript, scoped ESLint and the production build pass.
+Zero registered volumes/palettes/staging buffers after teardown is ownership
+evidence, not a claim that the browser allocator returns all process memory.
+
+Current engine matrix on this Mac, using the production bundle:
+
+| Engine | Observed result | Qualification |
+| --- | --- | --- |
+| Chromium 156.0.8078.4 / Metal | Real image pixels, unload and full regression suite pass | Supported tested configuration |
+| Firefox 157.0 | WebGPU exposed, requestAdapter returns null; explanation/restart shown | Volume rendering unsupported on this environment |
+| Playwright WebKit 2251, macOS 14 arm64 build | Bus error before page creation | No application/rendering qualification; not evidence about Safari |
+
+`tools/qualify-browser.mjs` repeats actual-engine smoke checks without changing
+application dependencies. It records revision plus a source-diff digest for dirty
+qualification runs. Receipts: `cruft/browser-completion/runtime-*` and
+`engine-matrix/`. Broad performance/process-memory bounds, hosted execution and
+source-bound publication remain pending; area 5 is not complete.

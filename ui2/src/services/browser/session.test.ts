@@ -659,3 +659,33 @@ describe('projected frame ownership', () => {
     }
   });
 });
+
+describe('fatal browser worker failure', () => {
+  it('releases presented frames and surface buffers and rejects late publication', () => {
+    const transport = { invoke: vi.fn(), dispose: vi.fn() } as unknown as BrowserTransport;
+    const session = new BrowserSession(transport);
+    const close = vi.fn();
+    session.frames.set('axial', { close } as unknown as ImageBitmap);
+    seedSurface(session, {
+      id: 'mesh',
+      name: 'mesh',
+      vertices: new Float32Array(9),
+      faces: new Uint32Array([0, 1, 2]),
+      hemisphere: 'left',
+    });
+    session.store.setState({ ready: true, layers: [{ ...movie, window: [0, 1], opacity: 1 }] });
+    transport.onFailure!(new Error('GPU device was lost'));
+    expect(close).toHaveBeenCalledOnce();
+    expect(transport.dispose).toHaveBeenCalledOnce();
+    expect(session.surfaceResources.size).toBe(0);
+    expect(session.frames.size).toBe(0);
+    expect(session.store.getState()).toMatchObject({
+      ready: false,
+      layers: [],
+      surfaces: [],
+      error: 'GPU device was lost',
+    });
+    transport.onFailure!(new Error('duplicate loss'));
+    expect(session.store.getState().error).toBe('GPU device was lost');
+  });
+});

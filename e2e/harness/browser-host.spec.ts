@@ -879,3 +879,116 @@ for (const [id, maximum, count] of [['glasser2016',360,360],['freesurfer_aseg',6
     expect(result.empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
   });
 }
+
+test('actual GPU device destruction retires an idle session and a fresh worker recovers',async({page})=>{
+  await page.goto('/browser.html');
+  const created=page.waitForEvent('worker',worker=>worker.url().includes('device-loss'));
+  await page.evaluate(async()=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');
+    const {BrowserSession}=await import('/src/services/browser/session.ts');
+    globalThis.__lossSession=new BrowserSession(new BrowserTransport(new Worker('/src/services/browser/worker.ts?device-loss',{type:'module'})));
+  });
+  const worker=await created;
+  await worker.evaluate(()=>{
+    const gpu=navigator.gpu;const original=gpu.requestAdapter;
+    gpu.requestAdapter=async function(...args){
+      const adapter=await original.apply(this,args);
+      if(adapter){
+        const request=adapter.requestDevice;
+        adapter.requestDevice=async function(...args){
+          const device=await request.apply(this,args);
+          globalThis.__qualificationDevice=device;
+          return device;
+        };
+      }
+      return adapter;
+    };
+  });
+  await page.evaluate(async bytes=>{
+    const session=globalThis.__lossSession;
+    await session.initialize();
+    await session.load(new File([new Uint8Array(bytes)],'oblique.nii'));
+    if(session.store.getState().error)throw Error(session.store.getState().error);
+  },[...readFileSync(fixture)]);
+  // This is a real GPUDevice.destroy(), not a simulated worker error.
+  await worker.evaluate(()=>globalThis.__qualificationDevice.destroy());
+  await expect.poll(()=>page.evaluate(()=>globalThis.__lossSession.store.getState().error)).toContain('GPU device was lost');
+  const retired=await page.evaluate(async()=>{
+    const session=globalThis.__lossSession;
+    const state=session.store.getState();
+    let error='';try{await session.transport.invoke('diagnostics')}catch(e){error=String(e)}
+    return {ready:state.ready,layers:state.layers.length,surfaces:state.surfaces.length,frames:session.frames.size,error};
+  });
+  expect(retired).toMatchObject({ready:false,layers:0,surfaces:0,frames:0});
+  expect(retired.error).toContain('viewer is closed');
+  const restored=await page.evaluate(async bytes=>{
+    const {BrowserSession}=await import('/src/services/browser/session.ts');
+    const session=new BrowserSession();
+    try{
+      await session.initialize();await session.load(new File([new Uint8Array(bytes)],'oblique.nii'));
+      const state=session.store.getState();
+      return {ready:state.ready,error:state.error,layers:state.layers.length};
+    }finally{session.dispose();delete globalThis.__lossSession;}
+  },[...readFileSync(fixture)]);
+  expect(restored).toEqual({ready:true,error:null,layers:1});
+});
+
+test('larger resident images render repeatedly and input limits reject before allocation',async({page})=>{
+  test.setTimeout(120_000);
+  await page.goto('/browser.html');
+  const result=await page.evaluate(async({header,frame})=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');
+    const transport=new BrowserTransport();
+    const dimensions=[192,192,192];
+    const bytes=new Uint8Array(352+dimensions.reduce((a,b)=>a*b)*4);
+    bytes.set(header);const view=new DataView(bytes.buffer);
+    view.setInt16(40,3,true);dimensions.forEach((n,i)=>view.setInt16(42+2*i,n,true));
+    view.setInt16(70,16,true);view.setInt16(72,32,true);
+    new Float32Array(bytes.buffer,352).fill(42);
+    const file=new File([bytes],'large.nii');
+    const empty=[];const centers=[];const times=[];
+    try{
+      await transport.invoke('initialize');
+      for(let cycle=0;cycle<3;cycle++){
+        const start=performance.now();
+        const volume=await transport.invoke('load_file',{file});
+        const request=structuredClone(frame);
+        request.layers[0].volumeId=volume.id;request.layers[0].intensity=[0,84];
+        const packet=await transport.invoke('render_view',{stateJson:JSON.stringify(request),format:'rgba'});
+        centers.push([...packet.slice(8+4*17,8+4*18)]);
+        times.push(performance.now()-start);
+        await transport.invoke('unload_volume',{volumeId:volume.id});
+        empty.push(await transport.invoke('diagnostics'));
+      }
+      // A valid header with oversized dimensions must be rejected before voxel decoding.
+      const oversized=bytes.slice(0,352);const h=new DataView(oversized.buffer);
+      [512,512,512].forEach((n,i)=>h.setInt16(42+2*i,n,true));
+      let dimensionsError='';try{await transport.invoke('load_file',{file:new File([oversized],'huge.nii')})}catch(e){dimensionsError=String(e)}
+      const block=new Uint8Array(1024*1024);
+      let bytesError='';try{await transport.invoke('load_file',{file:new File(Array(257).fill(block),'oversized.nii')})}catch(e){bytesError=String(e)}
+      return {sourceBytes:file.size,dimensions,centers,times,empty,dimensionsError,bytesError,afterFailure:await transport.invoke('diagnostics')};
+    }finally{transport.dispose()}
+  },{header:[...readFileSync(fixture).subarray(0,352)],frame:request});
+  expect(result.sourceBytes).toBe(192**3*4+352);
+  for(const pixel of result.centers)expect(pixel).toEqual([128,128,128,255]);
+  for(const empty of [...result.empty,result.afterFailure])expect(empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
+  expect(result.dimensionsError).toContain('32 million voxel');
+  expect(result.bytesError).toContain('256 MiB');
+  await test.info().attach('larger-image-resources',{body:JSON.stringify(result),contentType:'application/json'});
+});
+
+test('fatal worker failure presents a restart action and the viewer loads again',async({page})=>{
+  await page.goto('/browser.html');
+  await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+  await page.getByLabel('Choose NIfTI file',{exact:true}).setInputFiles(fixture);
+  await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
+  const worker=page.workers().find(worker=>worker.url().includes('/services/browser/worker.ts'))!;
+  await worker.evaluate(()=>{setTimeout(()=>{throw new Error('qualification worker failure')},0)});
+  await expect(page.getByRole('alert')).toContainText('qualification worker failure');
+  await expect(page.getByRole('button',{name:'Unload oblique.nii',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Restart viewer',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+  await page.getByLabel('Choose NIfTI file',{exact:true}).setInputFiles(fixture);
+  await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});

@@ -502,6 +502,9 @@ function Viewer({
           {state.error && (
             <div className="browser-error" role="alert">
               {state.error}
+              {!state.ready && (
+                <Button onClick={() => onRestore(new BrowserSession())}>Restart viewer</Button>
+              )}
             </div>
           )}
           {state.view === 'surface' && surface ? (

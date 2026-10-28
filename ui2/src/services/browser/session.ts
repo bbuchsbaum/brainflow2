@@ -182,6 +182,11 @@ export class BrowserSession {
   constructor(transport = new BrowserTransport()) {
     this.transport = transport;
     this.client = new RenderClient(transport);
+    transport.onFailure = (error) => {
+      if (this.closed) return;
+      this.dispose();
+      this.store.setState({ ...initial(), error: error.message });
+    };
   }
   /** Freeze settings and File references before hashing; later edits cannot change this save. */
   async saveRecord(signal?: AbortSignal): Promise<BrowserSessionRecord> {

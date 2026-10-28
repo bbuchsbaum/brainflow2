@@ -24,7 +24,9 @@ import {
 } from '../../utils/labelTable';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
-installWgpu20Compatibility();
+installWgpu20Compatibility((error) => {
+  scope.postMessage({ id: 0, error, fatal: true } satisfies WorkerReply);
+});
 let host: BrowserHost | undefined;
 let wasmInitialized = false;
 async function initializeWasm() {
