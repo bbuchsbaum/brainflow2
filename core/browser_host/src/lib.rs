@@ -22,6 +22,7 @@ pub struct BrowserVolume {
     pub range: [f32; 2],
     pub frame_count: usize,
     pub current_frame: usize,
+    pub label_ids: Option<Vec<u32>>,
 }
 
 pub struct BrowserHost {
@@ -69,6 +70,23 @@ impl BrowserHost {
         name: String,
         bytes: Vec<u8>,
     ) -> Result<BrowserVolume, String> {
+        self.load(name, bytes, false).await
+    }
+
+    pub async fn load_label_nifti(
+        &mut self,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Result<BrowserVolume, String> {
+        self.load(name, bytes, true).await
+    }
+
+    async fn load(
+        &mut self,
+        name: String,
+        bytes: Vec<u8>,
+        labels: bool,
+    ) -> Result<BrowserVolume, String> {
         let remaining_voxels = {
             let volumes = self.repository.volumes.lock().unwrap();
             let max_volumes = 4.min(self.renderer.capabilities().volume_slots as usize);
@@ -88,6 +106,7 @@ impl BrowserHost {
             bytes,
             id: format!("browser-{}", self.next_id),
             remaining_voxels,
+            labels,
         };
         let handle = VolumeLoadingService::load(&source, &self.repository, &scope)
             .await
@@ -114,16 +133,20 @@ impl BrowserHost {
                 }
                 info.range = [low, high];
             }
-            self.renderer
-                .register_volume(&handle.id, &volume, RendererVolumeFormat::R32Float)
-                .map_err(|e| e.to_string())?;
+            if info.label_ids.is_some() {
+                self.renderer.register_label_volume(&handle.id, &volume)
+            } else {
+                self.renderer
+                    .register_volume(&handle.id, &volume, RendererVolumeFormat::R32Float)
+            }
+            .map_err(|e| e.to_string())?;
             Ok(info)
         })();
         if let Some(error) = device.pop_error_scope().await {
-            let _ = self.renderer.release_volume_by_id(&handle.id);
             registration = Err(format!("GPU upload validation failed: {error}"));
         }
         if registration.is_err() {
+            let _ = self.renderer.release_volume_by_id(&handle.id);
             self.repository
                 .remove(&handle.id)
                 .await
@@ -169,12 +192,18 @@ impl BrowserHost {
 
     /// Same render_view arguments/8-byte RGBA envelope as the desktop adapter.
     pub async fn render_view(&mut self, state_json: &str) -> Result<Vec<u8>, String> {
-        let (id, state) = view::decode(state_json)?;
+        let (id, mut state) = view::decode(state_json)?;
         {
             let loaded = self.repository.volumes.lock().unwrap();
-            for layer in &state.layers {
-                if !loaded.contains_key(&layer.volume_id) {
-                    return Err("Volume was unloaded".into());
+            for layer in &mut state.layers {
+                let volume = loaded.get(&layer.volume_id).ok_or("Volume was unloaded")?;
+                if volume.handle.is_label_map == Some(true) {
+                    layer.layer_mode = render_contracts::LayerMode::Label;
+                    layer.interpolation = render_contracts::InterpolationMode::Nearest;
+                    layer.colormap_id = self
+                        .renderer
+                        .colormap_id(&layer.volume_id)
+                        .ok_or("Label palette has not been installed")?;
                 }
             }
         }
@@ -206,15 +235,71 @@ impl BrowserHost {
         self.renderer
             .release_volume_by_id(id)
             .map_err(|e| e.to_string())?;
+        self.renderer.release_colormap(id);
         VolumeLoadingService::unload(&self.repository, id)
             .await
             .map_err(|e| e.to_string())
     }
 
+    /// A palette belongs to its volume, with no independent browser registry.
+    pub async fn set_label_palette(&mut self, id: &str, rgba: &[u8]) -> Result<(), String> {
+        if self
+            .repository
+            .volumes
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_none_or(|v| v.handle.is_label_map != Some(true))
+        {
+            return Err("A loaded label volume is required".into());
+        }
+        let width = render_loop::texture_manager::COLORMAP_LUT_WIDTH as usize;
+        if rgba.len() != width * 4 || rgba[3] != 0 {
+            return Err("Label palette must have 2048 RGBA entries and transparent label 0".into());
+        }
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let result = self
+            .renderer
+            .upsert_colormap(id, rgba)
+            .map_err(|e| e.to_string());
+        let validation = device.pop_error_scope().await;
+        result?;
+        if let Some(error) = validation {
+            self.renderer.release_colormap(id);
+            return Err(format!("GPU palette upload failed: {error}"));
+        }
+        Ok(())
+    }
+
+    pub fn label_at_world(&self, id: &str, world: [f64; 3]) -> Result<Option<u32>, String> {
+        if !world.iter().all(|v| v.is_finite()) {
+            return Err("Coordinates must be finite".into());
+        }
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        if prepared.handle.is_label_map != Some(true) {
+            return Err("A label volume is required".into());
+        }
+        let volume = source::spatial_frame(&prepared.data, 0)?;
+        let m = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
+        let p = m.try_inverse().ok_or("Invalid affine")?
+            * nalgebra::Vector4::new(world[0], world[1], world[2], 1.0);
+        let mut coords = [0usize; 3];
+        for axis in 0..3 {
+            let index = (p[axis] + 0.5).floor();
+            if !index.is_finite() || index < 0.0 || index >= prepared.handle.dims[axis] as f64 {
+                return Ok(None);
+            }
+            coords[axis] = index as usize;
+        }
+        Ok(volume.get_at_coords(&coords).map(|v| v as u32))
+    }
+
     pub fn diagnostics(&self) -> String {
         let staging = self.renderer.readback_monitor().snapshot();
         serde_json::json!({"volumes":self.repository.volumes.lock().unwrap().len(),
-            "stagingBuffers":staging.buffers,"stagingBytes":staging.bytes})
+            "palettes":self.renderer.custom_colormap_count(),"stagingBuffers":staging.buffers,"stagingBytes":staging.bytes})
         .to_string()
     }
 }
@@ -259,6 +344,39 @@ mod wasm {
                 .await
                 .map_err(|e| JsValue::from_str(&e))?;
             serde_json::to_string(&v).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        pub async fn load_label_nifti(
+            &mut self,
+            name: String,
+            bytes: Vec<u8>,
+        ) -> Result<String, JsValue> {
+            let volume = self
+                .inner
+                .load_label_nifti(name, bytes)
+                .await
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_json::to_string(&volume).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        pub async fn set_label_palette(
+            &mut self,
+            id: String,
+            rgba: Vec<u8>,
+        ) -> Result<(), JsValue> {
+            self.inner
+                .set_label_palette(&id, &rgba)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn label_at_world(
+            &self,
+            id: String,
+            x: f64,
+            y: f64,
+            z: f64,
+        ) -> Result<Option<u32>, JsValue> {
+            self.inner
+                .label_at_world(&id, [x, y, z])
+                .map_err(|e| JsValue::from_str(&e))
         }
         pub async fn set_timepoint(
             &mut self,

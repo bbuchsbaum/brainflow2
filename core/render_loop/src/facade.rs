@@ -78,6 +78,40 @@ impl WgpuSliceRenderer {
         })
     }
 
+    /// Upload categorical IDs with the existing exact-integer storage policy.
+    pub fn register_label_volume(
+        &mut self,
+        id: &str,
+        volume: &DenseVolume3<f32>,
+    ) -> Result<RendererVolumeHandle, RenderLoopError> {
+        let (texture_index, _) = self.service.upload_volume_3d_labelaware(volume, true)?;
+        if let Err(error) = self.service.register_volume(id.to_owned(), texture_index) {
+            let _ = self.service.release_volume(texture_index);
+            return Err(error);
+        }
+        Ok(RendererVolumeHandle {
+            volume_id: id.to_owned(),
+            texture_index,
+        })
+    }
+
+    /// The caller owns the key and releases it after its last referring layer.
+    pub fn upsert_colormap(&mut self, key: &str, rgba: &[u8]) -> Result<u32, RenderLoopError> {
+        self.service.upsert_custom_colormap(key.to_owned(), rgba)
+    }
+
+    pub fn colormap_id(&self, key: &str) -> Option<u32> {
+        self.service.custom_colormaps.get(key).copied()
+    }
+
+    pub fn release_colormap(&mut self, key: &str) {
+        self.service.remove_custom_colormap(key);
+    }
+
+    pub fn custom_colormap_count(&self) -> usize {
+        self.service.custom_colormaps.len()
+    }
+
     /// Replace an existing scalar volume in its resident GPU slot.
     pub fn update_scalar_volume(
         &mut self,

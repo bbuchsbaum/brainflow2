@@ -1,3 +1,4 @@
+import type { AtlasPaletteLegendEntry } from '../../types/atlasPalette';
 export interface BrowserVolume {
   id: string;
   name: string;
@@ -10,6 +11,8 @@ export interface BrowserVolume {
   frameCount: number;
   /** The frame currently resident in the renderer. */
   currentFrame: number;
+  labelIds?: number[] | null;
+  legend?: AtlasPaletteLegendEntry[];
 }
 
 export interface BrowserGpuCapabilities {
@@ -25,7 +28,7 @@ export const browserCapabilities = Object.freeze({
   nativePaths: false,
   remoteMounts: false,
   externalProcesses: false,
-  labels: false,
+  labels: true,
   timeSeries: true,
   surfaces: false,
 });

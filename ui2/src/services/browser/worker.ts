@@ -4,6 +4,8 @@ import wasmUrl from '../../browser/generated/browser_host_bg.wasm?url';
 import type { BrowserVolume, WorkerReply, WorkerRequest } from './protocol';
 import { installWgpu20Compatibility } from './webgpuCompatibility';
 
+import { buildLabelPalette, parseLabelTable, MAX_CATEGORICAL_LABEL } from '../../utils/labelTable';
+
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 installWgpu20Compatibility();
 let host: BrowserHost | undefined;
@@ -45,9 +47,41 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
           throw new Error('Select a browser file; native paths are unavailable.');
         if (args.file.size > 256 * 1024 * 1024)
           throw new Error('File exceeds the 256 MiB browser input limit.');
+        let entries = [] as ReturnType<typeof parseLabelTable>;
+        if (args.table !== undefined) {
+          if (!(args.table instanceof File) || args.table.size > 1024 * 1024)
+            throw new Error('Select a label table smaller than 1 MiB.');
+          entries = parseLabelTable(await args.table.text());
+          if (!entries.length || entries.some((entry) => entry.id > MAX_CATEGORICAL_LABEL))
+            throw new Error('Label table must contain names and integer IDs from 0 to 2047.');
+        }
         const bytes = new Uint8Array(await args.file.arrayBuffer());
         if (cancelled.delete(id)) return;
-        const volume = JSON.parse(await host.load_nifti(args.file.name, bytes)) as BrowserVolume;
+        const volume = JSON.parse(
+          await (args.labels === true || args.table
+            ? host.load_label_nifti(args.file.name, bytes)
+            : host.load_nifti(args.file.name, bytes)),
+        ) as BrowserVolume;
+        try {
+          if (volume.labelIds) {
+            const table = new Map(entries.map((entry) => [entry.id, entry]));
+            const palette = buildLabelPalette(
+              volume.labelIds.map(
+                (label) => table.get(label) ?? { id: label, name: `Label ${label}`, color: null },
+              ),
+            );
+            const rgba = new Uint8Array((MAX_CATEGORICAL_LABEL + 1) * 4);
+            // Only IDs present in the volume receive opacity; holes and label 0 stay clear.
+            for (const entry of palette.legend) {
+              rgba.set([...entry.color, 255], entry.label_id * 4);
+            }
+            await host.set_label_palette(volume.id, rgba);
+            volume.legend = palette.legend;
+          }
+        } catch (error) {
+          await host.unload(volume.id);
+          throw error;
+        }
         completedLoads.set(id, volume.id);
         value = volume;
         break;
@@ -76,6 +110,13 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
           throw new Error('Browser rendering currently supports RGBA output.');
         value = await host.render_view(String(args.stateJson));
         break;
+      case 'label_at_world': {
+        const point = args.world;
+        if (!Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite))
+          throw new Error('A finite world point is required.');
+        value = host.label_at_world(String(args.volumeId), point[0], point[1], point[2]) ?? null;
+        break;
+      }
       case 'diagnostics':
         value = JSON.parse(host.diagnostics());
         break;

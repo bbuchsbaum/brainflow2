@@ -466,3 +466,33 @@ native browser host 3 passed, renderer 246 passed/19 ignored, browser session
 scoped UI lint, native/WASM Clippy and formatting checks pass with existing
 ts-rs and shared WASM Arc warnings. Browser rendering qualification remains
 Chromium/Metal on this machine; no hosted CI or deployment was performed.
+
+
+## Eighth slice: categorical labels (2026-10-28)
+
+The browser now opens 3D categorical NIfTI, with an optional local TSV/FreeSurfer
+LUT, through the existing loading lifecycle. Label intent is recognized; the
+explicit Open labels action handles files without that intent. IDs are restricted
+to 0–2047 and identity scaling. Native-type readers validate values before any
+f32 conversion; the general neuroim reader intentionally converts through f32
+and is unsuitable for validating exact source labels.
+
+Reuse and simplification:
+
+- `WgpuSliceRenderer` exposes the existing label-aware upload and palette
+  operations; shaders and upload encoders are unchanged.
+- The worker reuses desktop `parseLabelTable`, `buildLabelPalette` and fallback
+  colors. Only IDs actually present receive opacity; zero and holes stay clear.
+- The volume ID owns its palette, avoiding a second host registry or lease type.
+  Registration failures share one rollback path. Unload/cancel retires both.
+- Lookup uses the existing coalesced rendering loop and stale-revision check;
+  no new query cache, scheduler, or global state. Existing opacity/crosshair
+  controls remain shared; scalar windowing is hidden for labels.
+
+Acceptance: sparse IDs, analytic/native/browser pixels, off-center nearest
+sampling, anatomical transparency, opacity, named lookup, cancellation, failed
+validation and repeated palette-slot reuse. Local receipts are in
+`cruft/browser-labels/`. Browser support remains qualified only on Chromium/Metal.
+Browser outlines, editing, 4D label images and IDs beyond the shared LUT capacity
+are outside this slice. Surfaces and broader desktop host parity remain future
+work; no deployment is part of this change.

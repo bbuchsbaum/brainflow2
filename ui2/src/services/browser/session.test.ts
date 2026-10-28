@@ -134,3 +134,52 @@ describe('BrowserSession time series', () => {
     session.dispose();
   });
 });
+
+describe('BrowserSession label ownership', () => {
+  it('unloads a completed label load after reset before publishing it', async () => {
+    let complete!: (volume: BrowserVolume) => void;
+    const pending = new Promise<BrowserVolume>((resolve) => {
+      complete = resolve;
+    });
+    const invoke = vi.fn(async () => null);
+    const transport = {
+      request: vi.fn(() => pending),
+      invoke,
+      dispose: vi.fn(),
+    } as unknown as BrowserTransport;
+    const session = new BrowserSession(transport);
+    const loading = session.load(new File([], 'labels.nii'), true);
+    await session.reset();
+    complete({ ...movie, frameCount: 1, labelIds: [0, 17] });
+    await loading;
+    expect(session.store.getState().layers).toEqual([]);
+    expect(invoke).toHaveBeenCalledWith('unload_volume', { volumeId: movie.id });
+    session.dispose();
+  });
+
+  it('does not publish an old label lookup after crosshair movement or closure', async () => {
+    let complete!: (id: number) => void;
+    const lookup = new Promise<number>((resolve) => {
+      complete = resolve;
+    });
+    const invoke = vi.fn(async (command: string) => {
+      if (command === 'label_at_world') return lookup;
+      if (command === 'render_view') return framePacket();
+      return null;
+    });
+    const session = new BrowserSession({ invoke, dispose: vi.fn() } as unknown as BrowserTransport);
+    session.store.setState({
+      layers: [{ ...movie, frameCount: 1, labelIds: [0, 17], window: [0, 17], opacity: 1 }],
+      selected: movie.id,
+    });
+    session.crosshair([0, 0, 0]);
+    await Promise.resolve();
+    await Promise.resolve();
+    await session.reset();
+    complete(17);
+    await settle();
+    expect(session.store.getState().selectedLabel).toBeNull();
+    expect(invoke.mock.calls.filter(([command]) => command === 'render_view')).toEqual([]);
+    session.dispose();
+  });
+});

@@ -18,6 +18,7 @@ pub struct MemorySource {
     pub bytes: Vec<u8>,
     pub id: String,
     pub remaining_voxels: usize,
+    pub labels: bool,
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -56,10 +57,12 @@ impl VolumeSource for MemorySource {
         if header.magic != *b"n+1\0" {
             return Err(input("Select a single-file NIfTI-1 .nii or .nii.gz"));
         }
-        if header.intent_code == 1002 {
-            return Err(input(
-                "Label-map display is not yet supported by this browser host",
-            ));
+        let labels = self.labels || header.intent_code == 1002;
+        if labels
+            && (header.dim[0] != 3
+                || (!matches!(header.scl_slope, 0.0 | 1.0) || header.scl_inter != 0.0))
+        {
+            return Err(input("Label images must be 3D with identity NIfTI scaling"));
         }
         if !matches!(
             (header.datatype, header.bitpix),
@@ -91,7 +94,48 @@ impl VolumeSource for MemorySource {
                 "Workspace exceeds the 64 million resident voxel limit; unload an image first",
             ));
         }
-        let data = if ndim == 4 {
+        let data = if labels {
+            // Use the native typed reader: the general-purpose reader first
+            // converts through f32 even when its requested output type is f64.
+            // Validate IDs in their original precision before any narrowing.
+            macro_rules! decode_labels {
+                ($ty:ty) => {{
+                    let decoded = DenseVolume3::new(
+                        neuroim::io::read_vol_from_reader_native_as::<$ty>(Cursor::new(bytes))
+                            .map_err(|e| input(e.to_string()))?,
+                    );
+                    let values = decoded.values_contiguous();
+                    let mut labels = Vec::with_capacity(values.len());
+                    for &raw in values.iter() {
+                        let v = raw as f64;
+                        if !v.is_finite() || v < 0.0 ||
+                            v >= render_loop::texture_manager::COLORMAP_LUT_WIDTH as f64 || v.fract() != 0.0 {
+                            return Err(input("Label IDs must be integers from 0 to 2047 (0 is transparent background)"));
+                        }
+                        labels.push(v as f32);
+                    }
+                    DenseVolume3::from_data(decoded.space.clone(), labels)
+                }};
+            }
+            let volume = match header.datatype {
+                2 => decode_labels!(u8),
+                4 => decode_labels!(i16),
+                8 => decode_labels!(i32),
+                16 => decode_labels!(f32),
+                64 => decode_labels!(f64),
+                256 => decode_labels!(i8),
+                512 => decode_labels!(u16),
+                768 => decode_labels!(u32),
+                1024 => decode_labels!(i64),
+                1280 => decode_labels!(u64),
+                _ => unreachable!("datatype preflight"),
+            };
+            let transform = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
+            VolumeSendable::VolF32(
+                volume,
+                Affine3::from_matrix_unchecked(transform.cast::<f32>()),
+            )
+        } else if ndim == 4 {
             VolumeSendable::Vec4DF32(
                 neuroim::io::read_vec_from_reader_as::<f32>(Cursor::new(bytes))
                     .map_err(|e| input(e.to_string()))?,
@@ -128,7 +172,7 @@ impl VolumeSource for MemorySource {
             current_timepoint: (ndim == 4).then_some(0),
             time_series_info: None,
             statistic: None,
-            is_label_map: Some(false),
+            is_label_map: Some(labels),
         };
         Ok(PreparedVolume {
             data,
@@ -219,6 +263,19 @@ pub fn describe(
         center: [center.x, center.y, center.z],
         bounds,
         range: [min, max],
+        label_ids: if handle.is_label_map == Some(true) {
+            Some(
+                volume
+                    .values_contiguous()
+                    .iter()
+                    .map(|v| *v as u32)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+            )
+        } else {
+            None
+        },
     })
 }
 

@@ -17,3 +17,10 @@ The native host test exports the actual packet for browser byte comparison.
 `value(i,j,k,t) = i + 10*j + 100*k + 1000*t`. The header declares a two-second
 time spacing. Tests select frames 0, 2, 1, 0 and use a fixed [0,2864] window.
 The expected raster remains `(400 + 10*x + y + 1000*t) / 2864 * 255`.
+
+`labels.nii` and its gzip copy use the same grid and label intent 1002:
+`label(i,j,k) = [0,17,1024,2047][(i+j) % 4]`. The TSV supplies red, green and
+blue for the nonzero IDs. Tests shift the raster by 0.4 voxel along i, request
+linear interpolation, and still require exact nearest-neighbour label colors.
+Label zero must transmit an underlying scalar layer. Invalid f64 labels are
+constructed in tests, including 17.00000001, which rounds to 17 through f32.

@@ -53,6 +53,7 @@ export class BrowserTransport implements BackendTransport {
         'load_file',
         'unload_volume',
         'set_timepoint',
+        'label_at_world',
         'render_view',
         'diagnostics',
       ].includes(cmd)

@@ -37,7 +37,7 @@ test('actual WASM worker agrees with analytic/native pixels, cancels and unloads
   expect(result.volume.bounds).toEqual([[-3,-8.5,3],[11,6.5,39]]);
   expect(result.packet.length).toBe(witness.packet.length);
   expect(Math.max(...result.packet.map((v,i)=>Math.abs(v-witness.packet[i])))).toBeLessThanOrEqual(1);
-  expect(result.empty).toEqual({volumes:0,stagingBuffers:0,stagingBytes:0});
+  expect(result.empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
   expect(result.afterCancel).toEqual(result.empty);
   expect(result.stale).toBe(true);expect(result.unsupported).toBe('UNSUPPORTED_BROWSER_CAPABILITY');
   expect(result.cancellation).toBe('AbortError');expect(result.gzip).toEqual([4,-1,21]);
@@ -65,7 +65,7 @@ test('a real 16-texture device renders and tears down the adaptive layout',async
   expect(result.packet.length).toBe(witness.packet.length);
   expect(Math.max(...result.packet.map((v,i)=>Math.abs(v-witness.packet[i])))).toBeLessThanOrEqual(1);
   expect(result.cancellation).toBe('AbortError');
-  expect(result.empty).toEqual({volumes:0,stagingBuffers:0,stagingBytes:0});
+  expect(result.empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
 });
 
 test('insufficient texture limits reject initialization before loading',async({page})=>{
@@ -103,7 +103,7 @@ test('missing R32Float filtering rejects startup instead of silently reducing pr
 test('linked slices, window, overlay and teardown work at desktop and narrow sizes',async({page})=>{
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/browser.html');await expect(page.getByRole('button',{name:'Open NIfTI'})).toBeEnabled();
-  await page.locator('input[type=file]').setInputFiles(fixture);
+  await page.getByLabel('Choose NIfTI file', {exact:true}).setInputFiles(fixture);
   const revision=()=>page.locator('main').getAttribute('data-frame-revision').then(Number);
   await expect.poll(revision).toBeGreaterThan(0);
   expect(await page.getByRole('spinbutton',{name:'R',exact:true}).inputValue()).toBe('4');
@@ -113,7 +113,7 @@ test('linked slices, window, overlay and teardown work at desktop and narrow siz
   const before=await pixels();let r=await revision();
   await page.getByRole('slider',{name:'Window low',exact:true}).focus();await page.keyboard.press('ArrowRight');
   await expect.poll(revision).toBeGreaterThan(r);expect(await pixels()).not.toBe(before);
-  r=await revision();await page.locator('input[type=file]').setInputFiles(compressed);
+  r=await revision();await page.getByLabel('Choose NIfTI file', {exact:true}).setInputFiles(compressed);
   await expect(page.getByRole('button',{name:'Unload oblique.nii.gz',exact:true})).toBeVisible();
   await expect.poll(revision).toBeGreaterThan(r);const overlay=await pixels();
   r=await revision();await page.getByRole('slider',{name:'Opacity',exact:true}).focus();await page.keyboard.press('Home');
@@ -140,14 +140,14 @@ test('production PWA reloads offline and caches only application assets',async({
   const installability=await cdp.send('Page.getInstallabilityErrors');
   expect(installability.installabilityErrors).toEqual([]);
   await cdp.detach();
-  await page.locator('input[type=file]').setInputFiles(fixture);
+  await page.getByLabel('Choose NIfTI file', {exact:true}).setInputFiles(fixture);
   await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
   const urls=await page.evaluate(async()=>{const names=await caches.keys();const keys=await Promise.all(names.filter(n=>n.startsWith('brainflow-browser-')).map(n=>caches.open(n).then(c=>c.keys())));return keys.flat().map(r=>r.url)});
   expect(urls.some(u=>u.endsWith('.wasm'))).toBe(true);expect(urls.some(u=>u.includes('oblique'))).toBe(false);
   await context.setOffline(true);await page.reload();
   await expect(page.getByRole('button',{name:'Open NIfTI'})).toBeEnabled();
   await expect(page.getByText('Local processing · Offline')).toBeVisible();
-  await page.locator('input[type=file]').setInputFiles(compressed);
+  await page.getByLabel('Choose NIfTI file', {exact:true}).setInputFiles(compressed);
   await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
   await context.setOffline(false);
 });
@@ -173,13 +173,13 @@ test('4D frame changes preserve native pixels and reject stale indices',async({p
   },{bytes,frame:request});
   expect(output.volume.frameCount).toBe(3);expect(output.volume.center).toEqual([4,-1,21]);expect(output.rejected).toBe(true);
   for(let t=0;t<4;t++)expect(Math.max(...output.packets[t].map((v,i)=>Math.abs(v-reference.packets[t][i])))).toBeLessThanOrEqual(1);
-  expect(output.empty).toEqual({volumes:0,stagingBuffers:0,stagingBytes:0});
+  expect(output.empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
 });
 
 test('4D controls scrub, play, pause and unload without stale presentation',async({page})=>{
   await page.goto('/browser.html');
   await expect(page.getByRole('button',{name:'Open NIfTI'})).toBeEnabled();
-  await page.locator('input[type=file]').setInputFiles(resolve(__dirname,'../../test-data/browser/oblique4d.nii'));
+  await page.getByLabel('Choose NIfTI file', {exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/oblique4d.nii'));
   const revision=()=>page.locator('main').getAttribute('data-frame-revision').then(Number);
   await expect.poll(revision).toBeGreaterThan(0);
   const field=page.getByRole('spinbutton',{name:'Frame',exact:true});
@@ -195,4 +195,66 @@ test('4D controls scrub, play, pause and unload without stale presentation',asyn
   await page.screenshot({path:test.info().outputPath('time-series.png')});
   await page.getByRole('button',{name:'Clear workspace'}).click();
   await expect(field).toHaveCount(0);
+});
+
+test('categorical WASM pixels, sparse IDs, tables and cancelled ownership match native', async ({page}) => {
+  await page.goto('/browser.html');
+  const reference=JSON.parse(readFileSync(resolve(dirname(process.env.BROWSER_NATIVE_WITNESS ?? resolve(__dirname,'../../cruft/browser-portability/native-witness.json')), 'native-label-witness.json'),'utf8'));
+  const result=await page.evaluate(async ({bytes,table,frame})=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');
+    const transport=new BrowserTransport();
+    try {
+      await transport.invoke('initialize');
+      const file=new File([new Uint8Array(bytes)],'labels.nii.gz');
+      const sidecar=new File([table],'labels.tsv');
+      const volume=await transport.invoke('load_file',{file,table:sidecar});
+      frame.layers[0].volumeId=volume.id;
+      frame.layers[0].interpolation='linear';
+      frame.requestedView.origin_mm[1]=-7.3;
+      const packet=[...await transport.invoke('render_view',{stateJson:JSON.stringify(frame),format:'rgba'})];
+      const label=await transport.invoke('label_at_world',{volumeId:volume.id,world:[4,-1,21]});
+      await transport.invoke('unload_volume',{volumeId:volume.id});
+      let badTable=false;
+      try {await transport.invoke('load_file',{file,table:new File(['not a label table'],'bad.tsv')});} catch {badTable=true;}
+      const abort=new AbortController();
+      const cancelled=transport.request('load_file',{file,table:sidecar},abort.signal).catch(e=>e.name);
+      const until=performance.now()+150;while(performance.now()<until){}
+      abort.abort();
+      const cancellation=await cancelled;
+      const empty=await transport.invoke('diagnostics');
+      const fallback=await transport.invoke('load_file',{file});
+      await transport.invoke('unload_volume',{volumeId:fallback.id});
+      return {volume,packet,label,badTable,cancellation,empty,fallback};
+    } finally {transport.dispose();}
+  },{bytes:[...readFileSync(resolve(__dirname,'../../test-data/browser/labels.nii.gz'))],table:readFileSync(resolve(__dirname,'../../test-data/browser/labels.tsv'),'utf8'),frame:request});
+  expect(result.volume.labelIds).toEqual([0,17,1024,2047]);
+  expect(result.volume.legend.map(e=>e.displayName)).toEqual(['Region seventeen','Region thousand','Last region']);
+  expect(result.packet).toEqual(reference.packet);
+  expect(result.label).toBe(17);
+  expect(result.badTable).toBe(true);
+  expect(result.cancellation).toBe('AbortError');
+  expect(result.empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
+  expect(result.fallback.legend.map(e=>e.displayName)).toEqual(['Label 17','Label 1024','Label 2047']);
+  await test.info().attach('label-witness',{body:JSON.stringify(result),contentType:'application/json'});
+});
+
+test('label controls reuse opacity and show the named region at the linked crosshair', async ({page}) => {
+  await page.goto('/browser.html');
+  await expect(page.getByRole('button',{name:'Open labels',exact:true})).toBeEnabled();
+  await page.getByLabel('Choose label image and optional table',{exact:true}).setInputFiles([
+    resolve(__dirname,'../../test-data/browser/labels.nii'),resolve(__dirname,'../../test-data/browser/labels.tsv')]);
+  await expect(page.getByLabel('Region at crosshair',{exact:true})).toHaveText('Region seventeen (17)');
+  await expect(page.getByRole('slider',{name:'Window low',exact:true})).toHaveCount(0);
+  const revision=()=>page.locator('main').getAttribute('data-frame-revision').then(Number);
+  let before=await revision();
+  const anterior=page.getByRole('spinbutton',{name:'A',exact:true});
+  await anterior.fill('2');await anterior.press('Enter');
+  await expect.poll(revision).toBeGreaterThan(before);
+  await expect(page.getByLabel('Region at crosshair',{exact:true})).toHaveText('Region thousand (1024)');
+  await page.screenshot({path:test.info().outputPath('label-controls.png')});
+  before=await revision();
+  await page.getByRole('slider',{name:'Opacity',exact:true}).focus();await page.keyboard.press('Home');
+  await expect.poll(revision).toBeGreaterThan(before);
+  await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
+  await expect(page.getByLabel('Region at crosshair',{exact:true})).toHaveCount(0);
 });

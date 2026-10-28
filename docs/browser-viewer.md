@@ -69,7 +69,7 @@ desktop recovery route were verified. The installed Playwright WebKit build for
 macOS 14 crashes before opening a page, so WebKit rendering remains unqualified.
 Other browsers/devices need their own acceptance run.
 
-Labels, surfaces, atlas/template catalogs, remote mounts,
+Surfaces, atlas/template catalogs, remote mounts,
 native paths, filesystem watching and external process plugins remain unavailable
 in this viewer. The capability description and command errors say so explicitly.
 This is a working volume-viewing milestone, not complete desktop feature parity.
@@ -149,3 +149,33 @@ The UI keeps one active render and the latest requested state; obsolete frames
 are never published. Pause, unload, workspace reset and session close retire
 playback timers. This slice supports frame indices; it does not infer acquisition
 timing from the NIfTI time axis.
+
+## Categorical labels
+
+Choose **Open labels** and select one 3D NIfTI (`.nii` or `.nii.gz`) and, optionally,
+one label table together. The shared desktop parser accepts BIDS-style TSV
+(`index`, `name`, optional `color` as `#rrggbb`) and FreeSurfer LUT text. A table
+is limited to 1 MiB. Missing names/colors use the desktop's deterministic fallback.
+NIfTI label intent (1002) also selects label loading through the ordinary chooser.
+
+Labels require identity scaling and integer IDs 0–2047, the current shared LUT
+capacity. Native-type decoding validates before conversion: fractional, negative,
+nonfinite and larger IDs fail instead of rounding or disappearing. Label 0 is
+transparent. Rendering always samples labels with nearest neighbour, regardless
+of the request's interpolation setting. Opacity and linked crosshair controls
+are shared with scalar viewing; the inspector shows the region name and ID at
+the crosshair. This slice supports filled labels; outlines and label editing
+remain unavailable in the browser.
+
+The renderer facade exposes the existing label upload and custom palette
+operations. Palettes use volume IDs as ownership keys, with no second browser
+registry. Failed palette setup, cancellation and unload reclaim the same volume
+and its palette. Label lookup runs in the existing coalesced render loop and
+cannot publish after workspace closure or a newer selection.
+
+`labels.nii` uses sparse IDs 0, 17, 1024 and 2047 on the synthetic oblique grid.
+Native tests check analytic colors at off-center sample positions, label-zero
+transparency over anatomy, opacity, exact lookup and repeated palette reuse.
+The real WASM/Chromium test compares the native RGBA packet exactly and exercises
+sidecar names, fallback colors, cancellation and cleanup. This shares the same
+Chromium/Metal qualification boundary described above.

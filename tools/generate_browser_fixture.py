@@ -44,3 +44,14 @@ series = [v + 1000*t for t in range(3) for v in values]
 payload4d = bytes(header) + struct.pack("<945f", *series)
 (output / "oblique4d.nii").write_bytes(payload4d)
 (output / "oblique4d.nii.gz").write_bytes(gzip.compress(payload4d, mtime=0))
+
+# Sparse categorical IDs deliberately span the shared LUT. Same oblique grid.
+label_header = bytearray(header)
+struct.pack_into('<8h', label_header, 40, 3, 5, 7, 9, 1, 1, 1, 1)
+struct.pack_into('<h', label_header, 68, 1002)  # NIFTI_INTENT_LABEL
+label_values = [float([0, 17, 1024, 2047][(i+j) % 4])
+                for k in range(9) for j in range(7) for i in range(5)]
+label_payload = bytes(label_header) + struct.pack('<315f', *label_values)
+(output / 'labels.nii').write_bytes(label_payload)
+(output / 'labels.nii.gz').write_bytes(gzip.compress(label_payload, mtime=0))
+(output / 'labels.tsv').write_text('index\tname\tcolor\n0\tBackground\t#ffffff\n17\tRegion seventeen\t#ff0000\n1024\tRegion thousand\t#00ff00\n2047\tLast region\t#0000ff\n')

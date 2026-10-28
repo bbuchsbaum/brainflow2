@@ -50,6 +50,7 @@ function Slice({ session, view }: { session: BrowserSession; view: RenderViewTyp
 function Viewer({ session }: { session: BrowserSession }) {
   const state = useStore(session.store);
   const chooser = useRef<HTMLInputElement>(null);
+  const labelChooser = useRef<HTMLInputElement>(null);
   const selected = state.layers.find((l) => l.id === state.selected);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [cached, setCached] = useState(false);
@@ -94,6 +95,21 @@ function Viewer({ session }: { session: BrowserSession }) {
         <Button disabled={!state.ready} onClick={() => chooser.current?.click()}>
           {state.layers.length ? 'Add overlay' : 'Open NIfTI'}
         </Button>
+        <Button disabled={!state.ready} onClick={() => labelChooser.current?.click()}>
+          Open labels
+        </Button>
+        <input
+          ref={labelChooser}
+          className="sr-only"
+          aria-label="Choose label image and optional table"
+          type="file"
+          accept=".nii,.nii.gz,.tsv,.lut,.txt"
+          multiple
+          onChange={(event) => {
+            void session.loadLabels(Array.from(event.target.files ?? []));
+            event.target.value = '';
+          }}
+        />
         <Button
           variant="ghost"
           disabled={!state.layers.length && !state.loading}
@@ -140,19 +156,32 @@ function Viewer({ session }: { session: BrowserSession }) {
             <>
               <h2>Display</h2>
               <p className="browser-dimensions">{selected.dims.join(' × ')} voxels</p>
-              <FieldRow label="Window" layout="stacked">
-                <RangeSlider
-                  className="w-full"
-                  label="Window"
-                  min={Math.min(selected.range[0], selected.window[0])}
-                  max={Math.max(selected.range[1], selected.window[1])}
-                  value={selected.window}
-                  editable
-                  onValueChange={(window) => {
-                    if (window[0] < window[1]) session.update(selected.id, { window });
-                  }}
-                />
-              </FieldRow>
+              {selected.labelIds ? (
+                <>
+                  <p>Labels · nearest-neighbour sampling · 0 is transparent</p>
+                  <p role="status" aria-label="Region at crosshair">
+                    {state.selectedLabel === null
+                      ? 'Outside label image'
+                      : state.selectedLabel === 0
+                        ? 'Background (0)'
+                        : `${selected.legend?.find((entry) => entry.label_id === state.selectedLabel)?.displayName ?? `Label ${state.selectedLabel}`} (${state.selectedLabel})`}
+                  </p>
+                </>
+              ) : (
+                <FieldRow label="Window" layout="stacked">
+                  <RangeSlider
+                    className="w-full"
+                    label="Window"
+                    min={Math.min(selected.range[0], selected.window[0])}
+                    max={Math.max(selected.range[1], selected.window[1])}
+                    value={selected.window}
+                    editable
+                    onValueChange={(window) => {
+                      if (window[0] < window[1]) session.update(selected.id, { window });
+                    }}
+                  />
+                </FieldRow>
+              )}
               <FieldRow label="Opacity" layout="stacked">
                 <Slider
                   className="w-full"
@@ -233,8 +262,10 @@ function Viewer({ session }: { session: BrowserSession }) {
               compressed or expanded input.
             </p>
             <p>
-              Labels, surfaces, remote mounts, native paths and external analysis tools require the
-              desktop app.
+              Open labels accepts a 3D label NIfTI and an optional TSV or FreeSurfer LUT selected
+              together. IDs must be 0–2047 with identity scaling. Label-intent NIfTI files are
+              recognized automatically. Surfaces, remote mounts, native paths and external analysis
+              tools require the desktop app.
             </p>
           </details>
         </aside>

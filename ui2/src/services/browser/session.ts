@@ -17,6 +17,7 @@ export interface BrowserState {
   /** The one layer advancing only after its preceding frame is presented. */
   playing: string | null;
   frameRevision: number;
+  selectedLabel: number | null;
 }
 const initial = (): BrowserState => ({
   gpu: null,
@@ -28,6 +29,7 @@ const initial = (): BrowserState => ({
   selected: null,
   playing: null,
   frameRevision: 0,
+  selectedLabel: null,
 });
 
 /** Renderer-owned frames stay outside Zustand; stores hold control state only. */
@@ -59,7 +61,7 @@ export class BrowserSession {
     if (!this.closed && !(e instanceof DOMException && e.name === 'AbortError'))
       this.store.setState({ error: String(e instanceof Error ? e.message : e) });
   }
-  async load(file: File) {
+  async load(file: File, labels = false, table?: File) {
     const generation = this.generation;
     const abort = new AbortController();
     this.loads.add(abort);
@@ -67,7 +69,7 @@ export class BrowserSession {
     try {
       const volume = await this.transport.request<BrowserVolume>(
         'load_file',
-        { file },
+        { file, labels, table },
         abort.signal,
       );
       if (this.closed || generation !== this.generation) {
@@ -82,6 +84,7 @@ export class BrowserSession {
       this.store.setState({
         layers: [...layers, { ...volume, window: range, opacity: layers.length ? 0.5 : 1 }],
         selected: volume.id,
+        selectedLabel: null,
         ...(layers.length ? {} : { crosshair: volume.center }),
       });
       this.schedule();
@@ -92,11 +95,28 @@ export class BrowserSession {
       if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
     }
   }
+  async loadLabels(files: File[]) {
+    if (!files.length) return;
+    const images = files.filter((file) => /\.nii(\.gz)?$/i.test(file.name));
+    const tables = files.filter((file) => /\.(tsv|lut|txt)$/i.test(file.name));
+    if (
+      images.length !== 1 ||
+      tables.length > 1 ||
+      images.length + tables.length !== files.length
+    ) {
+      this.error(
+        new Error('Select one label NIfTI and, optionally, one TSV or FreeSurfer LUT together.'),
+      );
+      return;
+    }
+    await this.load(images[0], true, tables[0]);
+  }
   cancelLoads() {
     for (const abort of this.loads) abort.abort();
   }
   select(id: string) {
-    this.store.setState({ selected: id });
+    this.store.setState({ selected: id, selectedLabel: null });
+    this.schedule();
   }
   update(id: string, patch: Partial<Pick<BrowserLayer, 'window' | 'opacity'>>) {
     this.store.setState({
@@ -139,7 +159,7 @@ export class BrowserSession {
   async remove(id: string) {
     const layers = this.store.getState().layers.filter((l) => l.id !== id);
     if (this.store.getState().playing === id) this.stopPlayback();
-    this.store.setState({ layers, selected: layers.at(-1)?.id ?? null });
+    this.store.setState({ layers, selected: layers.at(-1)?.id ?? null, selectedLabel: null });
     ++this.revision;
     if (!layers.length) this.clearFrames();
     try {
@@ -241,6 +261,14 @@ export class BrowserSession {
         const revision = this.revision;
         await this.prepareTimepoints(snapshot.layers);
         if (this.closed || revision !== this.revision) continue;
+        const selected = snapshot.layers.find((layer) => layer.id === snapshot.selected);
+        const selectedLabel = selected?.labelIds
+          ? await this.transport.invoke<number | null>('label_at_world', {
+              volumeId: selected.id,
+              world: snapshot.crosshair,
+            })
+          : null;
+        if (this.closed || revision !== this.revision) continue;
         const outcomes = await Promise.allSettled(
           orientations.map(async (view) => {
             const { frame } = await this.client.renderView(this.payload(view, snapshot), {
@@ -271,7 +299,7 @@ export class BrowserSession {
           this.frames.get(view)?.close();
           this.frames.set(view, image);
         }
-        this.store.setState((s) => ({ frameRevision: s.frameRevision + 1 }));
+        this.store.setState((s) => ({ frameRevision: s.frameRevision + 1, selectedLabel }));
         this.queuePlayback(revision);
       }
     } catch (e) {
@@ -285,7 +313,7 @@ export class BrowserSession {
   private clearFrames() {
     this.frames.forEach((f) => f.close());
     this.frames.clear();
-    this.store.setState((s) => ({ frameRevision: s.frameRevision + 1 }));
+    this.store.setState((s) => ({ frameRevision: s.frameRevision + 1, selectedLabel: null }));
   }
   private async prepareTimepoints(layers: readonly BrowserLayer[]) {
     const pending = layers.filter((layer) => layer.frameCount > 1);

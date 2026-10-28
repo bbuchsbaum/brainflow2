@@ -46,7 +46,7 @@ struct Layer {
 pub fn decode(json: &str) -> Result<(String, ViewState), String> {
     let p: Payload = serde_json::from_str(json).map_err(|e| e.to_string())?;
     if p.timepoint.is_some_and(|t| t != 0) {
-        return Err("Browser time series are unsupported".into());
+        return Err("Select browser timepoints through set_timepoint before rendering".into());
     }
     let r = p.requested_view;
     if r.width == 0 || r.height == 0 || r.width > 2048 || r.height > 2048 {
@@ -84,12 +84,11 @@ pub fn decode(json: &str) -> Result<(String, ViewState), String> {
     for l in p.layers {
         if l.outline.is_some()
             || l.alpha_mod.is_some()
-            || l.layer_mode.as_deref().is_some_and(|m| m != "scalar")
+            || l.layer_mode
+                .as_deref()
+                .is_some_and(|m| m != "scalar" && m != "label")
         {
-            return Err(
-                "Label, outline and modulated-alpha display are unsupported in this browser host"
-                    .into(),
-            );
+            return Err("Unsupported layer mode, outline or modulated-alpha display".into());
         }
         if !l
             .intensity
