@@ -1,3 +1,4 @@
+import { BrowserCatalog } from './BrowserCatalog';
 import { DisplayRange, ColormapControl, OpacityControl } from '../components/ui/ImagingControls';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
@@ -169,6 +170,19 @@ function Viewer({
           {(state.layers.length > 0 || !surface) && <h2>Layers</h2>}
           {!state.layers.length && !surface && (
             <p>Open a NIfTI image or GIfTI surface to begin. Files stay on this device.</p>
+          )}
+          <BrowserCatalog session={session} />
+          {selected?.catalog && (
+            <details className="browser-provenance">
+              <summary>Image source</summary>
+              <p>{selected.catalog.citation}</p>
+              <p>{selected.catalog.space}</p>
+              <a href={selected.catalog.url} target="_blank" rel="noreferrer">
+                Original source
+              </a>
+              <p>Retrieved {selected.catalog.retrievedAt}</p>
+              <p>SHA-256: {selected.catalog.sha256}</p>
+            </details>
           )}
           <ul className="browser-layers">
             {state.layers.map((l) => (

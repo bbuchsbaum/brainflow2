@@ -201,3 +201,21 @@
     min-height: 460px;
   }
 }
+
+.browser-catalog,
+.browser-provenance {
+  margin-block: 12px;
+  overflow-wrap: anywhere;
+}
+.browser-catalog summary,
+.browser-provenance summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.browser-catalog a,
+.browser-provenance a {
+  text-decoration: underline;
+}
+.browser-catalog button {
+  margin-top: 8px;
+}

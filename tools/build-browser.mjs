@@ -10,6 +10,7 @@ function run(command, args) {
   if (r.error) throw r.error;
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
+run(process.execPath, ['tools/prepare-browser-catalog.mjs']);
 const generated = resolve(root, 'ui2/src/browser/generated');
 mkdirSync(generated, { recursive: true });
 run('cargo', ['build', '--locked', '--release', '-p', 'browser_host', '--lib', '--target', 'wasm32-unknown-unknown']);

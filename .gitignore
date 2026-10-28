@@ -49,3 +49,6 @@ mockup*-live-*
 # Generated browser WASM bindings and standalone production bundle
 /ui2/src/browser/generated/
 /ui2/dist-browser/
+
+# Verified public template mirrors, regenerated from catalog checksums
+/ui2/public/catalog-assets/

@@ -22,7 +22,7 @@ Template system providing fast hierarchical menu access to commonly used brain t
 ## For AI Agents
 
 ### Working In This Directory
-Wraps templateflow-rs for Brainflow integration. When adding new templates, update catalog.rs (add_*_templates methods) and types.rs (TemplateSpace enum). Service handles async downloading from templateflow S3, local caching, and volume loading via nifti_loader. See core/CLAUDE.md section "Adding New Brain Templates" for 4-step process including frontend menu updates. Templates cached per templateflow conventions. Future: dynamic discovery via templateflow-rs API will eliminate manual catalog updates.
+Wraps templateflow-rs for Brainflow integration. When adding new templates, update `catalog.json` (shared native/browser definitions) and types.rs (TemplateSpace enum). Service handles async downloading from templateflow S3, local caching, and volume loading via nifti_loader. See core/CLAUDE.md section "Adding New Brain Templates" for 4-step process including frontend menu updates. Templates cached per templateflow conventions. Future: dynamic discovery via templateflow-rs API will eliminate manual catalog updates.
 
 ### Testing Requirements
 Run `cargo test -p templates`. Use `tempfile` for test cache directories. Mock HTTP requests where possible. Test template discovery, download (or cache hit), decompression (gzip), and volume loading. Verify metadata correctness (space, resolution, type). Integration with templateflow-rs API.

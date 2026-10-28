@@ -767,3 +767,115 @@ test('categorical projection preserves nearest IDs, palette, outside coverage an
   await page.getByRole('button',{name:'Unload labels.nii',exact:true}).click();
   await expect(page.getByText('Projected frame 1 · nearest label',{exact:true})).toHaveCount(0);
 });
+
+test('catalog loads real template and atlas assets with source identity and restores verified provenance', async ({page}) => {
+  test.setTimeout(120_000);
+  const catalog=JSON.parse(readFileSync(resolve(__dirname,'../../core/templates/catalog.json'),'utf8'));
+  const template=catalog.find(entry=>entry.id==='MNI152NLin2009cAsym_T1w_2mm');
+  await page.goto('http://127.0.0.1:5359/browser.html');
+  await page.evaluate(()=>navigator.serviceWorker.ready.then(()=>true));
+  await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+  if (await page.locator('details.browser-catalog').getAttribute('open') === null)
+    await page.getByText('Atlas and template catalog',{exact:true}).click();
+  await page.getByLabel('Catalog item',{exact:true}).selectOption(template.id);
+  await page.getByRole('button',{name:'Load catalog image',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Load catalog image',exact:true})).toBeEnabled({timeout:30_000});
+  expect(await page.getByRole('alert').allTextContents()).toEqual([]);
+  await expect(page.getByRole('button',{name:`Unload ${template.name}`,exact:true})).toBeVisible({timeout:30_000});
+  await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
+  await page.getByText('Image source',{exact:true}).click();
+  await expect(page.getByText(`SHA-256: ${template.checksum}`,{exact:true})).toBeVisible();
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Save session',exact:true}).click();
+  const settings=readFileSync((await (await download).path())!);
+  const record=JSON.parse(settings.toString());
+  expect(record.volumes[0].catalog).toMatchObject({id:template.id,url:template.download_url,sha256:template.checksum,space:template.config.space});
+  expect(record.volumes[0].source.sha256).toBe(template.checksum);
+  await page.screenshot({path:test.info().outputPath('catalog-template.png')});
+  await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
+  await page.getByLabel('Choose session settings',{exact:true}).setInputFiles({name:'catalog.json',mimeType:'application/json',buffer:settings});
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toBeVisible();
+  await page.getByLabel('Choose session sources',{exact:true}).setInputFiles(resolve(__dirname,`../../ui2/public/catalog-assets/${template.id}.nii.gz.bin`));
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:`Unload ${template.name}`,exact:true})).toBeVisible();
+  await page.getByText('Image source',{exact:true}).click();
+  await expect(page.getByText(`SHA-256: ${template.checksum}`,{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
+  if (await page.locator('details.browser-catalog').getAttribute('open') === null)
+    await page.getByText('Atlas and template catalog',{exact:true}).click();
+  await page.getByLabel('Catalog item',{exact:true}).selectOption('schaefer2018-100-7-2mm');
+  await page.getByRole('button',{name:'Load catalog image',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Load catalog image',exact:true})).toBeEnabled({timeout:30_000});
+  expect(await page.getByRole('alert').allTextContents()).toEqual([]);
+  await expect(page.getByRole('button',{name:'Unload Schaefer 2018 · 100 regions · 7 networks · 2mm',exact:true})).toBeVisible({timeout:30_000});
+  await expect(page.getByRole('slider',{name:'Window low',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.screenshot({path:test.info().outputPath('catalog-atlas.png')});
+  const cached=await page.evaluate(async()=>{
+    const names=await caches.keys();
+    const entries=await Promise.all(names.map(async name=>(await caches.open(name)).keys()));
+    return entries.flat().map(request=>request.url);
+  });
+  expect(cached.some(url=>url.includes('catalog-assets/')||url.includes('raw.githubusercontent.com'))).toBe(false);
+  await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
+});
+
+test('catalog HTTP failure and cancellation preserve the workspace and release pending acquisition', async ({page}) => {
+  await page.goto('/browser.html');
+  await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+  await page.getByLabel('Choose NIfTI file',{exact:true}).setInputFiles(fixture);
+  if (await page.locator('details.browser-catalog').getAttribute('open') === null)
+    await page.getByText('Atlas and template catalog',{exact:true}).click();
+  const asset='**/catalog-assets/MNI152NLin2009cAsym_T1w_2mm.nii.gz.bin';
+  await page.route(asset,route=>route.fulfill({status:503,body:'unavailable'}));
+  await page.getByRole('button',{name:'Load catalog image',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('HTTP 503');
+  await expect(page.getByRole('button',{name:'Unload oblique.nii',exact:true})).toBeVisible();
+  await page.unroute(asset);
+  let intercepted! : ()=>void;const started=new Promise<void>(resolve=>{intercepted=resolve;});
+  let finish! : ()=>void;const response=new Promise<void>(resolve=>{finish=resolve;});
+  await page.route(asset,async route=>{intercepted();await response;await route.abort().catch(()=>{});});
+  await page.getByRole('button',{name:'Load catalog image',exact:true}).click();
+  await started;
+  await page.getByRole('button',{name:'Cancel load',exact:true}).click();
+  finish();
+  await expect(page.getByRole('button',{name:'Load catalog image',exact:true})).toBeEnabled();
+  await expect(page.getByRole('button',{name:'Unload oblique.nii',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Unload MNI152 T1w (2mm)',exact:true})).toHaveCount(0);
+});
+
+for (const [id, maximum, count] of [['glasser2016',360,360],['freesurfer_aseg',60,17],['olsen_mtl',16,16]] as const) {
+  test(`catalog provider ${id} retains actual label IDs and releases its resources`,async({page})=>{
+    test.setTimeout(60_000);
+    await page.goto('/browser.html');
+    const result=await page.evaluate(async({id})=>{
+      const {BrowserSession}=await import('/src/services/browser/session.ts');
+      const {browserCatalog}=await import('/src/services/browser/catalog.ts');
+      const session=new BrowserSession();
+      try {
+        await session.initialize();
+        await session.loadCatalog(browserCatalog.find(entry=>entry.id===id)!);
+        const state=session.store.getState();
+        if(state.error)throw new Error(state.error);
+        const layer=state.layers[0];
+        const record=await session.saveRecord();
+        await session.reset();
+        const empty=await session.transport.invoke('diagnostics');
+        return {labels:layer.labelIds,legend:layer.legend,catalog:layer.catalog,table:record.volumes[0].table,empty};
+      } finally {session.dispose();}
+    },{id});
+    expect(Math.max(...result.labels!)).toBe(maximum);
+    expect(result.labels!.every(value=>Number.isInteger(value)&&value>=0)).toBe(true);
+    expect(result.legend!.length).toBe(count);
+    if(id==='freesurfer_aseg') {
+      expect(result.labels).toEqual([0,10,11,12,13,16,17,18,26,28,49,50,51,52,53,54,58,60]);
+      expect(result.legend).toEqual(expect.arrayContaining([
+        expect.objectContaining({label_id:10,roi:'Left-Thalamus'}),
+        expect.objectContaining({label_id:28,roi:'Left-VentralDC'}),
+        expect.objectContaining({label_id:60,roi:'Right-VentralDC'}),
+      ]));
+    }
+    expect(result.table?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.catalog?.id).toBe(id);
+    expect(result.empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
+  });
+}

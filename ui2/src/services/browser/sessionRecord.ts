@@ -1,3 +1,4 @@
+import { isCatalogProvenance, type CatalogProvenance } from './catalog';
 import {
   isSurfaceCameraState,
   type SurfaceCameraState,
@@ -13,6 +14,7 @@ export interface BrowserSessionRecord {
   volumes: Array<{
     source: SessionSource;
     table?: SessionSource;
+    catalog?: CatalogProvenance;
     labels: boolean;
     window: [number, number];
     opacity: number;
@@ -74,6 +76,8 @@ export function parseSessionRecord(text: string): BrowserSessionRecord {
       (v: unknown) =>
         object(v) &&
         isSessionSource(v.source) &&
+        (v.catalog === undefined ||
+          (isCatalogProvenance(v.catalog) && v.catalog.sha256 === v.source.sha256)) &&
         (v.table === undefined || isSessionSource(v.table)) &&
         typeof v.labels === 'boolean' &&
         (v.table === undefined || v.labels) &&
@@ -196,6 +200,7 @@ export async function restoreSessionRecord(
         resolve(volume.source),
         volume.labels,
         volume.table ? resolve(volume.table) : undefined,
+        volume.catalog,
       );
       check();
       const loaded = stage.store.getState().layers.at(-1);

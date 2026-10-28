@@ -1,3 +1,9 @@
+import {
+  fetchCatalogAsset,
+  catalogLabelTable,
+  type BrowserCatalogEntry,
+  type CatalogProvenance,
+} from './catalog';
 import { createStore } from 'zustand/vanilla';
 import { sampleVolumeLabels } from '@brainflow/visualization/surface/projection';
 import { RenderClient } from '@brainflow/api';
@@ -19,6 +25,7 @@ export const orientations: RenderViewType[] = ['axial', 'coronal', 'sagittal'];
 export type BrowserLayer = BrowserVolume & {
   window: [number, number];
   opacity: number;
+  catalog?: CatalogProvenance;
   colormap?: string;
 };
 export type BrowserSurfaceOverlay = {
@@ -129,7 +136,10 @@ export class BrowserSession {
       check();
     });
   }
-  private volumeSources = new Map<string, { file: File; labels: boolean; table?: File }>();
+  private volumeSources = new Map<
+    string,
+    { file: File; labels: boolean; table?: File; catalog?: CatalogProvenance }
+  >();
 
   private client: RenderClient;
   private closed = false;
@@ -206,6 +216,7 @@ export class BrowserSession {
       const layer = state.layers[index];
       volumes.push({
         source: await describe(source.file),
+        ...(source.catalog ? { catalog: source.catalog } : {}),
         ...(source.table ? { table: await describe(source.table) } : {}),
         labels: source.labels,
         window: layer.window,
@@ -276,7 +287,64 @@ export class BrowserSession {
     if (!this.closed && !(e instanceof DOMException && e.name === 'AbortError'))
       this.store.setState({ error: String(e instanceof Error ? e.message : e) });
   }
-  async load(file: File, labels = false, table?: File) {
+  async loadCatalog(entry: BrowserCatalogEntry) {
+    if (this.closed || this.store.getState().loading) return;
+    if (entry.unavailable) {
+      this.error(new Error(entry.unavailable));
+      return;
+    }
+    const incompatible = this.store
+      .getState()
+      .layers.find((layer) => layer.catalog && layer.catalog.space !== entry.space);
+    if (incompatible) {
+      this.error(
+        new Error(
+          `This image is in ${entry.space}; the loaded catalog image is in ${incompatible.catalog!.space}. Clear the workspace before loading a different reference space. No registration is performed.`,
+        ),
+      );
+      return;
+    }
+    const generation = this.generation;
+    const abort = new AbortController();
+    this.loads.add(abort);
+    this.store.setState({ loading: true, error: null });
+    try {
+      const { file, url } = await fetchCatalogAsset(entry.volume, abort.signal);
+      let table: File | undefined;
+      if (entry.table) {
+        const acquired = await fetchCatalogAsset(entry.table, abort.signal, 1024 * 1024);
+        table = catalogLabelTable(await acquired.file.text(), entry.table.format);
+      } else if (entry.tableText) table = catalogLabelTable(entry.tableText);
+      const identity = await this.transport.request<SessionSource>(
+        'describe_source',
+        { file },
+        abort.signal,
+      );
+      if (entry.volume.sha256 && identity.sha256 !== entry.volume.sha256)
+        throw new Error('Catalog source checksum changed. The image was not loaded.');
+      abort.signal.throwIfAborted();
+      if (this.closed || generation !== this.generation) return;
+      await this.load(file, entry.kind === 'atlas', table, {
+        id: entry.id,
+        name: entry.name,
+        url: entry.volume.sourceUrl ?? entry.volume.url,
+        fetchedFrom: url,
+        space: entry.space,
+        sha256: identity.sha256,
+        retrievedAt: new Date().toISOString(),
+        citation: entry.citation,
+        ...((entry.table?.url ?? entry.tableSource)
+          ? { tableUrl: entry.table?.url ?? entry.tableSource }
+          : {}),
+      });
+    } catch (error) {
+      if (generation === this.generation) this.error(error);
+    } finally {
+      this.loads.delete(abort);
+      if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
+    }
+  }
+  async load(file: File, labels = false, table?: File, catalog?: CatalogProvenance) {
     const generation = this.generation;
     const abort = new AbortController();
     this.loads.add(abort);
@@ -291,7 +359,7 @@ export class BrowserSession {
         await this.transport.invoke('unload_volume', { volumeId: volume.id });
         return;
       }
-      this.volumeSources.set(volume.id, { file, labels, table });
+      this.volumeSources.set(volume.id, { file, labels, table, catalog });
       const layers = this.store.getState().layers;
       const range: [number, number] =
         volume.range[0] < volume.range[1]
@@ -302,6 +370,7 @@ export class BrowserSession {
           ...layers,
           {
             ...volume,
+            ...(catalog ? { catalog, name: catalog.name } : {}),
             window: range,
             opacity: layers.length ? 0.5 : 1,
             colormap: layers.length ? 'hot' : 'gray',

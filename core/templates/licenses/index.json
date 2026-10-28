@@ -1,0 +1,14 @@
+{
+  "MNI152NLin2009cAsym": {
+    "url": "https://raw.githubusercontent.com/templateflow/tpl-MNI152NLin2009cAsym/master/LICENSE",
+    "file": "MNI152NLin2009cAsym.txt"
+  },
+  "MNIColin27": {
+    "url": "https://raw.githubusercontent.com/templateflow/tpl-MNIColin27/master/LICENSE",
+    "file": "MNIColin27.txt"
+  },
+  "MNI305": {
+    "url": "https://raw.githubusercontent.com/templateflow/tpl-MNI305/master/LICENSE",
+    "file": "MNI305.txt"
+  }
+}

@@ -595,7 +595,7 @@ adapters; a browser implementation must expose genuine supported operations.
 | 1. Shared controls | Store-free range/opacity/palette controls used by desktop and browser; explicit host capability differences; native/browser compatibility regression matrix and real UI checks | Verified; receipt below |
 | 2. Save/restore | Versioned session settings and browser image export; reselect files with identity validation, restore display/frame/cursor/scene settings; cancellation, mismatches and reload tested | Implemented; receipt below |
 | 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Implemented; receipts below |
-| 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Pending |
+| 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Implemented; receipt below |
 | 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Pending |
 | 6. Performance | Measure cold/warm rendering and readback/copy costs; implement justified optimization only with equivalent output and ownership evidence; record decision on direct canvas presentation | Pending |
 
@@ -610,8 +610,8 @@ Relevant entry points: `ui2/src/browser`, `ui2/src/services/browser`, shared
 is under `cruft/browser-*`; completion must be established against the current
 code, not inferred from earlier per-slice checks.
 
-Next action: area 3, paired hemisphere ownership, linked volume/surface navigation
-and projection through shared numerical code. Areas 4–6 remain required.
+Next action: area 5 runtime/resource/browser qualification and delivery, followed
+by area 6 measured performance and the direct-canvas decision.
 
 
 ### Area 1 receipt: shared display controls
@@ -752,3 +752,39 @@ scalar projection remains passing. Production WASM/PWA build, TypeScript and
 scoped native/browser lint pass. Evidence is `cruft/browser-completion/label-projection-*`.
 Areas 4–6 remain required; these checks do not establish native Tauri or broader
 browser/device qualification.
+
+
+### Area 4 receipt: catalog access
+
+Native template/atlas catalog metadata now lives in shared JSON definitions;
+native cache state remains local. Browser acquisition uses the existing loading
+lifecycle, bounded cancellable downloads, SHA-256 source identity and saved
+provenance. Named incompatible reference spaces are refused before acquisition;
+loading does not register or resample images.
+
+Thirteen TemplateFlow assets (68,501,359 compressed bytes) are prepared as static,
+checksum-verified files with their redistribution notices. Opaque `.bin` transport
+names avoid HTTP gzip decoding changing source bytes; original NIfTI filenames
+are retained for decoding. The two MNI152NLin6Asym entries are not mirrored because
+a redistribution notice was not located; MNI305 T2w is unavailable upstream.
+The UI explains these exceptions and retains original source links.
+Forty Schaefer variants plus Glasser, ASEG and Olsen use pinned provider URLs.
+Catalog assets and user images are excluded from the PWA application cache.
+
+Real-data qualification exposed a native-provider defect: the pinned ASEG Rust
+provider assigns sequential 1–17 labels to sparse FreeSurfer voxel IDs 10–60.
+The browser table follows the original R provider and preserves actual IDs,
+including Left-VentralDC at 28. The upstream native defect remains a separate
+repair; this change does not relabel voxel data or claim that defect is fixed.
+See `core/atlases/labels/README.md` for exact source pins and byte identity.
+
+Evidence: 44 browser service tests, all 28 actual Chromium/Metal WASM browser
+checks, production WASM/PWA build (including TypeScript), scoped ESLint, and
+native template/atlas library tests (37 passed, one existing cache-dependent
+Schaefer test ignored). Native scoped Clippy passed with existing ts-rs warnings.
+Production UI checks cover real template/Schaefer downloads, provenance restore
+and cache exclusion; actual-provider checks cover Glasser/ASEG/Olsen IDs and
+resource release. Error/cancellation checks retain the pre-existing workspace.
+Template and atlas captures were inspected. Logs are under
+`cruft/browser-completion/catalog-*`; browser ownership audit reports no remaining
+automated processes. This is local evidence, not hosted or native Tauri acceptance.
