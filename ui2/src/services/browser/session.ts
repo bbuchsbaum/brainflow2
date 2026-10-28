@@ -925,7 +925,15 @@ export class BrowserSession {
             return [
               view,
               await createImageBitmap(
-                new ImageData(new Uint8ClampedArray(rgba.rgba), rgba.width, rgba.height),
+                new ImageData(
+                  new Uint8ClampedArray(
+                    rgba.rgba.buffer,
+                    rgba.rgba.byteOffset,
+                    rgba.rgba.byteLength,
+                  ),
+                  rgba.width,
+                  rgba.height,
+                ),
               ),
             ] as const;
           }),

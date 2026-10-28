@@ -597,7 +597,7 @@ adapters; a browser implementation must expose genuine supported operations.
 | 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Implemented; receipts below |
 | 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Implemented; receipt below |
 | 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Pending |
-| 6. Performance | Measure cold/warm rendering and readback/copy costs; implement justified optimization only with equivalent output and ownership evidence; record decision on direct canvas presentation | Pending |
+| 6. Performance | Measure cold/warm rendering and readback/copy costs; implement justified optimization only with equivalent output and ownership evidence; record decision on direct canvas presentation | Measured and simplified for tested Mac workload; receipt below |
 
 Invariants: affine/world units, integer label identity, native missing-value and
 first-array compatibility, source identity, rejection of stale publication, and
@@ -819,3 +819,47 @@ application dependencies. It records revision plus a source-diff digest for dirt
 qualification runs. Receipts: `cruft/browser-completion/runtime-*` and
 `engine-matrix/`. Broad performance/process-memory bounds, hosted execution and
 source-bound publication remain pending; area 5 is not complete.
+
+
+### Area 6 receipt: measured copy reduction and canvas decision
+
+The browser now creates its clamped RGBA view over the decoder-owned buffer,
+rather than copying that buffer again. This removes one full-frame allocation
+(1 MiB at 512², 4 MiB at 1024²) without changing the transport, renderer, pixel
+format or ownership contract. The decoder still owns a separate payload copy;
+this is not a zero-copy rendering pipeline.
+
+On Apple M3 Max, macOS 14.3, Chromium 156/Metal, 30 warm samples per case:
+
+| Slice size | Previous construction, median total | Shared view, median total | Removed copy stage, median |
+| --- | ---: | ---: | ---: |
+| 128² | 0.8 ms | 0.7 ms | Below timer resolution |
+| 512² | 2.5 ms | 1.7 ms | 0.4 ms |
+| 1024² | 6.7 ms | 5.3 ms | 1.4 ms |
+
+These are measured render roundtrip + decode + bitmap-construction times for a
+single synthetic scalar volume, not full UI frame rates or universal speedups.
+The report records first samples, median/p95 stage timings, fresh worker startup,
+load time, source digest and test revision. `mapAsync` measures queue wait plus
+mapping; it is not a GPU-only timer. Instrumentation uses the development worker;
+OS caches are uncontrolled. Exact bitmap pixels agree in both constructions.
+See [the benchmark receipt](../benchmarks/browser-runtime-2026-10-28.json) and
+`e2e/playwright.browser-perf.config.ts` for reproduction.
+
+Five 27 MiB load/unload cycles retain a stable 152.19 MiB WASM heap capacity.
+Two 96 MiB images load; a third is refused by the 64-million-resident-voxel budget
+without registering it. After all unloads, volume/palette/staging counters are
+zero but heap capacity remains 728.56 MiB. Worker termination is the boundary for
+releasing that heap; these are capacity measurements, not process RSS or a proof
+of an absolute browser memory ceiling.
+
+Decision: retain asynchronous RGBA readback and bitmap presentation. Measured
+warm costs at the current 512² slice resolution do not justify a second direct
+canvas rendering/ownership path. Reconsider for sustained large-frame animation
+or a measured target-device bottleneck, with parity and teardown checks.
+
+Verification after the change: 51 browser service tests, all 31 real browser
+regressions, TypeScript, scoped lint and production WASM/PWA build pass. The
+benchmark's paired pixel checks and resident-budget checks pass. Area 5 still
+requires hosted execution and source-bound preview delivery; nothing here is
+hosted or all-browser qualification.
