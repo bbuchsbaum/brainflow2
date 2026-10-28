@@ -596,7 +596,7 @@ adapters; a browser implementation must expose genuine supported operations.
 | 2. Save/restore | Versioned session settings and browser image export; reselect files with identity validation, restore display/frame/cursor/scene settings; cancellation, mismatches and reload tested | Implemented; receipt below |
 | 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Implemented; receipts below |
 | 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Implemented; receipt below |
-| 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Pending |
+| 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Verified for stated matrix; final receipt below |
 | 6. Performance | Measure cold/warm rendering and readback/copy costs; implement justified optimization only with equivalent output and ownership evidence; record decision on direct canvas presentation | Measured and simplified for tested Mac workload; receipt below |
 
 Invariants: affine/world units, integer label identity, native missing-value and
@@ -610,8 +610,8 @@ Relevant entry points: `ui2/src/browser`, `ui2/src/services/browser`, shared
 is under `cruft/browser-*`; completion must be established against the current
 code, not inferred from earlier per-slice checks.
 
-Next action: area 5 runtime/resource/browser qualification and delivery, followed
-by area 6 measured performance and the direct-canvas decision.
+All six areas are delivered within the explicit host/runtime limits below.
+The dated receipts preserve intermediate results and supersede their next-action notes.
 
 
 ### Area 1 receipt: shared display controls
@@ -863,3 +863,46 @@ regressions, TypeScript, scoped lint and production WASM/PWA build pass. The
 benchmark's paired pixel checks and resident-budget checks pass. Area 5 still
 requires hosted execution and source-bound preview delivery; nothing here is
 hosted or all-browser qualification.
+
+
+### Final delivery and completion audit (2026-10-28)
+
+The published source is `d156834c7a21641a84e42f2deb60df5fb37f5c38`, pushed to
+`neurotabs/w3-status` after verifying no upstream divergence. No merge was made.
+The [permanent preview](https://sable-bridge-b9d7.here.now/) was built in an isolated
+checkout with the locked dependencies; its application source is clean.
+The [hosted build](https://github.com/bbuchsbaum/brainflow2/actions/runs/40780966908)
+completed successfully: Linux WASM/PWA build, TypeScript, 51 browser service tests,
+and uploaded source-bound build artifact. A duplicate queued run was cancelled.
+
+The local clean checkout passed all 31 actual Chromium/Metal browser tests and
+51 service tests. Live HTTPS checks passed local file rendering, real template
+and atlas downloads, offline app reload and volume/surface rendering. Every one
+of the 95 entries in the [build manifest](https://sable-bridge-b9d7.here.now/build-info.json)
+was checked against served bytes; the manifest itself matches the local build
+SHA-256 `b24c1a415db318a88f46e8ddfcfdb18ae4051de1daa3a5f8a41c33522ed2de11`.
+The host inserts non-executable social-card metadata in HTML, adding thumbnail
+tags once its preview image is generated. Both observed exact variants are declared. Verification
+removes only that exact declared block before checking the original HTML digest;
+JavaScript, WASM, data and every other asset require exact bytes. No scripts or
+other transformations are allowed by the check. The live template capture was
+visually inspected; browser automation ownership audit is clean.
+
+| Requirement | Completion evidence |
+| --- | --- |
+| 1. Shared controls and host boundaries | Shared control source; desktop React harness/transport regression receipts; final actual browser window/map/opacity flows |
+| 2. Save, restore, export, camera | Final browser suite exercises identity mismatch/renamed sources, saved state, camera round trip and PNG export |
+| 3. Paired/linked views and projection | Final suite exercises independent hemisphere ownership, world cursor, scalar/categorical projection, full-affine/4D witnesses, restore and unload |
+| 4. Catalog lifecycle | Shared JSON/native tests; real production/live template and atlas downloads, source hashes, cancellation, restoration and cache exclusion |
+| 5. Runtime qualification and delivery | Explicit engine matrix, real GPU loss/restart, larger-image/resource-budget tests, successful hosted job, source-bound live preview and offline checks |
+| 6. Measured simplification | Reproducible stage/heap benchmark, pixel-equivalent removal of a full-frame copy, explicit decision to retain async readback |
+
+[Machine-readable delivery receipt](../benchmarks/browser-delivery-2026-10-28.json).
+Reproduce live verification with `e2e/playwright.preview.config.ts`, setting
+`BROWSER_PREVIEW_URL`, `BROWSER_PREVIEW_SHA` and `BROWSER_PREVIEW_MANIFEST_SHA`
+to this receipt. Select the installed automation browser with `BROWSER_QA_BROWSER`.
+The hosted job proves build/unit behavior; it does not prove GPU behavior.
+Firefox/WebKit outcomes, native Tauri walkthrough limits, unavailable catalog
+entries and retained WASM heap capacity remain explicit limitations, not claimed
+passes. The six-area browser delivery scope is complete; broader desktop feature
+parity and all-browser support are not part of that claim.
