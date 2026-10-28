@@ -669,3 +669,29 @@ PNG downloads; TypeScript and scoped UI lint; production WASM/PWA build.
 The camera test caught the renderer getter's omitted up vector; the saved camera
 contract now includes it. Restored-surface screenshot inspected. Evidence and
 logs are in `cruft/browser-completion/session-*` and `camera-*`.
+
+### Area 3 checkpoint: paired surfaces and linked navigation
+
+BrowserSession owns a resource map keyed by surface ID; Zustand holds only
+per-surface metadata/settings and selected ID. A scene accepts one left and one
+right hemisphere. Each owns its scalar/label map and source files; selecting a
+hemisphere does not move its map, and unloading one retains the other. In-flight
+map results attach only to their original resource identity. The existing shared
+canvas renders both and retains exact categorical values in the host.
+
+Linking is explicit confirmation of shared anatomical world space, not automatic
+registration. Surface picks preserve exact world coordinates even outside volume
+bounds. Known inflated/spherical/flat meshes cannot link without anatomical
+companions. A shared optional marker subset limits snapping to linked surfaces
+while retaining picking on all surfaces. Session settings are now version 2, with
+per-surface sources/maps/linking and one scene camera; version 1 remains readable.
+
+Evidence: 44 service tests; 20 actual Chromium/Metal browser tests including paired
+map selection, save/restore and independent unload; four unchanged desktop React
+UI baselines; TypeScript, scoped lint and production WASM/PWA build. Paired scene
+screenshot inspected. Evidence lives in `cruft/browser-completion/pair-*`.
+
+Area 3 is not yet complete: numerical volume-to-surface projection remains.
+Prefer supplying the existing shared full-affine `VolumeProjectionLayer` with
+the selected volume frame. The native CPU neurosurf adapter currently rejects
+rotation/shear and should not be copied into a second browser algorithm.

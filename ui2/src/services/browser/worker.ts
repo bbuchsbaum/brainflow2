@@ -107,6 +107,7 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
           vertices: decoded.vertices(),
           faces: decoded.faces(),
           hemisphere: decoded.hemisphere(),
+          surfaceType: decoded.surface_type(),
         };
       } finally {
         decoded.free();

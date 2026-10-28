@@ -92,7 +92,7 @@ export function BrowserSessionFiles({
               signal.throwIfAborted();
               if (generation !== session.workspaceGeneration) return;
               const parsed = parseSessionRecord(text);
-              if (!parsed.volumes.length && !parsed.surface) {
+              if (!parsed.volumes.length && !parsed.surfaces.length) {
                 const restored = await restoreSessionRecord(parsed, [], signal);
                 if (signal.aborted || generation !== session.workspaceGeneration) {
                   restored.dispose();

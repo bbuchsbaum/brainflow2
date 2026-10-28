@@ -23,6 +23,23 @@ export type BrowserSurfaceOverlay = { id: string; name: string; opacity: number 
   | { kind: 'scalar'; range: [number, number]; dataRange: [number, number]; colormap: string }
   | { kind: 'labels' }
 );
+export interface BrowserSurfaceState {
+  id: string;
+  name: string;
+  vertices: number;
+  faces: number;
+  hemisphere: string;
+  overlay: BrowserSurfaceOverlay | null;
+  linked: boolean;
+}
+export interface BrowserSurfaceResources {
+  geometry: BrowserSurface;
+  source: File | null;
+  overlaySource: File | null;
+  values: Float32Array | null;
+  labels: BrowserSurfaceLabels | null;
+  overlayRequest: number;
+}
 export interface BrowserState {
   gpu: BrowserGpuCapabilities | null;
   ready: boolean;
@@ -36,8 +53,8 @@ export interface BrowserState {
   frameRevision: number;
   selectedLabel: number | null;
   view: 'slices' | 'surface';
-  surface: { id: string; name: string; vertices: number; faces: number } | null;
-  surfaceOverlay: BrowserSurfaceOverlay | null;
+  surfaces: BrowserSurfaceState[];
+  selectedSurface: string | null;
   surfacePick: { world: [number, number, number]; vertex: number } | null;
 }
 const initial = (): BrowserState => ({
@@ -52,9 +69,9 @@ const initial = (): BrowserState => ({
   frameRevision: 0,
   selectedLabel: null,
   view: 'slices',
-  surface: null,
+  surfaces: [],
+  selectedSurface: null,
   surfacePick: null,
-  surfaceOverlay: null,
 });
 
 /** Renderer-owned frames stay outside Zustand; stores hold control state only. */
@@ -100,8 +117,7 @@ export class BrowserSession {
     });
   }
   private volumeSources = new Map<string, { file: File; labels: boolean; table?: File }>();
-  private surfaceSource: File | null = null;
-  private overlaySource: File | null = null;
+
   private client: RenderClient;
   private closed = false;
   private generation = 0;
@@ -112,11 +128,32 @@ export class BrowserSession {
   private rendering = false;
   private dirty = false;
   private loads = new Set<AbortController>();
-  surfaceGeometry: BrowserSurface | null = null;
+  readonly surfaceResources = new Map<string, BrowserSurfaceResources>();
+  get activeSurface() {
+    const state = this.store.getState();
+    return state.surfaces.find((s) => s.id === state.selectedSurface) ?? null;
+  }
+  get surfaceGeometry() {
+    return this.surfaceResources.get(this.store.getState().selectedSurface ?? '')?.geometry ?? null;
+  }
+  get surfaceValues() {
+    return this.surfaceResources.get(this.store.getState().selectedSurface ?? '')?.values ?? null;
+  }
+  get surfaceLabels() {
+    return this.surfaceResources.get(this.store.getState().selectedSurface ?? '')?.labels ?? null;
+  }
   private surfaceRequest = 0;
-  private overlayRequest = 0;
-  surfaceValues: Float32Array | null = null;
-  surfaceLabels: BrowserSurfaceLabels | null = null;
+  private patchSurface(id: string, patch: Partial<BrowserSurfaceState>) {
+    this.store.setState((state) => ({
+      surfaces: state.surfaces.map((surface) =>
+        surface.id === id ? { ...surface, ...patch } : surface,
+      ),
+    }));
+  }
+  selectSurface(id: string) {
+    if (this.surfaceResources.has(id))
+      this.store.setState({ selectedSurface: id, surfacePick: null });
+  }
   private playbackTimer: ReturnType<typeof setTimeout> | undefined;
   readonly transport: BrowserTransport;
   constructor(transport = new BrowserTransport()) {
@@ -134,9 +171,12 @@ export class BrowserSession {
       if (!source) throw new Error('The original image source is unavailable.');
       return source;
     });
-    const surface = this.surfaceSource;
+    const surfaceSources = state.surfaces.map((surface) => {
+      const resource = this.surfaceResources.get(surface.id);
+      if (!resource?.source) throw new Error('The original surface source is unavailable.');
+      return { source: resource.source, overlaySource: resource.overlaySource };
+    });
     const camera = structuredClone(this.surfaceExporter?.captureCamera?.() ?? this.surfaceCamera);
-    const overlay = this.overlaySource;
     const generation = this.generation;
     const describe = async (file: File) => {
       const source = await this.transport.request<SessionSource>(
@@ -163,7 +203,10 @@ export class BrowserSession {
     }
     const record: BrowserSessionRecord = {
       format: 'brainflow-browser-session',
-      version: 1,
+      version: 2,
+      surfaces: [],
+      selectedSurface: state.surfaces.findIndex((s) => s.id === state.selectedSurface),
+      ...(camera ? { camera } : {}),
       volumes,
       selected:
         state.selected === null
@@ -172,12 +215,16 @@ export class BrowserSession {
       crosshair: state.crosshair,
       view: state.view,
     };
-    if (surface) {
-      record.surface = { source: await describe(surface), ...(camera ? { camera } : {}) };
-      if (overlay && state.surfaceOverlay) {
-        const settings = state.surfaceOverlay;
-        record.surface.overlay = {
-          source: await describe(overlay),
+    for (const [index, files] of surfaceSources.entries()) {
+      const surface = state.surfaces[index];
+      const saved: BrowserSessionRecord['surfaces'][number] = {
+        source: await describe(files.source),
+        linked: surface.linked,
+      };
+      if (files.overlaySource && surface.overlay) {
+        const settings = surface.overlay;
+        saved.overlay = {
+          source: await describe(files.overlaySource),
           kind: settings.kind,
           opacity: settings.opacity,
           ...(settings.kind === 'scalar'
@@ -185,6 +232,7 @@ export class BrowserSession {
             : {}),
         };
       }
+      record.surfaces.push(saved);
     }
     return record;
   }
@@ -244,7 +292,7 @@ export class BrowserSession {
       if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
     }
   }
-  async loadSurface(file: File) {
+  async loadSurface(file: File, add = false) {
     const generation = this.generation;
     const request = ++this.surfaceRequest;
     const abort = new AbortController();
@@ -257,18 +305,46 @@ export class BrowserSession {
         abort.signal,
       );
       if (this.closed || generation !== this.generation || request !== this.surfaceRequest) return;
-      this.removeSurfaceOverlay();
-      this.surfaceGeometry = mesh;
-      this.surfaceSource = file;
+      const existing = this.store.getState().surfaces;
+      if (
+        add &&
+        existing.length &&
+        (existing.length >= 2 ||
+          !['left', 'right'].includes(mesh.hemisphere) ||
+          existing.some(
+            (surface) =>
+              surface.hemisphere === mesh.hemisphere ||
+              !['left', 'right'].includes(surface.hemisphere),
+          ))
+      )
+        throw new Error(
+          'A paired scene requires one left and one right hemisphere. Unload a surface before replacing it.',
+        );
+      if (!add) this.surfaceResources.clear();
+      this.surfaceResources.set(mesh.id, {
+        geometry: mesh,
+        source: file,
+        overlaySource: null,
+        values: null,
+        labels: null,
+        overlayRequest: 0,
+      });
       this.surfaceCamera = null;
       this.stopPlayback();
       this.store.setState({
-        surface: {
-          id: mesh.id,
-          name: mesh.name,
-          vertices: mesh.vertices.length / 3,
-          faces: mesh.faces.length / 3,
-        },
+        surfaces: [
+          ...(add ? existing : []),
+          {
+            id: mesh.id,
+            name: mesh.name,
+            vertices: mesh.vertices.length / 3,
+            faces: mesh.faces.length / 3,
+            hemisphere: mesh.hemisphere,
+            overlay: null,
+            linked: false,
+          },
+        ],
+        selectedSurface: mesh.id,
         surfacePick: null,
         view: 'surface',
       });
@@ -279,19 +355,31 @@ export class BrowserSession {
       if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
     }
   }
-  unloadSurface() {
+  unloadSurface(id = this.store.getState().selectedSurface) {
     ++this.surfaceRequest;
-    this.removeSurfaceOverlay();
-    this.surfaceGeometry = null;
+    if (id) this.surfaceResources.delete(id);
+    const surfaces = this.store.getState().surfaces.filter((surface) => surface.id !== id);
     this.surfaceExporter = null;
-    this.surfaceSource = null;
     this.surfaceCamera = null;
-    this.store.setState({ surface: null, surfacePick: null, view: 'slices' });
+    this.store.setState({
+      surfaces,
+      selectedSurface: surfaces.at(-1)?.id ?? null,
+      surfacePick: null,
+      ...(!surfaces.length ? { view: 'slices' as const } : {}),
+    });
+  }
+  private clearSurfaces() {
+    ++this.surfaceRequest;
+    this.surfaceResources.clear();
+    this.surfaceExporter = null;
+    this.surfaceCamera = null;
+    this.store.setState({ surfaces: [], selectedSurface: null, surfacePick: null, view: 'slices' });
   }
   async loadSurfaceOverlay(file: File, labels = false) {
     const mesh = this.surfaceGeometry;
     if (!mesh || this.closed) return;
-    const request = ++this.overlayRequest;
+    const resource = this.surfaceResources.get(mesh.id)!;
+    const request = ++resource.overlayRequest;
     const abort = new AbortController();
     this.loads.add(abort);
     this.store.setState({ loading: true, error: null });
@@ -304,8 +392,8 @@ export class BrowserSession {
       if (
         this.closed ||
         abort.signal.aborted ||
-        this.surfaceGeometry !== mesh ||
-        request !== this.overlayRequest
+        this.surfaceResources.get(mesh.id) !== resource ||
+        request !== resource.overlayRequest
       )
         return;
       const values = decoded instanceof Float32Array ? decoded : decoded.labels;
@@ -337,38 +425,43 @@ export class BrowserSession {
                   high + Math.max(0.5, Math.abs(high) * 0.01),
                 ],
         };
-        this.surfaceValues = decoded;
-        this.surfaceLabels = null;
+        resource.values = decoded;
+        resource.labels = null;
       } else {
         overlay = { ...common, kind: 'labels' };
-        this.surfaceLabels = decoded;
-        this.surfaceValues = null;
+        resource.labels = decoded;
+        resource.values = null;
       }
-      this.overlaySource = file;
-      this.store.setState({ surfaceOverlay: overlay, view: 'surface' });
+      resource.overlaySource = file;
+      this.patchSurface(mesh.id, { overlay });
+      this.store.setState({ view: 'surface' });
     } catch (error) {
-      if (this.surfaceGeometry === mesh && request === this.overlayRequest) this.error(error);
+      if (this.surfaceResources.get(mesh.id) === resource && request === resource.overlayRequest)
+        this.error(error);
     } finally {
       this.loads.delete(abort);
       if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
     }
   }
   removeSurfaceOverlay() {
-    ++this.overlayRequest;
-    this.overlaySource = null;
-    this.surfaceValues = null;
-    this.surfaceLabels = null;
-    this.store.setState({ surfaceOverlay: null });
+    const id = this.store.getState().selectedSurface;
+    const resource = this.surfaceResources.get(id ?? '');
+    if (!resource || !id) return;
+    ++resource.overlayRequest;
+    resource.overlaySource = null;
+    resource.values = null;
+    resource.labels = null;
+    this.patchSurface(id, { overlay: null });
   }
   updateSurfaceOverlay(
     patch: Partial<{ range: [number, number]; colormap: string; opacity: number }>,
   ) {
-    const current = this.store.getState().surfaceOverlay;
+    const current = this.activeSurface?.overlay;
     if (!current) return;
     const opacity = patch.opacity ?? current.opacity;
     if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) return;
     if (current.kind === 'labels') {
-      this.store.setState({ surfaceOverlay: { ...current, opacity } });
+      this.patchSurface(this.activeSurface!.id, { overlay: { ...current, opacity } });
       return;
     }
     const next = { ...current, ...patch };
@@ -378,21 +471,57 @@ export class BrowserSession {
       !browserColormaps.some((name) => name === next.colormap)
     )
       return;
-    this.store.setState({ surfaceOverlay: next });
+    this.patchSurface(this.activeSurface!.id, { overlay: next });
   }
   setView(view: 'slices' | 'surface') {
     if (view === 'surface' && !this.surfaceGeometry) return;
     this.stopPlayback();
     this.store.setState({ view });
   }
-  pickSurface(world: [number, number, number], picked?: { handle: string; vertex: number }) {
-    if (!picked || picked.handle !== this.surfaceGeometry?.id || !world.every(Number.isFinite))
+  setSurfaceLink(linked: boolean) {
+    const mesh = this.surfaceGeometry;
+    if (linked && (!mesh || ['inflated', 'spherical', 'flat'].includes(mesh.surfaceType ?? ''))) {
+      this.error(
+        new Error('Linking a deformed surface requires anatomical companion coordinates.'),
+      );
       return;
-    this.store.setState({ surfacePick: { world, vertex: picked.vertex } });
+    }
+    if (mesh) this.patchSurface(mesh.id, { linked });
+  }
+  pickSurface(world: [number, number, number], picked?: { handle: string; vertex: number }) {
+    const mesh = this.surfaceResources.get(picked?.handle ?? '')?.geometry;
+    if (
+      !mesh ||
+      !picked ||
+      picked.handle !== mesh.id ||
+      !world.every(Number.isFinite) ||
+      !Number.isInteger(picked.vertex) ||
+      picked.vertex < 0 ||
+      picked.vertex >= mesh.vertices.length / 3
+    )
+      return;
+    const linked =
+      this.store.getState().surfaces.find((s) => s.id === mesh.id)?.linked &&
+      this.store.getState().layers.length > 0;
+    this.store.setState({
+      selectedSurface: mesh.id,
+      surfacePick: { world, vertex: picked.vertex },
+      ...(linked ? { crosshair: world } : {}),
+    });
+    // Preserve the picked world point, even outside the image: clamping would
+    // falsely associate a surface point with a different volume location.
+    if (linked) this.schedule();
   }
   surfaceError(id: string | undefined, error: unknown) {
-    if (id !== this.surfaceGeometry?.id) return;
-    this.unloadSurface();
+    if (
+      id !==
+      this.store
+        .getState()
+        .surfaces.map((s) => s.id)
+        .join('|')
+    )
+      return;
+    this.clearSurfaces();
     this.error(error);
   }
   async loadLabels(files: File[]) {
@@ -447,11 +576,11 @@ export class BrowserSession {
     this.store.setState({ playing });
     if (playing) this.schedule();
   }
-  crosshair(point: [number, number, number]) {
+  crosshair(point: [number, number, number], constrainToVolume = true) {
     const base = this.store.getState().layers[0];
     if (!base) return;
     const clamped = point.map((v, a) =>
-      Math.max(base.bounds[0][a], Math.min(base.bounds[1][a], v)),
+      constrainToVolume ? Math.max(base.bounds[0][a], Math.min(base.bounds[1][a], v)) : v,
     ) as [number, number, number];
     if (!clamped.every(Number.isFinite)) return;
     this.store.setState({ crosshair: clamped });
@@ -476,7 +605,7 @@ export class BrowserSession {
     ++this.generation;
     ++this.revision;
     this.cancelLoads();
-    this.unloadSurface();
+    this.clearSurfaces();
     this.stopPlayback();
     const layers = this.store.getState().layers;
     this.store.setState({ layers: [], selected: null, playing: null, error: null });
@@ -664,7 +793,7 @@ export class BrowserSession {
     ++this.generation;
     ++this.revision;
     this.cancelLoads();
-    this.unloadSurface();
+    this.clearSurfaces();
     this.stopPlayback();
     this.clearFrames();
     this.transport.dispose();

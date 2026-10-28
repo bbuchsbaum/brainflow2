@@ -61,6 +61,7 @@ export interface BrowserSurface {
   vertices: Float32Array;
   faces: Uint32Array;
   hemisphere: string;
+  surfaceType?: string;
 }
 
 /** Sparse IDs stay integers; RGBA is indexed by vertex, never by maximum ID. */

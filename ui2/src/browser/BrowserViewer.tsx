@@ -64,7 +64,9 @@ function Viewer({
   const surfaceLabelChooser = useRef<HTMLInputElement>(null);
   const overlayChooser = useRef<HTMLInputElement>(null);
   const surfaceChooser = useRef<HTMLInputElement>(null);
-  const overlay = state.surfaceOverlay;
+  const hemisphereChooser = useRef<HTMLInputElement>(null);
+  const surface = session.activeSurface;
+  const overlay = surface?.overlay;
   const pickedLabelId = state.surfacePick
     ? session.surfaceLabels?.labels[state.surfacePick.vertex]
     : undefined;
@@ -144,7 +146,7 @@ function Viewer({
         />
         <Button
           variant="ghost"
-          disabled={!state.layers.length && !state.surface && !state.loading}
+          disabled={!state.layers.length && !surface && !state.loading}
           onClick={() => void session.reset()}
         >
           Clear workspace
@@ -164,8 +166,8 @@ function Viewer({
       </header>
       <div className="browser-body">
         <aside className="browser-inspector" aria-label="Image controls">
-          {(state.layers.length > 0 || !state.surface) && <h2>Layers</h2>}
-          {!state.layers.length && !state.surface && (
+          {(state.layers.length > 0 || !surface) && <h2>Layers</h2>}
+          {!state.layers.length && !surface && (
             <p>Open a NIfTI image or GIfTI surface to begin. Files stay on this device.</p>
           )}
           <ul className="browser-layers">
@@ -184,13 +186,57 @@ function Viewer({
               </li>
             ))}
           </ul>
-          {state.surface && (
+          {state.surfaces.length > 1 && (
+            <ul className="browser-layers" aria-label="Surfaces">
+              {state.surfaces.map((item) => (
+                <li key={item.id} data-selected={item.id === state.selectedSurface}>
+                  <Button variant="ghost" onClick={() => session.selectSurface(item.id)}>
+                    {item.name}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {surface && (
             <>
               <h2>Surface</h2>
-              <p>{state.surface.name}</p>
+              <Button
+                disabled={state.surfaces.length >= 2}
+                variant="ghost"
+                onClick={() => hemisphereChooser.current?.click()}
+              >
+                Add hemisphere
+              </Button>
+              <input
+                ref={hemisphereChooser}
+                className="sr-only"
+                type="file"
+                accept=".gii,.gii.gz"
+                aria-label="Choose companion hemisphere"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void session.loadSurface(file, true);
+                  event.target.value = '';
+                }}
+              />
+              <p>{surface.name}</p>
               <p className="browser-dimensions">
-                {state.surface.vertices.toLocaleString()} vertices ·{' '}
-                {state.surface.faces.toLocaleString()} triangles
+                {surface.vertices.toLocaleString()} vertices · {surface.faces.toLocaleString()}{' '}
+                triangles
+              </p>
+              <Button
+                variant="ghost"
+                aria-pressed={surface?.linked}
+                disabled={['inflated', 'spherical', 'flat'].includes(
+                  session.surfaceGeometry?.surfaceType ?? '',
+                )}
+                onClick={() => session.setSurfaceLink(!surface?.linked)}
+              >
+                Link volume cursor
+              </Button>
+              <p>
+                Enable only when the anatomical surface and volume share world coordinates. This
+                does not register them.
               </p>
               <Button variant="ghost" onClick={() => session.setView('surface')}>
                 Show surface
@@ -399,11 +445,12 @@ function Viewer({
             <p>
               Open labels accepts a 3D label NIfTI and an optional TSV or FreeSurfer LUT selected
               together. IDs must be 0–2047 with identity scaling. Label-intent NIfTI files are
-              recognized automatically. One self-contained GIfTI surface can be open alongside the
-              volumes: up to 64 MiB compressed or expanded XML, one million vertices and two million
-              triangles. One dense scalar or label GIfTI map can be attached to the surface. Label
-              names and colors come from its embedded table; label 0 is transparent. Remote mounts,
-              native paths and external analysis tools require the desktop app.
+              recognized automatically. Up to two self-contained GIfTI surfaces (one per hemisphere)
+              can be open alongside the volumes: up to 64 MiB compressed or expanded XML, one
+              million vertices and two million triangles. Each surface can have one dense scalar or
+              label GIfTI map. Label names and colors come from its embedded table; label 0 is
+              transparent. Remote mounts, native paths and external analysis tools require the
+              desktop app.
             </p>
           </details>
         </aside>
@@ -431,7 +478,7 @@ function Viewer({
               {state.error}
             </div>
           )}
-          {state.view === 'surface' && state.surface ? (
+          {state.view === 'surface' && surface ? (
             <Suspense fallback={<p role="status">Preparing surface view…</p>}>
               <BrowserSurfaceView session={session} />
             </Suspense>

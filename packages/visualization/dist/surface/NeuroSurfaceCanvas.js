@@ -120,7 +120,7 @@ function captureCamera(viewer) {
     const state = pose ? { ...pose, up: viewer?.camera?.up?.toArray(), zoom: viewer?.camera?.zoom ?? 1 } : null;
     return isSurfaceCameraState(state) ? state : null;
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onSurfacePick, }) => {
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerSurfaceHandles, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -654,7 +654,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         if (markerWorldPosition) {
             if (markerSnapToSurface) {
                 const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
-                const nearest = findLinkedVertex(snapSurfaces, markerWorldPosition, cursorAnatomy);
+                const nearest = findLinkedVertex(markerSurfaceHandles ? snapSurfaces.filter((surface) => markerSurfaceHandles.includes(surface.handle)) : snapSurfaces, markerWorldPosition, cursorAnatomy);
                 if (nearest &&
                     (markerMaxSnapDistanceMm == null || nearest.distanceMm <= markerMaxSnapDistanceMm)) {
                     const rendered = renderedSurfacesRef.current.get(nearest.handle);
@@ -741,6 +741,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         markerWorldPosition?.[2],
         markerSnapToSurface,
         markerMaxSnapDistanceMm,
+        markerSurfaceHandles,
         markerColor,
         markerRadiusMm,
         surfacesToRender,

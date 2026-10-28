@@ -10,9 +10,10 @@ import {
 const source = { name: 'surface.gii', size: 3, sha256: 'a'.repeat(64) };
 const record = (): BrowserSessionRecord => ({
   format: 'brainflow-browser-session',
-  version: 1,
+  version: 2,
   volumes: [],
-  surface: { source },
+  surfaces: [{ source }],
+  selectedSurface: 0,
   selected: null,
   crosshair: [1, 2, 3],
   view: 'surface',
@@ -38,15 +39,17 @@ describe('versioned browser session records', () => {
   it('rejects unsupported versions and invalid navigation before starting a worker', () => {
     expect(parseSessionRecord(JSON.stringify(record()))).toEqual(record());
     for (const patch of [
-      { version: 2 },
+      { version: 3 },
       { crosshair: [1, 2] },
       { selected: 0 },
       { volumes: [{}] },
       {
-        surface: {
-          source,
-          overlay: { source, kind: 'scalar', opacity: 1, range: [2, 1], colormap: 'gray' },
-        },
+        surfaces: [
+          {
+            source,
+            overlay: { source, kind: 'scalar', opacity: 1, range: [2, 1], colormap: 'gray' },
+          },
+        ],
       },
     ]) {
       expect(() => parseSessionRecord(JSON.stringify({ ...record(), ...patch }))).toThrow();
@@ -62,7 +65,7 @@ describe('versioned browser session records', () => {
       h.create,
     );
     expect(restored).toBe(h.session);
-    expect(restored.store.getState().surface?.id).toBe('mesh');
+    expect(restored.activeSurface?.id).toBe('mesh');
     expect(h.transport.request.mock.calls.map(([cmd]) => cmd)).toEqual([
       'describe_source',
       'load_surface',
@@ -73,7 +76,7 @@ describe('versioned browser session records', () => {
   it('rejects changed sources before loading and disposes the provisional worker', async () => {
     const h = host();
     const changed = record();
-    changed.surface = { source: { ...source, sha256: 'b'.repeat(64) } };
+    changed.surfaces = [{ source: { ...source, sha256: 'b'.repeat(64) } }];
     await expect(
       restoreSessionRecord(
         changed,
@@ -112,26 +115,31 @@ describe('versioned browser session records', () => {
     await expect(
       restoreSessionRecord(record(), [new File(['abc'], source.name)], abort.signal, h.create),
     ).rejects.toMatchObject({ name: 'AbortError' });
-    expect(h.session.store.getState().surface).toBeNull();
+    expect(h.session.activeSurface).toBeNull();
     expect(h.transport.dispose).toHaveBeenCalled();
   });
   it('saves loaded source settings and drops source references on unload', async () => {
     const h = host();
     await h.session.loadSurface(new File(['abc'], source.name));
     const saved = await h.session.saveRecord();
-    expect(saved.surface?.source).toEqual(source);
+    expect(saved.surfaces[0]?.source).toEqual(source);
     h.session.unloadSurface();
-    expect((await h.session.saveRecord()).surface).toBeUndefined();
+    expect((await h.session.saveRecord()).surfaces).toEqual([]);
     h.session.dispose();
   });
 });
 
 describe('portable surface camera settings', () => {
-  const camera = { position: [1, 2, 3], target: [0, 0, 0], rotation: [0, 0, 0, 'XYZ'],
-    up: [0, 1, 0], zoom: 2 };
+  const camera = {
+    position: [1, 2, 3],
+    target: [0, 0, 0],
+    rotation: [0, 0, 0, 'XYZ'],
+    up: [0, 1, 0],
+    zoom: 2,
+  };
   it('accepts finite orbit/zoom and refuses degenerate or malformed camera state', () => {
-    const settings = { ...record(), surface: { source, camera } };
-    expect(parseSessionRecord(JSON.stringify(settings)).surface?.camera).toEqual(camera);
+    const settings = { ...record(), camera };
+    expect(parseSessionRecord(JSON.stringify(settings)).camera).toEqual(camera);
     for (const patch of [
       { zoom: 0 },
       { zoom: -1 },
@@ -141,10 +149,36 @@ describe('portable surface camera settings', () => {
       { rotation: [0, 0, 0, 'BAD'] },
     ]) {
       expect(() =>
-        parseSessionRecord(
-          JSON.stringify({ ...settings, surface: { source, camera: { ...camera, ...patch } } }),
-        ),
+        parseSessionRecord(JSON.stringify({ ...settings, camera: { ...camera, ...patch } })),
       ).toThrow('camera');
     }
   });
+});
+
+it('migrates version-1 single-surface settings without losing source, link or camera', () => {
+  const legacy = {
+    format: 'brainflow-browser-session',
+    version: 1,
+    volumes: [],
+    surface: {
+      source,
+      linked: true,
+      camera: {
+        position: [1, 2, 3],
+        target: [0, 0, 0],
+        rotation: [0, 0, 0, 'XYZ'],
+        up: [0, 1, 0],
+        zoom: 2,
+      },
+    },
+    selected: null,
+    crosshair: [1, 2, 3],
+    view: 'surface',
+  };
+  const migrated = parseSessionRecord(JSON.stringify(legacy));
+  expect(migrated.version).toBe(2);
+  expect(migrated.surfaces[0].source).toEqual(source);
+  expect(migrated.surfaces[0].linked).toBe(true);
+  expect(migrated.camera).toEqual(legacy.surface.camera);
+  expect(migrated.selectedSurface).toBe(0);
 });

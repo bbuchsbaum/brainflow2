@@ -7,7 +7,9 @@ import { isSessionSource, matchSessionSources, type SessionSource } from './sess
 
 export interface BrowserSessionRecord {
   format: 'brainflow-browser-session';
-  version: 1;
+  version: 2;
+  camera?: SurfaceCameraState;
+  selectedSurface: number;
   volumes: Array<{
     source: SessionSource;
     table?: SessionSource;
@@ -17,9 +19,9 @@ export interface BrowserSessionRecord {
     colormap: string;
     frame: number;
   }>;
-  surface?: {
+  surfaces: Array<{
     source: SessionSource;
-    camera?: SurfaceCameraState;
+    linked?: boolean;
     overlay?: {
       source: SessionSource;
       kind: 'scalar' | 'labels';
@@ -27,7 +29,7 @@ export interface BrowserSessionRecord {
       range?: [number, number];
       colormap?: string;
     };
-  };
+  }>;
   selected: number | null;
   crosshair: [number, number, number];
   view: 'slices' | 'surface';
@@ -44,8 +46,18 @@ const palette = (value: unknown): boolean => browserColormaps.some((name) => nam
 /** Validate untrusted JSON before allocating a replacement session. */
 export function parseSessionRecord(text: string): BrowserSessionRecord {
   if (text.length > 1024 * 1024) throw new Error('Session settings exceed 1 MiB.');
-  const value: unknown = JSON.parse(text);
-  if (!object(value) || value.format !== 'brainflow-browser-session' || value.version !== 1)
+  let value: unknown = JSON.parse(text);
+  if (object(value) && value.version === 1) {
+    const legacy = value.surface;
+    value = {
+      ...value,
+      version: 2,
+      surfaces: legacy === undefined ? [] : [legacy],
+      selectedSurface: legacy === undefined ? -1 : 0,
+      ...(object(legacy) && legacy.camera !== undefined ? { camera: legacy.camera } : {}),
+    };
+  }
+  if (!object(value) || value.format !== 'brainflow-browser-session' || value.version !== 2)
     throw new Error('Unsupported Brainflow session format or version.');
   if (
     !Array.isArray(value.volumes) ||
@@ -66,12 +78,23 @@ export function parseSessionRecord(text: string): BrowserSessionRecord {
     )
   )
     throw new Error('Invalid saved volume settings.');
-  if (value.surface !== undefined) {
-    const surface = value.surface;
+  if (!Array.isArray(value.surfaces) || value.surfaces.length > 2)
+    throw new Error('Invalid saved surface scene.');
+  if (value.camera !== undefined && !isSurfaceCameraState(value.camera))
+    throw new Error('Invalid saved surface camera.');
+  if (
+    !Number.isInteger(value.selectedSurface) ||
+    typeof value.selectedSurface !== 'number' ||
+    (value.surfaces.length
+      ? value.selectedSurface < 0 || value.selectedSurface >= value.surfaces.length
+      : value.selectedSurface !== -1)
+  )
+    throw new Error('Invalid selected surface.');
+  for (const surface of value.surfaces) {
     if (!object(surface) || !isSessionSource(surface.source))
       throw new Error('Invalid saved surface.');
-    if (surface.camera !== undefined && !isSurfaceCameraState(surface.camera))
-      throw new Error('Invalid saved surface camera.');
+    if (surface.linked !== undefined && typeof surface.linked !== 'boolean')
+      throw new Error('Invalid saved surface link.');
     const overlay = surface.overlay;
     if (
       overlay !== undefined &&
@@ -96,7 +119,7 @@ export function parseSessionRecord(text: string): BrowserSessionRecord {
     !Array.isArray(value.crosshair) ||
     value.crosshair.length !== 3 ||
     !value.crosshair.every(Number.isFinite) ||
-    !(value.view === 'slices' || (value.view === 'surface' && value.surface))
+    !(value.view === 'slices' || (value.view === 'surface' && value.surfaces.length > 0))
   )
     throw new Error('Invalid saved navigation settings.');
   return value as unknown as BrowserSessionRecord;
@@ -137,9 +160,9 @@ export async function restoreSessionRecord(
       resolve(volume.source);
       if (volume.table) resolve(volume.table);
     }
-    if (record.surface) {
-      resolve(record.surface.source);
-      if (record.surface.overlay) resolve(record.surface.overlay.source);
+    for (const surface of record.surfaces) {
+      resolve(surface.source);
+      if (surface.overlay) resolve(surface.overlay.source);
     }
     if (record.volumes.length) {
       await stage.initialize();
@@ -162,11 +185,12 @@ export async function restoreSessionRecord(
       });
       stage.setTimepoint(loaded.id, volume.frame);
     }
-    if (record.surface) {
-      await stage.loadSurface(resolve(record.surface.source));
+    for (const surface of record.surfaces) {
+      await stage.loadSurface(resolve(surface.source), true);
       check();
-      if (record.surface.camera) stage.recordSurfaceCamera(record.surface.camera);
-      const overlay = record.surface.overlay;
+      stage.setSurfaceLink(surface.linked ?? false);
+      check();
+      const overlay = surface.overlay;
       if (overlay) {
         await stage.loadSurfaceOverlay(resolve(overlay.source), overlay.kind === 'labels');
         check();
@@ -178,7 +202,10 @@ export async function restoreSessionRecord(
         });
       }
     }
-    stage.crosshair(record.crosshair);
+    if (record.camera) stage.recordSurfaceCamera(record.camera);
+    if (record.selectedSurface >= 0)
+      stage.selectSurface(stage.store.getState().surfaces[record.selectedSurface].id);
+    stage.crosshair(record.crosshair, false);
     if (record.selected !== null) stage.select(stage.store.getState().layers[record.selected].id);
     stage.setView(record.view);
     await stage.whenPresented(signal);

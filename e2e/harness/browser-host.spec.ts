@@ -533,7 +533,7 @@ test('surface session restores orbit and zoom and exports its shared canvas', as
     return readFileSync((await (await event).path())!);
   };
   const initial=JSON.parse((await save()).toString());
-  expect(initial.surface.camera).toBeTruthy();
+  expect(initial.camera).toBeTruthy();
   const bounds=(await canvas.boundingBox())!;
   await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);
   await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.7,bounds.y+bounds.height*.6,{steps:8});await page.mouse.up();
@@ -542,7 +542,7 @@ test('surface session restores orbit and zoom and exports its shared canvas', as
   await page.waitForTimeout(700);
   const settings=await save();
   const saved=JSON.parse(settings.toString());
-  expect(saved.surface.camera.position).not.toEqual(initial.surface.camera.position);
+  expect(saved.camera.position).not.toEqual(initial.camera.position);
   await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
   await page.getByLabel('Choose session settings',{exact:true}).setInputFiles({name:'session.json',mimeType:'application/json',buffer:settings});
   await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toBeVisible();
@@ -550,15 +550,86 @@ test('surface session restores orbit and zoom and exports its shared canvas', as
   await expect(canvas).toBeVisible().catch(async error => { console.log('RESTORE BODY',await page.locator('body').innerText());throw error; });
   await page.waitForTimeout(100);
   const restored=JSON.parse((await save()).toString());
-  await test.info().attach('camera-round-trip', { body: JSON.stringify({saved:saved.surface.camera,restored:restored.surface.camera},null,2), contentType:'application/json' });
+  await test.info().attach('camera-round-trip', { body: JSON.stringify({saved:saved.camera,restored:restored.camera},null,2), contentType:'application/json' });
   for (const key of ['position','target','rotation']) {
-    for (let i=0;i<3;i++) expect(restored.surface.camera[key][i]).toBeCloseTo(saved.surface.camera[key][i],6);
+    for (let i=0;i<3;i++) expect(restored.camera[key][i]).toBeCloseTo(saved.camera[key][i],6);
   }
-  expect(restored.surface.camera.zoom).toBe(saved.surface.camera.zoom);
+  expect(restored.camera.zoom).toBe(saved.camera.zoom);
   const event=page.waitForEvent('download');
   await page.getByRole('button',{name:'Export PNG',exact:true}).click();
   const png=readFileSync((await (await event).path())!);
   expect(png.readUInt32BE(16)).toBe(600);
   expect(png.readUInt32BE(20)).toBe(600);
   await page.screenshot({path:test.info().outputPath('surface-session-restored.png')});
+});
+
+test('explicit surface linking preserves picked world coordinates in slices and saved settings', async ({page}) => {
+  await page.goto('/browser.html');
+  await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+  await page.getByLabel('Choose NIfTI file',{exact:true}).setInputFiles(fixture);
+  await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(surfaceFixture);
+  const canvas=page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas');
+  await expect(canvas).toBeVisible();
+  const link=page.getByRole('button',{name:'Link volume cursor',exact:true});
+  await expect(link).toHaveAttribute('aria-pressed','false');
+  await link.click();
+  await canvas.click();
+  const picked=page.getByLabel('Surface pick',{exact:true});
+  await expect(picked).toContainText('Near vertex');
+  const match=(await picked.textContent())!.match(/RAS ([\d.-]+), ([\d.-]+), ([\d.-]+) mm/)!;
+  const world=match.slice(1).map(Number);
+  await page.getByRole('button',{name:'Show slices',exact:true}).click();
+  for(const [axis,index] of [['R',0],['A',1],['S',2]] as const) {
+    expect(Number(await page.getByRole('spinbutton',{name:axis,exact:true}).inputValue())).toBeCloseTo(world[index],1);
+  }
+  const event=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Save session',exact:true}).click();
+  const saved=JSON.parse(readFileSync((await (await event).path())!,'utf8'));
+  expect(saved.surfaces[0].linked).toBe(true);
+  for(let i=0;i<3;i++) expect(saved.crosshair[i]).toBeCloseTo(world[i],1);
+  const inflated=readFileSync(surfaceFixture,'utf8').replace('<MetaData>', '<MetaData><MD><Name>GeometricType</Name><Value>Inflated</Value></MD>');
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles({name:'inflated.gii',mimeType:'application/xml',buffer:Buffer.from(inflated)});
+  await expect(link).toBeDisabled();
+  await expect(link).toHaveAttribute('aria-pressed','false');
+});
+
+test('paired hemispheres retain independent maps and restore as one scene', async ({page}) => {
+  const left=readFileSync(surfaceFixture);
+  const right=Buffer.from(left.toString().replace('CortexLeft','CortexRight').replace('0 -2 0 10 3 0 0 20','0 -2 0 110 3 0 0 20'));
+  const mapFile=resolve(__dirname,'../../test-data/browser/octahedron.func.gii');
+  await page.goto('/browser.html');
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles({name:'left.gii',mimeType:'application/xml',buffer:left});
+  await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles(mapFile);
+  await expect(page.getByRole('button',{name:/^Select colormap/})).toHaveAttribute('aria-label',/Viridis/);
+  await page.getByLabel('Choose companion hemisphere',{exact:true}).setInputFiles({name:'right.gii',mimeType:'application/xml',buffer:right});
+  await expect(page.getByRole('list',{name:'Surfaces',exact:true}).getByRole('button')).toHaveCount(2);
+  await expect(page.getByRole('button',{name:'Add hemisphere',exact:true})).toBeDisabled();
+  await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles(mapFile);
+  await page.getByRole('button',{name:/^Select colormap/}).click();
+  await page.getByRole('button',{name:'Grayscale',exact:true}).click();
+  await page.getByRole('button',{name:'left.gii',exact:true}).click();
+  await expect(page.getByRole('button',{name:/^Select colormap/})).toHaveAttribute('aria-label',/Viridis/);
+  const event=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Save session',exact:true}).click();
+  const settings=readFileSync((await (await event).path())!);
+  const saved=JSON.parse(settings.toString());
+  expect(saved.version).toBe(2);expect(saved.surfaces).toHaveLength(2);
+  expect(saved.surfaces.map(s=>s.overlay.colormap)).toEqual(['viridis','gray']);
+  await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
+  await page.getByLabel('Choose session settings',{exact:true}).setInputFiles({name:'session.json',mimeType:'application/json',buffer:settings});
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toBeVisible();
+  await page.getByLabel('Choose session sources',{exact:true}).setInputFiles([
+    {name:'left.gii',mimeType:'application/xml',buffer:left},
+    {name:'right.gii',mimeType:'application/xml',buffer:right},
+    {name:'octahedron.func.gii',mimeType:'application/xml',buffer:readFileSync(mapFile)},
+  ]);
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('list',{name:'Surfaces',exact:true}).getByRole('button')).toHaveCount(2);
+  await expect(page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas')).toBeVisible();
+  await page.screenshot({path:test.info().outputPath('paired-hemispheres.png')});
+  await page.getByRole('button',{name:'right.gii',exact:true}).click();
+  await page.getByRole('button',{name:'Unload surface',exact:true}).click();
+  await expect(page.getByRole('list',{name:'Surfaces',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:/^Select colormap/})).toHaveAttribute('aria-label',/Viridis/);
 });

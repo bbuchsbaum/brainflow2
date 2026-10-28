@@ -207,6 +207,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
   cursorAnatomy,
   markerSnapToSurface = true,
   markerMaxSnapDistanceMm,
+  markerSurfaceHandles,
   markerColor = '#39FF14',
   markerRadiusMm = 2.5,
   className = 'w-full h-full',
@@ -829,7 +830,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     if (markerWorldPosition) {
       if (markerSnapToSurface) {
         const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
-        const nearest = findLinkedVertex(snapSurfaces, markerWorldPosition, cursorAnatomy);
+        const nearest = findLinkedVertex(markerSurfaceHandles ? snapSurfaces.filter((surface) => markerSurfaceHandles.includes(surface.handle)) : snapSurfaces, markerWorldPosition, cursorAnatomy);
         if (
           nearest &&
           (markerMaxSnapDistanceMm == null || nearest.distanceMm <= markerMaxSnapDistanceMm)
@@ -921,6 +922,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     markerWorldPosition?.[2],
     markerSnapToSurface,
     markerMaxSnapDistanceMm,
+    markerSurfaceHandles,
     markerColor,
     markerRadiusMm,
     surfacesToRender,

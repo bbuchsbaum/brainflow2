@@ -21,35 +21,44 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
     observer.observe(container.current!);
     return () => observer.disconnect();
   }, []);
-  const mesh = session.surfaceGeometry;
-  const surfaces = useMemo(() => {
-    return mesh
-      ? [
+  const sceneKey = state.surfaces.map((surface) => surface.id).join('|');
+  const surfaces = useMemo(
+    () =>
+      state.surfaces.flatMap((surface) => {
+        const resource = session.surfaceResources.get(surface.id);
+        if (!resource) return [];
+        const mesh = resource.geometry;
+        return [
           {
             handle: mesh.id,
             name: mesh.name,
             geometry: { vertices: mesh.vertices, faces: mesh.faces, hemisphere: mesh.hemisphere },
-            layers: state.surfaceOverlay
+            layers: surface.overlay
               ? [
                   {
-                    ...state.surfaceOverlay,
-                    values: session.surfaceValues ?? undefined,
-                    rgba: session.surfaceLabels?.rgba,
+                    ...surface.overlay,
+                    values: resource.values ?? undefined,
+                    rgba: resource.labels?.rgba,
                   },
                 ]
               : [],
           },
-        ]
-      : [];
-  }, [mesh, state.surfaceOverlay, session]);
+        ];
+      }),
+    [state.surfaces, session],
+  );
+  const linkedHandles = useMemo(
+    () => state.surfaces.filter((surface) => surface.linked).map((surface) => surface.id),
+    [state.surfaces],
+  );
   const onPick = useCallback(
     (world: [number, number, number], picked?: { handle: string; vertex: number }) =>
       session.pickSurface(world, picked),
     [session],
   );
   const onError = useCallback(
-    (error: unknown) => session.surfaceError(state.surface?.id, error),
-    [session, state.surface?.id],
+    (error: unknown) => session.surfaceError(sceneKey, error),
+    [session, sceneKey],
   );
   const onCameraStateChange = useCallback(
     (state: SurfaceCameraState) => session.recordSurfaceCamera(state),
@@ -71,7 +80,7 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
       </header>
       <div className="browser-surface-canvas" ref={container}>
         <NeuroSurfaceCanvas
-          key={state.surface?.id}
+          key={sceneKey}
           surfaces={surfaces}
           width={size.width}
           height={size.height}
@@ -79,6 +88,11 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
           viewpointNonce={pose}
           showControls={false}
           onSurfacePick={onPick}
+          markerWorldPosition={
+            linkedHandles.length > 0 && state.layers.length ? state.crosshair : null
+          }
+          markerMaxSnapDistanceMm={20}
+          markerSurfaceHandles={linkedHandles}
           onError={onError}
           onExporterChange={onExporterChange}
           initialCameraState={session.surfaceCamera}

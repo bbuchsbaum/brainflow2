@@ -236,6 +236,8 @@ export interface NeuroSurfaceCanvasProps {
    * hemisphere doesn't snap to a misleading spot). No limit when undefined.
    */
   markerMaxSnapDistanceMm?: number;
+  /** Optional subset eligible for cursor snapping; picking remains available on every mesh. */
+  markerSurfaceHandles?: readonly string[];
   /** Marker sphere color (hex). Defaults to a bright green. */
   markerColor?: string;
   /** Marker sphere radius in world mm. Defaults to 2.5. */

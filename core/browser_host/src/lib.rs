@@ -322,6 +322,7 @@ mod wasm {
         vertices: Vec<f32>,
         faces: Vec<u32>,
         hemisphere: String,
+        surface_type: String,
     }
     #[wasm_bindgen]
     impl DecodedSurface {
@@ -334,6 +335,9 @@ mod wasm {
         pub fn hemisphere(&self) -> String {
             self.hemisphere.clone()
         }
+        pub fn surface_type(&self) -> String {
+            self.surface_type.clone()
+        }
     }
     #[wasm_bindgen]
     pub fn decode_surface(bytes: &[u8]) -> Result<DecodedSurface, JsValue> {
@@ -343,6 +347,7 @@ mod wasm {
             vertices: mesh.vertices_world(),
             faces: mesh.faces,
             hemisphere: mesh.hemisphere,
+            surface_type: mesh.surface_type,
         })
     }
     #[wasm_bindgen]

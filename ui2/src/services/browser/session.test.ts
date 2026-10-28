@@ -1,7 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserSession } from './session';
-import type { BrowserVolume } from './protocol';
+import type { BrowserVolume, BrowserSurface } from './protocol';
 import type { BrowserTransport } from './transport';
+
+function seedSurface(session: BrowserSession, mesh: BrowserSurface) {
+  session.surfaceResources.clear();
+  session.surfaceResources.set(mesh.id, {
+    geometry: mesh,
+    source: null,
+    overlaySource: null,
+    values: null,
+    labels: null,
+    overlayRequest: 0,
+  });
+  session.store.setState({
+    selectedSurface: mesh.id,
+    surfaces: [
+      {
+        id: mesh.id,
+        name: mesh.name,
+        vertices: mesh.vertices.length / 3,
+        faces: mesh.faces.length / 3,
+        hemisphere: mesh.hemisphere,
+        overlay: null,
+        linked: false,
+      },
+    ],
+  });
+}
 
 const framePacket = () => {
   const packet = new Uint8Array(12);
@@ -207,7 +233,7 @@ describe('BrowserSession surface ownership', () => {
     complete(mesh('stale'));
     await pending;
     expect(session.surfaceGeometry).toBeNull();
-    expect(session.store.getState().surface).toBeNull();
+    expect(session.activeSurface).toBeNull();
     session.dispose();
   });
   it('keeps the latest mesh, rejects stale renderer errors and drops ownership on unload', async () => {
@@ -258,7 +284,7 @@ describe('BrowserSession scalar surface map ownership', () => {
       invoke: vi.fn(),
       dispose: vi.fn(),
     } as unknown as BrowserTransport);
-    session.surfaceGeometry = mesh;
+    seedSurface(session, mesh);
     return { session, pending };
   }
   it('keeps the newest map and preserves it on failed replacement', async () => {
@@ -269,21 +295,21 @@ describe('BrowserSession scalar surface map ownership', () => {
     await latest;
     pending[0].resolve(new Float32Array([1, 2, 3]));
     await old;
-    expect(session.store.getState().surfaceOverlay?.name).toBe('latest.gii');
-    expect(session.store.getState().surfaceOverlay).toMatchObject({ range: [-3, 8] });
+    expect((session.activeSurface?.overlay ?? null)?.name).toBe('latest.gii');
+    expect(session.activeSurface?.overlay ?? null).toMatchObject({ range: [-3, 8] });
     const wrong = session.loadSurfaceOverlay(new File([], 'wrong.gii'));
     pending[2].resolve(new Float32Array([1, 2]));
     await wrong;
     expect(session.store.getState().error).toContain('surface requires 3');
     expect([...session.surfaceValues!]).toEqual([-3, 0, 8]);
     session.updateSurfaceOverlay({ opacity: 0.4, colormap: 'gray', range: [-2, 4] });
-    expect(session.store.getState().surfaceOverlay).toMatchObject({
+    expect(session.activeSurface?.overlay ?? null).toMatchObject({
       opacity: 0.4,
       colormap: 'gray',
       range: [-2, 4],
     });
     session.updateSurfaceOverlay({ range: [4, -2] });
-    expect(session.store.getState().surfaceOverlay).toMatchObject({ range: [-2, 4] });
+    expect(session.activeSurface?.overlay ?? null).toMatchObject({ range: [-2, 4] });
     session.dispose();
     expect(session.surfaceValues).toBeNull();
   });
@@ -297,11 +323,11 @@ describe('BrowserSession scalar surface map ownership', () => {
       if (action === 'unload') session.unloadSurface();
       if (action === 'reset') await session.reset();
       if (action === 'close') session.dispose();
-      if (action === 'replace') session.surfaceGeometry = { ...mesh, id: 'replacement' };
+      if (action === 'replace') seedSurface(session, { ...mesh, id: 'replacement' });
       pending[0].resolve(new Float32Array([1, 2, 3]));
       await load;
       expect(session.surfaceValues).toBeNull();
-      expect(session.store.getState().surfaceOverlay).toBeNull();
+      expect(session.activeSurface?.overlay ?? null).toBeNull();
       session.dispose();
     },
   );
@@ -339,7 +365,7 @@ describe('BrowserSession categorical surface attachment', () => {
       invoke: vi.fn(),
       dispose: vi.fn(),
     } as unknown as BrowserTransport);
-    session.surfaceGeometry = mesh;
+    seedSurface(session, mesh);
     return { session, completions, request };
   }
   it('replaces scalar and categorical maps without retaining the prior arrays', async () => {
@@ -353,10 +379,10 @@ describe('BrowserSession categorical surface attachment', () => {
     expect(request.mock.calls[1][0]).toBe('load_surface_labels');
     expect(session.surfaceValues).toBeNull();
     expect(session.surfaceLabels?.labels[2]).toBe(16777217);
-    expect(session.store.getState().surfaceOverlay).toMatchObject({ kind: 'labels' });
+    expect(session.activeSurface?.overlay ?? null).toMatchObject({ kind: 'labels' });
     session.updateSurfaceOverlay({ opacity: 0.3, range: [0, 1], colormap: 'hot' });
-    expect(session.store.getState().surfaceOverlay).toMatchObject({ kind: 'labels', opacity: 0.3 });
-    expect(session.store.getState().surfaceOverlay).not.toHaveProperty('colormap');
+    expect(session.activeSurface?.overlay ?? null).toMatchObject({ kind: 'labels', opacity: 0.3 });
+    expect(session.activeSurface?.overlay ?? null).not.toHaveProperty('colormap');
     const wrong = session.loadSurfaceOverlay(new File([], 'wrong.gii'), true);
     completions[2]({ ...labelMap(), labels: new Uint32Array([17]) });
     await wrong;
@@ -381,11 +407,11 @@ describe('BrowserSession categorical surface attachment', () => {
       if (action === 'unload') session.unloadSurface();
       if (action === 'reset') await session.reset();
       if (action === 'close') session.dispose();
-      if (action === 'replace') session.surfaceGeometry = { ...mesh, id: 'newer' };
+      if (action === 'replace') seedSurface(session, { ...mesh, id: 'newer' });
       completions[0](labelMap());
       await pending;
       expect(session.surfaceLabels).toBeNull();
-      expect(session.store.getState().surfaceOverlay).toBeNull();
+      expect(session.activeSurface?.overlay ?? null).toBeNull();
       session.dispose();
     },
   );
@@ -404,6 +430,128 @@ describe('restored presentation ownership', () => {
     const second = session.whenPresented(abort.signal);
     abort.abort();
     await expect(second).rejects.toMatchObject({ name: 'AbortError' });
+    session.dispose();
+  });
+});
+
+describe('explicit anatomical surface linking', () => {
+  function linkedSession(surfaceType = 'pial') {
+    const transport = {
+      invoke: vi.fn(async () => framePacket()),
+      dispose: vi.fn(),
+    } as unknown as BrowserTransport;
+    const session = new BrowserSession(transport);
+    seedSurface(session, {
+      id: 'mesh',
+      name: 'mesh',
+      hemisphere: 'left',
+      surfaceType,
+      vertices: new Float32Array([10, 20, 30]),
+      faces: new Uint32Array(),
+    });
+    session.store.setState({ layers: [{ ...movie, frameCount: 1, window: [0, 1], opacity: 1 }] });
+    return session;
+  }
+  it('requires explicit linking and preserves exact world points beyond volume bounds', async () => {
+    const session = linkedSession();
+    session.pickSurface([10, 20, 30], { handle: 'mesh', vertex: 0 });
+    expect(session.store.getState().crosshair).toEqual([0, 0, 0]);
+    session.setSurfaceLink(true);
+    session.pickSurface([10, 20, 30], { handle: 'mesh', vertex: 0 });
+    expect(session.store.getState().crosshair).toEqual([10, 20, 30]);
+    await settle();
+    session.unloadSurface();
+    expect(session.activeSurface?.linked ?? false).toBe(false);
+    session.dispose();
+  });
+  it('refuses known deformations and stale or invalid picks', () => {
+    for (const type of ['inflated', 'spherical', 'flat']) {
+      const session = linkedSession(type);
+      session.setSurfaceLink(true);
+      expect(session.activeSurface?.linked ?? false).toBe(false);
+      expect(session.store.getState().error).toContain('anatomical companion');
+      session.dispose();
+    }
+    const session = linkedSession();
+    session.setSurfaceLink(true);
+    for (const pick of [
+      { handle: 'old', vertex: 0 },
+      { handle: 'mesh', vertex: -1 },
+      { handle: 'mesh', vertex: 1 },
+      { handle: 'mesh', vertex: 0.5 },
+    ]) {
+      session.pickSurface([10, 20, 30], pick);
+    }
+    expect(session.store.getState().surfacePick).toBeNull();
+    expect(session.store.getState().crosshair).toEqual([0, 0, 0]);
+    session.dispose();
+  });
+});
+
+describe('paired hemisphere ownership', () => {
+  function pairedSession() {
+    let serial = 0;
+    const transport = {
+      request: vi.fn(async (cmd: string, args: { file: File }) => {
+        if (cmd === 'load_surface')
+          return {
+            id: `surface-${++serial}`,
+            name: args.file.name,
+            hemisphere: args.file.name.startsWith('left') ? 'left' : 'right',
+            surfaceType: 'pial',
+            vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+            faces: new Uint32Array([0, 1, 2]),
+          };
+        return new Float32Array([1, 2, 3]);
+      }),
+      dispose: vi.fn(),
+    };
+    return { session: new BrowserSession(transport as unknown as BrowserTransport), transport };
+  }
+  it('keeps per-hemisphere overlays through selection, rejects duplicate sides, and unloads independently', async () => {
+    const { session } = pairedSession();
+    await session.loadSurface(new File([], 'left.gii'));
+    const left = session.activeSurface!.id;
+    await session.loadSurfaceOverlay(new File([], 'left-map.gii'));
+    await session.loadSurface(new File([], 'right.gii'), true);
+    const right = session.activeSurface!.id;
+    expect(session.store.getState().surfaces).toHaveLength(2);
+    expect(session.surfaceValues).toBeNull();
+    await session.loadSurfaceOverlay(new File([], 'right-map.gii'));
+    session.selectSurface(left);
+    expect(session.activeSurface?.overlay?.name).toBe('left-map.gii');
+    await session.loadSurface(new File([], 'left-duplicate.gii'), true);
+    expect(session.store.getState().error).toContain('one left and one right');
+    expect(session.store.getState().surfaces).toHaveLength(2);
+    session.unloadSurface(left);
+    expect(session.activeSurface?.id).toBe(right);
+    expect(session.activeSurface?.overlay?.name).toBe('right-map.gii');
+    expect(session.surfaceResources.has(left)).toBe(false);
+    session.dispose();
+    expect(session.surfaceResources.size).toBe(0);
+  });
+  it('attaches an in-flight map to its original hemisphere after selection switches', async () => {
+    const { session, transport } = pairedSession();
+    await session.loadSurface(new File([], 'left.gii'));
+    const left = session.activeSurface!.id;
+    await session.loadSurface(new File([], 'right.gii'), true);
+    const right = session.activeSurface!.id;
+    session.selectSurface(left);
+    let finish!: (value: Float32Array) => void;
+    transport.request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const loading = session.loadSurfaceOverlay(new File([], 'left-late.gii'));
+    session.selectSurface(right);
+    finish(new Float32Array([1, 2, 3]));
+    await loading;
+    expect(session.activeSurface?.overlay).toBeNull();
+    expect(
+      session.store.getState().surfaces.find((surface) => surface.id === left)?.overlay?.name,
+    ).toBe('left-late.gii');
     session.dispose();
   });
 });
