@@ -55,6 +55,25 @@ describe('versioned browser session records', () => {
       expect(() => parseSessionRecord(JSON.stringify({ ...record(), ...patch }))).toThrow();
     }
   });
+  it('validates projection source and sampling settings before restoration', () => {
+    const saved: BrowserSessionRecord = {
+      ...record(),
+      volumes: [{ source, labels: true, window: [0, 1], opacity: 1, colormap: 'gray', frame: 0 }],
+      surfaces: [
+        { source, linked: true, overlay: { kind: 'projection', volume: 0, frame: 0, opacity: 1 } },
+      ],
+    };
+    expect(parseSessionRecord(JSON.stringify(saved))).toEqual(saved);
+    const scalar = structuredClone(saved);
+    scalar.volumes[0].labels = false;
+    expect(() => parseSessionRecord(JSON.stringify(scalar))).toThrow(/projection/);
+    const unlinked = structuredClone(saved);
+    unlinked.surfaces[0].linked = false;
+    expect(() => parseSessionRecord(JSON.stringify(unlinked))).toThrow(/projection/);
+    const absent = structuredClone(saved);
+    absent.volumes = [];
+    expect(() => parseSessionRecord(JSON.stringify(absent))).toThrow(/projection/);
+  });
   it('returns an owned replacement only after verified sources load', async () => {
     const h = host();
     const file = new File(['abc'], 'renamed.gii');

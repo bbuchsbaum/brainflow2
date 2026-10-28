@@ -33,8 +33,8 @@ export interface BrowserSessionRecord {
           kind: 'projection';
           volume: number;
           frame: number;
-          range: [number, number];
-          colormap: string;
+          range?: [number, number];
+          colormap?: string;
         }
     );
   }>;
@@ -117,8 +117,8 @@ export function parseSessionRecord(text: string): BrowserSessionRecord {
           !Number.isSafeInteger(overlay.frame) ||
           typeof overlay.frame !== 'number' ||
           overlay.frame < 0 ||
-          !range(overlay.range) ||
-          !palette(overlay.colormap)
+          (!(value.volumes[overlay.volume] as { labels: boolean }).labels &&
+            (!range(overlay.range) || !palette(overlay.colormap)))
         )
           throw new Error('Invalid saved projection.');
       } else if (

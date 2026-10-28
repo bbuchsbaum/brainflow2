@@ -724,3 +724,46 @@ test('browser scalar projection matches analytic surface values and restores its
   await page.getByRole('button',{name:'Unload oblique.nii',exact:true}).click();
   await expect(page.getByText('Projected frame 1 · linear interpolation',{exact:true})).toHaveCount(0);
 });
+
+test('categorical projection preserves nearest IDs, palette, outside coverage and restored source', async ({page}) => {
+  let array=0;
+  const surface=readFileSync(surfaceFixture,'utf8').replace('Dim0="6"','Dim0="4"').replace('Dim0="8"','Dim0="2"')
+    .replace(/<MatrixData>[^<]*<\/MatrixData>/,'<MatrixData>1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1</MatrixData>')
+    .replace(/<Data>[^<]*<\/Data>/g,()=>array++===0?'<Data>10 -4 21 8 -4 21 10 -1 21 20 -4 21</Data>':'<Data>0 2 1 0 3 2</Data>');
+  const bytes=readFileSync(resolve(__dirname,'../../test-data/browser/labels.nii'));
+  const table=readFileSync(resolve(__dirname,'../../test-data/browser/labels.tsv'),'utf8');
+  await page.goto('/browser.html');
+  const result=await page.evaluate(async({bytes,table,surface})=>{
+    const {BrowserSession}=await import('/src/services/browser/session.ts');
+    const session=new BrowserSession();
+    try {
+      await session.initialize();
+      await session.load(new File([new Uint8Array(bytes)],'labels.nii'),true,new File([table],'labels.tsv'));
+      await session.loadSurface(new File([surface],'label-surface.gii'));
+      session.setSurfaceLink(true);
+      await session.projectVolume();
+      if(session.store.getState().error)throw new Error(session.store.getState().error!);
+      return {labels:[...session.surfaceLabels!.labels],rgba:[...session.surfaceLabels!.rgba],
+        legend:session.surfaceLabels!.legend,record:await session.saveRecord()};
+    } finally {session.dispose();}
+  },{bytes:[...bytes],table,surface});
+  // world=(10-2*j,-7+3*i,5+4*k); IDs cycle [0,17,1024,2047] by i+j.
+  expect(result.labels).toEqual([17,1024,1024,0]);
+  expect(result.rgba).toEqual([1,0,0,1,0,1,0,1,0,1,0,1,0,0,0,0]);
+  expect(result.legend.find(entry=>entry.id===17)?.name).toBe('Region seventeen');
+  expect(result.record.surfaces[0].overlay).toMatchObject({kind:'projection',volume:0,frame:0});
+  await page.getByLabel('Choose session settings',{exact:true}).setInputFiles({name:'labels.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(result.record))});
+  await page.getByLabel('Choose session sources',{exact:true}).setInputFiles([
+    {name:'labels.nii',mimeType:'application/octet-stream',buffer:bytes},
+    {name:'labels.tsv',mimeType:'text/tab-separated-values',buffer:Buffer.from(table)},
+    {name:'label-surface.gii',mimeType:'application/xml',buffer:Buffer.from(surface)},
+  ]);
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toHaveCount(0);
+  await expect(page.getByText('Projected frame 1 · nearest label',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:/^Select colormap/})).toHaveCount(0);
+  await expect(page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.screenshot({path:test.info().outputPath('categorical-projection.png')});
+  await page.getByRole('button',{name:'Unload labels.nii',exact:true}).click();
+  await expect(page.getByText('Projected frame 1 · nearest label',{exact:true})).toHaveCount(0);
+});

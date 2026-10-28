@@ -609,6 +609,34 @@ describe('projected frame ownership', () => {
     expect(session.store.getState().surfaces.every((s) => s.overlay === null)).toBe(true);
     session.dispose();
   });
+  it('projects label IDs with nearest sampling and the volume palette, then releases on unlink', async () => {
+    const { session, data } = setup();
+    data.affine.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    session.surfaceResources.get('left')!.geometry.vertices = new Float32Array([
+      0, 0, 0, 0.5, 0, 0,
+    ]);
+    session.store.setState({
+      layers: [
+        {
+          ...session.store.getState().layers[0],
+          labelIds: [1],
+          legend: [{ label_id: 1, roi: 'Region one', color: [255, 0, 0] }],
+        },
+      ],
+    });
+    await session.projectVolume();
+    expect(session.activeSurface!.overlay).toMatchObject({
+      kind: 'labels',
+      projection: { volumeId: movie.id },
+    });
+    expect([...session.surfaceLabels!.labels]).toEqual([1, 0]);
+    expect([...session.surfaceLabels!.rgba]).toEqual([1, 0, 0, 1, 0, 0, 0, 0]);
+    expect(session.surfaceLabels!.legend[1].name).toBe('Region one');
+    session.setSurfaceLink(false);
+    expect(session.surfaceLabels).toBeNull();
+    expect(session.surfaceResources.get('left')!.projection).toBeUndefined();
+    session.dispose();
+  });
   it('rejects late projection after unload, cancellation or revoked coordinate linking', async () => {
     for (const action of ['unload', 'cancel', 'unlink']) {
       const { session, transport, data } = setup();

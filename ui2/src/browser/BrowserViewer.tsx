@@ -251,7 +251,7 @@ function Viewer({
               )}
               <Button
                 variant="ghost"
-                disabled={!selected || !!selected.labelIds || !surface.linked || state.loading}
+                disabled={!selected || !surface.linked || state.loading}
                 onClick={() => void session.projectVolume()}
               >
                 Project selected frame
@@ -316,6 +316,9 @@ function Viewer({
                     value={overlay.opacity}
                     onChange={(opacity) => session.updateSurfaceOverlay({ opacity })}
                   />
+                  {overlay.kind === 'labels' && overlay.projection && (
+                    <p>Projected frame {overlay.projection.frame + 1} · nearest label</p>
+                  )}
                   {overlay.kind === 'labels' ? (
                     <p aria-label="Surface region">
                       {pickedLabel

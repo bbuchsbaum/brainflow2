@@ -594,7 +594,7 @@ adapters; a browser implementation must expose genuine supported operations.
 | --- | --- | --- |
 | 1. Shared controls | Store-free range/opacity/palette controls used by desktop and browser; explicit host capability differences; native/browser compatibility regression matrix and real UI checks | Verified; receipt below |
 | 2. Save/restore | Versioned session settings and browser image export; reselect files with identity validation, restore display/frame/cursor/scene settings; cancellation, mismatches and reload tested | Implemented; receipt below |
-| 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Pending |
+| 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Implemented; receipts below |
 | 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Pending |
 | 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Pending |
 | 6. Performance | Measure cold/warm rendering and readback/copy costs; implement justified optimization only with equivalent output and ownership evidence; record decision on direct canvas presentation | Pending |
@@ -725,3 +725,30 @@ renderer checks, TypeScript, scoped lint and production WASM/PWA build. Logs and
 images are under `cruft/browser-completion/projection-*`. Desktop screenshot
 verification is a React-harness check, not a native Tauri walkthrough.
 Categorical projection remains required for area 3; areas 4–6 remain open.
+
+### Area 3 receipt: categorical projection
+
+`@brainflow/visualization/surface/projection` supplies one dependency-free nearest
+label sampler to the native atlas projection service and browser session. It
+inverts the full affine linear part in double precision, preserves integer IDs,
+and uses half-voxel support `[-0.5, n-0.5)`. Outside samples return transparent
+background. Singular/non-finite transforms and sampled non-integer labels fail
+explicitly. This replaces the native helper's silent identity fallback and edge
+clamping; IDs outside a native LUT retain their identity but have no invented color.
+The shared sampler accepts u32 arrays without f32 conversion; browser label-volume
+admission remains limited to the existing exactly represented 0–2047 range.
+
+Browser projection retains the source legend, colors, frame and verified volume
+association. Categorical settings have opacity but no continuous range/palette.
+Saved sessions recreate the projection from the verified volume and table, and
+source unload/unlink clears it. RGBA is per vertex in the existing surface renderer;
+interpolated display colors do not change the retained nearest-label IDs.
+
+Evidence: 44 unit/service tests include independent rotated/sheared affines,
+half-voxel boundaries, sparse u32 IDs, invalid transforms, native consumer RGBA,
+browser ownership and settings validation. Actual WASM checks verify exact
+labels/colors including outside coverage, table names, restore, and source unload;
+scalar projection remains passing. Production WASM/PWA build, TypeScript and
+scoped native/browser lint pass. Evidence is `cruft/browser-completion/label-projection-*`.
+Areas 4–6 remain required; these checks do not establish native Tauri or broader
+browser/device qualification.

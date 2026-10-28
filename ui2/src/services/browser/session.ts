@@ -1,4 +1,5 @@
 import { createStore } from 'zustand/vanilla';
+import { sampleVolumeLabels } from '@brainflow/visualization/surface/projection';
 import { RenderClient } from '@brainflow/api';
 import type { DecodedRawRgbaFrame, RenderViewPayload, RenderViewType } from '@brainflow/api';
 import { BrowserTransport } from './transport';
@@ -20,13 +21,17 @@ export type BrowserLayer = BrowserVolume & {
   opacity: number;
   colormap?: string;
 };
-export type BrowserSurfaceOverlay = { id: string; name: string; opacity: number } & (
+export type BrowserSurfaceOverlay = {
+  id: string;
+  name: string;
+  opacity: number;
+  projection?: { volumeId: string; frame: number };
+} & (
   | {
       kind: 'scalar';
       range: [number, number];
       dataRange: [number, number];
       colormap: string;
-      projection?: { volumeId: string; frame: number };
     }
   | { kind: 'labels' }
 );
@@ -229,7 +234,7 @@ export class BrowserSession {
         source: await describe(files.source),
         linked: surface.linked,
       };
-      if (surface.overlay?.kind === 'scalar' && surface.overlay.projection) {
+      if (surface.overlay?.projection) {
         const settings = surface.overlay;
         const volume = state.layers.findIndex(
           (layer) => layer.id === settings.projection!.volumeId,
@@ -240,8 +245,9 @@ export class BrowserSession {
           volume,
           frame: settings.projection!.frame,
           opacity: settings.opacity,
-          range: settings.range,
-          colormap: settings.colormap,
+          ...(settings.kind === 'scalar'
+            ? { range: settings.range, colormap: settings.colormap }
+            : {}),
         };
       } else if (files.overlaySource && surface.overlay) {
         const settings = surface.overlay;
@@ -477,14 +483,6 @@ export class BrowserSession {
       );
       return;
     }
-    if (layer.labelIds) {
-      this.error(
-        new Error(
-          'Label projection requires nearest-neighbor sampling; scalar projection cannot interpolate labels.',
-        ),
-      );
-      return;
-    }
     const resource = this.surfaceResources.get(surface.id)!;
     const timepoint = frame ?? layer.currentFrame;
     if (!Number.isInteger(timepoint) || timepoint < 0 || timepoint >= layer.frameCount) {
@@ -519,21 +517,55 @@ export class BrowserSession {
         !this.store.getState().surfaces.find((candidate) => candidate.id === surface.id)?.linked
       )
         return;
+      let labels: BrowserSurfaceLabels | null = null;
+      if (layer.labelIds) {
+        const sampled = sampleVolumeLabels(
+          resource.geometry.vertices,
+          data.values,
+          data.dims,
+          data.affine,
+        );
+        const legend: BrowserSurfaceLabels['legend'] = [
+          { id: 0, name: 'Background', rgba: [0, 0, 0, 0] },
+          ...(layer.legend ?? [])
+            .filter((entry) => entry.label_id !== 0)
+            .map((entry) => ({
+              id: entry.label_id,
+              name: entry.displayName ?? entry.roi,
+              rgba: [...entry.color.map((channel) => channel / 255), 1] as [
+                number,
+                number,
+                number,
+                number,
+              ],
+            })),
+        ];
+        const colors = new Map(legend.map((entry) => [entry.id, entry.rgba]));
+        const rgba = new Float32Array(sampled.length * 4);
+        for (let vertex = 0; vertex < sampled.length; vertex++)
+          rgba.set(colors.get(sampled[vertex]) ?? [0, 0, 0, 0], vertex * 4);
+        labels = { labels: sampled, rgba, legend };
+      }
       resource.projection = { volumeId: layer.id, frame: timepoint, data };
       resource.values = null;
-      resource.labels = null;
+      resource.labels = labels;
       resource.overlaySource = null;
+      const common = {
+        id: `projection-${surface.id}-${request}`,
+        name: `${layer.name} · frame ${timepoint + 1}`,
+        opacity: 1,
+        projection: { volumeId: layer.id, frame: timepoint },
+      };
       this.patchSurface(surface.id, {
-        overlay: {
-          id: `projection-${surface.id}-${request}`,
-          kind: 'scalar',
-          name: `${layer.name} · frame ${timepoint + 1}`,
-          opacity: 1,
-          range: [...layer.window],
-          dataRange: [...layer.range],
-          colormap: layer.colormap ?? 'viridis',
-          projection: { volumeId: layer.id, frame: timepoint },
-        },
+        overlay: labels
+          ? { ...common, kind: 'labels' }
+          : {
+              ...common,
+              kind: 'scalar',
+              range: [...layer.window],
+              dataRange: [...layer.range],
+              colormap: layer.colormap ?? 'viridis',
+            },
       });
       this.store.setState({ view: 'surface' });
     } catch (error) {
