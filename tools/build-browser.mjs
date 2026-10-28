@@ -45,5 +45,5 @@ function hashFiles(directory, prefix = '') {
 }
 hashFiles(output);
 const sourceRevision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-const sourceDirty = spawnSync('git', ['diff', '--name-only', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim().length > 0;
+const sourceDirty = spawnSync('git', ['status', '--porcelain', '--untracked-files=normal', '--', '.', ':!**/node_modules/**', ':!**/dist/**'], { cwd: root, encoding: 'utf8' }).stdout.trim().length > 0;
 writeFileSync(resolve(output, 'build-info.json'), JSON.stringify({ sourceRevision, sourceDirty, builtAt: new Date().toISOString(), files }, null, 2) + '\n');
