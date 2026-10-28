@@ -582,3 +582,62 @@ screenshots were inspected; native desktop UI was not exercised. The first
 transparency assertion compared different canvas heights (736 vs 735 pixels);
 fixed-size comparisons now require exact pixels, with responsive sizing restored
 for captures. Evidence is retained in `cruft/browser-surface-labels/`.
+
+## Active completion goal: areas 1–6 (2026-10-28)
+
+Outcome: finish the six remaining application/delivery areas, preserving desktop
+semantics and reducing duplicated controls, decoding and resource ownership.
+Native filesystem watchers, SSH credentials and external processes remain host
+adapters; a browser implementation must expose genuine supported operations.
+
+| Area | Required outcome and acceptance evidence | Status |
+| --- | --- | --- |
+| 1. Shared controls | Store-free range/opacity/palette controls used by desktop and browser; explicit host capability differences; native/browser compatibility regression matrix and real UI checks | Verified; receipt below |
+| 2. Save/restore | Versioned session settings and browser image export; reselect files with identity validation, restore display/frame/cursor/scene settings; cancellation, mismatches and reload tested | Pending |
+| 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Pending |
+| 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Pending |
+| 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Pending |
+| 6. Performance | Measure cold/warm rendering and readback/copy costs; implement justified optimization only with equivalent output and ownership evidence; record decision on direct canvas presentation | Pending |
+
+Invariants: affine/world units, integer label identity, native missing-value and
+first-array compatibility, source identity, rejection of stale publication, and
+reclamation on failure/unload/closure. Preserve unrelated work. Publication is
+part of the authorized goal, using a preview destination rather than production.
+
+Relevant entry points: `ui2/src/browser`, `ui2/src/services/browser`, shared
+`ui2/src/components/ui` and inspector controls, `core/browser_host`,
+`volume_service`, `render_loop`, and template/atlas catalogs. Existing evidence
+is under `cruft/browser-*`; completion must be established against the current
+code, not inferred from earlier per-slice checks.
+
+Next action: extract shared display controls without moving desktop stores or
+host policies into presentation components; run existing native control suites
+and the real browser harness before extending persistence and scene ownership.
+
+
+### Area 1 receipt: shared display controls
+
+`ImagingControls` contains the former desktop inspector range/palette controls
+and one opacity control, without desktop stores or transport. The desktop
+inspector and browser consume those same components. The browser volume viewer
+also retains each layer's chosen palette across layer removal/reordering.
+
+| Contract | Desktop | Browser | Evidence |
+| --- | --- | --- | --- |
+| Range editing | Existing ruler/threshold bounds and no-op rules retained | Window/map range may expand beyond original data range; invalid display spans rejected by session | 16 existing inspector tests, shared host-policy tests, actual browser window/map edits |
+| Opacity | Existing 0.01 grid and percentage readout | Same control and stepping | Shared control tests, unchanged desktop snapshots, browser pixel changes |
+| Palettes | Existing complete picker catalog | Same picker restricted to implemented gray/viridis/hot; categorical controls hidden | Host-options test, native surface threshold test, actual scalar/label browser flows |
+| Backend ownership | Injected transports remain authoritative | Unsupported native commands fail explicitly without native fallback | API transport and BrowserHostTransport suites |
+| Scientific host differences | Existing global time navigation and native overlay missing-value/first-array semantics retained | Selected-layer time navigation, finite scalar admission and bounded input retained | Existing browser session/4D suites; native decoder receipt above; these policies are not moved into shared controls |
+
+Verification: 50 focused unit/service tests; 16 real Chromium/Metal browser
+checks; four unchanged desktop UI screenshot baselines (volume, volume/surface,
+surface settings and narrow desktop volume); WASM/TypeScript/PWA build. Scoped
+lint has the same pre-existing `react-refresh/only-export-components` diagnostic
+on exported `inspectorRuler`; new controls/browser changes have no diagnostics.
+These are desktop React-harness checks, not a native Tauri app walkthrough.
+Evidence: `cruft/browser-completion/controls-*` and `desktop-controls.log`.
+
+Area 2 next: persist versioned source/display descriptors, validate reselected
+file contents before replacement, and use the existing frame/surface composers
+with a browser download sink. File contents must not enter service-worker caches.

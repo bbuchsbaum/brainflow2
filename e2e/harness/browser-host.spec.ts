@@ -335,7 +335,8 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   await expect(page.getByLabel('Surface value',{exact:true})).toHaveText(`Vertex ${match[1]} value: ${[-3,-1,0,2,4,8][Number(match[1])]}`);
   await expect.poll(pixels).not.toBe(base);
   const colored=await pixels();
-  await page.getByLabel('Surface colormap',{exact:true}).selectOption('gray');
+  await page.getByRole('button',{name:/^Select colormap/}).click();
+  await page.getByRole('button',{name:'Grayscale',exact:true}).click();
   await expect.poll(pixels).not.toBe(colored);
   const gray=await pixels();
   const rgb = await page.evaluate(async (bytes) => {
@@ -347,8 +348,9 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   expect(Math.min(...rgb)).toBeGreaterThan(15);
   expect(Math.max(...rgb)-Math.min(...rgb)).toBeLessThanOrEqual(2);
 
-  await page.getByLabel('Surface maximum',{exact:true}).fill('20');
-  await page.getByLabel('Surface maximum',{exact:true}).press('Enter');
+  await page.getByRole('button',{name:/^Surface range high/}).click();
+  await page.getByRole('textbox',{name:'Surface range high',exact:true}).fill('20');
+  await page.getByRole('textbox',{name:'Surface range high',exact:true}).press('Enter');
   await expect.poll(pixels).not.toBe(gray);
   const rescaled=await pixels();
   await page.getByRole('slider',{name:'Map opacity',exact:true}).press('Home');
@@ -364,7 +366,7 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   await expect(page.getByRole('button',{name:'Remove surface map',exact:true})).toBeVisible();
   const labelXml=readFileSync(resolve(__dirname,'../../test-data/browser/octahedron.label.gii'),'utf8');
   await page.getByLabel('Choose label GIfTI map',{exact:true}).setInputFiles({name:'background.label.gii',mimeType:'application/xml',buffer:Buffer.from(labelXml.replace('0 17 16777217 16777218 4294967295 17','0 0 0 0 0 0'))});
-  await expect(page.getByLabel('Surface colormap',{exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:/^Select colormap/})).toHaveCount(0);
   // Label zero must reveal exactly the existing uncolored base surface.
   await expect.poll(pixels).toBe(base);
   await page.getByLabel('Choose label GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.label.gii'));

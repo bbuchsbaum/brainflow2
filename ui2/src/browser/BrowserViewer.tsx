@@ -1,3 +1,4 @@
+import { DisplayRange, ColormapControl, OpacityControl } from '../components/ui/ImagingControls';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { SliceViewerImageSurface } from '@brainflow/visualization/slice';
@@ -5,9 +6,9 @@ import type { RenderViewType } from '@brainflow/api';
 import { ReusableSliceViewport } from '../components/views/sliceViewer/ReusableSliceViewport';
 import { Button } from '../components/ui/Button';
 import { FieldRow } from '../components/ui/bf/FieldRow';
-import { NumberField, Select } from '../components/ui/bf/Fields';
-import { Slider, RangeSlider } from '../components/ui/bf/Slider';
-import { BrowserSession, orientations } from '../services/browser/session';
+import { NumberField } from '../components/ui/bf/Fields';
+import { Slider } from '../components/ui/bf/Slider';
+import { BrowserSession, orientations, browserColormaps } from '../services/browser/session';
 import { setTransport } from '../services/transport';
 import { DEFAULT_CROSSHAIR_COLOR } from '../stores/crosshairSettingsStore';
 const BrowserSurfaceView = lazy(() => import('./BrowserSurfaceView'));
@@ -230,56 +231,30 @@ function Viewer({ session }: { session: BrowserSession }) {
                   <p>{overlay.name}</p>
                   {overlay.kind === 'scalar' && (
                     <>
-                      <FieldRow label="Colormap">
-                        <Select
-                          aria-label="Surface colormap"
-                          value={overlay.colormap}
-                          onChange={(event) =>
-                            session.updateSurfaceOverlay({ colormap: event.target.value })
-                          }
-                        >
-                          <option value="viridis">Viridis</option>
-                          <option value="gray">Gray</option>
-                          <option value="hot">Hot</option>
-                        </Select>
-                      </FieldRow>
-                      <FieldRow label="Minimum">
-                        <NumberField
-                          aria-label="Surface minimum"
-                          value={overlay.range[0]}
-                          onValueChange={(value) => {
-                            if (value !== null)
-                              session.updateSurfaceOverlay({
-                                range: [value, overlay!.range[1]],
-                              });
-                          }}
-                        />
-                      </FieldRow>
-                      <FieldRow label="Maximum">
-                        <NumberField
-                          aria-label="Surface maximum"
-                          value={overlay.range[1]}
-                          onValueChange={(value) => {
-                            if (value !== null)
-                              session.updateSurfaceOverlay({
-                                range: [overlay!.range[0], value],
-                              });
-                          }}
-                        />
-                      </FieldRow>
+                      <ColormapControl
+                        value={overlay.colormap}
+                        options={browserColormaps}
+                        onChange={(colormap) => session.updateSurfaceOverlay({ colormap })}
+                      />
+                      <DisplayRange
+                        label="Surface range"
+                        low={overlay.range[0]}
+                        high={overlay.range[1]}
+                        min={Math.min(overlay.dataRange[0], overlay.range[0])}
+                        max={Math.max(overlay.dataRange[1], overlay.range[1])}
+                        allowRangeExpansion
+                        onChange={(low, high) =>
+                          session.updateSurfaceOverlay({ range: [low, high] })
+                        }
+                      />
                     </>
                   )}
-                  <FieldRow label="Map opacity" layout="stacked">
-                    <Slider
-                      className="w-full"
-                      label="Map opacity"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={overlay.opacity}
-                      onValueChange={(opacity) => session.updateSurfaceOverlay({ opacity })}
-                    />
-                  </FieldRow>
+                  <OpacityControl
+                    label="Map opacity"
+                    stacked
+                    value={overlay.opacity}
+                    onChange={(opacity) => session.updateSurfaceOverlay({ opacity })}
+                  />
                   {overlay.kind === 'labels' ? (
                     <p aria-label="Surface region">
                       {pickedLabel
@@ -321,31 +296,30 @@ function Viewer({ session }: { session: BrowserSession }) {
                   </p>
                 </>
               ) : (
-                <FieldRow label="Window" layout="stacked">
-                  <RangeSlider
-                    className="w-full"
+                <>
+                  <DisplayRange
                     label="Window"
+                    low={selected.window[0]}
+                    high={selected.window[1]}
                     min={Math.min(selected.range[0], selected.window[0])}
                     max={Math.max(selected.range[1], selected.window[1])}
-                    value={selected.window}
-                    editable
-                    onValueChange={(window) => {
-                      if (window[0] < window[1]) session.update(selected.id, { window });
+                    allowRangeExpansion
+                    onChange={(low, high) => {
+                      if (low < high) session.update(selected.id, { window: [low, high] });
                     }}
                   />
-                </FieldRow>
+                  <ColormapControl
+                    value={selected.colormap ?? (state.layers.indexOf(selected) ? 'hot' : 'gray')}
+                    options={browserColormaps}
+                    onChange={(colormap) => session.update(selected.id, { colormap })}
+                  />
+                </>
               )}
-              <FieldRow label="Opacity" layout="stacked">
-                <Slider
-                  className="w-full"
-                  label="Opacity"
-                  min={0}
-                  max={1}
-                  value={selected.opacity}
-                  step={0.01}
-                  onValueChange={(opacity) => session.update(selected.id, { opacity })}
-                />
-              </FieldRow>
+              <OpacityControl
+                stacked
+                value={selected.opacity}
+                onChange={(opacity) => session.update(selected.id, { opacity })}
+              />
               {selected.frameCount > 1 && (
                 <>
                   <h2>Time</h2>

@@ -9,10 +9,15 @@ import type {
   BrowserSurfaceLabels,
 } from './protocol';
 
+export const browserColormaps = ['gray', 'viridis', 'hot'] as const;
 export const orientations: RenderViewType[] = ['axial', 'coronal', 'sagittal'];
-export type BrowserLayer = BrowserVolume & { window: [number, number]; opacity: number };
+export type BrowserLayer = BrowserVolume & {
+  window: [number, number];
+  opacity: number;
+  colormap?: string;
+};
 export type BrowserSurfaceOverlay = { id: string; name: string; opacity: number } & (
-  | { kind: 'scalar'; range: [number, number]; colormap: string }
+  | { kind: 'scalar'; range: [number, number]; dataRange: [number, number]; colormap: string }
   | { kind: 'labels' }
 );
 export interface BrowserState {
@@ -104,7 +109,15 @@ export class BrowserSession {
           ? volume.range
           : [volume.range[0] - 0.5, volume.range[1] + 0.5];
       this.store.setState({
-        layers: [...layers, { ...volume, window: range, opacity: layers.length ? 0.5 : 1 }],
+        layers: [
+          ...layers,
+          {
+            ...volume,
+            window: range,
+            opacity: layers.length ? 0.5 : 1,
+            colormap: layers.length ? 'hot' : 'gray',
+          },
+        ],
         selected: volume.id,
         view: 'slices',
         selectedLabel: null,
@@ -196,6 +209,7 @@ export class BrowserSession {
         overlay = {
           ...common,
           kind: 'scalar',
+          dataRange: [low, high],
           colormap: 'viridis',
           range:
             low < high
@@ -241,7 +255,7 @@ export class BrowserSession {
     if (
       !next.range.every(Number.isFinite) ||
       next.range[0] >= next.range[1] ||
-      !['viridis', 'gray', 'hot'].includes(next.colormap)
+      !browserColormaps.some((name) => name === next.colormap)
     )
       return;
     this.store.setState({ surfaceOverlay: next });
@@ -284,7 +298,8 @@ export class BrowserSession {
     this.store.setState({ selected: id, selectedLabel: null });
     this.schedule();
   }
-  update(id: string, patch: Partial<Pick<BrowserLayer, 'window' | 'opacity'>>) {
+  update(id: string, patch: Partial<Pick<BrowserLayer, 'window' | 'opacity' | 'colormap'>>) {
+    if (patch.colormap && !browserColormaps.some((name) => name === patch.colormap)) return;
     this.store.setState({
       layers: this.store.getState().layers.map((l) => (l.id === id ? { ...l, ...patch } : l)),
     });
@@ -403,7 +418,7 @@ export class BrowserSession {
         volumeId: l.id,
         visible: true,
         opacity: l.opacity,
-        colormap: i ? 'hot' : 'gray',
+        colormap: l.colormap ?? (i ? 'hot' : 'gray'),
         intensity: l.window,
         threshold: [0, 0],
         interpolation: 'linear',
