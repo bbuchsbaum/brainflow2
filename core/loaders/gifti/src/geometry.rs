@@ -3,7 +3,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use gifti::{DataType, Encoding, Endianness, Intent};
 use nalgebra::{Matrix4, Vector4};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::Read;
 
 pub const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;
@@ -61,6 +61,39 @@ struct Document {
     metadata: Metadata,
     #[serde(rename = "DataArray", default)]
     arrays: Vec<Array>,
+    #[serde(rename = "LabelTable", default)]
+    labels: RawLabelTable,
+}
+#[derive(Default, Deserialize)]
+struct RawLabelTable {
+    #[serde(rename = "Label", default)]
+    entries: Vec<RawLabel>,
+}
+#[derive(Deserialize)]
+struct RawLabel {
+    #[serde(rename = "@Key", default)]
+    key: String,
+    #[serde(rename = "$text", default)]
+    name: String,
+    #[serde(rename = "@Red")]
+    red: Option<String>,
+    #[serde(rename = "@Green")]
+    green: Option<String>,
+    #[serde(rename = "@Blue")]
+    blue: Option<String>,
+    #[serde(rename = "@Alpha")]
+    alpha: Option<String>,
+}
+#[derive(Debug, Serialize)]
+pub struct LabelEntry {
+    pub id: u32,
+    pub name: String,
+    pub rgba: Option<[f32; 4]>,
+}
+#[derive(Debug)]
+pub struct LabelMap {
+    pub labels: Vec<u32>,
+    pub table: Vec<LabelEntry>,
 }
 #[derive(Default, Deserialize)]
 struct Metadata {
@@ -97,6 +130,14 @@ struct Array {
     rows: usize,
     #[serde(rename = "@Dim1", default)]
     columns: usize,
+    #[serde(rename = "@Dim2", default)]
+    dim2: usize,
+    #[serde(rename = "@Dim3", default)]
+    dim3: usize,
+    #[serde(rename = "@Dim4", default)]
+    dim4: usize,
+    #[serde(rename = "@Dim5", default)]
+    dim5: usize,
     #[serde(rename = "MetaData", default)]
     metadata: Metadata,
     #[serde(rename = "CoordinateSystemTransformMatrix", default)]
@@ -167,13 +208,8 @@ pub fn read_scalar_with_limits(
             "Expected a supported dense scalar intent, not geometry, labels or vector data".into(),
         );
     }
-    if array.rows == 0
-        || array.rows > limits.vertices
-        || !(array.dimensions == 1 || (array.dimensions == 2 && array.columns == 1))
-    {
-        return Err("Scalar array must contain one value per vertex within the host limit".into());
-    }
-    let values: Vec<f32> = decode_values(array, array.rows, 1)?
+    validate_dense(array, limits.vertices)?;
+    let values: Vec<f32> = decode_values(array, array.rows)?
         .into_iter()
         .map(|v| v as f32)
         .collect();
@@ -184,6 +220,115 @@ pub fn read_scalar_with_limits(
         );
     }
     Ok(values)
+}
+
+/// Desktop compatibility: use the first array, keep native array order and
+/// missing/nonfinite values. Browser admission must not redefine this contract.
+pub fn read_overlay(reader: impl Read) -> Result<Vec<f32>, String> {
+    let doc = read_document(reader, GeometryLimits::DESKTOP.input_bytes)?;
+    let array = doc
+        .arrays
+        .first()
+        .ok_or("No data arrays found in GIfTI file")?;
+    let dimensions = [
+        array.rows,
+        array.columns,
+        array.dim2,
+        array.dim3,
+        array.dim4,
+        array.dim5,
+    ];
+    if !(1..=dimensions.len()).contains(&array.dimensions) {
+        return Err("Unsupported GIfTI dimensionality".into());
+    }
+    let count = dimensions[..array.dimensions]
+        .iter()
+        .try_fold(1usize, |n, dim| {
+            n.checked_mul(*dim)
+                .ok_or("GIfTI shape overflows addressable memory")
+        })?;
+    Ok(decode_values(array, count)?
+        .into_iter()
+        .map(|v| v as f32)
+        .collect())
+}
+
+fn validate_dense(array: &Array, max_vertices: usize) -> Result<(), String> {
+    if array.rows == 0
+        || array.rows > max_vertices
+        || !(array.dimensions == 1 || (array.dimensions == 2 && array.columns == 1))
+    {
+        return Err("Map array must contain one value per vertex within the host limit".into());
+    }
+    if !matches!(
+        array.order.as_str(),
+        "" | "RowMajorOrder" | "ColumnMajorOrder"
+    ) {
+        return Err("Unsupported GIfTI array indexing order".into());
+    }
+    Ok(())
+}
+
+pub fn read_labels(reader: impl Read, limits: GeometryLimits) -> Result<LabelMap, String> {
+    let doc = read_document(reader, limits.input_bytes)?;
+    if doc.arrays.len() != 1 || doc.arrays[0].intent != "NIFTI_INTENT_LABEL" {
+        return Err("Select exactly one dense NIFTI_INTENT_LABEL array".into());
+    }
+    let array = &doc.arrays[0];
+    validate_dense(array, limits.vertices)?;
+    let labels = decode_values(array, array.rows)?
+        .into_iter()
+        .map(|v| {
+            if !v.is_finite() || v.fract() != 0. || v < 0. || v > u32::MAX as f64 {
+                Err("Label IDs must be integers from 0 to 4294967295".to_owned())
+            } else {
+                Ok(v as u32)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut seen = std::collections::HashSet::new();
+    let mut table = Vec::with_capacity(doc.labels.entries.len());
+    for entry in doc.labels.entries {
+        let id = entry
+            .key
+            .parse::<u32>()
+            .map_err(|_| "Label table keys must be unsigned 32-bit integers")?;
+        if !seen.insert(id) {
+            return Err("Duplicate GIfTI label table key".into());
+        }
+        let rgba = if entry.red.is_none()
+            && entry.green.is_none()
+            && entry.blue.is_none()
+            && entry.alpha.is_none()
+        {
+            None
+        } else {
+            let mut rgba = [0., 0., 0., 1.];
+            for (i, channel) in [entry.red, entry.green, entry.blue, entry.alpha]
+                .into_iter()
+                .enumerate()
+            {
+                let value = match channel {
+                    Some(value) => value
+                        .parse::<f64>()
+                        .map_err(|_| "Invalid GIfTI label color")?,
+                    None if i == 3 => 1.,
+                    None => return Err("GIfTI label color requires red, green and blue".into()),
+                };
+                if !value.is_finite() || !(0. ..=1.).contains(&value) {
+                    return Err("GIfTI label color channels must be finite within 0..1".into());
+                }
+                rgba[i] = value as f32;
+            }
+            Some(rgba)
+        };
+        table.push(LabelEntry {
+            id,
+            name: entry.name.trim().to_owned(),
+            rgba,
+        });
+    }
+    Ok(LabelMap { labels, table })
 }
 
 /// Decode one self-contained geometry file. Does not read external data paths.
@@ -325,10 +470,18 @@ fn decode(array: &Array, max_rows: usize) -> Result<Vec<f64>, String> {
         .rows
         .checked_mul(3)
         .ok_or("Geometry shape overflows addressable memory")?;
-    decode_values(array, count, 3)
+    let data = decode_values(array, count)?;
+    match array.order.as_str() {
+        "" | "RowMajorOrder" => Ok(data),
+        "ColumnMajorOrder" => Ok((0..array.rows)
+            .flat_map(|row| (0..3).map(move |col| (row, col)))
+            .map(|(row, col)| data[col * array.rows + row])
+            .collect()),
+        _ => Err("Unsupported GIfTI array indexing order".into()),
+    }
 }
 
-fn decode_values(array: &Array, count: usize, columns: usize) -> Result<Vec<f64>, String> {
+fn decode_values(array: &Array, count: usize) -> Result<Vec<f64>, String> {
     let dtype: DataType = array
         .datatype
         .parse()
@@ -343,7 +496,7 @@ fn decode_values(array: &Array, count: usize, columns: usize) -> Result<Vec<f64>
         .map_err(|e: gifti::GiftiError| e.to_string())?;
     let expected_bytes = count
         .checked_mul(dtype.size_bytes())
-        .ok_or("Geometry size overflows addressable memory")?;
+        .ok_or("GIfTI size overflows addressable memory")?;
     let data = if encoding == Encoding::GZipBase64Binary {
         let compressed = STANDARD
             .decode(array.data.split_whitespace().collect::<String>())
@@ -377,19 +530,12 @@ fn decode_values(array: &Array, count: usize, columns: usize) -> Result<Vec<f64>
                 .count()
                 != count
         {
-            return Err("Geometry data length does not match its declared shape".into());
+            return Err("GIfTI data length does not match its declared shape".into());
         }
         gifti::io::decoder::decode_data(&array.data, encoding, dtype, endian, None, count)
     } else {
         return Err("Select a self-contained GIfTI; external binary data is unsupported".into());
     }
     .map_err(|e| e.to_string())?;
-    match array.order.as_str() {
-        "" | "RowMajorOrder" => Ok(data),
-        "ColumnMajorOrder" => Ok((0..array.rows)
-            .flat_map(|row| (0..columns).map(move |col| (row, col)))
-            .map(|(row, col)| data[col * array.rows + row])
-            .collect()),
-        _ => Err("Unsupported GIfTI array indexing order".into()),
-    }
+    Ok(data)
 }

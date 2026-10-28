@@ -53,8 +53,14 @@ function Viewer({ session }: { session: BrowserSession }) {
   const state = useStore(session.store);
   const chooser = useRef<HTMLInputElement>(null);
   const labelChooser = useRef<HTMLInputElement>(null);
+  const surfaceLabelChooser = useRef<HTMLInputElement>(null);
   const overlayChooser = useRef<HTMLInputElement>(null);
   const surfaceChooser = useRef<HTMLInputElement>(null);
+  const overlay = state.surfaceOverlay;
+  const pickedLabelId = state.surfacePick
+    ? session.surfaceLabels?.labels[state.surfacePick.vertex]
+    : undefined;
+  const pickedLabel = session.surfaceLabels?.legend.find((entry) => entry.id === pickedLabelId);
   const selected = state.layers.find((l) => l.id === state.selected);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [cached, setCached] = useState(false);
@@ -189,8 +195,23 @@ function Viewer({ session }: { session: BrowserSession }) {
                 </Button>
               )}
               <Button variant="ghost" onClick={() => overlayChooser.current?.click()}>
-                {state.surfaceOverlay ? 'Replace surface map' : 'Open surface map'}
+                {overlay ? 'Replace surface map' : 'Open surface map'}
               </Button>
+              <Button variant="ghost" onClick={() => surfaceLabelChooser.current?.click()}>
+                Open surface labels
+              </Button>
+              <input
+                ref={surfaceLabelChooser}
+                className="sr-only"
+                aria-label="Choose label GIfTI map"
+                type="file"
+                accept=".gii,.gii.gz"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void session.loadSurfaceOverlay(file, true);
+                  event.target.value = '';
+                }}
+              />
               <input
                 ref={overlayChooser}
                 className="sr-only"
@@ -203,47 +224,51 @@ function Viewer({ session }: { session: BrowserSession }) {
                   event.target.value = '';
                 }}
               />
-              {state.surfaceOverlay && (
+              {overlay && (
                 <>
                   <h2>Surface map</h2>
-                  <p>{state.surfaceOverlay.name}</p>
-                  <FieldRow label="Colormap">
-                    <Select
-                      aria-label="Surface colormap"
-                      value={state.surfaceOverlay.colormap}
-                      onChange={(event) =>
-                        session.updateSurfaceOverlay({ colormap: event.target.value })
-                      }
-                    >
-                      <option value="viridis">Viridis</option>
-                      <option value="gray">Gray</option>
-                      <option value="hot">Hot</option>
-                    </Select>
-                  </FieldRow>
-                  <FieldRow label="Minimum">
-                    <NumberField
-                      aria-label="Surface minimum"
-                      value={state.surfaceOverlay.range[0]}
-                      onValueChange={(value) => {
-                        if (value !== null)
-                          session.updateSurfaceOverlay({
-                            range: [value, state.surfaceOverlay!.range[1]],
-                          });
-                      }}
-                    />
-                  </FieldRow>
-                  <FieldRow label="Maximum">
-                    <NumberField
-                      aria-label="Surface maximum"
-                      value={state.surfaceOverlay.range[1]}
-                      onValueChange={(value) => {
-                        if (value !== null)
-                          session.updateSurfaceOverlay({
-                            range: [state.surfaceOverlay!.range[0], value],
-                          });
-                      }}
-                    />
-                  </FieldRow>
+                  <p>{overlay.name}</p>
+                  {overlay.kind === 'scalar' && (
+                    <>
+                      <FieldRow label="Colormap">
+                        <Select
+                          aria-label="Surface colormap"
+                          value={overlay.colormap}
+                          onChange={(event) =>
+                            session.updateSurfaceOverlay({ colormap: event.target.value })
+                          }
+                        >
+                          <option value="viridis">Viridis</option>
+                          <option value="gray">Gray</option>
+                          <option value="hot">Hot</option>
+                        </Select>
+                      </FieldRow>
+                      <FieldRow label="Minimum">
+                        <NumberField
+                          aria-label="Surface minimum"
+                          value={overlay.range[0]}
+                          onValueChange={(value) => {
+                            if (value !== null)
+                              session.updateSurfaceOverlay({
+                                range: [value, overlay!.range[1]],
+                              });
+                          }}
+                        />
+                      </FieldRow>
+                      <FieldRow label="Maximum">
+                        <NumberField
+                          aria-label="Surface maximum"
+                          value={overlay.range[1]}
+                          onValueChange={(value) => {
+                            if (value !== null)
+                              session.updateSurfaceOverlay({
+                                range: [overlay!.range[0], value],
+                              });
+                          }}
+                        />
+                      </FieldRow>
+                    </>
+                  )}
                   <FieldRow label="Map opacity" layout="stacked">
                     <Slider
                       className="w-full"
@@ -251,15 +276,23 @@ function Viewer({ session }: { session: BrowserSession }) {
                       min={0}
                       max={1}
                       step={0.01}
-                      value={state.surfaceOverlay.opacity}
+                      value={overlay.opacity}
                       onValueChange={(opacity) => session.updateSurfaceOverlay({ opacity })}
                     />
                   </FieldRow>
-                  <p aria-label="Surface value">
-                    {state.surfacePick
-                      ? `Vertex ${state.surfacePick.vertex} value: ${session.surfaceValues?.[state.surfacePick.vertex]}`
-                      : 'Click the mesh to inspect a map value.'}
-                  </p>
+                  {overlay.kind === 'labels' ? (
+                    <p aria-label="Surface region">
+                      {pickedLabel
+                        ? `${pickedLabel.name} (${pickedLabel.id}) · vertex ${state.surfacePick!.vertex}`
+                        : 'Click the mesh to inspect a region.'}
+                    </p>
+                  ) : (
+                    <p aria-label="Surface value">
+                      {state.surfacePick
+                        ? `Vertex ${state.surfacePick.vertex} value: ${session.surfaceValues?.[state.surfacePick.vertex]}`
+                        : 'Click the mesh to inspect a map value.'}
+                    </p>
+                  )}
                   <Button variant="ghost" onClick={() => session.removeSurfaceOverlay()}>
                     Remove surface map
                   </Button>
@@ -386,7 +419,8 @@ function Viewer({ session }: { session: BrowserSession }) {
               together. IDs must be 0–2047 with identity scaling. Label-intent NIfTI files are
               recognized automatically. One self-contained GIfTI surface can be open alongside the
               volumes: up to 64 MiB compressed or expanded XML, one million vertices and two million
-              triangles. One dense scalar GIfTI map can be attached to the surface. Remote mounts,
+              triangles. One dense scalar or label GIfTI map can be attached to the surface. Label
+              names and colors come from its embedded table; label 0 is transparent. Remote mounts,
               native paths and external analysis tools require the desktop app.
             </p>
           </details>

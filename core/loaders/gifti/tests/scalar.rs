@@ -103,11 +103,65 @@ fn input_and_expanded_array_limits_precede_decode() {
 }
 #[cfg(feature = "desktop")]
 #[test]
-fn desktop_uses_same_scalar_decoder() {
+fn desktop_scalar_values_agree_with_portable_decoder() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-data/browser/octahedron.func.gii");
     assert_eq!(
         gifti_loader::load_gifti_surface_data(&path).unwrap(),
         VALUES
     );
+}
+
+#[cfg(feature = "desktop")]
+#[test]
+fn desktop_preserves_labels_missing_values_and_first_array_semantics() {
+    let array = XML
+        .split("<DataArray")
+        .nth(1)
+        .unwrap()
+        .split("</DataArray>")
+        .next()
+        .unwrap();
+    let multiple = XML
+        .replace("NumberOfDataArrays=\"1\"", "NumberOfDataArrays=\"2\"")
+        .replace(
+            "</GIFTI>",
+            &format!("<DataArray{array}</DataArray></GIFTI>"),
+        );
+    for (name, xml) in [
+        (
+            "labels",
+            XML.replace("NIFTI_INTENT_TTEST", "NIFTI_INTENT_LABEL"),
+        ),
+        (
+            "missing",
+            XML.replace("-3 -1 0 2 4 8", "-3 NaN inf -inf 4 8"),
+        ),
+        ("first", multiple),
+        (
+            "matrix",
+            XML.replace(
+                "Dimensionality=\"1\" Dim0=\"6\"",
+                "Dimensionality=\"2\" Dim0=\"3\" Dim1=\"2\"",
+            ),
+        ),
+    ] {
+        let path =
+            std::env::temp_dir().join(format!("brainflow-gifti-{}-{name}.gii", std::process::id()));
+        std::fs::write(&path, &xml).unwrap();
+        let result = gifti_loader::load_gifti_surface_data(&path);
+        std::fs::remove_file(path).unwrap();
+        let values = result.unwrap();
+        if name == "missing" {
+            assert!(values[1].is_nan());
+            assert_eq!(values[2], f32::INFINITY);
+            assert_eq!(values[3], f32::NEG_INFINITY);
+        } else {
+            assert_eq!(values, VALUES);
+        }
+        assert!(
+            read_scalar(xml.as_bytes()).is_err(),
+            "browser contract remains strict: {name}"
+        );
+    }
 }

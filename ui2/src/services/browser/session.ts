@@ -2,17 +2,19 @@ import { createStore } from 'zustand/vanilla';
 import { RenderClient } from '@brainflow/api';
 import type { DecodedRawRgbaFrame, RenderViewPayload, RenderViewType } from '@brainflow/api';
 import { BrowserTransport } from './transport';
-import type { BrowserVolume, BrowserGpuCapabilities, BrowserSurface } from './protocol';
+import type {
+  BrowserVolume,
+  BrowserGpuCapabilities,
+  BrowserSurface,
+  BrowserSurfaceLabels,
+} from './protocol';
 
 export const orientations: RenderViewType[] = ['axial', 'coronal', 'sagittal'];
 export type BrowserLayer = BrowserVolume & { window: [number, number]; opacity: number };
-export interface BrowserSurfaceOverlay {
-  id: string;
-  name: string;
-  range: [number, number];
-  colormap: string;
-  opacity: number;
-}
+export type BrowserSurfaceOverlay = { id: string; name: string; opacity: number } & (
+  | { kind: 'scalar'; range: [number, number]; colormap: string }
+  | { kind: 'labels' }
+);
 export interface BrowserState {
   gpu: BrowserGpuCapabilities | null;
   ready: boolean;
@@ -62,6 +64,7 @@ export class BrowserSession {
   private surfaceRequest = 0;
   private overlayRequest = 0;
   surfaceValues: Float32Array | null = null;
+  surfaceLabels: BrowserSurfaceLabels | null = null;
   private playbackTimer: ReturnType<typeof setTimeout> | undefined;
   readonly transport: BrowserTransport;
   constructor(transport = new BrowserTransport()) {
@@ -154,7 +157,7 @@ export class BrowserSession {
     this.surfaceGeometry = null;
     this.store.setState({ surface: null, surfacePick: null, view: 'slices' });
   }
-  async loadSurfaceOverlay(file: File) {
+  async loadSurfaceOverlay(file: File, labels = false) {
     const mesh = this.surfaceGeometry;
     if (!mesh || this.closed) return;
     const request = ++this.overlayRequest;
@@ -162,8 +165,8 @@ export class BrowserSession {
     this.loads.add(abort);
     this.store.setState({ loading: true, error: null });
     try {
-      const values = await this.transport.request<Float32Array>(
-        'load_surface_scalar',
+      const decoded = await this.transport.request<Float32Array | BrowserSurfaceLabels>(
+        labels ? 'load_surface_labels' : 'load_surface_scalar',
         { file },
         abort.signal,
       );
@@ -174,23 +177,26 @@ export class BrowserSession {
         request !== this.overlayRequest
       )
         return;
+      const values = decoded instanceof Float32Array ? decoded : decoded.labels;
       if (values.length !== mesh.vertices.length / 3)
         throw new Error(
           `Overlay has ${values.length} values; surface requires ${mesh.vertices.length / 3}.`,
         );
-      let low = Infinity,
-        high = -Infinity;
-      for (const value of values) {
-        if (!Number.isFinite(value))
-          throw new Error('Surface overlay requires finite scalar values.');
-        low = Math.min(low, value);
-        high = Math.max(high, value);
-      }
-      this.surfaceValues = values;
-      this.store.setState({
-        surfaceOverlay: {
-          id: `surface-overlay-${request}`,
-          name: file.name,
+      const common = { id: `surface-overlay-${request}`, name: file.name, opacity: 1 };
+      let overlay: BrowserSurfaceOverlay;
+      if (decoded instanceof Float32Array) {
+        let low = Infinity,
+          high = -Infinity;
+        for (const value of decoded) {
+          if (!Number.isFinite(value))
+            throw new Error('Surface overlay requires finite scalar values.');
+          low = Math.min(low, value);
+          high = Math.max(high, value);
+        }
+        overlay = {
+          ...common,
+          kind: 'scalar',
+          colormap: 'viridis',
           range:
             low < high
               ? [low, high]
@@ -198,11 +204,15 @@ export class BrowserSession {
                   low - Math.max(0.5, Math.abs(low) * 0.01),
                   high + Math.max(0.5, Math.abs(high) * 0.01),
                 ],
-          colormap: 'viridis',
-          opacity: 1,
-        },
-        view: 'surface',
-      });
+        };
+        this.surfaceValues = decoded;
+        this.surfaceLabels = null;
+      } else {
+        overlay = { ...common, kind: 'labels' };
+        this.surfaceLabels = decoded;
+        this.surfaceValues = null;
+      }
+      this.store.setState({ surfaceOverlay: overlay, view: 'surface' });
     } catch (error) {
       if (this.surfaceGeometry === mesh && request === this.overlayRequest) this.error(error);
     } finally {
@@ -213,20 +223,24 @@ export class BrowserSession {
   removeSurfaceOverlay() {
     ++this.overlayRequest;
     this.surfaceValues = null;
+    this.surfaceLabels = null;
     this.store.setState({ surfaceOverlay: null });
   }
   updateSurfaceOverlay(
-    patch: Partial<Pick<BrowserSurfaceOverlay, 'range' | 'colormap' | 'opacity'>>,
+    patch: Partial<{ range: [number, number]; colormap: string; opacity: number }>,
   ) {
     const current = this.store.getState().surfaceOverlay;
     if (!current) return;
+    const opacity = patch.opacity ?? current.opacity;
+    if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) return;
+    if (current.kind === 'labels') {
+      this.store.setState({ surfaceOverlay: { ...current, opacity } });
+      return;
+    }
     const next = { ...current, ...patch };
     if (
       !next.range.every(Number.isFinite) ||
       next.range[0] >= next.range[1] ||
-      !Number.isFinite(next.opacity) ||
-      next.opacity < 0 ||
-      next.opacity > 1 ||
       !['viridis', 'gray', 'hot'].includes(next.colormap)
     )
       return;

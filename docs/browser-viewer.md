@@ -69,7 +69,7 @@ desktop recovery route were verified. The installed Playwright WebKit build for
 macOS 14 crashes before opening a page, so WebKit rendering remains unqualified.
 Other browsers/devices need their own acceptance run.
 
-Categorical surface overlays, atlas/template catalogs, remote mounts,
+Atlas/template catalogs, remote mounts,
 native paths, filesystem watching and external process plugins remain unavailable
 in this viewer. The capability description and command errors say so explicitly.
 This is a working volume-viewing milestone, not complete desktop feature parity.
@@ -235,8 +235,10 @@ map; successful geometry replacement, unload, reset and closure discard it and
 invalidate pending attachments.
 
 The portable reader shares XML parsing, bounded decompression and binary codecs
-with geometry. Desktop `load_gifti_surface_data` uses the same reader with desktop
-admission limits. Browser input/expanded XML is limited to 64 MiB and one million
+with geometry. Desktop `load_gifti_surface_data` shares the raw decoder through
+`read_overlay`, preserving its first-array selection, native array order, and
+missing/nonfinite values for the desktop masking path. The browser's strict
+single-map, finite-value rules do not apply to that legacy desktop entry point. Browser input/expanded XML is limited to 64 MiB and one million
 values. The worker transfers one values array and keeps no map registry; the
 existing shared canvas supplies color mapping and GPU layer disposal. Local map
 loading also works offline after the application has been cached.
@@ -245,3 +247,41 @@ The scalar witness assigns `[-3, -1, 0, 2, 4, 8]` to the six octahedron vertices
 Tests exercise ASCII/binary/compressed decoding, desktop agreement, invalid
 maps, cancellation and stale completion, picked values, display controls, and
 map/geometry teardown. Browser qualification remains Chromium/Metal.
+
+
+## Surface labels
+
+Choose **Open surface labels** after loading a mesh. Select one self-contained
+GIfTI file containing exactly one `NIFTI_INTENT_LABEL` array with one ID per
+vertex. IDs must be integers from 0 through 4,294,967,295; the browser retains a
+`Uint32Array`, including adjacent IDs above f32's exact-integer range. Vertex
+count must match the mesh; correspondence still depends on the source's vertex
+ordering. Sparse *IDs* are supported, but sparse vertex/index arrays are not.
+
+The embedded GIfTI `LabelTable` supplies names and normalized RGBA colors. Missing
+names use `Label N` and missing colors use the existing deterministic fallback.
+RGB channels are all required when a color is supplied; omitted alpha defaults
+to one. Invalid channels, duplicate keys, fractional/negative/out-of-range IDs,
+and ambiguous arrays fail explicitly. Label 0 is always transparent, even if its
+table entry is opaque; other embedded alpha values are preserved.
+
+Surface labels replace the current scalar or label map. The inspector exposes
+opacity and a region name/ID at the nearest picked vertex; scalar display-range
+and colormap controls are hidden. Rendering reuses desktop's per-vertex RGBA
+layer: colors blend within faces, while region lookup uses the exact nearest
+vertex ID. This does not add categorical outlines or label editing.
+
+The worker transfers IDs and per-vertex RGBA arrays and keeps no label registry.
+Palette storage scales with observed IDs, not the maximum ID. The existing map
+request ordering and teardown apply to scalar/label replacement, removal, mesh
+replacement, cancellation, workspace reset and closure. Labels work offline
+after application caching. The same 64 MiB input/expanded-XML and one-million
+vertex budgets apply.
+
+The synthetic `octahedron.label.gii` uses IDs 0, 17, 16,777,217, 16,777,218 and
+4,294,967,295 with embedded names, missing-table fallback and explicit alpha.
+Native reader tests and actual WASM worker checks preserve exact IDs, names and
+colors. Browser checks cover picked regions, zero-label/zero-opacity transparency,
+scalar/label replacement, offline loading and complete GPU cleanup. Desktop
+compatibility tests cover labels, NaN/Infinity and first-array selection; native
+desktop UI behavior has not been visually qualified in this slice.

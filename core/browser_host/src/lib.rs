@@ -349,6 +349,33 @@ mod wasm {
     pub fn decode_surface_scalar(bytes: &[u8]) -> Result<Vec<f32>, JsValue> {
         gifti_loader::geometry::read_scalar(bytes).map_err(|e| JsValue::from_str(&e))
     }
+    #[wasm_bindgen]
+    pub struct DecodedSurfaceLabels {
+        labels: Vec<u32>,
+        table: String,
+    }
+    #[wasm_bindgen]
+    impl DecodedSurfaceLabels {
+        pub fn labels(&mut self) -> Vec<u32> {
+            std::mem::take(&mut self.labels)
+        }
+        pub fn table(&self) -> String {
+            self.table.clone()
+        }
+    }
+    #[wasm_bindgen]
+    pub fn decode_surface_labels(bytes: &[u8]) -> Result<DecodedSurfaceLabels, JsValue> {
+        let map = gifti_loader::geometry::read_labels(
+            bytes,
+            gifti_loader::geometry::GeometryLimits::BROWSER,
+        )
+        .map_err(|e| JsValue::from_str(&e))?;
+        Ok(DecodedSurfaceLabels {
+            labels: map.labels,
+            table: serde_json::to_string(&map.table)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?,
+        })
+    }
     #[wasm_bindgen(js_name = BrowserHost)]
     pub struct WasmHost {
         inner: BrowserHost,

@@ -214,8 +214,7 @@ pub fn load_gifti_file(path: &Path) -> Result<GiftiContent, GiftiError> {
 /// Loads surface data from a GIFTI overlay file
 pub fn load_gifti_surface_data(path: &Path) -> Result<Vec<f32>, GiftiError> {
     let file = std::fs::File::open(path).map_err(|e| GiftiError::InvalidContent(e.to_string()))?;
-    crate::geometry::read_scalar_with_limits(file, crate::geometry::GeometryLimits::DESKTOP)
-        .map_err(GiftiError::InvalidContent)
+    crate::geometry::read_overlay(file).map_err(GiftiError::InvalidContent)
 }
 
 /// Loads a GIFTI surface geometry file

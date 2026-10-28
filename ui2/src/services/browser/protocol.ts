@@ -32,6 +32,7 @@ export const browserCapabilities = Object.freeze({
   timeSeries: true,
   surfaces: true,
   surfaceScalarOverlays: true,
+  surfaceLabels: true,
 });
 
 export type WorkerRequest =
@@ -60,4 +61,16 @@ export interface BrowserSurface {
   vertices: Float32Array;
   faces: Uint32Array;
   hemisphere: string;
+}
+
+/** Sparse IDs stay integers; RGBA is indexed by vertex, never by maximum ID. */
+export interface BrowserSurfaceLabel {
+  id: number;
+  name: string;
+  rgba: [number, number, number, number];
+}
+export interface BrowserSurfaceLabels {
+  labels: Uint32Array;
+  rgba: Float32Array;
+  legend: BrowserSurfaceLabel[];
 }

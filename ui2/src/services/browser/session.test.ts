@@ -270,7 +270,7 @@ describe('BrowserSession scalar surface map ownership', () => {
     pending[0].resolve(new Float32Array([1, 2, 3]));
     await old;
     expect(session.store.getState().surfaceOverlay?.name).toBe('latest.gii');
-    expect(session.store.getState().surfaceOverlay?.range).toEqual([-3, 8]);
+    expect(session.store.getState().surfaceOverlay).toMatchObject({ range: [-3, 8] });
     const wrong = session.loadSurfaceOverlay(new File([], 'wrong.gii'));
     pending[2].resolve(new Float32Array([1, 2]));
     await wrong;
@@ -283,7 +283,7 @@ describe('BrowserSession scalar surface map ownership', () => {
       range: [-2, 4],
     });
     session.updateSurfaceOverlay({ range: [4, -2] });
-    expect(session.store.getState().surfaceOverlay?.range).toEqual([-2, 4]);
+    expect(session.store.getState().surfaceOverlay).toMatchObject({ range: [-2, 4] });
     session.dispose();
     expect(session.surfaceValues).toBeNull();
   });
@@ -301,6 +301,90 @@ describe('BrowserSession scalar surface map ownership', () => {
       pending[0].resolve(new Float32Array([1, 2, 3]));
       await load;
       expect(session.surfaceValues).toBeNull();
+      expect(session.store.getState().surfaceOverlay).toBeNull();
+      session.dispose();
+    },
+  );
+});
+
+describe('BrowserSession categorical surface attachment', () => {
+  const mesh = {
+    id: 'mesh',
+    name: 'mesh.gii',
+    vertices: new Float32Array(9),
+    faces: new Uint32Array([0, 1, 2]),
+    hemisphere: 'left',
+  };
+  const labelMap = () => ({
+    labels: new Uint32Array([0, 17, 16777217]),
+    rgba: new Float32Array(12),
+    legend: [
+      {
+        id: 16777217,
+        name: 'Exact region',
+        rgba: [0, 1, 0, 1] as [number, number, number, number],
+      },
+    ],
+  });
+  function setup() {
+    const completions: Array<(map: Float32Array | ReturnType<typeof labelMap>) => void> = [];
+    const request = vi.fn<(command: string) => Promise<Float32Array | ReturnType<typeof labelMap>>>(
+      () =>
+        new Promise<Float32Array | ReturnType<typeof labelMap>>((resolve) =>
+          completions.push(resolve),
+        ),
+    );
+    const session = new BrowserSession({
+      request,
+      invoke: vi.fn(),
+      dispose: vi.fn(),
+    } as unknown as BrowserTransport);
+    session.surfaceGeometry = mesh;
+    return { session, completions, request };
+  }
+  it('replaces scalar and categorical maps without retaining the prior arrays', async () => {
+    const { session, completions, request } = setup();
+    const first = session.loadSurfaceOverlay(new File([], 'scalar.gii'));
+    completions[0](new Float32Array([1, 2, 3]));
+    await first;
+    const labels = session.loadSurfaceOverlay(new File([], 'labels.gii'), true);
+    completions[1](labelMap());
+    await labels;
+    expect(request.mock.calls[1][0]).toBe('load_surface_labels');
+    expect(session.surfaceValues).toBeNull();
+    expect(session.surfaceLabels?.labels[2]).toBe(16777217);
+    expect(session.store.getState().surfaceOverlay).toMatchObject({ kind: 'labels' });
+    session.updateSurfaceOverlay({ opacity: 0.3, range: [0, 1], colormap: 'hot' });
+    expect(session.store.getState().surfaceOverlay).toMatchObject({ kind: 'labels', opacity: 0.3 });
+    expect(session.store.getState().surfaceOverlay).not.toHaveProperty('colormap');
+    const wrong = session.loadSurfaceOverlay(new File([], 'wrong.gii'), true);
+    completions[2]({ ...labelMap(), labels: new Uint32Array([17]) });
+    await wrong;
+    expect(session.surfaceLabels?.labels[2]).toBe(16777217);
+    const older = session.loadSurfaceOverlay(new File([], 'older.gii'), true);
+    const scalar = session.loadSurfaceOverlay(new File([], 'newer.gii'));
+    completions[4](new Float32Array([3, 4, 5]));
+    await scalar;
+    completions[3](labelMap());
+    await older;
+    expect(session.surfaceLabels).toBeNull();
+    expect([...session.surfaceValues!]).toEqual([3, 4, 5]);
+    session.dispose();
+  });
+  it.each(['cancel', 'remove', 'unload', 'reset', 'close', 'replace'] as const)(
+    'discards pending label attachment after %s',
+    async (action) => {
+      const { session, completions } = setup();
+      const pending = session.loadSurfaceOverlay(new File([], 'labels.gii'), true);
+      if (action === 'cancel') session.cancelLoads();
+      if (action === 'remove') session.removeSurfaceOverlay();
+      if (action === 'unload') session.unloadSurface();
+      if (action === 'reset') await session.reset();
+      if (action === 'close') session.dispose();
+      if (action === 'replace') session.surfaceGeometry = { ...mesh, id: 'newer' };
+      completions[0](labelMap());
+      await pending;
+      expect(session.surfaceLabels).toBeNull();
       expect(session.store.getState().surfaceOverlay).toBeNull();
       session.dispose();
     },

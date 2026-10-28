@@ -557,3 +557,28 @@ remain. Desktop/narrow screenshots were inspected; native desktop UI was not
 exercised. The initial full Chrome run reported `in-incognito` at the existing
 PWA installability check; the headless-shell run passed that check unchanged.
 Evidence: `cruft/browser-scalar-surfaces/`.
+
+
+## Surface labels and desktop compatibility (2026-10-28)
+
+The scalar slice incorrectly imposed browser scalar admission on the desktop
+`load_surface_overlay` path. The desktop adapter now uses the shared raw reader's
+compatibility entry point: first array, native flattened order, and retained
+NaN/Infinity for existing UI masking. Browser scalar rules remain strict. Native
+regression tests exercise that desktop entry point, including label intent.
+
+A portable label reader adds exact u32 IDs and validated embedded names/RGBA.
+The browser uses one existing attachment lifecycle for scalar and categorical
+maps. It transfers integer IDs and per-vertex colors to the existing RGBA canvas
+layer and reuses deterministic fallback colors. No dense maximum-ID LUT, new
+registry, renderer, or service is introduced. Catalogs, outlines, editing and
+projection remain separate scope. See `docs/browser-viewer.md` for semantics.
+
+Verification: 16 native loader tests passed (one existing ignored); 33 focused
+UI/service tests passed (21 browser-session and 12 desktop-service/identity);
+16 Chromium 156 headless/Metal browser tests passed. WASM/PWA build, scoped
+ESLint/Prettier/rustfmt/diff and loader Clippy passed. Desktop and narrow browser
+screenshots were inspected; native desktop UI was not exercised. The first
+transparency assertion compared different canvas heights (736 vs 735 pixels);
+fixed-size comparisons now require exact pixels, with responsive sizing restored
+for captures. Evidence is retained in `cruft/browser-surface-labels/`.

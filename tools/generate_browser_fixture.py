@@ -83,3 +83,16 @@ def surface_xml(encoding='ASCII', order='RowMajorOrder', endian='LittleEndian'):
 <DataArray Intent="NIFTI_INTENT_TTEST" DataType="NIFTI_TYPE_FLOAT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="1" Dim0="6" Encoding="ASCII" Endian="LittleEndian"><Data>-3 -1 0 2 4 8</Data></DataArray>
 </GIFTI>
 ''')
+
+# Sparse integer IDs include adjacent values beyond f32 exactness and u32::MAX.
+(Path(__file__).resolve().parent.parent / "test-data/browser/octahedron.label.gii").write_text('''<?xml version="1.0"?>
+<GIFTI Version="1.0" NumberOfDataArrays="1">
+<LabelTable>
+<Label Key="0" Red="1" Green="1" Blue="1" Alpha="1">Medial wall</Label>
+<Label Key="17" Red="1" Green="0" Blue="0" Alpha="1">Region red</Label>
+<Label Key="16777217" Red="0" Green="1" Blue="0" Alpha="0.5">Region &amp; left</Label>
+<Label Key="4294967295" Red="0" Green="0" Blue="1" Alpha="0">Hidden region</Label>
+</LabelTable>
+<DataArray Intent="NIFTI_INTENT_LABEL" DataType="NIFTI_TYPE_UINT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="1" Dim0="6" Encoding="ASCII" Endian="LittleEndian"><Data>0 17 16777217 16777218 4294967295 17</Data></DataArray>
+</GIFTI>
+''')

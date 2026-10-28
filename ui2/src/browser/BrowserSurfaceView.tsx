@@ -28,10 +28,15 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
             handle: mesh.id,
             name: mesh.name,
             geometry: { vertices: mesh.vertices, faces: mesh.faces, hemisphere: mesh.hemisphere },
-            layers:
-              state.surfaceOverlay && session.surfaceValues
-                ? [{ ...state.surfaceOverlay, values: session.surfaceValues }]
-                : [],
+            layers: state.surfaceOverlay
+              ? [
+                  {
+                    ...state.surfaceOverlay,
+                    values: session.surfaceValues ?? undefined,
+                    rgba: session.surfaceLabels?.rgba,
+                  },
+                ]
+              : [],
           },
         ]
       : [];

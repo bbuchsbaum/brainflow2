@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 
 const fixture=resolve(__dirname,'../../test-data/browser/oblique.nii');
@@ -153,6 +154,9 @@ test('production PWA reloads offline and caches only application assets',async({
   await expect(page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas')).toBeVisible();
   await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'));
   await expect(page.getByRole('button',{name:'Remove surface map',exact:true})).toBeVisible();
+  await page.getByLabel('Choose label GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.label.gii'));
+  await expect(page.getByText('octahedron.label.gii',{exact:true})).toBeVisible();
+  await expect(page.getByLabel('Surface region',{exact:true})).toContainText('inspect a region');
   await context.setOffline(false);
 });
 
@@ -306,10 +310,15 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   });
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/browser.html');
+  // Inspector controls can move fractional layout edges by one CSS pixel.
+  // Fix the drawing area for exact transparency comparisons, then restore it.
+  const fixedSize=await page.addStyleTag({content:'.browser-surface-canvas { flex: none !important; width: 600px !important; height: 600px !important; }'});
   await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(surfaceFixture);
   const canvas=page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas');
   await expect(canvas).toBeVisible();
-  const pixels=()=>canvas.screenshot().then(bytes=>bytes.toString('base64'));
+  await expect(canvas).toHaveAttribute('width','600');
+  await expect(canvas).toHaveAttribute('height','600');
+  const pixels=()=>canvas.screenshot().then(bytes=>createHash('sha256').update(bytes).digest('hex'));
   await expect.poll(()=>page.evaluate(()=>globalThis.__surfaceGpuLive())).toBeGreaterThan(0);
   // Picking returns a point on the triangle and its nearest vertex, not a snapped point.
   const bounds=(await canvas.boundingBox())!;
@@ -353,6 +362,22 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   await expect(page.getByLabel('Surface value',{exact:true})).toHaveCount(0);
   await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'));
   await expect(page.getByRole('button',{name:'Remove surface map',exact:true})).toBeVisible();
+  const labelXml=readFileSync(resolve(__dirname,'../../test-data/browser/octahedron.label.gii'),'utf8');
+  await page.getByLabel('Choose label GIfTI map',{exact:true}).setInputFiles({name:'background.label.gii',mimeType:'application/xml',buffer:Buffer.from(labelXml.replace('0 17 16777217 16777218 4294967295 17','0 0 0 0 0 0'))});
+  await expect(page.getByLabel('Surface colormap',{exact:true})).toHaveCount(0);
+  // Label zero must reveal exactly the existing uncolored base surface.
+  await expect.poll(pixels).toBe(base);
+  await page.getByLabel('Choose label GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.label.gii'));
+  const ids=[0,17,16777217,16777218,4294967295,17];
+  const names=['Medial wall','Region red','Region & left','Label 16777218','Hidden region','Region red'];
+  const vertex=Number(match[1]);
+  await expect(page.getByLabel('Surface region',{exact:true})).toHaveText(`${names[vertex]} (${ids[vertex]}) · vertex ${vertex}`);
+  await expect.poll(pixels).not.toBe(base);
+  const categorical=await pixels();
+  await page.getByRole('slider',{name:'Map opacity',exact:true}).press('Home');
+  await expect.poll(pixels).toBe(base);
+  await page.getByRole('slider',{name:'Map opacity',exact:true}).press('End');
+  await expect.poll(pixels).toBe(categorical);
   const original=await pixels();
   await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);
   await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.7,bounds.y+bounds.height*.6,{steps:8});await page.mouse.up();
@@ -360,9 +385,11 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   const rotated=await pixels();await page.mouse.wheel(0,150);
   await expect.poll(pixels).not.toBe(rotated);
   await page.getByRole('button',{name:'Reset camera',exact:true}).click();
+  await fixedSize.evaluate(element=>element.remove());
+  await expect(canvas).not.toHaveAttribute('width','600');
   await page.screenshot({path:test.info().outputPath('surface-desktop.png')});
   await page.setViewportSize({width:420,height:900});
-  await page.getByLabel('Surface maximum',{exact:true}).scrollIntoViewIfNeeded();
+  await page.getByLabel('Surface region',{exact:true}).scrollIntoViewIfNeeded();
   await page.screenshot({path:test.info().outputPath('surface-narrow.png'),fullPage:true});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.getByRole('button',{name:'Unload surface',exact:true}).click();
@@ -428,4 +455,33 @@ test('scalar surface WASM decoding returns exact values and recovers after cance
     } finally { transport.dispose(); }
   }, readFileSync(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'),'utf8'));
   expect(result).toEqual({cancelled:'AbortError', values:[-3,-1,0,2,4,8], rejected:true});
+});
+
+
+test('surface labels preserve sparse integer IDs, embedded names and alpha without a dense LUT', async ({page}) => {
+  await page.goto('/browser.html');
+  const result = await page.evaluate(async (xml) => {
+    const {BrowserTransport} = await import('/src/services/browser/transport.ts');
+    const transport = new BrowserTransport();
+    const file = new File([xml], 'labels.gii');
+    try {
+      const abort = new AbortController();
+      const pending = transport.request('load_surface_labels', {file}, abort.signal).catch(e => e.name);
+      abort.abort();
+      const cancelled = await pending;
+      const map = await transport.invoke('load_surface_labels', {file});
+      const again = await transport.invoke('load_surface_labels', {file});
+      let rejected = false;
+      try { await transport.invoke('load_surface_labels', {file: new File([xml.replace('0 17 16777217', '0 17 0.5')], 'fractional.gii')}); } catch { rejected = true; }
+      return {cancelled, labels:[...map.labels], rgba:[...map.rgba], legend:map.legend,
+        same: [...again.rgba].every((v,i)=>v===map.rgba[i]), integerArray: map.labels instanceof Uint32Array, rejected};
+    } finally { transport.dispose(); }
+  }, readFileSync(resolve(__dirname,'../../test-data/browser/octahedron.label.gii'),'utf8'));
+  expect(result.cancelled).toBe('AbortError'); expect(result.rejected).toBe(true); expect(result.integerArray).toBe(true);
+  expect(result.labels).toEqual([0,17,16777217,16777218,4294967295,17]);
+  expect(result.rgba.length).toBe(24); expect(result.legend.length).toBe(5); expect(result.same).toBe(true);
+  expect(result.rgba.slice(0,12)).toEqual([0,0,0,0, 1,0,0,1, 0,1,0,0.5]);
+  expect(result.rgba.slice(16)).toEqual([0,0,1,0, 1,0,0,1]);
+  expect(result.legend.find(e=>e.id===16777217)).toMatchObject({name:'Region & left',rgba:[0,1,0,0.5]});
+  expect(result.legend.find(e=>e.id===16777218).name).toBe('Label 16777218');
 });

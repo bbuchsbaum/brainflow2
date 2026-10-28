@@ -3,12 +3,24 @@ import init, {
   BrowserHost,
   decode_surface,
   decode_surface_scalar,
+  decode_surface_labels,
 } from '../../browser/generated/browser_host';
 import wasmUrl from '../../browser/generated/browser_host_bg.wasm?url';
-import type { BrowserVolume, WorkerReply, WorkerRequest } from './protocol';
+import type {
+  BrowserVolume,
+  BrowserSurfaceLabel,
+  BrowserSurfaceLabels,
+  WorkerReply,
+  WorkerRequest,
+} from './protocol';
 import { installWgpu20Compatibility } from './webgpuCompatibility';
 
-import { buildLabelPalette, parseLabelTable, MAX_CATEGORICAL_LABEL } from '../../utils/labelTable';
+import {
+  buildLabelPalette,
+  parseLabelTable,
+  MAX_CATEGORICAL_LABEL,
+  fallbackLabelColor,
+} from '../../utils/labelTable';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 installWgpu20Compatibility();
@@ -29,7 +41,7 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
   if (cancelled.delete(id)) return;
   try {
     const args = (message.args ?? {}) as Record<string, unknown>;
-    if (cmd === 'load_surface' || cmd === 'load_surface_scalar') {
+    if (cmd === 'load_surface' || cmd === 'load_surface_scalar' || cmd === 'load_surface_labels') {
       if (!(args.file instanceof File) || args.file.size > 64 * 1024 * 1024)
         throw new Error('Select a self-contained GIfTI no larger than 64 MiB.');
       await initializeWasm();
@@ -39,6 +51,45 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
         const values = decode_surface_scalar(bytes);
         if (!cancelled.delete(id))
           scope.postMessage({ id, value: values } satisfies WorkerReply, [values.buffer]);
+        return;
+      }
+      if (cmd === 'load_surface_labels') {
+        const decoded = decode_surface_labels(bytes);
+        let labels: Uint32Array;
+        let table: Array<
+          Omit<BrowserSurfaceLabel, 'rgba'> & { rgba: BrowserSurfaceLabel['rgba'] | null }
+        >;
+        try {
+          labels = decoded.labels();
+          table = JSON.parse(decoded.table());
+        } finally {
+          decoded.free();
+        }
+        const entries = new Map(table.map((entry) => [entry.id, entry]));
+        const legend: BrowserSurfaceLabel[] = Array.from(new Set(labels))
+          .sort((a, b) => a - b)
+          .map((id) => {
+            const entry = entries.get(id);
+            return {
+              id,
+              name: entry?.name || (id === 0 ? 'Background' : `Label ${id}`),
+              rgba:
+                id === 0
+                  ? [0, 0, 0, 0]
+                  : (entry?.rgba ??
+                    ([
+                      ...fallbackLabelColor(id).map((v) => v / 255),
+                      1,
+                    ] as BrowserSurfaceLabel['rgba'])),
+            };
+          });
+        const colors = new Map(legend.map((entry) => [entry.id, entry.rgba]));
+        const rgba = new Float32Array(labels.length * 4);
+        for (let vertex = 0; vertex < labels.length; vertex++)
+          rgba.set(colors.get(labels[vertex])!, vertex * 4);
+        const value: BrowserSurfaceLabels = { labels, rgba, legend };
+        if (!cancelled.delete(id))
+          scope.postMessage({ id, value } satisfies WorkerReply, [labels.buffer, rgba.buffer]);
         return;
       }
       const decoded = decode_surface(bytes);
