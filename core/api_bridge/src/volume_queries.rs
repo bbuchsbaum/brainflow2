@@ -12,14 +12,16 @@
 //! the GPU drops the lower half of voxel 0 and, through ClampToEdge, extends
 //! voxel `n - 1` over `[n - 1.5, n)`. This CPU path keeps the voxel-centre
 //! convention `[-0.5, n - 0.5)`; the two disagree only in the outer half-voxel.
-use crate::{get_affine_from_volume, get_spatial_dims_from_volume, BridgeState};
+use crate::BridgeState;
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 use nalgebra::{Affine3, Point3};
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::sync::Arc;
 use tauri::{command, State};
 use ts_rs::TS;
+pub(crate) use volume_service::frames::{
+    check_timepoint, extract_frame, frame_count, spatial_dims, Frame,
+};
 
 /// Index of the voxel containing continuous voxel coordinate `voxel`, or `None`
 /// outside `[-0.5, n - 0.5)` on any axis (or for non-finite input).
@@ -53,52 +55,6 @@ pub(crate) fn voxel_to_world(affine: &Affine3<f32>, ijk: [usize; 3]) -> [f32; 3]
 /// World position of the centre voxel (see [`centre_voxel_index`]).
 pub(crate) fn centre_voxel_world(affine: &Affine3<f32>, dims: [usize; 3]) -> [f32; 3] {
     voxel_to_world(affine, centre_voxel_index(dims))
-}
-
-fn spatial_dims(volume: &VolumeSendable) -> [usize; 3] {
-    let dims = get_spatial_dims_from_volume(volume);
-    [
-        dims.first().copied().unwrap_or(1),
-        dims.get(1).copied().unwrap_or(1),
-        dims.get(2).copied().unwrap_or(1),
-    ]
-}
-
-/// Validate a 4D frame index; the shared policy for sampling and frame queries
-/// is an input error (never a silent clamp), so a stale timepoint is visible.
-pub(crate) fn check_timepoint(timepoint: usize, frames: usize) -> BridgeResult<usize> {
-    if timepoint < frames {
-        Ok(timepoint)
-    } else {
-        Err(BridgeError::Input {
-            code: 4071,
-            details: format!(
-                "Timepoint {timepoint} is out of range: the volume has {frames} frame(s) \
-                 (valid 0..={})",
-                frames.saturating_sub(1)
-            ),
-        })
-    }
-}
-
-/// Number of frames along the 4th axis; `None` for 3D volumes.
-fn frame_count(volume: &VolumeSendable) -> Option<usize> {
-    macro_rules! frames {
-        ($vec:expr) => {
-            Some($vec.data.dim().3)
-        };
-    }
-    match volume {
-        VolumeSendable::Vec4DF32(v) => frames!(v),
-        VolumeSendable::Vec4DF64(v) => frames!(v),
-        VolumeSendable::Vec4DI16(v) => frames!(v),
-        VolumeSendable::Vec4DI32(v) => frames!(v),
-        VolumeSendable::Vec4DU8(v) => frames!(v),
-        VolumeSendable::Vec4DU16(v) => frames!(v),
-        VolumeSendable::Vec4DU32(v) => frames!(v),
-        VolumeSendable::Vec4DI8(v) => frames!(v),
-        _ => None,
-    }
 }
 
 /// Nearest-voxel value at continuous voxel coordinate `voxel`; 0 outside the
@@ -146,105 +102,6 @@ pub(crate) fn sample_nearest(
         VolumeSendable::Vec4DU16(v) => at_4d!(v),
         VolumeSendable::Vec4DU32(v) => at_4d!(v),
         VolumeSendable::Vec4DI8(v) => at_4d!(v),
-    })
-}
-
-/// One spatial frame as f32 in x-fastest (NIfTI) order, with its grid.
-/// 3D f32 volumes stored column-major are borrowed, not copied.
-pub(crate) struct Frame<'a> {
-    pub values: Cow<'a, [f32]>,
-    pub dims: [usize; 3],
-    pub affine: Affine3<f32>,
-    pub timepoint: Option<usize>,
-}
-
-impl Frame<'_> {
-    pub(crate) fn index(&self, i: usize, j: usize, k: usize) -> usize {
-        i + self.dims[0] * (j + self.dims[1] * k)
-    }
-
-    pub(crate) fn ijk(&self, index: usize) -> [usize; 3] {
-        let i = index % self.dims[0];
-        let rest = index / self.dims[0];
-        [i, rest % self.dims[1], rest / self.dims[1]]
-    }
-
-    pub(crate) fn world(&self, ijk: [usize; 3]) -> [f32; 3] {
-        voxel_to_world(&self.affine, ijk)
-    }
-
-    /// Absolute volume of one voxel in mm³ (|det| of the affine's linear part).
-    pub(crate) fn voxel_volume_mm3(&self) -> f32 {
-        self.affine
-            .matrix()
-            .fixed_view::<3, 3>(0, 0)
-            .determinant()
-            .abs()
-    }
-}
-
-/// Extract the spatial frame at `timepoint` (4D) as f32. `timepoint` must be in
-/// range for 4D volumes and is ignored for 3D volumes.
-pub(crate) fn extract_frame(volume: &VolumeSendable, timepoint: usize) -> BridgeResult<Frame<'_>> {
-    let affine = get_affine_from_volume(volume)?;
-    let dims = spatial_dims(volume);
-    macro_rules! from_3d {
-        ($vol:expr) => {
-            (
-                Cow::Owned(
-                    $vol.values_contiguous()
-                        .iter()
-                        .map(|v| *v as f32)
-                        .collect::<Vec<f32>>(),
-                ),
-                None,
-            )
-        };
-    }
-    macro_rules! from_4d {
-        ($vec:expr) => {{
-            check_timepoint(timepoint, $vec.data.dim().3)?;
-            let mut values = Vec::with_capacity(dims.iter().product());
-            for k in 0..dims[2] {
-                for j in 0..dims[1] {
-                    for i in 0..dims[0] {
-                        values.push($vec.data[[i, j, k, timepoint]] as f32);
-                    }
-                }
-            }
-            (Cow::Owned(values), Some(timepoint))
-        }};
-    }
-    let (values, frame_timepoint) = match volume {
-        // Zero-copy when the f32 volume is already column-major.
-        VolumeSendable::VolF32(v, _) => (v.values_contiguous(), None),
-        VolumeSendable::VolF64(v, _) => from_3d!(v),
-        VolumeSendable::VolI16(v, _) => from_3d!(v),
-        VolumeSendable::VolI32(v, _) => from_3d!(v),
-        VolumeSendable::VolU8(v, _) => from_3d!(v),
-        VolumeSendable::VolU16(v, _) => from_3d!(v),
-        VolumeSendable::VolU32(v, _) => from_3d!(v),
-        VolumeSendable::VolI8(v, _) => from_3d!(v),
-        VolumeSendable::Vec4DF32(v) => from_4d!(v),
-        VolumeSendable::Vec4DF64(v) => from_4d!(v),
-        VolumeSendable::Vec4DI16(v) => from_4d!(v),
-        VolumeSendable::Vec4DI32(v) => from_4d!(v),
-        VolumeSendable::Vec4DU8(v) => from_4d!(v),
-        VolumeSendable::Vec4DU16(v) => from_4d!(v),
-        VolumeSendable::Vec4DU32(v) => from_4d!(v),
-        VolumeSendable::Vec4DI8(v) => from_4d!(v),
-    };
-    if values.len() != dims.iter().product::<usize>() {
-        return Err(BridgeError::Internal {
-            code: 5071,
-            details: "Volume frame size does not match its spatial dimensions".into(),
-        });
-    }
-    Ok(Frame {
-        values,
-        dims,
-        affine,
-        timepoint: frame_timepoint,
     })
 }
 
@@ -637,6 +494,7 @@ pub(crate) async fn volume_nonzero_bbox_impl(
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::*;
+    use std::borrow::Cow;
 
     /// Owned frame with an axis-aligned affine (spacing, origin).
     pub(crate) fn frame_3d(
@@ -684,6 +542,7 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::volume_3d;
     use super::*;
+    use std::borrow::Cow;
     use volmath::{DenseNeuroVec, NeuroSpace};
 
     fn ramp(dims: [usize; 3]) -> Vec<f32> {

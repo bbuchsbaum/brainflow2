@@ -56,6 +56,21 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
         await host.unload(String(args.volumeId));
         value = null;
         break;
+      case 'set_timepoint': {
+        if (typeof args.volumeId !== 'string')
+          throw new Error('A loaded browser volume is required.');
+        if (
+          typeof args.timepoint !== 'number' ||
+          !Number.isInteger(args.timepoint) ||
+          args.timepoint < 0 ||
+          args.timepoint > 0xffffffff
+        ) {
+          throw new Error('The browser timepoint must be an unsigned integer.');
+        }
+        await host.set_timepoint(args.volumeId, args.timepoint);
+        value = null;
+        break;
+      }
       case 'render_view':
         if (args.format !== 'rgba')
           throw new Error('Browser rendering currently supports RGBA output.');

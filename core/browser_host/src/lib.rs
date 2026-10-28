@@ -20,6 +20,8 @@ pub struct BrowserVolume {
     pub center: [f64; 3],
     pub bounds: [[f64; 3]; 2],
     pub range: [f32; 2],
+    pub frame_count: usize,
+    pub current_frame: usize,
 }
 
 pub struct BrowserHost {
@@ -97,12 +99,23 @@ impl BrowserHost {
             let prepared = volumes
                 .get(&handle.id)
                 .ok_or("Decoded volume disappeared")?;
-            let VolumeSendable::VolF32(volume, _) = &prepared.data else {
-                return Err("Unsupported decoded volume".into());
-            };
-            let info = source::describe(&handle, volume)?;
+            let volume = source::spatial_frame(&prepared.data, 0)?;
+            let mut info = source::describe(&handle, &volume)?;
+            if let VolumeSendable::Vec4DF32(series) = &prepared.data {
+                let (low, high) = series
+                    .data
+                    .iter()
+                    .filter(|v| v.is_finite())
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &v| {
+                        (lo.min(v), hi.max(v))
+                    });
+                if !low.is_finite() || !high.is_finite() {
+                    return Err("Volume contains no finite values".into());
+                }
+                info.range = [low, high];
+            }
             self.renderer
-                .register_volume(&handle.id, volume, RendererVolumeFormat::R32Float)
+                .register_volume(&handle.id, &volume, RendererVolumeFormat::R32Float)
                 .map_err(|e| e.to_string())?;
             Ok(info)
         })();
@@ -117,6 +130,41 @@ impl BrowserHost {
                 .map_err(|e| e.to_string())?;
         }
         registration
+    }
+
+    /// Replace the selected frame in the existing slot. Out-of-range requests
+    /// fail before GPU mutation; publication follows successful validation.
+    pub async fn set_timepoint(&mut self, id: &str, timepoint: usize) -> Result<(), String> {
+        let frame = {
+            let volumes = self.repository.volumes.lock().unwrap();
+            let volume = volumes.get(id).ok_or("Volume was unloaded")?;
+            let count = volume.handle.num_timepoints.unwrap_or(1);
+            volume_service::frames::check_timepoint(timepoint, count).map_err(|e| e.to_string())?;
+            if volume.handle.current_timepoint.unwrap_or(0) == timepoint {
+                return Ok(());
+            }
+            source::spatial_frame(&volume.data, timepoint)?.into_owned()
+        };
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let updated = self
+            .renderer
+            .update_scalar_volume(id, &frame)
+            .map_err(|e| e.to_string());
+        let validation = device.pop_error_scope().await;
+        updated?;
+        if let Some(error) = validation {
+            return Err(format!("GPU frame update failed: {error}"));
+        }
+        self.repository
+            .volumes
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .ok_or("Volume was unloaded")?
+            .handle
+            .current_timepoint = Some(timepoint);
+        Ok(())
     }
 
     /// Same render_view arguments/8-byte RGBA envelope as the desktop adapter.
@@ -211,6 +259,16 @@ mod wasm {
                 .await
                 .map_err(|e| JsValue::from_str(&e))?;
             serde_json::to_string(&v).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        pub async fn set_timepoint(
+            &mut self,
+            volume_id: String,
+            timepoint: usize,
+        ) -> Result<(), JsValue> {
+            self.inner
+                .set_timepoint(&volume_id, timepoint)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
         }
         pub async fn render_view(&mut self, state_json: String) -> Result<Vec<u8>, JsValue> {
             self.inner

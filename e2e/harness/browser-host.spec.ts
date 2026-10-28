@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 
 const fixture=resolve(__dirname,'../../test-data/browser/oblique.nii');
 const compressed=resolve(__dirname,'../../test-data/browser/oblique.nii.gz');
@@ -150,4 +150,49 @@ test('production PWA reloads offline and caches only application assets',async({
   await page.locator('input[type=file]').setInputFiles(compressed);
   await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
   await context.setOffline(false);
+});
+
+test('4D frame changes preserve native pixels and reject stale indices',async({page})=>{
+  const bytes=[...readFileSync(resolve(__dirname,'../../test-data/browser/oblique4d.nii.gz'))];
+  const reference=JSON.parse(readFileSync(resolve(dirname(process.env.BROWSER_NATIVE_WITNESS ?? resolve(__dirname,'../../cruft/browser-portability/native-witness.json')),'native-4d-witness.json'),'utf8'));
+  await page.goto('/browser.html');
+  const output=await page.evaluate(async({bytes,frame})=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');const transport=new BrowserTransport();
+    try {
+      await transport.invoke('initialize',{maxSampledTextures:3});
+      const volume=await transport.invoke('load_file',{file:new File([new Uint8Array(bytes)],'series.nii.gz')});
+      frame.layers[0].intensity=[0,2864];const packets=[];
+      for(const timepoint of [0,2,1,0]) {
+        await transport.invoke('set_timepoint',{volumeId:volume.id,timepoint});
+        packets.push([...await transport.invoke('render_view',{stateJson:JSON.stringify(frame),format:'rgba'})]);
+      }
+      let rejected=false;try{await transport.invoke('set_timepoint',{volumeId:volume.id,timepoint:3})}catch{rejected=true}
+      await transport.invoke('unload_volume',{volumeId:volume.id});
+      return {volume,packets,rejected,empty:await transport.invoke('diagnostics')};
+    }finally{transport.dispose();}
+  },{bytes,frame:request});
+  expect(output.volume.frameCount).toBe(3);expect(output.volume.center).toEqual([4,-1,21]);expect(output.rejected).toBe(true);
+  for(let t=0;t<4;t++)expect(Math.max(...output.packets[t].map((v,i)=>Math.abs(v-reference.packets[t][i])))).toBeLessThanOrEqual(1);
+  expect(output.empty).toEqual({volumes:0,stagingBuffers:0,stagingBytes:0});
+});
+
+test('4D controls scrub, play, pause and unload without stale presentation',async({page})=>{
+  await page.goto('/browser.html');
+  await expect(page.getByRole('button',{name:'Open NIfTI'})).toBeEnabled();
+  await page.locator('input[type=file]').setInputFiles(resolve(__dirname,'../../test-data/browser/oblique4d.nii'));
+  const revision=()=>page.locator('main').getAttribute('data-frame-revision').then(Number);
+  await expect.poll(revision).toBeGreaterThan(0);
+  const field=page.getByRole('spinbutton',{name:'Frame',exact:true});
+  const canvas=page.getByRole('region',{name:'axial slice'}).locator('canvas');
+  const before=await canvas.evaluate(c=>c.toDataURL());
+  let rev=await revision();await field.fill('2');await field.press('Enter');
+  await expect.poll(revision).toBeGreaterThan(rev);
+  expect(await canvas.evaluate(c=>c.toDataURL())).not.toBe(before);
+  await page.getByRole('button',{name:'Play time series'}).click();
+  await expect.poll(revision).toBeGreaterThan(await revision());
+  await page.getByRole('button',{name:'Pause playback'}).click();
+  await expect(page.getByRole('button',{name:'Play time series'})).toBeVisible();
+  await page.screenshot({path:test.info().outputPath('time-series.png')});
+  await page.getByRole('button',{name:'Clear workspace'}).click();
+  await expect(field).toHaveCount(0);
 });

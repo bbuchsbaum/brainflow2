@@ -12,3 +12,8 @@ range `[0,864]`, and voxel-edge bounds are `(-3,-8.5,3)` to `(11,6.5,39)` mm.
 must sample voxel `(y,x,4)`, value `400 + 10*x + y`. This tests axis rotation,
 anisotropy, physical scalar units, row order and the single readback Y flip.
 The native host test exports the actual packet for browser byte comparison.
+
+`oblique4d.nii` and its gzip copy add three frames on the same spatial grid:
+`value(i,j,k,t) = i + 10*j + 100*k + 1000*t`. The header declares a two-second
+time spacing. Tests select frames 0, 2, 1, 0 and use a fixed [0,2864] window.
+The expected raster remains `(400 + 10*x + y + 1000*t) / 2864 * 255`.

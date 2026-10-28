@@ -85,8 +85,7 @@ async fn oblique_voxels_match_independent_geometry_and_reclaim_after_failure_and
     assert!(host
         .load_nifti("timeseries.nii".into(), multiple)
         .await
-        .unwrap_err()
-        .contains("3D"));
+        .is_err());
     assert_eq!(
         serde_json::from_str::<Value>(&host.diagnostics()).unwrap()["volumes"],
         0
@@ -138,5 +137,53 @@ async fn oblique_voxels_match_independent_geometry_and_reclaim_after_failure_and
     assert_eq!(
         serde_json::from_str::<Value>(&host.diagnostics()).unwrap()["volumes"],
         0
+    );
+}
+
+#[tokio::test]
+async fn four_dimensional_frames_keep_geometry_and_reuse_one_gpu_slot() {
+    let mut host = BrowserHost::configure_with_texture_limit(Some(3))
+        .await
+        .unwrap();
+    let volume = host
+        .load_nifti(
+            "oblique4d.nii".into(),
+            include_bytes!("../../../test-data/browser/oblique4d.nii").to_vec(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(volume.frame_count, 3);
+    assert_eq!(volume.center, [4., -1., 21.]);
+    assert_eq!(volume.range, [0., 2864.]);
+    let mut request: Value = serde_json::from_str(FRAME).unwrap();
+    request["layers"][0]["intensity"] = json!([0, 2864]);
+    let request = request.to_string();
+    let mut packets = Vec::new();
+    for t in [0, 2, 1, 0] {
+        host.set_timepoint(&volume.id, t).await.unwrap();
+        let frame = host.render_view(&request).await.unwrap();
+        for y in 0..5 {
+            for x in 0..7 {
+                let expected = ((400 + 10 * x + y + 1000 * t) as f32 / 2864. * 255.).round() as i32;
+                assert!((frame[8 + (y * 7 + x) * 4] as i32 - expected).abs() <= 2);
+            }
+        }
+        packets.push(frame);
+    }
+    assert_eq!(packets[0], packets[3]);
+    assert!(host.set_timepoint(&volume.id, 3).await.is_err());
+    assert_eq!(host.render_view(&request).await.unwrap(), packets[0]);
+    if let Ok(dir) = std::env::var("BROWSER_NATIVE_WITNESS_DIR") {
+        std::fs::write(
+            format!("{dir}/native-4d-witness.json"),
+            json!({"packets":packets}).to_string(),
+        )
+        .unwrap();
+    }
+    host.unload(&volume.id).await.unwrap();
+    assert!(host.set_timepoint(&volume.id, 0).await.is_err());
+    assert_eq!(
+        serde_json::from_str::<Value>(&host.diagnostics()).unwrap(),
+        json!({"volumes":0,"stagingBuffers":0,"stagingBytes":0})
     );
 }

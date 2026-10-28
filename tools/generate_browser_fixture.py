@@ -35,3 +35,12 @@ frame = {
 for view in ["axial", "coronal", "sagittal"]:
     frame["views"][view] = {"origin_mm": [11, -8.5, 21], "u_mm": [-2, 0, 0], "v_mm": [0, 3, 0]}
 (output / "frame.json").write_text(json.dumps(frame, indent=2) + "\n")
+
+# Three distinct frames, retaining the same oblique spatial grid.
+struct.pack_into("<8h", header, 40, 4, 5, 7, 9, 3, 1, 1, 1)
+struct.pack_into("<f", header, 92, 2.0)
+header[123] = 10  # mm and seconds
+series = [v + 1000*t for t in range(3) for v in values]
+payload4d = bytes(header) + struct.pack("<945f", *series)
+(output / "oblique4d.nii").write_bytes(payload4d)
+(output / "oblique4d.nii.gz").write_bytes(gzip.compress(payload4d, mtime=0))

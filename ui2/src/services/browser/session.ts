@@ -14,6 +14,8 @@ export interface BrowserState {
   layers: BrowserLayer[];
   crosshair: [number, number, number];
   selected: string | null;
+  /** The one layer advancing only after its preceding frame is presented. */
+  playing: string | null;
   frameRevision: number;
 }
 const initial = (): BrowserState => ({
@@ -24,6 +26,7 @@ const initial = (): BrowserState => ({
   layers: [],
   crosshair: [0, 0, 0],
   selected: null,
+  playing: null,
   frameRevision: 0,
 });
 
@@ -38,6 +41,7 @@ export class BrowserSession {
   private rendering = false;
   private dirty = false;
   private loads = new Set<AbortController>();
+  private playbackTimer: ReturnType<typeof setTimeout> | undefined;
   readonly transport: BrowserTransport;
   constructor(transport = new BrowserTransport()) {
     this.transport = transport;
@@ -100,6 +104,28 @@ export class BrowserSession {
     });
     this.schedule();
   }
+  setTimepoint(id: string, timepoint: number) {
+    const layer = this.store.getState().layers.find((candidate) => candidate.id === id);
+    if (!layer || layer.frameCount < 2 || !Number.isInteger(timepoint)) return;
+    const currentFrame = Math.max(0, Math.min(timepoint, layer.frameCount - 1));
+    if (currentFrame === layer.currentFrame) return;
+    this.store.setState({
+      layers: this.store
+        .getState()
+        .layers.map((candidate) =>
+          candidate.id === id ? { ...candidate, currentFrame } : candidate,
+        ),
+    });
+    this.schedule();
+  }
+  togglePlayback(id: string) {
+    const layer = this.store.getState().layers.find((candidate) => candidate.id === id);
+    if (!layer || layer.frameCount < 2) return;
+    const playing = this.store.getState().playing === id ? null : id;
+    this.stopPlaybackTimer();
+    this.store.setState({ playing });
+    if (playing) this.schedule();
+  }
   crosshair(point: [number, number, number]) {
     const base = this.store.getState().layers[0];
     if (!base) return;
@@ -112,6 +138,7 @@ export class BrowserSession {
   }
   async remove(id: string) {
     const layers = this.store.getState().layers.filter((l) => l.id !== id);
+    if (this.store.getState().playing === id) this.stopPlayback();
     this.store.setState({ layers, selected: layers.at(-1)?.id ?? null });
     ++this.revision;
     if (!layers.length) this.clearFrames();
@@ -126,8 +153,9 @@ export class BrowserSession {
     ++this.generation;
     ++this.revision;
     this.cancelLoads();
+    this.stopPlayback();
     const layers = this.store.getState().layers;
-    this.store.setState({ layers: [], selected: null, error: null });
+    this.store.setState({ layers: [], selected: null, playing: null, error: null });
     this.clearFrames();
     for (const l of layers) {
       try {
@@ -137,8 +165,8 @@ export class BrowserSession {
       }
     }
   }
-  plane(view: RenderViewType, size = 512) {
-    const { layers, crosshair } = this.store.getState();
+  plane(view: RenderViewType, size = 512, state = this.store.getState()) {
+    const { layers, crosshair } = state;
     const base = layers[0];
     const fov = base ? Math.max(...base.bounds[1].map((v, a) => v - base.bounds[0][a])) * 1.05 : 1;
     const [u, v] =
@@ -164,12 +192,12 @@ export class BrowserSession {
       dim_px: [size, size] as [number, number],
     };
   }
-  payload(view: RenderViewType): RenderViewPayload {
-    const { layers, crosshair } = this.store.getState();
+  payload(view: RenderViewType, state = this.store.getState()): RenderViewPayload {
+    const { layers, crosshair } = state;
     const views = {
-      axial: this.plane('axial'),
-      coronal: this.plane('coronal'),
-      sagittal: this.plane('sagittal'),
+      axial: this.plane('axial', 512, state),
+      coronal: this.plane('coronal', 512, state),
+      sagittal: this.plane('sagittal', 512, state),
     };
     const p = views[view];
     return {
@@ -196,6 +224,8 @@ export class BrowserSession {
     };
   }
   private schedule() {
+    // A newer interaction must finish presenting before playback advances again.
+    this.stopPlaybackTimer();
     ++this.revision;
     this.dirty = true;
     void this.render();
@@ -206,11 +236,16 @@ export class BrowserSession {
     try {
       while (this.dirty && !this.closed) {
         this.dirty = false;
-        if (!this.store.getState().layers.length) continue;
+        const snapshot = this.store.getState();
+        if (!snapshot.layers.length) continue;
         const revision = this.revision;
+        await this.prepareTimepoints(snapshot.layers);
+        if (this.closed || revision !== this.revision) continue;
         const outcomes = await Promise.allSettled(
           orientations.map(async (view) => {
-            const { frame } = await this.client.renderView(this.payload(view), { format: 'rgba' });
+            const { frame } = await this.client.renderView(this.payload(view, snapshot), {
+              format: 'rgba',
+            });
             const rgba = frame as DecodedRawRgbaFrame;
             return [
               view,
@@ -237,8 +272,10 @@ export class BrowserSession {
           this.frames.set(view, image);
         }
         this.store.setState((s) => ({ frameRevision: s.frameRevision + 1 }));
+        this.queuePlayback(revision);
       }
     } catch (e) {
+      this.stopPlayback();
       this.error(e);
     } finally {
       this.rendering = false;
@@ -250,11 +287,47 @@ export class BrowserSession {
     this.frames.clear();
     this.store.setState((s) => ({ frameRevision: s.frameRevision + 1 }));
   }
+  private async prepareTimepoints(layers: readonly BrowserLayer[]) {
+    const pending = layers.filter((layer) => layer.frameCount > 1);
+    await Promise.all(
+      pending.map(async (layer) => {
+        await this.transport.invoke('set_timepoint', {
+          volumeId: layer.id,
+          timepoint: layer.currentFrame,
+        });
+      }),
+    );
+  }
+  private queuePlayback(revision: number) {
+    const id = this.store.getState().playing;
+    if (!id || revision !== this.revision || this.closed) return;
+    const layer = this.store.getState().layers.find((candidate) => candidate.id === id);
+    if (!layer || layer.frameCount < 2) {
+      this.stopPlayback();
+      return;
+    }
+    this.stopPlaybackTimer();
+    this.playbackTimer = setTimeout(() => {
+      this.playbackTimer = undefined;
+      if (this.closed || this.store.getState().playing !== id) return;
+      const current = this.store.getState().layers.find((candidate) => candidate.id === id);
+      if (current) this.setTimepoint(id, (current.currentFrame + 1) % current.frameCount);
+    }, 250);
+  }
+  private stopPlaybackTimer() {
+    if (this.playbackTimer !== undefined) clearTimeout(this.playbackTimer);
+    this.playbackTimer = undefined;
+  }
+  private stopPlayback() {
+    this.stopPlaybackTimer();
+    if (this.store.getState().playing) this.store.setState({ playing: null });
+  }
   dispose() {
     this.closed = true;
     ++this.generation;
     ++this.revision;
     this.cancelLoads();
+    this.stopPlayback();
     this.clearFrames();
     this.transport.dispose();
   }

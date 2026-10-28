@@ -9431,6 +9431,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bridge_types",
+ "nalgebra 0.32.6",
  "serde",
  "tokio",
  "volmath",

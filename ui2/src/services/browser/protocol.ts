@@ -6,6 +6,10 @@ export interface BrowserVolume {
   center: [number, number, number];
   bounds: [[number, number, number], [number, number, number]];
   range: [number, number];
+  /** Total independently selectable frames; 1 for a scalar 3D image. */
+  frameCount: number;
+  /** The frame currently resident in the renderer. */
+  currentFrame: number;
 }
 
 export interface BrowserGpuCapabilities {
@@ -22,7 +26,7 @@ export const browserCapabilities = Object.freeze({
   remoteMounts: false,
   externalProcesses: false,
   labels: false,
-  timeSeries: false,
+  timeSeries: true,
   surfaces: false,
 });
 

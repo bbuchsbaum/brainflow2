@@ -47,7 +47,16 @@ export class BrowserTransport implements BackendTransport {
 
   request<T>(cmd: string, args?: unknown, signal?: AbortSignal): Promise<T> {
     if (this.disposed) return Promise.reject(new Error('Browser viewer is closed'));
-    if (!['initialize', 'load_file', 'unload_volume', 'render_view', 'diagnostics'].includes(cmd)) {
+    if (
+      ![
+        'initialize',
+        'load_file',
+        'unload_volume',
+        'set_timepoint',
+        'render_view',
+        'diagnostics',
+      ].includes(cmd)
+    ) {
       return Promise.reject(new UnsupportedBrowserCapability(cmd));
     }
     if (signal?.aborted)

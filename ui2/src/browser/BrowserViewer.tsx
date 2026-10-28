@@ -117,7 +117,9 @@ function Viewer({ session }: { session: BrowserSession }) {
       <div className="browser-body">
         <aside className="browser-inspector" aria-label="Image controls">
           <h2>Layers</h2>
-          {!state.layers.length && <p>Open a 3D NIfTI to begin. Files stay on this device.</p>}
+          {!state.layers.length && (
+            <p>Open a 3D or 4D NIfTI to begin. Files stay on this device.</p>
+          )}
           <ul className="browser-layers">
             {state.layers.map((l) => (
               <li key={l.id} data-selected={l.id === state.selected}>
@@ -162,6 +164,44 @@ function Viewer({ session }: { session: BrowserSession }) {
                   onValueChange={(opacity) => session.update(selected.id, { opacity })}
                 />
               </FieldRow>
+              {selected.frameCount > 1 && (
+                <>
+                  <h2>Time</h2>
+                  <FieldRow label="Frame">
+                    <NumberField
+                      aria-label="Frame"
+                      min={0}
+                      max={selected.frameCount - 1}
+                      step={1}
+                      value={selected.currentFrame}
+                      unit={`/ ${selected.frameCount - 1}`}
+                      onValueChange={(frame) => {
+                        if (frame !== null) session.setTimepoint(selected.id, frame);
+                      }}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Timepoint" layout="stacked">
+                    <Slider
+                      className="w-full"
+                      label="Timepoint"
+                      min={0}
+                      max={selected.frameCount - 1}
+                      value={selected.currentFrame}
+                      step={1}
+                      onValueChange={(frame) => session.setTimepoint(selected.id, frame)}
+                    />
+                  </FieldRow>
+                  <Button
+                    variant="ghost"
+                    aria-label={
+                      state.playing === selected.id ? 'Pause playback' : 'Play time series'
+                    }
+                    onClick={() => session.togglePlayback(selected.id)}
+                  >
+                    {state.playing === selected.id ? 'Pause' : 'Play'}
+                  </Button>
+                </>
+              )}
             </>
           )}
           {!!state.layers.length && (
@@ -188,13 +228,13 @@ function Viewer({ session }: { session: BrowserSession }) {
           <details>
             <summary>Browser support</summary>
             <p>
-              Up to {Math.min(4, state.gpu?.volumeSlots ?? 4)} scalar 3D NIfTI images and overlays:
-              32 million voxels per file, 64 million resident voxels total, and 256 MiB compressed
-              or expanded input.
+              Up to {Math.min(4, state.gpu?.volumeSlots ?? 4)} scalar 3D or 4D NIfTI images and
+              overlays: 32 million voxels per file, 64 million resident voxels total, and 256 MiB
+              compressed or expanded input.
             </p>
             <p>
-              Labels, time series, surfaces, remote mounts, native paths and external analysis tools
-              require the desktop app.
+              Labels, surfaces, remote mounts, native paths and external analysis tools require the
+              desktop app.
             </p>
           </details>
         </aside>
@@ -231,7 +271,7 @@ function Viewer({ session }: { session: BrowserSession }) {
         <span>
           Local processing · {offline ? 'Offline' : cached ? 'Available offline' : 'Online'}
         </span>
-        <span>3D volume viewer</span>
+        <span>Volume viewer</span>
         {update && <span>Update ready. Close all viewer windows to apply.</span>}
       </footer>
     </div>

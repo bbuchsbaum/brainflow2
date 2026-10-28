@@ -37,14 +37,17 @@ worker/WASM assets. Generated bindings and build output are ignored by Git.
 
 ## Supported workflow
 
-Open an uncompressed or gzip-compressed, single-file 3D NIfTI-1 scalar image.
+Open an uncompressed or gzip-compressed, single-file 3D or 4D NIfTI-1 scalar image.
 The viewer displays linked axial, coronal and sagittal slices in RAS world mm.
 Click a slice or edit crosshair coordinates, change window/level, add a scalar
-overlay and adjust its opacity. Clear the workspace or unload individual images.
+overlay and adjust its opacity. For a 4D image, select a zero-based frame or play
+the series. Playback advances after the preceding slices finish, with a 250 ms
+pause; it is a viewing control, not acquisition-timed playback. The display window
+stays fixed across frames. Clear the workspace or unload individual images.
 Native source scaling and affine selection come from neuroim, not a JS decoder.
 
 This first browser host allows up to four volumes (fewer if the adapter has fewer
-resident slots), 32 million voxels per image and
+resident slots), 32 million voxels per image (including all 4D frames) and
 64 million resident voxels in total. Compressed and expanded inputs are each
 bounded to 256 MiB. Decoder storage is f32; GPU upload uses physical-value
 R32Float, without range-normalizing the scientific data. These are input/resident
@@ -66,7 +69,7 @@ desktop recovery route were verified. The installed Playwright WebKit build for
 macOS 14 crashes before opening a page, so WebKit rendering remains unqualified.
 Other browsers/devices need their own acceptance run.
 
-Labels, multi-frame time series, surfaces, atlas/template catalogs, remote mounts,
+Labels, surfaces, atlas/template catalogs, remote mounts,
 native paths, filesystem watching and external process plugins remain unavailable
 in this viewer. The capability description and command errors say so explicitly.
 This is a working volume-viewing milestone, not complete desktop feature parity.
@@ -135,3 +138,14 @@ replaces its removed `maxInterStageShaderComponents` request with the current
 inter-stage variable limit; unrelated limits remain validated. Both authoritative
 masked shaders use explicit LOD 0 for their single-level colormap LUT, avoiding
 implicit derivative use in nonuniform control flow without disabling validation.
+
+## Time-series ownership
+
+The decoded series stays in the worker under the existing input and resident
+budgets. Frame changes extract one spatial f32 frame and update the existing
+R32Float GPU slot. There is no per-frame GPU cache. Spatial frame extraction and
+bounds/affine helpers live in `volume_service` and are reused by desktop queries.
+The UI keeps one active render and the latest requested state; obsolete frames
+are never published. Pause, unload, workspace reset and session close retire
+playback timers. This slice supports frame indices; it does not infer acquisition
+timing from the NIfTI time axis.

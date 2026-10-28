@@ -50,10 +50,8 @@ impl VolumeSource for MemorySource {
         // unbounded allocations. Voxel decoding/scaling still happens once in neuroim.
         let header =
             NiftiHeader::from_reader(Cursor::new(bytes)).map_err(|e| input(e.to_string()))?;
-        if !matches!(header.dim[0], 3 | 4) || (header.dim[0] == 4 && header.dim[4] != 1) {
-            return Err(input(
-                "This browser viewer supports 3D NIfTI; multi-frame files need the desktop host",
-            ));
+        if !matches!(header.dim[0], 3 | 4) {
+            return Err(input("This browser viewer supports scalar 3D or 4D NIfTI"));
         }
         if header.magic != *b"n+1\0" {
             return Err(input("Select a single-file NIfTI-1 .nii or .nii.gz"));
@@ -80,7 +78,9 @@ impl VolumeSource for MemorySource {
                 "This browser viewer requires a real scalar NIfTI datatype",
             ));
         }
-        let count = header.dim[1..4]
+        let ndim = header.dim[0] as usize;
+        let frames = if ndim == 4 { header.dim[4] as usize } else { 1 };
+        let count = header.dim[1..=ndim]
             .iter()
             .try_fold(1usize, |n, &d| n.checked_mul(d as usize));
         if !matches!(count, Some(n) if n > 0 && n <= MAX_VOXELS) {
@@ -91,34 +91,52 @@ impl VolumeSource for MemorySource {
                 "Workspace exceeds the 64 million resident voxel limit; unload an image first",
             ));
         }
-        let decoded = neuroim::io::read_vol_from_reader_as::<f32>(Cursor::new(bytes), 0)
-            .map_err(|e| input(e.to_string()))?;
+        let data = if ndim == 4 {
+            VolumeSendable::Vec4DF32(
+                neuroim::io::read_vec_from_reader_as::<f32>(Cursor::new(bytes))
+                    .map_err(|e| input(e.to_string()))?,
+            )
+        } else {
+            let volume = DenseVolume3::new(
+                neuroim::io::read_vol_from_reader_as::<f32>(Cursor::new(bytes), 0)
+                    .map_err(|e| input(e.to_string()))?,
+            );
+            let transform = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
+            VolumeSendable::VolF32(
+                volume,
+                Affine3::from_matrix_unchecked(transform.cast::<f32>()),
+            )
+        };
         scope.check()?;
-        let volume = DenseVolume3::new(decoded);
-        let transform = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
-        if !transform.iter().all(|v| v.is_finite()) || transform.try_inverse().is_none() {
+        let affine = volume_service::frames::affine_from_volume(&data)?;
+        if !affine.matrix().iter().all(|v| v.is_finite()) || affine.matrix().try_inverse().is_none()
+        {
             return Err(input("Volume affine must be finite and nonsingular"));
         }
-        let affine = Affine3::from_matrix_unchecked(transform.cast::<f32>());
+        let volume_type = if ndim == 4 {
+            bridge_types::VolumeType::TimeSeries4D
+        } else {
+            bridge_types::VolumeType::Volume3D
+        };
         let handle = VolumeHandleInfo {
             id: self.id.clone(),
             name: self.name.clone(),
-            dims: header.dim[1..4].iter().map(|&v| v as usize).collect(),
+            dims: header.dim[1..=ndim].iter().map(|&v| v as usize).collect(),
             dtype: "f32".into(),
-            volume_type: bridge_types::VolumeType::Volume3D,
-            num_timepoints: None,
-            current_timepoint: None,
+            volume_type: volume_type.clone(),
+            num_timepoints: (ndim == 4).then_some(frames),
+            current_timepoint: (ndim == 4).then_some(0),
             time_series_info: None,
             statistic: None,
             is_label_map: Some(false),
         };
         Ok(PreparedVolume {
-            data: VolumeSendable::VolF32(volume, affine),
+            data,
             metadata: VolumeMetadataInfo {
                 name: self.name.clone(),
                 path: format!("browser-file:{}", self.id),
                 dtype: "f32".into(),
-                volume_type: bridge_types::VolumeType::Volume3D,
+                volume_type: volume_type.clone(),
                 time_series_info: None,
             },
             handle,
@@ -194,10 +212,32 @@ pub fn describe(
     Ok(BrowserVolume {
         id: handle.id.clone(),
         name: handle.name.clone(),
-        dims: d.clone(),
+        dims: d[..3].to_vec(),
+        frame_count: handle.num_timepoints.unwrap_or(1),
+        current_frame: handle.current_timepoint.unwrap_or(0),
         affine,
         center: [center.x, center.y, center.z],
         bounds,
         range: [min, max],
     })
+}
+
+/// Materialize only the selected spatial frame; the source remains the owner of all frames.
+pub fn spatial_frame(
+    data: &VolumeSendable,
+    timepoint: usize,
+) -> Result<std::borrow::Cow<'_, DenseVolume3<f32>>, String> {
+    if let VolumeSendable::VolF32(volume, _) = data {
+        return Ok(std::borrow::Cow::Borrowed(volume));
+    }
+    use volmath::NeuroSpaceExt;
+    let frame =
+        volume_service::frames::extract_frame(data, timepoint).map_err(|e| e.to_string())?;
+    let space =
+        volmath::NeuroSpace::from_affine_matrix4(frame.dims.to_vec(), *frame.affine.matrix())
+            .map_err(|e| e.to_string())?;
+    Ok(std::borrow::Cow::Owned(DenseVolume3::from_data(
+        space,
+        frame.values.into_owned(),
+    )))
 }

@@ -461,85 +461,16 @@ pub struct AtlasStats {
 /// Extract affine transform from a VolumeSendable
 /// Extract a 3D affine transform from a NeuroSpace's DMatrix transform.
 fn affine_from_neurospace_trans(trans: &nalgebra::DMatrix<f64>) -> Affine3<f32> {
-    use nalgebra::Matrix4;
-    if trans.nrows() >= 4 && trans.ncols() >= 4 {
-        // The spatial translation (origin) lives in the LAST column. neuroim
-        // stores an (ndim+1)-square transform: a 3D space is 4x4 with the origin
-        // in column 3, but a 4D space is 5x5 with the spatial origin in column 4
-        // — column 3 there holds the time-axis scaling. Reading a hardcoded
-        // column 3 silently dropped the origin for every 4D volume, so the
-        // crosshair time-series (`sample_stack`) and the extracted-timepoint
-        // render affine sampled/rendered as if the volume sat at world origin.
-        let t = trans.ncols() - 1;
-        let m = Matrix4::new(
-            trans[(0, 0)] as f32,
-            trans[(0, 1)] as f32,
-            trans[(0, 2)] as f32,
-            trans[(0, t)] as f32,
-            trans[(1, 0)] as f32,
-            trans[(1, 1)] as f32,
-            trans[(1, 2)] as f32,
-            trans[(1, t)] as f32,
-            trans[(2, 0)] as f32,
-            trans[(2, 1)] as f32,
-            trans[(2, 2)] as f32,
-            trans[(2, t)] as f32,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-        );
-        Affine3::from_matrix_unchecked(m)
-    } else {
-        Affine3::identity()
-    }
+    volume_service::frames::affine_from_neurospace_trans(trans)
 }
 
 fn get_affine_from_volume(volume_data: &VolumeSendable) -> BridgeResult<Affine3<f32>> {
-    match volume_data {
-        // 3D volumes already have affine
-        VolumeSendable::VolF32(_, affine)
-        | VolumeSendable::VolI16(_, affine)
-        | VolumeSendable::VolU8(_, affine)
-        | VolumeSendable::VolI8(_, affine)
-        | VolumeSendable::VolU16(_, affine)
-        | VolumeSendable::VolI32(_, affine)
-        | VolumeSendable::VolU32(_, affine)
-        | VolumeSendable::VolF64(_, affine) => Ok(*affine),
-        // 4D volumes - extract affine from NeuroSpace transform
-        VolumeSendable::Vec4DF32(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-        VolumeSendable::Vec4DI16(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-        VolumeSendable::Vec4DU8(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-        VolumeSendable::Vec4DI8(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-        VolumeSendable::Vec4DU16(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-        VolumeSendable::Vec4DI32(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-        VolumeSendable::Vec4DU32(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-        VolumeSendable::Vec4DF64(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
-    }
+    volume_service::frames::affine_from_volume(volume_data)
 }
 
 /// Get spatial dimensions (first 3 dimensions) from a VolumeSendable
 fn get_spatial_dims_from_volume(volume_data: &VolumeSendable) -> Vec<usize> {
-    match volume_data {
-        // 3D volumes
-        VolumeSendable::VolF32(vol, _) => vol.space().dims().to_vec(),
-        VolumeSendable::VolI16(vol, _) => vol.space().dims().to_vec(),
-        VolumeSendable::VolU8(vol, _) => vol.space().dims().to_vec(),
-        VolumeSendable::VolI8(vol, _) => vol.space().dims().to_vec(),
-        VolumeSendable::VolU16(vol, _) => vol.space().dims().to_vec(),
-        VolumeSendable::VolI32(vol, _) => vol.space().dims().to_vec(),
-        VolumeSendable::VolU32(vol, _) => vol.space().dims().to_vec(),
-        VolumeSendable::VolF64(vol, _) => vol.space().dims().to_vec(),
-        // 4D volumes - return first 3 dimensions
-        VolumeSendable::Vec4DF32(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DI16(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DU8(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DI8(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DU16(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DI32(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DU32(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DF64(vec) => vec.space.dim.iter().take(3).copied().collect(),
-    }
+    volume_service::frames::spatial_dims(volume_data).to_vec()
 }
 
 /// Compute min/max data range for a volume payload.

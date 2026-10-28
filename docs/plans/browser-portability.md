@@ -429,3 +429,40 @@ carry mask ownership. That pre-existing API boundary is unchanged. Broader
 desktop features, additional working browser/adapter combinations and optional
 direct canvas presentation remain future slices. No deployment or hosted CI
 run was performed.
+
+## Seventh slice: shared 4D frames and browser time navigation (2026-10-28)
+
+Existing spatial-frame extraction, frame bounds and affine/dimension helpers move
+from `api_bridge` into the concrete `volume_service::frames` module. Desktop
+queries and browser loading call those same helpers. This removes the desktop
+implementation copy without introducing new traits or a service registry.
+
+The browser accepts scalar 3D/4D NIfTI, including gzip. Existing decoded-voxel
+budgets now count every frame. One decoded series and one resident GPU slot belong
+to each loaded image; selecting a frame replaces that slot through the renderer
+facade. A 3D f32 source remains borrowed during upload. The display window uses
+the series range and stays fixed while stepping.
+
+The browser session reuses its existing active/latest render loop. Each snapshot
+selects the required host frames before rendering all three slices; obsolete
+results are discarded. The host alone tracks the uploaded frame and ignores
+repeat selections. Playback uses one timer after completed presentation, with a
+250 ms pause; reset, unload, closure and render failures stop it. No prefetch
+cache or additional scheduler is introduced. Frame indices do not imply
+acquisition-timed playback.
+
+The public oblique 4D fixture uses values `i + 10*j + 100*k + 1000*t` on the same
+rotated anisotropic grid as the 3D fixture. Native checks select 0, 2, 1, 0 using
+an actual one-slot GPU device, verify independent pixel values and unchanged
+geometry, reject out-of-range requests before changing output, and reclaim the
+volume. Browser checks compare the same frames with native packets and exercise
+stepping/play/pause/unload. Session tests cover rapid scrub coalescing and reset
+during an in-flight frame change. Receipts live in `cruft/browser-4d/` under Mote
+`bd-01M61F0JDHNR6DJQVQQEM6DC1E`.
+
+Final local checks: shared service 7 passed, desktop volume queries 14 passed,
+native browser host 3 passed, renderer 246 passed/19 ignored, browser session
+3 passed, and real Chromium/Metal browser 8 passed. WASM/PWA/TypeScript builds,
+scoped UI lint, native/WASM Clippy and formatting checks pass with existing
+ts-rs and shared WASM Arc warnings. Browser rendering qualification remains
+Chromium/Metal on this machine; no hosted CI or deployment was performed.

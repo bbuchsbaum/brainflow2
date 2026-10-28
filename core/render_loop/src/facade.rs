@@ -78,6 +78,24 @@ impl WgpuSliceRenderer {
         })
     }
 
+    /// Replace an existing scalar volume in its resident GPU slot.
+    pub fn update_scalar_volume(
+        &mut self,
+        id: &str,
+        volume: &DenseVolume3<f32>,
+    ) -> Result<(), RenderLoopError> {
+        let slot = self
+            .service
+            .volumes
+            .get(id)
+            .map(|v| v.atlas_index)
+            .ok_or_else(|| RenderLoopError::Internal {
+                code: 1702,
+                details: format!("Volume '{id}' is not registered"),
+            })?;
+        self.service.update_volume_3d_at(slot, volume)
+    }
+
     /// Render one frame for a view.
     pub async fn request_frame(
         &mut self,
