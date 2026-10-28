@@ -24,3 +24,10 @@ blue for the nonzero IDs. Tests shift the raster by 0.4 voxel along i, request
 linear interpolation, and still require exact nearest-neighbour label colors.
 Label zero must transmit an underlying scalar layer. Invalid f64 labels are
 constructed in tests, including 17.00000001, which rounds to 17 through f32.
+
+`octahedron.surf.gii` is a closed six-vertex/eight-face octahedron of radius 20.
+Its POINTSET transform is `world=(10-2*y,20+3*x,30+4*z)`. The independent world
+vertices are `(10,80,30)`, `(10,-40,30)`, `(-30,20,30)`, `(50,20,30)`,
+`(10,20,110)`, `(10,20,-50)`. Variants test ASCII, big-endian column-major
+Base64Binary, zlib GZipBase64Binary, and gzip-compressed XML. Picked triangle
+points obey `abs(x-10)/40 + abs(y-20)/60 + abs(z-30)/80 = 1`.

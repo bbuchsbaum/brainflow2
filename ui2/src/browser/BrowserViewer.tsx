@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { SliceViewerImageSurface } from '@brainflow/visualization/slice';
 import type { RenderViewType } from '@brainflow/api';
@@ -10,6 +10,8 @@ import { Slider, RangeSlider } from '../components/ui/bf/Slider';
 import { BrowserSession, orientations } from '../services/browser/session';
 import { setTransport } from '../services/transport';
 import { DEFAULT_CROSSHAIR_COLOR } from '../stores/crosshairSettingsStore';
+const BrowserSurfaceView = lazy(() => import('./BrowserSurfaceView'));
+
 function Slice({ session, view }: { session: BrowserSession; view: RenderViewType }) {
   const state = useStore(session.store);
   const container = useRef<HTMLDivElement>(null);
@@ -51,6 +53,7 @@ function Viewer({ session }: { session: BrowserSession }) {
   const state = useStore(session.store);
   const chooser = useRef<HTMLInputElement>(null);
   const labelChooser = useRef<HTMLInputElement>(null);
+  const surfaceChooser = useRef<HTMLInputElement>(null);
   const selected = state.layers.find((l) => l.id === state.selected);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [cached, setCached] = useState(false);
@@ -98,6 +101,19 @@ function Viewer({ session }: { session: BrowserSession }) {
         <Button disabled={!state.ready} onClick={() => labelChooser.current?.click()}>
           Open labels
         </Button>
+        <Button onClick={() => surfaceChooser.current?.click()}>Open surface</Button>
+        <input
+          ref={surfaceChooser}
+          className="sr-only"
+          aria-label="Choose GIfTI surface"
+          type="file"
+          accept=".gii,.gii.gz"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void session.loadSurface(file);
+            event.target.value = '';
+          }}
+        />
         <input
           ref={labelChooser}
           className="sr-only"
@@ -112,7 +128,7 @@ function Viewer({ session }: { session: BrowserSession }) {
         />
         <Button
           variant="ghost"
-          disabled={!state.layers.length && !state.loading}
+          disabled={!state.layers.length && !state.surface && !state.loading}
           onClick={() => void session.reset()}
         >
           Clear workspace
@@ -132,9 +148,9 @@ function Viewer({ session }: { session: BrowserSession }) {
       </header>
       <div className="browser-body">
         <aside className="browser-inspector" aria-label="Image controls">
-          <h2>Layers</h2>
-          {!state.layers.length && (
-            <p>Open a 3D or 4D NIfTI to begin. Files stay on this device.</p>
+          {(state.layers.length > 0 || !state.surface) && <h2>Layers</h2>}
+          {!state.layers.length && !state.surface && (
+            <p>Open a NIfTI image or GIfTI surface to begin. Files stay on this device.</p>
           )}
           <ul className="browser-layers">
             {state.layers.map((l) => (
@@ -152,7 +168,33 @@ function Viewer({ session }: { session: BrowserSession }) {
               </li>
             ))}
           </ul>
-          {selected && (
+          {state.surface && (
+            <>
+              <h2>Surface</h2>
+              <p>{state.surface.name}</p>
+              <p className="browser-dimensions">
+                {state.surface.vertices.toLocaleString()} vertices ·{' '}
+                {state.surface.faces.toLocaleString()} triangles
+              </p>
+              <Button variant="ghost" onClick={() => session.setView('surface')}>
+                Show surface
+              </Button>
+              <Button variant="ghost" onClick={() => session.unloadSurface()}>
+                Unload surface
+              </Button>
+              {state.layers.length > 0 && (
+                <Button variant="ghost" onClick={() => session.setView('slices')}>
+                  Show slices
+                </Button>
+              )}
+              <p aria-label="Surface pick">
+                {state.surfacePick
+                  ? `Near vertex ${state.surfacePick.vertex} · RAS ${state.surfacePick.world.map((v) => v.toFixed(2)).join(', ')} mm`
+                  : 'Click the mesh to inspect a vertex.'}
+              </p>
+            </>
+          )}
+          {selected && state.view === 'slices' && (
             <>
               <h2>Display</h2>
               <p className="browser-dimensions">{selected.dims.join(' × ')} voxels</p>
@@ -264,8 +306,10 @@ function Viewer({ session }: { session: BrowserSession }) {
             <p>
               Open labels accepts a 3D label NIfTI and an optional TSV or FreeSurfer LUT selected
               together. IDs must be 0–2047 with identity scaling. Label-intent NIfTI files are
-              recognized automatically. Surfaces, remote mounts, native paths and external analysis
-              tools require the desktop app.
+              recognized automatically. One self-contained GIfTI surface can be open alongside the
+              volumes: up to 64 MiB compressed or expanded XML, one million vertices and two million
+              triangles. Surface overlays, remote mounts, native paths and external analysis tools
+              require the desktop app.
             </p>
           </details>
         </aside>
@@ -273,13 +317,15 @@ function Viewer({ session }: { session: BrowserSession }) {
           <div className="browser-status" role="status">
             {state.loading
               ? 'Loading image…'
-              : !state.ready
-                ? state.error
-                  ? 'Browser GPU unavailable.'
-                  : 'Preparing WebGPU…'
-                : state.layers.length
-                  ? 'Click a slice to move the linked crosshair.'
-                  : 'Open a NIfTI file to view linked slices.'}
+              : state.view === 'surface'
+                ? 'Surface geometry · local processing'
+                : !state.ready
+                  ? state.error
+                    ? 'Browser GPU unavailable.'
+                    : 'Preparing WebGPU…'
+                  : state.layers.length
+                    ? 'Click a slice to move the linked crosshair.'
+                    : 'Open a NIfTI file to view linked slices.'}
             {state.loading && (
               <Button variant="ghost" onClick={() => session.cancelLoads()}>
                 Cancel load
@@ -291,11 +337,17 @@ function Viewer({ session }: { session: BrowserSession }) {
               {state.error}
             </div>
           )}
-          <div className="browser-views">
-            {orientations.map((view) => (
-              <Slice key={view} session={session} view={view} />
-            ))}
-          </div>
+          {state.view === 'surface' && state.surface ? (
+            <Suspense fallback={<p role="status">Preparing surface view…</p>}>
+              <BrowserSurfaceView session={session} />
+            </Suspense>
+          ) : (
+            <div className="browser-views">
+              {orientations.map((view) => (
+                <Slice key={view} session={session} view={view} />
+              ))}
+            </div>
+          )}
         </main>
       </div>
       <footer className="browser-footer">

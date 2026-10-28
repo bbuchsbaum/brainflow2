@@ -8,6 +8,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+gifti-loader = { path = "../loaders/gifti", default-features = false }
 render_loop = { path = "../render_loop", features = ["web"] }
 render_contracts = { path = "../render_contracts" }
 volume_service = { path = "../volume_service", features = ["web"] }

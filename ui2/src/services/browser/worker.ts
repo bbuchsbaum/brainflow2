@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import init, { BrowserHost } from '../../browser/generated/browser_host';
+import init, { BrowserHost, decode_surface } from '../../browser/generated/browser_host';
 import wasmUrl from '../../browser/generated/browser_host_bg.wasm?url';
 import type { BrowserVolume, WorkerReply, WorkerRequest } from './protocol';
 import { installWgpu20Compatibility } from './webgpuCompatibility';
@@ -9,6 +9,13 @@ import { buildLabelPalette, parseLabelTable, MAX_CATEGORICAL_LABEL } from '../..
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 installWgpu20Compatibility();
 let host: BrowserHost | undefined;
+let wasmInitialized = false;
+async function initializeWasm() {
+  if (!wasmInitialized) {
+    await init({ module_or_path: wasmUrl });
+    wasmInitialized = true;
+  }
+}
 let chain = Promise.resolve();
 const cancelled = new Set<number>();
 const completedLoads = new Map<number, string>();
@@ -18,6 +25,32 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
   if (cancelled.delete(id)) return;
   try {
     const args = (message.args ?? {}) as Record<string, unknown>;
+    if (cmd === 'load_surface') {
+      if (!(args.file instanceof File) || args.file.size > 64 * 1024 * 1024)
+        throw new Error('Select a self-contained GIfTI no larger than 64 MiB.');
+      await initializeWasm();
+      const bytes = new Uint8Array(await args.file.arrayBuffer());
+      if (cancelled.delete(id)) return;
+      const decoded = decode_surface(bytes);
+      let value;
+      try {
+        value = {
+          id: `surface-${id}`,
+          name: args.file.name,
+          vertices: decoded.vertices(),
+          faces: decoded.faces(),
+          hemisphere: decoded.hemisphere(),
+        };
+      } finally {
+        decoded.free();
+      }
+      if (!cancelled.delete(id))
+        scope.postMessage({ id, value } satisfies WorkerReply, [
+          value.vertices.buffer,
+          value.faces.buffer,
+        ]);
+      return;
+    }
     if (!host) {
       if (!(navigator as unknown as { gpu?: unknown }).gpu) {
         throw new Error(
@@ -34,7 +67,7 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
       ) {
         throw new Error('The GPU sampled-texture ceiling must be an unsigned integer.');
       }
-      await init({ module_or_path: wasmUrl });
+      await initializeWasm();
       host = await BrowserHost.create(ceiling as number | undefined);
     }
     let value: unknown;

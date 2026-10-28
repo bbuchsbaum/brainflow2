@@ -496,3 +496,43 @@ validation and repeated palette-slot reuse. Local receipts are in
 Browser outlines, editing, 4D label images and IDs beyond the shared LUT capacity
 are outside this slice. Surfaces and broader desktop host parity remain future
 work; no deployment is part of this change.
+
+
+## Ninth slice: portable surface geometry (2026-10-28)
+
+The existing GIfTI loader now separates a filesystem-free geometry reader from
+its desktop adapter. A default `desktop` feature retains the existing public
+loader API; the browser builds only the portable module. Removed unused direct
+volmath/anyhow/serde_json dependencies. Both hosts use the same shape, index,
+coordinate and transform validation. Browser admission is bounded separately
+from desktop capacity. The existing gifti binary decoder remains authoritative;
+compressed payloads are bounded before it runs. POINTSET transforms and
+column-major order are retained rather than discarded by the simplified upstream
+GIfTI object model. No upstream pin changes are needed.
+
+Browser geometry is decoded in the existing worker and transferred directly to
+the session as typed arrays. The temporary WASM result is freed immediately;
+there is no Rust surface registry or second persistent copy. The existing load
+cancellation/generation checks handle reset/closure and replacement. A late GPU
+error from an old surface cannot clear a newer mesh. `NeuroSurfaceCanvas` is
+shared with desktop and lazy-loaded; it owns camera interaction, triangle-point
+picking and GPU disposal. Open/rotate/zoom/pick/unload is the complete slice.
+
+Fixtures: transformed octahedron, ASCII, column-major big-endian binary,
+zlib arrays and outer gzip. Acceptance checks the independent world coordinates,
+indices, analytic picked-point equation, decoder errors and decompression bounds,
+latest-load ownership, failed GPU initialization and zero live WebGL objects
+after unload/reset. Receipts are in `cruft/browser-surfaces/` under Mote
+`bd-01M61R2TMR1S1VDTBPEB5948CW`.
+
+Limits: one browser surface, one million vertices/two million triangles, 64 MiB
+compressed/expanded XML. No external binary sidecars, surface overlays/catalogs,
+editing or projection. Chromium/Metal is the only qualified runtime here.
+
+Final local checks: GIfTI/loader tests 8 passed (1 existing ignored), native host
+4 passed, session tests 7 passed, and real Chromium/Metal browser suite 14 passed.
+WASM/PWA/TypeScript build, native/WASM Clippy, scoped ESLint/formatting and diff
+checks pass. Desktop and narrow screenshots were inspected. Existing ts-rs and
+WASM Arc warnings remain; Vite flags the lazy surface vendor chunk's size. This
+is not native desktop UI or other-browser qualification, and no deployment was
+performed.

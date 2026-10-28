@@ -149,6 +149,8 @@ test('production PWA reloads offline and caches only application assets',async({
   await expect(page.getByText('Local processing · Offline')).toBeVisible();
   await page.getByLabel('Choose NIfTI file', {exact:true}).setInputFiles(compressed);
   await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.surf.gii'));
+  await expect(page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas')).toBeVisible();
   await context.setOffline(false);
 });
 
@@ -257,4 +259,117 @@ test('label controls reuse opacity and show the named region at the linked cross
   await expect.poll(revision).toBeGreaterThan(before);
   await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
   await expect(page.getByLabel('Region at crosshair',{exact:true})).toHaveCount(0);
+});
+
+const surfaceFixture = resolve(__dirname,'../../test-data/browser/octahedron.surf.gii');
+const expectedVertices = [10,80,30,10,-40,30,-30,20,30,50,20,30,10,20,110,10,20,-50];
+
+test('surface WASM decoding transfers exact world geometry and survives cancellation', async ({page}) => {
+  await page.goto('/browser.html');
+  const result = await page.evaluate(async ({files}) => {
+    const {BrowserTransport} = await import('/src/services/browser/transport.ts');
+    const transport = new BrowserTransport();
+    try {
+      const geometry=[];
+      for(const bytes of files) {
+        const mesh=await transport.invoke('load_surface',{file:new File([new Uint8Array(bytes)],'mesh.gii')});
+        geometry.push({vertices:[...mesh.vertices],faces:[...mesh.faces],hemisphere:mesh.hemisphere});
+      }
+      const abort=new AbortController();
+      const pending=transport.request('load_surface',{file:new File([new Uint8Array(files[0])],'cancel.gii')},abort.signal).catch(e=>e.name);
+      abort.abort();
+      const cancellation=await pending;
+      const recovered=await transport.invoke('load_surface',{file:new File([new Uint8Array(files[0])],'recovered.gii')});
+      let bad=false;try{await transport.invoke('load_surface',{file:new File(['bad XML'],'invalid.gii')});}catch{bad=true;}
+      return {geometry,cancellation,recovered:recovered.vertices.length,bad};
+    } finally {transport.dispose();}
+  },{files:['octahedron.surf.gii','octahedron-column.surf.gii','octahedron-zlib.surf.gii','octahedron.surf.gii.gz'].map(name=>[...readFileSync(resolve(__dirname,'../../test-data/browser',name))])});
+  for(const mesh of result.geometry){expect(mesh.vertices).toEqual(expectedVertices);expect(mesh.faces).toEqual([0,2,4,2,1,4,1,3,4,3,0,4,2,0,5,1,2,5,3,1,5,0,3,5]);expect(mesh.hemisphere).toBe('left');}
+  expect(result.cancellation).toBe('AbortError');expect(result.recovered).toBe(18);expect(result.bad).toBe(true);
+});
+
+test('surface canvas rotates, zooms, picks world vertices and releases GPU objects',async({page})=>{
+  await page.addInitScript(()=>{
+    const live=new Map<object, WebGLRenderingContext | WebGL2RenderingContext>();
+    // Context loss retires all remaining driver objects without individual delete calls.
+    globalThis.__surfaceGpuLive=()=>[...live.values()].filter(gl=>!gl.isContextLost()).length;
+    for(const Type of [WebGLRenderingContext,WebGL2RenderingContext]) {
+      for(const name of ['Buffer','Texture','Program','Framebuffer','Renderbuffer','Shader','VertexArray']) {
+        const proto=Type.prototype;const create=proto[`create${name}`],remove=proto[`delete${name}`];
+        if(!create||!remove)continue;
+        proto[`create${name}`]=function(...args){const value=create.apply(this,args);if(value)live.set(value,this);return value;};
+        proto[`delete${name}`]=function(value){live.delete(value);return remove.call(this,value);};
+      }
+    }
+  });
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/browser.html');
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(surfaceFixture);
+  const canvas=page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas');
+  await expect(canvas).toBeVisible();
+  const pixels=()=>canvas.screenshot().then(bytes=>bytes.toString('base64'));
+  await expect.poll(()=>page.evaluate(()=>globalThis.__surfaceGpuLive())).toBeGreaterThan(0);
+  // Picking returns a point on the triangle and its nearest vertex, not a snapped point.
+  const bounds=(await canvas.boundingBox())!;
+  await canvas.click({position:{x:bounds.width/2,y:bounds.height/2}});
+  const picked=page.getByLabel('Surface pick',{exact:true});
+  await expect(picked).toContainText('Near vertex');
+  const match=(await picked.textContent())!.match(/Near vertex (\d+) · RAS ([\d.-]+), ([\d.-]+), ([\d.-]+) mm/)!;
+  expect(Number(match[1])).toBeLessThan(6);
+  const [x,y,z]=match.slice(2).map(Number);
+  // Independent equation for the transformed octahedron's surface.
+  expect(Math.abs(x-10)/40 + Math.abs(y-20)/60 + Math.abs(z-30)/80).toBeCloseTo(1,2);
+  const original=await pixels();
+  await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);
+  await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.7,bounds.y+bounds.height*.6,{steps:8});await page.mouse.up();
+  await expect.poll(pixels).not.toBe(original);
+  const rotated=await pixels();await page.mouse.wheel(0,150);
+  await expect.poll(pixels).not.toBe(rotated);
+  await page.getByRole('button',{name:'Reset camera',exact:true}).click();
+  await page.screenshot({path:test.info().outputPath('surface-desktop.png')});
+  await page.setViewportSize({width:420,height:900});
+  await page.screenshot({path:test.info().outputPath('surface-narrow.png'),fullPage:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.getByRole('button',{name:'Unload surface',exact:true}).click();
+  await expect(canvas).toHaveCount(0);
+  await expect.poll(()=>page.evaluate(()=>globalThis.__surfaceGpuLive())).toBe(0);
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(surfaceFixture);
+  await expect(canvas).toBeVisible();
+  await page.getByRole('button',{name:'Clear workspace',exact:true}).click();
+  await expect(canvas).toHaveCount(0);
+  await expect.poll(()=>page.evaluate(()=>globalThis.__surfaceGpuLive())).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('surface GPU initialization failure clears provisional UI geometry',async({page})=>{
+  await page.addInitScript(()=>{
+    const original=HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext=function(kind,...args){
+      if(kind==='webgl'||kind==='webgl2'||kind==='experimental-webgl')return null;
+      return original.call(this,kind,...args);
+    };
+  });
+  await page.goto('/browser.html');
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(surfaceFixture);
+  await expect(page.getByRole('alert')).toContainText('Surface viewer failed to initialize');
+  await expect(page.getByRole('button',{name:'Unload surface',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('region',{name:'Surface view',exact:true})).toHaveCount(0);
+});
+
+
+test('surface decoding does not require a WebGPU adapter',async({page})=>{
+  await page.goto('/browser.html');
+  const created=page.waitForEvent('worker',worker=>worker.url().includes('surface-no-webgpu'));
+  await page.evaluate(async()=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');
+    globalThis.__surfaceTransport=new BrowserTransport(new Worker('/src/services/browser/worker.ts?surface-no-webgpu',{type:'module'}));
+  });
+  const worker=await created;
+  await worker.evaluate(()=>Object.defineProperty(navigator,'gpu',{value:undefined}));
+  const vertices=await page.evaluate(async(bytes)=>{
+    const transport=globalThis.__surfaceTransport;
+    try { const mesh=await transport.invoke('load_surface',{file:new File([new Uint8Array(bytes)],'mesh.gii')});return [...mesh.vertices]; }
+    finally {transport.dispose();delete globalThis.__surfaceTransport;}
+  },[...readFileSync(surfaceFixture)]);
+  expect(vertices).toEqual(expectedVertices);
 });

@@ -3,28 +3,32 @@ name = "gifti-loader"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["desktop"]
+desktop = ["dep:bridge_types", "dep:neurosurf-rs", "dep:uuid"]
+
 [dependencies]
+quick-xml = { version = "0.31", features = ["serialize"] }
+flate2 = "1"
+base64 = "0.21"
 # Core dependencies
-bridge_types = { path = "../../bridge_types" }
-volmath = { path = "../../volmath" }
+bridge_types = { path = "../../bridge_types", optional = true }
 
 # Surface and GIFTI support
-neurosurf-rs = { workspace = true }
+neurosurf-rs = { workspace = true, optional = true }
 gifti = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-serde_json = { workspace = true }
 
 # Math and transforms
 nalgebra = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 
 # Logging
 log = { workspace = true }
 
 # UUID generation for handles
-uuid = { workspace = true }
+uuid = { workspace = true, optional = true }

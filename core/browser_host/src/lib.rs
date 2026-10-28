@@ -315,6 +315,36 @@ fn input(details: impl Into<String>) -> BridgeError {
 mod wasm {
     use super::*;
     use wasm_bindgen::prelude::*;
+    /// A temporary decoder result, consumed by the worker and immediately freed.
+    /// The browser canvas owns the transferred arrays; there is no Rust registry.
+    #[wasm_bindgen]
+    pub struct DecodedSurface {
+        vertices: Vec<f32>,
+        faces: Vec<u32>,
+        hemisphere: String,
+    }
+    #[wasm_bindgen]
+    impl DecodedSurface {
+        pub fn vertices(&mut self) -> Vec<f32> {
+            std::mem::take(&mut self.vertices)
+        }
+        pub fn faces(&mut self) -> Vec<u32> {
+            std::mem::take(&mut self.faces)
+        }
+        pub fn hemisphere(&self) -> String {
+            self.hemisphere.clone()
+        }
+    }
+    #[wasm_bindgen]
+    pub fn decode_surface(bytes: &[u8]) -> Result<DecodedSurface, JsValue> {
+        let mesh =
+            gifti_loader::geometry::read_surface(bytes).map_err(|e| JsValue::from_str(&e))?;
+        Ok(DecodedSurface {
+            vertices: mesh.vertices_world(),
+            faces: mesh.faces,
+            hemisphere: mesh.hemisphere,
+        })
+    }
     #[wasm_bindgen(js_name = BrowserHost)]
     pub struct WasmHost {
         inner: BrowserHost,

@@ -183,3 +183,56 @@ describe('BrowserSession label ownership', () => {
     session.dispose();
   });
 });
+
+describe('BrowserSession surface ownership', () => {
+  const mesh = (id: string) => ({
+    id,
+    name: `${id}.gii`,
+    vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+    faces: new Uint32Array([0, 1, 2]),
+    hemisphere: 'unknown',
+  });
+  it('discards a decoded surface after reset, without publishing geometry', async () => {
+    let complete!: (value: ReturnType<typeof mesh>) => void;
+    const request = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof mesh>>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const transport = { request, invoke: vi.fn(), dispose: vi.fn() } as unknown as BrowserTransport;
+    const session = new BrowserSession(transport);
+    const pending = session.loadSurface(new File([], 'surface.gii'));
+    await session.reset();
+    complete(mesh('stale'));
+    await pending;
+    expect(session.surfaceGeometry).toBeNull();
+    expect(session.store.getState().surface).toBeNull();
+    session.dispose();
+  });
+  it('keeps the latest mesh, rejects stale renderer errors and drops ownership on unload', async () => {
+    const completions: Array<(value: ReturnType<typeof mesh>) => void> = [];
+    const request = vi.fn(
+      () => new Promise<ReturnType<typeof mesh>>((resolve) => completions.push(resolve)),
+    );
+    const session = new BrowserSession({
+      request,
+      dispose: vi.fn(),
+    } as unknown as BrowserTransport);
+    const older = session.loadSurface(new File([], 'older.gii'));
+    const newer = session.loadSurface(new File([], 'newer.gii'));
+    completions[1](mesh('newer'));
+    await newer;
+    completions[0](mesh('older'));
+    await older;
+    expect(session.surfaceGeometry?.id).toBe('newer');
+    session.surfaceError('older', new Error('stale GPU failure'));
+    expect(session.surfaceGeometry?.id).toBe('newer');
+    session.pickSurface([0, 0, 0], { handle: 'older', vertex: 0 });
+    expect(session.store.getState().surfacePick).toBeNull();
+    session.surfaceError('newer', new Error('GPU failure'));
+    expect(session.surfaceGeometry).toBeNull();
+    expect(session.store.getState().error).toBe('GPU failure');
+    session.dispose();
+  });
+});

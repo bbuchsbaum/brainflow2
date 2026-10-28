@@ -69,7 +69,7 @@ desktop recovery route were verified. The installed Playwright WebKit build for
 macOS 14 crashes before opening a page, so WebKit rendering remains unqualified.
 Other browsers/devices need their own acceptance run.
 
-Surfaces, atlas/template catalogs, remote mounts,
+Surface overlays, atlas/template catalogs, remote mounts,
 native paths, filesystem watching and external process plugins remain unavailable
 in this viewer. The capability description and command errors say so explicitly.
 This is a working volume-viewing milestone, not complete desktop feature parity.
@@ -179,3 +179,37 @@ transparency over anatomy, opacity, exact lookup and repeated palette reuse.
 The real WASM/Chromium test compares the native RGBA packet exactly and exercises
 sidecar names, fallback colors, cancellation and cleanup. This shares the same
 Chromium/Metal qualification boundary described above.
+
+## Surface geometry
+
+Choose **Open surface** for a self-contained `.surf.gii`, `.gii` or `.gii.gz`.
+One surface can be open alongside the volume layers. Drag to rotate, scroll to
+zoom, reset the camera, or click the mesh to inspect a triangle point in world
+coordinates and the nearest vertex ID. **Show slices** / **Show surface** switch
+the workspace view; **Unload surface** and **Clear workspace** release the mesh.
+The shared `NeuroSurfaceCanvas` supplies the same camera, picking and disposal
+used on desktop. Its code loads only when the surface view is opened.
+
+`gifti-loader::geometry` takes a `Read` source without paths or Tauri. It reuses
+the GIfTI binary decoder and preserves POINTSET transforms and row/column order.
+The desktop file adapter now uses this same validation/decoding path. Browser
+admission caps compressed input and expanded XML at 64 MiB, vertices at one
+million, and triangles at two million. Desktop uses separate admission limits.
+Array decompression is bounded by the declared, checked shape before decoding.
+Invalid/nonfinite coordinates, fractional/out-of-range indices, degenerate
+triangles, singular/non-affine or ambiguous transforms are rejected. External
+binary data files are unsupported; use a self-contained GIfTI.
+
+The worker transfers typed coordinate/index arrays and immediately frees its
+WASM result. It retains no surface registry or duplicate mesh. The existing
+browser session owns cancellation and rejects stale loads; the shared canvas
+owns WebGL resources. Switching away unmounts that canvas and frees GPU objects,
+while the session retains the one mesh for returning to its view. Unloading or
+closing the workspace drops those arrays too. This slice does not add surface
+overlays, catalogs, editing, or surface-to-volume projection.
+
+Surface tests cover independent transformed geometry across four encodings,
+desktop/portable agreement, input failure and bounded decompression, worker
+cancellation, triangle-point picking, camera interaction, and WebGL object
+creation/deletion or context loss on unload and reset. Qualification is Chromium/Metal here;
+other browser/GPU combinations still need their own acceptance runs.

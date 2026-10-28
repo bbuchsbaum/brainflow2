@@ -51,6 +51,7 @@ export class BrowserTransport implements BackendTransport {
       ![
         'initialize',
         'load_file',
+        'load_surface',
         'unload_volume',
         'set_timepoint',
         'label_at_world',

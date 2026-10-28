@@ -1000,6 +1000,7 @@ dependencies = [
  "colormap",
  "console_error_panic_hook",
  "flate2",
+ "gifti-loader",
  "nalgebra 0.32.6",
  "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "nifti 0.17.0",
@@ -3010,17 +3011,17 @@ dependencies = [
 name = "gifti-loader"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "base64 0.21.7",
  "bridge_types",
+ "flate2",
  "gifti",
  "log",
  "nalgebra 0.32.6",
  "neurosurf-rs",
+ "quick-xml 0.31.0",
  "serde",
- "serde_json",
  "thiserror 1.0.69",
  "uuid",
- "volmath",
 ]
 
 [[package]]

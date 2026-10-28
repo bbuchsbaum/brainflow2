@@ -2,7 +2,7 @@ import { createStore } from 'zustand/vanilla';
 import { RenderClient } from '@brainflow/api';
 import type { DecodedRawRgbaFrame, RenderViewPayload, RenderViewType } from '@brainflow/api';
 import { BrowserTransport } from './transport';
-import type { BrowserVolume, BrowserGpuCapabilities } from './protocol';
+import type { BrowserVolume, BrowserGpuCapabilities, BrowserSurface } from './protocol';
 
 export const orientations: RenderViewType[] = ['axial', 'coronal', 'sagittal'];
 export type BrowserLayer = BrowserVolume & { window: [number, number]; opacity: number };
@@ -18,6 +18,9 @@ export interface BrowserState {
   playing: string | null;
   frameRevision: number;
   selectedLabel: number | null;
+  view: 'slices' | 'surface';
+  surface: { id: string; name: string; vertices: number; faces: number } | null;
+  surfacePick: { world: [number, number, number]; vertex: number } | null;
 }
 const initial = (): BrowserState => ({
   gpu: null,
@@ -30,6 +33,9 @@ const initial = (): BrowserState => ({
   playing: null,
   frameRevision: 0,
   selectedLabel: null,
+  view: 'slices',
+  surface: null,
+  surfacePick: null,
 });
 
 /** Renderer-owned frames stay outside Zustand; stores hold control state only. */
@@ -43,6 +49,8 @@ export class BrowserSession {
   private rendering = false;
   private dirty = false;
   private loads = new Set<AbortController>();
+  surfaceGeometry: BrowserSurface | null = null;
+  private surfaceRequest = 0;
   private playbackTimer: ReturnType<typeof setTimeout> | undefined;
   readonly transport: BrowserTransport;
   constructor(transport = new BrowserTransport()) {
@@ -84,6 +92,7 @@ export class BrowserSession {
       this.store.setState({
         layers: [...layers, { ...volume, window: range, opacity: layers.length ? 0.5 : 1 }],
         selected: volume.id,
+        view: 'slices',
         selectedLabel: null,
         ...(layers.length ? {} : { crosshair: volume.center }),
       });
@@ -94,6 +103,58 @@ export class BrowserSession {
       this.loads.delete(abort);
       if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
     }
+  }
+  async loadSurface(file: File) {
+    const generation = this.generation;
+    const request = ++this.surfaceRequest;
+    const abort = new AbortController();
+    this.loads.add(abort);
+    this.store.setState({ loading: true, error: null });
+    try {
+      const mesh = await this.transport.request<BrowserSurface>(
+        'load_surface',
+        { file },
+        abort.signal,
+      );
+      if (this.closed || generation !== this.generation || request !== this.surfaceRequest) return;
+      this.surfaceGeometry = mesh;
+      this.stopPlayback();
+      this.store.setState({
+        surface: {
+          id: mesh.id,
+          name: mesh.name,
+          vertices: mesh.vertices.length / 3,
+          faces: mesh.faces.length / 3,
+        },
+        surfacePick: null,
+        view: 'surface',
+      });
+    } catch (error) {
+      if (generation === this.generation && request === this.surfaceRequest) this.error(error);
+    } finally {
+      this.loads.delete(abort);
+      if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
+    }
+  }
+  unloadSurface() {
+    ++this.surfaceRequest;
+    this.surfaceGeometry = null;
+    this.store.setState({ surface: null, surfacePick: null, view: 'slices' });
+  }
+  setView(view: 'slices' | 'surface') {
+    if (view === 'surface' && !this.surfaceGeometry) return;
+    this.stopPlayback();
+    this.store.setState({ view });
+  }
+  pickSurface(world: [number, number, number], picked?: { handle: string; vertex: number }) {
+    if (!picked || picked.handle !== this.surfaceGeometry?.id || !world.every(Number.isFinite))
+      return;
+    this.store.setState({ surfacePick: { world, vertex: picked.vertex } });
+  }
+  surfaceError(id: string | undefined, error: unknown) {
+    if (id !== this.surfaceGeometry?.id) return;
+    this.unloadSurface();
+    this.error(error);
   }
   async loadLabels(files: File[]) {
     if (!files.length) return;
@@ -173,6 +234,7 @@ export class BrowserSession {
     ++this.generation;
     ++this.revision;
     this.cancelLoads();
+    this.unloadSurface();
     this.stopPlayback();
     const layers = this.store.getState().layers;
     this.store.setState({ layers: [], selected: null, playing: null, error: null });
@@ -355,6 +417,7 @@ export class BrowserSession {
     ++this.generation;
     ++this.revision;
     this.cancelLoads();
+    this.unloadSurface();
     this.stopPlayback();
     this.clearFrames();
     this.transport.dispose();
