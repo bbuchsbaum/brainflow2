@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, statfsSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,3 +29,21 @@ const worker = readFileSync(resolve(root, 'ui2/public/browser/sw.js'), 'utf8')
   .replace('APP_CACHE_VERSION', `${revision}-${Date.now()}`);
 if (!existsSync(output)) throw new Error('Browser build output missing');
 writeFileSync(resolve(output, 'browser-sw.js'), worker);
+
+// The entry URL and every published byte are bound to the source checkout.
+writeFileSync(resolve(output, 'index.html'), '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=./browser.html"><title>Brainflow browser viewer</title><a href="./browser.html">Open Brainflow</a>');
+const files = {};
+function hashFiles(directory, prefix = '') {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const name = `${prefix}${entry.name}`;
+    if (entry.isDirectory()) hashFiles(resolve(directory, entry.name), `${name}/`);
+    else if (name !== 'build-info.json') {
+      const bytes = readFileSync(resolve(directory, entry.name));
+      files[name] = { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+    }
+  }
+}
+hashFiles(output);
+const sourceRevision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+const sourceDirty = spawnSync('git', ['diff', '--name-only', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim().length > 0;
+writeFileSync(resolve(output, 'build-info.json'), JSON.stringify({ sourceRevision, sourceDirty, builtAt: new Date().toISOString(), files }, null, 2) + '\n');
