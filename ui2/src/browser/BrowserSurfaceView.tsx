@@ -28,11 +28,14 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
             handle: mesh.id,
             name: mesh.name,
             geometry: { vertices: mesh.vertices, faces: mesh.faces, hemisphere: mesh.hemisphere },
-            layers: [],
+            layers:
+              state.surfaceOverlay && session.surfaceValues
+                ? [{ ...state.surfaceOverlay, values: session.surfaceValues }]
+                : [],
           },
         ]
       : [];
-  }, [mesh]);
+  }, [mesh, state.surfaceOverlay, session]);
   const onPick = useCallback(
     (world: [number, number, number], picked?: { handle: string; vertex: number }) =>
       session.pickSurface(world, picked),

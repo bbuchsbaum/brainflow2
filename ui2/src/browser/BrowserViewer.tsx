@@ -5,7 +5,7 @@ import type { RenderViewType } from '@brainflow/api';
 import { ReusableSliceViewport } from '../components/views/sliceViewer/ReusableSliceViewport';
 import { Button } from '../components/ui/Button';
 import { FieldRow } from '../components/ui/bf/FieldRow';
-import { NumberField } from '../components/ui/bf/Fields';
+import { NumberField, Select } from '../components/ui/bf/Fields';
 import { Slider, RangeSlider } from '../components/ui/bf/Slider';
 import { BrowserSession, orientations } from '../services/browser/session';
 import { setTransport } from '../services/transport';
@@ -53,6 +53,7 @@ function Viewer({ session }: { session: BrowserSession }) {
   const state = useStore(session.store);
   const chooser = useRef<HTMLInputElement>(null);
   const labelChooser = useRef<HTMLInputElement>(null);
+  const overlayChooser = useRef<HTMLInputElement>(null);
   const surfaceChooser = useRef<HTMLInputElement>(null);
   const selected = state.layers.find((l) => l.id === state.selected);
   const [offline, setOffline] = useState(!navigator.onLine);
@@ -187,6 +188,83 @@ function Viewer({ session }: { session: BrowserSession }) {
                   Show slices
                 </Button>
               )}
+              <Button variant="ghost" onClick={() => overlayChooser.current?.click()}>
+                {state.surfaceOverlay ? 'Replace surface map' : 'Open surface map'}
+              </Button>
+              <input
+                ref={overlayChooser}
+                className="sr-only"
+                aria-label="Choose scalar GIfTI map"
+                type="file"
+                accept=".gii,.gii.gz"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void session.loadSurfaceOverlay(file);
+                  event.target.value = '';
+                }}
+              />
+              {state.surfaceOverlay && (
+                <>
+                  <h2>Surface map</h2>
+                  <p>{state.surfaceOverlay.name}</p>
+                  <FieldRow label="Colormap">
+                    <Select
+                      aria-label="Surface colormap"
+                      value={state.surfaceOverlay.colormap}
+                      onChange={(event) =>
+                        session.updateSurfaceOverlay({ colormap: event.target.value })
+                      }
+                    >
+                      <option value="viridis">Viridis</option>
+                      <option value="gray">Gray</option>
+                      <option value="hot">Hot</option>
+                    </Select>
+                  </FieldRow>
+                  <FieldRow label="Minimum">
+                    <NumberField
+                      aria-label="Surface minimum"
+                      value={state.surfaceOverlay.range[0]}
+                      onValueChange={(value) => {
+                        if (value !== null)
+                          session.updateSurfaceOverlay({
+                            range: [value, state.surfaceOverlay!.range[1]],
+                          });
+                      }}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Maximum">
+                    <NumberField
+                      aria-label="Surface maximum"
+                      value={state.surfaceOverlay.range[1]}
+                      onValueChange={(value) => {
+                        if (value !== null)
+                          session.updateSurfaceOverlay({
+                            range: [state.surfaceOverlay!.range[0], value],
+                          });
+                      }}
+                    />
+                  </FieldRow>
+                  <FieldRow label="Map opacity" layout="stacked">
+                    <Slider
+                      className="w-full"
+                      label="Map opacity"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={state.surfaceOverlay.opacity}
+                      onValueChange={(opacity) => session.updateSurfaceOverlay({ opacity })}
+                    />
+                  </FieldRow>
+                  <p aria-label="Surface value">
+                    {state.surfacePick
+                      ? `Vertex ${state.surfacePick.vertex} value: ${session.surfaceValues?.[state.surfacePick.vertex]}`
+                      : 'Click the mesh to inspect a map value.'}
+                  </p>
+                  <Button variant="ghost" onClick={() => session.removeSurfaceOverlay()}>
+                    Remove surface map
+                  </Button>
+                </>
+              )}
               <p aria-label="Surface pick">
                 {state.surfacePick
                   ? `Near vertex ${state.surfacePick.vertex} · RAS ${state.surfacePick.world.map((v) => v.toFixed(2)).join(', ')} mm`
@@ -308,8 +386,8 @@ function Viewer({ session }: { session: BrowserSession }) {
               together. IDs must be 0–2047 with identity scaling. Label-intent NIfTI files are
               recognized automatically. One self-contained GIfTI surface can be open alongside the
               volumes: up to 64 MiB compressed or expanded XML, one million vertices and two million
-              triangles. Surface overlays, remote mounts, native paths and external analysis tools
-              require the desktop app.
+              triangles. One dense scalar GIfTI map can be attached to the surface. Remote mounts,
+              native paths and external analysis tools require the desktop app.
             </p>
           </details>
         </aside>
@@ -318,7 +396,7 @@ function Viewer({ session }: { session: BrowserSession }) {
             {state.loading
               ? 'Loading image…'
               : state.view === 'surface'
-                ? 'Surface geometry · local processing'
+                ? 'Surface viewer · local processing'
                 : !state.ready
                   ? state.error
                     ? 'Browser GPU unavailable.'

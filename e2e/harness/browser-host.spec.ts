@@ -151,6 +151,8 @@ test('production PWA reloads offline and caches only application assets',async({
   await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
   await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.surf.gii'));
   await expect(page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas')).toBeVisible();
+  await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'));
+  await expect(page.getByRole('button',{name:'Remove surface map',exact:true})).toBeVisible();
   await context.setOffline(false);
 });
 
@@ -319,6 +321,38 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   const [x,y,z]=match.slice(2).map(Number);
   // Independent equation for the transformed octahedron's surface.
   expect(Math.abs(x-10)/40 + Math.abs(y-20)/60 + Math.abs(z-30)/80).toBeCloseTo(1,2);
+  const base=await pixels();
+  await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'));
+  await expect(page.getByLabel('Surface value',{exact:true})).toHaveText(`Vertex ${match[1]} value: ${[-3,-1,0,2,4,8][Number(match[1])]}`);
+  await expect.poll(pixels).not.toBe(base);
+  const colored=await pixels();
+  await page.getByLabel('Surface colormap',{exact:true}).selectOption('gray');
+  await expect.poll(pixels).not.toBe(colored);
+  const gray=await pixels();
+  const rgb = await page.evaluate(async (bytes) => {
+    const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], {type:'image/png'}));
+    const canvas = document.createElement('canvas'); canvas.width=image.width; canvas.height=image.height;
+    const ctx = canvas.getContext('2d')!; ctx.drawImage(image,0,0); image.close();
+    return [...ctx.getImageData(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1).data].slice(0,3);
+  }, [...await canvas.screenshot()]);
+  expect(Math.min(...rgb)).toBeGreaterThan(15);
+  expect(Math.max(...rgb)-Math.min(...rgb)).toBeLessThanOrEqual(2);
+
+  await page.getByLabel('Surface maximum',{exact:true}).fill('20');
+  await page.getByLabel('Surface maximum',{exact:true}).press('Enter');
+  await expect.poll(pixels).not.toBe(gray);
+  const rescaled=await pixels();
+  await page.getByRole('slider',{name:'Map opacity',exact:true}).press('Home');
+  await expect.poll(pixels).not.toBe(rescaled);
+  await page.getByRole('slider',{name:'Map opacity',exact:true}).press('End');
+  // A rejected map cannot overwrite the existing attachment.
+  await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles({name:'wrong.gii',mimeType:'application/xml',buffer:Buffer.from(readFileSync(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'),'utf8').replace('Dim0="6"','Dim0="5"').replace('-3 -1 0 2 4 8','-3 -1 0 2 4'))});
+  await expect(page.getByRole('alert')).toContainText('surface requires 6');
+  await expect(page.getByLabel('Surface value',{exact:true})).toHaveText(`Vertex ${match[1]} value: ${[-3,-1,0,2,4,8][Number(match[1])]}`);
+  await page.getByRole('button',{name:'Remove surface map',exact:true}).click();
+  await expect(page.getByLabel('Surface value',{exact:true})).toHaveCount(0);
+  await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'));
+  await expect(page.getByRole('button',{name:'Remove surface map',exact:true})).toBeVisible();
   const original=await pixels();
   await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);
   await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.7,bounds.y+bounds.height*.6,{steps:8});await page.mouse.up();
@@ -328,6 +362,7 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
   await page.getByRole('button',{name:'Reset camera',exact:true}).click();
   await page.screenshot({path:test.info().outputPath('surface-desktop.png')});
   await page.setViewportSize({width:420,height:900});
+  await page.getByLabel('Surface maximum',{exact:true}).scrollIntoViewIfNeeded();
   await page.screenshot({path:test.info().outputPath('surface-narrow.png'),fullPage:true});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.getByRole('button',{name:'Unload surface',exact:true}).click();
@@ -372,4 +407,25 @@ test('surface decoding does not require a WebGPU adapter',async({page})=>{
     finally {transport.dispose();delete globalThis.__surfaceTransport;}
   },[...readFileSync(surfaceFixture)]);
   expect(vertices).toEqual(expectedVertices);
+});
+
+
+test('scalar surface WASM decoding returns exact values and recovers after cancellation', async ({page}) => {
+  await page.goto('/browser.html');
+  const result = await page.evaluate(async (xml) => {
+    const {BrowserTransport} = await import('/src/services/browser/transport.ts');
+    const transport = new BrowserTransport();
+    const file = new File([xml], 'map.func.gii');
+    try {
+      const abort = new AbortController();
+      const pending = transport.request('load_surface_scalar', {file}, abort.signal).catch(e => e.name);
+      abort.abort();
+      const cancelled = await pending;
+      const values = await transport.invoke('load_surface_scalar', {file});
+      let rejected = false;
+      try { await transport.invoke('load_surface_scalar', {file: new File([xml.replace('-3 -1 0 2 4 8', '-3 -1 NaN 2 4 8')], 'missing.gii')}); } catch { rejected = true; }
+      return {cancelled, values: [...values], rejected};
+    } finally { transport.dispose(); }
+  }, readFileSync(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'),'utf8'));
+  expect(result).toEqual({cancelled:'AbortError', values:[-3,-1,0,2,4,8], rejected:true});
 });

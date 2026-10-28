@@ -536,3 +536,24 @@ checks pass. Desktop and narrow screenshots were inspected. Existing ts-rs and
 WASM Arc warnings remain; Vite flags the lazy surface vendor chunk's size. This
 is not native desktop UI or other-browser qualification, and no deployment was
 performed.
+
+
+## Scalar surface overlay slice (2026-10-28)
+
+One dense scalar GIfTI map now follows geometry into the browser's existing
+surface canvas. The shared reader reuses geometry's bounded XML/binary decoding;
+the desktop scalar command uses that reader through its file adapter. No new
+renderer, cache, worker registry, or service was introduced. Session ownership
+binds each pending map to its mesh and request order; replacement, unload and
+reset cannot publish an obsolete attachment. The scope deliberately excludes
+categorical maps, multiple-map files, sparse maps, catalogs and projection.
+See `docs/browser-viewer.md` for supported inputs and scientific interpretation.
+
+Verification: 12 loader tests passed (one existing ignored), 14 session tests
+passed, and 15 actual Chromium 156 headless/Metal browser tests passed, including
+offline maps, scalar picking, grayscale pixels and GPU cleanup. WASM/PWA build,
+scoped lint and loader Clippy passed. Existing ts-rs and bundle-size warnings
+remain. Desktop/narrow screenshots were inspected; native desktop UI was not
+exercised. The initial full Chrome run reported `in-incognito` at the existing
+PWA installability check; the headless-shell run passed that check unchanged.
+Evidence: `cruft/browser-scalar-surfaces/`.

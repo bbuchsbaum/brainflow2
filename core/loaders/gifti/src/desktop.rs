@@ -213,25 +213,9 @@ pub fn load_gifti_file(path: &Path) -> Result<GiftiContent, GiftiError> {
 
 /// Loads surface data from a GIFTI overlay file
 pub fn load_gifti_surface_data(path: &Path) -> Result<Vec<f32>, GiftiError> {
-    info!("Loading GIFTI surface data: {}", path.display());
-
-    // Load using gifti crate
-    let gifti_data = gifti::read_gifti(path)
-        .map_err(|e| GiftiError::InvalidContent(format!("Failed to read GIFTI data: {}", e)))?;
-
-    // Extract the first data array
-    if let Some(first_array) = gifti_data.data_arrays.first() {
-        // The gifti crate has already parsed the data as Vec<f64>
-        // We need to convert it to f32
-        let data: Vec<f32> = first_array.data.iter().map(|&v| v as f32).collect();
-
-        info!("Loaded {} surface data values", data.len());
-        Ok(data)
-    } else {
-        Err(GiftiError::InvalidContent(
-            "No data arrays found in GIFTI file".to_string(),
-        ))
-    }
+    let file = std::fs::File::open(path).map_err(|e| GiftiError::InvalidContent(e.to_string()))?;
+    crate::geometry::read_scalar_with_limits(file, crate::geometry::GeometryLimits::DESKTOP)
+        .map_err(GiftiError::InvalidContent)
 }
 
 /// Loads a GIFTI surface geometry file

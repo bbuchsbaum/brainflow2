@@ -236,3 +236,73 @@ describe('BrowserSession surface ownership', () => {
     session.dispose();
   });
 });
+
+describe('BrowserSession scalar surface map ownership', () => {
+  const mesh = {
+    id: 'mesh',
+    name: 'mesh.gii',
+    vertices: new Float32Array(9),
+    faces: new Uint32Array([0, 1, 2]),
+    hemisphere: 'left',
+  };
+  function setup() {
+    const pending: Array<{
+      resolve: (values: Float32Array) => void;
+      reject: (error: Error) => void;
+    }> = [];
+    const request = vi.fn(
+      () => new Promise<Float32Array>((resolve, reject) => pending.push({ resolve, reject })),
+    );
+    const session = new BrowserSession({
+      request,
+      invoke: vi.fn(),
+      dispose: vi.fn(),
+    } as unknown as BrowserTransport);
+    session.surfaceGeometry = mesh;
+    return { session, pending };
+  }
+  it('keeps the newest map and preserves it on failed replacement', async () => {
+    const { session, pending } = setup();
+    const old = session.loadSurfaceOverlay(new File([], 'old.gii'));
+    const latest = session.loadSurfaceOverlay(new File([], 'latest.gii'));
+    pending[1].resolve(new Float32Array([-3, 0, 8]));
+    await latest;
+    pending[0].resolve(new Float32Array([1, 2, 3]));
+    await old;
+    expect(session.store.getState().surfaceOverlay?.name).toBe('latest.gii');
+    expect(session.store.getState().surfaceOverlay?.range).toEqual([-3, 8]);
+    const wrong = session.loadSurfaceOverlay(new File([], 'wrong.gii'));
+    pending[2].resolve(new Float32Array([1, 2]));
+    await wrong;
+    expect(session.store.getState().error).toContain('surface requires 3');
+    expect([...session.surfaceValues!]).toEqual([-3, 0, 8]);
+    session.updateSurfaceOverlay({ opacity: 0.4, colormap: 'gray', range: [-2, 4] });
+    expect(session.store.getState().surfaceOverlay).toMatchObject({
+      opacity: 0.4,
+      colormap: 'gray',
+      range: [-2, 4],
+    });
+    session.updateSurfaceOverlay({ range: [4, -2] });
+    expect(session.store.getState().surfaceOverlay?.range).toEqual([-2, 4]);
+    session.dispose();
+    expect(session.surfaceValues).toBeNull();
+  });
+  it.each(['cancel', 'remove', 'unload', 'reset', 'close', 'replace'] as const)(
+    'discards a pending map after %s',
+    async (action) => {
+      const { session, pending } = setup();
+      const load = session.loadSurfaceOverlay(new File([], 'late.gii'));
+      if (action === 'cancel') session.cancelLoads();
+      if (action === 'remove') session.removeSurfaceOverlay();
+      if (action === 'unload') session.unloadSurface();
+      if (action === 'reset') await session.reset();
+      if (action === 'close') session.dispose();
+      if (action === 'replace') session.surfaceGeometry = { ...mesh, id: 'replacement' };
+      pending[0].resolve(new Float32Array([1, 2, 3]));
+      await load;
+      expect(session.surfaceValues).toBeNull();
+      expect(session.store.getState().surfaceOverlay).toBeNull();
+      session.dispose();
+    },
+  );
+});

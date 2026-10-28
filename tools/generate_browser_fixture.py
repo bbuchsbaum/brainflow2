@@ -76,3 +76,10 @@ def surface_xml(encoding='ASCII', order='RowMajorOrder', endian='LittleEndian'):
 (output/'octahedron-column.surf.gii').write_text(surface_xml('Base64Binary','ColumnMajorOrder','BigEndian'))
 (output/'octahedron-zlib.surf.gii').write_text(surface_xml('GZipBase64Binary'))
 (output/'octahedron.surf.gii.gz').write_bytes(gzip.compress(surface_xml().encode(),mtime=0))
+
+# Dense per-vertex scalar witness, indexed to the six-vertex octahedron above.
+(Path(__file__).resolve().parent.parent / "test-data/browser/octahedron.func.gii").write_text('''<?xml version="1.0"?>
+<GIFTI Version="1.0" NumberOfDataArrays="1">
+<DataArray Intent="NIFTI_INTENT_TTEST" DataType="NIFTI_TYPE_FLOAT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="1" Dim0="6" Encoding="ASCII" Endian="LittleEndian"><Data>-3 -1 0 2 4 8</Data></DataArray>
+</GIFTI>
+''')

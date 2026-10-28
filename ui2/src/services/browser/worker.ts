@@ -1,5 +1,9 @@
 /// <reference lib="webworker" />
-import init, { BrowserHost, decode_surface } from '../../browser/generated/browser_host';
+import init, {
+  BrowserHost,
+  decode_surface,
+  decode_surface_scalar,
+} from '../../browser/generated/browser_host';
 import wasmUrl from '../../browser/generated/browser_host_bg.wasm?url';
 import type { BrowserVolume, WorkerReply, WorkerRequest } from './protocol';
 import { installWgpu20Compatibility } from './webgpuCompatibility';
@@ -25,12 +29,18 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
   if (cancelled.delete(id)) return;
   try {
     const args = (message.args ?? {}) as Record<string, unknown>;
-    if (cmd === 'load_surface') {
+    if (cmd === 'load_surface' || cmd === 'load_surface_scalar') {
       if (!(args.file instanceof File) || args.file.size > 64 * 1024 * 1024)
         throw new Error('Select a self-contained GIfTI no larger than 64 MiB.');
       await initializeWasm();
       const bytes = new Uint8Array(await args.file.arrayBuffer());
       if (cancelled.delete(id)) return;
+      if (cmd === 'load_surface_scalar') {
+        const values = decode_surface_scalar(bytes);
+        if (!cancelled.delete(id))
+          scope.postMessage({ id, value: values } satisfies WorkerReply, [values.buffer]);
+        return;
+      }
       const decoded = decode_surface(bytes);
       let value;
       try {

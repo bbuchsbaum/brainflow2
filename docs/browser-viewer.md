@@ -69,7 +69,7 @@ desktop recovery route were verified. The installed Playwright WebKit build for
 macOS 14 crashes before opening a page, so WebKit rendering remains unqualified.
 Other browsers/devices need their own acceptance run.
 
-Surface overlays, atlas/template catalogs, remote mounts,
+Categorical surface overlays, atlas/template catalogs, remote mounts,
 native paths, filesystem watching and external process plugins remain unavailable
 in this viewer. The capability description and command errors say so explicitly.
 This is a working volume-viewing milestone, not complete desktop feature parity.
@@ -205,11 +205,43 @@ WASM result. It retains no surface registry or duplicate mesh. The existing
 browser session owns cancellation and rejects stale loads; the shared canvas
 owns WebGL resources. Switching away unmounts that canvas and frees GPU objects,
 while the session retains the one mesh for returning to its view. Unloading or
-closing the workspace drops those arrays too. This slice does not add surface
-overlays, catalogs, editing, or surface-to-volume projection.
+closing the workspace drops those arrays too. Surface maps use the same session owner; catalogs, editing, and surface-to-volume
+projection remain unavailable.
 
 Surface tests cover independent transformed geometry across four encodings,
 desktop/portable agreement, input failure and bounded decompression, worker
 cancellation, triangle-point picking, camera interaction, and WebGL object
 creation/deletion or context loss on unload and reset. Qualification is Chromium/Metal here;
 other browser/GPU combinations still need their own acceptance runs.
+
+
+## Scalar surface maps
+
+After opening a surface, choose **Open surface map** for one self-contained dense
+GIfTI scalar array (`.func.gii`, `.shape.gii`, `.gii`, or `.gii.gz`). The file must
+contain exactly one array shaped N or N × 1, with one finite f32-representable
+value for every mesh vertex. Multiple maps, sparse indices, labels, vector data,
+and missing/nonfinite values fail explicitly. Matching counts establish array
+compatibility, not anatomical correspondence: the map must use the mesh's vertex
+ordering. No registration or resampling is inferred.
+
+One map is attached at a time. Its initial display spans the data minimum and
+maximum (a constant map gets a nonzero display span), with Viridis and full
+opacity. The inspector controls colormap, minimum, maximum and opacity. Picking
+reports the value at the nearest vertex; the displayed RAS coordinate remains
+the triangle hit point, so this is not a barycentrically interpolated scalar.
+Removing the map preserves the geometry. Failed replacement preserves the old
+map; successful geometry replacement, unload, reset and closure discard it and
+invalidate pending attachments.
+
+The portable reader shares XML parsing, bounded decompression and binary codecs
+with geometry. Desktop `load_gifti_surface_data` uses the same reader with desktop
+admission limits. Browser input/expanded XML is limited to 64 MiB and one million
+values. The worker transfers one values array and keeps no map registry; the
+existing shared canvas supplies color mapping and GPU layer disposal. Local map
+loading also works offline after the application has been cached.
+
+The scalar witness assigns `[-3, -1, 0, 2, 4, 8]` to the six octahedron vertices.
+Tests exercise ASCII/binary/compressed decoding, desktop agreement, invalid
+maps, cancellation and stale completion, picked values, display controls, and
+map/geometry teardown. Browser qualification remains Chromium/Metal.

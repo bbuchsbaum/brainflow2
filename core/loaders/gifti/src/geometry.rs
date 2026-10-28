@@ -1,4 +1,4 @@
-//! Bounded, filesystem-free GIfTI geometry. Encodings use the gifti crate's
+//! Bounded, filesystem-free GIfTI geometry and scalar maps. Encodings use the gifti crate's
 //! decoder; this layer preserves array order and transforms it currently drops.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use gifti::{DataType, Encoding, Endianness, Intent};
@@ -116,6 +116,76 @@ fn limited(reader: impl Read, limit: usize) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn read_document(reader: impl Read, input_bytes: usize) -> Result<Document, String> {
+    let bytes = limited(reader, input_bytes)?;
+    let xml = if bytes.starts_with(&[0x1f, 0x8b]) {
+        limited(flate2::read::GzDecoder::new(bytes.as_slice()), input_bytes)?
+    } else {
+        bytes
+    };
+    let xml = std::str::from_utf8(&xml).map_err(|e| e.to_string())?;
+    let doc: Document = quick_xml::de::from_str(xml).map_err(|e| e.to_string())?;
+    if doc.version != "1.0" || doc.count != doc.arrays.len() {
+        return Err("Expected GIfTI 1.0 with a matching declared array count".into());
+    }
+    Ok(doc)
+}
+
+/// One dense scalar map. Missing/nonfinite or f32-overflowing values are rejected;
+/// callers must not silently assign such vertices a scientific value or color.
+pub fn read_scalar(reader: impl Read) -> Result<Vec<f32>, String> {
+    read_scalar_with_limits(reader, GeometryLimits::BROWSER)
+}
+
+pub fn read_scalar_with_limits(
+    reader: impl Read,
+    limits: GeometryLimits,
+) -> Result<Vec<f32>, String> {
+    let doc = read_document(reader, limits.input_bytes)?;
+    if doc.arrays.len() != 1 {
+        return Err("Select one scalar map; multiple or missing arrays are ambiguous".into());
+    }
+    let array = &doc.arrays[0];
+    if !matches!(
+        array.intent.as_str(),
+        "NIFTI_INTENT_NONE"
+            | "NIFTI_INTENT_SHAPE"
+            | "NIFTI_INTENT_CURVATURE"
+            | "NIFTI_INTENT_SCALAR"
+            | "NIFTI_INTENT_GENERIC"
+            | "NIFTI_INTENT_TIME_SERIES"
+            | "NIFTI_INTENT_ESTIMATE"
+            | "NIFTI_INTENT_CORREL"
+            | "NIFTI_INTENT_TTEST"
+            | "NIFTI_INTENT_FTEST"
+            | "NIFTI_INTENT_ZSCORE"
+            | "NIFTI_INTENT_PVAL"
+            | "NIFTI_INTENT_LOGPVAL"
+            | "NIFTI_INTENT_LOG10PVAL"
+    ) {
+        return Err(
+            "Expected a supported dense scalar intent, not geometry, labels or vector data".into(),
+        );
+    }
+    if array.rows == 0
+        || array.rows > limits.vertices
+        || !(array.dimensions == 1 || (array.dimensions == 2 && array.columns == 1))
+    {
+        return Err("Scalar array must contain one value per vertex within the host limit".into());
+    }
+    let values: Vec<f32> = decode_values(array, array.rows, 1)?
+        .into_iter()
+        .map(|v| v as f32)
+        .collect();
+    if !values.iter().all(|v| v.is_finite()) {
+        return Err(
+            "Scalar values must be finite and representable as f32; missing values are unsupported"
+                .into(),
+        );
+    }
+    Ok(values)
+}
+
 /// Decode one self-contained geometry file. Does not read external data paths.
 /// Both compressed file bytes and expanded XML are bounded to 64 MiB.
 pub fn read_surface(reader: impl Read) -> Result<SurfaceMesh, String> {
@@ -126,20 +196,7 @@ pub fn read_surface_with_limits(
     reader: impl Read,
     limits: GeometryLimits,
 ) -> Result<SurfaceMesh, String> {
-    let bytes = limited(reader, limits.input_bytes)?;
-    let xml = if bytes.starts_with(&[0x1f, 0x8b]) {
-        limited(
-            flate2::read::GzDecoder::new(bytes.as_slice()),
-            limits.input_bytes,
-        )?
-    } else {
-        bytes
-    };
-    let xml = std::str::from_utf8(&xml).map_err(|e| e.to_string())?;
-    let doc: Document = quick_xml::de::from_str(xml).map_err(|e| e.to_string())?;
-    if doc.version != "1.0" || doc.count != doc.arrays.len() {
-        return Err("Expected GIfTI 1.0 with a matching declared array count".into());
-    }
+    let doc = read_document(reader, limits.input_bytes)?;
     let mut points = None;
     let mut triangles = None;
     for array in &doc.arrays {
@@ -268,6 +325,10 @@ fn decode(array: &Array, max_rows: usize) -> Result<Vec<f64>, String> {
         .rows
         .checked_mul(3)
         .ok_or("Geometry shape overflows addressable memory")?;
+    decode_values(array, count, 3)
+}
+
+fn decode_values(array: &Array, count: usize, columns: usize) -> Result<Vec<f64>, String> {
     let dtype: DataType = array
         .datatype
         .parse()
@@ -326,7 +387,7 @@ fn decode(array: &Array, max_rows: usize) -> Result<Vec<f64>, String> {
     match array.order.as_str() {
         "" | "RowMajorOrder" => Ok(data),
         "ColumnMajorOrder" => Ok((0..array.rows)
-            .flat_map(|row| (0..3).map(move |col| (row, col)))
+            .flat_map(|row| (0..columns).map(move |col| (row, col)))
             .map(|(row, col)| data[col * array.rows + row])
             .collect()),
         _ => Err("Unsupported GIfTI array indexing order".into()),

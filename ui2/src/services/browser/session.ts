@@ -6,6 +6,13 @@ import type { BrowserVolume, BrowserGpuCapabilities, BrowserSurface } from './pr
 
 export const orientations: RenderViewType[] = ['axial', 'coronal', 'sagittal'];
 export type BrowserLayer = BrowserVolume & { window: [number, number]; opacity: number };
+export interface BrowserSurfaceOverlay {
+  id: string;
+  name: string;
+  range: [number, number];
+  colormap: string;
+  opacity: number;
+}
 export interface BrowserState {
   gpu: BrowserGpuCapabilities | null;
   ready: boolean;
@@ -20,6 +27,7 @@ export interface BrowserState {
   selectedLabel: number | null;
   view: 'slices' | 'surface';
   surface: { id: string; name: string; vertices: number; faces: number } | null;
+  surfaceOverlay: BrowserSurfaceOverlay | null;
   surfacePick: { world: [number, number, number]; vertex: number } | null;
 }
 const initial = (): BrowserState => ({
@@ -36,6 +44,7 @@ const initial = (): BrowserState => ({
   view: 'slices',
   surface: null,
   surfacePick: null,
+  surfaceOverlay: null,
 });
 
 /** Renderer-owned frames stay outside Zustand; stores hold control state only. */
@@ -51,6 +60,8 @@ export class BrowserSession {
   private loads = new Set<AbortController>();
   surfaceGeometry: BrowserSurface | null = null;
   private surfaceRequest = 0;
+  private overlayRequest = 0;
+  surfaceValues: Float32Array | null = null;
   private playbackTimer: ReturnType<typeof setTimeout> | undefined;
   readonly transport: BrowserTransport;
   constructor(transport = new BrowserTransport()) {
@@ -117,6 +128,7 @@ export class BrowserSession {
         abort.signal,
       );
       if (this.closed || generation !== this.generation || request !== this.surfaceRequest) return;
+      this.removeSurfaceOverlay();
       this.surfaceGeometry = mesh;
       this.stopPlayback();
       this.store.setState({
@@ -138,8 +150,87 @@ export class BrowserSession {
   }
   unloadSurface() {
     ++this.surfaceRequest;
+    this.removeSurfaceOverlay();
     this.surfaceGeometry = null;
     this.store.setState({ surface: null, surfacePick: null, view: 'slices' });
+  }
+  async loadSurfaceOverlay(file: File) {
+    const mesh = this.surfaceGeometry;
+    if (!mesh || this.closed) return;
+    const request = ++this.overlayRequest;
+    const abort = new AbortController();
+    this.loads.add(abort);
+    this.store.setState({ loading: true, error: null });
+    try {
+      const values = await this.transport.request<Float32Array>(
+        'load_surface_scalar',
+        { file },
+        abort.signal,
+      );
+      if (
+        this.closed ||
+        abort.signal.aborted ||
+        this.surfaceGeometry !== mesh ||
+        request !== this.overlayRequest
+      )
+        return;
+      if (values.length !== mesh.vertices.length / 3)
+        throw new Error(
+          `Overlay has ${values.length} values; surface requires ${mesh.vertices.length / 3}.`,
+        );
+      let low = Infinity,
+        high = -Infinity;
+      for (const value of values) {
+        if (!Number.isFinite(value))
+          throw new Error('Surface overlay requires finite scalar values.');
+        low = Math.min(low, value);
+        high = Math.max(high, value);
+      }
+      this.surfaceValues = values;
+      this.store.setState({
+        surfaceOverlay: {
+          id: `surface-overlay-${request}`,
+          name: file.name,
+          range:
+            low < high
+              ? [low, high]
+              : [
+                  low - Math.max(0.5, Math.abs(low) * 0.01),
+                  high + Math.max(0.5, Math.abs(high) * 0.01),
+                ],
+          colormap: 'viridis',
+          opacity: 1,
+        },
+        view: 'surface',
+      });
+    } catch (error) {
+      if (this.surfaceGeometry === mesh && request === this.overlayRequest) this.error(error);
+    } finally {
+      this.loads.delete(abort);
+      if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
+    }
+  }
+  removeSurfaceOverlay() {
+    ++this.overlayRequest;
+    this.surfaceValues = null;
+    this.store.setState({ surfaceOverlay: null });
+  }
+  updateSurfaceOverlay(
+    patch: Partial<Pick<BrowserSurfaceOverlay, 'range' | 'colormap' | 'opacity'>>,
+  ) {
+    const current = this.store.getState().surfaceOverlay;
+    if (!current) return;
+    const next = { ...current, ...patch };
+    if (
+      !next.range.every(Number.isFinite) ||
+      next.range[0] >= next.range[1] ||
+      !Number.isFinite(next.opacity) ||
+      next.opacity < 0 ||
+      next.opacity > 1 ||
+      !['viridis', 'gray', 'hot'].includes(next.colormap)
+    )
+      return;
+    this.store.setState({ surfaceOverlay: next });
   }
   setView(view: 'slices' | 'surface') {
     if (view === 'surface' && !this.surfaceGeometry) return;

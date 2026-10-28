@@ -31,6 +31,7 @@ export const browserCapabilities = Object.freeze({
   labels: true,
   timeSeries: true,
   surfaces: true,
+  surfaceScalarOverlays: true,
 });
 
 export type WorkerRequest =

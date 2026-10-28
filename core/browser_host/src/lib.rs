@@ -345,6 +345,10 @@ mod wasm {
             hemisphere: mesh.hemisphere,
         })
     }
+    #[wasm_bindgen]
+    pub fn decode_surface_scalar(bytes: &[u8]) -> Result<Vec<f32>, JsValue> {
+        gifti_loader::geometry::read_scalar(bytes).map_err(|e| JsValue::from_str(&e))
+    }
     #[wasm_bindgen(js_name = BrowserHost)]
     pub struct WasmHost {
         inner: BrowserHost,
