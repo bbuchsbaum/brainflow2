@@ -75,3 +75,10 @@ export interface BrowserSurfaceLabels {
   rgba: Float32Array;
   legend: BrowserSurfaceLabel[];
 }
+
+/** One selected scalar frame, x-fastest, with a full column-major voxel-to-world affine. */
+export interface BrowserProjectionFrame {
+  values: Float32Array;
+  dims: [number, number, number];
+  affine: Float32Array;
+}

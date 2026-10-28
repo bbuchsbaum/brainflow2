@@ -10,6 +10,7 @@ import type {
   BrowserGpuCapabilities,
   BrowserSurface,
   BrowserSurfaceLabels,
+  BrowserProjectionFrame,
 } from './protocol';
 
 export const browserColormaps = ['gray', 'viridis', 'hot'] as const;
@@ -20,7 +21,13 @@ export type BrowserLayer = BrowserVolume & {
   colormap?: string;
 };
 export type BrowserSurfaceOverlay = { id: string; name: string; opacity: number } & (
-  | { kind: 'scalar'; range: [number, number]; dataRange: [number, number]; colormap: string }
+  | {
+      kind: 'scalar';
+      range: [number, number];
+      dataRange: [number, number];
+      colormap: string;
+      projection?: { volumeId: string; frame: number };
+    }
   | { kind: 'labels' }
 );
 export interface BrowserSurfaceState {
@@ -39,6 +46,7 @@ export interface BrowserSurfaceResources {
   values: Float32Array | null;
   labels: BrowserSurfaceLabels | null;
   overlayRequest: number;
+  projection?: { volumeId: string; frame: number; data: BrowserProjectionFrame };
 }
 export interface BrowserState {
   gpu: BrowserGpuCapabilities | null;
@@ -221,7 +229,21 @@ export class BrowserSession {
         source: await describe(files.source),
         linked: surface.linked,
       };
-      if (files.overlaySource && surface.overlay) {
+      if (surface.overlay?.kind === 'scalar' && surface.overlay.projection) {
+        const settings = surface.overlay;
+        const volume = state.layers.findIndex(
+          (layer) => layer.id === settings.projection!.volumeId,
+        );
+        if (volume < 0) throw new Error('Projected source volume was unloaded.');
+        saved.overlay = {
+          kind: 'projection',
+          volume,
+          frame: settings.projection!.frame,
+          opacity: settings.opacity,
+          range: settings.range,
+          colormap: settings.colormap,
+        };
+      } else if (files.overlaySource && surface.overlay) {
         const settings = surface.overlay;
         saved.overlay = {
           source: await describe(files.overlaySource),
@@ -432,6 +454,7 @@ export class BrowserSession {
         resource.labels = decoded;
         resource.values = null;
       }
+      resource.projection = undefined;
       resource.overlaySource = file;
       this.patchSurface(mesh.id, { overlay });
       this.store.setState({ view: 'surface' });
@@ -443,11 +466,89 @@ export class BrowserSession {
       if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
     }
   }
-  removeSurfaceOverlay() {
-    const id = this.store.getState().selectedSurface;
+  /** Project a frozen frame through the same full-affine volume layer as desktop. */
+  async projectVolume(volumeId = this.store.getState().selected, frame?: number) {
+    const surface = this.activeSurface;
+    const layer = this.store.getState().layers.find((candidate) => candidate.id === volumeId);
+    if (!surface || !layer) return;
+    if (!surface.linked) {
+      this.error(
+        new Error('Confirm shared world coordinates by enabling Link volume cursor first.'),
+      );
+      return;
+    }
+    if (layer.labelIds) {
+      this.error(
+        new Error(
+          'Label projection requires nearest-neighbor sampling; scalar projection cannot interpolate labels.',
+        ),
+      );
+      return;
+    }
+    const resource = this.surfaceResources.get(surface.id)!;
+    const timepoint = frame ?? layer.currentFrame;
+    if (!Number.isInteger(timepoint) || timepoint < 0 || timepoint >= layer.frameCount) {
+      this.error(new Error('Projection frame is outside the source image.'));
+      return;
+    }
+    const generation = this.generation;
+    const request = ++resource.overlayRequest;
+    const abort = new AbortController();
+    this.loads.add(abort);
+    this.store.setState({ loading: true, error: null });
+    try {
+      // Two hemispheres can share the same immutable selected frame without a cache.
+      const existing = [...this.surfaceResources.values()].find(
+        (candidate) =>
+          candidate.projection?.volumeId === layer.id && candidate.projection.frame === timepoint,
+      )?.projection?.data;
+      const data =
+        existing ??
+        (await this.transport.request<BrowserProjectionFrame>(
+          'projection_frame',
+          { volumeId: layer.id, timepoint },
+          abort.signal,
+        ));
+      if (
+        this.closed ||
+        abort.signal.aborted ||
+        generation !== this.generation ||
+        this.surfaceResources.get(surface.id) !== resource ||
+        request !== resource.overlayRequest ||
+        !this.store.getState().layers.some((candidate) => candidate.id === layer.id) ||
+        !this.store.getState().surfaces.find((candidate) => candidate.id === surface.id)?.linked
+      )
+        return;
+      resource.projection = { volumeId: layer.id, frame: timepoint, data };
+      resource.values = null;
+      resource.labels = null;
+      resource.overlaySource = null;
+      this.patchSurface(surface.id, {
+        overlay: {
+          id: `projection-${surface.id}-${request}`,
+          kind: 'scalar',
+          name: `${layer.name} · frame ${timepoint + 1}`,
+          opacity: 1,
+          range: [...layer.window],
+          dataRange: [...layer.range],
+          colormap: layer.colormap ?? 'viridis',
+          projection: { volumeId: layer.id, frame: timepoint },
+        },
+      });
+      this.store.setState({ view: 'surface' });
+    } catch (error) {
+      if (this.surfaceResources.get(surface.id) === resource && request === resource.overlayRequest)
+        this.error(error);
+    } finally {
+      this.loads.delete(abort);
+      if (!this.closed) this.store.setState({ loading: this.loads.size > 0 });
+    }
+  }
+  removeSurfaceOverlay(id = this.store.getState().selectedSurface) {
     const resource = this.surfaceResources.get(id ?? '');
     if (!resource || !id) return;
     ++resource.overlayRequest;
+    resource.projection = undefined;
     resource.overlaySource = null;
     resource.values = null;
     resource.labels = null;
@@ -486,7 +587,11 @@ export class BrowserSession {
       );
       return;
     }
-    if (mesh) this.patchSurface(mesh.id, { linked });
+    if (mesh) {
+      if (!linked && this.surfaceResources.get(mesh.id)?.projection)
+        this.removeSurfaceOverlay(mesh.id);
+      this.patchSurface(mesh.id, { linked });
+    }
   }
   pickSurface(world: [number, number, number], picked?: { handle: string; vertex: number }) {
     const mesh = this.surfaceResources.get(picked?.handle ?? '')?.geometry;
@@ -587,6 +692,9 @@ export class BrowserSession {
     this.schedule();
   }
   async remove(id: string) {
+    for (const [surfaceId, resource] of this.surfaceResources) {
+      if (resource.projection?.volumeId === id) this.removeSurfaceOverlay(surfaceId);
+    }
     this.volumeSources.delete(id);
     const layers = this.store.getState().layers.filter((l) => l.id !== id);
     if (this.store.getState().playing === id) this.stopPlayback();

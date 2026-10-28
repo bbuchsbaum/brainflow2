@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 
@@ -343,7 +343,9 @@ test('surface canvas rotates, zooms, picks world vertices and releases GPU objec
     const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], {type:'image/png'}));
     const canvas = document.createElement('canvas'); canvas.width=image.width; canvas.height=image.height;
     const ctx = canvas.getContext('2d')!; ctx.drawImage(image,0,0); image.close();
-    return [...ctx.getImageData(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1).data].slice(0,3);
+    // The centered camera puts the picked vertex marker at the middle.
+    // Sample the adjacent surface, whose grayscale material is under test.
+    return [...ctx.getImageData(Math.floor(canvas.width*0.55),Math.floor(canvas.height*0.55),1,1).data].slice(0,3);
   }, [...await canvas.screenshot()]);
   expect(Math.min(...rgb)).toBeGreaterThan(15);
   expect(Math.max(...rgb)-Math.min(...rgb)).toBeLessThanOrEqual(2);
@@ -632,4 +634,93 @@ test('paired hemispheres retain independent maps and restore as one scene', asyn
   await page.getByRole('button',{name:'Unload surface',exact:true}).click();
   await expect(page.getByRole('list',{name:'Surfaces',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:/^Select colormap/})).toHaveAttribute('aria-label',/Viridis/);
+});
+
+test('projection frame transfer preserves analytic voxel order, full affine and 4D selection', async ({page}) => {
+  await page.goto('/browser.html');
+  const result=await page.evaluate(async bytes=>{
+    const {BrowserTransport}=await import('/src/services/browser/transport.ts');
+    const transport=new BrowserTransport();
+    try {
+      const volume=await transport.invoke('load_file',{file:new File([new Uint8Array(bytes)],'series.nii')});
+      const frame=await transport.invoke('projection_frame',{volumeId:volume.id,timepoint:2});
+      let invalid=false;try {await transport.invoke('projection_frame',{volumeId:volume.id,timepoint:3});}catch {invalid=true;}
+      await transport.invoke('unload_volume',{volumeId:volume.id});
+      let unloaded=false;try {await transport.invoke('projection_frame',{volumeId:volume.id,timepoint:0});}catch {unloaded=true;}
+      return {values:[...frame.values],dims:frame.dims,affine:[...frame.affine],invalid,unloaded,empty:await transport.invoke('diagnostics')};
+    } finally {transport.dispose();}
+  },[...readFileSync(resolve(__dirname,'../../test-data/browser/oblique4d.nii'))]);
+  expect(result.dims).toEqual([5,7,9]);
+  expect(result.affine).toEqual([0,3,0,0,-2,0,0,0,0,0,4,0,10,-7,5,1]);
+  const expected=[];for(let k=0;k<9;k++)for(let j=0;j<7;j++)for(let i=0;i<5;i++)expected.push(2000+i+10*j+100*k);
+  expect(result.values).toEqual(expected);
+  expect(result.invalid).toBe(true);expect(result.unloaded).toBe(true);
+  expect(result.empty).toEqual({volumes:0,palettes:0,stagingBuffers:0,stagingBytes:0});
+});
+
+test('browser scalar projection matches analytic surface values and restores its source frame', async ({page}) => {
+  // All three vertices lie on i + 10*j + 100*k = 411 under the rotated NIfTI affine.
+  let array=0;
+  const surface=readFileSync(surfaceFixture,'utf8').replace('Dim0="6"','Dim0="3"').replace('Dim0="8"','Dim0="1"')
+    .replace(/<MatrixData>[^<]*<\/MatrixData>/,'<MatrixData>1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1</MatrixData>')
+    .replace(/<Data>[^<]*<\/Data>/g,()=>array++===0?'<Data>8 -4 21 8 2 20.92 4 -4 20.2</Data>':'<Data>0 1 2</Data>');
+  const scalar=readFileSync(resolve(__dirname,'../../test-data/browser/octahedron.func.gii'),'utf8')
+    .replace('Dim0="6"','Dim0="3"').replace(/<Data>[^<]*<\/Data>/,'<Data>411 411 411</Data>');
+  await page.goto('/browser.html');
+  await page.addStyleTag({content:'.browser-surface-canvas { flex: none !important; width: 600px !important; height: 600px !important; }'});
+  await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+  await page.getByLabel('Choose NIfTI file',{exact:true}).setInputFiles(fixture);
+  await expect(page.getByRole('button',{name:'Unload oblique.nii',exact:true})).toBeVisible();
+  await page.getByLabel('Choose GIfTI surface',{exact:true}).setInputFiles({name:'isovalue.gii',mimeType:'application/xml',buffer:Buffer.from(surface)});
+  await page.getByRole('button',{name:'Link volume cursor',exact:true}).click();
+  await page.getByRole('button',{name:'Project selected frame',exact:true}).click();
+  await expect(page.getByText('Projected frame 1 · linear interpolation',{exact:true})).toBeVisible();
+  await expect(page.getByRole('region',{name:'Surface view',exact:true}).locator('canvas')).toBeVisible();
+  const exportPNG=async()=>{
+    const event=page.waitForEvent('download');await page.getByRole('button',{name:'Export PNG',exact:true}).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    return readFileSync((await (await event).path())!);
+  };
+  await page.screenshot({path:test.info().outputPath('projection-screen.png')});
+  const projected=await exportPNG();
+  writeFileSync(test.info().outputPath('projected.png'),projected);
+  const event=page.waitForEvent('download');await page.getByRole('button',{name:'Save session',exact:true}).click();
+  const settings=readFileSync((await (await event).path())!);
+  expect(JSON.parse(settings.toString()).surfaces[0].overlay).toMatchObject({kind:'projection',volume:0,frame:0});
+  await page.getByLabel('Choose scalar GIfTI map',{exact:true}).setInputFiles({name:'analytic.gii',mimeType:'application/xml',buffer:Buffer.from(scalar)});
+  await page.getByRole('button',{name:/^Select colormap/}).click();await page.getByRole('button',{name:'Grayscale',exact:true}).click();
+  for(const [end,value] of [['low','0'],['high','864']]) {
+    await page.getByRole('button',{name:new RegExp('^Surface range '+end)}).click();
+    await page.getByRole('textbox',{name:'Surface range '+end,exact:true}).fill(value);
+    await page.getByRole('textbox',{name:'Surface range '+end,exact:true}).press('Enter');
+  }
+  await page.screenshot({path:test.info().outputPath('analytic-screen.png')});
+  const analytic=await exportPNG();
+  writeFileSync(test.info().outputPath('analytic.png'),analytic);
+  await test.info().attach('projected.png',{body:projected,contentType:'image/png'});
+  await test.info().attach('analytic.png',{body:analytic,contentType:'image/png'});
+  const difference=await page.evaluate(async({a,b})=>{
+    const read=async(bytes:number[])=>{
+      const image=await createImageBitmap(new Blob([new Uint8Array(bytes)],{type:'image/png'}));
+      const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+      const ctx=canvas.getContext('2d')!;ctx.drawImage(image,0,0);image.close();return ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    };
+    const x=await read(a),y=await read(b);let pixels=0,total=0;
+    // Compare the grayscale surface only, excluding the green linked-cursor marker.
+    for(let i=0;i<x.length;i+=4)if(y[i]+y[i+1]+y[i+2]>30 && Math.max(y[i],y[i+1],y[i+2])-Math.min(y[i],y[i+1],y[i+2])<=2){pixels++;for(let c=0;c<3;c++)total+=Math.abs(x[i+c]-y[i+c]);}
+    return {pixels,mean:total/(3*pixels)};
+  },{a:[...projected],b:[...analytic]});
+  await test.info().attach('projection-difference.json',{body:Buffer.from(JSON.stringify(difference)),contentType:'application/json'});
+  expect(difference.pixels).toBeGreaterThan(10000);
+  expect(difference.mean).toBeLessThan(3); // f32 affine and 8-bit palette interpolation tolerance.
+  await page.getByLabel('Choose session settings',{exact:true}).setInputFiles({name:'session.json',mimeType:'application/json',buffer:settings});
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toBeVisible();
+  await page.getByLabel('Choose session sources',{exact:true}).setInputFiles([
+    {name:'oblique.nii',mimeType:'application/octet-stream',buffer:readFileSync(fixture)},
+    {name:'isovalue.gii',mimeType:'application/xml',buffer:Buffer.from(surface)},
+  ]);
+  await expect(page.getByRole('button',{name:'Choose session sources',exact:true})).toHaveCount(0);
+  await expect(page.getByText('Projected frame 1 · linear interpolation',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Unload oblique.nii',exact:true}).click();
+  await expect(page.getByText('Projected frame 1 · linear interpolation',{exact:true})).toHaveCount(0);
 });

@@ -249,6 +249,13 @@ function Viewer({
                   Show slices
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                disabled={!selected || !!selected.labelIds || !surface.linked || state.loading}
+                onClick={() => void session.projectVolume()}
+              >
+                Project selected frame
+              </Button>
               <Button variant="ghost" onClick={() => overlayChooser.current?.click()}>
                 {overlay ? 'Replace surface map' : 'Open surface map'}
               </Button>
@@ -315,6 +322,8 @@ function Viewer({
                         ? `${pickedLabel.name} (${pickedLabel.id}) · vertex ${state.surfacePick!.vertex}`
                         : 'Click the mesh to inspect a region.'}
                     </p>
+                  ) : overlay.projection ? (
+                    <p>Projected frame {overlay.projection.frame + 1} · linear interpolation</p>
                   ) : (
                     <p aria-label="Surface value">
                       {state.surfacePick

@@ -555,3 +555,79 @@ describe('paired hemisphere ownership', () => {
     session.dispose();
   });
 });
+
+describe('projected frame ownership', () => {
+  function setup() {
+    const data = { values: new Float32Array([1]), dims: [1, 1, 1], affine: new Float32Array(16) };
+    const transport = {
+      request: vi.fn(async () => data),
+      invoke: vi.fn(async () => null),
+      dispose: vi.fn(),
+    };
+    const session = new BrowserSession(transport as unknown as BrowserTransport);
+    seedSurface(session, {
+      id: 'left',
+      name: 'left',
+      hemisphere: 'left',
+      surfaceType: 'pial',
+      vertices: new Float32Array([0, 0, 0]),
+      faces: new Uint32Array(),
+    });
+    session.store.setState({
+      layers: [{ ...movie, window: [0, 1], opacity: 1 }],
+      selected: movie.id,
+    });
+    session.setSurfaceLink(true);
+    return { session, transport, data };
+  }
+  it('uses the captured frame, shares it between hemispheres, and releases on source unload', async () => {
+    const { session, transport, data } = setup();
+    await session.projectVolume(movie.id, 2);
+    expect(transport.request).toHaveBeenCalledWith(
+      'projection_frame',
+      { volumeId: movie.id, timepoint: 2 },
+      expect.any(AbortSignal),
+    );
+    session.surfaceResources.set('right', {
+      ...session.surfaceResources.get('left')!,
+      projection: undefined,
+    });
+    session.store.setState({
+      surfaces: [
+        ...session.store.getState().surfaces,
+        { ...session.activeSurface!, id: 'right', hemisphere: 'right', overlay: null },
+      ],
+      selectedSurface: 'right',
+    });
+    await session.projectVolume(movie.id, 2);
+    expect(transport.request).toHaveBeenCalledTimes(1);
+    expect(session.surfaceResources.get('right')?.projection?.data).toBe(data);
+    await session.remove(movie.id);
+    expect([...session.surfaceResources.values()].every((r) => r.projection === undefined)).toBe(
+      true,
+    );
+    expect(session.store.getState().surfaces.every((s) => s.overlay === null)).toBe(true);
+    session.dispose();
+  });
+  it('rejects late projection after unload, cancellation or revoked coordinate linking', async () => {
+    for (const action of ['unload', 'cancel', 'unlink']) {
+      const { session, transport, data } = setup();
+      let finish!: (value: typeof data) => void;
+      transport.request.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = session.projectVolume();
+      if (action === 'unload') await session.remove(movie.id);
+      else if (action === 'cancel') session.cancelLoads();
+      else session.setSurfaceLink(false);
+      finish(data);
+      await pending;
+      expect(session.surfaceResources.get('left')?.projection).toBeUndefined();
+      expect(session.activeSurface?.overlay).toBeNull();
+      session.dispose();
+    }
+  });
+});

@@ -25,6 +25,26 @@ pub struct BrowserVolume {
     pub label_ids: Option<Vec<u32>>,
 }
 
+/// Transient projection payload: the worker transfers these arrays, then frees this wrapper.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub struct ProjectionFrame {
+    values: Vec<f32>,
+    dims: Vec<u32>,
+    affine: Vec<f32>,
+}
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+impl ProjectionFrame {
+    pub fn values(&mut self) -> Vec<f32> {
+        std::mem::take(&mut self.values)
+    }
+    pub fn dims(&self) -> Vec<u32> {
+        self.dims.clone()
+    }
+    pub fn affine(&self) -> Vec<f32> {
+        self.affine.clone()
+    }
+}
+
 pub struct BrowserHost {
     renderer: WgpuSliceRenderer,
     repository: Repository,
@@ -188,6 +208,25 @@ impl BrowserHost {
             .handle
             .current_timepoint = Some(timepoint);
         Ok(())
+    }
+
+    /// Reuse the shared selected-frame extractor; affine is full, column-major.
+    /// No registry or retained projection cache is created.
+    pub fn projection_frame(&self, id: &str, timepoint: usize) -> Result<ProjectionFrame, String> {
+        let volumes = self.repository.volumes.lock().unwrap();
+        let volume = volumes.get(id).ok_or("Volume was unloaded")?;
+        volume_service::frames::check_timepoint(
+            timepoint,
+            volume.handle.num_timepoints.unwrap_or(1),
+        )
+        .map_err(|e| e.to_string())?;
+        let frame = volume_service::frames::extract_frame(&volume.data, timepoint)
+            .map_err(|e| e.to_string())?;
+        Ok(ProjectionFrame {
+            dims: frame.dims.iter().map(|&n| n as u32).collect(),
+            affine: frame.affine.matrix().as_slice().to_vec(),
+            values: frame.values.into_owned(),
+        })
     }
 
     /// Same render_view arguments/8-byte RGBA envelope as the desktop adapter.
@@ -394,6 +433,15 @@ mod wasm {
                     .await
                     .map_err(|e| JsValue::from_str(&e))?,
             })
+        }
+        pub fn projection_frame(
+            &self,
+            id: String,
+            timepoint: usize,
+        ) -> Result<ProjectionFrame, JsValue> {
+            self.inner
+                .projection_frame(&id, timepoint)
+                .map_err(|e| JsValue::from_str(&e))
         }
         pub fn capabilities(&self) -> String {
             serde_json::to_string(&self.inner.capabilities())

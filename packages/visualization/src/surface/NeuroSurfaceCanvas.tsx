@@ -53,6 +53,23 @@ interface NeuroSurfaceViewerInstance extends SurfaceLightingTarget {
   animationId?: number;
 }
 
+/** Presets aim at the origin; retain the fitted mesh center and distance. */
+function setCenteredViewpoint(viewer: NeuroSurfaceViewerInstance, viewpoint: string) {
+  viewer.centerCamera();
+  const center = viewer.getCameraState?.().target;
+  viewer.setViewpoint(viewpoint);
+  const pose = viewer.getCameraState?.();
+  if (center && pose && viewer.setCameraState) {
+    viewer.setCameraState({
+      ...pose,
+      target: center,
+      position: pose.position.map((value, axis) => value + center[axis]) as [number, number, number],
+      up: viewer.camera.up.toArray(),
+      zoom: viewer.camera.zoom,
+    });
+  }
+}
+
 interface OriginalGeometry {
   vertices: Float32Array;
   faces: Uint32Array;
@@ -679,18 +696,11 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
 
       lastUseGPUProjectionRef.current = useGPUCompositing;
 
-      if (structuralChange && viewer.centerCamera && !hasCenteredCamera.current) {
+      if (structuralChange && !hasCenteredCamera.current) {
         const controls = viewer.controls;
         const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
 
-        viewer.centerCamera();
-        // The fit looks down the z axis; the requested preset (default
-        // lateral) is applied on the fitted mesh, so the first view matches it.
-        try {
-          viewer.setViewpoint(viewpointRef.current);
-        } catch {
-          // unknown viewpoint: keep the fit
-        }
+        setCenteredViewpoint(viewer, viewpointRef.current);
 
         if (controls && controls.autoRotate !== undefined) {
           controls.autoRotate = wasAutoRotating;
@@ -735,7 +745,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
 
   useEffect(() => {
     if (viewerRef.current) {
-      viewerRef.current.setViewpoint(viewpoint);
+      setCenteredViewpoint(viewerRef.current, viewpoint);
     }
   }, [viewpoint, viewpointNonce]);
 

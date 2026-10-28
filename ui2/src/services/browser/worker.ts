@@ -206,6 +206,33 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
         value = null;
         break;
       }
+      case 'projection_frame': {
+        if (
+          typeof args.volumeId !== 'string' ||
+          typeof args.timepoint !== 'number' ||
+          !Number.isInteger(args.timepoint) ||
+          args.timepoint < 0 ||
+          args.timepoint > 0xffffffff
+        )
+          throw new Error('Projection requires a volume and a valid frame index.');
+        const decoded = host.projection_frame(args.volumeId, args.timepoint);
+        let projection;
+        try {
+          projection = {
+            values: decoded.values(),
+            dims: Array.from(decoded.dims()),
+            affine: decoded.affine(),
+          };
+        } finally {
+          decoded.free();
+        }
+        if (!cancelled.delete(id))
+          scope.postMessage({ id, value: projection } satisfies WorkerReply, [
+            projection.values.buffer,
+            projection.affine.buffer,
+          ]);
+        return;
+      }
       case 'render_view':
         if (args.format !== 'rgba')
           throw new Error('Browser rendering currently supports RGBA output.');

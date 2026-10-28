@@ -695,3 +695,33 @@ Area 3 is not yet complete: numerical volume-to-surface projection remains.
 Prefer supplying the existing shared full-affine `VolumeProjectionLayer` with
 the selected volume frame. The native CPU neurosurf adapter currently rejects
 rotation/shear and should not be copied into a second browser algorithm.
+
+### Area 3 checkpoint: scalar volume projection
+
+The browser transfers one requested x-fastest f32 frame and its full column-major
+voxel-to-world affine from the existing Rust `volume_service::frames::extract_frame`
+into the shared surface `VolumeProjectionLayer`. Linear interpolation remains
+single-sourced in the desktop/browser surface renderer. A projection freezes its
+requested frame; projecting again refreshes it. Identical source/frame buffers
+are shared between hemispheres without a global cache. Unload, unlink, cancellation,
+replacement and closure reject stale publication and release owned resources.
+Session settings persist the verified source-volume association and frame.
+
+The independent rotated-affine fixture verifies every transferred voxel and the
+selected 4D frame. The real browser projection matches a separate analytic scalar
+map on 29,710 grayscale surface pixels (green cursor excluded), mean absolute RGB
+channel difference 0.205/255, below the 3/255 interpolation/rasterization tolerance.
+Restore and source unload are exercised in the same actual-WASM flow.
+
+This check exposed an existing shared camera bug: viewpoint presets targeted the
+origin after fitting translated geometry. The canvas now retains the fitted
+center and distance when applying presets, including reset. The desktop surface
+screenshots were inspected and updated: the formerly clipped mesh is centered.
+The grayscale interaction check samples beside the newly centered pick marker.
+
+Evidence: 36 session/record tests; all 22 browser checks passed across the full
+run (21) and the corrected marker-location assertion rerun (1); six shared surface
+renderer checks, TypeScript, scoped lint and production WASM/PWA build. Logs and
+images are under `cruft/browser-completion/projection-*`. Desktop screenshot
+verification is a React-harness check, not a native Tauri walkthrough.
+Categorical projection remains required for area 3; areas 4–6 remain open.

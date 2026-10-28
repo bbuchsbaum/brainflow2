@@ -39,6 +39,9 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
                     ...surface.overlay,
                     values: resource.values ?? undefined,
                     rgba: resource.labels?.rgba,
+                    volumeData: resource.projection?.data.values.buffer as ArrayBuffer | undefined,
+                    volumeDims: resource.projection?.data.dims,
+                    affineMatrix: resource.projection?.data.affine,
                   },
                 ]
               : [],
@@ -87,6 +90,7 @@ export default function BrowserSurfaceView({ session }: { session: BrowserSessio
           viewpoint="dorsal"
           viewpointNonce={pose}
           showControls={false}
+          projectionSettings={{ useGPUProjection: true }}
           onSurfacePick={onPick}
           markerWorldPosition={
             linkedHandles.length > 0 && state.layers.length ? state.crosshair : null

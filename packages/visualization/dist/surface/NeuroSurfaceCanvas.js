@@ -6,6 +6,22 @@ import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianS
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
 import { buildLayerInstance, applyLayerUpdate, applySurfaceRenderSettings, applySceneRenderSettings, } from './surfaceRuntime.js';
+/** Presets aim at the origin; retain the fitted mesh center and distance. */
+function setCenteredViewpoint(viewer, viewpoint) {
+    viewer.centerCamera();
+    const center = viewer.getCameraState?.().target;
+    viewer.setViewpoint(viewpoint);
+    const pose = viewer.getCameraState?.();
+    if (center && pose && viewer.setCameraState) {
+        viewer.setCameraState({
+            ...pose,
+            target: center,
+            position: pose.position.map((value, axis) => value + center[axis]),
+            up: viewer.camera.up.toArray(),
+            zoom: viewer.camera.zoom,
+        });
+    }
+}
 function hasRenderableGeometry(surface) {
     return Boolean(surface.geometry.vertices &&
         surface.geometry.faces &&
@@ -511,18 +527,10 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 renderedSurfaceInputsRef.current.set(item.handle, item);
             }
             lastUseGPUProjectionRef.current = useGPUCompositing;
-            if (structuralChange && viewer.centerCamera && !hasCenteredCamera.current) {
+            if (structuralChange && !hasCenteredCamera.current) {
                 const controls = viewer.controls;
                 const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
-                viewer.centerCamera();
-                // The fit looks down the z axis; the requested preset (default
-                // lateral) is applied on the fitted mesh, so the first view matches it.
-                try {
-                    viewer.setViewpoint(viewpointRef.current);
-                }
-                catch {
-                    // unknown viewpoint: keep the fit
-                }
+                setCenteredViewpoint(viewer, viewpointRef.current);
                 if (controls && controls.autoRotate !== undefined) {
                     controls.autoRotate = wasAutoRotating;
                 }
@@ -562,7 +570,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     }, [isInitialized, surfacesToRender, projectionSettings.useGPUProjection]);
     useEffect(() => {
         if (viewerRef.current) {
-            viewerRef.current.setViewpoint(viewpoint);
+            setCenteredViewpoint(viewerRef.current, viewpoint);
         }
     }, [viewpoint, viewpointNonce]);
     // D2: the underlay toggle.

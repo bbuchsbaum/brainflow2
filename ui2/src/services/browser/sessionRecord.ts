@@ -22,13 +22,21 @@ export interface BrowserSessionRecord {
   surfaces: Array<{
     source: SessionSource;
     linked?: boolean;
-    overlay?: {
-      source: SessionSource;
-      kind: 'scalar' | 'labels';
-      opacity: number;
-      range?: [number, number];
-      colormap?: string;
-    };
+    overlay?: { opacity: number } & (
+      | {
+          source: SessionSource;
+          kind: 'scalar' | 'labels';
+          range?: [number, number];
+          colormap?: string;
+        }
+      | {
+          kind: 'projection';
+          volume: number;
+          frame: number;
+          range: [number, number];
+          colormap: string;
+        }
+    );
   }>;
   selected: number | null;
   crosshair: [number, number, number];
@@ -96,17 +104,32 @@ export function parseSessionRecord(text: string): BrowserSessionRecord {
     if (surface.linked !== undefined && typeof surface.linked !== 'boolean')
       throw new Error('Invalid saved surface link.');
     const overlay = surface.overlay;
-    if (
-      overlay !== undefined &&
-      (!object(overlay) ||
+    if (overlay !== undefined) {
+      if (!object(overlay) || !opacity(overlay.opacity))
+        throw new Error('Invalid saved surface overlay.');
+      if (overlay.kind === 'projection') {
+        if (
+          surface.linked !== true ||
+          !Number.isInteger(overlay.volume) ||
+          typeof overlay.volume !== 'number' ||
+          overlay.volume < 0 ||
+          overlay.volume >= value.volumes.length ||
+          !Number.isSafeInteger(overlay.frame) ||
+          typeof overlay.frame !== 'number' ||
+          overlay.frame < 0 ||
+          !range(overlay.range) ||
+          !palette(overlay.colormap)
+        )
+          throw new Error('Invalid saved projection.');
+      } else if (
         !isSessionSource(overlay.source) ||
-        !opacity(overlay.opacity) ||
         !(
           overlay.kind === 'labels' ||
           (overlay.kind === 'scalar' && range(overlay.range) && palette(overlay.colormap))
-        ))
-    )
-      throw new Error('Invalid saved surface overlay.');
+        )
+      )
+        throw new Error('Invalid saved surface overlay.');
+    }
   }
   if (
     !(
@@ -162,7 +185,7 @@ export async function restoreSessionRecord(
     }
     for (const surface of record.surfaces) {
       resolve(surface.source);
-      if (surface.overlay) resolve(surface.overlay.source);
+      if (surface.overlay && surface.overlay.kind !== 'projection') resolve(surface.overlay.source);
     }
     if (record.volumes.length) {
       await stage.initialize();
@@ -192,11 +215,16 @@ export async function restoreSessionRecord(
       check();
       const overlay = surface.overlay;
       if (overlay) {
-        await stage.loadSurfaceOverlay(resolve(overlay.source), overlay.kind === 'labels');
+        if (overlay.kind === 'projection')
+          await stage.projectVolume(
+            stage.store.getState().layers[overlay.volume].id,
+            overlay.frame,
+          );
+        else await stage.loadSurfaceOverlay(resolve(overlay.source), overlay.kind === 'labels');
         check();
         stage.updateSurfaceOverlay({
           opacity: overlay.opacity,
-          ...(overlay.kind === 'scalar'
+          ...(overlay.kind !== 'labels'
             ? { range: overlay.range, colormap: overlay.colormap }
             : {}),
         });
