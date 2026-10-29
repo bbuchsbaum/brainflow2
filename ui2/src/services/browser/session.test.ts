@@ -689,3 +689,39 @@ describe('fatal browser worker failure', () => {
     expect(session.store.getState().error).toBe('GPU device was lost');
   });
 });
+
+describe('slice navigation geometry', () => {
+  it.each([
+    ['axial', 2],
+    ['coronal', 1],
+    ['sagittal', 0],
+  ] as const)(
+    '%s keeps in-plane image placement fixed when the crosshair moves',
+    (view, normalAxis) => {
+      const transport = { dispose: vi.fn() } as unknown as BrowserTransport;
+      const session = new BrowserSession(transport);
+      const state = {
+        ...session.store.getState(),
+        layers: [
+          {
+            ...movie,
+            center: [10, 20, 30] as [number, number, number],
+            window: [0, 1] as [number, number],
+            opacity: 1,
+          },
+        ],
+        crosshair: [10, 20, 30] as [number, number, number],
+      };
+      const before = session.plane(view, 512, state);
+      const after = session.plane(view, 512, { ...state, crosshair: [13, 25, 37] });
+      for (let axis = 0; axis < 3; axis++) {
+        expect(after.origin_mm[axis] - before.origin_mm[axis]).toBeCloseTo(
+          axis === normalAxis ? [3, 5, 7][axis] : 0,
+        );
+      }
+      expect(after.u_mm).toEqual(before.u_mm);
+      expect(after.v_mm).toEqual(before.v_mm);
+      session.dispose();
+    },
+  );
+});

@@ -851,7 +851,13 @@ export class BrowserSession {
               [0, -fov, 0],
               [0, 0, -fov],
             ];
-    const origin = crosshair.map((c, a) => c - (u[a] + v[a]) / 2) as [number, number, number];
+    // Moving the cursor selects the perpendicular slice; it must not pan the
+    // in-plane image or change the click-to-world mapping.
+    const normalAxis = view === 'axial' ? 2 : view === 'coronal' ? 1 : 0;
+    const center = base?.center ?? [0, 0, 0];
+    const origin = center.map(
+      (c, a) => (a === normalAxis ? crosshair[a] : c) - (u[a] + v[a]) / 2,
+    ) as [number, number, number];
     return {
       origin_mm: origin,
       u_mm: u.map((c) => c / size) as [number, number, number],

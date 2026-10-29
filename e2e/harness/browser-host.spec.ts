@@ -992,3 +992,36 @@ test('fatal worker failure presents a restart action and the viewer loads again'
   await expect.poll(()=>page.locator('main').getAttribute('data-frame-revision').then(Number)).toBeGreaterThan(0);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
+
+for(const view of ['axial','coronal','sagittal'] as const){
+  test(`${view} crosshair clicks move the cursor without translating that image`,async({page})=>{
+    await page.goto(process.env.BROWSER_PREVIEW_URL ? `${process.env.BROWSER_PREVIEW_URL}/browser.html` : '/browser.html');
+    await expect(page.getByRole('button',{name:'Open NIfTI',exact:true})).toBeEnabled();
+    await page.getByLabel('Choose NIfTI file',{exact:true}).setInputFiles(fixture);
+    const revision=()=>page.locator('main').getAttribute('data-frame-revision').then(Number);
+    await expect.poll(revision).toBeGreaterThan(0);
+    const canvas=page.getByRole('region',{name:`${view} slice`,exact:true}).locator('canvas');
+    const capture=()=>canvas.evaluate((canvas:HTMLCanvasElement)=>({
+      width:canvas.width,height:canvas.height,
+      pixels:[...canvas.getContext('2d')!.getImageData(0,0,canvas.width,canvas.height).data],
+    }));
+    const before=await capture();const previous=await revision();
+    const bounds=(await canvas.boundingBox())!;
+    const position={x:bounds.width*0.6,y:bounds.height*0.45};
+    await canvas.click({position});await expect.poll(revision).toBeGreaterThan(previous);
+    const after=await capture();expect([after.width,after.height]).toEqual([before.width,before.height]);
+    let compared=0,changed=0;
+    for(let y=0;y<before.height;y++)for(let x=0;x<before.width;x++){
+      // Exclude only the old/new cursor strokes and their halos. Anatomy must
+      // remain byte-identical in the clicked plane; other views change slices.
+      if([0.5,0.6].some(p=>Math.abs(x-p*before.width)<8)||[0.5,0.45].some(p=>Math.abs(y-p*before.height)<8))continue;
+      const offset=(y*before.width+x)*4;compared++;
+      if(before.pixels.slice(offset,offset+4).some((value,i)=>value!==after.pixels[offset+i]))changed++;
+    }
+    expect(compared).toBeGreaterThan(before.width*before.height/2);
+    expect(changed).toBe(0);
+    const point=await Promise.all(['R','A','S'].map(name=>page.getByRole('spinbutton',{name,exact:true}).inputValue()));
+    await canvas.click({position});
+    for(const [i,name] of ['R','A','S'].entries())await expect(page.getByRole('spinbutton',{name,exact:true})).toHaveValue(point[i]);
+  });
+}
