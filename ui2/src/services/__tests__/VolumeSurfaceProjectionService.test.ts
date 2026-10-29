@@ -69,6 +69,27 @@ describe('VolumeSurfaceProjectionService', () => {
     });
   });
 
+  it('uses shared nearest labels and leaves vertices outside the volume transparent', async () => {
+    const surface = makeSurface('labels');
+    surface.geometry.vertices = new Float32Array([-.5,0,0, 1.5,0,0, .5,0,0]);
+    useSurfaceStore.setState({ surfaces: new Map([[surface.handle, surface]]) });
+    const service = getVolumeSurfaceProjectionService();
+    vi.spyOn(service, 'getVolumeForGPUProjection').mockResolvedValue({
+      volumeData: new Float32Array([1,2]).buffer, dims: [2,1,1],
+      affineMatrix: new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]), dataRange: [1,2],
+    });
+    const result = await service.projectAndDisplay('volume', surface.handle, 'Labels', {
+      useGPUProjection: true,
+      atlasPalette: {
+        lut: {max_label:2,lut_rgb:[0,0,0,255,0,0,0,255,0],background:[0,0,0],kind:'maximin_view',seed:0},
+        legend: [],
+      },
+    });
+    const layer = useSurfaceStore.getState().surfaces.get(surface.handle)!.layers.get(result.id)!;
+    expect([...layer.labels!]).toEqual([1,0,2]);
+    expect([...layer.rgba!]).toEqual([1,0,0,1,0,0,0,0,0,1,0,1]);
+  });
+
   it('selects GPU projection layers in the initiating surface view', async () => {
     const leftSurface = makeSurface('surface-1');
     const rightSurface = makeSurface('surface-2');

@@ -43,7 +43,7 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
 
 ### Common Patterns
 - `WgpuSliceRenderer` is the reusable facade for external apps; keep new public lifecycle features there before exposing raw `RenderLoopService` internals
-- Runtime masked WGSL binds exactly 13 textures; smaller facade capacity requests retain that layout, and requests above 13 return an error before GPU initialization
+- Runtime masked WGSL defaults to 13 volume slots; smaller facade requests retain that desktop layout. `RendererCapacityPolicy::FitAdapter` opts into 1–13 slots resolved against the adapter and optional sampled-texture ceiling. Shared WGSL composition, layout builders and texture manager must use the same resolved capacity. Requests above 13 are rejected; smart texture management requires the fixed desktop layout. Gate: `adaptive_capacity_test` plus `shader_contract_test`.
 - Offscreen rendering (avoids Tauri window handle complexity)
 - Storage buffers for dynamic layer count
 - 3D texture arrays for direct volume sampling

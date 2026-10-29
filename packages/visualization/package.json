@@ -17,6 +17,14 @@
     "./surface": {
       "types": "./dist/surface/index.d.ts",
       "import": "./dist/surface/index.js"
+    },
+    "./surface/camera": {
+      "types": "./dist/surface/cameraState.d.ts",
+      "import": "./dist/surface/cameraState.js"
+    },
+    "./surface/projection": {
+      "types": "./dist/surface/volumeLabels.d.ts",
+      "import": "./dist/surface/volumeLabels.js"
     }
   },
   "scripts": {

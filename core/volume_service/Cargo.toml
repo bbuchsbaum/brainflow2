@@ -6,13 +6,15 @@ publish = false
 
 [features]
 default = []
-web = ["bridge_types/web"]
+web = ["bridge_types/web", "volmath/web"]
 
 [dependencies]
 async-trait = "0.1"
 bridge_types = { path = "../bridge_types" }
 serde = { workspace = true }
+ts-rs = { workspace = true }
+nalgebra = { workspace = true }
+volmath = { path = "../volmath" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "sync"] }
-volmath = { path = "../volmath" }

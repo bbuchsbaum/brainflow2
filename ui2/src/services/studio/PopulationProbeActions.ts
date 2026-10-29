@@ -1,5 +1,10 @@
 import { getTransport } from '@/services/transport';
-import type { PopulationMask, PopulationParticipantDefinition, PopulationProbe } from '@/types/population';
+import type {
+  PopulationMask,
+  PopulationParticipantDefinition,
+  PopulationPreviewTarget,
+  PopulationProbe,
+} from '@/types/population';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
@@ -85,6 +90,17 @@ export const populationProbeActions = {
   },
   configureParticipants(definition: PopulationParticipantDefinition | null) {
     return useSetStudioStore.getState().configurePopulationParticipants(definition);
+  },
+  /** Hold-to-preview is presentation state: it never changes the working
+   * selection, summaries or exports; the lens applies it to its own request. */
+  choosePreviewTarget(target: PopulationPreviewTarget | null) {
+    return useSetStudioStore.getState().setPopulationPreviewTarget(target);
+  },
+  holdPreview() {
+    useSetStudioStore.getState().setPopulationPreviewHolding(true);
+  },
+  releasePreview() {
+    useSetStudioStore.getState().setPopulationPreviewHolding(false);
   },
   focus(id: string) {
     const state = useSetStudioStore.getState();

@@ -3,6 +3,7 @@
  */
 
 import { useEffect } from 'react';
+import { isBrowserHost } from '@/services/applicationHost';
 import { initializeLayerService } from '@/services/LayerService';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
 import { initializeFileLoadingService } from '@/services/FileLoadingService';
@@ -86,16 +87,16 @@ export function useServicesInit() {
         const featureFlags = useFeatureFlagStore.getState();
 
         // Ensure coordinator reflects persisted flag state before any renders
-        setMultiViewBatchEnabled(featureFlags.multiViewBatch);
-        getMosaicRenderService().setBatchRenderEnabled(featureFlags.mosaicBatchRender);
+        setMultiViewBatchEnabled(featureFlags.multiViewBatch && !isBrowserHost());
+        getMosaicRenderService().setBatchRenderEnabled(featureFlags.mosaicBatchRender && !isBrowserHost());
 
         if (!featureFlagSubscription) {
           featureFlagSubscription = useFeatureFlagStore.subscribe((state, previousState) => {
             if (state.multiViewBatch !== previousState.multiViewBatch) {
-              setMultiViewBatchEnabled(state.multiViewBatch);
+              setMultiViewBatchEnabled(state.multiViewBatch && !isBrowserHost());
             }
             if (state.mosaicBatchRender !== previousState.mosaicBatchRender) {
-              getMosaicRenderService().setBatchRenderEnabled(state.mosaicBatchRender);
+              getMosaicRenderService().setBatchRenderEnabled(state.mosaicBatchRender && !isBrowserHost());
             }
           });
         }
@@ -169,7 +170,7 @@ export function useServicesInit() {
         const optimizedRenderService = getOptimizedRenderService();
 
         const { initializeAtlasPressureMonitor } = await import('@/services/AtlasPressureMonitor');
-        const atlasPressureMonitor = initializeAtlasPressureMonitor();
+        const atlasPressureMonitor = isBrowserHost() ? null : initializeAtlasPressureMonitor();
 
         serviceInitDebugLog(
           'Setting up coalescing middleware callback with optimized rendering...',

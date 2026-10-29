@@ -1,4 +1,4 @@
-import { Button, Notice, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
+import { Button, Notice, NumberField, Section, SegmentedControl, Select } from '@/components/ui/bf';
 import { isRegionSource } from '@/services/atlasRegionLookup';
 import { resolveSeriesRegion } from '@/services/series/seriesRegion';
 import { openDockTab } from '@/components/layout/openDockTab';
@@ -22,7 +22,15 @@ import { PlotEncoder } from '@/components/plots/encoder/PlotEncoder';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
-import { resolvePopulation } from '@/services/studio/populationContext';
+import {
+  describePopulationExclusion,
+  resolvePopulation,
+} from '@/services/studio/populationContext';
+import {
+  probeUnavailableIds,
+  resolveStudioObservationStatuses,
+} from '@/services/studio/observationStatus';
+import { populationRelationshipService } from '@/services/studio/PopulationRelationshipService';
 import {
   buildPopulationProbeQuery,
   PopulationProbeController,
@@ -48,6 +56,10 @@ export function PopulationProbePanel({
   const workspaceId = useViewStateStore((state) => state.activeWorkspaceKey);
   const [controller] = useState(() => suppliedController ?? new PopulationProbeController());
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const relationshipSnapshot = useSyncExternalStore(
+    populationRelationshipService.subscribe,
+    populationRelationshipService.getSnapshot,
+  );
   const [pinError, setPinError] = useState<string | null>(null);
   const [previewHover, setPreviewHover] = useState(false);
   const [radius, setRadius] = useState(0);
@@ -227,6 +239,45 @@ export function PopulationProbePanel({
         )
       : 'unknown';
   const current = result?.query.key === definition.query?.key;
+  // Facets come from one resolver; the table never re-derives them. Memoised on
+  // the slices it reads, so hover-probe writes do not recompute it.
+  const { sets, cohorts, selection, activeDesignFilters, populationPreview } = studio;
+  const { working, participants: participantDefinition, partition } = studio.population;
+  const resultRows = result?.frame.rows;
+  const statuses = useMemo(
+    () =>
+      resolveStudioObservationStatuses(
+        {
+          sets,
+          cohorts,
+          selection,
+          activeDesignFilters,
+          populationPreview,
+          population: { working, participants: participantDefinition, partition },
+        },
+        {
+          unavailableAtProbe: resultRows ? probeUnavailableIds(resultRows) : [],
+          unassigned: relationshipSnapshot.fit
+            ? (populationRelationshipService.currentUnassigned() ?? [])
+            : [],
+        },
+      ),
+    [
+      sets,
+      cohorts,
+      selection,
+      activeDesignFilters,
+      populationPreview,
+      working,
+      participantDefinition,
+      partition,
+      resultRows,
+      relationshipSnapshot,
+    ],
+  );
+  // Only previewedOut and exclusion are drawn today; unavailableAtProbe and
+  // unassigned are resolved here for the design pass to present.
+  const previewing = studio.populationPreview.holding;
   const distribution = useMemo(
     () => describePopulationProbe(analysisFrame, analysisSelected, nearZeroLimit),
     [analysisFrame, analysisSelected, nearZeroLimit],
@@ -565,8 +616,18 @@ export function PopulationProbePanel({
                     const source = result.frame.meta?.sources?.find(
                       (source) => source.memberId === id,
                     );
+                    // Preview is transient presentation: muted, struck value and a
+                    // text marker, distinct from the selection box and focus ring.
+                    const status = statuses.byId.get(id);
+                    const previewedOut = previewing && !!status?.previewedOut;
                     return (
-                      <tr key={id}>
+                      <tr
+                        key={id}
+                        data-preview={previewedOut ? 'without' : undefined}
+                        data-unavailable={status?.unavailableAtProbe ? '' : undefined}
+                        data-unassigned={status?.unassigned?.kind}
+                        className={previewedOut ? 'text-bf-text-faint' : undefined}
+                      >
                         <td>
                           <input
                             type="checkbox"
@@ -585,8 +646,11 @@ export function PopulationProbePanel({
                             {id}
                           </Button>
                         </td>
-                        <td>{typeof row.value === 'number' ? row.value.toPrecision(4) : '—'}</td>
+                        <td className={previewedOut ? 'line-through' : undefined}>
+                          {typeof row.value === 'number' ? row.value.toPrecision(4) : '—'}
+                        </td>
                         <td title={source?.sourceRevision?.sha256}>
+                          {previewedOut && <span className="italic">Previewing without · </span>}
                           {source?.error ??
                             (source?.sourceRevision
                               ? 'Snapshot recorded'
@@ -599,6 +663,35 @@ export function PopulationProbePanel({
               </table>
             </div>
           </details>
+          {statuses.outside.length > 0 && (
+            <Section
+              title={`Outside the context (${statuses.outside.length})`}
+              defaultOpen={false}
+              divider={false}
+              className="mt-1"
+              bodyClassName="px-0 pb-1"
+            >
+              {/* Not focusable and never in summaries, selection or exports. */}
+              <div className="max-h-40 overflow-auto text-bf-sm text-muted-foreground">
+                <table className="w-full text-left" aria-label="Observations outside the context">
+                  <thead>
+                    <tr>
+                      <th>Observation</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statuses.outside.map((status) => (
+                      <tr key={status.memberId}>
+                        <td className="font-mono">{status.memberId}</td>
+                        <td>{describePopulationExclusion(status.exclusion!)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          )}
         </>
       )}
     </section>

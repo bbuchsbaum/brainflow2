@@ -1,15 +1,22 @@
 import { PopulationUnitControls } from '../PopulationUnitControls';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { PopulationProbePanel } from '../PopulationProbePanel';
 import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import type { SampleRequest, SampleFrame } from '@/plotting';
+import {
+  populationRelationshipService,
+  type RelationshipRequest,
+} from '@/services/studio/PopulationRelationshipService';
+import { syntheticV2Fit } from '@/services/studio/__tests__/relationshipFixtures';
 
 vi.mock('@/services/SampleProvider', () => ({ sampleProvider: { sample: vi.fn() } }));
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock('@/services/transport', () => ({ getTransport: () => ({ invoke }) }));
 beforeEach(() => {
   useMouseCoordinateStore.getState().clearMousePosition();
   useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
@@ -355,4 +362,106 @@ describe('PopulationProbePanel region locus', () => {
     });
     expect(sample).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('observation status rows', () => {
+  async function pinnedValues() {
+    const result = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+    await screen.findByRole('button', { name: /^sub001: / });
+    return result;
+  }
+
+  it('lists observations outside the context, collapsed, with reasons and no focus targets', async () => {
+    act(() => useSetStudioStore.getState().setActiveScopeCohort('young-controls'));
+    await pinnedValues();
+    const summary = screen.getByText(/Selected mean:/).textContent;
+    const header = screen.getByRole('button', { name: 'Outside the context (4)' });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Outside the scope cohort Young controls')).toBeNull();
+    fireEvent.click(header);
+    const table = screen.getByRole('table', { name: 'Observations outside the context' });
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((row) => row.textContent)).toEqual(
+      ['sub002', 'sub004', 'sub005', 'sub006'].map(
+        (id) => `${id}Outside the scope cohort Young controls`,
+      ),
+    );
+    // Not focusable: no controls, links or tab stops in the outside rows.
+    expect(table.querySelectorAll('button, input, a, select, [tabindex]')).toHaveLength(0);
+    // Excluded observations never enter the summaries.
+    expect(screen.getByText(/Selected mean:/).textContent).toBe(summary);
+    expect(screen.getByText(/2 selected \/ 2 observations/)).toBeInTheDocument();
+  });
+
+  it('reports a whole-context issue once instead of an outside group', async () => {
+    useSetStudioStore.getState().toggleDesignFilter({ column: 'site', value: 'A' });
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toMatch(/metadata/i);
+    expect(screen.queryByRole('button', { name: /Outside the context/ })).toBeNull();
+  });
+
+  it('marks previewed-out rows while a hold-to-preview is active, without changing summaries', async () => {
+    await pinnedValues();
+    const summary = screen.getByText(/Selected mean:/).textContent;
+    const signs = screen.getByTestId('population-sign-counts').textContent;
+    act(() => {
+      populationProbeActions.choosePreviewTarget({ kind: 'set', cohortId: 'cases-site-b' });
+    });
+    expect(document.querySelectorAll('tr[data-preview]')).toHaveLength(0);
+    act(() => populationProbeActions.holdPreview());
+    const marked = [...document.querySelectorAll('tr[data-preview="without"]')];
+    expect(marked.map((row) => row.querySelector('button')?.textContent)).toEqual([
+      'sub004',
+      'sub005',
+      'sub006',
+    ]);
+    expect(marked[0]).toHaveClass('text-bf-text-faint');
+    expect(marked[0].textContent).toContain('Previewing without');
+    // Preview differs in form from selection: the rows stay selected.
+    expect(screen.getByRole('checkbox', { name: 'Select sub004' })).toBeChecked();
+    expect(screen.getByText(/Selected mean:/).textContent).toBe(summary);
+    expect(screen.getByTestId('population-sign-counts').textContent).toBe(signs);
+    act(() => populationProbeActions.releasePreview());
+    expect(document.querySelectorAll('tr[data-preview]')).toHaveLength(0);
+  });
+});
+
+it('resolves unavailable-at-probe and unassigned facets from the sampled values and the current fit', async () => {
+  invoke.mockImplementation(async (command: string, args: { request: RelationshipRequest }) =>
+    command === 'fit_population_relationship' ? syntheticV2Fit(args.request, [1]) : undefined,
+  );
+  await populationRelationshipService.fit('effect');
+  expect(populationRelationshipService.currentUnassigned()?.map((u) => u.memberId)).toEqual([
+    'sub002',
+  ]);
+  const sample = vi.fn(
+    async (request: SampleRequest): Promise<SampleFrame> => ({
+      columns: [
+        { name: 'member', role: 'nominal' },
+        { name: 'value', role: 'quantitative' },
+      ],
+      rows:
+        request.locus.kind === 'set'
+          ? request.locus.members.map((member, i) => ({
+              member: member.memberId,
+              value: i === 2 ? null : i + 1,
+            }))
+          : [],
+    }),
+  );
+  render(<PopulationProbePanel controller={new PopulationProbeController(sample, 0)} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+  await screen.findByRole('button', { name: 'sub001' });
+  const row = (id: string) => screen.getByRole('button', { name: id }).closest('tr')!;
+  expect(row('sub003')).toHaveAttribute('data-unavailable');
+  expect(row('sub001')).not.toHaveAttribute('data-unavailable');
+  expect(row('sub002')).toHaveAttribute('data-unassigned', 'allMissing');
+  expect(row('sub001')).not.toHaveAttribute('data-unassigned');
+  // A stale fit is not usable: the unassigned facet disappears.
+  act(() => populationRelationshipService.resetScope(null));
+  expect(row('sub002')).not.toHaveAttribute('data-unassigned');
 });

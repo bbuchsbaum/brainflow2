@@ -1,0 +1,70 @@
+[
+  {
+    "id": "schaefer2018",
+    "name": "Schaefer 2018",
+    "description": "Cortical parcellations based on connectivity gradients",
+    "citation": "Schaefer et al. (2018). Local-Global Parcellation of the Human Cerebral Cortex. Cerebral Cortex.",
+    "category": "Cortical",
+    "space_families": [
+      "Mni152",
+      "FsAverage"
+    ],
+    "network_options": [
+      7,
+      17
+    ],
+    "parcel_options": [
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900,
+      1000
+    ],
+    "download_size_mb": 15.0
+  },
+  {
+    "id": "glasser2016",
+    "name": "Glasser 2016 (HCP-MMP1.0)",
+    "description": "Human Connectome Project Multi-Modal Parcellation (360 areas)",
+    "citation": "Glasser et al. (2016). A multi-modal parcellation of human cerebral cortex. Nature.",
+    "category": "Cortical",
+    "space_families": [
+      "Mni152",
+      "FsAverage"
+    ],
+    "network_options": null,
+    "parcel_options": null,
+    "download_size_mb": 8.0
+  },
+  {
+    "id": "freesurfer_aseg",
+    "name": "FreeSurfer ASEG",
+    "description": "Automated subcortical segmentation",
+    "citation": "Fischl et al. (2002). Whole brain segmentation. Neuron.",
+    "category": "Subcortical",
+    "space_families": [
+      "Mni152"
+    ],
+    "network_options": null,
+    "parcel_options": null,
+    "download_size_mb": 5.0
+  },
+  {
+    "id": "olsen_mtl",
+    "name": "Olsen MTL",
+    "description": "High-resolution medial temporal lobe parcellation",
+    "citation": "Olsen et al. MTL parcellation atlas.",
+    "category": "Specialized",
+    "space_families": [
+      "Mni152"
+    ],
+    "network_options": null,
+    "parcel_options": null,
+    "download_size_mb": 3.0
+  }
+]

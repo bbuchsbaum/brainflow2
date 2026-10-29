@@ -1,0 +1,51 @@
+name: Browser preview build
+
+on:
+  push:
+    branches: [neurotabs/w3-status, 'browser/**']
+  pull_request:
+    paths: ['core/**', 'ui2/**', 'packages/**', 'tools/build-browser.mjs', 'tools/prepare-browser-catalog.mjs', 'Cargo.*', 'pnpm-lock.yaml', '.github/workflows/browser-preview.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate private Rust dependencies
+        env:
+          CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+        run: |
+          git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Install matching wasm-bindgen CLI
+        run: |
+          curl --fail --location --retry 3 https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.100/wasm-bindgen-0.2.100-x86_64-unknown-linux-musl.tar.gz -o /tmp/wasm-bindgen.tar.gz
+          tar -xzf /tmp/wasm-bindgen.tar.gz -C /tmp
+          echo "/tmp/wasm-bindgen-0.2.100-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+      - name: Build WASM and production PWA
+        run: pnpm --filter temp-ui build:browser
+      - name: Browser lifecycle unit tests
+        run: pnpm --filter temp-ui exec vitest run src/services/browser
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-preview-${{ github.sha }}
+          path: ui2/dist-browser/
+          if-no-files-found: error

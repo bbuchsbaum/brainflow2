@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 default = []
+web = ["volmath/web"]
 hot-reload = []
 precomputed-shader = []
 typed-shaders = ["dep:encase", "wgsl_to_wgpu"]
@@ -32,10 +33,13 @@ render_contracts = { path = "../render_contracts" } # Transport-neutral render r
 half = { version = "2.3", features = ["serde", "bytemuck"] } # For R16Float texture format
 image = "0.24" # For saving rendered images
 clap = { version = "4", features = ["derive"] } # For command line parsing
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # For async runtime
+web-time = "1.1" # Native std clocks; browser Performance/Date clocks on WASM
 flume = "0.11" # For async channel communication
 log = "0.4" # For logging
 encase = { version = "0.12", optional = true } # Generated shader structs (typed path)
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # Native dev binaries
 
 [build-dependencies]
 # wgsl_to_wgpu = "0.13.1" # Version compatible with wgpu 0.24

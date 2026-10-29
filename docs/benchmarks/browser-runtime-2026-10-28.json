@@ -1,0 +1,292 @@
+{
+  "sourceRevision": "f7b602ebcec7be3a6c43169e3e6ccf01cb2016ba",
+  "changeUnderTest": "Replace the browser clamped RGBA copy with a view over the decoder-owned buffer. Benchmark compares both constructions in one run.",
+  "hardware": "Apple M3 Max",
+  "os": "macOS 14.3",
+  "browser": "Chromium 156.0.8078.4, Metal",
+  "samplesPerCase": 30,
+  "fixture": "test-data/browser/oblique.nii",
+  "fixtureSha256": "f376971368936a10583947a79a74e95606c22660f22faf3de222e825909dfa52",
+  "navigationDevelopmentMs": 608.916541,
+  "freshWorkerInitializeMs": 15.300000011920929,
+  "loadSmallFixtureMs": 4.600000023841858,
+  "cases": [
+    {
+      "size": 128,
+      "construction": "copy",
+      "rgbaBytes": 65536,
+      "first": {
+        "roundtripMs": 9.199999988079071,
+        "decodeCopyMs": 0,
+        "clampedCopyMs": 0,
+        "bitmapMs": 0.19999998807907104,
+        "totalMs": 9.399999976158142
+      },
+      "warm": {
+        "roundtripMs": {
+          "medianMs": 0.7000000029802322,
+          "p95Ms": 1.2999999821186066
+        },
+        "decodeCopyMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0.09999999403953552
+        },
+        "clampedCopyMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0.10000002384185791
+        },
+        "bitmapMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0.09999999403953552
+        },
+        "totalMs": {
+          "medianMs": 0.800000011920929,
+          "p95Ms": 1.300000011920929
+        }
+      },
+      "workerRender": {
+        "medianMs": 0.699999988079071,
+        "p95Ms": 1.100000023841858
+      },
+      "gpuMapWait": {
+        "medianMs": 0.5,
+        "p95Ms": 0.8999999761581421
+      }
+    },
+    {
+      "size": 128,
+      "construction": "view",
+      "rgbaBytes": 65536,
+      "first": {
+        "roundtripMs": 0.5999999940395355,
+        "decodeCopyMs": 0,
+        "clampedCopyMs": 0,
+        "bitmapMs": 0,
+        "totalMs": 0.5999999940395355
+      },
+      "warm": {
+        "roundtripMs": {
+          "medianMs": 0.699999988079071,
+          "p95Ms": 0.800000011920929
+        },
+        "decodeCopyMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0.09999999403953552
+        },
+        "clampedCopyMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0
+        },
+        "bitmapMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0.09999999403953552
+        },
+        "totalMs": {
+          "medianMs": 0.699999988079071,
+          "p95Ms": 0.9000000059604645
+        }
+      },
+      "workerRender": {
+        "medianMs": 0.6000000238418579,
+        "p95Ms": 0.800000011920929
+      },
+      "gpuMapWait": {
+        "medianMs": 0.45000000298023224,
+        "p95Ms": 0.5
+      }
+    },
+    {
+      "size": 512,
+      "construction": "copy",
+      "rgbaBytes": 1048576,
+      "first": {
+        "roundtripMs": 1.5,
+        "decodeCopyMs": 0.19999998807907104,
+        "clampedCopyMs": 0.4000000059604645,
+        "bitmapMs": 0.4000000059604645,
+        "totalMs": 2.5
+      },
+      "warm": {
+        "roundtripMs": {
+          "medianMs": 1.5999999940395355,
+          "p95Ms": 1.9000000059604645
+        },
+        "decodeCopyMs": {
+          "medianMs": 0.20000001788139343,
+          "p95Ms": 0.30000001192092896
+        },
+        "clampedCopyMs": {
+          "medianMs": 0.3999999910593033,
+          "p95Ms": 0.4000000059604645
+        },
+        "bitmapMs": {
+          "medianMs": 0.3999999761581421,
+          "p95Ms": 0.4000000059604645
+        },
+        "totalMs": {
+          "medianMs": 2.5,
+          "p95Ms": 3.199999988079071
+        }
+      },
+      "workerRender": {
+        "medianMs": 1.5,
+        "p95Ms": 1.7000000178813934
+      },
+      "gpuMapWait": {
+        "medianMs": 1.0999999940395355,
+        "p95Ms": 1.2000000178813934
+      }
+    },
+    {
+      "size": 512,
+      "construction": "view",
+      "rgbaBytes": 1048576,
+      "first": {
+        "roundtripMs": 1.5,
+        "decodeCopyMs": 0.30000001192092896,
+        "clampedCopyMs": 0,
+        "bitmapMs": 0.30000001192092896,
+        "totalMs": 2.100000023841858
+      },
+      "warm": {
+        "roundtripMs": {
+          "medianMs": 1.0999999940395355,
+          "p95Ms": 1.5999999940395355
+        },
+        "decodeCopyMs": {
+          "medianMs": 0.19999998807907104,
+          "p95Ms": 0.29999998211860657
+        },
+        "clampedCopyMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0
+        },
+        "bitmapMs": {
+          "medianMs": 0.4000000059604645,
+          "p95Ms": 0.4000000059604645
+        },
+        "totalMs": {
+          "medianMs": 1.699999988079071,
+          "p95Ms": 2.199999988079071
+        }
+      },
+      "workerRender": {
+        "medianMs": 1.0999999940395355,
+        "p95Ms": 1.300000011920929
+      },
+      "gpuMapWait": {
+        "medianMs": 0.699999988079071,
+        "p95Ms": 0.9000000059604645
+      }
+    },
+    {
+      "size": 1024,
+      "construction": "copy",
+      "rgbaBytes": 4194304,
+      "first": {
+        "roundtripMs": 4.200000017881393,
+        "decodeCopyMs": 0.699999988079071,
+        "clampedCopyMs": 1.300000011920929,
+        "bitmapMs": 1.2999999821186066,
+        "totalMs": 7.5
+      },
+      "warm": {
+        "roundtripMs": {
+          "medianMs": 3.0999999940395355,
+          "p95Ms": 3.4000000059604645
+        },
+        "decodeCopyMs": {
+          "medianMs": 0.7000000178813934,
+          "p95Ms": 1
+        },
+        "clampedCopyMs": {
+          "medianMs": 1.4000000059604645,
+          "p95Ms": 1.5
+        },
+        "bitmapMs": {
+          "medianMs": 1.4000000059604645,
+          "p95Ms": 1.5
+        },
+        "totalMs": {
+          "medianMs": 6.699999988079071,
+          "p95Ms": 7.200000017881393
+        }
+      },
+      "workerRender": {
+        "medianMs": 3.0,
+        "p95Ms": 3.2999999821186066
+      },
+      "gpuMapWait": {
+        "medianMs": 1.7999999821186066,
+        "p95Ms": 1.9000000059604645
+      }
+    },
+    {
+      "size": 1024,
+      "construction": "view",
+      "rgbaBytes": 4194304,
+      "first": {
+        "roundtripMs": 3.199999988079071,
+        "decodeCopyMs": 0.7000000178813934,
+        "clampedCopyMs": 0,
+        "bitmapMs": 1.2999999821186066,
+        "totalMs": 5.199999988079071
+      },
+      "warm": {
+        "roundtripMs": {
+          "medianMs": 3.1000000089406967,
+          "p95Ms": 3.7000000178813934
+        },
+        "decodeCopyMs": {
+          "medianMs": 0.7000000178813934,
+          "p95Ms": 1.4000000059604645
+        },
+        "clampedCopyMs": {
+          "medianMs": 0.0,
+          "p95Ms": 0
+        },
+        "bitmapMs": {
+          "medianMs": 1.4000000059604645,
+          "p95Ms": 1.5999999940395355
+        },
+        "totalMs": {
+          "medianMs": 5.300000011920929,
+          "p95Ms": 6
+        }
+      },
+      "workerRender": {
+        "medianMs": 3.0,
+        "p95Ms": 3.5
+      },
+      "gpuMapWait": {
+        "medianMs": 1.7999999970197678,
+        "p95Ms": 2.0999999940395355
+      }
+    }
+  ],
+  "wasmHeap": {
+    "initialBytes": 1441792,
+    "afterRenderingBytes": 17694720,
+    "afterEach27MiBLoadUnloadBytes": [
+      159580160,
+      159580160,
+      159580160,
+      159580160,
+      159580160
+    ],
+    "afterTwo96MiBVolumesAndRejectedThirdBytes": 763953152
+  },
+  "residentBudget": {
+    "loadAndRejectMs": 1624.5,
+    "error": "Error: Invalid Input: Workspace exceeds the 64 million resident voxel limit; unload an image first",
+    "loaded": {
+      "palettes": 0,
+      "stagingBuffers": 0,
+      "stagingBytes": 0,
+      "volumes": 2
+    }
+  },
+  "limits": "Single Mac Chromium/Metal; navigation has empty browser HTTP cache but local server/OS caches uncontrolled. mapAsync includes queue wait and mapping, not GPU-only time. WASM heap capacity is retained allocation, not process RSS. 30 warm samples per size.",
+  "rawReceipt": "cruft/browser-completion/performance-resident/browser-performance-measur-a8360-py-stages-and-retained-heap/performance.json",
+  "rawReceiptSha256": "ba276af359cf2ee47509da58d6f0a8b85030123928d776151b5759ac10423b5e"
+}

@@ -236,6 +236,9 @@ jobs:
     - name: Check portable volume lifecycle
       run: cargo check --locked --package volume_service --lib --features web --target wasm32-unknown-unknown
 
+    - name: Check browser renderer and host
+      run: cargo check --locked --package browser_host --lib --target wasm32-unknown-unknown
+
     - name: Build volmath for JavaScript-hosted WASM
       run: cargo build --locked --package volmath --lib --features web --target wasm32-unknown-unknown --verbose
 

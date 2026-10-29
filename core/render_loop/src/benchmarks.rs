@@ -1,7 +1,7 @@
 // Performance benchmarking utilities for render loop
 
 use std::collections::VecDeque;
-use std::time::Instant;
+use web_time::Instant;
 
 /// Simple frame time tracker for performance monitoring
 #[derive(Debug, Clone)]

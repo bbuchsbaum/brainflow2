@@ -29,7 +29,9 @@ import { createMaterializationSlice } from './setStudio/materializationSlice';
 import type { SetStudioMaterializationSlice } from './setStudio/materializationSlice';
 import {
   createPopulationSlice,
+  INITIAL_POPULATION_PREVIEW,
   initialPopulationState,
+  populationPreviewContextChanged,
   type PopulationSlice,
 } from './setStudio/populationSlice';
 
@@ -329,6 +331,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   importRequestState: createInitialImportRequestState(),
   selection: DEFAULT_SELECTION,
   population: initialPopulationState(),
+  populationPreview: INITIAL_POPULATION_PREVIEW,
   materialization: DEFAULT_MATERIALIZATION,
   comparePaneSpecs: [],
   comparePaneLoading: false,
@@ -363,6 +366,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         ...structuredClone(payload.population ?? {}),
         sessionRevision: get().population.sessionRevision + 1,
       },
+      populationPreview: INITIAL_POPULATION_PREVIEW,
       sets: {
         ...get().sets,
         [payload.set.id]: payload.set,
@@ -921,3 +925,22 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     });
   },
 }));
+
+// Hold-to-preview is presentation state owned by the current context: a
+// session reset clears it (bootstrapStudio); a dataset or context change
+// releases the hold and drops a target that no longer resolves. This runs
+// after the change that caused it, never during render.
+useSetStudioStore.subscribe((state, previous) => {
+  const preview = state.populationPreview;
+  if (preview.target === null && !preview.holding) return;
+  const contextChanged = populationPreviewContextChanged(state, previous);
+  if (
+    contextChanged ||
+    state.sets !== previous.sets ||
+    state.cohorts !== previous.cohorts ||
+    state.selection.activeSetId !== previous.selection.activeSetId ||
+    state.population.partition !== previous.population.partition ||
+    state.population.participants !== previous.population.participants
+  )
+    state.reconcilePopulationPreview(contextChanged);
+});

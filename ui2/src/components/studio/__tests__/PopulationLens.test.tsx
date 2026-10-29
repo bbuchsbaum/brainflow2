@@ -274,3 +274,55 @@ it('previews exclusion of all focused participant rows and restores participant 
   await screen.findByText('Mean · 3 participants');
   expect(service.getSnapshot().displayed?.query.request.workingMemberIds).toEqual(set.memberIds);
 });
+
+it('shows a lens hold-to-preview in a values table mounted in a separate React root', async () => {
+  const { service } = setup();
+  const controller = new PopulationProbeController(
+    vi.fn(async (request) => ({
+      columns: [
+        { name: 'member', role: 'nominal' as const },
+        { name: 'value', role: 'quantitative' as const },
+      ],
+      rows: request.locus.members.map((member: { memberId: string }, i: number) => ({
+        member: member.memberId,
+        value: i + 1,
+      })),
+    })),
+    0,
+  );
+  // GoldenLayout panels have separate roots; render the table into its own.
+  const table = render(<PopulationProbePanel controller={controller} />, {
+    container: document.body.appendChild(document.createElement('div')),
+  });
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  fireEvent.click(table.getByRole('button', { name: 'Pin crosshair' }));
+  await table.findByRole('button', { name: 'sub003' });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Preview exclusion unit' }), {
+    target: { value: 'set:young-controls' },
+  });
+  expect(useSetStudioStore.getState().populationPreview.target).toEqual({
+    kind: 'set',
+    cohortId: 'young-controls',
+  });
+  const button = screen.getByRole('button', {
+    name: 'Hold to preview without Young controls (2 observations)',
+  });
+  fireEvent.keyDown(button, { key: ' ' });
+  await waitFor(() =>
+    expect(service.getSnapshot().displayed?.query.request.workingMemberIds).not.toContain(
+      'sub001',
+    ),
+  );
+  const marked = () =>
+    [...table.container.querySelectorAll('tr[data-preview="without"]')].map(
+      (row) => row.querySelector('button')?.textContent,
+    );
+  expect(marked()).toEqual(['sub001', 'sub003']);
+  fireEvent.keyUp(button, { key: ' ' });
+  expect(marked()).toEqual([]);
+  // Closing the lens while held never leaves a stale preview behind.
+  fireEvent.keyDown(button, { key: ' ' });
+  expect(useSetStudioStore.getState().populationPreview.holding).toBe(true);
+  cleanup();
+  expect(useSetStudioStore.getState().populationPreview.holding).toBe(false);
+});

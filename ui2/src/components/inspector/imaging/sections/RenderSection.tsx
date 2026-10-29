@@ -1,19 +1,17 @@
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { ThresholdText } from "@/components/ui/ThresholdText";
 import { noteUserVisibility } from "@/services/series/visibilityIntent";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import { statisticUnits, statisticVariable } from "@/utils/statistic";
 import { sameStatisticLayerIds } from "@/utils/compareSharedWindow";
 import { DEFAULT_LABEL_OUTLINE, labelDisplayOf, type LabelDisplay } from "@/utils/labelDisplay";
-import React, { useEffect, useId, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import type { OutlineColorMode } from "@/types/viewState";
 import { useSurfaceStore } from "@/stores/surfaceStore";
-import { ColormapPicker } from "@/components/ui/ColormapPicker";
+import { DisplayRange as InspectorRange, ColormapControl as ColormapBlock, OpacityControl } from "@/components/ui/ImagingControls";
 import {
   isThresholdActive,
-  thresholdWording,
 } from "@/components/views/viewportFrame/frameFormat";
 import { useDisplayOptionsStore } from "@/stores/displayOptionsStore";
 import type { SceneItem } from "@/types/sceneItem";
@@ -22,16 +20,12 @@ import {
   ColorInput,
   FieldRow,
   KeyValue,
-  RangeSlider,
   Section,
   focusFallback,
   SegmentedControl,
   Select,
   Slider as BfSlider,
   Switch,
-  SLIDER_THUMB_INSET_PX,
-  ValueChip,
-  ValueChipError,
 } from "@/components/ui/bf";
 import { AtlasPaletteService } from "@/services/AtlasPaletteService";
 import {
@@ -83,9 +77,6 @@ export function RenderSection({ item }: RenderSectionProps) {
   );
 }
 
-/** Opacity as the old native range stored it: snapped to the 0.01 grid. */
-const toPercentStep = (v: number) => Math.round(v * 100) / 100;
-const formatPercent = (v: number) => `${Math.round(v * 100)}%`;
 const formatPx = (v: number) => `${Math.round(v)} px`;
 
 function capitalize(text: string): string {
@@ -259,21 +250,7 @@ function VolumeRenderRows({
         />
       </FieldRow>
 
-      <FieldRow label="Opacity">
-        <BfSlider
-          label="Opacity"
-          value={opacity}
-          min={0}
-          max={1}
-          step={0.01}
-          snap={0.01}
-          format={formatPercent}
-          valueText={formatPercent}
-          showValue
-          className="flex-1"
-          onValueChange={(v) => setLayerField("opacity", toPercentStep(v))}
-        />
-      </FieldRow>
+      <OpacityControl value={opacity} onChange={(v) => setLayerField("opacity", v)} />
 
       {/* Label volumes are categorical: colours come from the label table,
           so there is no intensity window or threshold to set. */}
@@ -478,124 +455,6 @@ function VolumeRenderRows({
   );
 }
 
-/**
- * Intensity / Threshold: a stacked field row holding the shared RangeSlider
- * (data-range marks under the track, the threshold's hidden band + colorbar
- * caption) with a compact "low to high" readout of editable value chips
- * right-aligned on the label line, above the track.
- *
- * Behaviour carried over from the former RangeBlock:
- * - the value clamp and the ruler are the caller's shared ruler [min, max],
- *   frozen during an interaction (the slider's own freeze plus
- *   `onInteraction` for the other range and the colormap strip);
- * - keyboard steps are span / 200 of that ruler, never snapped (`step="any"`);
- *   Home / End reach the ruler's exact ends; low ≤ high;
- * - a change that leaves both ends as they are writes nothing.
- */
-function InspectorRange({
-  label,
-  low,
-  high,
-  min,
-  max,
-  dataRange = null,
-  mode = "shown",
-  symbol = "value",
-  onInteraction,
-  onChange,
-}: {
-  label: string;
-  low: number;
-  high: number;
-  min: number;
-  max: number;
-  dataRange?: readonly [number, number] | null;
-  mode?: "shown" | "hidden";
-  /** Variable named in the hidden-band wording ("z", default "value"). */
-  symbol?: string;
-  onInteraction?: (active: boolean, domain: readonly [number, number]) => void;
-  onChange: (low: number, high: number) => void;
-}) {
-  const wording = mode === "hidden" ? thresholdWording([low, high], symbol) : null;
-  // An invalid chip draft reports here; its message renders in flow UNDER
-  // the slider (never floated over the track and thumbs).
-  const [invalidEnds, setInvalidEnds] = useState<{ low: boolean; high: boolean }>({
-    low: false,
-    high: false,
-  });
-  const chipErrorId = `${useId().replace(/:/g, "")}-chip-error`;
-  const commit = (nextLow: number, nextHigh: number) => {
-    if (Object.is(nextLow, low) && Object.is(nextHigh, high)) return;
-    onChange(nextLow, nextHigh);
-  };
-  // Compact readout on the label line, right-aligned: "33.51 to 249.35",
-  // both ends editable chips (clamped to the ruler, low ≤ high). Kept off the
-  // track ends so the numbers never read as the ruler's domain.
-  const readout = (
-    <span
-      dir="ltr"
-      data-testid="range-readout"
-      className="flex items-baseline gap-1 [unicode-bidi:isolate]"
-    >
-      <ValueChip
-        value={low}
-        label={`${label} low`}
-        min={min}
-        max={max}
-        align="end"
-        errorId={chipErrorId}
-        onInvalidChange={(bad) =>
-          setInvalidEnds((prev) => (prev.low === bad ? prev : { ...prev, low: bad }))
-        }
-        onCommit={(v) => commit(Math.min(v, high), high)}
-      />
-      <span aria-hidden className="font-sans">to</span>
-      <ValueChip
-        value={high}
-        label={`${label} high`}
-        min={min}
-        max={max}
-        align="end"
-        errorId={chipErrorId}
-        onInvalidChange={(bad) =>
-          setInvalidEnds((prev) => (prev.high === bad ? prev : { ...prev, high: bad }))
-        }
-        onCommit={(v) => commit(low, Math.max(v, low))}
-      />
-    </span>
-  );
-  return (
-    <div>
-    <FieldRow label={label} layout="stacked" meta={readout}>
-      <RangeSlider
-        label={label}
-        value={[low, high]}
-        min={min}
-        max={max}
-        mode={mode}
-        // Same rule as the colorbar: [0, 0] / [0, 100] hide nothing (no hatch).
-        hiddenActive={mode === "hidden" ? isThresholdActive([low, high]) : undefined}
-        dataRange={dataRange}
-        className="flex-1"
-        caption={
-          wording ? (
-            <span
-              data-testid="threshold-caption"
-              className="block text-right"
-            >
-              <ThresholdText line={wording} variable={symbol ?? 'value'} />
-            </span>
-          ) : undefined
-        }
-        onInteraction={onInteraction}
-        onValueChange={([nextLow, nextHigh]) => commit(nextLow, nextHigh)}
-      />
-    </FieldRow>
-    <ValueChipError id={chipErrorId} show={invalidEnds.low || invalidEnds.high} />
-    </div>
-  );
-}
-
 const DEFAULT_OUTLINE = DEFAULT_LABEL_OUTLINE;
 
 function rgbaToHex(rgba: [number, number, number, number]): string {
@@ -777,21 +636,7 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
           <FieldRow label="Visible">
             <Switch checked={layer.visible !== false} onCheckedChange={(v) => update('visible', v)} />
           </FieldRow>
-          <FieldRow label="Opacity">
-            <BfSlider
-              label="Opacity"
-              value={layer.opacity}
-              min={0}
-              max={1}
-              step={0.01}
-              snap={0.01}
-              format={formatPercent}
-              valueText={formatPercent}
-              showValue
-              className="flex-1"
-              onValueChange={(v) => update('opacity', toPercentStep(v))}
-            />
-          </FieldRow>
+          <OpacityControl value={layer.opacity} onChange={(v) => update('opacity', v)} />
           <InspectorRange
             label="Intensity"
             low={layer.range[0]}
@@ -891,47 +736,6 @@ function OverrideMark({
 }
 
 // ── colormap ────────────────────────────────────────────────────────────────
-
-/**
- * The enhanced ColormapPicker variant renders its own "COLORMAP <name>" label
- * row above a thin gradient button — fits the inspector's typography exactly.
- * Let the picker own the whole row so the chrome doesn't collide.
- */
-function ColormapBlock({
-  value,
-  onChange,
-  hiddenBand: band = null,
-  windowSpan = null,
-}: {
-  windowSpan?: readonly [number, number] | null;
-  value: string;
-  onChange: (next: string) => void;
-  hiddenBand?: readonly [number, number] | null;
-}) {
-  // The strip's gradient spans its padding box (inside a 1px border). Inset
-  // the border box so that box lands on the sliders' ruler box, which is
-  // inset by SLIDER_THUMB_INSET_PX: one value, one x on all three.
-  // Forced colors: the strip is data colour, so its trigger (the only button
-  // here; the picker's list portals out) opts out of colour forcing, or the
-  // gradient is dropped and the strip renders as an empty box.
-  return (
-    <div
-      className="py-1 [&>div]:!mb-0 [&_button]:[forced-color-adjust:none]"
-      style={{
-        paddingLeft: SLIDER_THUMB_INSET_PX - 1,
-        paddingRight: SLIDER_THUMB_INSET_PX - 1,
-      }}
-    >
-      <ColormapPicker
-        value={value}
-        onChange={onChange}
-        variant="enhanced"
-        hiddenBand={band}
-        windowSpan={windowSpan}
-      />
-    </div>
-  );
-}
 
 // ── shared ruler ────────────────────────────────────────────────────────────
 

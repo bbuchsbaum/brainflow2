@@ -16,13 +16,120 @@ pub mod typed {
 /// The explicit marker keeps unrelated shaders unchanged and permits the same
 /// on-disk slice source to be used by the shader watcher.
 pub fn compose_shader_source(source: &str) -> Cow<'_, str> {
-    const MARKER: &str = "// @include fullscreen_vertex";
-    if !source.contains("fn fullscreen_vertex(") && source.lines().any(|line| line.trim() == MARKER)
-    {
-        Cow::Owned(source.replacen(MARKER, sources::FULLSCREEN_VERTEX, 1))
-    } else {
-        Cow::Borrowed(source)
+    compose_shader_source_with_capacity(source, crate::shader_contract::texture::MAX_TEXTURES)
+        .expect("canonical shader capacity is valid")
+}
+
+/// Expand resource packing and explicit sampling switches from one binding
+/// contract. Scientific geometry, thresholding, interpolation choice and
+/// compositing remain in the authoritative WGSL fragments for every host.
+pub fn compose_shader_source_with_capacity(
+    source: &str,
+    capacity: u32,
+) -> Result<Cow<'_, str>, ShaderError> {
+    if capacity == 0 || capacity > crate::shader_contract::texture::MAX_TEXTURES {
+        return Err(ShaderError::ValidationError(format!(
+            "Unsupported shader texture capacity: {capacity}"
+        )));
     }
+    if !source
+        .lines()
+        .any(|line| line.trim().starts_with("// @include "))
+    {
+        return Ok(Cow::Borrowed(source));
+    }
+    let mut output = String::new();
+    for line in source.split_inclusive('\n') {
+        match line.trim() {
+            "// @include fullscreen_vertex" if !source.contains("fn fullscreen_vertex(") => {
+                output.push_str(sources::FULLSCREEN_VERTEX)
+            }
+            "// @include texture_bindings" => output.push_str(&texture_bindings_source(capacity)),
+            "// @include sample_volume" => {
+                output.push_str(&volume_sampling_source(capacity, false))
+            }
+            "// @include sample_volume_optimized" => {
+                output.push_str(&volume_sampling_source(capacity, true))
+            }
+            "// @include sample_mask" => {
+                output.push_str(
+                    "fn sampleMaskTexture(texture_index: u32, coord: vec3<f32>) -> f32 {\n",
+                );
+                append_sampling_switch(
+                    &mut output,
+                    capacity,
+                    "maskTexture",
+                    "samplerNearest",
+                    "0.0",
+                    "1.0",
+                );
+                output.push_str("}\n");
+            }
+            _ => output.push_str(line),
+        }
+    }
+    Ok(Cow::Owned(output))
+}
+
+fn texture_bindings_source(capacity: u32) -> String {
+    let b = crate::shader_contract::texture::bindings(capacity);
+    let mut out = String::new();
+    for (name, base) in [
+        ("volumeTexture", b.volume_base),
+        ("maskTexture", b.mask_base),
+    ] {
+        for i in 0..capacity {
+            out.push_str(&format!(
+                "@group(2) @binding({}) var {name}{i}: texture_3d<f32>;\n",
+                base + i
+            ));
+        }
+    }
+    out.push_str(&format!("@group(2) @binding({}) var samplerLinear: sampler;\n@group(2) @binding({}) var colormapLutTexture: texture_2d_array<f32>;\n@group(2) @binding({}) var samplerNearest: sampler;\n",b.sampler_linear,b.colormap_lut,b.sampler_nearest));
+    out
+}
+
+fn append_sampling_switch(
+    out: &mut String,
+    capacity: u32,
+    texture: &str,
+    sampler: &str,
+    lod: &str,
+    fallback: &str,
+) {
+    out.push_str("switch (texture_index) {\n");
+    for i in 0..capacity {
+        out.push_str(&format!("case {i}u: {{ return textureSampleLevel({texture}{i}, {sampler}, coord, {lod}).r; }}\n"));
+    }
+    out.push_str(&format!("default: {{ return {fallback}; }}\n}}\n"));
+}
+
+fn volume_sampling_source(capacity: u32, optimized: bool) -> String {
+    let (name, parameter, lod) = if optimized {
+        ("sampleVolumeTextureOptimized", "lod: f32, ", "lod")
+    } else {
+        ("sampleVolumeTexture", "", "0.0")
+    };
+    let mut out = format!("fn {name}(texture_index: u32, coord: vec3<f32>, {parameter}interpolation_mode: u32) -> f32 {{\nif (interpolation_mode == 0u) {{\n");
+    append_sampling_switch(
+        &mut out,
+        capacity,
+        "volumeTexture",
+        "samplerNearest",
+        lod,
+        "0.0",
+    );
+    out.push_str("} else {\n");
+    append_sampling_switch(
+        &mut out,
+        capacity,
+        "volumeTexture",
+        "samplerLinear",
+        lod,
+        "0.0",
+    );
+    out.push_str("}\n}\n");
+    out
 }
 
 /// Shader loading errors
@@ -47,6 +154,7 @@ pub struct ShaderValidation {
 /// Manages runtime loading and caching of WGSL shaders
 pub struct ShaderManager {
     shaders: HashMap<String, ShaderModule>,
+    texture_capacity: u32,
 }
 
 impl Default for ShaderManager {
@@ -59,7 +167,16 @@ impl ShaderManager {
     pub fn new() -> Self {
         Self {
             shaders: HashMap::new(),
+            texture_capacity: crate::shader_contract::texture::MAX_TEXTURES,
         }
+    }
+
+    pub fn with_texture_capacity(texture_capacity: u32) -> Result<Self, ShaderError> {
+        compose_shader_source_with_capacity("", texture_capacity)?;
+        Ok(Self {
+            shaders: HashMap::new(),
+            texture_capacity,
+        })
     }
 
     /// Register a shader module that was created externally (e.g. via wgsl_to_wgpu).
@@ -77,7 +194,10 @@ impl ShaderManager {
         if !self.shaders.contains_key(name) {
             let module = device.create_shader_module(ShaderModuleDescriptor {
                 label: Some(name),
-                source: ShaderSource::Wgsl(compose_shader_source(source)),
+                source: ShaderSource::Wgsl(compose_shader_source_with_capacity(
+                    source,
+                    self.texture_capacity,
+                )?),
             });
             self.shaders.insert(name.to_string(), module);
         }
@@ -196,7 +316,10 @@ impl ShaderManager {
         source: &str,
     ) -> Result<(&ShaderModule, ShaderValidation), ShaderError> {
         // Validate first
-        let validation = Self::validate_shader(&compose_shader_source(source), name);
+        let validation = Self::validate_shader(
+            &compose_shader_source_with_capacity(source, self.texture_capacity)?,
+            name,
+        );
 
         if !validation.valid {
             return Err(ShaderError::ValidationError(validation.errors.join("; ")));

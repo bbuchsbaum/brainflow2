@@ -11,7 +11,7 @@ import '@fontsource/ibm-plex-sans/600.css';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import './index.css';
-import App from './App.tsx';
+import { selectApplicationHost } from './services/applicationHost';
 import { installNumericInputGuard } from './utils/numericInput';
 
 console.log('[main.tsx] React app starting...');
@@ -58,18 +58,24 @@ installNumericInputGuard(document);
 
 const root = ReactDOM.createRoot(rootElement);
 
-// Render the app
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
-
-// [perf] Two rAFs land after the browser has committed the first paint.
-if (typeof requestAnimationFrame !== 'undefined' && typeof performance !== 'undefined') {
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() =>
-      console.log(`[perf][startup] nav -> first paint: ${performance.now().toFixed(0)} ms`),
-    ),
-  );
-}
+// Host selection precedes App imports: its services capture the transport.
+void selectApplicationHost()
+  .then(async () => {
+    const { default: App } = await import('./App.tsx');
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>,
+    );
+    // [perf] Two rAFs land after the browser has committed the first paint.
+    if (typeof requestAnimationFrame !== 'undefined' && typeof performance !== 'undefined') {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          console.log(`[perf][startup] nav -> first paint: ${performance.now().toFixed(0)} ms`),
+        ),
+      );
+    }
+  })
+  .catch((error) => {
+    root.render(<div role="alert">{String(error)}</div>);
+  });

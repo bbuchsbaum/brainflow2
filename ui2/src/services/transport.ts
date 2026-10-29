@@ -9,12 +9,26 @@ import { apiBridgeCommands, configureInvoker } from '@brainflow/api';
 export type { InvokeOptions };
 
 export interface BackendTransport {
+  readonly host?: 'desktop' | 'browser';
+  request?<T>(cmd: string, args?: unknown, signal?: AbortSignal): Promise<T>;
+  readonly capabilities?: {
+    nativePaths: boolean;
+    remoteMounts: boolean;
+    externalProcesses: boolean;
+  };
   /**
    * `args` is a JSON object, or a `Uint8Array` raw body for commands that take
    * bulk bytes (`save_image_bytes`, `export_population_plot`); their string
    * arguments then travel as `options.headers` (see `rawBodyHeaders`).
    */
   invoke<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T>;
+}
+
+/** Domain services use the selected host, including explicit unsupported errors
+ * from browser hosts. Native plugin-qualified command names remain compatible.
+ */
+export function invokeBackend<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T> {
+  return getTransport().invoke<T>(cmd, args, options);
 }
 
 /**
@@ -413,3 +427,17 @@ export function setTransport(transport: BackendTransport) {
   globalTransport = transport;
   configureInvoker((cmd, args) => transport.invoke(cmd, args));
 }
+
+/** Desktop defaults preserve existing injected transports and UI harnesses. */
+export function getHostCapabilities() {
+  return (
+    globalTransport?.capabilities ?? {
+      nativePaths: true,
+      remoteMounts: true,
+      externalProcesses: true,
+    }
+  );
+}
+
+/** Embedded hosts may install a transport before the shared entry is imported. */
+export function getConfiguredTransport(): BackendTransport | null { return globalTransport; }
