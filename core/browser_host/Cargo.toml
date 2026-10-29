@@ -15,6 +15,7 @@ volume_service = { path = "../volume_service", features = ["web"] }
 bridge_types = { path = "../bridge_types", features = ["web"] }
 volmath = { path = "../volmath", features = ["web"] }
 neuroim = { workspace = true }
+neuro-types = { path = "../neuro-types" }
 nalgebra = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

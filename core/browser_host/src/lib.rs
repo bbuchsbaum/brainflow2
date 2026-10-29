@@ -271,9 +271,11 @@ impl BrowserHost {
 
     pub async fn unload(&mut self, id: &str) -> Result<(), String> {
         self.renderer.clear_views();
-        self.renderer
-            .release_volume_by_id(id)
-            .map_err(|e| e.to_string())?;
+        if self.renderer.is_volume_registered(id) {
+            self.renderer
+                .release_volume_by_id(id)
+                .map_err(|e| e.to_string())?;
+        }
         self.renderer.release_colormap(id);
         VolumeLoadingService::unload(&self.repository, id)
             .await
@@ -311,16 +313,16 @@ impl BrowserHost {
         Ok(())
     }
 
-    pub fn label_at_world(&self, id: &str, world: [f64; 3]) -> Result<Option<u32>, String> {
+    pub fn sample_at_world(&self, id: &str, world: [f64; 3]) -> Result<Option<f32>, String> {
         if !world.iter().all(|v| v.is_finite()) {
             return Err("Coordinates must be finite".into());
         }
         let volumes = self.repository.volumes.lock().unwrap();
         let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
-        if prepared.handle.is_label_map != Some(true) {
-            return Err("A label volume is required".into());
-        }
-        let volume = source::spatial_frame(&prepared.data, 0)?;
+        let volume = source::spatial_frame(
+            &prepared.data,
+            prepared.handle.current_timepoint.unwrap_or(0),
+        )?;
         let m = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
         let p = m.try_inverse().ok_or("Invalid affine")?
             * nalgebra::Vector4::new(world[0], world[1], world[2], 1.0);
@@ -332,7 +334,169 @@ impl BrowserHost {
             }
             coords[axis] = index as usize;
         }
-        Ok(volume.get_at_coords(&coords).map(|v| v as u32))
+        Ok(volume.get_at_coords(&coords))
+    }
+
+    pub fn label_at_world(&self, id: &str, world: [f64; 3]) -> Result<Option<u32>, String> {
+        {
+            let volumes = self.repository.volumes.lock().unwrap();
+            if volumes
+                .get(id)
+                .ok_or("Volume was unloaded")?
+                .handle
+                .is_label_map
+                != Some(true)
+            {
+                return Err("A label volume is required".into());
+            }
+        }
+        self.sample_at_world(id, world)
+            .map(|value| value.map(|v| v as u32))
+    }
+
+    pub fn histogram(
+        &self,
+        id: &str,
+        bins: u32,
+        range: &[f32],
+        exclude_zeros: bool,
+        all_frames: bool,
+    ) -> Result<String, String> {
+        use volume_service::histogram::{for_volume, HistogramFrames};
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        let frames = if all_frames {
+            HistogramFrames::All
+        } else {
+            HistogramFrames::One(prepared.handle.current_timepoint.unwrap_or(0))
+        };
+        let result = for_volume(
+            &prepared.data,
+            frames,
+            bins,
+            if range.is_empty() { None } else { Some(range) },
+            exclude_zeros,
+        )
+        .map_err(|e| e.to_string())?;
+        serde_json::to_string(&result).map_err(|e| e.to_string())
+    }
+
+    /// Shared desktop/browser geometry, including voxel edges and square pixels.
+    pub fn workspace_view(
+        &self,
+        id: &str,
+        orientation: &str,
+        width: u32,
+        height: u32,
+        point: [f32; 3],
+    ) -> Result<String, String> {
+        use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
+        if width == 0
+            || height == 0
+            || width > 2048
+            || height > 2048
+            || !point.iter().all(|v| v.is_finite())
+        {
+            return Err("Invalid browser viewport".into());
+        }
+        let orientation = match orientation {
+            "axial" => ViewOrientation::Axial,
+            "coronal" => ViewOrientation::Coronal,
+            "sagittal" => ViewOrientation::Sagittal,
+            _ => return Err("Invalid view orientation".into()),
+        };
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        let affine = volume_service::frames::affine_from_volume(&prepared.data)
+            .map_err(|e| e.to_string())?;
+        let metadata = VolumeMetadata {
+            dimensions: [
+                prepared.handle.dims[0],
+                prepared.handle.dims[1],
+                prepared.handle.dims[2],
+            ],
+            voxel_to_world: *affine.matrix(),
+        };
+        serde_json::to_string(&ViewRectMm::full_extent_to_edges(
+            &metadata,
+            orientation,
+            point,
+            [width, height],
+        ))
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn workspace_info(&self, id: &str) -> Result<String, String> {
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        let frame = source::spatial_frame(
+            &prepared.data,
+            prepared.handle.current_timepoint.unwrap_or(0),
+        )?;
+        let info = source::describe(&prepared.handle, &frame)?;
+        let m = volume_service::frames::affine_from_volume(&prepared.data)
+            .map_err(|e| e.to_string())?;
+        let matrix = m.matrix();
+        let inverse = matrix.try_inverse().ok_or("Invalid volume affine")?;
+        let spacing: Vec<_> = (0..3)
+            .map(|axis| matrix.fixed_view::<3, 1>(0, axis).norm())
+            .collect();
+        let center_voxel = matrix
+            * nalgebra::Vector4::new(
+                ((info.dims[0] as f32 - 1.0) / 2.0).floor(),
+                ((info.dims[1] as f32 - 1.0) / 2.0).floor(),
+                ((info.dims[2] as f32 - 1.0) / 2.0).floor(),
+                1.0,
+            );
+        Ok(serde_json::json!({"volume":info,"handle":prepared.handle,"bounds":{
+            "min":info.bounds[0],"max":info.bounds[1],"center":info.center,
+            "center_voxel_world":[center_voxel.x,center_voxel.y,center_voxel.z],
+            "dims":info.dims,"spacing":spacing
+        },"gpu":{
+            "data_range":{"min":info.range[0],"max":info.range[1]},"dim":info.dims,
+            "center_world":info.center,"spacing":spacing,"origin":[matrix[(0,3)],matrix[(1,3)],matrix[(2,3)]],
+            "voxel_to_world":matrix.as_slice(),"world_to_voxel":inverse.as_slice(),"tex_format":"R32Float"
+        }}).to_string())
+    }
+
+    pub fn release_gpu(&mut self, id: &str) -> Result<(), String> {
+        self.renderer.clear_views();
+        if self.renderer.is_volume_registered(id) {
+            self.renderer
+                .release_volume_by_id(id)
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub async fn ensure_gpu(&mut self, id: &str) -> Result<(), String> {
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut registration = (|| {
+            let volumes = self.repository.volumes.lock().unwrap();
+            let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+            let frame = source::spatial_frame(
+                &prepared.data,
+                prepared.handle.current_timepoint.unwrap_or(0),
+            )?;
+            if prepared.handle.is_label_map == Some(true) {
+                self.renderer
+                    .register_label_volume(id, &frame)
+                    .map_err(|e| e.to_string())?;
+            } else {
+                self.renderer
+                    .register_volume(id, &frame, RendererVolumeFormat::R32Float)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        })();
+        if let Some(error) = device.pop_error_scope().await {
+            registration = Err(format!("GPU upload validation failed: {error}"));
+        }
+        if registration.is_err() {
+            let _ = self.renderer.release_volume_by_id(id);
+        }
+        registration
     }
 
     pub fn diagnostics(&self) -> String {
@@ -511,6 +675,60 @@ mod wasm {
         pub async fn unload(&mut self, id: String) -> Result<(), JsValue> {
             self.inner
                 .unload(&id)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn workspace_view(
+            &self,
+            id: String,
+            orientation: String,
+            width: u32,
+            height: u32,
+            point: Vec<f32>,
+        ) -> Result<String, JsValue> {
+            let point: [f32; 3] = point
+                .try_into()
+                .map_err(|_| JsValue::from_str("A three-coordinate world point is required"))?;
+            self.inner
+                .workspace_view(&id, &orientation, width, height, point)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn histogram(
+            &self,
+            id: String,
+            bins: u32,
+            range: Vec<f32>,
+            exclude_zeros: bool,
+            all_frames: bool,
+        ) -> Result<String, JsValue> {
+            self.inner
+                .histogram(&id, bins, &range, exclude_zeros, all_frames)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn sample_at_world(
+            &self,
+            id: String,
+            x: f64,
+            y: f64,
+            z: f64,
+        ) -> Result<Option<f32>, JsValue> {
+            self.inner
+                .sample_at_world(&id, [x, y, z])
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn workspace_info(&self, id: String) -> Result<String, JsValue> {
+            self.inner
+                .workspace_info(&id)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn release_gpu(&mut self, id: String) -> Result<(), JsValue> {
+            self.inner
+                .release_gpu(&id)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub async fn ensure_gpu(&mut self, id: String) -> Result<(), JsValue> {
+            self.inner
+                .ensure_gpu(&id)
                 .await
                 .map_err(|e| JsValue::from_str(&e))
         }

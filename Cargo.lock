@@ -1002,6 +1002,7 @@ dependencies = [
  "flate2",
  "gifti-loader",
  "nalgebra 0.32.6",
+ "neuro-types",
  "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
  "nifti 0.17.0",
  "render_contracts",
@@ -9435,6 +9436,7 @@ dependencies = [
  "nalgebra 0.32.6",
  "serde",
  "tokio",
+ "ts-rs 10.1.0",
  "volmath",
 ]
 

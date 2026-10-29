@@ -64,6 +64,12 @@ export class BrowserTransport implements BackendTransport {
         'label_at_world',
         'render_view',
         'diagnostics',
+        'workspace_histogram',
+        'sample_at_world',
+        'workspace_info',
+        'workspace_view',
+        'release_gpu',
+        'ensure_gpu',
       ].includes(cmd)
     ) {
       return Promise.reject(new UnsupportedBrowserCapability(cmd));

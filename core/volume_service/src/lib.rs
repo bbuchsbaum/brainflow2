@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
 pub mod frames;
+pub mod histogram;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeMetadataInfo {

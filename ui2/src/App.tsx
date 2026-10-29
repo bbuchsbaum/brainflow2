@@ -64,7 +64,7 @@ import {
 } from '@/components/dialogs/CommandPaletteDialog';
 import { ContextMenu } from '@/components/ui/ContextMenu';
 import { getLayoutService, type SidebarPanelType } from '@/services/layoutService';
-import { getTransport } from '@/services/transport';
+import { getTransport, getHostCapabilities } from '@/services/transport';
 import { WORKSPACE_PRESETS } from '@/types/workspacePresets';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
@@ -445,7 +445,7 @@ function AppContent() {
       },
     }));
 
-    return [...coreCommands, ...presetCommands, ...savedLayoutCommands];
+    return [...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths), ...presetCommands, ...savedLayoutCommands];
   }, [applyWorkspacePreset, loadSavedLayout, savedLayouts]);
 
   // Register '?' shortcut to open the keyboard shortcuts dialog

@@ -906,3 +906,54 @@ Firefox/WebKit outcomes, native Tauri walkthrough limits, unavailable catalog
 entries and retained WASM heap capacity remain explicit limitations, not claimed
 passes. The six-area browser delivery scope is complete; broader desktop feature
 parity and all-browser support are not part of that claim.
+
+
+## Shared application: first desktop/browser workflow (tranche 1–4)
+
+The intended product is one Brainflow UI hosted by Tauri or a browser. The
+previous `browser.html` viewer remains a portable-host test harness. It is not a
+second product UI. `workspace.html` now imports the same `src/main.tsx` → `App`
+entry as the desktop, including GoldenLayout, the layer/view stores, Inspector,
+Plot dock, and existing Open file command.
+
+`selectApplicationHost` runs before App/service imports and preserves an explicitly
+injected host. Tauri keeps its existing transport. The browser selects
+`WorkspaceBrowserTransport`, which adapts the existing app API to the real WASM
+worker. It retains only host resources (File tokens and CPU/GPU identities),
+while the existing application stores own layers, view geometry and controls.
+Folder mounts and SSH controls are unavailable in the browser; unsupported bridge
+operations fail explicitly. Browser rendering uses the supported per-view path.
+
+File selection and drop enter `DisplayLifecycleOrchestrator` and
+`VolumeLoadingService`, then `LayerApiImpl`. Queue cancellation and destination
+closure now propagate an abort signal to browser reads and reject stale commits
+in both hosts. GPU residency release and CPU unload are separate, so the browser
+host permits CPU teardown after a prior GPU release. Provisional failures reclaim
+both phases. Slice geometry uses the same Rust `ViewRectMm` implementation as the
+desktop, including square pixels and oblique affines. Bounds include the native
+voxel-centred initial cursor for even dimensions.
+
+The existing histogram implementation moved intact from the Tauri bridge to
+`volume_service`; the native adapter reexports it and the browser calls it in the
+worker. Nearest-voxel readout stays in Rust. No voxel arrays are copied into app
+stores for either operation.
+
+Acceptance evidence for this bounded slice:
+
+- Eight real-browser cases: normal workspace load/inspect/opacity/navigation/unload;
+  cancelled file dialog; cancelled read; destination closure during read; injected
+  GPU upload validation failure; GPU residency release/reacquisition; production
+  workspace entry; and even-sized oblique initial-cursor geometry.
+- Independent fixture readout 432 and histogram count 315, range 0–864, mean 432.
+- 75 UI/service tests, 14 portable volume-service tests, and 246 executed renderer
+  tests (19 existing ignored tests; no explicit GPU-skip lines).
+- Four unchanged desktop UI baselines, native api-bridge compilation, TypeScript,
+  scoped new-code ESLint and production WASM/PWA build. Existing lint diagnostics
+  in legacy main/transport/debug-service code are not claimed fixed.
+
+Reproduce with `e2e/playwright.workspace-browser.config.ts`, the regular desktop
+app-harness gate, and crate tests. Receipts are under `cruft/shared-workspace/`
+and `cruft/browser-completion/shared-workspace-*`. Desktop visual checks use the
+React harness with an injected native contract; they are not a fresh native Tauri
+walkthrough. This establishes the first actual shared-app volume workflow, not
+complete browser support for every desktop analysis, file or surface operation.

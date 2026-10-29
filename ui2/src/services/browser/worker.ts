@@ -247,6 +247,44 @@ async function execute(message: Extract<WorkerRequest, { id: number }>) {
         value = host.label_at_world(String(args.volumeId), point[0], point[1], point[2]) ?? null;
         break;
       }
+      case 'workspace_histogram':
+        value = JSON.parse(
+          host.histogram(
+            String(args.volumeId),
+            Number(args.binCount ?? 256),
+            new Float32Array((args.range as number[]) ?? []),
+            Boolean(args.excludeZeros),
+            Boolean(args.allFrames),
+          ),
+        );
+        break;
+      case 'sample_at_world': {
+        const p = args.world as [number, number, number];
+        value = host.sample_at_world(String(args.volumeId), ...p) ?? null;
+        break;
+      }
+      case 'workspace_info':
+        value = JSON.parse(host.workspace_info(String(args.volumeId)));
+        break;
+      case 'workspace_view': {
+        const p = args.point as [number, number, number];
+        value = JSON.parse(
+          host.workspace_view(
+            String(args.volumeId),
+            String(args.orientation),
+            Number(args.width),
+            Number(args.height),
+            new Float32Array(p),
+          ),
+        );
+        break;
+      }
+      case 'release_gpu':
+        host.release_gpu(String(args.volumeId));
+        break;
+      case 'ensure_gpu':
+        await host.ensure_gpu(String(args.volumeId));
+        break;
       case 'diagnostics':
         value = JSON.parse(host.diagnostics());
         break;

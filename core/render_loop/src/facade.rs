@@ -193,6 +193,11 @@ impl WgpuSliceRenderer {
         self.service.release_volume(handle.texture_index)
     }
 
+    /// Whether this identifier currently owns a GPU allocation (CPU data may remain).
+    pub fn is_volume_registered(&self, volume_id: &str) -> bool {
+        self.service.volumes.contains_key(volume_id)
+    }
+
     /// Release a registered volume by its external identifier.
     pub fn release_volume_by_id(&mut self, volume_id: &str) -> Result<(), RenderLoopError> {
         let texture_index = self

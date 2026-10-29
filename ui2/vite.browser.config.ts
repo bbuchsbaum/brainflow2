@@ -6,7 +6,7 @@ export default mergeConfig(
   base,
   defineConfig({
     base: './',
-    build: { outDir: 'dist-browser', rollupOptions: { input: resolve(__dirname, 'browser.html') } },
+    build: { outDir: 'dist-browser', rollupOptions: { input: { browser: resolve(__dirname, 'browser.html'), workspace: resolve(__dirname, 'workspace.html') } } },
     worker: { format: 'es' },
   }),
 );

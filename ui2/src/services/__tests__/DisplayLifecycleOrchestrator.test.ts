@@ -6,9 +6,11 @@ const mockEventBus = {
 };
 
 const mockQueueState = {
+  activeLoads: new Map<string, unknown>(),
+  cancel: vi.fn(),
   isLoading: vi.fn(() => false),
   enqueue: vi.fn(() => 'queue-1'),
-  startLoading: vi.fn(),
+  startLoading: vi.fn(() => { mockQueueState.activeLoads.set('queue-1', {}); }),
   updateProgress: vi.fn(),
   markComplete: vi.fn(),
   markError: vi.fn(),
@@ -98,6 +100,7 @@ vi.mock('../SurfaceLoadingService', () => ({
 vi.mock('@/stores/loadingQueueStore', () => ({
   useLoadingQueueStore: {
     getState: vi.fn(() => mockQueueState),
+    subscribe: vi.fn(() => () => {}),
   },
 }));
 
@@ -134,6 +137,7 @@ vi.mock('@/stores/comparisonStore', () => ({
 vi.mock('@/stores/viewStateStore', () => ({
   useViewStateStore: {
     getState: vi.fn(() => mockViewStateStoreState),
+    subscribe: vi.fn(() => () => {}),
   },
 }));
 
@@ -144,6 +148,7 @@ vi.mock('../SurfaceOverlayService', () => ({
 describe('DisplayLifecycleOrchestrator', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockQueueState.activeLoads.clear();
 
     mockQueueState.isLoading.mockReturnValue(false);
     mockQueueState.enqueue.mockReturnValue('queue-1');
@@ -232,7 +237,7 @@ describe('DisplayLifecycleOrchestrator', () => {
 
     await orchestrator.loadFile({ path: '/tmp/mni152.nii.gz', ingress: 'programmatic' });
 
-    expect(mockApiService.loadFile).toHaveBeenCalledWith('/tmp/mni152.nii.gz');
+    expect(mockApiService.loadFile).toHaveBeenCalledWith('/tmp/mni152.nii.gz', expect.any(AbortSignal));
     expect(mockVolumeLoadingService.loadVolume).toHaveBeenCalledTimes(1);
     expect(mockSurfaceLoadingService.loadSurfaceFile).not.toHaveBeenCalled();
     expect(mockSurfaceOverlayService.loadSurfaceOverlay).not.toHaveBeenCalled();

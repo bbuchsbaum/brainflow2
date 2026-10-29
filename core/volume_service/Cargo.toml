@@ -12,6 +12,7 @@ web = ["bridge_types/web", "volmath/web"]
 async-trait = "0.1"
 bridge_types = { path = "../bridge_types" }
 serde = { workspace = true }
+ts-rs = { workspace = true }
 nalgebra = { workspace = true }
 volmath = { path = "../volmath" }
 

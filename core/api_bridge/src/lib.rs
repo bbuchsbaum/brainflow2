@@ -6039,25 +6039,7 @@ async fn patch_layer(
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct HistogramBin {
-    pub x0: f32,
-    pub x1: f32,
-    pub count: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct HistogramResult {
-    pub bins: Vec<HistogramBin>,
-    pub total_count: u64,
-    pub min_value: f32,
-    pub max_value: f32,
-    pub mean: f32,
-    pub std: f32,
-    pub bin_count: u32,
-}
+pub use volume_service::histogram::{HistogramBin, HistogramResult};
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.compute_layer_histogram")]

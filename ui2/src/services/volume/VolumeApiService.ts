@@ -57,7 +57,8 @@ export class VolumeApiService {
     this.transport = transport;
   }
 
-  async loadFile(path: string): Promise<VolumeHandle> {
+  async loadFile(path: string, signal?: AbortSignal): Promise<VolumeHandle> {
+    if (signal && this.transport.request) return this.transport.request<VolumeHandle>('load_file', {path}, signal);
     return this.transport.invoke<VolumeHandle>('load_file', { path });
   }
 
