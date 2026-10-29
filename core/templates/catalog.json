@@ -65,6 +65,19 @@
     "checksum": "662b18e83dddc554b19c621d9750af3454b54d4e103df03633eacced3884805a"
   },
   {
+    "id": "MNI152NLin2009cAsym_GM_2mm",
+    "config": {
+      "template_type": "GM",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 Gray Matter (2mm)",
+    "description": "MNI152NLin2009cAsym gray matter probability map at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_label-GM_probseg.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
     "id": "MNI152NLin2009cAsym_WM_1mm",
     "config": {
       "template_type": "WM",
@@ -78,6 +91,19 @@
     "checksum": "b2f80e29f5a1ef55325215d1716ef611f5b1a3cd97b4a49ef4e9564e9564e945"
   },
   {
+    "id": "MNI152NLin2009cAsym_WM_2mm",
+    "config": {
+      "template_type": "WM",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 White Matter (2mm)",
+    "description": "MNI152NLin2009cAsym white matter probability map at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_label-WM_probseg.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
     "id": "MNI152NLin2009cAsym_CSF_1mm",
     "config": {
       "template_type": "CSF",
@@ -89,6 +115,19 @@
     "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_label-CSF_probseg.nii.gz",
     "file_size_mb": 5.494321,
     "checksum": "8a74e36b067a3fb670f6785b94479cc3df4d219a3f72d69d57aef332e4947048"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_CSF_2mm",
+    "config": {
+      "template_type": "CSF",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 CSF (2mm)",
+    "description": "MNI152NLin2009cAsym CSF probability map at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_label-CSF_probseg.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
   },
   {
     "id": "MNI152NLin2009cAsym_mask_1mm",
@@ -115,6 +154,32 @@
     "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_desc-brain_mask.nii.gz",
     "file_size_mb": 0.029576,
     "checksum": "7a71e9ce99d2af7b68bb5c163908c8e25f4c7a198806fb0893a5c1759b480ecd"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_brain_1mm",
+    "config": {
+      "template_type": "brain",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 Skull-stripped Brain (1mm)",
+    "description": "MNI152NLin2009cAsym skull-stripped T1-weighted template at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
+    "id": "MNI152NLin2009cAsym_brain_2mm",
+    "config": {
+      "template_type": "brain",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 Skull-stripped Brain (2mm)",
+    "description": "MNI152NLin2009cAsym skull-stripped T1-weighted template at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_desc-brain_T1w.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
   },
   {
     "id": "MNI152NLin6Asym_T1w_1mm",

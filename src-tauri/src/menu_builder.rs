@@ -747,24 +747,24 @@ impl SurfaceTemplatePreset {
     }
 }
 
-/// Get fsaverage (164k) surface template presets
+/// Get fsaverage (164k) surface template presets.
+///
+/// TemplateFlow fsaverage ships no inflated geometry; offering "Inflated" here
+/// silently loaded pial instead, so it is not listed.
 fn get_fsaverage_presets() -> Vec<SurfaceTemplatePreset> {
     let space = "fsaverage";
     vec![
         // Bilateral (default geometry click — loads both hemispheres)
         SurfaceTemplatePreset::new(space, "white", "both", "White Matter"),
         SurfaceTemplatePreset::new(space, "pial", "both", "Pial"),
-        SurfaceTemplatePreset::new(space, "inflated", "both", "Inflated"),
         SurfaceTemplatePreset::new(space, "sphere", "both", "Sphere"),
         // Left hemisphere
         SurfaceTemplatePreset::new(space, "white", "L", "White Matter (Left)"),
         SurfaceTemplatePreset::new(space, "pial", "L", "Pial (Left)"),
-        SurfaceTemplatePreset::new(space, "inflated", "L", "Inflated (Left)"),
         SurfaceTemplatePreset::new(space, "sphere", "L", "Sphere (Left)"),
         // Right hemisphere
         SurfaceTemplatePreset::new(space, "white", "R", "White Matter (Right)"),
         SurfaceTemplatePreset::new(space, "pial", "R", "Pial (Right)"),
-        SurfaceTemplatePreset::new(space, "inflated", "R", "Inflated (Right)"),
         SurfaceTemplatePreset::new(space, "sphere", "R", "Sphere (Right)"),
     ]
 }
@@ -776,17 +776,14 @@ fn get_fsaverage5_presets() -> Vec<SurfaceTemplatePreset> {
         // Bilateral (default geometry click — loads both hemispheres)
         SurfaceTemplatePreset::new(space, "white", "both", "White Matter"),
         SurfaceTemplatePreset::new(space, "pial", "both", "Pial"),
-        SurfaceTemplatePreset::new(space, "inflated", "both", "Inflated"),
         SurfaceTemplatePreset::new(space, "sphere", "both", "Sphere"),
         // Left hemisphere
         SurfaceTemplatePreset::new(space, "white", "L", "White Matter (Left)"),
         SurfaceTemplatePreset::new(space, "pial", "L", "Pial (Left)"),
-        SurfaceTemplatePreset::new(space, "inflated", "L", "Inflated (Left)"),
         SurfaceTemplatePreset::new(space, "sphere", "L", "Sphere (Left)"),
         // Right hemisphere
         SurfaceTemplatePreset::new(space, "white", "R", "White Matter (Right)"),
         SurfaceTemplatePreset::new(space, "pial", "R", "Pial (Right)"),
-        SurfaceTemplatePreset::new(space, "inflated", "R", "Inflated (Right)"),
         SurfaceTemplatePreset::new(space, "sphere", "R", "Sphere (Right)"),
     ]
 }
@@ -798,17 +795,14 @@ fn get_fsaverage6_presets() -> Vec<SurfaceTemplatePreset> {
         // Bilateral (default geometry click — loads both hemispheres)
         SurfaceTemplatePreset::new(space, "white", "both", "White Matter"),
         SurfaceTemplatePreset::new(space, "pial", "both", "Pial"),
-        SurfaceTemplatePreset::new(space, "inflated", "both", "Inflated"),
         SurfaceTemplatePreset::new(space, "sphere", "both", "Sphere"),
         // Left hemisphere
         SurfaceTemplatePreset::new(space, "white", "L", "White Matter (Left)"),
         SurfaceTemplatePreset::new(space, "pial", "L", "Pial (Left)"),
-        SurfaceTemplatePreset::new(space, "inflated", "L", "Inflated (Left)"),
         SurfaceTemplatePreset::new(space, "sphere", "L", "Sphere (Left)"),
         // Right hemisphere
         SurfaceTemplatePreset::new(space, "white", "R", "White Matter (Right)"),
         SurfaceTemplatePreset::new(space, "pial", "R", "Pial (Right)"),
-        SurfaceTemplatePreset::new(space, "inflated", "R", "Inflated (Right)"),
         SurfaceTemplatePreset::new(space, "sphere", "R", "Sphere (Right)"),
     ]
 }
@@ -914,6 +908,24 @@ pub fn build_surface_templates_menu(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every Templates-menu item must name a catalog entry; otherwise the click
+    /// fails with "Template not found" (seen for brain_* and GM/WM/CSF 2mm).
+    #[test]
+    fn every_template_menu_id_exists_in_catalog() {
+        let main_rs = include_str!("main.rs");
+        let catalog = templates::TemplateCatalog::new();
+        let mut checked = 0;
+        for chunk in main_rs.split(".id(\"template_").skip(1) {
+            let id = chunk.split('"').next().unwrap();
+            assert!(
+                catalog.get_by_id(id).is_some(),
+                "Templates menu offers `{id}` but core/templates/catalog.json has no such entry"
+            );
+            checked += 1;
+        }
+        assert!(checked > 10, "expected to find the Templates menu ids in main.rs");
+    }
 
     // Template tests
     #[test]
@@ -1021,15 +1033,16 @@ mod tests {
     #[test]
     fn test_fsaverage_presets_count() {
         let presets = get_fsaverage_presets();
-        // 4 geometry types * 3 hemisphere variants (both, L, R) = 12 presets
-        assert_eq!(presets.len(), 12);
+        // 3 geometry types (no inflated: fsaverage loads pial in its place) * 3 hemisphere
+        // variants (both, L, R) = 9 presets
+        assert_eq!(presets.len(), 9);
     }
 
     #[test]
     fn test_all_surface_presets_count() {
         let presets = get_all_surface_presets();
-        // 3 spaces * 4 geometry types * 3 hemisphere variants (both, L, R) = 36 presets
-        assert_eq!(presets.len(), 36);
+        // 3 spaces * 3 geometry types (no inflated) * 3 hemisphere variants (both, L, R) = 27
+        assert_eq!(presets.len(), 27);
     }
 
     #[test]

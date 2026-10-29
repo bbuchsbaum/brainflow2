@@ -38,7 +38,7 @@ export function bootstrapLogService(): Unsubscribe {
       addLogEntry({
         level: 'info',
         source: 'volume',
-        message: `Loaded ${basename(source)} (layer ${layerId.slice(0, 8)}, ${duration} ms)`,
+        message: `Loaded ${basename(source)} (layer ${layerId}, ${Math.round(duration)} ms)`,
       });
     }),
   );

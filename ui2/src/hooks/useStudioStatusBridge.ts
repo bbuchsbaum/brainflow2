@@ -91,7 +91,7 @@ export function useStudioStatusBridge() {
 
     const previousValues = previousValuesRef.current;
     statusStore.setBatch([
-      ['coordSys', (previousValues?.coordSys as string | undefined) ?? 'LPI'],
+      ['coordSys', (previousValues?.coordSys as string | undefined) ?? 'RAS'],
       ['crosshair', (previousValues?.crosshair as string | undefined) ?? '(0.0, 0.0, 0.0)'],
       ['mouse', (previousValues?.mouse as string | undefined) ?? '--'],
       ['layer', (previousValues?.layer as string | undefined) ?? 'None'],

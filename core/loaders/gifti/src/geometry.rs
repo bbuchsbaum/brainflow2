@@ -166,8 +166,15 @@ fn read_document(reader: impl Read, input_bytes: usize) -> Result<Document, Stri
     };
     let xml = std::str::from_utf8(&xml).map_err(|e| e.to_string())?;
     let doc: Document = quick_xml::de::from_str(xml).map_err(|e| e.to_string())?;
-    if doc.version != "1.0" || doc.count != doc.arrays.len() {
-        return Err("Expected GIfTI 1.0 with a matching declared array count".into());
+    // Connectome Workbench/Caret write Version="1"; the spec value is "1.0".
+    let version_ok = doc.version.trim().parse::<f64>().is_ok_and(|v| v == 1.0);
+    if !version_ok || doc.count != doc.arrays.len() {
+        return Err(format!(
+            "Expected GIfTI 1.0 with a matching declared array count (Version=\"{}\", NumberOfDataArrays={}, found {})",
+            doc.version,
+            doc.count,
+            doc.arrays.len()
+        ));
     }
     Ok(doc)
 }

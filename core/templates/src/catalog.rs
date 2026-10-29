@@ -183,7 +183,7 @@ mod catalog_tests {
     fn shared_definitions_preserve_template_identity_and_local_cache_state() {
         let mut catalog = TemplateCatalog::new();
         let entries = catalog.get_all();
-        assert_eq!(entries.len(), 16);
+        assert_eq!(entries.len(), 21);
         for entry in &entries {
             assert_eq!(entry.id, entry.config.id());
             assert!(!entry.is_cached);
@@ -198,7 +198,7 @@ mod catalog_tests {
             catalog
                 .get_types_for_space(&TemplateSpace::MNI152NLin2009cAsym)
                 .len(),
-            6
+            7
         );
     }
 }

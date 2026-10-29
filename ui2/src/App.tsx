@@ -797,7 +797,7 @@ function AppContent() {
 
 // Initial status bar slots configuration
 const initialStatusSlots = [
-  { id: 'coordSys', label: 'Coordinate System:', value: 'LPI', width: '25ch' },
+  { id: 'coordSys', label: 'Coordinate System:', value: 'RAS', width: '25ch' },
   { id: 'crosshair', label: 'Crosshair:', value: '(0.0, 0.0, 0.0)', width: '30ch' },
   { id: 'mouse', label: 'Mouse:', value: '--', width: '30ch' },
   { id: 'layer', label: 'Layer:', value: 'None', width: '30ch' },

@@ -13,7 +13,8 @@ interface FilesStartPanelProps {
   shortcutLabel: string;
   pending: boolean;
   errorMessage: string | null;
-  onMountLocal: () => void;
+  /** With a path: reopen that location. Without: show the folder picker. */
+  onMountLocal: (path?: string) => void;
   onMountRemote: () => void;
   onOpenFile: () => void;
 }
@@ -40,7 +41,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
             variant="primary"
             size="sm"
             className="files-start-command w-full justify-start"
-            onClick={onMountLocal}
+            onClick={() => onMountLocal()}
             disabled={pending || !getHostCapabilities().nativePaths}
             icon={<VscFolderOpened className="files-start-command-icon" />}
           >
@@ -88,7 +89,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
           if (item.mountSource.kind === "remote") {
             onMountRemote();
           } else {
-            onMountLocal();
+            onMountLocal(item.path);
           }
         }}
       />

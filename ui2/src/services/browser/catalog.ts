@@ -57,7 +57,8 @@ export const browserCatalog: BrowserCatalogEntry[] = [
       volume: {
         url: available ? `catalog-assets/${entry.id}.nii.gz.bin` : entry.download_url,
         sourceUrl: entry.download_url,
-        sha256: entry.checksum,
+        // Entries without a checksum are unavailable in the static catalog (above).
+        sha256: entry.checksum ?? undefined,
       },
       ...(!available
         ? {

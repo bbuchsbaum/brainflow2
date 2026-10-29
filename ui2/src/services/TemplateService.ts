@@ -10,6 +10,7 @@ import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import type { VolumeHandle } from './apiService';
 import type { LayerInfo } from '@/stores/layerStore';
 import { getEventBus, type EventBus } from '@/events/EventBus';
+import { toError } from '@/utils/formatTauriError';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 
@@ -208,21 +209,23 @@ export class TemplateService {
 
       console.log(`[TemplateService ${performance.now() - startTime}ms] Template load complete`);
 
-    } catch (error) {
-      console.error('[TemplateService] Failed to load template:', error);
+    } catch (rawError) {
+      // Bridge rejections are plain objects ({ Input: { details } }), not Errors.
+      const error = toError(rawError);
+      console.error('[TemplateService] Failed to load template:', rawError);
       
       // Mark as error in queue
-      useLoadingQueueStore.getState().markError(queueId, error as Error);
+      useLoadingQueueStore.getState().markError(queueId, error);
 
       // Emit error events for backward compatibility
       this.eventBus.emit('file.error', { 
         path: templatePath, 
-        error: error as Error 
+        error 
       });
       
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: `Failed to load template ${templateId}: ${(error as Error).message}`
+        message: `Failed to load template ${templateId}: ${error.message}`
       });
     }
   }
@@ -234,7 +237,8 @@ export class TemplateService {
   private inferLayerType(templateType: string): LayerInfo['type'] {
     const lower = templateType.toLowerCase();
     
-    if (lower.includes('mask') || lower.includes('brain')) {
+    // A skull-stripped "brain" template is anatomy, not a binary mask.
+    if (lower.includes('mask')) {
       return 'mask';
     } else if (lower.includes('gray') || lower.includes('white') || lower.includes('csf')) {
       return 'mask'; // Tissue probability maps are treated as masks

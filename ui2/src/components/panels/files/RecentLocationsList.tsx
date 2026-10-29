@@ -4,7 +4,8 @@ import { VscHistory, VscPin, VscClose } from 'react-icons/vsc';
 import { useFileBrowserStore, type RecentLocation } from '@/stores/fileBrowserStore';
 
 interface RecentLocationsListProps {
-  onMountLocal: () => void;
+  /** With a path: reopen that location. Without: show the folder picker. */
+  onMountLocal: (path?: string) => void;
   onMountRemote: (recent: RecentLocation) => void;
 }
 
@@ -66,7 +67,7 @@ export const RecentLocationsList: React.FC<RecentLocationsListProps> = ({
                 size="sm"
                 className="files-start-row-main min-w-0 flex-1 justify-start font-normal"
                 onClick={() =>
-                  isRemote ? onMountRemote(recent) : onMountLocal()
+                  isRemote ? onMountRemote(recent) : onMountLocal(recent.path)
                 }
                 title={recent.path}
               >

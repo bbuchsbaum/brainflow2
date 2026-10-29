@@ -15,9 +15,24 @@ pub(crate) fn decode(path: &Path) -> BridgeResult<(Loaded, Option<SurfaceGeometr
             };
             Ok((loaded, Some(geometry)))
         }
-        Err(_) => {
-            // Preserve data-only GIfTI dispatch and existing error messages.
-            Ok((gifti_loader::GiftiLoader::load(path)?, None))
+        Err(geometry_error) => {
+            // Preserve data-only GIfTI dispatch. If that also fails, report the
+            // geometry error too: it is usually the actionable one for a .surf.gii.
+            match gifti_loader::GiftiLoader::load(path) {
+                Ok(loaded) => Ok((loaded, None)),
+                Err(data_error) => {
+                    log::warn!(
+                        "GIfTI decode failed for {}: geometry: {geometry_error}; data: {data_error}",
+                        path.display()
+                    );
+                    Err(bridge_types::BridgeError::Loader {
+                        code: 1003,
+                        details: format!(
+                            "Could not read GIfTI geometry ({geometry_error}); data-array fallback also failed ({data_error})"
+                        ),
+                    })
+                }
+            }
         }
     }
 }

@@ -58,7 +58,19 @@ function host() {
 }
 describe('browser catalog acquisition', () => {
   it('exposes shared metadata and every Schaefer parcel/network/resolution combination', () => {
-    expect(browserCatalog.filter((e) => e.kind === 'template')).toHaveLength(16);
+    expect(browserCatalog.filter((e) => e.kind === 'template')).toHaveLength(21);
+    // Catalog entries without a checksum (not yet fetched from TemplateFlow) stay unavailable.
+    for (const id of [
+      'MNI152NLin2009cAsym_brain_1mm',
+      'MNI152NLin2009cAsym_brain_2mm',
+      'MNI152NLin2009cAsym_GM_2mm',
+      'MNI152NLin2009cAsym_WM_2mm',
+      'MNI152NLin2009cAsym_CSF_2mm',
+    ]) {
+      const entry = browserCatalog.find((e) => e.id === id);
+      expect(entry?.unavailable, id).toBeTruthy();
+      expect(entry?.volume.sha256, id).toBeUndefined();
+    }
     expect(browserCatalog.filter((e) => e.id.startsWith('schaefer2018-'))).toHaveLength(40);
     expect(
       browserCatalog.find((e) => e.id === 'MNI152NLin2009cAsym_T1w_2mm')?.volume.sha256,
