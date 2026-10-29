@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/apiService', () => ({ getApiService: () => ({}) }));
 
-import { defaultCrosshairWorld, mayHaveLabelTable } from '../VolumeLoadingService';
+import {
+  anatomyUnderStatisticOrder,
+  defaultCrosshairWorld,
+  mayHaveLabelTable,
+} from '../VolumeLoadingService';
+import type { LayerInfo } from '@/stores/layerStore';
 
 describe('defaultCrosshairWorld', () => {
   it('prefers the voxel-centred centre over the geometric one', () => {
@@ -32,5 +37,30 @@ describe('mayHaveLabelTable', () => {
     expect(mayHaveLabelTable('volume', { dtype: 'u8' })).toBe(false);
     expect(mayHaveLabelTable('volume', { dtype: 'i16' })).toBe(false);
     expect(mayHaveLabelTable('volume', { dtype: 'f32' })).toBe(false);
+  });
+});
+
+describe('anatomyUnderStatisticOrder', () => {
+  const z = { id: 'z', name: 'p4_zmap', type: 'anatomical', statistic: { kind: 'z' } };
+  const t1 = { id: 't1', name: 'T1w', type: 'anatomical' };
+  const at = (...layers: object[]) => layers as unknown as LayerInfo[];
+
+  it('puts a T1 opened after a z map under it (native R4-3)', () => {
+    expect(anatomyUnderStatisticOrder(at(z, t1), 't1')).toEqual(['t1', 'z']);
+    const atlas = { id: 'atlas', name: 'Atlas', type: 'label', source: 'atlas' };
+    expect(anatomyUnderStatisticOrder(at(atlas, z, t1), 't1')).toEqual(['t1', 'atlas', 'z']);
+  });
+
+  it('keeps the order when the base is not a statistic or the new layer is not plain anatomy', () => {
+    expect(anatomyUnderStatisticOrder(at(t1, z), 'z')).toBeNull();
+    const t2 = { id: 't2', name: 'T2w', type: 'anatomical' };
+    expect(anatomyUnderStatisticOrder(at(t1, t2), 't2')).toBeNull();
+    const z2 = { ...z, id: 'z2' };
+    expect(anatomyUnderStatisticOrder(at(z, z2), 'z2')).toBeNull();
+    const seg = { id: 'seg', name: 'aseg', type: 'label', isLabelMap: true };
+    expect(anatomyUnderStatisticOrder(at(z, seg), 'seg')).toBeNull();
+    const bold = { id: 'bold', name: 'bold', type: 'anatomical', volumeType: 'TimeSeries4D' };
+    expect(anatomyUnderStatisticOrder(at(z, bold), 'bold')).toBeNull();
+    expect(anatomyUnderStatisticOrder(at(t1), 't1')).toBeNull();
   });
 });

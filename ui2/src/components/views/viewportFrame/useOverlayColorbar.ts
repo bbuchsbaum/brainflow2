@@ -9,6 +9,7 @@ import { chooseColorbarHost, useViewportFrameStore } from './viewportFrameStore'
 import type { VolumeMetadata } from '@/stores/layerStore';
 import type { ColorbarLayer } from './ViewportColorbar';
 import { isInferredStatistic, statisticUnits } from '@/utils/statistic';
+import { runGroupIds } from '@/services/series/runWindow';
 
 /**
  * Overlay classification, matching the Scene stack (`buildSceneStack`): the
@@ -60,31 +61,45 @@ export function resolveColorbarLayer(
  * visible scalar overlay; otherwise (nothing, the base, an atlas or a hidden
  * layer selected) the topmost visible scalar overlay. `viewLayers` is in
  * composite order, so "topmost" is the last match.
+ *
+ * With no such overlay, a selected base that `baseHasColorbar` accepts is
+ * described itself: runs of one acquisition are peers, so the focused run's
+ * bar shows whether or not it happens to be the base (native R4-1).
  */
 export function chooseColorbarLayerId(
   layers: readonly LayerInfo[],
   viewLayers: readonly ViewLayer[],
   selectedLayerId: string | null,
+  baseHasColorbar: (layerId: string) => boolean = () => false,
 ): string | null {
-  const eligible = (l: ViewLayer | undefined) =>
-    !!l &&
-    l.visible &&
-    (l.layerMode ?? 'scalar') === 'scalar' &&
-    isOverlayLayer(layers, l.id);
-  if (selectedLayerId && eligible(viewLayers.find((l) => l.id === selectedLayerId))) {
+  const scalarVisible = (l: ViewLayer | undefined): l is ViewLayer =>
+    !!l && l.visible && (l.layerMode ?? 'scalar') === 'scalar';
+  const eligible = (l: ViewLayer | undefined) => scalarVisible(l) && isOverlayLayer(layers, l.id);
+  const selected = selectedLayerId ? viewLayers.find((l) => l.id === selectedLayerId) : undefined;
+  if (selectedLayerId && eligible(selected)) {
     return selectedLayerId;
   }
   for (let i = viewLayers.length - 1; i >= 0; i -= 1) {
     if (eligible(viewLayers[i])) return viewLayers[i].id;
   }
+  if (selectedLayerId && scalarVisible(selected) && baseHasColorbar(selectedLayerId)) {
+    return selectedLayerId;
+  }
   return null;
+}
+
+/** A base volume that is one run of several (its siblings are its peers). */
+export function isRunGroupMember(layerId: string): boolean {
+  return runGroupIds(layerId).length > 1;
 }
 
 /** Colorbar data for one layer of a workspace (null when it should not be drawn). */
 export function useLayerColorbar(
   layerId: string | null,
   workspaceId?: string,
+  options: { allowBase?: boolean } = {},
 ): ColorbarLayer | null {
+  const allowBase = options.allowBase === true;
   const layers = useLayerStore((s) => s.layers);
   const viewLayer = useViewStateStore((s) => {
     if (!layerId) return undefined;
@@ -96,15 +111,16 @@ export function useLayerColorbar(
   );
   const metadata = useLayerStore((s) => (layerId ? s.layerMetadata.get(layerId) : undefined));
   return useMemo(
-    () => resolveColorbarLayer(layers, layerId, viewLayer, showColorbar, metadata),
-    [layers, layerId, viewLayer, showColorbar, metadata],
+    () => resolveColorbarLayer(layers, layerId, viewLayer, showColorbar, metadata, { allowBase }),
+    [layers, layerId, viewLayer, showColorbar, metadata, allowBase],
   );
 }
 
 /**
  * The orthogonal views' colorbar (active workspace): the active layer when it
- * is an overlay, else the topmost visible overlay. The caption always names
- * the layer (see `resolveColorbarLayer`).
+ * is an overlay, else the topmost visible overlay, else the active base when
+ * it is one of several runs. The caption always names the layer (see
+ * `resolveColorbarLayer`).
  */
 export function useOverlayColorbar(): ColorbarLayer | null {
   const layers = useLayerStore((s) => s.layers);
@@ -112,10 +128,11 @@ export function useOverlayColorbar(): ColorbarLayer | null {
   // Same active layer as the header and the status bar (utils/activeLayer).
   const activeLayerId = useActiveLayer(viewLayers)?.id ?? null;
   const layerId = useMemo(
-    () => chooseColorbarLayerId(layers, viewLayers, activeLayerId),
+    () => chooseColorbarLayerId(layers, viewLayers, activeLayerId, isRunGroupMember),
     [layers, viewLayers, activeLayerId],
   );
-  return useLayerColorbar(layerId);
+  const isBase = !!layerId && !isOverlayLayer(layers, layerId);
+  return useLayerColorbar(layerId, undefined, { allowBase: isBase });
 }
 
 /** Which orthogonal view hosts the colorbar (see `chooseColorbarHost`). */
