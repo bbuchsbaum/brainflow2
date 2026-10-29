@@ -9,6 +9,8 @@ export type ColormapPickerVariant = 'default' | 'enhanced';
 
 interface ColormapPickerProps {
   value: string;
+  /** Only palettes actually supported by the selected host. */
+  options?: readonly string[];
   disabled?: boolean;
   onChange: (value: string) => void;
   variant?: ColormapPickerVariant;
@@ -84,11 +86,13 @@ export function ColormapPicker({
   variant = 'default',
   hiddenBand = null,
   windowSpan = null,
+  options,
 }: ColormapPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const available = useMemo(() => options ? colormaps.filter((map) => options.includes(map.name)) : colormaps, [options]);
   const selectedColormap = useMemo(
-    () => colormaps.find((colormap) => colormap.name === value) ?? colormaps[0],
-    [value]
+    () => available.find((colormap) => colormap.name === value) ?? available[0] ?? colormaps[0],
+    [value, available]
   );
 
   const isEnhanced = variant === 'enhanced';
@@ -113,7 +117,7 @@ export function ColormapPicker({
           {isEnhanced ? (
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || !available.length}
               className={cn(
                 'relative h-6 w-full overflow-hidden border transition-colors',
                 'rounded-sm border-border',
@@ -143,7 +147,7 @@ export function ColormapPicker({
           ) : (
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || !available.length}
               aria-label={`Select colormap. Current colormap is ${selectedColormap.label}`}
               className={cn(
                 'flex h-7 w-full items-center gap-2 rounded-sm border border-border bg-bf-bg-input px-2.5 text-bf-sm text-foreground',
@@ -172,7 +176,7 @@ export function ColormapPicker({
             aria-label="Select colormap"
           >
             <div className="grid max-h-[200px] grid-cols-4 gap-2 overflow-y-auto scrollbar-thin">
-              {colormaps.map((colormap) => {
+              {available.map((colormap) => {
                 const isSelected = colormap.name === value;
 
                 return (
@@ -211,7 +215,7 @@ export function ColormapPicker({
             role="listbox"
             aria-label="Colormap options"
           >
-            {colormaps.map((colormap) => {
+            {available.map((colormap) => {
               const isSelected = colormap.name === value;
 
               return (

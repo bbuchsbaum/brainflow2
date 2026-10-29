@@ -119,37 +119,7 @@ const LAYER_MODE_MASK: u32 = 2u;
 
 // --- Bind Group 2: Textures & Samplers ---
 // Support up to 13 volume textures and matching masks
-@group(2) @binding(0) var volumeTexture0: texture_3d<f32>;
-@group(2) @binding(1) var volumeTexture1: texture_3d<f32>;
-@group(2) @binding(2) var volumeTexture2: texture_3d<f32>;
-@group(2) @binding(3) var volumeTexture3: texture_3d<f32>;
-@group(2) @binding(4) var volumeTexture4: texture_3d<f32>;
-@group(2) @binding(5) var volumeTexture5: texture_3d<f32>;
-@group(2) @binding(6) var volumeTexture6: texture_3d<f32>;
-@group(2) @binding(7) var volumeTexture7: texture_3d<f32>;
-@group(2) @binding(8) var volumeTexture8: texture_3d<f32>;
-@group(2) @binding(9) var volumeTexture9: texture_3d<f32>;
-@group(2) @binding(10) var volumeTexture10: texture_3d<f32>;
-@group(2) @binding(11) var volumeTexture11: texture_3d<f32>;
-@group(2) @binding(12) var volumeTexture12: texture_3d<f32>;
-
-@group(2) @binding(13) var maskTexture0: texture_3d<f32>;
-@group(2) @binding(14) var maskTexture1: texture_3d<f32>;
-@group(2) @binding(15) var maskTexture2: texture_3d<f32>;
-@group(2) @binding(16) var maskTexture3: texture_3d<f32>;
-@group(2) @binding(17) var maskTexture4: texture_3d<f32>;
-@group(2) @binding(18) var maskTexture5: texture_3d<f32>;
-@group(2) @binding(19) var maskTexture6: texture_3d<f32>;
-@group(2) @binding(20) var maskTexture7: texture_3d<f32>;
-@group(2) @binding(21) var maskTexture8: texture_3d<f32>;
-@group(2) @binding(22) var maskTexture9: texture_3d<f32>;
-@group(2) @binding(23) var maskTexture10: texture_3d<f32>;
-@group(2) @binding(24) var maskTexture11: texture_3d<f32>;
-@group(2) @binding(25) var maskTexture12: texture_3d<f32>;
-
-@group(2) @binding(26) var samplerLinear: sampler;
-@group(2) @binding(27) var colormapLutTexture: texture_2d_array<f32>;
-@group(2) @binding(28) var samplerNearest: sampler;
+// @include texture_bindings
 
 // --- Bind Group 3: Optional Feature Uniforms ---
 @group(3) @binding(0) var<uniform> slice_features: SliceFeatureUbo;
@@ -188,66 +158,9 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 // --- Fragment Shader Helpers ---
 
 // Optimized texture sampling with LOD support and interpolation mode
-fn sampleVolumeTextureOptimized(texture_index: u32, coord: vec3<f32>, lod: f32, interpolation_mode: u32) -> f32 {
-    // Select sampler based on interpolation mode
-    // 0 = nearest, 1 = linear, 2+ = linear (future cubic will fallback to linear)
-    if (interpolation_mode == 0u) {
-        // Use nearest neighbor sampling
-        switch (texture_index) {
-            case 0u: { return textureSampleLevel(volumeTexture0, samplerNearest, coord, lod).r; }
-            case 1u: { return textureSampleLevel(volumeTexture1, samplerNearest, coord, lod).r; }
-            case 2u: { return textureSampleLevel(volumeTexture2, samplerNearest, coord, lod).r; }
-            case 3u: { return textureSampleLevel(volumeTexture3, samplerNearest, coord, lod).r; }
-            case 4u: { return textureSampleLevel(volumeTexture4, samplerNearest, coord, lod).r; }
-            case 5u: { return textureSampleLevel(volumeTexture5, samplerNearest, coord, lod).r; }
-            case 6u: { return textureSampleLevel(volumeTexture6, samplerNearest, coord, lod).r; }
-            case 7u: { return textureSampleLevel(volumeTexture7, samplerNearest, coord, lod).r; }
-            case 8u: { return textureSampleLevel(volumeTexture8, samplerNearest, coord, lod).r; }
-            case 9u: { return textureSampleLevel(volumeTexture9, samplerNearest, coord, lod).r; }
-            case 10u: { return textureSampleLevel(volumeTexture10, samplerNearest, coord, lod).r; }
-            case 11u: { return textureSampleLevel(volumeTexture11, samplerNearest, coord, lod).r; }
-            case 12u: { return textureSampleLevel(volumeTexture12, samplerNearest, coord, lod).r; }
-            default: { return 0.0; }
-        }
-    } else {
-        // Use linear sampling (default)
-        switch (texture_index) {
-            case 0u: { return textureSampleLevel(volumeTexture0, samplerLinear, coord, lod).r; }
-            case 1u: { return textureSampleLevel(volumeTexture1, samplerLinear, coord, lod).r; }
-            case 2u: { return textureSampleLevel(volumeTexture2, samplerLinear, coord, lod).r; }
-            case 3u: { return textureSampleLevel(volumeTexture3, samplerLinear, coord, lod).r; }
-            case 4u: { return textureSampleLevel(volumeTexture4, samplerLinear, coord, lod).r; }
-            case 5u: { return textureSampleLevel(volumeTexture5, samplerLinear, coord, lod).r; }
-            case 6u: { return textureSampleLevel(volumeTexture6, samplerLinear, coord, lod).r; }
-            case 7u: { return textureSampleLevel(volumeTexture7, samplerLinear, coord, lod).r; }
-            case 8u: { return textureSampleLevel(volumeTexture8, samplerLinear, coord, lod).r; }
-            case 9u: { return textureSampleLevel(volumeTexture9, samplerLinear, coord, lod).r; }
-            case 10u: { return textureSampleLevel(volumeTexture10, samplerLinear, coord, lod).r; }
-            case 11u: { return textureSampleLevel(volumeTexture11, samplerLinear, coord, lod).r; }
-        case 12u: { return textureSampleLevel(volumeTexture12, samplerLinear, coord, lod).r; }
-        default: { return 0.0; }
-    }
-}
-}
+// @include sample_volume_optimized
 
-fn sampleMaskTexture(texture_index: u32, coord: vec3<f32>) -> f32 {
-    switch (texture_index) {
-        case 0u: { return textureSampleLevel(maskTexture0, samplerNearest, coord, 0.0).r; }
-        case 1u: { return textureSampleLevel(maskTexture1, samplerNearest, coord, 0.0).r; }
-        case 2u: { return textureSampleLevel(maskTexture2, samplerNearest, coord, 0.0).r; }
-        case 3u: { return textureSampleLevel(maskTexture3, samplerNearest, coord, 0.0).r; }
-        case 4u: { return textureSampleLevel(maskTexture4, samplerNearest, coord, 0.0).r; }
-        case 5u: { return textureSampleLevel(maskTexture5, samplerNearest, coord, 0.0).r; }
-        case 6u: { return textureSampleLevel(maskTexture6, samplerNearest, coord, 0.0).r; }
-        case 7u: { return textureSampleLevel(maskTexture7, samplerNearest, coord, 0.0).r; }
-        case 8u: { return textureSampleLevel(maskTexture8, samplerNearest, coord, 0.0).r; }
-        case 9u: { return textureSampleLevel(maskTexture9, samplerNearest, coord, 0.0).r; }
-        case 10u: { return textureSampleLevel(maskTexture10, samplerNearest, coord, 0.0).r; }
-        case 11u: { return textureSampleLevel(maskTexture11, samplerNearest, coord, 0.0).r; }
-        case 12u: { return textureSampleLevel(maskTexture12, samplerNearest, coord, 0.0).r; }
-        default: { return 1.0; }
-    }
-}
+// @include sample_mask
 
 fn sampleLayerLabelIdOptimized(layer: LayerData, world_mm: vec3<f32>) -> u32 {
     let voxel_coord_h = layer.world_to_voxel * vec4<f32>(world_mm, 1.0);
@@ -554,7 +467,8 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
 
     // Apply colormap (continuous: window-normalized sample into the gradient).
     let lut_coord = vec2<f32>(intensity_norm, 0.5);
-    let rgb_color = textureSample(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id)).rgb;
+    // Single-level LUT: no implicit derivatives in non-uniform control flow.
+    let rgb_color = textureSampleLevel(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id), 0.0).rgb;
 
     return vec4<f32>(rgb_color, alpha);
 }

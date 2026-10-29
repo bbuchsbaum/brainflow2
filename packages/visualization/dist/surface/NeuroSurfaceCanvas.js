@@ -1,10 +1,27 @@
 import { jsx as _jsx } from "react/jsx-runtime";
+import { isSurfaceCameraState } from './cameraState.js';
 import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianSmoothing, THREE, normalizeCurvature, } from 'neurosurface';
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
 import { buildLayerInstance, applyLayerUpdate, applySurfaceRenderSettings, applySceneRenderSettings, } from './surfaceRuntime.js';
+/** Presets aim at the origin; retain the fitted mesh center and distance. */
+function setCenteredViewpoint(viewer, viewpoint) {
+    viewer.centerCamera();
+    const center = viewer.getCameraState?.().target;
+    viewer.setViewpoint(viewpoint);
+    const pose = viewer.getCameraState?.();
+    if (center && pose && viewer.setCameraState) {
+        viewer.setCameraState({
+            ...pose,
+            target: center,
+            position: pose.position.map((value, axis) => value + center[axis]),
+            up: viewer.camera.up.toArray(),
+            zoom: viewer.camera.zoom,
+        });
+    }
+}
 function hasRenderableGeometry(surface) {
     return Boolean(surface.geometry.vertices &&
         surface.geometry.faces &&
@@ -114,7 +131,12 @@ function removeRenderedSurface(viewer, handle, rendered) {
         // no-op
     }
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, viewpointNonce, onError, onSurfacePick, }) => {
+function captureCamera(viewer) {
+    const pose = viewer?.getCameraState?.();
+    const state = pose ? { ...pose, up: viewer?.camera?.up?.toArray(), zoom: viewer?.camera?.zoom ?? 1 } : null;
+    return isSurfaceCameraState(state) ? state : null;
+}
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerSurfaceHandles, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -123,6 +145,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     const markerMeshRef = useRef(null);
     const [isInitialized, setIsInitialized] = useState(false);
     const hasCenteredCamera = useRef(false);
+    const initialCameraRef = useRef(initialCameraState);
     const lastSmoothingValue = useRef(0);
     const lastUseGPUProjectionRef = useRef(projectionSettings.useGPUProjection);
     const viewpointRef = useRef(viewpoint);
@@ -303,6 +326,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 maxSide,
             };
         };
+        exporter.captureCamera = () => captureCamera(viewerRef.current);
         onExporterChange(exporter);
         return () => onExporterChange(null);
     }, [isInitialized, onExporterChange]);
@@ -503,20 +527,19 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 renderedSurfaceInputsRef.current.set(item.handle, item);
             }
             lastUseGPUProjectionRef.current = useGPUCompositing;
-            if (structuralChange && viewer.centerCamera && !hasCenteredCamera.current) {
+            if (structuralChange && !hasCenteredCamera.current) {
                 const controls = viewer.controls;
                 const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
-                viewer.centerCamera();
-                // The fit looks down the z axis; the requested preset (default
-                // lateral) is applied on the fitted mesh, so the first view matches it.
-                try {
-                    viewer.setViewpoint(viewpointRef.current);
-                }
-                catch {
-                    // unknown viewpoint: keep the fit
-                }
+                setCenteredViewpoint(viewer, viewpointRef.current);
                 if (controls && controls.autoRotate !== undefined) {
                     controls.autoRotate = wasAutoRotating;
+                }
+                const saved = initialCameraRef.current;
+                if (saved && isSurfaceCameraState(saved)) {
+                    viewer.camera.up.fromArray(saved.up);
+                    viewer.setCameraState?.(saved);
+                    viewer.camera.zoom = saved.zoom;
+                    viewer.camera.updateProjectionMatrix();
                 }
                 viewer.requestRender();
                 hasCenteredCamera.current = true;
@@ -547,7 +570,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     }, [isInitialized, surfacesToRender, projectionSettings.useGPUProjection]);
     useEffect(() => {
         if (viewerRef.current) {
-            viewerRef.current.setViewpoint(viewpoint);
+            setCenteredViewpoint(viewerRef.current, viewpoint);
         }
     }, [viewpoint, viewpointNonce]);
     // D2: the underlay toggle.
@@ -564,24 +587,33 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     }, [isInitialized, displaySettings.showCurvature, renderHandlesKey]);
     // D5: report the camera's screen basis when it changes (orientation glyph).
     useEffect(() => {
-        if (!isInitialized || !onCameraChange)
+        if (!isInitialized || (!onCameraChange && !onCameraStateChange))
             return;
         let frame = 0;
         let last = '';
+        let lastState = '';
         const tick = () => {
             const basis = cameraBasis(viewerRef.current?.camera);
             if (basis) {
                 const key = [...basis.right, ...basis.up].map((v) => v.toFixed(3)).join(',');
                 if (key !== last) {
                     last = key;
-                    onCameraChange(basis);
+                    onCameraChange?.(basis);
+                }
+            }
+            if (hasCenteredCamera.current && onCameraStateChange) {
+                const state = captureCamera(viewerRef.current);
+                const key = JSON.stringify(state);
+                if (state && key !== lastState) {
+                    lastState = key;
+                    onCameraStateChange(state);
                 }
             }
             frame = requestAnimationFrame(tick);
         };
         frame = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(frame);
-    }, [isInitialized, onCameraChange]);
+    }, [isInitialized, onCameraChange, onCameraStateChange]);
     useEffect(() => {
         if (viewerRef.current) {
             viewerRef.current.requestRender();
@@ -630,7 +662,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         if (markerWorldPosition) {
             if (markerSnapToSurface) {
                 const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
-                const nearest = findLinkedVertex(snapSurfaces, markerWorldPosition, cursorAnatomy);
+                const nearest = findLinkedVertex(markerSurfaceHandles ? snapSurfaces.filter((surface) => markerSurfaceHandles.includes(surface.handle)) : snapSurfaces, markerWorldPosition, cursorAnatomy);
                 if (nearest &&
                     (markerMaxSnapDistanceMm == null || nearest.distanceMm <= markerMaxSnapDistanceMm)) {
                     const rendered = renderedSurfacesRef.current.get(nearest.handle);
@@ -717,6 +749,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         markerWorldPosition?.[2],
         markerSnapToSurface,
         markerMaxSnapDistanceMm,
+        markerSurfaceHandles,
         markerColor,
         markerRadiusMm,
         surfacesToRender,

@@ -4,7 +4,7 @@
 
 import { applyLabelDisplayDefault } from "./LabelTableService";
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { invoke } from "@tauri-apps/api/core";
+import { invokeBackend as invoke } from "./transport";
 import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
 import { getVolumeLoadingService } from "./VolumeLoadingService";
 import { AtlasPaletteService } from "./AtlasPaletteService";

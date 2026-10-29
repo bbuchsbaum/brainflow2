@@ -96,8 +96,8 @@ test('opens a saved population into linked controls and an Inspector, then explo
   await expect(page.getByLabel('Population value scale limit', { exact: true })).toHaveValue('6');
   await expect(page.getByLabel('Plane', { exact: true })).toHaveValue('coronal');
   await expect(page.getByLabel('Zoom', { exact: true })).toHaveValue('1.5');
-  await expect(page.getByRole('tab', { name: 'Deck', exact: true })).toBeDisabled();
-  await expect(page.getByRole('tab', { name: 'Compare', exact: true })).toBeDisabled();
+  await expect(page.getByRole('radio', { name: 'Deck', exact: true })).toBeDisabled();
+  await expect(page.getByRole('radio', { name: 'Compare', exact: true })).toBeDisabled();
   const inspector = page.getByRole('region', { name: 'Population inspector' });
   await expect(inspector).toContainText('40 selected / 80 available');
   await inspector.getByText(/^Analysis unit:/).click();
@@ -144,7 +144,7 @@ test('failed saved-source verification leaves the current population intact', as
   ).toBeVisible();
   await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
   await expect(page.getByText(/^Analysis unit:/)).toContainText('observations');
-  await expect(page.getByRole('tab', { name: 'Deck', exact: true })).toBeEnabled();
+  await expect(page.getByRole('radio', { name: 'Deck', exact: true })).toBeEnabled();
 });
 
 test('scrubs and plays original observations, unfolds a montage and returns to the same person', async ({
@@ -166,7 +166,7 @@ test('scrubs and plays original observations, unfolds a montage and returns to t
   await expect(page.getByTestId('fixture-focus')).not.toHaveText('S002');
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   const focus = (await page.getByTestId('fixture-focus').textContent())!;
-  await page.getByRole('button', { name: 'Montage', exact: true }).click();
+  await page.getByRole('radio', { name: 'Montage', exact: true }).click();
   await expect(
     page.getByRole('button', { name: `Focus cutout ${focus}`, exact: true }),
   ).toHaveAttribute('aria-current', 'true');
@@ -176,7 +176,7 @@ test('scrubs and plays original observations, unfolds a montage and returns to t
   await expect(page.getByLabel('Population value scale limit', { exact: true })).toHaveValue(limit);
   await page.getByLabel('Population navigation').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('population-montage-desktop.png') });
-  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await page.getByRole('radio', { name: 'Inspect', exact: true }).click();
   await expect(page.getByText('Actual observation · S042', { exact: true })).toBeVisible();
   await expect(page.getByText(/Selected mean:/)).toContainText('1.000');
   await page
@@ -236,7 +236,7 @@ test('groups, compares, unfolds contributors and restores exact A/B operands', a
   await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
   await expect(page.getByText(/^A − B mean difference/)).toBeVisible();
   await page.getByRole('button', { name: 'Expand A and B', exact: true }).click();
-  await page.getByRole('button', { name: 'Groups', exact: true }).click();
+  await page.getByRole('radio', { name: 'Groups', exact: true }).click();
   await expect(b.getByRole('button', { name: 'Show contributors', exact: true })).toBeEnabled();
   await b.getByRole('button', { name: 'Show contributors', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Focus cutout S041', exact: true })).toBeVisible();
@@ -266,7 +266,7 @@ test('groups, compares, unfolds contributors and restores exact A/B operands', a
   await page.keyboard.up('Space');
   await expect(page.getByRole('button', { name: 'Focus cutout S041', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Undo grouping', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Groups', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: 'Groups', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('fixture-focus')).toHaveText('S041');
   await expect(page.getByRole('button', { name: 'Refresh images', exact: true })).toBeEnabled();
   await page.setViewportSize({ width: 480, height: 1000 });
@@ -279,7 +279,7 @@ test('brushes original montage IDs on release while keeping focus independent', 
   page,
 }) => {
   await page.goto('/population-harness.html?export');
-  await page.getByRole('button', { name: 'Montage', exact: true }).click();
+  await page.getByRole('radio', { name: 'Montage', exact: true }).click();
   const first = page.getByRole('button', { name: 'Focus cutout S001', exact: true });
   const second = page.getByRole('button', { name: 'Focus cutout S002', exact: true });
   await expect(first).toBeVisible();

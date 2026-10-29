@@ -5,7 +5,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
-use std::time::Instant;
+use web_time::Instant;
 
 fn error(code: u16, details: impl Into<String>) -> RenderLoopError {
     RenderLoopError::Internal {

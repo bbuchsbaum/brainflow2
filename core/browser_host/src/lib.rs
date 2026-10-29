@@ -1,0 +1,739 @@
+//! Browser host of the shared loader lifecycle and WGPU facade.
+//! Bytes have a browser-file identity, never a pretend native filesystem path.
+mod source;
+mod view;
+
+use bridge_types::{BridgeError, BridgeResult, VolumeHandleInfo, VolumeSendable};
+use render_contracts::{FrameRequestOptions, ViewId};
+use render_loop::{RendererVolumeFormat, WgpuSliceRenderer, WgpuSliceRendererConfig};
+use serde::Serialize;
+use source::{MemorySource, Repository};
+use volume_service::{LoadScope, VolumeLoadingService, VolumeRepository};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserVolume {
+    pub id: String,
+    pub name: String,
+    pub dims: Vec<usize>,
+    pub affine: [[f64; 4]; 4],
+    pub center: [f64; 3],
+    pub bounds: [[f64; 3]; 2],
+    pub range: [f32; 2],
+    pub frame_count: usize,
+    pub current_frame: usize,
+    pub label_ids: Option<Vec<u32>>,
+}
+
+/// Transient projection payload: the worker transfers these arrays, then frees this wrapper.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub struct ProjectionFrame {
+    values: Vec<f32>,
+    dims: Vec<u32>,
+    affine: Vec<f32>,
+}
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+impl ProjectionFrame {
+    pub fn values(&mut self) -> Vec<f32> {
+        std::mem::take(&mut self.values)
+    }
+    pub fn dims(&self) -> Vec<u32> {
+        self.dims.clone()
+    }
+    pub fn affine(&self) -> Vec<f32> {
+        self.affine.clone()
+    }
+}
+
+pub struct BrowserHost {
+    renderer: WgpuSliceRenderer,
+    repository: Repository,
+    next_id: u64,
+}
+
+impl BrowserHost {
+    pub async fn configure() -> Result<Self, String> {
+        Self::configure_with_texture_limit(None).await
+    }
+
+    /// Optional device ceiling is useful for embedded hosts and qualification.
+    /// It constrains the actual requested device, not just reported diagnostics.
+    pub async fn configure_with_texture_limit(
+        sampled_texture_limit: Option<u32>,
+    ) -> Result<Self, String> {
+        let mut config = WgpuSliceRendererConfig::default();
+        // The facade's declarative path uses dedicated volume textures; avoid
+        // reserving the desktop's large legacy atlas in every worker.
+        config.atlas.dimensions = [1, 1, 1];
+        config.atlas.capacity_policy = render_loop::RendererCapacityPolicy::FitAdapter;
+        config.device.limits.max_sampled_textures_per_shader_stage = sampled_texture_limit;
+        config.device.float32_filterable = render_loop::RendererFeaturePolicy::Require;
+        #[cfg(target_arch = "wasm32")]
+        {
+            config.adapter.backends = render_loop::RendererBackends::BrowserWebGpu;
+        }
+        Ok(Self {
+            renderer: WgpuSliceRenderer::configure(config)
+                .await
+                .map_err(|e| format!("Browser GPU startup failed: {e}. Use a compatible WebGPU browser or the desktop app."))?,
+            repository: Repository::default(),
+            next_id: 0,
+        })
+    }
+
+    pub fn capabilities(&self) -> render_loop::RendererCapabilities {
+        self.renderer.capabilities()
+    }
+
+    pub async fn load_nifti(
+        &mut self,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Result<BrowserVolume, String> {
+        self.load(name, bytes, false).await
+    }
+
+    pub async fn load_label_nifti(
+        &mut self,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Result<BrowserVolume, String> {
+        self.load(name, bytes, true).await
+    }
+
+    async fn load(
+        &mut self,
+        name: String,
+        bytes: Vec<u8>,
+        labels: bool,
+    ) -> Result<BrowserVolume, String> {
+        let remaining_voxels = {
+            let volumes = self.repository.volumes.lock().unwrap();
+            let max_volumes = 4.min(self.renderer.capabilities().volume_slots as usize);
+            if volumes.len() >= max_volumes {
+                return Err(format!("Unload an image before opening another: this browser device supports up to {max_volumes} volumes"));
+            }
+            let used: usize = volumes
+                .values()
+                .map(|v| v.handle.dims.iter().product::<usize>())
+                .sum();
+            (64 * 1024 * 1024usize).saturating_sub(used)
+        };
+        self.next_id += 1;
+        let scope = LoadScope::default();
+        let source = MemorySource {
+            name,
+            bytes,
+            id: format!("browser-{}", self.next_id),
+            remaining_voxels,
+            labels,
+        };
+        let handle = VolumeLoadingService::load(&source, &self.repository, &scope)
+            .await
+            .map_err(|e| e.to_string())?;
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut registration = (|| {
+            let volumes = self.repository.volumes.lock().unwrap();
+            let prepared = volumes
+                .get(&handle.id)
+                .ok_or("Decoded volume disappeared")?;
+            let volume = source::spatial_frame(&prepared.data, 0)?;
+            let mut info = source::describe(&handle, &volume)?;
+            if let VolumeSendable::Vec4DF32(series) = &prepared.data {
+                let (low, high) = series
+                    .data
+                    .iter()
+                    .filter(|v| v.is_finite())
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &v| {
+                        (lo.min(v), hi.max(v))
+                    });
+                if !low.is_finite() || !high.is_finite() {
+                    return Err("Volume contains no finite values".into());
+                }
+                info.range = [low, high];
+            }
+            if info.label_ids.is_some() {
+                self.renderer.register_label_volume(&handle.id, &volume)
+            } else {
+                self.renderer
+                    .register_volume(&handle.id, &volume, RendererVolumeFormat::R32Float)
+            }
+            .map_err(|e| e.to_string())?;
+            Ok(info)
+        })();
+        if let Some(error) = device.pop_error_scope().await {
+            registration = Err(format!("GPU upload validation failed: {error}"));
+        }
+        if registration.is_err() {
+            let _ = self.renderer.release_volume_by_id(&handle.id);
+            self.repository
+                .remove(&handle.id)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        registration
+    }
+
+    /// Replace the selected frame in the existing slot. Out-of-range requests
+    /// fail before GPU mutation; publication follows successful validation.
+    pub async fn set_timepoint(&mut self, id: &str, timepoint: usize) -> Result<(), String> {
+        let frame = {
+            let volumes = self.repository.volumes.lock().unwrap();
+            let volume = volumes.get(id).ok_or("Volume was unloaded")?;
+            let count = volume.handle.num_timepoints.unwrap_or(1);
+            volume_service::frames::check_timepoint(timepoint, count).map_err(|e| e.to_string())?;
+            if volume.handle.current_timepoint.unwrap_or(0) == timepoint {
+                return Ok(());
+            }
+            source::spatial_frame(&volume.data, timepoint)?.into_owned()
+        };
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let updated = self
+            .renderer
+            .update_scalar_volume(id, &frame)
+            .map_err(|e| e.to_string());
+        let validation = device.pop_error_scope().await;
+        updated?;
+        if let Some(error) = validation {
+            return Err(format!("GPU frame update failed: {error}"));
+        }
+        self.repository
+            .volumes
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .ok_or("Volume was unloaded")?
+            .handle
+            .current_timepoint = Some(timepoint);
+        Ok(())
+    }
+
+    /// Reuse the shared selected-frame extractor; affine is full, column-major.
+    /// No registry or retained projection cache is created.
+    pub fn projection_frame(&self, id: &str, timepoint: usize) -> Result<ProjectionFrame, String> {
+        let volumes = self.repository.volumes.lock().unwrap();
+        let volume = volumes.get(id).ok_or("Volume was unloaded")?;
+        volume_service::frames::check_timepoint(
+            timepoint,
+            volume.handle.num_timepoints.unwrap_or(1),
+        )
+        .map_err(|e| e.to_string())?;
+        let frame = volume_service::frames::extract_frame(&volume.data, timepoint)
+            .map_err(|e| e.to_string())?;
+        Ok(ProjectionFrame {
+            dims: frame.dims.iter().map(|&n| n as u32).collect(),
+            affine: frame.affine.matrix().as_slice().to_vec(),
+            values: frame.values.into_owned(),
+        })
+    }
+
+    /// Same render_view arguments/8-byte RGBA envelope as the desktop adapter.
+    pub async fn render_view(&mut self, state_json: &str) -> Result<Vec<u8>, String> {
+        let (id, mut state) = view::decode(state_json)?;
+        {
+            let loaded = self.repository.volumes.lock().unwrap();
+            for layer in &mut state.layers {
+                let volume = loaded.get(&layer.volume_id).ok_or("Volume was unloaded")?;
+                if volume.handle.is_label_map == Some(true) {
+                    layer.layer_mode = render_contracts::LayerMode::Label;
+                    layer.interpolation = render_contracts::InterpolationMode::Nearest;
+                    layer.colormap_id = self
+                        .renderer
+                        .colormap_id(&layer.volume_id)
+                        .ok_or("Label palette has not been installed")?;
+                }
+            }
+        }
+        let size = state.viewport_size;
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let submission = self
+            .renderer
+            .submit_frame_with_options(ViewId::new(id), state, FrameRequestOptions::default())
+            .map_err(|e| e.to_string());
+        let completion = match submission {
+            Ok(s) => s.complete().await.map_err(|e| e.to_string()),
+            Err(e) => Err(e),
+        };
+        let validation = device.pop_error_scope().await;
+        if let Some(error) = validation {
+            return Err(format!("GPU render validation failed: {error}"));
+        }
+        let result = completion?;
+        let mut packet = Vec::with_capacity(8 + result.image_data.len());
+        packet.extend_from_slice(&size[0].to_le_bytes());
+        packet.extend_from_slice(&size[1].to_le_bytes());
+        packet.extend_from_slice(&result.image_data);
+        Ok(packet)
+    }
+
+    pub async fn unload(&mut self, id: &str) -> Result<(), String> {
+        self.renderer.clear_views();
+        if self.renderer.is_volume_registered(id) {
+            self.renderer
+                .release_volume_by_id(id)
+                .map_err(|e| e.to_string())?;
+        }
+        self.renderer.release_colormap(id);
+        VolumeLoadingService::unload(&self.repository, id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// A palette belongs to its volume, with no independent browser registry.
+    pub async fn set_label_palette(&mut self, id: &str, rgba: &[u8]) -> Result<(), String> {
+        if self
+            .repository
+            .volumes
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_none_or(|v| v.handle.is_label_map != Some(true))
+        {
+            return Err("A loaded label volume is required".into());
+        }
+        let width = render_loop::texture_manager::COLORMAP_LUT_WIDTH as usize;
+        if rgba.len() != width * 4 || rgba[3] != 0 {
+            return Err("Label palette must have 2048 RGBA entries and transparent label 0".into());
+        }
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let result = self
+            .renderer
+            .upsert_colormap(id, rgba)
+            .map_err(|e| e.to_string());
+        let validation = device.pop_error_scope().await;
+        result?;
+        if let Some(error) = validation {
+            self.renderer.release_colormap(id);
+            return Err(format!("GPU palette upload failed: {error}"));
+        }
+        Ok(())
+    }
+
+    pub fn sample_at_world(&self, id: &str, world: [f64; 3]) -> Result<Option<f32>, String> {
+        if !world.iter().all(|v| v.is_finite()) {
+            return Err("Coordinates must be finite".into());
+        }
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        let volume = source::spatial_frame(
+            &prepared.data,
+            prepared.handle.current_timepoint.unwrap_or(0),
+        )?;
+        let m = volume.space.0.trans.clone().fixed_resize::<4, 4>(0.0);
+        let p = m.try_inverse().ok_or("Invalid affine")?
+            * nalgebra::Vector4::new(world[0], world[1], world[2], 1.0);
+        let mut coords = [0usize; 3];
+        for axis in 0..3 {
+            let index = (p[axis] + 0.5).floor();
+            if !index.is_finite() || index < 0.0 || index >= prepared.handle.dims[axis] as f64 {
+                return Ok(None);
+            }
+            coords[axis] = index as usize;
+        }
+        Ok(volume.get_at_coords(&coords))
+    }
+
+    pub fn label_at_world(&self, id: &str, world: [f64; 3]) -> Result<Option<u32>, String> {
+        {
+            let volumes = self.repository.volumes.lock().unwrap();
+            if volumes
+                .get(id)
+                .ok_or("Volume was unloaded")?
+                .handle
+                .is_label_map
+                != Some(true)
+            {
+                return Err("A label volume is required".into());
+            }
+        }
+        self.sample_at_world(id, world)
+            .map(|value| value.map(|v| v as u32))
+    }
+
+    pub fn histogram(
+        &self,
+        id: &str,
+        bins: u32,
+        range: &[f32],
+        exclude_zeros: bool,
+        all_frames: bool,
+    ) -> Result<String, String> {
+        use volume_service::histogram::{for_volume, HistogramFrames};
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        let frames = if all_frames {
+            HistogramFrames::All
+        } else {
+            HistogramFrames::One(prepared.handle.current_timepoint.unwrap_or(0))
+        };
+        let result = for_volume(
+            &prepared.data,
+            frames,
+            bins,
+            if range.is_empty() { None } else { Some(range) },
+            exclude_zeros,
+        )
+        .map_err(|e| e.to_string())?;
+        serde_json::to_string(&result).map_err(|e| e.to_string())
+    }
+
+    /// Shared desktop/browser geometry, including voxel edges and square pixels.
+    pub fn workspace_view(
+        &self,
+        id: &str,
+        orientation: &str,
+        width: u32,
+        height: u32,
+        point: [f32; 3],
+    ) -> Result<String, String> {
+        use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
+        if width == 0
+            || height == 0
+            || width > 2048
+            || height > 2048
+            || !point.iter().all(|v| v.is_finite())
+        {
+            return Err("Invalid browser viewport".into());
+        }
+        let orientation = match orientation {
+            "axial" => ViewOrientation::Axial,
+            "coronal" => ViewOrientation::Coronal,
+            "sagittal" => ViewOrientation::Sagittal,
+            _ => return Err("Invalid view orientation".into()),
+        };
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        let affine = volume_service::frames::affine_from_volume(&prepared.data)
+            .map_err(|e| e.to_string())?;
+        let metadata = VolumeMetadata {
+            dimensions: [
+                prepared.handle.dims[0],
+                prepared.handle.dims[1],
+                prepared.handle.dims[2],
+            ],
+            voxel_to_world: *affine.matrix(),
+        };
+        serde_json::to_string(&ViewRectMm::full_extent_to_edges(
+            &metadata,
+            orientation,
+            point,
+            [width, height],
+        ))
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn workspace_info(&self, id: &str) -> Result<String, String> {
+        let volumes = self.repository.volumes.lock().unwrap();
+        let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+        let frame = source::spatial_frame(
+            &prepared.data,
+            prepared.handle.current_timepoint.unwrap_or(0),
+        )?;
+        let info = source::describe(&prepared.handle, &frame)?;
+        let m = volume_service::frames::affine_from_volume(&prepared.data)
+            .map_err(|e| e.to_string())?;
+        let matrix = m.matrix();
+        let inverse = matrix.try_inverse().ok_or("Invalid volume affine")?;
+        let spacing: Vec<_> = (0..3)
+            .map(|axis| matrix.fixed_view::<3, 1>(0, axis).norm())
+            .collect();
+        let center_voxel = matrix
+            * nalgebra::Vector4::new(
+                ((info.dims[0] as f32 - 1.0) / 2.0).floor(),
+                ((info.dims[1] as f32 - 1.0) / 2.0).floor(),
+                ((info.dims[2] as f32 - 1.0) / 2.0).floor(),
+                1.0,
+            );
+        Ok(serde_json::json!({"volume":info,"handle":prepared.handle,"bounds":{
+            "min":info.bounds[0],"max":info.bounds[1],"center":info.center,
+            "center_voxel_world":[center_voxel.x,center_voxel.y,center_voxel.z],
+            "dims":info.dims,"spacing":spacing
+        },"gpu":{
+            "data_range":{"min":info.range[0],"max":info.range[1]},"dim":info.dims,
+            "center_world":info.center,"spacing":spacing,"origin":[matrix[(0,3)],matrix[(1,3)],matrix[(2,3)]],
+            "voxel_to_world":matrix.as_slice(),"world_to_voxel":inverse.as_slice(),"tex_format":"R32Float"
+        }}).to_string())
+    }
+
+    pub fn release_gpu(&mut self, id: &str) -> Result<(), String> {
+        self.renderer.clear_views();
+        if self.renderer.is_volume_registered(id) {
+            self.renderer
+                .release_volume_by_id(id)
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub async fn ensure_gpu(&mut self, id: &str) -> Result<(), String> {
+        let device = self.renderer.legacy_service().device.clone();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut registration = (|| {
+            let volumes = self.repository.volumes.lock().unwrap();
+            let prepared = volumes.get(id).ok_or("Volume was unloaded")?;
+            let frame = source::spatial_frame(
+                &prepared.data,
+                prepared.handle.current_timepoint.unwrap_or(0),
+            )?;
+            if prepared.handle.is_label_map == Some(true) {
+                self.renderer
+                    .register_label_volume(id, &frame)
+                    .map_err(|e| e.to_string())?;
+            } else {
+                self.renderer
+                    .register_volume(id, &frame, RendererVolumeFormat::R32Float)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        })();
+        if let Some(error) = device.pop_error_scope().await {
+            registration = Err(format!("GPU upload validation failed: {error}"));
+        }
+        if registration.is_err() {
+            let _ = self.renderer.release_volume_by_id(id);
+        }
+        registration
+    }
+
+    pub fn diagnostics(&self) -> String {
+        let staging = self.renderer.readback_monitor().snapshot();
+        serde_json::json!({"volumes":self.repository.volumes.lock().unwrap().len(),
+            "palettes":self.renderer.custom_colormap_count(),"stagingBuffers":staging.buffers,"stagingBytes":staging.bytes})
+        .to_string()
+    }
+}
+
+fn input(details: impl Into<String>) -> BridgeError {
+    BridgeError::Input {
+        code: 1003,
+        details: details.into(),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod wasm {
+    use super::*;
+    use wasm_bindgen::prelude::*;
+    /// A temporary decoder result, consumed by the worker and immediately freed.
+    /// The browser canvas owns the transferred arrays; there is no Rust registry.
+    #[wasm_bindgen]
+    pub struct DecodedSurface {
+        vertices: Vec<f32>,
+        faces: Vec<u32>,
+        hemisphere: String,
+        surface_type: String,
+    }
+    #[wasm_bindgen]
+    impl DecodedSurface {
+        pub fn vertices(&mut self) -> Vec<f32> {
+            std::mem::take(&mut self.vertices)
+        }
+        pub fn faces(&mut self) -> Vec<u32> {
+            std::mem::take(&mut self.faces)
+        }
+        pub fn hemisphere(&self) -> String {
+            self.hemisphere.clone()
+        }
+        pub fn surface_type(&self) -> String {
+            self.surface_type.clone()
+        }
+    }
+    #[wasm_bindgen]
+    pub fn decode_surface(bytes: &[u8]) -> Result<DecodedSurface, JsValue> {
+        let mesh =
+            gifti_loader::geometry::read_surface(bytes).map_err(|e| JsValue::from_str(&e))?;
+        Ok(DecodedSurface {
+            vertices: mesh.vertices_world(),
+            faces: mesh.faces,
+            hemisphere: mesh.hemisphere,
+            surface_type: mesh.surface_type,
+        })
+    }
+    #[wasm_bindgen]
+    pub fn decode_surface_scalar(bytes: &[u8]) -> Result<Vec<f32>, JsValue> {
+        gifti_loader::geometry::read_scalar(bytes).map_err(|e| JsValue::from_str(&e))
+    }
+    #[wasm_bindgen]
+    pub struct DecodedSurfaceLabels {
+        labels: Vec<u32>,
+        table: String,
+    }
+    #[wasm_bindgen]
+    impl DecodedSurfaceLabels {
+        pub fn labels(&mut self) -> Vec<u32> {
+            std::mem::take(&mut self.labels)
+        }
+        pub fn table(&self) -> String {
+            self.table.clone()
+        }
+    }
+    #[wasm_bindgen]
+    pub fn decode_surface_labels(bytes: &[u8]) -> Result<DecodedSurfaceLabels, JsValue> {
+        let map = gifti_loader::geometry::read_labels(
+            bytes,
+            gifti_loader::geometry::GeometryLimits::BROWSER,
+        )
+        .map_err(|e| JsValue::from_str(&e))?;
+        Ok(DecodedSurfaceLabels {
+            labels: map.labels,
+            table: serde_json::to_string(&map.table)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?,
+        })
+    }
+    #[wasm_bindgen(js_name = BrowserHost)]
+    pub struct WasmHost {
+        inner: BrowserHost,
+    }
+    #[wasm_bindgen(js_class = BrowserHost)]
+    impl WasmHost {
+        pub async fn create(sampled_texture_limit: Option<u32>) -> Result<WasmHost, JsValue> {
+            console_error_panic_hook::set_once();
+            Ok(Self {
+                inner: BrowserHost::configure_with_texture_limit(sampled_texture_limit)
+                    .await
+                    .map_err(|e| JsValue::from_str(&e))?,
+            })
+        }
+        pub fn projection_frame(
+            &self,
+            id: String,
+            timepoint: usize,
+        ) -> Result<ProjectionFrame, JsValue> {
+            self.inner
+                .projection_frame(&id, timepoint)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn capabilities(&self) -> String {
+            serde_json::to_string(&self.inner.capabilities())
+                .expect("finite GPU capability integers")
+        }
+        pub async fn load_nifti(
+            &mut self,
+            name: String,
+            bytes: Vec<u8>,
+        ) -> Result<String, JsValue> {
+            let v = self
+                .inner
+                .load_nifti(name, bytes)
+                .await
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_json::to_string(&v).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        pub async fn load_label_nifti(
+            &mut self,
+            name: String,
+            bytes: Vec<u8>,
+        ) -> Result<String, JsValue> {
+            let volume = self
+                .inner
+                .load_label_nifti(name, bytes)
+                .await
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_json::to_string(&volume).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        pub async fn set_label_palette(
+            &mut self,
+            id: String,
+            rgba: Vec<u8>,
+        ) -> Result<(), JsValue> {
+            self.inner
+                .set_label_palette(&id, &rgba)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn label_at_world(
+            &self,
+            id: String,
+            x: f64,
+            y: f64,
+            z: f64,
+        ) -> Result<Option<u32>, JsValue> {
+            self.inner
+                .label_at_world(&id, [x, y, z])
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub async fn set_timepoint(
+            &mut self,
+            volume_id: String,
+            timepoint: usize,
+        ) -> Result<(), JsValue> {
+            self.inner
+                .set_timepoint(&volume_id, timepoint)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub async fn render_view(&mut self, state_json: String) -> Result<Vec<u8>, JsValue> {
+            self.inner
+                .render_view(&state_json)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub async fn unload(&mut self, id: String) -> Result<(), JsValue> {
+            self.inner
+                .unload(&id)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn workspace_view(
+            &self,
+            id: String,
+            orientation: String,
+            width: u32,
+            height: u32,
+            point: Vec<f32>,
+        ) -> Result<String, JsValue> {
+            let point: [f32; 3] = point
+                .try_into()
+                .map_err(|_| JsValue::from_str("A three-coordinate world point is required"))?;
+            self.inner
+                .workspace_view(&id, &orientation, width, height, point)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn histogram(
+            &self,
+            id: String,
+            bins: u32,
+            range: Vec<f32>,
+            exclude_zeros: bool,
+            all_frames: bool,
+        ) -> Result<String, JsValue> {
+            self.inner
+                .histogram(&id, bins, &range, exclude_zeros, all_frames)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn sample_at_world(
+            &self,
+            id: String,
+            x: f64,
+            y: f64,
+            z: f64,
+        ) -> Result<Option<f32>, JsValue> {
+            self.inner
+                .sample_at_world(&id, [x, y, z])
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn workspace_info(&self, id: String) -> Result<String, JsValue> {
+            self.inner
+                .workspace_info(&id)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn release_gpu(&mut self, id: String) -> Result<(), JsValue> {
+            self.inner
+                .release_gpu(&id)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub async fn ensure_gpu(&mut self, id: String) -> Result<(), JsValue> {
+            self.inner
+                .ensure_gpu(&id)
+                .await
+                .map_err(|e| JsValue::from_str(&e))
+        }
+        pub fn diagnostics(&self) -> String {
+            self.inner.diagnostics()
+        }
+    }
+}

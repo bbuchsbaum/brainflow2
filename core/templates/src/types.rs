@@ -227,6 +227,7 @@ pub struct TemplateCatalogEntry {
     pub download_url: Option<String>,
     pub file_size_mb: Option<f64>,
     pub checksum: Option<String>,
+    #[serde(default)]
     pub is_cached: bool,
     pub last_accessed: Option<String>,
 }

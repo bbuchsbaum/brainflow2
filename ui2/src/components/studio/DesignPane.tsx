@@ -161,7 +161,7 @@ export function DesignPane({
       <StudioPane title="Subjects" headerActions={headerActions} showHeader={false}>
         <Notice role={undefined} severity="neutral">
           <div className="font-medium text-foreground">No study loaded</div>
-          <div>Use the actions above to import a table or manifest.</div>
+          <div>Import a table or NeuroTabs manifest from the Set studio tab to list its subjects here.</div>
         </Notice>
       </StudioPane>
     );

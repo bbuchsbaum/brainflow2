@@ -475,8 +475,8 @@ export class ApiService {
 
   // ── Volume delegation ──────────────────────────────────────────────────────
 
-  async loadFile(path: string): Promise<import('./volume/VolumeApiService').VolumeHandle> {
-    return this.volumes.loadFile(path);
+  async loadFile(path: string, signal?: AbortSignal): Promise<import('./volume/VolumeApiService').VolumeHandle> {
+    return this.volumes.loadFile(path, signal);
   }
 
   async getVolumeBounds(volumeId: string): Promise<VolumeBounds> {

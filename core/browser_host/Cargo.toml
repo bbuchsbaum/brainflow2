@@ -1,0 +1,34 @@
+[package]
+name = "browser_host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gifti-loader = { path = "../loaders/gifti", default-features = false }
+render_loop = { path = "../render_loop", features = ["web"] }
+render_contracts = { path = "../render_contracts" }
+volume_service = { path = "../volume_service", features = ["web"] }
+bridge_types = { path = "../bridge_types", features = ["web"] }
+volmath = { path = "../volmath", features = ["web"] }
+neuroim = { workspace = true }
+neuro-types = { path = "../neuro-types" }
+nalgebra = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = "0.1"
+flate2 = "1"
+nifti = "0.17"
+colormap = { path = "../colormap" }
+wgpu = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

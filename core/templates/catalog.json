@@ -1,0 +1,272 @@
+[
+  {
+    "id": "MNI152NLin2009cAsym_T1w_1mm",
+    "config": {
+      "template_type": "T1w",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 T1w (1mm)",
+    "description": "MNI152NLin2009cAsym T1-weighted template at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_T1w.nii.gz",
+    "file_size_mb": 13.685075,
+    "checksum": "1f27aabea9f7183dc0c69dafa71e1787b921ca778d655d9c1bf302b273d5627a"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_T1w_2mm",
+    "config": {
+      "template_type": "T1w",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 T1w (2mm)",
+    "description": "MNI152NLin2009cAsym T1-weighted template at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_T1w.nii.gz",
+    "file_size_mb": 1.763084,
+    "checksum": "7c4e551ae8150ac1f468595bd62074aa15aed747cd334fce6d177182972b6220"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_T2w_1mm",
+    "config": {
+      "template_type": "T2w",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 T2w (1mm)",
+    "description": "MNI152NLin2009cAsym T2-weighted template at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_T2w.nii.gz",
+    "file_size_mb": 13.286303,
+    "checksum": "6e39951e4478ff041f1290d31935dc05aa5425f9fd3f20ed57d4646f0d5be0ff"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_T2w_2mm",
+    "config": {
+      "template_type": "T2w",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 T2w (2mm)",
+    "description": "MNI152NLin2009cAsym T2-weighted template at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_T2w.nii.gz",
+    "file_size_mb": 1.717372,
+    "checksum": "2228a730b59f5a6443a55007c98c6fa00deefcbc264aefbc7fca7e3ddb6a9aa9"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_GM_1mm",
+    "config": {
+      "template_type": "GM",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 Gray Matter (1mm)",
+    "description": "MNI152NLin2009cAsym gray matter probability map at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_label-GM_probseg.nii.gz",
+    "file_size_mb": 7.566494,
+    "checksum": "662b18e83dddc554b19c621d9750af3454b54d4e103df03633eacced3884805a"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_GM_2mm",
+    "config": {
+      "template_type": "GM",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 Gray Matter (2mm)",
+    "description": "MNI152NLin2009cAsym gray matter probability map at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_label-GM_probseg.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
+    "id": "MNI152NLin2009cAsym_WM_1mm",
+    "config": {
+      "template_type": "WM",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 White Matter (1mm)",
+    "description": "MNI152NLin2009cAsym white matter probability map at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_label-WM_probseg.nii.gz",
+    "file_size_mb": 6.91172,
+    "checksum": "b2f80e29f5a1ef55325215d1716ef611f5b1a3cd97b4a49ef4e9564e9564e945"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_WM_2mm",
+    "config": {
+      "template_type": "WM",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 White Matter (2mm)",
+    "description": "MNI152NLin2009cAsym white matter probability map at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_label-WM_probseg.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
+    "id": "MNI152NLin2009cAsym_CSF_1mm",
+    "config": {
+      "template_type": "CSF",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 CSF (1mm)",
+    "description": "MNI152NLin2009cAsym CSF probability map at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_label-CSF_probseg.nii.gz",
+    "file_size_mb": 5.494321,
+    "checksum": "8a74e36b067a3fb670f6785b94479cc3df4d219a3f72d69d57aef332e4947048"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_CSF_2mm",
+    "config": {
+      "template_type": "CSF",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 CSF (2mm)",
+    "description": "MNI152NLin2009cAsym CSF probability map at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_label-CSF_probseg.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
+    "id": "MNI152NLin2009cAsym_mask_1mm",
+    "config": {
+      "template_type": "mask",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 Brain Mask (1mm)",
+    "description": "MNI152NLin2009cAsym brain mask at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_desc-brain_mask.nii.gz",
+    "file_size_mb": 0.159538,
+    "checksum": "e40bb1816736504d4c25abc243c1c8503df1d308f64c048318aa4b829e09a7ae"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_mask_2mm",
+    "config": {
+      "template_type": "mask",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 Brain Mask (2mm)",
+    "description": "MNI152NLin2009cAsym brain mask at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_desc-brain_mask.nii.gz",
+    "file_size_mb": 0.029576,
+    "checksum": "7a71e9ce99d2af7b68bb5c163908c8e25f4c7a198806fb0893a5c1759b480ecd"
+  },
+  {
+    "id": "MNI152NLin2009cAsym_brain_1mm",
+    "config": {
+      "template_type": "brain",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 Skull-stripped Brain (1mm)",
+    "description": "MNI152NLin2009cAsym skull-stripped T1-weighted template at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
+    "id": "MNI152NLin2009cAsym_brain_2mm",
+    "config": {
+      "template_type": "brain",
+      "space": "MNI152NLin2009cAsym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 Skull-stripped Brain (2mm)",
+    "description": "MNI152NLin2009cAsym skull-stripped T1-weighted template at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_desc-brain_T1w.nii.gz",
+    "file_size_mb": null,
+    "checksum": null
+  },
+  {
+    "id": "MNI152NLin6Asym_T1w_1mm",
+    "config": {
+      "template_type": "T1w",
+      "space": "MNI152NLin6Asym",
+      "resolution": "1mm"
+    },
+    "name": "MNI152 6th Gen T1w (1mm)",
+    "description": "MNI152NLin6Asym T1-weighted template at 1mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-01_T1w.nii.gz",
+    "file_size_mb": 8.5
+  },
+  {
+    "id": "MNI152NLin6Asym_T1w_2mm",
+    "config": {
+      "template_type": "T1w",
+      "space": "MNI152NLin6Asym",
+      "resolution": "2mm"
+    },
+    "name": "MNI152 6th Gen T1w (2mm)",
+    "description": "MNI152NLin6Asym T1-weighted template at 2mm resolution",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_T1w.nii.gz",
+    "file_size_mb": 1.2
+  },
+  {
+    "id": "MNIColin27_T1w_native",
+    "config": {
+      "template_type": "T1w",
+      "space": "MNIColin27",
+      "resolution": "native"
+    },
+    "name": "MNI Colin27 T1w",
+    "description": "MNI Colin27 T1-weighted template (single subject)",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_T1w.nii.gz",
+    "file_size_mb": 14.747884,
+    "checksum": "811416b120cca98d28762a5ca3fd9ecbed6c02c1bf0bac8b0ff037518089da3b"
+  },
+  {
+    "id": "MNIColin27_mask_native",
+    "config": {
+      "template_type": "mask",
+      "space": "MNIColin27",
+      "resolution": "native"
+    },
+    "name": "MNI Colin27 Brain Mask",
+    "description": "MNI Colin27 brain mask",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_desc-brain_mask.nii.gz",
+    "file_size_mb": 0.136842,
+    "checksum": "21f4de9826077b54c991ec8d91109a0768f928de6ac40f70a8d63bd7650150eb"
+  },
+  {
+    "id": "MNI305_T1w_native",
+    "config": {
+      "template_type": "T1w",
+      "space": "MNI305",
+      "resolution": "native"
+    },
+    "name": "MNI305 T1w",
+    "description": "MNI305 T1-weighted template (average of 305 subjects)",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T1w.nii.gz",
+    "file_size_mb": 2.879454,
+    "checksum": "ad5bbda698844359dc16e2a50138d0285f0d77eccdc4c7855c75ad8980d7e003"
+  },
+  {
+    "id": "MNI305_mask_native",
+    "config": {
+      "template_type": "mask",
+      "space": "MNI305",
+      "resolution": "native"
+    },
+    "name": "MNI305 Brain Mask",
+    "description": "MNI305 brain mask",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_desc-brain_mask.nii.gz",
+    "file_size_mb": 0.123696,
+    "checksum": "fd9e8f81b050b9815b052b526fb56128e73ce25feb74359af09e58cdf6dcb54c"
+  },
+  {
+    "id": "MNI305_T2w_native",
+    "config": {
+      "template_type": "T2w",
+      "space": "MNI305",
+      "resolution": "native"
+    },
+    "name": "MNI305 T2w",
+    "description": "MNI305 T2-weighted template",
+    "download_url": "https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T2w.nii.gz",
+    "file_size_mb": 8.0
+  }
+]

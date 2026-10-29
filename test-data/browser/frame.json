@@ -1,0 +1,104 @@
+{
+  "views": {
+    "axial": {
+      "origin_mm": [
+        11,
+        -8.5,
+        21
+      ],
+      "u_mm": [
+        -2,
+        0,
+        0
+      ],
+      "v_mm": [
+        0,
+        3,
+        0
+      ]
+    },
+    "coronal": {
+      "origin_mm": [
+        11,
+        -8.5,
+        21
+      ],
+      "u_mm": [
+        -2,
+        0,
+        0
+      ],
+      "v_mm": [
+        0,
+        3,
+        0
+      ]
+    },
+    "sagittal": {
+      "origin_mm": [
+        11,
+        -8.5,
+        21
+      ],
+      "u_mm": [
+        -2,
+        0,
+        0
+      ],
+      "v_mm": [
+        0,
+        3,
+        0
+      ]
+    }
+  },
+  "crosshair": {
+    "world_mm": [
+      4,
+      -1,
+      21
+    ],
+    "visible": false
+  },
+  "requestedView": {
+    "type": "axial",
+    "width": 7,
+    "height": 5,
+    "origin_mm": [
+      11,
+      -8.5,
+      21,
+      1
+    ],
+    "u_mm": [
+      -14,
+      0,
+      0,
+      0
+    ],
+    "v_mm": [
+      0,
+      15,
+      0,
+      0
+    ]
+  },
+  "layers": [
+    {
+      "id": "base",
+      "volumeId": "browser-1",
+      "visible": true,
+      "opacity": 1,
+      "colormap": "gray",
+      "intensity": [
+        0,
+        864
+      ],
+      "threshold": [
+        0,
+        0
+      ],
+      "interpolation": "nearest"
+    }
+  ]
+}

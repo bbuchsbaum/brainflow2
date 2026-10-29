@@ -7,10 +7,13 @@ use crate::render_state::{BlendMode as GpuBlendMode, ThresholdMode};
 use crate::view_state::{
     CameraState, InterpolationMode, LayerConfig, SliceOrientation, ThresholdConfig, ViewState,
 };
-use crate::{RenderLoopError, RenderLoopService};
+use crate::RenderLoopError;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::RenderLoopService;
+#[cfg(not(target_arch = "wasm32"))]
+use neuro_types::RgbaImage;
 use neuro_types::{
-    CompositeRequest, InterpolationMethod, LayerSpec, Result as NeuroResult, RgbaImage,
-    SliceGeometry, SliceProvider,
+    CompositeRequest, InterpolationMethod, LayerSpec, Result as NeuroResult, SliceGeometry,
 };
 
 /// Error conversion from RenderLoop to neuro-types
@@ -22,10 +25,12 @@ impl From<RenderLoopError> for neuro_types::Error {
 
 /// Adapter that wraps the GPU RenderLoopService to implement SliceProvider
 #[allow(dead_code)]
+#[cfg(not(target_arch = "wasm32"))]
 pub struct GpuSliceAdapter {
     render_service: std::cell::RefCell<RenderLoopService>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl GpuSliceAdapter {
     /// Create a new GPU slice adapter
     pub fn new(render_service: RenderLoopService) -> Self {
@@ -35,7 +40,8 @@ impl GpuSliceAdapter {
     }
 }
 
-impl SliceProvider for GpuSliceAdapter {
+#[cfg(not(target_arch = "wasm32"))]
+impl neuro_types::SliceProvider for GpuSliceAdapter {
     fn composite_rgba(&self, request: &CompositeRequest) -> NeuroResult<RgbaImage> {
         // Use the new composite_rgba method from RenderLoopService
         let rgba_data = self

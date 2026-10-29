@@ -1,4 +1,5 @@
 import React from "react";
+import {getHostCapabilities} from "@/services/transport";
 import { VscFolderOpened, VscRemote, VscFile } from "react-icons/vsc";
 import {
   RecentLocationsList,
@@ -12,7 +13,8 @@ interface FilesStartPanelProps {
   shortcutLabel: string;
   pending: boolean;
   errorMessage: string | null;
-  onMountLocal: () => void;
+  /** With a path: reopen that location. Without: show the folder picker. */
+  onMountLocal: (path?: string) => void;
   onMountRemote: () => void;
   onOpenFile: () => void;
 }
@@ -39,8 +41,8 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
             variant="primary"
             size="sm"
             className="files-start-command w-full justify-start"
-            onClick={onMountLocal}
-            disabled={pending}
+            onClick={() => onMountLocal()}
+            disabled={pending || !getHostCapabilities().nativePaths}
             icon={<VscFolderOpened className="files-start-command-icon" />}
           >
             <span className="files-start-command-label">Mount directory</span>
@@ -55,7 +57,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
             size="sm"
             className="files-start-command w-full justify-start"
             onClick={onMountRemote}
-            disabled={pending}
+            disabled={pending || !getHostCapabilities().remoteMounts}
             icon={<VscRemote className="files-start-command-icon" />}
           >
             <span className="files-start-command-label">Mount remote (SSH)…</span>
@@ -81,12 +83,13 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
         </Notice>
       )}
 
+      {!getHostCapabilities().nativePaths && <p>Open an image from your device. Folder mounts and SSH connections require the desktop app.</p>}
       <PinnedLocationsList
         onActivate={(item) => {
           if (item.mountSource.kind === "remote") {
             onMountRemote();
           } else {
-            onMountLocal();
+            onMountLocal(item.path);
           }
         }}
       />

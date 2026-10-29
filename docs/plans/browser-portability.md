@@ -3,7 +3,8 @@
 Preparation and delivery notes: 2026-10-26, checkout based on `69f1e7b7` with
 substantial existing uncommitted work. Completed slices cover transport ownership,
 native/WASM numerical qualification, published reader APIs and a portable loading
-lifecycle. A browser application remains the later integration milestone.
+lifecycle. The 2026-10-27 browser milestone below adds a working scalar-volume
+viewer and offline PWA shell; desktop feature parity remains a later milestone.
 
 ## Outcome and boundaries
 
@@ -23,12 +24,12 @@ remote-mount and external analysis-process parity is outside that milestone.
 | --- | --- | --- |
 | UI to backend | `ui2/src/services/transport.ts` defines `BackendTransport`; `packages/api/src/renderClient.ts` accepts a transport | Keep backend selection at application setup; injected services must retain that backend |
 | API composition | `ApiService` used injected transport for rendering but global getters for four domain delegates; its constructor changed the global package helper invoker | Fixed in this slice: own delegates per instance; configure legacy helpers when selecting the application default |
-| Direct desktop calls | `AtlasService`, `AtlasPaletteService`, `TemplateService`, `HistogramService`, `TemporalHeatmapService` import Tauri invoke directly | Migrate by service behind the existing transport, with payload/error tests; do not build a second parallel command API |
+| Domain host calls | Atlas, palette, template and histogram services route through `invokeBackend`; temporal-map services own an injected transport | Browser capability failures propagate without a native fallback; further desktop-only services remain |
 | Portable contracts | `render_contracts` depends on serde, ts-rs and `neuro-types` | Preserve this small dependency boundary; its WASM library check passes |
 | Numerical core | `volmath` has a cdylib target and wasm-bindgen, but unconditional neuroim and Rayon dependencies | Explicit `web` feature now builds; selected numerical fixtures execute under Node WASM, with broader API qualification still needed |
 | Loader input | `bridge_types::Loader::load` accepts `&Path`; NIfTI loader invokes neuroim path readers | Separate source acquisition from decoding; preserve streaming/random-access opportunities rather than requiring a full-file copy |
 | Application/host coupling | `api_bridge` depends on Tauri, rendering, loaders, Tokio process support, keyring, remotely and native directories | Extract one tested application operation at a time; native credentials, processes, paths and events stay in adapters |
-| GPU scheduling | `render_loop/src/lib.rs` uses `map_async` followed by `Maintain::Wait` and `pollster::block_on` in readback paths | Split render submission from asynchronous readback completion; retain resource ownership until GPU work is complete |
+| GPU scheduling | Owned async submissions are integrated in `abcda9ea`; native polling runs off the caller and browser callbacks complete without blocking | Synchronous adapters remain native-only; direct canvas presentation and broader readback performance are separate work |
 | Presentation | UI decodes packets into ImageBitmap; surface runtime already uses SurfView | Separate rendered-frame presentation from readback/export; evaluate direct canvas presentation after correctness is established |
 
 `bridge_types` is not currently a lightweight wire-only crate: it includes decoded
@@ -329,3 +330,630 @@ The upstream publication is complete;
 Brainflow changes remain local in its existing dirty checkout. Browser runtime,
 native UI walkthrough, GPU performance and async readback qualification remain
 separate work.
+
+
+## Fifth slice: working browser host and offline viewer (2026-10-27)
+
+Implemented from checkout `851d57f9`, preserving its unrelated dirty work. The
+preceding loading extraction (`13d5b7c`) and async readback (`abcda9ea`) are already
+integrated. The latter's original completion was performed by another session;
+this run independently reruns the renderer regressions on the new sources.
+
+- `render_loop/web` forwards portable entropy configuration. Tokio's multithread
+  runtime, the filesystem shader watcher and the synchronous GPU trait adapter
+  are native-only. Production timers/counters use web-time, which reexports std
+  clocks natively and uses browser clocks on WASM. The complete renderer builds
+  for `wasm32-unknown-unknown`.
+- The active shaders use individual texture bindings, so unused native binding
+  array/nonuniform-indexing device features are no longer requested. Their
+  single-level colormap LUT uses explicit LOD 0. Browser Tint rejected the prior
+  implicit-derivative call inside nonuniform per-pixel branches; the initial
+  failing pixel receipts are retained rather than accepted as blank output.
+- `core/browser_host` composes the published neuroim reader, `volume_service` and
+  the WGPU facade. It bounds compressed/expanded input and resident voxels,
+  preserves source affine/scaling, and rolls back CPU publication on failed GPU
+  upload. Shader/upload/render validation scopes surface browser GPU failures.
+- A dedicated worker owns file reads, WASM data and GPU resources. Browser `File`
+  objects are cloned in, frame buffers transfer out, and IDs/cancellation/late
+  reply cleanup retain ownership. `RenderClient` and the existing RGBA envelope
+  are reused. The minimal browser shell reuses the shared slice viewport,
+  controls/theme, linked crosshair state, window/level, scalar overlay opacity,
+  unload and teardown. It is a separate entry in the same UI package, not a
+  replacement for the desktop workspace.
+- Five previously direct desktop domain clients now use the selected transport.
+  Native-only browser capabilities fail explicitly. The worker also isolates a
+  WGPU 0.20/current-WebGPU descriptor compatibility translation; native APIs and
+  dependency pins stay unchanged.
+- `tools/build-browser.mjs` builds Rust and shared JS sources, creates WASM
+  bindings and a static production bundle, then precaches its exact application
+  assets. User-selected files are not persisted in the service-worker cache.
+  Updates wait for all old viewer windows to close. See
+  [Browser viewer](../browser-viewer.md) for build/run commands, requirements,
+  bounds, ownership and independent-fixture qualification.
+
+Qualification receipts are local in `cruft/browser-portability/`. Native analytic
+geometry/pixel tests, actual Chromium/Metal WASM pixel comparisons and browser UI
+interaction tests are separate from the production offline/installability gate.
+The full UI suite records 2,517 passed, three skipped and one todo. The renderer
+suite records 242 passed and 19 ignored, with no explicit GPU skip lines. This is
+not qualification of every format, browser, adapter or native desktop UI. Hosted
+CI was not executed in this session; its WASM library compile gate is extended to
+`browser_host`.
+
+Remaining product work is broader desktop parity (labels, time series, surfaces,
+atlas/template catalogs and native services), more browsers/adapters, lower-limit
+WebGPU devices, and optional direct canvas presentation. These are outside the
+first volume-viewing milestone and must not be inferred from these checks.
+
+## Sixth slice: adapter-sized GPU layouts (2026-10-27)
+
+The browser host now opts into `RendererCapacityPolicy::FitAdapter`. A single
+resolved capacity drives the texture manager, binding layouts, device request
+and both authoritative masked WGSL shaders. Shared composition generates only
+resource declarations and explicit texture sampling switches; geometry,
+thresholding, compositing, physical scalar units and the readback Y-flip stay
+in the existing kernels. Native callers keep the fixed 13-slot default and
+smaller-request padding. The alternate smart texture manager rejects a reduced
+layout before changing state.
+
+A 16-sampled-texture device uses seven volume/mask pairs and the shared colormap.
+The browser reports actual device/layout capabilities and limits resident files
+to the lesser of four or its slot count. Missing adapters, inadequate texture
+budgets and absent R32Float filtering fail at startup with recovery guidance.
+There is no reduced-precision fallback or WGPU dependency upgrade.
+
+Local receipts are in `cruft/gpu-compatibility/` (Mote
+`bd-01M5ZTT333ZBK61E557RN8EKW3`):
+
+- Both shaders validate and reflect the same Rust struct/binding contracts at
+  1, 4, 7 and 13 slots. The full native renderer suite passes 246 tests, with
+  19 ignored and no explicit GPU-skip lines. Its constrained 16-texture device
+  matches desktop pixels in both interpolation modes and for last-slot legacy
+  alpha masks, then checks exhaustion, slot reuse and staging teardown.
+- Two real native browser-host tests cover independent oblique geometry/pixels,
+  input/upload failure cleanup, unload and actual one-slot residency/reuse.
+- WASM release/static PWA build and TypeScript compilation pass. Six actual
+  Chromium 156/Metal tests cover default/adaptive pixels, constrained-device
+  cancellation/unload, insufficient texture and missing-f32 startup rejection,
+  linked controls, offline reload and installability. Native/all-target Clippy,
+  WASM Clippy and scoped UI lint pass; WASM Clippy retains existing shared
+  `Arc` warnings and ts-rs attribute warnings.
+- Firefox 157 exposes WebGPU but returns no adapter on this Mac. Its actual
+  viewer startup failure and recovery message pass. The installed frozen
+  Playwright WebKit build for macOS 14 crashes before page creation. Neither
+  result qualifies rendering on those engines; another supported machine/adapter
+  is required for that evidence.
+
+The mask check uses the legacy alpha-mask API: declarative `ViewState` does not
+carry mask ownership. That pre-existing API boundary is unchanged. Broader
+desktop features, additional working browser/adapter combinations and optional
+direct canvas presentation remain future slices. No deployment or hosted CI
+run was performed.
+
+## Seventh slice: shared 4D frames and browser time navigation (2026-10-28)
+
+Existing spatial-frame extraction, frame bounds and affine/dimension helpers move
+from `api_bridge` into the concrete `volume_service::frames` module. Desktop
+queries and browser loading call those same helpers. This removes the desktop
+implementation copy without introducing new traits or a service registry.
+
+The browser accepts scalar 3D/4D NIfTI, including gzip. Existing decoded-voxel
+budgets now count every frame. One decoded series and one resident GPU slot belong
+to each loaded image; selecting a frame replaces that slot through the renderer
+facade. A 3D f32 source remains borrowed during upload. The display window uses
+the series range and stays fixed while stepping.
+
+The browser session reuses its existing active/latest render loop. Each snapshot
+selects the required host frames before rendering all three slices; obsolete
+results are discarded. The host alone tracks the uploaded frame and ignores
+repeat selections. Playback uses one timer after completed presentation, with a
+250 ms pause; reset, unload, closure and render failures stop it. No prefetch
+cache or additional scheduler is introduced. Frame indices do not imply
+acquisition-timed playback.
+
+The public oblique 4D fixture uses values `i + 10*j + 100*k + 1000*t` on the same
+rotated anisotropic grid as the 3D fixture. Native checks select 0, 2, 1, 0 using
+an actual one-slot GPU device, verify independent pixel values and unchanged
+geometry, reject out-of-range requests before changing output, and reclaim the
+volume. Browser checks compare the same frames with native packets and exercise
+stepping/play/pause/unload. Session tests cover rapid scrub coalescing and reset
+during an in-flight frame change. Receipts live in `cruft/browser-4d/` under Mote
+`bd-01M61F0JDHNR6DJQVQQEM6DC1E`.
+
+Final local checks: shared service 7 passed, desktop volume queries 14 passed,
+native browser host 3 passed, renderer 246 passed/19 ignored, browser session
+3 passed, and real Chromium/Metal browser 8 passed. WASM/PWA/TypeScript builds,
+scoped UI lint, native/WASM Clippy and formatting checks pass with existing
+ts-rs and shared WASM Arc warnings. Browser rendering qualification remains
+Chromium/Metal on this machine; no hosted CI or deployment was performed.
+
+
+## Eighth slice: categorical labels (2026-10-28)
+
+The browser now opens 3D categorical NIfTI, with an optional local TSV/FreeSurfer
+LUT, through the existing loading lifecycle. Label intent is recognized; the
+explicit Open labels action handles files without that intent. IDs are restricted
+to 0–2047 and identity scaling. Native-type readers validate values before any
+f32 conversion; the general neuroim reader intentionally converts through f32
+and is unsuitable for validating exact source labels.
+
+Reuse and simplification:
+
+- `WgpuSliceRenderer` exposes the existing label-aware upload and palette
+  operations; shaders and upload encoders are unchanged.
+- The worker reuses desktop `parseLabelTable`, `buildLabelPalette` and fallback
+  colors. Only IDs actually present receive opacity; zero and holes stay clear.
+- The volume ID owns its palette, avoiding a second host registry or lease type.
+  Registration failures share one rollback path. Unload/cancel retires both.
+- Lookup uses the existing coalesced rendering loop and stale-revision check;
+  no new query cache, scheduler, or global state. Existing opacity/crosshair
+  controls remain shared; scalar windowing is hidden for labels.
+
+Acceptance: sparse IDs, analytic/native/browser pixels, off-center nearest
+sampling, anatomical transparency, opacity, named lookup, cancellation, failed
+validation and repeated palette-slot reuse. Local receipts are in
+`cruft/browser-labels/`. Browser support remains qualified only on Chromium/Metal.
+Browser outlines, editing, 4D label images and IDs beyond the shared LUT capacity
+are outside this slice. Surfaces and broader desktop host parity remain future
+work; no deployment is part of this change.
+
+
+## Ninth slice: portable surface geometry (2026-10-28)
+
+The existing GIfTI loader now separates a filesystem-free geometry reader from
+its desktop adapter. A default `desktop` feature retains the existing public
+loader API; the browser builds only the portable module. Removed unused direct
+volmath/anyhow/serde_json dependencies. Both hosts use the same shape, index,
+coordinate and transform validation. Browser admission is bounded separately
+from desktop capacity. The existing gifti binary decoder remains authoritative;
+compressed payloads are bounded before it runs. POINTSET transforms and
+column-major order are retained rather than discarded by the simplified upstream
+GIfTI object model. No upstream pin changes are needed.
+
+Browser geometry is decoded in the existing worker and transferred directly to
+the session as typed arrays. The temporary WASM result is freed immediately;
+there is no Rust surface registry or second persistent copy. The existing load
+cancellation/generation checks handle reset/closure and replacement. A late GPU
+error from an old surface cannot clear a newer mesh. `NeuroSurfaceCanvas` is
+shared with desktop and lazy-loaded; it owns camera interaction, triangle-point
+picking and GPU disposal. Open/rotate/zoom/pick/unload is the complete slice.
+
+Fixtures: transformed octahedron, ASCII, column-major big-endian binary,
+zlib arrays and outer gzip. Acceptance checks the independent world coordinates,
+indices, analytic picked-point equation, decoder errors and decompression bounds,
+latest-load ownership, failed GPU initialization and zero live WebGL objects
+after unload/reset. Receipts are in `cruft/browser-surfaces/` under Mote
+`bd-01M61R2TMR1S1VDTBPEB5948CW`.
+
+Limits: one browser surface, one million vertices/two million triangles, 64 MiB
+compressed/expanded XML. No external binary sidecars, surface overlays/catalogs,
+editing or projection. Chromium/Metal is the only qualified runtime here.
+
+Final local checks: GIfTI/loader tests 8 passed (1 existing ignored), native host
+4 passed, session tests 7 passed, and real Chromium/Metal browser suite 14 passed.
+WASM/PWA/TypeScript build, native/WASM Clippy, scoped ESLint/formatting and diff
+checks pass. Desktop and narrow screenshots were inspected. Existing ts-rs and
+WASM Arc warnings remain; Vite flags the lazy surface vendor chunk's size. This
+is not native desktop UI or other-browser qualification, and no deployment was
+performed.
+
+
+## Scalar surface overlay slice (2026-10-28)
+
+One dense scalar GIfTI map now follows geometry into the browser's existing
+surface canvas. The shared reader reuses geometry's bounded XML/binary decoding;
+the desktop scalar command uses that reader through its file adapter. No new
+renderer, cache, worker registry, or service was introduced. Session ownership
+binds each pending map to its mesh and request order; replacement, unload and
+reset cannot publish an obsolete attachment. The scope deliberately excludes
+categorical maps, multiple-map files, sparse maps, catalogs and projection.
+See `docs/browser-viewer.md` for supported inputs and scientific interpretation.
+
+Verification: 12 loader tests passed (one existing ignored), 14 session tests
+passed, and 15 actual Chromium 156 headless/Metal browser tests passed, including
+offline maps, scalar picking, grayscale pixels and GPU cleanup. WASM/PWA build,
+scoped lint and loader Clippy passed. Existing ts-rs and bundle-size warnings
+remain. Desktop/narrow screenshots were inspected; native desktop UI was not
+exercised. The initial full Chrome run reported `in-incognito` at the existing
+PWA installability check; the headless-shell run passed that check unchanged.
+Evidence: `cruft/browser-scalar-surfaces/`.
+
+
+## Surface labels and desktop compatibility (2026-10-28)
+
+The scalar slice incorrectly imposed browser scalar admission on the desktop
+`load_surface_overlay` path. The desktop adapter now uses the shared raw reader's
+compatibility entry point: first array, native flattened order, and retained
+NaN/Infinity for existing UI masking. Browser scalar rules remain strict. Native
+regression tests exercise that desktop entry point, including label intent.
+
+A portable label reader adds exact u32 IDs and validated embedded names/RGBA.
+The browser uses one existing attachment lifecycle for scalar and categorical
+maps. It transfers integer IDs and per-vertex colors to the existing RGBA canvas
+layer and reuses deterministic fallback colors. No dense maximum-ID LUT, new
+registry, renderer, or service is introduced. Catalogs, outlines, editing and
+projection remain separate scope. See `docs/browser-viewer.md` for semantics.
+
+Verification: 16 native loader tests passed (one existing ignored); 33 focused
+UI/service tests passed (21 browser-session and 12 desktop-service/identity);
+16 Chromium 156 headless/Metal browser tests passed. WASM/PWA build, scoped
+ESLint/Prettier/rustfmt/diff and loader Clippy passed. Desktop and narrow browser
+screenshots were inspected; native desktop UI was not exercised. The first
+transparency assertion compared different canvas heights (736 vs 735 pixels);
+fixed-size comparisons now require exact pixels, with responsive sizing restored
+for captures. Evidence is retained in `cruft/browser-surface-labels/`.
+
+## Active completion goal: areas 1–6 (2026-10-28)
+
+Outcome: finish the six remaining application/delivery areas, preserving desktop
+semantics and reducing duplicated controls, decoding and resource ownership.
+Native filesystem watchers, SSH credentials and external processes remain host
+adapters; a browser implementation must expose genuine supported operations.
+
+| Area | Required outcome and acceptance evidence | Status |
+| --- | --- | --- |
+| 1. Shared controls | Store-free range/opacity/palette controls used by desktop and browser; explicit host capability differences; native/browser compatibility regression matrix and real UI checks | Verified; receipt below |
+| 2. Save/restore | Versioned session settings and browser image export; reselect files with identity validation, restore display/frame/cursor/scene settings; cancellation, mismatches and reload tested | Implemented; receipt below |
+| 3. Linked views | Paired hemisphere ownership, linked volume/surface cursor, and volume-to-surface projection using shared numerical code; independent affine/value witnesses and cleanup checks | Implemented; receipts below |
+| 4. Catalog access | Reuse catalog metadata while separating asset acquisition from native paths/caches; real browser atlas/template download with provenance, errors and cancellation | Implemented; receipt below |
+| 5. Qualification/delivery | Actual supported browser/adapter matrix, larger-file/memory/device-loss checks, hosted checks and published preview tied to source revision; unsupported environments stated explicitly | Verified for stated matrix; final receipt below |
+| 6. Performance | Measure cold/warm rendering and readback/copy costs; implement justified optimization only with equivalent output and ownership evidence; record decision on direct canvas presentation | Measured and simplified for tested Mac workload; receipt below |
+
+Invariants: affine/world units, integer label identity, native missing-value and
+first-array compatibility, source identity, rejection of stale publication, and
+reclamation on failure/unload/closure. Preserve unrelated work. Publication is
+part of the authorized goal, using a preview destination rather than production.
+
+Relevant entry points: `ui2/src/browser`, `ui2/src/services/browser`, shared
+`ui2/src/components/ui` and inspector controls, `core/browser_host`,
+`volume_service`, `render_loop`, and template/atlas catalogs. Existing evidence
+is under `cruft/browser-*`; completion must be established against the current
+code, not inferred from earlier per-slice checks.
+
+All six areas are delivered within the explicit host/runtime limits below.
+The dated receipts preserve intermediate results and supersede their next-action notes.
+
+
+### Area 1 receipt: shared display controls
+
+`ImagingControls` contains the former desktop inspector range/palette controls
+and one opacity control, without desktop stores or transport. The desktop
+inspector and browser consume those same components. The browser volume viewer
+also retains each layer's chosen palette across layer removal/reordering.
+
+| Contract | Desktop | Browser | Evidence |
+| --- | --- | --- | --- |
+| Range editing | Existing ruler/threshold bounds and no-op rules retained | Window/map range may expand beyond original data range; invalid display spans rejected by session | 16 existing inspector tests, shared host-policy tests, actual browser window/map edits |
+| Opacity | Existing 0.01 grid and percentage readout | Same control and stepping | Shared control tests, unchanged desktop snapshots, browser pixel changes |
+| Palettes | Existing complete picker catalog | Same picker restricted to implemented gray/viridis/hot; categorical controls hidden | Host-options test, native surface threshold test, actual scalar/label browser flows |
+| Backend ownership | Injected transports remain authoritative | Unsupported native commands fail explicitly without native fallback | API transport and BrowserHostTransport suites |
+| Scientific host differences | Existing global time navigation and native overlay missing-value/first-array semantics retained | Selected-layer time navigation, finite scalar admission and bounded input retained | Existing browser session/4D suites; native decoder receipt above; these policies are not moved into shared controls |
+
+Verification: 50 focused unit/service tests; 16 real Chromium/Metal browser
+checks; four unchanged desktop UI screenshot baselines (volume, volume/surface,
+surface settings and narrow desktop volume); WASM/TypeScript/PWA build. Scoped
+lint has the same pre-existing `react-refresh/only-export-components` diagnostic
+on exported `inspectorRuler`; new controls/browser changes have no diagnostics.
+These are desktop React-harness checks, not a native Tauri app walkthrough.
+Evidence: `cruft/browser-completion/controls-*` and `desktop-controls.log`.
+
+Area 2 next: persist versioned source/display descriptors, validate reselected
+file contents before replacement, and use the existing frame/surface composers
+with a browser download sink. File contents must not enter service-worker caches.
+
+### Area 2 receipt: session restoration and image export
+
+Version-1 browser settings contain SHA-256 source identities (names are hints),
+volume windows/palettes/opacity/frames, selected layer and crosshair, and surface
+map settings plus camera position/target/rotation/up/zoom. Selected File objects
+are retained with session resources; bytes are hashed sequentially in the worker
+only on save/restore, with a 256 MiB per-source ceiling. Data are not embedded
+in settings, localStorage or the service-worker cache.
+
+Restore validates every source before loading a provisional session. Changed
+contents with the same name are rejected; renamed identical sources work.
+Decoding/upload/render failure or cancellation retires the provisional worker;
+workspace reset invalidates late replacement. Volume restoration waits for its
+complete presented frame before swapping. Surface canvas initialization still
+occurs on mounting the restored surface and uses the existing error/cleanup path.
+
+PNG slices use the existing composition/encoding code, synchronously drawing
+from a completed frame and matching metadata before async encoding. PNG embeds
+frame/window/palette/opacity/crosshair provenance. Surface PNG uses the shared
+canvas exporter. Saved camera restoration is optional in the shared canvas and
+is applied after initial mesh fitting; default desktop behavior is unchanged.
+
+Evidence: 39 unit/service tests; 18 actual Chromium/Metal browser tests including
+source mismatch, renamed-file restoration, surface orbit/zoom round trip and
+PNG downloads; TypeScript and scoped UI lint; production WASM/PWA build.
+The camera test caught the renderer getter's omitted up vector; the saved camera
+contract now includes it. Restored-surface screenshot inspected. Evidence and
+logs are in `cruft/browser-completion/session-*` and `camera-*`.
+
+### Area 3 checkpoint: paired surfaces and linked navigation
+
+BrowserSession owns a resource map keyed by surface ID; Zustand holds only
+per-surface metadata/settings and selected ID. A scene accepts one left and one
+right hemisphere. Each owns its scalar/label map and source files; selecting a
+hemisphere does not move its map, and unloading one retains the other. In-flight
+map results attach only to their original resource identity. The existing shared
+canvas renders both and retains exact categorical values in the host.
+
+Linking is explicit confirmation of shared anatomical world space, not automatic
+registration. Surface picks preserve exact world coordinates even outside volume
+bounds. Known inflated/spherical/flat meshes cannot link without anatomical
+companions. A shared optional marker subset limits snapping to linked surfaces
+while retaining picking on all surfaces. Session settings are now version 2, with
+per-surface sources/maps/linking and one scene camera; version 1 remains readable.
+
+Evidence: 44 service tests; 20 actual Chromium/Metal browser tests including paired
+map selection, save/restore and independent unload; four unchanged desktop React
+UI baselines; TypeScript, scoped lint and production WASM/PWA build. Paired scene
+screenshot inspected. Evidence lives in `cruft/browser-completion/pair-*`.
+
+Area 3 is not yet complete: numerical volume-to-surface projection remains.
+Prefer supplying the existing shared full-affine `VolumeProjectionLayer` with
+the selected volume frame. The native CPU neurosurf adapter currently rejects
+rotation/shear and should not be copied into a second browser algorithm.
+
+### Area 3 checkpoint: scalar volume projection
+
+The browser transfers one requested x-fastest f32 frame and its full column-major
+voxel-to-world affine from the existing Rust `volume_service::frames::extract_frame`
+into the shared surface `VolumeProjectionLayer`. Linear interpolation remains
+single-sourced in the desktop/browser surface renderer. A projection freezes its
+requested frame; projecting again refreshes it. Identical source/frame buffers
+are shared between hemispheres without a global cache. Unload, unlink, cancellation,
+replacement and closure reject stale publication and release owned resources.
+Session settings persist the verified source-volume association and frame.
+
+The independent rotated-affine fixture verifies every transferred voxel and the
+selected 4D frame. The real browser projection matches a separate analytic scalar
+map on 29,710 grayscale surface pixels (green cursor excluded), mean absolute RGB
+channel difference 0.205/255, below the 3/255 interpolation/rasterization tolerance.
+Restore and source unload are exercised in the same actual-WASM flow.
+
+This check exposed an existing shared camera bug: viewpoint presets targeted the
+origin after fitting translated geometry. The canvas now retains the fitted
+center and distance when applying presets, including reset. The desktop surface
+screenshots were inspected and updated: the formerly clipped mesh is centered.
+The grayscale interaction check samples beside the newly centered pick marker.
+
+Evidence: 36 session/record tests; all 22 browser checks passed across the full
+run (21) and the corrected marker-location assertion rerun (1); six shared surface
+renderer checks, TypeScript, scoped lint and production WASM/PWA build. Logs and
+images are under `cruft/browser-completion/projection-*`. Desktop screenshot
+verification is a React-harness check, not a native Tauri walkthrough.
+Categorical projection remains required for area 3; areas 4–6 remain open.
+
+### Area 3 receipt: categorical projection
+
+`@brainflow/visualization/surface/projection` supplies one dependency-free nearest
+label sampler to the native atlas projection service and browser session. It
+inverts the full affine linear part in double precision, preserves integer IDs,
+and uses half-voxel support `[-0.5, n-0.5)`. Outside samples return transparent
+background. Singular/non-finite transforms and sampled non-integer labels fail
+explicitly. This replaces the native helper's silent identity fallback and edge
+clamping; IDs outside a native LUT retain their identity but have no invented color.
+The shared sampler accepts u32 arrays without f32 conversion; browser label-volume
+admission remains limited to the existing exactly represented 0–2047 range.
+
+Browser projection retains the source legend, colors, frame and verified volume
+association. Categorical settings have opacity but no continuous range/palette.
+Saved sessions recreate the projection from the verified volume and table, and
+source unload/unlink clears it. RGBA is per vertex in the existing surface renderer;
+interpolated display colors do not change the retained nearest-label IDs.
+
+Evidence: 44 unit/service tests include independent rotated/sheared affines,
+half-voxel boundaries, sparse u32 IDs, invalid transforms, native consumer RGBA,
+browser ownership and settings validation. Actual WASM checks verify exact
+labels/colors including outside coverage, table names, restore, and source unload;
+scalar projection remains passing. Production WASM/PWA build, TypeScript and
+scoped native/browser lint pass. Evidence is `cruft/browser-completion/label-projection-*`.
+Areas 4–6 remain required; these checks do not establish native Tauri or broader
+browser/device qualification.
+
+
+### Area 4 receipt: catalog access
+
+Native template/atlas catalog metadata now lives in shared JSON definitions;
+native cache state remains local. Browser acquisition uses the existing loading
+lifecycle, bounded cancellable downloads, SHA-256 source identity and saved
+provenance. Named incompatible reference spaces are refused before acquisition;
+loading does not register or resample images.
+
+Thirteen TemplateFlow assets (68,501,359 compressed bytes) are prepared as static,
+checksum-verified files with their redistribution notices. Opaque `.bin` transport
+names avoid HTTP gzip decoding changing source bytes; original NIfTI filenames
+are retained for decoding. The two MNI152NLin6Asym entries are not mirrored because
+a redistribution notice was not located; MNI305 T2w is unavailable upstream.
+The UI explains these exceptions and retains original source links.
+Forty Schaefer variants plus Glasser, ASEG and Olsen use pinned provider URLs.
+Catalog assets and user images are excluded from the PWA application cache.
+
+Real-data qualification exposed a native-provider defect: the pinned ASEG Rust
+provider assigns sequential 1–17 labels to sparse FreeSurfer voxel IDs 10–60.
+The browser table follows the original R provider and preserves actual IDs,
+including Left-VentralDC at 28. The upstream native defect remains a separate
+repair; this change does not relabel voxel data or claim that defect is fixed.
+See `core/atlases/labels/README.md` for exact source pins and byte identity.
+
+Evidence: 44 browser service tests, all 28 actual Chromium/Metal WASM browser
+checks, production WASM/PWA build (including TypeScript), scoped ESLint, and
+native template/atlas library tests (37 passed, one existing cache-dependent
+Schaefer test ignored). Native scoped Clippy passed with existing ts-rs warnings.
+Production UI checks cover real template/Schaefer downloads, provenance restore
+and cache exclusion; actual-provider checks cover Glasser/ASEG/Olsen IDs and
+resource release. Error/cancellation checks retain the pre-existing workspace.
+Template and atlas captures were inspected. Logs are under
+`cruft/browser-completion/catalog-*`; browser ownership audit reports no remaining
+automated processes. This is local evidence, not hosted or native Tauri acceptance.
+
+
+### Area 5 interim receipt: failure recovery and runtime checks
+
+A fatal worker error or actual GPU device loss now takes one teardown path:
+pending operations reject, the worker terminates, image bitmaps and surface
+buffers are released, and the UI offers a new viewer session. No stale frame is
+kept as a live result. Recovery requires reopening files; it does not silently
+attempt to reconstruct lost GPU state.
+
+Qualification: all 31 Chromium/Metal browser tests pass, including real
+`GPUDevice.destroy()` while idle, fresh-worker recovery, a rendered UI restart,
+three 27 MiB (192³ f32) load/render/unload cycles, oversized input/dimension
+rejection, and the previous numerical/ownership/catalog cases. All 51 browser
+service tests, TypeScript, scoped ESLint and the production build pass.
+Zero registered volumes/palettes/staging buffers after teardown is ownership
+evidence, not a claim that the browser allocator returns all process memory.
+
+Current engine matrix on this Mac, using the production bundle:
+
+| Engine | Observed result | Qualification |
+| --- | --- | --- |
+| Chromium 156.0.8078.4 / Metal | Real image pixels, unload and full regression suite pass | Supported tested configuration |
+| Firefox 157.0 | WebGPU exposed, requestAdapter returns null; explanation/restart shown | Volume rendering unsupported on this environment |
+| Playwright WebKit 2251, macOS 14 arm64 build | Bus error before page creation | No application/rendering qualification; not evidence about Safari |
+
+`tools/qualify-browser.mjs` repeats actual-engine smoke checks without changing
+application dependencies. It records revision plus a source-diff digest for dirty
+qualification runs. Receipts: `cruft/browser-completion/runtime-*` and
+`engine-matrix/`. Broad performance/process-memory bounds, hosted execution and
+source-bound publication remain pending; area 5 is not complete.
+
+
+### Area 6 receipt: measured copy reduction and canvas decision
+
+The browser now creates its clamped RGBA view over the decoder-owned buffer,
+rather than copying that buffer again. This removes one full-frame allocation
+(1 MiB at 512², 4 MiB at 1024²) without changing the transport, renderer, pixel
+format or ownership contract. The decoder still owns a separate payload copy;
+this is not a zero-copy rendering pipeline.
+
+On Apple M3 Max, macOS 14.3, Chromium 156/Metal, 30 warm samples per case:
+
+| Slice size | Previous construction, median total | Shared view, median total | Removed copy stage, median |
+| --- | ---: | ---: | ---: |
+| 128² | 0.8 ms | 0.7 ms | Below timer resolution |
+| 512² | 2.5 ms | 1.7 ms | 0.4 ms |
+| 1024² | 6.7 ms | 5.3 ms | 1.4 ms |
+
+These are measured render roundtrip + decode + bitmap-construction times for a
+single synthetic scalar volume, not full UI frame rates or universal speedups.
+The report records first samples, median/p95 stage timings, fresh worker startup,
+load time, source digest and test revision. `mapAsync` measures queue wait plus
+mapping; it is not a GPU-only timer. Instrumentation uses the development worker;
+OS caches are uncontrolled. Exact bitmap pixels agree in both constructions.
+See [the benchmark receipt](../benchmarks/browser-runtime-2026-10-28.json) and
+`e2e/playwright.browser-perf.config.ts` for reproduction.
+
+Five 27 MiB load/unload cycles retain a stable 152.19 MiB WASM heap capacity.
+Two 96 MiB images load; a third is refused by the 64-million-resident-voxel budget
+without registering it. After all unloads, volume/palette/staging counters are
+zero but heap capacity remains 728.56 MiB. Worker termination is the boundary for
+releasing that heap; these are capacity measurements, not process RSS or a proof
+of an absolute browser memory ceiling.
+
+Decision: retain asynchronous RGBA readback and bitmap presentation. Measured
+warm costs at the current 512² slice resolution do not justify a second direct
+canvas rendering/ownership path. Reconsider for sustained large-frame animation
+or a measured target-device bottleneck, with parity and teardown checks.
+
+Verification after the change: 51 browser service tests, all 31 real browser
+regressions, TypeScript, scoped lint and production WASM/PWA build pass. The
+benchmark's paired pixel checks and resident-budget checks pass. Area 5 still
+requires hosted execution and source-bound preview delivery; nothing here is
+hosted or all-browser qualification.
+
+
+### Final delivery and completion audit (2026-10-28)
+
+The published source is `d156834c7a21641a84e42f2deb60df5fb37f5c38`, pushed to
+`neurotabs/w3-status` after verifying no upstream divergence. No merge was made.
+The [permanent preview](https://sable-bridge-b9d7.here.now/) was built in an isolated
+checkout with the locked dependencies; its application source is clean.
+The [hosted build](https://github.com/bbuchsbaum/brainflow2/actions/runs/40780966908)
+completed successfully: Linux WASM/PWA build, TypeScript, 51 browser service tests,
+and uploaded source-bound build artifact. A duplicate queued run was cancelled.
+
+The local clean checkout passed all 31 actual Chromium/Metal browser tests and
+51 service tests. Live HTTPS checks passed local file rendering, real template
+and atlas downloads, offline app reload and volume/surface rendering. Every one
+of the 95 entries in the [build manifest](https://sable-bridge-b9d7.here.now/build-info.json)
+was checked against served bytes; the manifest itself matches the local build
+SHA-256 `b24c1a415db318a88f46e8ddfcfdb18ae4051de1daa3a5f8a41c33522ed2de11`.
+The host inserts non-executable social-card metadata in HTML, adding thumbnail
+tags once its preview image is generated. Both observed exact variants are declared. Verification
+removes only that exact declared block before checking the original HTML digest;
+JavaScript, WASM, data and every other asset require exact bytes. No scripts or
+other transformations are allowed by the check. The live template capture was
+visually inspected; browser automation ownership audit is clean.
+
+| Requirement | Completion evidence |
+| --- | --- |
+| 1. Shared controls and host boundaries | Shared control source; desktop React harness/transport regression receipts; final actual browser window/map/opacity flows |
+| 2. Save, restore, export, camera | Final browser suite exercises identity mismatch/renamed sources, saved state, camera round trip and PNG export |
+| 3. Paired/linked views and projection | Final suite exercises independent hemisphere ownership, world cursor, scalar/categorical projection, full-affine/4D witnesses, restore and unload |
+| 4. Catalog lifecycle | Shared JSON/native tests; real production/live template and atlas downloads, source hashes, cancellation, restoration and cache exclusion |
+| 5. Runtime qualification and delivery | Explicit engine matrix, real GPU loss/restart, larger-image/resource-budget tests, successful hosted job, source-bound live preview and offline checks |
+| 6. Measured simplification | Reproducible stage/heap benchmark, pixel-equivalent removal of a full-frame copy, explicit decision to retain async readback |
+
+[Machine-readable delivery receipt](../benchmarks/browser-delivery-2026-10-28.json).
+Reproduce live verification with `e2e/playwright.preview.config.ts`, setting
+`BROWSER_PREVIEW_URL`, `BROWSER_PREVIEW_SHA` and `BROWSER_PREVIEW_MANIFEST_SHA`
+to this receipt. Select the installed automation browser with `BROWSER_QA_BROWSER`.
+The hosted job proves build/unit behavior; it does not prove GPU behavior.
+Firefox/WebKit outcomes, native Tauri walkthrough limits, unavailable catalog
+entries and retained WASM heap capacity remain explicit limitations, not claimed
+passes. The six-area browser delivery scope is complete; broader desktop feature
+parity and all-browser support are not part of that claim.
+
+
+## Shared application: first desktop/browser workflow (tranche 1–4)
+
+The intended product is one Brainflow UI hosted by Tauri or a browser. The
+previous `browser.html` viewer remains a portable-host test harness. It is not a
+second product UI. `workspace.html` now imports the same `src/main.tsx` → `App`
+entry as the desktop, including GoldenLayout, the layer/view stores, Inspector,
+Plot dock, and existing Open file command.
+
+`selectApplicationHost` runs before App/service imports and preserves an explicitly
+injected host. Tauri keeps its existing transport. The browser selects
+`WorkspaceBrowserTransport`, which adapts the existing app API to the real WASM
+worker. It retains only host resources (File tokens and CPU/GPU identities),
+while the existing application stores own layers, view geometry and controls.
+Folder mounts and SSH controls are unavailable in the browser; unsupported bridge
+operations fail explicitly. Browser rendering uses the supported per-view path.
+
+File selection and drop enter `DisplayLifecycleOrchestrator` and
+`VolumeLoadingService`, then `LayerApiImpl`. Queue cancellation and destination
+closure now propagate an abort signal to browser reads and reject stale commits
+in both hosts. GPU residency release and CPU unload are separate, so the browser
+host permits CPU teardown after a prior GPU release. Provisional failures reclaim
+both phases. Slice geometry uses the same Rust `ViewRectMm` implementation as the
+desktop, including square pixels and oblique affines. Bounds include the native
+voxel-centred initial cursor for even dimensions.
+
+The existing histogram implementation moved intact from the Tauri bridge to
+`volume_service`; the native adapter reexports it and the browser calls it in the
+worker. Nearest-voxel readout stays in Rust. No voxel arrays are copied into app
+stores for either operation.
+
+Acceptance evidence for this bounded slice:
+
+- Eight real-browser cases: normal workspace load/inspect/opacity/navigation/unload;
+  cancelled file dialog; cancelled read; destination closure during read; injected
+  GPU upload validation failure; GPU residency release/reacquisition; production
+  workspace entry; and even-sized oblique initial-cursor geometry.
+- Independent fixture readout 432 and histogram count 315, range 0–864, mean 432.
+- 75 UI/service tests, 14 portable volume-service tests, and 246 executed renderer
+  tests (19 existing ignored tests; no explicit GPU-skip lines).
+- Four unchanged desktop UI baselines, native api-bridge compilation, TypeScript,
+  scoped new-code ESLint and production WASM/PWA build. Existing lint diagnostics
+  in legacy main/transport/debug-service code are not claimed fixed.
+
+Reproduce with `e2e/playwright.workspace-browser.config.ts`, the regular desktop
+app-harness gate, and crate tests. Receipts are under `cruft/shared-workspace/`
+and `cruft/browser-completion/shared-workspace-*`. Desktop visual checks use the
+React harness with an injected native contract; they are not a fresh native Tauri
+walkthrough. This establishes the first actual shared-app volume workflow, not
+complete browser support for every desktop analysis, file or surface operation.

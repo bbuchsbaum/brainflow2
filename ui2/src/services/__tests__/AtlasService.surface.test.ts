@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { AtlasService } from '../AtlasService';
+import { setTransport, TauriTransport } from '../transport';
 import type { AtlasConfig } from '@/types/atlas';
 
 describe('AtlasService.loadSurfaceAtlas', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setTransport(new TauriTransport());
   });
 
   it('normalizes non-volume resolution before invoking backend', async () => {
@@ -44,17 +46,22 @@ describe('AtlasService.loadSurfaceAtlas', () => {
     const result = await AtlasService.loadSurfaceAtlas(config);
 
     expect(result).toEqual(mockResult);
-    expect(invokeMock).toHaveBeenCalledWith('plugin:api-bridge|load_surface_atlas', {
-      config: expect.objectContaining({
-        resolution: '1mm',
-      }),
-    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      'plugin:api-bridge|load_surface_atlas',
+      {
+        config: expect.objectContaining({
+          resolution: '1mm',
+        }),
+      },
+      undefined,
+    );
   });
 });
 
 describe('AtlasService surface parcellation helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setTransport(new TauriTransport());
   });
 
   it('imports dense surface labels as a parcellation reference', async () => {
@@ -91,7 +98,8 @@ describe('AtlasService surface parcellation helpers', () => {
         data_handle: 'overlay_handle_1',
         source_name: 'lh.Schaefer2018.label.gii',
         atlas_id_hint: 'schaefer2018',
-      })
+      }),
+      undefined,
     );
   });
 
@@ -123,7 +131,8 @@ describe('AtlasService surface parcellation helpers', () => {
         reference_id: 'parcel_ref_1',
         kind: 'network_harmony',
         seed: 7,
-      })
+      }),
+      undefined,
     );
   });
 
@@ -151,21 +160,25 @@ describe('AtlasService surface parcellation helpers', () => {
         data_type: 'surface',
         surf_type: 'inflated',
       },
-      { kind: 'rule_hcl', seed: 3 }
+      { kind: 'rule_hcl', seed: 3 },
     );
 
-    expect(invokeMock).toHaveBeenCalledWith('plugin:api-bridge|get_atlas_palette', {
-      config: expect.objectContaining({
-        atlas_id: 'schaefer2018',
-        space: 'fsaverage',
-        resolution: '1mm',
-        networks: 7,
-        parcels: 200,
-        data_type: undefined,
-        surf_type: undefined,
-      }),
-      kind: 'rule_hcl',
-      seed: 3,
-    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      'plugin:api-bridge|get_atlas_palette',
+      {
+        config: expect.objectContaining({
+          atlas_id: 'schaefer2018',
+          space: 'fsaverage',
+          resolution: '1mm',
+          networks: 7,
+          parcels: 200,
+          data_type: undefined,
+          surf_type: undefined,
+        }),
+        kind: 'rule_hcl',
+        seed: 3,
+      },
+      undefined,
+    );
   });
 });

@@ -1,0 +1,41 @@
+{
+  "sourceRevision": "d156834c7a21641a84e42f2deb60df5fb37f5c38",
+  "previewUrl": "https://sable-bridge-b9d7.here.now/",
+  "persistence": "permanent, authenticated account",
+  "manifestSha256": "b24c1a415db318a88f46e8ddfcfdb18ae4051de1daa3a5f8a41c33522ed2de11",
+  "manifestUrl": "https://sable-bridge-b9d7.here.now/build-info.json",
+  "hostedCheck": {
+    "url": "https://github.com/bbuchsbaum/brainflow2/actions/runs/40780966908",
+    "conclusion": "success",
+    "coverage": [
+      "clean Linux WASM/PWA build",
+      "TypeScript",
+      "51 browser lifecycle unit tests",
+      "source-bound downloadable artifact"
+    ]
+  },
+  "localChecks": {
+    "cleanCheckoutBrowserTests": 31,
+    "cleanCheckoutUnitTests": 51,
+    "publishedChecks": [
+      "95 asset entries verified against locally pinned manifest",
+      "Only two observed exact social metadata blocks (before/after host thumbnail generation) allowed for HTML",
+      "local NIfTI rendering",
+      "template and Schaefer downloads",
+      "offline reload and local volume/surface rendering"
+    ]
+  },
+  "browserQualification": {
+    "Chromium156Metal": "passed on macOS14.3 AppleM3Max",
+    "Firefox157": "no WebGPU adapter on tested Mac",
+    "PlaywrightWebKit2251": "engine crash before page creation; Safari unqualified"
+  },
+  "limits": [
+    "Not all-browser support",
+    "Desktop React harness checks are not a native Tauri walkthrough",
+    "Three catalog template entries explicitly unavailable in browser",
+    "WASM retains heap capacity until worker termination",
+    "Pinned native ASEG provider mapping defect remains upstream; browser mapping corrected"
+  ],
+  "publicationSkill": "/Users/bbuchsbaum/.agents/skills/here-now/SKILL.md"
+}

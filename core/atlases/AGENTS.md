@@ -22,7 +22,7 @@ Provides organized access to brain atlases (parcellations and region definitions
 ## For AI Agents
 
 ### Working In This Directory
-This crate wraps neuroatlas-rs for integration with Brainflow. When adding new atlas types, update the catalog in `catalog.rs` and ensure metadata is properly structured. The service layer handles async loading and caching. All atlas files are cached locally per neuroatlas conventions. Re-export commonly used neuroatlas types in `lib.rs` for frontend convenience.
+This crate wraps neuroatlas-rs for integration with Brainflow. When adding new atlas types, update the shared static definitions in `registry.json` and ensure metadata is properly structured. The service layer handles async loading and caching. All atlas files are cached locally per neuroatlas conventions. Re-export commonly used neuroatlas types in `lib.rs` for frontend convenience.
 
 ### Testing Requirements
 Run `cargo test -p atlases`. Use `tempfile` for temporary directories in tests. Tests should verify atlas discovery, loading, and caching behavior. Mock filesystem interactions where appropriate using `tracing-test` for log validation.

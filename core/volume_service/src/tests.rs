@@ -1,10 +1,12 @@
 use super::*;
+use crate::frames::{extract_frame, frame_count};
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use tokio::sync::Notify;
+use volmath::{DenseNeuroVec, NeuroSpace};
 
 fn prepared() -> PreparedVolume {
     let space = volmath::NeuroSpace::new(vec![2, 3, 4], None, None, None, None).unwrap();
@@ -31,6 +33,35 @@ fn prepared() -> PreparedVolume {
             is_label_map: Some(false),
         },
     }
+}
+
+#[test]
+fn extracted_4d_frame_keeps_x_fastest_order_and_spatial_translation() {
+    let mut transform = nalgebra::DMatrix::<f64>::identity(5, 5);
+    transform[(0, 4)] = -10.0;
+    transform[(1, 4)] = 20.0;
+    transform[(2, 4)] = 30.0;
+    // The preceding column belongs to the time axis, not the spatial origin.
+    transform[(0, 3)] = 99.0;
+    let space = NeuroSpace::new(
+        vec![2, 2, 2, 2],
+        Some(vec![1.0; 4]),
+        Some(vec![0.0; 4]),
+        None,
+        Some(transform),
+    )
+    .unwrap();
+    let mut series = DenseNeuroVec::<f32>::zeros(space).unwrap();
+    series.data[[1, 0, 1, 1]] = 42.0;
+    let volume = VolumeSendable::Vec4DF32(series);
+
+    assert_eq!(frame_count(&volume), Some(2));
+    let frame = extract_frame(&volume, 1).unwrap();
+    assert_eq!(frame.dims, [2, 2, 2]);
+    assert_eq!(frame.timepoint, Some(1));
+    assert_eq!(frame.values[frame.index(1, 0, 1)], 42.0);
+    assert_eq!(frame.world([1, 0, 1]), [-9.0, 20.0, 31.0]);
+    assert!(extract_frame(&volume, 2).is_err());
 }
 
 struct Source {

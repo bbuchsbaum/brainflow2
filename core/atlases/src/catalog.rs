@@ -12,75 +12,27 @@ use tracing::{debug, info};
 
 /// Static metadata for a built-in atlas.  Runtime-mutable fields
 /// (is_favorite, last_used, is_cached) live only on `AtlasCatalogEntry`.
+#[derive(serde::Deserialize)]
 struct AtlasRegistryEntry {
-    id: &'static str,
-    name: &'static str,
-    description: &'static str,
+    id: String,
+    name: String,
+    description: String,
     category: AtlasCategory,
     /// Which space families this atlas supports
-    space_families: &'static [SpaceFamily],
-    network_options: Option<&'static [u8]>,
-    parcel_options: Option<&'static [u32]>,
-    citation: &'static str,
+    space_families: Vec<SpaceFamily>,
+    network_options: Option<Vec<u8>>,
+    parcel_options: Option<Vec<u32>>,
+    citation: String,
     download_size_mb: f64,
 }
 
 /// Coarse grouping of compatible template spaces.
 /// `populate_builtin_atlases` expands these into concrete `SpaceInfo` vecs.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, serde::Deserialize)]
 enum SpaceFamily {
     Mni152,
     FsAverage,
 }
-
-/// The single source of truth for every built-in atlas.
-/// To add a new atlas, append an entry here — no other Rust file needs editing.
-static ATLAS_REGISTRY: &[AtlasRegistryEntry] = &[
-    AtlasRegistryEntry {
-        id: "schaefer2018",
-        name: "Schaefer 2018",
-        description: "Cortical parcellations based on connectivity gradients",
-        category: AtlasCategory::Cortical,
-        space_families: &[SpaceFamily::Mni152, SpaceFamily::FsAverage],
-        network_options: Some(&[7, 17]),
-        parcel_options: Some(&[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]),
-        citation: "Schaefer et al. (2018). Local-Global Parcellation of the Human Cerebral Cortex. Cerebral Cortex.",
-        download_size_mb: 15.0,
-    },
-    AtlasRegistryEntry {
-        id: "glasser2016",
-        name: "Glasser 2016 (HCP-MMP1.0)",
-        description: "Human Connectome Project Multi-Modal Parcellation (360 areas)",
-        category: AtlasCategory::Cortical,
-        space_families: &[SpaceFamily::Mni152, SpaceFamily::FsAverage],
-        network_options: None,
-        parcel_options: None,
-        citation: "Glasser et al. (2016). A multi-modal parcellation of human cerebral cortex. Nature.",
-        download_size_mb: 8.0,
-    },
-    AtlasRegistryEntry {
-        id: "freesurfer_aseg",
-        name: "FreeSurfer ASEG",
-        description: "Automated subcortical segmentation",
-        category: AtlasCategory::Subcortical,
-        space_families: &[SpaceFamily::Mni152],
-        network_options: None,
-        parcel_options: None,
-        citation: "Fischl et al. (2002). Whole brain segmentation. Neuron.",
-        download_size_mb: 5.0,
-    },
-    AtlasRegistryEntry {
-        id: "olsen_mtl",
-        name: "Olsen MTL",
-        description: "High-resolution medial temporal lobe parcellation",
-        category: AtlasCategory::Specialized,
-        space_families: &[SpaceFamily::Mni152],
-        network_options: None,
-        parcel_options: None,
-        citation: "Olsen et al. MTL parcellation atlas.",
-        download_size_mb: 3.0,
-    },
-];
 
 // ---------------------------------------------------------------------------
 // Shared space / resolution definitions
@@ -316,19 +268,22 @@ impl AtlasCatalog {
         entries
     }
 
-    /// Populate the catalog from the declarative `ATLAS_REGISTRY`.
+    /// Populate native runtime state from the shared static registry.
     fn populate_builtin_atlases(&mut self) {
-        for reg in ATLAS_REGISTRY {
+        let registry: Vec<AtlasRegistryEntry> =
+            serde_json::from_str(include_str!("../registry.json"))
+                .expect("embedded atlas registry must match AtlasRegistryEntry");
+        for reg in registry {
             self.entries.push(AtlasCatalogEntry {
                 id: reg.id.to_string(),
                 name: reg.name.to_string(),
                 description: reg.description.to_string(),
                 source: AtlasSource::BuiltIn,
                 category: reg.category.clone(),
-                allowed_spaces: expand_spaces(reg.space_families),
+                allowed_spaces: expand_spaces(&reg.space_families),
                 resolutions: standard_resolutions(),
-                network_options: reg.network_options.map(|s| s.to_vec()),
-                parcel_options: reg.parcel_options.map(|s| s.to_vec()),
+                network_options: reg.network_options,
+                parcel_options: reg.parcel_options,
                 is_favorite: false,
                 last_used: None,
                 citation: Some(reg.citation.to_string()),
@@ -340,6 +295,33 @@ impl AtlasCatalog {
         info!(
             "Populated atlas catalog with {} built-in atlases",
             self.entries.len()
+        );
+    }
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    #[test]
+    fn shared_registry_retains_variants_spaces_and_local_favorites() {
+        let mut catalog = AtlasCatalog::new();
+        assert_eq!(catalog.entries.len(), 4);
+        let schaefer = catalog.get_entry("schaefer2018").unwrap();
+        assert_eq!(
+            schaefer.parcel_options.as_ref().unwrap(),
+            &[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+        );
+        assert_eq!(schaefer.network_options.as_ref().unwrap(), &[7, 17]);
+        assert!(catalog.are_compatible("schaefer2018", "fsaverage"));
+        assert!(catalog.are_compatible("schaefer2018", "MNI152NLin6Asym"));
+        assert!(!catalog.are_compatible("olsen_mtl", "fsaverage"));
+        assert!(catalog.toggle_favorite("schaefer2018").unwrap());
+        assert!(
+            !AtlasCatalog::new()
+                .get_entry("schaefer2018")
+                .unwrap()
+                .is_favorite
         );
     }
 }

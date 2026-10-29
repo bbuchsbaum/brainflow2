@@ -12,7 +12,7 @@ import {
 } from '@/stores/surfaceStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getLayoutService } from './layoutService';
-import { formatTauriError } from '@/utils/formatTauriError';
+import { formatTauriError, toError } from '@/utils/formatTauriError';
 import { normalizeSurfaceHemisphere } from '@/utils/surfaceIdentity';
 import { getTransport, type BackendTransport } from './transport';
 import { applySurfaceSelectionInContext } from '@/utils/surfaceCommandContext';
@@ -227,26 +227,24 @@ export class SurfaceLoadingService {
         return null;
       }
       console.error(`[SurfaceLoadingService] Failed to load surface:`, error);
-      useSurfaceStore
-        .getState()
-        .setLoadingState(false, error instanceof Error ? error.message : 'Failed to load surface');
+      // Bridge rejections are plain objects; keep their details instead of "Unknown error".
+      const failure = toError(error);
+      useSurfaceStore.getState().setLoadingState(false, failure.message);
 
       // Mark as failed in queue
-      useLoadingQueueStore
-        .getState()
-        .markError(queueId, error instanceof Error ? error : new Error('Unknown error'));
+      useLoadingQueueStore.getState().markError(queueId, failure);
 
       // Emit error event
       this.eventBus.emit('surface.load.error', {
         path,
         filename,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: failure.message,
       });
 
       // Show error notification
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: `Failed to load surface: ${filename}`,
+        message: `Failed to load surface ${filename}: ${failure.message}`,
       });
 
       return null;

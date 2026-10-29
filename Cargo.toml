@@ -11,6 +11,7 @@ members = [
   "core/api_bridge",
   "core/bridge_types",
   "core/volume_service",
+  "core/browser_host",
   "core/field_table",
   "core/atlases",
   "core/templates",

@@ -415,7 +415,10 @@ export const useSurfaceStore = create<SurfaceState>()(
           const surfaces = new Map(state.surfaces);
           surfaces.set(surfaceId, {
             ...surface,
-            geometry,
+            // Merge: callers pass vertices/faces only. Replacing the object
+            // dropped hemisphere/surfaceType, so camera presets fell back to
+            // surfview's "unknown_lateral" pose for every button.
+            geometry: { ...surface.geometry, ...geometry },
           });
           return { surfaces };
         });

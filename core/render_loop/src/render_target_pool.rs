@@ -29,7 +29,7 @@ pub struct RenderTargetEntry {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     /// Track when this entry was last accessed for LRU eviction
-    pub last_used: std::time::Instant,
+    pub last_used: web_time::Instant,
 }
 
 impl RenderTargetEntry {
@@ -37,13 +37,13 @@ impl RenderTargetEntry {
         Self {
             texture,
             view,
-            last_used: std::time::Instant::now(),
+            last_used: web_time::Instant::now(),
         }
     }
 
     /// Update last used time
     pub fn touch(&mut self) {
-        self.last_used = std::time::Instant::now();
+        self.last_used = web_time::Instant::now();
     }
 }
 

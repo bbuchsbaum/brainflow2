@@ -98,275 +98,15 @@ impl TemplateCatalog {
         true
     }
 
-    /// Populate the catalog with standard templates
+    /// Static definitions are shared with browser hosts; cache state stays local.
     fn populate_standard_templates(&mut self) {
-        // MNI152NLin2009cAsym templates
-        self.add_mni_2009c_templates();
-
-        // MNI152NLin6Asym templates
-        self.add_mni_6_templates();
-
-        // MNIColin27 templates
-        self.add_mnicolin27_templates();
-
-        // MNI305 templates
-        self.add_mni305_templates();
-
-        // FreeSurfer templates
-        self.add_freesurfer_templates();
-    }
-
-    /// Add MNI152NLin2009cAsym templates
-    fn add_mni_2009c_templates(&mut self) {
-        let space = TemplateSpace::MNI152NLin2009cAsym;
-
-        // T1w templates
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_T1w_1mm".to_string(),
-            config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::MM1),
-            name: "MNI152 T1w (1mm)".to_string(),
-            description: "MNI152NLin2009cAsym T1-weighted template at 1mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_T1w.nii.gz".to_string()),
-            file_size_mb: Some(8.5),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_T1w_2mm".to_string(),
-            config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::MM2),
-            name: "MNI152 T1w (2mm)".to_string(),
-            description: "MNI152NLin2009cAsym T1-weighted template at 2mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_T1w.nii.gz".to_string()),
-            file_size_mb: Some(1.2),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        // T2w templates
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_T2w_1mm".to_string(),
-            config: TemplateConfig::new(TemplateType::T2w, space.clone(), TemplateResolution::MM1),
-            name: "MNI152 T2w (1mm)".to_string(),
-            description: "MNI152NLin2009cAsym T2-weighted template at 1mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_T2w.nii.gz".to_string()),
-            file_size_mb: Some(8.5),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_T2w_2mm".to_string(),
-            config: TemplateConfig::new(TemplateType::T2w, space.clone(), TemplateResolution::MM2),
-            name: "MNI152 T2w (2mm)".to_string(),
-            description: "MNI152NLin2009cAsym T2-weighted template at 2mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_T2w.nii.gz".to_string()),
-            file_size_mb: Some(1.2),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        // Tissue probability maps
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_GM_1mm".to_string(),
-            config: TemplateConfig::new(TemplateType::GrayMatter, space.clone(), TemplateResolution::MM1),
-            name: "MNI152 Gray Matter (1mm)".to_string(),
-            description: "MNI152NLin2009cAsym gray matter probability map at 1mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_label-GM_probseg.nii.gz".to_string()),
-            file_size_mb: Some(8.5),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_WM_1mm".to_string(),
-            config: TemplateConfig::new(TemplateType::WhiteMatter, space.clone(), TemplateResolution::MM1),
-            name: "MNI152 White Matter (1mm)".to_string(),
-            description: "MNI152NLin2009cAsym white matter probability map at 1mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_label-WM_probseg.nii.gz".to_string()),
-            file_size_mb: Some(8.5),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_CSF_1mm".to_string(),
-            config: TemplateConfig::new(TemplateType::Csf, space.clone(), TemplateResolution::MM1),
-            name: "MNI152 CSF (1mm)".to_string(),
-            description: "MNI152NLin2009cAsym CSF probability map at 1mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_label-CSF_probseg.nii.gz".to_string()),
-            file_size_mb: Some(8.5),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        // Brain mask
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_mask_1mm".to_string(),
-            config: TemplateConfig::new(TemplateType::BrainMask, space.clone(), TemplateResolution::MM1),
-            name: "MNI152 Brain Mask (1mm)".to_string(),
-            description: "MNI152NLin2009cAsym brain mask at 1mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_desc-brain_mask.nii.gz".to_string()),
-            file_size_mb: Some(0.3),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin2009cAsym_mask_2mm".to_string(),
-            config: TemplateConfig::new(TemplateType::BrainMask, space, TemplateResolution::MM2),
-            name: "MNI152 Brain Mask (2mm)".to_string(),
-            description: "MNI152NLin2009cAsym brain mask at 2mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-02_desc-brain_mask.nii.gz".to_string()),
-            file_size_mb: Some(0.1),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-    }
-
-    /// Add MNI152NLin6Asym templates
-    fn add_mni_6_templates(&mut self) {
-        let space = TemplateSpace::MNI152NLin6Asym;
-
-        // Add key MNI6 templates
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin6Asym_T1w_1mm".to_string(),
-            config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::MM1),
-            name: "MNI152 6th Gen T1w (1mm)".to_string(),
-            description: "MNI152NLin6Asym T1-weighted template at 1mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-01_T1w.nii.gz".to_string()),
-            file_size_mb: Some(8.5),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI152NLin6Asym_T1w_2mm".to_string(),
-            config: TemplateConfig::new(TemplateType::T1w, space, TemplateResolution::MM2),
-            name: "MNI152 6th Gen T1w (2mm)".to_string(),
-            description: "MNI152NLin6Asym T1-weighted template at 2mm resolution".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_T1w.nii.gz".to_string()),
-            file_size_mb: Some(1.2),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-    }
-
-    /// Add MNIColin27 templates
-    fn add_mnicolin27_templates(&mut self) {
-        let space = TemplateSpace::MNIColin27;
-
-        // T1w template
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNIColin27_T1w_native".to_string(),
-            config: TemplateConfig::new(
-                TemplateType::T1w,
-                space.clone(),
-                TemplateResolution::Native,
-            ),
-            name: "MNI Colin27 T1w".to_string(),
-            description: "MNI Colin27 T1-weighted template (single subject)".to_string(),
-            download_url: Some(
-                "https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_T1w.nii.gz"
-                    .to_string(),
-            ),
-            file_size_mb: Some(10.0),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        // Brain mask
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNIColin27_mask_native".to_string(),
-            config: TemplateConfig::new(TemplateType::BrainMask, space, TemplateResolution::Native),
-            name: "MNI Colin27 Brain Mask".to_string(),
-            description: "MNI Colin27 brain mask".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_desc-brain_mask.nii.gz".to_string()),
-            file_size_mb: Some(0.5),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-    }
-
-    /// Add MNI305 templates
-    fn add_mni305_templates(&mut self) {
-        let space = TemplateSpace::MNI305;
-
-        // T1w template
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI305_T1w_native".to_string(),
-            config: TemplateConfig::new(
-                TemplateType::T1w,
-                space.clone(),
-                TemplateResolution::Native,
-            ),
-            name: "MNI305 T1w".to_string(),
-            description: "MNI305 T1-weighted template (average of 305 subjects)".to_string(),
-            download_url: Some(
-                "https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T1w.nii.gz"
-                    .to_string(),
-            ),
-            file_size_mb: Some(8.0),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        // Brain mask
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI305_mask_native".to_string(),
-            config: TemplateConfig::new(TemplateType::BrainMask, space.clone(), TemplateResolution::Native),
-            name: "MNI305 Brain Mask".to_string(),
-            description: "MNI305 brain mask".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_desc-brain_mask.nii.gz".to_string()),
-            file_size_mb: Some(0.4),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-
-        // T2w template
-        self.add_template_entry(TemplateCatalogEntry {
-            id: "MNI305_T2w_native".to_string(),
-            config: TemplateConfig::new(TemplateType::T2w, space, TemplateResolution::Native),
-            name: "MNI305 T2w".to_string(),
-            description: "MNI305 T2-weighted template".to_string(),
-            download_url: Some(
-                "https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T2w.nii.gz"
-                    .to_string(),
-            ),
-            file_size_mb: Some(8.0),
-            checksum: None,
-            is_cached: false,
-            last_accessed: None,
-        });
-    }
-
-    /// Add FreeSurfer surface templates
-    fn add_freesurfer_templates(&mut self) {
-        // FreeSurfer templates would be surface-based and require different handling
-        // For now, we'll focus on volume templates
-
-        // Note: Surface templates would need different download URLs and handling
-        // They would typically be mesh files (.gii, .surf, etc.) rather than volumes
-    }
-
-    /// Add a template entry to the catalog
-    fn add_template_entry(&mut self, entry: TemplateCatalogEntry) {
-        self.entries.insert(entry.id.clone(), entry);
+        let entries: Vec<TemplateCatalogEntry> =
+            serde_json::from_str(include_str!("../catalog.json"))
+                .expect("embedded template catalog must match TemplateCatalogEntry");
+        self.entries = entries
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect();
     }
 
     /// Mark a template as cached
@@ -432,5 +172,33 @@ impl TemplateCatalog {
 impl Default for TemplateCatalog {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    #[test]
+    fn shared_definitions_preserve_template_identity_and_local_cache_state() {
+        let mut catalog = TemplateCatalog::new();
+        let entries = catalog.get_all();
+        assert_eq!(entries.len(), 21);
+        for entry in &entries {
+            assert_eq!(entry.id, entry.config.id());
+            assert!(!entry.is_cached);
+            assert!(entry.last_accessed.is_none());
+            assert!(entry.download_url.as_ref().unwrap().starts_with("https://"));
+        }
+        let id = "MNI152NLin2009cAsym_T1w_2mm";
+        catalog.mark_as_cached(id);
+        assert!(catalog.get_by_id(id).unwrap().is_cached);
+        assert!(!TemplateCatalog::new().get_by_id(id).unwrap().is_cached);
+        assert_eq!(
+            catalog
+                .get_types_for_space(&TemplateSpace::MNI152NLin2009cAsym)
+                .len(),
+            7
+        );
     }
 }

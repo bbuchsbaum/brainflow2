@@ -21,9 +21,9 @@ use nalgebra::Matrix4;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle}; // Add for surface creation
 use std::collections::HashMap;
 use std::sync::Arc; // Re-add Arc import
-use std::time::SystemTime;
 use thiserror::Error; // Add for error handling
 use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, NumericType, VoxelData}; // Import DataRange directly
+use web_time::SystemTime;
 use wgpu::util::DeviceExt; // For create_buffer_init helper trait
 
 // --- Modules ---
@@ -40,6 +40,7 @@ pub mod pipeline;
 pub mod render_state;
 pub mod render_target_pool;
 pub mod shader_contract;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod shader_watcher;
 pub mod shaders;
 pub mod slice_adapter;
@@ -59,13 +60,16 @@ pub use ubo::{
 // Re-export render state types for external use
 pub use render_state::{BlendMode, LayerInfo, LayerMode, ThresholdMode};
 // Re-export slice adapter for GPU-CPU differential testing
-pub use slice_adapter::{GpuSliceAdapter, SliceSpecMapper};
+#[cfg(not(target_arch = "wasm32"))]
+pub use slice_adapter::GpuSliceAdapter;
+pub use slice_adapter::SliceSpecMapper;
 // Re-export benchmarking utilities
 pub use benchmarks::{FrameTimeTracker, PerformanceComparison, RenderPassProfiler};
 pub use facade::{
-    RendererAdapterConfig, RendererAtlasConfig, RendererBackends, RendererDeviceConfig,
-    RendererFeaturePolicy, RendererFrameRequest, RendererLimits, RendererPowerPreference,
-    RendererVolumeFormat, RendererVolumeHandle, WgpuSliceRenderer, WgpuSliceRendererConfig,
+    RendererAdapterConfig, RendererAtlasConfig, RendererBackends, RendererCapabilities,
+    RendererCapacityPolicy, RendererDeviceConfig, RendererFeaturePolicy, RendererFrameRequest,
+    RendererLimits, RendererPowerPreference, RendererVolumeFormat, RendererVolumeHandle,
+    WgpuSliceRenderer, WgpuSliceRendererConfig,
 };
 // Re-export optimized renderer
 use layer_uniforms::LayerUniformManager;
@@ -77,6 +81,7 @@ use render_state::{FrameStats, LayerStateManager, RenderPassManager, RenderState
 #[cfg(feature = "typed-shaders")]
 compile_error!("typed-shaders are temporarily disabled while the alpha-mask pipeline is active.");
 use render_target_pool::RenderTargetPool;
+#[cfg(not(target_arch = "wasm32"))]
 use shader_watcher::{ShaderWatchEvent, ShaderWatcher};
 use shaders::{ShaderManager, SliceShaderDescriptors};
 use texture_manager::TextureManager;
@@ -482,6 +487,7 @@ pub struct RenderLoopService {
     pub surface_config: Option<wgpu::SurfaceConfiguration>,
     // --- Shader management ---
     pub shader_manager: ShaderManager,
+    #[cfg(not(target_arch = "wasm32"))]
     pub shader_watcher: Option<ShaderWatcher>,
     // --- Pipeline management ---
     pub pipeline_manager: PipelineManager,
@@ -520,6 +526,7 @@ pub struct RenderLoopService {
     current_pipeline: Option<String>,
     // --- View management ---
     views: HashMap<ViewId, ViewContext>,
+    runtime_texture_capacity: u32,
     // --- World-space rendering mode ---
     world_space_enabled: bool,
     // --- Volume registry - maps volume IDs to their metadata ---
@@ -576,8 +583,10 @@ impl RenderLoopService {
         }
 
         // 3. Request Device and Queue
-        let mut required_features = wgpu::Features::TEXTURE_BINDING_ARRAY
-            | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+        // The active masked shaders bind each texture separately and select it
+        // with a switch. Binding arrays/non-uniform array indexing are unused
+        // native extensions and cannot be requested from browser WebGPU.
+        let mut required_features = wgpu::Features::empty();
 
         match config.device.float32_filterable {
             RendererFeaturePolicy::RequestIfAvailable if supports_float32_filterable => {
@@ -596,11 +605,29 @@ impl RenderLoopService {
         }
 
         let adapter_limits = adapter.limits();
-        let needed_sampled_textures = config.atlas.required_sampled_textures();
-        let required_limits = config
+        let runtime_max_textures = config.atlas.resolve_runtime_capacity(
+            &adapter_limits,
+            config.device.limits.max_sampled_textures_per_shader_stage,
+        )?;
+        let needed_sampled_textures = runtime_max_textures * 2 + 1;
+        let mut required_limits = config
             .device
             .limits
             .to_wgpu_limits(&adapter_limits, needed_sampled_textures);
+        if config.atlas.capacity_policy == RendererCapacityPolicy::FitAdapter {
+            let budget = adapter_limits.max_sampled_textures_per_shader_stage.min(
+                config
+                    .device
+                    .limits
+                    .max_sampled_textures_per_shader_stage
+                    .unwrap_or(u32::MAX),
+            );
+            required_limits.max_sampled_textures_per_shader_stage =
+                needed_sampled_textures.max(16.min(budget));
+            required_limits.max_samplers_per_shader_stage = 2;
+            required_limits.max_bindings_per_bind_group =
+                shader_contract::texture::binding_count(runtime_max_textures);
+        }
         log::info!(
             "RenderLoopService: Adapter limits max_texture_dimension_3d={}, requested={}",
             adapter_limits.max_texture_dimension_3d,
@@ -677,7 +704,6 @@ impl RenderLoopService {
         // All builtin colormaps are now uploaded automatically
 
         // Initialize world-space rendering components
-        let runtime_max_textures = config.atlas.runtime_max_textures();
         let multi_texture_manager = Some(MultiTextureManager::new(
             &device_arc,
             &queue_arc,
@@ -729,7 +755,13 @@ impl RenderLoopService {
             global_bind_group_layout,
             surface: None,
             surface_config: None,
-            shader_manager: ShaderManager::new(),
+            shader_manager: ShaderManager::with_texture_capacity(runtime_max_textures).map_err(
+                |e| RenderLoopError::Internal {
+                    code: 1713,
+                    details: e.to_string(),
+                },
+            )?,
+            #[cfg(not(target_arch = "wasm32"))]
             shader_watcher: None,
             pipeline_manager: PipelineManager::new(),
             frame_bind_group_layout,
@@ -753,6 +785,7 @@ impl RenderLoopService {
             current_render_target_key: None,
             current_pipeline: None,
             views: HashMap::new(),
+            runtime_texture_capacity: runtime_max_textures,
             world_space_enabled: true, // Default to world-space rendering
             volumes: HashMap::new(),
             prepared_layer_state_cache: None,
@@ -950,6 +983,7 @@ impl RenderLoopService {
     }
 
     /// Enable shader hot-reload for development
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_shader_hot_reload(&mut self) -> Result<(), RenderLoopError> {
         // Find the shader directory relative to the workspace root
         let shader_dir = if std::path::Path::new("core/render_loop/shaders").exists() {
@@ -977,6 +1011,7 @@ impl RenderLoopService {
     }
 
     /// Check for shader updates and reload if necessary
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn check_shader_updates(&mut self) -> Result<bool, RenderLoopError> {
         let mut updated = false;
 
@@ -1397,7 +1432,7 @@ impl RenderLoopService {
             self.multi_texture_manager = Some(MultiTextureManager::new(
                 &self.device,
                 &self.queue,
-                multi_texture_manager::MAX_TEXTURES as u32,
+                self.runtime_texture_capacity,
             ));
         }
 
@@ -1420,7 +1455,7 @@ impl RenderLoopService {
             self.multi_texture_manager = Some(MultiTextureManager::new(
                 &self.device,
                 &self.queue,
-                multi_texture_manager::MAX_TEXTURES as u32,
+                self.runtime_texture_capacity,
             ));
         }
 
@@ -1457,12 +1492,12 @@ impl RenderLoopService {
         #[cfg(feature = "typed-shaders")]
         let texture_layout = MultiTextureManager::create_bind_group_layout(
             &self.device,
-            multi_texture_manager::MAX_TEXTURES as u32,
+            self.runtime_texture_capacity,
         );
         #[cfg(not(feature = "typed-shaders"))]
         let texture_layout = MultiTextureManager::create_bind_group_layout(
             &self.device,
-            multi_texture_manager::MAX_TEXTURES as u32,
+            self.runtime_texture_capacity,
         );
         let slice_feature_layout = shaders::layouts::create_slice_feature_layout(&self.device);
 
@@ -4659,7 +4694,7 @@ impl RenderLoopService {
         state: ViewState,
         options: FrameRequestOptions,
     ) -> Result<FrameSubmission, RenderLoopError> {
-        let request_start = std::time::Instant::now();
+        let request_start = web_time::Instant::now();
 
         // Validate state
         state.validate().map_err(|e| RenderLoopError::Internal {
@@ -5037,12 +5072,12 @@ impl RenderLoopService {
         self.render_state.record_draw();
 
         // Submit commands
-        let render_start = std::time::Instant::now();
+        let render_start = web_time::Instant::now();
         self.queue.submit(Some(encoder.finish()));
         let render_ms = render_start.elapsed().as_secs_f32() * 1000.0;
         let prepare_ms = request_start.elapsed().as_secs_f32() * 1000.0 - render_ms;
 
-        let readback_start = std::time::Instant::now();
+        let readback_start = web_time::Instant::now();
         let mut image_data = Vec::new();
         let readback = if matches!(options.readback_mode, FrameReadbackMode::Skip) {
             None
@@ -5116,6 +5151,12 @@ impl RenderLoopService {
         &mut self,
         memory_limit_mb: u32,
     ) -> Result<(), RenderLoopError> {
+        if self.runtime_texture_capacity != multi_texture_manager::MAX_TEXTURES as u32 {
+            return Err(RenderLoopError::Internal {
+                code: 6010,
+                details: "Smart texture management requires the fixed desktop layout".into(),
+            });
+        }
         // Initialize smart texture manager
         self.smart_texture_manager = Some(smart_texture_manager::SmartTextureManager::new(
             smart_texture_manager::MAX_TEXTURES as u32,

@@ -6,7 +6,8 @@
  * the volume changes or the cache is explicitly cleared.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { getTransport } from './transport';
+import type { BackendTransport } from './transport';
 
 export type TemporalMetric = 'variance' | 'mean';
 export type SliceAxis = 'axial' | 'coronal' | 'sagittal';
@@ -17,7 +18,9 @@ export interface TemporalMetricResult {
   data: number[];
 }
 
-class TemporalHeatmapService {
+export class TemporalHeatmapService {
+  private readonly transport: BackendTransport;
+  constructor(transport: BackendTransport = getTransport()) { this.transport = transport; }
   private cache = new Map<string, TemporalMetricResult>();
   private pendingRequests = new Map<string, Promise<TemporalMetricResult>>();
 
@@ -45,7 +48,7 @@ class TemporalHeatmapService {
     const pending = this.pendingRequests.get(key);
     if (pending) return pending;
 
-    const request = invoke<TemporalMetricResult>(
+    const request = this.transport.invoke<TemporalMetricResult>(
       'plugin:api-bridge|compute_temporal_metric',
       { volumeId, metric, axis, sliceIndex }
     ).then((result) => {

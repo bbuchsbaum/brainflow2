@@ -243,6 +243,21 @@ const FileBrowserPanelContent: React.FC = () => {
     }
   }
 
+  /** Recents/pinned remember a path: reopen it directly instead of asking again. */
+  async function mountKnownLocation(path: string) {
+    if (mountActionPending) return;
+    setMountActionPending(true);
+    setMountActionError(null);
+    try {
+      await fileBrowserStore.mountDirectory(path);
+    } catch (err) {
+      console.error("Failed to reopen location:", err);
+      setMountActionError(`Could not open ${path}. It may have moved or been deleted.`);
+    } finally {
+      setMountActionPending(false);
+    }
+  }
+
   async function openFileDialog() {
     if (mountActionPending) return;
     setMountActionPending(true);
@@ -550,8 +565,8 @@ const FileBrowserPanelContent: React.FC = () => {
             shortcutLabel={shortcutLabel}
             pending={mountActionPending}
             errorMessage={mountActionError}
-            onMountLocal={() => {
-              void openMountDialog();
+            onMountLocal={(path) => {
+              void (path ? mountKnownLocation(path) : openMountDialog());
             }}
             onMountRemote={openRemoteMountDialog}
             onOpenFile={() => {
