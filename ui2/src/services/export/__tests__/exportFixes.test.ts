@@ -10,7 +10,14 @@ import {
   sliceFileName,
   surfaceFileName,
 } from '@/utils/exportFileName';
-import { cropBox, cropKind, cropVolumeIds, type CropKind } from '../compositeCapture';
+import {
+  cropBox,
+  cropKind,
+  cropVolumeIds,
+  hiddenBandMagnitude,
+  statisticCropBox,
+  type CropKind,
+} from '../compositeCapture';
 
 describe('export file names (native check: "zmap_synthetic_axial_-10.0mm.png")', () => {
   it('puts the axis letter before the signed value for a slice', () => {
@@ -98,11 +105,11 @@ describe('Crop to brain (native check: cropped to the overlay, cut into the head
     }
   });
 
-  it('a brain mask wins, visible or not; a statistic alone is cropped to its whole support, not its blobs', () => {
+  it('a brain mask wins, visible or not; a statistic alone is its own crop volume', () => {
     const mask = { id: 'mask', volumeId: 'mask', visible: false, opacity: 0 };
     expect(cropVolumeIds([t1, z, mask], kindOf)).toEqual(['mask']);
     expect(cropVolumeIds([{ ...t1, visible: false }, z], kindOf)).toEqual(['t1']);
-    // The z map as the only (base) layer: its own support at threshold 0.
+    // The z map as the only (base) layer (framed by statisticCropBox).
     expect(cropVolumeIds([z], kindOf)).toEqual(['z']);
     expect(cropVolumeIds([], kindOf)).toEqual([]);
   });
@@ -114,6 +121,37 @@ describe('Crop to brain (native check: cropped to the overlay, cut into the head
     expect(cropKind({ name: 'bold_masked.nii.gz' }, { isStatistic: false })).toBe('anatomical');
     expect(cropKind({ name: 'atlas', type: 'label' }, { isStatistic: false })).toBe('label');
     expect(cropKind({ name: 'p4_zmap.nii' }, { isStatistic: true })).toBe('statistic');
+  });
+
+  it('frames a statistic alone by its visible voxels with a margin, inside its support (native R4-3)', () => {
+    const support = { worldMinMm: [-70, -100, -60], worldMaxMm: [70, 70, 80] };
+    // Three small blobs left of the midline.
+    const blobs = { worldMinMm: [-50, -20, 10], worldMaxMm: [-30, -16, 14] };
+    const box = statisticCropBox(support, blobs);
+    // x: 20 mm of blobs + 15 mm each side = 50 mm, under half the 140 mm
+    // support, so 70 mm about the blobs' centre (-40), shifted inside.
+    expect(box.worldMinMm[0]).toBeCloseTo(-70);
+    expect(box.worldMaxMm[0]).toBeCloseTo(0);
+    // y: half of 170 mm about -18.
+    expect(box.worldMaxMm[1] - box.worldMinMm[1]).toBeCloseTo(85);
+    expect(box.worldMinMm[1]).toBeCloseTo(-60.5);
+    // Never outside the support; nothing visible keeps the support.
+    for (let a = 0; a < 3; a += 1) {
+      expect(box.worldMinMm[a]).toBeGreaterThanOrEqual(support.worldMinMm[a]);
+      expect(box.worldMaxMm[a]).toBeLessThanOrEqual(support.worldMaxMm[a]);
+    }
+    expect(statisticCropBox(support, null)).toBe(support);
+    // Blobs spanning most of the support keep the padded blob box.
+    const wide = statisticCropBox(support, { worldMinMm: [-60, -90, -50], worldMaxMm: [60, 60, 70] });
+    expect(wide).toEqual(support);
+  });
+
+  it('reads the hidden band from a symmetric threshold only', () => {
+    expect(hiddenBandMagnitude([-3.1, 3.1])).toBeCloseTo(3.1);
+    expect(hiddenBandMagnitude([-2, 3])).toBe(2);
+    expect(hiddenBandMagnitude([0, 0])).toBe(0);
+    expect(hiddenBandMagnitude([1, 5])).toBe(0);
+    expect(hiddenBandMagnitude(undefined)).toBe(0);
   });
 
   it('is null (no crop) when no volume has a non-zero box', async () => {

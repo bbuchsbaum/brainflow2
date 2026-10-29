@@ -67,6 +67,8 @@ import {
 
 /** Top-right space kept for the workspace layout button (OrthogonalViewContainer). */
 const LAYOUT_BUTTON_RESERVE = 48;
+/** Pane width below which the Temporal selector shows its menu only. */
+const TEMPORAL_CAPTION_MIN_WIDTH = 480;
 
 function getSliceAxisIndex(viewId: SliceViewCanvasProps["viewId"]): 0 | 1 | 2 {
   if (viewId === "sagittal") return 0;
@@ -721,12 +723,15 @@ function SliceViewCanvasBody({
       )}
 
       {/* Temporal metric selector (only for 4D volumes), left of the
-          viewport's layout button in the same row (v4 visual: they collided). */}
+          viewport's layout button in the same row (v4 visual: they collided).
+          It sits over the image, so it has a backing, and a narrow pane
+          drops its caption (native R4: "Temporal:" lost on a bright head). */}
       {is4DVolume && (
-        <div className="absolute top-1 right-10 flex items-center gap-1">
+        <div className="absolute top-1 right-10 flex items-center gap-1 rounded-sm bg-bf-bg-canvas/90 px-1">
           <TemporalMetricSelector
             value={temporalMetric}
             onChange={setTemporalMetric}
+            compact={width < TEMPORAL_CAPTION_MIN_WIDTH}
           />
           {temporalMetric !== "none" && (
             <Slider
