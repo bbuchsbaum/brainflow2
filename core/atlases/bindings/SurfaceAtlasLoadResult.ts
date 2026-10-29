@@ -9,7 +9,7 @@ export type SurfaceAtlasLoadResult = {
 /**
  * Opaque dictionary retained by the bridge for strict table joins.
  */
-parcel_dictionary_id: string | null,
+parcel_dictionary_id: string | null, 
 /**
  * Atlas metadata
  */
