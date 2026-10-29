@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { sourceIdentity } from './browser-source-identity.mjs';
 import { mkdirSync, statfsSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +46,6 @@ function hashFiles(directory, prefix = '') {
 }
 hashFiles(output);
 const sourceRevision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-const sourceChanges = spawnSync('git', ['status', '--porcelain', '--untracked-files=normal', '--', '.', ':!**/node_modules/**', ':!**/dist/**'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean);
-const sourceDirty = sourceChanges.length > 0;
+const {sourceDirty,sourceChanges,verifiedFilterDifferences} = sourceIdentity(root);
 if (sourceDirty) console.warn('Build checkout changes:', sourceChanges);
-writeFileSync(resolve(output, 'build-info.json'), JSON.stringify({ sourceRevision, sourceDirty, sourceChanges, builtAt: new Date().toISOString(), files }, null, 2) + '\n');
+writeFileSync(resolve(output, 'build-info.json'), JSON.stringify({ sourceRevision, sourceDirty, sourceChanges, verifiedFilterDifferences, builtAt: new Date().toISOString(), files }, null, 2) + '\n');
