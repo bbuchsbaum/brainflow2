@@ -344,6 +344,14 @@ export class VolumeLoadingService {
           }
         }
 
+        // An anatomical image opened after a statistic map goes under it, so
+        // the map stays readable on its anatomy (native R4-3: a T1 opened
+        // second covered the z map in the view and in exports).
+        if (!config.replacement) {
+          const order = anatomyUnderStatisticOrder(useLayerStore.getState().layers, addedLayer.id);
+          if (order) await this.layerService!.reorderLayers(order);
+        }
+
         // 8. Readiness/mapping is handled in LayerApiImpl request path.
         // Avoid forced flush here to keep initial load/render scheduling smooth.
         volumeDebugLog(
@@ -508,6 +516,32 @@ export function inferLayerTypeFromName(name: string, source: string): Layer['typ
     return 'functional';
   }
   return 'anatomical';
+}
+
+/**
+ * The layer order placing `newLayerId` at the bottom when it is a plain 3D
+ * anatomical image (no statistic, not a label, mask or series) and the
+ * current base volume is a statistic map; null to keep the order. Atlases
+ * and label maps never count as the base (as in the Scene stack).
+ */
+export function anatomyUnderStatisticOrder(
+  layers: readonly LayerInfo[],
+  newLayerId: string,
+): string[] | null {
+  const added = layers.find((l) => l.id === newLayerId);
+  if (
+    !added ||
+    added.type !== 'anatomical' ||
+    added.statistic ||
+    added.isLabelMap ||
+    added.volumeType === 'TimeSeries4D'
+  ) {
+    return null;
+  }
+  const isAtlas = (l: LayerInfo) => l.source === 'atlas' || l.isLabelMap === true;
+  const base = layers.find((l) => l.id !== newLayerId && !isAtlas(l));
+  if (!base?.statistic) return null;
+  return [newLayerId, ...layers.filter((l) => l.id !== newLayerId).map((l) => l.id)];
 }
 
 // Export convenience function

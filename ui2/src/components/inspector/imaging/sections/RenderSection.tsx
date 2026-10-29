@@ -14,6 +14,7 @@ import {
   isThresholdActive,
 } from "@/components/views/viewportFrame/frameFormat";
 import { useDisplayOptionsStore } from "@/stores/displayOptionsStore";
+import { isRunGroupMember } from "@/components/views/viewportFrame/useOverlayColorbar";
 import type { SceneItem } from "@/types/sceneItem";
 import {
   Button,
@@ -115,6 +116,8 @@ function VolumeRenderRows({
   const showColorbar = useDisplayOptionsStore((s) =>
     layerId ? s.options.get(layerId)?.showColorbar !== false : true,
   );
+  // A base that is one of several runs has the view colorbar too (native R4-1).
+  const runPeer = useLayerStore(() => kind === "base" && !!layerId && isRunGroupMember(layerId));
   // Ruler domain frozen for the duration of a slider interaction (pointer
   // down → up, or keyboard focus → blur): the union of the data range and
   // the window AT INTERACTION START. Recomputing it from the live window
@@ -365,7 +368,7 @@ function VolumeRenderRows({
         <OverrideMark compare={compare} layerId={layerId} field="colormap" label="Colormap" />
       ) : null}
 
-      {kind === "overlay" && layerMode === "scalar" ? (
+      {(kind === "overlay" || runPeer) && layerMode === "scalar" ? (
         <FieldRow label="Colorbar on view" labelWidth="wide">
           <Switch
             checked={showColorbar}
