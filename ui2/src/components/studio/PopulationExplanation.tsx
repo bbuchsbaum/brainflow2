@@ -14,18 +14,46 @@ import {
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { formatWorldPoint } from '@/utils/valueFormat';
+/** A pair to compare, requested from outside (the neighbour table's Compare).
+ * A new `nonce` re-applies the request even for the same pair. */
+export interface ExplanationPairRequest {
+  /** The fit the pair was chosen on; a request for another fit is ignored. */
+  fitId: string;
+  a: string;
+  b: string;
+  nonce: number;
+}
 export function PopulationExplanation({
   fit,
   current,
+  pairRequest = null,
 }: {
   fit: RelationshipFit;
   current: boolean;
+  pairRequest?: ExplanationPairRequest | null;
 }) {
   // Pairs, reconstructions and component scores use fitted members only.
   const ids = relationshipFittedIds(fit);
   const [a, setA] = useState(ids[0]);
   const [b, setB] = useState(ids[1]);
   const [kind, setKind] = useState('pair');
+  const details = useRef<HTMLDetailsElement>(null);
+  const showButton = useRef<HTMLButtonElement>(null);
+  const appliedNonce = useRef<number | null>(null);
+  // Compare opens the explanation in pair mode with the requested pair. It
+  // does not compute: the user still chooses when to evaluate the slice.
+  const activePair = pairRequest?.fitId === fit.fitId ? pairRequest : null;
+  useEffect(() => {
+    if (!activePair || appliedNonce.current === activePair.nonce) return;
+    appliedNonce.current = activePair.nonce;
+    if (!ids.includes(activePair.a) || !ids.includes(activePair.b)) return;
+    setKind('pair');
+    setA(activePair.a);
+    setB(activePair.b);
+    if (details.current) details.current.open = true;
+    details.current?.scrollIntoView?.({ block: 'nearest' });
+    showButton.current?.focus();
+  }, [activePair, ids]);
   const [orientation, setOrientation] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   const scores = fit.geometry.componentScores ?? fit.geometry.coordinates;
   const available = Math.min(
@@ -102,6 +130,7 @@ export function PopulationExplanation({
     .sort((a, b) => a.score - b.score);
   return (
     <details
+      ref={details}
       className="rounded-sm border border-border p-2"
       aria-label="Explain spatial relationships"
     >
@@ -173,7 +202,13 @@ export function PopulationExplanation({
             <option value="sagittal">Sagittal</option>
             <option value="coronal">Coronal</option>
           </Select>
-          <Button variant="secondary" size="sm" disabled={!current || busy} onClick={() => void show()}>
+          <Button
+            ref={showButton}
+            variant="secondary"
+            size="sm"
+            disabled={!current || busy}
+            onClick={() => void show()}
+          >
             {busy ? 'Computing…' : 'Show current slice'}
           </Button>
         </div>

@@ -8,6 +8,9 @@ import {
   explainRelationship,
   RELATIONSHIP_UNASSIGNED_GROUP_ID,
   relationshipUnassignedSummary,
+  relationshipUnassignedReasonLabel,
+  relationshipCoverageMedian,
+  relationshipUsable,
   validRelationshipFit,
   type RelationshipFit,
   type RelationshipRequest,
@@ -328,4 +331,31 @@ it('keeps the unassigned group out of comparison operands and validates its orig
   expect(
     withOrigin((p) => Object.assign(p, { origin: 'metadata', fitId: undefined })),
   ).not.toBeNull();
+});
+
+it('labels unassigned reasons, reports the coverage median and exposes one usability predicate', async () => {
+  const service = new PopulationRelationshipService(async (q) => syntheticV2Fit(q, [1, 4]));
+  expect(relationshipUsable(service)).toBe(false);
+  await service.fit('effect');
+  const fit = service.getSnapshot().fit!;
+  expect(fit.unassigned!.map((u) => relationshipUnassignedReasonLabel(u.reason))).toEqual([
+    'No finite values',
+    'Low coverage · 42% of the median',
+  ]);
+  expect(relationshipUnassignedReasonLabel({ kind: 'zeroVarianceOnSupport' })).toBe(
+    'Constant on the shared voxels',
+  );
+  // Finite counts 95, 0, 95, 95, 40, 95: median over the non-missing five is 95.
+  expect(relationshipCoverageMedian(fit)).toBe(95);
+  expect(relationshipCoverageMedian({ ...fit, finiteCounts: [10, 0, 20, 30, 40, 0] })).toBe(25);
+  expect(
+    relationshipCoverageMedian(syntheticFit({ ...fit.request, eligibility: undefined })),
+  ).toBeNull();
+  expect(relationshipUsable(service)).toBe(true);
+  expect(service.usableFit()).toBe(fit);
+  service.observeSources(
+    fit.request.members.map((m) => ({ memberId: m.memberId, revision: { sha256: 'd'.repeat(64) } })),
+  );
+  expect(relationshipUsable(service)).toBe(false);
+  expect(service.currentUnassigned()).toBeNull();
 });

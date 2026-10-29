@@ -551,7 +551,7 @@ export function PopulationLens({
         </Notice>
       )}
       <PopulationInferenceControls />
-      <PopulationRelationshipPanel />
+      <PopulationRelationshipPanel summaryKind={summary} sliceService={service} />
       <PopulationNavigation
         ids={navigationIds}
         focusedId={studio.selection.activeMemberId}

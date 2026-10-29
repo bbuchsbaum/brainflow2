@@ -89,6 +89,30 @@ const unassignedLabels: Record<RelationshipUnassignedReason['kind'], string> = {
   // Judged before the exclusion; the member may vary on the recomputed support.
   zeroVarianceOnSupport: 'constant on the shared voxels before exclusion',
 };
+/** Sentence-case reason for one unassigned member, e.g. "Low coverage · 60% of the median". */
+export function relationshipUnassignedReasonLabel(reason: RelationshipUnassignedReason): string {
+  switch (reason.kind) {
+    case 'allMissing':
+      return 'No finite values';
+    case 'lowCoverage':
+      return `Low coverage · ${Math.round(100 * reason.fraction)}% of the median`;
+    case 'zeroVarianceOnSupport':
+      return 'Constant on the shared voxels';
+  }
+}
+/**
+ * The median finite count the v2 low-coverage rule compares against: over
+ * request members with any finite value, the mean of the two middle values
+ * when even (as `relationship.rs` computes it). Null for v1 fits and when no
+ * member has a finite value.
+ */
+export function relationshipCoverageMedian(fit: RelationshipFit): number | null {
+  if (!fit.request.eligibility) return null;
+  const present = fit.finiteCounts.filter((c) => c > 0).sort((a, b) => a - b);
+  if (!present.length) return null;
+  const upper = present[present.length >> 1];
+  return present.length % 2 ? upper : (present[(present.length >> 1) - 1] + upper) / 2;
+}
 /** Interim one-line account of unassigned members; null when there are none. */
 export function relationshipUnassignedSummary(fit: RelationshipFit): string | null {
   const unassigned = relationshipUnassigned(fit);
@@ -480,6 +504,12 @@ export class PopulationRelationshipService {
     )
       this.publish({ ...this.snapshot, stale: true });
   }
+  /** The current fit when it may drive rankings, order and groups: present,
+   * not stale, and fitted on the current population scope. Null otherwise. */
+  usableFit(): RelationshipFit | null {
+    const { fit, stale, scope } = this.snapshot;
+    return fit && !stale && scope === relationshipSource().scope ? fit : null;
+  }
   toggle(id: string) {
     const { fit, scope } = this.snapshot;
     if (
@@ -497,8 +527,8 @@ export class PopulationRelationshipService {
     );
   }
   order() {
-    const { fit, stale, scope } = this.snapshot;
-    if (!fit || stale || scope !== relationshipSource().scope || !fit.geometry.orderable) return;
+    const fit = this.usableFit();
+    if (!fit || !fit.geometry.orderable) return;
     this.orderFit = fit;
     const state = useSetStudioStore.getState(),
       scale = Math.max(...fit.geometry.coordinates.map((p) => Math.abs(p[0]))) * 1e-10,
@@ -529,17 +559,16 @@ export class PopulationRelationshipService {
     });
   }
   group(count: number) {
-    const { fit, stale, scope } = this.snapshot;
-    if (!fit || stale || scope !== relationshipSource().scope) return;
+    const fit = this.usableFit();
+    if (!fit) return;
     const state = useSetStudioStore.getState();
     state.setPopulationPartition(relationshipPartition(fit, count, state.selection.activeSetId!));
   }
   /** Unassigned members of the current fit, or null when no fit is usable for
    * the current population (none, stale, or fitted on another source scope). */
   currentUnassigned(): RelationshipUnassigned[] | null {
-    const { fit, stale, scope } = this.snapshot;
-    if (!fit || stale || scope !== relationshipSource().scope) return null;
-    return relationshipUnassigned(fit);
+    const fit = this.usableFit();
+    return fit ? relationshipUnassigned(fit) : null;
   }
   exportFor(members: PopulationMemberSource[], mask: PopulationMask | null) {
     const { fit, stale, scope } = this.snapshot;
@@ -589,6 +618,11 @@ export class PopulationRelationshipService {
   }
 }
 export const populationRelationshipService = new PopulationRelationshipService();
+/** Whether the shared service's current fit may drive rankings (neighbours,
+ * the centroid list, Compare), as `order()` and `group()` require. */
+export function relationshipUsable(service = populationRelationshipService): boolean {
+  return service.usableFit() !== null;
+}
 
 export async function explainRelationship(
   fit: RelationshipFit,

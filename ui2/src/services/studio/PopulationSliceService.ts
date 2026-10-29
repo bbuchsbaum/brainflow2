@@ -663,6 +663,78 @@ export class PopulationSliceService {
         : this.delayMs,
     );
   }
+  /**
+   * The scatter peek's raster: one context observation at a requested slice,
+   * read through the focused-original path (`focusOnly`, so no summary is
+   * reduced) of the displayed population request. Focus, the displayed result
+   * and the colour scale are untouched. When the slice and orientation match
+   * the displayed request the native plane cache serves it; otherwise the
+   * native engine builds that plane, which replaces its single cached plane.
+   */
+  async evaluatePeek(
+    target: {
+      memberId: string;
+      crosshairMm: readonly [number, number, number];
+      orientation: PopulationOrientation;
+    },
+    signal: AbortSignal,
+  ): Promise<PopulationPeekRaster> {
+    const base = this.snapshot.displayed;
+    if (!this.active || !base) throw new Error('No population slice is displayed yet.');
+    const query = base.query;
+    if (!query.request.members.some((m) => m.memberId === target.memberId))
+      throw new Error(`${target.memberId} is not in the displayed population.`);
+    const crosshairMm = [...target.crosshairMm] as [number, number, number];
+    const sameView =
+      query.request.orientation === target.orientation &&
+      query.request.crosshairMm.every((v, i) => v === crosshairMm[i]);
+    const contextKey = JSON.stringify([this.owner, query.datasetKey]);
+    const request: PopulationSliceRequest = {
+      ...query.request,
+      contextKey,
+      crosshairMm,
+      orientation: target.orientation,
+      focusOnly: true,
+      focusWindow: [],
+      focusMemberId: target.memberId,
+      // Cutouts are part of the native plane key: keep them only where the
+      // displayed plane can be reused.
+      cutouts: sameView ? query.request.cutouts : null,
+    };
+    delete request.focusStackIndex;
+    this.contexts.add(contextKey);
+    const data = await this.dependencies.evaluate(request, signal);
+    signal.throwIfAborted();
+    const [w, h] = data.plane?.dim_px ?? [0, 0];
+    const ids = query.request.members.map((m) => m.memberId);
+    if (
+      !Number.isInteger(w) ||
+      !Number.isInteger(h) ||
+      w < 1 ||
+      h < 1 ||
+      data.focused.length !== w * h ||
+      data.focused.some((v) => v !== null && !Number.isFinite(v)) ||
+      data.sources.length !== ids.length ||
+      data.sources.some(
+        (source, i) =>
+          source.memberId !== ids[i] ||
+          (query.request.members[i].expectedSha256 != null &&
+            source.revision.sha256 !== query.request.members[i].expectedSha256),
+      ) ||
+      [...data.plane.origin_mm, ...data.plane.u_mm, ...data.plane.v_mm].some(
+        (v) => !Number.isFinite(v),
+      )
+    )
+      throw new Error('Peek raster does not match its observation or geometry.');
+    return {
+      memberId: target.memberId,
+      crosshairMm,
+      orientation: target.orientation,
+      plane: data.plane,
+      values: data.focused,
+      revisionKey: populationRevisionKey(data.sources, data.maskRevision),
+    };
+  }
   private async run() {
     if (!this.active || this.busy || !this.pending) return;
     const query = this.pending;
@@ -874,12 +946,58 @@ export class PopulationSliceService {
   }
 }
 
+/** The source and mask revisions of a population result, as one comparable key. */
+export function populationRevisionKey(
+  sources: readonly { memberId: string; revision: { sha256: string } }[],
+  maskRevision?: { sha256: string } | null,
+): string {
+  return JSON.stringify([sources.map((s) => [s.memberId, s.revision.sha256]), maskRevision?.sha256 ?? null]);
+}
+
+/** One observation's raster at a requested slice, for the scatter peek. */
+export interface PopulationPeekRaster {
+  memberId: string;
+  crosshairMm: [number, number, number];
+  orientation: PopulationOrientation;
+  plane: ViewPlane;
+  values: (number | null)[];
+  /** Source and mask revisions the raster was read from (`populationRevisionKey`). */
+  revisionKey: string;
+}
+
 export function populationAxisLabel(vector: readonly number[]) {
   const axis = vector.reduce(
     (best, value, index) => (Math.abs(value) > Math.abs(vector[best]) ? index : best),
     0,
   );
   return (vector[axis] >= 0 ? ['R', 'A', 'S'] : ['L', 'P', 'I'])[axis];
+}
+
+/** `worldMm` moved `distanceMm` along the plane normal, oriented towards the
+ * positive end of its dominant world axis (+R, +A or +S). Null for a
+ * degenerate plane. */
+export function populationSliceStepPoint(
+  plane: ViewPlane,
+  worldMm: readonly [number, number, number],
+  distanceMm: number,
+): [number, number, number] | null {
+  const u = plane.u_mm,
+    v = plane.v_mm;
+  const normal = [
+    u[1] * v[2] - u[2] * v[1],
+    u[2] * v[0] - u[0] * v[2],
+    u[0] * v[1] - u[1] * v[0],
+  ];
+  const length = Math.hypot(...normal);
+  if (!length) return null;
+  const axis = normal.reduce(
+    (best, value, index) => (Math.abs(value) > Math.abs(normal[best]) ? index : best),
+    0,
+  );
+  const direction = normal[axis] < 0 ? -1 : 1;
+  return worldMm.map(
+    (value, axis) => value + (direction * distanceMm * normal[axis]) / length,
+  ) as [number, number, number];
 }
 
 export const populationSliceActions = {
@@ -889,28 +1007,8 @@ export const populationSliceActions = {
     worldMm: [number, number, number],
     distanceMm: number,
   ) {
-    const u = plane.u_mm,
-      v = plane.v_mm;
-    const normal = [
-      u[1] * v[2] - u[2] * v[1],
-      u[2] * v[0] - u[0] * v[2],
-      u[0] * v[1] - u[1] * v[0],
-    ];
-    const length = Math.hypot(...normal);
-    if (!length) return;
-    const axis = normal.reduce(
-      (best, value, index) => (Math.abs(value) > Math.abs(normal[best]) ? index : best),
-      0,
-    );
-    const direction = normal[axis] < 0 ? -1 : 1;
-    this.navigate(
-      workspaceId,
-      worldMm.map((value, axis) => value + (direction * distanceMm * normal[axis]) / length) as [
-        number,
-        number,
-        number,
-      ],
-    );
+    const next = populationSliceStepPoint(plane, worldMm, distanceMm);
+    if (next) this.navigate(workspaceId, next);
   },
   hover(
     workspaceId: string,
