@@ -98,6 +98,43 @@ Two facts shape the design:
 - **One owner per computation.** Fits, eligibility and fields stay in Rust;
   ranking, diagnostics and layout geometry are pure TypeScript.
 
+## Scope decision (user, 2026-10-29)
+
+Start with **scatter + tables** (W1 UI, W2 list UI, W3), the **linked
+montage** (W6) and **Facet** (W7). Space (W5) is parked; its specimen and
+artboards are kept for reference. W4 (open in viewer) stays, because the
+scatter peek's pin wants it.
+
+**Scatter hover peek** (part of W1 UI):
+
+- Hover previews and click focuses. After about 150 ms over a point, a
+  floating peek shows that observation's slice. Hover never changes focus or
+  the Inspector (NeuroTabs state contract). Moving away dismisses the peek.
+  Arrow keys move between points and show the peek; Enter focuses.
+- The peek has its own slice, initialised from the shared one. The wheel over
+  the peek scrolls slices, while the wheel over the plot keeps the plot's
+  behaviour. It shows the slice position and the value under the pointer, and
+  can switch plane (A/C/S).
+- Pinning keeps it open while scrolling or stepping between neighbours, and
+  offers "Open in viewer" (W4).
+- It reuses the focused-original raster path, with a small cache of recently
+  hovered maps. Responses are dropped once the pointer has moved on, per the
+  async-ownership rule. It uses the shared threshold and colour range, and the
+  shared crop once W6 lands.
+- Cost: the 6–9 ms warm figure on the 80-map fixture holds only at the lens's
+  displayed slice and plane, where the native plane cache is reused. An
+  off-slice or off-plane peek rebuilds a full plane for every member and
+  replaces the lens's cached plane; unmeasured, estimated at tens to hundreds
+  of milliseconds in debug builds. Wheel bursts are coalesced to at most two
+  evaluations.
+- Follow-up: a two-slot native plane cache or a single-member read. Either
+  needs a Rust change and a timing receipt on the 80-map fixture.
+
+**Visual hill climb** when the implementation is close: critics for
+aesthetics, for function and usability, and for scientific insight
+(honesty about distortion, exclusion and provenance), scored against fixed
+specimens, as in the redesign campaigns.
+
 ## Sequence
 
 W2 → W1 → W3, with W4 in parallel. W5 depends on W1 and W2; its
@@ -353,6 +390,26 @@ coordinates. It is not a new top-level mode (exploration plan :60).
   n = 12, 80 and 128 with coincident and displaced maps; Playwright cases for
   keyboard navigation, label clicks, coordinate-based lasso and refit only on
   request; native acceptance with pan and zoom timing at n = 128.
+
+### W6 and W7 (candidates, under discussion). Linked montage and Facet
+
+Both come from the neuroimjs volume-set browser (Montage, Facet) and were
+added while planning; they are candidates to weigh against Space, not yet
+commitments.
+
+- **W6 Linked montage.**
+  - One anatomical crop is shared by every montage cell and by Space's
+    pictures: ⌘ + wheel zooms about the pointer, Shift + drag zooms to a box,
+    drag pans, 0 fits.
+  - Cells render at the crop's resolution rather than upscaling the 64 px
+    cutouts. That needs the cutout cap raised or tiled, with memory and
+    latency evidence (`population_slice.rs:24-25`).
+  - The montage gains a seriated order and r to the mean on each cell.
+- **W7 Facet.** An observation × feature grid (contrasts, runs, lags or
+  metadata levels), with a mean column, sharing the crop, slice, threshold,
+  cursor and focus.
+- **Why they matter.** Neither needs a relationship fit or distorts
+  distances, so they serve every set; Space serves fitted sets.
 
 ## Design and visual quality
 

@@ -39,6 +39,11 @@ import {
 } from '@/services/studio/PopulationProbeController';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import {
+  decodePreviewTarget,
+  encodePreviewTarget,
+  resolveStudioPopulationPreview,
+} from '@/services/studio/observationStatus';
+import {
   buildPopulationSliceQuery,
   populationSliceActions,
   populationAxisLabel,
@@ -103,8 +108,9 @@ export function PopulationLens({
   const [orientation, setOrientation] = useState<PopulationOrientation>('axial');
   const [summary, setSummary] = useState<PopulationSummary>('mean');
   const [zoom, setZoom] = useState(1);
-  const [withoutFocused, setWithoutFocused] = useState(false);
-  const [previewTarget, setPreviewTarget] = useState<string | null>(null);
+  // Hold-to-preview lives in the store as presentation state, so the values
+  // table (another React root) shows the same preview.
+  const withoutFocused = studio.populationPreview.holding;
   const [showCutouts, setShowCutouts] = useState(false);
   const [cutoutWidth, setCutoutWidth] = useState(32);
   const [cutoutPage, setCutoutPage] = useState(0);
@@ -114,7 +120,6 @@ export function PopulationLens({
     setOrientation(restored?.orientation ?? 'axial');
     setSummary(restored?.summary ?? 'mean');
     setZoom(restored?.zoom ?? 1);
-    setWithoutFocused(false);
     setShowCutouts(false);
     setCutoutPage(0);
     setGroupPage(0);
@@ -125,21 +130,26 @@ export function PopulationLens({
     () => resolvePopulationParticipants(studio, population.workingMemberIds),
     [studio, population.workingMemberIds],
   );
-  const previewParticipant =
-    !!participants.identity &&
-    (previewTarget ??
-      (studio.population.participants?.reduction !== 'observations'
-        ? 'participant'
-        : 'observation')) === 'participant';
-  const previewSet = useMemo(() => {
-    if (previewTarget?.startsWith('group:'))
-      return studio.population.partition?.groups.find((g) => `group:${g.id}` === previewTarget);
-    if (previewTarget?.startsWith('set:')) return studio.cohorts[previewTarget.slice(4)];
-    return null;
-  }, [previewTarget, studio.population.partition, studio.cohorts]);
-  const previewLabel = previewSet
-    ? `${previewSet.label} (${previewSet.memberIds.length} ${previewSet.memberIds.length === 1 ? 'observation' : 'observations'})`
-    : `focused ${previewParticipant ? 'participant' : 'observation'}`;
+  const preview = useMemo(
+    () => resolveStudioPopulationPreview(studio, population),
+    [studio, population],
+  );
+  const previewParticipant = preview.participant;
+  const previewSet = preview.members;
+  const previewLabel = preview.label;
+  const chosenTarget = studio.populationPreview.target;
+  // The control shows the effective unit: a vanished group or set reads as the
+  // focused observation, as the resolver applies it.
+  const previewValue = encodePreviewTarget(
+    chosenTarget && chosenTarget.kind === preview.kind
+      ? chosenTarget
+      : { kind: preview.kind === 'participant' ? 'participant' : 'observation' },
+  );
+  // A held preview must not outlive the control that holds it. The hold is
+  // global, which is safe: Set Studio is a singleton, so only one Population
+  // lens exists. The chosen target deliberately persists across unmount and
+  // remount (it clears only when it stops resolving or on a session reset).
+  useEffect(() => () => populationProbeActions.releasePreview(), []);
   const selectedIds = useMemo(
     () => new Set(population.workingMemberIds),
     [population.workingMemberIds],
@@ -469,10 +479,10 @@ export function PopulationLens({
             Preview exclusion{' '}
             <Select className="w-auto max-w-full"
               aria-label="Preview exclusion unit"
-              value={
-                previewSet ? previewTarget! : previewParticipant ? 'participant' : 'observation'
+              value={previewValue}
+              onChange={(event) =>
+                populationProbeActions.choosePreviewTarget(decodePreviewTarget(event.target.value))
               }
-              onChange={(event) => setPreviewTarget(event.target.value)}
             >
               <option value="observation">Focused observation</option>
               {participants.identity && <option value="participant">Focused participant</option>}
@@ -505,20 +515,20 @@ export function PopulationLens({
           }
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture?.(event.pointerId);
-            setWithoutFocused(true);
+            populationProbeActions.holdPreview();
           }}
-          onPointerUp={() => setWithoutFocused(false)}
-          onPointerCancel={() => setWithoutFocused(false)}
-          onBlur={() => setWithoutFocused(false)}
+          onPointerUp={() => populationProbeActions.releasePreview()}
+          onPointerCancel={() => populationProbeActions.releasePreview()}
+          onBlur={() => populationProbeActions.releasePreview()}
           onKeyDown={(event) => {
-            if (event.key === 'Escape') setWithoutFocused(false);
+            if (event.key === 'Escape') populationProbeActions.releasePreview();
             if (event.key === ' ' || event.key === 'Enter') {
               event.preventDefault();
-              setWithoutFocused(true);
+              populationProbeActions.holdPreview();
             }
           }}
           onKeyUp={(event) => {
-            if (event.key === ' ' || event.key === 'Enter') setWithoutFocused(false);
+            if (event.key === ' ' || event.key === 'Enter') populationProbeActions.releasePreview();
           }}
         >
           Hold to preview without {previewLabel}
@@ -541,7 +551,7 @@ export function PopulationLens({
         </Notice>
       )}
       <PopulationInferenceControls />
-      <PopulationRelationshipPanel />
+      <PopulationRelationshipPanel summaryKind={summary} sliceService={service} />
       <PopulationNavigation
         ids={navigationIds}
         focusedId={studio.selection.activeMemberId}

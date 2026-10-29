@@ -8,6 +8,9 @@ import {
   explainRelationship,
   RELATIONSHIP_UNASSIGNED_GROUP_ID,
   relationshipUnassignedSummary,
+  relationshipUnassignedReasonLabel,
+  relationshipCoverageMedian,
+  relationshipUsable,
   validRelationshipFit,
   type RelationshipFit,
   type RelationshipRequest,
@@ -16,47 +19,12 @@ import { resolvePopulation } from '../populationContext';
 import { comparableGroups, unassignedGroup, validatePopulationPartition } from '../populationGroups';
 import { buildPopulationSliceQuery } from '../PopulationSliceService';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { syntheticFit, syntheticV2Fit } from './relationshipFixtures';
 const state = () => useSetStudioStore.getState();
 beforeEach(() => {
   useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
   state().loadDemoSession();
 });
-export function syntheticFit(request: RelationshipRequest): RelationshipFit {
-  const n = request.members.length;
-  return {
-    fitId: 'f'.repeat(64),
-    supportSha256: 'b'.repeat(64),
-    request: {
-      ...request,
-      members: request.members.map((m) => ({ ...m, expectedSha256: 'a'.repeat(64) })),
-      mask: request.mask ? { ...request.mask, expectedSha256: 'c'.repeat(64) } : null,
-    },
-    candidateVoxels: 100,
-    commonVoxels: 90,
-    finiteCounts: Array(n).fill(95),
-    dimensions: [5, 5, 4],
-    affine: [
-      [1, 0, 0, 0],
-      [0, 1, 0, 0],
-      [0, 0, 1, 0],
-      [0, 0, 0, 1],
-    ],
-    geometry: {
-      coordinates: request.members.map((_, i) => [i, 0]),
-      distances: request.members.map((_, i) => request.members.map((_, j) => Math.abs(i - j))),
-      eigenvalues: [n, ...Array(n - 1).fill(0)],
-      stress: 0,
-      explainedFraction: 1,
-      orderable: true,
-      merges: Array.from({ length: n - 1 }, (_, i) => ({
-        left: i === 0 ? 0 : n + i - 1,
-        right: i + 1,
-        count: i + 2,
-        distance: i + 1,
-      })),
-    },
-  };
-}
 it('fits only explicitly and keeps point geometry fixed through focus, selection and probe changes', async () => {
   const evaluate = vi.fn(async (q: RelationshipRequest) => syntheticFit(q));
   const service = new PopulationRelationshipService(evaluate);
@@ -162,27 +130,6 @@ it('retains the order fit separately when a new spatial fit replaces the plot', 
   expect(service.exportOrderFor(current.request.members, null)).toBeNull();
 });
 
-/** A v2 fit in which `unassigned` positions (request order) have no fitted position. */
-export function syntheticV2Fit(request: RelationshipRequest, unassigned: number[]): RelationshipFit {
-  const base = syntheticFit(request);
-  const ids = base.request.members.map((m) => m.memberId);
-  const fitted = ids.filter((_, i) => !unassigned.includes(i));
-  const m = fitted.length;
-  const geometry = syntheticFit({ ...request, members: request.members.slice(0, m) }).geometry;
-  return {
-    ...base,
-    request: { ...base.request, eligibility: { lowCoverageTau: 0.9 } },
-    finiteCounts: ids.map((_, i) => (unassigned.includes(i) ? (i % 2 ? 0 : 40) : 95)),
-    fittedMemberIds: fitted,
-    unassigned: unassigned.map((i) => ({
-      memberId: ids[i],
-      reason: i % 2 ? { kind: 'allMissing' as const } : { kind: 'lowCoverage' as const, fraction: 40 / 95 },
-      finiteCount: i % 2 ? 0 : 40,
-      supportLossVoxels: i % 2 ? 90 : 50,
-    })),
-    geometry,
-  };
-}
 it('requests v2 eligibility for new fits and checks it is echoed', async () => {
   const evaluate = vi.fn(async (q: RelationshipRequest) => syntheticFit(q));
   const service = new PopulationRelationshipService(evaluate);
@@ -384,4 +331,31 @@ it('keeps the unassigned group out of comparison operands and validates its orig
   expect(
     withOrigin((p) => Object.assign(p, { origin: 'metadata', fitId: undefined })),
   ).not.toBeNull();
+});
+
+it('labels unassigned reasons, reports the coverage median and exposes one usability predicate', async () => {
+  const service = new PopulationRelationshipService(async (q) => syntheticV2Fit(q, [1, 4]));
+  expect(relationshipUsable(service)).toBe(false);
+  await service.fit('effect');
+  const fit = service.getSnapshot().fit!;
+  expect(fit.unassigned!.map((u) => relationshipUnassignedReasonLabel(u.reason))).toEqual([
+    'No finite values',
+    'Low coverage · 42% of the median',
+  ]);
+  expect(relationshipUnassignedReasonLabel({ kind: 'zeroVarianceOnSupport' })).toBe(
+    'Constant on the shared voxels',
+  );
+  // Finite counts 95, 0, 95, 95, 40, 95: median over the non-missing five is 95.
+  expect(relationshipCoverageMedian(fit)).toBe(95);
+  expect(relationshipCoverageMedian({ ...fit, finiteCounts: [10, 0, 20, 30, 40, 0] })).toBe(25);
+  expect(
+    relationshipCoverageMedian(syntheticFit({ ...fit.request, eligibility: undefined })),
+  ).toBeNull();
+  expect(relationshipUsable(service)).toBe(true);
+  expect(service.usableFit()).toBe(fit);
+  service.observeSources(
+    fit.request.members.map((m) => ({ memberId: m.memberId, revision: { sha256: 'd'.repeat(64) } })),
+  );
+  expect(relationshipUsable(service)).toBe(false);
+  expect(service.currentUnassigned()).toBeNull();
 });
