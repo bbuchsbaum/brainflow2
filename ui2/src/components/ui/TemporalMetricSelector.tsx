@@ -15,6 +15,8 @@ interface TemporalMetricSelectorProps {
   onChange: (metric: TemporalMetricOption) => void;
   disabled?: boolean;
   className?: string;
+  /** Narrow pane: the "Temporal:" caption is kept for screen readers only. */
+  compact?: boolean;
 }
 
 const OPTIONS: { value: TemporalMetricOption; label: string }[] = [
@@ -28,10 +30,13 @@ export function TemporalMetricSelector({
   onChange,
   disabled = false,
   className = '',
+  compact = false,
 }: TemporalMetricSelectorProps) {
   return (
-    <div className={`flex items-center gap-1 ${className}`}>
-      <span className="text-bf-xs text-bf-text-secondary whitespace-nowrap">Temporal:</span>
+    <label className={`flex items-center gap-1 ${className}`} title="Temporal metric map">
+      <span className={compact ? 'sr-only' : 'text-bf-xs text-bf-text-secondary whitespace-nowrap'}>
+        Temporal:
+      </span>
       <select
         value={value}
         disabled={disabled}
@@ -44,6 +49,6 @@ export function TemporalMetricSelector({
           </option>
         ))}
       </select>
-    </div>
+    </label>
   );
 }

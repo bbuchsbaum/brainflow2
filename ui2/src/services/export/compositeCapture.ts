@@ -44,8 +44,10 @@ import {
   encodeComposition,
   headerBandPx,
   printWidthPx,
+  ptToPx,
   SIDEBAR_W,
   sideGapPx,
+  TEXT_PT,
   type CompositeOptions,
   type ExportPane,
   type ExportSideBar,
@@ -359,6 +361,16 @@ export function paneRect(
   return { u0: u0 - mu, u1: u1 + mu, v0: v0 - mv, v1: v1 + mv };
 }
 
+/** Room for an orientation letter at a pane edge: its inset, cap height and a gap (px). */
+export function letterBandPx(unit: number): number {
+  return 5 * unit + ptToPx(TEXT_PT.letter, unit) + 3 * unit;
+}
+
+/** `rect` grown by `bandMm` on every side. */
+export function letterBandRect(rect: PlaneRect, bandMm: number): PlaneRect {
+  return { u0: rect.u0 - bandMm, u1: rect.u1 + bandMm, v0: rect.v0 - bandMm, v1: rect.v1 + bandMm };
+}
+
 /** The plane that renders `rect` at `mmPerPx` (square pixels). */
 export function rectPlane(plane: ViewPlane, rect: PlaneRect, mmPerPx: number): ViewPlane {
   const uLen = norm(plane.u_mm);
@@ -581,6 +593,50 @@ export async function cropBox(
     max = max ? max.map((v, a) => Math.max(v, edges.max[a])) : edges.max;
   }
   return min && max ? { worldMinMm: min, worldMaxMm: max } : null;
+}
+
+/**
+ * The crop of a statistic map exported with no anatomy or mask under it
+ * (native R4-3): its whole support framed a mostly empty page with the blobs
+ * in one corner, since nothing below threshold is drawn. Instead: the box of
+ * its visible voxels (|v| above the hidden band, all slices), padded by
+ * max(15 mm, a quarter of its extent), at least half the support's extent
+ * per axis (so the letters and header keep their room), kept inside the
+ * support. The support box alone when nothing is visible.
+ */
+export function statisticCropBox(
+  support: { worldMinMm: number[]; worldMaxMm: number[] },
+  visible: { worldMinMm: number[]; worldMaxMm: number[] } | null,
+): { worldMinMm: number[]; worldMaxMm: number[] } {
+  if (!visible) return support;
+  const min: number[] = [];
+  const max: number[] = [];
+  for (let a = 0; a < 3; a += 1) {
+    const s0 = support.worldMinMm[a];
+    const s1 = support.worldMaxMm[a];
+    const extent = visible.worldMaxMm[a] - visible.worldMinMm[a];
+    const pad = Math.max(15, extent / 4);
+    let lo = visible.worldMinMm[a] - pad;
+    let hi = visible.worldMaxMm[a] + pad;
+    const floor = (s1 - s0) / 2;
+    if (hi - lo < floor) {
+      const centre = (lo + hi) / 2;
+      lo = centre - floor / 2;
+      hi = centre + floor / 2;
+    }
+    // Inside the support: shift first (keep the size), then clip.
+    if (lo < s0) [lo, hi] = [s0, hi + (s0 - lo)];
+    if (hi > s1) [lo, hi] = [lo - (hi - s1), s1];
+    min.push(Math.max(s0, lo));
+    max.push(Math.min(s1, hi));
+  }
+  return { worldMinMm: min, worldMaxMm: max };
+}
+
+/** |v| at or below this is hidden by a symmetric band (lo ≤ 0 ≤ hi); else 0. */
+export function hiddenBandMagnitude(threshold: readonly number[] | undefined): number {
+  const [lo, hi] = threshold ?? [0, 0];
+  return lo <= 0 && hi >= 0 ? Math.max(0, Math.min(-lo, hi)) : 0;
 }
 
 export interface CompositeCapture {
@@ -834,18 +890,36 @@ export async function captureComposite(
       isBinaryLike: meta?.isBinaryLike,
     });
   };
-  const bbox = request.cropToBrain
-    ? await cropBox(cropVolumeIds(viewState.layers, cropKindOf), {
-        nonzero: (id) => getNonzeroBbox(id, 0),
-        bounds: (id) => getApiService().getVolumeBounds(id).catch(() => null),
-      })
-    : null;
-  const rects = specRows.map((row) => row.map((p) => paneRect(p.plane, bbox)));
-  const mmPerPx = solveMmPerPx(
-    specRows.map((row, r) => row.map((p, c) => ({ plane: p.plane, rect: rects[r][c] }))),
-    request.size,
-    { unit, paneGap, sideW: hasSide ? SIDEBAR_W * unit + sideGapPx(unit, paneGap) : 0 },
-  );
+  const cropFetch = (threshold: number) => ({
+    nonzero: (id: string) => getNonzeroBbox(id, threshold),
+    bounds: (id: string) => getApiService().getVolumeBounds(id).catch(() => null),
+  });
+  const cropIds = request.cropToBrain ? cropVolumeIds(viewState.layers, cropKindOf) : [];
+  let bbox = request.cropToBrain ? await cropBox(cropIds, cropFetch(0)) : null;
+  // A statistic with nothing under it: frame its visible voxels (statisticCropBox).
+  const cropLayer = viewState.layers.find((l) => l.volumeId === cropIds[0]);
+  if (bbox && cropLayer && cropKindOf(cropLayer.id) === 'statistic') {
+    const band = hiddenBandMagnitude(cropLayer.threshold);
+    if (band > 0) bbox = statisticCropBox(bbox, await cropBox(cropIds, cropFetch(band)));
+  }
+  const cropped = specRows.map((row) => row.map((p) => paneRect(p.plane, bbox)));
+  const solve = (rs: PlaneRect[][]) =>
+    solveMmPerPx(
+      specRows.map((row, r) => row.map((p, c) => ({ plane: p.plane, rect: rs[r][c] }))),
+      request.size,
+      { unit, paneGap, sideW: hasSide ? SIDEBAR_W * unit + sideGapPx(unit, paneGap) : 0 },
+    );
+  // A cropped pane leaves a band for its orientation letters on every side,
+  // so they sit beside the brain, not on it (native R4: "S" over the cortex).
+  // The band is in px, the rect in mm: a few passes settle the scale.
+  let rects = cropped;
+  let mmPerPx = solve(rects);
+  if (bbox && frame.orientation && !mosaic) {
+    for (let pass = 0; pass < 3; pass += 1) {
+      rects = cropped.map((row) => row.map((rect) => letterBandRect(rect, letterBandPx(unit) * mmPerPx)));
+      mmPerPx = solve(rects);
+    }
+  }
   // Size check before any render: too large fails now, with a reason.
   const planned = compositionSize(
     specRows.map((row, r) =>
