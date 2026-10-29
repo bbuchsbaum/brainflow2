@@ -225,5 +225,17 @@ describe('chooseColorbarLayerId', () => {
     expect(chooseColorbarLayerId(layers, [vl('mni'), vl('stat'), vl('stat2', { visible: false })], 'atlas')).toBe('stat');
     expect(chooseColorbarLayerId(layers, [vl('mni')], null)).toBeNull();
   });
+
+  it('describes a selected base that is one of several runs when no overlay is visible (native R4-1)', () => {
+    const isRun = (id: string) => id === 'mni';
+    const runsHidden = [vl('mni'), vl('stat', { visible: false }), vl('stat2', { visible: false })];
+    expect(chooseColorbarLayerId(layers, runsHidden, 'mni', isRun)).toBe('mni');
+    // Not selected, hidden, or not a run: no bar, as before.
+    expect(chooseColorbarLayerId(layers, runsHidden, null, isRun)).toBeNull();
+    expect(chooseColorbarLayerId(layers, [vl('mni', { visible: false })], 'mni', isRun)).toBeNull();
+    expect(chooseColorbarLayerId(layers, runsHidden, 'mni')).toBeNull();
+    // A visible overlay still wins.
+    expect(chooseColorbarLayerId(layers, [vl('mni'), vl('stat')], 'mni', isRun)).toBe('stat');
+  });
 });
 

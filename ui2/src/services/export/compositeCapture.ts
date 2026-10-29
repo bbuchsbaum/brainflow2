@@ -23,6 +23,7 @@ import { activeVolumeLayerId } from '@/utils/activeLayer';
 import { sampleLayerValue } from '@/hooks/useLayerValueAtWorld';
 import {
   chooseColorbarLayerId,
+  isRunGroupMember,
   resolveColorbarLayer,
 } from '@/components/views/viewportFrame/useOverlayColorbar';
 import { PLANE_AXIS_INDEX } from '@/components/views/viewportFrame/frameFormat';
@@ -451,7 +452,8 @@ async function renderPane(
  * The base layer as the figure's colorbar when no overlay has one (native
  * R2-4: a z map loaded alone exported without its scale). Rule: a visible
  * scalar base that is a statistic (header or file-name statistic) or is drawn
- * with a colour map other than grey; a plain grey anatomical base is skipped.
+ * with a colour map other than grey, or is one of several runs (their bars
+ * follow the focused run, native R4-1); a plain grey anatomical base is skipped.
  */
 export function baseColorbarLayerId(
   layers: ReturnType<typeof useLayerStore.getState>['layers'],
@@ -464,7 +466,7 @@ export function baseColorbarLayerId(
   if (!base || !view || !view.visible || (view.layerMode ?? 'scalar') !== 'scalar') return null;
   const statistic = statisticUnits(base.statistic, metadata.get(base.id)?.dataRange) !== null;
   const coloured = !!view.colormap && !/^gr[ae]y(scale)?$/i.test(view.colormap);
-  return statistic || coloured ? base.id : null;
+  return statistic || coloured || isRunGroupMember(base.id) ? base.id : null;
 }
 
 async function sideBar(viewState: ViewState, withValue: boolean): Promise<ExportSideBar> {
