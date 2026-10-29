@@ -52,3 +52,6 @@ mockup*-live-*
 
 # Verified public template mirrors, regenerated from catalog checksums
 /ui2/public/catalog-assets/
+
+# TS declarations are exported through the native bridge, not this portable crate.
+/core/volume_service/bindings/
