@@ -87,6 +87,32 @@ jobs:
         pnpm --filter @brainflow/api build
         pnpm --filter @brainflow/visualization build
 
+    # The app bundle imports the browser host, whose WASM bindings are generated
+    # into ui2/src/browser/generated/ (gitignored); build them first, as
+    # browser-preview.yml does.
+    - name: Authenticate cargo to private GitHub deps
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Install matching wasm-bindgen CLI
+      run: |
+        curl --fail --location --retry 3 https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.100/wasm-bindgen-0.2.100-x86_64-unknown-linux-musl.tar.gz -o /tmp/wasm-bindgen.tar.gz
+        tar -xzf /tmp/wasm-bindgen.tar.gz -C /tmp
+        echo "/tmp/wasm-bindgen-0.2.100-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+
+    - name: Generate browser host WASM bindings
+      run: pnpm --filter temp-ui build:browser
+
     - name: Build ui2 production bundle (tsc -b + vite build)
       run: pnpm --filter temp-ui build
 
