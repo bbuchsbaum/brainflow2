@@ -3,11 +3,13 @@ import './FlatList.css';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
-import { LAYER_DRAG_MIME, serializeLayerDragData } from '@/utils/layerDrag';
+import { beginLayerRowDrag } from '@/utils/layerDrag';
 import type { SceneItem } from '@/types/sceneItem';
 import { inferFileType } from './shared/inferFileType';
 import { FlatFileRow } from './FlatFileRow';
 import { useRovingFocus } from '@/components/ui/bf';
+import { useContextMenuStore } from '@/stores/contextMenuStore';
+import { removeLayerFromScene } from '@/services/layerRemoval';
 
 function buildVolumeSceneItem(
   layer: LayerInfo,
@@ -52,14 +54,8 @@ export const LoadedView: React.FC = () => {
     );
   }
 
-  function handleDragStart(event: React.DragEvent, layer: LayerInfo) {
-    if (!event.dataTransfer) return;
-    event.stopPropagation();
-
-    const payload = serializeLayerDragData({ layerId: layer.id });
-    event.dataTransfer.setData(LAYER_DRAG_MIME, payload);
-    event.dataTransfer.setData('application/json', payload);
-    event.dataTransfer.effectAllowed = 'copy';
+  function handleDragPointerDown(event: React.PointerEvent, layer: LayerInfo) {
+    beginLayerRowDrag(event, layer.id, layer.name);
   }
 
   return (
@@ -90,7 +86,19 @@ export const LoadedView: React.FC = () => {
             name={layer.name}
             meta={meta.length > 0 ? meta.join(' · ') : undefined}
             title={sourcePath || layer.name}
-            onDragStart={(event) => handleDragStart(event, layer)}
+            onDragPointerDown={(event) => handleDragPointerDown(event, layer)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              useContextMenuStore.getState().open(event.clientX, event.clientY, [
+                {
+                  id: 'loaded.unload',
+                  label: 'Unload',
+                  danger: true,
+                  onClick: () => void removeLayerFromScene(layer.id),
+                },
+              ]);
+            }}
           />
         );
       })}

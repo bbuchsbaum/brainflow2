@@ -9,6 +9,7 @@ import { Tree } from "react-arborist";
 import { VscFolder } from "react-icons/vsc";
 import "./FileBrowserPanel.css";
 import { useFileBrowserStore } from "@/stores/fileBrowserStore";
+import { findOwningRoot, nodeMatchesQuery } from "@/stores/fileBrowserSearch";
 import type { FileTreeNode } from "@/types/filesystem";
 import { getEventBus } from "@/events/EventBus";
 import type { DisplayOpenIntent } from "@/types/loadIntent";
@@ -56,8 +57,13 @@ const FileBrowserPanelContent: React.FC = () => {
   const entries = useFileBrowserStore((state) => state.entries);
   const loading = useFileBrowserStore((state) => state.loading);
   const error = useFileBrowserStore((state) => state.error);
+  const errorPath = useFileBrowserStore((state) => state.errorPath);
   const searchQuery = useFileBrowserStore((state) => state.searchQuery);
   const searchResults = useFileBrowserStore((state) => state.searchResults);
+  const searchIndexing = useFileBrowserStore((state) => state.searchIndexing);
+  const searchTruncated = useFileBrowserStore(
+    (state) => state.searchTruncated,
+  );
   const sortBy = useFileBrowserStore((state) => state.sortBy);
   const sortOrder = useFileBrowserStore((state) => state.sortOrder);
   const selectedPath = useFileBrowserStore((state) => state.selectedPath);
@@ -69,16 +75,12 @@ const FileBrowserPanelContent: React.FC = () => {
   const unpinLocation = useFileBrowserStore((state) => state.unpinLocation);
   const isPinned = useFileBrowserStore((state) => state.isPinned);
 
-  const selectedRootMount = useMemo(() => {
-    if (!selectedPath) return null;
-    return (
-      entries.find(
-        (entry) =>
-          selectedPath === entry.path ||
-          selectedPath.startsWith(`${entry.path}/`),
-      ) ?? null
-    );
-  }, [entries, selectedPath]);
+  // The longest matching root: a folder mounted inside another mounted folder
+  // must resolve to itself, or "Unmount selected" removes its parent.
+  const selectedRootMount = useMemo(
+    () => findOwningRoot(entries, selectedPath),
+    [entries, selectedPath],
+  );
 
   const rootNode = useMemo<FileTreeNode | null>(() => {
     if (entries.length === 0) return null;
@@ -164,57 +166,75 @@ const FileBrowserPanelContent: React.FC = () => {
       const bIsDir = b.type === "directory";
       if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 
-      let primary = 0;
-      switch (sortBy) {
-        case "size": {
-          const aSize = a.size ?? 0;
-          const bSize = b.size ?? 0;
-          primary = aSize - bSize;
-          break;
-        }
-        case "modified": {
-          const aTime = a.modified ? new Date(a.modified).getTime() : 0;
-          const bTime = b.modified ? new Date(b.modified).getTime() : 0;
-          primary = aTime - bTime;
-          break;
-        }
-        case "type": {
-          const aExt = (a.extension ?? "").toLowerCase();
-          const bExt = (b.extension ?? "").toLowerCase();
-          primary = aExt.localeCompare(bExt);
-          break;
-        }
-        case "name":
-        default:
-          primary = 0;
-      }
+      const byName = a.name.localeCompare(b.name);
+      if (sortBy === "name") return byName * orderMultiplier;
 
-      if (primary !== 0) return primary * orderMultiplier;
-      // Stable name tie-breaker is itself reversed when sortOrder is desc so
-      // the user-perceived ordering stays consistent.
-      return a.name.localeCompare(b.name) * orderMultiplier;
+      // Size/date/type order only the rows that carry the key; rows without
+      // it (folders have no size, remote listings may lack dates) sort after
+      // them, and ties fall back to name A→Z so a descending key sort never
+      // reads as a reversed-name sort.
+      let aKey: number | string | undefined;
+      let bKey: number | string | undefined;
+      switch (sortBy) {
+        case "size":
+          aKey = aIsDir ? undefined : a.size;
+          bKey = bIsDir ? undefined : b.size;
+          break;
+        case "modified":
+          aKey = a.modified ? new Date(a.modified).getTime() : undefined;
+          bKey = b.modified ? new Date(b.modified).getTime() : undefined;
+          break;
+        case "type":
+          aKey = a.extension?.toLowerCase();
+          bKey = b.extension?.toLowerCase();
+          break;
+      }
+      const aHas = aKey !== undefined && !Number.isNaN(aKey);
+      const bHas = bKey !== undefined && !Number.isNaN(bKey);
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      if (aHas && bHas && aKey !== bKey) {
+        const primary =
+          typeof aKey === "number" && typeof bKey === "number"
+            ? aKey - bKey
+            : String(aKey).localeCompare(String(bKey));
+        return primary * orderMultiplier;
+      }
+      return byName;
     };
 
     const sortNodes = (nodes: FileTreeNode[]): FileTreeNode[] =>
       [...nodes].sort(compareByKey);
 
-    const convertToTreeData = (nodes: FileTreeNode[]): FileNodeData[] => {
-      return sortNodes(nodes).map((node) => ({
-        id: node.id,
-        name: node.name,
-        path: node.path,
-        type: node.type,
-        size: node.size,
-        extension: node.extension,
-        modified: node.modified,
-        mountSource: node.mountSource,
-        children: node.children ? convertToTreeData(node.children) : undefined,
-      }));
+    // react-arborist keys rows by id; a duplicate id (the same folder reached
+    // through two mounted roots) paints stale "ghost" rows. Roots use their
+    // path; every other row is qualified by its root ("<root>::<path>"), so
+    // ids are unique across roots and independent of sort order.
+    const convertToTreeData = (
+      nodes: FileTreeNode[],
+      rootPath: string | null,
+    ): FileNodeData[] => {
+      return sortNodes(nodes).map((node) => {
+        const root = rootPath ?? node.path;
+        return {
+          id: rootPath === null ? node.path : `${rootPath}::${node.path}`,
+          name: node.name,
+          path: node.path,
+          type: node.type,
+          size: node.size,
+          extension: node.extension,
+          modified: node.modified,
+          mountSource: node.mountSource,
+          children: node.children
+            ? convertToTreeData(node.children, root)
+            : undefined,
+        };
+      });
     };
 
-    const data = searchQuery ? searchResults : entries;
-    return convertToTreeData(data);
-  }, [entries, searchResults, searchQuery, sortBy, sortOrder]);
+    // Search filters this same tree (react-arborist `searchTerm`) instead of
+    // feeding it a flat result list, which repeated nodes and their children.
+    return convertToTreeData(entries, null);
+  }, [entries, sortBy, sortOrder]);
 
   function handleSearchInput(event: React.ChangeEvent<HTMLInputElement>) {
     const value = event.target.value;
@@ -390,8 +410,8 @@ const FileBrowserPanelContent: React.FC = () => {
   }
 
   const hasMountedDirectory = rootPath.trim().length > 0 || entries.length > 0;
-  const isSearchEmptyState =
-    searchQuery.trim().length > 0 && hasMountedDirectory;
+  const isSearchActive = searchQuery.trim().length > 0 && hasMountedDirectory;
+  const isSearchEmptyState = isSearchActive && searchResults.length === 0;
   const refreshTargetPath = currentPath || rootPath;
   const canRefresh = refreshTargetPath.trim().length > 0;
   const shortcutLabel = useMemo(
@@ -528,6 +548,16 @@ const FileBrowserPanelContent: React.FC = () => {
         />
       )}
 
+      {viewMode === "tree" &&
+        isSearchActive &&
+        searchTruncated &&
+        !isSearchEmptyState && (
+          <p className="fb-search-partial" role="status">
+            Searched in part: very deep or very large folders were skipped.
+            Open a folder to search inside it.
+          </p>
+        )}
+
       {mountActionError && hasMountedDirectory && (
         <Notice severity="danger" className="fb-inline-error">
           {mountActionError}
@@ -549,7 +579,9 @@ const FileBrowserPanelContent: React.FC = () => {
                   variant="secondary"
                   size="sm"
                   onClick={() =>
-                    void fileBrowserStore.refreshDirectory(currentPath)
+                    void fileBrowserStore.refreshDirectory(
+                      errorPath ?? (currentPath || rootPath),
+                    )
                   }
                 >
                   Retry
@@ -596,13 +628,18 @@ const FileBrowserPanelContent: React.FC = () => {
                 display: viewMode === "tree" ? "block" : "none",
               }}
             >
-              {isSearchEmptyState && treeData.length === 0 ? (
+              {isSearchEmptyState ? (
                 <div className="empty-state">
-                  <div className="empty-state-card">
-                    <p className="empty-state-kicker">No matching files</p>
+                  <div className="empty-state-card" role="status">
+                    <p className="empty-state-kicker">
+                      {searchIndexing ? "Searching folders…" : "No matching files"}
+                    </p>
                     <p className="empty-state-message">
-                      No neuroimaging files match your current search. Reset
-                      search or mount another folder.
+                      {searchIndexing
+                        ? "Listing folders that have not been opened yet."
+                        : searchTruncated
+                          ? "Searched in part: no match in the folders searched. Very deep or very large folders were skipped; open a folder to search inside it."
+                          : "No neuroimaging files match your current search. Reset search or mount another folder."}
                     </p>
                     <div className="empty-state-actions">
                       <Button
@@ -628,6 +665,10 @@ const FileBrowserPanelContent: React.FC = () => {
                   overscanCount={5}
                   className="react-arborist"
                   renderRow={FileTreeItemRow}
+                  searchTerm={isSearchActive ? searchQuery : undefined}
+                  searchMatch={(node, term) =>
+                    nodeMatchesQuery(node.data.name, term)
+                  }
                   onActivate={(node) => {
                     fileBrowserStore.selectFile(node.data.path);
                     if (node.isInternal) {

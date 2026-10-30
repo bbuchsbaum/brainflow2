@@ -4,11 +4,12 @@
 
 import { useEffect } from 'react';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
+import { getLayoutService } from '@/services/layoutService';
 
 interface PanelActionEvent {
-  action: 'show-panel';
-  payload: {
-    type: string; // Panel component name
+  action: 'show-panel' | 'reset-layout';
+  payload?: {
+    type?: string; // Panel component name
   };
 }
 
@@ -25,8 +26,12 @@ export function usePanelMenuListener() {
           console.log('[usePanelMenuListener] Panel action received:', event.payload);
           
           switch (event.payload.action) {
+            case 'reset-layout':
+              getLayoutService().resetToDefaultLayout();
+              break;
+
             case 'show-panel':
-              if (event.payload.payload.type) {
+              if (event.payload.payload?.type) {
                 console.log(`[usePanelMenuListener] Showing panel: ${event.payload.payload.type}`);
                 
                 // Emit a custom DOM event that GoldenLayoutRoot can listen for

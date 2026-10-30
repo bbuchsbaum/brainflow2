@@ -5,6 +5,11 @@ import { useRenderStateStore } from '@/stores/renderStateStore';
 import { setRenderCoordinator } from '@/services/RenderCoordinator';
 import type { RenderCoordinator } from '@/services/RenderCoordinator';
 import { cloneViewStateRevisions, createInitialViewStateRevisions } from '@/utils/viewStateTracking';
+import {
+  clearRenderLayerScope,
+  resetRenderLayerScope,
+  setRenderLayerScope,
+} from '@/services/render/RenderLayerScope';
 
 const allViewTypes: ViewType[] = ['axial', 'sagittal', 'coronal'];
 
@@ -83,6 +88,7 @@ describe('OptimizedRenderService', () => {
 
     setRenderCoordinator(coordinatorStub as RenderCoordinator);
 
+    resetRenderLayerScope();
     service = new OptimizedRenderService();
   });
 
@@ -147,5 +153,72 @@ describe('OptimizedRenderService', () => {
     expect(requestRenderMock).toHaveBeenCalledTimes(1);
     expect(requestMultiViewRenderMock).not.toHaveBeenCalled();
     expect(requestRenderMock.mock.calls[0][0].viewType).toBe('axial');
+  });
+
+  describe('render-layer scope (Set studio Deck)', () => {
+    /** The main workspace scene: a T1 and two atlases, plus a Studio member. */
+    function workspaceWithMember(): ViewState {
+      const state = createViewState();
+      const base = state.layers[0];
+      state.layers = [
+        { ...base, id: 't1', volumeId: 'vol-t1' },
+        { ...base, id: 'aseg', volumeId: 'vol-aseg', colormap: 'atlas' },
+        { ...base, id: 'olsen', volumeId: 'vol-olsen', colormap: 'atlas' },
+        { ...base, id: 'member', volumeId: 'vol-member', colormap: 'hot' },
+      ];
+      return state;
+    }
+
+    const renderedLayerIds = () =>
+      requestMultiViewRenderMock.mock.calls.at(-1)![0].viewState.layers.map(
+        (layer: { id: string }) => layer.id,
+      );
+
+    it('keeps workspace layers out of the render request while scoped', async () => {
+      setRenderLayerScope('deck', ['member']);
+
+      await service.renderChangedViews(workspaceWithMember());
+
+      expect(requestMultiViewRenderMock).toHaveBeenCalledTimes(1);
+      expect(renderedLayerIds()).toEqual(['member']);
+    });
+
+    it('redraws every view when the scope is set or cleared', async () => {
+      const state = workspaceWithMember();
+      const revisions = createRevisions();
+      await service.renderChangedViews(state, undefined, revisions);
+      expect(renderedLayerIds()).toEqual(['t1', 'aseg', 'olsen', 'member']);
+
+      setRenderLayerScope('deck', ['member']);
+      await service.renderChangedViews(state, undefined, revisions);
+      expect(requestMultiViewRenderMock).toHaveBeenCalledTimes(2);
+      expect(renderedLayerIds()).toEqual(['member']);
+
+      clearRenderLayerScope('deck');
+      await service.renderChangedViews(state, undefined, revisions);
+      expect(requestMultiViewRenderMock).toHaveBeenCalledTimes(3);
+      expect(renderedLayerIds()).toEqual(['t1', 'aseg', 'olsen', 'member']);
+    });
+
+    it('blanks the views instead of drawing the workspace before the member loads', async () => {
+      const { setImage } = useRenderStateStore.getState();
+      setImage('axial', { width: 1, height: 1 } as ImageBitmap);
+      setRenderLayerScope('deck', []);
+
+      await service.renderChangedViews(workspaceWithMember());
+
+      expect(requestMultiViewRenderMock).not.toHaveBeenCalled();
+      expect(requestRenderMock).not.toHaveBeenCalled();
+      expect(useRenderStateStore.getState().getState('axial').lastImage).toBeNull();
+    });
+
+    it('ignores a clear from an owner whose scope was replaced', async () => {
+      setRenderLayerScope('deck', ['member']);
+      setRenderLayerScope('compare', ['member']);
+      clearRenderLayerScope('deck');
+
+      await service.renderChangedViews(workspaceWithMember());
+      expect(renderedLayerIds()).toEqual(['member']);
+    });
   });
 });

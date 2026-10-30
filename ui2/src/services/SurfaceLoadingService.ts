@@ -12,7 +12,7 @@ import {
 } from '@/stores/surfaceStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getLayoutService } from './layoutService';
-import { formatTauriError, toError } from '@/utils/formatTauriError';
+import { formatTauriError, toError, loadFailureMessage } from '@/utils/formatTauriError';
 import { normalizeSurfaceHemisphere } from '@/utils/surfaceIdentity';
 import { getTransport, type BackendTransport } from './transport';
 import { applySurfaceSelectionInContext } from '@/utils/surfaceCommandContext';
@@ -244,7 +244,7 @@ export class SurfaceLoadingService {
       // Show error notification
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: `Failed to load surface ${filename}: ${failure.message}`,
+        message: loadFailureMessage(`surface ${filename}`, failure),
       });
 
       return null;
@@ -470,11 +470,17 @@ export class SurfaceLoadingService {
         throw new Error(result.error_message || `Failed to load surface template: ${displayName}`);
       }
 
+      // Identity comes from the request tokens, the same ones `templatePath`
+      // (and so the standalone tab's scene group key) uses. The backend result
+      // carries display names ("Pial (Gray Matter)", "Left"); keying the surface
+      // off those put it outside its own tab's scene, which then rendered black.
       const surface = this.buildTemplateSurface({
         handle: result.surface_handle,
-        space: result.space,
-        geometryType: result.geometry_type,
-        hemisphere: result.hemisphere,
+        space,
+        geometryType: effectiveGeometryType,
+        hemisphere,
+        path: templatePath,
+        displayName,
         vertexCount: result.vertex_count || 0,
         faceCount: result.face_count || 0,
       });
@@ -623,16 +629,18 @@ export class SurfaceLoadingService {
     space: string;
     geometryType: string;
     hemisphere: string;
+    path: string;
+    displayName: string;
     vertexCount: number;
     faceCount: number;
   }): LoadedSurface {
     const normalizedHemisphere =
       normalizeSurfaceHemisphere(metadata.hemisphere) ?? metadata.hemisphere;
-    const surfaceType = this.toSurfaceType(metadata.geometryType);
+    const surfaceType = this.toSurfaceType(metadata.geometryType.toLowerCase());
 
     return {
       handle: metadata.handle,
-      name: `${metadata.space} ${metadata.geometryType} (${normalizedHemisphere})`,
+      name: metadata.displayName,
       visible: true,
       geometry: {
         vertices: new Float32Array(0),
@@ -646,7 +654,7 @@ export class SurfaceLoadingService {
         faceCount: metadata.faceCount,
         hemisphere: normalizedHemisphere,
         surfaceType: metadata.geometryType,
-        path: `templateflow://${metadata.space}_${metadata.geometryType}_${normalizedHemisphere}`,
+        path: metadata.path,
       },
     };
   }

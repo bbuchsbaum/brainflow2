@@ -8,6 +8,8 @@ import type { ViewPlane } from "@/types/coordinates";
 import type { RenderContext } from "@/types/renderContext";
 import { SLIDER_HEIGHT } from "@/components/views/constants";
 import { useAdaptiveResolution } from "@/hooks/useAdaptiveResolution";
+import { useActiveLayerSelection } from "@/utils/activeLayer";
+import { resolveWindowLevelLayer } from "@/utils/windowLevelTarget";
 
 type ViewId = "axial" | "sagittal" | "coronal";
 
@@ -65,6 +67,15 @@ export function useSliceViewModel(
     [layers],
   );
   const primaryLayerId = primaryLayer?.id ?? "";
+
+  // Right-drag window/level edits the selected layer, else the topmost
+  // visible windowed one, never silently the base image.
+  const selection = useActiveLayerSelection();
+  const layerMetadata = useLayerStore((s) => s.layerMetadata);
+  const windowLevelLayer = React.useMemo(
+    () => resolveWindowLevelLayer(layers, selection, (id) => layerMetadata.get(id)),
+    [layers, selection, layerMetadata],
+  );
 
   // Display options for primary layer — subscribe reactively so toggles take effect
   const DEFAULT_DISPLAY_OPTIONS = React.useMemo(
@@ -159,6 +170,7 @@ export function useSliceViewModel(
       canvasHeight,
       renderContext,
       primaryLayer,
+      windowLevelLayer,
       primaryOptions,
       hoverEnabled,
       hoverLayerIds,
@@ -175,6 +187,7 @@ export function useSliceViewModel(
       canvasHeight,
       renderContext,
       primaryLayer,
+      windowLevelLayer,
       primaryOptions,
       hoverEnabled,
       hoverLayerIds,

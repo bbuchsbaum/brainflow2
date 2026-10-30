@@ -13,8 +13,10 @@ interface FlatFileRowProps {
   /** Trailing muted mono text (relative folder, layer source). */
   meta?: string;
   title: string;
-  onDragStart: (event: React.DragEvent) => void;
-  onDragEnd?: () => void;
+  /** Starts a pointer drag (utils/pointerDrag.ts); HTML5 drags are unavailable. */
+  onDragPointerDown: (event: React.PointerEvent) => void;
+  /** Right-click on the row (e.g. Loaded › Unload). */
+  onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 /**
@@ -31,8 +33,8 @@ export function FlatFileRow({
   name,
   meta,
   title,
-  onDragStart,
-  onDragEnd,
+  onDragPointerDown,
+  onContextMenu,
 }: FlatFileRowProps) {
   const fitted = useFittedName<HTMLSpanElement>(name);
   const { ref, ...itemProps } = roving;
@@ -45,9 +47,9 @@ export function FlatFileRow({
       onSelect={onSelect}
       title={title}
       aria-label={meta ? `${name}, ${meta}` : name}
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
+      data-drag-source="file"
+      onPointerDown={onDragPointerDown}
+      onContextMenu={onContextMenu}
       className="fb-flat-row"
     >
       <FileTypeBadge info={info} />

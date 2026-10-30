@@ -13,15 +13,12 @@ import { StatusBarProgress } from "./StatusBarProgress";
 import { NotificationToast } from "./NotificationToast";
 import { TimeSlider } from "./TimeSlider";
 import { useViewStateStore } from "@/stores/viewStateStore";
-import {
-  resolveActiveLayer,
-  useActiveLayerSelection,
-  type ActiveLayerSelection,
-} from "@/utils/activeLayer";
-import { useStatusReadoutStore } from "@/stores/statusReadoutStore";
+import { resolveStatusLayer } from "@/utils/activeLayer";
 import { EMPTY_VALUE, formatLayerValue } from "@/utils/valueFormat";
 import { asciiCopyHandler } from "@/utils/numericInput";
-import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
+import { isInsideVolume, useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
+import { useHoverSettingsStore, selectShowInStatusBar } from "@/stores/hoverSettingsStore";
+import { useIjkSuffix, useReadoutGrid, useStatusLayer } from "@/hooks/useReadoutGrid";
 import { Button, KeyValue } from "@/components/ui/bf";
 import { statisticSignAssumed, statisticUnits } from "@/utils/statistic";
 import { hasRegionSource } from "@/services/atlasRegionLookup";
@@ -36,16 +33,21 @@ import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { formatWorldMm } from "@/utils/valueFormat";
 import { StatSymbol } from "./StatSymbol";
 import {
+  formatIjkReadout,
   formatVoxelIndex,
-  resolveVoxelGridReference,
+  resolveLayerVoxelGrid,
+  sameVoxel,
   voxelIndexInBounds,
   worldToVoxelIndex,
 } from "@/utils/voxelSnap";
 
+export { resolveStatusLayer };
+
 interface StatusBarProps {
   className?: string;
-  /** Which slots to show inline. Telemetry (atlas/FPS/GPU) is always in the
-   *  Diagnostics popover, never inline. */
+  /** Which slots to show inline: "coordSys", "layer", and the two groups
+   *  "crosshair" (mm, ijk, value, region) and "pointer" (mm, value, region).
+   *  Telemetry (atlas/FPS/GPU) is always in the Diagnostics popover. */
   slots?: string[];
   /** Additional right-side content */
   rightContent?: React.ReactNode;
@@ -59,12 +61,7 @@ interface StatusBarProps {
 // clips at 1280px.
 const LABELS: Record<string, string> = {
   coordSys: "Coordinate system",
-  crosshair: "Crosshair",
-  voxel: "ijk",
-  mouse: "Mouse",
   layer: "Layer",
-  value: "Value",
-  region: "Region",
   vertex: "Vertex",
   atlas: "Atlas",
   fps: "FPS",
@@ -79,13 +76,29 @@ const LABELS: Record<string, string> = {
  */
 const WIDTHS: Record<string, [string, string]> = {
   layer: ["auto", "8ch"],
+  // The ijk grid name and the region names give way on a narrow bar.
+  voxel: ["auto", "16ch"],
+  region: ["auto", "6ch"],
+  pointerRegion: ["auto", "6ch"],
+  // Pointer value: a reserved width, so the bar does not jitter while a new
+  // reading is pending (blank, never the previous voxel's value).
+  pointerValue: ["auto", "6ch"],
 };
 
 /** Content-sized slots stop growing here (a long file name). */
-const MAX_WIDTHS: Record<string, string> = { layer: "40ch", region: "32ch", vertex: "44ch" };
+const MAX_WIDTHS: Record<string, string> = {
+  layer: "40ch",
+  voxel: "40ch",
+  region: "32ch",
+  pointerRegion: "24ch",
+  vertex: "44ch",
+};
 
-/** Only the layer name shrinks. */
-const SHRINK: Record<string, number> = { layer: 1 };
+/** Free text shrinks: layer and grid names, regions. */
+const SHRINK: Record<string, number> = { layer: 1, voxel: 1, region: 2, pointerRegion: 3 };
+
+/** Below this bar width the constant coordinate-system slot is hidden. */
+const HIDE_COORD_SYS_BELOW_PX = 1280;
 
 /** Below this bar width an empty ("No time axis") time slot is hidden. */
 const HIDE_EMPTY_TIME_BELOW_PX = 1440;
@@ -96,6 +109,7 @@ export const DIAGNOSTIC_SLOT_IDS = ["atlas", "fps", "gpu"] as const;
 const VALUE_CLASS: Record<string, string> = {
   coordSys: "status-value--coordinate-system",
   crosshair: "status-value--crosshair",
+  pointerValue: "status-value--pointer",
   mouse: "status-value--mouse",
   voxel: "status-value--ijk",
   fps: "status-value--fps",
@@ -104,6 +118,8 @@ const VALUE_CLASS: Record<string, string> = {
 
 interface SlotFrameProps {
   id: string;
+  /** Visible label; null inside a labelled group (the group names it). */
+  label?: string | null;
   value: React.ReactNode;
   title?: string;
   onClick?: () => void;
@@ -112,7 +128,7 @@ interface SlotFrameProps {
   valueClassName?: string;
 }
 
-const SlotFrame = ({ id, value, title, onClick, valueStyle, valueClassName }: SlotFrameProps) => {
+const SlotFrame = ({ id, label, value, title, onClick, valueStyle, valueClassName }: SlotFrameProps) => {
   const [basis, min] = WIDTHS[id] ?? ["auto", "auto"];
   const isClickable = !!onClick;
   return (
@@ -140,7 +156,7 @@ const SlotFrame = ({ id, value, title, onClick, valueStyle, valueClassName }: Sl
       }
       title={isClickable ? "Click to navigate to coordinate" : undefined}
     >
-      <span className="status-label">{LABELS[id] || id}</span>
+      {label === null ? null : <span className="status-label">{label ?? (LABELS[id] || id)}</span>}
       <span
         className={`status-value ${VALUE_CLASS[id] ?? ""}${valueClassName ? ` ${valueClassName}` : ""}${isClickable ? " hover:underline" : ""}`}
         style={valueStyle}
@@ -154,7 +170,7 @@ const SlotFrame = ({ id, value, title, onClick, valueStyle, valueClassName }: Sl
 
 // Individual slot component that subscribes to Zustand store
 const StatusBarSlot = React.memo(
-  ({ id, onClick }: { id: string; onClick?: () => void }) => {
+  ({ id, label, onClick }: { id: string; label?: string | null; onClick?: () => void }) => {
     const value = useStatusBarStore((state) => state.values[id]);
     // The crosshair readout wears the crosshair's own colour (user-selectable),
     // never the chrome accent.
@@ -167,6 +183,7 @@ const StatusBarSlot = React.memo(
     return (
       <SlotFrame
         id={id}
+        label={label}
         value={typeof value === "string" ? displayStatusText(value) : value}
         title={typeof value === "string" ? displayStatusText(value) : undefined}
         onClick={onClick}
@@ -192,32 +209,6 @@ export function displayStatusText(value: string): string {
   return value.trim() === "--" ? EMPTY_VALUE : value;
 }
 
-/**
- * The status bar's layer: the single active-layer rule (`resolveActiveLayer`,
- * shared with the viewport header and the colorbar), unless a Compare panel
- * has claimed the readout (pointer over it, or last focused): then that
- * panel's layer, so the status bar and the pane never disagree.
- */
-export function resolveStatusLayer<T extends { id: string; name?: string; visible: boolean }>(
-  viewLayers: ReadonlyArray<T>,
-  selection: ActiveLayerSelection,
-  override: { layerId: string; name: string } | null,
-): { id: string; name: string } | null {
-  if (override) return { id: override.layerId, name: override.name };
-  const layer = resolveActiveLayer(viewLayers, selection);
-  return layer ? { id: layer.id, name: layer.name || layer.id } : null;
-}
-
-function useStatusLayer(): { id: string; name: string } | null {
-  const viewLayers = useViewStateStore((state) => state.viewState.layers);
-  const selection = useActiveLayerSelection();
-  const override = useStatusReadoutStore((state) => state.override);
-  return React.useMemo(
-    () => resolveStatusLayer(viewLayers, selection, override),
-    [viewLayers, selection, override],
-  );
-}
-
 /** "Layer" slot: the active layer (see `resolveStatusLayer`). */
 const StatusLayerSlot = React.memo(() => {
   const fallback = useStatusBarStore((state) => state.values.layer);
@@ -232,27 +223,62 @@ const StatusLayerSlot = React.memo(() => {
 StatusLayerSlot.displayName = "StatusLayerSlot";
 
 /**
- * "Value" slot: the Layer slot's layer sampled at the crosshair (nearest
- * voxel, existing `sample_layer_value_at_world`), formatted like the
- * Inspector and colorbar numbers. "—" outside the volume or when not finite.
+ * The status layer's value at a world point (nearest voxel, existing
+ * `sample_layer_value_at_world`), formatted like the Inspector and colorbar
+ * numbers: "z 5.97" / "t(24) 6.76" for statistic maps. "—" outside the
+ * volume or when not finite.
+ *
+ * `fresh` (Pointer): a reading is shown only while it belongs to the voxel
+ * under `world`; a pending reading for a new voxel shows blank, never the
+ * previous voxel's value.
  */
-const StatusValueSlot = React.memo(() => {
-  const crosshair = useViewStateStore((state) => state.viewState.crosshair.world_mm);
+function StatusValueReadout({
+  id,
+  world,
+  fresh = false,
+  delayMs,
+}: {
+  id: string;
+  world: readonly [number, number, number] | null;
+  fresh?: boolean;
+  delayMs?: number;
+}) {
   const layer = useStatusLayer();
   const layerId = layer?.id ?? null;
-  const reading = useLayerValueAtWorld(layerId, crosshair);
+  const reading = useLayerValueAtWorld(layerId, world, delayMs);
   const statistic = useLayerStore((state) =>
     layerId ? state.layers.find((l) => l.id === layerId)?.statistic : undefined,
   );
   const dataRange = useLayerStore((state) =>
     layerId ? state.layerMetadata.get(layerId)?.dataRange : undefined,
   );
+  const timepoint = useLayerStore((state) =>
+    layerId ? (state.layers.find((l) => l.id === layerId)?.currentTimepoint ?? 0) : 0,
+  );
+  const layers = useLayerStore((state) => state.layers);
+  const layerMetadata = useLayerStore((state) => state.layerMetadata);
+  const grid = React.useMemo(
+    () => (fresh ? resolveLayerVoxelGrid(layerId, layers, layerMetadata) : null),
+    [fresh, layerId, layers, layerMetadata],
+  );
   if (!layerId || !layer) return null;
-  // Statistic maps read "z 5.97" / "t(24) 6.76": the symbol (italic
-  // variable, muted) before the number, so numbers stay in one column.
+  if (!world) return <SlotFrame id={id} label={null} value={EMPTY_VALUE} />;
+  // Fresh = taken in the voxel under `world` AND at the layer's current
+  // timepoint (scrubbing time must not show the previous frame's value).
+  const current =
+    reading &&
+    (!fresh ||
+      (reading.world &&
+        sameVoxel(reading.world, world, grid) &&
+        (reading.timepoint ?? 0) === timepoint))
+      ? reading
+      : null;
+  if (fresh && !current) {
+    return <SlotFrame id={id} label={null} value="" title={`Reading ${layer.name}…`} />;
+  }
   const units = statisticUnits(statistic, dataRange);
   const number =
-    reading && reading.value !== null ? formatLayerValue(reading.value) : EMPTY_VALUE;
+    current && current.value !== null ? formatLayerValue(current.value) : EMPTY_VALUE;
   const value = units ? (
     <>
       <StatSymbol label={units} className="status-value__symbol" /> {number}
@@ -261,61 +287,71 @@ const StatusValueSlot = React.memo(() => {
     number
   );
   const title = `Nearest-voxel value of ${layer.name}${units ? ` (${units}${statisticSignAssumed(statistic, dataRange) ? ", sign convention assumed" : ""})` : ""}`;
-  return <SlotFrame id="value" value={value} title={title} />;
+  return <SlotFrame id={id} label={null} value={value} title={title} />;
+}
+
+/** Crosshair value of the status layer. */
+const StatusValueSlot = React.memo(() => {
+  const crosshair = useViewStateStore((state) => state.viewState.crosshair.world_mm);
+  const world = React.useMemo(
+    () => [crosshair[0], crosshair[1], crosshair[2]] as [number, number, number],
+    [crosshair],
+  );
+  return <StatusValueReadout id="value" world={world} />;
 });
 
 StatusValueSlot.displayName = "StatusValueSlot";
 
 /**
- * "ijk" slot: the crosshair's nearest voxel index (`floor(v + 0.5)`, the
- * backend's nearest-voxel rule) on the voxel-grid reference layer, the same
- * grid snapping and the Go-to dialog use (utils/voxelSnap.ts). "—" without
- * a volume or outside the grid.
+ * "ijk 23, 41, 30 (zstat1)": the crosshair's nearest voxel index
+ * (`floor(v + 0.5)`, the backend's nearest-voxel rule) on the status layer's
+ * own grid, named, so it agrees with that layer's cluster table and with the
+ * voxel its Value is read from. Falls back to the reference grid (named)
+ * when the layer has no affine. Outside the grid: "ijk — (zstat1)".
  */
 const StatusVoxelSlot = React.memo(() => {
   const crosshair = useViewStateStore((state) => state.viewState.crosshair.world_mm);
   const snapToVoxel = useCrosshairSettingsStore((state) => state.settings.snapToVoxel);
-  const layers = useLayerStore((state) => state.layers);
-  const layerMetadata = useLayerStore((state) => state.layerMetadata);
-  const reference = React.useMemo(
-    () => resolveVoxelGridReference(layers, layerMetadata),
-    [layers, layerMetadata],
-  );
-  const selectedLayerId = useLayerStore((state) => state.selectedLayerId);
-  if (!reference) return null;
-  // The active layer on another grid (a 4 mm BOLD over the 2 mm T1): say whose
-  // grid the index is on (round 3 C9).
-  const active = selectedLayerId ? layerMetadata.get(selectedLayerId) : undefined;
-  const otherGrid =
-    !!active?.voxelToWorld &&
-    selectedLayerId !== reference.layerId &&
-    (JSON.stringify(active.dimensions ?? null) !== JSON.stringify(reference.dims) ||
-      active.voxelToWorld.some((v, i) => Math.abs(v - reference.voxelToWorld[i]) > 1e-4));
-  const spacing = [0, 1, 2].map((c) => Math.hypot(reference.voxelToWorld[c * 4], reference.voxelToWorld[c * 4 + 1], reference.voxelToWorld[c * 4 + 2]));
-  const gridLabel = otherGrid
-    ? ` · ref ${spacing.every((v) => Math.abs(v - spacing[0]) < 1e-3) ? `${Number(spacing[0].toFixed(2))} mm` : reference.name}`
-    : "";
+  const grid = useReadoutGrid();
+  const layer = useStatusLayer();
+  const suffix = useIjkSuffix(grid);
+  if (!grid) {
+    // A reported layer without any grid (no affine anywhere): still named.
+    return suffix ? (
+      <SlotFrame
+        id="voxel"
+        label={null}
+        value={formatIjkReadout(null, suffix)}
+        title={`No voxel grid for ${layer?.name ?? suffix}`}
+      />
+    ) : null;
+  }
   const world: [number, number, number] = [crosshair[0], crosshair[1], crosshair[2]];
-  const index = worldToVoxelIndex(world, reference);
-  const inside = index.every(Number.isFinite) && voxelIndexInBounds(index, reference.dims);
-  // Snapped (or exactly on a centre): integers, which are themselves the
-  // snapping indicator. Off and between centres: one decimal in the warning
-  // token.
-  const continuous = transformWorldToVoxelColumnMajor(reference.worldToVoxel, world);
+  const index = worldToVoxelIndex(world, grid);
+  const inside = index.every(Number.isFinite) && voxelIndexInBounds(index, grid.dims);
+  // Snapping places the crosshair on reference-grid centres, so integers
+  // there are themselves the snapping indicator; off and between centres the
+  // reference index reads with one decimal in the warning token. Another
+  // layer's grid is not snapped to: its index is the nearest voxel, the one
+  // the Value is sampled from.
+  const continuous = transformWorldToVoxelColumnMajor(grid.worldToVoxel, world);
   const between = continuous.some((v, axis) => Math.abs(v - index[axis]) > 1e-3);
-  const fractional = !snapToVoxel && between;
-  const text = !inside
-    ? EMPTY_VALUE
-    : (fractional ? formatVoxelIndex(continuous, 1) : formatVoxelIndex(index)) + gridLabel;
+  const fractional = grid.isReference && !snapToVoxel && between;
+  const text = formatIjkReadout(
+    !inside ? null : fractional ? formatVoxelIndex(continuous, 1) : formatVoxelIndex(index),
+    suffix ?? grid.label,
+  );
   return (
     <SlotFrame
       id="voxel"
+      label={null}
       value={text}
       valueClassName={inside && fractional ? "status-value--warning" : undefined}
       title={
         fractional
-          ? `Voxel coordinate (i j k) of ${reference.name}, the reference grid: between voxel centres (snapping off)`
-          : `Voxel index (i j k) of ${reference.name}, the reference grid`
+          ? `Voxel coordinate (i, j, k) on the grid of ${grid.name}: between voxel centres (snapping off)`
+          : `Nearest voxel (i, j, k) on the grid of ${grid.name}` +
+            (layer && grid.layerId !== layer.id ? ` (${layer.name} has no voxel-to-world transform)` : "")
       }
     />
   );
@@ -323,63 +359,49 @@ const StatusVoxelSlot = React.memo(() => {
 
 StatusVoxelSlot.displayName = "StatusVoxelSlot";
 
-/**
- * "Mouse" slot (P3.6): the pointer's position while it is over a slice, mm
- * then the voxel index on the reference grid ("(−37.5, −17.5, 50.5) 29 57
- * 64"), compact. Per-layer values live in the Inspector Scene rows.
- */
+/** Pointer position in mm while it is over a slice; "—" otherwise. */
 const StatusMouseSlot = React.memo(() => {
   const pointer = useMouseCoordinateStore((state) => state.worldCoordinates);
-  const layers = useLayerStore((state) => state.layers);
-  const layerMetadata = useLayerStore((state) => state.layerMetadata);
-  const reference = React.useMemo(
-    () => resolveVoxelGridReference(layers, layerMetadata),
-    [layers, layerMetadata],
-  );
-  if (!pointer) return <SlotFrame id="mouse" value={EMPTY_VALUE} />;
+  if (!pointer) return <SlotFrame id="mouse" label={null} value={EMPTY_VALUE} />;
   const mm = `(${pointer.map((v) => formatWorldMm(v)).join(", ")})`;
-  const index = reference ? worldToVoxelIndex([pointer[0], pointer[1], pointer[2]], reference) : null;
-  const ijk = index && voxelIndexInBounds(index, reference?.dims) ? formatVoxelIndex(index) : null;
-  return (
-    <SlotFrame
-      id="mouse"
-      value={
-        <>
-          {mm}
-          {ijk ? <span className="status-value__ijk"> {ijk}</span> : null}
-        </>
-      }
-      title={`Pointer${ijk && reference ? `, voxel (i j k) of ${reference.name}` : ""}`}
-    />
-  );
+  return <SlotFrame id="mouse" label={null} value={mm} title="Pointer position (world mm)" />;
 });
 
 StatusMouseSlot.displayName = "StatusMouseSlot";
 
 /**
- * "Region" slot: the atlas/label region at the crosshair (StatusBarService
- * writes the name and its LUT colour), with a small swatch in that colour.
- * Hidden while no atlas or label layer with a legend is loaded, instead of a
- * permanent "—".
+ * Region slots: the atlas/label region at the crosshair ("region") or the
+ * pointer ("pointerRegion"); StatusBarService writes the name and its LUT
+ * colour, with a small swatch in that colour. Hidden while no atlas or label
+ * layer with a legend is loaded, instead of a permanent "—". The pointer
+ * region is blank while its lookup for a new voxel is pending.
  */
-const StatusRegionSlot = React.memo(() => {
+const StatusRegionSlot = React.memo(({ id = "region" }: { id?: "region" | "pointerRegion" }) => {
   const hasAtlas = useLayerStore((state) => hasRegionSource(state.layers));
-  const value = useStatusBarStore((state) => state.values.region);
-  const color = useStatusBarStore((state) => state.values.regionColor);
+  const value = useStatusBarStore((state) => state.values[id]);
+  const color = useStatusBarStore((state) => state.values[`${id}Color`]);
   if (!hasAtlas) return null;
   const text =
-    typeof value === "string" ? displayStatusText(value) : value == null ? EMPTY_VALUE : value;
-  const swatch = typeof color === "string" && typeof text === "string" && text !== EMPTY_VALUE;
+    typeof value === "string"
+      ? displayStatusText(value)
+      : value == null
+        ? id === "pointerRegion"
+          ? ""
+          : EMPTY_VALUE
+        : value;
+  const swatch =
+    typeof color === "string" && typeof text === "string" && text !== EMPTY_VALUE && text !== "";
   return (
     <SlotFrame
-      id="region"
-      title={typeof text === "string" ? text : undefined}
+      id={id}
+      label={null}
+      title={typeof text === "string" && text ? `Region: ${text}` : undefined}
       value={
         swatch ? (
           <>
             <span
               aria-hidden
-              data-testid="status-region-swatch"
+              data-testid={id === "region" ? "status-region-swatch" : "status-pointer-region-swatch"}
               className="status-region-swatch"
               style={{ background: color as string }}
             />
@@ -394,6 +416,64 @@ const StatusRegionSlot = React.memo(() => {
 });
 
 StatusRegionSlot.displayName = "StatusRegionSlot";
+
+/**
+ * Crosshair group: mm (click: Go to coordinate), ijk on the status layer's
+ * grid, its value and region, plus the surface vertex in a surface pane.
+ */
+function CrosshairGroup({ onCrosshairClick }: { onCrosshairClick?: () => void }) {
+  return (
+    <div className="status-group" data-group="crosshair" role="group" aria-label="Crosshair">
+      <span className="status-group__label">Crosshair</span>
+      <StatusBarSlot id="crosshair" label={null} onClick={onCrosshairClick} />
+      <StatusVoxelSlot />
+      <StatusValueSlot />
+      <StatusRegionSlot id="region" />
+      <StatusVertexSlot />
+    </div>
+  );
+}
+
+/**
+ * Pointer group: mm, the status layer's value and region under the pointer.
+ * Greyed and blank when the pointer is not over an image; hidden by the
+ * view menu's pointer-readout toggle (`hoverSettingsStore.showInStatusBar`).
+ */
+function PointerGroup() {
+  const show = useHoverSettingsStore(selectShowInStatusBar);
+  const pointer = useMouseCoordinateStore((state) => state.worldCoordinates);
+  const layers = useLayerStore((state) => state.layers);
+  const layerMetadata = useLayerStore((state) => state.layerMetadata);
+  const world = React.useMemo(
+    () => (pointer ? ([pointer[0], pointer[1], pointer[2]] as [number, number, number]) : null),
+    [pointer],
+  );
+  if (!show) return null;
+  // Over an image = over a slice and inside SOME loaded volume. Outside the
+  // reported layer only (a partial-coverage stat map over anatomy), the group
+  // stays live and the value alone reads "—" (the value hook's bounds test).
+  const overImage =
+    !!world &&
+    layers.some((l) => {
+      if (!l.volumeId) return false;
+      const meta = layerMetadata.get(l.id);
+      return !meta || isInsideVolume(world, meta);
+    });
+  return (
+    <div
+      className="status-group"
+      data-group="pointer"
+      data-inactive={overImage ? undefined : ""}
+      role="group"
+      aria-label="Pointer"
+    >
+      <span className="status-group__label">Pointer</span>
+      <StatusMouseSlot />
+      <StatusValueReadout id="pointerValue" world={overImage ? world : null} fresh delayMs={30} />
+      {overImage ? <StatusRegionSlot id="pointerRegion" /> : null}
+    </div>
+  );
+}
 
 /**
  * "Vertex" slot (phase 4, D1): while a surface pane is the active view, the
@@ -561,7 +641,7 @@ const DiagnosticsButton = () => {
 
 export function StatusBar({
   className = "",
-  slots = ["coordSys", "crosshair", "voxel", "mouse", "layer", "value", "region"],
+  slots = ["coordSys", "crosshair", "pointer"],
   rightContent,
   onCrosshairClick,
 }: StatusBarProps) {
@@ -598,6 +678,8 @@ export function StatusBar({
   }, []);
   const showTime =
     has4DVolume || barWidth === null || barWidth === 0 || barWidth >= HIDE_EMPTY_TIME_BELOW_PX;
+  // "RAS" never changes: the first slot to go on a narrow bar.
+  const showCoordSys = barWidth === null || barWidth === 0 || barWidth >= HIDE_COORD_SYS_BELOW_PX;
 
   return (
     // Copying a readout puts ASCII minus on the clipboard.
@@ -611,28 +693,18 @@ export function StatusBar({
       {slots
         .filter(
           (id) =>
-            !(DIAGNOSTIC_SLOT_IDS as readonly string[]).includes(id),
+            !(DIAGNOSTIC_SLOT_IDS as readonly string[]).includes(id) &&
+            !(id === "coordSys" && showCoordSys === false),
         )
         .map((id) =>
           id === "layer" ? (
             <StatusLayerSlot key={id} />
-          ) : id === "value" ? (
-            <StatusValueSlot key={id} />
-          ) : id === "voxel" ? (
-            <StatusVoxelSlot key={id} />
-          ) : id === "mouse" ? (
-            <StatusMouseSlot key={id} />
-          ) : id === "region" ? (
-            <React.Fragment key={id}>
-              <StatusRegionSlot />
-              <StatusVertexSlot />
-            </React.Fragment>
+          ) : id === "crosshair" ? (
+            <CrosshairGroup key={id} onCrosshairClick={onCrosshairClick} />
+          ) : id === "pointer" ? (
+            <PointerGroup key={id} />
           ) : (
-            <StatusBarSlot
-              key={id}
-              id={id}
-              onClick={id === "crosshair" ? onCrosshairClick : undefined}
-            />
+            <StatusBarSlot key={id} id={id} />
           ),
         )}
 

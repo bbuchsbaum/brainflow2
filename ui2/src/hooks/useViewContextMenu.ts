@@ -2,7 +2,7 @@
  * useViewContextMenu
  *
  * Provides a standard right-click context menu for renderable views.
- * Includes "Hover Info..." and "Export View as Image..." and ensures the view is
+ * Includes the pointer-readout toggle and "Export View as Image..." and ensures the view is
  * marked active before exporting.
  */
 
@@ -11,7 +11,7 @@ import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useContextMenuStore } from '@/stores/contextMenuStore';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { getEventBus } from '@/events/EventBus';
-import { useHoverSettingsPopoverStore } from '@/stores/hoverSettingsPopoverStore';
+import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { isOverlayLayer } from '@/components/views/viewportFrame/useOverlayColorbar';
@@ -27,6 +27,8 @@ export function useViewContextMenu(contextId: string) {
 
       const clickX = event.clientX;
       const clickY = event.clientY;
+
+      const pointerShown = useHoverSettingsStore.getState().showInStatusBar;
 
       // Compute current orientation markers state for menu label
       const visibleLayers = useLayerStore.getState().layers.filter(l => l.visible);
@@ -57,12 +59,11 @@ export function useViewContextMenu(contextId: string) {
 
       useContextMenuStore.getState().open(clickX, clickY, [
         {
+          // "Hover Info…" (QA design decisions 2026-10-30, section 4): shows
+          // or hides the status bar's Pointer group. A toggle, so no ellipsis.
           id: 'hover-settings',
-          label: 'Hover Info…',
-          onClick: () => {
-            // Open popover slightly offset from where the context menu was
-            useHoverSettingsPopoverStore.getState().open(clickX, clickY);
-          }
+          label: pointerShown ? 'Hide pointer readout' : 'Show pointer readout',
+          onClick: () => useHoverSettingsStore.getState().setShowInStatusBar(!pointerShown),
         },
         {
           id: 'toggle-orientation-labels',

@@ -52,8 +52,9 @@ impl SliceGeometry {
     /// Build an orthogonal slice that **really** goes through `cross_mm`
     /// and covers the whole FoV of `meta` while preserving square pixels.
     ///
-    /// This implementation derives orientation from the voxel_to_world matrix
-    /// to handle any volume orientation robustly.
+    /// The plane is aligned with the world (RAS+) axes, never with the
+    /// volume's voxel axes: an axial view is always the world XY plane, so an
+    /// oblique or permuted affine changes the extent, not the plane.
     ///
     /// The frame spans the outermost voxel *centres*; see
     /// [`Self::full_extent_to_edges`] for a frame that includes the outer half
@@ -66,7 +67,7 @@ impl SliceGeometry {
         handedness: Handedness,
     ) -> Self {
         let corners = meta.volume_corners_world();
-        Self::full_extent_over(orient, cross_mm, meta, &corners, screen_px_max, handedness)
+        Self::full_extent_over_corners(orient, cross_mm, &corners, screen_px_max, handedness)
     }
 
     /// Like [`Self::full_extent`], but frames the outer voxel *edges*
@@ -81,22 +82,32 @@ impl SliceGeometry {
         handedness: Handedness,
     ) -> Self {
         let corners = meta.volume_edge_corners_world();
-        Self::full_extent_over(orient, cross_mm, meta, &corners, screen_px_max, handedness)
+        Self::full_extent_over_corners(orient, cross_mm, &corners, screen_px_max, handedness)
     }
 
-    fn full_extent_over(
+    /// World-axis-aligned slice through `cross_mm` that frames every point in
+    /// `corners`. Pass the corners of several volumes to frame their union
+    /// (e.g. [`VolumeMetadata::volume_edge_corners_world`] of each layer).
+    pub fn full_extent_over_corners(
         orient: ViewOrientation,
         cross_mm: [f32; 3],
-        meta: &VolumeMetadata,
-        corners: &[[f32; 3]; 8],
+        corners: &[[f32; 3]],
         screen_px_max: [u32; 2],
         handedness: Handedness,
     ) -> Self {
-        // 1. Extract orthonormal unit vectors from voxel_to_world matrix
-        let (e_x, e_y, e_z) = extract_orthonormal_vectors(&meta.voxel_to_world, handedness);
+        // No corners frames a single point (a 1x1 raster at the crosshair).
+        let lone_cross = [cross_mm];
+        let corners = if corners.is_empty() {
+            &lone_cross[..]
+        } else {
+            corners
+        };
+
+        // 1. World (RAS+) display axes, independent of any volume's affine.
+        let (e_x, e_y, e_z) = world_display_axes(handedness);
 
         // 2. Choose right and down vectors based on orientation
-        // For neurological convention with LPI coordinates:
+        // For neurological convention with RAS+ world coordinates:
         // - Axial: looking from superior, anterior at top, so down = -Y (posterior)
         // - Coronal: looking from anterior, superior at top, so down = -Z (inferior)
         // - Sagittal: looking from left, superior at top, anterior at left
@@ -106,9 +117,9 @@ impl SliceGeometry {
             ViewOrientation::Sagittal => (negate_vec3(e_y), negate_vec3(e_z)), // -Y right (anterior->posterior), -Z down
         };
 
-        // 3. Project the given volume corners into the active in-plane basis
-        // (right/down), relative to crosshair. This is robust for oblique and
-        // flipped affines.
+        // 3. Project the given corners into the in-plane basis (right/down),
+        // relative to the crosshair. For an oblique volume this frames the
+        // world-axis bounding box of its corners.
         let r_dot_r = vec3_dot(right_mm, right_mm);
         let d_dot_d = vec3_dot(down_mm, down_mm);
         let r_dot_d = vec3_dot(right_mm, down_mm);
@@ -281,50 +292,16 @@ pub fn pixel_to_world_raw(
     ]
 }
 
-/// Extract orthonormal unit vectors from voxel_to_world matrix
+/// World (RAS+) unit axes with the display convention applied.
 ///
-/// This function extracts the orientation of each axis from the affine transformation
-/// and applies display conventions (neurological vs radiological).
-fn extract_orthonormal_vectors(
-    voxel_to_world: &nalgebra::Matrix4<f32>,
-    handedness: Handedness,
-) -> ([f32; 3], [f32; 3], [f32; 3]) {
-    // Extract the 3x3 rotation/scaling part of the matrix
-    let mat = voxel_to_world.fixed_view::<3, 3>(0, 0);
-
-    // Extract and normalize the column vectors
-    let col_x = mat.column(0);
-    let col_y = mat.column(1);
-    let col_z = mat.column(2);
-
-    let norm_x = col_x.norm();
-    let norm_y = col_y.norm();
-    let norm_z = col_z.norm();
-
-    // Create normalized unit vectors
-    let mut e_x = [col_x[0] / norm_x, col_x[1] / norm_x, col_x[2] / norm_x];
-    let e_y = [col_y[0] / norm_y, col_y[1] / norm_y, col_y[2] / norm_y];
-    let e_z = [col_z[0] / norm_z, col_z[1] / norm_z, col_z[2] / norm_z];
-
-    // Apply display conventions
-    match handedness {
-        Handedness::Neurological => {
-            // Neurological: left=left, superior=up, anterior=front
-            // Standard RAS orientation: +X=right, +Y=anterior, +Z=superior
-            // For display: right=right, down=inferior, anterior=left (for sagittal)
-            // Don't apply global Z negation - handle per-orientation instead
-        }
-        Handedness::Radiological => {
-            // Radiological: left=right, superior=up, anterior=front
-            // Flip X for "patient left on image right" convention. Sagittal
-            // views have no left-right screen axis here, so their AP direction
-            // remains unchanged.
-            e_x = negate_vec3(e_x);
-            // Don't apply global Z negation - handle per-orientation instead
-        }
-    }
-
-    (e_x, e_y, e_z)
+/// Radiological display flips X ("patient left on image right"). Sagittal
+/// views have no left-right screen axis, so their AP direction is unchanged.
+fn world_display_axes(handedness: Handedness) -> ([f32; 3], [f32; 3], [f32; 3]) {
+    let e_x = match handedness {
+        Handedness::Neurological => Axis::X.unit(),
+        Handedness::Radiological => negate_vec3(Axis::X.unit()),
+    };
+    (e_x, Axis::Y.unit(), Axis::Z.unit())
 }
 
 // Helper functions for vector operations
@@ -1241,6 +1218,233 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The browser fixture `test-data/browser/oblique.nii.gz`: 5x7x9 voxels,
+    /// world = (10 - 2j, -7 + 3i, 5 + 4k). Its voxel axes are permuted (i runs
+    /// along world Y, j along -X) and anisotropic; its voxel-edge bounds are
+    /// (-3, -8.5, 3) to (11, 6.5, 39) mm.
+    fn permuted_fixture() -> VolumeMetadata {
+        VolumeMetadata {
+            dimensions: [5, 7, 9],
+            voxel_to_world: Matrix4::new(
+                0.0, -2.0, 0.0, 10.0, //
+                3.0, 0.0, 0.0, -7.0, //
+                0.0, 0.0, 4.0, 5.0, //
+                0.0, 0.0, 0.0, 1.0,
+            ),
+        }
+    }
+
+    fn unit_dir(v: [f32; 3]) -> [f32; 3] {
+        let n = vec3_len(v);
+        [v[0] / n, v[1] / n, v[2] / n]
+    }
+
+    fn assert_dir(actual: [f32; 3], expected: [f32; 3], what: &str) {
+        let d = unit_dir(actual);
+        assert!(
+            (0..3).all(|a| (d[a] - expected[a]).abs() < 1e-6),
+            "{what}: direction {d:?}, expected {expected:?}"
+        );
+    }
+
+    /// World interval [lo, hi] covered by a frame along unit world axis `axis`.
+    fn frame_span(geom: &SliceGeometry, axis: usize) -> (f32, f32) {
+        let far = vec3_add(
+            geom.origin_mm,
+            vec3_add(
+                vec3_scale(geom.u_mm, geom.dim_px[0] as f32),
+                vec3_scale(geom.v_mm, geom.dim_px[1] as f32),
+            ),
+        );
+        (
+            geom.origin_mm[axis].min(far[axis]),
+            geom.origin_mm[axis].max(far[axis]),
+        )
+    }
+
+    /// The frame covers exactly [lo, hi] along `axis`, up to the sub-pixel
+    /// slack that the square-pixel ceil adds at the far edge.
+    fn assert_covers(geom: &SliceGeometry, axis: usize, lo: f32, hi: f32, what: &str) {
+        let (f_lo, f_hi) = frame_span(geom, axis);
+        let px = vec3_len(geom.u_mm);
+        assert!(
+            f_lo <= lo + 1e-3 && f_hi >= hi - 1e-3 && (f_hi - f_lo) - (hi - lo) < px + 1e-3,
+            "{what}: frame spans [{f_lo}, {f_hi}] on axis {axis}, expected [{lo}, {hi}]"
+        );
+    }
+
+    #[test]
+    fn permuted_affine_views_are_world_planes() {
+        // Regression (QA 2026-10-29 §3.2): with this layer first, the
+        // "Sagittal" pane showed a coronal plane, "Coronal" a sagittal one, and
+        // axial was rotated 90 degrees, because the frame followed voxel axes.
+        let meta = permuted_fixture();
+        let cross = [4.0, -1.0, 21.0];
+        let screen = [512, 512];
+        let view = |orient| {
+            SliceGeometry::full_extent_to_edges(
+                orient,
+                cross,
+                &meta,
+                screen,
+                Handedness::Neurological,
+            )
+        };
+
+        let axial = view(ViewOrientation::Axial);
+        assert_dir(axial.u_mm, [1.0, 0.0, 0.0], "axial right");
+        assert_dir(axial.v_mm, [0.0, -1.0, 0.0], "axial down");
+        assert_covers(&axial, 0, -3.0, 11.0, "axial X");
+        assert_covers(&axial, 1, -8.5, 6.5, "axial Y");
+        assert!((axial.origin_mm[2] - cross[2]).abs() < 1e-5);
+
+        let coronal = view(ViewOrientation::Coronal);
+        assert_dir(coronal.u_mm, [1.0, 0.0, 0.0], "coronal right");
+        assert_dir(coronal.v_mm, [0.0, 0.0, -1.0], "coronal down");
+        assert_covers(&coronal, 0, -3.0, 11.0, "coronal X");
+        assert_covers(&coronal, 2, 3.0, 39.0, "coronal Z");
+        assert!((coronal.origin_mm[1] - cross[1]).abs() < 1e-5);
+
+        let sagittal = view(ViewOrientation::Sagittal);
+        assert_dir(sagittal.u_mm, [0.0, -1.0, 0.0], "sagittal right");
+        assert_dir(sagittal.v_mm, [0.0, 0.0, -1.0], "sagittal down");
+        assert_covers(&sagittal, 1, -8.5, 6.5, "sagittal Y");
+        assert_covers(&sagittal, 2, 3.0, 39.0, "sagittal Z");
+        assert!((sagittal.origin_mm[0] - cross[0]).abs() < 1e-5);
+
+        // Square pixels on every pane.
+        for geom in [&axial, &coronal, &sagittal] {
+            assert!((vec3_len(geom.u_mm) - vec3_len(geom.v_mm)).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn rotated_and_flipped_affines_keep_world_axes() {
+        // An oblique rotation and an LAS (negative-X) affine change the extent,
+        // never the plane or its screen direction.
+        let theta = 20.0_f32.to_radians();
+        let mut oblique = Matrix4::new(
+            theta.cos(),
+            -theta.sin(),
+            0.0,
+            -90.0,
+            theta.sin(),
+            theta.cos(),
+            0.0,
+            -126.0,
+            0.0,
+            0.0,
+            1.0,
+            -72.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        );
+        oblique[(2, 2)] = 2.0;
+        let las = Matrix4::new(
+            -1.0, 0.0, 0.0, 90.0, //
+            0.0, 1.0, 0.0, -126.0, //
+            0.0, 0.0, 1.0, -72.0, //
+            0.0, 0.0, 0.0, 1.0,
+        );
+        for (name, affine) in [("oblique", oblique), ("LAS", las)] {
+            let meta = VolumeMetadata {
+                dimensions: [96, 112, 88],
+                voxel_to_world: affine,
+            };
+            let cross = [0.0, 0.0, 0.0];
+            let g = |orient| {
+                SliceGeometry::full_extent(
+                    orient,
+                    cross,
+                    &meta,
+                    [512, 512],
+                    Handedness::Neurological,
+                )
+            };
+            assert_dir(g(ViewOrientation::Axial).u_mm, [1.0, 0.0, 0.0], name);
+            assert_dir(g(ViewOrientation::Axial).v_mm, [0.0, -1.0, 0.0], name);
+            assert_dir(g(ViewOrientation::Coronal).u_mm, [1.0, 0.0, 0.0], name);
+            assert_dir(g(ViewOrientation::Coronal).v_mm, [0.0, 0.0, -1.0], name);
+            assert_dir(g(ViewOrientation::Sagittal).u_mm, [0.0, -1.0, 0.0], name);
+            assert_dir(g(ViewOrientation::Sagittal).v_mm, [0.0, 0.0, -1.0], name);
+
+            let radio = SliceGeometry::full_extent(
+                ViewOrientation::Axial,
+                cross,
+                &meta,
+                [512, 512],
+                Handedness::Radiological,
+            );
+            assert_dir(radio.u_mm, [-1.0, 0.0, 0.0], name);
+        }
+    }
+
+    #[test]
+    fn corners_of_several_volumes_frame_their_union() {
+        // A small permuted volume plus a larger RAS box that only partly
+        // overlaps it: the frame covers the union of their world boxes, so
+        // neither is cropped to the other's extent.
+        let first = permuted_fixture();
+        let second = VolumeMetadata {
+            dimensions: [20, 10, 5],
+            voxel_to_world: Matrix4::new(
+                2.0, 0.0, 0.0, 0.0, //
+                0.0, 2.0, 0.0, -30.0, //
+                0.0, 0.0, 2.0, 30.0, //
+                0.0, 0.0, 0.0, 1.0,
+            ),
+        };
+        // second edges: X [-1, 39], Y [-31, -11], Z [29, 39].
+        let mut corners = first.volume_edge_corners_world().to_vec();
+        corners.extend(second.volume_edge_corners_world());
+
+        let cross = [4.0, -1.0, 21.0];
+        let g = |orient| {
+            SliceGeometry::full_extent_over_corners(
+                orient,
+                cross,
+                &corners,
+                [400, 300],
+                Handedness::Neurological,
+            )
+        };
+        let axial = g(ViewOrientation::Axial);
+        assert_covers(&axial, 0, -3.0, 39.0, "union axial X");
+        assert_covers(&axial, 1, -31.0, 6.5, "union axial Y");
+        let coronal = g(ViewOrientation::Coronal);
+        assert_covers(&coronal, 0, -3.0, 39.0, "union coronal X");
+        assert_covers(&coronal, 2, 3.0, 39.0, "union coronal Z");
+        let sagittal = g(ViewOrientation::Sagittal);
+        assert_covers(&sagittal, 1, -31.0, 6.5, "union sagittal Y");
+        assert_covers(&sagittal, 2, 3.0, 39.0, "union sagittal Z");
+
+        // Each volume alone gives a strictly smaller frame than the union.
+        let alone = SliceGeometry::full_extent_to_edges(
+            ViewOrientation::Axial,
+            cross,
+            &first,
+            [400, 300],
+            Handedness::Neurological,
+        );
+        assert_covers(&alone, 0, -3.0, 11.0, "first alone X");
+    }
+
+    #[test]
+    fn no_corners_frames_the_crosshair() {
+        let geom = SliceGeometry::full_extent_over_corners(
+            ViewOrientation::Axial,
+            [1.0, 2.0, 3.0],
+            &[],
+            [256, 256],
+            Handedness::Neurological,
+        );
+        assert_eq!(geom.dim_px, [1, 1]);
+        assert!(geom.origin_mm.iter().all(|v| v.is_finite()));
+        assert!(geom.u_mm.iter().all(|v| v.is_finite()));
     }
 
     fn sample_geometry() -> SliceGeometry {

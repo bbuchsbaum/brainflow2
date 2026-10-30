@@ -15,6 +15,9 @@ import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { useLayoutStateStore } from "@/stores/layoutStateStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import type { ViewType } from "@/types/coordinates";
+import { isViewerKeyTarget } from "@/utils/viewerKeyTarget";
+import { selectAllInFocusedField } from "@/utils/editSelectAll";
+import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
 
 const CATEGORY = "Time Navigation";
 const SLICE_SHORTCUT_CATEGORY = "Slice Navigation";
@@ -49,6 +52,22 @@ function nudgeSlice(stepMultiplier: number): void {
 export function useKeyboardShortcuts() {
   const timeNav = useTimeNavigation();
   const service = getKeyboardShortcutService();
+
+  // Edit › Select All (native, Cmd/Ctrl+A): the focused text field only.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: Unlisten | undefined;
+    void safeListen<{ action?: string }>("edit-action", (event) => {
+      if (event.payload?.action === "select-all") selectAllInFocusedField();
+    }).then((fn) => {
+      if (disposed) void safeUnlisten(fn);
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      void safeUnlisten(unlisten);
+    };
+  }, []);
 
   useEffect(() => {
     const has4D = () => timeNav.has4DVolume();
@@ -148,6 +167,48 @@ export function useKeyboardShortcuts() {
           nudgeSlice(10);
         },
       }),
+      // Up/Down step slices in either navigation mode (Left/Right step time
+      // in time mode); PageUp/PageDown jump 10, like Shift+arrow. Only with
+      // focus on a view or on nothing: trees, lists, the Log and scrolling
+      // panels keep these keys (utils/viewerKeyTarget).
+      ...(
+        [
+          ["slice.up", "ArrowUp", undefined, 1, "Next slice in active view"],
+          ["slice.down", "ArrowDown", undefined, -1, "Previous slice in active view"],
+          ["slice.up10", "ArrowUp", { shift: true }, 10, "Jump 10 slices forward in active view"],
+          ["slice.down10", "ArrowDown", { shift: true }, -10, "Jump 10 slices backward in active view"],
+          ["slice.pageUp", "PageUp", undefined, 10, "Jump 10 slices forward in active view"],
+          ["slice.pageDown", "PageDown", undefined, -10, "Jump 10 slices backward in active view"],
+        ] as const
+      ).map(([id, key, modifiers, steps, description]) =>
+        service.register({
+          id,
+          key,
+          modifiers,
+          category: SLICE_SHORTCUT_CATEGORY,
+          description,
+          priority: 10,
+          when: () => isViewerKeyTarget(document.activeElement),
+          handler: () => {
+            nudgeSlice(steps);
+          },
+        }),
+      ),
+      // Cmd/Ctrl+A outside a text field would select every label in every
+      // panel (QA 2026-10-29 §4.3); there is nothing in the viewer to select.
+      // Text fields keep their own Select All (shortcuts skip inputs).
+      ...(["meta", "ctrl"] as const).map((modifier) =>
+        service.register({
+          id: `app.selectAll.${modifier}`,
+          key: "a",
+          modifiers: { [modifier]: true },
+          category: "General",
+          description: "Select all (text fields only)",
+          handler: () => {
+            window.getSelection()?.removeAllRanges();
+          },
+        }),
+      ),
       service.register({
         id: "plot.toggleDock",
         key: "p",

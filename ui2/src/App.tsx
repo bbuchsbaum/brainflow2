@@ -1,6 +1,7 @@
 import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { noteUserVisibility } from '@/services/series/visibilityIntent';
+import { getLayerService } from '@/services/LayerService';
+import { removeLayerFromScene, selectedVolumeLayerId } from '@/services/layerRemoval';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
@@ -10,12 +11,14 @@ import { GlobalProgressBar } from '@/components/ui/GlobalProgressBar';
 import { StatusProvider } from '@/contexts/StatusContext';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
 import { useMountListener } from '@/hooks/useMountListener';
+import { useNativeFileDrop } from '@/hooks/useNativeFileDrop';
 import { useServicesInit } from '@/hooks/useServicesInit';
 import { useStatusBarInit } from '@/hooks/useStatusBarInit';
 import { useStudioAppModeSync } from '@/hooks/useStudioAppModeSync';
 import { useStudioCoordination } from '@/hooks/useStudioCoordination';
 import { useStudioStatusBridge } from '@/hooks/useStudioStatusBridge';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
+import { useAppSettingsMenuListener } from '@/hooks/useAppSettingsMenuListener';
 import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
 import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
 import { useExportMenuListener } from '@/hooks/useExportMenuListener';
@@ -35,6 +38,7 @@ import {
   destroyCrosshairMenuService,
 } from '@/services/CrosshairMenuService';
 import { CrosshairSettingsDialog } from '@/components/dialogs/CrosshairSettingsDialog';
+import { SettingsDialog } from '@/components/dialogs/SettingsDialog';
 import { GoToCoordinateDialog } from '@/components/dialogs/GoToCoordinateDialog';
 import { ImageHeaderDialog } from '@/components/dialogs/ImageHeaderDialog';
 import { ConfirmationDialogHost } from '@/components/dialogs/ConfirmationDialogHost';
@@ -65,8 +69,16 @@ import {
 import { ContextMenu } from '@/components/ui/ContextMenu';
 import { getLayoutService, type SidebarPanelType } from '@/services/layoutService';
 import { getTransport, getHostCapabilities } from '@/services/transport';
-import { WORKSPACE_PRESETS } from '@/types/workspacePresets';
+import { DISPLAY_MODES } from '@/types/displayModes';
+import {
+  LAYOUT_SHORTCUT_MODES,
+  TOOL_DESTINATIONS,
+  openNewView,
+  openTool,
+  setCurrentTabLayout,
+} from '@/services/workspaceNavigation';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
 
 function ErrorFallback({ error, resetErrorBoundary }: any) {
@@ -120,12 +132,13 @@ function AppContent() {
     lastTriggerWindow: null,
   });
   const [showCrosshairSettings, setShowCrosshairSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showGoToCoordinate, setShowGoToCoordinate] = useState(false);
   const [showImageHeader, setShowImageHeader] = useState(false);
   const [imageHeaderVolumeId, setImageHeaderVolumeId] = useState<string | null>(null);
-  const applyWorkspacePreset = useWorkspaceStore((s) => s.applyWorkspacePreset);
+  const integratedWorkspaceEnabled = useFeatureFlagStore((s) => s.integratedWorkspaceV1);
   const activeWorkspaceType = useWorkspaceStore((state) => {
     const workspaceId = state.activeWorkspaceId;
     return workspaceId ? (state.workspaces.get(workspaceId)?.type ?? null) : null;
@@ -171,8 +184,12 @@ function AppContent() {
   // Listen for mount directory events
   useMountListener();
 
+  // Finder/Explorer drops (Tauri native drag-drop: real paths)
+  useNativeFileDrop();
+
   // Listen for workspace menu events
   useWorkspaceMenuListener();
+  useAppSettingsMenuListener();
 
   // Listen for panel menu events
   usePanelMenuListener();
@@ -217,6 +234,25 @@ function AppContent() {
         group: 'File',
         run: async () => {
           await getTransport().invoke<void>('open_file_dialog');
+        },
+      },
+      {
+        id: 'app.settings',
+        title: 'Settings…',
+        subtitle: 'Status bar pointer readout and experimental features.',
+        keywords: ['settings', 'preferences', 'experimental', 'annotate', 'advanced', 'pointer', 'status'],
+        group: 'View',
+        run: () => setShowSettings(true),
+      },
+      {
+        id: 'statusbar.togglePointer',
+        title: 'Toggle Pointer Readout',
+        subtitle: 'Show or hide the status bar\u2019s Pointer group.',
+        keywords: ['pointer', 'hover', 'mouse', 'status', 'readout'],
+        group: 'Navigation',
+        run: () => {
+          const store = useHoverSettingsStore.getState();
+          store.setShowInStatusBar(!store.showInStatusBar);
         },
       },
       {
@@ -305,6 +341,18 @@ function AppContent() {
           if (!layerId) throw new Error('No volume layer to search');
           const location = await getClusterService().goToExtremum(layerId, 'min');
           if (!location) throw new Error('The layer has no finite value');
+        },
+      },
+      {
+        id: 'layers.removeSelected',
+        title: 'Remove Selected Layer',
+        subtitle: 'Unload the selected volume layer and free its memory.',
+        keywords: ['remove', 'unload', 'delete', 'close', 'layer', 'volume'],
+        group: 'Layers',
+        run: async () => {
+          const layerId = selectedVolumeLayerId();
+          if (!layerId) throw new Error('No layer is selected');
+          await removeLayerFromScene(layerId);
         },
       },
       {
@@ -412,6 +460,16 @@ function AppContent() {
         run: () => setShowGoToCoordinate(true),
       },
       {
+        id: 'layout.reset',
+        title: 'Reset Layout',
+        subtitle: 'Restore the default Files, workspace and Inspector panels.',
+        keywords: ['layout', 'reset', 'panels', 'default', 'restore', 'dock'],
+        group: 'Layouts',
+        run: () => {
+          getLayoutService().resetToDefaultLayout();
+        },
+      },
+      {
         id: 'app.keyboardShortcuts',
         title: 'Show Keyboard Shortcuts',
         subtitle: 'Open shortcut reference dialog.',
@@ -422,17 +480,55 @@ function AppContent() {
       },
     ];
 
-    const presetCommands: CommandPaletteCommand[] = WORKSPACE_PRESETS.map((preset) => ({
-      id: `layout.preset.${preset.id}`,
-      title: `Switch Preset: ${preset.label}`,
-      subtitle: preset.description,
-      keywords: ['layout', 'preset', 'workspace', preset.label.toLowerCase()],
-      group: 'Layouts',
-      shortcut: preset.shortcut,
-      run: async () => {
-        await applyWorkspacePreset(preset.id);
+    // Navigation (qa-design-decisions-2026-10-30 §1): layouts apply to the
+    // current tab; New view and tools are the only ways to add a tab.
+    const navigationCommands: CommandPaletteCommand[] = [
+      {
+        id: 'workspace.newView',
+        title: 'New View',
+        subtitle: 'Open a new view tab in the current layout.',
+        keywords: ['view', 'tab', 'new', 'workspace'],
+        group: 'Layouts',
+        shortcut: 'Cmd/Ctrl+T',
+        run: async () => {
+          await openNewView();
+        },
       },
-    }));
+      ...LAYOUT_SHORTCUT_MODES.filter(
+        (mode) => mode !== 'integrated' || integratedWorkspaceEnabled,
+      ).map((mode) => ({
+        id: `layout.mode.${mode}`,
+        title: `Layout: ${DISPLAY_MODES[mode].label}`,
+        subtitle: `Show the current tab as ${DISPLAY_MODES[mode].label}.`,
+        keywords: ['layout', 'mode', 'view', mode],
+        group: 'Layouts',
+        shortcut: `Cmd/Ctrl+${LAYOUT_SHORTCUT_MODES.indexOf(mode) + 1}`,
+        run: () => {
+          setCurrentTabLayout(mode);
+        },
+      })),
+      {
+        id: 'layout.orthogonalPanels',
+        title: 'Layout: Orthogonal Panels',
+        subtitle: 'Show the current tab as separate, rearrangeable slice panels.',
+        keywords: ['layout', 'orthogonal', 'panels', 'flexible', 'unlocked'],
+        group: 'Layouts',
+        run: () => {
+          setCurrentTabLayout('orthogonal-flexible');
+        },
+      },
+      ...TOOL_DESTINATIONS.filter((tool) => tool.shortcutKey).map((tool) => ({
+        id: `workspace.tool.${tool.type}`,
+        title: `Open ${tool.label}`,
+        subtitle: 'Open the tool, or go to its tab if it is open.',
+        keywords: ['tool', 'workspace', tool.label.toLowerCase()],
+        group: 'Layouts',
+        shortcut: `Cmd/Ctrl+${tool.shortcutKey}`,
+        run: async () => {
+          await openTool(tool.type);
+        },
+      })),
+    ];
 
     const savedLayoutCommands: CommandPaletteCommand[] = savedLayouts.map((layout) => ({
       id: `layout.named.${layout.id}`,
@@ -445,16 +541,16 @@ function AppContent() {
       },
     }));
 
-    return [...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths), ...presetCommands, ...savedLayoutCommands];
-  }, [applyWorkspacePreset, loadSavedLayout, savedLayouts]);
+    return [...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths), ...navigationCommands, ...savedLayoutCommands];
+  }, [integratedWorkspaceEnabled, loadSavedLayout, savedLayouts]);
 
   // Register '?' shortcut to open the keyboard shortcuts dialog
   useEffect(() => {
     const service = getKeyboardShortcutService();
     const unregister = service.register({
       id: 'app.showShortcuts',
+      // No Shift requirement: '?' already implies it on layouts that need it.
       key: '?',
-      modifiers: { shift: true },
       category: 'General',
       description: 'Show keyboard shortcuts',
       handler: () => setShowKeyboardShortcuts((prev) => !prev),
@@ -552,14 +648,11 @@ function AppContent() {
           handler: () => {
             const viewLayers = useViewStateStore.getState().viewState.layers;
             if (layerIndex >= viewLayers.length) return;
-            const targetId = viewLayers[layerIndex].id;
-            noteUserVisibility(targetId);
-            useViewStateStore.getState().setViewState((state) => {
-              const layer = state.layers.find((l) => l.id === targetId);
-              if (layer) {
-                layer.visible = !layer.visible;
-              }
-            });
+            const target = viewLayers[layerIndex];
+            // Through the layer service, so the layer list, the backend and
+            // the view state agree (a view-only toggle left the layer
+            // "visible" everywhere else, QA §4.2).
+            getLayerService().toggleVisibility(target.id, !target.visible);
           },
         }),
       );
@@ -573,12 +666,10 @@ function AppContent() {
         category: 'Layers',
         description: 'Show all layers',
         handler: () => {
-          useViewStateStore.getState().viewState.layers.forEach((layer) => noteUserVisibility(layer.id));
-          useViewStateStore.getState().setViewState((state) => {
-            state.layers.forEach((layer) => {
-              layer.visible = true;
-            });
-          });
+          useViewStateStore
+            .getState()
+            .viewState.layers.filter((layer) => !layer.visible)
+            .forEach((layer) => getLayerService().toggleVisibility(layer.id, true));
         },
       }),
     );
@@ -656,8 +747,11 @@ function AppContent() {
     };
 
     window.addEventListener('open-crosshair-settings', handleOpenSettings);
+    const handleOpenAppSettings = () => setShowSettings(true);
+    window.addEventListener('open-app-settings', handleOpenAppSettings);
     return () => {
       window.removeEventListener('open-crosshair-settings', handleOpenSettings);
+      window.removeEventListener('open-app-settings', handleOpenAppSettings);
     };
   }, []);
 
@@ -759,6 +853,8 @@ function AppContent() {
       <OpenImageSetDialog />
       {/* Export View as Image (opened from the view context menu via exportDialogStore) */}
       <ExportImageDialog />
+
+      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
 
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (

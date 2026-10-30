@@ -2229,6 +2229,11 @@ fn icon_for_entry(path: &Path, is_dir: bool) -> u8 {
     }
 }
 
+fn system_time_unix_ms(time: Option<SystemTime>) -> Option<u64> {
+    time.and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as u64)
+}
+
 /// List through an owned worker; the operation permit survives timeout cleanup.
 async fn list_remote_directory_for_local_path(
     state: &BridgeState,
@@ -2269,6 +2274,8 @@ async fn list_remote_directory_for_local_path(
             parent_idx: None,
             icon_id: icon_for_entry(&child_local_path, is_dir),
             is_dir,
+            size: (!is_dir).then_some(entry.metadata.size),
+            modified_ms: system_time_unix_ms(entry.metadata.modified),
         });
     }
 
@@ -2296,6 +2303,8 @@ async fn list_local_directory(path: &Path) -> BridgeResult<TreePayload> {
             parent_idx: None,
             icon_id: icon_for_entry(&child_path, metadata.is_dir()),
             is_dir: metadata.is_dir(),
+            size: (!metadata.is_dir()).then_some(metadata.len()),
+            modified_ms: system_time_unix_ms(metadata.modified().ok()),
         });
     }
 
@@ -3485,6 +3494,7 @@ async fn get_nifti_header_info(
         dimensions: dims,
         voxel_spacing,
         data_type: entry.metadata.dtype.clone(),
+        storage: nifti_loader::read_storage_info(std::path::Path::new(&entry.metadata.path)),
         voxel_to_world: vtw_flat,
         world_bounds_min,
         world_bounds_max,
@@ -12760,6 +12770,22 @@ async fn evaluate_population_slice(
         .population_slice
         .evaluate(request, state.inner(), cancellation)
         .await
+}
+
+/// The slice a population view opens on: the most summed |summary| along the
+/// view normal. Display-only; independent of slice admission and its cache.
+#[command]
+async fn population_peak_slice(
+    request: population_slice::PopulationSliceRequest,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Option<[f32; 3]>> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::peak_slice(request, state.inner(), cancellation).await
 }
 
 /// Fit exact spatial relationships on a declared common finite support.

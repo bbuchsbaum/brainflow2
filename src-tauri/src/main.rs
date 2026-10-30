@@ -5,9 +5,11 @@
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 use api_bridge::{self, BridgeState};
-use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::menu::{
+    CheckMenuItemBuilder, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+};
 use tauri::AppHandle;
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Listener, Manager, State};
 
 mod menu_builder;
 mod startup_args;
@@ -314,6 +316,20 @@ fn main() {
                 .accelerator("CmdOrCtrl+Shift+E")
                 .build(app)?;
 
+            // A check item kept in step with the UI (crosshair-visibility-changed
+            // below). No accelerator: bare C is the UI's "go to image center".
+            let show_crosshair = CheckMenuItemBuilder::new("Show Crosshair")
+                .id("toggle_crosshair")
+                .checked(true)
+                .build(app)?;
+
+            // Enabled only while the UI's Integrated feature flag is on
+            // (integrated-layout-availability below).
+            let layout_integrated = MenuItemBuilder::new("Integrated")
+                .id("layout_integrated")
+                .accelerator("CmdOrCtrl+2")
+                .build(app)?;
+
             // Build templates menu directly
             let templates_menu = {
                 // Create main Templates submenu
@@ -461,6 +477,14 @@ fn main() {
                     &SubmenuBuilder::new(app, "Brainflow")
                         .item(&PredefinedMenuItem::about(app, Some("Brainflow"), None)?)
                         .separator()
+                        // ui2 useAppSettingsMenuListener opens the Settings dialog.
+                        .item(
+                            &MenuItemBuilder::new("Settings...")
+                                .id("app_settings")
+                                .accelerator("CmdOrCtrl+,")
+                                .build(app)?,
+                        )
+                        .separator()
                         .item(&PredefinedMenuItem::services(app, None)?)
                         .separator()
                         .item(&PredefinedMenuItem::hide(app, None)?)
@@ -542,17 +566,20 @@ fn main() {
                         .item(&PredefinedMenuItem::cut(app, None)?)
                         .item(&PredefinedMenuItem::copy(app, None)?)
                         .item(&PredefinedMenuItem::paste(app, None)?)
-                        .item(&PredefinedMenuItem::select_all(app, None)?)
+                        // Not the predefined Select All: it would select every
+                        // label in the window (QA 2026-10-29 §4.3). The UI selects
+                        // within the focused text field only (ui2 editSelectAll).
+                        .item(
+                            &MenuItemBuilder::new("Select All")
+                                .id("edit_select_all")
+                                .accelerator("CmdOrCtrl+A")
+                                .build(app)?,
+                        )
                         .build()?,
                     &SubmenuBuilder::new(app, "View")
                         .item(&PredefinedMenuItem::fullscreen(app, None)?)
                         .separator()
-                        .item(
-                            &MenuItemBuilder::new("Show Crosshair")
-                                .id("toggle_crosshair")
-                                .accelerator("C")
-                                .build(app)?,
-                        )
+                        .item(&show_crosshair)
                         .item(
                             &MenuItemBuilder::new("Crosshair Settings...")
                                 .id("crosshair_settings")
@@ -576,16 +603,13 @@ fn main() {
                                         .accelerator("CmdOrCtrl+B")
                                         .build(app)?,
                                 )
+                                // Layers and atlases live in the Inspector; the old
+                                // "Layer Manager"/"Atlas Browser" items were aliases of
+                                // it (and Atlas Browser fought Select All for Cmd+A).
                                 .item(
-                                    &MenuItemBuilder::new("Layer Manager")
+                                    &MenuItemBuilder::new("Inspector")
                                         .id("panel_layer_manager")
                                         .accelerator("CmdOrCtrl+L")
-                                        .build(app)?,
-                                )
-                                .item(
-                                    &MenuItemBuilder::new("Atlas Browser")
-                                        .id("panel_atlas_browser")
-                                        .accelerator("CmdOrCtrl+A")
                                         .build(app)?,
                                 )
                                 .item(
@@ -600,42 +624,54 @@ fn main() {
                                         .id("panel_clusters")
                                         .build(app)?,
                                 )
+                                .separator()
+                                .item(
+                                    // Restores the default side panels (ui2 layoutService).
+                                    &MenuItemBuilder::new("Reset Layout")
+                                        .id("reset_layout")
+                                        .build(app)?,
+                                )
                                 .build()?,
                         )
                         .separator()
+                        // Layouts apply to the current tab, in place (ui2
+                        // services/workspaceNavigation.ts); they never open a tab.
                         .item(
-                            &SubmenuBuilder::new(app, "Workspace")
-                                // Visualization workspaces
+                            &SubmenuBuilder::new(app, "Layout")
                                 .item(
-                                    &MenuItemBuilder::new("Orthogonal (Locked)")
-                                        .id("workspace_orthogonal_locked")
+                                    &MenuItemBuilder::new("Orthogonal")
+                                        .id("layout_orthogonal")
                                         .accelerator("CmdOrCtrl+1")
                                         .build(app)?,
                                 )
+                                .item(&layout_integrated)
                                 .item(
-                                    &MenuItemBuilder::new("Orthogonal Panels")
-                                        .id("workspace_orthogonal_flexible")
-                                        .accelerator("CmdOrCtrl+2")
-                                        .build(app)?,
-                                )
-                                .separator()
-                                // Multi-slice workspaces
-                                .item(
-                                    &MenuItemBuilder::new("Mosaic View")
-                                        .id("workspace_mosaic")
+                                    &MenuItemBuilder::new("Mosaic")
+                                        .id("layout_mosaic")
                                         .accelerator("CmdOrCtrl+3")
                                         .build(app)?,
                                 )
                                 .item(
-                                    &MenuItemBuilder::new("Comparison View")
-                                        .id("workspace_comparison")
+                                    &MenuItemBuilder::new("Compare")
+                                        .id("layout_compare")
                                         .accelerator("CmdOrCtrl+4")
                                         .build(app)?,
                                 )
+                                .separator()
                                 .item(
-                                    &MenuItemBuilder::new("Integrated View")
-                                        .id("workspace_integrated")
-                                        .accelerator("CmdOrCtrl+6")
+                                    &MenuItemBuilder::new("Orthogonal Panels")
+                                        .id("layout_orthogonal_panels")
+                                        .build(app)?,
+                                )
+                                .build()?,
+                        )
+                        // New tabs: a new view, or a tool (opened once, then refocused).
+                        .item(
+                            &SubmenuBuilder::new(app, "Workspace")
+                                .item(
+                                    &MenuItemBuilder::new("New View")
+                                        .id("workspace_new_view")
+                                        .accelerator("CmdOrCtrl+T")
                                         .build(app)?,
                                 )
                                 .separator()
@@ -643,6 +679,17 @@ fn main() {
                                     &MenuItemBuilder::new("Set Studio")
                                         .id("workspace_set_studio")
                                         .accelerator("CmdOrCtrl+5")
+                                        .build(app)?,
+                                )
+                                .item(
+                                    &MenuItemBuilder::new("BIDS")
+                                        .id("workspace_bids")
+                                        .accelerator("CmdOrCtrl+6")
+                                        .build(app)?,
+                                )
+                                .item(
+                                    &MenuItemBuilder::new("Analysis")
+                                        .id("workspace_analysis")
                                         .build(app)?,
                                 )
                                 .build()?,
@@ -658,6 +705,33 @@ fn main() {
             )?;
 
             app.set_menu(menu)?;
+
+            // The UI owns crosshair visibility (this item only asks it to toggle);
+            // it reports every change so the check mark follows.
+            let crosshair_check = show_crosshair.clone();
+            app.listen("crosshair-visibility-changed", move |event| {
+                let visible = serde_json::from_str::<serde_json::Value>(event.payload())
+                    .ok()
+                    .and_then(|payload| payload.get("visible").and_then(|v| v.as_bool()));
+                if let Some(visible) = visible {
+                    if let Err(e) = crosshair_check.set_checked(visible) {
+                        eprintln!("Failed to sync Show Crosshair check: {}", e);
+                    }
+                }
+            });
+
+            // The UI reports its Integrated feature flag; the layout item follows.
+            let integrated_item = layout_integrated.clone();
+            app.listen("integrated-layout-availability", move |event| {
+                let enabled = serde_json::from_str::<serde_json::Value>(event.payload())
+                    .ok()
+                    .and_then(|payload| payload.get("enabled").and_then(|v| v.as_bool()));
+                if let Some(enabled) = enabled {
+                    if let Err(e) = integrated_item.set_enabled(enabled) {
+                        eprintln!("Failed to sync Integrated layout item: {}", e);
+                    }
+                }
+            });
 
             // Handle menu events
             app.on_menu_event(move |app, event| {
@@ -711,6 +785,11 @@ fn main() {
                             Err(e) => eprintln!("Failed to emit crosshair toggle event: {}", e),
                         }
                     }
+                    "app_settings" => {
+                        if let Err(e) = app.emit("app-settings-action", serde_json::json!({})) {
+                            eprintln!("Failed to emit app-settings-action event: {}", e);
+                        }
+                    }
                     "image_header" => {
                         if let Err(e) = app.emit("image-header-action", serde_json::json!({})) {
                             eprintln!("Failed to emit image-header-action event: {}", e);
@@ -728,12 +807,26 @@ fn main() {
                             Err(e) => eprintln!("Failed to emit crosshair settings event: {}", e),
                         }
                     }
+                    "edit_select_all" => {
+                        if let Err(e) =
+                            app.emit("edit-action", serde_json::json!({ "action": "select-all" }))
+                        {
+                            eprintln!("Failed to emit select-all event: {}", e);
+                        }
+                    }
+                    "reset_layout" => {
+                        if let Err(e) = app.emit(
+                            "panel-action",
+                            serde_json::json!({ "action": "reset-layout" }),
+                        ) {
+                            eprintln!("Failed to emit reset-layout event: {}", e);
+                        }
+                    }
                     // Handle panel menu items
                     id if id.starts_with("panel_") => {
                         let panel_type = match id {
                             "panel_file_browser" => "FileBrowser",
-                            "panel_layer_manager" => "LayerPanel",
-                            "panel_atlas_browser" => "AtlasPanel",
+                            "panel_layer_manager" => "Inspector",
                             "panel_plot" => "PlotPanel",
                             "panel_clusters" => "ClusterPanel",
                             _ => return,
@@ -755,32 +848,13 @@ fn main() {
                             Err(e) => eprintln!("Failed to emit panel event: {}", e),
                         }
                     }
-                    // Handle workspace menu items
-                    id if id.starts_with("workspace_") => {
-                        let workspace_type = match id {
-                            "workspace_orthogonal_locked" => "orthogonal-locked",
-                            "workspace_orthogonal_flexible" => "orthogonal-flexible",
-                            "workspace_mosaic" => "mosaic",
-                            "workspace_comparison" => "comparison",
-                            "workspace_integrated" => "integrated",
-                            "workspace_set_studio" => "set-studio",
-                            _ => return,
+                    // View › Layout and View › Workspace
+                    id if id.starts_with("layout_") || id.starts_with("workspace_") => {
+                        let Some(payload) = menu_builder::navigation_menu_action(id) else {
+                            return;
                         };
-
-                        println!("Workspace menu item clicked: {}", workspace_type);
-
-                        // Emit workspace action event to frontend
-                        match app.emit(
-                            "workspace-action",
-                            serde_json::json!({
-                                "action": "new-workspace",
-                                "payload": {
-                                    "type": workspace_type
-                                }
-                            }),
-                        ) {
-                            Ok(_) => println!("Workspace event emitted successfully"),
-                            Err(e) => eprintln!("Failed to emit workspace event: {}", e),
+                        if let Err(e) = app.emit("workspace-action", payload) {
+                            eprintln!("Failed to emit workspace event: {}", e);
                         }
                     }
                     // Handle template menu items

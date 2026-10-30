@@ -42,6 +42,35 @@
   border-right: none;
 }
 
+/* Crosshair / Pointer groups: one label, then unlabelled readouts. */
+.status-group {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 8px;
+  border-right: 1px solid var(--app-border-subtle);
+}
+
+.status-group__label {
+  color: var(--bf-text-muted);
+  font-size: var(--bf-text-xs);
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+
+.status-group .status-slot {
+  border-right: none;
+  padding: 0 5px;
+}
+
+/* Pointer off the image: greyed, values blank ("—"). */
+.status-group[data-inactive] .status-value {
+  color: var(--bf-text-muted);
+}
+
 .status-label {
   /* Labels use the muted token at full strength (AA); faint is decorative only. */
   color: var(--bf-text-muted);
@@ -227,7 +256,8 @@
     padding: 0 6px;
   }
 
-  .status-label {
+  .status-label,
+  .status-group__label {
     font-size: var(--bf-text-2xs);
   }
 }

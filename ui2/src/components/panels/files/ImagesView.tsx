@@ -2,11 +2,7 @@ import React, { useMemo } from 'react';
 import './FlatList.css';
 import type { DragFileData, FileTreeNode } from '@/types/filesystem';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
-import {
-  FILE_DRAG_MIME,
-  setActiveDragData,
-  clearActiveDragData,
-} from '@/utils/layerDrag';
+import { beginFileRowDrag } from '@/utils/layerDrag';
 import { inferFileType, type FileKind } from './shared/inferFileType';
 import { FlatFileRow } from './FlatFileRow';
 import { useRovingFocus } from '@/components/ui/bf';
@@ -97,10 +93,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
     );
   }
 
-  function handleDragStart(event: React.DragEvent, row: FlatImageRow) {
-    if (!event.dataTransfer) return;
-    event.stopPropagation();
-
+  function handleDragPointerDown(event: React.PointerEvent, row: FlatImageRow) {
     const extension = row.name.match(/\.[^.]+$/)?.[0];
     const dragData: DragFileData = {
       path: row.path,
@@ -109,13 +102,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
       extension,
     };
 
-    setActiveDragData(dragData);
-
-    const json = JSON.stringify(dragData);
-    event.dataTransfer.setData(FILE_DRAG_MIME, json);
-    event.dataTransfer.setData('application/json', json);
-    event.dataTransfer.setData('text/plain', row.path);
-    event.dataTransfer.effectAllowed = 'copy';
+    beginFileRowDrag(event, dragData);
   }
 
   return (
@@ -135,8 +122,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
           name={row.name}
           meta={row.relativeDir || undefined}
           title={row.path}
-          onDragStart={(event) => handleDragStart(event, row)}
-          onDragEnd={() => clearActiveDragData()}
+          onDragPointerDown={(event) => handleDragPointerDown(event, row)}
         />
       ))}
     </div>

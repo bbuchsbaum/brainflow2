@@ -11,6 +11,7 @@ import {
   closestCenter,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import { dropTargetInList } from "./sceneDrop";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -22,6 +23,8 @@ import { useSceneStack } from "@/hooks/useSceneStack";
 import { useLayerStore } from "@/stores/layerStore";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
+import { removeLayerFromScene } from "@/services/layerRemoval";
+import { useContextMenuStore } from "@/stores/contextMenuStore";
 import type { SceneItem } from "@/types/sceneItem";
 import {
   IconButton,
@@ -35,10 +38,10 @@ import { SceneStackItem } from "./SceneStackItem";
 import { useReadoutPoint } from "@/hooks/useReadoutPoint";
 import {
   formatVoxelIndex,
-  resolveVoxelGridReference,
   voxelIndexInBounds,
   worldToVoxelIndex,
 } from "@/utils/voxelSnap";
+import { useIjkSuffix, useReadoutGrid } from "@/hooks/useReadoutGrid";
 
 /**
  * Scene section of the imaging Inspector. Three subgroups:
@@ -68,14 +71,43 @@ export function SceneStack() {
   // Reordering a volume changes its z-order: the layer-array order is the
   // render contract (index 0 = base/bottom). All the store + ViewState + render
   // plumbing already lives behind `layerService.reorderLayers`; the UI just
-  // hands it the new id order. Surfaces/mappings are not reorderable here.
-  const handleVolumeReorder = useCallback((orderedIds: string[]) => {
+  // hands it the new id order. The dragged layer is marked as moved by the
+  // user, so later loads never re-sort it. Surfaces/mappings are not
+  // reorderable here.
+  const handleVolumeReorder = useCallback((orderedIds: string[], movedId: string) => {
     void getLayerService()
-      .reorderLayers(orderedIds)
+      .moveLayerByUser(orderedIds, movedId)
       .catch((error) => {
         console.error("[SceneStack] Failed to reorder volume layers:", error);
       });
   }, []);
+
+  // Right-click on a volume row: select it, then offer its layer actions.
+  const handleVolumeContextMenu = useCallback(
+    (item: SceneItem, event: React.MouseEvent) => {
+      if (item.ref.type !== "volume") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setActive(item);
+      const layerId = item.ref.layerId;
+      const visible = useLayerStore.getState().getLayer(layerId)?.visible !== false;
+      useContextMenuStore.getState().open(event.clientX, event.clientY, [
+        {
+          id: "layer.toggleVisible",
+          label: visible ? "Hide layer" : "Show layer",
+          onClick: () => getLayerService().toggleVisibility(layerId, !visible),
+        },
+        { id: "layer.sep", label: "", separator: true },
+        {
+          id: "layer.remove",
+          label: "Remove layer",
+          danger: true,
+          onClick: () => void removeLayerFromScene(layerId),
+        },
+      ]);
+    },
+    [setActive],
+  );
 
   // One tab stop for the whole scene list; arrows move across the groups.
   const ids = React.useMemo(
@@ -99,6 +131,7 @@ export function SceneStack() {
           activeItemId={activeItemId}
           onSelect={setActive}
           onReorder={handleVolumeReorder}
+          onContextMenu={handleVolumeContextMenu}
           rovingFor={rovingFor}
         />
         <SceneGroup
@@ -136,20 +169,18 @@ function GroupTitle({ id, children }: { id: string; children: React.ReactNode })
 
 /**
  * Right-aligned caption naming where the row values are read (P3.6): "At
- * pointer · ijk 29 57 64" while hovering a slice, else "At crosshair".
+ * pointer · ijk 29, 57, 64 (zstat1)" while hovering a slice, else "At
+ * crosshair". The ijk is on the selected layer's grid, named, like the
+ * status bar's.
  */
 function ReadoutCaption() {
   const { source, world } = useReadoutPoint();
-  const layers = useLayerStore((s) => s.layers);
-  const layerMetadata = useLayerStore((s) => s.layerMetadata);
-  const reference = React.useMemo(
-    () => resolveVoxelGridReference(layers, layerMetadata),
-    [layers, layerMetadata],
-  );
+  const grid = useReadoutGrid();
+  const suffix = useIjkSuffix(grid);
   let ijk: string | null = null;
-  if (source === "pointer") {
-    const index = reference ? worldToVoxelIndex(world, reference) : null;
-    ijk = index && voxelIndexInBounds(index, reference?.dims) ? formatVoxelIndex(index) : null;
+  if (source === "pointer" && grid) {
+    const index = worldToVoxelIndex(world, grid);
+    ijk = voxelIndexInBounds(index, grid.dims) ? formatVoxelIndex(index) : null;
   }
   // Prose in sans, the voxel numbers in mono.
   return (
@@ -157,13 +188,14 @@ function ReadoutCaption() {
       <span
         className="ml-auto"
         data-testid="scene-readout-caption"
-        title={reference ? `Voxel of ${reference.name}` : undefined}
+        title={grid ? `Voxel on the grid of ${grid.name}` : undefined}
       >
         {source === "pointer" ? "At pointer" : "At crosshair"}
-        {ijk ? (
+        {ijk && grid ? (
           <>
             {" · ijk "}
             <span className="font-mono tabular-nums">{ijk}</span>
+            {` (${suffix ?? grid.label})`}
           </>
         ) : null}
       </span>
@@ -233,14 +265,31 @@ function VolumeSceneGroup({
   activeItemId,
   onSelect,
   onReorder,
+  onContextMenu,
   rovingFor,
 }: {
   items: SceneItem[];
   activeItemId: string | null;
   onSelect: (item: SceneItem) => void;
-  onReorder: (orderedIds: string[]) => void;
+  onReorder: (orderedIds: string[], movedId: string) => void;
+  onContextMenu: (item: SceneItem, event: React.MouseEvent) => void;
   rovingFor: RovingFor;
 }) {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  // Delete / Backspace removes the selected volume while focus is in the
+  // list (never from a text field: the list holds none, but guard anyway).
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+    // A held key must not remove one layer per auto-repeat.
+    if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+    const item = items.find((candidate) => candidate.id === activeItemId);
+    if (!item || item.ref.type !== "volume") return;
+    event.preventDefault();
+    event.stopPropagation();
+    void removeLayerFromScene(item.ref.layerId);
+  };
   const titleId = `scene-group-${useId().replace(/:/g, "")}`;
   const sensors = useSensors(
     // Small activation distance so a click still selects; only a real drag
@@ -252,13 +301,31 @@ function VolumeSceneGroup({
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    const { active, over, delta } = event;
     const ids = items.map((item) => item.id);
+    // A quick flick can end before dnd-kit has measured a drop target
+    // (`over` null, QA §5.2): resolve it from where the row was let go.
+    let overId = over ? String(over.id) : null;
+    const list = listRef.current;
+    const start = active.rect.current.initial;
+    if (!overId && list && start) {
+      const rows = Array.from(list.querySelectorAll<HTMLElement>("[data-scene-sortable-id]")).map(
+        (el) => {
+          const rect = el.getBoundingClientRect();
+          return { id: el.dataset.sceneSortableId ?? "", top: rect.top, bottom: rect.bottom };
+        },
+      );
+      // Let go outside the list: cancel, never reorder.
+      overId = dropTargetInList(rows, list.getBoundingClientRect(), {
+        x: start.left + start.width / 2 + delta.x,
+        y: start.top + start.height / 2 + delta.y,
+      });
+    }
+    if (!overId || active.id === overId) return;
     const from = ids.indexOf(String(active.id));
-    const to = ids.indexOf(String(over.id));
+    const to = ids.indexOf(overId);
     if (from < 0 || to < 0) return;
-    onReorder(arrayMove(ids, from, to));
+    onReorder(arrayMove(ids, from, to), String(active.id));
   };
 
   return (
@@ -278,12 +345,18 @@ function VolumeSceneGroup({
           hint="Use + Load above, or double-click a file in Files."
         />
       ) : items.length === 1 ? (
-        <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
+        <div
+          role="grid"
+          aria-labelledby={titleId}
+          className="flex flex-col gap-0.5"
+          onKeyDown={handleKeyDown}
+        >
           <SceneStackItem
             item={items[0]}
             selected={items[0].id === activeItemId}
             onSelect={() => onSelect(items[0])}
             roving={rovingFor(items[0].id)}
+            onContextMenu={(event) => onContextMenu(items[0], event)}
           />
         </div>
       ) : (
@@ -296,7 +369,13 @@ function VolumeSceneGroup({
             items={items.map((item) => item.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div role="grid" aria-labelledby={titleId} className="flex flex-col gap-0.5">
+            <div
+              ref={listRef}
+              role="grid"
+              aria-labelledby={titleId}
+              className="flex flex-col gap-0.5"
+              onKeyDown={handleKeyDown}
+            >
               {items.map((item) => (
                 <SortableSceneStackItem
                   key={item.id}
@@ -304,6 +383,7 @@ function VolumeSceneGroup({
                   selected={item.id === activeItemId}
                   onSelect={() => onSelect(item)}
                   roving={rovingFor(item.id)}
+                  onContextMenu={(event) => onContextMenu(item, event)}
                 />
               ))}
             </div>
@@ -323,11 +403,13 @@ function SortableSceneStackItem({
   selected,
   onSelect,
   roving,
+  onContextMenu,
 }: {
   item: SceneItem;
   selected: boolean;
   onSelect: () => void;
   roving: RovingItemProps;
+  onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   const {
     attributes,
@@ -366,13 +448,14 @@ function SortableSceneStackItem({
   );
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} data-scene-sortable-id={item.id}>
       <SceneStackItem
         item={item}
         selected={selected}
         onSelect={onSelect}
         dragHandle={handle}
         roving={roving}
+        onContextMenu={onContextMenu}
       />
     </div>
   );

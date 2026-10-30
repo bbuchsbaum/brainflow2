@@ -129,6 +129,8 @@ export interface LayerValueReading {
   layerId: string;
   /** World point the reading was taken at. */
   world: WorldPoint;
+  /** Timepoint the reading was taken at (a reading of another frame is stale). */
+  timepoint: number;
   /** Sampled value; null when outside the volume or not finite. */
   value: number | null;
 }
@@ -164,13 +166,13 @@ export function useLayerValueAtWorld(
     }
     const point: WorldPoint = [x, y, z];
     if (!trustBackendBounds && !isInsideVolume(point, metadata)) {
-      setReading({ layerId, world: point, value: null });
+      setReading({ layerId, world: point, timepoint, value: null });
       return;
     }
     let cancelled = false;
     const timer = setTimeout(() => {
       void sampleLayerValue(layerId, point, timepoint).then((value) => {
-        if (!cancelled) setReading({ layerId, world: point, value });
+        if (!cancelled) setReading({ layerId, world: point, timepoint, value });
       });
     }, delayMs);
     return () => {

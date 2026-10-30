@@ -136,6 +136,41 @@ impl TemplateService {
         }
     }
 
+    /// The cached file of a template, downloading it only when missing. Unlike
+    /// `load_template`, nothing is decoded.
+    pub async fn ensure_cached(
+        &self,
+        config: &TemplateConfig,
+    ) -> Result<std::path::PathBuf, TemplateError> {
+        Ok(self.ensure_entry_cached(&config.id()).await?.1)
+    }
+
+    async fn ensure_entry_cached(
+        &self,
+        template_id: &str,
+    ) -> Result<(TemplateCatalogEntry, std::path::PathBuf), TemplateError> {
+        let entry = {
+            let catalog = self.catalog.read().await;
+            catalog
+                .get_by_id(template_id)
+                .ok_or_else(|| TemplateError::TemplateNotFound(template_id.to_string()))?
+                .clone()
+        };
+        let cache_path = self.get_cache_path(template_id)?;
+        if !cache_path.exists() {
+            self.download_template(&entry, &cache_path).await?;
+            let mut catalog = self.catalog.write().await;
+            catalog.mark_as_cached(template_id);
+        } else {
+            info!("Template {} found in cache", template_id);
+        }
+        {
+            let mut catalog = self.catalog.write().await;
+            catalog.update_last_accessed(template_id);
+        }
+        Ok((entry, cache_path))
+    }
+
     /// Load a template with the given configuration
     pub async fn load_template(
         &self,
@@ -153,34 +188,7 @@ impl TemplateService {
         )
         .await;
 
-        // Get template entry from catalog
-        let entry = {
-            let catalog = self.catalog.read().await;
-            catalog
-                .get_by_id(&template_id)
-                .ok_or_else(|| TemplateError::TemplateNotFound(template_id.clone()))?
-                .clone()
-        };
-
-        // Check if template is cached
-        let cache_path = self.get_cache_path(&template_id)?;
-
-        if !cache_path.exists() {
-            // Download template if not cached
-            self.download_template(&entry, &cache_path).await?;
-
-            // Mark as cached in catalog
-            let mut catalog = self.catalog.write().await;
-            catalog.mark_as_cached(&template_id);
-        } else {
-            info!("Template {} found in cache", template_id);
-        }
-
-        // Update last accessed time
-        {
-            let mut catalog = self.catalog.write().await;
-            catalog.update_last_accessed(&template_id);
-        }
+        let (entry, cache_path) = self.ensure_entry_cached(&template_id).await?;
 
         // Emit loading stage
         self.emit_progress(

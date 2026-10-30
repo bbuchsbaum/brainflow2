@@ -300,8 +300,13 @@ export function ClusterPanel() {
         ? 'Enter the FWHM in mm (one value, or three for i j k) for cluster p'
         : null;
   const canCompute = !notStatReason && !thresholdInvalid && !minInvalid && !fwhmInvalid && !computing;
-  // Shown under the toolbar row when the EmptyPane does not already say it.
-  const computeReason = notStatReason && target ? notStatReason : thresholdReason;
+  // A label/atlas or other non-statistic layer has no parameters to edit: the
+  // controls are off, not red (QA §9.5).
+  const paramsDisabled = notStatReason !== null;
+  // Shown in the toolbar row when the EmptyPane does not already say it (it
+  // does not when an error or another layer's table fills the body).
+  const emptyPaneShown = !(error && status === 'error') && (!target || !symbol) && !result;
+  const computeReason = notStatReason && !emptyPaneShown ? notStatReason : thresholdReason;
   const activeName = useLayerStore((s) => (active ? s.layers.find((l) => l.id === active.id)?.name : undefined));
 
   const compute = useCallback(() => {
@@ -523,7 +528,8 @@ export function ClusterPanel() {
           step={0.1}
           min={0}
           value={threshold ?? ''}
-          invalid={thresholdInvalid}
+          invalid={thresholdInvalid && !paramsDisabled}
+          disabled={paramsDisabled}
           aria-label={`Cluster threshold, absolute ${variable}`}
           onValueChange={(v) => setParams({ threshold: v, linked: false })}
         />
@@ -545,6 +551,7 @@ export function ClusterPanel() {
           aria-label="Sign"
           options={SIGN_OPTIONS}
           value={params.sign}
+          disabled={paramsDisabled}
           onValueChange={(v) => setParams({ sign: v as ClusterSign })}
         />
         <span className="text-bf-text-secondary" id="cluster-connectivity-label">
@@ -554,6 +561,7 @@ export function ClusterPanel() {
           aria-labelledby="cluster-connectivity-label"
           options={CONNECTIVITY_OPTIONS}
           value={String(params.connectivity)}
+          disabled={paramsDisabled}
           onValueChange={(v) => setParams({ connectivity: Number(v) as ClusterConnectivity })}
         />
         <label className="text-bf-text-secondary" htmlFor="cluster-min-voxels">
@@ -566,7 +574,8 @@ export function ClusterPanel() {
           min={1}
           unit="vox"
           value={params.minVoxels ?? ''}
-          invalid={minInvalid}
+          invalid={minInvalid && !paramsDisabled}
+          disabled={paramsDisabled}
           onValueChange={(v) => setParams({ minVoxels: v })}
         />
         {/* Always shown (round 4 C5): disabled with a hint when no brain mask
@@ -579,7 +588,7 @@ export function ClusterPanel() {
           id="cluster-search"
           className="w-auto max-w-[34ch] truncate"
           value={maskLayer?.id ?? ''}
-          disabled={maskCandidates.length === 0}
+          disabled={paramsDisabled || maskCandidates.length === 0}
           title={
             maskCandidates.length === 0
               ? 'Load a mask (a binary 0/1 volume) to restrict the search; until then the map’s non-zero voxels are searched'
@@ -614,6 +623,7 @@ export function ClusterPanel() {
         <Checkbox
           className="text-bf-xs text-bf-text-secondary"
           checked={params.extentP}
+          disabled={paramsDisabled}
           onCheckedChange={(checked) => setParams({ extentP: checked })}
           title="Cluster-extent p values by Gaussian random field theory, from the smoothness you state"
         >
@@ -629,7 +639,8 @@ export function ClusterPanel() {
               mono
               className="h-6 w-[8ch]"
               value={params.fwhmText}
-              invalid={fwhmInvalid && params.fwhmText.trim() !== ''}
+              invalid={fwhmInvalid && params.fwhmText.trim() !== '' && !paramsDisabled}
+              disabled={paramsDisabled}
               placeholder="mm"
               title="FWHM in mm, assumed stationary: one value, or three for i j k"
               aria-describedby="cluster-fwhm-hint"
@@ -765,8 +776,16 @@ export function ClusterPanel() {
                 <th scope="col" className="px-2 text-right font-normal">
                   Peak x y z (mm)
                 </th>
-                <th scope="col" className="px-2 text-right font-normal" title="Peak voxel index on the layer's grid">
+                <th
+                  scope="col"
+                  className="whitespace-nowrap px-2 text-right font-normal"
+                  title={result ? `Peak voxel index (i, j, k) on the grid of ${result.layerName}` : undefined}
+                >
+                  {/* The index names its grid, like the status bar's ijk. */}
                   Peak ijk
+                  {result ? (
+                    <span className="text-bf-text-muted"> ({middleElide(shortLayerLabel(result.layerName), 16)})</span>
+                  ) : null}
                 </th>
                 <th
                   scope="col"

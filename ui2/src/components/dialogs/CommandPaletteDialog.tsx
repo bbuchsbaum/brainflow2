@@ -4,6 +4,7 @@ import { Modal } from '@/components/ui/Modal';
 import { IconButton, SELECTED_EDGE } from '@/components/ui/bf';
 import { getEventBus } from '@/events/EventBus';
 import { formatTauriError } from '@/utils/formatTauriError';
+import { formatShortcut, rankCommands } from './commandPaletteMatch';
 
 /** Two frames: the closing Modal has unmounted and returned focus. */
 function afterFocusReturn(): Promise<void> {
@@ -32,28 +33,6 @@ interface CommandPaletteDialogProps {
   onClose: () => void;
 }
 
-function matchesQuery(command: CommandPaletteCommand, query: string): boolean {
-  if (!query) {
-    return true;
-  }
-
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  if (!normalizedQuery) {
-    return true;
-  }
-
-  const haystack = [
-    command.title,
-    command.subtitle ?? '',
-    command.group ?? '',
-    ...(command.keywords ?? []),
-  ]
-    .join(' ')
-    .toLocaleLowerCase();
-
-  return haystack.includes(normalizedQuery);
-}
-
 export function CommandPaletteDialog({ open, commands, onClose }: CommandPaletteDialogProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -61,7 +40,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
   const inputRef = useRef<HTMLInputElement>(null);
 
   const filteredCommands = useMemo(
-    () => commands.filter((command) => matchesQuery(command, query)),
+    () => rankCommands(commands, query),
     [commands, query]
   );
 
@@ -170,6 +149,10 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
             placeholder="Search commands..."
             className="flex-1 bg-transparent text-sm outline-none"
             aria-label="Command search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
           />
           <IconButton size="xs" icon={<X />} onClick={onClose} aria-label="Close command palette" />
         </div>
@@ -201,7 +184,11 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
                     ) : null}
                   </div>
                   <div className="shrink-0 text-bf-2xs text-muted-foreground">
-                    {running ? 'Running...' : command.shortcut ?? command.group ?? ''}
+                    {running
+                      ? 'Running...'
+                      : command.shortcut
+                        ? formatShortcut(command.shortcut)
+                        : (command.group ?? '')}
                   </div>
                 </button>
               );

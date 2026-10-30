@@ -67,6 +67,8 @@ interface SceneStackItemProps {
   dragHandle?: React.ReactNode;
   /** Roving-focus wiring from the scene list (`useRovingFocus`). */
   roving?: RovingItemProps;
+  /** Right-click on the row (the layer context menu). */
+  onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 const GLYPH_PROPS = {
@@ -154,7 +156,7 @@ const KIND_GLYPH: Record<SceneItemKind, React.ReactNode> = {
  * children; clicking or pressing keys on the handle never selects the row.
  */
 export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
-  function SceneStackItem({ item, selected, onSelect, dragHandle, roving }, ref) {
+  function SceneStackItem({ item, selected, onSelect, dragHandle, roving, onContextMenu }, ref) {
     const { ref: rovingRef, ...rovingProps } = roving ?? {};
     const uid = useId().replace(/:/g, "");
     const nameId = `scene-row-${uid}-name`;
@@ -171,6 +173,7 @@ export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
         role="row"
         selected={selected}
         onSelect={() => onSelect()}
+        onContextMenu={onContextMenu}
         // Named "<layer>, <kind>, <value>" from its own cells, so the value
         // (with the statistic's long form) is read; opacity lives in Render.
         aria-labelledby={`${nameId} ${kindId} ${valueId}`}

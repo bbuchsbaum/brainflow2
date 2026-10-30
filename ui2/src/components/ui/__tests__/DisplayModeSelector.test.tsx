@@ -12,6 +12,7 @@ const workspaceStoreState = vi.hoisted(() => ({
     workspaceStoreState.activeWorkspaceId = id;
   }),
   setActiveWorkspaceMode: vi.fn(),
+  setActiveWorkspaceType: vi.fn(),
 }));
 
 const featureFlagStoreState = vi.hoisted(() => ({
@@ -46,6 +47,8 @@ vi.mock("@/stores/featureFlagStore", () => {
 });
 
 import { DisplayModeSelector } from "../DisplayModeSelector";
+import { useActivePanelStore } from "@/stores/activePanelStore";
+import { useCenterTabStore } from "@/stores/centerTabStore";
 
 function makeWorkspace(id: string, type: WorkspaceType): Workspace {
   return {
@@ -73,7 +76,10 @@ function resetState() {
   workspaceStoreState.createWorkspace.mockClear();
   workspaceStoreState.activateWorkspace.mockClear();
   workspaceStoreState.setActiveWorkspaceMode.mockClear();
+  workspaceStoreState.setActiveWorkspaceType.mockClear();
   featureFlagStoreState.integratedWorkspaceV1 = false;
+  useActivePanelStore.getState().clearActivePanel();
+  useCenterTabStore.getState().setFrontComponentType(null);
 }
 
 describe("DisplayModeSelector", () => {
@@ -187,42 +193,37 @@ describe("DisplayModeSelector", () => {
     expect(screen.queryByTestId("display-mode-tool")).toBeNull();
   });
 
-  it("returns from a tool to the latest view in the clicked mode without reconfiguring the tool tab", () => {
-    const older = makeWorkspace("view-old", "mosaic");
-    older.timestamp = 1;
-    const newer = makeWorkspace("view-new", "mosaic");
-    newer.timestamp = 2;
-    workspaceStoreState.workspaces.set("view-old", older);
-    workspaceStoreState.workspaces.set("view-new", newer);
-    workspaceStoreState.workspaces.set(
-      "tool",
-      makeWorkspace("tool", "bids-explorer"),
-    );
-    workspaceStoreState.activeWorkspaceId = "tool";
+  it.each(["bids-explorer", "analysis-workbench", "set-studio"] as const)(
+    "is disabled in a tool tab (%s): a click neither reconfigures the tool nor jumps to a view",
+    (toolType) => {
+      workspaceStoreState.workspaces.set("view", makeWorkspace("view", "mosaic"));
+      workspaceStoreState.workspaces.set("tool", makeWorkspace("tool", toolType));
+      workspaceStoreState.activeWorkspaceId = "tool";
+
+      render(<DisplayModeSelector />);
+      const mosaic = screen.getByRole("radio", { name: "Mosaic" });
+      expect(mosaic).toBeDisabled();
+      fireEvent.click(mosaic);
+      fireEvent.click(screen.getByRole("radio", { name: "Orthogonal" }));
+
+      expect(workspaceStoreState.activateWorkspace).not.toHaveBeenCalled();
+      expect(workspaceStoreState.setActiveWorkspaceMode).not.toHaveBeenCalled();
+      expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
+    },
+  );
+
+  it("is disabled while the surface tab is in front (it has no slice layout)", () => {
+    workspaceStoreState.workspaces.set("view", makeWorkspace("view", "mosaic"));
+    workspaceStoreState.activeWorkspaceId = "view";
+    useCenterTabStore.getState().setFrontComponentType("surfaceView");
+    // Focus moves to a side stack (Subjects, a dock tab): still a surface tab in front.
+    useActivePanelStore.getState().setActivePanel("StudioDesignPanel", null);
 
     render(<DisplayModeSelector />);
-    fireEvent.click(screen.getByRole("radio", { name: "Mosaic" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Compare" }));
 
-    expect(workspaceStoreState.activateWorkspace).toHaveBeenCalledWith(
-      "view-new",
-    );
-    expect(workspaceStoreState.setActiveWorkspaceMode).not.toHaveBeenCalled();
-    expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
-  });
-
-  it("opens a new view from a tool when no view is in the clicked mode", () => {
-    workspaceStoreState.workspaces.set(
-      "tool",
-      makeWorkspace("tool", "analysis-workbench"),
-    );
-    workspaceStoreState.activeWorkspaceId = "tool";
-
-    render(<DisplayModeSelector />);
-    fireEvent.click(screen.getByRole("radio", { name: "Orthogonal" }));
-
-    expect(workspaceStoreState.createWorkspace).toHaveBeenCalledWith(
-      "orthogonal-locked",
-    );
+    expect(screen.getByRole("radio", { name: "Compare" })).toBeDisabled();
+    expect(screen.getByTestId("display-mode-tool")).toHaveTextContent("InSurface");
     expect(workspaceStoreState.setActiveWorkspaceMode).not.toHaveBeenCalled();
   });
 
@@ -278,6 +279,26 @@ describe("DisplayModeSelector", () => {
     );
     expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
     expect(workspaceStoreState.activateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("changes this tab even when another tab is already in the clicked mode (no jump)", () => {
+    // qa-design-decisions-2026-10-30 §1 replaces the jump-to-existing rule.
+    workspaceStoreState.workspaces.set(
+      "view-1",
+      makeWorkspace("view-1", "orthogonal-flexible"),
+    );
+    workspaceStoreState.workspaces.set(
+      "compare-1",
+      makeWorkspace("compare-1", "comparison"),
+    );
+    workspaceStoreState.activeWorkspaceId = "view-1";
+
+    render(<DisplayModeSelector />);
+    fireEvent.click(screen.getByRole("radio", { name: "Compare" }));
+
+    expect(workspaceStoreState.setActiveWorkspaceMode).toHaveBeenCalledWith("compare");
+    expect(workspaceStoreState.activateWorkspace).not.toHaveBeenCalled();
+    expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
   });
 
   it("creates an integrated workspace when the flag is on and clicked", () => {
@@ -344,14 +365,14 @@ describe("DisplayModeSelector", () => {
     expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
   });
 
-  it("is one tab stop (radio group); in a tool workspace the stop is the first segment", () => {
-    workspaceStoreState.workspaces.set("tool", makeWorkspace("tool", "bids-explorer"));
-    workspaceStoreState.activeWorkspaceId = "tool";
+  it("is one tab stop (radio group) on the checked segment in a view tab", () => {
+    workspaceStoreState.workspaces.set("view", makeWorkspace("view", "mosaic"));
+    workspaceStoreState.activeWorkspaceId = "view";
 
     render(<DisplayModeSelector />);
 
     const radios = screen.getAllByRole("radio");
-    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1", "-1"]);
+    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"]);
     expect(screen.getByRole("radiogroup", { name: "Display mode" })).toBeInTheDocument();
   });
 });

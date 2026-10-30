@@ -48,9 +48,10 @@ export function worldToVoxelIndex(
 }
 
 /**
- * "69 36 34" for a voxel index (the status-bar ijk readout): spaces, never
- * commas, so it cannot be read as mm. Integers when snapped; otherwise one
- * decimal ("47.5"). U+2212 minus.
+ * "69, 36, 34" for a voxel index: the one ijk format (status bar, Inspector
+ * caption, cluster table). Displays prefix it with "ijk" and name the grid
+ * (`formatIjkReadout`), so it is never read as mm. Integers when snapped;
+ * otherwise one decimal ("47.5"). U+2212 minus.
  */
 export function formatVoxelIndex(index: readonly number[], decimals = 0): string {
   return index
@@ -58,7 +59,16 @@ export function formatVoxelIndex(index: readonly number[], decimals = 0): string
       const text = decimals > 0 ? v.toFixed(decimals) : String(Math.round(v));
       return (Number(text) === 0 ? text.replace('-', '') : text).replace('-', '\u2212');
     })
-    .join(' ');
+    .join(', ');
+}
+
+/**
+ * "ijk 23, 41, 30 (zstat1)": a voxel index always names its grid (QA design
+ * decisions 2026-10-30, section 3). `index` null (outside the grid) reads
+ * "ijk — (zstat1)", so the grid stays named.
+ */
+export function formatIjkReadout(index: string | null, gridName: string): string {
+  return `ijk ${index ?? '\u2014'} (${gridName})`;
 }
 
 /** True when an integer voxel index lies inside `dims`. */
@@ -106,6 +116,64 @@ export function resolveVoxelGridReference(
     };
   }
   return null;
+}
+
+/** A layer's own voxel grid, or null when it has no usable affine. */
+export function resolveLayerVoxelGrid(
+  layerId: string | null | undefined,
+  layers: ReadonlyArray<Pick<LayerInfo, 'id' | 'name' | 'volumeId'>>,
+  layerMetadata: ReadonlyMap<string, VolumeMetadata> | undefined,
+): VoxelGridReference | null {
+  if (!layerId || !layerMetadata) return null;
+  const layer = layers.find((l) => l.id === layerId);
+  const meta = layerMetadata.get(layerId);
+  if (!layer?.volumeId || !isAffine4x4(meta?.voxelToWorld) || !isAffine4x4(meta?.worldToVoxel)) return null;
+  return {
+    layerId,
+    name: layer.name,
+    voxelToWorld: meta!.voxelToWorld!,
+    worldToVoxel: meta!.worldToVoxel!,
+    dims: meta?.dimensions ?? null,
+  };
+}
+
+/** The grid a readout's ijk is on, and whether it is the snapping reference. */
+export interface ReadoutGrid extends VoxelGridReference {
+  isReference: boolean;
+}
+
+/**
+ * The grid every ijk readout uses: the given (selected / reported) layer's
+ * own grid, so the status bar, the Inspector caption and the cluster table
+ * (whose peaks are on the map's grid) agree for the same layer. Falls back to
+ * the reference grid when that layer has no affine (none selected, a
+ * surface).
+ */
+export function resolveReadoutGrid(
+  layerId: string | null | undefined,
+  layers: ReadonlyArray<Pick<LayerInfo, 'id' | 'name' | 'volumeId'>>,
+  layerMetadata: ReadonlyMap<string, VolumeMetadata> | undefined,
+): ReadoutGrid | null {
+  const reference = resolveVoxelGridReference(layers, layerMetadata);
+  const own = resolveLayerVoxelGrid(layerId, layers, layerMetadata);
+  const grid = own ?? reference;
+  if (!grid) return null;
+  return { ...grid, isReference: !!reference && reference.layerId === grid.layerId };
+}
+
+/**
+ * True when two world points fall in the same voxel of a grid (or are equal,
+ * without one): a reading taken at `a` is still current at `b`.
+ */
+export function sameVoxel(
+  a: readonly number[],
+  b: readonly number[],
+  grid: Pick<VoxelGridReference, 'worldToVoxel'> | null | undefined,
+): boolean {
+  if (!grid) return a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+  const ia = worldToVoxelIndex([a[0], a[1], a[2]], grid);
+  const ib = worldToVoxelIndex([b[0], b[1], b[2]], grid);
+  return ia.every((v, i) => v === ib[i]);
 }
 
 /**

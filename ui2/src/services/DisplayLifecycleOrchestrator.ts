@@ -12,10 +12,11 @@
  * - surface overlay load
  */
 
+import { trackSingleLoad } from './loadSelection';
 import { getTransport } from './transport';
 import type { WorkspaceBrowserTransport } from './browser/WorkspaceBrowserTransport';
 import { matchingOverlayTarget } from './surfaceOverlayIdentity';
-import { formatTauriError, toError } from '@/utils/formatTauriError';
+import { formatTauriError, toError, loadFailureMessage } from '@/utils/formatTauriError';
 import { fileLoadScheduler } from './LoadScheduler';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService } from './apiService';
@@ -67,6 +68,9 @@ export class DisplayLifecycleOrchestrator {
     this.initializeIngressListeners();
   }
 
+  /** Volume paths being opened by the user (not programmatically). */
+  private readonly userOpenedPaths = new Set<string>();
+
   static getInstance(): DisplayLifecycleOrchestrator {
     if (!DisplayLifecycleOrchestrator.instance) {
       DisplayLifecycleOrchestrator.instance = new DisplayLifecycleOrchestrator();
@@ -98,6 +102,8 @@ export class DisplayLifecycleOrchestrator {
 
     const filename = this.extractFilename(path);
     const route = this.resolveLoadRoute(path, filename);
+    // A user-opened file (Files, drop, dialog) may take the selection.
+    const userOpened = ingress !== 'programmatic';
 
     console.log(`[DisplayLifecycleOrchestrator] loadFile (${ingress})`, { path, route, intent });
 
@@ -114,7 +120,12 @@ export class DisplayLifecycleOrchestrator {
         });
         return;
       case 'volume':
-        await this.loadVolumeForIntent(path, filename, startTime, intent, request.workspaceId);
+        if (userOpened) this.userOpenedPaths.add(path);
+        try {
+          await this.loadVolumeForIntent(path, filename, startTime, intent, request.workspaceId);
+        } finally {
+          if (userOpened) this.userOpenedPaths.delete(path);
+        }
         return;
     }
   }
@@ -344,6 +355,8 @@ export class DisplayLifecycleOrchestrator {
       },
     });
 
+    // Tracked from enqueue, so files dropped together count as a batch.
+    const single = this.userOpenedPaths.has(path) ? trackSingleLoad(queueId) : null;
     const release = await fileLoadScheduler.acquire();
     const abort = new AbortController();
     const isCurrent = () =>
@@ -384,6 +397,7 @@ export class DisplayLifecycleOrchestrator {
         source: 'file',
         sourcePath: path,
         replacement: { isCurrent },
+        ...(single ? { autoSelect: single.autoSelect } : {}),
         layerType: isLabelImage(filename, volumeHandle) ? 'label' : this.inferLayerType(filename),
         visible: true,
       });
@@ -417,12 +431,13 @@ export class DisplayLifecycleOrchestrator {
       this.eventBus.emit('file.error', { path, error: failure });
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: `Failed to load ${filename}: ${failure.message}`,
+        message: loadFailureMessage(filename, failure),
       });
       return null;
     } finally {
       unqueue();
       unworkspace();
+      single?.dispose();
       release();
     }
   }
@@ -514,7 +529,7 @@ export class DisplayLifecycleOrchestrator {
       queueStore.markError(queueId, failure);
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: `Failed to load overlay ${filename}: ${failure.message}`,
+        message: loadFailureMessage(`overlay ${filename}`, failure),
       });
       return null;
     }

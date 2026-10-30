@@ -80,3 +80,23 @@ describe('inspectorSelectionStore', () => {
     expect(useLayerStore.getState().selectedLayerId).toBeNull();
   });
 });
+
+describe('focusVolumeLayer (shared scene classifier)', () => {
+  beforeEach(() => {
+    useLayerStore.getState().clearLayers();
+    useInspectorSelectionStore.getState().clear();
+  });
+
+  it('classifies a user label map as an atlas item and never as the base', async () => {
+    const { focusVolumeLayer } = await import('@/stores/inspectorSelectionStore');
+    const add = (layer: object) =>
+      useLayerStore.getState().addLayer({ name: 'x', volumeId: 'x', type: 'anatomical', visible: true, order: 0, ...layer } as never);
+    add({ id: 'seg', isLabelMap: true });
+    add({ id: 't1' });
+    focusVolumeLayer('seg');
+    expect(useInspectorSelectionStore.getState().activeItemKind).toBe('volume-overlay-atlas');
+    focusVolumeLayer('t1');
+    expect(useInspectorSelectionStore.getState()).toMatchObject({ activeItemId: 't1', activeItemKind: 'volume-base' });
+    expect(useLayerStore.getState().selectedLayerId).toBe('t1');
+  });
+});

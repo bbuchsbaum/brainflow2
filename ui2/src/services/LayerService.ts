@@ -18,6 +18,8 @@ export interface LayerLoadContext {
   replaceLayerId?: string;
   memberRender?: Record<string, import('@/types/viewState').ViewLayer>;
   isCurrent?: () => boolean;
+  /** Asked at commit: select the new layer (a single user-opened load). */
+  autoSelect?: () => boolean;
   beforeCommit?: () => void;
   afterCommit?: (layer: Layer) => void;
 }
@@ -27,7 +29,7 @@ export interface LayerApi {
   removeLayer(id: string): Promise<void>;
   updateLayer(id: string, updates: Partial<Layer>): Promise<Layer>;
   patchLayerRender(id: string, patch: Partial<LayerRender>): Promise<void>;
-  reorderLayers(layerIds: string[]): Promise<void>;
+  reorderLayers(layerIds: string[], workspaceId?: string): Promise<void>;
   loadLayerData(id: string): Promise<void>;
 }
 
@@ -98,17 +100,29 @@ export class LayerService {
   /**
    * Remove a layer
    */
-  async removeLayer(id: string): Promise<void> {
-    try {
-      await this.api.removeLayer(id);
-      this.eventBus.emit('layer.removed', { layerId: id });
-      this.clearError(id);
-      this.setLoadingState(id, false);
-    } catch (error) {
-      this.eventBus.emit('layer.error', { layerId: id, error: error as Error });
-      throw error;
-    }
+  removeLayer(id: string): Promise<void> {
+    // A second request while the first is unloading joins it: one teardown,
+    // one `layer.removed`.
+    const inFlight = this.removing.get(id);
+    if (inFlight) return inFlight;
+    const removal = (async () => {
+      try {
+        await this.api.removeLayer(id);
+        this.eventBus.emit('layer.removed', { layerId: id });
+        this.clearError(id);
+        this.setLoadingState(id, false);
+      } catch (error) {
+        this.eventBus.emit('layer.error', { layerId: id, error: error as Error });
+        throw error;
+      } finally {
+        this.removing.delete(id);
+      }
+    })();
+    this.removing.set(id, removal);
+    return removal;
   }
+
+  private readonly removing = new Map<string, Promise<void>>();
 
   /**
    * Update layer properties
@@ -167,8 +181,10 @@ export class LayerService {
       if (!layer) {
         return;
       }
+      // Opacity is left alone: it survives hide/show (a zeroed one from an
+      // older build is restored on show).
       layer.visible = visible;
-      layer.opacity = visible ? 1.0 : 0.0;
+      if (visible && !(layer.opacity > 0)) layer.opacity = 1.0;
     });
     
     // Emit event for immediate UI update
@@ -183,11 +199,22 @@ export class LayerService {
   }
 
   /**
+   * Reorder layers from a user's move of `movedLayerId`. A moved layer is
+   * never re-sorted by the load-time stack rule (`layerPlacement.ts`).
+   */
+  async moveLayerByUser(layerIds: string[], movedLayerId: string, workspaceId?: string): Promise<void> {
+    await this.reorderLayers(layerIds, workspaceId);
+    useLayerStore.getState().updateLayer(movedLayerId, { userMoved: true });
+  }
+
+  /**
    * Reorder layers
    */
-  async reorderLayers(layerIds: string[]): Promise<void> {
+  async reorderLayers(layerIds: string[], workspaceId?: string): Promise<void> {
     try {
-      await this.api.reorderLayers(layerIds);
+      await (workspaceId === undefined
+        ? this.api.reorderLayers(layerIds)
+        : this.api.reorderLayers(layerIds, workspaceId));
       this.eventBus.emit('layer.reordered', { layerIds });
     } catch (error) {
       this.eventBus.emit('layer.error', { 

@@ -5,10 +5,45 @@ import { useLayerStore } from '@/stores/layerStore';
 import type { SpatialFieldSetSummary } from '@/types/studio';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
+import { useAppModeStore } from '@/stores/appModeStore';
+import { markStudioMemberLoad } from './studioMemberLoads';
+
+/** The Studio is the active mode right now. */
+function isStudioActive(): boolean {
+  return useAppModeStore.getState().mode === 'studio';
+}
+
+type LayerStoreState = ReturnType<typeof useLayerStore.getState>;
+
+/** The layer loaded from `sourcePath`, if any (a store selector). */
+export function findLayerIdForSourcePath(
+  state: Pick<LayerStoreState, 'layers' | 'layerMetadata'>,
+  sourcePath: string | null | undefined,
+): string | null {
+  const path = sourcePath?.trim();
+  if (!path) return null;
+  const matchingLayer = state.layers.find((layer) => {
+    const metadata = state.layerMetadata.get(layer.id);
+    return metadata?.sourcePath === path || layer.sourcePath === path;
+  });
+  return matchingLayer?.id ?? null;
+}
 
 export class StudioDisplayService {
   private static instance: StudioDisplayService | null = null;
   private inFlightPath: string | null = null;
+  /**
+   * Layers the Studio loaded to display its members. They belong to the
+   * Studio session: leaving the Studio removes them, so a member such as
+   * "Faces beta (sub-01)" never stays in the imaging scene (QA §11).
+   */
+  private readonly owned = new Set<string>();
+  /** Visibility of user layers the Studio changed, restored on release. */
+  private readonly userVisibility = new Map<string, boolean>();
+  /** Bumped by release, so a load can tell it outlived its session. */
+  private session = 0;
+  /** The release in progress: a quick re-entry waits for it. */
+  private releasing: Promise<void> | null = null;
 
   static getInstance(): StudioDisplayService {
     if (!StudioDisplayService.instance) {
@@ -34,19 +69,20 @@ export class StudioDisplayService {
     const managedPaths = activeSet.memberSummaries
       .map((candidate) => candidate.sourcePath?.trim() ?? '')
       .filter((path): path is string => path.length > 0);
-    await this.ensureSourcePathDisplayed(sourcePath, managedPaths);
+    await this.ensureSourcePathDisplayed(sourcePath, managedPaths, member?.id);
   }
 
   async ensureSourcePathDisplayed(
     sourcePath: string,
-    managedSourcePaths: string[] = []
+    managedSourcePaths: string[] = [],
+    memberLabel?: string | null
   ): Promise<void> {
     const normalizedPath = this.normalizePath(sourcePath);
     if (!normalizedPath) {
       return;
     }
 
-    const layerId = await this.ensureLayerLoaded(normalizedPath, 'default');
+    const layerId = await this.ensureLayerLoaded(normalizedPath, 'default', memberLabel);
     if (!layerId) {
       return;
     }
@@ -77,10 +113,19 @@ export class StudioDisplayService {
       return;
     }
 
-    const compareLayerId = await this.ensureLayerLoaded(compareSourcePath, 'add-layer');
+    const compareLayerId = await this.ensureLayerLoaded(
+      compareSourcePath,
+      'add-layer',
+      args.compareLabel
+    );
     if (!compareLayerId) {
       return;
     }
+
+    // Opening a Compare view is an explicit hand-off: both layers now
+    // belong to that workspace and stay when the Studio is left.
+    this.adopt(currentLayerId);
+    this.adopt(compareLayerId);
 
     const compareLayer = useLayerStore
       .getState()
@@ -103,12 +148,7 @@ export class StudioDisplayService {
   }
 
   private findLayerIdBySourcePath(sourcePath: string): string | null {
-    const state = useLayerStore.getState();
-    const matchingLayer = state.layers.find((layer) => {
-      const metadata = state.layerMetadata.get(layer.id);
-      return metadata?.sourcePath === sourcePath || layer.sourcePath === sourcePath;
-    });
-    return matchingLayer?.id ?? null;
+    return findLayerIdForSourcePath(useLayerStore.getState(), sourcePath);
   }
 
   private syncSourcePathVisibility(
@@ -133,6 +173,9 @@ export class StudioDisplayService {
 
       const shouldBeVisible = layer.id === visibleLayerId;
       if (layer.visible !== shouldBeVisible) {
+        if (!this.owned.has(layer.id) && !this.userVisibility.has(layer.id)) {
+          this.userVisibility.set(layer.id, layer.visible);
+        }
         layerService.toggleVisibility(layer.id, shouldBeVisible);
       }
     });
@@ -148,8 +191,12 @@ export class StudioDisplayService {
 
   private async ensureLayerLoaded(
     sourcePath: string,
-    intent: 'default' | 'add-layer'
+    intent: 'default' | 'add-layer',
+    memberLabel?: string | null
   ): Promise<string | null> {
+    // Re-entering the Studio while its last session's layers are being
+    // removed: wait, or this would reuse a layer that is about to go.
+    if (this.releasing) await this.releasing;
     const existingLayerId = this.findLayerIdBySourcePath(sourcePath);
     if (existingLayerId) {
       return existingLayerId;
@@ -160,18 +207,82 @@ export class StudioDisplayService {
     }
 
     this.inFlightPath = sourcePath;
+    const session = this.session;
+    // The log attributes this load to the Studio member, not to a plain file.
+    const unmark = markStudioMemberLoad(
+      sourcePath,
+      memberLabel?.trim() || sourcePath.split(/[\\/]/).pop() || sourcePath
+    );
     try {
       if (this.isTemplateSource(sourcePath)) {
         await getTemplateService().loadTemplateBySourcePath(sourcePath);
       } else {
         await getFileLoadingService().loadFile(sourcePath, 'programmatic', intent);
       }
-      return this.findLayerIdBySourcePath(sourcePath);
+      const layerId = this.findLayerIdBySourcePath(sourcePath);
+      if (!layerId) return null;
+      if (session !== this.session && !isStudioActive()) {
+        // The Studio was left while this member loaded (and not re-entered).
+        await getLayerService().removeLayer(layerId).catch((error) => {
+          console.warn('[StudioDisplayService] Could not discard a late member layer:', error);
+        });
+        return null;
+      }
+      this.owned.add(layerId);
+      return layerId;
     } finally {
+      unmark();
       if (this.inFlightPath === sourcePath) {
         this.inFlightPath = null;
       }
     }
+  }
+
+  /** Keep a Studio-loaded layer after the Studio is left. */
+  adopt(layerId: string): void {
+    this.owned.delete(layerId);
+    this.userVisibility.delete(layerId);
+  }
+
+  /** Whether the Studio session owns `layerId` (tests, diagnostics). */
+  ownsLayer(layerId: string): boolean {
+    return this.owned.has(layerId);
+  }
+
+  /**
+   * Leaving the Studio: remove the layers it loaded (full teardown through
+   * the layer service) and restore the visibility of user layers it hid.
+   */
+  releaseStudioLayers(): Promise<void> {
+    const run = this.releaseOnce();
+    this.releasing = run;
+    return run.finally(() => {
+      if (this.releasing === run) this.releasing = null;
+    });
+  }
+
+  private async releaseOnce(): Promise<void> {
+    this.session += 1;
+    const owned = [...this.owned];
+    this.owned.clear();
+    const restore = [...this.userVisibility];
+    this.userVisibility.clear();
+
+    const layerService = getLayerService();
+    const present = new Set(useLayerStore.getState().layers.map((layer) => layer.id));
+    for (const [layerId, visible] of restore) {
+      const layer = useLayerStore.getState().getLayer(layerId);
+      if (layer && layer.visible !== visible) layerService.toggleVisibility(layerId, visible);
+    }
+    await Promise.all(
+      owned
+        .filter((layerId) => present.has(layerId))
+        .map((layerId) =>
+          layerService.removeLayer(layerId).catch((error) => {
+            console.warn(`[StudioDisplayService] Could not remove Studio layer ${layerId}:`, error);
+          }),
+        ),
+    );
   }
 
   private async ensureComparisonWorkspace(): Promise<string> {

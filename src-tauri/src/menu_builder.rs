@@ -905,9 +905,140 @@ pub fn build_surface_templates_menu(
     surfaces_menu.build()
 }
 
+// ============================================================================
+// View › Layout and View › Workspace
+// ============================================================================
+
+/// The `workspace-action` payload for a View › Layout or View › Workspace item
+/// (ui2 `useWorkspaceMenuListener`). Layouts apply to the current tab in place;
+/// New View opens a tab; a tool opens once and is refocused afterwards.
+pub fn navigation_menu_action(menu_id: &str) -> Option<serde_json::Value> {
+    let layout = |layout: &str| serde_json::json!({ "action": "set-layout", "payload": { "layout": layout } });
+    let tool =
+        |kind: &str| serde_json::json!({ "action": "open-tool", "payload": { "type": kind } });
+    Some(match menu_id {
+        "layout_orthogonal" => layout("orthogonal"),
+        "layout_integrated" => layout("integrated"),
+        "layout_mosaic" => layout("mosaic"),
+        "layout_compare" => layout("compare"),
+        "layout_orthogonal_panels" => layout("orthogonal-flexible"),
+        "workspace_new_view" => serde_json::json!({ "action": "new-view" }),
+        "workspace_set_studio" => tool("set-studio"),
+        "workspace_bids" => tool("bids-explorer"),
+        "workspace_analysis" => tool("analysis-workbench"),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every View › Layout / View › Workspace item in main.rs emits an action.
+    #[test]
+    fn every_navigation_menu_id_has_an_action() {
+        let main_rs = include_str!("main.rs");
+        let mut checked = 0;
+        for prefix in [".id(\"layout_", ".id(\"workspace_"] {
+            for chunk in main_rs.split(prefix).skip(1) {
+                let rest = chunk.split('"').next().unwrap();
+                let id = format!("{}{}", &prefix[5..], rest);
+                assert!(
+                    navigation_menu_action(&id).is_some(),
+                    "menu item `{id}` has no workspace-action"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 9, "expected 5 layout items and 4 workspace items");
+        // View › Layout › Integrated follows the UI feature flag.
+        assert!(main_rs.contains("app.listen(\"integrated-layout-availability\""));
+        assert!(main_rs.contains("integrated_item.set_enabled(enabled)"));
+    }
+
+    /// Cmd+1–4 set the current tab's layout, Cmd+5/6 open tools, Cmd+T opens a
+    /// view; each accelerator is bound once.
+    #[test]
+    fn navigation_menu_accelerators_are_unique_and_mapped() {
+        let main_rs = include_str!("main.rs");
+        let expected = [
+            ("CmdOrCtrl+1", "layout_orthogonal"),
+            ("CmdOrCtrl+2", "layout_integrated"),
+            ("CmdOrCtrl+3", "layout_mosaic"),
+            ("CmdOrCtrl+4", "layout_compare"),
+            ("CmdOrCtrl+5", "workspace_set_studio"),
+            ("CmdOrCtrl+6", "workspace_bids"),
+            ("CmdOrCtrl+T", "workspace_new_view"),
+            ("CmdOrCtrl+,", "app_settings"),
+        ];
+        for (accelerator, id) in expected {
+            let needle = format!(".accelerator(\"{accelerator}\")");
+            assert_eq!(
+                main_rs.matches(&needle).count(),
+                1,
+                "{accelerator} must be bound exactly once"
+            );
+            let item = format!(".id(\"{id}\")\n");
+            let at = main_rs
+                .find(&item)
+                .unwrap_or_else(|| panic!("no menu item `{id}`"));
+            let next_line = main_rs[at + item.len()..].lines().next().unwrap_or("");
+            assert!(
+                next_line.contains(&needle),
+                "`{id}` should carry {accelerator}, found `{}`",
+                next_line.trim()
+            );
+        }
+    }
+
+    /// Settings... (Cmd+,) sits in the app menu and has a handler that emits
+    /// the event ui2 turns into `open-app-settings`.
+    #[test]
+    fn settings_menu_item_is_in_app_menu_and_handled() {
+        let main_rs = include_str!("main.rs");
+        let app_menu_start = main_rs
+            .find("SubmenuBuilder::new(app, \"Brainflow\")")
+            .expect("app menu");
+        let app_menu_end = app_menu_start
+            + main_rs[app_menu_start..]
+                .find("PredefinedMenuItem::quit")
+                .expect("app menu ends with Quit");
+        assert!(
+            main_rs[app_menu_start..app_menu_end].contains(".id(\"app_settings\")"),
+            "Settings... belongs in the app menu"
+        );
+        assert_eq!(main_rs.matches(".id(\"app_settings\")").count(), 1);
+        let handler = main_rs
+            .find("\"app_settings\" => {")
+            .expect("app_settings handler");
+        assert!(main_rs[handler..].contains("\"app-settings-action\""));
+    }
+
+    #[test]
+    fn navigation_menu_actions_never_create_tabs_for_layouts() {
+        for id in [
+            "layout_orthogonal",
+            "layout_integrated",
+            "layout_mosaic",
+            "layout_compare",
+            "layout_orthogonal_panels",
+        ] {
+            assert_eq!(navigation_menu_action(id).unwrap()["action"], "set-layout");
+        }
+        assert_eq!(
+            navigation_menu_action("layout_orthogonal_panels").unwrap()["payload"]["layout"],
+            "orthogonal-flexible"
+        );
+        assert_eq!(
+            navigation_menu_action("workspace_new_view").unwrap()["action"],
+            "new-view"
+        );
+        assert_eq!(
+            navigation_menu_action("workspace_bids").unwrap()["payload"]["type"],
+            "bids-explorer"
+        );
+        assert!(navigation_menu_action("workspace_orthogonal_locked").is_none());
+    }
 
     /// Every Templates-menu item must name a catalog entry; otherwise the click
     /// fails with "Template not found" (seen for brain_* and GM/WM/CSF 2mm).
@@ -924,7 +1055,10 @@ mod tests {
             );
             checked += 1;
         }
-        assert!(checked > 10, "expected to find the Templates menu ids in main.rs");
+        assert!(
+            checked > 10,
+            "expected to find the Templates menu ids in main.rs"
+        );
     }
 
     // Template tests

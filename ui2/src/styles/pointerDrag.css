@@ -1,0 +1,28 @@
+/* In-app pointer drags (utils/pointerDrag.ts): the label that follows the
+   pointer, and no text selection or I-beam while a drag is in progress. */
+.bf-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  max-width: 280px;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid var(--bf-border);
+  border-radius: var(--bf-radius-sm);
+  background: var(--bf-bg-panel-raised);
+  box-shadow: var(--bf-shadow-panel);
+  color: var(--bf-text-primary);
+  font-family: var(--bf-font-mono);
+  font-size: var(--bf-text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+body.bf-pointer-dragging,
+body.bf-pointer-dragging * {
+  cursor: copy !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}

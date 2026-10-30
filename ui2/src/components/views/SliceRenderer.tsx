@@ -48,7 +48,7 @@ export interface SliceRendererProps {
   
   // Drag and drop
   enableDragDrop?: boolean;
-  onFileDrop?: (file: File, intent: DisplayOpenIntent) => void;
+  onFileDrop?: (file: File, intent: DisplayOpenIntent) => void | Promise<void>;
   onPathDrop?: (path: string, intent: DisplayOpenIntent) => void;
   
   // Mouse interactions
@@ -167,7 +167,10 @@ export function SliceRenderer({
     const intent = resolveDropOpenIntent(e);
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      onFileDrop?.(files[0], intent);
+      // Every dropped file, not just the first (multi-file Finder drops).
+      void (async () => {
+        for (const file of files) await onFileDrop?.(file, intent);
+      })();
       return;
     }
 

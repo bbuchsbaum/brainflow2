@@ -19,6 +19,8 @@ export interface DisplayOptionsState {
   // Actions
   setOptions: (layerId: string, partial: Partial<LayerDisplayOptions>) => void;
   getOptions: (layerId: string) => LayerDisplayOptions;
+  /** Forget a removed layer's options. */
+  clearOptions: (layerId: string) => void;
 }
 
 const DEFAULT_OPTIONS: LayerDisplayOptions = Object.freeze({
@@ -40,6 +42,13 @@ export const useDisplayOptionsStore = create<DisplayOptionsState>()(
             const current = state.options.get(layerId) ?? { ...DEFAULT_OPTIONS };
             const next = { ...current, ...partial } as LayerDisplayOptions;
             state.options.set(layerId, next);
+          });
+        },
+
+        clearOptions: (layerId) => {
+          if (!get().options.has(layerId)) return;
+          set((state) => {
+            state.options.delete(layerId);
           });
         },
 

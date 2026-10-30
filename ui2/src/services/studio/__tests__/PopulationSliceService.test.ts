@@ -2,9 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PopulationImages,
   PopulationSliceService,
+  populationCountsSummary,
+  populationDiverging,
+  populationHiddenBand,
+  populationOverlayRgba,
+  populationAnatomyStatus,
   populationRgba,
+  populationUnderlayGrey,
+  populationUnderlayWindow,
+  populationUnderlaySource,
+  robustPopulationLimit,
   type PopulationSliceData,
   type PopulationSliceQuery,
+  type PopulationSummary,
 } from '../PopulationSliceService';
 
 function deferred<T>() {
@@ -92,11 +102,12 @@ describe('PopulationSliceService', () => {
     const { service, evaluate } = setup();
     service.request(query());
     await vi.runAllTimersAsync();
-    expect(service.getSnapshot().displayed?.effectLimit).toBe(5);
-    evaluate.mockResolvedValue({ ...data(), contextRange: [-100, 100] });
+    // The mean summary [1, null] sets the initial window.
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(1);
+    evaluate.mockResolvedValue({ ...data(), summary: [40, null], contextRange: [-100, 100] });
     service.request(query('next'));
     await vi.runAllTimersAsync();
-    expect(service.getSnapshot().displayed?.effectLimit).toBe(5);
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(1);
     service.fitEffectScale();
     await vi.runAllTimersAsync();
     expect(service.getSnapshot().displayed?.effectLimit).toBe(100);
@@ -195,7 +206,9 @@ it('packs observed cutouts into one image without changing member order or missi
   };
   const packed = packPopulationCutouts(cutouts, 10);
   expect([packed.columns, packed.width, packed.height]).toEqual([8, 16, 4]);
-  const expected = populationRgba(cutouts.members[9].values, 10, true);
+  const expected = populationOverlayRgba(cutouts.members[9].values, 10, true, {
+    band: populationHiddenBand(10),
+  });
   const pixel = (x: number, y: number) =>
     packed.rgba.slice((y * packed.width + x) * 4, (y * packed.width + x + 1) * 4);
   expect(pixel(2, 2)).toEqual(expected.slice(0, 4));
@@ -372,6 +385,43 @@ it('presents cached original focus without resampling or rebuilding the anchored
   expect(bitmaps.every((image) => vi.mocked(image.close).mock.calls.length === 1)).toBe(true);
 });
 
+it('accepts a focus window sized to the returned plane when it differs from the requested size', async () => {
+  // Native framing keeps square pixels, so a 4x4 request can come back as 2x1.
+  const { service, evaluate } = setup();
+  const requested = query();
+  requested.request.dimPx = [4, 4];
+  const result = data();
+  result.focusWindow = [
+    { memberId: 'a', values: [3, 0], validPixels: 2 },
+    { memberId: 'b', values: [-2, null], validPixels: 1 },
+  ];
+  evaluate.mockResolvedValue(result);
+  service.request(requested);
+  await vi.runAllTimersAsync();
+  expect(evaluate.mock.calls[0][0]).toMatchObject({ focusWindow: ['a', 'b'] });
+  expect(service.getSnapshot().error).toBeNull();
+  expect(service.getSnapshot().displayed!.data.plane.dim_px).toEqual([2, 1]);
+  service.stop();
+});
+
+it('still rejects focus rasters that do not match the returned plane, and recovers on refresh', async () => {
+  const { service, evaluate } = setup();
+  const bad = data();
+  bad.focusWindow = [{ memberId: 'a', values: [3, 0, 1], validPixels: 3 }];
+  evaluate.mockResolvedValueOnce(bad);
+  service.request(query());
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toBe('Focus window does not match its requested observations.');
+  expect(service.getSnapshot().displayed).toBeNull();
+  // "Refresh images" re-issues the same query with force.
+  service.request(service.getSnapshot().requested, true);
+  await vi.runAllTimersAsync();
+  expect(evaluate).toHaveBeenCalledTimes(2);
+  expect(service.getSnapshot().error).toBeNull();
+  expect(service.getSnapshot().displayed?.query.key).toBe('first');
+  service.stop();
+});
+
 it('does not combine an old summary with a new source revision on a focus-only miss', async () => {
   const { service, evaluate } = setup();
   service.request(query());
@@ -476,4 +526,372 @@ it('switches retained test channels without resampling within the freshness leas
   await vi.runAllTimersAsync();
   expect(service.getSnapshot().error).toMatch(/result family/);
   service.stop();
+});
+
+describe('population display window from the data', () => {
+  /** A sparse beta map: zeros outside the blob, a 1.1 baseline inside, one outlier. */
+  const sparse = (size = 400) => {
+    const values: (number | null)[] = Array(size).fill(0);
+    for (let i = 0; i < 100; i++) values[i] = 1.1;
+    values[100] = 0.4;
+    values[101] = 50;
+    values[size - 1] = null;
+    return values;
+  };
+
+  it('uses robust percentiles of the nonzero values, ignoring background and outliers', () => {
+    expect(robustPopulationLimit(sparse(), true)).toBeCloseTo(1.1);
+    expect(robustPopulationLimit([-4, -1, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3], true)).toBe(4);
+    expect(robustPopulationLimit([0, 0, null, NaN], true)).toBeNull();
+  });
+
+  it('windows a sparse mean around its in-head values instead of a fixed ±1', async () => {
+    const { service, evaluate } = setup();
+    const size = 400;
+    evaluate.mockResolvedValue({
+      ...data(),
+      plane: { ...data().plane, dim_px: [size, 1] },
+      contextRange: [0, 50],
+      summary: sparse(size),
+      focused: sparse(size),
+      validCounts: Array(size).fill(2),
+    });
+    const q = query();
+    q.request.dimPx = [size, 1];
+    service.request(q);
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().error).toBeNull();
+    expect(service.getSnapshot().displayed?.effectLimit).toBeCloseTo(1.1);
+    expect(service.getSnapshot().displayed?.summaryLimit).toBeCloseTo(1.1);
+    service.stop();
+  });
+
+  it('waits for a slice with data instead of locking an all-zero slice to ±1', async () => {
+    const { service, evaluate } = setup();
+    evaluate.mockResolvedValue({ ...data(), summary: [0, null], focused: [0, 0] });
+    service.request(query());
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(1);
+    evaluate.mockResolvedValue({ ...data(), summary: [2.5, null] });
+    service.request(query('next'));
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(2.5);
+    service.stop();
+  });
+
+  it('keeps a user-set range', async () => {
+    const { service, evaluate } = setup();
+    service.request(query());
+    await vi.runAllTimersAsync();
+    service.setEffectLimit(7);
+    await vi.runAllTimersAsync();
+    evaluate.mockResolvedValue({ ...data(), summary: [2.5, null] });
+    service.request(query('next'));
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(7);
+    service.stop();
+  });
+
+  it('fits a nonnegative summary from its own data', async () => {
+    const { service, evaluate } = setup();
+    evaluate.mockResolvedValue({ ...data(), summary: [0.3, null] });
+    const q = query();
+    q.request.summary = 'sampleSd';
+    service.request(q);
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.summaryLimit).toBeCloseTo(0.3);
+    service.stop();
+  });
+});
+
+describe('population display over anatomy', () => {
+  const pixel = (rgba: Uint8ClampedArray, i: number) => Array.from(rgba.slice(i * 4, i * 4 + 4));
+
+  it('leaves near-zero values transparent without an underlay, never white', () => {
+    const rgba = populationOverlayRgba([0, 0.05, -0.05, null, NaN], 1, true, {
+      band: populationHiddenBand(1),
+    });
+    expect(Array.from(rgba)).toEqual(new Array(20).fill(0));
+  });
+
+  it('shows the anatomy through near-zero and unavailable values, and colour above the band', () => {
+    const underlay = new Float32Array([0.5, 0.5, 0.5, 0.5, Number.NaN]);
+    const rgba = populationOverlayRgba([0, null, 1, -1, 0], 1, true, {
+      band: populationHiddenBand(1),
+      underlay,
+    });
+    expect(pixel(rgba, 0)).toEqual([100, 100, 100, 255]);
+    expect(pixel(rgba, 1)).toEqual([100, 100, 100, 255]);
+    // Positive ends yellow, negative ends cyan: both saturated, neither grey.
+    expect(pixel(rgba, 2)).toEqual([255, 235, 80, 255]);
+    expect(pixel(rgba, 3)).toEqual([90, 225, 255, 255]);
+    // No anatomy there and nothing to show: transparent onto the dark pane.
+    expect(pixel(rgba, 4)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('starts each ramp saturated at the hidden band', () => {
+    const low = populationOverlayRgba([0.1], 1, true, { band: 0.1 });
+    expect(pixel(low, 0)).toEqual([200, 30, 30, 255]);
+    const sequential = populationOverlayRgba([0.1, 1, -1], 1, false, { band: 0.1 });
+    expect(pixel(sequential, 0)).toEqual([150, 25, 10, 255]);
+    expect(pixel(sequential, 1)).toEqual([255, 240, 140, 255]);
+    // A nonnegative map has no colour for negative values.
+    expect(pixel(sequential, 2)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('hides only zero for counts', () => {
+    expect(populationHiddenBand(20, true)).toBe(0.5);
+    expect(populationHiddenBand(2)).toBeCloseTo(0.2);
+    const rgba = populationOverlayRgba([0, 1], 20, false, { band: populationHiddenBand(20, true) });
+    expect(pixel(rgba, 0)[3]).toBe(0);
+    expect(pixel(rgba, 1)[3]).toBe(255);
+  });
+
+  it('windows the anatomy at its robust range and keeps missing samples missing', () => {
+    const values = Array.from({ length: 100 }, (_, i) => i + 1);
+    const grey = populationUnderlayGrey([...values, null, 0])!;
+    expect(grey[0]).toBe(0);
+    expect(grey[99]).toBe(1);
+    expect(Number.isNaN(grey[100])).toBe(true);
+    expect(grey[101]).toBe(0);
+    expect(populationUnderlayGrey(null)).toBeNull();
+  });
+
+  it('uses a template only when the support declares that template space', () => {
+    expect(populationUnderlaySource('MNI152NLin2009cAsym (2mm)')).toEqual({
+      sourcePath: 'template:MNI152NLin2009cAsym_brain_1mm',
+      issue: null,
+    });
+    expect(populationUnderlaySource('MNI152NLin6Asym (res-02)').sourcePath).toBe(
+      'template:MNI152NLin6Asym_T1w_1mm',
+    );
+    // Undeclared, native, unknown or mismatched spaces: dark pane, no MNI.
+    for (const label of ['97×115×97 voxels · 2.00×2.00×2.00 mm', 'MNI152 2mm template', null])
+      expect(populationUnderlaySource(label)).toEqual({
+        sourcePath: null,
+        issue: 'space not declared',
+      });
+    for (const label of ['T1w (sub-01)', 'MNI152NLin2009cSym (2mm)', 'toString (grid)'])
+      expect(populationUnderlaySource(label).sourcePath).toBeNull();
+    expect(populationUnderlaySource('T1w (sub-01)').issue).toBe('no template for T1w');
+  });
+
+  it('says briefly why a map has no anatomy', () => {
+    const display = (underlayIssue?: string | null, nativeIssue?: string | null) => ({
+      query: { ...query(), underlayIssue },
+      data: { ...data(), underlayIssue: nativeIssue },
+    });
+    expect(populationAnatomyStatus(display('space not declared'))).toBe(
+      ' · No anatomy: space not declared',
+    );
+    expect(
+      populationAnatomyStatus(display(null, 'The anatomy image does not cover the population grid; they are not in one space.')),
+    ).toBe(' · No anatomy: image does not cover the data');
+    expect(populationAnatomyStatus(display(null, 'Template X is unavailable: offline'))).toBe(
+      ' · No anatomy: anatomy image unavailable',
+    );
+    expect(populationAnatomyStatus(display())).toBe('');
+  });
+
+  it('windows cutout anatomy like the main plane', () => {
+    const window = populationUnderlayWindow(Array.from({ length: 100 }, (_, i) => i + 1));
+    const cutout = populationUnderlayGrey([3, 51], window)!;
+    const own = populationUnderlayGrey([3, 51])!;
+    expect(cutout[1]).toBeCloseTo((51 - window[0]) / (window[1] - window[0]));
+    expect(own[1]).toBe(1);
+  });
+
+  it('uses a sequential map for nonnegative summaries and a symmetric diverging map for signed ones', () => {
+    const request = (summary: PopulationSliceQuery['request']['summary']) => ({
+      ...query().request,
+      summary,
+    });
+    for (const summary of ['mean', 'median'] as const)
+      expect(populationDiverging(request(summary))).toBe(true);
+    for (const summary of ['coverage', 'mad', 'sampleSd', 'meanAbsolute', 'cancellation'] as const)
+      expect(populationDiverging(request(summary))).toBe(false);
+    expect(populationCountsSummary(request('coverage'))).toBe(true);
+    expect(populationCountsSummary(request('sampleSd'))).toBe(false);
+  });
+
+  it('composes summary and member panes over the returned underlay', async () => {
+    const { service, evaluate, bitmap } = setup();
+    evaluate.mockResolvedValue({
+      ...data(),
+      summary: [0, 2],
+      focused: [0, null],
+      underlay: { values: [10, 20] },
+    });
+    service.request(query());
+    await vi.runAllTimersAsync();
+    const [summary, focused] = bitmap.mock.calls.map((call) => call[0] as Uint8ClampedArray);
+    // Zero shows the (dark end of the) anatomy, not a white square.
+    expect(pixel(summary, 0)).toEqual([0, 0, 0, 255]);
+    expect(pixel(summary, 1)).toEqual([255, 235, 80, 255]);
+    expect(pixel(focused, 1)).toEqual([200, 200, 200, 255]);
+    service.stop();
+  });
+
+  it('rejects an underlay that does not match the plane', async () => {
+    const { service, evaluate } = setup();
+    evaluate.mockResolvedValue({ ...data(), underlay: { values: [1] } });
+    service.request(query());
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().error).toMatch(/underlay/);
+    service.stop();
+  });
+});
+
+describe('population opening slice', () => {
+  function peakSetup(navigates = true) {
+    const context = setup();
+    const peak =
+      vi.fn<(request: unknown, signal: AbortSignal) => Promise<[number, number, number] | null>>();
+    const service = new PopulationSliceService(
+      { evaluate: context.evaluate, release: context.release, bitmap: context.bitmap, peak },
+      0,
+      new Map(),
+    );
+    const navigate = vi.fn<(world: [number, number, number]) => boolean>(() => navigates);
+    service.setPeakNavigator({ scope: 'population:w', navigate });
+    service.start();
+    return { ...context, service, navigate, peak };
+  }
+  const at = (
+    crosshairMm: [number, number, number],
+    summary: PopulationSummary = 'mean',
+    key = 'k',
+  ) => {
+    const q = query(`${key}:${crosshairMm}:${summary}`);
+    q.request.crosshairMm = crosshairMm;
+    q.request.summary = summary;
+    return q;
+  };
+
+  it('publishes first, then opens on the peak slice once per dataset and summary', async () => {
+    const { service, navigate, peak } = peakSetup();
+    const answer = deferred<[number, number, number] | null>();
+    peak.mockReturnValueOnce(answer.promise);
+    service.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    // The slice is shown before the search answers.
+    expect(service.getSnapshot().displayed).not.toBeNull();
+    expect(peak).toHaveBeenCalledTimes(1);
+    answer.resolve([5, 5, 12]);
+    await vi.runAllTimersAsync();
+    // Only the slice moves; the in-plane position stays.
+    expect(navigate).toHaveBeenCalledWith([0, 0, 12]);
+    service.request(at([0, 0, 12]));
+    await vi.runAllTimersAsync();
+    expect(peak).toHaveBeenCalledTimes(1);
+    // Another summary of the same dataset finds its own peak.
+    peak.mockResolvedValueOnce([0, 0, 20]);
+    service.request(at([0, 0, 12], 'sampleSd'));
+    await vi.runAllTimersAsync();
+    expect(peak).toHaveBeenCalledTimes(2);
+    expect(navigate).toHaveBeenLastCalledWith([0, 0, 20]);
+    service.stop();
+  });
+
+  it("lets the user's slice choice in this lens win", async () => {
+    const { service, navigate, peak } = peakSetup();
+    const answer = deferred<[number, number, number] | null>();
+    peak.mockReturnValueOnce(answer.promise);
+    service.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    const signal = peak.mock.calls[0][1];
+    service.noteUserSlice();
+    expect(signal.aborted).toBe(true);
+    answer.resolve([0, 0, 12]);
+    await vi.runAllTimersAsync();
+    expect(navigate).not.toHaveBeenCalled();
+    // Later summaries of this dataset keep the chosen slice too.
+    service.request(at([0, 0, 2], 'sampleSd'));
+    await vi.runAllTimersAsync();
+    expect(peak).toHaveBeenCalledTimes(1);
+    service.stop();
+  });
+
+  it('follows a crosshair moved elsewhere while the search is in flight', async () => {
+    const { service, navigate, peak } = peakSetup();
+    const answer = deferred<[number, number, number] | null>();
+    peak.mockReturnValueOnce(answer.promise);
+    service.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    // Recentred by another view (not the user in this lens): still opens on
+    // the peak, at the new in-plane position.
+    service.request(at([7, -3, 4]));
+    await vi.advanceTimersByTimeAsync(0);
+    answer.resolve([0, 0, 12]);
+    await vi.runAllTimersAsync();
+    expect(navigate).toHaveBeenCalledWith([7, -3, 12]);
+    service.stop();
+  });
+
+  it('retries a refused move on a later slice', async () => {
+    const { service, navigate, peak } = peakSetup(false);
+    peak.mockResolvedValue([0, 0, 12]);
+    service.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    expect(navigate).toHaveBeenCalledTimes(1);
+    service.request(at([0, 0, 1]));
+    await vi.runAllTimersAsync();
+    expect(peak).toHaveBeenCalledTimes(2);
+    navigate.mockReturnValue(true);
+    service.request(at([0, 0, 2]));
+    await vi.runAllTimersAsync();
+    service.request(at([0, 0, 12]));
+    await vi.runAllTimersAsync();
+    expect(peak).toHaveBeenCalledTimes(3);
+    service.stop();
+  });
+
+  it('stays put without signal, after a failed search, and without a navigator', async () => {
+    const { service, navigate, peak } = peakSetup();
+    peak.mockResolvedValueOnce(null);
+    service.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    service.request(at([0, 0, 0], 'mean', 'again'));
+    await vi.runAllTimersAsync();
+    expect(peak).toHaveBeenCalledTimes(1);
+    peak.mockRejectedValueOnce(new Error('offline'));
+    service.request(at([0, 0, 0], 'mad'));
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().error).toBeNull();
+    expect(service.getSnapshot().displayed?.query.request.summary).toBe('mad');
+    expect(navigate).not.toHaveBeenCalled();
+    service.stop();
+
+    const plain = setup();
+    const lone = vi.fn();
+    const quiet = new PopulationSliceService(
+      { evaluate: plain.evaluate, release: plain.release, bitmap: plain.bitmap, peak: lone },
+      0,
+      new Map(),
+    );
+    quiet.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    expect(lone).not.toHaveBeenCalled();
+    quiet.stop();
+  });
+
+  it('keeps opening-slice memory per lens scope', async () => {
+    const memory = new Map();
+    const context = setup();
+    const peak = vi.fn().mockResolvedValue([0, 0, 12]);
+    const deps = { evaluate: context.evaluate, release: context.release, bitmap: context.bitmap, peak };
+    const first = new PopulationSliceService(deps, 0, memory);
+    first.setPeakNavigator({ scope: 'population:a', navigate: () => true });
+    first.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    first.noteUserSlice();
+    first.stop();
+    const second = new PopulationSliceService(deps, 0, memory);
+    second.setPeakNavigator({ scope: 'population:b', navigate: () => true });
+    second.start();
+    second.request(at([0, 0, 0]));
+    await vi.runAllTimersAsync();
+    expect(peak).toHaveBeenCalledTimes(2);
+    second.stop();
+  });
 });

@@ -1,5 +1,6 @@
 //! Visible-support evaluation for observed population fields. The retained
 //! plane matrix has a byte budget and never enters the volume/GPU registries.
+mod display;
 pub mod export;
 pub mod inference;
 pub mod relationship;
@@ -76,6 +77,9 @@ pub struct PopulationSliceRequest {
     pub aggregation: Option<ParticipantAggregation>,
     #[serde(default)]
     pub cutouts: Option<CutoutRequest>,
+    /// Display-only anatomy under the maps; never a calculation operand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underlay: Option<display::UnderlayRequest>,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -180,6 +184,11 @@ pub struct PopulationSliceResult {
     pub cached_bytes: usize,
     pub sampling: &'static str,
     pub cutouts: Option<CutoutResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub underlay: Option<display::UnderlayResult>,
+    /// Why a requested underlay is missing; the maps are still valid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub underlay_issue: Option<String>,
 }
 struct PixelPlan {
     plane: Plane,
@@ -238,6 +247,15 @@ impl PopulationSliceEngine {
         cancellation: SampleCancellation,
     ) -> BridgeResult<PopulationSliceResult> {
         validate(&request)?;
+        // The anatomy file is resolved (a template fetched if missing) before
+        // admission, so a cold template cache never holds up other slices.
+        let underlay_path = match &request.underlay {
+            Some(source) if !request.focus_only => Some(tokio::select! {
+                _ = cancellation.cancelled() => return Err(crate::population_sampling::cancelled()),
+                path = display::underlay_path(source, state) => path,
+            }),
+            _ => None,
+        };
         let permit = tokio::select! {
             _ = cancellation.cancelled() => return Err(crate::population_sampling::cancelled()),
             permit = Arc::clone(&self.admission).acquire_owned() => permit.map_err(|_| input("Population slice admission is closed."))?,
@@ -334,6 +352,25 @@ impl PopulationSliceEngine {
         } else {
             None
         };
+        // The anatomy is sampled outside the retained plane matrix and only
+        // with a full result; focus-only reads reuse the shown one.
+        let underlay = match underlay_path {
+            Some(path) => {
+                let plan = &cached.plan;
+                Some(
+                    display::underlay(
+                        path,
+                        &plan.plane,
+                        plan.cutouts.as_ref().map(|cutouts| &cutouts.plane),
+                        (plan.dimensions.clone(), plan.affine),
+                        state,
+                        &cancellation,
+                    )
+                    .await?,
+                )
+            }
+            None => None,
+        };
         let guard = cached.guard.clone();
         let token = cancellation.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -349,8 +386,25 @@ impl PopulationSliceEngine {
         .await
         .map_err(|error| input(format!("Population reduction failed: {error}")))??;
         guard.validate(token).await?;
+        let mut result = result;
+        match underlay {
+            Some(Ok(underlay)) => result.underlay = Some(underlay),
+            Some(Err(issue)) => result.underlay_issue = Some(issue),
+            None => {}
+        }
         Ok(result)
     }
+}
+/// Where a population view opens: the slice with the most summary signal
+/// along the view normal. Outside slice admission and the plane cache, so the
+/// search never delays a displayed slice. Null without signal or on failure.
+pub async fn peak_slice(
+    request: PopulationSliceRequest,
+    state: &BridgeState,
+    cancellation: SampleCancellation,
+) -> BridgeResult<Option<[f32; 3]>> {
+    validate(&request)?;
+    display::peak_slice(&request, state, &cancellation).await
 }
 fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
     if request.focus_stack_index.is_some()
@@ -1170,6 +1224,8 @@ fn reduce_plane(
         source_cache_hit: cache_hit,
         cached_bytes: cached.bytes,
         sampling: "nearest",
+        underlay: None,
+        underlay_issue: None,
     })
 }
 fn input(details: impl Into<String>) -> BridgeError {
@@ -1217,6 +1273,7 @@ mod tests {
             summary: SummaryKind::Mean,
             aggregation: None,
             cutouts: None,
+            underlay: None,
         }
     }
     async fn evaluate(
@@ -2206,5 +2263,189 @@ mod tests {
         assert!(validate(&req).is_err());
         req.cutouts.as_mut().unwrap().member_ids = vec!["person-0".into(); 97];
         assert!(validate(&req).is_err());
+    }
+
+    #[tokio::test]
+    async fn population_underlay_is_sampled_on_the_returned_planes() {
+        let ramp: Vec<f32> = (0..27)
+            .map(|i| (i % 3) as f32 * 10. + (i / 9) as f32)
+            .collect();
+        let sources = vec![TestSource::new(&[3, 3, 3], &ramp)];
+        let anatomy = TestSource::new(&[3, 3, 3], &ramp);
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.underlay = Some(display::UnderlayRequest {
+            source_path: anatomy.path.to_string_lossy().into_owned(),
+        });
+        q.cutouts = Some(CutoutRequest {
+            whole_plane: true,
+            center_mm: [1., 1., 1.],
+            width_mm: 3.,
+            dim_px: 3,
+            member_ids: vec!["person-0".into()],
+        });
+        let result = evaluate(&state, q.clone()).await;
+        let underlay = result.underlay.expect("underlay");
+        assert!(result.underlay_issue.is_none());
+        // The ramp is linear in world space (identity affine), so trilinear
+        // samples equal it exactly wherever a pixel lands on either plane.
+        let expected = |plane: &Plane| -> Vec<f32> {
+            (0..plane.dim_px[1])
+                .flat_map(|y| (0..plane.dim_px[0]).map(move |x| (x, y)))
+                .map(|(x, y)| {
+                    let w = neuro_types::pixel_to_world_raw(
+                        plane.origin_mm,
+                        plane.u_mm,
+                        plane.v_mm,
+                        x as f32,
+                        y as f32,
+                    );
+                    if w.iter().all(|v| (-0.5..=2.5).contains(v)) {
+                        10. * w[0].clamp(0., 2.) + w[2].clamp(0., 2.)
+                    } else {
+                        f32::NAN
+                    }
+                })
+                .collect()
+        };
+        let close = |a: &[f32], b: &[f32]| {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b)
+                    .all(|(a, b)| (a.is_nan() && b.is_nan()) || (a - b).abs() < 1e-4)
+        };
+        assert!(close(&underlay.values, &expected(&result.plane)));
+        let cutout_plane = &result.cutouts.as_ref().unwrap().plane;
+        assert!(close(
+            underlay.cutouts.as_deref().unwrap(),
+            &expected(cutout_plane)
+        ));
+        assert!(underlay.values.iter().any(|v| v.is_finite()));
+        // Focus-only reads reuse the displayed underlay.
+        q.focus_only = true;
+        assert!(evaluate(&state, q.clone()).await.underlay.is_none());
+        // A missing anatomy image leaves the maps valid and says why.
+        q.focus_only = false;
+        q.underlay = Some(display::UnderlayRequest {
+            source_path: "/nonexistent/anatomy.nii".into(),
+        });
+        let missing = evaluate(&state, q).await;
+        assert!(missing.underlay.is_none());
+        assert!(missing.underlay_issue.is_some());
+        assert_eq!(finite(&missing.summary), finite(&result.summary));
+    }
+
+    #[tokio::test]
+    async fn population_underlay_refuses_anatomy_from_another_space() {
+        // A 40 mm grid against 3 mm of anatomy cannot share one space; a
+        // larger anatomy field of view that contains the grid can.
+        let wide = vec![1.; 40 * 3 * 3];
+        let sources = vec![TestSource::new(&[40, 3, 3], &wide)];
+        let small = TestSource::new(&[3, 3, 3], &[5.; 27]);
+        let large = TestSource::new(&[45, 3, 3], &vec![5.; 45 * 3 * 3]);
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.underlay = Some(display::UnderlayRequest {
+            source_path: small.path.to_string_lossy().into_owned(),
+        });
+        let mismatch = evaluate(&state, q.clone()).await;
+        assert!(mismatch.underlay.is_none());
+        assert!(mismatch
+            .underlay_issue
+            .as_deref()
+            .is_some_and(|issue| issue.contains("not in one space")));
+        assert!(mismatch.summary.iter().any(|v| v.is_finite()));
+        q.underlay = Some(display::UnderlayRequest {
+            source_path: large.path.to_string_lossy().into_owned(),
+        });
+        let covered = evaluate(&state, q).await;
+        assert!(covered.underlay.is_some() && covered.underlay_issue.is_none());
+    }
+
+    async fn peak(state: &BridgeState, request: PopulationSliceRequest) -> Option<[f32; 3]> {
+        peak_slice(request, state, SampleCancellation::default())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn population_peak_slice_follows_summed_summary_magnitude() {
+        // Signal on z = 3 for the mean (opposite signs cancel on z = 1), and
+        // on z = 1 for the mean absolute magnitude.
+        let field = |z1: f32, z3: f32| -> Vec<f32> {
+            (0..45)
+                .map(|i| match i / 9 {
+                    1 => z1,
+                    3 => z3,
+                    _ => 0.,
+                })
+                .collect()
+        };
+        let sources = vec![
+            TestSource::new(&[3, 3, 5], &field(4., 1.)),
+            TestSource::new(&[3, 3, 5], &field(-4., 1.)),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.crosshair_mm = [0.5, 1., 0.];
+        assert_eq!(peak(&state, q.clone()).await, Some([0.5, 1., 3.]));
+        q.summary = SummaryKind::MeanAbsolute;
+        assert_eq!(peak(&state, q.clone()).await, Some([0.5, 1., 1.]));
+        q.summary = SummaryKind::SampleSd;
+        assert_eq!(peak(&state, q.clone()).await, Some([0.5, 1., 1.]));
+        q.orientation = Orientation::Coronal;
+        q.summary = SummaryKind::Coverage;
+        // Every voxel is observed by both: the first slice of equal coverage.
+        assert_eq!(peak(&state, q.clone()).await, Some([0.5, 0., 0.]));
+        let silent = vec![TestSource::new(&[3, 3, 5], &[0.; 45])];
+        assert!(peak(&state, request(&silent)).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn population_peak_slice_respects_the_common_mask() {
+        use crate::population_mask::MaskSource;
+        // The strongest slice (z = 3) is outside the mask; z = 1 is inside.
+        let values: Vec<f32> = (0..45)
+            .map(|i| match i / 9 {
+                1 => 1.,
+                3 => 9.,
+                _ => 0.,
+            })
+            .collect();
+        let sources = vec![TestSource::new(&[3, 3, 5], &values)];
+        let inside: Vec<f32> = (0..45).map(|i| if i / 9 == 3 { 0. } else { 1. }).collect();
+        let mask = TestSource::new(&[3, 3, 5], &inside);
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        assert_eq!(peak(&state, q.clone()).await.map(|p| p[2]), Some(3.));
+        q.mask = Some(MaskSource {
+            source_path: mask.path.to_string_lossy().into_owned(),
+            expected_sha256: None,
+        });
+        assert_eq!(peak(&state, q.clone()).await.map(|p| p[2]), Some(1.));
+        // The mask admission is released: a masked slice still evaluates.
+        assert!(finite(&evaluate(&state, q).await.summary).len() > 0);
+    }
+
+    #[tokio::test]
+    async fn population_peak_slice_failure_is_no_peak_and_leaves_maps_intact() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[1.; 27]),
+            TestSource::new(&[3, 3, 3], &[3.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let q = request(&sources);
+        let maps = evaluate(&state, q.clone()).await;
+        // An unreadable source fails the search, which reports no peak.
+        let mut broken = q.clone();
+        broken.members[1].source_path = "/nonexistent/population-source.nii".into();
+        assert!(peak(&state, broken).await.is_none());
+        let again = evaluate(&state, q.clone()).await;
+        assert_eq!(again.summary, maps.summary);
+        assert!(again.source_cache_hit);
+        // Cancellation is still an error.
+        let cancelled = SampleCancellation::default();
+        cancelled.cancel();
+        assert!(peak_slice(q, &state, cancelled).await.is_err());
     }
 }

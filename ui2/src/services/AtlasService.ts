@@ -2,6 +2,7 @@
  * Atlas Service - TypeScript wrapper for atlas Tauri commands
  */
 
+import { otherVolumeLoadsPending } from "./loadSelection";
 import { applyLabelDisplayDefault } from "./LabelTableService";
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { invokeBackend as invoke } from "./transport";
@@ -682,6 +683,8 @@ export class AtlasService {
         layerType: "label",
         visible: true,
         atlasMetadata: result.atlas_metadata,
+        // An atlas opened alone takes the selection, not one of a batch.
+        autoSelect: () => !otherVolumeLoadsPending(),
       });
 
       // Prefer categorical atlas palettes for label atlases (volumes) by default.
@@ -707,9 +710,7 @@ export class AtlasService {
         );
         getEventBus().emit("ui.notification", {
           type: "warning",
-          message: `Atlas palette unavailable; using continuous colormap. ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          message: `Atlas palette unavailable; using continuous colormap. ${formatTauriError(error)}`,
         });
       }
 

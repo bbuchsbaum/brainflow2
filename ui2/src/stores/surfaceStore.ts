@@ -188,6 +188,19 @@ export function createDefaultSurfaceViewSettings(): SurfaceViewSettings {
   };
 }
 
+export const DEFAULT_SURFACE_VIEWPOINT = 'lateral';
+
+/** A view's camera preset; views that never pressed one open Lateral. */
+export function getSurfaceViewpointForId(
+  surfaceViewViewpoints: Map<string, string>,
+  surfaceViewId: string | undefined,
+): string {
+  return (
+    (surfaceViewId ? surfaceViewViewpoints.get(surfaceViewId) : undefined) ??
+    DEFAULT_SURFACE_VIEWPOINT
+  );
+}
+
 export function getSurfaceViewSettingsForId(
   surfaceViewSettings: Map<string, SurfaceViewSettings>,
   surfaceViewId: string,
@@ -282,7 +295,10 @@ interface SurfaceState {
   loadError: string | null;
 
   // View settings
+  /** Last preset pressed anywhere; views without their own entry use the default. */
   viewpoint: string;
+  /** Camera preset per surface view, so a new tab opens Lateral, not the last preset. */
+  surfaceViewViewpoints: Map<string, string>;
   showControls: boolean;
 
   // Per-view rendering settings
@@ -305,7 +321,7 @@ interface SurfaceState {
   setActiveSurface: (surfaceId: string | null) => void;
   setSurfaceVisibility: (surfaceId: string, visible: boolean) => void;
   removeSurface: (surfaceId: string) => void;
-  setViewpoint: (viewpoint: string) => void;
+  setViewpoint: (viewpoint: string, surfaceViewId?: string) => void;
   /** Attach (or clear) a surface's folding underlay values. */
   setSurfaceCurvature: (
     handle: string,
@@ -317,7 +333,10 @@ interface SurfaceState {
    * an orbit): the canvas passes the viewer a new prop value for the same view.
    */
   viewpointNonce: number;
-  reapplyViewpoint: () => void;
+  /** Per-view re-apply counters: pressing a preset again refits only that tab. */
+  surfaceViewViewpointNonces: Map<string, number>;
+  /** Re-apply one view's viewpoint; without an id, every view's. */
+  reapplyViewpoint: (surfaceViewId?: string) => void;
   /**
    * The vertex the user last clicked on a surface, and where (native check
    * item 9): known on any mesh, inflated too; the Vertex slot reads it while
@@ -325,8 +344,23 @@ interface SurfaceState {
    */
   pickedVertex: { surfaceId: string; vertex: number; world: [number, number, number] } | null;
   setPickedVertex: (picked: { surfaceId: string; vertex: number; world: [number, number, number] } | null) => void;
-  registerSurfaceView: (surfaceViewId: string, surfaceHandle: string) => void;
-  unregisterSurfaceView: (surfaceViewId: string) => void;
+  /**
+   * Register a view and claim it for `owner` (the mounted panel). Existing
+   * per-view settings are kept.
+   */
+  registerSurfaceView: (surfaceViewId: string, surfaceHandle: string, owner?: string) => void;
+  /**
+   * Drop a view's entries. With `owner`, only while that owner still holds the
+   * view: a remounted tab with the same id (Reset layout) has claimed it, and
+   * the old panel's late cleanup must not wipe the live tab.
+   */
+  unregisterSurfaceView: (surfaceViewId: string, owner?: string) => void;
+  /** Who currently holds each registered view (see registerSurfaceView). */
+  surfaceViewOwners: Map<string, string>;
+  /** The per-view entries of one view, to carry it across a remount. */
+  captureSurfaceView: (surfaceViewId: string) => SurfaceViewSnapshot | null;
+  /** Put captured entries back, unowned until the remounted panel claims them. */
+  restoreSurfaceView: (surfaceViewId: string, snapshot: SurfaceViewSnapshot) => void;
   activateSurfaceView: (surfaceViewId: string) => void;
   setSurfaceSelectionForView: (
     surfaceViewId: string,
@@ -363,9 +397,25 @@ interface SurfaceState {
   clearError: () => void;
 }
 
+/** One surface view's per-view store entries (captureSurfaceView). */
+export interface SurfaceViewSnapshot {
+  settings?: SurfaceViewSettings;
+  handle?: string;
+  selection?: SurfaceViewSelection;
+  viewpoint?: string;
+}
+
+/** Map copy with `key` set to `value`, or removed when `value` is undefined. */
+function withEntry<V>(map: Map<string, V>, key: string, value: V | undefined): Map<string, V> {
+  const next = new Map(map);
+  if (value === undefined) next.delete(key);
+  else next.set(key, value);
+  return next;
+}
+
 export const useSurfaceStore = create<SurfaceState>()(
   devtools(
-    (set) => ({
+    (set, get) => ({
       // Initial state
       surfaces: new Map(),
       activeSurfaceId: null,
@@ -373,8 +423,11 @@ export const useSurfaceStore = create<SurfaceState>()(
       selectedLayerId: null,
       isLoading: false,
       loadError: null,
-      viewpoint: 'lateral',
+      viewpoint: DEFAULT_SURFACE_VIEWPOINT,
+      surfaceViewViewpoints: new Map(),
       viewpointNonce: 0,
+      surfaceViewViewpointNonces: new Map(),
+      surfaceViewOwners: new Map(),
       pickedVertex: null,
       setPickedVertex: (picked) => set({ pickedVertex: picked }),
       showControls: false,
@@ -683,8 +736,46 @@ export const useSurfaceStore = create<SurfaceState>()(
       },
 
       // Set viewpoint
-      reapplyViewpoint: () => {
-        set((state) => ({ viewpointNonce: state.viewpointNonce + 1 }));
+      reapplyViewpoint: (surfaceViewId?: string) => {
+        set((state) => {
+          if (!surfaceViewId) return { viewpointNonce: state.viewpointNonce + 1 };
+          const nonce = (state.surfaceViewViewpointNonces.get(surfaceViewId) ?? 0) + 1;
+          return {
+            surfaceViewViewpointNonces: new Map(state.surfaceViewViewpointNonces).set(
+              surfaceViewId,
+              nonce,
+            ),
+          };
+        });
+      },
+
+      captureSurfaceView: (surfaceViewId: string) => {
+        const state = get();
+        const snapshot: SurfaceViewSnapshot = {
+          settings: state.surfaceViewSettings.get(surfaceViewId),
+          handle: state.surfaceViewHandles.get(surfaceViewId),
+          selection: state.surfaceViewSelections.get(surfaceViewId),
+          viewpoint: state.surfaceViewViewpoints.get(surfaceViewId),
+        };
+        return Object.values(snapshot).some((value) => value !== undefined) ? snapshot : null;
+      },
+
+      restoreSurfaceView: (surfaceViewId: string, snapshot: SurfaceViewSnapshot) => {
+        set((state) => ({
+          surfaceViewSettings: withEntry(state.surfaceViewSettings, surfaceViewId, snapshot.settings),
+          surfaceViewHandles: withEntry(state.surfaceViewHandles, surfaceViewId, snapshot.handle),
+          surfaceViewSelections: withEntry(
+            state.surfaceViewSelections,
+            surfaceViewId,
+            snapshot.selection,
+          ),
+          surfaceViewViewpoints: withEntry(
+            state.surfaceViewViewpoints,
+            surfaceViewId,
+            snapshot.viewpoint,
+          ),
+          surfaceViewOwners: withEntry(state.surfaceViewOwners, surfaceViewId, undefined),
+        }));
       },
 
       setSurfaceCurvature: (handle, curvature, source) => {
@@ -697,12 +788,33 @@ export const useSurfaceStore = create<SurfaceState>()(
         });
       },
 
-      setViewpoint: (viewpoint: string) => {
-        set({ viewpoint });
+      setViewpoint: (viewpoint: string, surfaceViewId?: string) => {
+        set((state) => {
+          if (!surfaceViewId) {
+            return state.viewpoint === viewpoint ? state : { viewpoint };
+          }
+          if (
+            state.viewpoint === viewpoint &&
+            state.surfaceViewViewpoints.get(surfaceViewId) === viewpoint
+          ) {
+            return state;
+          }
+          return {
+            viewpoint,
+            surfaceViewViewpoints: new Map(state.surfaceViewViewpoints).set(
+              surfaceViewId,
+              viewpoint,
+            ),
+          };
+        });
       },
 
-      registerSurfaceView: (surfaceViewId: string, surfaceHandle: string) => {
+      registerSurfaceView: (surfaceViewId: string, surfaceHandle: string, owner?: string) => {
         set((state) => {
+          const surfaceViewOwners =
+            owner === undefined || state.surfaceViewOwners.get(surfaceViewId) === owner
+              ? state.surfaceViewOwners
+              : new Map(state.surfaceViewOwners).set(surfaceViewId, owner);
           const surfaceViewSettings = state.surfaceViewSettings.has(surfaceViewId)
             ? state.surfaceViewSettings
             : new Map(state.surfaceViewSettings).set(
@@ -723,16 +835,21 @@ export const useSurfaceStore = create<SurfaceState>()(
             surfaceViewSettings,
             surfaceViewHandles,
             surfaceViewSelections,
+            surfaceViewOwners,
           };
         });
       },
 
-      unregisterSurfaceView: (surfaceViewId: string) => {
+      unregisterSurfaceView: (surfaceViewId: string, owner?: string) => {
         set((state) => {
+          if (owner !== undefined && state.surfaceViewOwners.get(surfaceViewId) !== owner) {
+            return state;
+          }
           if (
             !state.surfaceViewSettings.has(surfaceViewId) &&
             !state.surfaceViewHandles.has(surfaceViewId) &&
-            !state.surfaceViewSelections.has(surfaceViewId)
+            !state.surfaceViewSelections.has(surfaceViewId) &&
+            !state.surfaceViewViewpoints.has(surfaceViewId)
           ) {
             return state;
           }
@@ -746,10 +863,17 @@ export const useSurfaceStore = create<SurfaceState>()(
           const surfaceViewSelections = new Map(state.surfaceViewSelections);
           surfaceViewSelections.delete(surfaceViewId);
 
+          const surfaceViewViewpoints = state.surfaceViewViewpoints.has(surfaceViewId)
+            ? new Map(state.surfaceViewViewpoints)
+            : state.surfaceViewViewpoints;
+          surfaceViewViewpoints.delete(surfaceViewId);
+
           return {
             surfaceViewSettings,
             surfaceViewHandles,
             surfaceViewSelections,
+            surfaceViewViewpoints,
+            surfaceViewOwners: withEntry(state.surfaceViewOwners, surfaceViewId, undefined),
           };
         });
       },

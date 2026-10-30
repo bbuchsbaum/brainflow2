@@ -104,3 +104,31 @@ describe("fileBrowserStore.prefetchDirectory", () => {
   });
 
 });
+
+describe("fileBrowserStore listing metadata", () => {
+  beforeEach(() => {
+    listDirectory.mockReset();
+    useFileBrowserStore.setState({ entries: [], loading: false, error: null });
+  });
+
+  it("carries backend file sizes and modification times onto tree nodes", async () => {
+    listDirectory.mockResolvedValue([
+      { ...apiNodes[0], size: 34_120_436, modifiedMs: 1_767_225_600_000 },
+      { ...apiNodes[1], size: null, modifiedMs: null },
+    ]);
+    useFileBrowserStore.setState({
+      entries: [collapsedDir("/root/sub", "sub")],
+    });
+
+    useFileBrowserStore.getState().prefetchDirectory("/root/sub");
+
+    await vi.waitFor(() => {
+      expect(useFileBrowserStore.getState().entries[0].children?.length).toBe(2);
+    });
+    const [file, dir] = useFileBrowserStore.getState().entries[0].children!;
+    expect(file.size).toBe(34_120_436);
+    expect(file.modified?.getTime()).toBe(1_767_225_600_000);
+    expect(dir.size).toBeUndefined();
+    expect(dir.modified).toBeUndefined();
+  });
+});

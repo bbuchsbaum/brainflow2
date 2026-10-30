@@ -3,12 +3,14 @@
  * Uses viewStateStore to toggle crosshair visibility
  */
 
-import { safeListen, safeUnlisten } from '@/utils/eventUtils';
+import { safeEmit, safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useViewStateStore } from '@/stores/viewStateStore';
 
 export class CrosshairMenuService {
   static instance: CrosshairMenuService | null = null;
   private unlistenFn: (() => void) | null = null;
+  private unsubscribeVisibility: (() => void) | null = null;
+  private destroyed = false;
 
   private constructor() {
     this.init();
@@ -22,8 +24,10 @@ export class CrosshairMenuService {
   }
 
   private async init() {
+    this.syncMenuCheck();
+
     // Listen for crosshair menu events from Tauri
-    this.unlistenFn = await safeListen('crosshair-action', (event) => {
+    const unlisten = await safeListen('crosshair-action', (event) => {
       console.log('[CrosshairMenuService] Received event:', event.payload);
       
       const payload = event.payload as { action: string };
@@ -39,6 +43,14 @@ export class CrosshairMenuService {
           console.warn(`[CrosshairMenuService] Unknown action: ${payload.action}`);
       }
     });
+    // Destroyed while the listener was being registered (StrictMode's
+    // mount/unmount/mount): drop it, or the remount adds a second listener
+    // and every menu toggle flips the crosshair twice (a no-op).
+    if (this.destroyed) {
+      void safeUnlisten(unlisten);
+      return;
+    }
+    this.unlistenFn = unlisten;
     
     console.log('[CrosshairMenuService] Initialized and listening for menu events');
   }
@@ -51,6 +63,21 @@ export class CrosshairMenuService {
     console.log(`[CrosshairMenuService] Toggled crosshair visibility to: ${!currentVisible}`);
   }
 
+  /**
+   * Report crosshair visibility to the native View › Show Crosshair check item
+   * (src-tauri main.rs) now and on every change, whatever changed it.
+   */
+  private syncMenuCheck() {
+    let last = useViewStateStore.getState().viewState.crosshair.visible;
+    void safeEmit('crosshair-visibility-changed', { visible: last });
+    this.unsubscribeVisibility = useViewStateStore.subscribe((state) => {
+      const visible = state.viewState.crosshair.visible;
+      if (visible === last) return;
+      last = visible;
+      void safeEmit('crosshair-visibility-changed', { visible });
+    });
+  }
+
   private openSettings() {
     console.log('[CrosshairMenuService] Opening crosshair settings dialog');
     
@@ -60,6 +87,9 @@ export class CrosshairMenuService {
   }
 
   destroy() {
+    this.destroyed = true;
+    this.unsubscribeVisibility?.();
+    this.unsubscribeVisibility = null;
     if (this.unlistenFn) {
       void safeUnlisten(this.unlistenFn);
       this.unlistenFn = null;

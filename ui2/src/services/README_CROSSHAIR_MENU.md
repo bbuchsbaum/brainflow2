@@ -19,31 +19,14 @@ We've removed all in-view crosshair controls (toolbars, floating buttons) from t
    - Handles `open-settings` action (placeholder for future settings window)
    - Integrated with CrosshairContext via useCrosshairSettings hook
 
-### Backend/Tauri (Pending)
+### Backend/Tauri
 
-The Tauri menu needs to be updated in `src-tauri/src/main.rs` to add:
-
-```rust
-// In the View menu, after fullscreen:
-.item(&MenuItemBuilder::new("Show Crosshair")
-    .id("toggle_crosshair")
-    .accelerator("C")
-    .build(app)?)
-.item(&MenuItemBuilder::new("Crosshair Settings...")
-    .id("crosshair_settings")
-    .build(app)?)
-```
-
-And in the menu event handler:
-
-```rust
-"toggle_crosshair" => {
-    app.emit("crosshair-action", json!({"action": "toggle"}))
-}
-"crosshair_settings" => {
-    app.emit("crosshair-action", json!({"action": "open-settings"}))
-}
-```
+`src-tauri/src/main.rs` builds View › Show Crosshair as a check item (id
+`toggle_crosshair`, no accelerator: bare `C` is the UI's "go to image center")
+and View › Crosshair Settings... (`crosshair_settings`). Both emit
+`crosshair-action` (`toggle` / `open-settings`). The UI owns visibility:
+`CrosshairMenuService` emits `crosshair-visibility-changed` `{ visible }` on
+start and on every change, and the shell sets the check mark from it.
 
 ## Benefits
 

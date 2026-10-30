@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/Button';
 import type { StudioSupportKind } from '@/types/studio';
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
 import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanelLazy';
+import { useStudioMemberRenderScope } from '@/hooks/useStudioMemberRenderScope';
 
 interface StudioRenderAdapterProps {
   supportKind: StudioSupportKind | null | undefined;
@@ -12,6 +13,11 @@ interface StudioRenderAdapterProps {
   actions?: Array<{ label: string; onClick: () => void }>;
   /** When true, render only the canvas — caller owns the title/footer chrome. */
   hideChrome?: boolean;
+  /**
+   * Source of the member this view shows. The orthogonal views then draw
+   * only that member's layer, never the workspace scene.
+   */
+  memberSourcePath?: string | null;
 }
 
 export function StudioRenderAdapter({
@@ -21,7 +27,10 @@ export function StudioRenderAdapter({
   footer,
   actions,
   hideChrome,
+  memberSourcePath,
 }: StudioRenderAdapterProps) {
+  useStudioMemberRenderScope(memberSourcePath, supportKind === 'volume');
+
   if (hideChrome) {
     if (supportKind === 'volume') {
       return <OrthogonalViewContainer className="h-full w-full" />;

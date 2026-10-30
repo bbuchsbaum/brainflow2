@@ -5,6 +5,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import type { SceneItem, SceneStackGroups } from '@/types/sceneItem';
 import { useImageSetStore } from '@/stores/imageSetStore';
 import type { ImageSelectionSet } from '@/types/imageSet';
+import { isAtlasLikeLayer } from '@/utils/sceneItemKind';
 
 /**
  * Unified, derived read view of all scene-stack items used by the right
@@ -63,7 +64,7 @@ export function buildSceneStack(
     const imageSet = layer.imageSetId ? imageSets[layer.imageSetId] : undefined;
     // A user-loaded label map (NIfTI label intent or a label-table sidecar)
     // gets the same categorical treatment as a catalogue atlas.
-    const isAtlas = layer.source === 'atlas' || layer.isLabelMap === true;
+    const isAtlas = isAtlasLikeLayer(layer);
     let kind: SceneItem['kind'];
     if (isAtlas) {
       kind = 'volume-overlay-atlas';

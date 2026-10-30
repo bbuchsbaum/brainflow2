@@ -27,7 +27,6 @@ import {
   type CrosshairRect,
   type CrosshairStyle,
 } from "@/utils/crosshairUtils";
-import { throttle } from "lodash";
 import { useSliceViewModel } from "@/hooks/useSliceViewModel";
 import { SLIDER_HEIGHT } from "./constants";
 import { useViewStateStore } from "@/stores/viewStateStore";
@@ -53,6 +52,7 @@ import {
 import { useActiveLayer } from "@/utils/activeLayer";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { pointerToWorld } from "@/utils/slicePointer";
+import { createWheelStepper } from "@/utils/wheelSteps";
 import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
 import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
 import {
@@ -136,6 +136,7 @@ function SliceViewCanvasBody({
     canvasHeight,
     renderContext,
     primaryLayer,
+    windowLevelLayer,
     primaryOptions,
     hoverEnabled,
     hoverLayerIds,
@@ -205,34 +206,35 @@ function SliceViewCanvasBody({
   const showMarkers = primaryOptions.showOrientationMarkers;
   const showHover = hoverEnabled;
 
-  // Derive data range for active layer from layerStore metadata
+  // Window/level edits the selected (else topmost visible) windowed layer.
+  const windowLevelLayerId = windowLevelLayer?.id ?? null;
   const dataRange = useMemo(() => {
-    if (!primaryLayer?.id) return null;
-    const metadata = useLayerStore.getState().getLayerMetadata(primaryLayer.id);
+    if (!windowLevelLayerId) return null;
+    const metadata = useLayerStore.getState().getLayerMetadata(windowLevelLayerId);
     const dr = metadata?.dataRange;
     if (!dr) return null;
     return { min: dr.min, max: dr.max };
-  }, [primaryLayer?.id]);
+  }, [windowLevelLayerId]);
 
   // Window/level handler: updates layer intensity in viewStateStore
   const handleWindowLevelUpdate = useCallback(
     (intensity: [number, number]) => {
-      if (!primaryLayer?.id) return;
+      if (!windowLevelLayerId) return;
       // Panel-aware in an unlinked Compare (the Inspector's rule).
-      writeLayerDisplayField(primaryLayer.id, 'intensity', intensity);
+      writeLayerDisplayField(windowLevelLayerId, 'intensity', intensity);
     },
-    [primaryLayer?.id],
+    [windowLevelLayerId],
   );
 
   // useWindowLevel hook — attaches to the canvas area div
   const { isDragging, overlayProps } = useWindowLevel({
     canvasRef: containerAreaRef,
-    layerId: primaryLayer?.id ?? null,
+    layerId: windowLevelLayerId,
     dataRange,
     // A drag starts from the layer's current window (never the data range).
     getCurrentWindow: () =>
-      primaryLayer?.id
-        ? useViewStateStore.getState().viewState.layers.find((l) => l.id === primaryLayer.id)?.intensity
+      windowLevelLayerId
+        ? useViewStateStore.getState().viewState.layers.find((l) => l.id === windowLevelLayerId)?.intensity
         : null,
     onUpdate: handleWindowLevelUpdate,
   });
@@ -470,7 +472,6 @@ function SliceViewCanvasBody({
   );
 
   // Handle mouse wheel for time/slice navigation
-  // Stable throttled wheel handler
   const layersRef = useRef(layers);
   useEffect(() => {
     layersRef.current = layers;
@@ -479,45 +480,59 @@ function SliceViewCanvasBody({
   useEffect(() => {
     showTimeOverlayRef.current = showTimeOverlay;
   }, [showTimeOverlay]);
-  const throttledHandleWheel = useMemo(() => {
-    const fn = throttle(
-      (event: WheelEvent) => {
-        event.preventDefault();
-        markActive();
-        const primary = layersRef.current.find((l) => l.visible);
-        if (!primary) return;
-        const has4D = timeNavService.has4DVolume();
-        const mode = timeNavService.getMode();
-        if (has4D && mode === "time") {
-          event.deltaY > 0
-            ? timeNavService.previousTimepoint()
-            : timeNavService.nextTimepoint();
-          const info = timeNavService.getTimeInfo();
-          if (info) {
-            showTimeOverlayRef.current(
-              `Time: ${info.currentTimepoint + 1}/${info.totalTimepoints}`,
-            );
-          }
-        } else {
-          // One reference voxel per notch (ten with Shift), always moving.
-          const multiplier = event.shiftKey ? 10 : 1;
-          sliceNavService.stepSlice(viewId, event.deltaY > 0 ? multiplier : -multiplier);
+  // Notches and trackpad pixels become whole steps (utils/wheelSteps); the
+  // steps of one frame are applied together so a fast burst is not lost to a
+  // throttle or to reading a crosshair the previous step has not settled.
+  const handleWheel = useMemo(() => {
+    const toSteps = createWheelStepper();
+    let pending = 0;
+    let frame: number | null = null;
+    const flush = () => {
+      frame = null;
+      const steps = pending;
+      pending = 0;
+      if (steps === 0) return;
+      const has4D = timeNavService.has4DVolume();
+      if (has4D && timeNavService.getMode() === "time") {
+        if (steps === 1) timeNavService.nextTimepoint();
+        else if (steps === -1) timeNavService.previousTimepoint();
+        else timeNavService.jumpTimepoints(steps);
+        const info = timeNavService.getTimeInfo();
+        if (info) {
+          showTimeOverlayRef.current(
+            `Time: ${info.currentTimepoint + 1}/${info.totalTimepoints}`,
+          );
         }
-      },
-      50,
-      { leading: true, trailing: true },
-    );
+      } else {
+        sliceNavService.stepSlice(viewId, steps);
+      }
+    };
+    const fn = (event: WheelEvent) => {
+      event.preventDefault();
+      markActive();
+      if (!layersRef.current.some((l) => l.visible)) return;
+      const steps = toSteps(event as WheelEvent & { wheelDeltaY?: number });
+      if (steps === 0) return;
+      // One reference voxel per step (ten with Shift), always moving.
+      pending += event.shiftKey ? steps * 10 : steps;
+      if (frame === null) frame = requestAnimationFrame(flush);
+    };
+    fn.cancel = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
+      pending = 0;
+    };
     return fn;
   }, [viewId, sliceNavService, timeNavService, markActive]);
-  useEffect(() => () => throttledHandleWheel.cancel(), [throttledHandleWheel]);
+  useEffect(() => () => handleWheel.cancel(), [handleWheel]);
 
   // Attach native wheel listener with { passive: false } so preventDefault() works
   useEffect(() => {
     const el = containerAreaRef.current;
     if (!el) return;
-    el.addEventListener("wheel", throttledHandleWheel, { passive: false });
-    return () => el.removeEventListener("wheel", throttledHandleWheel);
-  }, [throttledHandleWheel]);
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
 
   const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
     canvasRef.current = canvas;

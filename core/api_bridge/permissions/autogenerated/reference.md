@@ -109,6 +109,7 @@ Default permissions for api-bridge plugin
 - `allow-sample-set-at-world`
 - `allow-cancel-population-sample`
 - `allow-evaluate-population-slice`
+- `allow-population-peak-slice`
 - `allow-fit-population-relationship`
 - `allow-export-population-summary`
 - `allow-replay-population-summary`
@@ -1816,6 +1817,32 @@ Enables the peek_volume_metadata command without any pre-configured scope.
 <td>
 
 Denies the peek_volume_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-population-peak-slice`
+
+</td>
+<td>
+
+Enables the population_peak_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-population-peak-slice`
+
+</td>
+<td>
+
+Denies the population_peak_slice command without any pre-configured scope.
 
 </td>
 </tr>

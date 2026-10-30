@@ -213,6 +213,11 @@ export interface NeuroSurfaceCanvasProps {
     viewpointNonce?: number;
     onError?: (error: unknown) => void;
     /**
+     * Non-fatal viewer conditions a tester should see (WebGL context lost or
+     * restored, a fit with no visible mesh bounds). Hosts route these to a log.
+     */
+    onWarning?: (message: string) => void;
+    /**
      * Fired when the user clicks (not drags) a point on a rendered surface, with
      * the picked location in the surface's own vertex frame (world [x, y, z]).
      * Used to drive a reverse linked cursor (surface click → volume crosshair).

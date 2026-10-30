@@ -5,6 +5,8 @@ import { useWorkspaceStore } from "../workspaceStore";
 import { coalesceUtils } from "../middleware/coalesceUpdatesMiddleware";
 import type { ViewType, WorldCoordinates } from "@/types/coordinates";
 import type { Layer } from "@/types/layer";
+import { layerFrameBoxes } from "@/services/layerFrameBoxes";
+import { fitViewsToWorldBox, worldBoxFromViews } from "@/utils/worldFrame";
 
 const recalcAllViewsMock = vi.fn();
 const recalcViewForDimensionsMock = vi.fn();
@@ -139,6 +141,74 @@ describe("ViewStateStore", () => {
       const view = useViewStateStore.getState().viewState.views.axial;
       expect(view.dim_px).toEqual([800, 600]);
       expect(view.origin_mm[2]).toBe(20);
+    });
+  });
+
+  describe("Resize frames the union of the visible layers", () => {
+    // Two volumes that only partly overlap (QA 2026-10-29 §3.2: the second
+    // was cropped to the first one's extent).
+    const first = { min: [-3, -8.5, 3], max: [11, 6.5, 39] } as const;
+    const second = { min: [-1, -31, 29], max: [39, -11, 39] } as const;
+    const union = { min: [-3, -31, 3], max: [39, 6.5, 39] };
+
+    beforeEach(() => {
+      layerFrameBoxes.clear();
+      const blank = useViewStateStore.getState().viewState.views.axial;
+      for (const [id, box] of [["a", first], ["b", second]] as const) {
+        layerFrameBoxes.recordFromViews(
+          id,
+          fitViewsToWorldBox(
+            { axial: blank, sagittal: blank, coronal: blank },
+            { min: [...box.min], max: [...box.max] },
+            [0, 0, 0],
+            [400, 400],
+          ),
+        );
+      }
+      store.setViewState((state) => {
+        state.layers = [
+          { id: "a", volumeId: "a", visible: true, opacity: 1 },
+          { id: "b", volumeId: "b", visible: true, opacity: 1 },
+        ] as unknown as Layer[];
+      });
+    });
+
+    afterEach(() => layerFrameBoxes.clear());
+
+    const expectCovers = (views: Parameters<typeof worldBoxFromViews>[0]) => {
+      const box = worldBoxFromViews(views)!;
+      for (let a = 0; a < 3; a += 1) {
+        expect(box.min[a]).toBeLessThanOrEqual(union.min[a] + 1e-3);
+        expect(box.max[a]).toBeGreaterThanOrEqual(union.max[a] - 1e-3);
+        expect(union.min[a] - box.min[a]).toBeLessThan(0.5);
+        expect(box.max[a] - union.max[a]).toBeLessThan(0.5);
+      }
+    };
+
+    it("refits one pane to the union without the single-volume backend fit", async () => {
+      useViewLayoutStore.getState().setMode("flexible");
+      await store.updateDimensionsAndPreserveScale("axial", [640, 480]);
+      expect(recalcViewForDimensionsMock).not.toHaveBeenCalled();
+      const axial = useViewStateStore.getState().viewState.views.axial;
+      // X right, Y (anterior) up, square pixels.
+      expect(axial.u_mm[0]).toBeGreaterThan(0);
+      expect(axial.v_mm[1]).toBeLessThan(0);
+      expect(Math.abs(axial.u_mm[0])).toBeCloseTo(Math.abs(axial.v_mm[1]));
+      expect(axial.dim_px[0]).toBeLessThanOrEqual(640);
+      expect(axial.dim_px[1]).toBeLessThanOrEqual(480);
+      const x = [axial.origin_mm[0], axial.origin_mm[0] + axial.u_mm[0] * axial.dim_px[0]];
+      const y = [axial.origin_mm[1] + axial.v_mm[1] * axial.dim_px[1], axial.origin_mm[1]];
+      expect(x[0]).toBeCloseTo(union.min[0], 3);
+      expect(x[1]).toBeGreaterThanOrEqual(union.max[0] - 1e-3);
+      expect(y[0]).toBeLessThanOrEqual(union.min[1] + 1e-3);
+      expect(y[1]).toBeCloseTo(union.max[1], 3);
+    });
+
+    it("refits every pane to the union in a locked layout", async () => {
+      useViewLayoutStore.getState().setMode("locked");
+      await store.updateDimensionsAndPreserveScale("axial", [640, 480]);
+      expect(recalcAllViewsMock).not.toHaveBeenCalled();
+      expectCovers(useViewStateStore.getState().viewState.views);
     });
   });
 

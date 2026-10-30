@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { getTransport } from '@/services/transport';
 import { getEventBus } from '@/events/EventBus';
+import { formatTauriError } from '@/utils/formatTauriError';
 import { AtlasPicker, ProjectionPicker } from './imaging/InspectorLoadDialogs';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
 import { useSceneStack } from '@/hooks/useSceneStack';
@@ -11,12 +12,15 @@ import { BidsInspector } from './bids/BidsInspector';
 import { AnalysisInspector } from './analysis/AnalysisInspector';
 import { ImagingInspector } from './imaging/ImagingInspector';
 import { Button, TabPanel, Tabs } from '@/components/ui/bf';
+import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 
 /**
  * Right-rail Inspector shell. Owns the chrome:
  *   - a thin context toolbar: flat `Inspect | Annotate` tabs (they switch the
  *     pane's content, so they are tabs by the V5 taxonomy, not a segmented
- *     value choice) + the `+ Load` action
+ *     value choice) + the `+ Load` action. Annotate is unfinished: the tabs
+ *     show only with Settings › Experimental features on; otherwise the body
+ *     is the Inspector alone.
  *   - the scrollable body (Inspector or Annotate)
  *   - the footer (`N scene items` / `M selected`)
  *
@@ -38,6 +42,8 @@ const MODE_TABS_ID = 'inspector-mode';
 export function InspectorRouter() {
   const [topLevelMode, setTopLevelMode] = useState<'inspector' | 'annotate'>('inspector');
   const [loadOpen, setLoadOpen] = useState(false);
+  const experimental = useFeatureFlagStore((s) => s.experimentalFeatures);
+  const mode = experimental ? topLevelMode : 'inspector';
 
   return (
     <section
@@ -45,7 +51,8 @@ export function InspectorRouter() {
       aria-label="Inspector"
     >
       <ContextToolbar
-        topLevelMode={topLevelMode}
+        showModeTabs={experimental}
+        topLevelMode={mode}
         onSelectMode={setTopLevelMode}
         onOpenLoad={() => setLoadOpen((p) => !p)}
         loadOpen={loadOpen}
@@ -53,12 +60,18 @@ export function InspectorRouter() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <TabPanel idBase={MODE_TABS_ID} value="inspector" selected={topLevelMode} focusable={false}>
+        {experimental ? (
+          <>
+            <TabPanel idBase={MODE_TABS_ID} value="inspector" selected={mode} focusable={false}>
+              <InspectorBody />
+            </TabPanel>
+            <TabPanel idBase={MODE_TABS_ID} value="annotate" selected={mode} focusable={false}>
+              <AnnotateBody />
+            </TabPanel>
+          </>
+        ) : (
           <InspectorBody />
-        </TabPanel>
-        <TabPanel idBase={MODE_TABS_ID} value="annotate" selected={topLevelMode} focusable={false}>
-          <AnnotateBody />
-        </TabPanel>
+        )}
       </div>
 
       <InspectorFooter />
@@ -67,12 +80,14 @@ export function InspectorRouter() {
 }
 
 function ContextToolbar({
+  showModeTabs,
   topLevelMode,
   onSelectMode,
   onOpenLoad,
   loadOpen,
   onCloseLoad,
 }: {
+  showModeTabs: boolean;
   topLevelMode: 'inspector' | 'annotate';
   onSelectMode: (mode: 'inspector' | 'annotate') => void;
   onOpenLoad: () => void;
@@ -82,22 +97,26 @@ function ContextToolbar({
   const [dialog, setDialog] = useState<'atlas' | 'projection' | null>(null);
   const openFile = () => {
     void getTransport().invoke('open_file_dialog').catch((error: unknown) => {
-      getEventBus().emit('ui.notification', { type: 'error', message: `Unable to open file dialog: ${String(error)}` });
+      getEventBus().emit('ui.notification', { type: 'error', message: `Unable to open file dialog: ${formatTauriError(error)}` });
     });
   };
 
   return (
     <header className="relative flex h-10 items-end justify-between gap-1.5 border-b border-border/60 bg-card/40 pl-1 pr-3">
-      <Tabs
-        aria-label="Inspector mode"
-        idBase={MODE_TABS_ID}
-        value={topLevelMode}
-        onValueChange={(value) => onSelectMode(value as 'inspector' | 'annotate')}
-        items={[
-          { value: 'inspector', label: 'Inspect' },
-          { value: 'annotate', label: 'Annotate', title: 'Toggle annotate mode' },
-        ]}
-      />
+      {showModeTabs ? (
+        <Tabs
+          aria-label="Inspector mode"
+          idBase={MODE_TABS_ID}
+          value={topLevelMode}
+          onValueChange={(value) => onSelectMode(value as 'inspector' | 'annotate')}
+          items={[
+            { value: 'inspector', label: 'Inspect' },
+            { value: 'annotate', label: 'Annotate', title: 'Toggle annotate mode' },
+          ]}
+        />
+      ) : (
+        <span aria-hidden />
+      )}
       <Button
         variant="secondary"
         size="sm"

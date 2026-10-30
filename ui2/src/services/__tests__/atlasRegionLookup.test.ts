@@ -76,6 +76,22 @@ describe("atlasRegionLookup", () => {
       expect(findActiveAtlasLayer()?.id).toBe("atlas-1");
     });
 
+    it("prefers the reported layer when it is an atlas (Region matches Value)", () => {
+      const olsen = atlasLayer({ id: "olsen", atlasPaletteLegend: [legend[1]] });
+      layersRef.current = [{ id: "v", type: "volume" }, atlasLayer({ id: "aseg" }), olsen];
+      expect(findActiveAtlasLayer("olsen")?.id).toBe("olsen");
+      // A non-atlas reported layer falls back to the first atlas.
+      expect(findActiveAtlasLayer("v")?.id).toBe("aseg");
+      expect(findActiveAtlasLayer(null)?.id).toBe("aseg");
+    });
+
+    it("samples the preferred atlas, not the first one", async () => {
+      layersRef.current = [atlasLayer({ id: "aseg" }), atlasLayer({ id: "olsen" })];
+      mockSample.mockResolvedValue({ value: 0 });
+      await expect(resolveAtlasRegionAtWorld([1, 2, 3], "olsen")).resolves.toBeNull();
+      expect(mockSample).toHaveBeenCalledWith({ layerId: "olsen", world: [1, 2, 3] });
+    });
+
     it("returns undefined when there is no atlas layer", () => {
       layersRef.current = [{ id: "v", type: "volume" }];
       expect(findActiveAtlasLayer()).toBeUndefined();

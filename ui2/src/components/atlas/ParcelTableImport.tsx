@@ -10,6 +10,7 @@ import {
   parcelMetricColumns,
   suggestParcelIdColumn,
 } from '@/services/parcelTablePresentation';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 const fieldClass = 'bf-select w-full';
 const keyKinds: Record<string, string> = {
@@ -19,9 +20,9 @@ const keyKinds: Record<string, string> = {
   label_hemi: 'Label + hemisphere',
   label_hemi_network: 'Label + hemisphere + network',
 };
+/** Bridge rejections are enum-shaped objects (`{ Input: { code, details } }`). */
 export function parcelError(error: unknown): string {
-  if (error && typeof error === 'object' && 'details' in error) return String(error.details);
-  return error instanceof Error ? error.message : String(error);
+  return formatTauriError(error);
 }
 
 export function ParcelTableImport({

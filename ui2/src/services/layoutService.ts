@@ -8,13 +8,14 @@ import {
   type ContentItem,
   GoldenLayout,
   type LayoutConfig,
-  type RowOrColumnItemConfig,
   Stack,
 } from 'golden-layout';
 import { nanoid } from 'nanoid';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useSurfaceStore } from '@/stores/surfaceStore';
 import { workspaceTabLabels } from '@/components/ui/displayModeSelector.helpers';
 import { cloneLayoutConfig } from '@/utils/layoutConfigUtils';
+import { programmaticTabRemoval } from '@/components/layout/workspaceTabSync';
 import { surfaceGroupKey } from '@/utils/surfaceIdentity';
 
 type LayoutComponentState = Record<string, unknown>;
@@ -53,64 +54,101 @@ const getComponentState = (item: ComponentItem): LayoutComponentState => {
 
 const isComponentItem = (item: ContentItem): item is ComponentItem => item.type === 'component';
 
-const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
-  root: {
-    type: 'row',
-    content: [
-      {
-        type: 'column',
-        width: 17.25,
-        content: [
-          {
-            type: 'stack',
-            content: [
-              {
-                type: 'component',
-                componentType: 'FileBrowser',
-                title: 'Files',
-                componentState: {},
-              },
-              {
-                type: 'component',
-                componentType: 'StudioDesignPanel',
-                title: 'Subjects',
-                componentState: {},
-              },
-            ],
-          },
-        ],
-      },
-      {
-        type: 'stack',
-        width: 59.75,
-        content: [],
-      },
-      {
-        type: 'column',
-        width: 23,
-        content: [
-          {
-            type: 'stack',
-            content: [
-              {
-                type: 'component',
-                componentType: 'Inspector',
-                title: 'Inspector',
-                componentState: {},
-              },
-              {
-                type: 'component',
-                componentType: 'SetPanel',
-                title: 'Set',
-                componentState: {},
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-};
+/**
+ * The default app shell: Files/Subjects on the left, the workspace tab stack in
+ * the centre, the Inspector on the right. GoldenLayoutRoot boots from it and
+ * Reset layout restores it. Header controls keep maximise + close and drop the
+ * pop-out (separate-window, brittle in a desktop app) and the tab-dropdown caret.
+ */
+export function createDefaultLayoutConfig(): LayoutConfig {
+  return {
+    header: {
+      popout: false,
+      tabDropdown: false,
+    },
+    root: {
+      type: 'row',
+      content: [
+        {
+          type: 'column',
+          width: 17.25,
+          content: [
+            {
+              type: 'stack',
+              content: [
+                {
+                  type: 'component',
+                  componentType: 'FileBrowser',
+                  title: 'Files',
+                  componentState: {},
+                },
+                {
+                  type: 'component',
+                  componentType: 'StudioDesignPanel',
+                  title: 'Subjects',
+                  componentState: {},
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'stack', // Center stack for workspace tabs
+          width: 59.75,
+          content: [], // Workspaces are added from workspaceStore
+        },
+        {
+          type: 'column',
+          width: 23,
+          content: [
+            {
+              type: 'stack',
+              content: [
+                {
+                  type: 'component',
+                  componentType: 'Inspector',
+                  title: 'Inspector',
+                  componentState: {},
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+/** Legacy per-kind right-rail panels; all resolve to the single Inspector tab. */
+const INSPECTOR_ALIASES: ReadonlySet<string> = new Set([
+  'LayerPanel',
+  'AtlasPanel',
+  'SurfacePanel',
+  'StudioInspectorPanel',
+]);
+
+/** The componentType a panel request actually lives under. */
+export function resolvePanelComponentType(panelType: string): string {
+  return INSPECTOR_ALIASES.has(panelType) ? 'Inspector' : panelType;
+}
+
+/** Every component item of `componentType` anywhere under `root`, in tree order. */
+export function findComponentItemsByType(
+  root: ContentItem | null | undefined,
+  componentType: string,
+): ComponentItem[] {
+  const found: ComponentItem[] = [];
+  const visit = (item: ContentItem | null | undefined) => {
+    if (!item) return;
+    if (isComponentItem(item)) {
+      if (item.componentType === componentType) found.push(item);
+      return;
+    }
+    item.contentItems?.forEach(visit);
+  };
+  visit(root);
+  return found;
+}
 
 export type SidebarPanelType =
   | 'FileBrowser'
@@ -129,6 +167,11 @@ export interface LayoutService {
   addComponent(config: ComponentItemConfig): void;
   setLayoutRef(layout: unknown): void;
   focusSidebarPanel(panelType: SidebarPanelType): void;
+  /**
+   * Reveal a side panel: focus the existing tab wherever it is docked, or add
+   * it to its home stack when it was closed. Never adds a duplicate.
+   */
+  showPanel(panelType: string): boolean;
   focusSurfacePanel(): void;
   ensureSurfaceView(surfaceHandle: string, path?: string, options?: EnsureSurfaceViewOptions): void;
   closeSurfaceViewTabs(surfaceHandle: string): void;
@@ -173,7 +216,7 @@ class LayoutServiceImpl implements LayoutService {
     return sidebarStack?.type === 'stack' ? (sidebarStack as Stack) : null;
   }
 
-  private getStackForPanelType(panelType: SidebarPanelType): Stack | null {
+  private getStackForPanelType(panelType: string): Stack | null {
     switch (panelType) {
       case 'FileBrowser':
       case 'StudioDesignPanel':
@@ -183,7 +226,7 @@ class LayoutServiceImpl implements LayoutService {
     }
   }
 
-  private getPanelTitle(panelType: SidebarPanelType): string {
+  private getPanelTitle(panelType: string): string {
     switch (panelType) {
       case 'FileBrowser':
         return 'Files';
@@ -287,7 +330,10 @@ class LayoutServiceImpl implements LayoutService {
     }
 
     try {
-      this.layoutRef.loadLayout(config);
+      // Reloading destroys every workspace tab; that is not the user closing
+      // them, so their workspaces stay (and are re-added just below).
+      const layout = this.layoutRef;
+      programmaticTabRemoval.run(() => layout.loadLayout(config));
       this.addWorkspaceTabsFromStore();
       return true;
     } catch (error) {
@@ -414,51 +460,60 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   focusSidebarPanel(panelType: SidebarPanelType): void {
-    // Right-rail unification: every legacy per-kind panel collapses to the
-    // single Inspector tab. Resolve the requested type to the actual tab
-    // componentType BEFORE looking it up.
-    const resolvedType: SidebarPanelType =
-      panelType === 'LayerPanel' ||
-      panelType === 'AtlasPanel' ||
-      panelType === 'SurfacePanel' ||
-      panelType === 'StudioInspectorPanel'
-        ? 'Inspector'
-        : panelType;
+    this.showPanel(panelType);
+  }
 
-    const sidebarStack = this.getStackForPanelType(resolvedType);
-    if (!sidebarStack || !this.layoutRef) {
-      console.warn(`[LayoutService] Cannot focus ${resolvedType} - sidebar stack unavailable`);
-      return;
+  showPanel(panelType: string): boolean {
+    const layout = this.layoutRef;
+    if (!layout) {
+      console.warn(`[LayoutService] Cannot show ${panelType} - layout not initialized`);
+      return false;
     }
+    // Right-rail unification: every legacy per-kind panel collapses to the
+    // single Inspector tab. Resolve the requested type BEFORE looking it up.
+    const resolvedType = resolvePanelComponentType(panelType);
 
-    const existingPanel = sidebarStack.contentItems.find(
-      (item) => isComponentItem(item) && item.componentType === resolvedType,
-    );
-
-    if (existingPanel && isComponentItem(existingPanel)) {
+    // Look through the whole tree: the user may have dragged the panel to
+    // another stack, and adding a second copy is never what a menu or shortcut
+    // means (QA 2026-10-29: Cmd+B x3 stacked three more Files panels).
+    const [existing] = findComponentItemsByType(layout.rootItem, resolvedType);
+    if (existing) {
+      const parent = existing.parent;
       try {
-        sidebarStack.setActiveComponentItem(existingPanel, true);
-        console.log(`[LayoutService] Focused sidebar panel: ${resolvedType}`);
+        if (parent && parent.type === 'stack') {
+          (parent as Stack).setActiveComponentItem(existing, true);
+        } else {
+          existing.focus?.();
+        }
       } catch (error) {
         console.warn(`[LayoutService] Failed to focus existing ${resolvedType}:`, error);
       }
-      return;
+      return true;
     }
 
+    const config: ComponentItemConfig = {
+      type: 'component',
+      componentType: resolvedType,
+      title: this.getPanelTitle(resolvedType),
+      componentState: {},
+    };
+    const homeStack = this.getStackForPanelType(resolvedType);
     try {
-      const newItem = this.layoutRef.newItem({
-        type: 'component',
-        componentType: resolvedType,
-        title: this.getPanelTitle(resolvedType),
-        componentState: {},
-      });
-      sidebarStack.addChild(newItem, undefined, true);
-      if (newItem.type === 'component') {
-        sidebarStack.setActiveComponentItem(newItem as ComponentItem, true);
+      if (homeStack) {
+        const newItem = layout.newItem(config);
+        homeStack.addChild(newItem, undefined, true);
+        if (isComponentItem(newItem)) {
+          homeStack.setActiveComponentItem(newItem, true);
+        }
+      } else {
+        // The home column was closed: let GoldenLayout place the panel.
+        // (Reset layout restores the default shell.)
+        layout.addComponent(resolvedType, {}, config.title);
       }
-      console.log(`[LayoutService] Added and focused missing sidebar panel: ${resolvedType}`);
+      return true;
     } catch (error) {
-      console.error(`[LayoutService] Failed to add/focus sidebar panel ${resolvedType}:`, error);
+      console.error(`[LayoutService] Failed to add sidebar panel ${resolvedType}:`, error);
+      return false;
     }
   }
 
@@ -478,7 +533,7 @@ class LayoutServiceImpl implements LayoutService {
         console.warn(
           '[LayoutService] Layout capture produced incompatible config; returning default shell',
         );
-        return cloneLayoutConfig(DEFAULT_LAYOUT_CONFIG);
+        return createDefaultLayoutConfig();
       }
       return normalized;
     } catch (error) {
@@ -500,7 +555,46 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   resetToDefaultLayout(): boolean {
-    return this.loadLayoutAndRehydrate(cloneLayoutConfig(DEFAULT_LAYOUT_CONFIG));
+    // Workspace tabs are rehydrated from workspaceStore; surface view tabs
+    // have no store of their own, so carry them across the reload.
+    const surfaceTabs = this.layoutRef
+      ? findComponentItemsByType(this.layoutRef.rootItem, 'surfaceView').map(
+          (item): ComponentItemConfig => ({
+            type: 'component',
+            componentType: 'surfaceView',
+            title: item.title,
+            componentState: getComponentState(item),
+          }),
+        )
+      : [];
+    // Each tab's per-view settings, selection and viewpoint live in
+    // surfaceStore under its surfaceViewId. The old panels unmount after the
+    // reload, so capture the entries now and put them back unowned: the
+    // remounted panel (same id) claims them, the old one's cleanup cannot.
+    const surfaceStore = useSurfaceStore.getState();
+    const surfaceSnapshots = surfaceTabs.flatMap((config) => {
+      const state = config.componentState as LayoutComponentState | undefined;
+      const id = typeof state?.surfaceViewId === 'string' ? state.surfaceViewId : null;
+      const snapshot = id ? surfaceStore.captureSurfaceView(id) : null;
+      return id && snapshot ? [[id, snapshot] as const] : [];
+    });
+    if (!this.loadLayoutAndRehydrate(createDefaultLayoutConfig())) {
+      return false;
+    }
+    for (const [id, snapshot] of surfaceSnapshots) {
+      useSurfaceStore.getState().restoreSurfaceView(id, snapshot);
+    }
+    const centerStack = this.getCenterStack();
+    if (centerStack && this.layoutRef) {
+      for (const config of surfaceTabs) {
+        try {
+          centerStack.addChild(this.layoutRef.newItem(config), undefined, false);
+        } catch (error) {
+          console.warn('[LayoutService] Failed to restore surface view tab:', error);
+        }
+      }
+    }
+    return true;
   }
 }
 

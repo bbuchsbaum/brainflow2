@@ -10,6 +10,8 @@ import { getApiService } from './apiService';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
+import { layerFrameBoxes } from './layerFrameBoxes';
+import { edgeBoxFromAffine, type WorldBox } from '@/utils/worldFrame';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { colormapNameToId } from '@/components/ui/colormapOptions';
@@ -27,8 +29,11 @@ import {
 import { getEventBus } from '@/events/EventBus';
 import { layerEvictionService } from './LayerEvictionService';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
-import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
+import { useInspectorSelectionStore, focusVolumeLayer } from '@/stores/inspectorSelectionStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
+import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
+import { useSeriesStore } from '@/stores/seriesStore';
+import { planLayerPlacement, placementOrder } from './layerPlacement';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -91,7 +96,24 @@ export class LayerApiImpl implements LayerApi {
       return;
     }
 
+    // The layer may be removed while it is promoted: its new lease must not
+    // outlive it, and its metadata must not be written back.
+    const removal = this.removalSeq.get(id) ?? 0;
+    const removed = () =>
+      (this.removalSeq.get(id) ?? 0) !== removal || !useLayerStore.getState().getLayer(id);
+    const discardIfRemoved = async (): Promise<boolean> => {
+      if (!removed()) return false;
+      // A layer re-added under the same id owns the lease now; keep it.
+      if (!useLayerStore.getState().getLayer(id)) {
+        await this.apiService.releaseLayerGpuResources(id).catch((error) => {
+          console.warn(`[LayerApiImpl] Could not release the lease of removed layer ${id}:`, error);
+        });
+      }
+      return true;
+    };
+
     const gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
+    if (await discardIfRemoved()) return;
 
     try {
       const isReady = await this.apiService.waitForLayerReady(id, 500, 20);
@@ -104,11 +126,13 @@ export class LayerApiImpl implements LayerApi {
         readinessError,
       );
     }
+    if (await discardIfRemoved()) return;
 
+    const currentMetadata = useLayerStore.getState().getLayerMetadata(id) ?? existingMetadata;
     const nextMetadata = this.buildLayerMetadata(
-      existingMetadata ?? {},
+      currentMetadata ?? {},
       gpuInfo,
-      existingMetadata?.renderProps,
+      currentMetadata?.renderProps,
       true,
     );
     useLayerStore.getState().setLayerMetadata(id, nextMetadata);
@@ -149,7 +173,9 @@ export class LayerApiImpl implements LayerApi {
       name: layer.name,
       volumeId: layer.volumeId,
       visible,
-      opacity: visible ? (metadataRenderProps?.opacity ?? 1.0) : 0.0,
+      // Visibility is `visible` alone: the opacity is the user's and
+      // survives hide/show (QA §5.3: 48% came back as 100%).
+      opacity: metadataRenderProps?.opacity ?? 1.0,
       colormap: metadataRenderProps?.colormap ?? 'gray',
       intensity,
       threshold,
@@ -163,6 +189,13 @@ export class LayerApiImpl implements LayerApi {
 
   private upsertViewLayer(layer: Layer, context?: LayerLoadContext): void {
     const nextLayer = this.toViewLayer(layer);
+    if (context?.initialGeometry && !layerFrameBoxes.get(layer.id)) {
+      // Without an affine, the volume's own initial views frame its box (up
+      // to the load-time pixel slack).
+      layerFrameBoxes.recordFromViews(layer.id, context.initialGeometry.views);
+    }
+    // The view-state store refits the panes to the union of the visible
+    // layers' boxes when the shown layers change (reframeForLayerChange).
     useViewStateStore.getState().setViewState((state) => {
       const existingIndex = state.layers.findIndex((item) => item.id === nextLayer.id);
       if (existingIndex >= 0) {
@@ -184,6 +217,7 @@ export class LayerApiImpl implements LayerApi {
         state.layers = state.layers.filter((layer) => layer.id !== id);
       }, workspaceId);
     }
+    layerFrameBoxes.delete(id);
   }
 
   private setViewLayerVisibility(id: string, visible: boolean): void {
@@ -193,11 +227,13 @@ export class LayerApiImpl implements LayerApi {
         return;
       }
       layer.visible = visible;
-      layer.opacity = visible ? 1.0 : 0.0;
+      // A layer hidden by older builds (or a session saved by them) had
+      // its opacity zeroed; showing it must draw it.
+      if (visible && !(layer.opacity > 0)) layer.opacity = 1.0;
     });
   }
 
-  private reorderViewLayers(layerIds: string[]): void {
+  private reorderViewLayers(layerIds: string[], workspaceId?: string): void {
     useViewStateStore.getState().setViewState((state) => {
       const order = new Map(layerIds.map((id, index) => [id, index]));
       state.layers.sort((left, right) => {
@@ -205,7 +241,7 @@ export class LayerApiImpl implements LayerApi {
         const rightIndex = order.get(right.id) ?? Number.MAX_SAFE_INTEGER;
         return leftIndex - rightIndex;
       });
-    });
+    }, workspaceId);
   }
 
   async addLayer(layer: Omit<Layer, 'id'>, context?: LayerLoadContext): Promise<Layer> {
@@ -239,6 +275,10 @@ export class LayerApiImpl implements LayerApi {
     // [perf] Hoisted so the background histogram refinement can run after the
     // layer is committed (off the first-pixel path).
     let rangeOptions: IntensityRangeOptions | undefined;
+    // Stack position and start opacity of a new (not replacement) layer.
+    let placement: { index: number; opacity?: number } | undefined;
+    // Exact voxel-edge world box, for framing the union of visible layers.
+    let frameBox: WorldBox | null = null;
 
     try {
       const gpuInfo = await this.apiService.requestLayerGpuResources(
@@ -246,6 +286,7 @@ export class LayerApiImpl implements LayerApi {
         newLayer.volumeId,
         metadataOnly,
       );
+      frameBox = edgeBoxFromAffine(gpuInfo.voxel_to_world, gpuInfo.dim);
       const gpuElapsed = performance.now() - gpuStartTime;
       layerDebugLog(
         `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`,
@@ -270,6 +311,20 @@ export class LayerApiImpl implements LayerApi {
       }
 
       const earlyMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
+      if (!context?.replaceLayerId) {
+        placement = planLayerPlacement(
+          useLayerStore.getState().layers,
+          newLayer,
+          (id) =>
+            id === newLayer.id
+              ? {
+                  ...earlyMetadata,
+                  isBinaryLike: gpuInfo.is_binary_like,
+                  dataRange: gpuInfo.data_range ?? undefined,
+                }
+              : useLayerStore.getState().getLayerMetadata(id),
+        );
+      }
       const isLabelLike = newLayer.type === 'label';
       const dataRange = gpuInfo.data_range ?? { min: 0, max: 100 };
       rangeOptions = {
@@ -299,7 +354,8 @@ export class LayerApiImpl implements LayerApi {
       if (statisticRange) statisticFirstPaint.add(newLayer.id);
 
       renderProps = {
-        opacity: newLayer.visible ? 1.0 : 0.0,
+        // Hidden layers keep their opacity; `visible` gates drawing.
+        opacity: placement?.opacity ?? 1.0,
         intensity: rangeResult.intensity,
         threshold: rangeResult.threshold,
         colormap: rangeResult.suggestedColormap ?? 'gray',
@@ -358,12 +414,23 @@ export class LayerApiImpl implements LayerApi {
     layerDebugLog(`  - layerStore: ${stateBefore} layers`);
     layerDebugLog(`  - viewStateStore: ${viewStateBefore} layers`);
 
+    if (frameBox) layerFrameBoxes.record(newLayer.id, frameBox);
     // Add to layer store first.
     if (context?.replaceLayerId) {
       this.publishReplacement(context.replaceLayerId, newLayer, context);
     } else {
       useLayerStore.getState().addLayer(newLayer);
       this.upsertViewLayer(newLayer, context);
+      this.placeNewLayer(newLayer.id, context?.workspaceId);
+      // A single user-opened layer is the one the user works on next (not a
+      // batch, a session restore or a programmatic load).
+      if (
+        newLayer.visible &&
+        context?.autoSelect?.() &&
+        (context.workspaceId ?? workspaceId) === useViewStateStore.getState().activeWorkspaceKey
+      ) {
+        focusVolumeLayer(newLayer.id);
+      }
     }
     context?.afterCommit?.(newLayer);
 
@@ -428,6 +495,14 @@ export class LayerApiImpl implements LayerApi {
     const selection = useInspectorSelectionStore.getState();
     const wasSelected = selection.activeItemId === oldId;
     useLayerStore.getState().replaceLayer(oldId, next);
+    if (layerFrameBoxes.get(next.id) && next.id !== oldId) {
+      layerFrameBoxes.delete(oldId);
+    } else if (context.initialGeometry) {
+      layerFrameBoxes.recordFromViews(next.id, context.initialGeometry.views);
+      if (next.id !== oldId) layerFrameBoxes.delete(oldId);
+    } else {
+      layerFrameBoxes.move(oldId, next.id);
+    }
     const views = useViewStateStore.getState();
     for (const [workspaceId, state] of views.workspaceViewStates) {
       if (!state.layers.some((layer) => layer.id === oldId)) continue;
@@ -536,8 +611,10 @@ export class LayerApiImpl implements LayerApi {
         );
       }
     }
+    const meta = store.getLayerMetadata(layer.id);
     const refined: LayerRender = {
-      opacity: layer.visible ? 1.0 : 0.0,
+      // The refinement changes the window only; the opacity is the user's.
+      opacity: meta?.renderProps?.opacity ?? 1.0,
       intensity,
       threshold: rangeResult.threshold,
       colormap: rangeResult.suggestedColormap ?? 'gray',
@@ -545,7 +622,6 @@ export class LayerApiImpl implements LayerApi {
       layerMode: layer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar',
     };
 
-    const meta = store.getLayerMetadata(layer.id);
     if (meta) {
       store.setLayerMetadata(layer.id, { ...meta, renderProps: refined });
     }
@@ -612,7 +688,23 @@ export class LayerApiImpl implements LayerApi {
     }, workspaceId);
   }
 
-  async removeLayer(id: string): Promise<void> {
+  /** Removal in flight per layer: a second request joins it. */
+  private readonly removals = new Map<string, Promise<void>>();
+  /** Bumped when a layer's removal starts (stale promotion guard). */
+  private readonly removalSeq = new Map<string, number>();
+
+  removeLayer(id: string): Promise<void> {
+    const inFlight = this.removals.get(id);
+    if (inFlight) return inFlight;
+    this.removalSeq.set(id, (this.removalSeq.get(id) ?? 0) + 1);
+    const removal = this.removeLayerOnce(id).finally(() => {
+      if (this.removals.get(id) === removal) this.removals.delete(id);
+    });
+    this.removals.set(id, removal);
+    return removal;
+  }
+
+  private async removeLayerOnce(id: string): Promise<void> {
     const layer = useLayerStore.getState().getLayer(id);
     const volumeId = layer?.volumeId ?? id;
     const displayName = layer?.name ?? volumeId;
@@ -637,8 +729,14 @@ export class LayerApiImpl implements LayerApi {
       queueStore.startLoading(queueId);
       queueStore.updateProgress(queueId, 10);
 
-      // Release GPU resources first
-      await this.apiService.releaseLayerGpuResources(id);
+      // Release GPU resources first. A failed release must not strand the
+      // layer in the stores (it would stay listed and keep its overlays), so
+      // the teardown below runs either way.
+      try {
+        await this.apiService.releaseLayerGpuResources(id);
+      } catch (error) {
+        console.warn(`[LayerApiImpl] releaseLayerGpuResources failed for ${id}:`, error);
+      }
       queueStore.updateProgress(queueId, 45);
 
       // Best-effort volume-registry cleanup for symmetric unload flow.
@@ -651,9 +749,10 @@ export class LayerApiImpl implements LayerApi {
       queueStore.updateProgress(queueId, 85);
       VolumeHandleStore.clearVolumeHandle(volumeId);
 
-      // Remove from both stores explicitly.
+      // Remove from both stores explicitly, then forget per-layer UI state.
       useLayerStore.getState().removeLayer(id);
       this.removeViewLayer(id);
+      this.forgetLayer(id);
       queueStore.markComplete(queueId);
     } catch (error) {
       queueStore.markError(
@@ -661,6 +760,30 @@ export class LayerApiImpl implements LayerApi {
         error instanceof Error ? error : new Error('Failed to remove volume'),
       );
       throw error;
+    }
+  }
+
+  /**
+   * Places a just-committed layer by the stack rule (`layerPlacement.ts`):
+   * on top of its band (anatomy, continuous, statistic, label).
+   */
+  private placeNewLayer(layerId: string, workspaceId?: string): void {
+    const store = useLayerStore.getState();
+    const order = placementOrder(store.layers, layerId, (id) => store.getLayerMetadata(id));
+    if (!order) return;
+    const byId = new Map(store.layers.map((layer) => [layer.id, layer]));
+    store.reorderLayers(order.map((id) => byId.get(id)!).filter(Boolean));
+    this.reorderViewLayers(order, workspaceId);
+  }
+
+  /** Per-layer state outside the layer and view stores. */
+  private forgetLayer(id: string): void {
+    statisticFirstPaint.delete(id);
+    this.visibilitySeq.delete(id);
+    useComparisonStore.getState().forgetLayer(id);
+    useDisplayOptionsStore.getState().clearOptions(id);
+    if (useSeriesStore.getState().regionPick?.layerId === id) {
+      useSeriesStore.getState().update({ regionPick: null });
     }
   }
 
@@ -683,8 +806,12 @@ export class LayerApiImpl implements LayerApi {
         await this.ensureGpuResidentForLayer(id);
       }
       if (!current()) return { id, ...updates } as Layer;
+      // The backend layer draws at the user's opacity when shown.
+      const viewOpacity = useViewStateStore
+        .getState()
+        .viewState.layers.find((layer) => layer.id === id)?.opacity;
       await this.patchLayerRender(id, {
-        opacity: updates.visible ? 1.0 : 0.0,
+        opacity: updates.visible ? (viewOpacity ?? 1.0) : 0.0,
       });
       if (!current()) return { id, ...updates } as Layer;
       this.setViewLayerVisibility(id, updates.visible ?? true);
@@ -738,7 +865,7 @@ export class LayerApiImpl implements LayerApi {
     await this.apiService.patchLayer(id, backendPatch);
   }
 
-  async reorderLayers(layerIds: string[]): Promise<void> {
+  async reorderLayers(layerIds: string[], workspaceId?: string): Promise<void> {
     // Backend doesn't currently support explicit ordering
     // This would need to be implemented in the render loop
     // For now, just log the intended order
@@ -763,7 +890,7 @@ export class LayerApiImpl implements LayerApi {
       .map((layer: LayerInfo, index: number) => ({ ...layer, order: ordered.length + index }));
 
     useLayerStore.getState().reorderLayers([...ordered, ...tail]);
-    this.reorderViewLayers(layerIds);
+    this.reorderViewLayers(layerIds, workspaceId);
   }
 
   async loadLayerData(id: string): Promise<void> {

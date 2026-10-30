@@ -26,6 +26,81 @@ pub enum NiftiError {
         "NIfTI header declares {0} frames; a multi-frame file cannot be loaded as one 3D volume"
     )]
     MultipleFrames(usize),
+    #[error("not a NIfTI file: {0}")]
+    NotNifti(String),
+    #[error(
+        "the file is truncated: the header declares {expected} bytes (header and image data) but the file has {actual}"
+    )]
+    Truncated { expected: u64, actual: u64 },
+}
+
+/// True when the file starts with a NIfTI-2 `sizeof_hdr` (540, either byte order).
+fn is_nifti2(path: &Path, compressed: bool) -> bool {
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut first = [0u8; 4];
+    let read = if compressed {
+        flate2::read::GzDecoder::new(file).read_exact(&mut first)
+    } else {
+        std::io::BufReader::new(file).read_exact(&mut first)
+    };
+    read.is_ok() && (i32::from_le_bytes(first) == 540 || i32::from_be_bytes(first) == 540)
+}
+
+/// Header and size checks made before any voxel decode, so a bad file is
+/// reported as what it is (empty, not NIfTI, truncated) rather than as a
+/// failure of every data-type attempt.
+pub fn check_nifti_file(path: &Path) -> Result<(), NiftiError> {
+    let actual = std::fs::metadata(path)?.len();
+    if actual == 0 {
+        return Err(NiftiError::NotNifti("the file is empty".to_string()));
+    }
+    let compressed = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
+    if is_nifti2(path, compressed) {
+        return Err(NiftiError::NotNifti(
+            "NIfTI-2 files are not supported yet".to_string(),
+        ));
+    }
+    let header = nifti::NiftiHeader::from_file(path).map_err(|e| {
+        NiftiError::NotNifti(match e {
+            nifti::NiftiError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {
+                "the file is shorter than a NIfTI header".to_string()
+            }
+            nifti::NiftiError::InvalidFormat => "the file has no valid NIfTI header".to_string(),
+            other => format!("the header could not be read ({other})"),
+        })
+    })?;
+    // Only a single-file `.nii` carries its image data after the header; the
+    // compressed size of a `.nii.gz` says nothing about the decoded length.
+    if compressed || &header.magic != b"n+1\0" {
+        return Ok(());
+    }
+    let rank = (header.dim[0] as usize).clamp(1, 7);
+    let voxels = header.dim[1..=rank]
+        .iter()
+        .try_fold(1u64, |n, &d| n.checked_mul(u64::from(d.max(1))));
+    // Element size from the datatype; `bitpix` only when the code is unknown.
+    let bits = match header.data_type() {
+        Ok(kind) => kind.size_of() as u64 * 8,
+        Err(_) => u64::try_from(header.bitpix).unwrap_or(0),
+    };
+    // Conformant files start data at vox_offset >= 352; tolerate non-conformant
+    // ones that put it straight after the 348-byte header.
+    let offset = header.vox_offset.max(348.0) as u64;
+    if let Some(expected) = voxels
+        .and_then(|n| n.checked_mul(bits))
+        .map(|b| b.div_ceil(8))
+        .and_then(|b| b.checked_add(offset))
+    {
+        if bits > 0 && actual < expected {
+            return Err(NiftiError::Truncated { expected, actual });
+        }
+    }
+    Ok(())
 }
 
 /// Number of frames (product of dims 4..=dim[0]) a NIfTI header declares; 1 for
@@ -356,6 +431,7 @@ pub fn load_nifti_auto_dimension(path: &Path) -> Result<VolumeSendable, NiftiErr
     // First, read the header to determine dimensions
     use neuroim::io::read_header;
 
+    check_nifti_file(path)?;
     let header_info = read_header(path)?;
     let ndims = header_info.dim.len();
 
@@ -371,6 +447,26 @@ pub fn load_nifti_auto_dimension(path: &Path) -> Result<VolumeSendable, NiftiErr
     } else {
         Err(NiftiError::DimensionMismatch(ndims))
     }
+}
+
+/// The on-disk storage (datatype, bitpix, scaling, calibration) a NIfTI header
+/// declares. The loaded volume may hold another type (scaled integers load as
+/// f32), so the header dialog re-reads it here. Header only; `None` when the
+/// file cannot be read.
+pub fn read_storage_info(path: &Path) -> Option<bridge_types::NiftiStorageInfo> {
+    let header = nifti::NiftiHeader::from_file(path).ok()?;
+    let datatype = match header.data_type() {
+        Ok(kind) => format!("{kind:?}").to_lowercase(),
+        Err(_) => format!("code {}", header.datatype),
+    };
+    Some(bridge_types::NiftiStorageInfo {
+        datatype,
+        bitpix: header.bitpix,
+        scl_slope: header.scl_slope,
+        scl_inter: header.scl_inter,
+        cal_min: header.cal_min,
+        cal_max: header.cal_max,
+    })
 }
 
 /// Read the NIfTI sform/qform transform codes from a file header.
@@ -582,9 +678,10 @@ pub fn load_nifti_volume_auto(path: &Path) -> Result<(VolumeSendable, Affine3<f3
     }
 
     // Try loading as f32 first (most common; preserves scaled physical values)
-    if let Ok(result) = load_nifti_volume_neuroim::<f32>(path) {
-        return Ok(result);
-    }
+    let f32_error = match load_nifti_volume_neuroim::<f32>(path) {
+        Ok(result) => return Ok(result),
+        Err(error) => error,
+    };
 
     // Try i16 (common for structural scans)
     if let Ok(result) = load_nifti_volume_neuroim::<i16>(path) {
@@ -601,9 +698,9 @@ pub fn load_nifti_volume_auto(path: &Path) -> Result<(VolumeSendable, Affine3<f3
         return Ok(result);
     }
 
-    Err(NiftiError::ScalingError(
-        "Could not load file with any supported data type".to_string(),
-    ))
+    Err(NiftiError::ScalingError(format!(
+        "Could not load file with any supported data type: {f32_error}"
+    )))
 }
 
 // --- Loader Implementation ---
@@ -638,6 +735,13 @@ impl From<NiftiError> for BridgeError {
                 code: 5007,
                 details: frames.to_string(),
             },
+            invalid @ (NiftiError::NotNifti(_) | NiftiError::Truncated { .. }) => {
+                BridgeError::Loader {
+                    // 5008 is taken by api_bridge (ServiceNotInitialized and others).
+                    code: 5003,
+                    details: invalid.to_string(),
+                }
+            }
         }
     }
 }
@@ -910,6 +1014,139 @@ mod tests {
         let meta = read_statistic_metadata(&test_file).expect("header readable");
         assert_eq!(meta.statistic.kind, bridge_types::StatisticKind::None);
         assert!(read_statistic_metadata(Path::new("/nonexistent/x.nii")).is_none());
+    }
+
+    /// A scratch copy of `bytes` named `name`, unique per test process.
+    fn scratch_file(name: &str, bytes: &[u8]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("nifti-loader-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn bad_files_report_what_is_wrong_not_a_debug_dump() {
+        let empty = scratch_file("empty.nii", b"");
+        let text = scratch_file("wrongext.nii", b"a\tb\tc\n1\t2\t3\n");
+        let long_text = scratch_file("wrongext_long.nii", &b"col\tvalue\n".repeat(64));
+        for (path, expected) in [
+            (&empty, "not a NIfTI file: the file is empty"),
+            (
+                &text,
+                "not a NIfTI file: the file is shorter than a NIfTI header",
+            ),
+            (
+                &long_text,
+                "not a NIfTI file: the file has no valid NIfTI header",
+            ),
+        ] {
+            let message = load_nifti_auto_dimension(path).unwrap_err().to_string();
+            assert_eq!(message, expected, "{}", path.display());
+            assert!(!message.contains("Io(Error"), "{message}");
+        }
+    }
+
+    #[test]
+    fn truncated_file_says_truncated_with_sizes() {
+        let full = std::fs::read(get_unit_test_file("simple.nii")).unwrap();
+        let path = scratch_file("truncated.nii", &full[..full.len() / 2]);
+        let error = load_nifti_auto_dimension(&path).unwrap_err();
+        assert!(
+            matches!(error, NiftiError::Truncated { expected, actual }
+                if expected == full.len() as u64 && actual == (full.len() / 2) as u64),
+            "{error}"
+        );
+        assert!(
+            error.to_string().starts_with("the file is truncated"),
+            "{error}"
+        );
+        // The intact file passes the same check.
+        check_nifti_file(&get_unit_test_file("simple.nii")).unwrap();
+    }
+
+    #[test]
+    fn storage_info_reports_the_on_disk_datatype_and_scaling() {
+        let scaled = read_storage_info(&get_unit_test_file("scaled_i16.nii")).unwrap();
+        assert_eq!(scaled.datatype, "int16");
+        assert_eq!(scaled.bitpix, 16);
+        assert_relative_eq!(scaled.scl_slope, 0.1);
+        assert_relative_eq!(scaled.scl_inter, 0.0);
+        let unscaled = read_storage_info(&get_unit_test_file("unscaled_u8.nii")).unwrap();
+        assert_eq!(unscaled.datatype, "uint8");
+        assert_eq!(unscaled.bitpix, 8);
+        assert!(read_storage_info(Path::new("/nonexistent/file.nii")).is_none());
+    }
+
+    /// `simple.nii` with header fields patched (little-endian offsets).
+    fn patched_simple(name: &str, patch: impl FnOnce(&mut Vec<u8>)) -> PathBuf {
+        let mut bytes = std::fs::read(get_unit_test_file("simple.nii")).unwrap();
+        patch(&mut bytes);
+        scratch_file(name, &bytes)
+    }
+
+    #[test]
+    fn expected_size_follows_the_datatype_not_bitpix() {
+        let header = nifti::NiftiHeader::from_file(get_unit_test_file("simple.nii")).unwrap();
+        assert!(header.data_type().unwrap().size_of() > 1);
+        // A wrong (too small) bitpix must not hide a truncation, nor a wrong
+        // (too large) one invent it.
+        let small = patched_simple("bitpix_small.nii", |b| {
+            b[72..74].copy_from_slice(&1i16.to_le_bytes());
+            b.truncate(b.len() - 1);
+        });
+        assert!(matches!(
+            check_nifti_file(&small),
+            Err(NiftiError::Truncated { .. })
+        ));
+        let large = patched_simple("bitpix_large.nii", |b| {
+            b[72..74].copy_from_slice(&128i16.to_le_bytes());
+        });
+        check_nifti_file(&large).unwrap();
+    }
+
+    #[test]
+    fn data_right_after_a_348_byte_header_is_not_truncated() {
+        // vox_offset 348 (non-conformant) with the data immediately after the
+        // header: 4 bytes shorter than a 352 offset would need.
+        let path = patched_simple("offset348.nii", |b| {
+            b[108..112].copy_from_slice(&348f32.to_le_bytes());
+            let offset = 352;
+            b.drain(348..offset);
+        });
+        check_nifti_file(&path).unwrap();
+    }
+
+    #[test]
+    fn nifti2_is_named_as_unsupported() {
+        for (name, sizeof_hdr) in [
+            ("nifti2_le.nii", 540i32.to_le_bytes()),
+            ("nifti2_be.nii", 540i32.to_be_bytes()),
+        ] {
+            let mut bytes = vec![0u8; 544];
+            bytes[..4].copy_from_slice(&sizeof_hdr);
+            let path = scratch_file(name, &bytes);
+            assert_eq!(
+                load_nifti_auto_dimension(&path).unwrap_err().to_string(),
+                "not a NIfTI file: NIfTI-2 files are not supported yet"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_file_errors_use_their_own_bridge_code() {
+        let code = |err| match BridgeError::from(err) {
+            BridgeError::Loader { code, .. } => code,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(code(NiftiError::NotNifti("x".into())), 5003);
+        assert_eq!(
+            code(NiftiError::Truncated {
+                expected: 2,
+                actual: 1
+            }),
+            5003
+        );
     }
 
     #[test]

@@ -7,4 +7,12 @@ export type FlatNode = {
     parentIdx: number | null;
     iconId: number;
     isDir: boolean;
+    /**
+     * File size in bytes; `None` for directories or when unknown.
+     */
+    size: number | null;
+    /**
+     * Last modification time, milliseconds since the Unix epoch, when known.
+     */
+    modifiedMs: number | null;
 };

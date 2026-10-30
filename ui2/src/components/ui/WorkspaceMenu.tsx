@@ -1,18 +1,20 @@
 /**
- * WorkspaceMenu — single top-bar dropdown that merges the former
- * "Workspace Preset" and "Layouts" controls into one menu (Design.md §6.1,
- * which specifies a single workspace dropdown).
+ * WorkspaceMenu — single top-bar dropdown for adding tabs and for saved
+ * GoldenLayout trees (Design.md §6.1 specifies a single workspace dropdown).
  *
- *   OPEN WORKSPACE        ← the six workspace presets (Cmd/Ctrl+1..6)
+ *   New view (Cmd/Ctrl+T)
+ *   TOOLS                 ← Set studio (5), BIDS (6), Analysis: open once, then refocus
  *   ──────────────
  *   LAYOUTS               ← save / load / rename / delete GoldenLayout trees
  *
- * Presets create-or-activate a workspace; layouts capture and restore the
- * GoldenLayout panel arrangement. Keyboard shortcuts for presets are
- * registered here (previously owned by WorkspacePresetSelector).
+ * Layouts of the current tab (Orthogonal, Mosaic, …) live on the top-bar pills
+ * and Cmd/Ctrl+1–4, which this menu registers in the browser build. The former
+ * Read / Explore / Analyze / Compare presets were dropped: each opened a tab in
+ * a layout, duplicating the pills under other names (see
+ * services/workspaceNavigation.ts and qa-design-decisions-2026-10-30 §1).
  */
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect } from "react";
 import {
   ChevronDown,
   FolderOpen,
@@ -30,38 +32,62 @@ import {
   useLayoutLibraryStore,
 } from "@/stores/layoutLibraryStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { isViewWorkspaceType } from "@/components/ui/displayModeSelector.helpers";
 import {
-  WORKSPACE_PRESETS,
-  type WorkspacePreset,
-  type WorkspacePresetId,
-} from "@/types/workspacePresets";
+  LAYOUT_SHORTCUT_MODES,
+  TOOL_DESTINATIONS,
+  isModalDialogOpen,
+  nativeMenuOwnsNavigationShortcuts,
+  openNewView,
+  openTool,
+  setCurrentTabLayout,
+  type ToolDestination,
+} from "@/services/workspaceNavigation";
+import { DISPLAY_MODES } from "@/types/displayModes";
 import { cn } from "@/utils/cn";
 import { Button } from "./Button";
 
-const PRESET_ORDER: WorkspacePresetId[] = [
-  "read",
-  "explore",
-  "analyze",
-  "compare",
-  "studio",
-  "bids",
+const SHORTCUT_CATEGORY = "Views and tools";
+
+interface NavigationShortcut {
+  id: string;
+  key: string;
+  description: string;
+  handler: () => void;
+}
+
+/** Cmd/Ctrl+T, Cmd/Ctrl+1–4 (layouts) and Cmd/Ctrl+5–6 (tools). */
+const NAVIGATION_SHORTCUTS: NavigationShortcut[] = [
+  {
+    id: "workspace.newView",
+    key: "t",
+    description: "New view",
+    handler: () => void openNewView(),
+  },
+  ...LAYOUT_SHORTCUT_MODES.map((mode, index) => ({
+    id: `workspace.layout.${mode}`,
+    key: String(index + 1),
+    description: `Layout: ${DISPLAY_MODES[mode].label}`,
+    handler: () => {
+      setCurrentTabLayout(mode);
+    },
+  })),
+  ...TOOL_DESTINATIONS.filter((tool) => tool.shortcutKey).map((tool) => ({
+    id: `workspace.tool.${tool.type}`,
+    key: tool.shortcutKey!,
+    description: `Open ${tool.label}`,
+    handler: () => void openTool(tool.type),
+  })),
 ];
-const SHORTCUT_CATEGORY = "Workspace Presets";
 
 interface WorkspaceMenuProps {
   className?: string;
 }
 
 export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
-  // Workspace presets
-  const applyWorkspacePreset = useWorkspaceStore(
-    (state) => state.applyWorkspacePreset,
-  );
-  const activeWorkspaceId = useWorkspaceStore(
-    (state) => state.activeWorkspaceId,
-  );
-  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const activeWorkspaceType = useWorkspaceStore((state) => {
+    const id = state.activeWorkspaceId;
+    return id ? (state.workspaces.get(id)?.type ?? null) : null;
+  });
 
   // Saved layouts
   const layouts = useLayoutLibraryStore((state) => state.layouts);
@@ -74,46 +100,30 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
   const deleteLayout = useLayoutLibraryStore((state) => state.deleteLayout);
   const clearError = useLayoutLibraryStore((state) => state.clearError);
 
-  const activePresetId = useMemo(() => {
-    if (!activeWorkspaceId) return null;
-    return workspaces.get(activeWorkspaceId)?.presetId ?? null;
-  }, [activeWorkspaceId, workspaces]);
-
-  // Preset keyboard shortcuts (Cmd/Ctrl+1..6) — ported from the former
-  // WorkspacePresetSelector so the merge keeps the shortcuts working.
+  // In the desktop shell the native menu owns these accelerators; registering
+  // them here too could fire New view twice for one key press.
   useEffect(() => {
+    if (nativeMenuOwnsNavigationShortcuts()) return;
     const keyboard = getKeyboardShortcutService();
-    const unregisterFns = PRESET_ORDER.flatMap((presetId, index) => {
-      const preset = WORKSPACE_PRESETS[index];
-      const key = String(index + 1);
-      const handler = () => {
-        void applyWorkspacePreset(presetId);
-      };
-
-      return [
+    const unregisterFns = NAVIGATION_SHORTCUTS.flatMap((shortcut) =>
+      (["meta", "ctrl"] as const).map((modifier) =>
         keyboard.register({
-          id: `workspace.preset.${presetId}.meta`,
-          key,
-          modifiers: { meta: true },
+          id: `${shortcut.id}.${modifier}`,
+          key: shortcut.key,
+          modifiers: { [modifier]: true },
           category: SHORTCUT_CATEGORY,
-          description: `Switch to ${preset.label} preset`,
-          handler,
+          description: shortcut.description,
+          // Never change the tabs behind an open dialog.
+          handler: () => {
+            if (!isModalDialogOpen()) shortcut.handler();
+          },
         }),
-        keyboard.register({
-          id: `workspace.preset.${presetId}.ctrl`,
-          key,
-          modifiers: { ctrl: true },
-          category: SHORTCUT_CATEGORY,
-          description: `Switch to ${preset.label} preset`,
-          handler,
-        }),
-      ];
-    });
-
+      ),
+    );
     return () => {
       unregisterFns.forEach((unregister) => unregister());
     };
-  }, [applyWorkspacePreset]);
+  }, []);
 
   const showLastError = () => {
     const lastError = getLayoutLibraryLastError();
@@ -150,40 +160,39 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
       });
   };
 
-  // A preset is a "view" when its workspace type is governed by the top-bar mode
-  // pill (orthogonal / mosaic / comparison); the rest are tool destinations.
-  // Grouping the menu this way mirrors the pill-vs-tabs division of labour.
-  const presetItem = (preset: WorkspacePreset): DropdownMenuItem => ({
-    id: `workspace.preset.${preset.id}`,
-    label: (
-      <div className="flex min-w-56 items-center justify-between gap-6">
-        <span>
-          {preset.id === activePresetId ? "● " : ""}
-          {preset.label}
-        </span>
+  const shortcutLabel = (label: React.ReactNode, shortcut?: string) => (
+    <div className="flex min-w-56 items-center justify-between gap-6">
+      <span>{label}</span>
+      {shortcut ? (
         <span className="shrink-0 text-bf-2xs text-muted-foreground">
-          {preset.shortcut}
+          {shortcut}
         </span>
-      </div>
+      ) : null}
+    </div>
+  );
+
+  const toolItem = (tool: ToolDestination): DropdownMenuItem => ({
+    id: `workspace.tool.${tool.type}`,
+    label: shortcutLabel(
+      `${tool.type === activeWorkspaceType ? "● " : ""}${tool.label}`,
+      tool.shortcutKey ? `Cmd/Ctrl+${tool.shortcutKey}` : undefined,
     ),
     onClick: () => {
-      void applyWorkspacePreset(preset.id);
+      void openTool(tool.type);
     },
   });
 
-  const viewPresets = WORKSPACE_PRESETS.filter((preset) =>
-    isViewWorkspaceType(preset.workspaceType),
-  );
-  const toolPresets = WORKSPACE_PRESETS.filter(
-    (preset) => !isViewWorkspaceType(preset.workspaceType),
-  );
-
   const items: DropdownMenuItem[] = [
-    { id: "workspace.header.views", header: true, label: "Open view" },
-    ...viewPresets.map(presetItem),
+    {
+      id: "workspace.newView",
+      label: shortcutLabel("New view", "Cmd/Ctrl+T"),
+      onClick: () => {
+        void openNewView();
+      },
+    },
     { id: "workspace.sep.tools", separator: true as const },
     { id: "workspace.header.tools", header: true, label: "Tools" },
-    ...toolPresets.map(presetItem),
+    ...TOOL_DESTINATIONS.map(toolItem),
     { id: "workspace.sep.layouts", separator: true as const },
     { id: "workspace.header.layouts", header: true, label: "Layouts" },
     {

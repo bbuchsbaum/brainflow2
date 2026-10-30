@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { AtlasService } from '@/services/AtlasService';
 import { Button } from '@/components/ui/bf';
 import { Modal } from '@/components/ui/Modal';
+import { formatTauriError } from '@/utils/formatTauriError';
 import type {
   AtlasCatalogEntry,
   AtlasConfig,
@@ -47,6 +48,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
   // Cancellation token ref to handle component unmounting and operation cancellation
   const cancelTokenRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
+  const loadingRef = useRef(false);
 
   // Safe state setter that checks if component is still mounted
   const safeSetState = useCallback(<T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: NoInfer<React.SetStateAction<T>>) => {
@@ -123,6 +125,8 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
   };
 
   const handleLoadAtlas = async () => {
+    // Ignore a second click before the loading state renders.
+    if (loadingRef.current) return;
     // Create new cancellation token for this operation
     if (cancelTokenRef.current) {
       cancelTokenRef.current.abort();
@@ -131,6 +135,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
     const currentToken = cancelTokenRef.current;
 
     try {
+      loadingRef.current = true;
       safeSetState(setIsLoading, true);
       safeSetState(setLoadResult, null);
       
@@ -138,22 +143,25 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
       
       // Check if component is still mounted and operation wasn't cancelled
       if (!currentToken.signal.aborted && isMountedRef.current) {
-        safeSetState(setLoadResult, result);
-        
-        if (result.success && onLoad) {
-          // Refresh atlas data in the parent component
-          onLoad();
+        if (result.success) {
+          // Refresh atlas data in the parent component, then close so a second
+          // click cannot load a duplicate layer.
+          onLoad?.();
+          onClose();
+          return;
         }
+        safeSetState(setLoadResult, result);
       }
     } catch (error) {
       // Only update error state if not cancelled and component is mounted
       if (!currentToken.signal.aborted && isMountedRef.current) {
         safeSetState(setLoadResult, {
           success: false,
-          error_message: error instanceof Error ? error.message : 'Failed to load atlas',
+          error_message: error ? formatTauriError(error) : 'Failed to load atlas',
         });
       }
     } finally {
+      loadingRef.current = false;
       // Only update loading state if not cancelled and component is mounted
       if (!currentToken.signal.aborted && isMountedRef.current) {
         safeSetState(setIsLoading, false);
@@ -348,46 +356,25 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
             </div>
           )}
 
-          {/* Load Result */}
-          {loadResult && (
-            <div 
+          {/* Load failure; success closes the dialog. */}
+          {loadResult && !loadResult.success && (
+            <div
+              role="alert"
               className="p-4 rounded-sm"
               style={{
-                backgroundColor: loadResult.success 
-                  ? 'rgba(34, 197, 94, 0.1)' 
-                  : 'rgba(239, 68, 68, 0.1)',
-                border: loadResult.success 
-                  ? '1px solid rgba(34, 197, 94, 0.3)' 
-                  : '1px solid rgba(239, 68, 68, 0.3)'
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)'
               }}
             >
               <div className="flex items-center gap-2 mb-2">
-                {loadResult.success ? (
-                  <CheckCircle size={16} style={{ color: 'var(--app-success)' }} />
-                ) : (
-                  <AlertTriangle size={16} style={{ color: 'var(--app-error)' }} />
-                )}
+                <AlertTriangle size={16} style={{ color: 'var(--app-error)' }} />
                 <h4
                   className="m-0 border-0 p-0 text-bf-sm font-semibold"
-                  style={{ 
-                    color: loadResult.success ? 'var(--app-success)' : 'var(--app-error)' 
-                  }}
+                  style={{ color: 'var(--app-error)' }}
                 >
-                  {loadResult.success ? 'Atlas Loaded Successfully' : 'Loading Failed'}
+                  Loading failed
                 </h4>
               </div>
-              
-              {loadResult.success && loadResult.atlas_metadata && (
-                <div className="text-sm space-y-1" style={{ color: 'var(--app-success)' }}>
-                  <p><strong>Regions:</strong> {loadResult.atlas_metadata.n_regions}</p>
-                  <p><strong>Space:</strong> {loadResult.atlas_metadata.space}</p>
-                  <p><strong>Resolution:</strong> {loadResult.atlas_metadata.resolution}</p>
-                  {loadResult.volume_handle && (
-                    <p><strong>Volume Handle:</strong> {loadResult.volume_handle}</p>
-                  )}
-                </div>
-              )}
-              
               {loadResult.error_message && (
                 <p className="text-sm" style={{ color: 'var(--app-error)' }}>{loadResult.error_message}</p>
               )}

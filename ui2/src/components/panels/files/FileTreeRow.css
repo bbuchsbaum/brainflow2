@@ -14,11 +14,11 @@
   transition: background-color var(--bf-motion-fast) ease;
 }
 
-.file-tree-item[draggable='true'] {
+.file-tree-item[data-drag-source='file'] {
   cursor: grab;
 }
 
-.file-tree-item[draggable='true']:active {
+.file-tree-item[data-drag-source='file']:active {
   cursor: grabbing;
 }
 

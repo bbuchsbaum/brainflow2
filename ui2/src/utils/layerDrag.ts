@@ -1,4 +1,5 @@
 import type { DraggedResource } from '@/types/loadIntent';
+import { beginPointerDrag } from './pointerDrag';
 
 export const LAYER_DRAG_MIME = 'application/x-brainflow-layer+json';
 export const FILE_DRAG_MIME = 'application/x-brainflow-file+json';
@@ -133,4 +134,42 @@ export function readDraggedResource(dataTransfer: DataTransfer | null): DraggedR
   }
 
   return null;
+}
+
+/**
+ * Start a pointer drag of a file row (Files tree / Images list). Drop targets
+ * receive the FILE_DRAG_MIME payload through a synthetic drop (see
+ * `utils/pointerDrag.ts`), plus the cross-panel bridge for the duration.
+ */
+export function beginFileRowDrag(
+  event: PointerEvent | React.PointerEvent,
+  data: FileDragData,
+): void {
+  const json = serializeFileDragData(data);
+  beginPointerDrag(event, {
+    label: data.name || data.path,
+    data: {
+      [FILE_DRAG_MIME]: json,
+      'application/json': json,
+      'text/plain': data.path,
+    },
+    onStart: () => setActiveDragData(data),
+    onEnd: () => clearActiveDragData(),
+  });
+}
+
+/** Start a pointer drag of a loaded layer row (LAYER_DRAG_MIME payload). */
+export function beginLayerRowDrag(
+  event: PointerEvent | React.PointerEvent,
+  layerId: string,
+  label: string,
+): void {
+  const payload = serializeLayerDragData({ layerId });
+  beginPointerDrag(event, {
+    label,
+    data: {
+      [LAYER_DRAG_MIME]: payload,
+      'application/json': payload,
+    },
+  });
 }

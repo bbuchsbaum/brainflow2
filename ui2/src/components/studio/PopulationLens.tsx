@@ -3,6 +3,7 @@ import { inferenceChannelNames, inferenceChannel } from '@/services/studio/infer
 import { PopulationInferenceControls } from './PopulationInferenceControls';
 import { selectInferenceChannel } from '@/services/studio/populationInference';
 import {
+  populationAnatomyStatus,
   populationDiverging,
   populationSharesEffectScale,
 } from '@/services/studio/PopulationSliceService';
@@ -299,6 +300,19 @@ export function PopulationLens({
     ],
   );
 
+  useEffect(() => {
+    service.setPeakNavigator({
+      scope: `population:${workspaceId}`,
+      navigate: (world) => populationSliceActions.moveTo(workspaceId, world),
+    });
+    const unsubscribe = populationSliceActions.onUserSlice((id) => {
+      if (id === workspaceId) service.noteUserSlice();
+    });
+    return () => {
+      unsubscribe();
+      service.setPeakNavigator(null);
+    };
+  }, [service, workspaceId]);
   useEffect(() => {
     service.start();
     return () => service.stop();
@@ -783,6 +797,7 @@ export function PopulationLens({
             : 'Choose an audited volume set.'}
           {result && !current && ' · previous query'}
           {snapshot.pending && ' · updating'}
+          {result && populationAnatomyStatus(result)}
         </p>
         <label>
           Value scale ±{' '}

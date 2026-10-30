@@ -23,7 +23,7 @@ const {
   type Registration = {
     id: string;
     key: string;
-    modifiers?: { shift?: boolean };
+    modifiers?: { shift?: boolean; meta?: boolean; ctrl?: boolean };
     when?: () => boolean;
     handler: () => void;
   };
@@ -139,6 +139,7 @@ describe('useKeyboardShortcuts', () => {
     toggleModeMock.mockReset();
     getSliceRangeMock.mockClear();
     updateSlicePositionMock.mockReset();
+    stepSliceMock.mockReset();
     emitMock.mockReset();
     has4DRef.current = false;
     timeModeRef.current = 'slice';
@@ -176,5 +177,80 @@ describe('useKeyboardShortcuts', () => {
     expect(nextTimepointMock).toHaveBeenCalledTimes(1);
     expect(updateSlicePositionMock).not.toHaveBeenCalled();
   });
-});
 
+  it('steps slices with Up/Down (±1, Shift ±10) and PageUp/PageDown (±10) in the active view', () => {
+    mouseActiveViewRef.current = 'coronal';
+    renderHook(() => useKeyboardShortcuts());
+
+    const cases: Array<[string, string, boolean, number]> = [
+      ['slice.up', 'ArrowUp', false, 1],
+      ['slice.down', 'ArrowDown', false, -1],
+      ['slice.up10', 'ArrowUp', true, 10],
+      ['slice.down10', 'ArrowDown', true, -10],
+      ['slice.pageUp', 'PageUp', false, 10],
+      ['slice.pageDown', 'PageDown', false, -10],
+    ];
+    for (const [id, key, shift, steps] of cases) {
+      const registration = findRegistration(id);
+      expect(registration.key).toBe(key);
+      expect(Boolean(registration.modifiers?.shift)).toBe(shift);
+      stepSliceMock.mockClear();
+      registration.handler();
+      expect(stepSliceMock).toHaveBeenCalledWith('coronal', steps);
+    }
+  });
+
+  it('keeps Up/Down on slices in 4D time mode (Left/Right step time there)', () => {
+    has4DRef.current = true;
+    timeModeRef.current = 'time';
+    renderHook(() => useKeyboardShortcuts());
+
+    const up = findRegistration('slice.up');
+    expect(up.when?.()).toBe(true); // focus on <body>
+    up.handler();
+    expect(stepSliceMock).toHaveBeenCalledWith('axial', 1);
+    expect(nextTimepointMock).not.toHaveBeenCalled();
+  });
+
+  it('Space emits playback.toggle', () => {
+    renderHook(() => useKeyboardShortcuts());
+    const space = findRegistration('time.playPause');
+    expect(space.key).toBe(' ');
+    space.handler();
+    expect(emitMock).toHaveBeenCalledWith('playback.toggle', {});
+  });
+
+  it('claims Cmd/Ctrl+A outside fields and clears the page selection', () => {
+    renderHook(() => useKeyboardShortcuts());
+    const meta = findRegistration('app.selectAll.meta');
+    const ctrl = findRegistration('app.selectAll.ctrl');
+    expect(meta.modifiers).toEqual({ meta: true });
+    expect(ctrl.modifiers).toEqual({ ctrl: true });
+
+    document.body.innerHTML = '<p>panel label</p>';
+    const range = document.createRange();
+    range.selectNodeContents(document.body);
+    window.getSelection()?.addRange(range);
+    expect(window.getSelection()?.rangeCount).toBe(1);
+    meta.handler();
+    expect(window.getSelection()?.rangeCount).toBe(0);
+  });
+
+  it('leaves Up/Down/PageUp/PageDown to trees, lists, logs and scrolling panels', () => {
+    renderHook(() => useKeyboardShortcuts());
+    document.body.innerHTML = `
+      <div role="tree"><div role="treeitem" tabindex="0" id="row">a</div></div>
+      <div role="log" tabindex="0" id="log">l</div>
+      <div data-view-id="axial" tabindex="-1" id="view"></div>`;
+    for (const id of ['slice.up', 'slice.down', 'slice.pageUp', 'slice.pageDown']) {
+      const registration = findRegistration(id);
+      document.getElementById('row')!.focus();
+      expect(registration.when?.()).toBe(false);
+      document.getElementById('log')!.focus();
+      expect(registration.when?.()).toBe(false);
+      document.getElementById('view')!.focus();
+      expect(registration.when?.()).toBe(true);
+    }
+    document.body.innerHTML = '';
+  });
+});

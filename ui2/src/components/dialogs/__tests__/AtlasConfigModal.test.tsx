@@ -100,9 +100,41 @@ describe('AtlasConfigModal', () => {
       );
     });
 
-    expect(await screen.findByText('Atlas Loaded Successfully')).toBeInTheDocument();
-    expect(screen.getByText('vol-123')).toBeInTheDocument();
+    // Success closes the dialog (no second Load, no internal volume handle).
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(onLoad).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('vol-123')).not.toBeInTheDocument();
+  });
+
+  it('ignores a second click while the first load is in flight', async () => {
+    mockValidateConfig.mockResolvedValue(true);
+    let finish!: (value: unknown) => void;
+    mockLoadAtlas.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const onClose = vi.fn();
+    render(<AtlasConfigModal isOpen onClose={onClose} atlas={atlasFixture} />);
+    await waitFor(() => expect(mockValidateConfig).toHaveBeenCalled());
+    const load = screen.getByRole('button', { name: 'Load Atlas' });
+    await act(async () => {
+      fireEvent.click(load);
+      fireEvent.click(load);
+    });
+    expect(mockLoadAtlas).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ success: true, volume_handle: 'vol-123' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the dialog open with a readable message when loading fails', async () => {
+    mockValidateConfig.mockResolvedValue(true);
+    mockLoadAtlas.mockRejectedValue({ Input: { code: 1, details: 'Atlas download failed' } });
+    const onClose = vi.fn();
+    render(<AtlasConfigModal isOpen onClose={onClose} atlas={atlasFixture} />);
+    await waitFor(() => expect(mockValidateConfig).toHaveBeenCalled());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Load Atlas' }));
+    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Loading failed');
+    expect(alert).toHaveTextContent('Atlas download failed');
     expect(onClose).not.toHaveBeenCalled();
   });
 

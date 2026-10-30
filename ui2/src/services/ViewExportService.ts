@@ -338,7 +338,8 @@ export class ViewExportService {
     viewType: ViewType,
     width: number,
     height: number,
-    format: ExportFormat,
+    /** `rgba`: raw pixels after an 8-byte width/height header (no encode). */
+    format: ExportFormat | "rgba",
     transparentBackground: boolean,
   ): Promise<Uint8Array> {
     const payload = this.buildDeclarativeViewState(

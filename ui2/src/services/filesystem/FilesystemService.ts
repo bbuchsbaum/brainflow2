@@ -7,6 +7,10 @@ export interface FileNode {
   isDir: boolean;
   parentIdx: number | null;
   iconId: number;
+  /** File size in bytes; null for directories or when unknown. */
+  size?: number | null;
+  /** Last modification time, ms since the Unix epoch, when known. */
+  modifiedMs?: number | null;
 }
 
 export class FilesystemService {

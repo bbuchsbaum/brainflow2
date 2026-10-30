@@ -259,6 +259,31 @@ describe('ClusterPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select zmap_synthetic' }));
   });
 
+  it('a label map selected: parameters are disabled, not invalid, and the reason is visible text (QA 9.5)', () => {
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap_synthetic.nii.gz', table: TABLE, regions: [null, null], computedAt: 0 });
+    useLayerStore.setState((st) => ({
+      layers: [...st.layers, { id: 'atlas', name: 'FreeSurfer ASEG', volumeId: 'atlas', type: 'label', visible: true, order: 2 } as never],
+      selectedLayerId: 'atlas',
+    }));
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [
+        ...state.layers,
+        { id: 'atlas', name: 'atlas', volumeId: 'atlas', visible: true, opacity: 1, colormap: 'gray', intensity: [0, 50], threshold: [0, 0], layerMode: 'label' } as never,
+      ];
+    });
+    render(<ClusterPanel />);
+    const threshold = screen.getByLabelText('Cluster threshold, absolute value');
+    expect(threshold).toBeDisabled();
+    expect(threshold).not.toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Min')).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Cluster p (RFT)' })).toBeDisabled();
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+    const compute = screen.getByRole('button', { name: 'Compute' });
+    expect(compute).toBeDisabled();
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('Clusters need a statistical layer (a z, t or F map)');
+    expect(compute).toHaveAttribute('aria-describedby', 'cluster-reason');
+  });
+
   it('disables Compute for an invalid minimum size, without console errors', () => {
     const error = vi.spyOn(console, 'error');
     render(<ClusterPanel />);

@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import { render } from '@testing-library/react';
+import { fireEvent, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SliceRenderer } from '../SliceRenderer';
 import { useRenderCanvas } from '@/hooks/useRenderCanvas';
@@ -22,6 +22,24 @@ describe('SliceRenderer', () => {
       redrawCanvas,
       imagePlacement: null,
     });
+  });
+
+  it('loads every file of a multi-file OS drop, in order', async () => {
+    const onFileDrop = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <SliceRenderer width={64} height={64} viewType="axial" enableDragDrop onFileDrop={onFileDrop} />
+    );
+    const files = [new File([], 'a.nii'), new File([], 'b.nii')];
+
+    fireEvent.drop(container.firstElementChild!, {
+      dataTransfer: { files, getData: () => '', dropEffect: 'none' },
+    });
+
+    await waitFor(() => expect(onFileDrop).toHaveBeenCalledTimes(2));
+    expect(onFileDrop.mock.calls.map(([f, intent]) => [f.name, intent])).toEqual([
+      ['a.nii', 'add-layer'],
+      ['b.nii', 'add-layer'],
+    ]);
   });
 
   it('redraws retained pixels immediately when the canvas dimensions change', () => {

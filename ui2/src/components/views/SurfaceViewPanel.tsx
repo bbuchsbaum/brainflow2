@@ -12,6 +12,7 @@ import { Loader2, AlertCircle, X } from 'lucide-react';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { useResolvedSurfaceViewState } from '@/hooks/useSurfaceSelectionContext';
 import { collectRenderSurfaces } from './surfaceRenderSurfaces';
+import { addLogEntry } from '@/stores/logStore';
 
 export interface SurfaceViewPanelProps {
   surfaceHandle?: string;
@@ -59,18 +60,24 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
   const activateSurfaceView = useSurfaceStore((state) => state.activateSurfaceView);
   const setSurfaceSelectionForView = useSurfaceStore((state) => state.setSurfaceSelectionForView);
 
+  // This mount's claim on the view id. A tab remounted with the same id
+  // (Reset layout) claims it first; the old panel's deferred unmount then
+  // finds a different owner and leaves the live tab's settings alone.
+  const ownerToken = useRef(
+    `surface-view-owner-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
+  ).current;
+
   useEffect(() => {
     if (!surfaceHandle) {
       return;
     }
 
-    if (!useSurfaceStore.getState().surfaceViewHandles.has(resolvedSurfaceViewId)) {
-      registerSurfaceView(resolvedSurfaceViewId, surfaceHandle);
-    }
+    // Registering keeps existing per-view settings; it only claims the id.
+    registerSurfaceView(resolvedSurfaceViewId, surfaceHandle, ownerToken);
     return () => {
-      unregisterSurfaceView(resolvedSurfaceViewId);
+      unregisterSurfaceView(resolvedSurfaceViewId, ownerToken);
     };
-  }, [registerSurfaceView, resolvedSurfaceViewId, surfaceHandle, unregisterSurfaceView]);
+  }, [ownerToken, registerSurfaceView, resolvedSurfaceViewId, surfaceHandle, unregisterSurfaceView]);
 
   // Handle initial load
   useEffect(() => {
@@ -192,9 +199,24 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     return Array.from(surfaces.values()).find((surface) => surface.visible !== false) ?? null;
   }, [surfaces, anchorSurfaceId]);
   const renderSurfaces = useMemo(
-    () => collectRenderSurfaces(surfaces, anchorSurfaceId, groupKey),
-    [surfaces, anchorSurfaceId, groupKey],
+    () => collectRenderSurfaces(surfaces, anchorSurfaceId, groupKey, surfaceHandle),
+    [surfaces, anchorSurfaceId, groupKey, surfaceHandle],
   );
+
+  // A mounted canvas with nothing to draw is the black-tab signature; record it
+  // once per occurrence so a tester can tell it from a GPU/context failure.
+  const emptySceneKey =
+    activeSurface && activeSurface.visible !== false && renderSurfaces.length === 0
+      ? `${activeSurface.handle}|${groupKey ?? ''}` : null;
+  useEffect(() => {
+    if (!emptySceneKey) return;
+    const [anchor, key] = emptySceneKey.split('|');
+    addLogEntry({
+      level: 'warn',
+      source: 'surface',
+      message: `Surface view ${resolvedSurfaceViewId} has nothing to draw (anchor ${anchor.slice(0, 8)}, scene ${key || 'none'})`,
+    });
+  }, [emptySceneKey, resolvedSurfaceViewId]);
 
   return (
     <div ref={containerRef} className="relative h-full w-full bg-background">
@@ -299,6 +321,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         <SurfaceFrame
           surface={activeSurface}
           surfaceViewId={resolvedSurfaceViewId}
+          renderSurfaces={renderSurfaces}
           width={dimensions.width}
           height={dimensions.height}
           topInset={cssLengthPx(infoOverlayTop) - 12}

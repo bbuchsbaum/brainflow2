@@ -58,6 +58,7 @@ import {
 import { brainFraming, getNonzeroBbox } from '@/services/mosaic/brainBounds';
 import { getApiService } from '@/services/apiService';
 import { activeSurfaceFigureExporter } from './surfaceExporter';
+import { legendInPanes, LEGEND_PROBE_MAX_PX, LEGEND_PROBE_TILE_MAX_PX } from './legendPresence';
 
 export type ExportTarget =
   | 'axial'
@@ -481,7 +482,10 @@ export function baseColorbarLayerId(
   return statistic || coloured || isRunGroupMember(base.id) ? base.id : null;
 }
 
-async function sideBar(viewState: ViewState, withValue: boolean): Promise<ExportSideBar> {
+async function sideBar(
+  viewState: ViewState,
+  withValue: boolean,
+): Promise<{ side: ExportSideBar; legendLayerId: string | null }> {
   const { layers, layerMetadata } = useLayerStore.getState();
   const activeId = activeVolumeLayerId(viewState.layers);
   const overlayId = chooseColorbarLayerId(layers, viewState.layers, activeId);
@@ -509,7 +513,7 @@ async function sideBar(viewState: ViewState, withValue: boolean): Promise<Export
     .map((l) => (l.visible && l.opacity > 0 ? layers.find((x) => x.id === l.id) : undefined))
     .find((info) => info?.type === 'label' && (info.atlasPaletteLegend?.length ?? 0) > 0);
   const legend = labelLayer?.atlasPaletteLegend ?? null;
-  return { colorbar, value, legend };
+  return { side: { colorbar, value, legend }, legendLayerId: labelLayer?.id ?? null };
 }
 
 /**
@@ -873,9 +877,7 @@ export async function captureComposite(
     label = EXPORT_TARGET_LABEL[target];
   }
 
-  const side = await sideBar(viewState, frame.crosshair);
-  const hasSide = frame.colorbar && (!!side.colorbar || (side.legend?.length ?? 0) > 0);
-  const headerName = figureLayerName(viewState, side);
+  const { side, legendLayerId } = await sideBar(viewState, frame.crosshair);
 
   // Crop to the brain: the support (finite non-zero voxels, threshold 0) of a
   // brain mask, else the bottom anatomy, else the bottom volume (cropVolumeIds,
@@ -903,18 +905,43 @@ export async function captureComposite(
     if (band > 0) bbox = statisticCropBox(bbox, await cropBox(cropIds, cropFetch(band)));
   }
   const cropped = specRows.map((row) => row.map((p) => paneRect(p.plane, bbox)));
-  const solve = (rs: PlaneRect[][]) =>
+  const solveWith = (withSide: boolean) => (rs: PlaneRect[][]) =>
     solveMmPerPx(
       specRows.map((row, r) => row.map((p, c) => ({ plane: p.plane, rect: rs[r][c] }))),
       request.size,
-      { unit, paneGap, sideW: hasSide ? SIDEBAR_W * unit + sideGapPx(unit, paneGap) : 0 },
+      { unit, paneGap, sideW: withSide ? SIDEBAR_W * unit + sideGapPx(unit, paneGap) : 0 },
     );
   // A cropped pane leaves a band for its orientation letters on every side,
   // so they sit beside the brain, not on it (native R4: "S" over the cortex).
+  const letterBands = bbox && frame.orientation && !mosaic;
+
+  // The Regions legend lists only the labels drawn in the exported slices
+  // (QA 2026-10-29 §13), probed over each pane's field of view (with the
+  // widest letter band: the side column only narrows it).
+  if (side.legend && side.legend.length > 0 && legendLayerId) {
+    throwIfAborted(request.signal);
+    const bandMm = letterBands ? letterBandPx(unit) * solveWith(true)(cropped) : 0;
+    const panes = specRows.flatMap((row, r) =>
+      row.map((p, c) => {
+        const rect = letterBandRect(cropped[r][c], bandMm);
+        const extent = Math.max(rect.u1 - rect.u0, rect.v1 - rect.v0);
+        const maxPx = mosaic ? LEGEND_PROBE_TILE_MAX_PX : LEGEND_PROBE_MAX_PX;
+        return { viewType: p.viewType, plane: rectPlane(p.plane, rect, extent / maxPx) };
+      }),
+    );
+    const present = await legendInPanes(viewState, legendLayerId, side.legend, panes, {
+      signal: request.signal,
+    });
+    if (present) side.legend = present;
+  }
+  const hasSide = frame.colorbar && (!!side.colorbar || (side.legend?.length ?? 0) > 0);
+  const headerName = figureLayerName(viewState, side);
+  const solve = solveWith(!!hasSide);
+
   // The band is in px, the rect in mm: a few passes settle the scale.
   let rects = cropped;
   let mmPerPx = solve(rects);
-  if (bbox && frame.orientation && !mosaic) {
+  if (letterBands) {
     for (let pass = 0; pass < 3; pass += 1) {
       rects = cropped.map((row) => row.map((rect) => letterBandRect(rect, letterBandPx(unit) * mmPerPx)));
       mmPerPx = solve(rects);

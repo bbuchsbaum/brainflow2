@@ -1,6 +1,13 @@
 import type { WorkspaceConfig, WorkspaceType } from '@/types/workspace';
 
-export type WorkspacePresetId = 'read' | 'explore' | 'analyze' | 'compare' | 'studio' | 'bids';
+/**
+ * Named launches for tool workspaces. The former view presets (Read, Explore,
+ * Analyze, Compare) were retired on 2026-10-30: layouts now apply to the
+ * current tab (pills, ⌘1–⌘4), so a preset that opened a separate tab in a
+ * layout duplicated the pills under other names
+ * (docs/plans/qa-design-decisions-2026-10-30.md §1).
+ */
+export type WorkspacePresetId = 'studio' | 'bids';
 
 export interface WorkspacePreset {
   id: WorkspacePresetId;
@@ -12,39 +19,6 @@ export interface WorkspacePreset {
 }
 
 export const WORKSPACE_PRESETS: WorkspacePreset[] = [
-  {
-    id: 'read',
-    label: 'Read',
-    description: 'Locked orthogonal slices for focused image reading.',
-    workspaceType: 'orthogonal-locked',
-    shortcut: 'Cmd/Ctrl+1',
-  },
-  {
-    id: 'explore',
-    label: 'Explore',
-    description: 'Linked orthogonal panels for interactive navigation.',
-    workspaceType: 'orthogonal-flexible',
-    shortcut: 'Cmd/Ctrl+2',
-  },
-  {
-    id: 'analyze',
-    label: 'Analyze',
-    description: 'Mosaic slice grid for broad spatial inspection.',
-    workspaceType: 'mosaic',
-    workspaceConfig: {
-      rows: 3,
-      columns: 3,
-      sliceOrientation: 'axial',
-    },
-    shortcut: 'Cmd/Ctrl+3',
-  },
-  {
-    id: 'compare',
-    label: 'Compare',
-    description: 'Side-by-side panels for comparing layers independently.',
-    workspaceType: 'comparison',
-    shortcut: 'Cmd/Ctrl+4',
-  },
   {
     id: 'studio',
     label: 'Set studio',
@@ -62,12 +36,8 @@ export const WORKSPACE_PRESETS: WorkspacePreset[] = [
 ];
 
 export const WORKSPACE_PRESET_BY_ID: Record<WorkspacePresetId, WorkspacePreset> = {
-  read: WORKSPACE_PRESETS[0],
-  explore: WORKSPACE_PRESETS[1],
-  analyze: WORKSPACE_PRESETS[2],
-  compare: WORKSPACE_PRESETS[3],
-  studio: WORKSPACE_PRESETS[4],
-  bids: WORKSPACE_PRESETS[5],
+  studio: WORKSPACE_PRESETS[0],
+  bids: WORKSPACE_PRESETS[1],
 };
 
 export function getWorkspacePresetById(id: WorkspacePresetId): WorkspacePreset {
