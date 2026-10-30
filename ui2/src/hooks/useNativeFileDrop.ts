@@ -27,6 +27,7 @@ import {
   createDragDataTransfer,
   createPathFile,
   type ClientPoint,
+  type DragModifiers,
 } from '@/utils/pointerDrag';
 import { safeUnlisten, type Unlisten } from '@/utils/eventUtils';
 
@@ -85,6 +86,58 @@ export function createNativeDropTransfer(imagePaths: readonly string[]): DataTra
 }
 
 /**
+ * Modifier keys held during a native drag. Tauri's drag events carry no
+ * modifiers, so this follows window key and pointer events (keys pressed
+ * while the window has focus) and resets on blur. While another app (Finder)
+ * is frontmost the webview may not see key events; then modifiers read false
+ * and the drop uses the default intent.
+ */
+export class ModifierTracker {
+  private state: Required<DragModifiers> = {
+    altKey: false,
+    shiftKey: false,
+    metaKey: false,
+    ctrlKey: false,
+  };
+  private readonly target: Window;
+
+  constructor(target: Window = window) {
+    this.target = target;
+    target.addEventListener('keydown', this.onEvent, true);
+    target.addEventListener('keyup', this.onEvent, true);
+    target.addEventListener('pointermove', this.onEvent, true);
+    target.addEventListener('pointerdown', this.onEvent, true);
+    target.addEventListener('blur', this.reset);
+  }
+
+  get(): DragModifiers {
+    return { ...this.state };
+  }
+
+  dispose(): void {
+    this.target.removeEventListener('keydown', this.onEvent, true);
+    this.target.removeEventListener('keyup', this.onEvent, true);
+    this.target.removeEventListener('pointermove', this.onEvent, true);
+    this.target.removeEventListener('pointerdown', this.onEvent, true);
+    this.target.removeEventListener('blur', this.reset);
+  }
+
+  private readonly onEvent = (event: Event) => {
+    const e = event as KeyboardEvent | MouseEvent;
+    this.state = {
+      altKey: Boolean(e.altKey),
+      shiftKey: Boolean(e.shiftKey),
+      metaKey: Boolean(e.metaKey),
+      ctrlKey: Boolean(e.ctrlKey),
+    };
+  };
+
+  private readonly reset = () => {
+    this.state = { altKey: false, shiftKey: false, metaKey: false, ctrlKey: false };
+  };
+}
+
+/**
  * Route one native drop. Folders are mounted; images go to the drop target
  * under `point` (via `hover`), falling back to loading them as layers.
  */
@@ -93,6 +146,7 @@ export async function routeNativeDrop(
   point: ClientPoint,
   deps: NativeDropDeps,
   hover?: SyntheticDragHover,
+  modifiers: DragModifiers = {},
 ): Promise<NativeDropResult> {
   const result: NativeDropResult = { mounted: [], delivered: [], loaded: [], rejected: [] };
   const images = paths.filter(isLoadableImagePath);
@@ -100,7 +154,7 @@ export async function routeNativeDrop(
 
   if (images.length > 0) {
     const tracker = hover ?? new SyntheticDragHover(createNativeDropTransfer(images));
-    const accepted = tracker.drop(point);
+    const accepted = tracker.drop(point, modifiers);
     if (accepted) {
       result.delivered.push(...images);
     } else {
@@ -169,6 +223,7 @@ export function useNativeFileDrop(): void {
     let disposed = false;
     let unlisten: Unlisten | null = null;
     let hover: SyntheticDragHover | null = null;
+    const modifiers = new ModifierTracker(window);
 
     const toClient = (position?: { x: number; y: number }): ClientPoint =>
       nativeDropPointToClient(position ?? { x: -1, y: -1 }, {
@@ -184,11 +239,11 @@ export function useNativeFileDrop(): void {
           // Folder-only drags show no image-drop overlay.
           hover =
             images.length > 0 ? new SyntheticDragHover(createNativeDropTransfer(images)) : null;
-          hover?.move(toClient(payload.position));
+          hover?.move(toClient(payload.position), modifiers.get());
           return;
         }
         case 'over':
-          hover?.move(toClient(payload.position));
+          hover?.move(toClient(payload.position), modifiers.get());
           return;
         case 'leave':
           hover?.leave();
@@ -202,6 +257,7 @@ export function useNativeFileDrop(): void {
             toClient(payload.position),
             defaultDeps(),
             tracker ?? undefined,
+            modifiers.get(),
           ).catch((error) => {
             console.error('[useNativeFileDrop] Drop failed:', error);
           });
@@ -225,6 +281,7 @@ export function useNativeFileDrop(): void {
 
     return () => {
       disposed = true;
+      modifiers.dispose();
       hover?.leave();
       void safeUnlisten(unlisten);
     };

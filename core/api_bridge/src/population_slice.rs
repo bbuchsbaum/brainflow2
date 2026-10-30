@@ -2402,6 +2402,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn population_peak_slice_ranks_participant_means_like_the_display() {
+        // Participant A: three observations of +1 on z = 1; participant B: one
+        // of -3 there. The observation mean is 0 on z = 1, the participant
+        // mean -1. A weaker shared +0.5 on z = 3 decides the observation peak.
+        let field = |z1: f32| -> Vec<f32> {
+            (0..45)
+                .map(|i| match i / 9 {
+                    1 => z1,
+                    3 => 0.5,
+                    _ => 0.,
+                })
+                .collect()
+        };
+        let sources = vec![
+            TestSource::new(&[3, 3, 5], &field(1.)),
+            TestSource::new(&[3, 3, 5], &field(1.)),
+            TestSource::new(&[3, 3, 5], &field(1.)),
+            TestSource::new(&[3, 3, 5], &field(-3.)),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        assert_eq!(peak(&state, q.clone()).await.map(|p| p[2]), Some(3.));
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Mean,
+            groups: vec![
+                ParticipantGroup {
+                    participant_id: "A".into(),
+                    member_ids: vec!["person-0".into(), "person-1".into(), "person-2".into()],
+                },
+                ParticipantGroup {
+                    participant_id: "B".into(),
+                    member_ids: vec!["person-3".into()],
+                },
+            ],
+        });
+        // The displayed summary is the participant mean: -1 on z = 1, 0.5 on z = 3.
+        assert_eq!(
+            finite(&evaluate(&state, q.clone()).await.summary),
+            vec![-1.; 9]
+        );
+        let mut upper = q.clone();
+        upper.crosshair_mm[2] = 3.;
+        assert_eq!(finite(&evaluate(&state, upper).await.summary), vec![0.5; 9]);
+        assert_eq!(peak(&state, q.clone()).await.map(|p| p[2]), Some(1.));
+        // Coverage counts participants, not rows: equal on every slice.
+        q.summary = SummaryKind::Coverage;
+        assert_eq!(peak(&state, q).await.map(|p| p[2]), Some(0.));
+    }
+
+    #[tokio::test]
     async fn population_peak_slice_respects_the_common_mask() {
         use crate::population_mask::MaskSource;
         // The strongest slice (z = 3) is outside the mask; z = 1 is inside.

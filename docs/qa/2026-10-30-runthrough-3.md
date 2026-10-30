@@ -10,7 +10,7 @@
 
 **Time.** About 2.5–3 hours. Parts are independent. ★ marks the highest priority.
 
-**Build under test.** Install the 2026-10-30 08:42 debug bundle, which contains every fix and design change so far. Launch it from `/Applications` so computer use finds the right app:
+**Build under test.** Install the 2026-10-30 afternoon debug bundle (built from `0e53e6f6`), which contains every fix and design change so far, including the two PR #14 review fixes. Launch it from `/Applications` so computer use finds the right app:
 
 ```sh
 rm -rf /Applications/Brainflow.app
@@ -19,7 +19,7 @@ ditto ~/code/brainflow2/target/debug/bundle/macos/Brainflow.app /Applications/Br
 open -n /Applications/Brainflow.app
 ```
 
-Record the build time from `ls -la /Applications/Brainflow.app/Contents/MacOS/brainflow` at the top of your report. HEAD is `c66551df` plus an uncommitted fix diff on branch `qa/fix-wave-2026-10-30`.
+Record the build time from `ls -la /Applications/Brainflow.app/Contents/MacOS/brainflow` at the top of your report. It must read 12:24 on 2026-10-30 or later; an 08:42 build is stale. HEAD is `0e53e6f6` on branch `qa/fix-wave-2026-10-30`.
 
 **Reporting.** Use the same form as before:
 
@@ -159,6 +159,7 @@ Layers can now be removed, so this is possible for the first time.
 7. Drag GoldenLayout tabs between stacks. This must still work.
 8. **(physical)** Press ⌘-Tab in the middle of a drag, then come back and click. The click must not drop the file.
 9. Try dragging selected text into a text field. Report whether it works; it may be blocked now.
+10. **(physical)** Drag a NIfTI from Finder with Shift held, then with ⌥ held, keeping Brainflow frontmost (the modifier is read from Brainflow's own key events). Shift/⌥ must give the same result as the same modifier on an internal row drag. If Finder is frontmost when you release, a plain drop is the known limit; note it, don't file it.
 
 ### B5. Command line
 Repeat run 1 §1.2–1.4, which no run has covered yet:
@@ -244,8 +245,9 @@ The fir3d manifest declares `MNI152NLin2009cAsym`, so anatomy is expected under 
 2. Colormaps:
    - Mean and Median are diverging and symmetric.
    - Coverage, MAD, SD, Mean absolute magnitude and Cancellation are single-direction (sequential).
-3. Step to another slice, then reopen the lens. Your slice is kept and the view doesn't jump back to the peak.
-4. The first visit can download the template. With Wi-Fi off and a cold cache, the maps must still respond. You get a short status hint instead of anatomy.
+3. With fir3d, the opening slice should hold the strongest *participant-mean* signal, not the single loudest voxel run. If it opens on an empty or edge slice, file it.
+4. Step to another slice, then reopen the lens. Your slice is kept and the view doesn't jump back to the peak.
+5. The first visit can download the template. With Wi-Fi off and a cold cache, the maps must still respond. You get a short status hint instead of anatomy.
 
 ---
 
@@ -294,9 +296,6 @@ Finish with **5–10 lines of overall impressions**: what felt solid, what felt 
 |---|---|
 | M | Medial view with both hemispheres shows the contralateral hemisphere (surfview) |
 | M | Export legend lists regions not present in the exported slices |
-| L | Population lens: a slice with no signal is near-white (colormap design question) |
-| L | Hover Info… does nothing |
-| L | Status-bar ijk uses the reference grid; the cluster table uses the layer grid (design decision pending) |
-| L | Annotate stub and empty Advanced section are still visible (design decision pending) |
-| L | A second plain volume opens at 100 % over the anatomy (design decision pending) |
+| L | Shift/⌥ on a Finder drop is lost when Finder is frontmost at release |
+| L | Visual baselines for the new status bar and Inspector not yet regenerated (test-side only) |
 | — | `.surf.gii.gz` not listed in Files (loader doesn't accept it yet) |

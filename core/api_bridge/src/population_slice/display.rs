@@ -2,7 +2,7 @@
 //! maps and the slice that opens the view. Neither is a calculation operand,
 //! an export input or part of the retained plane matrix.
 use super::{input, Orientation, Plane, PopulationSliceRequest, SummaryKind};
-use crate::{population_sampling::SampleCancellation, BridgeState};
+use crate::{population_sampling::SampleCancellation, BridgeState, SetMemberRef};
 use bridge_types::{BridgeResult, VolumeSendable};
 use nalgebra::{Matrix4, Point3, Vector3};
 use std::{
@@ -29,9 +29,10 @@ pub struct UnderlayResult {
     pub cutouts: Option<Vec<f32>>,
 }
 
-/// The peak search keeps one accumulator set per source voxel; beyond this
-/// the view simply opens where it is.
-const MAX_PEAK_VOXELS: usize = 8 * 1024 * 1024;
+/// The peak search keeps one accumulator set per source voxel (up to about
+/// 40 bytes with a participant mean); beyond this the view simply opens where
+/// it is.
+const MAX_PEAK_VOXELS: usize = 4 * 1024 * 1024;
 /// How far (mm) the population grid may reach past the anatomy's own field
 /// of view: template-space grids share the template's box to within a voxel
 /// or two, while scanner-space grids are offset and sized independently.
@@ -252,7 +253,7 @@ pub(super) async fn underlay(
 struct Sums {
     count: Vec<u32>,
     sum: Vec<f64>,
-    magnitude: Vec<f32>,
+    magnitude: Vec<f64>,
     square: Vec<f64>,
 }
 
@@ -278,19 +279,95 @@ pub(super) async fn peak_slice(
     }
 }
 
+/// One source's requested frame over its whole grid: NaN where masked
+/// or not finite. Null when the grid exceeds the peak budget. Every source
+/// must share the first one's grid.
+async fn member_values(
+    member: &SetMemberRef,
+    mask: Option<std::sync::Arc<crate::population_mask::PreparedMask>>,
+    expected: Option<(Vec<usize>, Matrix4<f32>)>,
+    state: &BridgeState,
+    cancellation: &SampleCancellation,
+) -> BridgeResult<Option<(Vec<f32>, (Vec<usize>, Matrix4<f32>))>> {
+    let path = crate::resolve_member_source_path(&member.source_path, state).await?;
+    let token = cancellation.clone();
+    let frame = member.stack_index.unwrap_or(0);
+    state
+        .set_sample_cache
+        .with_volume_cancelable(path, cancellation.clone(), move |volume, _| {
+            if let Some(mask) = &mask {
+                mask.validate_grid(volume)?;
+            }
+            let (dimensions, affine) = display_grid(volume)?;
+            if let Some((d, a)) = &expected {
+                if *d != dimensions
+                    || a.iter()
+                        .zip(affine.iter())
+                        .any(|(a, b)| (a - b).abs() > 1e-5)
+                {
+                    return Err(input(
+                        "Population sources have different voxel grids or world affines.",
+                    ));
+                }
+            }
+            let voxels: usize = dimensions.iter().product();
+            if voxels > MAX_PEAK_VOXELS {
+                return Ok(None);
+            }
+            let [nx, ny] = [dimensions[0], dimensions[1]];
+            let mut values = Vec::with_capacity(voxels);
+            for index in 0..voxels {
+                if index % 65_536 == 0 {
+                    token.check()?;
+                }
+                let (x, y, z) = (index % nx, index / nx % ny, index / (nx * ny));
+                values.push(
+                    if mask.as_ref().is_some_and(|mask| !mask.includes(x, y, z)) {
+                        f32::NAN
+                    } else {
+                        crate::read_member_frame_at_voxel(volume, x, y, z, frame)
+                            .filter(|v| v.is_finite())
+                            .unwrap_or(f32::NAN)
+                    },
+                );
+            }
+            Ok(Some((values, (dimensions, affine))))
+        })
+        .await
+}
+
 async fn search_peak(
     request: &PopulationSliceRequest,
     state: &BridgeState,
     cancellation: &SampleCancellation,
 ) -> BridgeResult<Option<[f32; 3]>> {
-    let working: std::collections::HashSet<_> = request.working_member_ids.iter().collect();
-    let members: Vec<_> = request
+    // Analysis units as the displayed summary reduces them: each declared
+    // participant, or each selected observation (AGENTS.md, participant
+    // aggregation). `validate` has checked that groups partition the selection.
+    let by_id: HashMap<_, _> = request
         .members
         .iter()
-        .filter(|m| working.contains(&m.member_id))
-        .cloned()
+        .map(|member| (&member.member_id, member))
         .collect();
-    if members.is_empty() {
+    let units: Vec<Vec<SetMemberRef>> = match &request.aggregation {
+        Some(aggregation) => aggregation
+            .groups
+            .iter()
+            .map(|group| {
+                group
+                    .member_ids
+                    .iter()
+                    .map(|id| by_id[id].clone())
+                    .collect()
+            })
+            .collect(),
+        None => request
+            .working_member_ids
+            .iter()
+            .map(|id| vec![by_id[id].clone()])
+            .collect(),
+    };
+    if units.is_empty() {
         return Ok(None);
     }
     // Held only for this scan; the global mask admission is released on return.
@@ -317,81 +394,71 @@ async fn search_peak(
     };
     let mut sums = Sums::default();
     let mut shape: Option<(Vec<usize>, Matrix4<f32>)> = None;
-    for member in members {
-        cancellation.check()?;
-        let path = crate::resolve_member_source_path(&member.source_path, state).await?;
-        let token = cancellation.clone();
-        let mask = mask.clone();
-        let expected = shape.clone();
-        let mut taken = std::mem::take(&mut sums);
-        let (returned, grid_shape) = state
-            .set_sample_cache
-            .with_volume_cancelable(path, cancellation.clone(), move |volume, _| {
-                if let Some(mask) = &mask {
-                    mask.validate_grid(volume)?;
+    for unit in units {
+        // One value per voxel for this unit: the observation itself, or the
+        // participant's finite within-person mean in f64 (as `push_mean`).
+        let mut within: Option<(Vec<u32>, Vec<f64>)> = None;
+        let mut single: Option<Vec<f32>> = None;
+        let rows = unit.len();
+        for member in unit {
+            cancellation.check()?;
+            let Some((values, grid_shape)) =
+                member_values(&member, mask.clone(), shape.clone(), state, cancellation).await?
+            else {
+                return Ok(None);
+            };
+            shape = Some(grid_shape);
+            if rows == 1 {
+                single = Some(values);
+                continue;
+            }
+            let (count, mean) =
+                within.get_or_insert_with(|| (vec![0; values.len()], vec![0.0; values.len()]));
+            for (index, &value) in values.iter().enumerate() {
+                if value.is_finite() {
+                    count[index] += 1;
+                    mean[index] += (value as f64 - mean[index]) / count[index] as f64;
                 }
-                let (dimensions, affine) = display_grid(volume)?;
-                if let Some((d, a)) = &expected {
-                    if *d != dimensions
-                        || a.iter()
-                            .zip(affine.iter())
-                            .any(|(a, b)| (a - b).abs() > 1e-5)
-                    {
-                        return Err(input(
-                            "Population sources have different voxel grids or world affines.",
-                        ));
-                    }
-                }
-                let voxels: usize = dimensions.iter().product();
-                if voxels > MAX_PEAK_VOXELS {
-                    return Ok((None, (dimensions, affine)));
-                }
-                if taken.count.is_empty() {
-                    taken.count = vec![0; voxels];
-                    if want_sum {
-                        taken.sum = vec![0.0; voxels];
-                    }
-                    if want_magnitude {
-                        taken.magnitude = vec![0.0; voxels];
-                    }
-                    if want_square {
-                        taken.square = vec![0.0; voxels];
-                    }
-                }
-                let frame = member.stack_index.unwrap_or(0);
-                let [nx, ny] = [dimensions[0], dimensions[1]];
-                for index in 0..voxels {
-                    if index % 65_536 == 0 {
-                        token.check()?;
-                    }
-                    let (x, y, z) = (index % nx, index / nx % ny, index / (nx * ny));
-                    if mask.as_ref().is_some_and(|mask| !mask.includes(x, y, z)) {
-                        continue;
-                    }
-                    let Some(v) = crate::read_member_frame_at_voxel(volume, x, y, z, frame)
-                        .filter(|v| v.is_finite())
-                    else {
-                        continue;
-                    };
-                    taken.count[index] += 1;
-                    if want_sum {
-                        taken.sum[index] += v as f64;
-                    }
-                    if want_magnitude {
-                        taken.magnitude[index] += v.abs();
-                    }
-                    if want_square {
-                        taken.square[index] += (v as f64) * (v as f64);
-                    }
-                }
-                Ok((Some(taken), (dimensions, affine)))
-            })
-            .await?;
-        let Some(returned) = returned else {
-            return Ok(None);
-        };
-        sums = returned;
-        shape = Some(grid_shape);
+            }
+        }
+        let voxels = single
+            .as_ref()
+            .map(Vec::len)
+            .or(within.as_ref().map(|(count, _)| count.len()))
+            .unwrap_or(0);
+        if sums.count.is_empty() {
+            sums.count = vec![0; voxels];
+            if want_sum {
+                sums.sum = vec![0.0; voxels];
+            }
+            if want_magnitude {
+                sums.magnitude = vec![0.0; voxels];
+            }
+            if want_square {
+                sums.square = vec![0.0; voxels];
+            }
+        }
+        for index in 0..voxels {
+            if index % 65_536 == 0 {
+                cancellation.check()?;
+            }
+            let value = match (&single, &within) {
+                (Some(values), _) => Some(values[index] as f64).filter(|v| v.is_finite()),
+                (None, Some((count, mean))) => (count[index] > 0).then(|| mean[index]),
+                (None, None) => None,
+            };
+            let Some(v) = value else { continue };
+            sums.count[index] += 1;
+            if want_sum {
+                sums.sum[index] += v;
+            }
+            if want_magnitude {
+                sums.magnitude[index] += v.abs();
+            }
+            if want_square {
+                sums.square[index] += v * v;
+            }
+        }
     }
     drop(mask);
     let Some((dimensions, affine)) = shape else {
@@ -424,10 +491,8 @@ async fn search_peak(
         let mean = || sums.sum[index] / count;
         let score = match kind {
             SummaryKind::Mean | SummaryKind::Median => mean().abs(),
-            SummaryKind::MeanAbsolute => sums.magnitude[index] as f64 / count,
-            SummaryKind::Cancellation => {
-                (sums.magnitude[index] as f64 / count - mean().abs()).max(0.0)
-            }
+            SummaryKind::MeanAbsolute => sums.magnitude[index] / count,
+            SummaryKind::Cancellation => (sums.magnitude[index] / count - mean().abs()).max(0.0),
             SummaryKind::SampleSd | SummaryKind::Mad if n > 1 => {
                 let m = mean();
                 ((sums.square[index] - count * m * m).max(0.0) / (count - 1.0)).sqrt()

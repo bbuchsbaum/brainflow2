@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createElement, createRef } from 'react';
+import { render, waitFor } from '@testing-library/react';
 import {
+  ModifierTracker,
   createNativeDropTransfer,
   isLoadableImagePath,
   nativeDropPointToClient,
@@ -8,6 +11,18 @@ import {
 } from '../useNativeFileDrop';
 import { FILE_DRAG_MIME, parseFileDragData } from '@/utils/layerDrag';
 import { SyntheticDragHover } from '@/utils/pointerDrag';
+import { SliceRenderer } from '@/components/views/SliceRenderer';
+
+vi.mock('@/hooks/useRenderCanvas', () => ({
+  useRenderCanvas: () => ({
+    canvasRef: createRef<HTMLCanvasElement>(),
+    isLoading: false,
+    error: null,
+    lastImage: null,
+    redrawCanvas: () => {},
+    imagePlacement: null,
+  }),
+}));
 
 function deps(directories: string[] = []): NativeDropDeps & {
   [K in keyof NativeDropDeps]: ReturnType<typeof vi.fn>;
@@ -144,4 +159,44 @@ describe('native file drop routing', () => {
     await routeNativeDrop(['/x.nii'], { x: 5, y: 5 }, deps(), hover);
     expect(events).toEqual(['a:leave', 'b:drop']);
   });
+
+  it('tracks modifier keys from window key events and clears them on blur', () => {
+    const tracker = new ModifierTracker(window);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', shiftKey: true }));
+    expect(tracker.get()).toMatchObject({ shiftKey: true, altKey: false });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Alt', altKey: true, metaKey: true }));
+    expect(tracker.get()).toMatchObject({ shiftKey: false, altKey: true, metaKey: true });
+    window.dispatchEvent(new Event('blur'));
+    expect(tracker.get()).toMatchObject({ shiftKey: false, altKey: false, metaKey: false });
+    tracker.dispose();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', shiftKey: true }));
+    expect(tracker.get().shiftKey).toBe(false);
+  });
+
+  it.each([
+    [{}, 'add-layer'],
+    [{ shiftKey: true }, 'comparison'],
+    [{ altKey: true }, 'new-workspace'],
+  ] as const)(
+    'a native drop with modifiers %o reaches resolveDropOpenIntent as %s',
+    async (modifiers, intent) => {
+      const onFileDrop = vi.fn();
+      const { container } = render(
+        createElement(SliceRenderer, {
+          width: 64,
+          height: 64,
+          viewType: 'axial',
+          enableDragDrop: true,
+          onFileDrop,
+        }),
+      );
+      restore = stubElementFromPoint(container.firstElementChild);
+
+      const result = await routeNativeDrop(['/data/T1w.nii'], { x: 5, y: 5 }, deps(), undefined, modifiers);
+
+      expect(result.delivered).toEqual(['/data/T1w.nii']);
+      await waitFor(() => expect(onFileDrop).toHaveBeenCalledTimes(1));
+      expect(onFileDrop.mock.calls[0][1]).toBe(intent);
+    },
+  );
 });
