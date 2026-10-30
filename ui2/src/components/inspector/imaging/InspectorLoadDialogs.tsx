@@ -7,6 +7,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useVolToSurfProjection } from '@/hooks/useVolToSurfProjection';
 import { Button, FieldRow, Notice, SelectableRow, Select } from '@/components/ui/bf';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 export function AtlasPicker({ onClose }: { onClose: () => void }) {
   const [catalog, setCatalog] = useState<AtlasCatalogEntry[] | null>(null);
@@ -29,7 +30,7 @@ export function AtlasPicker({ onClose }: { onClose: () => void }) {
           );
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) setError(String(error));
+        if (!controller.signal.aborted) setError(formatTauriError(error));
       });
     return () => controller.abort();
   }, []);

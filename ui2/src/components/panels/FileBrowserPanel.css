@@ -303,3 +303,11 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* Search reached its depth/listing limits: results may be incomplete. */
+.fb-search-partial {
+  margin: 0;
+  padding: 2px var(--bf-space-2) 4px;
+  color: var(--bf-text-muted);
+  font-size: var(--bf-text-xs);
+}

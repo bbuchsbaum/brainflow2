@@ -192,6 +192,9 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
     if (isDisabled) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // KeyboardShortcutService already stepped (slice or time): one action
+      // per key press, not a slice step plus a frame step.
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;

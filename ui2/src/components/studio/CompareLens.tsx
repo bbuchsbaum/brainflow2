@@ -139,7 +139,11 @@ export function CompareLens({
         // Pane A renders the live ortho/surface viewer for the active member.
         // Other panes show a renderer-aware skeleton until the pop-out viewer is wired.
         const body = isCurrent ? (
-          <CurrentPaneCanvas activeSet={activeSet} memberLabel={activeMemberId} />
+          <CurrentPaneCanvas
+            activeSet={activeSet}
+            memberLabel={activeMemberId}
+            memberSourcePath={activeMember?.sourcePath ?? null}
+          />
         ) : null;
 
         // The "Open in viewer" affordance for the comparator pair.
@@ -191,9 +195,11 @@ export function CompareLens({
 function CurrentPaneCanvas({
   activeSet,
   memberLabel,
+  memberSourcePath,
 }: {
   activeSet: SpatialFieldSetSummary | null;
   memberLabel: string | null;
+  memberSourcePath: string | null;
 }) {
   return (
     <div className="absolute inset-0">
@@ -202,6 +208,7 @@ function CurrentPaneCanvas({
         title=""
         subtitle=""
         hideChrome
+        memberSourcePath={memberSourcePath}
       />
       {memberLabel ? (
         <div

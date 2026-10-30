@@ -7,6 +7,7 @@
 
 import { getApiService } from '@/services/apiService';
 import { widenToVoxelEdges } from '@/utils/voxelEdges';
+import { visibleFrameBox } from './layerFrameBoxes';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getEventBus } from '@/events/EventBus';
 import { useRenderStateStore } from '@/stores/renderStateStore';
@@ -83,7 +84,10 @@ export class MosaicRenderService {
         const framing = brain
           ? brainFraming(brain, voxelSize)
           : (() => {
-              // The union of the visible volumes' outer voxel edges (native N1).
+              // The union of the visible volumes' outer voxel edges (native N1):
+              // the exact boxes recorded at load, as the orthogonal panes use.
+              const exact = visibleFrameBox(base.layers);
+              if (exact) return { min: [...exact.min], max: [...exact.max] };
               const edges = allBounds.map(b => widenToVoxelEdges(b, b.dims));
               return {
                 min: [0, 1, 2].map(d => Math.min(...edges.map(b => b.min[d]))),

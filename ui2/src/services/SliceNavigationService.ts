@@ -99,11 +99,36 @@ export class SliceNavigationService {
   }
 }
 /**
+ * One voxel step along world `axis`, from a column-major `voxelToWorld`: the
+ * projection onto the axis of the voxel axis most aligned with it. For a
+ * permuted grid (voxel i along world Y) that voxel axis is not `axis` itself.
+ */
+function worldAxisStep(voxelToWorld: readonly number[] | undefined, axis: 0 | 1 | 2): number | null {
+  if (!voxelToWorld || voxelToWorld.length < 16) return null;
+  let best: number | null = null;
+  let bestAlignment = 0;
+  for (let column = 0; column < 3; column += 1) {
+    const v = [0, 1, 2].map((row) => voxelToWorld[column * 4 + row]);
+    const length = Math.hypot(...v);
+    if (!Number.isFinite(length) || length === 0) continue;
+    const alignment = Math.abs(v[axis]) / length;
+    if (alignment > bestAlignment + 1e-9) {
+      bestAlignment = alignment;
+      best = Math.abs(v[axis]);
+    }
+  }
+  return best !== null && best > 1e-9 ? best : null;
+}
+
+/**
  * Slice range along a world axis from a layer's metadata (voxel-centre bounds,
  * one voxel per step). Shared by the orthogonal views and Compare panels.
  */
 export function sliceRangeForMetadata(
-  metadata: Pick<VolumeMetadata, 'worldBounds' | 'dimensions' | 'spacing'> | undefined,
+  metadata:
+    | (Pick<VolumeMetadata, 'worldBounds' | 'dimensions' | 'spacing'> &
+        Partial<Pick<VolumeMetadata, 'voxelToWorld'>>)
+    | undefined,
   axis: 0 | 1 | 2,
   current: number,
 ): SliceRange {
@@ -113,8 +138,12 @@ export function sliceRangeForMetadata(
   }
   const min = Math.min(bounds.min[axis], bounds.max[axis]);
   const max = Math.max(bounds.min[axis], bounds.max[axis]);
+  // The affine gives the step along the world axis; the voxel count along
+  // voxel axis `axis` is only right when the grid is not permuted.
   const count = metadata?.dimensions?.[axis];
-  const spacing = count && count > 1 ? (max - min) / (count - 1) : metadata?.spacing?.[axis];
+  const spacing =
+    worldAxisStep(metadata?.voxelToWorld, axis) ??
+    (count && count > 1 ? (max - min) / (count - 1) : metadata?.spacing?.[axis]);
   const step = spacing && Number.isFinite(spacing) && spacing > 0 ? spacing : 1;
   return { min, max, step, current };
 }

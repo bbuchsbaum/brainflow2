@@ -37,6 +37,7 @@ export interface VolumeMetadata {
   spacing?: [number, number, number]; // Voxel spacing in mm
   origin?: [number, number, number]; // Volume origin in world space
   dataType?: string; // Data type (e.g., "Float32", "Int16")
+  nativeDtype?: string; // On-disk voxel type of the source ('u8', 'i16', 'float32')
   voxelToWorld?: number[]; // 4x4 transformation matrix (flat array)
   worldToVoxel?: number[]; // 4x4 inverse transformation matrix
   filePath?: string; // Source file path
@@ -93,6 +94,11 @@ export interface LayerInfo extends Layer {
    * the Inspector treats it like an atlas (regions legend, no window).
    */
   isLabelMap?: boolean;
+  /**
+   * Moved by the user in the layer list: the load-time stack rule
+   * (services/layerPlacement.ts) never re-sorts it.
+   */
+  userMoved?: boolean;
   /**
    * Per-label legend for an atlas/parcellation layer (label id -> name, network,
    * hemisphere, color). Populated when the atlas palette is applied; used for
@@ -210,7 +216,8 @@ const createLayerStore = () =>
           if (!get().layers.some((item) => item.id === id)) return;
           set((state) => {
             const index = state.layers.findIndex((item) => item.id === id);
-            state.layers[index] = { ...layer, order: state.layers[index].order };
+            const { order, userMoved } = state.layers[index];
+            state.layers[index] = { ...layer, order, ...(userMoved ? { userMoved } : {}) };
             state.layerMetadata.delete(id);
             state.loadingLayers.delete(id);
             state.errorLayers.delete(id);

@@ -4,6 +4,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { CommandPaletteDialog } from '../CommandPaletteDialog';
 
 describe('CommandPaletteDialog', () => {
+  it('search input reaches the DOM with autocorrect, autocapitalize and spellcheck off', () => {
+    render(<CommandPaletteDialog open onClose={vi.fn()} commands={[]} />);
+    const input = screen.getByLabelText('Command search');
+    expect(input).toHaveAttribute('autocorrect', 'off');
+    expect(input).toHaveAttribute('autocapitalize', 'off');
+    expect(input).toHaveAttribute('spellcheck', 'false');
+    expect(input).toHaveAttribute('autocomplete', 'off');
+  });
+
   it('filters commands by query text', () => {
     const onClose = vi.fn();
 

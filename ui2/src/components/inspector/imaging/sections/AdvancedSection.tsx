@@ -1,16 +1,19 @@
 import React from 'react';
 import type { SceneItem } from '@/types/sceneItem';
 import { Notice, Section } from '@/components/ui/bf';
+import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 
 interface AdvancedSectionProps {
   item: SceneItem;
 }
 
 /**
- * Power-user flags. Empty placeholder — collapsed by default — so the
- * grammar exposes the section without surfacing rarely-used controls.
+ * Power-user flags. Empty placeholder — collapsed by default. Shown only
+ * with Settings › Experimental features on: an empty section reads as broken.
  */
 export function AdvancedSection({ item: _item }: AdvancedSectionProps) {
+  const experimental = useFeatureFlagStore((s) => s.experimentalFeatures);
+  if (!experimental) return null;
   return (
     <Section title="Advanced" icon={<GearIcon />} defaultOpen={false}>
       <Notice role={undefined}>No advanced settings yet for this item kind.</Notice>

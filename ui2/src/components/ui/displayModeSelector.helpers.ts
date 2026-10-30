@@ -71,21 +71,6 @@ export function isViewWorkspaceType(
 }
 
 /**
- * The most recently created view workspace whose display mode is `mode`, or
- * `undefined`. Used to return from a tool destination to an existing view.
- */
-export function findLatestViewInMode<
-  W extends Pick<Workspace, "id" | "type" | "timestamp">,
->(workspaces: Iterable<W>, mode: DisplayMode): W | undefined {
-  let best: W | undefined;
-  for (const w of workspaces) {
-    if (resolveActiveDisplayMode(w.type) !== mode) continue;
-    if (!best || w.timestamp > best.timestamp) best = w;
-  }
-  return best;
-}
-
-/**
  * The tab label to display for a workspace.
  *
  * View workspaces are labelled by their *live* display mode (e.g. "Orthogonal",
@@ -93,7 +78,7 @@ export function findLatestViewInMode<
  * both derive from `workspace.type`, and the label updates the moment the pill
  * mutates the mode. Tool workspaces keep their descriptive name. Deriving the
  * label from `type` also sidesteps stale persisted titles and preset-label
- * overrides (`applyWorkspacePreset` stores e.g. "Read"/"Analyze").
+ * overrides (`applyWorkspacePreset` stores the preset label as the title).
  */
 export function workspaceTabLabel(workspace: Pick<Workspace, "type">): string {
   const mode = resolveActiveDisplayMode(workspace.type);

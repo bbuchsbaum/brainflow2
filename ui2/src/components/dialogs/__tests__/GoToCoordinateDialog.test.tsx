@@ -8,11 +8,18 @@ const setCrosshair = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('@/stores/viewStateStore', () => ({
   useViewStateStore: (selector: any) =>
     selector({
-      viewState: { crosshair: { world_mm: [10, -18.5, 17.5] } },
+      viewState: { crosshair: { world_mm: [10, -18.5, 17.5] }, layers: layerState.current.viewLayers ?? [] },
       setCrosshair,
     }),
 }));
-const layerState = vi.hoisted(() => ({ current: { layers: [] as any[], layerMetadata: new Map<string, any>() } }));
+const layerState = vi.hoisted(() => ({
+  current: { layers: [] as any[], layerMetadata: new Map<string, any>() } as {
+    layers: any[];
+    layerMetadata: Map<string, any>;
+    selectedLayerId?: string;
+    viewLayers?: any[];
+  },
+}));
 vi.mock('@/stores/layerStore', () => ({
   useLayerStore: (selector: any) => selector(layerState.current),
 }));
@@ -32,6 +39,16 @@ describe('GoToCoordinateDialog: pasted display numbers keep their sign', () => {
     uninstall = installNumericInputGuard(document);
   });
   afterEach(() => uninstall());
+
+  it('coordinate fields reach the DOM with autocorrect, autocapitalize and spellcheck off', () => {
+    render(<GoToCoordinateDialog open onClose={() => {}} />);
+    for (const label of ['X (mm)', 'Y (mm)', 'Z (mm)']) {
+      const input = screen.getByLabelText(label);
+      expect(input).toHaveAttribute('autocorrect', 'off');
+      expect(input).toHaveAttribute('autocapitalize', 'off');
+      expect(input).toHaveAttribute('spellcheck', 'false');
+    }
+  });
 
   it('pasting "−37.5" (U+2212, as the status bar shows it) into X goes to x = -37.5', async () => {
     render(<GoToCoordinateDialog open onClose={() => {}} />);
@@ -353,5 +370,58 @@ describe('GoToCoordinateDialog focus return', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(invoker);
+  });
+});
+
+describe('GoToCoordinateDialog: voxel indices are on the selected layer\u2019s grid', () => {
+  // T1 2 mm (reference) and zstat1 3 mm with another origin.
+  const t1 = {
+    voxelToWorld: [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, -95.5, -131.5, -77.5, 1],
+    worldToVoxel: [0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0.5, 0, 47.75, 65.75, 38.75, 1],
+    dimensions: [96, 114, 96],
+  };
+  const z = {
+    voxelToWorld: [3, 0, 0, 0, 0, 3, 0, 0, 0, 0, 3, 0, -90, -126, -72, 1],
+    worldToVoxel: [1 / 3, 0, 0, 0, 0, 1 / 3, 0, 0, 0, 0, 1 / 3, 0, 30, 42, 24, 1],
+    dimensions: [61, 73, 61],
+  };
+  beforeEach(() => {
+    setCrosshair.mockClear();
+    layerState.current = {
+      layers: [
+        { id: 't1', name: 'T1.nii.gz', volumeId: 't1' },
+        { id: 'z', name: 'zstat1.nii.gz', volumeId: 'z' },
+      ],
+      layerMetadata: new Map([
+        ['t1', t1],
+        ['z', z],
+      ]),
+      selectedLayerId: 'z',
+      viewLayers: [
+        { id: 't1', name: 'T1', visible: true },
+        { id: 'z', name: 'zstat1', visible: true },
+      ],
+    };
+  });
+  afterEach(() => {
+    layerState.current = { layers: [], layerMetadata: new Map() };
+  });
+
+  it('names the grid, fills Current on it and goes to its voxel centre without re-snapping', async () => {
+    render(<GoToCoordinateDialog open onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Voxel' }));
+    expect(screen.getByTestId('goto-grid')).toHaveTextContent('ijk on the grid of zstat1');
+    fireEvent.click(screen.getByRole('button', { name: 'Current' }));
+    // Crosshair (10, −18.5, 17.5) on the 3 mm grid: (33.33, 35.83, 29.83) -> 33, 36, 30.
+    expect(screen.getByLabelText('X (voxel index)')).toHaveValue(33);
+    expect(screen.getByLabelText('Y (voxel index)')).toHaveValue(36);
+    expect(screen.getByLabelText('Z (voxel index)')).toHaveValue(30);
+    fireEvent.change(screen.getByLabelText('X (voxel index)'), { target: { value: '23' } });
+    fireEvent.change(screen.getByLabelText('Y (voxel index)'), { target: { value: '41' } });
+    fireEvent.change(screen.getByLabelText('Z (voxel index)'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    await waitFor(() =>
+      expect(setCrosshair).toHaveBeenCalledWith([-21, -3, 18], true, false, undefined, { snap: false }),
+    );
   });
 });

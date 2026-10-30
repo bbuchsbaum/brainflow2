@@ -1,12 +1,19 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { isSurfaceCameraState } from './cameraState.js';
 import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianSmoothing, THREE, normalizeCurvature, } from 'neurosurface';
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
 import { buildLayerInstance, applyLayerUpdate, applySurfaceRenderSettings, applySceneRenderSettings, } from './surfaceRuntime.js';
-/** Presets aim at the origin; retain the fitted mesh center and distance. */
+/** Fraction of the pane kept clear around the mesh by the on-screen fit. */
+const VIEW_FIT_PADDING = 0.08;
+/**
+ * Presets aim at the origin; retain the fitted mesh center, then fit the
+ * visible meshes to the pane along the preset's direction (centerCamera's own
+ * distance is loose, so meshes otherwise load small). Returns false when
+ * there were no visible mesh bounds to fit.
+ */
 function setCenteredViewpoint(viewer, viewpoint) {
     viewer.centerCamera();
     const center = viewer.getCameraState?.().target;
@@ -21,6 +28,7 @@ function setCenteredViewpoint(viewer, viewpoint) {
             zoom: viewer.camera.zoom,
         });
     }
+    return viewer.fitToView ? viewer.fitToView({ padding: VIEW_FIT_PADDING }) : true;
 }
 function hasRenderableGeometry(surface) {
     return Boolean(surface.geometry.vertices &&
@@ -136,7 +144,7 @@ function captureCamera(viewer) {
     const state = pose ? { ...pose, up: viewer?.camera?.up?.toArray(), zoom: viewer?.camera?.zoom ?? 1 } : null;
     return isSurfaceCameraState(state) ? state : null;
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerSurfaceHandles, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onSurfacePick, }) => {
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerSurfaceHandles, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onWarning, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -150,6 +158,12 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     const lastUseGPUProjectionRef = useRef(projectionSettings.useGPUProjection);
     const viewpointRef = useRef(viewpoint);
     viewpointRef.current = viewpoint;
+    const onWarningRef = useRef(onWarning);
+    onWarningRef.current = onWarning;
+    const warn = useCallback((message) => {
+        console.warn(`[NeuroSurfaceCanvas] ${message}`);
+        onWarningRef.current?.(message);
+    }, []);
     const showCurvatureRef = useRef(displaySettings.showCurvature !== false);
     showCurvatureRef.current = displaySettings.showCurvature !== false;
     const surfacesToRender = useMemo(() => {
@@ -386,6 +400,18 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                     canvas.style.height = '100%';
                     viewer.renderer.setClearColor('#000000', 1);
                 }
+                // A lost WebGL context draws black while orbit controls keep
+                // working; say so instead of leaving a silent black pane.
+                if (viewer.renderer?.domElement) {
+                    const canvas = viewer.renderer.domElement;
+                    canvas.addEventListener('webglcontextlost', () => {
+                        warn('WebGL context lost; the surface view stops drawing until it is restored');
+                    });
+                    canvas.addEventListener('webglcontextrestored', () => {
+                        warn('WebGL context restored');
+                        viewerRef.current?.requestRender();
+                    });
+                }
                 if (viewer.startRenderLoop) {
                     viewer.startRenderLoop();
                 }
@@ -530,7 +556,9 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             if (structuralChange && !hasCenteredCamera.current) {
                 const controls = viewer.controls;
                 const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
-                setCenteredViewpoint(viewer, viewpointRef.current);
+                if (!setCenteredViewpoint(viewer, viewpointRef.current)) {
+                    warn(`First fit found no visible mesh bounds (${readySurfaces.length} surface(s) ready); the view may be empty`);
+                }
                 if (controls && controls.autoRotate !== undefined) {
                     controls.autoRotate = wasAutoRotating;
                 }
@@ -554,6 +582,11 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                                 camera.position.copy(position);
                                 camera.updateProjectionMatrix();
                             }
+                            // The first fit can run against a placeholder size; refit to
+                            // the pane's real aspect unless a saved camera was restored.
+                            if (!(saved && isSurfaceCameraState(saved))) {
+                                viewerRef.current.fitToView?.({ padding: VIEW_FIT_PADDING });
+                            }
                             viewerRef.current.requestRender();
                         }
                     }
@@ -569,10 +602,12 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         }
     }, [isInitialized, surfacesToRender, projectionSettings.useGPUProjection]);
     useEffect(() => {
-        if (viewerRef.current) {
-            setCenteredViewpoint(viewerRef.current, viewpoint);
+        if (viewerRef.current && renderedSurfacesRef.current.size > 0) {
+            if (!setCenteredViewpoint(viewerRef.current, viewpoint)) {
+                warn(`Preset "${viewpoint}" found no visible mesh bounds to fit`);
+            }
         }
-    }, [viewpoint, viewpointNonce]);
+    }, [viewpoint, viewpointNonce, warn]);
     // D2: the underlay toggle.
     useEffect(() => {
         if (!viewerRef.current)

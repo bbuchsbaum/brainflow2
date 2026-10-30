@@ -80,6 +80,7 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
       isLoading: false,
       loadError: null,
       viewpoint: 'lateral',
+      surfaceViewViewpoints: new Map(),
       showControls: false,
       surfaceViewSettings: new Map(),
       surfaceViewHandles: new Map(),
@@ -99,7 +100,7 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
     settings.displaySettings.smoothing = 0.4;
 
     useSurfaceStore.setState({
-      viewpoint: 'medial',
+      surfaceViewViewpoints: new Map([['view-1', 'medial']]),
       showControls: true,
       surfaceViewSettings: new Map([['view-1', settings]]),
     });
@@ -187,6 +188,18 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
     render(<SurfaceViewCanvas surface={makeSurface('lh')} width={320} height={240} />);
     act(() => neuroSurfaceCanvasState.latestProps.onSurfacePick([-31, 17, 29]));
     expect(update).toHaveBeenCalledWith([-31, 17, 29], true);
+  });
+
+  it('opens a new view Lateral instead of inheriting the last preset pressed elsewhere', () => {
+    const surface = makeSurface('lh');
+    act(() => useSurfaceStore.getState().setViewpoint('ventral', 'other-view'));
+    expect(useSurfaceStore.getState().viewpoint).toBe('ventral');
+
+    render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-new" width={320} height={240} />);
+    expect(neuroSurfaceCanvasState.latestProps.viewpoint).toBe('lateral');
+
+    act(() => useSurfaceStore.getState().setViewpoint('dorsal', 'view-new'));
+    expect(neuroSurfaceCanvasState.latestProps.viewpoint).toBe('dorsal');
   });
 
   it('hides the surface marker when the crosshair is not visible', () => {

@@ -59,7 +59,7 @@ vi.mock("@/stores/inspectorSelectionStore", () => ({
 
 const reorderLayers = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/services/LayerService", () => ({
-  getLayerService: () => ({ reorderLayers }),
+  getLayerService: () => ({ reorderLayers, moveLayerByUser: reorderLayers }),
 }));
 
 import { SceneStack } from "../SceneStack";

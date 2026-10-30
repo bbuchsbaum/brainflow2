@@ -1,4 +1,5 @@
 import type { DataRange } from "./DataRange";
+import type { NiftiStorageInfo } from "./NiftiStorageInfo";
 import type { StatisticInfo } from "./StatisticInfo";
 /**
  * Detailed NIfTI header metadata for display in the UI
@@ -17,9 +18,15 @@ export type NiftiHeaderInfo = {
      */
     voxel_spacing: [number, number, number];
     /**
-     * Data type string (e.g. "f32", "i16", "u8")
+     * In-memory data type of the loaded volume (e.g. "f32", "i16", "u8");
+     * scaled integer files are held as f32. See `storage` for the file's own.
      */
     data_type: string;
+    /**
+     * On-disk storage declared by the source header (datatype, bitpix and
+     * scaling). Absent when the source file cannot be re-read.
+     */
+    storage?: NiftiStorageInfo;
     /**
      * 4x4 voxel-to-world affine matrix in row-major order
      */

@@ -12,8 +12,10 @@
  * teardown in their cleanup hooks.
  */
 
+import { loadFailureMessage } from '@/utils/formatTauriError';
 import { getEventBus } from '@/events/EventBus';
 import { addLogEntry } from '@/stores/logStore';
+import { studioMemberForLoad } from '@/services/studio/studioMemberLoads';
 
 type Unsubscribe = () => void;
 
@@ -34,12 +36,25 @@ export function bootstrapLogService(): Unsubscribe {
   const unsubs: Unsubscribe[] = [];
 
   unsubs.push(
-    bus.on('volume.load.complete', ({ source, duration, layerId }) => {
-      addLogEntry({
-        level: 'info',
-        source: 'volume',
-        message: `Loaded ${basename(source)} (layer ${layerId}, ${Math.round(duration)} ms)`,
-      });
+    bus.on('volume.load.complete', ({ source, sourcePath, displayName, duration }) => {
+      const file = basename(sourcePath ?? displayName ?? source);
+      const member = studioMemberForLoad(sourcePath);
+      addLogEntry(
+        member
+          ? {
+              level: 'info',
+              source: 'studio',
+              message:
+                member === file
+                  ? `Loaded member ${file} (${Math.round(duration)} ms)`
+                  : `Loaded member ${member} from ${file} (${Math.round(duration)} ms)`,
+            }
+          : {
+              level: 'info',
+              source: 'volume',
+              message: `Loaded ${file} (${Math.round(duration)} ms)`,
+            },
+      );
     }),
   );
   unsubs.push(
@@ -47,7 +62,7 @@ export function bootstrapLogService(): Unsubscribe {
       addLogEntry({
         level: 'error',
         source: 'volume',
-        message: `Failed to load ${basename(source)}: ${error.message}`,
+        message: loadFailureMessage(basename(source), error),
       });
     }),
   );
@@ -66,7 +81,7 @@ export function bootstrapLogService(): Unsubscribe {
       addLogEntry({
         level: 'error',
         source: 'surface',
-        message: `Failed to load surface ${filename}: ${error}`,
+        message: loadFailureMessage(`surface ${filename}`, error),
       });
     }),
   );

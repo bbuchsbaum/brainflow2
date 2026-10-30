@@ -17,6 +17,11 @@ import {
   cloneViewStateRevisions,
   TRACKED_VIEW_TYPES
 } from '@/utils/viewStateTracking';
+import {
+  applyRenderLayerScope,
+  getRenderLayerScopeRevision,
+  hasRenderLayerScope,
+} from './render/RenderLayerScope';
 
 const DEBUG_OPTIMIZED_RENDER =
   import.meta.env.DEV &&
@@ -45,6 +50,8 @@ interface RenderMetrics {
 export class OptimizedRenderService {
   private lastViewState: ViewState | null = null;
   private lastRevisions: ViewStateRevisions | null = null;
+  /** Render-layer scope revision the last render used. */
+  private lastScopeRevision = getRenderLayerScopeRevision();
   private metrics: RenderMetrics = {
     totalRenders: 0,
     skippedRenders: 0,
@@ -133,20 +140,44 @@ export class OptimizedRenderService {
    * Render only the views that changed
    */
   async renderChangedViews(
-    viewState: ViewState,
+    workspaceViewState: ViewState,
     tag?: string,
     revisions?: ViewStateRevisions
   ): Promise<void> {
     const startTime = performance.now();
-    
+
+    // A view that borrows the orthogonal views (the Set studio Deck) draws
+    // only its own layers, never the workspace scene.
+    const scoped = hasRenderLayerScope();
+    const viewState = applyRenderLayerScope(workspaceViewState);
+    const scopeRevision = getRenderLayerScopeRevision();
+    const scopeChanged = scopeRevision !== this.lastScopeRevision;
+
     // Skip if no layers
     if (!viewState.layers || viewState.layers.length === 0) {
+      if (scoped || scopeChanged) {
+        // Nothing of the scope is loaded yet (or the scope just ended over an
+        // empty workspace): show an empty view, not the image last drawn.
+        const { setImage, setRendering } = useRenderStateStore.getState();
+        TRACKED_VIEW_TYPES.forEach((viewType) => {
+          const key = tag || viewType;
+          setImage(key, null);
+          setRendering(key, false);
+        });
+        this.lastScopeRevision = scopeRevision;
+        this.lastViewState = null;
+        this.lastRevisions = null;
+        return;
+      }
       console.warn('[OptimizedRenderService] Skipping render - no layers');
       return;
     }
-    
+
     // Detect which views changed
-    const changedViews = this.detectChangedViews(viewState, this.lastViewState, revisions);
+    const changedViews = scopeChanged
+      ? { axial: true, sagittal: true, coronal: true }
+      : this.detectChangedViews(viewState, this.lastViewState, revisions);
+    this.lastScopeRevision = scopeRevision;
     const viewsToRender = Object.entries(changedViews)
       .filter(([_, changed]) => changed)
       .map(([viewType]) => viewType as ViewType);

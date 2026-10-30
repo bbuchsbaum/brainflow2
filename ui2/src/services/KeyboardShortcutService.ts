@@ -57,21 +57,59 @@ const SPACE_OWNERS =
 
 function isSpaceOwnerTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return target.closest(SPACE_OWNERS) !== null;
+  if (target.closest(SPACE_OWNERS) === null) return false;
+  // A control focused by a pointer click (a layer row, a mode segment) is not
+  // where the user is typing: Space is still play/pause there. Only a control
+  // reached from the keyboard (:focus-visible) keeps Space as its own key.
+  return !isPointerFocused(target);
+}
+
+function isPointerFocused(target: Element): boolean {
+  if (target.ownerDocument.activeElement !== target) return false;
+  if (target instanceof HTMLElement && target.isContentEditable) return false;
+  try {
+    return !target.matches(':focus-visible');
+  } catch {
+    return false; // no :focus-visible support: keep the control's Space
+  }
+}
+
+/** Inside an open modal dialog only shortcuts that also work in fields fire. */
+function isInModalDialog(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('[aria-modal="true"]') !== null;
+}
+
+/**
+ * Printable punctuation ('?', '+', '!'): the character already encodes Shift
+ * (Shift+/ is '?' on US layouts, a plain key elsewhere), so Shift is not
+ * matched unless the registration asks for it explicitly.
+ */
+function isShiftImplied(key: string): boolean {
+  return key.length === 1 && /[^\p{L}\p{N}\s]/u.test(key);
 }
 
 function isSpaceKey(event: KeyboardEvent): boolean {
   return event.key === ' ' || event.key === 'Spacebar' || event.code === 'Space';
 }
 
-function modifiersMatch(event: KeyboardEvent, modifiers?: ShortcutModifiers): boolean {
+function modifiersMatch(
+  event: KeyboardEvent,
+  modifiers: ShortcutModifiers | undefined,
+  key: string,
+): boolean {
   const mods = modifiers ?? {};
   const ctrlOk = mods.ctrl ? event.ctrlKey : !event.ctrlKey;
   const metaOk = mods.meta ? event.metaKey : !event.metaKey;
   const altOk = mods.alt ? event.altKey : !event.altKey;
-  // Shift: if explicitly required, must be pressed; if not specified, must NOT be pressed
-  // Exception: if key is uppercase letter (shift implied), allow shift even when not specified
-  const shiftOk = mods.shift ? event.shiftKey : !event.shiftKey;
+  // Shift: if explicitly required, must be pressed; if not specified, must NOT
+  // be pressed — except for punctuation, whose character implies it.
+  const shiftOk =
+    mods.shift === undefined && isShiftImplied(key)
+      ? true
+      : mods.shift
+        ? event.shiftKey
+        : !event.shiftKey;
   return ctrlOk && metaOk && altOk && shiftOk;
 }
 
@@ -130,6 +168,7 @@ class KeyboardShortcutService {
       return;
     }
     if (isSpaceKey(event) && isSpaceOwnerTarget(event.target)) return;
+    const fieldsOnly = inInput || isInModalDialog(event.target);
 
     const eventKey = normalizeKey(event.key);
     let best: ShortcutRegistration | null = null;
@@ -137,9 +176,9 @@ class KeyboardShortcutService {
     for (const reg of this.registrations.values()) {
       const regKey = normalizeKey(reg.key);
       if (regKey !== eventKey) continue;
-      if (!modifiersMatch(event, reg.modifiers)) continue;
+      if (!modifiersMatch(event, reg.modifiers, regKey)) continue;
       if (reg.when && !reg.when()) continue;
-      if (inInput && !reg.allowInInputs) continue;
+      if (fieldsOnly && !reg.allowInInputs) continue;
 
       const priority = reg.priority ?? 0;
       if (!best || priority > (best.priority ?? 0)) {

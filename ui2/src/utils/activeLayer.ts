@@ -103,3 +103,19 @@ export function activeVolumeLayerId(viewLayers: ReadonlyArray<ViewLayerLike>): s
   };
   return resolveActiveLayer(viewLayers, selection)?.id ?? null;
 }
+
+/**
+ * The status bar's layer: the single active-layer rule (`resolveActiveLayer`,
+ * shared with the viewport header and the colorbar), unless a Compare panel
+ * has claimed the readout (pointer over it, or last focused): then that
+ * panel's layer, so the status bar and the pane never disagree.
+ */
+export function resolveStatusLayer<T extends ViewLayerLike>(
+  viewLayers: ReadonlyArray<T>,
+  selection: ActiveLayerSelection,
+  override: { layerId: string; name: string } | null,
+): { id: string; name: string } | null {
+  if (override) return { id: override.layerId, name: override.name };
+  const layer = resolveActiveLayer(viewLayers, selection);
+  return layer ? { id: layer.id, name: layer.name || layer.id } : null;
+}

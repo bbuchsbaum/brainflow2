@@ -10,11 +10,15 @@ import { useStatusBarStore } from "@/stores/statusBarStore";
 import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { useLayerStore } from "@/stores/layerStore";
 import { formatWorldMm } from "@/utils/valueFormat";
-import { resolveActiveLayerName } from "@/utils/activeLayer";
+import { activeVolumeLayerId, resolveActiveLayerName } from "@/utils/activeLayer";
+import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
+import { useStatusReadoutStore } from "@/stores/statusReadoutStore";
 import {
   resolveAtlasRegionAtWorld,
   formatRegionLabel,
+  findActiveAtlasLayer,
 } from "@/services/atlasRegionLookup";
+import { resolveLayerVoxelGrid, sameVoxel } from "@/utils/voxelSnap";
 import type { AtlasStats } from "@/types/atlas";
 
 /**
@@ -32,6 +36,15 @@ const setLayerSlot = (setValue: (id: string, value: string) => void) => {
   );
   setValue("layer", name ?? "None");
 };
+
+/**
+ * The layer the Layer/Value slots report (StatusBar's `resolveStatusLayer`:
+ * a Compare pane's claim, else the active-layer rule). Region reads the same
+ * layer when it is an atlas, so the three slots never mix atlases.
+ */
+const statusLayerId = (): string | null =>
+  useStatusReadoutStore.getState().override?.layerId ??
+  activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
 
 type AtlasSeverity = "warning" | "critical" | "recovered" | undefined;
 
@@ -68,6 +81,9 @@ export class StatusBarService {
   private updateFPS: any;
   private updateCrosshair: any;
   private updateRegion: any;
+  private regionRequest = 0;
+  private updatePointerRegion: ReturnType<typeof throttle<(worldMm: [number, number, number]) => void>>;
+  private pointerRegionRequest = 0;
 
   private constructor() {
     // Get the store methods
@@ -97,6 +113,76 @@ export class StatusBarService {
     this.updateRegion = debounce((worldMm: [number, number, number]) => {
       void this.refreshRegion(worldMm);
     }, 80);
+
+    // Region under the pointer (status bar Pointer group): throttled, so it
+    // keeps up with a moving pointer.
+    this.updatePointerRegion = throttle(
+      (worldMm: [number, number, number]) => {
+        void this.refreshPointerRegion(worldMm);
+      },
+      50,
+      { leading: true, trailing: true },
+    );
+  }
+
+  /** The atlas grid the region readouts are looked up on (null: compare exactly). */
+  private atlasGrid() {
+    const atlas = findActiveAtlasLayer(statusLayerId());
+    const { layers, layerMetadata } = useLayerStore.getState();
+    return atlas ? resolveLayerVoxelGrid(atlas.id, layers, layerMetadata) : null;
+  }
+
+  /** Blank the pointer region (pointer left, or a lookup for a new voxel is pending). */
+  private clearPointerRegion() {
+    const { values, setBatch } = useStatusBarStore.getState();
+    if (values.pointerRegion == null && values.pointerRegionColor == null) return;
+    setBatch([
+      ["pointerRegion", null],
+      ["pointerRegionColor", null],
+    ]);
+  }
+
+  /**
+   * Region under the pointer, for the reported layer's atlas. Never stale:
+   * a result is written only while the pointer is still in the voxel it was
+   * looked up for, and the slot is blanked as soon as the pointer leaves it.
+   */
+  private pointerRegionAt: [number, number, number] | null = null;
+  private onPointerMove(worldMm: [number, number, number] | null) {
+    if (!worldMm) {
+      this.updatePointerRegion?.cancel?.();
+      this.pointerRegionRequest++;
+      this.pointerRegionAt = null;
+      this.clearPointerRegion();
+      return;
+    }
+    if (this.pointerRegionAt && !sameVoxel(this.pointerRegionAt, worldMm, this.atlasGrid())) {
+      this.pointerRegionAt = null;
+      this.clearPointerRegion();
+    }
+    this.updatePointerRegion(worldMm);
+  }
+
+  private async refreshPointerRegion(worldMm: [number, number, number]) {
+    if (!this.isInitialized) return;
+    const request = ++this.pointerRegionRequest;
+    let hit: Awaited<ReturnType<typeof resolveAtlasRegionAtWorld>> = null;
+    try {
+      hit = await resolveAtlasRegionAtWorld(worldMm, statusLayerId());
+    } catch (error) {
+      console.warn("[StatusBarService] Pointer region lookup failed:", error);
+    }
+    if (request !== this.pointerRegionRequest || !this.isInitialized) return;
+    const pointer = useMouseCoordinateStore.getState().worldCoordinates;
+    if (!pointer || !sameVoxel(pointer, worldMm, this.atlasGrid())) return;
+    this.pointerRegionAt = worldMm;
+    useStatusBarStore.getState().setBatch([
+      ["pointerRegion", hit ? formatRegionLabel(hit.entry) : "--"],
+      [
+        "pointerRegionColor",
+        hit ? `rgb(${hit.entry.color[0]}, ${hit.entry.color[1]}, ${hit.entry.color[2]})` : null,
+      ],
+    ]);
   }
 
   /**
@@ -109,8 +195,11 @@ export class StatusBarService {
       return;
     }
     const { setValue } = useStatusBarStore.getState();
+    const request = ++this.regionRequest;
     try {
-      const hit = await resolveAtlasRegionAtWorld(worldMm);
+      const hit = await resolveAtlasRegionAtWorld(worldMm, statusLayerId());
+      // A newer lookup (crosshair move, layer switch) supersedes this one.
+      if (request !== this.regionRequest) return;
       if (this.isInitialized) {
         setValue("region", hit ? formatRegionLabel(hit.entry) : "--");
         // LUT colour of the region, for the slot's swatch.
@@ -121,7 +210,7 @@ export class StatusBarService {
       }
     } catch (error) {
       console.warn("[StatusBarService] Atlas region lookup failed:", error);
-      if (this.isInitialized) {
+      if (request === this.regionRequest && this.isInitialized) {
         setValue("region", "--");
         setValue("regionColor", null);
       }
@@ -195,13 +284,40 @@ export class StatusBarService {
     if (isCurrentInit()) {
       setLayerSlot(setValue);
     }
+    // Both region readouts follow the reported layer.
+    const refreshRegionAtCrosshair = () => {
+      this.updateRegion(useViewStateStore.getState().viewState.crosshair.world_mm);
+      const pointer = useMouseCoordinateStore.getState().worldCoordinates;
+      if (pointer) {
+        this.pointerRegionAt = null;
+        this.clearPointerRegion();
+        this.updatePointerRegion([pointer[0], pointer[1], pointer[2]]);
+      }
+    };
     const unsubscribeSelection = useLayerStore.subscribe(
       (state) => state.selectedLayerId,
       () => {
-        if (isCurrentInit()) setLayerSlot(setValue);
+        if (isCurrentInit()) {
+          setLayerSlot(setValue);
+          refreshRegionAtCrosshair();
+        }
       },
     );
     this.unsubscribers.push(unsubscribeSelection);
+    // Region follows the reported layer: re-read it when the Inspector item
+    // or a Compare pane's readout claim changes which layer that is.
+    let lastInspectorItem = useInspectorSelectionStore.getState().activeItemId;
+    const unsubscribeInspector = useInspectorSelectionStore.subscribe((state) => {
+      if (state.activeItemId === lastInspectorItem) return;
+      lastInspectorItem = state.activeItemId;
+      if (isCurrentInit()) refreshRegionAtCrosshair();
+    });
+    this.unsubscribers.push(unsubscribeInspector);
+    const unsubscribeReadout = useStatusReadoutStore.subscribe((state, prev) => {
+      if (state.override?.layerId === prev.override?.layerId) return;
+      if (isCurrentInit()) refreshRegionAtCrosshair();
+    });
+    this.unsubscribers.push(unsubscribeReadout);
 
     // Refresh the region readout when the layer set changes (an atlas is loaded,
     // removed, or its palette legend is populated) so the slot reflects the
@@ -209,11 +325,7 @@ export class StatusBarService {
     const unsubscribeLayers = useLayerStore.subscribe(
       (state) => state.layers,
       () => {
-        if (isCurrentInit()) {
-          const worldMm =
-            useViewStateStore.getState().viewState.crosshair.world_mm;
-          this.updateRegion(worldMm);
-        }
+        if (isCurrentInit()) refreshRegionAtCrosshair();
       },
     );
     this.unsubscribers.push(unsubscribeLayers);
@@ -231,8 +343,14 @@ export class StatusBarService {
           if (worldCoordinates) {
             this.updateMousePosition(worldCoordinates);
           } else {
+            this.updateMousePosition.cancel?.();
             setValue("mouse", "--");
           }
+          this.onPointerMove(
+            worldCoordinates
+              ? [worldCoordinates[0], worldCoordinates[1], worldCoordinates[2]]
+              : null,
+          );
         }
       },
     );
@@ -312,6 +430,8 @@ export class StatusBarService {
     this.updateFPS?.cancel?.();
     this.updateCrosshair?.cancel?.();
     this.updateRegion?.cancel?.();
+    this.updatePointerRegion?.cancel?.();
+    this.pointerRegionAt = null;
 
     this.unsubscribers.forEach((unsubscribe) => {
       try {

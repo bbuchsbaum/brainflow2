@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { useLayerStore } from '@/stores/layerStore';
 import type { SceneItem, SceneItemKind } from '@/types/sceneItem';
+import { volumeSceneItemKind } from '@/utils/sceneItemKind';
 
 interface InspectorSelectionState {
   activeItemId: string | null;
@@ -64,18 +65,22 @@ export function syncInspectorWithLayerSelection(selectedLayerId: string | null):
     useInspectorSelectionStore.setState({ activeItemId: null, activeItemKind: null });
     return;
   }
-  const layers = useLayerStore.getState().layers;
-  const layer = layers.find((l) => l.id === selectedLayerId);
-  if (!layer) return;
   // Same base/overlay/atlas classification as the Scene stack.
-  const base = layers.find((l) => l.source !== 'atlas');
-  const kind: SceneItemKind =
-    layer.source === 'atlas'
-      ? 'volume-overlay-atlas'
-      : base?.id === layer.id
-        ? 'volume-base'
-        : 'volume-overlay';
+  const kind = volumeSceneItemKind(useLayerStore.getState().layers, selectedLayerId);
+  if (!kind) return;
   useInspectorSelectionStore.setState({ activeItemId: selectedLayerId, activeItemKind: kind });
+}
+
+/**
+ * Select a volume layer in both selections, opening its Inspector item even
+ * when the Inspector was empty (a newly opened layer, the neighbour of a
+ * removed one). Unknown ids are ignored.
+ */
+export function focusVolumeLayer(layerId: string): void {
+  const kind = volumeSceneItemKind(useLayerStore.getState().layers, layerId);
+  if (!kind) return;
+  useInspectorSelectionStore.setState({ activeItemId: layerId, activeItemKind: kind });
+  useLayerStore.getState().selectLayer(layerId);
 }
 
 // Guarded: some unit tests mock `layerStore` without a real store.

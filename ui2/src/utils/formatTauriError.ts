@@ -64,3 +64,20 @@ export function tauriErrorCode(error: unknown, depth = 0): number | null {
   }
   return null;
 }
+
+const LOAD_FAILURE_PREFIX = /^\s*failed to load\b[^:\n]*:\s*/i;
+
+/**
+ * "Failed to load <subject>: <detail>", without repeating the prefix when the
+ * detail already carries one (the bridge reports "Failed to load file /path:
+ * …", which read as "Failed to load X: Failed to load file /path: …").
+ */
+export function loadFailureMessage(subject: string, error: unknown): string {
+  let detail = formatTauriError(error).trim();
+  while (LOAD_FAILURE_PREFIX.test(detail)) {
+    const stripped = detail.replace(LOAD_FAILURE_PREFIX, '');
+    if (!stripped) break;
+    detail = stripped;
+  }
+  return detail ? `Failed to load ${subject}: ${detail}` : `Failed to load ${subject}`;
+}

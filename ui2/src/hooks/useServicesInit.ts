@@ -210,6 +210,19 @@ export function useServicesInit() {
           }
         });
 
+        // A borrowed view (Set studio Deck) setting or clearing its layer
+        // scope changes what the orthogonal views draw without a ViewState
+        // change: redraw them from the current state.
+        const { subscribeRenderLayerScope } = await import('@/services/render/RenderLayerScope');
+        subscribeRenderLayerScope(() => {
+          const { viewState, viewStateRevisions } = useViewStateStore.getState();
+          optimizedRenderService
+            .renderChangedViews(viewState, undefined, viewStateRevisions)
+            .catch((error) => {
+              console.error('[useServicesInit] Scoped render failed:', error);
+            });
+        });
+
         if (typeof window !== 'undefined') {
           (window as any).setRenderMultiViewEnabled = (enabled: boolean) => {
             useFeatureFlagStore.getState().setMultiViewBatchEnabled(Boolean(enabled));

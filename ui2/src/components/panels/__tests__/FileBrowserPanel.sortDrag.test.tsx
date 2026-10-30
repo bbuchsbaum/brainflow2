@@ -6,7 +6,13 @@ import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { setTransport } from '@/services/transport';
-import { FILE_DRAG_MIME, LAYER_DRAG_MIME, parseLayerDragData } from '@/utils/layerDrag';
+import {
+  FILE_DRAG_MIME,
+  LAYER_DRAG_MIME,
+  getActiveDragData,
+  parseFileDragData,
+  parseLayerDragData,
+} from '@/utils/layerDrag';
 import type { FileTreeNode } from '@/types/filesystem';
 
 interface CapturedTreeProps {
@@ -99,6 +105,46 @@ function resetStore(overrides: Partial<ReturnType<typeof useFileBrowserStore.get
   });
 }
 
+// jsdom has no PointerEvent: give pointer events their MouseEvent fields (button, clientX).
+if (typeof window.PointerEvent === 'undefined') {
+  class PointerEventPolyfill extends MouseEvent {
+    isPrimary: boolean;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.isPrimary = init.isPrimary ?? true;
+    }
+  }
+  (window as unknown as { PointerEvent: typeof MouseEvent }).PointerEvent = PointerEventPolyfill;
+}
+
+/**
+ * In-app drags are pointer-driven (Tauri's native file drop swallows HTML5
+ * drag events): press a row, move past the threshold, release over a drop
+ * target, which receives a synthetic `drop` carrying the MIME payload.
+ */
+function pointerDragTo(row: Element, target: Element): DataTransfer | null {
+  let received: DataTransfer | null = null;
+  const onDrop = (event: Event) => {
+    received = (event as DragEvent).dataTransfer;
+    event.preventDefault();
+  };
+  const onDragOver = (event: Event) => event.preventDefault();
+  target.addEventListener('dragover', onDragOver);
+  target.addEventListener('drop', onDrop);
+  const originalElementFromPoint = document.elementFromPoint;
+  document.elementFromPoint = () => target;
+  try {
+    fireEvent.pointerDown(row, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(document, { clientX: 40, clientY: 40, buttons: 1 });
+    fireEvent.pointerUp(document, { clientX: 40, clientY: 40 });
+  } finally {
+    document.elementFromPoint = originalElementFromPoint;
+    target.removeEventListener('drop', onDrop);
+    target.removeEventListener('dragover', onDragOver);
+  }
+  return received;
+}
+
 describe('FileBrowserPanel sort + drag wiring', () => {
   beforeEach(() => {
     capturedTreeRef.current = null;
@@ -151,6 +197,48 @@ describe('FileBrowserPanel sort + drag wiring', () => {
     expect(order).toEqual(['sub-01', 'T1w.nii.gz', 'anatomy.nii']);
   });
 
+  it('sorts files largest-first when sortBy=size desc, keeping folders A→Z', () => {
+    const root = makeMixedRoot();
+    root.children = [
+      { id: '/data/study/unit', name: 'unit', path: '/data/study/unit', type: 'directory', depth: 1, children: [] },
+      { id: '/data/study/anat', name: 'anat', path: '/data/study/anat', type: 'directory', depth: 1, children: [] },
+      ...root.children!,
+      {
+        id: '/data/study/zz_small.nii',
+        name: 'zz_small.nii',
+        path: '/data/study/zz_small.nii',
+        type: 'file',
+        depth: 1,
+        size: 10,
+      },
+      {
+        id: '/data/study/unknown.nii',
+        name: 'unknown.nii',
+        path: '/data/study/unknown.nii',
+        type: 'file',
+        depth: 1,
+      },
+    ];
+    resetStore({ entries: [root], sortBy: 'size', sortOrder: 'desc' });
+    render(<FileBrowserPanel />);
+
+    const tree = capturedTreeRef.current!;
+    const order = (tree.data[0] as { children: ReadonlyArray<{ name: string }> }).children.map(
+      (c) => c.name,
+    );
+    // Folders carry no size: they stay grouped first and A→Z; files run
+    // largest to smallest, with a file of unknown size last.
+    expect(order).toEqual([
+      'anat',
+      'sub-01',
+      'unit',
+      'anatomy.nii',
+      'T1w.nii.gz',
+      'zz_small.nii',
+      'unknown.nii',
+    ]);
+  });
+
   it('emits FILE_DRAG_MIME from ImagesView rows', () => {
     resetStore();
     render(<FileBrowserPanel />);
@@ -158,18 +246,22 @@ describe('FileBrowserPanel sort + drag wiring', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Images/ }));
 
     const row = screen.getByTitle('/data/study/T1w.nii.gz');
-    expect(row).toHaveAttribute('draggable', 'true');
+    expect(row).not.toHaveAttribute('draggable');
 
-    const setData = vi.fn();
-    const dataTransfer = {
-      setData,
-      effectAllowed: '',
-    } as unknown as DataTransfer;
-    fireEvent.dragStart(row, { dataTransfer });
-    const calls = setData.mock.calls.map(([k, v]) => [k, v]);
-    expect(calls.some(([k]) => k === FILE_DRAG_MIME)).toBe(true);
-    expect(calls.some(([k]) => k === 'application/json')).toBe(true);
-    expect(calls.some(([k]) => k === 'text/plain')).toBe(true);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const transfer = pointerDragTo(row, target);
+    target.remove();
+
+    expect(transfer).not.toBeNull();
+    expect(parseFileDragData(transfer!.getData(FILE_DRAG_MIME))?.path).toBe(
+      '/data/study/T1w.nii.gz',
+    );
+    expect(transfer!.getData('application/json')).toBe(transfer!.getData(FILE_DRAG_MIME));
+    expect(transfer!.getData('text/plain')).toBe('/data/study/T1w.nii.gz');
+    expect(Array.from(transfer!.files)).toEqual([]);
+    // The cross-panel bridge is cleared once the drag ends.
+    expect(getActiveDragData()).toBeNull();
   });
 
   it('emits LAYER_DRAG_MIME from LoadedView rows and focuses the inspector', () => {
@@ -194,17 +286,12 @@ describe('FileBrowserPanel sort + drag wiring', () => {
     // Loaded rows are bf SelectableRows (role="option" in a listbox), not buttons.
     const row = screen.getByRole('option', { name: /study-T1w/ });
     expect(row).not.toBeNull();
-    expect(row).toHaveAttribute('draggable', 'true');
 
-    const setData = vi.fn();
-    const dataTransfer = {
-      setData,
-      effectAllowed: '',
-    } as unknown as DataTransfer;
-    fireEvent.dragStart(row!, { dataTransfer });
-    const layerCall = setData.mock.calls.find(([key]) => key === LAYER_DRAG_MIME);
-    expect(layerCall).toBeTruthy();
-    const parsed = parseLayerDragData(layerCall![1] as string);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const transfer = pointerDragTo(row!, target);
+    target.remove();
+    const parsed = parseLayerDragData(transfer?.getData(LAYER_DRAG_MIME));
     expect(parsed?.layerId).toBe('layer-1');
 
     fireEvent.click(row!);

@@ -15,6 +15,12 @@ import type { FileNode } from "@/services/filesystem/FilesystemService";
 import { getEventBus } from "@/events/EventBus";
 import { getApiService } from "@/services/apiService";
 import { formatTauriError } from "@/utils/formatTauriError";
+import {
+  LOCAL_SEARCH_LIMITS,
+  REMOTE_SEARCH_LIMITS,
+  collectSearchMatches,
+  nextDirectoriesToIndex,
+} from "./fileBrowserSearch";
 
 // Enable Map and Set support in Immer
 enableMapSet();
@@ -187,6 +193,8 @@ interface FileBrowserActions {
   // Search
   setSearchQuery: (query: string) => void;
   performSearch: () => void;
+  /** List collapsed folders (bounded) so the active search can match them. */
+  indexForSearch: () => Promise<void>;
   clearSearch: () => void;
 
   // View options
@@ -217,6 +225,12 @@ interface FileBrowserActions {
 }
 
 interface FileBrowserStateExtras {
+  /** Folder whose listing produced `error`, so Retry lists that folder again. */
+  errorPath: string | null;
+  /** True while the search lists collapsed folders in the background. */
+  searchIndexing: boolean;
+  /** True when the search stopped at its depth/listing limits. */
+  searchTruncated: boolean;
   recents: RecentLocation[];
   pinned: PinnedLocation[];
   fourDPaths: Set<string>;
@@ -266,14 +280,44 @@ function convertApiNodesToTreeChildren(
           depth,
           expanded: false,
           children: file.isDir ? [] : undefined,
-          // NOTE: the backend does not yet return real sizes/dates for remote
-          // listings; these are placeholders until the readdir attributes are
-          // plumbed through (Phase 2). Do not treat as authoritative.
-          size: undefined,
+          size: !file.isDir && typeof file.size === "number" ? file.size : undefined,
           extension: !file.isDir ? file.name.match(/\.[^.]+$/)?.[0] : undefined,
-          modified: undefined,
+          modified:
+            typeof file.modifiedMs === "number"
+              ? new Date(file.modifiedMs)
+              : undefined,
         }) as FileTreeNode,
     );
+}
+
+// Search crawl pacing: how long a pass waits for a user load or the remote
+// single-flight slot, and how many such waits end the crawl as partial.
+const SEARCH_WAIT_MS = 100;
+const SEARCH_MAX_WAITS = 300;
+
+class ListingTimeoutError extends Error {}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new ListingTimeoutError(`Listing took longer than ${ms} ms`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** Depth-first search for a node by its path. */
@@ -306,6 +350,26 @@ const createFileBrowserStore = () => {
       if (path === root || path.startsWith(`${root.replace(/\/$/, '')}/`)) requests.delete(path);
     }
   };
+  // Folders whose children are known (listed, possibly empty). An unlisted
+  // folder and an empty one both carry `children: []`, so the search crawl
+  // needs this to tell them apart.
+  const listed = new Set<string>();
+  const forgetListed = (root: string) => {
+    const base = root.replace(/\/$/, "");
+    for (const path of listed) {
+      if (path === root || path.startsWith(`${base}/`)) listed.delete(path);
+    }
+  };
+  // Search crawl: one session per search (cleared by clearSearch). Each
+  // session has a per-root listing budget; bumping `searchSession` stops the
+  // crawl between listings.
+  let searchSession = 0;
+  let crawlRunning = false;
+  const searchBudget = new Map<string, number>();
+  // Folders whose listing failed or timed out during this search, and remote
+  // roots whose listing timed out; both cleared with the search.
+  const searchFailed = new Set<string>();
+  const stalledRoots = new Set<string>();
 
   return create<FileBrowserStore>()(
     subscribeWithSelector(
@@ -314,6 +378,9 @@ const createFileBrowserStore = () => {
         currentPath: "",
         rootPath: "",
         entries: [],
+        errorPath: null,
+        searchIndexing: false,
+        searchTruncated: false,
         expandedPaths: new Set(),
         loadingPaths: new Set(),
         selectedPath: null,
@@ -351,6 +418,7 @@ const createFileBrowserStore = () => {
           set((state) => {
             // Add to entries if not already mounted
             if (!state.entries.find((e) => e.path === path)) {
+              forgetListed(path);
               state.entries.push(mountedNode);
               console.log("Mounted directory node added:", mountedNode);
             }
@@ -391,6 +459,7 @@ const createFileBrowserStore = () => {
 
         unmountDirectory: (path) => {
           invalidate(path);
+          forgetListed(path);
           set((state) => {
             state.entries = state.entries.filter((e) => e.path !== path);
             // Also remove from expanded paths
@@ -413,6 +482,7 @@ const createFileBrowserStore = () => {
 
         setRootPath: (path) => {
           requests.clear();
+          listed.clear();
           set((state) => {
             state.rootPath = path;
             state.currentPath = path;
@@ -436,6 +506,7 @@ const createFileBrowserStore = () => {
           set((state) => {
             state.loading = true;
             state.error = null;
+            state.errorPath = null;
             // Per-row feedback: mark THIS folder as loading its children so the
             // tree can show a spinner during slow (remote) expansions.
             state.loadingPaths.add(path);
@@ -445,6 +516,7 @@ const createFileBrowserStore = () => {
             const apiService = getApiService();
             const files = await apiService.listDirectory(path, 1);
             if (requests.get(path) !== request) return;
+            listed.add(path);
 
             set((state) => {
               const node = findNodeByPath(state.entries, path);
@@ -473,6 +545,7 @@ const createFileBrowserStore = () => {
               state.loading = state.loadingPaths.size > 0;
               state.error =
                 formatTauriError(error) || "Failed to load directory";
+              state.errorPath = path;
             });
           }
         },
@@ -497,6 +570,7 @@ const createFileBrowserStore = () => {
             try {
               const files = await getApiService().listDirectory(path, 1);
               if (requests.get(path) !== request) return;
+              listed.add(path);
               set((state) => {
                 const node = findNodeByPath(state.entries, path);
                 if (node && (!node.children || node.children.length === 0)) {
@@ -564,7 +638,10 @@ const createFileBrowserStore = () => {
         },
 
         refreshDirectory: async (path) => {
-          const targetPath = path || get().currentPath;
+          const targetPath =
+            path || get().errorPath || get().currentPath || get().rootPath;
+          if (!targetPath) return;
+          forgetListed(targetPath);
           set((state) => {
             // Clear children for the target path
             const clearChildren = (nodes: FileTreeNode[]) => {
@@ -609,33 +686,170 @@ const createFileBrowserStore = () => {
         },
 
         performSearch: () => {
-          const query = get().searchQuery.toLowerCase();
+          const query = get().searchQuery;
           if (!query.trim()) return;
+          const results = collectSearchMatches(get().entries, query);
+          set((state) => {
+            state.searchResults = results;
+            // A crawl already in flight (e.g. one started before the search
+            // was cleared and retyped) is still indexing for this search.
+            if (crawlRunning) state.searchIndexing = true;
+          });
+          if (!crawlRunning) void get().indexForSearch();
+        },
 
-          const searchInTree = (nodes: FileTreeNode[]): FileTreeNode[] => {
-            const results: FileTreeNode[] = [];
-
-            for (const node of nodes) {
-              if (node.name.toLowerCase().includes(query)) {
-                results.push(node);
+        // Bounded background listing of collapsed folders so a search finds
+        // matches that were never expanded. Local folders are listed a few at
+        // a time; remote folders ONE at a time, sharing prefetch's
+        // single-flight guard (concurrent SFTP channels exhaust the server).
+        // Passes wait while a user-initiated load runs. Each listing has a
+        // timeout; failures and timeouts are skipped for the rest of this
+        // search, and a remote root whose listing timed out is not crawled
+        // further. Stops when the search is cleared, at each root's
+        // depth/listing budget, or when every reachable folder is listed.
+        indexForSearch: async () => {
+          if (crawlRunning) return;
+          crawlRunning = true;
+          const session = searchSession;
+          set((state) => {
+            state.searchIndexing = true;
+          });
+          let truncated = false;
+          let waits = 0;
+          const known = { has: (path: string) => listed.has(path) || searchFailed.has(path) };
+          try {
+            while (session === searchSession && get().searchQuery.trim()) {
+              if (get().loading) {
+                if (++waits > SEARCH_MAX_WAITS) {
+                  truncated = true;
+                  break;
+                }
+                await delay(SEARCH_WAIT_MS);
+                continue;
               }
-              if (node.children) {
-                results.push(...searchInTree(node.children));
+              const { entries, loadingPaths } = get();
+              const batch: Array<{ path: string; root: string; remote: boolean }> = [];
+              const taken = new Set<string>();
+              let localSlots = 4;
+              let remoteSlots = prefetchBusy ? 0 : 1;
+              let remoteWaiting = false;
+              truncated = false;
+              for (const root of entries) {
+                const remote = root.mountSource?.kind === "remote";
+                const limits = remote ? REMOTE_SEARCH_LIMITS : LOCAL_SEARCH_LIMITS;
+                const used = searchBudget.get(root.path) ?? 0;
+                const remaining = limits.maxListings - used;
+                const { paths, depthLimited } = nextDirectoriesToIndex(
+                  root,
+                  known,
+                  limits.maxDepth,
+                  4 + loadingPaths.size + taken.size,
+                );
+                if (depthLimited) truncated = true;
+                const candidates = paths.filter((p) => !loadingPaths.has(p) && !taken.has(p));
+                if (candidates.length === 0) continue;
+                if (remaining <= 0 || stalledRoots.has(root.path)) {
+                  truncated = true;
+                  continue;
+                }
+                const slots = remote ? remoteSlots : localSlots;
+                if (slots <= 0) {
+                  if (remote) remoteWaiting = true;
+                  continue;
+                }
+                const picked = candidates.slice(0, Math.min(slots, remaining));
+                if (remote) remoteSlots -= picked.length;
+                else localSlots -= picked.length;
+                searchBudget.set(root.path, used + picked.length);
+                for (const path of picked) {
+                  taken.add(path);
+                  batch.push({ path, root: root.path, remote });
+                }
+              }
+              if (batch.length === 0) {
+                if (!remoteWaiting) break;
+                // Only a remote folder is left and another remote listing
+                // (hover prefetch) holds the single-flight slot.
+                if (++waits > SEARCH_MAX_WAITS) {
+                  truncated = true;
+                  break;
+                }
+                await delay(SEARCH_WAIT_MS);
+                continue;
+              }
+              waits = 0;
+
+              await Promise.all(
+                batch.map(async ({ path, root, remote }) => {
+                  const limits = remote ? REMOTE_SEARCH_LIMITS : LOCAL_SEARCH_LIMITS;
+                  const request = beginRequest(path);
+                  const listing = getApiService().listDirectory(path, 1);
+                  if (remote) {
+                    // Hold the single-flight slot until the listing really
+                    // settles, even past our timeout.
+                    prefetchBusy = true;
+                    void listing.then(
+                      () => { prefetchBusy = false; },
+                      () => { prefetchBusy = false; },
+                    );
+                  }
+                  try {
+                    const files = await withTimeout(listing, limits.listingTimeoutMs);
+                    if (requests.get(path) !== request) return;
+                    listed.add(path);
+                    set((state) => {
+                      const node = findNodeByPath(state.entries, path);
+                      if (node && (!node.children || node.children.length === 0)) {
+                        node.children = convertApiNodesToTreeChildren(
+                          files,
+                          node.depth + 1,
+                        );
+                      }
+                    });
+                  } catch (error) {
+                    // Unreadable or slow folder: skip it for this search only
+                    // (cleared with the search, so a later search retries it).
+                    searchFailed.add(path);
+                    if (remote && error instanceof ListingTimeoutError) {
+                      stalledRoots.add(root);
+                    }
+                  }
+                }),
+              );
+
+              const query = get().searchQuery;
+              if (session === searchSession && query.trim()) {
+                const results = collectSearchMatches(get().entries, query);
+                set((state) => {
+                  state.searchResults = results;
+                });
               }
             }
-
-            return results;
-          };
-
-          set((state) => {
-            state.searchResults = searchInTree(state.entries);
-          });
+          } finally {
+            crawlRunning = false;
+            if (session === searchSession) {
+              set((state) => {
+                state.searchIndexing = false;
+                state.searchTruncated = truncated;
+              });
+            } else if (get().searchQuery.trim()) {
+              // The search was cleared and restarted while a listing was in
+              // flight: crawl for the new session.
+              void get().indexForSearch();
+            }
+          }
         },
 
         clearSearch: () => {
+          searchSession += 1;
+          searchBudget.clear();
+          searchFailed.clear();
+          stalledRoots.clear();
           set((state) => {
             state.searchQuery = "";
             state.searchResults = [];
+            state.searchIndexing = false;
+            state.searchTruncated = false;
           });
         },
 

@@ -28,11 +28,7 @@ import { useContextMenuStore } from "@/stores/contextMenuStore";
 import type { ContextMenuItem } from "@/stores/contextMenuStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useBidsStore } from "@/stores/bidsStore";
-import {
-  FILE_DRAG_MIME,
-  setActiveDragData,
-  clearActiveDragData,
-} from "@/utils/layerDrag";
+import { beginFileRowDrag } from "@/utils/layerDrag";
 import type { DragFileData, MountSource } from "@/types/filesystem";
 import type { DisplayOpenIntent } from "@/types/loadIntent";
 import { inferFileType, type FileTypeInfo } from "./shared/inferFileType";
@@ -249,24 +245,17 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
     }
   }
 
-  function handleDragStart(event: React.DragEvent) {
-    if (!event.dataTransfer) return;
-    event.stopPropagation();
-
+  // Pointer-driven drag (not HTML5 `draggable`): with Tauri's native file
+  // drop enabled the webview receives no HTML5 drag events. See
+  // utils/pointerDrag.ts.
+  function handlePointerDown(event: React.PointerEvent) {
     const dragData: DragFileData = {
       path: data.path,
       name: data.name,
       type: data.type,
       extension: data.extension,
     };
-
-    setActiveDragData(dragData);
-
-    const json = JSON.stringify(dragData);
-    event.dataTransfer.setData(FILE_DRAG_MIME, json);
-    event.dataTransfer.setData("application/json", json);
-    event.dataTransfer.setData("text/plain", data.path);
-    event.dataTransfer.effectAllowed = "copy";
+    beginFileRowDrag(event, dragData);
   }
 
   function handleContextMenu(event: React.MouseEvent) {
@@ -404,9 +393,8 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
         isDirectory && "font-medium",
       )}
       title={remoteMountRowTooltip || data.name}
-      draggable={!isDirectory}
-      onDragStart={!isDirectory ? handleDragStart : undefined}
-      onDragEnd={!isDirectory ? () => clearActiveDragData() : undefined}
+      data-drag-source={!isDirectory ? "file" : undefined}
+      onPointerDown={!isDirectory ? handlePointerDown : undefined}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onMouseEnter={
@@ -427,6 +415,9 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
           aria-label={`${node.isOpen ? "Collapse" : "Expand"} ${data.name}`}
           onClick={(e) => {
             e.stopPropagation();
+            // The chevron selects its folder too, so a root row clicked on
+            // its chevron becomes the "selected root" for Unmount/Pin.
+            fileBrowserStore.selectFile(data.path);
             const wasOpen = node.isOpen;
             node.toggle();
             if (!wasOpen && (!data.children || data.children.length === 0)) {

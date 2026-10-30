@@ -65,12 +65,16 @@ export interface PopulationSliceRequest {
     dimPx: number;
     memberIds: string[];
   } | null;
+  /** Display-only anatomy sampled under the maps; never a calculation operand. */
+  underlay?: { sourcePath: string } | null;
 }
 export interface PopulationSliceQuery {
   groupLabels?: Record<string, string>;
   /** Masks change support, not the compatible effect scale. */
   scaleKey?: string;
   initialScale?: { effectLimit?: number; summaryLimit?: number; summary: PopulationSummary };
+  /** Why no anatomy is requested (short, for the status line). */
+  underlayIssue?: string | null;
   focusOrder?: readonly string[];
   key: string;
   datasetKey: string;
@@ -98,6 +102,10 @@ export interface PopulationSliceData {
     plane: ViewPlane;
     members: { memberId: string; values: (number | null)[]; validPixels: number }[];
   } | null;
+  /** Anatomy on `plane` (and on the cutout plane); null outside the image. */
+  underlay?: { values: (number | null)[]; cutouts?: (number | null)[] } | null;
+  /** Why a requested underlay is missing; the maps remain valid. */
+  underlayIssue?: string | null;
 }
 
 /** The service and committed React views each hold a lease. Replacing a result
@@ -150,6 +158,8 @@ export interface PopulationSliceDisplay {
   images: PopulationImages;
   effectLimit: number;
   summaryLimit: number;
+  /** Windowed anatomy grey for `data.plane`, kept for focus-only redraws. */
+  underlay?: Float32Array | null;
 }
 interface Snapshot {
   requested: PopulationSliceQuery | null;
@@ -161,6 +171,11 @@ interface Dependencies {
   evaluate: (request: PopulationSliceRequest, signal: AbortSignal) => Promise<PopulationSliceData>;
   release: (contextKey: string) => Promise<void>;
   bitmap: (rgba: Uint8ClampedArray, width: number, height: number) => Promise<ImageBitmap>;
+  /** The crosshair moved onto the slice with the most summary signal. */
+  peak?: (
+    request: PopulationSliceRequest,
+    signal: AbortSignal,
+  ) => Promise<[number, number, number] | null>;
 }
 const native: Dependencies = {
   async evaluate(request, signal) {
@@ -186,12 +201,53 @@ const native: Dependencies = {
   async release(contextKey) {
     await getTransport().invoke('release_population_slice', { contextKey });
   },
+  async peak(request, signal) {
+    signal.throwIfAborted();
+    const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
+    const cancel = () => {
+      void Promise.resolve()
+        .then(() => getTransport().invoke('cancel_population_sample', { ticket }))
+        .catch((error) => console.warn('[PopulationSliceService] Cancellation failed:', error));
+    };
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+      const result = await getTransport().invoke<[number, number, number] | null>(
+        'population_peak_slice',
+        { request, ticket },
+      );
+      signal.throwIfAborted();
+      return result;
+    } finally {
+      signal.removeEventListener('abort', cancel);
+    }
+  },
   async bitmap(rgba, width, height) {
     const pixels = new ImageData(width, height);
     pixels.data.set(rgba);
     return createImageBitmap(pixels);
   },
 };
+
+/**
+ * A display limit from the data: the larger magnitude of the 2nd and 98th
+ * percentiles (signed) or the 98th percentile (nonnegative) of the finite,
+ * nonzero values. Zeros are left out because they are mostly outside the
+ * head, and would pull a sparse map's window to nothing. Null when the
+ * raster holds no such values (an all-zero slice says nothing about scale).
+ */
+export function robustPopulationLimit(
+  values: readonly (number | null)[],
+  signed: boolean,
+): number | null {
+  const finite: number[] = [];
+  for (const value of values)
+    if (value !== null && Number.isFinite(value) && value !== 0) finite.push(value);
+  if (!finite.length) return null;
+  finite.sort((a, b) => a - b);
+  const at = (p: number) => finite[Math.min(finite.length - 1, Math.floor(p * finite.length))];
+  const limit = signed ? Math.max(Math.abs(at(0.02)), Math.abs(at(0.98))) : Math.abs(at(0.98));
+  return Number.isFinite(limit) && limit > 0 ? limit : null;
+}
 
 /** Explicit blue-white-red effect palette; nonnegative descriptive summaries
  * use a separate dark-to-gold palette and scale. Unavailable pixels are clear. */
@@ -210,6 +266,145 @@ export function populationRgba(
     pixels[i * 4 + 3] = 255;
   });
   return pixels;
+}
+
+/** Share of the display limit hidden around zero, like a stat overlay's
+ * threshold: sparse maps are mostly exact zeros, which must not paint. */
+export const POPULATION_HIDDEN_FRACTION = 0.1;
+
+/** Values with |v| below this band are transparent. Counts hide only zero. */
+export function populationHiddenBand(limit: number, counts = false) {
+  return counts ? 0.5 : POPULATION_HIDDEN_FRACTION * limit;
+}
+
+/** The anatomy window: the 2nd and 98th percentiles of its finite nonzero
+ * values on the main plane. */
+export function populationUnderlayWindow(values: readonly (number | null)[]): [number, number] {
+  const finite: number[] = [];
+  for (const value of values)
+    if (value !== null && Number.isFinite(value) && value !== 0) finite.push(value);
+  finite.sort((a, b) => a - b);
+  const at = (p: number) => finite[Math.min(finite.length - 1, Math.floor(p * finite.length))];
+  return finite.length ? [at(0.02), at(0.98)] : [0, 1];
+}
+
+/** Underlay intensities as 0–1 grey in `window` (by default their own);
+ * NaN where there is no anatomy. Null without an underlay. Cutouts take the
+ * main plane's window so the same tissue has the same grey everywhere. */
+export function populationUnderlayGrey(
+  values: readonly (number | null)[] | null | undefined,
+  window: [number, number] = values ? populationUnderlayWindow(values) : [0, 1],
+): Float32Array | null {
+  if (!values) return null;
+  const [low, high] = window;
+  const span = high > low ? high - low : 1;
+  return Float32Array.from(values, (value) =>
+    value === null || !Number.isFinite(value)
+      ? Number.NaN
+      : Math.min(1, Math.max(0, (value - low) / span)),
+  );
+}
+
+// Colour is data: signed maps run red to yellow above zero and blue to cyan
+// below; nonnegative summaries use one dark-red to pale-yellow ramp. Both start
+// saturated at the hidden band so the lowest shown value never reads as grey.
+const POSITIVE = [
+  [200, 30, 30],
+  [255, 235, 80],
+];
+const NEGATIVE = [
+  [30, 70, 220],
+  [90, 225, 255],
+];
+const SEQUENTIAL = [
+  [150, 25, 10],
+  [240, 110, 15],
+  [255, 240, 140],
+];
+/** Brightest underlay grey; kept below white so colour stays legible. */
+const UNDERLAY_MAX = 200;
+
+function ramp(stops: readonly (readonly number[])[], t: number) {
+  const at = Math.min(1, Math.max(0, t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(at));
+  const f = at - i;
+  return [0, 1, 2].map((c) => stops[i][c] + f * (stops[i + 1][c] - stops[i][c]));
+}
+
+/**
+ * A population map drawn as an overlay: values within the hidden band are
+ * transparent onto the anatomy grey, or onto nothing (the dark pane) without
+ * one. Signed maps are diverging and symmetric about zero; nonnegative maps
+ * are sequential from zero. Unavailable values show the anatomy alone.
+ */
+export function populationOverlayRgba(
+  values: readonly (number | null)[],
+  limit: number,
+  diverging: boolean,
+  options: { band: number; underlay?: Float32Array | null },
+) {
+  const { band, underlay } = options;
+  const pixels = new Uint8ClampedArray(values.length * 4);
+  const span = limit > band ? limit - band : limit || 1;
+  values.forEach((value, i) => {
+    let colour: number[] | null = null;
+    if (value !== null && Number.isFinite(value) && Math.abs(value) >= band && (diverging || value > 0)) {
+      const t = (Math.abs(value) - band) / span;
+      colour = ramp(diverging ? (value < 0 ? NEGATIVE : POSITIVE) : SEQUENTIAL, t);
+    } else if (underlay && Number.isFinite(underlay[i])) {
+      const grey = underlay[i] * UNDERLAY_MAX;
+      colour = [grey, grey, grey];
+    }
+    if (!colour) return;
+    for (let c = 0; c < 3; c++) pixels[i * 4 + c] = colour[c];
+    pixels[i * 4 + 3] = 255;
+  });
+  return pixels;
+}
+
+/** Whether a summary is a count, whose only near-zero value is zero. */
+export function populationCountsSummary(request: PopulationSliceRequest) {
+  return request.inference
+    ? !!inferenceChannel(request.inference).countPopulation
+    : request.summary === 'coverage';
+}
+
+/** Anatomy per declared template space (TemplateFlow IDs the app resolves). */
+const SPACE_UNDERLAYS: Record<string, string> = {
+  MNI152NLin2009cAsym: 'template:MNI152NLin2009cAsym_brain_1mm',
+  MNI152NLin6Asym: 'template:MNI152NLin6Asym_T1w_1mm',
+  MNIColin27: 'template:MNIColin27_T1w_native',
+  MNI305: 'template:MNI305_T1w_native',
+};
+/**
+ * The anatomy image drawn under a set's population maps, or why there is
+ * none. Neither NeuroTabs manifests nor set summaries carry a reference image,
+ * so only a support that declares a known template space ("<space> (<grid>)")
+ * gets that template. An undeclared, subject-native or unknown space gets the
+ * dark pane: a template under native data would misregister. Natively the
+ * template must also cover the population grid, or it is reported missing.
+ */
+export function populationUnderlaySource(supportLabel: string | null | undefined): {
+  sourcePath: string | null;
+  issue: string | null;
+} {
+  const space = /^(\S+) \(/.exec(supportLabel ?? '')?.[1];
+  if (!space) return { sourcePath: null, issue: 'space not declared' };
+  if (!Object.hasOwn(SPACE_UNDERLAYS, space))
+    return { sourcePath: null, issue: `no template for ${space}` };
+  return { sourcePath: SPACE_UNDERLAYS[space], issue: null };
+}
+
+/** A short status hint when a shown population map has no anatomy under it. */
+export function populationAnatomyStatus(display: Pick<PopulationSliceDisplay, 'query' | 'data'>) {
+  const reason =
+    display.query.underlayIssue ??
+    (display.data.underlayIssue
+      ? /not in one space/.test(display.data.underlayIssue)
+        ? 'image does not cover the data'
+        : 'anatomy image unavailable'
+      : null);
+  return reason ? ` · No anatomy: ${reason}` : '';
 }
 
 export function buildPopulationSliceQuery(
@@ -328,8 +523,12 @@ export function buildPopulationSliceQuery(
       inferenceIssue(inference, aggregation, reference?.aggregation);
     if (testIssue) return { query: null, issue: testIssue };
   }
+  const underlay = populationUnderlaySource(
+    state.sets[state.selection.activeSetId ?? '']?.supportLabel,
+  );
   const request: PopulationSliceRequest = {
     ...viewOptions,
+    ...(underlay.sourcePath ? { underlay: { sourcePath: underlay.sourcePath } } : {}),
     ...(inference ? { inference, summary: 'mean' as const } : {}),
     ...(groups.length ? { groups, summary: 'mean' as const } : {}),
     ...(reference
@@ -359,6 +558,7 @@ export function buildPopulationSliceQuery(
       datasetKey: source.datasetKey,
       scaleKey: source.scaleKey,
       initialScale: state.population.restoredView,
+      underlayIssue: underlay.issue,
       request,
     },
     issue: null,
@@ -473,13 +673,45 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
         )))
   )
     throw new Error('Population cutouts do not match their requested observations or geometry.');
+  const underlay = data.underlay;
+  if (
+    underlay &&
+    (underlay.values.length !== size ||
+      (underlay.cutouts != null &&
+        (!data.cutouts ||
+          underlay.cutouts.length !== data.cutouts.plane.dim_px[0] * data.cutouts.plane.dim_px[1])))
+  )
+    throw new Error('Population underlay does not match its planes.');
+}
+
+/** Opening-slice state per lens scope (lens and workspace) and dataset
+ * scale, across lens mounts. `chosen` is set by a slice the user picks in
+ * that lens, which then wins for every summary of the dataset. */
+interface PeakState {
+  chosen: boolean;
+  done: Set<string>;
+}
+const peakMemory = new Map<string, PeakState>();
+const PEAK_MEMORY_LIMIT = 64;
+/** Crosshairs within this distance (mm) are the same slice position. */
+const CROSSHAIR_TOLERANCE_MM = 1e-3;
+/** World axis of each view's normal (population views are world-aligned). */
+const NORMAL_AXIS: Record<PopulationOrientation, number> = { sagittal: 0, coronal: 1, axial: 2 };
+
+/** Moves the view; false when it cannot (another workspace is active). */
+export interface PopulationPeakNavigator {
+  /** Lens and workspace the opening-slice memory belongs to. */
+  scope: string;
+  navigate: (worldMm: [number, number, number]) => boolean;
 }
 
 /** One bounded sprite sheet for all visible cutouts, with the same value
- * mapping as the focused original. UI layout never resamples source images. */
+ * mapping as the focused original over the cutout plane's anatomy. UI layout
+ * never resamples source images. */
 export function packPopulationCutouts(
   cutouts: NonNullable<PopulationSliceData['cutouts']>,
   limit: number,
+  underlay: Float32Array | null = null,
 ) {
   const [cellWidth, cellHeight] = cutouts.plane.dim_px;
   const columns = Math.min(8, cutouts.members.length);
@@ -487,7 +719,10 @@ export function packPopulationCutouts(
   const height = Math.ceil(cutouts.members.length / columns) * cellHeight;
   const rgba = new Uint8ClampedArray(width * height * 4);
   cutouts.members.forEach((member, index) => {
-    const pixels = populationRgba(member.values, limit, true);
+    const pixels = populationOverlayRgba(member.values, limit, true, {
+      band: populationHiddenBand(limit),
+      underlay,
+    });
     const x = (index % columns) * cellWidth,
       y = Math.floor(index / columns) * cellHeight;
     for (let row = 0; row < cellHeight; row++)
@@ -545,9 +780,98 @@ export class PopulationSliceService {
   private summaryLimits = new Map<string, number>();
   private readonly dependencies: Dependencies;
   private readonly delayMs: number;
-  constructor(dependencies: Dependencies = native, delayMs = 40) {
+  private readonly peaks: Map<string, PeakState>;
+  private navigator: PopulationPeakNavigator | null = null;
+  private peakAbort: AbortController | null = null;
+  private peakKey: string | null = null;
+  private peakDataset: string | null = null;
+  constructor(dependencies: Dependencies = native, delayMs = 40, peaks = peakMemory) {
     this.dependencies = dependencies;
     this.delayMs = delayMs;
+    this.peaks = peaks;
+  }
+  /** Where the view moves to open on the slice with the most signal. Without
+   * one, no peak is searched. */
+  setPeakNavigator(navigator: PopulationPeakNavigator | null) {
+    if (navigator?.scope !== this.navigator?.scope) this.cancelPeak();
+    this.navigator = navigator;
+  }
+  /** The user picked a slice in this lens: it wins for the shown dataset. */
+  noteUserSlice() {
+    const query = this.snapshot.requested ?? this.snapshot.displayed?.query;
+    const entry = query && this.peakEntry(query);
+    if (entry) entry.chosen = true;
+    this.cancelPeak();
+  }
+  private peakEntry(query: PopulationSliceQuery, create = false) {
+    if (!this.navigator) return null;
+    const key = JSON.stringify([this.navigator.scope, query.scaleKey ?? query.datasetKey]);
+    let entry = this.peaks.get(key);
+    if (!entry && create) {
+      if (this.peaks.size >= PEAK_MEMORY_LIMIT) this.peaks.delete(this.peaks.keys().next().value!);
+      entry = { chosen: false, done: new Set() };
+      this.peaks.set(key, entry);
+    }
+    return entry ?? null;
+  }
+  private cancelPeak() {
+    this.peakAbort?.abort();
+    this.peakAbort = null;
+    this.peakKey = null;
+    this.peakDataset = null;
+  }
+  /** After a full slice is shown, search for the opening slice once per
+   * dataset and summary. The search runs beside slice evaluation, so it
+   * never delays a displayed slice. */
+  private startPeak(query: PopulationSliceQuery) {
+    const kind = populationDisplayKind(query.request);
+    const entry = this.peakEntry(query, true);
+    const peak = this.dependencies.peak;
+    const navigator = this.navigator;
+    if (!entry || !peak || !navigator || entry.chosen || entry.done.has(kind)) return;
+    const key = JSON.stringify([navigator.scope, query.scaleKey ?? query.datasetKey, kind]);
+    if (this.peakKey === key) return;
+    this.cancelPeak();
+    const abort = new AbortController();
+    this.peakAbort = abort;
+    this.peakKey = key;
+    this.peakDataset = query.scaleKey ?? query.datasetKey;
+    const request = { ...query.request, focusWindow: [], cutouts: null, underlay: null };
+    delete request.focusStackIndex;
+    void peak(request, abort.signal)
+      .then((world) => {
+        if (abort.signal.aborted || !this.active) return;
+        if (entry.chosen) return void entry.done.add(kind);
+        if (!world || !world.every(Number.isFinite)) return void entry.done.add(kind);
+        const latest = this.snapshot.requested ?? query;
+        const current = latest.request;
+        // A changed dataset or view asks again on its next slice.
+        if (
+          (latest.scaleKey ?? latest.datasetKey) !== (query.scaleKey ?? query.datasetKey) ||
+          current.orientation !== query.request.orientation
+        )
+          return;
+        // Only the slice moves: keep wherever the crosshair is now in-plane.
+        const axis = NORMAL_AXIS[current.orientation];
+        const target = [...current.crosshairMm] as [number, number, number];
+        target[axis] = world[axis];
+        if (Math.abs(target[axis] - current.crosshairMm[axis]) <= CROSSHAIR_TOLERANCE_MM)
+          return void entry.done.add(kind);
+        // A refused move (another workspace) is retried on a later slice.
+        if (this.navigator === navigator && navigator.navigate(target)) entry.done.add(kind);
+      })
+      .catch((error) => {
+        if (abort.signal.aborted) return;
+        console.warn('[PopulationSliceService] Peak search failed:', error);
+        entry.done.add(kind);
+      })
+      .finally(() => {
+        if (this.peakAbort === abort) {
+          this.peakAbort = null;
+          this.peakKey = null;
+          this.peakDataset = null;
+        }
+      });
   }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
@@ -560,6 +884,7 @@ export class PopulationSliceService {
     this.active = true;
   }
   stop() {
+    this.cancelPeak();
     this.clearFocusCache();
     this.active = false;
     this.generation++;
@@ -581,6 +906,8 @@ export class PopulationSliceService {
     )
       this.clearFocusCache();
     const copy = query ? structuredClone(query) : null;
+    if (this.peakDataset !== null && this.peakDataset !== (copy?.scaleKey ?? copy?.datasetKey))
+      this.cancelPeak();
     this.generation++;
     this.abort?.abort();
     this.pending = copy;
@@ -798,6 +1125,8 @@ export class PopulationSliceService {
               cutouts: base.data.cutouts,
               groups: base.data.groups,
               reference: base.data.reference,
+              underlay: base.data.underlay,
+              underlayIssue: base.data.underlayIssue,
             };
             shared = true;
           } else {
@@ -809,13 +1138,16 @@ export class PopulationSliceService {
           }
         }
         const window = data.focusWindow ?? [];
+        // Window rasters share the returned plane, which the native side may
+        // fit to square pixels at a size other than the requested one.
+        const [planeW, planeH] = data.plane?.dim_px ?? [0, 0];
         if (
           window.length > count ||
           new Set(window.map((m) => m.memberId)).size !== window.length ||
           window.some(
             (m) =>
               !focusWindow.includes(m.memberId) ||
-              m.values.length !== query.request.dimPx[0] * query.request.dimPx[1],
+              m.values.length !== planeW * planeH,
           )
         )
           throw new Error('Focus window does not match its requested observations.');
@@ -830,7 +1162,10 @@ export class PopulationSliceService {
         let focused: ImageBitmap;
         try {
           focused = await this.dependencies.bitmap(
-            populationRgba(data.focused, base.effectLimit, true),
+            populationOverlayRgba(data.focused, base.effectLimit, true, {
+              band: populationHiddenBand(base.effectLimit),
+              underlay: base.underlay,
+            }),
             ...data.plane.dim_px,
           );
         } catch (error) {
@@ -857,38 +1192,47 @@ export class PopulationSliceService {
         });
         return;
       }
-      const range = data.contextRange;
-      if (this.effectLimit === null && range)
-        this.effectLimit = Math.max(Math.abs(range[0]), Math.abs(range[1])) || 1;
+      // Display windows follow the data until set (by the user, a restore,
+      // or a slice that holds data), then stay fixed across slices.
+      const sharesEffect = populationSharesEffectScale(query.request);
+      if (this.effectLimit === null)
+        this.effectLimit = robustPopulationLimit(
+          sharesEffect ? data.summary : data.focused,
+          true,
+        );
       const effectLimit = this.effectLimit ?? 1;
       const kind = populationDisplayKind(query.request);
-      let summaryLimit = populationSharesEffectScale(query.request)
-        ? effectLimit
-        : this.summaryLimits.get(kind);
+      let summaryLimit = sharesEffect ? effectLimit : this.summaryLimits.get(kind);
       if (summaryLimit === undefined) {
         const channel = query.request.inference ? inferenceChannel(query.request.inference) : null;
         const count = channel?.countPopulation === 'B' ? data.reference?.unitCount : data.unitCount;
-        summaryLimit =
+        const fixed =
           channel?.initialLimit ??
-          (channel?.countPopulation || kind === 'coverage'
-            ? count || 1
-            : data.summary.reduce<number>((max, value) => Math.max(max, Math.abs(value ?? 0)), 0) ||
-              1);
-        this.summaryLimits.set(kind, summaryLimit);
+          (channel?.countPopulation || kind === 'coverage' ? count || 1 : undefined);
+        const fitted =
+          fixed ?? robustPopulationLimit(data.summary, populationDiverging(query.request));
+        summaryLimit = fitted ?? 1;
+        if (fitted !== null) this.summaryLimits.set(kind, summaryLimit);
       }
       const [w, h] = data.plane.dim_px;
+      const underlayWindow = data.underlay ? populationUnderlayWindow(data.underlay.values) : undefined;
+      const underlay = populationUnderlayGrey(data.underlay?.values, underlayWindow);
+      const member = (values: readonly (number | null)[]) =>
+        populationOverlayRgba(values, effectLimit, true, {
+          band: populationHiddenBand(effectLimit),
+          underlay,
+        });
       const summary = await this.dependencies.bitmap(
-        populationRgba(data.summary, summaryLimit, populationDiverging(query.request)),
+        populationOverlayRgba(data.summary, summaryLimit, populationDiverging(query.request), {
+          band: populationHiddenBand(summaryLimit, populationCountsSummary(query.request)),
+          underlay,
+        }),
         w,
         h,
       );
       let focused: ImageBitmap;
       try {
-        focused = await this.dependencies.bitmap(
-          populationRgba(data.focused, effectLimit, true),
-          w,
-          h,
-        );
+        focused = await this.dependencies.bitmap(member(data.focused), w, h);
       } catch (error) {
         summary.close();
         throw error;
@@ -898,21 +1242,17 @@ export class PopulationSliceService {
       let reference: ImageBitmap | null = null;
       try {
         if (data.cutouts) {
-          const packed = packPopulationCutouts(data.cutouts, effectLimit);
+          const packed = packPopulationCutouts(
+            data.cutouts,
+            effectLimit,
+            populationUnderlayGrey(data.underlay?.cutouts, underlayWindow),
+          );
           cutouts = await this.dependencies.bitmap(packed.rgba, packed.width, packed.height);
         }
         for (const group of data.groups ?? [])
-          groups[group.id] = await this.dependencies.bitmap(
-            populationRgba(group.values, effectLimit, true),
-            w,
-            h,
-          );
+          groups[group.id] = await this.dependencies.bitmap(member(group.values), w, h);
         if (data.reference)
-          reference = await this.dependencies.bitmap(
-            populationRgba(data.reference.values, effectLimit, true),
-            w,
-            h,
-          );
+          reference = await this.dependencies.bitmap(member(data.reference.values), w, h);
       } catch (error) {
         summary.close();
         focused.close();
@@ -927,7 +1267,7 @@ export class PopulationSliceService {
         return;
       }
       this.releaseBase?.();
-      this.focusBase = { query, data, images, effectLimit, summaryLimit };
+      this.focusBase = { query, data, images, effectLimit, summaryLimit, underlay };
       this.releaseBase = images.retain();
       this.publish({
         requested: query,
@@ -935,6 +1275,7 @@ export class PopulationSliceService {
         pending: false,
         error: null,
       });
+      this.startPeak(query);
     } catch (error) {
       if (this.active && version === this.generation)
         this.publish({ ...this.snapshot, pending: false, error: formatTauriError(error) });
@@ -1000,7 +1341,17 @@ export function populationSliceStepPoint(
   ) as [number, number, number];
 }
 
+const userSliceListeners = new Set<(workspaceId: string) => void>();
+
 export const populationSliceActions = {
+  /** Slice moves the user makes in population views (not programmatic
+   * moves), so an opening-slice jump never overrides the user's choice. */
+  onUserSlice(listener: (workspaceId: string) => void) {
+    userSliceListeners.add(listener);
+    return () => {
+      userSliceListeners.delete(listener);
+    };
+  },
   step(
     workspaceId: string,
     plane: ViewPlane,
@@ -1021,13 +1372,19 @@ export const populationSliceActions = {
     )
       useMouseCoordinateStore.getState().setMousePosition(worldMm, orientation);
   },
-  navigate(workspaceId: string, worldMm: [number, number, number], pin = false) {
+  /** A programmatic crosshair move; false when another workspace is active. */
+  moveTo(workspaceId: string, worldMm: [number, number, number]) {
     const view = useViewStateStore.getState();
-    if (view.activeWorkspaceKey !== workspaceId || !worldMm.every(Number.isFinite)) return;
+    if (view.activeWorkspaceKey !== workspaceId || !worldMm.every(Number.isFinite)) return false;
     // Synchronous canonical update avoids waiting for unrelated renderer resizes.
     view.setViewState((state) => {
       state.crosshair.world_mm = [...worldMm];
     }, workspaceId);
+    return true;
+  },
+  navigate(workspaceId: string, worldMm: [number, number, number], pin = false) {
+    if (!this.moveTo(workspaceId, worldMm)) return;
+    userSliceListeners.forEach((listener) => listener(workspaceId));
     if (pin) {
       const studio = useSetStudioStore.getState();
       studio.setPopulationProbe(

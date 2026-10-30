@@ -152,6 +152,7 @@ export * from './StudioDiscoveryDesignValue';
 export * from './StudioAuditSeverity';
 export * from './FlatNode';
 export * from './SurfaceParcelTable';
+export * from './NiftiStorageInfo';
 export * from './BidsEventRow';
 export * from './StudioFolderOntologyCandidate';
 export * from './StudioFolderOntologyRoleGuess';

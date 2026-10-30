@@ -42,6 +42,8 @@ interface ComparisonState {
 
 interface ComparisonActions {
   replaceLayer: (oldId: string, newId: string) => void;
+  /** Drop a removed layer from every panel and its per-panel overrides. */
+  forgetLayer: (layerId: string) => void;
   /** Initialize comparison workspace with one panel per layer */
   initFromLayers: (workspaceId: string, layerIds: string[], layerLabels?: Map<string, string>) => void;
 
@@ -126,6 +128,18 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
             for (const panel of panels) {
               if (panel.visibleLayerIds.delete(oldId)) panel.visibleLayerIds.add(newId);
             }
+          }
+        });
+      },
+      forgetLayer: (layerId) => {
+        set((state) => {
+          for (const panels of state.panels.values()) {
+            panels.forEach((panel, index) => {
+              const held = panel.visibleLayerIds.delete(layerId);
+              if (panel.renderOverrides) delete panel.renderOverrides[layerId];
+              // An emptied panel no longer shows the removed layer's name.
+              if (held && panel.visibleLayerIds.size === 0) panel.label = `Panel ${index + 1}`;
+            });
           }
         });
       },

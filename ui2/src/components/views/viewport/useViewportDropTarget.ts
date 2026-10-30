@@ -23,7 +23,10 @@ export function useViewportDropTarget({
 
     const files = Array.from(event.dataTransfer.files);
     if (files.length > 0) {
-      void onNativeFileDrop?.(files[0]);
+      // Every dropped file, in order (multi-file Finder drops).
+      void (async () => {
+        for (const file of files) await onNativeFileDrop?.(file);
+      })();
       return;
     }
 

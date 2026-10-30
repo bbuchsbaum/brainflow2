@@ -11,6 +11,7 @@ import type { LoadedSurface } from '@/stores/surfaceStore';
 import {
   DEFAULT_SURFACE_VIEW_SETTINGS,
   getSurfaceViewSettingsForId,
+  getSurfaceViewpointForId,
   useSurfaceStore,
 } from '@/stores/surfaceStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -18,6 +19,7 @@ import { getEventBus } from '@/events/EventBus';
 import { getViewExportService } from '@/services/ViewExportService';
 import { getSurfaceCurvatureService } from '@/services/SurfaceCurvatureService';
 import { useSurfaceCameraStore } from '@/stores/surfaceCameraStore';
+import { addLogEntry } from '@/stores/logStore';
 import type { CameraBasis } from '@/utils/orientationGizmo';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useViewContextMenu } from '@/hooks/useViewContextMenu';
@@ -60,8 +62,14 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
     onActivateSurface?.();
   }, [markRenderableActive, onActivateSurface]);
 
-  const viewpoint = useSurfaceStore((state) => state.viewpoint);
-  const viewpointNonce = useSurfaceStore((state) => state.viewpointNonce);
+  const viewpoint = useSurfaceStore((state) =>
+    getSurfaceViewpointForId(state.surfaceViewViewpoints, surfaceViewId),
+  );
+  // A preset pressed again in THIS tab refits it; the global counter still
+  // refits every view.
+  const viewpointNonce = useSurfaceStore(
+    (state) => state.viewpointNonce + (state.surfaceViewViewpointNonces.get(surfaceViewId) ?? 0),
+  );
   const showControls = useSurfaceStore((state) => state.showControls);
   const lightingSettings = useSurfaceStore(
     (state) =>
@@ -131,6 +139,14 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
     [surfaceViewId],
   );
 
+  // Viewer conditions that otherwise leave a silent black pane (context loss,
+  // a fit with no mesh bounds) go to the Log dock.
+  const handleViewerWarning = useCallback(
+    (message: string) =>
+      addLogEntry({ level: 'warn', source: 'surface', message: `${surfaceViewId}: ${message}` }),
+    [surfaceViewId],
+  );
+
   const handleExporterChange = useCallback(
     (exporter: SurfaceCanvasExporter | null) => {
       const exportService = getViewExportService();
@@ -186,6 +202,7 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
       onContextMenu={handleContextMenu}
       onExporterChange={handleExporterChange}
       onCameraChange={handleCameraChange}
+      onWarning={handleViewerWarning}
       onSurfacePick={handleSurfacePick}
     />
   );

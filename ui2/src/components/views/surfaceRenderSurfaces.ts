@@ -61,10 +61,20 @@ function surfaceGroupKeyOf(surface: LoadedSurface): string | null {
   return parseTemplateIdentity(surface)?.basePath ?? null;
 }
 
+function scopeToGroup(
+  surfaces: Map<string, LoadedSurface>,
+  groupKey: string,
+): Map<string, LoadedSurface> {
+  return new Map(
+    Array.from(surfaces.entries()).filter(([, surface]) => surfaceGroupKeyOf(surface) === groupKey),
+  );
+}
+
 export function collectRenderSurfaces(
   surfaces: Map<string, LoadedSurface>,
   activeSurfaceId: string | null,
   groupKey?: string | null,
+  pinnedSurfaceHandle?: string | null,
 ): LoadedSurface[] {
   if (surfaces.size === 0) {
     return [];
@@ -73,14 +83,23 @@ export function collectRenderSurfaces(
   // When the host panel is pinned to a scene group (a standalone surface tab),
   // only surfaces in that group are eligible. Panels without a group key
   // (e.g. the Integrated workspace pane) keep global anchor-pairing behavior.
-  const scoped =
-    groupKey != null
-      ? new Map(
-          Array.from(surfaces.entries()).filter(
-            ([, surface]) => surfaceGroupKeyOf(surface) === groupKey,
-          ),
-        )
-      : surfaces;
+  let scoped = groupKey != null ? scopeToGroup(surfaces, groupKey) : surfaces;
+
+  // A pinned key that matches nothing while the tab's own surface is loaded
+  // means the tab and surface disagree on identity. Scope to that surface's
+  // scene instead of drawing an empty (black) viewport.
+  const pinnedAnchor = pinnedSurfaceHandle ? surfaces.get(pinnedSurfaceHandle) : undefined;
+  if (groupKey != null && scoped.size === 0 && pinnedAnchor) {
+    const anchorKey = surfaceGroupKeyOf(pinnedAnchor);
+    console.warn(
+      '[SurfaceView] Pinned scene group matches no loaded surface; using the tab surface scene',
+      { groupKey, anchorKey, anchor: pinnedAnchor.handle, path: pinnedAnchor.metadata?.path },
+    );
+    scoped =
+      anchorKey != null
+        ? scopeToGroup(surfaces, anchorKey)
+        : new Map([[pinnedAnchor.handle, pinnedAnchor]]);
+  }
 
   if (scoped.size === 0) {
     return [];

@@ -46,6 +46,24 @@ describe('SurfaceFrame (P3.10)', () => {
     expect(useSurfaceStore.getState().viewpoint).toBe('medial');
   });
 
+  it('camera presets belong to their own view', () => {
+    render(<SurfaceFrame surface={surface(false)} width={600} height={400} surfaceViewId="tab-a" />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Ventral' }));
+    expect(useSurfaceStore.getState().surfaceViewViewpoints.get('tab-a')).toBe('ventral');
+    expect(useSurfaceStore.getState().surfaceViewViewpoints.has('tab-b')).toBe(false);
+  });
+
+  it('names both hemispheres when the drawn scene holds a left and a right mesh', () => {
+    const left = surface(false);
+    const right = {
+      ...left,
+      handle: 's2',
+      metadata: { ...left.metadata, hemisphere: 'right' },
+    } as LoadedSurface;
+    render(<SurfaceFrame surface={left} renderSurfaces={[left, right]} width={600} height={400} />);
+    expect(screen.getByTestId('surface-frame-header')).toHaveTextContent('Surface · both · inflated');
+  });
+
   it('describes the visible scalar overlay in the colorbar, none without one', () => {
     expect(surfaceColorbarLayer(surface(true))).toMatchObject({ colormap: 'viridis', intensity: [0, 2] });
     expect(surfaceColorbarLayer(surface(false))).toBeNull();

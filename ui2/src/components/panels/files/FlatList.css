@@ -9,11 +9,11 @@
 
 /* Rows are bf SelectableRows (fill, edge, hover and inset focus ring come from
    the primitive); only drag cursors and the name/meta columns are local. */
-.fb-flat-row[draggable='true'] {
+.fb-flat-row[data-drag-source='file'] {
   cursor: grab;
 }
 
-.fb-flat-row[draggable='true']:active {
+.fb-flat-row[data-drag-source='file']:active {
   cursor: grabbing;
 }
 

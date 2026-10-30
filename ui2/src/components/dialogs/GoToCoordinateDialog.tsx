@@ -2,11 +2,13 @@
  * GoToCoordinateDialog
  *
  * Modal dialog for navigating to a specific coordinate.
- * Supports World (mm) and Voxel coordinate spaces. Voxel indices are
- * converted to world mm through the reference volume's voxel-to-world affine
- * (the backend's column-major `voxelToWorld`) before navigating; the
- * reference volume is the one whose bounds the dialog checks (first layer
- * with a volume).
+ * Supports World (mm) and Voxel coordinate spaces. Voxel indices are on
+ * the selected layer's grid, named in the dialog ("ijk on the grid of
+ * zstat1"), the same grid as the status bar's ijk and the cluster table
+ * (`useReadoutGrid`; the bottom volume's grid when the selected layer has no
+ * affine). They are converted to world mm through that grid's voxel-to-world
+ * affine (the backend's column-major `voxelToWorld`) before navigating.
+ * World bounds are checked against the first layer with a volume.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -15,6 +17,8 @@ import { Button, FieldRow, Notice, NumberField, SegmentedControl } from '@/compo
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { getApiService } from '@/services/apiService';
+import { useReadoutGrid } from '@/hooks/useReadoutGrid';
+import { nearestVoxelIndex } from '@/utils/voxelSnap';
 import {
   isAffine4x4,
   transformVoxelToWorldColumnMajor,
@@ -68,13 +72,10 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
   const crosshair = useViewStateStore(state => state.viewState.crosshair.world_mm);
   const setCrosshair = useViewStateStore(state => state.setCrosshair);
   const layers = useLayerStore(state => state.layers);
-  const referenceLayerId = layers.find(l => l.volumeId)?.id ?? null;
-  const referenceMeta = useLayerStore(state =>
-    referenceLayerId ? state.layerMetadata?.get(referenceLayerId) : undefined,
-  );
-  const voxelToWorld = isAffine4x4(referenceMeta?.voxelToWorld) ? referenceMeta!.voxelToWorld! : null;
-  const worldToVoxel = isAffine4x4(referenceMeta?.worldToVoxel) ? referenceMeta!.worldToVoxel! : null;
-  const dims = referenceMeta?.dimensions ?? null;
+  const grid = useReadoutGrid();
+  const voxelToWorld = isAffine4x4(grid?.voxelToWorld) ? grid!.voxelToWorld : null;
+  const worldToVoxel = isAffine4x4(grid?.worldToVoxel) ? grid!.worldToVoxel : null;
+  const dims = grid?.dims ?? null;
   // Voxel mode needs the affine: without it Go stays disabled (never a
   // silent "indices as mm").
   const voxelUnavailable = space === 'voxel' && !voxelToWorld;
@@ -245,15 +246,22 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
       if (space === 'world') {
         await setCrosshair(coords, true);
       } else {
-        // Voxel indices -> world mm through the reference volume's affine.
+        // Voxel indices -> world mm through the named grid's affine. A voxel
+        // of another layer's grid is an explicit target: not re-snapped to
+        // the reference grid (which could land in a neighbouring voxel).
         if (!voxelToWorld) return;
-        await setCrosshair(transformVoxelToWorldColumnMajor(voxelToWorld, coords), true);
+        const target = transformVoxelToWorldColumnMajor(voxelToWorld, coords);
+        if (grid?.isReference === false) {
+          await setCrosshair(target, true, false, undefined, { snap: false });
+        } else {
+          await setCrosshair(target, true);
+        }
       }
       onClose();
     } finally {
       setIsLoading(false);
     }
-  }, [inputs, badInput, refusedPaste, space, setCrosshair, onClose, voxelToWorld]);
+  }, [inputs, badInput, refusedPaste, space, setCrosshair, onClose, voxelToWorld, grid?.isReference]);
 
   const handleCurrent = useCallback(() => {
     if (space === 'world') {
@@ -263,9 +271,12 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
         z: crosshair[2].toFixed(1),
       });
     } else if (worldToVoxel) {
-      // Nearest voxel index of the crosshair in the reference volume.
-      const v = transformWorldToVoxelColumnMajor(worldToVoxel, [crosshair[0], crosshair[1], crosshair[2]]);
-      setInputs({ x: String(Math.round(v[0])), y: String(Math.round(v[1])), z: String(Math.round(v[2])) });
+      // Nearest voxel of the crosshair on the named grid (`floor(v + 0.5)`,
+      // the status bar's rule).
+      const v = nearestVoxelIndex(
+        transformWorldToVoxelColumnMajor(worldToVoxel, [crosshair[0], crosshair[1], crosshair[2]]),
+      );
+      setInputs({ x: String(v[0]), y: String(v[1]), z: String(v[2]) });
     }
   }, [crosshair, space, worldToVoxel]);
 
@@ -354,6 +365,12 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
               );
             })}
           </div>
+
+          {space === 'voxel' && grid && (
+            <p className="text-bf-xs text-muted-foreground" data-testid="goto-grid">
+              ijk on the grid of <span title={grid.name}>{grid.label}</span>
+            </p>
+          )}
 
           {(['x', 'y', 'z'] as const).some(a => isUnparseable(a)) && (
             <Notice id="goto-invalid" severity="danger" role="alert">

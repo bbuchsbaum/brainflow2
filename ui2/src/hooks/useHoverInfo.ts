@@ -118,7 +118,13 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
     enabledRef.current = enabled;
   }, [enabled]);
 
+  // Bumped on every clear: a move still awaiting its providers when the
+  // pointer leaves must not re-set the position (the status bar's Pointer
+  // group would show a stale reading).
+  const hoverGeneration = useRef(0);
+
   const clearHoverState = useCallback(() => {
+    hoverGeneration.current += 1;
     setHoverEntries([]);
 
     const mouseStore = useMouseCoordinateStore.getState();
@@ -170,6 +176,11 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
 
           onHoverStartRef.current?.();
 
+          // The pointer position first (status Pointer group, Inspector
+          // readout), not after the providers answer.
+          const generation = hoverGeneration.current;
+          useMouseCoordinateStore.getState().setMousePosition(worldCoord, viewId);
+
           const ctx: HoverContext = {
             worldCoord,
             viewId,
@@ -180,10 +191,8 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
           };
 
           const entries = await hoverInfoService.getHoverInfo(ctx);
+          if (generation !== hoverGeneration.current) return;
           setHoverEntries(entries);
-
-          const mouseStore = useMouseCoordinateStore.getState();
-          mouseStore.setMousePosition(worldCoord, viewId);
 
           const statusStore = useStatusBarStore.getState();
           const settings = useHoverSettingsStore.getState();

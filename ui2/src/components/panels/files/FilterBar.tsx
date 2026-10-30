@@ -59,6 +59,10 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             onChange={onSearchChange}
             className="fb-search-input pl-7 pr-7"
             aria-label="Search files"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
           />
           {searchQuery && (
             <IconButton

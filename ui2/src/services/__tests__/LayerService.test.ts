@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { LayerService, initializeLayerService, getLayerService, type LayerApi } from '../LayerService';
 import { getEventBus } from '@/events/EventBus';
 import type { Layer, LayerRender } from '@/types/layers';
+import { useLayerStore } from '@/stores/layerStore';
 
 // Mock EventBus with default implementation to prevent undefined errors at module initialization
 vi.mock('@/events/EventBus', () => ({
@@ -296,6 +297,25 @@ describe('LayerService', () => {
         error,
       });
     });
+
+    it('marks the layer the user moved, after the reorder succeeds (QA decisions §2)', async () => {
+      useLayerStore.setState({
+        layers: [
+          { ...mockLayer, id: 'a', order: 0 },
+          { ...mockLayer, id: 'b', order: 1 },
+        ],
+      });
+      await layerService.moveLayerByUser(['b', 'a'], 'b', 'ws-1');
+      expect(mockApi.reorderLayers).toHaveBeenCalledWith(['b', 'a'], 'ws-1');
+      const byId = (id: string) => useLayerStore.getState().layers.find((l) => l.id === id);
+      expect(byId('b')?.userMoved).toBe(true);
+      expect(byId('a')?.userMoved).toBeUndefined();
+
+      mockApi.reorderLayers = vi.fn().mockRejectedValue(new Error('Reorder failed'));
+      await expect(layerService.moveLayerByUser(['a', 'b'], 'a')).rejects.toThrow('Reorder failed');
+      expect(byId('a')?.userMoved).toBeUndefined();
+      useLayerStore.setState({ layers: [] });
+    });
   });
 
   describe('data loading', () => {
@@ -367,5 +387,48 @@ describe('LayerService', () => {
       
       customService.dispose();
     });
+  });
+});
+
+describe('LayerService removal and reorder (QA 2026-10-29 review)', () => {
+  const api = () =>
+    ({
+      addLayer: vi.fn(),
+      removeLayer: vi.fn(),
+      updateLayer: vi.fn(),
+      patchLayerRender: vi.fn(),
+      reorderLayers: vi.fn().mockResolvedValue(undefined),
+      loadLayerData: vi.fn(),
+    }) as unknown as LayerApi & { removeLayer: ReturnType<typeof vi.fn>; reorderLayers: ReturnType<typeof vi.fn> };
+
+  it('a second remove while the first is unloading joins it: one teardown, one layer.removed', async () => {
+    const bus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() };
+    (getEventBus as any).mockReturnValue(bus);
+    const mock = api();
+    let finish!: () => void;
+    mock.removeLayer.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+    const service = new LayerService(mock);
+
+    const first = service.removeLayer('layer1');
+    const second = service.removeLayer('layer1');
+    expect(second).toBe(first);
+    finish();
+    await Promise.all([first, second]);
+
+    expect(mock.removeLayer).toHaveBeenCalledTimes(1);
+    expect(bus.emit.mock.calls.filter(([name]) => name === 'layer.removed')).toHaveLength(1);
+    // A later request is a new removal.
+    mock.removeLayer.mockResolvedValue(undefined);
+    await service.removeLayer('layer1');
+    expect(mock.removeLayer).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes the workspace through to the reorder', async () => {
+    const mock = api();
+    const service = new LayerService(mock);
+    await service.reorderLayers(['a', 'b'], 'ws-2');
+    expect(mock.reorderLayers).toHaveBeenCalledWith(['a', 'b'], 'ws-2');
+    await service.reorderLayers(['b', 'a']);
+    expect(mock.reorderLayers).toHaveBeenLastCalledWith(['b', 'a']);
   });
 });

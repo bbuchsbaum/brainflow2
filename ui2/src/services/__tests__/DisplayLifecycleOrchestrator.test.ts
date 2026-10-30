@@ -6,6 +6,7 @@ const mockEventBus = {
 };
 
 const mockQueueState = {
+  queue: [] as unknown[],
   activeLoads: new Map<string, unknown>(),
   cancel: vi.fn(),
   isLoading: vi.fn(() => false),
@@ -221,6 +222,20 @@ describe('DisplayLifecycleOrchestrator', () => {
     );
   });
 
+  it('lets only a user-opened volume take the selection (not a programmatic load)', async () => {
+    mockApiService.loadFile.mockResolvedValue({ id: 'vol-1', name: 'T1', path: '/tmp/t1.nii.gz', dims: [2, 2, 2], dtype: 'f32', volume_type: 'Volume3D' });
+    mockVolumeLoadingService.loadVolume.mockResolvedValue({ id: 'layer-1' });
+    const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+    const orchestrator = DisplayLifecycleOrchestrator.getInstance();
+
+    await orchestrator.loadFile({ path: '/tmp/t1.nii.gz', ingress: 'file-browser' });
+    const userConfig = mockVolumeLoadingService.loadVolume.mock.calls.at(-1)?.[0];
+    expect(typeof userConfig?.autoSelect).toBe('function');
+
+    await orchestrator.loadFile({ path: '/tmp/t1.nii.gz', ingress: 'programmatic' });
+    expect(mockVolumeLoadingService.loadVolume.mock.calls.at(-1)?.[0].autoSelect).toBeUndefined();
+  });
+
   it('routes NIfTI loads through volume flow only', async () => {
     mockApiService.loadFile.mockResolvedValue({
       id: 'vol-1',
@@ -256,6 +271,24 @@ describe('DisplayLifecycleOrchestrator', () => {
       path: '/tmp/mni152.nii.gz',
       volumeId: 'vol-1',
     });
+  });
+
+  it('loads a native OS drop from the path carried on its File (desktop host)', async () => {
+    mockApiService.loadFile.mockResolvedValue({
+      id: 'vol-drop', name: 'oblique.nii.gz', dims: [4, 4, 4], dtype: 'f32', volume_type: 'Volume3D',
+    });
+    mockVolumeLoadingService.loadVolume.mockResolvedValue({ id: 'layer-drop' });
+    const { createPathFile } = await import('@/utils/pointerDrag');
+    const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+
+    await DisplayLifecycleOrchestrator.getInstance().loadDroppedFile(
+      createPathFile('/data/browser/oblique.nii.gz'),
+    );
+
+    expect(mockApiService.loadFile).toHaveBeenCalledWith('/data/browser/oblique.nii.gz', expect.any(AbortSignal));
+    expect(mockEventBus.emit).not.toHaveBeenCalledWith('ui.notification', expect.objectContaining({
+      message: expect.stringContaining('Unable to resolve dropped file path'),
+    }));
   });
 
   it('routes GIfTI geometry files through surface loader only', async () => {

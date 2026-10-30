@@ -4,7 +4,8 @@ import { render } from '@testing-library/react';
 
 vi.mock('../TimeSlider', () => ({ TimeSlider: () => null }));
 vi.mock('../StatusBarProgress', () => ({ StatusBarProgress: () => null }));
-vi.mock('@/hooks/useLayerValueAtWorld', () => ({
+vi.mock('@/hooks/useLayerValueAtWorld', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useLayerValueAtWorld')>()),
   useLayerValueAtWorld: (layerId: string | null) => (layerId ? { value: 6.76 } : null),
 }));
 
@@ -72,21 +73,28 @@ describe('StatusBar voxel and statistic readouts', () => {
   beforeEach(() => useViewStateStore.getState().resetToDefaults());
 
   it('formats a voxel index', () => {
-    expect(formatVoxelIndex([69, 36, 34])).toBe('69 36 34');
-    expect(formatVoxelIndex([47.5, -0.04, 3.25], 1)).toBe('47.5 0.0 3.3');
-    expect(formatVoxelIndex([-2, 0, 1])).toBe('\u22122 0 1');
+    expect(formatVoxelIndex([69, 36, 34])).toBe('69, 36, 34');
+    expect(formatVoxelIndex([47.5, -0.04, 3.25], 1)).toBe('47.5, 0.0, 3.3');
+    expect(formatVoxelIndex([-2, 0, 1])).toBe('\u22122, 0, 1');
   });
 
-  it('shows the crosshair voxel index on the bottom layer grid', () => {
+  it('falls back to the bottom layer grid when the selected layer has no affine, still naming the layer', () => {
     seed([42.5, -59.5, -9.5]);
     const { container } = render(<StatusBar />);
-    expect(slotText(container, 'voxel')).toBe('69 36 34');
+    expect(slotText(container, 'voxel')).toBe('ijk 69, 36, 34 (tmap, reference grid)');
   });
 
-  it('shows "—" outside the grid', () => {
+  it('names the reported layer even with no voxel grid at all', () => {
+    seed([42.5, -59.5, -9.5]);
+    useLayerStore.setState({ layerMetadata: new Map([['tmap', { dataRange: { min: -5.674, max: 6.76 } }]]) as never });
+    const { container } = render(<StatusBar />);
+    expect(slotText(container, 'voxel')).toBe('ijk — (tmap)');
+  });
+
+  it('shows "—" outside the grid and still names it', () => {
     seed([500, 0, 0]);
     const { container } = render(<StatusBar />);
-    expect(slotText(container, 'voxel')).toBe('—');
+    expect(slotText(container, 'voxel')).toBe('ijk — (tmap, reference grid)');
   });
 
   it('labels the value with the statistic of a statistic map', () => {
@@ -108,7 +116,7 @@ describe('StatusBar voxel and statistic readouts', () => {
     try {
       seed([-0.5, -18.5, 17.5]);
       const { container } = render(<StatusBar />);
-      expect(slotText(container, 'voxel')).toBe('47.5 56.5 47.5');
+      expect(slotText(container, 'voxel')).toBe('ijk 47.5, 56.5, 47.5 (tmap, reference grid)');
       expect(container.querySelector('[data-slot="voxel"] .status-value')).toHaveClass('status-value--warning');
     } finally {
       useCrosshairSettingsStore.setState({ settings: { ...DEFAULT_SETTINGS } });

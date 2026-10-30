@@ -96,6 +96,7 @@ export function DeckLens({
           title={activeMemberId ?? 'No active member'}
           subtitle={`${activeFeature?.label ?? 'No feature'} on ${activeSet?.supportLabel ?? 'unknown support'}`}
           footer={footer}
+          memberSourcePath={activeMemberSourcePath ?? null}
           actions={[
             { label: 'Inspect', onClick: onInspectCurrent },
             ...(activeMemberSourcePath ? [{ label: 'Open source', onClick: onOpenCurrentSource }] : []),

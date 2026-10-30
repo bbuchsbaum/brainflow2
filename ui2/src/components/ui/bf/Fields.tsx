@@ -145,6 +145,11 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
         type="number"
         inputMode="decimal"
         data-numeric="true"
+        // Numbers are never words: no macOS autocorrect bubble (Go-to).
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         disabled={disabled}
         aria-invalid={isInvalid || undefined}
         value={value === null ? '' : value}
@@ -342,7 +347,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
       aria-invalid={isInvalid || undefined}
       className={cn(
         'block min-w-0 w-full resize-y rounded-sm bg-bf-bg-input px-2 py-1.5 text-bf-sm text-foreground transition-colors placeholder:text-bf-text-faint',
-          FIELD_BORDER,
+        FIELD_BORDER,
         FOCUS_RING,
         DISABLED,
         mono && 'font-mono',
@@ -428,7 +433,10 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
 // ── ColorInput ──────────────────────────────────────────────────────────────
 
 export interface ColorInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'size' | 'value' | 'onChange'> {
+  extends Omit<
+    React.InputHTMLAttributes<HTMLInputElement>,
+    'type' | 'size' | 'value' | 'onChange'
+  > {
   /** `#rrggbb`. */
   value: string;
   onValueChange?: (value: string, event: React.ChangeEvent<HTMLInputElement>) => void;

@@ -11,6 +11,13 @@ interface FeatureFlagStore {
   integratedWorkspaceV1: boolean;
   setIntegratedWorkspaceV1Enabled: (enabled: boolean) => void;
   toggleIntegratedWorkspaceV1: () => void;
+  /**
+   * Settings › Experimental features (QA design decisions 2026-10-30,
+   * section 4): unfinished UI (the Inspector's Annotate tab and the empty
+   * Advanced section) shows only when this is on. Off by default.
+   */
+  experimentalFeatures: boolean;
+  setExperimentalFeatures: (enabled: boolean) => void;
 }
 
 /**
@@ -57,6 +64,10 @@ export const useFeatureFlagStore = create<FeatureFlagStore>()(
       },
       toggleIntegratedWorkspaceV1: () => {
         set({ integratedWorkspaceV1: !get().integratedWorkspaceV1 });
+      },
+      experimentalFeatures: false,
+      setExperimentalFeatures: (enabled) => {
+        set({ experimentalFeatures: enabled });
       },
     }),
     {

@@ -54,7 +54,16 @@ export interface EventMap {
   'volume.loaded': { volumeId: string; metadata: any };
   'volume.unloaded': { volumeId: string };
   'volume.sample': { world_mm: [number, number, number]; value: number };
-  'volume.load.complete': { volumeId: string; layerId: string; source: string; duration: number };
+  'volume.load.complete': {
+    volumeId: string;
+    layerId: string;
+    /** Load kind ('file', 'template', 'atlas', 'other'), not a path. */
+    source: string;
+    /** The path or identifier the volume was loaded from. */
+    sourcePath?: string;
+    displayName?: string;
+    duration: number;
+  };
   'volume.load.error': { volumeId: string; source: string; error: Error };
 
   // File browser events

@@ -1,7 +1,7 @@
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
 import type { WorldCoordinates, ViewPlane, ViewType } from '@/types/coordinates';
-import type { StatisticInfo, VolumeBounds } from '@brainflow/api';
+import type { NiftiStorageInfo, StatisticInfo, VolumeBounds } from '@brainflow/api';
 
 export interface VolumeHandle {
   id: string;
@@ -33,7 +33,10 @@ export interface NiftiHeaderInfo {
   filename: string;
   dimensions: number[];
   voxel_spacing: [number, number, number];
+  /** In-memory dtype of the loaded volume (scaled integers are held as f32). */
   data_type: string;
+  /** On-disk datatype, bitpix and scaling from the source header. */
+  storage?: NiftiStorageInfo;
   voxel_to_world: number[]; // [f32; 16] row-major
   world_bounds_min: [number, number, number];
   world_bounds_max: [number, number, number];

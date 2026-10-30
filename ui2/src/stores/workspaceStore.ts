@@ -23,6 +23,10 @@ import {
 } from "@/types/workspacePresets";
 import { DISPLAY_MODES, type DisplayMode } from "@/types/displayModes";
 import { resolveActiveDisplayMode } from "@/components/ui/displayModeSelector.helpers";
+import {
+  pruneLegacyViewSprawl,
+  restoreWorkspaces,
+} from "./workspaceRestorePolicy";
 
 interface CreateWorkspaceOptions {
   title?: string;
@@ -52,6 +56,12 @@ interface WorkspaceStore {
    * active.
    */
   setActiveWorkspaceMode: (mode: DisplayMode) => void;
+  /**
+   * Set the *active* view workspace to an exact view type in place (e.g.
+   * locked grid → separate orthogonal panels). No-ops for tool workspaces,
+   * non-view types, or an unchanged type. Does NOT change which tab is active.
+   */
+  setActiveWorkspaceType: (type: WorkspaceType) => void;
   closeWorkspace: (id: string) => void;
   updateWorkspaceLayout: (id: string, layoutConfig: LayoutConfig) => void;
 
@@ -103,8 +113,30 @@ const workspaceCounter: Record<WorkspaceType, number> = {
  *            from v1 still mention the legacy types; rather than rewrite
  *            them in-place we drop persisted workspaces so each workspace
  *            regenerates its layout via `ViewRegistry.createLayout`.
+ *   v2 → v3: navigation model (qa-design-decisions-2026-10-30 §1). Relaunch
+ *            now restores every user tab; v2 payloads still hold the empty
+ *            duplicates the old pills/menus auto-created, so the migration
+ *            keeps one plain view per layout once, and clears the retired
+ *            view presets (Read / Explore / Analyze / Compare).
  */
-const WORKSPACE_PERSIST_VERSION = 2;
+const WORKSPACE_PERSIST_VERSION = 3;
+
+type PersistedWorkspaceState = {
+  workspaces: Map<string, Workspace>;
+  activeWorkspaceId: string | null;
+};
+
+/** Normalise `isActive` flags to the chosen active workspace. */
+function withActiveFlags(
+  workspaces: Map<string, Workspace>,
+  activeWorkspaceId: string | null,
+): PersistedWorkspaceState {
+  const next = new Map<string, Workspace>();
+  workspaces.forEach((workspace, id) => {
+    next.set(id, { ...workspace, isActive: id === activeWorkspaceId });
+  });
+  return { workspaces: next, activeWorkspaceId };
+}
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
@@ -138,7 +170,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
 
         const timestamp = Date.now();
-        const id = `${type}-${timestamp}`;
         const title = options?.title ?? get().generateWorkspaceTitle(type);
 
         // Import ViewRegistry dynamically to avoid circular dependencies
@@ -186,6 +217,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           });
         }
 
+        // Two views of one layout can be opened in the same millisecond (New
+        // view). Pick the id after the last await so concurrent creates cannot
+        // collide and the second never overwrites the first.
+        let id = `${type}-${timestamp}`;
+        for (let n = 2; get().workspaces.has(id); n += 1) {
+          id = `${type}-${timestamp}-${n}`;
+        }
         const workspace: Workspace = {
           id,
           type,
@@ -269,11 +307,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         const nextType = DISPLAY_MODES[mode]?.defaultWorkspaceType;
         if (!nextType) return; // unmapped display mode (e.g. surface)
 
-        const currentState = get();
-        const id = currentState.activeWorkspaceId;
-        if (!id) return;
-
-        const workspace = currentState.workspaces.get(id);
+        const { activeWorkspaceId, workspaces } = get();
+        const workspace = activeWorkspaceId
+          ? workspaces.get(activeWorkspaceId)
+          : undefined;
         if (!workspace) return;
 
         // Already in this display mode → no-op. Resolve via display mode (not
@@ -281,11 +318,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // workspace flexible instead of snapping it to orthogonal-locked.
         if (resolveActiveDisplayMode(workspace.type) === mode) return;
 
-        // Reconfiguring a view's mode in place dissociates it from any preset it
-        // was launched from: a "Read" workspace turned into Mosaic is no longer
-        // the Read preset. Clearing presetId keeps the Workspace menu a launcher
-        // (re-picking Read opens a fresh orthogonal view rather than reactivating
-        // this now-Mosaic tab via getWorkspaceByPreset, which matches on presetId).
+        get().setActiveWorkspaceType(nextType);
+      },
+
+      setActiveWorkspaceType: (nextType) => {
+        if (!resolveActiveDisplayMode(nextType)) return; // not a view type
+
+        const currentState = get();
+        const id = currentState.activeWorkspaceId;
+        if (!id) return;
+
+        const workspace = currentState.workspaces.get(id);
+        // Tool tabs have no slice layout; never reconfigure them.
+        if (!workspace || !resolveActiveDisplayMode(workspace.type)) return;
+        if (workspace.type === nextType) return;
+
+        // A layout change in place drops any preset origin the tab had.
         const nextWorkspaces = new Map(currentState.workspaces);
         nextWorkspaces.set(id, {
           ...workspace,
@@ -295,7 +343,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set({ workspaces: nextWorkspaces });
 
         console.log(
-          `[WorkspaceStore] Set active workspace ${id} mode → ${mode} (${nextType})`,
+          `[WorkspaceStore] Set active workspace ${id} layout → ${nextType}`,
         );
       },
 
@@ -446,19 +494,32 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
        * but only on a known stale shape rather than every reload.
        */
       migrate: (persistedState: unknown, version: number) => {
-        // Reset on any future version mismatch. Unversioned payloads are
+        if (version === 2) {
+          const state = persistedState as Partial<PersistedWorkspaceState>;
+          if (!(state?.workspaces instanceof Map)) {
+            return { workspaces: new Map(), activeWorkspaceId: null };
+          }
+          const pruned = pruneLegacyViewSprawl(
+            state.workspaces,
+            state.activeWorkspaceId ?? null,
+          );
+          pruned.workspaces.forEach((workspace, id) => {
+            if (resolveActiveDisplayMode(workspace.type) && workspace.presetId) {
+              pruned.workspaces.set(id, { ...workspace, presetId: null });
+            }
+          });
+          return withActiveFlags(pruned.workspaces, pruned.activeWorkspaceId);
+        }
+        // Reset on any other version mismatch. Unversioned payloads are
         // already handled by `storage.getItem` returning null below — this
-        // branch only fires for v2+ payloads when an older codebase loads them.
+        // branch only fires for v1 payloads, or newer ones an older build loads.
         if (version !== WORKSPACE_PERSIST_VERSION) {
           return {
             workspaces: new Map(),
             activeWorkspaceId: null,
           };
         }
-        return persistedState as {
-          workspaces: Map<string, Workspace>;
-          activeWorkspaceId: string | null;
-        };
+        return persistedState as PersistedWorkspaceState;
       },
       // Custom serialization for Map
       storage: {
@@ -492,6 +553,19 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                     workspace.panelStates = new Map();
                   }
                 });
+
+                // Relaunch restores the user's tabs and tools with their
+                // layouts (workspaceRestorePolicy.ts).
+                const restored = restoreWorkspaces(
+                  data.state.workspaces as Map<string, Workspace>,
+                  data.state.activeWorkspaceId ?? null,
+                );
+                const flagged = withActiveFlags(
+                  restored.workspaces,
+                  restored.activeWorkspaceId,
+                );
+                data.state.workspaces = flagged.workspaces;
+                data.state.activeWorkspaceId = flagged.activeWorkspaceId;
               } else {
                 // If workspaces is not in expected format, reset to empty Map
                 console.warn(

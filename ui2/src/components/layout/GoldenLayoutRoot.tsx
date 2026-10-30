@@ -12,7 +12,6 @@ import {
   Stack,
   ComponentItem,
   type ComponentItemConfig,
-  type ContentItem,
 } from 'golden-layout';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import {
@@ -27,7 +26,7 @@ import { getEventBus } from '@/events/EventBus';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
-import { getLayoutService } from '@/services/layoutService';
+import { createDefaultLayoutConfig, getLayoutService } from '@/services/layoutService';
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary';
 import {
   ensureFocusedStack,
@@ -49,6 +48,16 @@ import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
 import { ClusterPanelMoved } from '@/components/panels/ClusterPanelMoved';
 import { dockTabForPanel, openDockTab } from './openDockTab';
+import {
+  ProgrammaticTabChange,
+  addWorkspaceTabKeepingActive,
+  focusWorkspaceTab,
+  handleWorkspaceTabDestroyed,
+  programmaticTabRemoval,
+  shouldSyncStoreFromTab,
+} from './workspaceTabSync';
+import { useCenterTabStore } from '@/stores/centerTabStore';
+import { ensureDefaultView } from '@/services/workspaceNavigation';
 // Right-rail Inspector — single tab; mode-aware via InspectorRouter.
 import { InspectorRouter } from '@/components/inspector/InspectorRouter';
 
@@ -126,6 +135,9 @@ export function GoldenLayoutRoot() {
   const [isLayoutReady, setIsLayoutReady] = useState(false);
   const addedWorkspacesRef = useRef<Set<string>>(new Set());
   const pendingWorkspaceAddsRef = useRef<Set<string>>(new Set());
+  // Programmatic tab adds must not move the store's active workspace (see
+  // workspaceTabSync.ts): GoldenLayout activates every tab it adds.
+  const programmaticTabChangeRef = useRef(new ProgrammaticTabChange());
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -184,27 +196,24 @@ export function GoldenLayoutRoot() {
 
             console.log('[GoldenLayoutRoot] Creating new item with config:', newItemConfig);
 
-            try {
-              liveStack.addItem(newItemConfig);
-            } catch {
-              const componentItem = layoutRef.current.newItem(newItemConfig);
-              liveStack.addChild(componentItem, undefined, true);
-            }
+            const layout = layoutRef.current;
+            addWorkspaceTabKeepingActive(
+              liveStack,
+              programmaticTabChangeRef.current,
+              () => {
+                try {
+                  liveStack.addItem(newItemConfig);
+                } catch {
+                  const componentItem = layout.newItem(newItemConfig);
+                  liveStack.addChild(componentItem, undefined, true);
+                }
+              },
+              useWorkspaceStore.getState().activeWorkspaceId,
+            );
 
             pendingWorkspaceAddsRef.current.delete(workspaceId);
             addedWorkspacesRef.current.add(workspaceId);
             console.log(`[GoldenLayoutRoot] Added workspace tab: ${workspaceId} (${title})`);
-
-            if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
-              const target = liveStack.contentItems.find((item) => {
-                if (item.type !== 'component') return false;
-                const state = getComponentState(item as ComponentItem);
-                return state.workspaceId === workspaceId;
-              });
-              if (target?.type === 'component') {
-                liveStack.setActiveComponentItem(target as ComponentItem, true);
-              }
-            }
 
             // If nothing has marked an active panel yet, treat this workspace as active.
             const activePanelStore = useActivePanelStore.getState();
@@ -244,7 +253,7 @@ export function GoldenLayoutRoot() {
     });
 
     if (item) {
-      item.remove();
+      programmaticTabRemoval.run(() => item.remove());
       addedWorkspacesRef.current.delete(workspaceId);
       pendingWorkspaceAddsRef.current.delete(workspaceId);
       console.log(`[GoldenLayoutRoot] Removed workspace tab: ${workspaceId}`);
@@ -298,6 +307,16 @@ export function GoldenLayoutRoot() {
 
       // Cleanup on destroy
       container.on('destroy', () => {
+        // The tab's × closes the workspace too; app-driven removals do not.
+        handleWorkspaceTabDestroyed(
+          workspaceId,
+          programmaticTabRemoval,
+          (id) => {
+            addedWorkspacesRef.current.delete(id);
+            pendingWorkspaceAddsRef.current.delete(id);
+          },
+          (id) => useWorkspaceStore.getState().closeWorkspace(id),
+        );
         const root = reactRootsRef.current.get(workspaceId);
         if (root) {
           // Mark for cleanup but don't unmount immediately
@@ -425,77 +444,38 @@ export function GoldenLayoutRoot() {
           null;
 
         activePanelStore.setActivePanel(componentType, state || null);
+        // The centre stack's front tab, apart from focus in side stacks and
+        // docks (the mode pills ask "is a surface tab in front?").
+        if (componentItem.parent === getCenterWorkspaceStack(goldenLayout)) {
+          useCenterTabStore.getState().setFrontComponentType(componentType);
+        }
 
         const workspaceId = typeof state.workspaceId === 'string' ? state.workspaceId : null;
-        if (workspaceId && workspaceId !== store.activeWorkspaceId) {
+        // Read the live store: `store` is this mount effect's first-render
+        // snapshot, so comparing against it skipped activations of the tab
+        // that was active at launch and left the store on another workspace.
+        const workspaceStore = useWorkspaceStore.getState();
+        if (
+          shouldSyncStoreFromTab(
+            workspaceId,
+            workspaceStore.activeWorkspaceId,
+            programmaticTabChangeRef.current,
+          )
+        ) {
           console.log(`[GoldenLayoutRoot] Active workspace changed to: ${workspaceId}`);
-          store.activateWorkspace(workspaceId);
+          workspaceStore.activateWorkspace(workspaceId);
         }
       } else {
         activePanelStore.clearActivePanel();
+        const center = getCenterWorkspaceStack(goldenLayout);
+        if (center && center.contentItems.length === 0) {
+          useCenterTabStore.getState().setFrontComponentType(null);
+        }
       }
     });
 
-    // Initial layout configuration with side panels.
-    // Header controls: keep maximise + close, drop the pop-out
-    // (separate-window, brittle in a desktop app) and the tab-dropdown
-    // caret to reduce top-chrome noise.
-    const config: LayoutConfig = {
-      header: {
-        popout: false,
-        tabDropdown: false,
-      },
-      root: {
-        type: 'row',
-        content: [
-          {
-            type: 'column',
-            width: 17.25,
-            content: [
-              {
-                type: 'stack',
-                content: [
-                  {
-                    type: 'component',
-                    componentType: 'FileBrowser',
-                    title: 'Files',
-                    componentState: {},
-                  },
-                  {
-                    type: 'component',
-                    componentType: 'StudioDesignPanel',
-                    title: 'Subjects',
-                    componentState: {},
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            type: 'stack', // Center stack for workspace tabs
-            width: 59.75,
-            content: [], // Workspaces will be added here
-          },
-          {
-            type: 'column',
-            width: 23,
-            content: [
-              {
-                type: 'stack',
-                content: [
-                  {
-                    type: 'component',
-                    componentType: 'Inspector',
-                    title: 'Inspector',
-                    componentState: {},
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    };
+    // Initial layout configuration with side panels (shared with Reset layout).
+    const config: LayoutConfig = createDefaultLayoutConfig();
 
     // Mote `bd-01KQJSP4GWGW9AJZRNBE5TVX0M`: GoldenLayout tree save/restore
     // is intentionally NOT wired here. `saveLayout()` returns a resolved
@@ -531,89 +511,9 @@ export function GoldenLayoutRoot() {
         openDockTab(dockTab, { focus: true });
         return;
       }
-      console.log(`[GoldenLayoutRoot] Adding panel: ${panelType}`);
-
-      try {
-        // Find the right column to add to (right column is at index 2 in the row)
-        const root = goldenLayout.rootItem;
-        if (!root || root.type !== 'row') {
-          console.error('[GoldenLayoutRoot] Root is not a row');
-          return;
-        }
-
-        const rightColumn = root.contentItems[2]; // Right column (third item in row)
-        if (!rightColumn || rightColumn.type !== 'column') {
-          console.error('[GoldenLayoutRoot] Could not find right column');
-          return;
-        }
-
-        const panelConfig = {
-          type: 'component' as const,
-          componentType: panelType,
-          title: getPanelTitle(panelType),
-          componentState: {},
-        };
-
-        // Determine where to add the panel based on its type
-        const newItem = goldenLayout.newItem(panelConfig);
-
-        // The right rail now hosts a single Inspector tab. Any menu request
-        // for a legacy per-kind panel (LayerPanel / SurfacePanel / AtlasPanel
-        // / StudioInspectorPanel) collapses to focusing the existing Inspector
-        // tab instead of stacking duplicate inspectors.
-        const LEGACY_RIGHT_RAIL = new Set([
-          'LayerPanel',
-          'SurfacePanel',
-          'AtlasPanel',
-          'StudioInspectorPanel',
-          'Inspector',
-        ]);
-        if (LEGACY_RIGHT_RAIL.has(panelType)) {
-          const tabbedStack = rightColumn.contentItems[0];
-          if (tabbedStack && tabbedStack.type === 'stack') {
-            const existing = findComponentItemByType(tabbedStack as Stack, 'Inspector');
-            if (existing) {
-              (tabbedStack as Stack).setActiveComponentItem(existing, true);
-              console.log('[GoldenLayoutRoot] Inspector tab focused (legacy panel request)');
-            } else {
-              tabbedStack.addChild(newItem);
-              console.log(`[GoldenLayoutRoot] Panel ${panelType} added to inspector stack`);
-            }
-          } else {
-            console.error('[GoldenLayoutRoot] Could not find inspector stack');
-            rightColumn.addChild(newItem); // Fallback: add to column
-          }
-        } else {
-          // Add other panels directly to the column
-          rightColumn.addChild(newItem);
-          console.log(`[GoldenLayoutRoot] Panel ${panelType} added to column`);
-        }
-      } catch (error) {
-        console.error(`[GoldenLayoutRoot] Failed to add panel ${panelType}:`, error);
-      }
-    };
-
-    // Helper function to get panel titles
-    const getPanelTitle = (panelType: string): string => {
-      switch (panelType) {
-        case 'FileBrowser':
-          return 'Files';
-        case 'Inspector':
-          return 'Inspector';
-        // Legacy aliases: any per-kind right-rail request now resolves to
-        // the unified Inspector tab.
-        case 'LayerPanel':
-        case 'SurfacePanel':
-        case 'AtlasPanel':
-        case 'StudioInspectorPanel':
-          return 'Inspector';
-        case 'PlotPanel':
-          return 'Plots';
-        case 'ClusterPanel':
-          return 'Clusters';
-        default:
-          return panelType;
-      }
+      // Side panels: focus the existing tab, or re-add a closed one to its
+      // home stack. Never a duplicate (QA 2026-10-29 §16).
+      getLayoutService().showPanel(panelType);
     };
 
     window.addEventListener('golden-layout-add-panel', handlePanelAdd as EventListener);
@@ -629,7 +529,8 @@ export function GoldenLayoutRoot() {
 
       // First destroy GoldenLayout which will trigger component destroy events
       if (layoutRef.current) {
-        layoutRef.current.destroy();
+        const layout = layoutRef.current;
+        programmaticTabRemoval.run(() => layout.destroy());
         layoutRef.current = null;
       }
 
@@ -675,21 +576,10 @@ export function GoldenLayoutRoot() {
       return;
     }
 
-    const target = stack.contentItems.find((item) => {
-      if (item.type !== 'component') {
-        return false;
-      }
-      const componentItem = item as ComponentItem;
-      const state = getComponentState(componentItem);
-      return state.workspaceId === activeWorkspaceId;
-    });
-
-    if (target && target.type === 'component') {
-      try {
-        stack.setActiveComponentItem(target as ComponentItem, true);
-      } catch (error) {
-        console.warn('[GoldenLayoutRoot] Failed to focus active workspace tab:', error);
-      }
+    try {
+      focusWorkspaceTab(stack, activeWorkspaceId);
+    } catch (error) {
+      console.warn('[GoldenLayoutRoot] Failed to focus active workspace tab:', error);
     }
   }, [activeWorkspaceId, isLayoutReady]);
 
@@ -729,23 +619,19 @@ export function GoldenLayoutRoot() {
   useEffect(() => {
     if (!isLayoutReady || !layoutRef.current) return;
 
-    // Only run once when layout becomes ready
-    const workspaceArray = Array.from(workspaces.values());
-    if (workspaceArray.length === 0) {
-      // Cold start: always FlexibleView. The persisted "integrated mode
-      // preference" (mote `bd-01KQJSP4GWGW9AJZRNBE5TVX0M`) is recorded
-      // for future surfaces but intentionally NOT used to override the
-      // initial workspace type — letting it do so caused stale picks
-      // (e.g. a previously-active BIDS Explorer) to silently override
-      // the orthogonal default after the workspaceStore migrate guard
-      // wiped the workspace map.
-      console.log('[GoldenLayoutRoot] No workspaces found, creating default orthogonal-flexible');
-      store.createWorkspace('orthogonal-flexible').catch((error) => {
+    if (workspaces.size === 0) {
+      // Cold start, or the user closed the last tab: one default view
+      // (orthogonal-flexible). The persisted "integrated mode preference"
+      // (mote `bd-01KQJSP4GWGW9AJZRNBE5TVX0M`) is intentionally NOT used
+      // here — it once let a stale pick (a BIDS Explorer) override the
+      // default. ensureDefaultView shares its pending create with a startup
+      // `--workspace` request, so the two never make two tabs.
+      ensureDefaultView()?.catch((error) => {
         console.error('[GoldenLayoutRoot] Failed to create initial workspace:', error);
       });
     }
     // Don't add existing workspaces here - the subscription will handle it
-  }, [isLayoutReady, store, workspaces]);
+  }, [isLayoutReady, workspaces]);
 
   // Reconcile workspaces that already existed before the GoldenLayout
   // subscription was attached. This matters now that workspace persistence
@@ -895,11 +781,14 @@ export function GoldenLayoutRoot() {
                 }
                 break;
 
-              case 'close-workspace':
-                if (store.activeWorkspaceId) {
-                  store.closeWorkspace(store.activeWorkspaceId);
+              case 'close-workspace': {
+                const { activeWorkspaceId: closingId, closeWorkspace } =
+                  useWorkspaceStore.getState();
+                if (closingId) {
+                  closeWorkspace(closingId);
                 }
                 break;
+              }
 
               case 'switch-workspace':
                 if (event.payload.payload?.workspaceId) {

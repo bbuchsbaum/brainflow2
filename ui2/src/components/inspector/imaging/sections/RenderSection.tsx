@@ -34,6 +34,7 @@ import {
   type AtlasPaletteKind,
 } from "@/types/atlasPalette";
 import { getEventBus } from "@/events/EventBus";
+import { formatTauriError } from "@/utils/formatTauriError";
 import { useComparisonStore } from "@/stores/comparisonStore";
 import {
   isFieldLinked,
@@ -235,18 +236,16 @@ function VolumeRenderRows({
             // Visibility is owned by viewState — the renderer reads from
             // `viewStateStore.viewState.layers`. `layerStore.updateLayer`
             // alone writes only to the layer registry and the renderer
-            // never sees the change. Mirror the pattern in
-            // `LayerApiImpl.setViewLayerVisibility`: flip `visible` and
-            // collapse opacity to 0 on hide so the optimized renderer's
-            // `visible && opacity > 0` gate honors the toggle. The
-            // `updateLayer` call keeps the layer registry in sync for any
-            // surface that still reads from there.
+            // never sees the change. Only `visible` flips: the renderer's
+            // `visible && opacity > 0` gate honours it, and the user's
+            // opacity survives hide/show. The `updateLayer` call keeps the
+            // layer registry in sync for any surface that still reads it.
             noteUserVisibility(layerId);
             setViewState((draft) => {
               const target = draft.layers.find((l) => l.id === layerId);
               if (!target) return;
               target.visible = v;
-              target.opacity = v ? (opacity > 0 ? opacity : 1.0) : 0.0;
+              if (v && !(target.opacity > 0)) target.opacity = 1.0;
             });
             updateLayer(layerId, { visible: v });
           }}
@@ -325,9 +324,7 @@ function VolumeRenderRows({
                     .catch((err) => {
                       getEventBus().emit("ui.notification", {
                         type: "warning",
-                        message: `Failed to apply '${kind}' palette. ${
-                          err instanceof Error ? err.message : String(err)
-                        }`,
+                        message: `Failed to apply '${kind}' palette. ${formatTauriError(err)}`,
                       });
                     })
                     .finally(() => setPaletteApplying(false));

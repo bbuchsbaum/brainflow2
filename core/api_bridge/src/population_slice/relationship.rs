@@ -213,6 +213,7 @@ pub async fn evaluate(
             summary: SummaryKind::Mean,
             aggregation: None,
             cutouts: None,
+            underlay: None,
         };
         validate(&q)?;
         Some(

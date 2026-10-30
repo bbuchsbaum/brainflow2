@@ -3,6 +3,7 @@
  * Templates are pre-registered volumes that can be loaded from the backend
  */
 
+import { otherVolumeLoadsPending } from './loadSelection';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { invokeBackend as invoke } from './transport';
 import type { Unlisten } from '@/utils/eventUtils';
@@ -185,7 +186,9 @@ export class TemplateService {
         source: 'template',
         sourcePath: templatePath,
         layerType: this.inferLayerType(templateResult.template_metadata.template_type),
-        visible: true
+        visible: true,
+        // A template opened alone takes the selection, not one of a batch.
+        autoSelect: () => !otherVolumeLoadsPending(queueId),
       });
       
       console.log(`[TemplateService ${performance.now() - startTime}ms] Layer added successfully with ID: ${addedLayer.id}`);

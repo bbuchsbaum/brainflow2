@@ -428,6 +428,7 @@ mod tests {
             summary: SummaryKind::Mean,
             aggregation: None,
             cutouts: None,
+            underlay: None,
         }
     }
     async fn freeze(

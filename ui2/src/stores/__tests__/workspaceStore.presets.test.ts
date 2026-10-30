@@ -13,45 +13,25 @@ describe("workspace presets", () => {
     });
   });
 
-  it("defines six core presets", () => {
+  it("keeps presets only for tools (the view presets were retired)", () => {
     expect(WORKSPACE_PRESETS.map((preset) => preset.id)).toEqual([
-      "read",
-      "explore",
-      "analyze",
-      "compare",
       "studio",
       "bids",
     ]);
   });
 
-  it("reuses existing workspace when the same preset is applied again", async () => {
+  it("reuses the tool tab when its preset is applied again", async () => {
     const firstWorkspaceId = await useWorkspaceStore
       .getState()
-      .applyWorkspacePreset("read");
+      .applyWorkspacePreset("studio");
     const secondWorkspaceId = await useWorkspaceStore
       .getState()
-      .applyWorkspacePreset("read");
+      .applyWorkspacePreset("studio");
 
     const state = useWorkspaceStore.getState();
     expect(secondWorkspaceId).toBe(firstWorkspaceId);
     expect(state.workspaces.size).toBe(1);
-    expect(state.activeWorkspaceId).toBe(firstWorkspaceId);
-    expect(state.workspaces.get(firstWorkspaceId)?.presetId).toBe("read");
-  });
-
-  it("creates distinct workspaces for different presets", async () => {
-    const readWorkspaceId = await useWorkspaceStore
-      .getState()
-      .applyWorkspacePreset("read");
-    const compareWorkspaceId = await useWorkspaceStore
-      .getState()
-      .applyWorkspacePreset("compare");
-
-    const state = useWorkspaceStore.getState();
-    expect(state.workspaces.size).toBe(2);
-    expect(readWorkspaceId).not.toBe(compareWorkspaceId);
-    expect(state.activeWorkspaceId).toBe(compareWorkspaceId);
-    expect(state.workspaces.get(compareWorkspaceId)?.presetId).toBe("compare");
+    expect(state.workspaces.get(firstWorkspaceId)?.presetId).toBe("studio");
   });
 
   it('uses a neutral "View" title for pill-reachable view workspaces (so tabs do not echo the mode pills)', async () => {
@@ -85,27 +65,22 @@ describe("workspace presets", () => {
     );
   });
 
-  it("dissociates a workspace from its preset when the pill changes its mode (menu stays a launcher)", async () => {
-    const readId = await useWorkspaceStore
+  it("sets an exact view type in place, and never reconfigures a tool tab", async () => {
+    const viewId = await useWorkspaceStore
       .getState()
-      .applyWorkspacePreset("read");
-    expect(useWorkspaceStore.getState().workspaces.get(readId)?.presetId).toBe(
-      "read",
-    );
-    expect(useWorkspaceStore.getState().getWorkspaceByPreset("read")?.id).toBe(
-      readId,
+      .createWorkspace("orthogonal-locked");
+    useWorkspaceStore.getState().setActiveWorkspaceType("orthogonal-flexible");
+    expect(useWorkspaceStore.getState().workspaces.get(viewId)?.type).toBe(
+      "orthogonal-flexible",
     );
 
-    // Pill → Mosaic reconfigures the active Read view in place...
+    const toolId = await useWorkspaceStore
+      .getState()
+      .createWorkspace("bids-explorer");
+    useWorkspaceStore.getState().setActiveWorkspaceType("mosaic");
     useWorkspaceStore.getState().setActiveWorkspaceMode("mosaic");
-    const mutated = useWorkspaceStore.getState().workspaces.get(readId);
-    expect(mutated?.type).toBe("mosaic");
-    // ...and it is no longer "the Read preset", so the launcher (which matches
-    // on presetId) will no longer reactivate this now-Mosaic tab when Read is
-    // picked again — it opens a fresh orthogonal view instead.
-    expect(mutated?.presetId).toBeNull();
-    expect(
-      useWorkspaceStore.getState().getWorkspaceByPreset("read"),
-    ).toBeNull();
+    expect(useWorkspaceStore.getState().workspaces.get(toolId)?.type).toBe(
+      "bids-explorer",
+    );
   });
 });

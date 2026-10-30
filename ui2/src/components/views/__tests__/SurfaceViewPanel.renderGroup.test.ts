@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LoadedSurface } from '@/stores/surfaceStore';
 import { collectRenderSurfaces } from '../surfaceRenderSurfaces';
 
@@ -202,6 +202,26 @@ describe('collectRenderSurfaces', () => {
         'templateflow://fsaverage_pial',
       );
       expect(result.map((item) => item.handle)).toEqual(['pial-lh', 'pial-rh']);
+    });
+
+    it("falls back to the tab's own surface scene when the pinned key matches nothing", () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      // Tab pinned to a key no loaded surface carries (identity drift).
+      const result = collectRenderSurfaces(
+        mixedGroups(),
+        'white-lh',
+        'templateflow://fsaverage5_pial',
+        'pial-rh',
+      );
+      expect(result.map((item) => item.handle)).toEqual(['pial-lh', 'pial-rh']);
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it('stays empty for an unmatched key when the tab surface is gone', () => {
+      expect(
+        collectRenderSurfaces(mixedGroups(), 'white-lh', 'templateflow://fsaverage5_pial', 'gone'),
+      ).toEqual([]);
     });
 
     it('without a group key keeps global anchor pairing (Integrated pane)', () => {

@@ -99,7 +99,7 @@ describe('workspaceStore persistence migration', () => {
   it('preserves a current-version payload across rehydrate (no wipe)', async () => {
     // The custom storage layer serializes Maps as arrays; the rehydrate path
     // must reconstruct them. This payload is at the current persistence
-    // version (v2 — right-rail unification).
+    // version (v3 — navigation model, 2026-10-30).
     const versionedPayload = {
       state: {
         workspaces: [
@@ -126,7 +126,7 @@ describe('workspaceStore persistence migration', () => {
         ],
         activeWorkspaceId: 'ws-1',
       },
-      version: 2,
+      version: 3,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(versionedPayload));
 

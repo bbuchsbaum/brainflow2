@@ -79,7 +79,8 @@ pub fn format_cli_help(program_name: &str) -> String {
             "                             Remote forms: profile:NAME or user@host:/path\n",
             "  -o, --open <PATH>          Open a file or surface at startup (repeatable)\n",
             "      --open=<PATH>          Same as above\n",
-            "  -w, --workspace <TYPE>     Create a workspace at startup\n",
+            "  -w, --workspace <TYPE>     Lay out the first view as TYPE, or open the\n",
+            "                             TYPE tool, at startup (never adds a view tab)\n",
             "      --workspace=<TYPE>     Same as above\n",
             "  -t, --template <ID>        Load a registered volume template at startup\n",
             "      --template=<ID>        Same as above\n",
@@ -557,6 +558,7 @@ mod tests {
         let help = format_cli_help("brainflow");
         assert!(help.contains("Usage: brainflow [OPTIONS] [FILES...]"));
         assert!(help.contains("--workspace <TYPE>"));
+        assert!(help.contains("never adds a view tab"));
         assert!(help.contains("orthogonal-flexible"));
         assert!(help.contains("profile:trillium"));
     }

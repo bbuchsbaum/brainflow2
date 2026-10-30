@@ -53,4 +53,13 @@ describe('ROI navigation', () => {
     expect(atlasRoiService.focus).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('alert')).toHaveTextContent('no voxels');
   });
+  it('shows the message of an enum-shaped bridge rejection, not [object Object]', async () => {
+    vi.mocked(atlasRoiService.locations).mockRejectedValue({
+      Input: { code: 8224, details: 'ROI search requires an atlas loaded through the atlas catalog' },
+    });
+    render(<AtlasRoiPicker layerId="atlas" selectedId={1} onSelect={vi.fn()} />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('ROI search requires an atlas loaded through the atlas catalog');
+    expect(alert).not.toHaveTextContent('[object Object]');
+  });
 });

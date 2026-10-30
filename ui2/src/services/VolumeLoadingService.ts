@@ -3,6 +3,7 @@
  * Ensures consistent behavior whether loading from file browser, templates, or other sources
  */
 
+import { placementOrder, planLayerPlacement, type PlacementMetadata } from './layerPlacement';
 import { toError } from '@/utils/formatTauriError';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService, type VolumeHandle } from './apiService';
@@ -68,6 +69,8 @@ export interface VolumeLoadConfig {
   atlasMetadata?: LayerInfo['atlasMetadata'];
   imageSetId?: string;
   replacement?: Pick<LayerLoadContext, 'replaceLayerId' | 'memberRender' | 'isCurrent' | 'beforeCommit' | 'afterCommit'>;
+  /** Select the layer when it is committed (single user-opened loads). */
+  autoSelect?: () => boolean;
 }
 
 export class VolumeLoadingService {
@@ -270,6 +273,8 @@ export class VolumeLoadingService {
         },
         source: source,
         sourcePath: sourcePath,
+        // Read by the stack rule (layerPlacement.ts: small integer label maps).
+        nativeDtype: volumeHandle.dtype,
         loadedAt: new Date().toISOString(),
       });
 
@@ -317,6 +322,7 @@ export class VolumeLoadingService {
         addedLayer = await this.layerService!.addLayer(layer, {
           workspaceId,
           ...config.replacement,
+          ...(config.autoSelect ? { autoSelect: config.autoSelect } : {}),
           initialGeometry: {
             views: initialViews,
             crosshair: { world_mm: initialCrosshair, visible: true },
@@ -344,12 +350,17 @@ export class VolumeLoadingService {
           }
         }
 
-        // An anatomical image opened after a statistic map goes under it, so
-        // the map stays readable on its anatomy (native R4-3: a T1 opened
-        // second covered the z map in the view and in exports).
-        if (!config.replacement) {
-          const order = anatomyUnderStatisticOrder(useLayerStore.getState().layers, addedLayer.id);
-          if (order) await this.layerService!.reorderLayers(order);
+        // The layer's stack band (layerPlacement.ts), re-checked now that a
+        // label-table sidecar may have made this layer a label map.
+        // (File loads pass a `replacement` carrying only `isCurrent`; only a
+        // real replacement keeps its predecessor's slot.)
+        if (!config.replacement?.replaceLayerId) {
+          const layerState = useLayerStore.getState();
+          const order = anatomyUnderStatisticOrder(layerState.layers, addedLayer.id, (id) =>
+            layerState.getLayerMetadata(id),
+          );
+          if (order) await this.layerService!.reorderLayers(order, workspaceId);
+          applyStackedOverlayOpacity(addedLayer.id, workspaceId);
         }
 
         // 8. Readiness/mapping is handled in LayerApiImpl request path.
@@ -375,6 +386,8 @@ export class VolumeLoadingService {
           volumeId: volumeHandle.id,
           layerId: addedLayer.id,
           source: source,
+          sourcePath,
+          displayName,
           duration: performance.now() - startTime,
         });
 
@@ -519,29 +532,45 @@ export function inferLayerTypeFromName(name: string, source: string): Layer['typ
 }
 
 /**
- * The layer order placing `newLayerId` at the bottom when it is a plain 3D
- * anatomical image (no statistic, not a label, mask or series) and the
- * current base volume is a statistic map; null to keep the order. Atlases
- * and label maps never count as the base (as in the Scene stack).
+ * The layer order after placing `newLayerId` by the stack rule
+ * (`layerPlacement.ts`: bands anatomy < continuous < statistic < label),
+ * or null when it is already there. LayerApiImpl places a layer when it is
+ * committed; this re-runs the rule once the label-table sidecar may have
+ * turned the layer into a label map. (Native R4-3 started this rule for a T1
+ * opened over a z map; QA 2026-10-29 §5.2 extended it to every underlay.)
  */
 export function anatomyUnderStatisticOrder(
   layers: readonly LayerInfo[],
   newLayerId: string,
+  metadataOf?: (id: string) => PlacementMetadata | undefined,
 ): string[] | null {
-  const added = layers.find((l) => l.id === newLayerId);
-  if (
-    !added ||
-    added.type !== 'anatomical' ||
-    added.statistic ||
-    added.isLabelMap ||
-    added.volumeType === 'TimeSeries4D'
-  ) {
-    return null;
+  return placementOrder(layers, newLayerId, metadataOf);
+}
+
+/**
+ * The start opacity the stack rule gives a layer (stacked continuous image,
+ * or a layer a label-table sidecar made a label map after commit), unless its
+ * opacity was already changed from 1.
+ */
+export function applyStackedOverlayOpacity(layerId: string, workspaceId?: string): void {
+  const layerState = useLayerStore.getState();
+  const layer = layerState.layers.find((l) => l.id === layerId);
+  if (!layer) return;
+  const { opacity } = planLayerPlacement(layerState.layers, layer, (id) => layerState.getLayerMetadata(id));
+  if (opacity === undefined) return;
+  let applied = false;
+  useViewStateStore.getState().setViewState((state) => {
+    const viewLayer = state.layers.find((l) => l.id === layerId);
+    if (viewLayer && viewLayer.opacity === 1) {
+      viewLayer.opacity = opacity;
+      applied = true;
+    }
+  }, workspaceId);
+  // The layer's default render properties agree with the view (as at commit).
+  const metadata = layerState.getLayerMetadata(layerId);
+  if (applied && metadata?.renderProps && metadata.renderProps.opacity !== opacity) {
+    layerState.setLayerMetadata(layerId, { ...metadata, renderProps: { ...metadata.renderProps, opacity } });
   }
-  const isAtlas = (l: LayerInfo) => l.source === 'atlas' || l.isLabelMap === true;
-  const base = layers.find((l) => l.id !== newLayerId && !isAtlas(l));
-  if (!base?.statistic) return null;
-  return [newLayerId, ...layers.filter((l) => l.id !== newLayerId).map((l) => l.id)];
 }
 
 // Export convenience function

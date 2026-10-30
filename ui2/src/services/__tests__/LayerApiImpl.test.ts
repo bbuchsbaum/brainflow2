@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
+import { layerFrameBoxes } from '@/services/layerFrameBoxes';
+import { fitViewsToWorldBox, worldBoxFromViews } from '@/utils/worldFrame';
+import { useComparisonStore } from '@/stores/comparisonStore';
+import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
+import { useSeriesStore } from '@/stores/seriesStore';
+import { STACKED_OVERLAY_OPACITY } from '@/services/layerPlacement';
 
 const {
   mockApiService,
@@ -34,6 +40,8 @@ const {
     removeLayer: vi.fn(),
     setLayerMetadata: vi.fn(),
     updateLayer: vi.fn(),
+    selectLayer: vi.fn(),
+    reorderLayers: vi.fn(),
     getLayerMetadata: vi.fn(() => undefined),
   },
   mockViewStateStoreState: {
@@ -99,7 +107,8 @@ vi.mock('@/services/LayerEvictionService', () => ({
 
 /** Private LayerApiImpl paths the native-round tests drive directly. */
 interface Internals {
-  upsertViewLayer(layer: unknown): void;
+  upsertViewLayer(layer: unknown, context?: unknown): void;
+  removeViewLayer(id: string): void;
   refineIntensityFromHistogram(layer: unknown, options: unknown): Promise<void>;
 }
 
@@ -353,7 +362,8 @@ describe('LayerApiImpl', () => {
     mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
     mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
     api.upsertViewLayer(stale);
-    expect(state.layers[0]).toMatchObject({ id: 'run-2', visible: false, opacity: 0 });
+    // Hidden is `visible: false` alone; the opacity is kept for the next show.
+    expect(state.layers[0]).toMatchObject({ id: 'run-2', visible: false, opacity: 1 });
   });
 
   it('a late histogram still refines a layer whose visibility changed meanwhile (native R2-1)', async () => {
@@ -403,5 +413,62 @@ describe('LayerApiImpl', () => {
     expect(render?.threshold).toEqual([-3.1, 3.1]);
     expect(render?.colormap).toBe('fmri');
     expect(mockHistogramService.computeHistogram).not.toHaveBeenCalled();
+  });
+
+  describe('frame boxes for the union field of view (QA 2026-10-29 §3.2)', () => {
+    beforeEach(() => layerFrameBoxes.clear());
+
+    it("records a new layer's exact voxel-edge box from its affine, not its initial views", async () => {
+      // test-data/browser/oblique.nii.gz: world = (10 - 2j, -7 + 3i, 5 + 4k).
+      mockApiService.requestLayerGpuResources.mockResolvedValueOnce({
+        data_range: { min: 0, max: 864 },
+        center_world: [4, -1, 21],
+        is_binary_like: false,
+        dim: [5, 7, 9],
+        spacing: [3, 2, 4],
+        origin: [10, -7, 5],
+        voxel_to_world: [0, 3, 0, 0, -2, 0, 0, 0, 0, 0, 4, 0, 10, -7, 5, 1],
+        world_to_voxel: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        tex_format: 'r32float',
+      });
+      // Initial views a pixel wider than the volume (load-time ceil slack).
+      const sloppy = fitViewsToWorldBox(
+        {
+          axial: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, -1, 0], dim_px: [8, 8] },
+          sagittal: { origin_mm: [0, 0, 0], u_mm: [0, -1, 0], v_mm: [0, 0, -1], dim_px: [8, 8] },
+          coronal: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 0, -1], dim_px: [8, 8] },
+        },
+        { min: [-4, -9, 2], max: [12, 7, 40] },
+        [4, -1, 21],
+        [8, 8],
+      );
+      const api = new LayerApiImpl();
+      await api.addLayer(
+        { name: 'oblique', volumeId: 'oblique', visible: true, type: 'anatomical', order: 0 },
+        { workspaceId: 'test', initialGeometry: { views: sloppy, crosshair: { world_mm: [4, -1, 21], visible: true } } },
+      );
+      expect(layerFrameBoxes.get('oblique')).toEqual({ min: [-3, -8.5, 3], max: [11, 6.5, 39] });
+    });
+
+    it('falls back to the initial views without an affine and drops the box on removal', () => {
+      const api = new LayerApiImpl() as unknown as Internals;
+      const views = fitViewsToWorldBox(
+        {
+          axial: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, -1, 0], dim_px: [100, 100] },
+          sagittal: { origin_mm: [0, 0, 0], u_mm: [0, -1, 0], v_mm: [0, 0, -1], dim_px: [100, 100] },
+          coronal: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 0, -1], dim_px: [100, 100] },
+        },
+        { min: [0, 0, 0], max: [10, 10, 10] },
+        [5, 5, 5],
+        [100, 100],
+      );
+      api.upsertViewLayer(
+        { id: 'v', name: 'v', volumeId: 'v', visible: true, type: 'anatomical' },
+        { workspaceId: 'test', initialGeometry: { views, crosshair: { world_mm: [5, 5, 5], visible: true } } },
+      );
+      expect(worldBoxFromViews(views)).toEqual(layerFrameBoxes.get('v'));
+      api.removeViewLayer('v');
+      expect(layerFrameBoxes.get('v')).toBeUndefined();
+    });
   });
 });

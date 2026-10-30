@@ -1,7 +1,8 @@
 /**
  * "Copy values at crosshair" (P3.6, v1 user critique): one TSV line per
  * visible volume layer, top of the stack first, with the crosshair's world
- * mm and voxel index on the reference grid, the value and its meaning
+ * mm and voxel index on that layer's own grid (the reference grid without an
+ * affine; the same rule as the status bar and cluster table), the value and its meaning
  * (statistic label, or the region name for label maps). ASCII minus.
  */
 import { useLayerStore } from '@/stores/layerStore';
@@ -9,20 +10,23 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { sampleLayerValue } from '@/hooks/useLayerValueAtWorld';
 import { formatRegionLabel } from './atlasRegionLookup';
 import { statisticUnits } from '@/utils/statistic';
-import { resolveVoxelGridReference, voxelIndexInBounds, worldToVoxelIndex } from '@/utils/voxelSnap';
+import { resolveReadoutGrid, voxelIndexInBounds, worldToVoxelIndex } from '@/utils/voxelSnap';
 import { getEventBus } from '@/events/EventBus';
 
 export async function valuesAtCrosshairTsv(): Promise<string> {
   const viewState = useViewStateStore.getState().viewState;
   const { layers, layerMetadata } = useLayerStore.getState();
   const world = viewState.crosshair.world_mm;
-  const reference = resolveVoxelGridReference(layers, layerMetadata);
-  const index = reference ? worldToVoxelIndex([world[0], world[1], world[2]], reference) : null;
-  const ijk = index && voxelIndexInBounds(index, reference?.dims) ? index : null;
+  const ijkOn = (layerId: string) => {
+    const grid = resolveReadoutGrid(layerId, layers, layerMetadata);
+    const index = grid ? worldToVoxelIndex([world[0], world[1], world[2]], grid) : null;
+    return index && voxelIndexInBounds(index, grid?.dims) ? index : null;
+  };
   const visible = [...viewState.layers].reverse().filter((l) => l.visible && l.volumeId);
   const rows = await Promise.all(
     visible.map(async (viewLayer) => {
       const layer = layers.find((l) => l.id === viewLayer.id);
+      const ijk = ijkOn(viewLayer.id);
       const value = await sampleLayerValue(viewLayer.id, [world[0], world[1], world[2]], layer?.currentTimepoint ?? 0);
       let meaning = statisticUnits(layer?.statistic, layerMetadata.get(viewLayer.id)?.dataRange) ?? '';
       if (value !== null && layer?.type === 'label' && layer.atlasPaletteLegend?.length) {

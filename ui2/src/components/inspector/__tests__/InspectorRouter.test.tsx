@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import type { DisplayMode, DisplayModeInfo } from '@/hooks/useDisplayMode';
 
 const openFile = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -62,6 +63,7 @@ function setMode(mode: DisplayMode, label = mode) {
 describe('InspectorRouter', () => {
   beforeEach(() => {
     setMode('integrated', 'Integrated');
+    useFeatureFlagStore.getState().setExperimentalFeatures(false);
   });
 
   it('renders the imaging body for orthogonal/integrated/mosaic/compare', () => {
@@ -91,8 +93,25 @@ describe('InspectorRouter', () => {
     expect(screen.getByTestId('analysis-body')).toBeInTheDocument();
   });
 
+  it('hides the unfinished Annotate tab unless Experimental features is on', () => {
+    setMode('integrated', 'Integrated');
+    useFeatureFlagStore.getState().setExperimentalFeatures(false);
+    const { unmount } = render(<InspectorRouter />);
+    expect(screen.queryByRole('tablist', { name: 'Inspector mode' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /annotate/i })).toBeNull();
+    expect(screen.queryByText(/Annotate mode is not yet enabled/)).toBeNull();
+    // The body is the Inspector itself, not a tab panel pointing at a missing tab.
+    expect(screen.queryByRole('tabpanel')).toBeNull();
+    expect(screen.getByRole('button', { name: /load/i })).toBeInTheDocument();
+    unmount();
+    act(() => useFeatureFlagStore.getState().setExperimentalFeatures(true));
+    render(<InspectorRouter />);
+    expect(screen.getByRole('tab', { name: /annotate/i })).toBeInTheDocument();
+  });
+
   it('renders the context toolbar with Load + Annotate (no inner INSPECTOR title)', () => {
     setMode('integrated', 'Integrated');
+    useFeatureFlagStore.getState().setExperimentalFeatures(true);
     render(<InspectorRouter />);
     // Stage A: the inner INSPECTOR title and `Active view: <mode>` subtitle
     // are removed. The dock tab carries "INSPECTOR"; the panel header is a
@@ -106,6 +125,7 @@ describe('InspectorRouter', () => {
 
   it('toggles annotate mode via the Inspect / Annotate tabs', () => {
     setMode('integrated', 'Integrated');
+    useFeatureFlagStore.getState().setExperimentalFeatures(true);
     render(<InspectorRouter />);
     const annotate = screen.getByRole('tab', { name: /annotate/i });
     const inspect = screen.getByRole('tab', { name: /inspect$/i });

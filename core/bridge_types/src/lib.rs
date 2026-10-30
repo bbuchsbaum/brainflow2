@@ -407,8 +407,12 @@ pub struct FlatNode {
     pub parent_idx: Option<usize>, // Index of the parent in the flat list, None for roots
     pub icon_id: u8,               // Numeric ID for icon type (mapped in Rust)
     pub is_dir: bool,
-    // Add other minimal metadata needed for display (e.g., file size, modified date)
-    // pub size: Option<u64>,
+    /// File size in bytes; `None` for directories or when unknown.
+    #[ts(type = "number | null")]
+    pub size: Option<u64>,
+    /// Last modification time, milliseconds since the Unix epoch, when known.
+    #[ts(type = "number | null")]
+    pub modified_ms: Option<u64>,
 }
 
 /// The payload returned by the fs_list_directory command
@@ -883,6 +887,25 @@ pub struct PeekVolumeMetadata {
     pub tr: Option<f32>,
 }
 
+/// How a NIfTI file stores its voxels, as its header declares.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NiftiStorageInfo {
+    /// Header `datatype` name ("int16", "uint8", "float32", …), or
+    /// "code N" for a code the reader does not know.
+    pub datatype: String,
+    /// Header `bitpix`.
+    pub bitpix: i16,
+    /// Header `scl_slope` (0 means no scaling).
+    pub scl_slope: f32,
+    /// Header `scl_inter`.
+    pub scl_inter: f32,
+    /// Header `cal_min` (display window hint; 0 with `cal_max` 0 when unset).
+    pub cal_min: f32,
+    /// Header `cal_max`.
+    pub cal_max: f32,
+}
+
 /// Detailed NIfTI header metadata for display in the UI
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -893,8 +916,14 @@ pub struct NiftiHeaderInfo {
     pub dimensions: Vec<usize>,
     /// Voxel size in mm [x, y, z]
     pub voxel_spacing: [f32; 3],
-    /// Data type string (e.g. "f32", "i16", "u8")
+    /// In-memory data type of the loaded volume (e.g. "f32", "i16", "u8");
+    /// scaled integer files are held as f32. See `storage` for the file's own.
     pub data_type: String,
+    /// On-disk storage declared by the source header (datatype, bitpix and
+    /// scaling). Absent when the source file cannot be re-read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub storage: Option<NiftiStorageInfo>,
     /// 4x4 voxel-to-world affine matrix in row-major order
     pub voxel_to_world: [f32; 16],
     /// Minimum world-space bounding box corner [x, y, z]

@@ -10,6 +10,12 @@ import { alignPlaneToCrosshair } from "./viewStateGeometry";
 
 import { create } from "zustand";
 import { widenToVoxelEdges } from "@/utils/voxelEdges";
+import { fitPlaneToWorldBox } from "@/utils/worldFrame";
+import {
+  layerFrameBoxes,
+  reframeForLayerChange,
+  visibleFrameBox,
+} from "@/services/layerFrameBoxes";
 import { subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { enablePatches, produceWithPatches } from "immer";
@@ -114,6 +120,15 @@ export function snapCrosshairToVoxelGrid(position: WorldCoordinates): WorldCoord
   return reference ? snapWorldToVoxelCentre(position, reference) : position;
 }
 
+/** Keep frame boxes only for layers some workspace still shows. */
+function pruneLayerFrameBoxes(states: ReadonlyMap<string, ViewState>): void {
+  const ids: string[] = [];
+  for (const state of states.values()) {
+    for (const layer of state.layers ?? []) ids.push(layer.id);
+  }
+  layerFrameBoxes.retainOnly(ids);
+}
+
 function toWorkspaceKey(workspaceId?: string | null): string {
   return workspaceId ?? DEFAULT_WORKSPACE_KEY;
 }
@@ -204,6 +219,8 @@ const createViewStateStore = () =>
                 if (updated) {
                   return updated;
                 }
+                // Frame the union of the visible layers whoever changed them.
+                reframeForLayerChange(currentViewState, draft);
               },
             );
 
@@ -467,6 +484,12 @@ const createViewStateStore = () =>
                 `Using volume ${visibleLayer.volumeId} for recalculation`,
               );
 
+              // Frame the union of the visible layers' world boxes, so a
+              // resize never crops later layers to the first one's extent.
+              // Without a box for every visible layer, the backend frames the
+              // first visible volume.
+              const frameBox = visibleFrameBox(layers);
+
               try {
                 const layoutStoreState = useViewLayoutStore.getState();
                 const isLockedLayout = layoutStoreState.isLocked();
@@ -502,6 +525,24 @@ const createViewStateStore = () =>
                       ];
                     },
                   );
+
+                  if (frameBox) {
+                    const crosshair = currentState.viewState.crosshair.world_mm;
+                    applyResizeUpdate((state) => {
+                      (["axial", "sagittal", "coronal"] as ViewType[]).forEach(
+                        (vt) => {
+                          state.views[vt] = fitPlaneToWorldBox(
+                            vt,
+                            frameBox,
+                            crosshair,
+                            dimsByView[vt],
+                            state.views[vt],
+                          );
+                        },
+                      );
+                    });
+                    return;
+                  }
 
                   const backendViews = await apiService.recalculateAllViews(
                     visibleLayer.volumeId,
@@ -539,6 +580,20 @@ const createViewStateStore = () =>
                   "viewStateStore",
                   `Attempting backend recalculation for ${viewType}...`,
                 );
+
+                if (frameBox) {
+                  const crosshair = currentState.viewState.crosshair.world_mm;
+                  applyResizeUpdate((state) => {
+                    state.views[viewType] = fitPlaneToWorldBox(
+                      viewType,
+                      frameBox,
+                      crosshair,
+                      [newWidth, newHeight],
+                      state.views[viewType],
+                    );
+                  });
+                  return;
+                }
 
                 const newView = await apiService.recalculateViewForDimensions(
                   visibleLayer.volumeId,
@@ -714,6 +769,7 @@ const createViewStateStore = () =>
               }
 
               applyViewStateUpdate(() => defaultState);
+              pruneLayerFrameBoxes(get().workspaceViewStates);
             },
 
             getView: (viewType) => get().viewState.views[viewType],
@@ -827,6 +883,8 @@ export const useViewStateStore: ReturnType<typeof createViewStateStore> =
         viewStateRevisions: nextViewStateRevisions,
         resizeInFlight: getInitialResizeState(),
       });
+      // A closed workspace's layers no longer frame anything.
+      pruneLayerFrameBoxes(nextWorkspaceViewStates);
     };
 
     let lastActiveWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;

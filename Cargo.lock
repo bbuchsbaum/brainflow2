@@ -252,7 +252,7 @@ dependencies = [
  "neuro-inference",
  "neuro-types",
  "neuroatlas",
- "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=43157797699c76b9cb81fb9036de74901673905c)",
  "neurosurf-rs",
  "nifti 0.17.0",
  "nifti-loader",
@@ -962,7 +962,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "nalgebra 0.32.6",
- "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=43157797699c76b9cb81fb9036de74901673905c)",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -1003,7 +1003,7 @@ dependencies = [
  "gifti-loader",
  "nalgebra 0.32.6",
  "neuro-types",
- "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=43157797699c76b9cb81fb9036de74901673905c)",
  "nifti 0.17.0",
  "render_contracts",
  "render_loop",
@@ -4862,7 +4862,7 @@ dependencies = [
 [[package]]
 name = "neuroatlas"
 version = "0.1.0"
-source = "git+https://github.com/bbuchsbaum/neuroatlas-rs?rev=6f0adb62b858b3799982224fe04394c9e28a38ce#6f0adb62b858b3799982224fe04394c9e28a38ce"
+source = "git+https://github.com/bbuchsbaum/neuroatlas-rs?rev=880682b972561557a71ad3af745b6e6d8067e884#880682b972561557a71ad3af745b6e6d8067e884"
 dependencies = [
  "anyhow",
  "approx 0.5.1",
@@ -4902,7 +4902,7 @@ dependencies = [
 [[package]]
 name = "neuroim"
 version = "0.1.0"
-source = "git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417#0fbedb93b4bb4e7aec663c7466c39a0eb6760417"
+source = "git+https://github.com/bbuchsbaum/neuroim-rs?rev=43157797699c76b9cb81fb9036de74901673905c#43157797699c76b9cb81fb9036de74901673905c"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -5029,7 +5029,7 @@ dependencies = [
  "flate2",
  "log",
  "nalgebra 0.32.6",
- "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=43157797699c76b9cb81fb9036de74901673905c)",
  "nifti 0.16.0",
  "num-traits 0.2.19",
  "serde",
@@ -9416,7 +9416,7 @@ dependencies = [
  "half",
  "nalgebra 0.32.6",
  "ndarray 0.16.1",
- "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=0fbedb93b4bb4e7aec663c7466c39a0eb6760417)",
+ "neuroim 0.1.0 (git+https://github.com/bbuchsbaum/neuroim-rs?rev=43157797699c76b9cb81fb9036de74901673905c)",
  "num-traits 0.2.19",
  "once_cell",
  "rayon",

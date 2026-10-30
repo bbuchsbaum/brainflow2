@@ -51,7 +51,7 @@ const DIR_INFO: FileTypeInfo = {
 export function inferFileType(
   path: string,
   isDirectory: boolean,
-  options: InferOptions = {}
+  options: InferOptions = {},
 ): FileTypeInfo {
   if (isDirectory) return DIR_INFO;
 
@@ -71,6 +71,25 @@ export function inferFileType(
       badge: 'FUNC',
       iconColor: 'var(--bf-icon-surface)',
       description: 'GIfTI functional data',
+    };
+  }
+  // Label and shape GIfTIs are per-vertex data like .func.gii; they keep the
+  // generic 'gii' kind (same tint, same Images-list membership) but say what
+  // they are instead of a bare "GII".
+  if (name.endsWith('.label.gii')) {
+    return {
+      kind: 'gii',
+      badge: 'LABEL',
+      iconColor: 'var(--bf-icon-surface)',
+      description: 'GIfTI label map',
+    };
+  }
+  if (name.endsWith('.shape.gii')) {
+    return {
+      kind: 'gii',
+      badge: 'SHAPE',
+      iconColor: 'var(--bf-icon-surface)',
+      description: 'GIfTI shape data',
     };
   }
   if (name.endsWith('.nii.gz')) {

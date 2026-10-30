@@ -19,11 +19,19 @@ export interface AtlasRegionHit {
 }
 
 /**
- * The active atlas layer: the first visible-or-not label layer that carries
- * atlas metadata. Mirrors the `activeAtlasId` heuristic used in the slice views.
+ * The atlas layer that names regions. `preferredLayerId` — the layer the
+ * status bar's Layer/Value slots report — wins when it is itself a region
+ * source, so Region never names a parcel from a different atlas than the
+ * Value beside it. Otherwise the first label layer that carries atlas
+ * metadata, mirroring the `activeAtlasId` heuristic used in the slice views.
  */
-export function findActiveAtlasLayer(): LayerInfo | undefined {
-  return useLayerStore.getState().layers.find(isRegionSource) as LayerInfo | undefined;
+export function findActiveAtlasLayer(preferredLayerId?: string | null): LayerInfo | undefined {
+  const layers = useLayerStore.getState().layers;
+  if (preferredLayerId) {
+    const preferred = layers.find((l) => l.id === preferredLayerId);
+    if (preferred && isRegionSource(preferred)) return preferred;
+  }
+  return layers.find(isRegionSource) as LayerInfo | undefined;
 }
 
 /**
@@ -51,8 +59,9 @@ export function hasRegionSource(
  */
 export async function resolveAtlasRegionAtWorld(
   world: [number, number, number],
+  preferredLayerId?: string | null,
 ): Promise<AtlasRegionHit | null> {
-  const layer = findActiveAtlasLayer();
+  const layer = findActiveAtlasLayer(preferredLayerId);
   const legend = layer?.atlasPaletteLegend;
   if (!layer || !legend || legend.length === 0) {
     return null;

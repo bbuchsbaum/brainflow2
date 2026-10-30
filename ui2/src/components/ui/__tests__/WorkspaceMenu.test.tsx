@@ -18,9 +18,19 @@ const {
 
 const workspaceStoreState = vi.hoisted(() => ({
   activeWorkspaceId: null as string | null,
-  workspaces: new Map<string, { presetId: string | null }>(),
-  applyWorkspacePreset: vi.fn(),
+  workspaces: new Map<string, { type: string }>(),
 }));
+
+const nav = vi.hoisted(() => ({
+  openNewView: vi.fn(async () => "view"),
+  openTool: vi.fn(async () => "tool"),
+  setCurrentTabLayout: vi.fn(),
+  nativeMenuOwnsNavigationShortcuts: vi.fn(() => false),
+}));
+
+const registered = vi.hoisted(
+  () => [] as Array<{ id: string; key: string; handler: () => void }>,
+);
 
 const layoutStoreState = vi.hoisted(() => ({
   layouts: [
@@ -53,8 +63,16 @@ vi.mock("@/services/ConfirmationService", () => ({
 
 vi.mock("@/services/KeyboardShortcutService", () => ({
   getKeyboardShortcutService: () => ({
-    register: vi.fn(() => vi.fn()),
+    register: vi.fn((shortcut: { id: string; key: string; handler: () => void }) => {
+      registered.push(shortcut);
+      return vi.fn();
+    }),
   }),
+}));
+
+vi.mock("@/services/workspaceNavigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/workspaceNavigation")>()),
+  ...nav,
 }));
 
 vi.mock("@/stores/workspaceStore", () => ({
@@ -112,7 +130,9 @@ describe("WorkspaceMenu", () => {
   beforeEach(() => {
     workspaceStoreState.activeWorkspaceId = null;
     workspaceStoreState.workspaces = new Map();
-    workspaceStoreState.applyWorkspacePreset.mockReset();
+    Object.values(nav).forEach((fn) => fn.mockClear());
+    nav.nativeMenuOwnsNavigationShortcuts.mockReturnValue(false);
+    registered.length = 0;
 
     layoutStoreState.layouts = [
       {
@@ -137,29 +157,48 @@ describe("WorkspaceMenu", () => {
     mockShowError.mockReset();
   });
 
-  it("renders the six workspace presets", () => {
+  it("offers New view and the three tools, not the retired view presets", () => {
     render(<WorkspaceMenu />);
 
-    for (const label of [
-      "Read",
-      "Explore",
-      "Analyze",
-      "Compare",
-      "Set studio",
-      "BIDS",
-    ]) {
+    for (const label of ["New view", "Set studio", "BIDS", "Analysis"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    for (const label of ["Read", "Explore", "Analyze", "Compare"]) {
+      expect(screen.queryByText(label)).toBeNull();
     }
   });
 
-  it("applies a preset when its menu item is clicked", () => {
+  it("New view opens a tab; a tool opens (or refocuses) its tab", () => {
     render(<WorkspaceMenu />);
 
-    fireEvent.click(screen.getByText("Analyze"));
+    fireEvent.click(screen.getByText("New view"));
+    expect(nav.openNewView).toHaveBeenCalledTimes(1);
 
-    expect(workspaceStoreState.applyWorkspacePreset).toHaveBeenCalledWith(
-      "analyze",
+    fireEvent.click(screen.getByText("Analysis"));
+    expect(nav.openTool).toHaveBeenCalledWith("analysis-workbench");
+  });
+
+  it("registers Cmd/Ctrl+T, +1–4 (current tab layout) and +5/6 (tools) in the browser build", () => {
+    render(<WorkspaceMenu />);
+
+    const byId = new Map(registered.map((r) => [r.id, r]));
+    expect(byId.get("workspace.newView.meta")?.key).toBe("t");
+    const layoutKeys = ["orthogonal", "integrated", "mosaic", "compare"].map(
+      (mode) => byId.get(`workspace.layout.${mode}.ctrl`)?.key,
     );
+    expect(layoutKeys).toEqual(["1", "2", "3", "4"]);
+    expect(byId.get("workspace.tool.set-studio.meta")?.key).toBe("5");
+    expect(byId.get("workspace.tool.bids-explorer.meta")?.key).toBe("6");
+
+    byId.get("workspace.layout.mosaic.meta")!.handler();
+    expect(nav.setCurrentTabLayout).toHaveBeenCalledWith("mosaic");
+    expect(nav.openNewView).not.toHaveBeenCalled();
+  });
+
+  it("leaves the accelerators to the native menu in the desktop shell", () => {
+    nav.nativeMenuOwnsNavigationShortcuts.mockReturnValue(true);
+    render(<WorkspaceMenu />);
+    expect(registered).toHaveLength(0);
   });
 
   it("routes save through the prompt helper", () => {

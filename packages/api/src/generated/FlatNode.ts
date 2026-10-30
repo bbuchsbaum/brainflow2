@@ -3,4 +3,12 @@
 /**
  * Represents a node in the file tree, optimized for flat list transfer
  */
-export type FlatNode = { id: string, name: string, parentIdx: number | null, iconId: number, isDir: boolean, };
+export type FlatNode = { id: string, name: string, parentIdx: number | null, iconId: number, isDir: boolean, 
+/**
+ * File size in bytes; `None` for directories or when unknown.
+ */
+size: number | null, 
+/**
+ * Last modification time, milliseconds since the Unix epoch, when known.
+ */
+modifiedMs: number | null, };

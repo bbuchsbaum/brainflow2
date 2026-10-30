@@ -113,6 +113,7 @@ export const apiBridgeCommands = [
   "sample_set_at_world",
   "cancel_population_sample",
   "evaluate_population_slice",
+  "population_peak_slice",
   "fit_population_relationship",
   "export_population_summary",
   "replay_population_summary",

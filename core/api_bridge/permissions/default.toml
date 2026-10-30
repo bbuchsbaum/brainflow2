@@ -108,6 +108,7 @@ permissions = [
     "allow-sample-set-at-world",
     "allow-cancel-population-sample",
     "allow-evaluate-population-slice",
+    "allow-population-peak-slice",
     "allow-fit-population-relationship",
     "allow-export-population-summary",
     "allow-replay-population-summary",

@@ -43,6 +43,8 @@ mod tests {
             parent_idx: None,
             icon_id: icons::NIFTI,
             is_dir: false,
+            size: Some(1024),
+            modified_ms: None,
         };
 
         assert_eq!(node.name, "test.nii");

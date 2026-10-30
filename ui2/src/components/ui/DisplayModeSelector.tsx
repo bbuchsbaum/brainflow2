@@ -1,14 +1,15 @@
 /**
- * DisplayModeSelector — the top-bar view-mode switcher.
+ * DisplayModeSelector — the top-bar layout switcher.
  *
  * Renders the available display modes as a single segmented control
- * (Design.md §6.2) and routes clicks to workspace activation/creation:
- *   - existing workspace of the target display mode → activate it;
- *   - none → create a new one via `workspaceStore.createWorkspace`.
+ * (Design.md §6.2). A click applies that layout to the CURRENT view tab, in
+ * place; it never jumps to or creates another tab (qa-design-decisions
+ * 2026-10-30 §1, `services/workspaceNavigation.ts`). Only with no tab open at
+ * all does a click create the first view.
  *
- * When a tool workspace (BIDS, Analysis, Set studio) is active, the switcher
- * stays visible with no active segment; a click returns to the latest view in
- * that mode, or opens one.
+ * When a tool (BIDS, Analysis, Set studio) or the surface tab is in front, the
+ * switcher stays visible but disabled with no active segment, and a pill says
+ * which tool is open: those tabs have no slice layout to change.
  *
  * Only *available* modes are rendered. A mode is hidden when it has no
  * associated workspace type yet (Surface) or when its feature flag is off
@@ -25,12 +26,12 @@ import React, { useCallback } from "react";
 import { useFeatureFlagStore } from "@/stores/featureFlagStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { useActivePanelStore } from "@/stores/activePanelStore";
+import { useCenterTabStore } from "@/stores/centerTabStore";
 import type { DisplayMode, DisplayModeMetadata } from "@/types/displayModes";
 import { SegmentedControl } from "@/components/ui/bf";
+import { setCurrentTabLayout } from "@/services/workspaceNavigation";
 
 import {
-  findLatestViewInMode,
   getDisplayModePillMetadata,
   isViewWorkspaceType,
   resolveActiveDisplayMode,
@@ -50,20 +51,17 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
     const id = state.activeWorkspaceId;
     return id ? (state.workspaces.get(id)?.type ?? null) : null;
   });
-  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
-  const activateWorkspace = useWorkspaceStore(
-    (state) => state.activateWorkspace,
-  );
-  const setActiveWorkspaceMode = useWorkspaceStore(
-    (state) => state.setActiveWorkspaceMode,
-  );
   const setIntegratedDefaultDisplayMode = useLayoutSettingsStore(
     (state) => state.setIntegratedDefaultDisplayMode,
   );
 
   // A tool TAB (the surface view) inside a view workspace is a tool too: no
-  // view mode is active while it is in front (v3 visual critic).
-  const surfaceTabActive = useActivePanelStore((state) => state.componentType === "surfaceView");
+  // view mode is active while it is in front (v3 visual critic). Read the
+  // centre stack's front tab, not focus, which moves with clicks in Files,
+  // Subjects or the dock.
+  const surfaceTabActive = useCenterTabStore(
+    (state) => state.frontComponentType === "surfaceView",
+  );
   const activeMode = surfaceTabActive ? null : resolveActiveDisplayMode(activeWorkspaceType);
 
   const isFlagDisabled = useCallback(
@@ -84,45 +82,20 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
       if (!mode.defaultWorkspaceType) return; // unmapped (e.g. surface)
       if (isFlagDisabled(mode)) return; // gated by feature flag
 
-      // Pills set the MODE of the active view tab, in place — tabs stay the
-      // view substrate. Switching modes reconfigures the current tab rather
-      // than spawning/activating a separate per-mode workspace, so the pills
-      // and tabs stop being redundant. (Cold edge: no view open yet → create
-      // the first one.)
-      const { activeWorkspaceId, workspaces } = useWorkspaceStore.getState();
-      const active = activeWorkspaceId
-        ? workspaces.get(activeWorkspaceId)
-        : undefined;
-      if (active && isViewWorkspaceType(active.type)) {
-        setActiveWorkspaceMode(mode.id);
-      } else if (active) {
-        // A tool destination (BIDS, Analysis, Set studio) is active. Never
-        // reconfigure the tool tab itself: go back to the most recent view
-        // already in this mode, or open a new view in it.
-        const existing = findLatestViewInMode(workspaces.values(), mode.id);
-        if (existing) {
-          activateWorkspace(existing.id);
-        } else {
-          void createWorkspace(mode.defaultWorkspaceType);
-        }
-      } else {
-        void createWorkspace(mode.defaultWorkspaceType);
-      }
+      const result = setCurrentTabLayout(mode.id);
       // Record the user's display-mode preference for cold-start fallback.
-      setIntegratedDefaultDisplayMode(mode.defaultWorkspaceType);
+      if (result === "applied" || result === "created") {
+        setIntegratedDefaultDisplayMode(mode.defaultWorkspaceType);
+      }
     },
-    [
-      activateWorkspace,
-      createWorkspace,
-      isFlagDisabled,
-      setActiveWorkspaceMode,
-      setIntegratedDefaultDisplayMode,
-    ],
+    [isFlagDisabled, setIntegratedDefaultDisplayMode],
   );
 
-  // The switcher stays visible when a tool destination (BIDS, Analysis, Set
-  // Studio) is active: no segment is marked active (the tool is not a view
-  // mode), and a click returns to a view in that mode (see handleClick).
+  // A tool tab, or the surface tab, has no slice layout: the pills stay
+  // visible but disabled, with no segment checked.
+  const toolInFront =
+    surfaceTabActive ||
+    Boolean(activeWorkspaceType && !isViewWorkspaceType(activeWorkspaceType));
 
   const options = visibleModes.map((mode) => ({
     value: mode.id,
@@ -139,11 +112,11 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
   // segment is checked and the tab stop falls on the first segment.
   // In a tool workspace (Studio, BIDS, Analysis) no view mode is active:
   // say where the user is, beside the switcher, as a neutral pill (P3.13).
-  const toolLabel = surfaceTabActive
-    ? "Surface"
-    : activeWorkspaceType && !isViewWorkspaceType(activeWorkspaceType)
-      ? (TOOL_LABELS[activeWorkspaceType] ?? "Tool")
-      : null;
+  const toolLabel = !toolInFront
+    ? null
+    : surfaceTabActive
+      ? "Surface"
+      : (TOOL_LABELS[activeWorkspaceType ?? ""] ?? "Tool");
 
   return (
     <span className="inline-flex items-center gap-2">
@@ -160,6 +133,7 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
       size="md"
       activation="manual"
       hideWhenSingle={false}
+      disabled={toolInFront}
       options={options}
       value={activeMode ?? ""}
       onValueChange={(id) => {
@@ -172,7 +146,7 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
         className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-bf-border-strong bg-bf-bg-selected px-2 text-bf-xs text-bf-text-primary"
         data-testid="display-mode-tool"
         role="status"
-        title={`${toolLabel} is open. Choose a view mode to return to your views.`}
+        title={`${toolLabel} is open. Layouts apply to view tabs: pick a view tab, or press Cmd/Ctrl+T for a new view.`}
       >
         <span className="text-bf-text-muted">In</span>
         {toolLabel}

@@ -10,6 +10,8 @@ import { Copy, Check } from 'lucide-react';
 import { getApiService } from '@/services/apiService';
 import type { NiftiHeaderInfo } from '@/services/apiService';
 import { statisticFacts } from '@/utils/statistic';
+import { formatTauriError } from '@/utils/formatTauriError';
+import { storageFacts } from '@/utils/headerStorage';
 import { Modal } from '@/components/ui/Modal';
 import { Button, KeyValue, Notice, Section, type KeyValueItem } from '@/components/ui/bf';
 import {
@@ -108,7 +110,7 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
         setLoading(false);
       })
       .catch(err => {
-        setError(String(err));
+        setError(formatTauriError(err));
         setLoading(false);
       });
   }, [open, volumeId]);
@@ -183,7 +185,7 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
                         .reduce((a, b) => a * b, 1)
                         .toLocaleString(),
                     },
-                    { label: 'Data type', value: info.data_type },
+                    ...storageFacts(info),
                     info.data_range && {
                       label: 'Data range',
                       value: formatDataRange(info.data_range.min, info.data_range.max),

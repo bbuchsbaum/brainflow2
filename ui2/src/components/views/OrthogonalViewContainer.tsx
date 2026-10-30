@@ -57,8 +57,10 @@ export function OrthogonalViewContainer({
   // Native event listeners for drag-and-drop.
   // We use native listeners (not React synthetic) because GoldenLayout's
   // isolated React roots can interfere with React event delegation.
-  // Tauri's native drag interception is disabled via dragDropEnabled:false
-  // in tauri.conf.json so HTML5 drag events flow normally.
+  // In the desktop app these events are synthetic: Tauri's native drag-drop
+  // is enabled (dragDropEnabled: true) so OS drops carry real paths, and both
+  // OS drops (useNativeFileDrop) and in-app pointer drags (utils/pointerDrag)
+  // dispatch dragover/drop here with a DataTransfer-shaped payload.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;

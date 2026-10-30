@@ -50,7 +50,7 @@ interface SliceViewportProps {
   onMouseUp?: (event: MouseEvent<HTMLDivElement>) => void;
   onMouseLeave?: (event: MouseEvent<HTMLDivElement>) => void;
   onWheel?: (event: React.WheelEvent<HTMLDivElement>) => void;
-  onFileDrop?: (file: File, intent: DisplayOpenIntent) => void;
+  onFileDrop?: (file: File, intent: DisplayOpenIntent) => void | Promise<void>;
   onPathDrop?: (path: string, intent: DisplayOpenIntent) => void;
   customRender?: SliceRendererProps['customRender'];
 }
