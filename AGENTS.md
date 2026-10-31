@@ -95,6 +95,9 @@ for an intended visual change. See the reference for targeted GPU checks.
 - [Loading contracts](docs/loading-hardening-2026-09-04.md) and
   [remote mounts](memory-bank/REMOTE_MOUNTS.md): I/O and cache changes.
 - [Analysis plugins](docs/analysis_plugins.md): plugin protocol changes.
+- Segmentation module: [design](ui2/src/modules/segmentation/DESIGN.md),
+  [implementation brief](docs/plans/segmentation-implementation.md) and
+  [module architecture](docs/plans/module-architecture.md).
 - [Alpha readiness](docs/alpha-readiness.md) and
   [acceptance checks](docs/alpha-acceptance.md): native release validation.
 
