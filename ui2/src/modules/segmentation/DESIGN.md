@@ -6,7 +6,10 @@ This is the design the visual hill climb settled on (rounds 0 to 4, October
 2026), written for the implementation, with the round-5 workflow states (AI
 assist, lesions, contrast aids, history, save, resume, setup) after the
 review section, as fixed in round 6 (one session model, per-slice AI
-accept, plain-language sheets, quiet save, the lesion workflow raters use). The research and the six contracts
+accept, plain-language sheets, quiet save, the lesion workflow raters use)
+and finished by round 7's static pass (true small multiples for lesion
+typing, a trimmed AI bar, registration checked in the primary). The final
+captures are in `docs/design/segmentation/reference/`. The research and the six contracts
 are in `docs/plans/segmentation-module-research.md`; the mocks are
 `components/directions/h/DirectionH.tsx` and `components/shared/`. The mock
 imagery is the 1 mm MNI152 template; the native 0.40 × 0.40 / 2.0 mm oblique
@@ -221,18 +224,19 @@ From the backlog in the research plan ("Tracing niceties backlog"):
   with a temporary unlock; proposal undo separate from document undo; the
   k-matched pack example; a step card with checks.
 
-## Workflow states (rounds 5 and 6)
+## Workflow states (rounds 5 to 7)
 
 Round 5 extends H past tracing: eight states on the same shell (rail,
 primary with two header lines and the slice ruler, orthogonal column,
 Inspector, status bar), in `components/directions/h/workflow/`, rendered by
 `DIRECTIONS.h.workflow` (`WORKFLOW_STATES`, direction H only); round 6 fixes
-them and adds the `lesion-overview` variant. Captures are in
-`cruft/hillclimb/segmentation/round-6/h/` (round 5 in `round-5/h/`) with a
-manifest (decisions, what is mocked, and round 6's changes by critic issue).
-The rules are pure functions in `components/shared/workflowRules.ts` and the
-session model in `components/shared/session.ts`, tested in
-`__tests__/round5.test.tsx` and `__tests__/round6.test.tsx`.
+them and adds the `lesion-overview` variant; round 7 is the last static
+pass. The final captures are in `docs/design/segmentation/reference/`
+(working captures in `cruft/hillclimb/segmentation/round-7/h/`, earlier
+rounds beside it) with a manifest (decisions, what is mocked, and each
+round's changes by critic issue). The rules are pure functions in
+`components/shared/workflowRules.ts` and the session model in
+`components/shared/session.ts`; see "Contract-tested rules" below.
 
 Rules every workflow state follows, beyond the encoding rules above:
 
@@ -258,8 +262,11 @@ Rules every workflow state follows, beyond the encoding rules above:
   list and the recovered-step count all derive from it, as volumes derive
   from `LABEL_VOLUMES`. A state may show the session at an earlier step
   (`asOf`): the AI licence gate is the moment before AI was first used, so
-  it carries no AI mark. Today: 17 steps since the 14:02 save (steps
-  22–38), AI k 9 and interpolated k 12–13 confirmed without a look.
+  it carries no AI mark, and the AI prompt state is the same moment with the
+  first answer pending (round 7): that answer is the journal's next step,
+  32′ (nine slices, k 5–13, three looked at, later undone and kept as a
+  branch). Today: 17 steps since the 14:02 save (steps 22–38), AI k 9 and
+  interpolated k 12–13 confirmed without a look.
 - **Plain language first**: a sheet says in one sentence what is recorded;
   the record itself is behind "Show record". Unselected options are one
   line; a section the user rarely changes is one summary line.
@@ -276,8 +283,12 @@ the rail opens a 36 px **prompt sub-rail**: point +, point −, scribble, box,
 lasso (keys 1–5; Alt makes a scribble or lasso negative). Header line 2 is
 the prompt strip: target label, channel (the model takes one), crop in
 voxels, "add only" (refining an existing label is opt-in), and an inline key
-(include · exclude · kept · check · island). Below the image an AI bar like
-the proposal bar. The Inspector adds one line above Labels ("4 prompts ·
+(include · exclude · kept · check · island; the kept count is in the "kept"
+item's tooltip). Below the image an AI bar like the proposal bar, two lines
+(round 7): progress (per-slice pips, "3 of 9 slices seen", "then k 9", the
+voxel count, the provider at the right), then Accept CA1 here ↵ and Discard
+on the left, prompt undo as an icon (⌥Z, its count in the tooltip), and
+"Confirm all 9…" alone on the right. The Inspector adds one line above Labels ("4 prompts ·
 k 11 (3) · k 9 (1) · Reset"); the slice matrix shows the pending slices as
 hollow CA1 bars.
 
@@ -296,28 +307,36 @@ Rules:
   fill between), exactly as fill between:
   "Accept CA1 here ↵" writes the slice under review and steps to the next
   unseen slice of the answer, in order outward from the prompted slice
-  ("then k 9"). "Confirm all 11…" is a quiet secondary that asks once more;
+  ("then k 9"). "Confirm all 9…" is a quiet secondary that asks once more;
   slices it writes unseen are "AI, not reviewed": hollow "AI" bars on the
   ruler and hollow bars in the matrix, warned at save, and they block "Mark
-  CA1 complete". The bar counts "3 of 11 slices seen". Pending slices on
+  CA1 complete". The bar counts "3 of 9 slices seen". Pending slices on
   the ruler are "review", like any proposal; "AI" marks only confirmed,
   unreviewed AI slices.
 - **Provenance codes** distinguish AI reviewed (4) and AI not reviewed (5),
   as interpolation does (2, 3); manual is 1.
 - **Over-reach** (`workflowRules.overreach`): add-only protects labelled
   voxels only, so a proposal voxel that borders (8-neighbour) a label not yet
-  complete, sits where the pack's k-matched prior puts such a label, or lies
-  outside the target's expected k-range gets a separate review mark: the
-  neutral voxel outline ("check" in the inline key) and "check 3 vx at
-  Subiculum" in the bar. It never refuses; the rater decides.
+  complete, sits where the pack's k-matched prior puts such a label, or
+  (round 7) comes within `EMPTY_PRIOR_MARGIN_VX` of the prior territory of a
+  label that is still empty (ERC, 0 vx) gets a separate review mark: the
+  neutral voxel outline ("check" in the inline key) and one halo tag on the
+  slice below the structure, with a hairline leader ("check 7 vx · ERC 4,
+  empty · Subiculum 3"). Whole answer slices outside the step's expected
+  range (the body slab, k 6–14; `slicesOutside`) are hollow on the ruler
+  with their own "check" caption (k 5). It never refuses; the rater decides.
 - **AI said once**: the provider line sits only in the bar; the Inspector
   shows "4 prompts · k 11 (3) · k 9 (1) · Reset" (the marks are on the
   slice); the channel is a header-line-2 control only; the sub-rail has no
   heading; the status bar shows review progress, not the provider.
-- The orthogonal views hatch the answer where it reaches past the traced
-  extent (k 3–13), so its 3D reach shows.
-- Prompt undo (⌥Z, "prompt undo · 4") re-asks the model; document undo (⌘Z)
-  is separate and untouched. Discard drops the answer, keeps the prompts.
+- The orthogonal views draw CA1 as the session had it (constant fill and
+  outline), the answer past it in a coarser CA1 hatch (pitch 6.5 px, so a
+  2–3 voxel strip still reads as hatched) and one thin outline around the
+  whole answer; the axial view marks the proposed slab (k 5–13) as a faint
+  tilted band between two hairlines, captioned "proposed k 5–13".
+- Prompt undo (⌥Z, an icon; its count in the tooltip) re-asks the model;
+  document undo (⌘Z) is separate and untouched. Discard drops the answer,
+  keeps the prompts.
 - Provider, version, "local" and latency sit in mono at the bar's right
   ("nnInteractive v2.5.0 · local · 0.84 s"); never a badge in the image.
 
@@ -362,12 +381,15 @@ Layout: the same shell on an axial, isotropic grid. Primary: axial FLAIR
 (mock), "Axial k 96/193 z 18.0 FLAIR (mock) · 1.0 mm iso", with a "Fit (Z) |
 L1 · 3.7×" zoom control. Header line 2: "WMH · over background · range
 FLAIR 168–255 · 2D · ⌀ 5.2 mm · > 50% inside" and the inline key for the
-left-out mark. Ruler in axial k. Below the primary a strip (200 px; 168 at
-1366 and below): T1w and T2w at the same slice, centre and scale with the
-lesion outlines, and the whole slice with every L tag and the primary's
-window. Orthogonal column: coronal and sagittal cuts through the current
-lesion on the same grid ("through L1 · grid", no reslice, no slab angle)
-with the axial slice as a band and edge ticks. Inspector: session header,
+left-out mark. Ruler in axial k. Side column (round 7): while the current
+lesion's type is being set (its row open), T1w over T2w at the primary's
+exact centre and scale (px per mm), cropped to the tile, with the lesion
+outlines carried over: true small multiples; otherwise coronal and sagittal
+cuts through the current lesion on the same grid ("through L1 · grid", no
+reslice, no slab angle) with the axial slice as a band (0.30, with edge
+hairlines, so a 1-voxel band shows at tile scale) and edge ticks. Nothing
+below the primary: Fit (Z) is the whole-slice overview, so the FLAIR keeps
+its height. Inspector: session header,
 a collapsed protocol line ("Review each lesion", 2 of 6 reviewed, the rule,
 "26-connected"), **Range on FLAIR** (histogram with the range, "limits
 writing, not display", what the brush writes now), the **seed** line
@@ -396,17 +418,20 @@ Rules:
   stay derived from the edited mask.
 - **Each lesion has a type** (STRIVE: WMH, lacune, infarct, PVS, exclude),
   set in the open row with T1w and T2w in view; "exclude" keeps the row out
-  of the totals.
+  of the totals. A row prints its type only when it is not the default
+  (WMH); the span axis is labelled once ("k 113 → 84").
 - **Rows compare as graphics**: a span bar on the ruler's axial-k axis
   (k 113 left, as the ruler reads top down) with the current slice marked
   through every row, and a mm³ bar on one scale (its maximum printed once).
-- **Fazekas** periventricular and deep are rated per subject beside the list.
+- **Fazekas** periventricular and deep are rated per subject beside the list,
+  marked "provisional" while any lesion is still to review.
 - Row: L-number, where (side and part), location class (PV
   periventricular, deep, JC juxtacortical), mm³, slice span, reviewed. The
   current row opens "Mark L1 reviewed ↵" and Remove; N / ⇧N step lesions.
-- In the image the current lesion is the active label (1.5 px, inset fill),
-  reviewed lesions quiet, the rest inactive, with an "L1" tag beside each
-  (outside the lesion).
+- In the image the current lesion is the active label (1.5 px, outline only:
+  no inset fill over the hyperintensity), reviewed lesions quiet, the rest
+  inactive, with an "L1" tag beside each (outside the lesion), one tag size
+  at every zoom.
 - Ruler: solid where every lesion on the slice is reviewed, hollow where
   one is not, hairline where there is none; the current lesion's span is
   bracketed "L1".
@@ -436,7 +461,9 @@ Layout: tracing, with the primary showing T2w through a view-only unsharp
 mask; the badge after the geometry title (which still names the data,
 T2w); flicker keys (V raw, Space T1w, ⌥ lens) at the right of header line 2;
 the lens at the brush; a **View aids** section in the Inspector (filter with
-its recipe, lens content, a note that edits map through the raw grid).
+its recipe, lens content), headed by one line, "display only · never
+written · filters recorded", with the rest behind "?" (round 7). The filter
+and lens switches show on while the filter and lens show.
 
 Rules:
 
@@ -469,7 +496,11 @@ Layout: a bottom-dock tab under the primary and the orthogonal column
 (History | Label statistics), 8 rows (178 px, about a quarter of the primary
 at 1440 × 900), resizable from its top edge and collapsible to its tab row;
 label and k filters in its header. Left: the step list; then **Undo per
-label** and **Autosave** columns. The Inspector is unchanged.
+label** and **Autosave** columns. The Inspector is unchanged. One step count
+(round 7): "17 steps since the 14:02 save · 1 kept branch" in the dock
+header only; the session header says "unsaved since 14:02", the status bar
+the journal's age, Autosave the journal's size and budget. A row prints its
+label's name only where it changes from the row above (the swatch stays).
 
 Rules:
 
@@ -566,14 +597,18 @@ changes" steps through the recovered steps with the history hover outlines.
 
 ### Session setup (`setup`)
 
-Layout: the image at fit beside a side sheet, "New segmentation": 1
-Subject and rater (subject, session, hemisphere, rater, and "Blind: hide
-other raters' labels of this subject until I submit"), 2 Reference grid (two
-choices beside a small sagittal T2w with the 20-slice slab drawn, k 20 and
-k 1 at its ends), 3 T1w on the T2w grid (the rigid transform's file, a
-checkerboard of T1w and T2w at the hippocampus, Checkerboard | T1w edges |
-Flicker, and "Aligned at the hippocampus"), 4 Label table (the pack's
-labels, "+ Add label" collapsed); footer Start tracing, Cancel.
+Layout: the primary beside a side sheet, "New segmentation": 1 Subject and
+rater (subject, session, hemisphere, rater, and "Blind: hide other raters'
+labels of this subject until I submit"), 2 Reference grid (two choices
+beside a 200 px sagittal T2w with the 20-slice slab drawn, k 20 and k 1
+labelled outside its ends), 3 T1w on the T2w grid (the rigid transform's
+file, Checkerboard | T1w edges | Flicker, "Not aligned…" and "Aligned at the
+hippocampus", unticked), 4 Label table (the pack's labels, "+ Add label"
+collapsed); footer Start tracing (disabled until the registration is
+confirmed), Cancel. Round 7: while section 3 is open the primary **is** the
+registration check, at tracing zoom over the hippocampus: T1w in alternate
+8 mm squares over T2w, squares anchored to the image, so a 1–2 mm slip
+breaks the SRLM and ventricle edges.
 
 Rules:
 
@@ -590,7 +625,10 @@ Rules:
   the crosshair or the warning colour"). A stroke preview shows the label
   active, inactive and quiet.
 - Subject, session, hemisphere and rater name the files; the registration of
-  the secondary contrast is confirmed before tracing starts.
+  the secondary contrast is confirmed before tracing starts. "Aligned" starts
+  unticked; ticking it records the confirmer, the time, the transform's hash
+  and the view used in provenance. "Not aligned…" re-registers or traces
+  without the T1w aids (recorded).
 
 Open questions: whether ids should be editable at all (pack ids are fixed);
 a colour-blind check for the palette; where hierarchy shows in the label
@@ -598,20 +636,43 @@ list (indent or a parent row).
 
 ## Score history
 
-Overall score per critic and round (R0: best of the three directions; R1
-onward: direction H).
+Overall score per critic and round. R0: the best of the three round-0
+directions (A Workstation, B Reading room, C Protocol-guided); R1–R4: direction
+H's seven core states; R5–R6: H's workflow states (AI, lesions, contrast
+aids, history, save, resume, setup), the core states then scored 8–8.5.
+R4 and R7 were targeted static passes on the critics' "static" items, not
+scored. Full critiques: `docs/design/segmentation/critiques.md`.
 
-| Critic | R0 | R1 | R2 | R3 |
-| --- | --- | --- | --- | --- |
-| Tufte (data-ink, encoding) | 7 (A) | 8 | 8 | 8 (high) |
-| Jobs (focus, simplicity) | 7.5 (C) | 7.5 | 8 | 8.5 |
-| Operator (tracer efficiency) | 7.5 (A) | 8 | 8 | 8 |
+| Critic | R0 | R1 | R2 | R3 | R4 | R5 | R6 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Tufte (data-ink, encoding) | 7 (A) | 8 | 8 | 8 (high) | — | 8 | 8.5 |
+| Jobs (focus, simplicity) | 7.5 (C) | 7.5 | 8 | 8.5 | — | 7.8 | 8.2 |
+| Operator (tracer efficiency) | 7.5 (A) | 8 | 8 | 8 | — | 7 | 8 |
 
-Round 5 (the eight workflow states, direction H): Tufte 8, Jobs 7.8,
-Operator 7 (the core states had been 8–8.5). Round 6 is the fix pass on
-those states (captures in `cruft/hillclimb/segmentation/round-6/h/`, with a
-manifest listing each change by critic and rank, the conflicts and what was
-not done).
+Round 0 scores for all directions: Tufte A 7, B 6, C 6; Jobs A 6.5, B 6.5,
+C 7.5; Operator A 7.5, B 5, C 7. After round 3, and again after round 6, all
+three critics judged further static rounds of marginal value.
+
+### Round 7 decisions (final static pass)
+
+- **Lesion typing uses the side column.** While a lesion's type is set,
+  T1w and T2w replace the coronal/sagittal cuts at the primary's exact scale
+  (Jobs r6 #1, Tufte r6 #1): typing is done by comparing contrasts, and the
+  cuts matter while finding and bounding a lesion. The whole-slice tile went
+  (Fit, Z, is the overview).
+- **AI over-reach**: the operator asked for separate check items in the
+  bar; Jobs asked for a shorter bar with the check count on the slice.
+  Decided: the count is one halo tag on the slice ("check 7 vx · ERC 4,
+  empty · Subiculum 3"), out-of-range slices a "check" run on the ruler, the
+  kept count in the key's tooltip; the bar keeps four actions.
+- **The AI state is a session moment**, like the licence gate: the pending
+  answer is the journal's step 32′ (k 5–13, three looked at), not a
+  separate story (operator r6 #3).
+- **Registration is checked in the primary**, unticked, with the confirmer
+  recorded (operator r6 #1, Jobs r6 #3); Start tracing waits for it.
+- **ERC is not drawn** while the table says 0 vx (found while adding the
+  empty-label check): the tracing scene drops it, so the core states lose
+  ERC's outline and nothing else.
 
 ### Round 6 conflicts, decided
 
@@ -629,12 +690,6 @@ not done).
 - AI ruler marks before first use (Jobs, Tufte) vs showing the state "as
   it is now": the gate is shown at the session's own earlier moment
   (`asOf`), not with marks hidden, so the screen is still true to one model.
-
-Round 0 scores for all directions: Tufte A 7, B 6, C 6; Jobs A 6.5, B 6.5,
-C 7.5; Operator A 7.5, B 5, C 7. After round 3 all three critics judged
-further static rounds of marginal value; round 4 was one targeted static
-pass on their "static" items (captures in
-`cruft/hillclimb/segmentation/round-4/h/`), not scored.
 
 ## Open questions for an interactive prototype on real 0.4 mm data
 
@@ -675,3 +730,23 @@ a timed tracing session.
   (Operator r2 #6).
 - Whether the islands of other labels should be marked too, and how
   islands that are real anatomy are dismissed.
+
+**Workflow states (left open after round 7)**
+
+- AI on real subfields: seconds per slice in the per-slice accept loop on
+  0.4 mm oblique T2, the over-reach rate, and whether the empty-label margin
+  (5 mm in the mock) flags too much or too little.
+- Confluent WMH (Fazekas 2–3): row split and merge, a recorded PV/deep
+  distance rule, and per-voxel seed provenance (kept, added, removed) for
+  agreement with the seed and a second rater.
+- Lesion evidence at the decision: FLAIR ↔ T1w flicker in the primary and
+  FLAIR/T1w values under the cursor while typing lacune or PVS; the exact k
+  range on span-bar hover.
+- Registration: with a planted 1–2 mm T1w → T2w offset, do raters catch it in
+  the checkerboard, T1w edges or flicker?
+- History: dock size and hover-to-outline in use; how far back a hover
+  preview can reach cheaply.
+- Lens, flicker and filter latency at 4–6× zoom; unsharp noise and edge
+  shift at 0.4 mm.
+- Crash → resume → save as draft → complete, with bids-validator on the
+  output; blinded two-rater review and reconciliation.

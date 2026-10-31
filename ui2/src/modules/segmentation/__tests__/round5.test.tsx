@@ -101,7 +101,8 @@ describe('AI proposals never overwrite other labels', () => {
     // Round 6: per-slice accept is the default (see round6.test.tsx).
     expect(getByTestId('ai-accept').textContent).toContain('Accept CA1 here');
     expect(getByTestId('prompt-undo').getAttribute('title')).toMatch(/document undo \(⌘Z\) is separate/);
-    expect(getByTestId('ai-protected').textContent).toContain(`${AI.protected.length} vx kept`);
+    // Round 7: the kept count moved into the key's tooltip.
+    expect(getByTestId('ai-protected').getAttribute('title')).toContain(`${AI.protected.length} vx kept`);
     expect(getByTestId('ai-provider').textContent).toMatch(/nnInteractive v2\.5\.0 · local · 0\.84 s/);
     expect(container.querySelectorAll('[data-testid="prompt-rail"] button')).toHaveLength(5);
     // Prompts on this slice are drawn by form; the k 9 prompt is only listed.

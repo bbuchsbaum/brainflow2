@@ -51,7 +51,6 @@ const ACTIVE_ROWS = HISTORY.filter((h) => !h.branch);
 const BRANCH_ROWS = HISTORY.filter((h) => h.branch);
 /** Active steps shown above the branch row (the branch joins below step 32). */
 const SHOWN = ACTIVE_ROWS.filter((h) => h.id > BRANCH.from).slice(0, DOCK_ROWS - 1);
-const EARLIER = HISTORY.length - SHOWN.length - BRANCH_ROWS.length;
 /** One scale for the signed vx bars: the largest change shown. */
 const VX_MAX = Math.max(...[...SHOWN, ...BRANCH_ROWS].map((h) => Math.abs(h.delta)));
 
@@ -132,9 +131,10 @@ function HistoryTable() {
                   </span>
                 ) : null}
               </span>
-              <span className="flex min-w-0 items-center gap-1.5">
+              <span className="flex min-w-0 items-center gap-1.5" data-label-cell={h.label}>
                 <Swatch color={def.color} size={8} />
-                <span className="truncate">{def.name}</span>
+                {/* Round 7: the name only where the label changes from the row above (the swatch carries the rest). */}
+                {i === 0 || SHOWN[i - 1].label !== h.label ? <span className="truncate" data-label-name>{def.name}</span> : null}
               </span>
               <VxBar delta={h.delta} />
               <span className="font-mono text-bf-2xs text-bf-text-muted">{fmtKs(h.ks)}</span>
@@ -160,9 +160,9 @@ function HistoryTable() {
             <span className="truncate">Kept branch: {branchHead.op}</span>
             <span className="shrink-0 text-bf-2xs">{BRANCH.unreviewed} not reviewed</span>
           </span>
-          <span className="flex min-w-0 items-center gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5" data-label-cell={CA1}>
             <Swatch color={LABEL_BY_ID.get(CA1)!.color} size={8} />
-            <span className="truncate">CA1</span>
+            {SHOWN[SHOWN.length - 1]?.label !== CA1 ? <span className="truncate" data-label-name>CA1</span> : null}
           </span>
           <VxBar delta={BRANCH_ROWS.reduce((n, h) => n + h.delta, 0)} />
           <Button
@@ -177,7 +177,7 @@ function HistoryTable() {
         </li>
       </ol>
       <span className="h-[15px] border-t border-bf-border-subtle px-2 text-bf-2xs leading-[14px] text-bf-text-muted">
-        {EARLIER} earlier steps since {JOURNAL.lastSave.time} · ⌘Z undoes the newest; click a step to go back to it
+        ⌘Z undoes the newest; click a step to go back to it · scroll for earlier steps
       </span>
     </div>
   );
@@ -221,10 +221,6 @@ function Journal() {
       <span title={`Byte budget ${JOURNAL.budgetMb} MB; keeps at least ${JOURNAL.minDepth} steps`}>
         {JOURNAL.sizeMb}/{JOURNAL.budgetMb} MB · ≥ {JOURNAL.minDepth} steps
       </span>
-      <span>
-        saved {JOURNAL.lastSave.time} · step {JOURNAL.lastSave.step}
-      </span>
-      <span>{JOURNAL.sinceSave} steps since</span>
     </section>
   );
 }
@@ -251,8 +247,9 @@ function HistoryDock() {
             k: all
           </TextToggle>
         </span>
-        <span className="ml-auto font-mono text-bf-2xs text-bf-text-muted">
-          {JOURNAL.step} steps · 1 kept branch
+        {/* Round 7: the one step count, said once. */}
+        <span className="ml-auto font-mono text-bf-2xs text-bf-text-muted" data-testid="step-count">
+          {JOURNAL.sinceSave} steps since the {JOURNAL.lastSave.time} save · 1 kept branch
         </span>
         <IconButton aria-label="Collapse the dock" title="Collapse to the tab row (H)" icon={<ChevronDown />} size="sm" variant="ghost" data-testid="dock-collapse" />
       </div>
@@ -289,13 +286,13 @@ export function HistoryState() {
         <>
           <StatusItem label="Crosshair" value={`(${fmtMm(x)}, ${fmtMm(y)}, ${fmtMm(z)})`} />
           <StatusItem label="Label" value="CA1" mono={false} />
-          <StatusItem label="History" value={`${JOURNAL.step} steps · journal ${JOURNAL.writtenAgoS} s ago`} />
+          <StatusItem label="Journal" value={`written ${JOURNAL.writtenAgoS} s ago`} />
         </>
       }
       rail={<ToolRail state="tracing" />}
       inspector={
         <InspectorFrame>
-          <SessionHeader state="tracing" status={`${JOURNAL.sinceSave} steps unsaved · journal ${JOURNAL.writtenAgoS} s ago`} />
+          <SessionHeader state="tracing" status={`unsaved since ${JOURNAL.lastSave.time} · autosaved`} />
           <StepCard state="tracing" />
           <LabelsSection state="tracing" hover={null} />
         </InspectorFrame>

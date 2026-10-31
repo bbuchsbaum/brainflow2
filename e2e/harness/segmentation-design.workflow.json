@@ -1,15 +1,16 @@
 [
   {
     "id": "ai-prompt",
-    "description": "AI assist (nnInteractive): prompts on the slice, the 3D answer as a CA1 proposal reviewed slice by slice (Accept CA1 here, then the next unseen slice), Confirm all secondary, over-reach flagged",
+    "description": "AI assist (nnInteractive) at the session moment after step 31: prompts on the slice, the 3D answer (k 5-13, the journal's step 32′) as a CA1 proposal reviewed slice by slice, a two-line bar, over-reach checked on the slice and the ruler",
     "decisions": [
-      "Per-slice accept is the default, exactly as fill between: 'Accept CA1 here ↵' writes k 11 and steps to the next unseen slice (k 9); 'Confirm all 11…' is a quiet secondary that asks once more and logs unseen slices 'AI, not reviewed'.",
-      "Over-reach: proposal voxels bordering a label not yet complete (Subiculum in progress) get the neutral voxel outline ('check' in the key) and a count in the bar; the gate still never takes labelled voxels.",
-      "AI said once: no 'AI' heading on the prompt sub-rail, the Inspector line is '4 prompts · k 11 (3) · k 9 (1) · Reset', the channel is a header control only, the provider sits once in the bar; the status bar shows the review progress.",
-      "Pending slices use the proposal grammar on the ruler ('review'), not the confirmed-AI mark; the orthogonal views hatch the answer's reach (k 3-13).",
+      "The state is session.ts as of step 31 (as the licence gate) with the first answer pending: nine slices k 5-13, k 11, 10 and 12 looked at, exactly the branch step 32′ that history keeps.",
+      "Per-slice accept is the default: 'Accept CA1 here ↵' writes k 11 and steps to the next unseen slice (k 9); 'Confirm all 9…' is a quiet secondary alone on the right.",
+      "The bar is two lines: progress (pips, '3 of 9 slices seen', 'then k 9', voxels, provider) and four actions (Accept, Discard, prompt undo as an icon with ⌥Z in its tooltip, Confirm all…).",
+      "Over-reach: one halo tag on the slice below the structure ('check 7 vx · ERC 4, empty · Subiculum 3') beside the neutral voxel outline; empty labels are checked against the prior's territory within 5 mm; answer slices outside the body slab (k 5) get their own 'check' run on the ruler. The kept count is in the key's tooltip.",
+      "Orthogonal views: CA1 as the session had it (fill), the answer past it in a coarser CA1 hatch with one outline around the whole answer; the axial view marks the proposed slab k 5-13 (faint tilted band between hairlines).",
       "The CA1 island keeps its ring and the inline 'island' key."
     ],
-    "mocked": "The model's answer is the mock CA1 still to trace plus a one-voxel rim (the over-reach), gated by the real rule; per-slice counts on other slices come from the mock area table; no server is called."
+    "mocked": "The model's answer on this slice is the mock CA1 still to trace plus a one-voxel rim, gated by the real rule; on other slices it is the mock CA1 on the slices empty at step 31; ERC's prior territory is the template example; no server is called."
   },
   {
     "id": "ai-consent",
@@ -23,14 +24,13 @@
   },
   {
     "id": "lesion",
-    "description": "WMH on a mock FLAIR, outline only, with T1w/T2w and a whole-slice overview below, seed rows with STRIVE types, span and mm³ bars, Fazekas",
+    "description": "WMH on a mock FLAIR, outline only, while L1's type is set: T1w and T2w at the primary's exact scale in the side column, seed rows with types printed only when not WMH, span and mm³ bars, Fazekas provisional",
     "decisions": [
       "WMH is outline only by default (no inset fill); the brush preview is the only fill; 'Outline only' shows as on.",
-      "A strip below the primary: T1w and T2w (real templates) at the same slice, centre and scale with the lesion outlines, and the whole slice with every L tag and the primary's window.",
-      "Rows came from an imported LST-AI seed as unreviewed rows ('Import…' for LST, BIANCA, SAMSEG); the open row sets the STRIVE type (WMH, lacune, infarct, PVS, exclude).",
-      "Each row: a span bar on the ruler's axial-k axis (k 113 left as the ruler reads top down) with the current k marked, and a mm³ bar on one scale.",
-      "Fazekas periventricular and deep per subject; connectivity '26-connected' in the protocol line (pack setting, recorded).",
-      "Orthogonal cuts draw outlines only so the axial band and its edge ticks read."
+      "While a type is set (row open), T1w over T2w (real templates) replace the coronal/sagittal cuts, drawn at the primary's centre and px-per-mm and cropped to the tile: true small multiples. No strip below the primary and no whole-slice tile (Fit, Z, is the overview), so the FLAIR has its height back.",
+      "Rows came from an imported LST-AI seed as unreviewed rows; a row prints its type only when it is not WMH; the span axis is labelled once ('k 113 → 84'), the per-row axis rule lightened.",
+      "Each row: a span bar on the ruler's axial-k axis with the current k marked, and a mm³ bar on one scale.",
+      "Fazekas periventricular and deep per subject, 'provisional · 4 lesions to review' while rows are unreviewed; connectivity '26-connected' in the protocol line."
     ],
     "mocked": "FLAIR is a mock made from the 1 mm MNI152 T1w template (non-monotonic intensity map, blur, noise); the six lesions are synthetic blobs with a partial-volume membership (tools/design/segmentation_flair_assets.py). T1w and T2w are the real templates on the same slice; the LST-AI seed is the mock mask itself."
   },
@@ -40,7 +40,8 @@
     "description": "Lesions at fit: the whole axial FLAIR slice in the primary with every lesion tag (Z toggles back to L1)",
     "decisions": [
       "Fit (Z) and 'L1 · 3.7×' are one segmented control in the header.",
-      "Every lesion on the slice is outlined and tagged as halo text; reviewed lesions quiet, the current active.",
+      "Every lesion on the slice is outlined and tagged as halo text at one tag size (as at L1 zoom); reviewed lesions quiet, the current active.",
+      "The side column shows the coronal and sagittal cuts through L1 with the axial band at 0.30 and edge hairlines (visible at tile scale); the type row stays closed.",
       "No brush and no range strip at fit; the Inspector keeps the list, seed and Fazekas."
     ]
   },
@@ -51,7 +52,8 @@
       "The lens is a square window (never read as the island ring), 1 px neutral rim over a halo, its caption as halo text below the rim.",
       "The island ring keeps its inline key on header line 2.",
       "⌘S wrote silently to the remembered path: the session header says 'Saved 14:33', no sheet.",
-      "Flicker keys V raw, T T1w (Space stays pan); a filter on a stroke is recorded in provenance; a pack-set filter would badge 'set by pack'."
+      "Flicker keys V raw, T T1w (Space stays pan); a filter on a stroke is recorded in provenance; a pack-set filter would badge 'set by pack'.",
+      "View aids is one line ('display only · never written · filters recorded') with the rest behind '?'; the filter and lens switches show on while they show."
     ],
     "mocked": "The filter is the generator's view-only unsharp mask of the template T2w; T1w is the template T1w."
   },
@@ -59,10 +61,11 @@
     "id": "history",
     "description": "History dock at 8 rows (about a quarter of the primary, resizable and collapsible) with signed vx bars, the kept branch as one row with its AI status and Restore",
     "decisions": [
-      "The journal is the session model: 17 steps since the 14:02 save (steps 22-38), the same count resume recovers and save reports.",
+      "One step count: '17 steps since the 14:02 save · 1 kept branch' in the dock header only (the session header says 'unsaved since 14:02', the status bar the journal's age, Autosave its size); the same 17 resume recovers and save reports.",
       "The kept branch (32′ AI confirm all, 33′ eraser) is one row at its branch point: '6 not reviewed', Restore… warns that it brings them back.",
       "Signed vx bars on one scale beside each count; label and k filters in the dock header.",
-      "Steps confirmed without a look say '· 1 not reviewed' (AI k 9) and '· 2 not reviewed' (fill between k 12-13), matching the ruler's hollow marks."
+      "Steps confirmed without a look say '· 1 not reviewed' (AI k 9) and '· 2 not reviewed' (fill between k 12-13), matching the ruler's hollow marks.",
+      "A row prints its label's name only where it changes from the row above; the swatch stays."
     ],
     "mocked": "Steps, times, sizes and voxel sets are mock; per-label undo counts come from the real rule on mock voxel sets."
   },
@@ -90,13 +93,13 @@
   },
   {
     "id": "setup",
-    "description": "Session setup: subject, session, hemisphere, rater and blinding; the grid choice with the slab drawn on a sagittal locator; a T1w-on-T2w checkerboard with an 'aligned' confirmation; Add label collapsed",
+    "description": "Session setup with the registration check in the primary: T1w in 8 mm squares over T2w at tracing zoom over the hippocampus, 'Aligned' unticked with the confirmer recorded; a 200 px slab locator; Add label collapsed",
     "decisions": [
       "Subject/session/hemisphere/rater fields name the files; blinding hides other raters' labels until submission.",
-      "The grid choice shows the 20-slice slab tilted 30° on a small sagittal T2w (k 20, k 1).",
-      "Registration: rigid T1w→T2w transform, checkerboard at the hippocampus (edges and flicker as alternatives), 'Aligned at the hippocampus' ticked.",
+      "The grid choice shows the 20-slice slab tilted 30° on a 200 px sagittal T2w, k 20 and k 1 labelled outside the slab's ends.",
+      "Registration: while section 3 is open the primary is the check (checkerboard, with T1w edges and flicker as alternatives), at tracing zoom over the hippocampus, squares anchored to the image; 'Aligned at the hippocampus' starts unticked and records the confirmer, time, transform hash and view; 'Not aligned…' re-registers or traces without T1w aids; Start tracing waits for it.",
       "'+ Add label' is collapsed; when open, only offered colours show, the refused ones behind one line."
     ],
-    "mocked": "The palette, the pack and the new label (Fimbria, id 7) are mock."
+    "mocked": "The palette, the pack and the new label (Fimbria, id 7) are mock; T1w and T2w are the templates, so the checkerboard shows a perfect registration."
   }
 ]

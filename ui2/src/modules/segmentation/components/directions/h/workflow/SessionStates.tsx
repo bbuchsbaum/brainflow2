@@ -48,7 +48,7 @@ import {
 } from '@/modules/segmentation/components/directions/h/DirectionH';
 import { ISLANDS_HERE, SLICE_K, hOrtho, hPrimary, sliceDir, islandOverlay, neighbourOverlay, strokeLabels } from '@/modules/segmentation/components/directions/h/hViews';
 import { ChoiceRow, FilePreview, OrthoColumn, PrimaryPanel, SheetPart, SideSheet, StateChip, TraceGrid } from './parts';
-import { CANDIDATES, JOURNAL, LAST_STROKE, NEW_LABEL_DEF, SAVE } from './workflowData';
+import { CANDIDATES, JOURNAL, LAST_STROKE, NEW_LABEL_DEF, REGISTRATION_CONFIRMER, SAVE } from './workflowData';
 import { RECOVERY } from '@/modules/segmentation/components/shared/session';
 
 function TraceStatus({ extra }: { extra?: React.ReactNode }) {
@@ -434,47 +434,72 @@ function SlabLocator() {
   const mid = at((Math.min(...ys) + Math.max(...ys)) / 2);
   const span = (Math.max(...ys) - Math.min(...ys)) * Math.cos((NATIVE.tiltDeg.sagittal * Math.PI) / 180) + NATIVE.spacing[2];
   return (
-    <div className="relative h-[96px] w-[128px] shrink-0 overflow-hidden rounded-sm border border-bf-border-subtle" data-testid="slab-locator" title="The 20 native slices (k 1 posterior to k 20 anterior) on a sagittal T2w, tilted 30° from the world axes">
+    <div className="relative h-[150px] w-[200px] shrink-0 overflow-hidden rounded-sm border border-bf-border-subtle" data-testid="slab-locator" title="The 20 native slices (k 1 posterior to k 20 anterior) on a sagittal T2w, tilted 30° from the world axes">
       <SliceView
         image={o.image}
         center={mid}
-        fovMm={84}
+        fovMm={78}
         crosshair={null}
         letters={false}
         overlays={[
-          { kind: 'band', through: mid, dir, widthMm: span, lengthMm: 14, ticks: false },
+          { kind: 'band', through: mid, dir, widthMm: span, lengthMm: 16, ticks: false, alpha: 0.2 },
           ...[Math.min(...ys), Math.max(...ys)].map((y) => {
             const p0 = at(y);
-            const d = `M${p0[0] - dir[0] * 14} ${p0[1] - dir[1] * 14}L${p0[0] + dir[0] * 14} ${p0[1] + dir[1] * 14}`;
-            return { kind: 'path' as const, d, className: 'stroke-bf-text-primary', width: 1, opacity: 0.9 };
+            const d = `M${p0[0] - dir[0] * 16} ${p0[1] - dir[1] * 16}L${p0[0] + dir[0] * 16} ${p0[1] + dir[1] * 16}`;
+            return { kind: 'path' as const, d, className: 'stroke-bf-text-primary', width: 1.5, opacity: 1 };
           }),
         ]}
+        overlay={(p) =>
+          // k 20 and k 1 beside the slab's ends, outside it (halo text, above the line's upper end).
+          [Math.max(...ys), Math.min(...ys)].map((y, i) => {
+            const p0 = at(y);
+            const q = p.project([p0[0] - dir[0] * 16, p0[1] - dir[1] * 16]);
+            return (
+              <span
+                key={y}
+                className="pointer-events-none absolute whitespace-nowrap font-mono text-bf-2xs leading-4 text-bf-text-primary [text-shadow:0_0_2px_var(--bf-bg-canvas),0_0_3px_var(--bf-bg-canvas),0_0_4px_var(--bf-bg-canvas)]"
+                style={{ left: q.x + (i === 0 ? -34 : 4), top: Math.max(0, q.y - 14) }}
+                data-slab-end={i === 0 ? 'k20' : 'k1'}
+              >
+                k {i === 0 ? 20 : 1}
+              </span>
+            );
+          })
+        }
         aria-label="Native slab on a sagittal T2w"
       />
-      <span className="pointer-events-none absolute bottom-0.5 left-1 font-mono text-bf-2xs text-bf-text-primary [text-shadow:0_0_3px_var(--bf-bg-canvas)]">k 20</span>
-      <span className="pointer-events-none absolute bottom-0.5 right-1 font-mono text-bf-2xs text-bf-text-primary [text-shadow:0_0_3px_var(--bf-bg-canvas)]">k 1</span>
     </div>
   );
 }
 
-/** T1w over T2w as a checkerboard at the hippocampus, so a misregistration shows as broken edges. */
-function Checkerboard() {
-  const props = { center: SCENE.hippoCentre, fovMm: 56, crosshair: null, letters: false } as const;
+/** Checker square size for the registration check (mm): several squares across the hippocampus. */
+export const CHECKER_MM = 8;
+
+/**
+ * The registration check in the primary (round 7): T1w over T2w as a
+ * checkerboard on the T2w grid at tracing zoom over the hippocampus, squares
+ * anchored to the image (not the screen), so a 1–2 mm slip shows as broken
+ * edges at the SRLM and the ventricle wall. Shown while section 3 of the
+ * sheet is open.
+ */
+function CheckerboardT1({ p }: { p: Projector }) {
+  const o = p.project([0, 0]);
+  const sq = CHECKER_MM * p.scale;
+  const mask = 'conic-gradient(black 25%, transparent 0 50%, black 0 75%, transparent 0)';
   return (
-    <div className="relative h-[120px] w-[120px] shrink-0 overflow-hidden rounded-sm border border-bf-border-subtle" data-testid="registration-check">
-      <SliceView image={DESIGN.images.corT2} {...props} aria-label="T2w under the checkerboard" />
-      <div
-        className="absolute inset-0"
-        style={{
-          WebkitMaskImage: 'conic-gradient(black 25%, transparent 0 50%, black 0 75%, transparent 0)',
-          maskImage: 'conic-gradient(black 25%, transparent 0 50%, black 0 75%, transparent 0)',
-          WebkitMaskSize: '60px 60px',
-          maskSize: '60px 60px',
-        }}
-        data-testid="checkerboard-t1"
-      >
-        <SliceView image={DESIGN.images.corT1} {...props} aria-label="T1w in the checkerboard squares" />
-      </div>
+    <div
+      className="pointer-events-none absolute inset-0"
+      style={{
+        WebkitMaskImage: mask,
+        maskImage: mask,
+        WebkitMaskSize: `${2 * sq}px ${2 * sq}px`,
+        maskSize: `${2 * sq}px ${2 * sq}px`,
+        WebkitMaskPosition: `${o.x}px ${o.y}px`,
+        maskPosition: `${o.x}px ${o.y}px`,
+      }}
+      data-testid="checkerboard-t1"
+    >
+      <SliceView image={DESIGN.images.corT1} center={SCENE.hippoCentre} fovMm={hPrimary('tracing').fovMm} crosshair={null} letters={false} aria-label="T1w in the checkerboard squares" />
     </div>
   );
 }
@@ -487,11 +512,11 @@ function SetupSheet() {
       testId="setup-sheet"
       footer={
         <>
-          <Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} title="Create the session and start step 1 of the pack" data-testid="setup-start">
+          <Button variant="primary" disabled icon={<Plus className="h-3.5 w-3.5" />} title="Confirm the registration first (section 3); then create the session and start step 1 of the pack" data-testid="setup-start">
             Start tracing
           </Button>
           <Button variant="ghost">Cancel</Button>
-          <span className="ml-auto text-bf-2xs text-bf-text-muted">grid and table are fixed once tracing starts</span>
+          <span className="ml-auto text-bf-2xs text-bf-text-muted">confirm the registration to start · grid and table are fixed then</span>
         </>
       }
     >
@@ -540,16 +565,13 @@ function SetupSheet() {
           <SlabLocator />
         </div>
       </SheetPart>
-      <SheetPart n={3} title="T1w on the T2w grid" meta="checked before tracing" testId="setup-registration">
-        <div className="flex gap-2.5">
-          <Checkerboard />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-bf-xs text-bf-text-secondary">
-            <span>
-              Rigid transform <span className="font-mono text-bf-2xs text-bf-text-muted">sub-01_ses-01_from-T1w_to-T2w_xfm.mat</span>
-            </span>
-            <span className="text-bf-2xs text-bf-text-muted">
-              Checkerboard of T1w and T2w at the hippocampus: edges should run straight across the squares.
-            </span>
+      <SheetPart n={3} title="T1w on the T2w grid" meta="shown in the image now" testId="setup-registration">
+        <div className="flex flex-col gap-1.5 text-bf-xs text-bf-text-secondary" data-focused>
+          <span>
+            Rigid transform <span className="font-mono text-bf-2xs text-bf-text-muted">sub-01_ses-01_from-T1w_to-T2w_xfm.mat</span>
+          </span>
+          <span className="text-bf-2xs text-bf-text-muted">Edges should run straight across the squares at the SRLM and the ventricle wall.</span>
+          <div className="flex items-center gap-2">
             <SegmentedControl
               aria-label="Registration view"
               size="sm"
@@ -561,9 +583,15 @@ function SetupSheet() {
                 { value: 'flicker', label: 'Flicker' },
               ]}
             />
-            <Checkbox defaultChecked data-testid="registration-aligned">
-              Aligned at the hippocampus
-            </Checkbox>
+            <Button variant="ghost" size="sm" className="ml-auto" title="Re-register (opens the transform), or trace without the T1w aids: T1w is then hidden while tracing and the choice is recorded" data-testid="registration-not-aligned">
+              Not aligned…
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox data-testid="registration-aligned">Aligned at the hippocampus</Checkbox>
+            <span className="ml-auto text-bf-2xs text-bf-text-muted" data-testid="registration-confirmer" title={`Recorded in provenance when ticked: ${REGISTRATION_CONFIRMER}, the time, the transform's hash and the view used`}>
+              recorded with your name and time
+            </span>
           </div>
         </div>
       </SheetPart>
@@ -635,7 +663,8 @@ function SetupSheet() {
 
 export function SetupState() {
   const empty = primaryView('empty');
-  const view = { ...empty, crosshair: null };
+  // The registration check fills the primary at tracing zoom over the hippocampus while section 3 is open.
+  const view = { ...empty, center: SCENE.hippoCentre, fovMm: hPrimary('tracing').fovMm, crosshair: null };
   return (
     <HShell testState="setup" mode="trace" status={<StatusItem label="Session" value="not started" mono={false} />} rail={<ToolRail state="empty" />} inspector={<SetupSheet />}>
       <TraceGrid
@@ -644,9 +673,22 @@ export function SetupState() {
             chip={<StateChip>Set up</StateChip>}
             title={<GeometryTitle image={view.image} />}
             right={<span className="font-mono text-bf-2xs text-bf-text-muted">{zoomFactor(view.fovMm)}</span>}
-            line2={<span className="px-1 text-bf-xs text-bf-text-muted">The grid the labels will live on: 20 native slices, k 1 posterior to k 20 anterior</span>}
+            line2={
+              <span className="flex min-w-0 flex-1 items-center gap-2 px-1 text-bf-xs text-bf-text-muted" data-testid="registration-line">
+                <span className="text-bf-text-secondary">Registration check</span>
+                <Sep />
+                <span>T1w in alternate {CHECKER_MM} mm squares over T2w, on the T2w grid</span>
+                <Sep />
+                <span>not confirmed</span>
+              </span>
+            }
             view={view}
-            ariaLabel="Primary view, the reference grid"
+            overlay={(p) => (
+              <div className="absolute inset-0" data-testid="registration-check">
+                <CheckerboardT1 p={p} />
+              </div>
+            )}
+            ariaLabel="Primary view, the registration check"
           />
         }
       />

@@ -326,10 +326,22 @@ export function overreach(
   target: number,
   incomplete: ReadonlySet<number>,
   slice: { k: number; expected: readonly [number, number] | null },
-): { voxels: Voxel[]; byLabel: Array<[number, number]>; outsideRange: boolean } {
+  options: { emptyMarginVx?: number } = {},
+): { voxels: Voxel[]; labels: number[]; byLabel: Array<[number, number]>; outsideRange: boolean } {
   const outsideRange = !!slice.expected && (slice.k < slice.expected[0] || slice.k > slice.expected[1]);
   const voxels: Voxel[] = [];
+  const labels: number[] = [];
   const by = new Map<number, number>();
+  // Round 7: a label with no voxels yet cannot be touched, so its expected
+  // territory is the prior's voxels widened by a margin (ERC at 0 vx).
+  const margin = options.emptyMarginVx ?? EMPTY_PRIOR_MARGIN_VX;
+  const present = new Set(labelsNow.values());
+  const emptyPrior: Array<[number, number, number]> = [];
+  for (const [k, id] of prior) {
+    if (id === target || !incomplete.has(id) || present.has(id)) continue;
+    const [c, r] = k.split(',').map(Number);
+    emptyPrior.push([c, r, id]);
+  }
   for (const v of added) {
     let hit = 0;
     const p = prior.get(key(v[0], v[1])) ?? 0;
@@ -339,12 +351,34 @@ export function overreach(
         const n = labelsNow.get(key(v[0] + dc, v[1] + dr)) ?? 0;
         if (n !== 0 && n !== target && incomplete.has(n)) hit = n;
       }
+    for (const [c, r, id] of emptyPrior) {
+      if (hit) break;
+      if (Math.max(Math.abs(c - v[0]), Math.abs(r - v[1])) <= margin) hit = id;
+    }
     if (outsideRange || hit) {
       voxels.push(v);
+      labels.push(hit);
       if (hit) by.set(hit, (by.get(hit) ?? 0) + 1);
     }
   }
-  return { voxels, byLabel: [...by].sort((a, b) => b[1] - a[1]), outsideRange };
+  return { voxels, labels, byLabel: [...by].sort((a, b) => b[1] - a[1]), outsideRange };
+}
+
+/**
+ * How near (Chebyshev, display voxels) a proposal voxel must come to the
+ * prior territory of a label that is still empty to be flagged (round 7,
+ * operator r6 #2: ERC at 0 vx was never checked). 5 mm on the 1 mm mock grid; a
+ * real pack states it in mm and the rule converts by the in-plane spacing.
+ */
+export const EMPTY_PRIOR_MARGIN_VX = 5;
+
+/**
+ * Slices of a proposal outside the step's expected k-range (round 7: the AI
+ * answer reaching past the body slab is a "check" on the ruler, not a refusal).
+ */
+export function slicesOutside(slices: readonly number[], expected: readonly [number, number] | null): number[] {
+  if (!expected) return [];
+  return slices.filter((k) => k < expected[0] || k > expected[1]).sort((a, b) => a - b);
 }
 
 /**

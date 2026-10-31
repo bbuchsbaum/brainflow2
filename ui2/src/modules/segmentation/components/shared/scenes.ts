@@ -17,7 +17,7 @@ import {
   centreOf,
   paintInto,
 } from './geometry';
-import { BRUSH, CA1, CA23, DG, QUIET_LABELS, REVIEW_ROWS, SRLM, labelColor } from './mockData';
+import { BRUSH, CA1, CA23, DG, ERC, QUIET_LABELS, REVIEW_ROWS, SRLM, labelColor } from './mockData';
 import type { Overlay } from './SliceView';
 import type { LabelVoxel, Point, Voxel } from './types';
 
@@ -39,9 +39,13 @@ const A = DESIGN.labels.cor(DESIGN.primaryJ);
 const B = DESIGN.labels.raterB;
 const hippoCentre = DESIGN.hippoCentre as Point;
 
-/** Rater A's slice with CA1 only partly traced (upper half done). */
+/**
+ * Rater A's slice mid-session: CA1 only partly traced (upper half done) and
+ * ERC not started (round 7: it was drawn while the table, from
+ * `LABEL_VOLUMES`, said 0 vx; the volumes are the single source).
+ */
 function withPartialCa1(labels: readonly LabelVoxel[]): LabelVoxel[] {
-  return labels.filter((v) => v[2] !== CA1 || v[1] < hippoCentre[1] - 1);
+  return labels.filter((v) => v[2] !== ERC && (v[2] !== CA1 || v[1] < hippoCentre[1] - 1));
 }
 
 const tracingBase = withPartialCa1(A);

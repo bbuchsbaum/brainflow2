@@ -29,6 +29,7 @@ import {
   SUB,
   WMH,
   areaByNativeSlice,
+  yOfJ,
 } from '@/modules/segmentation/components/shared/mockData';
 import { SCENE } from '@/modules/segmentation/components/shared/scenes';
 import type { Point, Voxel } from '@/modules/segmentation/components/shared/types';
@@ -41,6 +42,7 @@ import {
   nextUnseen,
   overreach,
   saveCheck,
+  slicesOutside,
   itksnapTxt,
   labelVolumeHeader,
   rangeFootprint,
@@ -49,6 +51,7 @@ import {
   type TableLabel,
 } from '@/modules/segmentation/components/shared/workflowRules';
 import {
+  BEFORE_AI,
   BRANCH as SESSION_BRANCH,
   JOURNAL_STEP,
   LABEL_VOXELS,
@@ -57,6 +60,7 @@ import {
   branchUnreviewed,
   journal,
   provenanceTable,
+  sessionSliceStatus,
   unreviewedSlices,
   type JournalStep,
   type JournalTool,
@@ -128,25 +132,45 @@ export const AI_PROMPTS: readonly Prompt[] = [
   { id: 4, kind: 'point+', points: [centreOf(missingMain)], k: PRIMARY_K - 2 },
 ];
 
-/** Native slices the 3D result touches and how many voxels it adds on each (mock: CA1's final area where not yet traced). */
-const aiSlices = NATIVE_SLICES_J.map((j) => kOfJ(j)).filter((k) => k >= 3 && k <= 13).reverse();
+/**
+ * Round 7: the AI state is one moment of the session model, just after step
+ * 31 (`BEFORE_AI`, as the licence gate), with the first answer pending. The
+ * journal's next step (32′, later undone and kept as a branch) is exactly
+ * this answer: nine slices, k 5–13, three of them (k 11, 10, 12) looked at.
+ */
+export const AI_AS_OF = BEFORE_AI;
+const branchAnswer = SESSION_BRANCH.steps[0];
+const aiSlices = (() => {
+  const step = journal(0).find((s) => s.id === branchAnswer)!;
+  return [...step.ks].sort((a, b) => b - a);
+})();
 const finalCa1 = areaByNativeSlice(CA1, 'all');
-const tracedCa1 = areaByNativeSlice(CA1);
+/** CA1 as traced at that moment: slices first written later are still empty. */
+const tracedCa1 = areaByNativeSlice(CA1).map((v, i) => (sessionSliceStatus(NATIVE_SLICES_J[i], AI_AS_OF) === 'empty' ? 0 : v));
 
 /** Review order of the answer's slices: outward from the prompted slice (k 11, 10, 12, 9, 13, …). */
 const aiOrder = [...aiSlices].sort((a, b) => Math.abs(a - PRIMARY_K) - Math.abs(b - PRIMARY_K) || a - b);
-const aiSeen = aiOrder.slice(0, 3);
+/** The slices the branch step later logged "AI, reviewed": the ones looked at before Confirm all. */
+const aiSeen = aiOrder.filter((k) => journal(0).find((s) => s.id === branchAnswer)!.writes!.some((w) => w.k === k && w.prov === 'ai-reviewed'));
+
+/** The step's expected k-range: the body slab between the head | body and body | tail limits (k 6–14). */
+export const BODY_K: readonly [number, number] = (() => {
+  const ks = NATIVE_SLICES_J.map((j, i) => ({ k: i + 1, y: yOfJ(j) })).filter((x) => x.y >= PROTOCOL.slab.fromY && x.y <= PROTOCOL.slab.toY).map((x) => x.k);
+  return [Math.min(...ks), Math.max(...ks)];
+})();
 
 /**
  * Over-reach: proposal voxels on this slice that border a label not yet
- * complete (Subiculum in progress, ERC empty), or that the pack's prior (its
- * k-matched example) gives to one.
+ * complete (Subiculum in progress), sit near where the pack's prior puts a
+ * label still empty (ERC, 0 vx), or that the prior gives to one; and whole
+ * slices of the answer outside the body slab (k 5).
  */
 const INCOMPLETE = new Set([SUB, ERC]);
 const reach = overreach(gate.added, labelIndex(SCENE.tracing.base), labelIndex(DESIGN.labels.cor(DESIGN.primaryJ)), CA1, INCOMPLETE, {
   k: PRIMARY_K,
-  expected: PROTOCOL.expectedK[CA1] ?? null,
+  expected: BODY_K,
 });
+const outside = slicesOutside(aiSlices, BODY_K);
 
 export const AI = {
   provider: 'nnInteractive',
@@ -173,6 +197,10 @@ export const AI = {
   next: nextUnseen(aiOrder, aiSeen, PRIMARY_K),
   /** Proposal voxels in territory of a label not yet complete (a separate review mark). */
   overreach: reach,
+  /** Answer slices outside the body slab, with the voxels proposed on each (a "check" on the ruler). */
+  outside: outside.map((k) => ({ k, vx: Math.max(0, finalCa1[k - 1] - tracedCa1[k - 1]) })),
+  /** The step the answer becomes if confirmed whole: the kept branch's first step (32′). */
+  asOf: AI_AS_OF,
   /** Per-slice values for the CA1 row while the result is pending: traced + proposed. */
   matrix: {
     values: finalCa1.map((v, i) => (aiSlices.includes(i + 1) ? Math.max(v, tracedCa1[i]) : tracedCa1[i])),
@@ -348,5 +376,8 @@ export const CANDIDATES = colourCandidates(
 );
 
 export const NEW_LABEL_DEF = EXTRA_LABEL_DEFS.find((d) => d.id === NEW_LABEL)!;
+
+/** Who confirms the registration check (recorded in provenance with the time, the transform's hash and the view used). */
+export const REGISTRATION_CONFIRMER = 'Rater A';
 
 export { LABEL_BY_ID, SUB };

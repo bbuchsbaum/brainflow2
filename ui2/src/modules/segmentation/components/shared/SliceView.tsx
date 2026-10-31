@@ -105,6 +105,12 @@ export interface VoxelOverlay {
   bare?: boolean;
   /** Diagonal hatch in `color` (proposals, refused strokes). */
   hatch?: boolean;
+  /**
+   * Round 7: hatch pitch in screen px (default 5; the stripe is 0.32 of it).
+   * Small orthogonal tiles use a coarser, bolder hatch so a 2–3 voxel strip
+   * still reads as hatched, not as an outline or a tint.
+   */
+  hatchPitch?: number;
   /** Draw every voxel's own square edge (footprints). */
   cells?: boolean;
   opacity?: number;
@@ -150,6 +156,10 @@ export interface BandOverlay {
   lengthMm?: number;
   /** Short tilted ticks where the band's centre line meets the frame (the plane's tilt, outside the anatomy). */
   ticks?: boolean;
+  /** Fill opacity (default `BAND_ALPHA`); round 7: thin 1-voxel bands on small tiles use a larger step. */
+  alpha?: number;
+  /** Round 7: a faint hairline on each long edge, so a thin band reads at tile scale (outlines stay above it). */
+  edges?: boolean;
 }
 
 /**
@@ -195,6 +205,10 @@ export type Overlay =
   | PathOverlay
   | IslandsOverlay;
 
+/** Default hatch pitch (screen px) and the stripe's share of it. */
+const HATCH_PITCH = 5;
+const HATCH_STRIPE = 0.32;
+
 /** Fill opacity of the native-slice band within its window. */
 export const BAND_ALPHA = 0.14;
 
@@ -227,6 +241,11 @@ export interface SliceViewProps {
   image: SliceImage;
   /** Millimetres visible across the shorter side of the view. */
   fovMm: number;
+  /**
+   * Round 7: a fixed scale (screen px per display mm) instead of `fovMm`, so
+   * small multiples draw at another view's exact scale, cropped to the tile.
+   */
+  pxPerMm?: number | null;
   /** View centre, display coords. */
   center: Point;
   overlays?: readonly Overlay[];
@@ -335,6 +354,7 @@ function useElementSize<T extends HTMLElement>() {
 export function SliceView({
   image,
   fovMm,
+  pxPerMm = null,
   center,
   overlays = [],
   crosshair,
@@ -368,7 +388,7 @@ export function SliceView({
         c: [(fit.box.x0 + fit.box.x1) / 2, (fit.box.y0 + fit.box.y1) / 2] as Point,
       }
     : null;
-  const s = fitted ? fitted.s : Math.min(vw, vh) / fovMm;
+  const s = fitted ? fitted.s : pxPerMm && pxPerMm > 0 ? pxPerMm : Math.min(vw, vh) / fovMm;
   const cc = fitted ? fitted.c : center;
   const tx = vw / 2 - cc[0] * s;
   const ty = vh / 2 - cc[1] * s;
@@ -398,12 +418,15 @@ export function SliceView({
     return parts.join('');
   }, [grid, s, x0, x1, y0, y1, image.cols, image.rows]);
 
+  // Hatch patterns keyed by colour and pitch ("colour|pitch").
+  const hatchKey = (color: string, pitch?: number) => `${color}|${pitch ?? HATCH_PITCH}`;
   const hatchColors = new Map<string, string>();
   overlays.forEach((o) => {
-    if (o.kind === 'voxels' && o.hatch && !hatchColors.has(o.color)) hatchColors.set(o.color, `${uid}-hatch-${hatchColors.size}`);
+    if (o.kind === 'voxels' && o.hatch && !hatchColors.has(hatchKey(o.color, o.hatchPitch)))
+      hatchColors.set(hatchKey(o.color, o.hatchPitch), `${uid}-hatch-${hatchColors.size}`);
   });
-  if (brush?.tone === 'blocked' && !hatchColors.has('var(--bf-warning)'))
-    hatchColors.set('var(--bf-warning)', `${uid}-hatch-${hatchColors.size}`);
+  if (brush?.tone === 'blocked' && !hatchColors.has(hatchKey('var(--bf-warning)')))
+    hatchColors.set(hatchKey('var(--bf-warning)'), `${uid}-hatch-${hatchColors.size}`);
   const hasReview = overlays.some((o) => o.kind === 'review');
 
   const ch = crosshair ? projector.project(crosshair) : null;
@@ -434,18 +457,15 @@ export function SliceView({
     >
       <svg width={width} height={height} className="absolute inset-0 block" aria-hidden>
         <defs>
-          {[...hatchColors].map(([color, id]) => (
-            <pattern
-              key={id}
-              id={id}
-              patternUnits="userSpaceOnUse"
-              width={px(5)}
-              height={px(5)}
-              patternTransform="rotate(45)"
-            >
-              <rect width={px(1.6)} height={px(5)} style={{ fill: color }} />
-            </pattern>
-          ))}
+          {[...hatchColors].map(([k, id]) => {
+            const [color, pitchS] = k.split('|');
+            const pitch = Number(pitchS);
+            return (
+              <pattern key={id} id={id} patternUnits="userSpaceOnUse" width={px(pitch)} height={px(pitch)} patternTransform="rotate(45)">
+                <rect width={px(pitch * HATCH_STRIPE)} height={px(pitch)} style={{ fill: color }} />
+              </pattern>
+            );
+          })}
           {hasReview ? <ReviewPatterns uid={uid} px={px} /> : null}
         </defs>
         <g transform={`translate(${tx} ${ty}) scale(${s})`}>
@@ -493,13 +513,19 @@ export function SliceView({
                 [cx - ux * L - nx * hw, cy - uy * L - ny * hw],
               ];
               return (
-                <polygon
-                  key={i}
-                  points={pts.map((q) => q.join(',')).join(' ')}
-                  className="fill-bf-text-primary"
-                  fillOpacity={BAND_ALPHA}
-                  data-band
-                />
+                <g key={i}>
+                  <polygon points={pts.map((q) => q.join(',')).join(' ')} className="fill-bf-text-primary" fillOpacity={o.alpha ?? BAND_ALPHA} data-band />
+                  {o.edges ? (
+                    <path
+                      d={`M${pts[0].join(' ')}L${pts[1].join(' ')}M${pts[3].join(' ')}L${pts[2].join(' ')}`}
+                      fill="none"
+                      className="stroke-bf-text-primary"
+                      strokeOpacity={0.45}
+                      strokeWidth={px(1)}
+                      data-band-edges
+                    />
+                  ) : null}
+                </g>
               );
             }
             if (o.kind === 'labels') return <LabelLayer key={i} o={o} px={px} voxelPx={s} />;
@@ -532,7 +558,7 @@ export function SliceView({
             return (
               <g key={i} opacity={o.opacity ?? 1}>
                 {o.fill ? <path d={fillD} style={{ fill: o.color }} fillOpacity={o.fill} /> : null}
-                {o.hatch ? <path d={fillD} fill={`url(#${hatchColors.get(o.color)})`} /> : null}
+                {o.hatch ? <path d={fillD} fill={`url(#${hatchColors.get(hatchKey(o.color, o.hatchPitch))})`} /> : null}
                 {o.cells ? (
                   <path d={fillD} fill="none" style={{ stroke: o.color }} strokeWidth={px(1)} strokeOpacity={0.55} />
                 ) : null}
@@ -557,7 +583,7 @@ export function SliceView({
             <g>
               {/* The exact voxels the brush writes: a light preview fill, so the voxels underneath stay readable. */}
               {brush?.tone === 'blocked' ? (
-                <path d={voxelFillPath(footprint)} fill={`url(#${hatchColors.get('var(--bf-warning)')})`} />
+                <path d={voxelFillPath(footprint)} fill={`url(#${hatchColors.get(hatchKey('var(--bf-warning)'))})`} />
               ) : (
                 <path
                   d={voxelFillPath(footprint)}

@@ -25,13 +25,12 @@ import clsx from 'clsx';
 import { AlertTriangle, Box, Check, CircleMinus, CirclePlus, Lasso, Spline, Undo2 } from 'lucide-react';
 import { Button, Checkbox, IconButton } from '@/components/ui/bf';
 import { ProposalPill } from '@/modules/segmentation/components/shared/ProposalParts';
-import { SliceView, type Projector } from '@/modules/segmentation/components/shared/SliceView';
-import type { LabelVoxel } from '@/modules/segmentation/components/shared/types';
+import { SliceView, type Overlay, type Projector } from '@/modules/segmentation/components/shared/SliceView';
 import { DESIGN } from '@/modules/segmentation/__design__/designData';
-import { BEFORE_AI } from '@/modules/segmentation/components/shared/session';
+import { BEFORE_AI, sessionSliceStatus } from '@/modules/segmentation/components/shared/session';
 import { StatusItem, Swatch, ViewportFrame } from '@/modules/segmentation/components/shared/chrome';
-import { fmtInt, fmtMm } from '@/modules/segmentation/components/shared/geometry';
-import { CA1, LABEL_BY_ID, NATIVE, NATIVE_SLICES_J } from '@/modules/segmentation/components/shared/mockData';
+import { fmtInt, fmtMm, worldToDisplay } from '@/modules/segmentation/components/shared/geometry';
+import { CA1, LABEL_BY_ID, LABEL_VOLUMES, NATIVE, NATIVE_SLICES_J, labelColor, yOfJ } from '@/modules/segmentation/components/shared/mockData';
 import { CROSSHAIR_WORLD, OVERLAYS, SCENE } from '@/modules/segmentation/components/shared/scenes';
 import { zoomFactor } from '@/modules/segmentation/components/shared/views';
 import { promptSign, type Prompt } from '@/modules/segmentation/components/shared/workflowRules';
@@ -50,9 +49,9 @@ import {
   TextToggle,
   ToolRail,
 } from '@/modules/segmentation/components/directions/h/DirectionH';
-import { ISLANDS_HERE, SLICE_K, hOrtho, hPrimary, islandOverlay, strokeLabels } from '@/modules/segmentation/components/directions/h/hViews';
+import { ISLANDS_HERE, SLICE_K, STRUCTURE_BOX, hOrtho, hPrimary, islandOverlay, sliceDir, strokeLabels } from '@/modules/segmentation/components/directions/h/hViews';
 import { FilePreview, OrthoColumn, PrimaryPanel, SheetPart, SideSheet, StateChip, TraceGrid } from './parts';
-import { AI } from './workflowData';
+import { AI, BODY_K } from './workflowData';
 
 const CA1_DEF = LABEL_BY_ID.get(CA1)!;
 
@@ -163,13 +162,17 @@ function PromptKey() {
         </svg>
         exclude
       </span>
-      <span className="flex items-center gap-1" title="Voxels the model wanted that another label holds: not taken">
+      <span
+        className="flex items-center gap-1"
+        title={`Voxels the model wanted that another label holds: not taken. Here ${AI.protected.length} vx kept in ${AI.protectedBy.map(([id, n]) => `${LABEL_BY_ID.get(id)!.name} ${n}`).join(', ')}.`}
+        data-testid="ai-protected"
+      >
         <svg width={9} height={9} aria-hidden>
           <path d="M2 2L7 7M7 2L2 7" className="stroke-bf-text-primary" strokeWidth={1.25} />
         </svg>
         kept
       </span>
-      <span className="flex items-center gap-1" title="Proposed voxels that border a label not complete yet (or lie outside the pack's range): look before accepting">
+      <span className="flex items-center gap-1" title="Proposed voxels that border a label not complete yet, or sit where the prior puts a label still empty; slices outside the step's range are marked check on the ruler. Look before accepting">
         <svg width={11} height={9} aria-hidden>
           <rect x={1} y={1} width={9} height={7} fill="none" className="stroke-bf-text-primary" strokeWidth={1.25} />
         </svg>
@@ -213,18 +216,17 @@ function PromptStrip() {
 }
 
 /**
- * The proposal bar, as fill between's: per-slice review progress, "Accept
- * CA1 here ↵" (writes this slice, then steps to the next unseen slice),
- * Discard, prompt undo, and a subordinate "Confirm all…" that asks once
- * more and logs unseen slices "AI, not reviewed". The provider sits here
- * once, quietly; the over-reach count beside what was kept.
+ * The proposal bar, as fill between's. Round 7 (trimmed): one progress line
+ * (per-slice pips, "3 of 9 seen · next k 9", the voxel count, the provider
+ * once at the right) and one action line: Accept and Discard on the left,
+ * prompt undo as an icon (⌥Z, its count in the tooltip), and the quiet
+ * "Confirm all…" alone on the right. The over-reach count is on the slice
+ * (halo tag beside its outline), the kept count in the key's tooltip.
  */
 function AiBar() {
   const seen = AI.seen.length;
   const total = AI.slices.length;
   const unseen = total - seen;
-  const kept = AI.protected.length;
-  const reach = AI.overreach;
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-t border-bf-border-subtle bg-bf-bg-panel px-2 py-1.5" data-testid="ai-bar">
       <div className="flex min-w-0 items-center gap-2 text-bf-xs">
@@ -236,9 +238,12 @@ function AiBar() {
         <span className="whitespace-nowrap text-bf-text-primary" data-testid="ai-seen">
           {seen} of {total} slices seen
         </span>
-        <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted">
-          +{fmtInt(AI.addedTotal)} vx · +{AI.added.length} here
-        </span>
+        {AI.next ? (
+          <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted" data-testid="ai-next" title="Enter accepts this slice and goes there">
+            then k {AI.next}
+          </span>
+        ) : null}
+        <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted">+{fmtInt(AI.addedTotal)} vx</span>
         <span
           className="ml-auto whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted"
           title={`Sent: the ${AI.channel} crop and ${AI.prompts.length} prompts to ${AI.server} (this computer). Weights ${AI.licence}, acknowledged 31 Oct.`}
@@ -247,7 +252,7 @@ function AiBar() {
           {AI.provider} {AI.version} · local · {AI.latencyS.toFixed(2)} s
         </span>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5" data-testid="ai-actions">
         <Button
           variant="primary"
           icon={<Swatch color={CA1_DEF.color} size={8} />}
@@ -256,35 +261,20 @@ function AiBar() {
         >
           Accept CA1 here ↵
         </Button>
-        {AI.next ? (
-          <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted" data-testid="ai-next">
-            then k {AI.next}
-          </span>
-        ) : null}
         <Button variant="ghost" title="Discard the proposal and keep the prompts (Esc)">
           Discard
         </Button>
         <IconButton
-          aria-label="Undo last prompt"
+          aria-label="Undo last prompt (⌥Z)"
           title={`Undo the last prompt (⌥Z): the model answers again. ${AI.interactionSteps} prompts so far; document undo (⌘Z) is separate and untouched.`}
           icon={<Undo2 />}
           variant="ghost"
+          size="sm"
           data-testid="prompt-undo"
         />
-        <span className="whitespace-nowrap text-bf-2xs text-bf-text-muted">prompt undo · {AI.interactionSteps}</span>
-        <span className="ml-auto flex min-w-0 items-center gap-2 whitespace-nowrap text-bf-2xs text-bf-text-muted">
-          {reach.voxels.length ? (
-            <span className="text-bf-text-secondary" data-testid="ai-overreach" title="Proposed voxels next to a label that is not complete yet: the model may have run into its territory. Look before accepting.">
-              check {reach.voxels.length} vx at {reach.byLabel.map(([id]) => LABEL_BY_ID.get(id)!.name).join(', ')}
-            </span>
-          ) : null}
-          <span data-testid="ai-protected" title="The proposal never takes voxels another label holds; locked labels are never touched">
-            {kept} vx kept in {AI.protectedBy.map(([id, n]) => `${LABEL_BY_ID.get(id)!.name} ${n}`).join(', ')}
-          </span>
-        </span>
         <Button
           variant="ghost"
-          className="text-bf-text-muted"
+          className="ml-auto text-bf-text-muted"
           title={`Write all ${total} slices now. ${unseen} slices you have not looked at are written as "AI, not reviewed": hollow on the ruler, warned at save, and they block Mark CA1 complete. Asks once more.`}
           data-testid="ai-confirm-all"
         >
@@ -292,6 +282,35 @@ function AiBar() {
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Over-reach counts on the slice: one halo tag per label beside its flagged
+ * voxels ("check 3 · Subiculum"), as the "last edit" tag; no chip, no colour.
+ */
+function OverreachTags({ p }: { p: Projector }) {
+  // One tag below the structure's extent, under the flagged voxels, with a hairline leader.
+  const vs = AI.overreach.voxels.filter((_, i) => AI.overreach.labels[i] !== 0);
+  if (!vs.length) return null;
+  const col = vs.reduce((sum, v) => sum + v[0], 0) / vs.length + 0.5;
+  const bottom = Math.max(...vs.map((v) => v[1])) + 1;
+  const from = p.project([col, bottom + 0.2]);
+  const to = p.project([col, Math.max(bottom + 2, STRUCTURE_BOX.y1 + 0.5)]);
+  const parts = AI.overreach.byLabel.map(([id, n]) => `${LABEL_BY_ID.get(id)!.name} ${n}${(LABEL_VOLUMES[id]?.now ?? 0) === 0 ? ', empty' : ''}`);
+  return (
+    <span data-testid="ai-overreach" title="Proposed voxels next to a label that is not complete yet, or near where the pack's prior puts a label still empty: the model may have run into its territory. Look before accepting; nothing is refused.">
+      <svg className="pointer-events-none absolute inset-0" width={p.width} height={p.height} aria-hidden>
+        <path d={`M${from.x} ${from.y}V${to.y}`} className="stroke-bf-bg-canvas" strokeWidth={3} strokeOpacity={0.6} />
+        <path d={`M${from.x} ${from.y}V${to.y}`} className="stroke-bf-text-primary" strokeWidth={1} />
+      </svg>
+      <span
+        className="pointer-events-none absolute whitespace-nowrap font-mono text-bf-2xs leading-4 text-bf-text-primary [text-shadow:0_0_2px_var(--bf-bg-canvas),0_0_3px_var(--bf-bg-canvas),0_0_4px_var(--bf-bg-canvas)]"
+        style={{ left: to.x - 6, top: to.y + 1 }}
+      >
+        check {vs.length} vx · {parts.join(' · ')}
+      </span>
+    </span>
   );
 }
 
@@ -322,14 +341,22 @@ function AiSection() {
   );
 }
 
-/** Ruler marks for the AI result: seen slices solid, unseen hollow "AI". */
+/**
+ * Ruler marks for the pending answer: seen slices solid, unseen hollow
+ * ("review"), and answer slices outside the body slab hollow with their own
+ * caption ("check"), so the run reads apart.
+ */
 const AI_MARKS = Object.fromEntries(
-  AI.slices.map((k) => [
-    k,
-    AI.seen.includes(k)
-      ? { mark: 'solid' as const, title: `k ${k} · AI proposal, seen` }
-      : { mark: 'open' as const, why: 'review', title: `k ${k} · proposed, not seen yet` },
-  ]),
+  AI.slices.map((k) => {
+    const out = AI.outside.find((o) => o.k === k);
+    if (out) return [k, { mark: 'open' as const, why: 'check', title: `k ${k} · proposed, outside the body slab k ${BODY_K[0]}–${BODY_K[1]}: ${out.vx} vx to check` }];
+    return [
+      k,
+      AI.seen.includes(k)
+        ? { mark: 'solid' as const, title: `k ${k} · AI proposal, seen` }
+        : { mark: 'open' as const, why: 'review', title: `k ${k} · proposed, not seen yet` },
+    ];
+  }),
 );
 
 function AiStatus({ setUp = true }: { setUp?: boolean }) {
@@ -400,8 +427,13 @@ export function AiPromptState() {
             right={<HeaderRight fovMm={view.fovMm} />}
             line2={<PromptStrip />}
             view={view}
-            overlay={(p) => <PromptMarks p={p} prompts={AI.prompts} k={SLICE_K} />}
-            ruler={<SliceRuler state="tracing" marks={AI_MARKS} />}
+            overlay={(p) => (
+              <>
+                <PromptMarks p={p} prompts={AI.prompts} k={SLICE_K} />
+                <OverreachTags p={p} />
+              </>
+            )}
+            ruler={<SliceRuler state="tracing" marks={AI_MARKS} asOf={AI.asOf} />}
             below={<AiBar />}
           />
         }
@@ -412,33 +444,74 @@ export function AiPromptState() {
 }
 
 /**
- * The orthogonal views show the 3D answer: CA1 as traced, and the proposed
- * voxels in CA1's proposal hatch, so its extent across k reads at a glance.
+ * The orthogonal views show the 3D answer: CA1 as traced (fill and outline),
+ * and past it the proposed voxels in a coarser, bolder CA1 hatch (round 7: the
+ * default pitch collapsed to an outline at this scale) with one thin outline
+ * around the whole answer, so its reach across k reads at a glance. The
+ * axial view also marks the proposed slab (k 5–13) as a faint band between
+ * two hairlines, the slab's tilt with it.
  */
+export const ORTHO_HATCH_PITCH = 6.5;
+
 function AiOrtho() {
   const o = hOrtho('tracing');
-  const added = (all: readonly LabelVoxel[], traced: readonly LabelVoxel[]) => {
-    const have = new Set(traced.filter((v) => v[2] === CA1).map(([c, r]) => `${c},${r}`));
-    return all.filter((v) => v[2] === CA1 && !have.has(`${v[0]},${v[1]}`)).map(([c, r]) => [c, r] as const);
-  };
+  const ny = DESIGN.grid.dims[1];
+  const js = AI.slices.map((k) => NATIVE_SLICES_J[k - 1]);
+  // Native slice k of a template j (each k spans NATIVE.stepJ template slices).
+  const kOfTemplateJ = (j: number) => NATIVE_SLICES_J.findIndex((j0) => j >= j0 && j < j0 + NATIVE.stepJ) + 1;
   const panel = (plane: 'axial' | 'sagittal') => {
     const p = o[plane];
-    // Only the slices the result spans (k 5–13): template j of each displayed voxel, from the display row (axial) or column (sagittal).
-    const ny = DESIGN.grid.dims[1];
-    const js = AI.slices.map((k) => NATIVE_SLICES_J[k - 1]);
-    const [j0, j1] = [Math.min(...js), Math.max(...js) + NATIVE.stepJ - 1];
-    const inSpan = (v: readonly [number, number]) => {
-      const j = ny - 1 - (plane === 'axial' ? v[1] : v[0]);
-      return j >= j0 && j <= j1;
-    };
-    const vs = (plane === 'axial' ? added(DESIGN.labels.axAll, DESIGN.labels.axTraced) : added(DESIGN.labels.sagAll, DESIGN.labels.sagTraced)).filter(inSpan);
+    // CA1 as the session had it at the AI moment (slices first written later are empty), and the answer on the empty slices it spans.
+    const kOf = (v: readonly [number, number]) => kOfTemplateJ(ny - 1 - (plane === 'axial' ? v[1] : v[0]));
+    const all = (plane === 'axial' ? DESIGN.labels.axAll : DESIGN.labels.sagAll).filter((v) => v[2] === CA1).map(([c, r]) => [c, r] as const);
+    const emptyThen = (k: number) => k > 0 && sessionSliceStatus(NATIVE_SLICES_J[k - 1], AI.asOf) === 'empty';
+    const traced = all.filter((v) => !emptyThen(kOf(v)));
+    const vs = all.filter((v) => emptyThen(kOf(v)) && AI.slices.includes(kOf(v)));
+    const colour = labelColor(CA1);
+    const slab: Overlay[] = [];
+    if (plane === 'axial') {
+      // The proposed slab: from the front of k 13 to the back of k 5, tilted with the native slices.
+      const [x0, , z0] = CROSSHAIR_WORLD;
+      const yA = yOfJ(Math.max(...js) + NATIVE.stepJ - 1) + 0.5;
+      const yP = yOfJ(Math.min(...js)) - 0.5;
+      const mid = worldToDisplay('axial', [x0, (yA + yP) / 2, z0]);
+      slab.push({ kind: 'band', through: mid, dir: sliceDir('axial'), widthMm: Math.abs(yA - yP), alpha: 0.05, edges: true, lengthMm: 60 });
+    }
     return (
       <ViewportFrame image={p.image} title={<OrthoHeader image={p.image} />}>
-        <SliceView {...p} overlays={[...(p.overlays ?? []), ...OVERLAYS.proposal(vs, CA1)]} />
+        <SliceView
+          {...p}
+          overlays={[
+            ...slab,
+            ...(p.overlays ?? []).filter((ov) => ov.kind !== 'labels'),
+            { kind: 'labels', voxels: traced.map(([c, r]) => [c, r, CA1] as const), fill: true, active: [CA1] },
+            { kind: 'voxels', voxels: vs, color: colour, hatch: true, hatchPitch: ORTHO_HATCH_PITCH, opacity: 0.95 },
+            { kind: 'voxels', voxels: [...traced, ...vs], color: colour, outline: true, width: 1 },
+          ]}
+          overlay={plane === 'axial' ? (pr) => <SlabCaption p={pr} /> : undefined}
+        />
       </ViewportFrame>
     );
   };
   return <OrthoColumn axial={panel('axial')} sagittal={panel('sagittal')} />;
+}
+
+/** A halo caption at the proposed slab's edge in the axial view ("proposed k 5–13"). */
+function SlabCaption({ p }: { p: Projector }) {
+  const [x0, , z0] = CROSSHAIR_WORLD;
+  const kHi = Math.max(...AI.slices);
+  const kLo = Math.min(...AI.slices);
+  const at = p.project(worldToDisplay('axial', [x0 + 6, yOfJ(NATIVE_SLICES_J[kHi - 1] + NATIVE.stepJ - 1) + 0.5, z0]));
+  return (
+    <span
+      className="pointer-events-none absolute whitespace-nowrap font-mono text-bf-2xs leading-4 text-bf-text-secondary [text-shadow:0_0_2px_var(--bf-bg-canvas),0_0_3px_var(--bf-bg-canvas),0_0_4px_var(--bf-bg-canvas)]"
+      style={{ left: Math.max(4, at.x), top: at.y - 16 }}
+      data-testid="ai-slab-caption"
+      title={`The answer's slab: native slices k ${kLo}–${kHi}, tilted with the native plane`}
+    >
+      proposed k {kLo}–{kHi}
+    </span>
+  );
 }
 
 // -------------------------------------------------------------- consent

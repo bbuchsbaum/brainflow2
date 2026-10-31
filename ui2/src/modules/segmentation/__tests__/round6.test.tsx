@@ -50,7 +50,7 @@ describe('one session model', () => {
 
   it('every state that states the count states the same one', () => {
     const counts: Record<string, RegExp> = {
-      history: new RegExp(`${STEPS_SINCE_SAVE} steps unsaved`),
+      history: new RegExp(`${STEPS_SINCE_SAVE} steps since the ${LAST_SAVE.time} save`),
       resume: new RegExp(`Recovered ${STEPS_SINCE_SAVE} steps`),
       save: new RegExp(`${STEPS_SINCE_SAVE} steps since ${LAST_SAVE.time}`),
     };
@@ -143,7 +143,7 @@ describe('AI: per-slice accept by default', () => {
     expect(overreach([[9, 9]], new Map(), new Map(), 1, new Set(), { k: 25, expected: [1, 20] }).outsideRange).toBe(true);
     expect(AI.overreach.voxels.length).toBeGreaterThan(0);
     const { getByTestId, unmount } = render(<DirectionHWorkflow state="ai-prompt" />);
-    expect(getByTestId('ai-overreach').textContent).toMatch(new RegExp(`check ${AI.overreach.voxels.length} vx at Subiculum`));
+    expect(getByTestId('ai-overreach').textContent).toMatch(new RegExp(`check ${AI.overreach.voxels.length} vx · .*Subiculum`));
     unmount();
   });
 
@@ -226,11 +226,10 @@ describe('lesions', () => {
     }
   });
 
-  it('shows T1w and T2w beside the FLAIR and the whole slice with every tag', () => {
-    const { getByTestId, container, unmount } = render(<DirectionHWorkflow state="lesion" />);
+  it('shows T1w and T2w beside the FLAIR while typing, and every tag at fit', () => {
+    const { getByTestId, unmount } = render(<DirectionHWorkflow state="lesion" />);
     expect(getByTestId('strip-t1').querySelector('image')?.getAttribute('href')).toBe(LESION.images.axT1.url);
     expect(getByTestId('strip-t2').querySelector('image')?.getAttribute('href')).toBe(LESION.images.axT2.url);
-    expect(container.querySelectorAll('[data-testid="overview-tag"]')).toHaveLength(lesionsOnK(LESION.k).length);
     unmount();
     const fit = render(<DirectionHWorkflow state="lesion-overview" />);
     expect(fit.container.querySelectorAll('[data-testid="primary-panel"] [data-testid="lesion-tag"]')).toHaveLength(lesionsOnK(LESION.k).length);
@@ -281,8 +280,9 @@ describe('setup', () => {
     expect(getByTestId('setup-identity').textContent).toMatch(/Hemisphere/);
     expect(getByTestId('setup-blinding')).not.toBeNull();
     expect(getByTestId('setup-identity').textContent).toMatch(/Blind: hide other raters/);
-    const reg = getByTestId('registration-check');
-    expect(reg.querySelectorAll('image')).toHaveLength(2);
+    // Round 7: the check is in the primary (T2w under, T1w in the squares).
+    const primary = getByTestId('primary-panel');
+    expect(primary.querySelectorAll('image')).toHaveLength(2);
     expect(getByTestId('setup-registration').textContent).toMatch(/Aligned at the hippocampus/);
     expect(getByTestId('slab-locator')).not.toBeNull();
     unmount();

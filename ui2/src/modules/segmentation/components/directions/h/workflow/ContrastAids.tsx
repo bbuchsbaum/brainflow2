@@ -116,12 +116,25 @@ function FlickerKeys() {
   );
 }
 
+/** The rest of the View aids note, behind "?" (round 7: the paragraph was always on screen). */
+export const VIEW_AIDS_NOTE =
+  'Edits map through the raw T2w grid. Filters are hints: no protocol validates them, and each can move a soft edge. Strokes drawn with a filter on are recorded so in provenance; a pack may turn one on for a step, and the badge then says "set by pack".';
+
 function ViewAids() {
   return (
     <section className="flex flex-col gap-1.5 border-b border-bf-border-subtle px-3 py-2" data-testid="view-aids">
       <div className="flex items-baseline gap-2">
         <span className="text-bf-xs font-medium text-bf-text-primary">View aids</span>
-        <span className="text-bf-2xs text-bf-text-muted">display only · never written</span>
+        <span className="text-bf-2xs text-bf-text-muted" data-testid="view-aids-line">display only · never written · filters recorded</span>
+        <span
+          className="ml-auto flex h-4 w-4 cursor-help items-center justify-center rounded-sm text-bf-2xs text-bf-text-muted hover:text-bf-text-primary"
+          role="img"
+          aria-label="About view aids"
+          title={VIEW_AIDS_NOTE}
+          data-testid="view-aids-help"
+        >
+          ?
+        </span>
       </div>
       <div className="flex items-center gap-2 text-bf-xs">
         <Switch checked aria-label="Filter on" />
@@ -143,7 +156,7 @@ function ViewAids() {
         {RECIPE}
       </span>
       <div className="flex items-center gap-2 text-bf-xs">
-        <Switch checked={false} aria-label="Lens pinned" title="The lens follows the brush while ⌥ is held; pin it to keep it where it is" />
+        <Switch checked aria-label="Lens shown" title="The lens shows while ⌥ is held and follows the brush; pin it (P) to keep it where it is" />
         <span className="w-12 text-bf-text-secondary">Lens</span>
         <SegmentedControl
           aria-label="Lens content"
@@ -156,12 +169,8 @@ function ViewAids() {
             { value: 'x4', label: '4× vx' },
           ]}
         />
-        <span className="ml-auto text-bf-2xs text-bf-text-muted">hold ⌥</span>
+        <span className="ml-auto text-bf-2xs text-bf-text-muted" title="Shown while ⌥ is held; P pins it">held ⌥</span>
       </div>
-      <span className="text-bf-2xs leading-snug text-bf-text-muted">
-        Edits map through the raw T2w grid. Filters are hints: no protocol validates them, and each can move a soft edge. Strokes
-        drawn with a filter on are recorded so in provenance; a pack may turn one on for a step, and the badge then says "set by pack".
-      </span>
     </section>
   );
 }

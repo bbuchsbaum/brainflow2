@@ -26,6 +26,14 @@
  * periventricular and deep are rated per subject; connectivity (26 on this
  * 1 mm isotropic grid) is a pack setting shown and recorded.
  *
+ * Round 7 (de-crowd): while a lesion's type is being set (its row open), T1w
+ * and T2w take the place of the coronal/sagittal column, drawn at the
+ * primary's exact window, centre and scale (true small multiples, cropped to
+ * the tile); otherwise (the fit overview) the column shows the coronal and
+ * sagittal cuts with a visible axial band. The strip below the primary and
+ * its whole-slice tile are gone (Fit, Z, is the overview), so the FLAIR gets
+ * its height back. A row prints its type only when it is not the default.
+ *
  * The FLAIR is a MOCK made from the T1w template; the lesions are synthetic.
  * The T1w and T2w are the real templates (no lesions in them).
  */
@@ -97,7 +105,7 @@ function partialPath(vs: readonly Voxel[]): string {
   return vs.map(([c, r]) => `M${c + 0.3} ${r + 0.3}h0.4v0.4h-0.4Z`).join('');
 }
 
-export function LesionTags({ p, small = false }: { p: Projector; small?: boolean }) {
+export function LesionTags({ p }: { p: Projector }) {
   return (
     <>
       {LESION_SCENE.byLesion.map((l) => {
@@ -107,17 +115,18 @@ export function LesionTags({ p, small = false }: { p: Projector; small?: boolean
         const top = [...all].sort((a, b) => a[1] - b[1] || b[0] - a[0])[0];
         const at = p.project([top[0] + 1.4, top[1] + 0.2]);
         if (at.x < 0 || at.y < 0 || at.x > p.width - 20 || at.y > p.height - 10) return null;
-        const dy = small ? 11 : 16;
+        // Round 7: one tag size at every zoom (the fit tags were 8 px).
+        const dy = 16;
         const current = l.id === LESION.current;
         return (
           <span
             key={l.id}
             className={clsx(
-              'pointer-events-none absolute whitespace-nowrap font-mono text-bf-2xs leading-4 [text-shadow:0_0_2px_var(--bf-bg-canvas),0_0_3px_var(--bf-bg-canvas),0_0_4px_var(--bf-bg-canvas)]',
+              'pointer-events-none absolute whitespace-nowrap font-mono text-bf-xs leading-4 [text-shadow:0_0_2px_var(--bf-bg-canvas),0_0_3px_var(--bf-bg-canvas),0_0_4px_var(--bf-bg-canvas)]',
               current ? 'font-semibold text-bf-text-primary' : 'text-bf-text-secondary',
             )}
             style={{ left: at.x, top: at.y - dy }}
-            data-testid={small ? 'overview-tag' : 'lesion-tag'}
+            data-testid="lesion-tag"
           >
             L{l.id}
           </span>
@@ -225,6 +234,9 @@ function LesionRuler() {
   );
 }
 
+/** Round 7: the 1-voxel axial band on the 240 px cuts needs a larger luminance step than the slab band (0.14) to be seen. */
+export const LESION_BAND_ALPHA = 0.3;
+
 function LesionOrtho({ plane }: { plane: 'cor' | 'sag' }) {
   const image = LESION.images[plane];
   const cur = LESION.components[LESION.current - 1];
@@ -253,7 +265,7 @@ function LesionOrtho({ plane }: { plane: 'cor' | 'sag' }) {
         crosshair={centre}
         crosshairClearBox={bboxOf(voxels.filter((v) => v[2] === LESION.current).map(([c, r]) => [c, r] as Voxel), 2)}
         letters={false}
-        overlays={[{ kind: 'band', through: [centre[0], row], dir: [1, 0], widthMm: 1, lengthMm: 400, ticks: true }, ...lesionOverlays(byLesion, true)]}
+        overlays={[{ kind: 'band', through: [centre[0], row], dir: [1, 0], widthMm: 1, lengthMm: 400, ticks: true, alpha: LESION_BAND_ALPHA, edges: true }, ...lesionOverlays(byLesion, true)]}
         aria-label={`${plane === 'cor' ? 'Coronal' : 'Sagittal'} FLAIR through lesion ${CUR.id}`}
       />
     </ViewportFrame>
@@ -360,7 +372,7 @@ function SpanBar({ k }: { k: readonly [number, number] }) {
   const x = (kk: number) => ((K_TOP - kk) / n) * 100;
   return (
     <span className="relative block h-3 w-full" data-span={`${k[0]}-${k[1]}`} title={`k ${k[0]}–${k[1]}`}>
-      <span className="absolute inset-x-0 top-1/2 h-px bg-bf-text-faint" aria-hidden />
+      <span className="absolute inset-x-0 top-1/2 h-px bg-bf-text-faint opacity-40" aria-hidden data-span-axis />
       <span className="absolute top-[3px] h-[6px] bg-bf-text-secondary" style={{ left: `${x(k[1])}%`, width: `${((k[1] - k[0] + 1) / n) * 100}%` }} aria-hidden />
       <span className="absolute bottom-0 top-0 w-px bg-bf-text-primary" style={{ left: `${x(LESION.k) + 50 / n}%` }} aria-hidden data-current-k />
     </span>
@@ -379,10 +391,12 @@ function Mm3Bar({ mm3 }: { mm3: number }) {
   );
 }
 
-const ROW_COLS = 'grid-cols-[22px_minmax(0,1fr)_34px_minmax(0,64px)_62px_14px] max-[1366px]:grid-cols-[22px_minmax(0,1fr)_minmax(0,56px)_58px_14px]';
+const ROW_COLS = 'grid-cols-[22px_minmax(0,1fr)_minmax(0,84px)_62px_14px] max-[1366px]:grid-cols-[22px_minmax(0,1fr)_minmax(0,56px)_58px_14px]';
+/** The pack's default lesion type: a row prints its type only when it differs. */
+const DEFAULT_TYPE: Lesion['type'] = 'WMH';
 
 /** The lesion list: one row per 3D connected lesion; type, span and volume as graphics; next and previous; the current row open. */
-function LesionList() {
+function LesionList({ open = true }: { open?: boolean }) {
   const total = LESION.rows.filter((r) => r.type !== 'exclude').reduce((s, r) => s + r.mm3, 0);
   const idx = LESION.rows.findIndex((r) => r.id === LESION.current);
   return (
@@ -405,11 +419,9 @@ function LesionList() {
       </div>
       <div className={clsx('grid items-center gap-x-1.5 px-3 text-bf-2xs text-bf-text-muted', ROW_COLS)} aria-hidden>
         <span>#</span>
-        <span>where</span>
-        <span className="max-[1366px]:hidden">type</span>
-        <span className="flex justify-between font-mono">
-          <span>k {K_TOP}</span>
-          <span>{K_BOTTOM}</span>
+        <span title={`Where and location class; the type is printed only when it is not ${DEFAULT_TYPE}`}>where</span>
+        <span className="whitespace-nowrap text-center font-mono" title="Slice span on the ruler's axial axis, superior on the left; the vertical line is the current slice">
+          k {K_TOP} → {K_BOTTOM}
         </span>
         <span className="text-right">mm³</span>
         <span />
@@ -426,15 +438,19 @@ function LesionList() {
                   <span className="text-bf-2xs text-bf-text-muted" title={`${r.location}: computed (ventricle contiguity, 10 mm PV rule, juxtacortical when it touches the cortex); click to override, logged`}>
                     {LOCATION_SHORT[r.location]}
                   </span>
+                  {r.type !== DEFAULT_TYPE ? (
+                    <span className="text-bf-2xs text-bf-text-primary" data-type-tag>
+                      {r.type}
+                    </span>
+                  ) : null}
                 </span>
-                <span className="text-bf-2xs text-bf-text-muted max-[1366px]:hidden">{r.type}</span>
                 <SpanBar k={r.k} />
                 <Mm3Bar mm3={r.mm3} />
                 <span className="flex justify-center" title={r.reviewed ? 'Reviewed' : 'To review (from the seed)'}>
                   {r.reviewed ? <Check className="h-3 w-3 text-bf-text-secondary" aria-label="reviewed" /> : <span className="h-2 w-2 rounded-full border border-bf-text-muted" aria-label="to review" />}
                 </span>
               </SelectableRow>
-              {current ? (
+              {current && open ? (
                 <div className="flex items-center gap-1.5 border-l-2 border-bf-accent py-1.5 pl-[28px] pr-3" data-testid="lesion-open">
                   <Select
                     aria-label={`Type of L${r.id}`}
@@ -464,6 +480,7 @@ function LesionList() {
 
 /** Per-subject Fazekas: periventricular and deep, 0–3 each (rater-set; recorded with the mask). */
 function FazekasFields() {
+  const toReview = LESION.rows.filter((r) => !r.reviewed).length;
   const row = (name: string, key: 'periventricular' | 'deep') => {
     const v = LESION.fazekas[key];
     return (
@@ -482,72 +499,59 @@ function FazekasFields() {
   };
   return (
     <section className="flex flex-col gap-1 px-3 py-2" data-testid="fazekas">
-      <span className="text-bf-xs font-medium text-bf-text-primary">Fazekas · this subject</span>
+      <span className="flex items-baseline gap-2">
+        <span className="text-bf-xs font-medium text-bf-text-primary">Fazekas · this subject</span>
+        {toReview ? (
+          <span className="text-bf-2xs text-bf-text-muted" data-testid="fazekas-provisional" title="A grade set while lesions are still to review is recorded as provisional until every row is reviewed">
+            provisional · {toReview} lesions to review
+          </span>
+        ) : null}
+      </span>
       {row('Periventricular', 'periventricular')}
       {row('Deep', 'deep')}
     </section>
   );
 }
 
+/** Reports the primary's scale (px per mm) after render, so the small multiples can match it. */
+function ScaleProbe({ scale, onScale }: { scale: number; onScale: (s: number) => void }) {
+  React.useEffect(() => {
+    onScale(scale);
+  }, [scale, onScale]);
+  return null;
+}
+
 /**
- * Below the primary: T1w and T2w at the same slice, centre and scale, with
- * the lesion outlines carried over (to tell WMH from lacunes, PVS and
- * infarcts), and the whole slice with every lesion tag and the primary's
- * window. The fit variant shows the whole slice in the primary instead.
+ * While a lesion's type is set: T1w over T2w in the side column, at the
+ * primary's window, centre and scale (cropped to the tile), with the lesion
+ * outlines carried over, so WMH, lacune, PVS and infarct are told apart by
+ * the same voxels in three contrasts.
  */
-function LesionStrip({ centre, fov }: { centre: Point; fov: number }) {
+function TypingColumn({ centre, crosshair, pxPerMm }: { centre: Point; crosshair: Point; pxPerMm: number | null }) {
   const outlines = lesionOverlays(LESION_SCENE.byLesion);
-  const tile = (img: SliceImage, caption: string, testId: string) => (
+  const tile = (img: SliceImage, testId: string) => (
     <ViewportFrame
       key={img.key}
       image={img}
       title={
-        <span className="flex items-center gap-1.5 whitespace-nowrap text-bf-xs">
+        <span className="flex items-baseline gap-2 whitespace-nowrap text-bf-xs" title={`${img.contrast} at axial k ${LESION.k}, the FLAIR's centre and scale (same 1.0 mm grid), cropped to the tile. Shown while L${LESION.current}'s type is set; Esc returns the cuts.`}>
           <span className="text-bf-text-primary">{img.contrast}</span>
-          <span className="text-bf-text-muted">{caption}</span>
+          <span className="font-mono text-bf-text-secondary">k {LESION.k}</span>
+          <span className="text-bf-text-muted">same scale · L{LESION.current}</span>
         </span>
       }
     >
-      <div className="absolute inset-0" data-testid={testId}>
-        <SliceView image={img} center={centre} fovMm={fov} crosshairTicks crosshair={centre} letters={false} overlays={outlines} aria-label={`${img.contrast} at the primary's slice`} />
+      <div className="absolute inset-0" data-testid={testId} data-px-per-mm={pxPerMm ?? undefined}>
+        <SliceView image={img} center={centre} fovMm={PRIMARY_FOV} pxPerMm={pxPerMm} crosshairTicks crosshair={crosshair} letters={false} overlays={outlines} aria-label={`${img.contrast} at the primary's slice and scale`} />
       </div>
     </ViewportFrame>
   );
   return (
-    <div className="grid h-[200px] shrink-0 grid-cols-3 gap-px border-t border-bf-border-subtle bg-bf-border-subtle max-[1366px]:h-[168px]" data-testid="lesion-strip">
-      {tile(LESION.images.axT1, `k ${LESION.k} · same grid`, 'strip-t1')}
-      {tile(LESION.images.axT2, `k ${LESION.k} · same grid`, 'strip-t2')}
-      <ViewportFrame
-        image={LESION.images.ax}
-        title={
-          <span className="flex items-center gap-1.5 whitespace-nowrap text-bf-xs">
-            <span className="text-bf-text-primary">Whole slice</span>
-            <span className="text-bf-text-muted">every lesion on k {LESION.k} · Z: fit</span>
-          </span>
-        }
-      >
-        <div className="absolute inset-0" data-testid="strip-overview">
-        <SliceView
-          image={LESION.images.ax}
-          center={[LESION.grid.dims[0] / 2, NY / 2 + 6]}
-          fovMm={150}
-          crosshair={null}
-          letters={false}
-          overlays={[...outlines, windowBox(centre, fov)]}
-          overlay={(p) => <LesionTags p={p} small />}
-          aria-label="Whole axial slice with every lesion"
-        />
-        </div>
-      </ViewportFrame>
+    <div className="grid min-h-0 grid-rows-2 gap-px" data-testid="typing-column">
+      {tile(LESION.images.axT1, 'strip-t1')}
+      {tile(LESION.images.axT2, 'strip-t2')}
     </div>
   );
-}
-
-/** The primary's window as a neutral outline in the overview. */
-function windowBox(centre: Point, fov: number): Overlay {
-  const h = fov / 2;
-  const d = `M${centre[0] - h} ${centre[1] - h}h${fov}v${fov}h${-fov}Z`;
-  return { kind: 'path', d, className: 'stroke-bf-text-primary', width: 1, opacity: 0.8, testId: 'overview-window' };
 }
 
 /** `fit`: the lesion-overview variant, the whole slice in the primary with every tag. */
@@ -558,6 +562,8 @@ export function LesionState({ fit = false }: { fit?: boolean }) {
   const crosshair: Point = [CUR.centre[0] + 0.5, NY - 1 - CUR.centre[1] + 0.5];
   const [x, y, z] = worldOfAx(crosshair[0], crosshair[1]);
   const fov = fit ? FIT_FOV : PRIMARY_FOV;
+  const [pxPerMm, setPxPerMm] = React.useState<number | null>(null);
+  const onScale = React.useCallback((v: number) => setPxPerMm((old) => (old !== null && Math.abs(old - v) < 1e-6 ? old : v)), []);
   const view = {
     image: LESION.images.ax,
     center: fit ? FIT_CENTRE : centre,
@@ -595,7 +601,8 @@ export function LesionState({ fit = false }: { fit?: boolean }) {
           <LesionStepCard />
           {fit ? null : <RangeSection />}
           <SeedLine />
-          <LesionList />
+          {/* The type row opens with T1w/T2w beside the FLAIR; at fit the row stays closed and the column shows the cuts. */}
+          <LesionList open={!fit} />
           <FazekasFields />
         </InspectorFrame>
       }
@@ -621,17 +628,25 @@ export function LesionState({ fit = false }: { fit?: boolean }) {
             }
             line2={fit ? <OverviewStrip /> : <RangeStrip />}
             view={view}
-            overlay={(p) => <LesionTags p={p} />}
+            overlay={(p) => (
+              <>
+                <LesionTags p={p} />
+                {fit ? null : <ScaleProbe scale={p.scale} onScale={onScale} />}
+              </>
+            )}
             ruler={<LesionRuler />}
-            below={fit ? null : <LesionStrip centre={centre} fov={PRIMARY_FOV} />}
             ariaLabel="Primary view, axial FLAIR"
           />
         }
         side={
-          <div className="grid min-h-0 grid-rows-2 gap-px">
-            <LesionOrtho plane="cor" />
-            <LesionOrtho plane="sag" />
-          </div>
+          fit ? (
+            <div className="grid min-h-0 grid-rows-2 gap-px" data-testid="lesion-cuts">
+              <LesionOrtho plane="cor" />
+              <LesionOrtho plane="sag" />
+            </div>
+          ) : (
+            <TypingColumn centre={centre} crosshair={crosshair} pxPerMm={pxPerMm} />
+          )
         }
       />
     </HShell>
