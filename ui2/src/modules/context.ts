@@ -83,6 +83,11 @@ export function reportCommandFailure(commandId: string, error: unknown): void {
   });
 }
 
+/** Where a keybinding comes from: the manifest (runtime.ts) or `ctx.keybindings`. */
+export type KeybindingSource = 'manifest' | 'runtime';
+
+let runtimeBindingCount = 0;
+
 const chord = (b: KeybindingContribution) =>
   [b.modifiers?.meta && 'meta', b.modifiers?.ctrl && 'ctrl', b.modifiers?.alt && 'alt', b.modifiers?.shift && 'shift', b.key.toLowerCase()]
     .filter(Boolean)
@@ -106,14 +111,21 @@ export function keybindingProblems(
   return problems;
 }
 
-/** Register a module keybinding with the shared shortcut service. */
+/**
+ * Register a module keybinding with the shared shortcut service. The id names
+ * its source and scope (`when.workspace`), and runtime registrations are
+ * numbered, so no registration replaces or unregisters another.
+ */
 export function registerModuleKeybinding(
   host: ContextHost,
   binding: KeybindingContribution,
+  source: KeybindingSource,
 ): DisposeFn {
   const problems = keybindingProblems(host, binding);
   if (problems.length > 0) throw new Error(`[modules] ${host.moduleId}: ${problems.join('; ')}`);
-  const id = `module.${host.moduleId}.${binding.command}.${chord(binding)}`;
+  const scope = binding.when?.workspace ?? '*';
+  const base = `module.${host.moduleId}.${source}.${binding.command}.${chord(binding)}@${scope}`;
+  const id = source === 'runtime' ? `${base}#${(runtimeBindingCount += 1)}` : base;
   return getKeyboardShortcutService().register({
     id,
     key: binding.key,
@@ -185,7 +197,7 @@ export function createModuleContext(
     },
     keybindings: {
       register(binding) {
-        return disposables.add(registerModuleKeybinding(host, binding));
+        return disposables.add(registerModuleKeybinding(host, binding, 'runtime'));
       },
     },
     events: {

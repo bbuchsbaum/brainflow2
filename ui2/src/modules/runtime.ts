@@ -9,7 +9,10 @@
  *   service;
  * - the bridge: `set_enabled_modules` with the enabled modules that have a
  *   bridge section, at start and on every change (desktop only). Sends are
- *   serialized, latest wins, and a superseded response is ignored;
+ *   serialized, latest wins, and a superseded response is ignored. A failed
+ *   switch is retried with bounded backoff (not a rejected request); a module
+ *   with a bridge section activates only once the bridge acknowledged the
+ *   current set, and does not start if the switch finally fails;
  * - native menus: the menu model of enabled modules goes to Rust
  *   (`set_module_menu_items`, src-tauri main.rs), which places the items and
  *   emits `module-command` on a click; the command runs here (desktop only);
@@ -75,23 +78,77 @@ export interface ModuleRuntime {
   dispose(): void;
 }
 
+/** Delays between retries of a failed `set_enabled_modules` (then give up). */
+export const BRIDGE_RETRY_DELAYS_MS: readonly number[] = [500, 1000, 2000, 4000];
+
+/** A rejected request (`BridgeError::Input`, e.g. an unknown id) is not retried. */
+function isBadRequest(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'Input' in error;
+}
+
 /** Keep `set_enabled_modules` in step with the registry. */
 function bridgeSync(deps: ModuleRuntimeDeps) {
+  /** Key (joined ids) of the last set sent, and of the last set the bridge applied. */
   let requested: string | null = null;
+  let acknowledged: string | null = null;
+  /** The set that finally failed, after its retries. */
+  let failed: { key: string; error: Error } | null = null;
+  let attempt = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let waiters: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+  let disposed = false;
+
+  const currentKey = () => deps.registry.getEnabledBridgeModules().join(',');
+  const clearRetry = () => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+  };
+  /** Release activations waiting for the current set. */
+  const settle = () => {
+    const key = currentKey();
+    const pending = waiters;
+    if (acknowledged === key) {
+      waiters = [];
+      pending.forEach((w) => w.resolve());
+    } else if (failed?.key === key) {
+      waiters = [];
+      const error = failed.error;
+      pending.forEach((w) => w.reject(error));
+    }
+  };
+
   const sender = createLatestSender<string[], ModuleInfo[]>(
     (moduleIds) => deps.invoke<ModuleInfo[]>('set_enabled_modules', { moduleIds }),
     {
       onResult: (moduleIds, infos) => {
+        attempt = 0;
+        acknowledged = moduleIds.join(',');
         const on = new Set(moduleIds);
         const drift = (infos ?? []).filter((info) => info.enabled !== on.has(info.id));
         if (drift.length > 0) {
           console.warn('[modules] bridge module state differs from the request:', drift);
         }
+        settle();
       },
-      onError: (_moduleIds, error) => {
-        // Retry with the next change; the bridge keeps its previous state.
+      onError: (moduleIds, error) => {
+        const key = moduleIds.join(',');
+        if (!isBadRequest(error) && attempt < BRIDGE_RETRY_DELAYS_MS.length) {
+          const delay = BRIDGE_RETRY_DELAYS_MS[attempt];
+          attempt += 1;
+          clearRetry();
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            if (!disposed && requested === key) sender.push(moduleIds);
+          }, delay);
+          return;
+        }
+        // Give up until the next change; the bridge keeps its previous state.
+        attempt = 0;
         requested = null;
-        deps.notifyError(`Could not switch modules: ${formatTauriError(error)}`);
+        const message = formatTauriError(error);
+        failed = { key, error: new Error(`The bridge did not switch modules: ${message}`, { cause: error }) };
+        deps.notifyError(`Could not switch modules: ${message}`);
+        settle();
       },
     },
   );
@@ -102,10 +159,29 @@ function bridgeSync(deps: ModuleRuntimeDeps) {
       const key = ids.join(',');
       if (key === requested) return;
       requested = key;
+      attempt = 0;
+      failed = null;
+      clearRetry();
       sender.push(ids);
+      // Waiters for a set the user already moved away from are released by
+      // the activation's own epoch check; settle in case nothing is sent.
+      settle();
+    },
+    /** Resolves once the bridge applied the current set; rejects if that finally failed. */
+    acknowledged(): Promise<void> {
+      if (!deps.isDesktop() || acknowledged === currentKey()) return Promise.resolve();
+      if (failed && failed.key === currentKey()) return Promise.reject(failed.error);
+      return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
     },
     idle: () => sender.idle(),
-    dispose: () => sender.dispose(),
+    dispose() {
+      disposed = true;
+      clearRetry();
+      sender.dispose();
+      const pending = waiters;
+      waiters = [];
+      pending.forEach((w) => w.reject(new Error('The module runtime stopped')));
+    },
   };
 }
 
@@ -169,7 +245,7 @@ function keybindingSync(deps: ModuleRuntimeDeps) {
       clear();
       for (const binding of deps.registry.getKeybindings()) {
         const host = deps.registry.contextHostFor(binding.moduleId);
-        if (host) registered.push(registerModuleKeybinding(host, binding));
+        if (host) registered.push(registerModuleKeybinding(host, binding, 'manifest'));
       }
     },
     dispose: clear,
@@ -183,7 +259,7 @@ export function startModuleRuntime(deps: ModuleRuntimeDeps = defaultDeps()): Mod
     openWorkspace: deps.openWorkspace,
     activeWorkspaceType: deps.activeWorkspaceType,
     beforeActivate: (moduleId) =>
-      registry.hasBridgeSection(moduleId) ? bridge.idle() : Promise.resolve(),
+      registry.hasBridgeSection(moduleId) ? bridge.acknowledged() : Promise.resolve(),
   });
   useModuleSettingsStore.getState().applyProposals(registry.getProposals());
 

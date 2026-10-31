@@ -24,8 +24,30 @@ registerFixtureModule();
 describe('InspectorRouter with a module', () => {
   beforeEach(() => {
     useFeatureFlagStore.getState().setExperimentalFeatures(false);
-    useModuleSettingsStore.setState({ enabled: {} });
+    // Off and on again: a fresh, inactive fixture module.
+    act(() => useModuleSettingsStore.setState({ enabled: { fixture: false } }));
+    act(() => useModuleSettingsStore.setState({ enabled: {} }));
+    moduleRegistry.connectShell(null);
     displayMode = { mode: 'integrated', label: 'Integrated', workspaceType: 'integrated' };
+  });
+
+  it('renders a module inspector mode only once the module is active', async () => {
+    let release!: () => void;
+    const bridgeApplied = new Promise<void>((resolve) => (release = resolve));
+    moduleRegistry.connectShell({
+      openWorkspace: async () => null,
+      activeWorkspaceType: () => null,
+      beforeActivate: () => bridgeApplied,
+    });
+    render(<InspectorRouter />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Fixture mode' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('fixture-mode')).toBeNull();
+    await act(async () => release());
+    expect(await screen.findByTestId('fixture-mode')).toBeInTheDocument();
+    moduleRegistry.connectShell(null);
   });
 
   it('renders the inspector body a module tool declares, once the module is active', async () => {

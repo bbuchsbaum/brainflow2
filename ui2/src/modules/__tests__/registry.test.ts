@@ -222,7 +222,7 @@ describe('ModuleRegistry activation', () => {
     );
     await registry.ensureActive('kb');
     const shortcuts = () => Object.values(getKeyboardShortcutService().getAll()).flat().map((r) => r.id);
-    expect(shortcuts()).toEqual(['module.kb.kb.go.alt+j']);
+    expect(shortcuts()).toEqual([expect.stringMatching(/^module\.kb\.runtime\.kb\.go\.alt\+j@\*#\d+$/)]);
 
     deps.set('kb', false);
     expect(disposed).toHaveBeenCalledTimes(1);
@@ -319,6 +319,75 @@ describe('ModuleRegistry activation', () => {
     expect(registry.getVersion()).toBeGreaterThan(version);
     expect(registry.isActive('bad')).toBe(false);
     errors.mockRestore();
+  });
+
+  it('switching off disposes what an activation still in flight registered, at once', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    const disposed = vi.fn();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    registry.register(
+      manifest({ id: 'hang', contributes: { commands: [{ id: 'hang.go', title: 'Go' }] } }, async (ctx) => {
+        ctx.disposables.add(disposed);
+        ctx.commands.register('hang.go', () => {});
+        started();
+        await new Promise(() => {}); // never settles
+      }),
+    );
+    void registry.ensureActive('hang').catch(() => {});
+    await running;
+    deps.set('hang', false);
+    expect(disposed).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores the failure of a stale activation once a newer one succeeded', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let fail!: () => void;
+    const firstGate = new Promise<void>((_, reject) => (fail = () => reject(new Error('stale failure'))));
+    let calls = 0;
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    registry.register(
+      manifest({ id: 'flip' }, async () => {
+        calls += 1;
+        if (calls === 1) {
+          started();
+          await firstGate;
+        }
+      }),
+    );
+    const first = registry.ensureActive('flip');
+    await running;
+    deps.set('flip', false);
+    deps.set('flip', true);
+    await registry.ensureActive('flip');
+    fail();
+    await expect(first).rejects.toThrow();
+    await Promise.resolve();
+    expect(registry.isActive('flip')).toBe(true);
+    expect(registry.activationError('flip')).toBeNull();
+    errors.mockRestore();
+  });
+
+  it('keeps keybindings of one command in two scopes, and runtime bindings apart from manifest ones', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    let ctx!: ModuleContext;
+    registry.register(
+      manifest({ id: 'sc', contributes: { commands: [{ id: 'sc.go', title: 'Go' }] } }, (c) => {
+        ctx = c;
+      }),
+    );
+    await registry.ensureActive('sc');
+    const offA = ctx.keybindings.register({ command: 'sc.go', key: 'g', when: { workspace: 'a' } });
+    ctx.keybindings.register({ command: 'sc.go', key: 'g', when: { workspace: 'b' } });
+    const ids = () => Object.values(getKeyboardShortcutService().getAll()).flat().map((r) => r.id);
+    expect(ids()).toHaveLength(2);
+    offA();
+    expect(ids()).toHaveLength(1);
   });
 
   it('runs a command only where its when clause holds', async () => {

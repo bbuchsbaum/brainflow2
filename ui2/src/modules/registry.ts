@@ -154,7 +154,7 @@ interface ActiveModule {
 
 type Activation =
   | { status: 'inactive' }
-  | { status: 'activating'; promise: Promise<ActiveModule> }
+  | { status: 'activating'; promise: Promise<ActiveModule>; active: ActiveModule }
   | { status: 'active'; active: ActiveModule };
 
 interface ModuleRecord {
@@ -578,21 +578,26 @@ export class ModuleRegistry {
       this.notify();
       return active;
     })();
-    record.activation = { status: 'activating', promise };
+    record.activation = { status: 'activating', promise, active };
     promise.catch((error) => {
       if (record.activation.status === 'activating' && record.activation.promise === promise) {
         record.activation = { status: 'inactive' };
       }
-      if (!(error instanceof ModuleDisabledError)) {
-        console.error(`[modules] activating ${moduleId} failed:`, error);
-        record.activationError = error;
-        this.notify();
-      }
+      // A stale activation (the module was switched off meanwhile) reports
+      // nothing: a newer activation may already have succeeded.
+      if (stale() || error instanceof ModuleDisabledError) return;
+      console.error(`[modules] activating ${moduleId} failed:`, error);
+      record.activationError = error;
+      this.notify();
     });
     return promise;
   }
 
-  /** Dispose everything the module's context registered. */
+  /**
+   * Dispose everything the module's context registered, including what an
+   * activation still in flight has registered so far (its later
+   * registrations are undone as they are made).
+   */
   deactivate(moduleId: string): void {
     const record = this.records.get(moduleId);
     if (!record) return;
@@ -600,7 +605,7 @@ export class ModuleRegistry {
     record.activationError = null;
     const { activation } = record;
     record.activation = { status: 'inactive' };
-    if (activation.status === 'active') activation.active.disposables.dispose();
+    if (activation.status !== 'inactive') activation.active.disposables.dispose();
   }
 
   /** What a module's context (and its keybindings) may know about it. */

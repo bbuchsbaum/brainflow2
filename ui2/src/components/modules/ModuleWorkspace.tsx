@@ -7,12 +7,12 @@
  * state shows only in the moment between the switch and the park.
  */
 
-import React, { Suspense, useEffect } from 'react';
+import React, { Suspense } from 'react';
 import { CenterWithBottomDock } from '@/components/layout/CenterWithBottomDock';
 import { moduleRegistry, useModuleRegistryVersion } from '@/modules/registry';
 import { lazyComponent } from '@/modules/lazyComponent';
 import { EmptyPane } from '@/components/ui/bf';
-import { formatTauriError } from '@/utils/formatTauriError';
+import { ActiveModuleGate } from './ActiveModuleGate';
 
 export interface ModuleWorkspaceProps {
   workspaceId: string;
@@ -22,15 +22,6 @@ export interface ModuleWorkspaceProps {
 export function ModuleWorkspace({ workspaceId, workspaceType }: ModuleWorkspaceProps) {
   useModuleRegistryVersion();
   const tool = moduleRegistry.getModuleTool(workspaceType);
-  const enabled = tool ? moduleRegistry.isEnabled(tool.moduleId) : false;
-  const active = tool ? moduleRegistry.isActive(tool.moduleId) : false;
-  const failure = tool ? moduleRegistry.activationError(tool.moduleId) : null;
-
-  useEffect(() => {
-    if (!tool || !enabled || active) return;
-    // The registry logs and records failures (shown below).
-    moduleRegistry.ensureActive(tool.moduleId).catch(() => undefined);
-  }, [tool, enabled, active]);
 
   if (!tool) {
     return (
@@ -42,7 +33,7 @@ export function ModuleWorkspace({ workspaceId, workspaceType }: ModuleWorkspaceP
       </div>
     );
   }
-  if (!enabled) {
+  if (!moduleRegistry.isEnabled(tool.moduleId)) {
     return (
       <EmptyPane
         data-testid="module-workspace-off"
@@ -52,22 +43,13 @@ export function ModuleWorkspace({ workspaceId, workspaceType }: ModuleWorkspaceP
     );
   }
 
-  if (failure) {
-    return (
-      <EmptyPane
-        data-testid="module-workspace-failed"
-        title={`${tool.label} could not start`}
-        hint={formatTauriError(failure)}
-      />
-    );
-  }
-  if (!active) return null;
-
   const Body = lazyComponent(tool.component);
   const body = (
-    <Suspense fallback={null}>
-      <Body workspaceId={workspaceId} />
-    </Suspense>
+    <ActiveModuleGate moduleId={tool.moduleId} label={tool.label}>
+      <Suspense fallback={null}>
+        <Body workspaceId={workspaceId} />
+      </Suspense>
+    </ActiveModuleGate>
   );
   return tool.bottomDock ? <CenterWithBottomDock>{body}</CenterWithBottomDock> : body;
 }

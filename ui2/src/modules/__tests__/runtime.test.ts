@@ -139,6 +139,60 @@ describe('module runtime: bridge sync', () => {
     runtime.dispose();
   });
 
+  it('retries a failed switch with backoff and activates only once the bridge acknowledged it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { registry, set } = registryWith([module('lab', 'experimental')], { lab: { stage: 'experimental' } });
+      const { deps, calls } = runtimeDeps(registry);
+      const runtime = startModuleRuntime(deps);
+      calls[0].reply.resolve(infos([], ['lab']));
+      await vi.advanceTimersByTimeAsync(0);
+      set('lab', true);
+      let active = false;
+      const activation = registry.ensureActive('lab').then(() => (active = true));
+      calls[1].reply.reject({ Internal: { code: 1, details: 'busy' } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(active).toBe(false);
+      expect(calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(calls).toHaveLength(3);
+      expect(calls[2].args).toEqual({ moduleIds: ['lab'] });
+      calls[2].reply.resolve(infos(['lab'], ['lab']));
+      await activation;
+      expect(active).toBe(true);
+      expect(deps.notifyError).not.toHaveBeenCalled();
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up after bounded retries: the module does not start and the user is told once', async () => {
+    vi.useFakeTimers();
+    try {
+      const { registry, set } = registryWith([module('lab', 'experimental')], { lab: { stage: 'experimental' } });
+      const { deps, calls } = runtimeDeps(registry);
+      const runtime = startModuleRuntime(deps);
+      calls[0].reply.resolve(infos([], ['lab']));
+      await vi.advanceTimersByTimeAsync(0);
+      set('lab', true);
+      const activation = registry.ensureActive('lab');
+      const outcome = activation.then(() => 'active', (error: Error) => error.message);
+      for (let i = 1; i < 20 && calls.length > i; i += 1) {
+        calls[i].reply.reject({ Internal: { code: 1, details: 'busy' } });
+        await vi.advanceTimersByTimeAsync(60_000);
+      }
+      expect(calls.length).toBeGreaterThan(2);
+      expect(calls.length).toBeLessThan(10);
+      await expect(outcome).resolves.toMatch(/busy/);
+      expect(deps.notifyError).toHaveBeenCalledTimes(1);
+      expect(registry.isActive('lab')).toBe(false);
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reports a failed switch and retries with the next change', async () => {
     const { registry, set } = registryWith([module('ana'), module('lab', 'experimental')], {
       ana: { stage: 'preview' },
@@ -203,6 +257,40 @@ describe('module runtime: tabs and keybindings', () => {
     runtime.dispose();
   });
 
+  it('registers one command’s keybindings in two scopes, and keeps runtime bindings across re-syncs', async () => {
+    const binding = { command: 'seg.brush', key: 'b' };
+    const { registry, set } = registryWith(
+      [
+        module('seg', 'preview', {
+          commands: [{ id: 'seg.brush', title: 'Brush' }],
+          keybindings: [
+            { ...binding, when: { workspace: 'seg.tab' } },
+            { ...binding, when: { workspace: 'seg.other' } },
+          ],
+        }),
+        module('other'),
+      ],
+      {},
+    );
+    const { deps } = runtimeDeps(registry);
+    const runtime = startModuleRuntime(deps);
+    const all = () => Object.values(getKeyboardShortcutService().getAll()).flat();
+    expect(all()).toHaveLength(2);
+
+    // A runtime binding identical to a manifest one survives another module's toggle.
+    const active = await registry.ensureActive('seg');
+    void active;
+    const ctxHost = registry.contextHostFor('seg')!;
+    const { registerModuleKeybinding } = await import('@/modules/context');
+    const off = registerModuleKeybinding(ctxHost, { ...binding, when: { workspace: 'seg.tab' } }, 'runtime');
+    expect(all()).toHaveLength(3);
+    set('other', false);
+    expect(all()).toHaveLength(3);
+    off();
+    expect(all()).toHaveLength(2);
+    runtime.dispose();
+  });
+
   it('registers manifest keybindings of enabled modules and drops them when off', () => {
     const { registry, set } = registryWith(
       [
@@ -216,11 +304,11 @@ describe('module runtime: tabs and keybindings', () => {
     const { deps } = runtimeDeps(registry);
     const runtime = startModuleRuntime(deps);
     const ids = () => Object.values(getKeyboardShortcutService().getAll()).flat().map((r) => r.id);
-    expect(ids()).toEqual(['module.seg.seg.brush.b']);
+    expect(ids()).toEqual(['module.seg.manifest.seg.brush.b@seg.tab']);
     set('seg', false);
     expect(ids()).toEqual([]);
     set('seg', true);
-    expect(ids()).toEqual(['module.seg.seg.brush.b']);
+    expect(ids()).toEqual(['module.seg.manifest.seg.brush.b@seg.tab']);
     runtime.dispose();
     expect(ids()).toEqual([]);
   });

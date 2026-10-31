@@ -23,6 +23,7 @@ import {
 } from './bottomWorkbenchDock.constants';
 import { moduleRegistry, useModuleRegistryVersion, type ModuleDockTab } from '@/modules/registry';
 import { lazyComponent } from '@/modules/lazyComponent';
+import { ActiveModuleGate } from '@/components/modules/ActiveModuleGate';
 
 export interface BottomWorkbenchDockProps {
   /** Plot slot content. */
@@ -69,12 +70,14 @@ function dockTabItems(tabs: readonly ModuleDockTab[]) {
 }
 
 function ModuleDockTabBody({ tab }: { tab: ModuleDockTab }) {
-  if (!tab.component) return null;
+  if (!tab.component || !tab.moduleId) return null;
   const Body = lazyComponent(tab.component);
   return (
-    <Suspense fallback={null}>
-      <Body />
-    </Suspense>
+    <ActiveModuleGate moduleId={tab.moduleId} label={tab.title}>
+      <Suspense fallback={null}>
+        <Body />
+      </Suspense>
+    </ActiveModuleGate>
   );
 }
 

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { registerFixtureModule } from '@/modules/__tests__/fixtureModule';
 import { useModuleSettingsStore } from '@/modules/settingsStore';
+import { moduleRegistry } from '@/modules/registry';
 import { BottomWorkbenchDock } from '../BottomWorkbenchDock';
 
 registerFixtureModule();
@@ -14,8 +15,36 @@ const slots = {
   clusters: <div data-testid="slot-clusters" />,
 };
 
+/** Switch the fixture off and on: a fresh, inactive module. */
+function freshFixture() {
+  act(() => useModuleSettingsStore.setState({ enabled: { fixture: false } }));
+  act(() => useModuleSettingsStore.setState({ enabled: {} }));
+}
+
 describe('BottomWorkbenchDock with a module dock tab', () => {
-  beforeEach(() => useModuleSettingsStore.setState({ enabled: {} }));
+  beforeEach(() => {
+    moduleRegistry.connectShell(null);
+    freshFixture();
+  });
+
+  it('renders the module tab only once the module is active (after the bridge switch)', async () => {
+    let release!: () => void;
+    const bridgeApplied = new Promise<void>((resolve) => (release = resolve));
+    moduleRegistry.connectShell({
+      openWorkspace: async () => null,
+      activeWorkspaceType: () => null,
+      beforeActivate: () => bridgeApplied,
+    });
+    render(<BottomWorkbenchDock {...slots} activeTab="fixture.history" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('fixture-history')).toBeNull();
+    expect(moduleRegistry.isActive('fixture')).toBe(false);
+    await act(async () => release());
+    expect(await screen.findByTestId('fixture-history')).toBeInTheDocument();
+    moduleRegistry.connectShell(null);
+  });
 
   it('adds the module tab after the core tabs and renders it lazily', async () => {
     render(<BottomWorkbenchDock {...slots} />);

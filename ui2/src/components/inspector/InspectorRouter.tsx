@@ -18,6 +18,7 @@ import {
   type ModuleInspectorMode,
 } from '@/modules/registry';
 import { lazyComponent } from '@/modules/lazyComponent';
+import { ActiveModuleGate } from '@/components/modules/ActiveModuleGate';
 
 /**
  * Right-rail Inspector shell. Owns the chrome:
@@ -91,12 +92,14 @@ export function InspectorRouter() {
 function InspectorModeBody({ mode }: { mode: ModuleInspectorMode }) {
   if (mode.id === 'inspector') return <InspectorBody />;
   if (mode.id === 'annotate') return <AnnotateBody />;
-  if (!mode.component) return null;
+  if (!mode.component || !mode.moduleId) return null;
   const Body = lazyComponent(mode.component);
   return (
-    <Suspense fallback={null}>
-      <Body />
-    </Suspense>
+    <ActiveModuleGate moduleId={mode.moduleId} label={mode.title}>
+      <Suspense fallback={null}>
+        <Body />
+      </Suspense>
+    </ActiveModuleGate>
   );
 }
 
@@ -197,8 +200,6 @@ function InspectorBody() {
 /** The Inspector body a module tool declares (lazy), or a neutral notice. */
 function ModuleToolInspector({ workspaceType }: { workspaceType: string | null }) {
   const tool = moduleRegistry.getModuleTool(workspaceType);
-  // The module activates with its tab (ModuleWorkspace); until then, nothing.
-  if (tool && !moduleRegistry.isActive(tool.moduleId)) return null;
   if (!tool?.inspector) {
     return (
       <div className="px-3 py-6 text-center text-bf-sm text-muted-foreground">
@@ -208,9 +209,11 @@ function ModuleToolInspector({ workspaceType }: { workspaceType: string | null }
   }
   const Body = lazyComponent(tool.inspector);
   return (
-    <Suspense fallback={null}>
-      <Body />
-    </Suspense>
+    <ActiveModuleGate moduleId={tool.moduleId} label={tool.label}>
+      <Suspense fallback={null}>
+        <Body />
+      </Suspense>
+    </ActiveModuleGate>
   );
 }
 
