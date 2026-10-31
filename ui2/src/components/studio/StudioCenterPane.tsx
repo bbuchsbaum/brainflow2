@@ -66,10 +66,15 @@ function buildCompareArtifact(args: {
   };
 }
 
-/** A Deck view's slice slider and spacing under its canvas (px). */
-const DECK_VIEW_CHROME_PX = 34;
-/** A Compare pane's header and footer around its map (px). */
-const COMPARE_PANE_CHROME_PX = 84;
+/** The Deck view's slice slider and border around its canvas (px). */
+const DECK_VIEW_CHROME_PX = 40;
+/** A Compare pane's one-line header and footer around its map (px). */
+const COMPARE_PANE_CHROME_PX = 64;
+/**
+ * Smallest Compare map body: below it the grid scrolls rather than shrink
+ * further (the four panes fit at 1372×887 with a 150 px dock; QA N13 c).
+ */
+const COMPARE_MIN_BODY_PX = 160;
 
 export function StudioCenterPane() {
   const [populationProbeController] = useState(() => new PopulationProbeController());
@@ -243,15 +248,15 @@ export function StudioCenterPane() {
     });
   };
 
-  // Deck: three views of at least STUDIO_MIN_VIEW_PX (two rows) plus the
-  // view chrome; Compare: two rows of panes. Both fill the visible column.
+  // Deck: one large view of at least STUDIO_MIN_VIEW_PX; Compare: two rows
+  // of single-plane panes. Both fill the visible column.
   const lensHeight =
     viewportHeight === null
       ? undefined
       : activeLens === 'deck'
-        ? Math.max(2 * (STUDIO_MIN_VIEW_PX + DECK_VIEW_CHROME_PX) + 16, viewportHeight)
+        ? Math.max(STUDIO_MIN_VIEW_PX + DECK_VIEW_CHROME_PX, viewportHeight)
         : activeLens === 'compare'
-          ? Math.max(2 * (STUDIO_MIN_VIEW_PX + COMPARE_PANE_CHROME_PX) + 12, viewportHeight)
+          ? Math.max(2 * (COMPARE_MIN_BODY_PX + COMPARE_PANE_CHROME_PX) + 8, viewportHeight)
           : undefined;
 
   return (

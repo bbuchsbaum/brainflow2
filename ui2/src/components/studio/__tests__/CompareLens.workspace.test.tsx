@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 
-vi.mock('../StudioRenderAdapter', () => ({ StudioRenderAdapter: () => <div data-testid="pane-a" /> }));
-vi.mock('../StudioDerivedPaneCanvas', () => ({ StudioDerivedPaneCanvas: () => null }));
+vi.mock('../StudioRenderAdapter', () => ({
+  StudioRenderAdapter: ({ plane }: { plane?: string }) => <div data-testid="pane-a" data-plane={plane} />,
+}));
+vi.mock('../StudioDerivedPaneCanvas', () => ({
+  StudioDerivedPaneCanvas: ({ paneId, plane }: { paneId: string; plane?: string }) => (
+    <div data-testid={`derived-${paneId}`} data-plane={plane} />
+  ),
+}));
 
 import { CompareLens } from '../CompareLens';
 import { useLayerStore } from '@/stores/layerStore';
@@ -52,6 +58,52 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+const lens = (paneSpecs: unknown[] = []) => (
+  <CompareLens
+    activeSet={{ supportKind: 'volume', supportLabel: 'MNI152NLin2009cAsym (2mm)' } as never}
+    activeFeature={null}
+    activeArtifact={null}
+    activeMemberId="s01"
+    activeMember={{ id: 's01', sourcePath: '/m/s01.nii' } as never}
+    compareCohort={null}
+    cohorts={[]}
+    activeExpression={null}
+    paneSpecs={paneSpecs as never}
+    loading={false}
+    refreshingPaneIds={[]}
+    onSelectCohort={vi.fn()}
+    onDrillToCohort={vi.fn()}
+    onOpenPane={vi.fn()}
+    onInspectPane={vi.fn()}
+    onInspectCurrent={vi.fn()}
+    onOpenCurrentSource={vi.fn()}
+    onOpenCompareView={vi.fn()}
+    onRecomputePane={vi.fn()}
+  />
+);
+
+it('all four panes show one plane, the session plane shared with the Deck (QA N13 c)', async () => {
+  const { useSetStudioStore } = await import('@/stores/setStudioStore');
+  useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+  act(() => useSetStudioStore.getState().setStudioPlane('sagittal'));
+  const ready = (id: string) => ({
+    id,
+    title: id,
+    status: 'ready',
+    binding: { kind: 'derived_field', ready: true, cacheStatus: 'hit', sourcePath: `/c/${id}.nii.gz` },
+  });
+  render(lens([ready('cohort-mean'), ready('residual'), ready('zscore')]));
+  expect(screen.getByTestId('pane-a').dataset.plane).toBe('sagittal');
+  for (const id of ['cohort-mean', 'residual', 'zscore'])
+    expect(screen.getByTestId(`derived-${id}`).dataset.plane).toBe('sagittal');
+  // The toggle (in place without a toolbar slot) drives every pane.
+  act(() => {
+    screen.getByRole('radio', { name: 'Axial' }).click();
+  });
+  expect(screen.getByTestId('pane-a').dataset.plane).toBe('axial');
+  expect(screen.getByTestId('derived-zscore').dataset.plane).toBe('axial');
 });
 
 it("pane A's colourbar shows the Studio workspace's display, not the tab in front (review L4)", () => {

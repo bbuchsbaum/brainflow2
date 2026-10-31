@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StudioScaleBar } from './StudioScaleBar';
+import { StudioPlaneToggle } from './StudioPlaneToggle';
+import { StudioToolbarPortal } from './StudioToolbarSlot';
+import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { populationUnderlaySource } from '@/services/studio/PopulationSliceService';
 import { findLayerIdForSourcePath } from '@/services/studio/StudioDisplayService';
@@ -111,6 +114,9 @@ export function CompareLens({
   // Anatomy under B–D by the Population rule: a template only when the set
   // declares that template space (QA N10).
   const underlayPath = populationUnderlaySource(activeSet?.supportLabel).sourcePath;
+  // All four panes show the session's plane (QA N13 c), set by the toggle
+  // shared with the Deck.
+  const plane = useSetStudioStore((state) => state.studioPlane);
   // The derived panes belong to the Studio's workspace, not to whichever
   // workspace is in front (Set Studio is a singleton tab).
   const studioWorkspaceId = useWorkspaceStore((state) => {
@@ -121,8 +127,12 @@ export function CompareLens({
   });
 
   return (
+    <>
+    <StudioToolbarPortal>
+      <StudioPlaneToggle />
+    </StudioToolbarPortal>
     <div
-      className="grid h-full min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-3"
+      className="grid h-full min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-2"
       role="grid"
       aria-label="Compare 2x2 grid"
     >
@@ -160,6 +170,7 @@ export function CompareLens({
             activeSet={activeSet}
             memberLabel={activeMemberId}
             memberSourcePath={activeMember?.sourcePath ?? null}
+            plane={plane}
           />
         ) : derivedPath &&
           studioWorkspaceId &&
@@ -171,6 +182,7 @@ export function CompareLens({
             label={pane?.title ?? slot.fallbackTitle}
             workspaceId={studioWorkspaceId}
             underlayPath={underlayPath}
+            plane={plane}
           />
         ) : null;
 
@@ -212,6 +224,7 @@ export function CompareLens({
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -223,10 +236,12 @@ function CurrentPaneCanvas({
   activeSet,
   memberLabel,
   memberSourcePath,
+  plane,
 }: {
   activeSet: SpatialFieldSetSummary | null;
   memberLabel: string | null;
   memberSourcePath: string | null;
+  plane: 'axial' | 'coronal' | 'sagittal';
 }) {
   // The member's own display, for its colourbar (the shared views draw none
   // for a lone base layer; QA N10).
@@ -267,6 +282,7 @@ function CurrentPaneCanvas({
         title=""
         subtitle=""
         hideChrome
+        plane={plane}
         memberSourcePath={memberSourcePath}
       />
       {memberLabel ? (

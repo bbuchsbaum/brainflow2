@@ -14,7 +14,8 @@ const TEXT_HALO = '0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.5)';
 /**
  * Compact colourbar for a Studio Compare pane, in the viewer colorbar's form
  * (an upright 8 px bar, window ends and 0 as ticks, the hidden interval
- * hatched), drawn with the layer's own colormap strip. Sized for small panes:
+ * hatched), drawn with the layer's own colormap strip. It sits clear of the
+ * view's right orientation letter. Sized for small panes:
  * it shows down to a 70 px pane, where the viewer colorbar gives up (QA N10).
  */
 export function StudioScaleBar({
@@ -52,7 +53,7 @@ export function StudioScaleBar({
       }`}
       data-testid="studio-scale-bar"
       data-colormap={colormap}
-      className="pointer-events-none absolute right-2 top-8 z-10 select-none font-mono text-bf-2xs tabular-nums text-bf-text-secondary"
+      className="pointer-events-none absolute right-6 top-8 z-10 select-none font-mono text-bf-2xs tabular-nums text-bf-text-secondary"
       style={{ textShadow: TEXT_HALO, width, height: barH }}
     >
       <div

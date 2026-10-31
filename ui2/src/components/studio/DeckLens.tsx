@@ -4,6 +4,8 @@ import { Button, Chip, Pager } from '@/components/ui/bf';
 import { setImportReadiness } from '@/services/studio/importContract';
 import { StudioRenderAdapter } from './StudioRenderAdapter';
 import { StudioToolbarPortal } from './StudioToolbarSlot';
+import { StudioPlaneToggle } from './StudioPlaneToggle';
+import { useSetStudioStore } from '@/stores/setStudioStore';
 
 interface DeckLensProps {
   activeSet: SpatialFieldSetSummary | null;
@@ -36,6 +38,8 @@ export function DeckLens({
   onOpenCurrentSource,
   visibleMemberIds,
 }: DeckLensProps) {
+  // One large view of the session's plane (QA N13 b).
+  const plane = useSetStudioStore((state) => state.studioPlane);
   const memberIds = visibleMemberIds ?? activeSet?.memberIds ?? [];
   const memberIndex = activeMemberId ? memberIds.indexOf(activeMemberId) : -1;
 
@@ -67,6 +71,7 @@ export function DeckLens({
       {/* The member line and pager join the Studio toolbar row (QA N13). */}
       <StudioToolbarPortal>
         <div className="flex min-w-0 flex-nowrap items-center gap-2" aria-label="Deck">
+          <StudioPlaneToggle />
           <div className="min-w-0 truncate text-bf-sm" title={`${footer}${chips.length ? ` · ${chips.join(' · ')}` : ''}`}>
             <span className="font-medium text-foreground">{activeMemberId ?? 'No active member'}</span>{' '}
             <span className="text-muted-foreground">{subtitle}</span>
@@ -86,6 +91,7 @@ export function DeckLens({
             </Button>
           ) : null}
           {memberIndex >= 0 ? (
+            <div className="shrink-0 whitespace-nowrap">
             <Pager
               noun="member"
               page={memberIndex + 1}
@@ -95,6 +101,7 @@ export function DeckLens({
                 if (memberId) onSelectMember(memberId);
               }}
             />
+            </div>
           ) : (
             <span className="shrink-0 text-bf-sm text-muted-foreground">No member selected</span>
           )}
@@ -107,6 +114,7 @@ export function DeckLens({
           title={activeMemberId ?? 'No active member'}
           subtitle={subtitle}
           hideChrome
+          plane={plane}
           memberSourcePath={activeMemberSourcePath ?? null}
         />
       </div>

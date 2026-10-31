@@ -99,7 +99,8 @@ export function StudioComparePane({
       }`}
     >
       {/* Header */}
-      <header className="flex items-center justify-between gap-3 border-b border-border bg-card/80 px-3 py-2">
+      {/* One line, so four panes fit a 1372×887 window (QA N13 c). */}
+      <header className="flex items-center justify-between gap-2 border-b border-border bg-card/80 px-2 py-1">
         <div className="flex min-w-0 items-center gap-2">
           <span
             aria-hidden
@@ -107,9 +108,9 @@ export function StudioComparePane({
           >
             {letter}
           </span>
-          <div className="min-w-0">
-            <div className={`truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</div>
-            <div className="truncate text-bf-xs text-muted-foreground">{subtitle}</div>
+          <div className="flex min-w-0 items-baseline gap-2" title={`${title} · ${subtitle}`}>
+            <span className={`shrink-0 truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</span>
+            <span className="min-w-0 truncate text-bf-xs text-muted-foreground">{subtitle}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -133,7 +134,7 @@ export function StudioComparePane({
       </div>
 
       {/* Footer provenance chips */}
-      <footer className="flex flex-wrap items-center gap-1.5 border-t border-border bg-card/80 px-3 py-2 text-bf-xs text-muted-foreground">
+      <footer className="flex flex-nowrap items-center gap-1.5 overflow-hidden border-t border-border bg-card/80 px-2 py-1 text-bf-xs text-muted-foreground">
         {letter !== 'A' && cohortId && onDrillToCohort ? (
           <Button
             variant="secondary"

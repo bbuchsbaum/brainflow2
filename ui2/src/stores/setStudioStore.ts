@@ -72,6 +72,12 @@ interface SetStudioStoreState
   designSearch: string;
   sortColumn: string | null;
   sortDirection: 'asc' | 'desc';
+  /**
+   * The plane the Deck's view and the Compare panes show (QA N13 b/c), for
+   * the session: a new study starts on axial.
+   */
+  studioPlane: 'axial' | 'coronal' | 'sagittal';
+  setStudioPlane: (plane: 'axial' | 'coronal' | 'sagittal') => void;
   activeDesignFilters: StudioDesignFilter[];
   activeArtifact: StudioArtifactSummary | null;
   artifactHistory: StudioArtifactSummary[];
@@ -346,10 +352,15 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   designSearch: '',
   sortColumn: null,
   sortDirection: 'asc',
+  studioPlane: 'axial',
   activeDesignFilters: [],
   activeArtifact: null,
   artifactHistory: [],
   savedRecipes: [],
+
+  setStudioPlane: (plane) => {
+    if (get().studioPlane !== plane) set({ studioPlane: plane });
+  },
 
   bootstrapStudio: (payload) => {
     const features = toRecord(payload.features);
@@ -420,6 +431,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       designSearch: '',
       sortColumn: null,
       sortDirection: 'asc',
+      studioPlane: 'axial',
       activeDesignFilters: [],
       activeArtifact: null,
       artifactHistory: [],
