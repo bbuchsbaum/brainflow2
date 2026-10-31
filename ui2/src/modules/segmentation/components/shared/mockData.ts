@@ -252,13 +252,7 @@ export const yOfJ = (j: number) => DESIGN.grid.origin[1] + j;
 
 export type SliceStatus = 'traced' | 'interpolated' | 'ai' | 'empty' | 'reviewed' | 'keyframe';
 
-/** Per-slice status while tracing (mock): what the slice ruler shows. */
-export function tracingSliceStatus(j: number): SliceStatus {
-  if (j < 100 || j > 116) return 'empty';
-  if (j === 106) return 'ai';
-  if (j === 112 || j === 114) return 'interpolated';
-  return 'traced';
-}
+// Per-slice status while tracing: derived from the session model (`session.ts`, round 6).
 
 /** Fill-between proposal reviewed slice by slice (mock). */
 export const INTERP = {

@@ -103,10 +103,10 @@ import {
   labelTint,
   proposalSliceStatus,
   sessionLabels,
-  tracingSliceStatus,
   yOfJ,
 } from '@/modules/segmentation/components/shared/mockData';
 import { B_NONE, CROSSHAIR_WORLD, SCENE } from '@/modules/segmentation/components/shared/scenes';
+import { JOURNAL_STEP, sessionSliceStatus, unreviewedSlices } from '@/modules/segmentation/components/shared/session';
 import { orthoViews, primaryView, stripViews, zoomFactor } from '@/modules/segmentation/components/shared/views';
 import type { DesignState, SliceImage, ToolId } from '@/modules/segmentation/components/shared/types';
 import { DESIGN } from '@/modules/segmentation/__design__/designData';
@@ -394,10 +394,10 @@ function SizePopover() {
  * other key: the neighbour slice (a faint grey line) and an island ring.
  * Legible without a tooltip; the keys stay in the tooltip.
  */
-export function NeighbourKey({ island = true }: { island?: boolean }) {
+export function NeighbourKey({ island = true, neighbour = true }: { island?: boolean; neighbour?: boolean }) {
   return (
     <span className="flex shrink-0 items-center gap-2.5 whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted">
-      <span
+      {neighbour ? <span
         className="flex items-center gap-1.5"
         title={`Neighbour: CA1 on k ${kOf(PREV_J)} (y ${fmtMm(yOfJ(PREV_J), 0)}), the slice you came from, drawn only where it departs from k ${SLICE_K} by more than one voxel. Hold , for k ${kOf(NEXT_J)}.`}
         data-testid="neighbour-key"
@@ -406,7 +406,7 @@ export function NeighbourKey({ island = true }: { island?: boolean }) {
           <line x1={0} y1={3} x2={14} y2={3} strokeWidth={1} className="stroke-bf-text-primary" strokeOpacity={NEIGHBOUR_OPACITY} />
         </svg>
         <span className="font-sans">neighbour</span> k {kOf(PREV_J)}
-      </span>
+      </span> : null}
       {island ? (
         <span className="flex items-center gap-1" title="A ring marks an island: a piece of CA1 not connected to the rest on this slice" data-testid="island-key">
           <svg width={9} height={9} aria-hidden>
@@ -629,7 +629,7 @@ interface RulerRow {
   note?: string;
 }
 
-function rulerRows(state: DesignState): RulerRow[] {
+function rulerRows(state: DesignState, asOf = JOURNAL_STEP): RulerRow[] {
   const review = state === 'review';
   const proposal = state === 'proposal';
   // Review: a flagged slice is done once every region it belongs to is decided.
@@ -647,7 +647,7 @@ function rulerRows(state: DesignState): RulerRow[] {
       const mark: Mark = st === 'interpolated' ? 'open' : st === 'empty' ? 'none' : 'solid';
       return { j, k, mark, key: st === 'keyframe', why: 'review', title: `k ${k} · ${st === 'reviewed' ? 'interpolated, reviewed' : st === 'interpolated' ? 'interpolated, not reviewed' : st}` };
     }
-    const st = tracingSliceStatus(j);
+    const st = sessionSliceStatus(j, asOf);
     const mark: Mark = st === 'interpolated' || st === 'ai' ? 'open' : st === 'empty' ? 'none' : 'solid';
     return { j, k, mark, why: st === 'ai' ? 'AI' : 'interp.', title: `k ${k} · ${st === 'ai' ? 'AI-touched, not reviewed' : st === 'interpolated' ? 'interpolated, not reviewed' : st}` };
   });
@@ -676,12 +676,15 @@ function openRuns(rows: readonly RulerRow[]): Array<{ start: number; len: number
 export function SliceRuler({
   state,
   marks,
+  asOf,
 }: {
   state: DesignState;
+  /** Round 6: the session as of a step (the AI licence gate: before AI was first used). */
+  asOf?: number;
   /** Round 5: per-k overrides (an AI result's slices: seen solid, unseen hollow "AI"; a recovered session's last edit). */
   marks?: Readonly<Record<number, { mark: 'solid' | 'open' | 'none'; why?: string; title?: string; key?: boolean; note?: string }>>;
 }) {
-  const rows = rulerRows(state).map((r) => (marks?.[r.k] ? { ...r, ...marks[r.k] } : r));
+  const rows = rulerRows(state, asOf).map((r) => (marks?.[r.k] ? { ...r, ...marks[r.k] } : r));
   const runs = openRuns(rows);
   const n = rows.length;
   const review = state === 'review';
@@ -815,7 +818,7 @@ function ContrastStrip({ fovMm }: { fovMm: number }) {
     <div className="flex h-full min-h-0 flex-col bg-bf-bg-canvas" data-testid="contrast-strip">
       <div
         className="flex h-6 shrink-0 items-center gap-2 border-b border-bf-border-subtle bg-bf-bg-panel-sunken px-2 text-bf-xs"
-        title={`Same native slice, centre and zoom as the primary (${zoomFactor(fovMm)}). Hold Space to flicker T2w and T1w in the primary.`}
+        title={`Same native slice, centre and zoom as the primary (${zoomFactor(fovMm)}). Hold T to flicker T2w and T1w in the primary.`}
       >
         <span className="text-bf-text-secondary">Linked</span>
         <Sep />
@@ -1219,7 +1222,7 @@ export function SliceMatrix({
                     'relative h-full min-w-0 flex-1 cursor-pointer p-0 hover:bg-bf-bg-hover',
                     isHover && 'bg-bf-bg-hover shadow-[inset_0_0_0_1px_var(--bf-text-muted)]',
                   )}
-                  title={`${def.name} · k ${k} · ${v} ${unit}${hollow ? ' (proposed, not reviewed)' : ''}${flags.length ? ` · ${flags.map(flagTitle).join('; ')}` : ''}. Click to go to k ${k}.`}
+                  title={`${def.name} · k ${k} · ${v} ${unit}${hollow ? ' (not reviewed)' : ''}${flags.length ? ` · ${flags.map(flagTitle).join('; ')}` : ''}. Click to go to k ${k}.`}
                   aria-label={`${def.name}, k ${k}: ${v} ${unit}`}
                   data-k={k}
                   data-hovered={isHover || undefined}
@@ -1321,6 +1324,10 @@ function tracingMatrixRows(state: DesignState): { rows: MatrixRow[]; more: Matri
       const ks = [...INTERP.keyframesJ, ...INTERP.orderJ].map(kOf);
       values = full.map((v, i) => (ks.includes(i + 1) ? v : 0));
       hollow = INTERP.orderJ.slice(INTERP.reviewed).map(kOf);
+    } else if (d.id === CA1) {
+      // Slices confirmed without a look (session model): hollow, as on the ruler.
+      const open = unreviewedSlices(CA1).map((u) => u.k);
+      hollow = open.length ? open : undefined;
     }
     const expected = PROTOCOL.expectedK[d.id];
     const flags = d.id === CA1 && state === 'proposal' ? [] : areaFlags(values, expected ?? null, vol?.complete ?? false);
@@ -1754,7 +1761,7 @@ function Status({ state }: { state: DesignState }) {
     <>
       <StatusItem label="Crosshair" value={`(${fmtMm(x)}, ${fmtMm(y)}, ${fmtMm(z)})`} />
       {editing ? <StatusItem label="Label" value="CA1" mono={false} /> : null}
-      {editing ? <StatusItem label="History" value={`${SESSION.historySteps} steps`} /> : null}
+      {editing ? <StatusItem label="History" value={`${JOURNAL_STEP} steps`} /> : null}
     </>
   );
 }

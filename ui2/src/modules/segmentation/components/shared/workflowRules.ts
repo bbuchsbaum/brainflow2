@@ -306,3 +306,97 @@ export function freesurferLut(labels: readonly TableLabel[]): string[] {
     }),
   ];
 }
+
+// ---------------------------------------------------------- round 6 rules
+
+/**
+ * AI over-reach into anatomy not yet traced. Add-only protects labelled
+ * voxels only; on subfields the real risk is a proposal growing into
+ * territory of a label that is still empty or in progress. A proposal voxel
+ * is flagged when it touches (8-neighbour) a voxel of a label that is not
+ * complete, when the pack's prior (its k-matched example) gives its place to
+ * such a label, or when its slice is outside the target's expected k-range.
+ * Flags are a separate review mark, never a refusal: the voxels stay in the
+ * proposal until the rater decides.
+ */
+export function overreach(
+  added: readonly Voxel[],
+  labelsNow: ReadonlyMap<string, number>,
+  prior: ReadonlyMap<string, number>,
+  target: number,
+  incomplete: ReadonlySet<number>,
+  slice: { k: number; expected: readonly [number, number] | null },
+): { voxels: Voxel[]; byLabel: Array<[number, number]>; outsideRange: boolean } {
+  const outsideRange = !!slice.expected && (slice.k < slice.expected[0] || slice.k > slice.expected[1]);
+  const voxels: Voxel[] = [];
+  const by = new Map<number, number>();
+  for (const v of added) {
+    let hit = 0;
+    const p = prior.get(key(v[0], v[1])) ?? 0;
+    if (p !== 0 && p !== target && incomplete.has(p)) hit = p;
+    for (let dc = -1; dc <= 1 && !hit; dc++)
+      for (let dr = -1; dr <= 1 && !hit; dr++) {
+        const n = labelsNow.get(key(v[0] + dc, v[1] + dr)) ?? 0;
+        if (n !== 0 && n !== target && incomplete.has(n)) hit = n;
+      }
+    if (outsideRange || hit) {
+      voxels.push(v);
+      if (hit) by.set(hit, (by.get(hit) ?? 0) + 1);
+    }
+  }
+  return { voxels, byLabel: [...by].sort((a, b) => b[1] - a[1]), outsideRange };
+}
+
+/**
+ * Per-slice accept (the default for every proposal, fill between or AI):
+ * Enter writes the slice under review and steps to the next unseen slice of
+ * the proposal in review order; null when every slice was seen.
+ */
+export function nextUnseen(order: readonly number[], seen: readonly number[], current: number): number | null {
+  const s = new Set([...seen, current]);
+  return order.find((k) => !s.has(k)) ?? null;
+}
+
+/**
+ * What saving does with unfinished work (operator, round 5): unreviewed
+ * slices and incomplete labels warn and save (status draft); they block only
+ * "Mark complete" and status complete, never the save itself.
+ */
+export function saveCheck(input: { unreviewed: number; incomplete: readonly string[] }): {
+  save: 'allowed';
+  status: 'draft' | 'complete';
+  warn: string | null;
+  markComplete: 'allowed' | 'blocked';
+} {
+  const draft = input.unreviewed > 0 || input.incomplete.length > 0;
+  const parts = [
+    input.incomplete.length ? `${input.incomplete.join(', ')} incomplete` : '',
+    input.unreviewed ? `${input.unreviewed} slice${input.unreviewed === 1 ? '' : 's'} not reviewed` : '',
+  ].filter(Boolean);
+  return { save: 'allowed', status: draft ? 'draft' : 'complete', warn: draft ? parts.join(' · ') : null, markComplete: input.unreviewed > 0 ? 'blocked' : 'allowed' };
+}
+
+/**
+ * Lesion connectivity, a protocol setting recorded in provenance: 26 on
+ * isotropic grids (FSL cluster and BIANCA count this way); 18 when slices
+ * are thick (3 mm or more, or 2.5× the in-plane spacing), where 26 merges
+ * diagonal neighbours across slices.
+ */
+export function defaultConnectivity(spacing: readonly [number, number, number]): 26 | 18 {
+  const [a, b, c] = spacing;
+  return c >= 3 || c >= 2.5 * Math.min(a, b) ? 18 : 26;
+}
+
+/** Per-subject Fazekas rating: periventricular and deep, each 0–3. */
+export interface Fazekas {
+  periventricular: 0 | 1 | 2 | 3 | null;
+  deep: 0 | 1 | 2 | 3 | null;
+}
+export const FAZEKAS_GRADES = [0, 1, 2, 3] as const;
+
+/** Lesion types (STRIVE), set per lesion; "exclude" keeps the row but drops it from the totals. */
+export const LESION_TYPES = ['WMH', 'lacune', 'infarct', 'PVS', 'exclude'] as const;
+export type LesionType = (typeof LESION_TYPES)[number];
+
+/** Components under this many voxels are flagged "check: noise or PVS?" (operator). */
+export const SMALL_LESION_VX = 3;

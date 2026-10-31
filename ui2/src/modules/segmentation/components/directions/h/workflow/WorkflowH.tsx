@@ -21,6 +21,8 @@ export function DirectionHWorkflow({ state }: { state: WorkflowState }) {
       return <AiConsentState />;
     case 'lesion':
       return <LesionState />;
+    case 'lesion-overview':
+      return <LesionState fit />;
     case 'contrast-aids':
       return <ContrastAidsState />;
     case 'history':

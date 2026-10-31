@@ -98,14 +98,16 @@ describe('AI proposals never overwrite other labels', () => {
 
   it('the state shows the kept voxels, confirms by label name and keeps prompt undo apart from document undo', () => {
     const { container, getByTestId, unmount } = render(<DirectionHWorkflow state="ai-prompt" />);
-    expect(getByTestId('ai-confirm').textContent).toContain('Confirm CA1');
+    // Round 6: per-slice accept is the default (see round6.test.tsx).
+    expect(getByTestId('ai-accept').textContent).toContain('Accept CA1 here');
     expect(getByTestId('prompt-undo').getAttribute('title')).toMatch(/document undo \(⌘Z\) is separate/);
     expect(getByTestId('ai-protected').textContent).toContain(`${AI.protected.length} vx kept`);
     expect(getByTestId('ai-provider').textContent).toMatch(/nnInteractive v2\.5\.0 · local · 0\.84 s/);
     expect(container.querySelectorAll('[data-testid="prompt-rail"] button')).toHaveLength(5);
     // Prompts on this slice are drawn by form; the k 9 prompt is only listed.
     expect(container.querySelectorAll('[data-prompt]')).toHaveLength(AI.prompts.filter((p) => p.k === AI.prompts[0].k).length);
-    expect(container.querySelectorAll('[data-prompt-row]')).toHaveLength(AI.prompts.length);
+    // Round 6: the Inspector counts the prompts instead of listing them again.
+    expect(getByTestId('prompt-count').textContent).toBe(`${AI.prompts.length} prompts`);
     unmount();
   });
 
@@ -213,7 +215,8 @@ describe('history: per-label undo, branches, journal', () => {
 
   it('keeps the undone branch and shows the journal', () => {
     const { container, getByTestId, unmount } = render(<DirectionHWorkflow state="history" />);
-    expect(container.querySelectorAll('[data-branch="alt"]').length).toBe(2);
+    // Round 6: the kept branch is one row at its branch point, holding both steps.
+    expect(container.querySelector('[data-branch="alt"]')?.getAttribute('data-steps')).toBe('33′ 32′');
     expect(getByTestId('journal-status').textContent).toMatch(/journal written 4 s ago/);
     unmount();
   });
@@ -252,7 +255,8 @@ describe('label colours and files', () => {
     expect(total).toBe(SAVE.labelVoxels);
     const { getByTestId, unmount } = render(<DirectionHWorkflow state="save" />);
     expect(getByTestId('nifti-header').textContent).toMatch(/1002/);
-    expect(getByTestId('save-files').querySelectorAll('li').length).toBe(5);
+    // Round 6: dseg.tsv is the only default table (volume, table, sidecar, provenance volume).
+    expect(getByTestId('save-files').querySelectorAll('li').length).toBe(4);
     unmount();
   });
 

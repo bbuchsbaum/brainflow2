@@ -17,31 +17,44 @@
  *   slice is reviewed, a hollow one where one is not, the current lesion's
  *   span bracketed.
  *
+ * Round 6: WMH is outline only by default (the FLAIR signal inside stays
+ * readable; F held shows fills); T1w and T2w sit in a strip below the
+ * primary, with a whole-slice overview carrying every lesion tag (and a fit
+ * variant, `lesion-overview`); the rows come from an imported automated seed
+ * (LST-AI here) as unreviewed rows, each with a STRIVE type; each row has a
+ * span bar on the ruler's axial-k axis and a mm³ bar on one scale; Fazekas
+ * periventricular and deep are rated per subject; connectivity (26 on this
+ * 1 mm isotropic grid) is a pack setting shown and recorded.
+ *
  * The FLAIR is a MOCK made from the T1w template; the lesions are synthetic.
+ * The T1w and T2w are the real templates (no lesions in them).
  */
 
 import React from 'react';
 import clsx from 'clsx';
-import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button, IconButton, SelectableRow } from '@/components/ui/bf';
+import { Check, ChevronLeft, ChevronRight, Import } from 'lucide-react';
+import { Button, IconButton, SegmentedControl, Select, SelectableRow } from '@/components/ui/bf';
 import { SliceView, type Overlay, type Projector } from '@/modules/segmentation/components/shared/SliceView';
 import { StatusItem, Swatch, ViewportFrame } from '@/modules/segmentation/components/shared/chrome';
 import { bboxOf, fmtInt, fmtMm } from '@/modules/segmentation/components/shared/geometry';
 import { LABEL_BY_ID, WMH } from '@/modules/segmentation/components/shared/mockData';
 import { zoomFactor } from '@/modules/segmentation/components/shared/views';
-import { PARTIAL_VOLUME_RULE } from '@/modules/segmentation/components/shared/workflowRules';
-import type { Point, Voxel } from '@/modules/segmentation/components/shared/types';
+import { FAZEKAS_GRADES, LESION_TYPES, PARTIAL_VOLUME_RULE } from '@/modules/segmentation/components/shared/workflowRules';
+import type { Point, SliceImage, Voxel } from '@/modules/segmentation/components/shared/types';
 import { LESION, lesionsOnK, type Lesion } from '@/modules/segmentation/__design__/lesionData';
 import { HShell, InspectorFrame, SessionHeader, Sep, StripItem, TextToggle, ToolRail } from '@/modules/segmentation/components/directions/h/DirectionH';
 import { PrimaryPanel, StateChip, TraceGrid } from './parts';
-import { LESION_SCENE, RANGE } from './workflowData';
+import { LESION_CONNECTIVITY, LESION_SCENE, RANGE } from './workflowData';
 
 const WMH_DEF = LABEL_BY_ID.get(WMH)!;
 /** Field of view of the primary (mm): the current lesion with its ventricle, voxels large enough for the partial-volume marks. */
 const PRIMARY_FOV = 52;
+/** The fit view: the whole axial slice. */
+const FIT_FOV = 170;
 const [, NY, NZ] = LESION.grid.dims;
 const ORIGIN = LESION.grid.origin;
 const CUR = LESION.rows.find((r) => r.id === LESION.current)!;
+const FIT_CENTRE: Point = [LESION.grid.dims[0] / 2, LESION.grid.dims[1] / 2 + 6];
 
 export const LESION_DISCLOSURE = 'Design mock · editing simulated · FLAIR is a mock made from the MNI152 T1w template · lesions synthetic';
 
@@ -64,8 +77,9 @@ function lesionOverlays(byLesion: ReadonlyArray<{ id: number; voxels: ReadonlyAr
     .map((l) => {
       const row = LESION.rows.find((r) => r.id === l.id)!;
       const current = l.id === LESION.current;
+      // Outline only by default: no fill over the hyperintensity being judged (F held shows fills).
       if (ortho) {
-        return { kind: 'labels', voxels: l.voxels, fill: current, active: current ? [WMH] : [], quiet: current ? [] : [WMH], gaps: false } as Overlay;
+        return { kind: 'labels', voxels: l.voxels, fill: false, active: current ? [WMH] : [], quiet: current ? [] : [WMH], gaps: false } as Overlay;
       }
       return {
         kind: 'labels',
@@ -73,7 +87,6 @@ function lesionOverlays(byLesion: ReadonlyArray<{ id: number; voxels: ReadonlyAr
         fill: false,
         active: current ? [WMH] : [],
         quiet: row.reviewed ? [WMH] : [],
-        fillActive: current ? [WMH] : undefined,
         gaps: false,
       } as Overlay;
     });
@@ -84,7 +97,7 @@ function partialPath(vs: readonly Voxel[]): string {
   return vs.map(([c, r]) => `M${c + 0.3} ${r + 0.3}h0.4v0.4h-0.4Z`).join('');
 }
 
-function LesionTags({ p }: { p: Projector }) {
+export function LesionTags({ p, small = false }: { p: Projector; small?: boolean }) {
   return (
     <>
       {LESION_SCENE.byLesion.map((l) => {
@@ -94,16 +107,17 @@ function LesionTags({ p }: { p: Projector }) {
         const top = [...all].sort((a, b) => a[1] - b[1] || b[0] - a[0])[0];
         const at = p.project([top[0] + 1.4, top[1] + 0.2]);
         if (at.x < 0 || at.y < 0 || at.x > p.width - 20 || at.y > p.height - 10) return null;
+        const dy = small ? 11 : 16;
         const current = l.id === LESION.current;
         return (
           <span
             key={l.id}
             className={clsx(
-              'pointer-events-none absolute whitespace-nowrap rounded-sm bg-bf-bg-canvas/80 px-1 font-mono text-bf-2xs leading-4',
-              current ? 'text-bf-text-primary' : 'text-bf-text-secondary',
+              'pointer-events-none absolute whitespace-nowrap font-mono text-bf-2xs leading-4 [text-shadow:0_0_2px_var(--bf-bg-canvas),0_0_3px_var(--bf-bg-canvas),0_0_4px_var(--bf-bg-canvas)]',
+              current ? 'font-semibold text-bf-text-primary' : 'text-bf-text-secondary',
             )}
-            style={{ left: at.x, top: at.y - 16 }}
-            data-testid="lesion-tag"
+            style={{ left: at.x, top: at.y - dy }}
+            data-testid={small ? 'overview-tag' : 'lesion-tag'}
           >
             L{l.id}
           </span>
@@ -239,7 +253,7 @@ function LesionOrtho({ plane }: { plane: 'cor' | 'sag' }) {
         crosshair={centre}
         crosshairClearBox={bboxOf(voxels.filter((v) => v[2] === LESION.current).map(([c, r]) => [c, r] as Voxel), 2)}
         letters={false}
-        overlays={[{ kind: 'band', through: [centre[0], row], dir: [1, 0], widthMm: 1, lengthMm: 12, ticks: true }, ...lesionOverlays(byLesion, true)]}
+        overlays={[{ kind: 'band', through: [centre[0], row], dir: [1, 0], widthMm: 1, lengthMm: 400, ticks: true }, ...lesionOverlays(byLesion, true)]}
         aria-label={`${plane === 'cor' ? 'Coronal' : 'Sagittal'} FLAIR through lesion ${CUR.id}`}
       />
     </ViewportFrame>
@@ -295,7 +309,7 @@ function RangeSection() {
   );
 }
 
-/** The protocol line for lesions (collapsed like H's step card). */
+/** The protocol line for lesions (collapsed like H's step card), with the pack's connectivity. */
 function LesionStepCard() {
   const reviewed = LESION.rows.filter((r) => r.reviewed).length;
   return (
@@ -309,66 +323,129 @@ function LesionStepCard() {
         </span>
       </button>
       <p className="m-0 px-3 pb-2 pl-[34px] text-bf-2xs leading-snug text-bf-text-secondary">
-        Rule · a voxel is lesion when more than half of it is inside the lesion; check each lesion in all three planes.
+        Rule · a voxel is lesion when more than half of it is inside; type each lesion with T1w and T2w open (STRIVE).{' '}
+        <span className="font-mono text-bf-text-muted" data-testid="connectivity" title="Pack setting for 1.0 mm isotropic FLAIR (as FSL cluster and BIANCA count); 18 on thick-slice FLAIR. Recorded in provenance.">
+          {LESION_CONNECTIVITY}-connected
+        </span>
       </p>
     </div>
   );
 }
 
-/** The lesion list: one row per 3D connected lesion; next and previous; the current row open with its actions. */
+/** The imported automated seed: its rows arrive unreviewed; import another (LST, BIANCA, SAMSEG). */
+function SeedLine() {
+  const toReview = LESION.rows.filter((r) => r.source === 'seed' && !r.reviewed).length;
+  return (
+    <div className="flex items-center gap-2 border-b border-bf-border-subtle px-3 py-1.5 text-bf-xs" data-testid="lesion-seed" title={`Seed ${LESION.seed.file}, imported ${LESION.seed.importedAt}: every component became an unreviewed row; edits keep the rows derived from the mask. Recorded in provenance.`}>
+      <span className="text-bf-text-muted">Seed</span>
+      <span className="truncate text-bf-text-secondary">
+        {LESION.seed.tool} {LESION.seed.version} · {toReview} of {LESION.rows.length} to review
+      </span>
+      <Button size="sm" variant="ghost" className="ml-auto" icon={<Import className="h-3 w-3" />} title="Import a seed mask (LST, BIANCA, SAMSEG): its components land as unreviewed rows">
+        Import…
+      </Button>
+    </div>
+  );
+}
+
+/** Axial k range shared by the ruler and the span bars (superior first, as the ruler reads top to bottom). */
+const K_TOP = 113;
+const K_BOTTOM = 84;
+const MM3_MAX = Math.max(...LESION.rows.map((r) => r.mm3));
+const shortWhere = (l: Lesion) => whereOf(l).replace('posterior', 'post').replace('anterior', 'ant').replace('central', 'centr');
+
+/** A lesion's slice span on the ruler's k axis (superior left), the current slice marked through every row. */
+function SpanBar({ k }: { k: readonly [number, number] }) {
+  const n = K_TOP - K_BOTTOM + 1;
+  const x = (kk: number) => ((K_TOP - kk) / n) * 100;
+  return (
+    <span className="relative block h-3 w-full" data-span={`${k[0]}-${k[1]}`} title={`k ${k[0]}–${k[1]}`}>
+      <span className="absolute inset-x-0 top-1/2 h-px bg-bf-text-faint" aria-hidden />
+      <span className="absolute top-[3px] h-[6px] bg-bf-text-secondary" style={{ left: `${x(k[1])}%`, width: `${((k[1] - k[0] + 1) / n) * 100}%` }} aria-hidden />
+      <span className="absolute bottom-0 top-0 w-px bg-bf-text-primary" style={{ left: `${x(LESION.k) + 50 / n}%` }} aria-hidden data-current-k />
+    </span>
+  );
+}
+
+/** Volume on one scale for every row (the largest lesion fills the column). */
+function Mm3Bar({ mm3 }: { mm3: number }) {
+  return (
+    <span className="flex items-center justify-end gap-1">
+      <span className="font-mono tabular-nums">{fmtInt(mm3)}</span>
+      <span className="relative block h-[6px] w-6 shrink-0" aria-hidden>
+        <span className="absolute inset-y-0 left-0 bg-bf-text-secondary" style={{ width: `${(mm3 / MM3_MAX) * 100}%` }} data-mm3-bar />
+      </span>
+    </span>
+  );
+}
+
+const ROW_COLS = 'grid-cols-[22px_minmax(0,1fr)_34px_minmax(0,64px)_62px_14px] max-[1366px]:grid-cols-[22px_minmax(0,1fr)_minmax(0,56px)_58px_14px]';
+
+/** The lesion list: one row per 3D connected lesion; type, span and volume as graphics; next and previous; the current row open. */
 function LesionList() {
-  const total = LESION.rows.reduce((s, r) => s + r.mm3, 0);
-  const reviewed = LESION.rows.filter((r) => r.reviewed).length;
+  const total = LESION.rows.filter((r) => r.type !== 'exclude').reduce((s, r) => s + r.mm3, 0);
   const idx = LESION.rows.findIndex((r) => r.id === LESION.current);
   return (
-    <section className="flex flex-col gap-1 py-2" data-testid="lesion-list">
+    <section className="flex flex-col gap-1 border-b border-bf-border-subtle py-2" data-testid="lesion-list">
       <div className="flex items-center gap-2 px-3">
         <span className="text-bf-xs font-medium text-bf-text-primary">Lesions</span>
-        <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted" title={`Each row is one 26-connected lesion in 3D; editing that joins or splits lesions renumbers them. ${reviewed} reviewed.`}>
+        <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted" title={`Each row is one ${LESION_CONNECTIVITY}-connected lesion in 3D; joining or splitting renumbers them.`}>
           {LESION.rows.length} · {fmtInt(total)} mm³
         </span>
+        <TextToggle pressed title="Outline only (O), the lesion default: no fill over the FLAIR signal. Hold F for fills.">
+          Outline only
+        </TextToggle>
         <span className="ml-auto flex items-center gap-0.5">
-          <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-secondary">
+          <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-secondary max-[1366px]:hidden">
             L{LESION.current} of {LESION.rows.length}
           </span>
           <IconButton aria-label="Previous lesion" title="Previous lesion (⇧N)" icon={<ChevronLeft />} variant="ghost" size="sm" disabled={idx === 0} />
           <IconButton aria-label="Next lesion" title="Next lesion to review (N): L4" icon={<ChevronRight />} variant="ghost" size="sm" />
         </span>
       </div>
-      <div className="grid grid-cols-[28px_minmax(0,1fr)_60px_62px_20px] items-center gap-x-2 px-3 text-bf-2xs text-bf-text-muted" aria-hidden>
+      <div className={clsx('grid items-center gap-x-1.5 px-3 text-bf-2xs text-bf-text-muted', ROW_COLS)} aria-hidden>
         <span>#</span>
         <span>where</span>
+        <span className="max-[1366px]:hidden">type</span>
+        <span className="flex justify-between font-mono">
+          <span>k {K_TOP}</span>
+          <span>{K_BOTTOM}</span>
+        </span>
         <span className="text-right">mm³</span>
-        <span className="text-right">slices</span>
         <span />
       </div>
       <ol className="m-0 flex list-none flex-col p-0" aria-label="Lesions">
         {LESION.rows.map((r) => {
           const current = r.id === LESION.current;
           return (
-            <li key={r.id} data-lesion-row={r.id} data-reviewed={r.reviewed || undefined}>
-              <SelectableRow selected={current} tabIndex={current ? 0 : -1} className={clsx('grid min-h-6 grid-cols-[28px_minmax(0,1fr)_60px_62px_20px] gap-x-2 text-bf-xs', current ? 'text-bf-text-primary' : 'text-bf-text-secondary')}>
+            <li key={r.id} data-lesion-row={r.id} data-reviewed={r.reviewed || undefined} data-type={r.type} data-source={r.source}>
+              <SelectableRow selected={current} tabIndex={current ? 0 : -1} className={clsx('grid min-h-6 gap-x-1.5 text-bf-xs', ROW_COLS, current ? 'text-bf-text-primary' : 'text-bf-text-secondary')}>
                 <span className="font-mono">L{r.id}</span>
-                <span className="flex min-w-0 items-baseline gap-1.5">
-                  <span className="truncate">{whereOf(r)}</span>
-                  <span className="text-bf-2xs text-bf-text-muted" title={r.location}>
+                <span className="flex min-w-0 items-baseline gap-1">
+                  <span className="truncate">{shortWhere(r)}</span>
+                  <span className="text-bf-2xs text-bf-text-muted" title={`${r.location}: computed (ventricle contiguity, 10 mm PV rule, juxtacortical when it touches the cortex); click to override, logged`}>
                     {LOCATION_SHORT[r.location]}
                   </span>
                 </span>
-                <span className="text-right font-mono tabular-nums">{fmtInt(r.mm3)}</span>
-                <span className="text-right font-mono text-bf-2xs tabular-nums text-bf-text-muted">
-                  k {r.k[0]}–{r.k[1]}
-                </span>
-                <span className="flex justify-center" title={r.reviewed ? 'Reviewed' : 'To review'}>
+                <span className="text-bf-2xs text-bf-text-muted max-[1366px]:hidden">{r.type}</span>
+                <SpanBar k={r.k} />
+                <Mm3Bar mm3={r.mm3} />
+                <span className="flex justify-center" title={r.reviewed ? 'Reviewed' : 'To review (from the seed)'}>
                   {r.reviewed ? <Check className="h-3 w-3 text-bf-text-secondary" aria-label="reviewed" /> : <span className="h-2 w-2 rounded-full border border-bf-text-muted" aria-label="to review" />}
                 </span>
               </SelectableRow>
               {current ? (
-                <div className="flex items-center gap-1.5 border-l-2 border-bf-accent py-1.5 pl-[30px] pr-3" data-testid="lesion-open">
-                  <Button size="sm" variant="secondary" title="Mark L1 reviewed and go to the next lesion to review (Enter)">
+                <div className="flex items-center gap-1.5 border-l-2 border-bf-accent py-1.5 pl-[28px] pr-3" data-testid="lesion-open">
+                  <Select
+                    aria-label={`Type of L${r.id}`}
+                    defaultValue={r.type}
+                    className="w-[84px]"
+                    options={LESION_TYPES.map((t) => ({ value: t, label: t }))}
+                  />
+                  <Button size="sm" variant="secondary" title={`Mark L${r.id} reviewed and go to the next lesion to review (Enter)`}>
                     Mark L{r.id} reviewed ↵
                   </Button>
-                  <Button size="sm" variant="ghost" title="Not a lesion: remove every voxel of L1 (logged)">
+                  <Button size="sm" variant="ghost" title={`Not a lesion: remove every voxel of L${r.id} (logged); or set its type to exclude to keep it out of the totals`}>
                     Remove
                   </Button>
                 </div>
@@ -378,37 +455,131 @@ function LesionList() {
         })}
       </ol>
       <span className="px-3 text-bf-2xs text-bf-text-muted">
-        PV periventricular {fmtInt(LESION.rows.filter((r) => r.location === 'periventricular').reduce((s, r) => s + r.mm3, 0))} mm³ · deep{' '}
-        {fmtInt(LESION.rows.filter((r) => r.location !== 'periventricular').reduce((s, r) => s + r.mm3, 0))} mm³
+        PV {fmtInt(LESION.rows.filter((r) => r.location === 'periventricular').reduce((s, r) => s + r.mm3, 0))} mm³ · deep{' '}
+        {fmtInt(LESION.rows.filter((r) => r.location !== 'periventricular').reduce((s, r) => s + r.mm3, 0))} mm³ · one scale, max {fmtInt(MM3_MAX)} mm³
       </span>
     </section>
   );
 }
 
-export function LesionState() {
+/** Per-subject Fazekas: periventricular and deep, 0–3 each (rater-set; recorded with the mask). */
+function FazekasFields() {
+  const row = (name: string, key: 'periventricular' | 'deep') => {
+    const v = LESION.fazekas[key];
+    return (
+      <div className="flex items-center gap-2" data-fazekas={key} data-value={v ?? ''}>
+        <span className="w-24 text-bf-xs text-bf-text-secondary">{name}</span>
+        <SegmentedControl
+          aria-label={`Fazekas ${key}`}
+          size="sm"
+          value={v === null ? '' : String(v)}
+          onValueChange={() => undefined}
+          options={FAZEKAS_GRADES.map((g) => ({ value: String(g), label: String(g) }))}
+        />
+        {v === null ? <span className="text-bf-2xs text-bf-text-muted">not rated</span> : null}
+      </div>
+    );
+  };
+  return (
+    <section className="flex flex-col gap-1 px-3 py-2" data-testid="fazekas">
+      <span className="text-bf-xs font-medium text-bf-text-primary">Fazekas · this subject</span>
+      {row('Periventricular', 'periventricular')}
+      {row('Deep', 'deep')}
+    </section>
+  );
+}
+
+/**
+ * Below the primary: T1w and T2w at the same slice, centre and scale, with
+ * the lesion outlines carried over (to tell WMH from lacunes, PVS and
+ * infarcts), and the whole slice with every lesion tag and the primary's
+ * window. The fit variant shows the whole slice in the primary instead.
+ */
+function LesionStrip({ centre, fov }: { centre: Point; fov: number }) {
+  const outlines = lesionOverlays(LESION_SCENE.byLesion);
+  const tile = (img: SliceImage, caption: string, testId: string) => (
+    <ViewportFrame
+      key={img.key}
+      image={img}
+      title={
+        <span className="flex items-center gap-1.5 whitespace-nowrap text-bf-xs">
+          <span className="text-bf-text-primary">{img.contrast}</span>
+          <span className="text-bf-text-muted">{caption}</span>
+        </span>
+      }
+    >
+      <div className="absolute inset-0" data-testid={testId}>
+        <SliceView image={img} center={centre} fovMm={fov} crosshairTicks crosshair={centre} letters={false} overlays={outlines} aria-label={`${img.contrast} at the primary's slice`} />
+      </div>
+    </ViewportFrame>
+  );
+  return (
+    <div className="grid h-[200px] shrink-0 grid-cols-3 gap-px border-t border-bf-border-subtle bg-bf-border-subtle max-[1366px]:h-[168px]" data-testid="lesion-strip">
+      {tile(LESION.images.axT1, `k ${LESION.k} · same grid`, 'strip-t1')}
+      {tile(LESION.images.axT2, `k ${LESION.k} · same grid`, 'strip-t2')}
+      <ViewportFrame
+        image={LESION.images.ax}
+        title={
+          <span className="flex items-center gap-1.5 whitespace-nowrap text-bf-xs">
+            <span className="text-bf-text-primary">Whole slice</span>
+            <span className="text-bf-text-muted">every lesion on k {LESION.k} · Z: fit</span>
+          </span>
+        }
+      >
+        <div className="absolute inset-0" data-testid="strip-overview">
+        <SliceView
+          image={LESION.images.ax}
+          center={[LESION.grid.dims[0] / 2, NY / 2 + 6]}
+          fovMm={150}
+          crosshair={null}
+          letters={false}
+          overlays={[...outlines, windowBox(centre, fov)]}
+          overlay={(p) => <LesionTags p={p} small />}
+          aria-label="Whole axial slice with every lesion"
+        />
+        </div>
+      </ViewportFrame>
+    </div>
+  );
+}
+
+/** The primary's window as a neutral outline in the overview. */
+function windowBox(centre: Point, fov: number): Overlay {
+  const h = fov / 2;
+  const d = `M${centre[0] - h} ${centre[1] - h}h${fov}v${fov}h${-fov}Z`;
+  return { kind: 'path', d, className: 'stroke-bf-text-primary', width: 1, opacity: 0.8, testId: 'overview-window' };
+}
+
+/** `fit`: the lesion-overview variant, the whole slice in the primary with every tag. */
+export function LesionState({ fit = false }: { fit?: boolean }) {
   const brush = LESION_SCENE.brush;
   const curBox = bboxOf(LESION_SCENE.current.map(([c, r]) => [c, r] as Voxel), 2);
   const centre: Point = [(curBox.x0 + curBox.x1) / 2 - 2, (curBox.y0 + curBox.y1) / 2];
   const crosshair: Point = [CUR.centre[0] + 0.5, NY - 1 - CUR.centre[1] + 0.5];
   const [x, y, z] = worldOfAx(crosshair[0], crosshair[1]);
+  const fov = fit ? FIT_FOV : PRIMARY_FOV;
   const view = {
     image: LESION.images.ax,
-    center: centre,
-    fovMm: PRIMARY_FOV,
+    center: fit ? FIT_CENTRE : centre,
+    fovMm: fov,
     crosshair,
     crosshairClearBox: curBox,
     crosshairClear: null,
     overlays: [
       ...lesionOverlays(LESION_SCENE.byLesion),
-      { kind: 'path', d: partialPath(LESION_SCENE.partial), className: 'stroke-bf-bg-canvas', width: 3, opacity: 0.6 } as Overlay,
-      { kind: 'path', d: partialPath(LESION_SCENE.partial), className: 'stroke-bf-text-primary', width: 1.25, opacity: 1, testId: 'pv-partial' } as Overlay,
+      ...(fit
+        ? []
+        : [
+            { kind: 'path', d: partialPath(LESION_SCENE.partial), className: 'stroke-bf-bg-canvas', width: 3, opacity: 0.6 } as Overlay,
+            { kind: 'path', d: partialPath(LESION_SCENE.partial), className: 'stroke-bf-text-primary', width: 1.25, opacity: 1, testId: 'pv-partial' } as Overlay,
+          ]),
     ],
-    brush: { center: brush, radiusMm: RANGE.radiusMm, label: WMH, voxels: LESION_SCENE.taken },
+    brush: fit ? null : { center: brush, radiusMm: RANGE.radiusMm, label: WMH, voxels: LESION_SCENE.taken },
   };
   return (
     <HShell
-      testState="lesion"
-      paint
+      testState={fit ? 'lesion-overview' : 'lesion'}
+      paint={!fit}
       disclosure={LESION_DISCLOSURE}
       status={
         <>
@@ -417,33 +588,42 @@ export function LesionState() {
           <StatusItem label="Lesion" value={`L${LESION.current} of ${LESION.rows.length}`} />
         </>
       }
-      rail={<ToolRail state="tracing" active="brush" stepTools={['navigate', 'brush', 'eraser', 'contour', 'fill']} />}
+      rail={<ToolRail state="tracing" active={fit ? 'navigate' : 'brush'} stepTools={['navigate', 'brush', 'eraser', 'contour', 'fill']} />}
       inspector={
         <InspectorFrame>
           <SessionHeader state="tracing" file="sub-07 WMH" status="on FLAIR grid · autosaved" />
           <LesionStepCard />
-          <RangeSection />
+          {fit ? null : <RangeSection />}
+          <SeedLine />
           <LesionList />
+          <FazekasFields />
         </InspectorFrame>
       }
     >
       <TraceGrid
         primary={
           <PrimaryPanel
-            chip={<StateChip>Tracing</StateChip>}
+            chip={<StateChip>{fit ? 'Overview' : 'Tracing'}</StateChip>}
             title={<LesionTitle />}
             right={
               <>
-                <span className="font-mono text-bf-2xs text-bf-text-muted">{zoomFactor(PRIMARY_FOV)}</span>
-                <TextToggle pressed={false} title="Linked contrasts (C): T1w and T2w at this slice">
-                  Contrasts
-                </TextToggle>
+                <SegmentedControl
+                  aria-label="Primary zoom"
+                  size="sm"
+                  value={fit ? 'fit' : 'lesion'}
+                  onValueChange={() => undefined}
+                  options={[
+                    { value: 'fit', label: 'Fit (Z)' },
+                    { value: 'lesion', label: `L${LESION.current} · ${zoomFactor(PRIMARY_FOV)}` },
+                  ]}
+                />
               </>
             }
-            line2={<RangeStrip />}
+            line2={fit ? <OverviewStrip /> : <RangeStrip />}
             view={view}
             overlay={(p) => <LesionTags p={p} />}
             ruler={<LesionRuler />}
+            below={fit ? null : <LesionStrip centre={centre} fov={PRIMARY_FOV} />}
             ariaLabel="Primary view, axial FLAIR"
           />
         }
@@ -455,5 +635,23 @@ export function LesionState() {
         }
       />
     </HShell>
+  );
+}
+
+/** Header line 2 at fit: what the overview shows, and how to go back. */
+function OverviewStrip() {
+  const here = lesionsOnK(LESION.k);
+  const toReview = here.filter((r) => !r.reviewed).map((r) => `L${r.id}`);
+  const elsewhere = LESION.rows.filter((r) => !here.includes(r)).map((r) => `L${r.id}`);
+  return (
+    <span className="flex min-w-0 items-center gap-2 px-1 text-bf-xs text-bf-text-muted" data-testid="overview-strip">
+      <span className="text-bf-text-secondary">{here.length} lesions on k {LESION.k}</span>
+      <Sep />
+      <span>to review here {toReview.join(', ')}</span>
+      <Sep />
+      <span>{elsewhere.join(', ')} on other slices</span>
+      <Sep />
+      <span>click a tag to go to it · Z back to L{LESION.current}</span>
+    </span>
   );
 }

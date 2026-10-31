@@ -15,6 +15,10 @@ FLAIR: the images are labelled "mock" wherever they are shown.
 
 Outputs (in --out):
   ax096_flair.png, cor{J}_flair.png, sag{I}_flair.png   8-bit grayscale slices
+  ax096_t1w_lesion.png, ax096_t2w_lesion.png            the real T1w and (with --t2)
+                 TemplateFlow T2w templates on the same axial slice, for the
+                 contrast strip beside the FLAIR (round 6); the synthetic
+                 lesions are NOT drawn into them
   lesions.json   lesion components (26-connected, 3D) with volume, slice
                  span, location and voxels on the rendered slices; per-slice
                  lesion counts; a 64-bin FLAIR histogram; an intensity crop
@@ -23,6 +27,7 @@ Outputs (in --out):
 Needs only numpy and Pillow; run with an isolated interpreter:
   git show HEAD:test-data/unit/tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii > /tmp/t1.nii
   python3 -I tools/design/segmentation_flair_assets.py --t1 /tmp/t1.nii \
+      [--t2 tpl-MNI152NLin2009cAsym_res-01_T2w.nii.gz] \
       --out ui2/src/modules/segmentation/__design__/assets
 """
 
@@ -116,6 +121,7 @@ def to_u8(a: np.ndarray) -> np.ndarray:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('--t1', type=Path, required=True)
+    ap.add_argument('--t2', type=Path, help='TemplateFlow T2w (optional): adds the T2w strip image')
     ap.add_argument('--out', type=Path, required=True)
     args = ap.parse_args()
 
@@ -210,6 +216,21 @@ def main() -> None:
         'cor_flair': {**emit(f'cor{cj:03d}_flair.png', coronal(flair, cj)), 'plane': 'coronal', 'index': int(cj)},
         'sag_flair': {**emit(f'sag{ci:03d}_flair.png', sagittal(flair, ci)), 'plane': 'sagittal', 'index': int(ci)},
     }
+
+    # Round 6: the real templates on the same axial slice (no lesions drawn), for the strip beside FLAIR.
+    images['ax_t1w'] = {**emit(f'ax{AXIAL_K:03d}_t1w_lesion.png', axial(np.where(brain, t, 0), AXIAL_K)), 'plane': 'axial', 'index': AXIAL_K}
+    if args.t2:
+        raw2 = args.t2.read_bytes()
+        if args.t2.suffix == '.gz':
+            import gzip
+            raw2 = gzip.decompress(raw2)
+        dims2 = struct.unpack('<8h', raw2[40:56])
+        dt2 = {4: '<i2', 16: '<f4', 512: '<u2', 2: 'u1'}[struct.unpack('<h', raw2[70:72])[0]]
+        off2 = int(struct.unpack('<f', raw2[108:112])[0])
+        n2 = dims2[1] * dims2[2] * dims2[3]
+        t2 = np.frombuffer(raw2, dtype=dt2, offset=off2, count=n2).reshape(dims2[3], dims2[2], dims2[1]).transpose(2, 1, 0).astype(np.float32)
+        t2 = np.where(brain, t2 / np.percentile(t2[brain], 99.5), 0)
+        images['ax_t2w'] = {**emit(f'ax{AXIAL_K:03d}_t2w_lesion.png', axial(t2, AXIAL_K)), 'plane': 'axial', 'index': AXIAL_K}
 
     # Intensity crop (display coords of the axial slice) for the range-brush preview.
     ax = to_u8(axial(flair, AXIAL_K))

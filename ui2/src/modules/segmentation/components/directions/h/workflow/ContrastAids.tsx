@@ -8,17 +8,21 @@
  *   recipe sits in the Inspector and the badge's tooltip. No label colour,
  *   no hatch, no outline change: filters touch pixels of the image only.
  * - The cursor lens: T1w at the same scale and position under the brush
- *   tip, in a round window with a neutral rim; the active label's outline
- *   and the brush footprint continue through it, so the border can be
- *   checked against T1w without moving the eye.
- * - Hold-to-flicker keys in the header (V: raw T2w, Space: T1w).
+ *   tip, in a square window (round 6: a square, so it is never read as the
+ *   island ring) with a 1 px neutral rim over a halo and its caption as halo
+ *   text outside the rim; the active label's outline and the brush
+ *   footprint continue through it. It follows the brush while ⌥ is held; a
+ *   pin keeps it in place.
+ * - Hold-to-flicker keys in the header (V: raw T2w, T: T1w; Space stays pan).
+ * - Round 6: this state is also the moment after a quiet ⌘S: the session
+ *   header says "Saved" (no sheet, no dialog).
  *
  * Every edit maps through the raw T2w grid; nothing filtered is saved or
  * sent to an AI provider.
  */
 
 import React from 'react';
-import { Aperture } from 'lucide-react';
+import { Aperture, Check } from 'lucide-react';
 import { Chip, SegmentedControl, Select, Switch } from '@/components/ui/bf';
 import { SliceView, type Projector } from '@/modules/segmentation/components/shared/SliceView';
 import { Kbd, StatusItem } from '@/modules/segmentation/components/shared/chrome';
@@ -29,8 +33,9 @@ import { zoomFactor } from '@/modules/segmentation/components/shared/views';
 import { filterBadge } from '@/modules/segmentation/components/shared/workflowRules';
 import type { SliceImage } from '@/modules/segmentation/components/shared/types';
 import { DESIGN } from '@/modules/segmentation/__design__/designData';
-import { BrushStrip, GeometryTitle, HShell, InspectorFrame, LabelsSection, SessionHeader, SliceRuler, StepCard, TextToggle, ToolRail } from '@/modules/segmentation/components/directions/h/DirectionH';
-import { hPrimary } from '@/modules/segmentation/components/directions/h/hViews';
+import { BrushStrip, GeometryTitle, HShell, InspectorFrame, LabelsSection, NeighbourKey, SessionHeader, SliceRuler, StepCard, TextToggle, ToolRail } from '@/modules/segmentation/components/directions/h/DirectionH';
+import { ISLANDS_HERE, hPrimary } from '@/modules/segmentation/components/directions/h/hViews';
+import { QUIET_SAVE } from '@/modules/segmentation/components/shared/session';
 import { OrthoColumn, PrimaryPanel, StateChip, TraceGrid } from './parts';
 
 /** The filter's recipe (mock: the generator's view-only unsharp mask). */
@@ -63,9 +68,10 @@ function Lens({ p }: { p: Projector }) {
   return (
     <>
       <div
-        className="pointer-events-none absolute overflow-hidden rounded-full shadow-[0_0_0_1px_var(--bf-bg-canvas),0_0_0_2px_var(--bf-text-primary),0_0_0_4px_rgba(0,0,0,0.45)]"
+        className="pointer-events-none absolute overflow-hidden rounded-[2px] border border-bf-text-primary shadow-[0_0_0_2px_rgba(0,0,0,0.45)]"
         style={{ left: at.x - LENS_PX / 2, top: at.y - LENS_PX / 2, width: LENS_PX, height: LENS_PX }}
         data-testid="cursor-lens"
+        data-shape="square"
       >
         <SliceView
           image={DESIGN.images.corT1}
@@ -79,8 +85,8 @@ function Lens({ p }: { p: Projector }) {
         />
       </div>
       <span
-        className="pointer-events-none absolute whitespace-nowrap rounded-sm bg-bf-bg-canvas/80 px-1 text-bf-2xs leading-4 text-bf-text-primary"
-        style={{ left: at.x + LENS_PX * 0.36, top: at.y + LENS_PX * 0.4 }}
+        className="pointer-events-none absolute whitespace-nowrap text-bf-2xs leading-4 text-bf-text-primary [text-shadow:0_0_2px_var(--bf-bg-canvas),0_0_3px_var(--bf-bg-canvas),0_0_4px_var(--bf-bg-canvas)]"
+        style={{ left: at.x - LENS_PX / 2, top: at.y + LENS_PX / 2 + 2 }}
         data-testid="lens-caption"
       >
         T1w · 1:1
@@ -89,12 +95,22 @@ function Lens({ p }: { p: Projector }) {
   );
 }
 
+/** The quiet confirmation after ⌘S: written to the remembered path, no sheet. Fades at the next edit. */
+function SavedNote() {
+  return (
+    <span className="flex items-center gap-1 text-bf-text-secondary" data-testid="saved-note" title={`⌘S wrote ${QUIET_SAVE.files} files to the remembered path at ${QUIET_SAVE.time} (step ${QUIET_SAVE.step}); Save as / export… is ⇧⌘S`}>
+      <Check className="h-3 w-3" aria-hidden />
+      Saved {QUIET_SAVE.time.slice(0, 5)}
+    </span>
+  );
+}
+
 /** Hold-to-flicker keys, beside the zoom. */
 function FlickerKeys() {
   return (
     <span className="flex items-center gap-1.5 whitespace-nowrap text-bf-2xs text-bf-text-muted" data-testid="flicker-keys" title="Hold to flicker in place; release to return">
       <Kbd>V</Kbd>raw
-      <Kbd>Space</Kbd>T1w
+      <Kbd>T</Kbd>T1w
       <Kbd>⌥</Kbd>lens
     </span>
   );
@@ -127,7 +143,7 @@ function ViewAids() {
         {RECIPE}
       </span>
       <div className="flex items-center gap-2 text-bf-xs">
-        <Switch checked={false} aria-label="Lens pinned" title="The lens shows while ⌥ is held; pin it to keep it on" />
+        <Switch checked={false} aria-label="Lens pinned" title="The lens follows the brush while ⌥ is held; pin it to keep it where it is" />
         <span className="w-12 text-bf-text-secondary">Lens</span>
         <SegmentedControl
           aria-label="Lens content"
@@ -143,7 +159,8 @@ function ViewAids() {
         <span className="ml-auto text-bf-2xs text-bf-text-muted">hold ⌥</span>
       </div>
       <span className="text-bf-2xs leading-snug text-bf-text-muted">
-        Edits map through the raw T2w grid. Filters are hints: no protocol validates them, and each can move a soft edge.
+        Edits map through the raw T2w grid. Filters are hints: no protocol validates them, and each can move a soft edge. Strokes
+        drawn with a filter on are recorded so in provenance; a pack may turn one on for a step, and the badge then says "set by pack".
       </span>
     </section>
   );
@@ -168,7 +185,7 @@ export function ContrastAidsState() {
       rail={<ToolRail state="tracing" />}
       inspector={
         <InspectorFrame>
-          <SessionHeader state="tracing" />
+          <SessionHeader state="tracing" status={<SavedNote />} />
           <StepCard state="tracing" />
           <ViewAids />
           <LabelsSection state="tracing" hover={null} />
@@ -197,7 +214,8 @@ export function ContrastAidsState() {
             line2={
               <>
                 <BrushStrip />
-                <span className="ml-auto">
+                <span className="ml-auto flex items-center gap-3">
+                  <NeighbourKey neighbour={false} island={ISLANDS_HERE > 0} />
                   <FlickerKeys />
                 </span>
               </>

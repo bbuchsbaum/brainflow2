@@ -95,6 +95,7 @@ export type WorkflowState =
   | 'ai-prompt'
   | 'ai-consent'
   | 'lesion'
+  | 'lesion-overview'
   | 'contrast-aids'
   | 'history'
   | 'save'
@@ -105,6 +106,7 @@ export const WORKFLOW_STATES: readonly WorkflowState[] = [
   'ai-prompt',
   'ai-consent',
   'lesion',
+  'lesion-overview',
   'contrast-aids',
   'history',
   'save',
@@ -116,6 +118,7 @@ export const WORKFLOW_STATE_TITLES: Record<WorkflowState, string> = {
   'ai-prompt': 'AI assist: prompts and a 3D proposal',
   'ai-consent': 'AI provider: first-use licence gate',
   lesion: 'White-matter lesions on FLAIR',
+  'lesion-overview': 'White-matter lesions: the whole slice at fit',
   'contrast-aids': 'Contrast aids: lens, view-only filter, flicker',
   history: 'History: named steps, per-label undo, branch',
   save: 'Save and export',

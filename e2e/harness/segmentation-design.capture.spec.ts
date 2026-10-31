@@ -108,11 +108,11 @@ test.afterAll(() => {
     round: ROUND,
     harness: 'ui2/segmentation-harness.html?direction=<id>&state=<state>',
     honesty:
-      'Images are real MNI152NLin2009cAsym 1 mm T2w/T1w template slices (TemplateFlow); the third strip panel is a view-only unsharp mask of T2w. Subfield labels, strokes, proposals, rater B and all counts are mock data; editing is simulated (no bridge). Direction h states a native 0.40x0.40/2.0 mm T2 geometry that is SIMULATED: the imagery stays 1 mm, native slices are every second template slice. Round 5 (direction h workflow states): the FLAIR in state lesion is a MOCK derived from the MNI152 T1w template and its lesions are synthetic; AI answers, servers, journals, files and times are mock.',
+      'Images are real MNI152NLin2009cAsym 1 mm T2w/T1w template slices (TemplateFlow); the third strip panel is a view-only unsharp mask of T2w. Subfield labels, strokes, proposals, rater B and all counts are mock data; editing is simulated (no bridge). Direction h states a native 0.40x0.40/2.0 mm T2 geometry that is SIMULATED: the imagery stays 1 mm, native slices are every second template slice. Round 5 (direction h workflow states): the FLAIR in state lesion is a MOCK derived from the MNI152 T1w template and its lesions are synthetic; AI answers, servers, journals, files and times are mock. Round 6: every session fact (journal, provenance, ruler and matrix marks) comes from one mock session model; the lesion strip T1w/T2w are the real templates.',
     directions: directions.map((id) => ({ id, title: DIRECTIONS[id] })),
     states: [
       ...STATES.filter(([s]) => states.includes(s)).map(([id, description]) => ({ id, description })),
-      ...WORKFLOW.filter((w) => states.includes(w.id)).map((w) => ({ id: w.id, description: w.description, decisions: w.decisions, mocked: w.mocked, round: 5 })),
+      ...WORKFLOW.filter((w) => states.includes(w.id)).map((w) => ({ id: w.id, description: w.description, decisions: w.decisions, mocked: w.mocked, round: Number(ROUND.replace(/\D/g, '')) || 5 })),
     ].map((s, i) => ({ index: i + 1, ...s })),
     shots: shots.sort((a, b) => a.file.localeCompare(b.file)),
   };

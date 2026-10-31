@@ -34,6 +34,7 @@ export function PrimaryPanel({
   title,
   right,
   line2,
+  line2Right,
   view,
   overlay,
   ruler,
@@ -46,6 +47,8 @@ export function PrimaryPanel({
   title: React.ReactNode;
   right?: React.ReactNode;
   line2?: React.ReactNode;
+  /** Round 6: the inline key at the right of header line 2 (island ring, prompt forms). */
+  line2Right?: React.ReactNode;
   view: PanelProps;
   overlay?: (p: Projector) => React.ReactNode;
   ruler?: React.ReactNode;
@@ -62,7 +65,12 @@ export function PrimaryPanel({
           {title}
           {right ? <span className="ml-auto flex shrink-0 items-center gap-1.5">{right}</span> : null}
         </div>
-        {line2 ? <div className="flex h-6 items-center gap-2 px-1.5">{line2}</div> : null}
+        {line2 ? (
+          <div className="flex h-6 items-center gap-2 px-1.5">
+            {line2}
+            {line2Right ? <span className="ml-auto flex shrink-0 items-center">{line2Right}</span> : null}
+          </div>
+        ) : null}
       </div>
       {banner}
       <div className="flex min-h-0 flex-1">

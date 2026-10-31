@@ -5,7 +5,8 @@
 This is the design the visual hill climb settled on (rounds 0 to 4, October
 2026), written for the implementation, with the round-5 workflow states (AI
 assist, lesions, contrast aids, history, save, resume, setup) after the
-review section. The research and the six contracts
+review section, as fixed in round 6 (one session model, per-slice AI
+accept, plain-language sheets, quiet save, the lesion workflow raters use). The research and the six contracts
 are in `docs/plans/segmentation-module-research.md`; the mocks are
 `components/directions/h/DirectionH.tsx` and `components/shared/`. The mock
 imagery is the 1 mm MNI152 template; the native 0.40 × 0.40 / 2.0 mm oblique
@@ -220,17 +221,20 @@ From the backlog in the research plan ("Tracing niceties backlog"):
   with a temporary unlock; proposal undo separate from document undo; the
   k-matched pack example; a step card with checks.
 
-## Workflow states (round 5)
+## Workflow states (rounds 5 and 6)
 
 Round 5 extends H past tracing: eight states on the same shell (rail,
 primary with two header lines and the slice ruler, orthogonal column,
 Inspector, status bar), in `components/directions/h/workflow/`, rendered by
-`DIRECTIONS.h.workflow` (`WORKFLOW_STATES`, direction H only). Captures are
-in `cruft/hillclimb/segmentation/round-5/h/` with a manifest (decisions and
-what is mocked per state). The rules are pure functions in
-`components/shared/workflowRules.ts`, tested in `__tests__/round5.test.tsx`.
+`DIRECTIONS.h.workflow` (`WORKFLOW_STATES`, direction H only); round 6 fixes
+them and adds the `lesion-overview` variant. Captures are in
+`cruft/hillclimb/segmentation/round-6/h/` (round 5 in `round-5/h/`) with a
+manifest (decisions, what is mocked, and round 6's changes by critic issue).
+The rules are pure functions in `components/shared/workflowRules.ts` and the
+session model in `components/shared/session.ts`, tested in
+`__tests__/round5.test.tsx` and `__tests__/round6.test.tsx`.
 
-Rules every round-5 state follows, beyond the encoding rules above:
+Rules every workflow state follows, beyond the encoding rules above:
 
 - **Sheets never cover the primary.** A sheet (AI licence, save, setup)
   takes the place of the orthogonal column and the Inspector (576 px; 524
@@ -245,7 +249,25 @@ Rules every round-5 state follows, beyond the encoding rules above:
   carry a badge derived from the image; lenses have a neutral rim; neither
   changes a label stroke, fill or hatch.
 - **Outlines that point at voxels without changing them** (a hovered
-  history step, the last edit) use the brush footprint's neutral outline.
+  history step, the last edit, AI over-reach) use the brush footprint's
+  neutral outline.
+- **One session model** (round 6, `components/shared/session.ts`): the
+  journal (steps, the kept branch, the last save), how every CA1 slice got
+  its voxels (manual, interpolated or AI, reviewed or not), the ruler's
+  marks, the matrix's hollow bars, the provenance code table, the history
+  list and the recovered-step count all derive from it, as volumes derive
+  from `LABEL_VOLUMES`. A state may show the session at an earlier step
+  (`asOf`): the AI licence gate is the moment before AI was first used, so
+  it carries no AI mark. Today: 17 steps since the 14:02 save (steps
+  22–38), AI k 9 and interpolated k 12–13 confirmed without a look.
+- **Plain language first**: a sheet says in one sentence what is recorded;
+  the record itself is behind "Show record". Unselected options are one
+  line; a section the user rarely changes is one summary line.
+- **Captions on the image are halo text**, never chips (L tags, "last
+  edit", the lens caption).
+- **The island ring keeps its inline key** ("○ island", header line 2)
+  wherever it is drawn; no other mark on the image is a circle (the lens is
+  a square).
 
 ### AI assist (`ai-prompt`)
 
@@ -254,10 +276,10 @@ the rail opens a 36 px **prompt sub-rail**: point +, point −, scribble, box,
 lasso (keys 1–5; Alt makes a scribble or lasso negative). Header line 2 is
 the prompt strip: target label, channel (the model takes one), crop in
 voxels, "add only" (refining an existing label is opt-in), and an inline key
-(include · exclude · kept). Below the image an AI bar like the proposal bar.
-The Inspector adds an **AI assist** section (prompts placed, each removable,
-channel, the model and licence line) above Labels; the slice matrix shows the
-pending slices as hollow CA1 bars.
+(include · exclude · kept · check · island). Below the image an AI bar like
+the proposal bar. The Inspector adds one line above Labels ("4 prompts ·
+k 11 (3) · k 9 (1) · Reset"); the slice matrix shows the pending slices as
+hollow CA1 bars.
 
 Rules:
 
@@ -269,18 +291,39 @@ Rules:
 - `gateProposal`: a proposal adds **empty voxels only**. Voxels another label
   holds (locked or not) are never taken; they are crossed in the image and
   counted by label in the bar ("8 vx kept in SRLM 6, Subiculum 2").
-- "Confirm CA1 ↵" writes every slice of the answer; slices not yet looked at
-  stay hollow "AI" bars on the ruler and in the matrix and are logged "AI,
-  not reviewed" in provenance. The bar counts "3 of 9 slices seen".
+- **Per-slice accept is the default** (decided round 6: AI is the less
+  trustworthy source on subfields, so it must not get a looser gate than
+  fill between), exactly as fill between:
+  "Accept CA1 here ↵" writes the slice under review and steps to the next
+  unseen slice of the answer, in order outward from the prompted slice
+  ("then k 9"). "Confirm all 11…" is a quiet secondary that asks once more;
+  slices it writes unseen are "AI, not reviewed": hollow "AI" bars on the
+  ruler and hollow bars in the matrix, warned at save, and they block "Mark
+  CA1 complete". The bar counts "3 of 11 slices seen". Pending slices on
+  the ruler are "review", like any proposal; "AI" marks only confirmed,
+  unreviewed AI slices.
+- **Provenance codes** distinguish AI reviewed (4) and AI not reviewed (5),
+  as interpolation does (2, 3); manual is 1.
+- **Over-reach** (`workflowRules.overreach`): add-only protects labelled
+  voxels only, so a proposal voxel that borders (8-neighbour) a label not yet
+  complete, sits where the pack's k-matched prior puts such a label, or lies
+  outside the target's expected k-range gets a separate review mark: the
+  neutral voxel outline ("check" in the inline key) and "check 3 vx at
+  Subiculum" in the bar. It never refuses; the rater decides.
+- **AI said once**: the provider line sits only in the bar; the Inspector
+  shows "4 prompts · k 11 (3) · k 9 (1) · Reset" (the marks are on the
+  slice); the channel is a header-line-2 control only; the sub-rail has no
+  heading; the status bar shows review progress, not the provider.
+- The orthogonal views hatch the answer where it reaches past the traced
+  extent (k 3–13), so its 3D reach shows.
 - Prompt undo (⌥Z, "prompt undo · 4") re-asks the model; document undo (⌘Z)
   is separate and untouched. Discard drops the answer, keeps the prompts.
 - Provider, version, "local" and latency sit in mono at the bar's right
   ("nnInteractive v2.5.0 · local · 0.84 s"); never a badge in the image.
 
-Open questions: should Confirm be per slice (like fill between) when the
-answer spans many unseen slices; how to show an answer still computing (3.5 s
-worst case) without a spinner over the anatomy; whether the box prompt needs
-a 3D extent; how a negative scribble reads without a dash or colour.
+Open questions: how to show an answer still computing (3.5 s worst case)
+without a spinner over the anatomy; whether the box prompt needs a 3D
+extent; how a negative scribble reads without a dash or colour.
 
 ### AI licence gate (`ai-consent`)
 
@@ -298,24 +341,40 @@ Rules:
   BY-NC-SA 4.0; Brainflow never bundles or downloads weights.
 - The gate is asked once per provider and licence version, and the
   acknowledgement (who, when, server, licence) goes into the provenance
-  sidecar with every confirmed proposal; the record is shown as written.
-
-Open questions: whether a lab administrator can pre-acknowledge for a
-shared install; how a licence change on the server re-opens the gate
-mid-session.
+  sidecar with every accepted slice. The sheet says so in one sentence; the
+  record is behind "Show record".
+- The unselected remote option is one line with its warning icon ("Leaves
+  this computer: the crop and your prompts"); selecting it opens the URL,
+  key and the full list of what leaves and what does not.
+- The gate is shown at the session's moment before AI was first used
+  (`session.BEFORE_AI`): no AI marks on the ruler.
+- **Decided (round 6)**: a lab policy may pre-acknowledge for every rater on
+  a shared install; each record then says "via lab policy (admin, date)",
+  because the licence duty is the lab's and provenance must still name who
+  used the weights. A licence change on the server blocks new prompts,
+  keeps confirmed work and reopens the gate, because the old
+  acknowledgement no longer covers the new terms but past work was made
+  under the old ones.
 
 ### White-matter lesions on FLAIR (`lesion`)
 
 Layout: the same shell on an axial, isotropic grid. Primary: axial FLAIR
-(mock), "Axial k 96/193 z 18.0 FLAIR (mock) · 1.0 mm iso". Header line 2:
-"WMH · over background · range FLAIR 168–255 · 2D · ⌀ 5.2 mm · > 50% inside"
-and the inline key for the left-out mark. Ruler in axial k. Orthogonal
-column: coronal and sagittal cuts through the current lesion on the same
-grid ("through L1 · grid", no reslice, no slab angle) with the axial slice as
-a band. Inspector: session header, a collapsed protocol line ("Review each
-lesion", 2 of 6 reviewed, the rule), **Range on FLAIR** (histogram with the
-range, "limits writing, not display", what the brush writes now), and the
-**lesion list** in place of the label list.
+(mock), "Axial k 96/193 z 18.0 FLAIR (mock) · 1.0 mm iso", with a "Fit (Z) |
+L1 · 3.7×" zoom control. Header line 2: "WMH · over background · range
+FLAIR 168–255 · 2D · ⌀ 5.2 mm · > 50% inside" and the inline key for the
+left-out mark. Ruler in axial k. Below the primary a strip (200 px; 168 at
+1366 and below): T1w and T2w at the same slice, centre and scale with the
+lesion outlines, and the whole slice with every L tag and the primary's
+window. Orthogonal column: coronal and sagittal cuts through the current
+lesion on the same grid ("through L1 · grid", no reslice, no slab angle)
+with the axial slice as a band and edge ticks. Inspector: session header,
+a collapsed protocol line ("Review each lesion", 2 of 6 reviewed, the rule,
+"26-connected"), **Range on FLAIR** (histogram with the range, "limits
+writing, not display", what the brush writes now), the **seed** line
+("LST-AI v1.1 · 4 of 6 to review", Import…), the **lesion list** in place of
+the label list, and **Fazekas** (periventricular, deep; 0–3 each). The
+`lesion-overview` variant is the same state at fit: the whole slice in the
+primary with every tag, no brush and no range section.
 
 Rules:
 
@@ -329,6 +388,19 @@ Rules:
 - One label (WMH) for all lesions; each connected lesion is a row. Rows come
   from the 3D mask's **26-connected components** (`components26`), so the
   list cannot disagree with the image; joining or splitting renumbers.
+- **WMH is outline only by default** (round 6): no inset fill over the
+  hyperintensity being judged ("Outline only" shows as on; F held shows
+  fills, at most the 0.10 inset). The brush preview is the only fill.
+- **The rater edits a seed**: an automated mask (LST, BIANCA, SAMSEG) is
+  imported and each of its components lands as an unreviewed row; the rows
+  stay derived from the edited mask.
+- **Each lesion has a type** (STRIVE: WMH, lacune, infarct, PVS, exclude),
+  set in the open row with T1w and T2w in view; "exclude" keeps the row out
+  of the totals.
+- **Rows compare as graphics**: a span bar on the ruler's axial-k axis
+  (k 113 left, as the ruler reads top down) with the current slice marked
+  through every row, and a mm³ bar on one scale (its maximum printed once).
+- **Fazekas** periventricular and deep are rated per subject beside the list.
 - Row: L-number, where (side and part), location class (PV
   periventricular, deep, JC juxtacortical), mm³, slice span, reviewed. The
   current row opens "Mark L1 reviewed ↵" and Remove; N / ⇧N step lesions.
@@ -339,10 +411,24 @@ Rules:
   one is not, hairline where there is none; the current lesion's span is
   bracketed "L1".
 
-Open questions: 26- or 18-connectivity (protocols differ); whether the
-location class should be computed (distance to the ventricles) or set by the
-rater; a contour tool with the same > 50% rule for large confluent lesions;
-how to review lesions smaller than the brush.
+Decided (round 6, the operator's answers):
+
+- **Connectivity**: 26 on 1 mm isotropic FLAIR (FSL `cluster` and BIANCA
+  count that way, so totals match the tools raters compare against); 18 on
+  thick-slice 2D FLAIR (3 mm or more, or 2.5× the in-plane spacing), where 26
+  merges diagonal neighbours across slices. A pack setting
+  (`defaultConnectivity`), shown in the protocol line and recorded in
+  provenance.
+- **Location class** is computed (contiguity with the ventricles, the 10 mm
+  periventricular rule, juxtacortical when it touches the cortical ribbon);
+  the rater may override and the override is logged, because the computed
+  class is reproducible and the rater still knows better at the margins.
+- **Lesions smaller than the brush**: a one-voxel click toggles a voxel;
+  components under 3 voxels (`SMALL_LESION_VX`) are flagged "check: noise or
+  PVS?".
+
+Open question: a contour tool with the same > 50% rule for large confluent
+lesions.
 
 ### Contrast aids (`contrast-aids`)
 
@@ -361,30 +447,42 @@ Rules:
   Inspector. The status bar says "View T2w · unsharp, view only".
 - Filters change image pixels only: label strokes, fills and hatches are
   unchanged, so a filter cannot be mistaken for an edit.
-- The lens is a 136 px round window at the same scale and position under
-  the brush tip showing T1w, with a neutral rim over a dark halo and the
-  caption "T1w · 1:1" outside the rim; the active label's outline and the
-  footprint continue through it.
-- Hold-to-flicker swaps in place and returns on release.
+- The lens is a 136 px **square** window (round 6: never read as the island
+  ring) at the same scale and position under the brush tip showing T1w,
+  with a 1 px neutral rim over a halo and the caption "T1w · 1:1" as halo
+  text below the rim; the active label's outline and the footprint continue
+  through it.
+- Hold-to-flicker swaps in place and returns on release: V raw, T T1w
+  (Space stays pan, as in most viewers), ⌥ lens.
+- Strokes drawn with a filter on are recorded so in provenance.
+- **Decided (round 6)**: the lens follows the brush while ⌥ is held and a
+  pin keeps it where it is (following keeps the eye on the border; the pin
+  serves a long look). A pack may turn a filter on for a step only with the
+  badge reading "set by pack", so a filter is never on without its source
+  being visible.
 
-Open questions: whether the lens should follow the brush or stay where it
-was summoned; lens size against brush size; whether a protocol pack may turn
-a filter on by default for a step (and how the badge then reads).
+Open question: lens size against brush size.
 
 ### History (`history`)
 
 Layout: a bottom-dock tab under the primary and the orthogonal column
-(History | Label statistics), 292 px. Left: the step list; right (300 px):
-**Undo per label** and **Autosave**. The Inspector is unchanged.
+(History | Label statistics), 8 rows (178 px, about a quarter of the primary
+at 1440 × 900), resizable from its top edge and collapsible to its tab row;
+label and k filters in its header. Left: the step list; then **Undo per
+label** and **Autosave** columns. The Inspector is unchanged.
 
 Rules:
 
-- Steps newest first: #, time, tool glyph, operation, label swatch and
-  name, signed voxels, slices, seconds.
-- A graph gutter draws the active line, the current step as a filled dot,
-  and steps undone and then replaced as a **kept branch** (dimmed, hollow
-  dots, "32′ 33′"), joining the line at its branch point; a branch is never
-  discarded and can be restored.
+- Steps newest first, from the session model: #, time, tool glyph,
+  operation (with "n not reviewed" for a confirm-all), label swatch and
+  name, signed voxels with a small signed bar on one scale, slices, seconds.
+- A graph gutter draws the active line and the current step as a filled
+  dot; steps undone and then replaced are a **kept branch**, one dimmed row
+  ("32′–33′ Kept branch: AI, confirm all · 6 not reviewed") joining the line
+  at its branch point; a branch is never discarded. **Restore… is a full
+  switch** (decided round 6: a merge of two edit histories has no single
+  meaning per voxel), and it warns that it brings back the branch's
+  unreviewed AI slices.
 - Hovering a step outlines its voxels in the primary with the neutral
   footprint outline and names it on header line 2.
 - Undo per label (`undoForLabel`) reverts the label's latest step only on
@@ -394,14 +492,22 @@ Rules:
   budget and minimum depth, the last save and steps since.
 
 Open questions: how far back a hover preview can reach cheaply; whether
-branch restore should be a full switch or a merge; whether per-label undo
-belongs in the label row's context menu instead.
+per-label undo belongs in the label row's context menu instead.
 
 ### Save and export (`save`)
 
-Layout: a side sheet, "Save segmentation": 1 Label volume, 2 Label table, 3
-Provenance, 4 Destination; footer Save (⌘S), Cancel, "5 files · replaces
-nothing".
+**⌘S saves silently** (round 6) to the remembered path: the label volume,
+dseg.tsv, the sidecar and the provenance volume, through a temporary file
+and a rename; the session header then says "✓ Saved 14:33" until the next
+edit (shown in the contrast-aids state, the moment after resume's "Keep
+recovered work" and ⌘S). No sheet.
+
+Layout: a side sheet, "Save as / export…" (⇧⌘S), for another place, other
+dialects or a look: a draft warning when there is unfinished work, then
+Label volume, Label table and Provenance as one summary line each (chevron
+to open), one sentence of what is recorded with "Show record", and
+Destination with the files; footer Save, Cancel, "4 files · status draft ·
+replaces nothing".
 
 Rules:
 
@@ -409,20 +515,29 @@ Rules:
   type that holds every id (`labelVolumeHeader`), intent 1002
   (NIFTI_INTENT_LABEL), on the reference grid voxel for voxel with its sform
   and qform kept.
-- Label tables are opt-in per dialect (BIDS dseg.tsv, ITK-SNAP, FreeSurfer
-  LUT) with a preview from the real writers; the parent column carries the
-  hierarchy.
-- Provenance: the sidecar (rater, protocol pack version, source hash, time
-  on task split into navigation, drawing and correction, history, AI) and
-  the per-voxel provenance volume, whose code table sums to the labelled
-  voxels.
-- The destination shows the BIDS derivatives layout and every file name
-  that will be written; each is written through a temporary file and a
-  rename.
+- **dseg.tsv is the only default table**; ITK-SNAP and FreeSurfer LUT are
+  opt-in. The parent column carries the hierarchy.
+- Provenance: the sidecar (rater, protocol pack version, status, a
+  SpatialReference to the T2w, source hash, time on task split into
+  navigation, drawing and correction, history, the provenance code table,
+  AI) and the per-voxel provenance volume, whose codes (manual,
+  interpolated reviewed / not, AI reviewed / not) come from the session
+  model and sum to the labelled voxels.
+- BIDS derivatives: `ses-` and a rater desc (`desc-subfieldsRaterA`) so two
+  raters never collide; no `space-` entity (the grid is the T2w's own, named
+  by the sidecar's SpatialReference); the provenance volume has its own
+  suffix (`_provenance.nii.gz`) so `*_dseg.nii.gz` globs never pick it up.
+- **Decided (round 6)**: accepted-unreviewed voxels **warn and save**
+  ("Saved as a draft: CA1 incomplete · 3 slices not reviewed", status
+  draft); they block only "Mark complete" and status complete
+  (`saveCheck`), because losing work to a gate is worse than a draft that
+  says what is unfinished.
+- **Decided (round 6)**: the FreeSurfer LUT maps names to
+  FreeSurferColorLUT ids (CA1 206, subiculum 205, fimbria 212, …) and never
+  reuses a colliding id silently, so files open with the right names in
+  FreeSurfer tools.
 
-Open questions: FreeSurfer ids that collide with FreeSurferColorLUT; whether
-"accepted unreviewed" voxels should block or only warn at save; `.seg.nrrd`
-and DICOM SEG placement in this sheet.
+Open question: `.seg.nrrd` and DICOM SEG placement in this sheet.
 
 ### Resume (`resume`)
 
@@ -433,22 +548,32 @@ Rules:
 - Everything that defines "where was I" is restored exactly (slice, label,
   brush, zoom, contrast window, protocol step, tool) and listed in one mono
   line under the recovery sentence.
-- The banner names what was recovered and when ("Recovered 12 steps from the
+- The banner names what was recovered and when ("Recovered 17 steps from the
   journal. Brainflow closed unexpectedly at 14:31:52; the last save was
-  14:02.") and offers Keep recovered work (primary), Open the 14:02 save,
-  Show changes.
+  14:02 (step 21).") and offers Keep recovered work (primary), Open the 14:02
+  save, Show changes. The count is the session model's steps since the last
+  save, the same number history and save show.
 - The last edit is outlined with the neutral footprint outline, tagged
-  "last edit · 14:31" beside the structure, and marked "last" on the ruler.
+  "last edit · 14:31" as halo text beside the structure, and marked "last"
+  on the ruler.
 - A normal reopen (no crash) uses the same restoration with a one-line
   neutral banner and no choice.
 
-Open questions: whether the banner should dismiss itself after the first
-stroke; how "Show changes" steps through recovered work (history hover?).
+Decided (round 6): after the first stroke the banner collapses to one line,
+and "Show changes" stays until the next save, because the choice is made by
+carrying on but the way back to the review should not vanish; "Show
+changes" steps through the recovered steps with the history hover outlines.
 
 ### Session setup (`setup`)
 
 Layout: the image at fit beside a side sheet, "New segmentation": 1
-Reference grid, 2 Label table, 3 New label; footer Start tracing, Cancel.
+Subject and rater (subject, session, hemisphere, rater, and "Blind: hide
+other raters' labels of this subject until I submit"), 2 Reference grid (two
+choices beside a small sagittal T2w with the 20-slice slab drawn, k 20 and
+k 1 at its ends), 3 T1w on the T2w grid (the rigid transform's file, a
+checkerboard of T1w and T2w at the hippocampus, Checkerboard | T1w edges |
+Flicker, and "Aligned at the hippocampus"), 4 Label table (the pack's
+labels, "+ Add label" collapsed); footer Start tracing, Cancel.
 
 Rules:
 
@@ -459,9 +584,13 @@ Rules:
 - A new label has a name, the next free id, a parent (hierarchy) and a
   colour from a fixed palette. `colourCandidates` refuses any colour whose
   full colour or muted tints come within ΔE*ab 15 of an existing label's, or
-  within ΔE*ab 25 of the crosshair or the warning colour; refused swatches
-  are dimmed and crossed with the reason in the tooltip. A stroke preview
-  shows the label active, inactive and quiet.
+  within ΔE*ab 25 of the crosshair or the warning colour. The picker shows
+  only the offered colours; the refused ones (dimmed, crossed, reason in the
+  tooltip) are behind one line ("13 hidden: too close to existing labels,
+  the crosshair or the warning colour"). A stroke preview shows the label
+  active, inactive and quiet.
+- Subject, session, hemisphere and rater name the files; the registration of
+  the secondary contrast is confirmed before tracing starts.
 
 Open questions: whether ids should be editable at all (pack ids are fixed);
 a colour-blind check for the palette; where hierarchy shows in the label
@@ -477,6 +606,29 @@ onward: direction H).
 | Tufte (data-ink, encoding) | 7 (A) | 8 | 8 | 8 (high) |
 | Jobs (focus, simplicity) | 7.5 (C) | 7.5 | 8 | 8.5 |
 | Operator (tracer efficiency) | 7.5 (A) | 8 | 8 | 8 |
+
+Round 5 (the eight workflow states, direction H): Tufte 8, Jobs 7.8,
+Operator 7 (the core states had been 8–8.5). Round 6 is the fix pass on
+those states (captures in `cruft/hillclimb/segmentation/round-6/h/`, with a
+manifest listing each change by critic and rank, the conflicts and what was
+not done).
+
+### Round 6 conflicts, decided
+
+- History dock: Jobs and Tufte asked for about 6 rows; the operator asked
+  for an overlay. Decided: a docked 8-row default (about a quarter of the
+  primary), resizable and collapsible, because an overlay would cover the
+  hovered step's outline in the primary, which is the point of the dock.
+- Island key vs the lens: Jobs offered "hide the ring while the lens is
+  held" or "key it". Decided: keep the ring and its key, and make the lens a
+  square, so the two never share a form (Tufte also asked for the key).
+- Over-reach marking: the operator asked to "count and outline"; Jobs asked
+  to say less about AI. Decided: one neutral outline (the existing
+  "points at voxels" grammar) and one count in the bar; no new colour, tag
+  or badge.
+- AI ruler marks before first use (Jobs, Tufte) vs showing the state "as
+  it is now": the gate is shown at the session's own earlier moment
+  (`asOf`), not with marks hidden, so the screen is still true to one model.
 
 Round 0 scores for all directions: Tufte A 7, B 6, C 6; Jobs A 6.5, B 6.5,
 C 7.5; Operator A 7.5, B 5, C 7. After round 3 all three critics judged
@@ -510,7 +662,7 @@ a timed tracing session.
 - Brush and push feel, snap to shared edges, edge-aware brush and latency
   at 0.4 mm (Operator r3 #6; backlog items 4, 6, 7, 11).
 - Held-key behaviours: F for fills, "," for k 12, X to flicker the example
-  into the primary, Space to flicker T1w (all tooltips only).
+  into the primary, T to flicker T1w (Space stays pan; all tooltips only).
 - Does the blocked card fade, and when (Jobs r3 #6)?
 - Do checks tick themselves when the rule is satisfied, and does "Mark CA1
   complete" open the full matrix for a last look?

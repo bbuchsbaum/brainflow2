@@ -20,10 +20,11 @@ import {
   EXTRA_LABEL_DEFS,
   LABEL_BY_ID,
   LABEL_DEFS,
-  LABEL_VOLUMES,
   NATIVE,
   NATIVE_SLICES_J,
   NEW_LABEL,
+  PROTOCOL,
+  ERC,
   SRLM,
   SUB,
   WMH,
@@ -33,9 +34,13 @@ import { SCENE } from '@/modules/segmentation/components/shared/scenes';
 import type { Point, Voxel } from '@/modules/segmentation/components/shared/types';
 import {
   colourCandidates,
+  defaultConnectivity,
   dsegTsv,
   freesurferLut,
   gateProposal,
+  nextUnseen,
+  overreach,
+  saveCheck,
   itksnapTxt,
   labelVolumeHeader,
   rangeFootprint,
@@ -43,6 +48,19 @@ import {
   type Prompt,
   type TableLabel,
 } from '@/modules/segmentation/components/shared/workflowRules';
+import {
+  BRANCH as SESSION_BRANCH,
+  JOURNAL_STEP,
+  LABEL_VOXELS,
+  LAST_SAVE,
+  STEPS_SINCE_SAVE,
+  branchUnreviewed,
+  journal,
+  provenanceTable,
+  unreviewedSlices,
+  type JournalStep,
+  type JournalTool,
+} from '@/modules/segmentation/components/shared/session';
 import { DESIGN } from '@/modules/segmentation/__design__/designData';
 import { LESION, flairAt } from '@/modules/segmentation/__design__/lesionData';
 
@@ -111,9 +129,24 @@ export const AI_PROMPTS: readonly Prompt[] = [
 ];
 
 /** Native slices the 3D result touches and how many voxels it adds on each (mock: CA1's final area where not yet traced). */
-const aiSlices = NATIVE_SLICES_J.map((j) => kOfJ(j)).filter((k) => k >= 5 && k <= 13).reverse();
+const aiSlices = NATIVE_SLICES_J.map((j) => kOfJ(j)).filter((k) => k >= 3 && k <= 13).reverse();
 const finalCa1 = areaByNativeSlice(CA1, 'all');
 const tracedCa1 = areaByNativeSlice(CA1);
+
+/** Review order of the answer's slices: outward from the prompted slice (k 11, 10, 12, 9, 13, …). */
+const aiOrder = [...aiSlices].sort((a, b) => Math.abs(a - PRIMARY_K) - Math.abs(b - PRIMARY_K) || a - b);
+const aiSeen = aiOrder.slice(0, 3);
+
+/**
+ * Over-reach: proposal voxels on this slice that border a label not yet
+ * complete (Subiculum in progress, ERC empty), or that the pack's prior (its
+ * k-matched example) gives to one.
+ */
+const INCOMPLETE = new Set([SUB, ERC]);
+const reach = overreach(gate.added, labelIndex(SCENE.tracing.base), labelIndex(DESIGN.labels.cor(DESIGN.primaryJ)), CA1, INCOMPLETE, {
+  k: PRIMARY_K,
+  expected: PROTOCOL.expectedK[CA1] ?? null,
+});
 
 export const AI = {
   provider: 'nnInteractive',
@@ -133,12 +166,17 @@ export const AI = {
   /** Interaction undo: prompts placed in this AI session (separate from document undo). */
   interactionSteps: AI_PROMPTS.length,
   slices: aiSlices,
-  /** Slices of the result the tracer has looked at (the ruler fills them). */
-  seen: [PRIMARY_K, PRIMARY_K - 1, PRIMARY_K + 1],
+  /** Slices of the result in review order, the ones looked at, and where Enter goes next. */
+  order: aiOrder,
+  seen: aiSeen,
+  current: PRIMARY_K,
+  next: nextUnseen(aiOrder, aiSeen, PRIMARY_K),
+  /** Proposal voxels in territory of a label not yet complete (a separate review mark). */
+  overreach: reach,
   /** Per-slice values for the CA1 row while the result is pending: traced + proposed. */
   matrix: {
     values: finalCa1.map((v, i) => (aiSlices.includes(i + 1) ? Math.max(v, tracedCa1[i]) : tracedCa1[i])),
-    hollow: aiSlices.filter((k) => ![PRIMARY_K, PRIMARY_K - 1, PRIMARY_K + 1].includes(k)),
+    hollow: aiSlices.filter((k) => !aiSeen.includes(k)),
   },
   /** Voxels the whole 3D result adds (this slice from the gate, the others from the mock area). */
   addedTotal:
@@ -186,52 +224,24 @@ export const LAST_STROKE: readonly Voxel[] = SCENE.tracing.wet.filter(
   ([c, r]) => Math.hypot(c + 0.5 - SCENE.tracing.brush[0], r + 0.5 - SCENE.tracing.brush[1]) <= 3.2,
 );
 
-export type HistoryTool = 'brush' | 'eraser' | 'contour' | 'interpolate' | 'ai' | 'lock' | 'fill';
+export type HistoryTool = JournalTool;
+export type HistoryStep = JournalStep;
 
-export interface HistoryStep {
-  id: number;
-  time: string;
-  tool: HistoryTool;
-  op: string;
-  label: number;
-  /** Signed voxel change. */
-  delta: number;
-  k: string;
-  /** Duration of the operation (s), tracked for time on task. */
-  secs?: number;
-  /** Steps on a branch not currently active. */
-  branch?: 'alt';
-  /** Display number of a branch step ("32′"). */
-  alias?: string;
-}
+/** The journal since the last save, newest first (the session model; step 38 is the last stroke). */
+export const HISTORY: readonly HistoryStep[] = journal(LAST_STROKE.length);
 
-/** Newest first; 32' and 33' were undone at 14:26 and then replaced by 32–38 (a kept branch). */
-export const HISTORY: readonly HistoryStep[] = [
-  { id: 38, time: '14:31:48', tool: 'brush', op: 'Brush', label: CA1, delta: LAST_STROKE.length, k: `k ${PRIMARY_K}`, secs: 6 },
-  { id: 37, time: '14:31:20', tool: 'eraser', op: 'Eraser', label: CA1, delta: -6, k: `k ${PRIMARY_K}`, secs: 3 },
-  { id: 36, time: '14:30:55', tool: 'brush', op: 'Brush', label: CA1, delta: 58, k: `k ${PRIMARY_K}`, secs: 11 },
-  { id: 35, time: '14:30:02', tool: 'interpolate', op: 'Accept fill between, 3 slices', label: CA1, delta: 96, k: 'k 13–15', secs: 21 },
-  { id: 34, time: '14:28:40', tool: 'contour', op: 'Contour', label: CA1, delta: 73, k: 'k 13', secs: 34 },
-  { id: 33, time: '14:27:10', tool: 'brush', op: 'Brush', label: CA1, delta: 52, k: 'k 12', secs: 18 },
-  { id: 32, time: '14:25:58', tool: 'brush', op: 'Brush', label: CA1, delta: 61, k: 'k 12', secs: 25 },
-  { id: 302, time: '14:25:12', tool: 'eraser', op: 'Eraser', label: CA1, delta: -40, k: 'k 9', secs: 9, branch: 'alt', alias: '33′' },
-  { id: 301, time: '14:24:50', tool: 'ai', op: 'Confirm AI proposal', label: CA1, delta: 212, k: 'k 5–13', secs: 41, branch: 'alt', alias: '32′' },
-  { id: 31, time: '14:24:31', tool: 'lock', op: 'Mark complete, lock', label: CA23, delta: 0, k: 'all' },
-  { id: 30, time: '14:22:10', tool: 'brush', op: 'Brush', label: CA23, delta: 18, k: `k ${PRIMARY_K}`, secs: 7 },
-  { id: 29, time: '14:20:44', tool: 'eraser', op: 'Eraser', label: SRLM, delta: -3, k: 'k 10', secs: 4 },
-];
-
-/** The branch: where it left the active line and how it is shown. */
-export const BRANCH = { from: 31, steps: [301, 302], undoneAt: '14:25:31' };
+/** The branch: where it left the active line, when it was undone, and what a restore would bring back unreviewed. */
+export const BRANCH = { ...SESSION_BRANCH, unreviewed: branchUnreviewed() };
 
 export const JOURNAL = {
   writtenAgoS: 4,
-  step: 38,
+  step: JOURNAL_STEP,
   path: 'app data/recovery/hemi-L-subfields.journal',
   sizeMb: 1.2,
   budgetMb: 64,
   minDepth: 50,
-  lastSave: { time: '14:02', step: 21 },
+  lastSave: LAST_SAVE,
+  sinceSave: STEPS_SINCE_SAVE,
 };
 
 /** Voxel sets per step (mock) for per-label undo: #37 (CA1) erased voxels #30 (CA2/3) had written. */
@@ -263,26 +273,34 @@ const tableLabels: TableLabel[] = LABEL_DEFS.map((d) => ({
   parent: 'Hippocampus',
 }));
 
+const UNREVIEWED = unreviewedSlices(CA1);
+
+/**
+ * The save bundle. BIDS derivatives: ses and a rater desc so two raters
+ * cannot collide; no space entity (the grid is the T2w's own, named by a
+ * SpatialReference in the sidecar); the provenance volume has its own
+ * suffix so `*_dseg.nii.gz` globs never pick it up.
+ */
 export const SAVE = {
-  folder: 'derivatives/brainflow/sub-01/anat',
-  base: 'sub-01_hemi-L_space-T2w_desc-subfields',
+  folder: 'derivatives/brainflow/sub-01/ses-01/anat',
+  base: 'sub-01_ses-01_hemi-L_desc-subfieldsRaterA',
   header: labelVolumeHeader(Math.max(...LABEL_DEFS.map((d) => d.id))),
   tables: {
     dseg: dsegTsv(tableLabels),
     itk: itksnapTxt(tableLabels),
     fs: freesurferLut(tableLabels),
   },
-  provenanceCodes: [
-    { code: 1, name: 'manual', vx: LABEL_DEFS.reduce((s, d) => s + (LABEL_VOLUMES[d.id]?.now ?? 0), 0) - 268 },
-    { code: 2, name: 'interpolated, reviewed', vx: 268 },
-    { code: 3, name: 'interpolated, accepted unreviewed', vx: 0 },
-    { code: 4, name: 'AI, confirmed', vx: 0 },
-  ],
+  provenanceCodes: provenanceTable(),
+  unreviewed: UNREVIEWED,
+  check: saveCheck({ unreviewed: UNREVIEWED.length, incomplete: ['CA1'] }),
   timeOnTask: { total: '1 h 52 min', navigation: '38 min', drawing: '51 min', correction: '23 min' },
-  stepsUnsaved: 17,
-  labelVoxels: LABEL_DEFS.reduce((s, d) => s + (LABEL_VOLUMES[d.id]?.now ?? 0), 0),
+  stepsUnsaved: STEPS_SINCE_SAVE,
+  labelVoxels: LABEL_VOXELS,
   voxelMm3: NATIVE.voxelMm3,
 };
+
+/** Lesion protocol's connectivity on the 1.0 mm isotropic FLAIR grid (a pack setting, recorded in provenance). */
+export const LESION_CONNECTIVITY = defaultConnectivity([1, 1, 1]);
 
 // -------------------------------------------------------------------- setup
 

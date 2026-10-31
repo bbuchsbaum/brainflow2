@@ -7,10 +7,10 @@
  */
 
 import raw from '@/modules/segmentation/__design__/assets/lesions.json';
-import { components26, rowsOfComponents, type LesionRow, type Voxel3 } from '@/modules/segmentation/components/shared/workflowRules';
+import { components26, rowsOfComponents, type LesionRow, type LesionType, type Voxel3 } from '@/modules/segmentation/components/shared/workflowRules';
 import type { LabelVoxel, Plane, SliceImage } from '@/modules/segmentation/components/shared/types';
 
-const PNG_URLS = import.meta.glob('./assets/*_flair.png', { eager: true, import: 'default', query: '?url' }) as Record<string, string>;
+const PNG_URLS = import.meta.glob(['./assets/*_flair.png', './assets/*_lesion.png'], { eager: true, import: 'default', query: '?url' }) as Record<string, string>;
 
 interface RawImage {
   file: string;
@@ -20,14 +20,16 @@ interface RawImage {
   index: number;
 }
 
-function image(name: 'ax_flair' | 'cor_flair' | 'sag_flair'): SliceImage {
+const CONTRAST: Record<string, string> = { ax_flair: 'FLAIR', cor_flair: 'FLAIR', sag_flair: 'FLAIR', ax_t1w: 'T1w', ax_t2w: 'T2w' };
+
+function image(name: 'ax_flair' | 'cor_flair' | 'sag_flair' | 'ax_t1w' | 'ax_t2w'): SliceImage {
   const r = (raw.images as Record<string, RawImage>)[name];
   return {
     key: name,
     url: PNG_URLS[`./assets/${r.file}`] ?? r.file,
     plane: r.plane as Plane,
     index: r.index,
-    contrast: 'FLAIR',
+    contrast: CONTRAST[name],
     viewOnly: false,
     cols: r.cols,
     rows: r.rows,
@@ -37,9 +39,14 @@ function image(name: 'ax_flair' | 'cor_flair' | 'sag_flair'): SliceImage {
 export type LesionLocation = 'periventricular' | 'deep' | 'juxtacortical';
 
 export interface Lesion extends LesionRow {
+  /** Computed (ventricle contiguity, the 10 mm PV rule, JC touching the cortex); the rater may override, logged. */
   location: LesionLocation;
   side: 'L' | 'R';
   reviewed: boolean;
+  /** STRIVE type, set by the rater (default WMH). */
+  type: LesionType;
+  /** Where the row came from: the imported automated seed, or drawn here. */
+  source: 'seed' | 'drawn';
 }
 
 const MASK: Voxel3[] = (raw.mask3d as number[][]).map((v) => [v[0], v[1], v[2]] as const);
@@ -59,6 +66,8 @@ const ROWS: Lesion[] = rowsOfComponents(COMPS).map((r, i) => {
     location: (meta?.location ?? 'deep') as LesionLocation,
     side: r.centre[0] + ORIGIN[0] < 0 ? 'L' : 'R',
     reviewed: REVIEWED.has(r.id),
+    type: 'WMH' as LesionType,
+    source: 'seed' as const,
   };
 });
 
@@ -84,7 +93,15 @@ export const LESION = {
   components: COMPS as readonly (readonly Voxel3[])[],
   rows: ROWS,
   current: CURRENT,
-  images: { ax: image('ax_flair'), cor: image('cor_flair'), sag: image('sag_flair') },
+  images: { ax: image('ax_flair'), cor: image('cor_flair'), sag: image('sag_flair'), axT1: image('ax_t1w'), axT2: image('ax_t2w') },
+  /**
+   * The automated seed the rater edits (mock): every component of the mask
+   * came in as an unreviewed row from an LST-AI lesion map; editing keeps
+   * the rows derived from the mask (26-connected).
+   */
+  seed: { tool: 'LST-AI', version: 'v1.1', file: 'sub-07_ses-01_space-FLAIR_desc-lstai_mask.nii.gz', importedAt: '14:10' },
+  /** Per-subject Fazekas rating (rater-set; deep not yet rated). */
+  fazekas: { periventricular: 2, deep: null } as { periventricular: 0 | 1 | 2 | 3 | null; deep: 0 | 1 | 2 | 3 | null },
   coronalJ: raw.coronalJ,
   sagittalI: raw.sagittalI,
   /** Lesion voxels on the rendered slices, labelled by row id, display coords. */
