@@ -12,10 +12,7 @@ typed-shaders = ["dep:encase", "wgsl_to_wgpu"]
 dev-bins = []
 
 [dependencies]
-# wgpu = { workspace = true } # Inherit version from workspace - REMOVE THIS
-# wgpu = "0.24.3" # Add explicit version - REMOVE THIS
-# wgpu = "0.25.0" # Update to latest stable wgpu - REMOVE THIS
-wgpu = { workspace = true } # Inherit 0.25.0 from workspace
+wgpu = { workspace = true } # Workspace pins =0.20.1
 nalgebra = { workspace = true } # ADDED: Inherit nalgebra from workspace
 thiserror = "1.0" # Added for error handling
 anyhow = { workspace = true } # For error context
@@ -42,24 +39,9 @@ encase = { version = "0.12", optional = true } # Generated shader structs (typed
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # Native dev binaries
 
 [build-dependencies]
-# wgsl_to_wgpu = "0.13.1" # Version compatible with wgpu 0.24
-# wgsl_to_wgpu = "0.13.1" # Temporarily commented out for diagnosis
-# Commenting out due to incompatibility with wgpu 0.25
-#gsl_to_wgpu = "0.13.1"
-# wgsl_to_wgpu = "0.13.1" # Corrected typo: wgsl_to_wgpu - NOW COMMENTED OUT
-#wgsl_to_wgpu = "0.14.0" # Update to version compatible with wgpu 0.25 / naga 0.14
-
-# TODO (WGPU 25 Upgrade): wgsl_to_wgpu 0.13.1 is incompatible with wgpu 25 (requires wgpu ~24).
-# Tauri 2.5 requires wgpu ~25, forcing this upgrade.
-# TEMPORARY WORKAROUND:
-# 1. Build dependency above is commented out.
-# 2. `build.rs` script content is commented out.
-# 3. Shader loading, layout definition, and type mirroring must be done MANUALLY in `src/lib.rs`.
-# WHEN UPDATED:
-# 1. Find a `wgsl_to_wgpu` version compatible with `wgpu 25` (likely >= 0.14.0 when released).
-# 2. Uncomment the dependency above and set the correct version.
-# 3. Uncomment and potentially adapt the code in `build.rs`.
-# 4. Remove manual shader loading/type definitions from `src/lib.rs` and use the generated `shaders` module.
+# Only used by the `typed-shaders` feature, which is intentionally disabled
+# (`compile_error!` in src/lib.rs) while the runtime masked WGSL is authoritative.
+# See memory-bank/SHADER_BINDINGS_PLAN.md.
 wgsl_to_wgpu = { version = "0.8.1", optional = true }
 
 [dev-dependencies]
