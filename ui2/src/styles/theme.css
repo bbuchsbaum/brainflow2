@@ -3,10 +3,11 @@
  *
  * Two layers of tokens live here:
  *
- *   1. `--bf-*` (canonical) — the warm neutral "Workstation" palette
- *      (docs/plans/workstation-shell-restyle.md), superseding the
- *      blue-black palette of `resdesign/Design.md` §3. New surfaces should consume
- *      these directly.
+ *   1. `--bf-*` (canonical) — the achromatic cool-neutral palette of the
+ *      2026-10 redesign (docs/plans/ui-redesign-2026-10.md), which replaced
+ *      the warm "Workstation" palette (docs/plans/workstation-shell-restyle.md)
+ *      and the blue-black palette of `resdesign/Design.md` §3. New surfaces
+ *      should consume these directly.
  *
  *   2. `--app-*` (legacy alias) — every existing component reads from
  *      these. They are now thin aliases over `--bf-*`, so a single edit

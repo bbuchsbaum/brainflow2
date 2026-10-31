@@ -4,7 +4,7 @@
  */
 
 import { invoke, type InvokeOptions } from '@tauri-apps/api/core';
-import { apiBridgeCommands, configureInvoker } from '@brainflow/api';
+import { apiBridgeCommands, BRIDGE_MODULES, configureInvoker, type ModuleInfo } from '@brainflow/api';
 
 export type { InvokeOptions };
 
@@ -81,6 +81,8 @@ export class MockTransport implements BackendTransport {
   private responses = new Map<string, any>();
   private callLog: Array<{ cmd: string; args: any; options?: InvokeOptions; timestamp: number }> =
     [];
+  /** Bridge modules that are on; like the bridge, all start enabled. */
+  private enabledModules = new Set<string>(Object.keys(BRIDGE_MODULES));
 
   async invoke<T>(cmd: string, args?: unknown, options?: InvokeOptions): Promise<T> {
     // Log the call
@@ -93,6 +95,12 @@ export class MockTransport implements BackendTransport {
 
     // Simulate network delay
     await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 20));
+
+    // Like the bridge: a switched-off module's commands reject, never succeed.
+    const disabledModule = this.disabledModuleOf(cmd);
+    if (disabledModule) {
+      throw { ModuleDisabled: { code: 12001, module: disabledModule } };
+    }
 
     // Return mock response
     const response = this.responses.get(cmd);
@@ -128,8 +136,44 @@ export class MockTransport implements BackendTransport {
     this.callLog.length = 0;
   }
 
+  private disabledModuleOf(cmd: string): string | null {
+    for (const [id, module] of Object.entries(BRIDGE_MODULES)) {
+      if (!this.enabledModules.has(id) && (module.commands as readonly string[]).includes(cmd)) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  private moduleInfos(): ModuleInfo[] {
+    return Object.values(BRIDGE_MODULES).map(({ id, title, version, stage }) => ({
+      id,
+      title,
+      version,
+      stage,
+      enabled: this.enabledModules.has(id),
+    }));
+  }
+
   private getDefaultResponse(cmd: string, args: any): any {
     switch (cmd) {
+      case 'list_modules':
+        return this.moduleInfos();
+
+      // src-tauri host command (native menu model); nothing to draw here.
+      case 'set_module_menu_items':
+        return null;
+
+      case 'set_enabled_modules': {
+        const ids: string[] = args?.moduleIds ?? [];
+        const unknown = ids.filter((id) => !(id in BRIDGE_MODULES));
+        if (unknown.length > 0) {
+          throw { Input: { code: 12002, details: `Unknown module id '${unknown[0]}'` } };
+        }
+        this.enabledModules = new Set(ids);
+        return this.moduleInfos();
+      }
+
       case 'render_view':
         // Return mock data based on format
         if (args?.format === 'png') {

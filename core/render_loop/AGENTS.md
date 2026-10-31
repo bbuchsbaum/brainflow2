@@ -4,7 +4,7 @@
 # render_loop
 
 ## Purpose
-High-performance WebGPU rendering service for neuroimaging visualization. Implements offscreen GPU rendering with multi-layer volume compositing, world-space slice extraction, and real-time interactivity. THE most complex crate in the project with 21 source files, 50+ tests, runtime WGSL shader loading, and comprehensive texture/pipeline management. Handles up to 15 simultaneous 3D volume textures with various blend modes.
+High-performance WebGPU rendering service for neuroimaging visualization. Implements offscreen GPU rendering with multi-layer volume compositing, world-space slice extraction, and real-time interactivity. THE most complex crate in the project with 21 source files, 50+ tests, runtime WGSL shader loading, and comprehensive texture/pipeline management. Handles up to 13 simultaneous 3D volume textures (`MAX_TEXTURES` in `multi_texture_manager.rs`) with various blend modes.
 
 ## Key Files
 | File | Description |
@@ -62,7 +62,7 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
 - `render_contracts` - Transport-neutral view, layer, frame request/result, and diagnostics contracts
 
 ### External
-- `wgpu` (workspace 0.25.0) - WebGPU API (inherited from workspace)
+- `wgpu` (workspace `=0.20.1`) - WebGPU API (inherited from workspace)
 - `nalgebra` (workspace) - Matrix operations and transforms
 - `bytemuck` - Zero-copy UBO struct casting with derive
 - `thiserror`, `anyhow` (workspace) - Error handling

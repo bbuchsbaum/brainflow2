@@ -6,23 +6,24 @@
  */
 
 import { DISPLAY_MODES, type DisplayMode } from "@/types/displayModes";
-import {
-  WORKSPACE_METADATA,
-  type Workspace,
-  type WorkspaceType,
+import type {
+  CoreWorkspaceType,
+  Workspace,
+  WorkspaceType,
 } from "@/types/workspace";
+import { getWorkspaceMetadata } from "@/services/workspaceTypes";
 
 /**
  * Reverse map from `WorkspaceType` to the display mode it satisfies.
  *
  * Multiple workspace types may resolve to the same display mode (e.g. both
  * `orthogonal-locked` and `orthogonal-flexible` belong to `'orthogonal'`).
- * Workspaces with no display-mode pill (`set-studio`, `bids-explorer`,
- * `analysis-workbench`) are intentionally absent — they are reached through
- * the command palette / preset selector, not the mode pills.
+ * Tool workspaces (Set studio, BIDS and module tools) have no display-mode
+ * pill and are intentionally absent — they are reached through the Workspace
+ * menu and the command palette, not the mode pills.
  */
 export const WORKSPACE_TYPE_TO_DISPLAY_MODE: Readonly<
-  Partial<Record<WorkspaceType, DisplayMode>>
+  Partial<Record<CoreWorkspaceType, DisplayMode>>
 > = {
   "orthogonal-locked": "orthogonal",
   "orthogonal-flexible": "orthogonal",
@@ -35,8 +36,10 @@ export const WORKSPACE_TYPE_TO_DISPLAY_MODE: Readonly<
 export function resolveActiveDisplayMode(
   workspaceType: WorkspaceType | null | undefined,
 ): DisplayMode | null {
-  if (!workspaceType) return null;
-  return WORKSPACE_TYPE_TO_DISPLAY_MODE[workspaceType] ?? null;
+  if (!workspaceType || !Object.hasOwn(WORKSPACE_TYPE_TO_DISPLAY_MODE, workspaceType)) {
+    return null;
+  }
+  return WORKSPACE_TYPE_TO_DISPLAY_MODE[workspaceType as CoreWorkspaceType] ?? null;
 }
 
 /**
@@ -60,9 +63,9 @@ export function getDisplayModePillMetadata() {
 
 /**
  * True when the workspace type is a "view" the mode pills govern (orthogonal /
- * mosaic / comparison / integrated). Tool destinations (set-studio,
- * bids-explorer, analysis-workbench) are NOT views — the pill has nothing to
- * switch when one of them is active, so it should be hidden.
+ * mosaic / comparison / integrated). Tool destinations (Set studio, BIDS and
+ * module tools) are NOT views — the pill has nothing to switch when one of
+ * them is active, so it should be hidden.
  */
 export function isViewWorkspaceType(
   workspaceType: WorkspaceType | null | undefined,
@@ -85,7 +88,7 @@ export function workspaceTabLabel(workspace: Pick<Workspace, "type">): string {
   if (mode) {
     return DISPLAY_MODES[mode].label;
   }
-  return WORKSPACE_METADATA[workspace.type]?.name ?? workspace.type;
+  return getWorkspaceMetadata(workspace.type)?.name ?? workspace.type;
 }
 
 type LabelWorkspace = Pick<Workspace, "id" | "type" | "timestamp" | "tabLabel">;

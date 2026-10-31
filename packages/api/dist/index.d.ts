@@ -3,6 +3,7 @@
  */
 export type * from './generated';
 export { apiBridgeCommands, type ApiBridgeCommand } from './generated/apiBridgeCommands.js';
+export { BRIDGE_MODULES, type BridgeModuleId, type BridgeModuleCommand, } from './generated/apiBridgeModules.js';
 export * from './helpers.js';
 export * from './renderClient.js';
 import type { VolumeHandleInfo, VolumeLayerGpuInfo, BridgeError, LayerSpec, ReleaseResult } from './generated';

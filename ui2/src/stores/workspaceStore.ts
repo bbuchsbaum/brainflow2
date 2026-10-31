@@ -27,9 +27,18 @@ import {
   workspaceTabLabels,
 } from "@/components/ui/displayModeSelector.helpers";
 import {
+  partitionByModuleAvailability,
   pruneLegacyViewSprawl,
+  resolveActive,
   restoreWorkspaces,
 } from "./workspaceRestorePolicy";
+import {
+  isKnownWorkspaceType,
+  isWorkspaceTypeAvailable,
+  usableStartupTabs,
+  workspaceBaseName,
+  workspaceTypeModule,
+} from "@/services/workspaceTypes";
 
 interface CreateWorkspaceOptions {
   title?: string;
@@ -42,6 +51,11 @@ interface WorkspaceStore {
   // State
   workspaces: Map<string, Workspace>;
   activeWorkspaceId: string | null;
+  /**
+   * Tabs of modules that are switched off, kept so that switching the module
+   * back on restores them (docs/plans/module-architecture.md). Persisted.
+   */
+  parkedWorkspaces: Map<string, Workspace>;
 
   // Core workspace operations
   createWorkspace: (
@@ -68,6 +82,10 @@ interface WorkspaceStore {
    */
   setActiveWorkspaceType: (type: WorkspaceType) => void;
   closeWorkspace: (id: string) => void;
+  /** Close a module's tabs and remember them (the module was switched off). */
+  parkModuleWorkspaces: (moduleId: string) => void;
+  /** Bring back a module's remembered tabs (the module was switched on). */
+  unparkModuleWorkspaces: (moduleId: string) => void;
   updateWorkspaceLayout: (id: string, layoutConfig: LayoutConfig) => void;
 
   // Panel management
@@ -88,17 +106,8 @@ interface WorkspaceStore {
   generateWorkspaceTitle: (type: WorkspaceType) => string;
 }
 
-// Counter for generating unique titles
-const workspaceCounter: Record<WorkspaceType, number> = {
-  "orthogonal-locked": 0,
-  "orthogonal-flexible": 0,
-  mosaic: 0,
-  comparison: 0,
-  integrated: 0,
-  "set-studio": 0,
-  "bids-explorer": 0,
-  "analysis-workbench": 0,
-};
+// Counter for generating unique titles, per workspace type.
+const workspaceCounter = new Map<WorkspaceType, number>();
 
 /**
  * Persistence version for `brainflow2-workspace`. Bump and add a `migrate`
@@ -123,12 +132,20 @@ const workspaceCounter: Record<WorkspaceType, number> = {
  *            duplicates the old pills/menus auto-created, so the migration
  *            keeps one plain view per layout once, and clears the retired
  *            view presets (Read / Explore / Analyze / Compare).
+ *   v3 (additive, no bump): `parkedWorkspaces`, the tabs of modules that are
+ *            switched off. Optional; an absent field means none, and older
+ *            builds ignore it. `merge` (after every migrate branch) parks
+ *            tabs whose module is off and unparks those whose module is back
+ *            on. With Settings › Top bar › Startup tabs set to a fixed list
+ *            that can open at least one tab, the previous session's tabs are
+ *            not restored (workspaceNavigation opens the list instead).
  */
 const WORKSPACE_PERSIST_VERSION = 3;
 
 type PersistedWorkspaceState = {
   workspaces: Map<string, Workspace>;
   activeWorkspaceId: string | null;
+  parkedWorkspaces?: Map<string, Workspace>;
 };
 
 /**
@@ -145,6 +162,33 @@ function withTabLabels(workspaces: Map<string, Workspace>): Map<string, Workspac
     }
   });
   return workspaces;
+}
+
+/** Persisted `[id, workspace]` pairs → a Map, with each `panelStates` a Map. */
+function reviveWorkspaceMap(entries: unknown): Map<string, Workspace> {
+  if (!Array.isArray(entries)) return new Map();
+  const map = new Map<string, Workspace>(entries as Array<[string, Workspace]>);
+  map.forEach((workspace) => {
+    if (Array.isArray(workspace.panelStates)) {
+      workspace.panelStates = new Map(workspace.panelStates);
+    } else if (!(workspace.panelStates instanceof Map)) {
+      workspace.panelStates = new Map();
+    }
+  });
+  return map;
+}
+
+function serializeWorkspaceMap(map: Map<string, Workspace>) {
+  return Array.from(map.entries()).map(([id, workspace]) => [
+    id,
+    {
+      ...workspace,
+      panelStates:
+        workspace.panelStates instanceof Map
+          ? Array.from(workspace.panelStates.entries())
+          : [],
+    },
+  ]);
 }
 
 /** Normalise `isActive` flags to the chosen active workspace. */
@@ -164,6 +208,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     immer((set, get) => ({
       workspaces: new Map(),
       activeWorkspaceId: null,
+      parkedWorkspaces: new Map(),
 
       createWorkspace: async (type, config, options) => {
         if (options?.presetId) {
@@ -175,8 +220,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
 
         // Check if this is a singleton workspace
-        const { WORKSPACE_METADATA } = await import("@/types/workspace");
-        const metadata = WORKSPACE_METADATA[type];
+        const workspaceTypes = await import("@/services/workspaceTypes");
+        const metadata = workspaceTypes.getWorkspaceMetadata(type);
+        if (!workspaceTypes.isWorkspaceTypeAvailable(type)) {
+          // An unknown type, or the tool of a module that is switched off.
+          throw new Error(`[WorkspaceStore] Workspace type "${type}" is not available`);
+        }
 
         if (metadata?.singleton) {
           // Check if instance already exists
@@ -236,6 +285,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             type: "FlexibleSlicePanel",
             isVisible: true,
           });
+        }
+
+        // The module may have been switched off while the layout loaded; its
+        // tabs were parked then, so this one must not appear afterwards.
+        if (!workspaceTypes.isWorkspaceTypeAvailable(type)) {
+          throw new Error(`[WorkspaceStore] Workspace type "${type}" is not available`);
         }
 
         // Two views of one layout can be opened in the same millisecond (New
@@ -412,6 +467,57 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         console.log(`[WorkspaceStore] Closed workspace: ${id}`);
       },
 
+      parkModuleWorkspaces: (moduleId) => {
+        const { workspaces, parkedWorkspaces, activeWorkspaceId } = get();
+        const moving = Array.from(workspaces.values()).filter(
+          (workspace) => workspaceTypeModule(workspace.type) === moduleId,
+        );
+        if (moving.length === 0) return;
+
+        const nextWorkspaces = new Map(workspaces);
+        const nextParked = new Map(parkedWorkspaces);
+        for (const workspace of moving) {
+          nextWorkspaces.delete(workspace.id);
+          nextParked.set(workspace.id, { ...workspace, isActive: false });
+        }
+        let nextActive = activeWorkspaceId;
+        if (nextActive && !nextWorkspaces.has(nextActive)) {
+          const remaining = Array.from(nextWorkspaces.values());
+          nextActive = remaining.length > 0 ? remaining[remaining.length - 1].id : null;
+        }
+        const flagged = withActiveFlags(nextWorkspaces, nextActive);
+        set({ ...flagged, parkedWorkspaces: nextParked });
+        console.log(
+          `[WorkspaceStore] Parked ${moving.length} tab(s) of module ${moduleId}`,
+        );
+      },
+
+      unparkModuleWorkspaces: (moduleId) => {
+        const { workspaces, parkedWorkspaces, activeWorkspaceId } = get();
+        const moving = Array.from(parkedWorkspaces.values()).filter(
+          (workspace) => workspaceTypeModule(workspace.type) === moduleId,
+        );
+        if (moving.length === 0) return;
+
+        const nextWorkspaces = new Map(workspaces);
+        const nextParked = new Map(parkedWorkspaces);
+        const openTypes = new Set(Array.from(workspaces.values()).map((w) => w.type));
+        for (const workspace of moving) {
+          nextParked.delete(workspace.id);
+          // Tools are singletons: one opened meanwhile wins.
+          if (openTypes.has(workspace.type) || nextWorkspaces.has(workspace.id)) continue;
+          openTypes.add(workspace.type);
+          nextWorkspaces.set(workspace.id, { ...workspace, isActive: false });
+        }
+        const nextActive =
+          activeWorkspaceId ?? resolveActive(nextWorkspaces, null);
+        const flagged = withActiveFlags(nextWorkspaces, nextActive);
+        set({ ...flagged, parkedWorkspaces: nextParked });
+        console.log(
+          `[WorkspaceStore] Restored ${moving.length} tab(s) of module ${moduleId}`,
+        );
+      },
+
       updateWorkspaceLayout: (id, layoutConfig) => {
         const currentState = get();
         const workspace = currentState.workspaces.get(id);
@@ -498,7 +604,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       generateWorkspaceTitle: (type) => {
-        workspaceCounter[type] = (workspaceCounter[type] || 0) + 1;
+        const count = (workspaceCounter.get(type) ?? 0) + 1;
+        workspaceCounter.set(type, count);
 
         // The pill-reachable view types (orthogonal / mosaic / comparison /
         // integrated) share a neutral "View" base name: the top-bar mode pills
@@ -507,19 +614,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // "which view" instead. Non-pill workspaces reached via the Workspace
         // menu keep their descriptive names — they are distinct destinations,
         // not modes.
-        const baseNames: Record<WorkspaceType, string> = {
-          "orthogonal-locked": "View",
-          "orthogonal-flexible": "View",
-          mosaic: "View",
-          comparison: "View",
-          integrated: "View",
-          "set-studio": "Set studio",
-          "bids-explorer": "BIDS Explorer",
-          "analysis-workbench": "Analysis Workbench",
-        };
-
-        const count = workspaceCounter[type];
-        return count === 1 ? baseNames[type] : `${baseNames[type]} ${count}`;
+        const baseName = workspaceBaseName(type);
+        return count === 1 ? baseName : `${baseName} ${count}`;
       },
     })),
     {
@@ -559,6 +655,38 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
         return persistedState as PersistedWorkspaceState;
       },
+      /**
+       * Runs after `migrate` (for every branch) on what storage restored:
+       * tabs of modules that are off move to `parkedWorkspaces`, parked tabs
+       * whose module is on again come back, and a fixed startup list that can
+       * open at least one tab replaces the previous session (its tabs are
+       * opened by workspaceNavigation.ensureDefaultView at launch).
+       */
+      merge: (persisted, current) => {
+        const state = (persisted ?? {}) as Partial<PersistedWorkspaceState>;
+        const workspaces =
+          state.workspaces instanceof Map ? state.workspaces : new Map<string, Workspace>();
+        const parked =
+          state.parkedWorkspaces instanceof Map
+            ? state.parkedWorkspaces
+            : new Map<string, Workspace>();
+        const parts = partitionByModuleAvailability(
+          workspaces,
+          parked,
+          isWorkspaceTypeAvailable,
+        );
+        let shown = parts.workspaces;
+        let active = resolveActive(shown, state.activeWorkspaceId ?? null);
+        if (usableStartupTabs()) {
+          shown = new Map();
+          active = null;
+        }
+        return {
+          ...current,
+          ...withActiveFlags(shown, active),
+          parkedWorkspaces: parts.parked,
+        };
+      },
       // Custom serialization for Map
       storage: {
         getItem: (name) => {
@@ -581,35 +709,31 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             if (data.state && data.state.workspaces) {
               // Ensure workspaces is an array before converting to Map
               if (Array.isArray(data.state.workspaces)) {
-                data.state.workspaces = new Map(data.state.workspaces);
-
-                // Restore Map for each workspace's panelStates
-                data.state.workspaces.forEach((workspace: Workspace) => {
-                  if (Array.isArray(workspace.panelStates)) {
-                    workspace.panelStates = new Map(workspace.panelStates);
-                  } else if (!workspace.panelStates) {
-                    workspace.panelStates = new Map();
-                  }
-                });
+                const saved = reviveWorkspaceMap(data.state.workspaces);
+                const savedParked = new Map(
+                  [...reviveWorkspaceMap(data.state.parkedWorkspaces)].filter(
+                    ([, workspace]) => isKnownWorkspaceType(workspace.type),
+                  ),
+                );
 
                 // Relaunch restores the user's tabs and tools with their
-                // layouts (workspaceRestorePolicy.ts).
+                // layouts (workspaceRestorePolicy.ts). Module parking and the
+                // startup list are applied in `merge`, after every migrate
+                // branch.
                 const restored = restoreWorkspaces(
-                  data.state.workspaces as Map<string, Workspace>,
+                  saved,
                   data.state.activeWorkspaceId ?? null,
                 );
-                const flagged = withActiveFlags(
-                  restored.workspaces,
-                  restored.activeWorkspaceId,
-                );
-                data.state.workspaces = flagged.workspaces;
-                data.state.activeWorkspaceId = flagged.activeWorkspaceId;
+                data.state.workspaces = restored.workspaces;
+                data.state.activeWorkspaceId = restored.activeWorkspaceId;
+                data.state.parkedWorkspaces = savedParked;
               } else {
                 // If workspaces is not in expected format, reset to empty Map
                 console.warn(
                   "[WorkspaceStore] Invalid workspaces format in storage, resetting",
                 );
                 data.state.workspaces = new Map();
+                data.state.parkedWorkspaces = new Map();
               }
             }
 
@@ -628,25 +752,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             const data = value as {
               state: {
                 workspaces: Map<string, Workspace>;
+                parkedWorkspaces?: Map<string, Workspace>;
               };
             } & Record<string, unknown>;
             const serializableData: Record<string, unknown> = { ...data };
             if (data.state.workspaces instanceof Map) {
-              const serializedWorkspaces = Array.from(
-                data.state.workspaces.entries(),
-              ).map(([id, workspace]) => [
-                id,
-                {
-                  ...workspace,
-                  panelStates:
-                    workspace.panelStates instanceof Map
-                      ? Array.from(workspace.panelStates.entries())
-                      : [],
-                },
-              ]);
               serializableData.state = {
                 ...data.state,
-                workspaces: serializedWorkspaces,
+                workspaces: serializeWorkspaceMap(data.state.workspaces),
+                parkedWorkspaces:
+                  data.state.parkedWorkspaces instanceof Map
+                    ? serializeWorkspaceMap(data.state.parkedWorkspaces)
+                    : [],
               };
             }
             localStorage.setItem(name, JSON.stringify(serializableData));

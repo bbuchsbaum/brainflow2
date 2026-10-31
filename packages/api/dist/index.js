@@ -4,6 +4,7 @@
 // The generated api-bridge command list is a runtime value, so it needs a value
 // re-export (`export type *` above only carries type-level exports).
 export { apiBridgeCommands } from './generated/apiBridgeCommands.js';
+export { BRIDGE_MODULES, } from './generated/apiBridgeModules.js';
 export * from './helpers.js';
 export * from './renderClient.js';
 // Note: Error types are replaced by BridgeError from generated types

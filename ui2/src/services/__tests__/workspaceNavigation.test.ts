@@ -164,12 +164,12 @@ describe('workspaceNavigation (qa-design-decisions-2026-10-30 §1)', () => {
     });
 
     it('a tool opens once; opening it again focuses its tab', async () => {
-      const first = await openTool('analysis-workbench');
+      const first = await openTool('bids-explorer');
       await openNewView();
-      const again = await openTool('analysis-workbench');
+      const again = await openTool('bids-explorer');
       expect(again).toBe(first);
       expect(store().activeWorkspaceId).toBe(first);
-      expect(types().filter((t) => t === 'analysis-workbench')).toHaveLength(1);
+      expect(types().filter((t) => t === 'bids-explorer')).toHaveLength(1);
     });
 
     it('a workspace-type request opens a tool, or sets the layout of a view', async () => {

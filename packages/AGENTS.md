@@ -4,7 +4,7 @@
 # TypeScript Packages
 
 ## Purpose
-The packages directory contains shared TypeScript packages managed via pnpm workspace. These packages provide the TypeScript API surface for Brainflow's frontend, consuming auto-generated type bindings from Rust and providing developer-friendly interfaces and utilities. The modular structure allows for clear separation between core API types and plugin development tooling.
+The packages directory contains shared TypeScript packages managed via pnpm workspace. These packages provide the TypeScript API surface for Brainflow's frontend, consuming auto-generated type bindings from Rust and providing developer-friendly interfaces and utilities. The structure separates core API types from reusable visualization components.
 
 ## Key Files
 | File | Description |
@@ -15,7 +15,6 @@ The packages directory contains shared TypeScript packages managed via pnpm work
 | Directory | Purpose |
 |-----------|---------|
 | `api/` | Core TypeScript interfaces (@brainflow/api) - consumes generated bindings from `core/bridge_types/bindings/` |
-| `plugin-sdk/` | Plugin development SDK with templates and utilities for extending Brainflow functionality |
 | `visualization/` | Reusable React slice/surface viewer package (@brainflow/visualization) with store-free adapters |
 
 ## For AI Agents
@@ -31,7 +30,6 @@ When working with TypeScript packages:
 
 ### Testing Requirements
 - API package: Primarily type definitions - verify TypeScript compilation with `pnpm build`
-- Plugin SDK: Include example templates in `templates/` directory for validation
 - Integration testing: Actual testing happens in `ui2/` which consumes these packages
 - Type safety: Ensure exported types match Rust-generated bindings
 
@@ -57,13 +55,6 @@ When working with TypeScript packages:
   - `src/helpers.ts` - TypeScript-specific utilities
   - `src/index.ts` - Main entry point, re-exports
 
-#### @brainflow/plugin-sdk
-- **Purpose**: SDK for developing Brainflow plugins
-- **Dependencies**: Depends on `@brainflow/api` (workspace dependency)
-- **Build**: Uses `tsup` for ESM + CJS dual format with declaration files
-- **Includes**: `templates/` directory with plugin scaffolding examples
-- **Target audience**: Third-party developers extending Brainflow
-
 #### @brainflow/visualization
 - **Purpose**: Store-free React visualization primitives for reusable slice and surface viewers
 - **Main export**: `dist/index.js` (ESM), plus `./slice` and `./surface` subpath exports
@@ -77,13 +68,11 @@ When working with TypeScript packages:
 ## Dependencies
 
 ### Internal
-- `plugin-sdk` depends on `api` (via workspace protocol)
 - `visualization` is consumed by host apps that provide React/neurosurface and pass data through props
-- Packages are consumed by `ui2/` application and external extension code
+- Packages are consumed by the `ui2/` application
 
 ### External
 - `typescript` ^5.0.0 - TypeScript compiler (devDependency for all packages)
-- `tsup` ^8.0.0 - Build tool for plugin-sdk (fast, zero-config bundler)
 - `react` / `react-dom` - peer dependencies for visualization components
 - `neurosurface` - peer dependency for the surface viewer export
 

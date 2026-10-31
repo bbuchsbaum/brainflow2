@@ -22,6 +22,7 @@ Main React application source code for the Brainflow neuroimaging frontend. Cont
 | Directory | Purpose |
 |-----------|---------|
 | components/ | React components organized by feature (layout, panels, views, ui, dialogs) |
+| modules/ | First-party feature modules, their registry and API (see modules/AGENTS.md) |
 | stores/ | Zustand state management stores with middleware and selectors |
 | services/ | Business logic and API integration layer |
 | hooks/ | Custom React hooks for reusable logic |

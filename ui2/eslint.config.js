@@ -5,6 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 import { globalIgnores } from 'eslint/config';
 import { ratchetConfigs } from './eslint.ratchet.js';
+import { boundaryConfigs } from './eslint.boundaries.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Brainflow UI design discipline — see docs/design-system/ui-contract.md §8.
@@ -72,4 +73,6 @@ export default tseslint.config([
   // Chrome ratchet (errors) and its shrink-only allowlist; see eslint.ratchet.js.
   // BF_RATCHET_IGNORE_ALLOWLIST=1 drops the allowlist (used by the shrink test).
   ...ratchetConfigs({ ignoreAllowlist: process.env.BF_RATCHET_IGNORE_ALLOWLIST === '1' }),
+  // Module boundaries; see eslint.boundaries.js.
+  ...boundaryConfigs(),
 ]);

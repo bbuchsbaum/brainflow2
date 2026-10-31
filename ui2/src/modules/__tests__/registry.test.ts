@@ -1,0 +1,457 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineModule, type ModuleContext, type ModuleManifest } from '@/modules/api';
+import { ModuleDisabledError, ModuleRegistry, type RegistryDeps } from '@/modules/registry';
+import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
+
+const Empty = () => null;
+const lazy = () => Promise.resolve({ default: Empty });
+
+function fakeDeps(overrides: Partial<RegistryDeps> = {}) {
+  const switches: Record<string, boolean> = {};
+  let notify = () => {};
+  const deps: RegistryDeps & { set(id: string, on: boolean): void } = {
+    overrides: () => switches,
+    subscribeOverrides: (listener) => {
+      notify = listener;
+      return () => {};
+    },
+    host: () => 'desktop',
+    capabilities: () => ({ nativePaths: true, remoteMounts: true, externalProcesses: true }),
+    bridgeModules: {},
+    set(id, on) {
+      switches[id] = on;
+      notify();
+    },
+    ...overrides,
+  };
+  return deps;
+}
+
+function manifest(over: Partial<ModuleManifest> & { id: string }, activate?: (ctx: ModuleContext) => void | Promise<void>) {
+  return defineModule({
+    title: over.id,
+    description: 'A test module.',
+    version: '0.1.0',
+    stage: 'preview',
+    hosts: ['desktop'],
+    contributes: {},
+    activate: () => Promise.resolve({ activate: activate ?? (() => {}) }),
+    ...over,
+  } as ModuleManifest);
+}
+
+describe('ModuleRegistry registration', () => {
+  it('rejects unnamespaced and duplicate contribution ids', () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    expect(() =>
+      registry.register(manifest({ id: 'seg', contributes: { commands: [{ id: 'open', title: 'Open' }] } })),
+    ).toThrow(/command id "open" must be namespaced as "seg.<name>"/);
+
+    registry.register(manifest({ id: 'seg', contributes: { commands: [{ id: 'seg.open', title: 'Open' }] } }));
+    expect(() =>
+      registry.register(manifest({ id: 'other', contributes: { commands: [{ id: 'seg.open', title: 'Open' }] } })),
+    ).toThrow(/must be namespaced|already registered/);
+    expect(() => registry.register(manifest({ id: 'seg' }))).toThrow(/already registered/);
+  });
+
+  it('allows a persisted workspace id only with legacyId, and never a core type', () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const workspace = { title: 'Old tool', label: 'Old', component: lazy };
+    expect(() =>
+      registry.register(manifest({ id: 'old', contributes: { workspaces: [{ id: 'old-tool', ...workspace }] } })),
+    ).toThrow(/must be namespaced/);
+    registry.register(
+      manifest({ id: 'old', contributes: { workspaces: [{ id: 'old-tool', legacyId: true, ...workspace }] } }),
+    );
+    expect(registry.getToolDescriptor('old-tool')?.moduleId).toBe('old');
+    expect(() =>
+      registry.register(
+        manifest({ id: 'clash', contributes: { workspaces: [{ id: 'mosaic', legacyId: true, ...workspace }] } }),
+      ),
+    ).toThrow(/workspace id "mosaic" is already registered/);
+  });
+
+  it('enforces stage gates: global shortcuts and top-bar proposals need a stable module', () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const commands = [{ id: 'seg.brush', title: 'Brush' }];
+    expect(() =>
+      registry.register(manifest({ id: 'seg', contributes: { commands, keybindings: [{ command: 'seg.brush', key: 'b' }] } })),
+    ).toThrow(/global; a preview module must scope it/);
+    expect(() =>
+      registry.register(
+        manifest({ id: 'seg', contributes: { workspaces: [{ id: 'seg.tab', title: 'Seg', label: 'Seg', component: lazy, pinned: true }] } }),
+      ),
+    ).toThrow(/only stable modules may propose/);
+    registry.register(
+      manifest({ id: 'seg', stage: 'stable', contributes: { commands, keybindings: [{ command: 'seg.brush', key: 'b' }] } }),
+    );
+  });
+
+  it('rejects conflicting keybindings in one scope and undeclared command references', () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const when = { workspace: 'a.tab' };
+    registry.register(
+      manifest({ id: 'a', contributes: { commands: [{ id: 'a.go', title: 'Go' }], keybindings: [{ command: 'a.go', key: 'g', when }] } }),
+    );
+    expect(() =>
+      registry.register(
+        manifest({ id: 'b', contributes: { commands: [{ id: 'b.go', title: 'Go' }], keybindings: [{ command: 'b.go', key: 'G', when }] } }),
+      ),
+    ).toThrow(/conflicts with a:a.go in the same scope/);
+    // Another scope is fine.
+    registry.register(
+      manifest({ id: 'b', contributes: { commands: [{ id: 'b.go', title: 'Go' }], keybindings: [{ command: 'b.go', key: 'g', when: { workspace: 'b.tab' } }] } }),
+    );
+    expect(() =>
+      registry.register(manifest({ id: 'c', contributes: { menus: { 'view/workspace': [{ command: 'c.nope' }] } } })),
+    ).toThrow(/menu item names undeclared command "c.nope"/);
+  });
+});
+
+describe('ModuleRegistry menu validation (mirrors src-tauri plan_module_menu_items)', () => {
+  const commands = [{ id: 'm.open', title: 'Open' }];
+  it('rejects labels Rust would reject and a command listed twice', () => {
+    for (const [title, why] of [
+      ['   ', /label of 1-64 printable characters/],
+      ['x'.repeat(65), /label of 1-64 printable characters/],
+      ['Line\nbreak', /label of 1-64 printable characters/],
+    ] as const) {
+      const registry = new ModuleRegistry(fakeDeps());
+      expect(() =>
+        registry.register(manifest({ id: 'm', contributes: { commands, menus: { 'view/workspace': [{ command: 'm.open', title }] } } })),
+      ).toThrow(why);
+    }
+    const registry = new ModuleRegistry(fakeDeps());
+    expect(() =>
+      registry.register(
+        manifest({
+          id: 'm',
+          contributes: { commands, menus: { 'view/workspace': [{ command: 'm.open' }, { command: 'm.open', title: 'Again' }] } },
+        }),
+      ),
+    ).toThrow(/listed twice/);
+    // A long command title is fine when the menu title is short.
+    registry.register(
+      manifest({
+        id: 'ok',
+        contributes: {
+          commands: [{ id: 'ok.open', title: 'x'.repeat(80) }],
+          menus: { 'view/workspace': [{ command: 'ok.open', title: ' Ok ' }] },
+        },
+      }),
+    );
+    expect(registry.getMenuItems()).toEqual([{ command: 'ok.open', label: 'Ok', path: 'view/workspace' }]);
+  });
+
+  it('caps the number of module menu items like Rust (64)', () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const many = Array.from({ length: 65 }, (_, i) => ({ id: `big.c${i}`, title: `C${i}` }));
+    expect(() =>
+      registry.register(
+        manifest({ id: 'big', contributes: { commands: many, menus: { 'view/workspace': many.map((c) => ({ command: c.id })) } } }),
+      ),
+    ).toThrow(/at most 64 module menu items/);
+  });
+});
+
+describe('ModuleRegistry enabled state', () => {
+  it('defaults by stage, follows the user switch and filters contributions', () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    registry.register(manifest({ id: 'exp', stage: 'experimental', contributes: { commands: [{ id: 'exp.x', title: 'X' }] } }));
+    registry.register(
+      manifest({
+        id: 'pre',
+        contributes: {
+          commands: [{ id: 'pre.open', title: 'Open pre' }],
+          menus: { 'view/workspace': [{ command: 'pre.open', title: 'Pre' }] },
+          workspaces: [{ id: 'pre.tab', title: 'Pre tab', label: 'Pre', component: lazy }],
+        },
+      }),
+    );
+    expect(registry.isEnabled('exp')).toBe(false);
+    expect(registry.isEnabled('pre')).toBe(true);
+    expect(registry.getCommands().map((c) => c.id)).toEqual(['pre.open']);
+    expect(registry.getMenuItems()).toEqual([{ command: 'pre.open', label: 'Pre', path: 'view/workspace' }]);
+    expect(registry.getTools().map((t) => t.type)).toContain('pre.tab');
+
+    const changes: unknown[] = [];
+    registry.onEnabledChange((change) => changes.push(change));
+    const before = registry.getTools();
+    deps.set('pre', false);
+    deps.set('exp', true);
+    expect(changes).toEqual([
+      { enabled: [], disabled: ['pre'] },
+      { enabled: ['exp'], disabled: [] },
+    ]);
+    expect(registry.getTools()).not.toBe(before);
+    expect(registry.getTools().map((t) => t.type)).not.toContain('pre.tab');
+    expect(registry.getMenuItems()).toEqual([]);
+    expect(registry.getCommands().map((c) => c.id)).toEqual(['exp.x']);
+    // Known even while off, so restore can park its tabs.
+    expect(registry.getToolDescriptor('pre.tab')?.moduleId).toBe('pre');
+    expect(registry.isToolAvailable('pre.tab')).toBe(false);
+  });
+
+  it('returns stable references until something changes', () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    registry.register(manifest({ id: 'pre' }));
+    expect(registry.getTools()).toBe(registry.getTools());
+    const version = registry.getVersion();
+    deps.set('pre', true); // already on: no change
+    expect(registry.getVersion()).toBe(version);
+  });
+
+  it('hides modules the host does not support', () => {
+    const registry = new ModuleRegistry(fakeDeps({ host: () => 'browser' }));
+    registry.register(manifest({ id: 'desk', hosts: ['desktop'] }));
+    registry.register(manifest({ id: 'both', hosts: ['desktop', 'browser'] }));
+    registry.register(manifest({ id: 'procs', hosts: ['desktop', 'browser'], requires: { hostCapabilities: ['externalProcesses'] } }));
+    const browserCaps = new ModuleRegistry(
+      fakeDeps({ host: () => 'browser', capabilities: () => ({ externalProcesses: false }) }),
+    );
+    browserCaps.register(manifest({ id: 'procs', hosts: ['desktop', 'browser'], requires: { hostCapabilities: ['externalProcesses'] } }));
+    expect(registry.isEnabled('desk')).toBe(false);
+    expect(registry.isSupported('desk')).toBe(false);
+    expect(registry.isEnabled('both')).toBe(true);
+    expect(browserCaps.isEnabled('procs')).toBe(false);
+  });
+
+  it('enables bridge modules with their UI module, and unknown ones by stage', () => {
+    const deps = fakeDeps({
+      bridgeModules: { pre: { stage: 'preview' }, orphan: { stage: 'stable' }, lab: { stage: 'experimental' } },
+    });
+    const registry = new ModuleRegistry(deps);
+    registry.register(manifest({ id: 'pre' }));
+    expect(registry.getEnabledBridgeModules()).toEqual(['pre', 'orphan']);
+    deps.set('pre', false);
+    expect(registry.getEnabledBridgeModules()).toEqual(['orphan']);
+  });
+});
+
+describe('ModuleRegistry activation', () => {
+  beforeEach(() => getKeyboardShortcutService().unregisterAll());
+  afterEach(() => getKeyboardShortcutService().unregisterAll());
+
+  it('activates lazily on first command and only once', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    const run = vi.fn();
+    const activate = vi.fn((ctx: ModuleContext) => {
+      ctx.commands.register('lazy.run', run);
+    });
+    registry.register(manifest({ id: 'lazy', contributes: { commands: [{ id: 'lazy.run', title: 'Run' }] } }, activate));
+    expect(activate).not.toHaveBeenCalled();
+    await expect(Promise.all([registry.executeCommand('lazy.run'), registry.executeCommand('lazy.run')])).resolves.toEqual([true, true]);
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('disposes registrations when the module is switched off and refuses its commands', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    const disposed = vi.fn();
+    registry.register(
+      manifest(
+        {
+          id: 'kb',
+          stage: 'stable',
+          contributes: { commands: [{ id: 'kb.go', title: 'Go' }] },
+        },
+        (ctx) => {
+          ctx.commands.register('kb.go', () => {});
+          ctx.keybindings.register({ command: 'kb.go', key: 'j', modifiers: { alt: true } });
+          ctx.disposables.add(disposed);
+        },
+      ),
+    );
+    await registry.ensureActive('kb');
+    const shortcuts = () => Object.values(getKeyboardShortcutService().getAll()).flat().map((r) => r.id);
+    expect(shortcuts()).toEqual([expect.stringMatching(/^module\.kb\.runtime\.kb\.go\.alt\+j@\*#\d+$/)]);
+
+    deps.set('kb', false);
+    expect(disposed).toHaveBeenCalledTimes(1);
+    expect(shortcuts()).toEqual([]);
+    expect(registry.isActive('kb')).toBe(false);
+    await expect(registry.executeCommand('kb.go')).resolves.toBe(false);
+    await expect(registry.ensureActive('kb')).rejects.toBeInstanceOf(ModuleDisabledError);
+  });
+
+  it('tears down an activation that finishes after the module was switched off', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const disposed = vi.fn();
+    registry.register(
+      manifest({ id: 'slow', contributes: { commands: [{ id: 'slow.go', title: 'Go' }] } }, async (ctx) => {
+        ctx.disposables.add(disposed);
+        started();
+        await gate;
+        ctx.commands.register('slow.go', () => {});
+      }),
+    );
+    const pending = registry.ensureActive('slow');
+    await running;
+    deps.set('slow', false);
+    release();
+    await expect(pending).rejects.toBeInstanceOf(ModuleDisabledError);
+    expect(disposed).toHaveBeenCalledTimes(1);
+    expect(registry.isActive('slow')).toBe(false);
+    // Switching it back on activates afresh.
+    deps.set('slow', true);
+    await expect(registry.ensureActive('slow')).resolves.toBeTruthy();
+  });
+
+  it('only lets a module handle commands and open workspaces it declares', async () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const openWorkspace = vi.fn(async (type: string) => `${type}-1`);
+    registry.connectShell({ openWorkspace, activeWorkspaceType: () => null });
+    let ctx!: ModuleContext;
+    registry.register(
+      manifest(
+        {
+          id: 'own',
+          contributes: {
+            commands: [{ id: 'own.open', title: 'Open' }],
+            workspaces: [{ id: 'own.tab', title: 'Own', label: 'Own', component: lazy }],
+          },
+        },
+        (c) => {
+          ctx = c;
+        },
+      ),
+    );
+    await registry.ensureActive('own');
+    expect(() => ctx.commands.register('own.other', () => {})).toThrow(/not declared/);
+    await expect(ctx.workspaces.open('own.tab')).resolves.toBe('own.tab-1');
+    await expect(ctx.workspaces.open('mosaic')).rejects.toThrow(/not declared/);
+  });
+
+  it('waits for the shell before activating, and skips activation switched off meanwhile', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    let release!: () => void;
+    const bridgeApplied = new Promise<void>((resolve) => (release = resolve));
+    const beforeActivate = vi.fn(() => bridgeApplied);
+    registry.connectShell({ openWorkspace: async () => null, activeWorkspaceType: () => null, beforeActivate });
+    const activate = vi.fn();
+    registry.register(manifest({ id: 'br' }, activate));
+    const first = registry.ensureActive('br');
+    await Promise.resolve();
+    expect(beforeActivate).toHaveBeenCalledWith('br');
+    expect(activate).not.toHaveBeenCalled();
+    deps.set('br', false);
+    release();
+    await expect(first).rejects.toBeInstanceOf(ModuleDisabledError);
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it('records a failed activation for the shell to show', async () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    registry.register(
+      manifest({ id: 'bad' }, () => {
+        throw new Error('no backend');
+      }),
+    );
+    const version = registry.getVersion();
+    await expect(registry.ensureActive('bad')).rejects.toThrow('no backend');
+    await Promise.resolve();
+    expect((registry.activationError('bad') as Error).message).toBe('no backend');
+    expect(registry.getVersion()).toBeGreaterThan(version);
+    expect(registry.isActive('bad')).toBe(false);
+    errors.mockRestore();
+  });
+
+  it('switching off disposes what an activation still in flight registered, at once', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    const disposed = vi.fn();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    registry.register(
+      manifest({ id: 'hang', contributes: { commands: [{ id: 'hang.go', title: 'Go' }] } }, async (ctx) => {
+        ctx.disposables.add(disposed);
+        ctx.commands.register('hang.go', () => {});
+        started();
+        await new Promise(() => {}); // never settles
+      }),
+    );
+    void registry.ensureActive('hang').catch(() => {});
+    await running;
+    deps.set('hang', false);
+    expect(disposed).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores the failure of a stale activation once a newer one succeeded', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let fail!: () => void;
+    const firstGate = new Promise<void>((_, reject) => (fail = () => reject(new Error('stale failure'))));
+    let calls = 0;
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    registry.register(
+      manifest({ id: 'flip' }, async () => {
+        calls += 1;
+        if (calls === 1) {
+          started();
+          await firstGate;
+        }
+      }),
+    );
+    const first = registry.ensureActive('flip');
+    await running;
+    deps.set('flip', false);
+    deps.set('flip', true);
+    await registry.ensureActive('flip');
+    fail();
+    await expect(first).rejects.toThrow();
+    await Promise.resolve();
+    expect(registry.isActive('flip')).toBe(true);
+    expect(registry.activationError('flip')).toBeNull();
+    errors.mockRestore();
+  });
+
+  it('keeps keybindings of one command in two scopes, and runtime bindings apart from manifest ones', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    let ctx!: ModuleContext;
+    registry.register(
+      manifest({ id: 'sc', contributes: { commands: [{ id: 'sc.go', title: 'Go' }] } }, (c) => {
+        ctx = c;
+      }),
+    );
+    await registry.ensureActive('sc');
+    const offA = ctx.keybindings.register({ command: 'sc.go', key: 'g', when: { workspace: 'a' } });
+    ctx.keybindings.register({ command: 'sc.go', key: 'g', when: { workspace: 'b' } });
+    const ids = () => Object.values(getKeyboardShortcutService().getAll()).flat().map((r) => r.id);
+    expect(ids()).toHaveLength(2);
+    offA();
+    expect(ids()).toHaveLength(1);
+  });
+
+  it('runs a command only where its when clause holds', async () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    let active: string | null = null;
+    registry.connectShell({ openWorkspace: async () => null, activeWorkspaceType: () => active });
+    const run = vi.fn();
+    registry.register(
+      manifest(
+        { id: 'w', contributes: { commands: [{ id: 'w.go', title: 'Go', when: { workspace: 'w.tab' } }] } },
+        (ctx) => {
+          ctx.commands.register('w.go', run);
+        },
+      ),
+    );
+    await expect(registry.executeCommand('w.go')).resolves.toBe(false);
+    active = 'w.tab';
+    await expect(registry.executeCommand('w.go')).resolves.toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});

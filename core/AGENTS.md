@@ -22,6 +22,7 @@ The core directory contains the Rust backend workspace for Brainflow, implementi
 | `colormap/` | Color mapping functionality for volume and surface visualization |
 | `filesystem/` | File system operations, BIDS dataset scanning, and path management |
 | `loaders/` | File format loaders: `nifti/` (NIfTI volumes), `gifti/` (GIfTI surfaces) |
+| `modules/` | Transport-neutral domain crates for first-party modules (`analysis/` is `bf_analysis`); no Tauri or `api_bridge` dependencies. Bridge adapters live in `api_bridge/src/modules/` |
 | `neuro-core/` | Core neuroimaging utilities and shared logic |
 | `neuro-cpu/` | CPU-based volume rendering fallback for systems without WebGPU |
 | `neuro-integration-tests/` | Cross-component integration tests validating CPU/GPU consistency |

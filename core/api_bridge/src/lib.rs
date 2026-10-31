@@ -73,7 +73,6 @@ use brainflow_loaders as core_loaders;
 // GIFTI support
 
 // Import error helpers
-mod analysis;
 mod cluster_labels;
 mod clusters;
 mod command_registry;
@@ -83,6 +82,7 @@ mod histogram;
 mod image_export;
 pub mod image_set;
 mod materialization;
+pub mod modules;
 mod projection_geometry;
 mod raw_ipc;
 mod region_locus;
@@ -99,10 +99,11 @@ use command_registry::bridge_commands;
 use error_context::*;
 use projection_geometry::build_volume3d_from_projection;
 
-// Bring the analysis commands into crate-root scope so `command_list.rs` can list
-// them as bare identifiers alongside the commands defined in this file.
-use analysis::{cancel_analysis, get_analysis_job_status, list_analyses, start_analysis};
+// Core module-management commands, in crate-root scope for `command_list.rs`.
+// Module commands are listed by section and resolved as `modules::<id>::<cmd>`.
 use error_helpers::*;
+use modules::{list_modules, set_enabled_modules};
+pub use modules::{module_descriptors, ModuleDescriptor, ModuleInfo, ModuleStage};
 // Phase 3 command modules (export, clusters, voxel queries), re-exported so
 // `command_list.rs` and the TS exporter see them at the crate root.
 use clusters::compute_clusters;
@@ -1384,9 +1385,9 @@ pub struct BridgeState {
     pub atlas_service: Arc<Mutex<AtlasService>>,
     // Template service for brain template management
     pub template_service: Arc<Mutex<templates::TemplateService>>,
-    // Analysis registry and running jobs
-    pub analysis_registry: Arc<Mutex<analysis::AnalysisRegistry>>,
-    pub analysis_jobs: Arc<Mutex<analysis::AnalysisJobManager>>,
+    // First-party modules: typed state slots (analysis registry and jobs live
+    // here) and the runtime enable gate. See `modules/mod.rs` for lock order.
+    pub modules: modules::ModuleHost,
     pub set_studio_materialization_jobs:
         Arc<Mutex<materialization::StudioMaterializationJobManager>>,
     // Active remote mounts keyed by mount_id.
@@ -1436,8 +1437,7 @@ impl BridgeState {
             layer_leases: Arc::new(Mutex::new(HashMap::new())),
             atlas_service,
             template_service,
-            analysis_registry: Arc::new(Mutex::new(analysis::build_default_registry())),
-            analysis_jobs: Arc::new(Mutex::new(analysis::AnalysisJobManager::new())),
+            modules: modules::ModuleHost::new(modules::REGISTERED_MODULES),
             set_studio_materialization_jobs: Arc::new(Mutex::new(
                 materialization::StudioMaterializationJobManager::new(),
             )),

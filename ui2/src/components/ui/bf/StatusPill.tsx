@@ -18,7 +18,7 @@ import { H_TAG } from './states';
  * cancelled / unknown = dash.
  *
  * `JobStatusPill` (analysis job states) is this pill with the job-state
- * vocabulary; it is re-exported from `components/analysis/JobStatusPill`.
+ * vocabulary.
  */
 
 

@@ -9,7 +9,10 @@
  *
  * Layout (Design.md §6.1):
  *
- *   [Brand]   [Display Mode Selector]   [Workspace · Utility actions]
+ *   [Brand]   [Display Mode Selector]   [Pinned tools · Workspace · Utility actions]
+ *
+ * Pinned tools (Settings › Top bar) are compact buttons that open or focus a
+ * tool; none are pinned by default.
  *
  * Native OS menus (File / Edit / View / Tools / Window / Help) live in
  * the Tauri title bar, not here.
@@ -19,6 +22,7 @@ import React from "react";
 
 import { DisplayModeSelector } from "@/components/ui/DisplayModeSelector";
 import { WorkspaceMenu } from "@/components/ui/WorkspaceMenu";
+import { PinnedTools } from "@/components/ui/PinnedTools";
 
 const TOP_BAR_HEIGHT = 40;
 
@@ -103,6 +107,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         data-testid="top-app-bar-utility"
         style={{ display: "flex", alignItems: "center", gap: "8px" }}
       >
+        <PinnedTools />
         <WorkspaceMenu />
         {utility}
       </div>

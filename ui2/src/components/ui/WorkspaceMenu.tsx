@@ -3,7 +3,9 @@
  * GoldenLayout trees (Design.md §6.1 specifies a single workspace dropdown).
  *
  *   New view (Cmd/Ctrl+T)
- *   TOOLS                 ← Set studio (5), BIDS (6), Analysis: open once, then refocus
+ *   TOOLS                 ← Set studio (5), BIDS (6), then module tools: open once,
+ *                           then refocus. A module tool that is not stable is
+ *                           labelled with its stage (modules/registry.ts).
  *   ──────────────
  *   LAYOUTS               ← save / load / rename / delete GoldenLayout trees
  *
@@ -34,14 +36,15 @@ import {
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import {
   LAYOUT_SHORTCUT_MODES,
-  TOOL_DESTINATIONS,
   isModalDialogOpen,
   nativeMenuOwnsNavigationShortcuts,
   openNewView,
   openTool,
   setCurrentTabLayout,
+  toolDestinations,
   type ToolDestination,
 } from "@/services/workspaceNavigation";
+import { moduleStageLabel, useTools } from "@/modules/registry";
 import { DISPLAY_MODES } from "@/types/displayModes";
 import { cn } from "@/utils/cn";
 import { Button } from "./Button";
@@ -56,8 +59,11 @@ interface NavigationShortcut {
   handler: () => void;
 }
 
-/** Cmd/Ctrl+T, Cmd/Ctrl+1–4 (layouts) and Cmd/Ctrl+5–6 (tools). */
-const NAVIGATION_SHORTCUTS: NavigationShortcut[] = [
+/**
+ * Cmd/Ctrl+T, Cmd/Ctrl+1–4 (layouts) and Cmd/Ctrl+5–6 (tools). Only core tools
+ * carry a shortcut digit, so the list is fixed.
+ */
+const navigationShortcuts = (): NavigationShortcut[] => [
   {
     id: "workspace.newView",
     key: "t",
@@ -72,12 +78,14 @@ const NAVIGATION_SHORTCUTS: NavigationShortcut[] = [
       setCurrentTabLayout(mode);
     },
   })),
-  ...TOOL_DESTINATIONS.filter((tool) => tool.shortcutKey).map((tool) => ({
-    id: `workspace.tool.${tool.type}`,
-    key: tool.shortcutKey!,
-    description: `Open ${tool.label}`,
-    handler: () => void openTool(tool.type),
-  })),
+  ...toolDestinations()
+    .filter((tool) => tool.shortcutKey)
+    .map((tool) => ({
+      id: `workspace.tool.${tool.type}`,
+      key: tool.shortcutKey!,
+      description: `Open ${tool.label}`,
+      handler: () => void openTool(tool.type),
+    })),
 ];
 
 interface WorkspaceMenuProps {
@@ -89,6 +97,7 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
     const id = state.activeWorkspaceId;
     return id ? (state.workspaces.get(id)?.type ?? null) : null;
   });
+  const tools = useTools();
 
   // Saved layouts
   const layouts = useLayoutLibraryStore((state) => state.layouts);
@@ -106,7 +115,7 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
   useEffect(() => {
     if (nativeMenuOwnsNavigationShortcuts()) return;
     const keyboard = getKeyboardShortcutService();
-    const unregisterFns = NAVIGATION_SHORTCUTS.flatMap((shortcut) =>
+    const unregisterFns = navigationShortcuts().flatMap((shortcut) =>
       (["meta", "ctrl"] as const).map((modifier) =>
         keyboard.register({
           id: `${shortcut.id}.${modifier}`,
@@ -177,7 +186,9 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
     id: `workspace.tool.${tool.type}`,
     label: shortcutLabel(
       `${tool.type === activeWorkspaceType ? "● " : ""}${tool.label}`,
-      tool.shortcutKey ? `Cmd/Ctrl+${tool.shortcutKey}` : undefined,
+      tool.shortcutKey
+        ? `Cmd/Ctrl+${tool.shortcutKey}`
+        : (moduleStageLabel(tool.stage) ?? undefined),
     ),
     onClick: () => {
       void openTool(tool.type);
@@ -194,7 +205,7 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
     },
     { id: "workspace.sep.tools", separator: true as const },
     { id: "workspace.header.tools", header: true, label: "Tools" },
-    ...TOOL_DESTINATIONS.map(toolItem),
+    ...tools.map(toolItem),
     { id: "workspace.sep.layouts", separator: true as const },
     { id: "workspace.header.layouts", header: true, label: "Layouts" },
     {

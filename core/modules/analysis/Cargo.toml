@@ -1,0 +1,18 @@
+[package]
+name = "bf_analysis"
+version = "0.1.0"
+edition = "2021"
+description = "Analysis module domain logic: manifests, registry, jobs and runners. No Tauri."
+
+# Transport-neutral: this crate must not depend on `api-bridge` or Tauri. The bridge
+# adapter (`core/api_bridge/src/modules/analysis.rs`) is the only glue.
+
+[dependencies]
+bridge_types = { path = "../../bridge_types" } # Analysis descriptor/job types and BridgeError codes
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Keep this a subset of api-bridge's tokio features so feature unification is unchanged.
+tokio = { version = "1", features = ["sync", "macros", "rt", "time", "io-util", "process"] }
+uuid = { version = "1.4", features = ["v4"] }
+log = "0.4"
+directories = "5"

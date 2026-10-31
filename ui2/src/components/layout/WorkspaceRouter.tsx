@@ -4,7 +4,9 @@
  * Routes the workspace `type` to the corresponding root component. Owns:
  *   - the `'integrated'` feature-flag gate (renders a notice when
  *     `integratedWorkspaceV1` is off);
- *   - the not-found / unknown-type fallbacks.
+ *   - the not-found / unknown-type fallbacks;
+ *   - module tools: any non-core type is a tool tab registered by a module
+ *     (`modules/registry.ts`) and renders through `ModuleWorkspace`.
  *
  * Mounted by `GoldenLayoutRoot` inside each tab's React root via
  * `goldenLayout.registerComponent('Workspace', …)`. Tests cover the route
@@ -23,10 +25,10 @@ import { MosaicViewPromise } from "@/components/views/MosaicViewPromise";
 import { SetStudioWorkspace } from "@/components/studio/SetStudioWorkspace";
 import { ComparisonWorkspace } from "@/components/views/ComparisonWorkspace";
 import { BidsExplorerWorkspace } from "@/components/bids/BidsExplorerWorkspace";
-import { AnalysisWorkbenchWorkspace } from "@/components/analysis/AnalysisWorkbenchWorkspace";
 import { IntegratedVolumeSurfaceWorkspace } from "@/components/views/IntegratedVolumeSurfaceWorkspace";
 import { CenterWithBottomDock } from "@/components/layout/CenterWithBottomDock";
 import { FirstScreenHint } from "@/components/layout/FirstScreenHint";
+import { ModuleWorkspace } from "@/components/modules/ModuleWorkspace";
 
 export interface WorkspaceRouterProps {
   workspaceId: string;
@@ -134,21 +136,9 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
           <BidsExplorerWorkspace workspaceId={workspaceId} />
         </CenterWithBottomDock>
       );
-    case "analysis-workbench":
-      return (
-        <CenterWithBottomDock heightKey="analysis-workbench">
-          <AnalysisWorkbenchWorkspace workspaceId={workspaceId} />
-        </CenterWithBottomDock>
-      );
     default:
-      return (
-        <div
-          data-testid="workspace-router-unknown"
-          className="h-full flex items-center justify-center text-muted-foreground"
-        >
-          Unknown workspace type: {routeType}
-        </div>
-      );
+      // A module's tool tab (or an unknown type, which ModuleWorkspace reports).
+      return <ModuleWorkspace workspaceId={workspaceId} workspaceType={routeType} />;
   }
 };
 
