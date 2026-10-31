@@ -447,6 +447,183 @@ store, sub-region upload, zoom and pan) is core work that overlaps Phase B. BIDS
 explorer and Set studio can move onto the registry after the Analysis workbench,
 when convenient.
 
+## Remaining phases in detail (planned 2026-10-31)
+
+The phases below finish the architecture. Each lists what ships, where the code
+goes, the exit evidence, and what it depends on. Phases A.2, B and C can overlap;
+D can start any time after A. The core render track (R) runs alongside and is
+ordered by the modules that need it.
+
+```text
+A.2 ──┬── B1 ── B2 ──┐
+      ├── C ─────────┼── first new module (segmentation, stage experimental)
+      └── D ─────────┘        needs: A.2 view modes, B2 layer kinds, R1–R3
+R1 ── R2 ── R3 ── R4 … (ordered by module demand)
+```
+
+### A.2 Finish the contribution points
+
+Ships:
+- **Module settings schemas.** `contributes.settings` declares typed settings
+  (`boolean`, `enum`, `number` with range, `string`). Settings renders a section
+  per enabled module with `components/ui/bf` primitives; values live in the
+  module's app store and are read through `ctx.settings`.
+- **View modes.** `contributes.viewModes` adds a mode to view tabs: a layout
+  preset, an Inspector mode, viewport tools and status items. Entering a mode
+  changes the current tab in place (the 2026-10-30 layout rule), and a module tool
+  entry may open a view tab directly in its mode. This is what Segment mode needs.
+- **Viewport tools and overlays.** One active tool per viewport, with the
+  crosshair as the default tool; pointer arbitration in
+  `packages/visualization/src/slice`; overlays drawn through `SliceViewport`.
+  Pointer events (including coalesced events) replace the mouse-only props.
+- **Workspace-scoped state.** `ctx.state.workspace(name, {version, migrate})`
+  stores module state on the workspace record, parked and restored with the tab.
+- **UI event bus access.** `ctx.events` covers the typed in-app `EventBus` as
+  well as Rust events, with automatic teardown.
+- **Startup aliases.** `contributes.workspaces[].startupAlias` replaces the
+  hard-coded `normalize_workspace_type` cases in `src-tauri/src/startup_args.rs`.
+- **Shortcut conflicts with core.** Core shortcuts register through the same
+  scope model, so the conflict check covers module-versus-core clashes.
+- **Port BIDS explorer and Set studio** to modules at stage stable, keeping
+  ⌘5/⌘6 and their persisted workspace types.
+
+Exit evidence: a fixture module in tests contributes a view mode with a viewport
+tool, a settings section and workspace state, with no edits outside its folder;
+BIDS and Set studio behave as before (harness scenarios pixel-identical,
+navigation tests unchanged).
+
+### B1 Files and formats
+
+Ships:
+- **An open loader registry.** Unseal `bridge_types::Loader` or replace it with
+  a registration trait that module crates implement. Make
+  `core/api_bridge/src/volume_loading.rs` and `load_surface` dispatch through
+  `find_loader_for` instead of hard-coding the NIfTI and GIfTI calls.
+- **A file-format registry.** One Rust-side list of formats: id, extensions,
+  sniff function, kind (volume, surface, streamlines, table, sidecar), loader,
+  sidecar rules, optional writer. A core command (`list_file_formats`) feeds the
+  UI, replacing the seven or more hard-coded extension lists
+  (`DisplayLifecycleOrchestrator`, `useNativeFileDrop`, `fileBrowserStore`,
+  `inferFileType`, `types/filesystem.ts`, the dialog filters in `main.rs`).
+- **Sidecar discovery as a format feature.** Move `LabelTableService`'s
+  candidate rules (`dseg.tsv`, FreeSurfer LUT) into the registry, so `bvec`/`bval`
+  can be declared the same way.
+- **A `Loaded::Streamlines` variant** (positions, offsets, per-point and
+  per-streamline data) so tractography formats have somewhere to land.
+
+Exit evidence: a test module adds `.tck` (loaded as streamline metadata and
+geometry, not yet rendered) with no edits outside its folder; every existing
+format still loads through the registry; the UI extension lists are gone.
+
+Depends on: A (for module crates); nothing in rendering.
+
+### B2 Layers, events, capabilities
+
+Ships:
+- **Layer-kind descriptors.** `contributes.layerKinds`: id, base render mode,
+  stacking band, icon, Inspector sections and capabilities (thresholdable,
+  colormappable, editable, outline). `SectionRouter`, `LayerApiImpl`'s mode
+  derivation, `sceneItem.ts` and `layerPlacement` consult them. Render modes stay
+  core-owned: a new mode means a core change under `shader_contract_test`.
+- **Typed Rust-to-UI events.** A `bridge_events!` declaration (name plus a ts-rs
+  payload type) generates `BridgeEventMap`; module events are named
+  `<id>:<event>`; the existing literals in `lib.rs` and `main.rs` move onto it.
+- **Host capabilities.** One capability set replaces the two in `transport.ts`
+  and `browser/protocol.ts`. Modules declare `requires.hostCapabilities`, and the
+  browser transport derives its supported commands from enabled modules instead
+  of a static switch.
+- **Render capabilities.** `get_render_capabilities` reports named core features
+  (`subRegionUpload`, `multiOutline`, `zoomPan`, `obliquePlanes`, …). The registry
+  hides a module whose `requires.renderFeatures` are missing and says why in
+  Settings › Modules.
+
+Exit evidence: a test module adds a layer kind with its own Inspector section and
+receives a typed module event; a module requiring an absent render feature is
+shown as unavailable, not broken.
+
+Depends on: A.2 (view modes and tools use layer kinds), B1 for the streamlines kind.
+
+### C Process tooling
+
+Ships:
+- **`cargo xtask new-module <id>`.** Creates `core/modules/<id>/`, the adapter
+  `core/api_bridge/src/modules/<id>.rs` with an empty `module <id> {}` section,
+  `ui2/src/modules/<id>/` (manifest, `activate.ts`, `AGENTS.md`, test stubs) and
+  `docs/modules/<id>/{proposal,acceptance}.md`, and registers the module in both
+  indexes.
+- **Templates.** `docs/modules/_template/proposal.md` (the sections listed under
+  "The process") and `acceptance.md` (the stage gate checklists, with evidence
+  fields).
+- **`pnpm check:modules` in CI.** Grows `firstParty.test.ts` into a script that
+  checks UI manifests against Rust descriptors and `BRIDGE_MODULES`, a permission
+  and a dev-harness handler for every module command, namespaced unique ids,
+  keybinding conflicts, an `AGENTS.md` per module, and that the acceptance file's
+  completed gates match the declared stage (a module cannot claim `stable` with
+  open preview gates).
+- **CI wiring.** `pnpm check:permissions:strict` and `pnpm check:modules` run in
+  `.github/workflows/ci.yml` (the permission check is not in CI today).
+
+Exit evidence: a freshly scaffolded module passes CI with no manual edits; a
+module with a missing harness handler or a stage it has not earned fails CI.
+
+Depends on: A; B for scaffolding format and layer stubs (can be added later).
+
+### D Provider protocol v2
+
+Ships:
+- **A provider manifest schema** (`schemas/provider-manifest.json`, versioned)
+  replacing `analysis.json`'s private shape: id, version, kind (`job` or
+  `session`), runner command, declared capabilities (`file-read` paths,
+  `network`, `gpu`), licence (SPDX id or text) and provider interface (for
+  example `interactive-segmentation@1`). `analysis.json` keeps loading as a `job`
+  provider.
+- **The session runner.** A long-lived child process (or local HTTP endpoint for
+  servers like `nninteractive-server`) with request ids, cancellation and
+  heartbeats; bulk data passed through temp files or the raw IPC path instead of
+  JSON; results pushed to the UI as typed events (B2) instead of polled.
+- **Consent and licence.** First use shows the declared capabilities and licence
+  and requires acknowledgement, recorded per provider version; non-local endpoints
+  get a warning; outputs record provider id, version and licence.
+- **Typed provider interfaces.** Rust traits plus ts-rs types per interface, so
+  a module asks for "an interactive segmentation provider" rather than a process.
+- **Lifecycle.** Sessions belong to a module and a workspace; disabling the
+  module, closing the tab or a workspace switch ends them (the AGENTS.md ownership
+  rules), and the process is killed on drop.
+
+Exit evidence: the bundled example sidecar runs unchanged as a `job` provider; a
+mock session provider passes stale-response, cancellation, crash and teardown
+tests; a consent record is required before the first run.
+
+Depends on: A; B2 for pushed events (D can poll until B2 lands).
+
+### R Core render and data capabilities
+
+Built in core, in the order modules need them, each with contract tests and GPU
+tests that never soft-skip:
+
+| Step | Capability | First consumer |
+|---|---|---|
+| R1 | Editable label store (sparse bricks, undo deltas, revision counter) and a label NIfTI writer preserving qform and sform | Segmentation |
+| R2 | Sub-region texture upload plus revision-keyed re-upload | Segmentation |
+| R3 | Slice zoom and pan; native and oblique view planes | Segmentation, DTI, angiography |
+| R4 | Several outline layers per frame | Segmentation, angiography |
+| R5 | Compute tier: WGSL compute passes on the displayed slice and CPU derived volumes | Segmentation filters, vesselness |
+| R6 | Multi-channel volumes (RGB, vector, tensor) and a 5D NIfTI path | DTI |
+| R7 | Line geometry in slices and 3D | DTI streamlines, vessel centrelines |
+| R8 | Slab projection (MIP, MinIP, thick slab) | Angiography |
+| R9 | Volume ray-marching | Angiography, 3D context |
+
+Each step is advertised through `get_render_capabilities` (B2) when it lands.
+
+### First new module
+
+Segmentation enters at stage experimental once A.2 (view modes, viewport tools),
+B2 (layer kinds) and R1–R3 have landed, following
+`docs/plans/segmentation-module-research.md`. It is the first module to go
+through the full process: proposal, scaffold, experimental, then the preview and
+stable gates. DTI follows once B1, R6 and R7 exist; angiography once R5 and R8
+exist.
+
 ## Guardrails
 
 - **Boundaries are enforced.** ESLint `no-restricted-imports` lets modules import
