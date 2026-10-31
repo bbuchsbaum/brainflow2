@@ -197,15 +197,22 @@ function TopBarSection() {
         <FieldRow label="Open at startup" controlId="settings-startup-tabs" labelable={false}>
           {(control) => (
             <div role="group" {...control} className="flex flex-col">
-              {candidates.map((candidate) => (
-                <Checkbox
-                  key={candidate.type}
-                  checked={startup.tabs.includes(candidate.type)}
-                  onCheckedChange={(checked) => setStartupTab(candidate.type, checked, order)}
-                >
-                  {candidate.label}
-                </Checkbox>
-              ))}
+              {candidates.map((candidate) => {
+                const checked = startup.tabs.includes(candidate.type);
+                // The last tab of the list cannot be removed (never an empty list).
+                const onlyOne = checked && startup.tabs.length === 1;
+                return (
+                  <Checkbox
+                    key={candidate.type}
+                    checked={checked}
+                    disabled={onlyOne}
+                    title={onlyOne ? 'At least one tab opens at startup' : undefined}
+                    onCheckedChange={(next) => setStartupTab(candidate.type, next, order)}
+                  >
+                    {candidate.label}
+                  </Checkbox>
+                );
+              })}
             </div>
           )}
         </FieldRow>

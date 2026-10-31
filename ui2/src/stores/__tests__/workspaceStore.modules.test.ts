@@ -125,6 +125,48 @@ describe('workspace store: module tabs', () => {
     expect([...state.parkedWorkspaces.keys()]).toEqual(['tool']);
   });
 
+  it('a v2 payload upgraded while a module is off keeps that module’s tab parked (and saved)', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        state: {
+          workspaces: [
+            ['view', ws('view', 'orthogonal-flexible', 1)],
+            ['tool', ws('tool', FIXTURE_TOOL, 2)],
+          ],
+          activeWorkspaceId: 'tool',
+        },
+      }),
+    );
+    setFixture(false);
+    await useWorkspaceStore.persist.rehydrate();
+    const state = useWorkspaceStore.getState();
+    expect([...state.workspaces.keys()]).toEqual(['view']);
+    expect([...state.parkedWorkspaces.keys()]).toEqual(['tool']);
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(saved.version).toBe(3);
+    expect(saved.state.parkedWorkspaces.map(([id]: [string]) => id)).toEqual(['tool']);
+  });
+
+  it('a fixed startup list with nothing it can open keeps the previous session', async () => {
+    const saved = JSON.stringify({
+      version: 3,
+      state: { workspaces: [['view', ws('view', 'mosaic', 1)]], activeWorkspaceId: 'view' },
+    });
+    setFixture(false);
+    // Only a tool whose module is off: nothing usable.
+    useModuleSettingsStore.setState({ startup: { mode: 'fixed', tabs: [FIXTURE_TOOL] } });
+    localStorage.setItem(STORAGE_KEY, saved);
+    await useWorkspaceStore.persist.rehydrate();
+    expect([...useWorkspaceStore.getState().workspaces.keys()]).toEqual(['view']);
+    // An empty list (an older payload) behaves the same.
+    useModuleSettingsStore.setState({ startup: { mode: 'fixed', tabs: [] } });
+    localStorage.setItem(STORAGE_KEY, saved);
+    await useWorkspaceStore.persist.rehydrate();
+    expect([...useWorkspaceStore.getState().workspaces.keys()]).toEqual(['view']);
+  });
+
   it('drops parked tabs of types this build does not know', async () => {
     localStorage.setItem(
       STORAGE_KEY,

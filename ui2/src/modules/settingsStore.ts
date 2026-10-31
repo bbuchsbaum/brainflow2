@@ -32,6 +32,7 @@ export interface ModuleSettingsState extends ModuleSettingsData {
   setModuleEnabled: (moduleId: string, enabled: boolean) => void;
   setToolPinned: (toolType: string, pinned: boolean) => void;
   setStartupMode: (mode: StartupMode) => void;
+  /** Add or remove a startup tab; the list never becomes empty. */
   setStartupTab: (type: string, included: boolean, order: readonly string[]) => void;
   /** Apply manifest proposals that were never applied before. */
   applyProposals: (proposals: { pinned: readonly string[]; openAtStartup: readonly string[] }) => void;
@@ -112,6 +113,8 @@ export const useModuleSettingsStore = create<ModuleSettingsState>()(
         const current = get().startup.tabs;
         if (current.includes(type) === included) return;
         const next = included ? [...current, type] : current.filter((t) => t !== type);
+        // A fixed startup list needs at least one tab.
+        if (next.length === 0) return;
         // Keep the configured order of the candidates (views first, then tools).
         const rank = (t: string) => {
           const i = order.indexOf(t);

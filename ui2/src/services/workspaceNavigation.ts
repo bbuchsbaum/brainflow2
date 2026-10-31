@@ -31,8 +31,7 @@ import {
   resolveActiveDisplayMode,
 } from '@/components/ui/displayModeSelector.helpers';
 import { moduleRegistry, type ToolDescriptor } from '@/modules/registry';
-import { useModuleSettingsStore } from '@/modules/settingsStore';
-import { isWorkspaceTypeAvailable } from '@/services/workspaceTypes';
+import { usableStartupTabs } from '@/services/workspaceTypes';
 
 /** ⌘1–⌘4, in pill order. */
 export const LAYOUT_SHORTCUT_MODES: readonly DisplayMode[] = [
@@ -131,15 +130,6 @@ export function startupTabCandidates(): StartupTabCandidate[] {
 /** Whether this session's launch already decided its tabs. */
 let startupTabsHandled = false;
 
-/** The fixed startup list; null when relaunch restores the last session. */
-function fixedStartupTabs(): WorkspaceType[] | null {
-  const { mode, tabs } = useModuleSettingsStore.getState().startup;
-  if (mode !== 'fixed') return null;
-  // Views always open; a tool only while it is available (its module is on).
-  const available = tabs.filter((type) => isWorkspaceTypeAvailable(type));
-  return available.length > 0 ? available : null;
-}
-
 /** Test helper: the next `ensureDefaultView({ atLaunch: true })` is a fresh launch. */
 export function resetStartupTabsForTests(): void {
   startupTabsHandled = false;
@@ -173,7 +163,7 @@ export function ensureDefaultView(options: { atLaunch?: boolean } = {}): Promise
   if (useWorkspaceStore.getState().workspaces.size > 0) return null;
   if (pendingFirstView) return pendingFirstView;
   if (firstTabCreates > 0) return null;
-  const startup = launch ? fixedStartupTabs() : null;
+  const startup = launch ? usableStartupTabs() : null;
   if (startup) return createStartupTabs(startup);
   return createFirstView(DEFAULT_VIEW_TYPE);
 }
@@ -236,7 +226,13 @@ export function openTool(type: WorkspaceType): Promise<string | null> {
     return Promise.resolve(null);
   }
   // createWorkspace refocuses singleton (tool) workspaces instead of adding one.
-  return trackFirstTab(() => useWorkspaceStore.getState().createWorkspace(type));
+  return trackFirstTab(() => useWorkspaceStore.getState().createWorkspace(type)).catch(
+    (error: unknown) => {
+      // Switched off while the tab was being created: nothing opened.
+      if (!moduleRegistry.isToolAvailable(type)) return null;
+      throw error;
+    },
+  );
 }
 
 /**

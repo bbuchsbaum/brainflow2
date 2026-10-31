@@ -32,10 +32,10 @@ import {
 import {
   isKnownWorkspaceType,
   isWorkspaceTypeAvailable,
+  usableStartupTabs,
   workspaceBaseName,
   workspaceTypeModule,
 } from "@/services/workspaceTypes";
-import { useModuleSettingsStore } from "@/modules/settingsStore";
 
 interface CreateWorkspaceOptions {
   title?: string;
@@ -129,10 +129,11 @@ const workspaceCounter = new Map<WorkspaceType, number>();
  *            view presets (Read / Explore / Analyze / Compare).
  *   v3 (additive, no bump): `parkedWorkspaces`, the tabs of modules that are
  *            switched off. Optional; an absent field means none, and older
- *            builds ignore it. Restore parks tabs whose module is off and
- *            unparks those whose module is back on. With Settings › Top bar
- *            › Startup tabs set to a fixed list, the previous session's tabs
- *            are not restored (workspaceNavigation opens the list instead).
+ *            builds ignore it. `merge` (after every migrate branch) parks
+ *            tabs whose module is off and unparks those whose module is back
+ *            on. With Settings › Top bar › Startup tabs set to a fixed list
+ *            that can open at least one tab, the previous session's tabs are
+ *            not restored (workspaceNavigation opens the list instead).
  */
 const WORKSPACE_PERSIST_VERSION = 3;
 
@@ -263,6 +264,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             type: "FlexibleSlicePanel",
             isVisible: true,
           });
+        }
+
+        // The module may have been switched off while the layout loaded; its
+        // tabs were parked then, so this one must not appear afterwards.
+        if (!workspaceTypes.isWorkspaceTypeAvailable(type)) {
+          throw new Error(`[WorkspaceStore] Workspace type "${type}" is not available`);
         }
 
         // Two views of one layout can be opened in the same millisecond (New
@@ -610,6 +617,38 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
         return persistedState as PersistedWorkspaceState;
       },
+      /**
+       * Runs after `migrate` (for every branch) on what storage restored:
+       * tabs of modules that are off move to `parkedWorkspaces`, parked tabs
+       * whose module is on again come back, and a fixed startup list that can
+       * open at least one tab replaces the previous session (its tabs are
+       * opened by workspaceNavigation.ensureDefaultView at launch).
+       */
+      merge: (persisted, current) => {
+        const state = (persisted ?? {}) as Partial<PersistedWorkspaceState>;
+        const workspaces =
+          state.workspaces instanceof Map ? state.workspaces : new Map<string, Workspace>();
+        const parked =
+          state.parkedWorkspaces instanceof Map
+            ? state.parkedWorkspaces
+            : new Map<string, Workspace>();
+        const parts = partitionByModuleAvailability(
+          workspaces,
+          parked,
+          isWorkspaceTypeAvailable,
+        );
+        let shown = parts.workspaces;
+        let active = resolveActive(shown, state.activeWorkspaceId ?? null);
+        if (usableStartupTabs()) {
+          shown = new Map();
+          active = null;
+        }
+        return {
+          ...current,
+          ...withActiveFlags(shown, active),
+          parkedWorkspaces: parts.parked,
+        };
+      },
       // Custom serialization for Map
       storage: {
         getItem: (name) => {
@@ -640,28 +679,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 );
 
                 // Relaunch restores the user's tabs and tools with their
-                // layouts (workspaceRestorePolicy.ts); tabs of modules that
-                // are off stay parked.
+                // layouts (workspaceRestorePolicy.ts). Module parking and the
+                // startup list are applied in `merge`, after every migrate
+                // branch.
                 const restored = restoreWorkspaces(
                   saved,
                   data.state.activeWorkspaceId ?? null,
                 );
-                const parts = partitionByModuleAvailability(
-                  restored.workspaces,
-                  savedParked,
-                  isWorkspaceTypeAvailable,
-                );
-                let shown = parts.workspaces;
-                let active = resolveActive(shown, restored.activeWorkspaceId);
-                if (useModuleSettingsStore.getState().startup.mode === "fixed") {
-                  // A fixed startup list replaces the previous session's tabs.
-                  shown = new Map();
-                  active = null;
-                }
-                const flagged = withActiveFlags(shown, active);
-                data.state.workspaces = flagged.workspaces;
-                data.state.activeWorkspaceId = flagged.activeWorkspaceId;
-                data.state.parkedWorkspaces = parts.parked;
+                data.state.workspaces = restored.workspaces;
+                data.state.activeWorkspaceId = restored.activeWorkspaceId;
+                data.state.parkedWorkspaces = savedParked;
               } else {
                 // If workspaces is not in expected format, reset to empty Map
                 console.warn(

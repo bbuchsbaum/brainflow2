@@ -44,6 +44,12 @@ describe('module settings store', () => {
     expect(useModuleSettingsStore.getState()).toBe(before);
   });
 
+  it('never empties the startup list', () => {
+    const store = useModuleSettingsStore.getState();
+    store.setStartupTab('orthogonal-flexible', false, ['orthogonal-flexible']);
+    expect(useModuleSettingsStore.getState().startup.tabs).toEqual(['orthogonal-flexible']);
+  });
+
   it('keeps startup tabs in candidate order', () => {
     const order = ['orthogonal-flexible', 'mosaic', 'set-studio', 'bids-explorer'];
     const store = useModuleSettingsStore.getState();

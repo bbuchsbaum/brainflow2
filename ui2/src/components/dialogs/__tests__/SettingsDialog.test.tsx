@@ -105,7 +105,9 @@ describe('SettingsDialog', () => {
     expect(within(topBar).queryByRole('group', { name: 'Open at startup' })).toBeNull();
     fireEvent.click(within(topBar).getByRole('radio', { name: 'Fixed tabs' }));
     const startup = within(topBar).getByRole('group', { name: 'Open at startup' });
+    // The only tab of the list cannot be removed.
     expect(within(startup).getByRole('checkbox', { name: 'Orthogonal view' })).toBeChecked();
+    expect(within(startup).getByRole('checkbox', { name: 'Orthogonal view' })).toBeDisabled();
     fireEvent.click(within(startup).getByRole('checkbox', { name: 'Fixture' }));
     fireEvent.click(within(startup).getByRole('checkbox', { name: 'Mosaic view' }));
     expect(useModuleSettingsStore.getState().startup).toEqual({

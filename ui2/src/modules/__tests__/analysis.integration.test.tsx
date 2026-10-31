@@ -139,5 +139,14 @@ describe('the Analysis module', () => {
     setAnalysis(true);
     useWorkspaceStore.getState().unparkModuleWorkspaces('analysis');
     expect(useWorkspaceStore.getState().workspaces.get('analysis-workbench-1')?.type).toBe(ANALYSIS_WORKBENCH);
+
+    // Upgrading from a v2 payload while Analysis is off parks the tab and saves it.
+    localStorage.setItem('brainflow2-workspace', JSON.stringify({ ...saved, version: 2 }));
+    setAnalysis(false);
+    await useWorkspaceStore.persist.rehydrate();
+    expect([...useWorkspaceStore.getState().parkedWorkspaces.keys()]).toEqual(['analysis-workbench-1']);
+    const written = JSON.parse(localStorage.getItem('brainflow2-workspace')!);
+    expect(written.version).toBe(3);
+    expect(written.state.parkedWorkspaces.map(([id]: [string]) => id)).toEqual(['analysis-workbench-1']);
   });
 });

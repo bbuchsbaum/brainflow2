@@ -15,6 +15,7 @@ import {
   type WorkspaceType,
 } from '@/types/workspace';
 import { moduleRegistry } from '@/modules/registry';
+import { useModuleSettingsStore } from '@/modules/settingsStore';
 
 const CORE = new Set<string>(CORE_WORKSPACE_TYPES);
 
@@ -62,4 +63,17 @@ export function workspaceBaseName(type: WorkspaceType): string {
   const metadata = getWorkspaceMetadata(type);
   if (!metadata) return type;
   return metadata.category === 'tool' ? metadata.name : 'View';
+}
+
+/**
+ * The fixed startup list (Settings › Top bar) filtered to tabs that can open
+ * now (views always; tools while their module is on). Null when relaunch
+ * restores the last session, or when the fixed list has nothing to open, so
+ * that a stale list never costs the user their tabs.
+ */
+export function usableStartupTabs(): WorkspaceType[] | null {
+  const { mode, tabs } = useModuleSettingsStore.getState().startup;
+  if (mode !== 'fixed') return null;
+  const usable = tabs.filter((type) => isWorkspaceTypeAvailable(type));
+  return usable.length > 0 ? usable : null;
 }
