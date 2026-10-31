@@ -77,13 +77,6 @@ vi.mock("@/components/bids/BidsExplorerWorkspace", () => ({
     </div>
   ),
 }));
-vi.mock("@/components/analysis/AnalysisWorkbenchWorkspace", () => ({
-  AnalysisWorkbenchWorkspace: ({ workspaceId }: { workspaceId: string }) => (
-    <div data-testid="route-analysis-workbench" data-workspace-id={workspaceId}>
-      analysis
-    </div>
-  ),
-}));
 vi.mock("@/components/views/IntegratedVolumeSurfaceWorkspace", () => ({
   IntegratedVolumeSurfaceWorkspace: () => (
     <div data-testid="route-integrated">integrated</div>
@@ -98,6 +91,9 @@ vi.mock("@/components/layout/CenterWithBottomDock", () => ({
 }));
 
 import { WorkspaceRouter } from "../WorkspaceRouter";
+import { FIXTURE_TOOL, registerFixtureModule } from "@/modules/__tests__/fixtureModule";
+
+registerFixtureModule();
 
 function makeWorkspace(id: string, type: WorkspaceType): Workspace {
   return {
@@ -156,13 +152,12 @@ describe("WorkspaceRouter", () => {
     expect(screen.getByTestId("route-orthogonal-flexible")).toBeInTheDocument();
   });
 
-  it("routes mosaic / comparison / set-studio / bids-explorer / analysis-workbench correctly", () => {
+  it("routes mosaic / comparison / set-studio / bids-explorer correctly", () => {
     const cases: Array<{ type: WorkspaceType; testid: string }> = [
       { type: "mosaic", testid: "route-mosaic" },
       { type: "comparison", testid: "route-comparison" },
       { type: "set-studio", testid: "route-set-studio" },
       { type: "bids-explorer", testid: "route-bids-explorer" },
-      { type: "analysis-workbench", testid: "route-analysis-workbench" },
     ];
 
     for (const { type, testid } of cases) {
@@ -245,19 +240,23 @@ describe("WorkspaceRouter", () => {
     }
   });
 
-  it("does NOT wrap the BIDS and analysis workspaces in the bottom dock", () => {
-    const cases: Array<{ type: WorkspaceType; testid: string }> = [
-      { type: "bids-explorer", testid: "route-bids-explorer" },
-      { type: "analysis-workbench", testid: "route-analysis-workbench" },
-    ];
-    for (const { type, testid } of cases) {
-      seedWorkspace(`w-bare-${type}`, type);
-      const { unmount } = render(
-        <WorkspaceRouter workspaceId={`w-bare-${type}`} workspaceType={type} />,
-      );
-      expect(screen.getByTestId(testid)).toBeInTheDocument();
-      expect(screen.queryByTestId("center-with-bottom-dock")).toBeNull();
-      unmount();
-    }
+  it("does NOT wrap the BIDS workspace in the bottom dock", () => {
+    seedWorkspace("w-bare-bids", "bids-explorer");
+    render(<WorkspaceRouter workspaceId="w-bare-bids" workspaceType="bids-explorer" />);
+    expect(screen.getByTestId("route-bids-explorer")).toBeInTheDocument();
+    expect(screen.queryByTestId("center-with-bottom-dock")).toBeNull();
+  });
+
+  it("routes any other type to its module's tool (unwrapped unless it asks for the dock)", async () => {
+    seedWorkspace("w-mod", FIXTURE_TOOL);
+    render(<WorkspaceRouter workspaceId="w-mod" workspaceType={FIXTURE_TOOL} />);
+    expect(await screen.findByTestId("fixture-tool")).toHaveAttribute("data-workspace-id", "w-mod");
+    expect(screen.queryByTestId("center-with-bottom-dock")).toBeNull();
+  });
+
+  it("reports a type no module registered", () => {
+    seedWorkspace("w-unknown", "nobody.tool");
+    render(<WorkspaceRouter workspaceId="w-unknown" workspaceType="nobody.tool" />);
+    expect(screen.getByTestId("workspace-router-unknown")).toBeInTheDocument();
   });
 });

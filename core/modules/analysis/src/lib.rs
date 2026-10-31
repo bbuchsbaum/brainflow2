@@ -1,0 +1,1021 @@
+//! Analysis module domain logic (`bf_analysis`).
+//!
+//! A lightweight registry and job manager for running analyses in Brainflow.
+//! Analyses are discovered as either:
+//! - **Built-in runners** (compiled into the app), or
+//! - **Sidecar runners** (external executables invoked via a CLI+JSON protocol).
+//!
+//! The viewer core stays unaware of any analysis logic. Instead, analyses
+//! declare inputs/params/outputs with [`bridge_types::AnalysisDescriptor`],
+//! and completed outputs are registered as normal artifacts (volumes, surfaces,
+//! tables, files) by the host.
+//!
+//! This crate is transport-neutral: it does not depend on Tauri or `api-bridge`.
+//! The bridge adapter in `core/api_bridge/src/modules/analysis.rs` owns the
+//! `#[command]`s, the module state slot and the enable gate. Inputs arrive with
+//! resolved file paths, so no bridge state (volume registry) is needed here.
+
+use bridge_types::{
+    AnalysisArtifact, AnalysisArtifactKind, AnalysisDescriptor, AnalysisInput, AnalysisJobState,
+    AnalysisJobStatus, AnalysisRunnerKind, AnalysisStartRequest, BridgeError, BridgeResult,
+};
+use log::{debug, error, info, warn};
+use serde::Deserialize;
+use serde_json::{json, Value as JsonValue};
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+use uuid::Uuid;
+
+const ANALYSIS_API_VERSION: &str = "0.1";
+const BUILTIN_COPY_VOLUME_ANALYSIS_ID: &str = "builtin-copy-volume";
+
+/// Internal runner configuration.
+#[derive(Debug, Clone)]
+pub enum AnalysisRunner {
+    Builtin,
+    Sidecar(SidecarSpec),
+}
+
+#[derive(Debug, Clone)]
+pub struct SidecarSpec {
+    pub command: PathBuf,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+    pub working_dir: Option<PathBuf>,
+    pub timeout_sec: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalysisDefinition {
+    pub descriptor: AnalysisDescriptor,
+    pub runner: AnalysisRunner,
+}
+
+/// Registry for all known analyses.
+#[derive(Default)]
+pub struct AnalysisRegistry {
+    analyses: HashMap<String, AnalysisDefinition>,
+}
+
+impl AnalysisRegistry {
+    pub fn new() -> Self {
+        Self {
+            analyses: HashMap::new(),
+        }
+    }
+
+    pub fn list(&self) -> Vec<AnalysisDescriptor> {
+        self.analyses
+            .values()
+            .map(|d| d.descriptor.clone())
+            .collect()
+    }
+
+    pub fn get(&self, id: &str) -> Option<AnalysisDefinition> {
+        self.analyses.get(id).cloned()
+    }
+
+    pub fn register(&mut self, def: AnalysisDefinition) {
+        self.analyses.insert(def.descriptor.id.clone(), def);
+    }
+
+    pub fn register_builtin_analyses(&mut self) {
+        self.register(AnalysisDefinition {
+            descriptor: builtin_copy_volume_descriptor(),
+            runner: AnalysisRunner::Builtin,
+        });
+    }
+
+    /// Attempt to load sidecar analyses from the default plugin locations.
+    /// Failures are logged but non-fatal.
+    pub fn load_default_locations(&mut self) {
+        // App-bundled plugins under workspace `plugins/analyses/*`.
+        self.load_from_dir(Path::new("plugins/analyses"));
+
+        // User plugins under platform-specific data dir.
+        if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "brainflow") {
+            let user_dir = proj_dirs.data_local_dir().join("plugins/analyses");
+            self.load_from_dir(&user_dir);
+        }
+    }
+
+    /// Load all sidecar analyses from a directory of plugin folders.
+    ///
+    /// Each plugin folder should contain an `analysis.json` manifest.
+    pub fn load_from_dir(&mut self, root: &Path) {
+        if !root.exists() {
+            return;
+        }
+
+        let entries = match fs::read_dir(root) {
+            Ok(e) => e,
+            Err(err) => {
+                warn!(
+                    "Failed to read analysis plugins dir {}: {}",
+                    root.display(),
+                    err
+                );
+                return;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let manifest_path = path.join("analysis.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+
+            match load_manifest(&manifest_path, &path) {
+                Ok(def) => {
+                    info!("Loaded analysis plugin '{}'", def.descriptor.id);
+                    self.register(def);
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to load analysis manifest {}: {:?}",
+                        manifest_path.display(),
+                        err
+                    );
+                }
+            }
+        }
+    }
+}
+
+pub fn build_default_registry() -> AnalysisRegistry {
+    let mut registry = AnalysisRegistry::new();
+    registry.register_builtin_analyses();
+    registry.load_default_locations();
+    registry
+}
+
+#[derive(Debug, Deserialize)]
+struct AnalysisManifest {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub api_version: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub inputs: Vec<bridge_types::AnalysisInputKind>,
+    #[serde(default)]
+    pub outputs: Vec<AnalysisArtifactKind>,
+    #[serde(default)]
+    pub params_schema: JsonValue,
+    pub runner: RunnerManifest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum RunnerManifest {
+    Builtin,
+    Sidecar {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        env: HashMap<String, String>,
+        #[serde(default)]
+        timeout_sec: Option<u64>,
+    },
+}
+
+fn load_manifest(path: &Path, plugin_dir: &Path) -> BridgeResult<AnalysisDefinition> {
+    let text = fs::read_to_string(path).map_err(|e| BridgeError::Io {
+        code: 11001,
+        details: e.to_string(),
+    })?;
+
+    let manifest: AnalysisManifest =
+        serde_json::from_str(&text).map_err(|e| BridgeError::Input {
+            code: 11002,
+            details: format!("Invalid analysis manifest: {}", e),
+        })?;
+
+    let api_version = manifest
+        .api_version
+        .unwrap_or_else(|| ANALYSIS_API_VERSION.to_string());
+
+    let descriptor = AnalysisDescriptor {
+        id: manifest.id.clone(),
+        name: manifest.name.clone(),
+        version: manifest.version.clone(),
+        api_version,
+        description: manifest.description.clone(),
+        inputs: manifest.inputs.clone(),
+        params_schema: manifest.params_schema.clone(),
+        outputs: manifest.outputs.clone(),
+        runner: match manifest.runner {
+            RunnerManifest::Builtin => AnalysisRunnerKind::Builtin,
+            RunnerManifest::Sidecar { .. } => AnalysisRunnerKind::Sidecar,
+        },
+    };
+
+    let runner = match manifest.runner {
+        RunnerManifest::Builtin => AnalysisRunner::Builtin,
+        RunnerManifest::Sidecar {
+            command,
+            args,
+            env,
+            timeout_sec,
+        } => {
+            let cmd_path = {
+                let p = PathBuf::from(command);
+                if p.is_absolute() {
+                    p
+                } else {
+                    plugin_dir.join(p)
+                }
+            };
+            AnalysisRunner::Sidecar(SidecarSpec {
+                command: cmd_path,
+                args,
+                env,
+                working_dir: Some(plugin_dir.to_path_buf()),
+                timeout_sec,
+            })
+        }
+    };
+
+    Ok(AnalysisDefinition { descriptor, runner })
+}
+
+/// Manager for currently running analysis jobs.
+#[derive(Default)]
+pub struct AnalysisJobManager {
+    jobs: HashMap<String, AnalysisJobEntry>,
+}
+
+struct AnalysisJobEntry {
+    status: Arc<Mutex<AnalysisJobStatus>>,
+    handle: JoinHandle<()>,
+}
+
+impl AnalysisJobManager {
+    pub fn new() -> Self {
+        Self {
+            jobs: HashMap::new(),
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        job_id: String,
+        status: Arc<Mutex<AnalysisJobStatus>>,
+        handle: JoinHandle<()>,
+    ) {
+        self.jobs
+            .insert(job_id, AnalysisJobEntry { status, handle });
+    }
+
+    pub fn status_arc(&self, job_id: &str) -> Option<Arc<Mutex<AnalysisJobStatus>>> {
+        self.jobs.get(job_id).map(|e| Arc::clone(&e.status))
+    }
+
+    pub async fn get_status(&self, job_id: &str) -> Option<AnalysisJobStatus> {
+        let arc = self.status_arc(job_id)?;
+        let snapshot = arc.lock().await.clone();
+        Some(snapshot)
+    }
+
+    pub async fn cancel(&mut self, job_id: &str) -> bool {
+        let Some(entry) = self.jobs.get(job_id) else {
+            return false;
+        };
+
+        entry.cancel("Cancelled by user").await;
+        true
+    }
+
+    /// Cancel every queued or running job, leaving finished jobs untouched.
+    /// Returns the number of jobs cancelled. Used when the module is disabled.
+    pub async fn cancel_active(&mut self, message: &str) -> usize {
+        let mut cancelled = 0;
+        for entry in self.jobs.values() {
+            let active = matches!(
+                entry.status.lock().await.state,
+                AnalysisJobState::Queued | AnalysisJobState::Running
+            );
+            if active {
+                entry.cancel(message).await;
+                cancelled += 1;
+            }
+        }
+        cancelled
+    }
+}
+
+impl AnalysisJobEntry {
+    async fn cancel(&self, message: &str) {
+        {
+            let mut status = self.status.lock().await;
+            status.state = AnalysisJobState::Cancelled;
+            status.finished_at_ms = Some(current_time_ms());
+            status.message = Some(message.to_string());
+        }
+
+        self.handle.abort();
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum SidecarEvent {
+    Progress {
+        #[allow(dead_code)]
+        job_id: String,
+        pct: Option<f32>,
+        message: Option<String>,
+    },
+    Log {
+        #[allow(dead_code)]
+        job_id: String,
+        level: Option<String>,
+        message: String,
+    },
+    Artifact {
+        #[allow(dead_code)]
+        job_id: String,
+        artifact: AnalysisArtifact,
+    },
+    Result {
+        #[allow(dead_code)]
+        job_id: String,
+        artifacts: Vec<AnalysisArtifact>,
+    },
+    Error {
+        #[allow(dead_code)]
+        job_id: String,
+        message: String,
+    },
+}
+
+#[derive(Debug, serde::Serialize)]
+struct SidecarRunRequest {
+    api_version: String,
+    job_id: String,
+    inputs: Vec<AnalysisInput>,
+    params: JsonValue,
+    output_dir: String,
+    temp_dir: String,
+}
+
+fn current_time_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Start an analysis job and return its job id.
+pub async fn start_analysis_job(
+    registry: Arc<Mutex<AnalysisRegistry>>,
+    jobs: Arc<Mutex<AnalysisJobManager>>,
+    request: AnalysisStartRequest,
+) -> BridgeResult<String> {
+    let definition = {
+        let reg = registry.lock().await;
+        reg.get(&request.analysis_id).ok_or(BridgeError::Input {
+            code: 11010,
+            details: format!("Unknown analysis id '{}'", request.analysis_id),
+        })?
+    };
+
+    let job_id = Uuid::new_v4().to_string();
+    let output_dir = std::env::temp_dir()
+        .join("brainflow_jobs")
+        .join(&job_id)
+        .join("out");
+    let temp_dir = std::env::temp_dir()
+        .join("brainflow_jobs")
+        .join(&job_id)
+        .join("tmp");
+
+    fs::create_dir_all(&output_dir).map_err(|e| BridgeError::Io {
+        code: 11011,
+        details: e.to_string(),
+    })?;
+    fs::create_dir_all(&temp_dir).map_err(|e| BridgeError::Io {
+        code: 11012,
+        details: e.to_string(),
+    })?;
+
+    let status = AnalysisJobStatus {
+        job_id: job_id.clone(),
+        analysis_id: request.analysis_id.clone(),
+        state: AnalysisJobState::Queued,
+        started_at_ms: Some(current_time_ms()),
+        finished_at_ms: None,
+        progress: None,
+        message: Some("Queued".to_string()),
+        artifacts: None,
+        error: None,
+    };
+    let status_arc = Arc::new(Mutex::new(status));
+
+    let status_arc_clone = Arc::clone(&status_arc);
+
+    let runner = definition.runner.clone();
+    let definition_descriptor = definition.descriptor.clone();
+    let req_clone = request.clone();
+    let job_id_for_runner = job_id.clone();
+    let output_dir_str = output_dir.to_string_lossy().to_string();
+    let temp_dir_str = temp_dir.to_string_lossy().to_string();
+
+    let handle: JoinHandle<()> = tokio::spawn(async move {
+        {
+            let mut st = status_arc_clone.lock().await;
+            st.state = AnalysisJobState::Running;
+            st.message = Some("Running".to_string());
+        }
+
+        let result = match runner {
+            AnalysisRunner::Builtin => {
+                run_builtin(
+                    &definition_descriptor,
+                    req_clone,
+                    &output_dir_str,
+                    Arc::clone(&status_arc_clone),
+                )
+                .await
+            }
+            AnalysisRunner::Sidecar(spec) => {
+                run_sidecar(
+                    &spec,
+                    &definition_descriptor,
+                    req_clone,
+                    &job_id_for_runner,
+                    &output_dir_str,
+                    &temp_dir_str,
+                    Arc::clone(&status_arc_clone),
+                )
+                .await
+            }
+        };
+
+        match result {
+            Ok(artifacts) => {
+                let mut st = status_arc_clone.lock().await;
+                st.state = AnalysisJobState::Completed;
+                st.finished_at_ms = Some(current_time_ms());
+                st.progress = Some(1.0);
+                st.message = Some("Completed".to_string());
+                st.artifacts = Some(artifacts.clone());
+            }
+            Err(err) => {
+                let mut st = status_arc_clone.lock().await;
+                if st.state != AnalysisJobState::Cancelled {
+                    st.state = AnalysisJobState::Failed;
+                    st.finished_at_ms = Some(current_time_ms());
+                    st.error = Some(err.to_string());
+                    st.message = Some("Failed".to_string());
+                }
+            }
+        }
+    });
+
+    {
+        let mut jobs_guard = jobs.lock().await;
+        jobs_guard.insert(job_id.clone(), Arc::clone(&status_arc), handle);
+    }
+
+    Ok(job_id)
+}
+
+async fn run_sidecar(
+    spec: &SidecarSpec,
+    descriptor: &AnalysisDescriptor,
+    request: AnalysisStartRequest,
+    job_id: &str,
+    output_dir: &str,
+    temp_dir: &str,
+    status_arc: Arc<Mutex<AnalysisJobStatus>>,
+) -> BridgeResult<Vec<AnalysisArtifact>> {
+    let mut cmd = Command::new(&spec.command);
+    cmd.args(&spec.args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    if let Some(cwd) = &spec.working_dir {
+        cmd.current_dir(cwd);
+    }
+    for (k, v) in &spec.env {
+        cmd.env(k, v);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| BridgeError::Io {
+        code: 11030,
+        details: format!("Failed to spawn sidecar: {}", e),
+    })?;
+
+    // Write the run request to stdin.
+    if let Some(mut stdin) = child.stdin.take() {
+        let run_req = SidecarRunRequest {
+            api_version: descriptor.api_version.clone(),
+            job_id: job_id.to_string(),
+            inputs: request.inputs.clone(),
+            params: request.params.clone(),
+            output_dir: output_dir.to_string(),
+            temp_dir: temp_dir.to_string(),
+        };
+        let bytes = serde_json::to_vec(&run_req).map_err(|e| BridgeError::Internal {
+            code: 11031,
+            details: e.to_string(),
+        })?;
+        if let Err(e) = stdin.write_all(&bytes).await {
+            warn!("Failed to write sidecar stdin: {}", e);
+        }
+        let _ = stdin.write_all(b"\n").await;
+    }
+
+    let stdout = child.stdout.take().ok_or(BridgeError::Internal {
+        code: 11032,
+        details: "Missing sidecar stdout".to_string(),
+    })?;
+    let stderr = child.stderr.take();
+
+    let stderr_handle = stderr.map(|stderr| {
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr);
+            let mut buf = String::new();
+            let _ = reader.read_to_string(&mut buf).await;
+            buf
+        })
+    });
+
+    let mut artifacts: Vec<AnalysisArtifact> = Vec::new();
+
+    let mut lines = BufReader::new(stdout).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let Ok(json) = serde_json::from_str::<JsonValue>(&line) else {
+            debug!("Skipping non-JSON sidecar line: {}", line);
+            continue;
+        };
+
+        match serde_json::from_value::<SidecarEvent>(json) {
+            Ok(SidecarEvent::Progress { pct, message, .. }) => {
+                let mut st = status_arc.lock().await;
+                if let Some(p) = pct {
+                    st.progress = Some(p);
+                }
+                if message.is_some() {
+                    st.message = message.clone();
+                }
+            }
+            Ok(SidecarEvent::Log { level, message, .. }) => {
+                debug!(
+                    "Sidecar log [{}]: {}",
+                    level.unwrap_or_else(|| "info".to_string()),
+                    message
+                );
+            }
+            Ok(SidecarEvent::Artifact { artifact, .. }) => {
+                artifacts.push(artifact.clone());
+            }
+            Ok(SidecarEvent::Result {
+                artifacts: final_artifacts,
+                ..
+            }) => {
+                artifacts.extend(final_artifacts);
+            }
+            Ok(SidecarEvent::Error { message, .. }) => {
+                return Err(BridgeError::Internal {
+                    code: 11040,
+                    details: message,
+                });
+            }
+            Err(err) => {
+                debug!("Unrecognized sidecar event: {}", err);
+            }
+        }
+    }
+
+    let exit = child.wait().await.map_err(|e| BridgeError::Io {
+        code: 11033,
+        details: e.to_string(),
+    })?;
+
+    if let Some(handle) = stderr_handle {
+        if let Ok(stderr_text) = handle.await {
+            if !stderr_text.trim().is_empty() && !exit.success() {
+                error!("Sidecar stderr: {}", stderr_text);
+            }
+        }
+    }
+
+    if !exit.success() {
+        return Err(BridgeError::Internal {
+            code: 11034,
+            details: format!("Sidecar exited with status {}", exit),
+        });
+    }
+
+    Ok(artifacts)
+}
+
+fn builtin_copy_volume_descriptor() -> AnalysisDescriptor {
+    AnalysisDescriptor {
+        id: BUILTIN_COPY_VOLUME_ANALYSIS_ID.to_string(),
+        name: "Builtin: Copy Selected Volume".to_string(),
+        version: "0.1.0".to_string(),
+        api_version: ANALYSIS_API_VERSION.to_string(),
+        description: Some(
+            "Smoke-test builtin analysis that copies the selected input volume into the job output directory and emits a small JSON report.".to_string(),
+        ),
+        inputs: vec![bridge_types::AnalysisInputKind::Volume],
+        params_schema: json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false,
+            "title": "No parameters"
+        }),
+        outputs: vec![
+            AnalysisArtifactKind::Volume,
+            AnalysisArtifactKind::Metadata,
+        ],
+        runner: AnalysisRunnerKind::Builtin,
+    }
+}
+
+async fn run_builtin(
+    descriptor: &AnalysisDescriptor,
+    request: AnalysisStartRequest,
+    output_dir: &str,
+    status_arc: Arc<Mutex<AnalysisJobStatus>>,
+) -> BridgeResult<Vec<AnalysisArtifact>> {
+    match descriptor.id.as_str() {
+        BUILTIN_COPY_VOLUME_ANALYSIS_ID => {
+            run_builtin_copy_volume(request, output_dir, status_arc).await
+        }
+        _ => Err(BridgeError::Internal {
+            code: 11021,
+            details: format!("Unknown builtin analysis '{}'", descriptor.id),
+        }),
+    }
+}
+
+async fn run_builtin_copy_volume(
+    request: AnalysisStartRequest,
+    output_dir: &str,
+    status_arc: Arc<Mutex<AnalysisJobStatus>>,
+) -> BridgeResult<Vec<AnalysisArtifact>> {
+    let input = request
+        .inputs
+        .iter()
+        .find(|input| {
+            matches!(input.kind, bridge_types::AnalysisInputKind::Volume)
+                && input.path.as_ref().map(|p| !p.is_empty()).unwrap_or(false)
+        })
+        .ok_or(BridgeError::Input {
+            code: 11022,
+            details:
+                "Builtin copy-volume analysis requires a volume input with a resolved file path"
+                    .to_string(),
+        })?;
+
+    let source_path = PathBuf::from(input.path.clone().unwrap_or_default());
+    if !source_path.exists() {
+        return Err(BridgeError::Io {
+            code: 11023,
+            details: format!(
+                "Input file for builtin analysis does not exist: {}",
+                source_path.display()
+            ),
+        });
+    }
+
+    {
+        let mut status = status_arc.lock().await;
+        status.progress = Some(0.25);
+        status.message = Some("Copying selected volume".to_string());
+    }
+
+    let source_name = source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("copied-volume.nii.gz");
+    let output_path = Path::new(output_dir).join(source_name);
+    fs::copy(&source_path, &output_path).map_err(|err| BridgeError::Io {
+        code: 11024,
+        details: format!(
+            "Failed to copy builtin analysis output from {} to {}: {}",
+            source_path.display(),
+            output_path.display(),
+            err
+        ),
+    })?;
+
+    {
+        let mut status = status_arc.lock().await;
+        status.progress = Some(0.8);
+        status.message = Some("Writing analysis report".to_string());
+    }
+
+    let report_path = Path::new(output_dir).join("analysis-report.json");
+    let report = json!({
+        "analysis_id": BUILTIN_COPY_VOLUME_ANALYSIS_ID,
+        "input_name": input.name,
+        "input_handle": input.handle,
+        "input_path": source_path,
+        "copied_output_path": output_path,
+        "params": request.params,
+    });
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|err| BridgeError::Internal {
+        code: 11025,
+        details: format!("Failed to serialize builtin analysis report: {}", err),
+    })?;
+    fs::write(&report_path, report_bytes).map_err(|err| BridgeError::Io {
+        code: 11026,
+        details: format!(
+            "Failed to write builtin analysis report {}: {}",
+            report_path.display(),
+            err
+        ),
+    })?;
+
+    Ok(vec![
+        AnalysisArtifact {
+            kind: AnalysisArtifactKind::Volume,
+            name: Some(
+                input
+                    .name
+                    .as_ref()
+                    .map(|name| format!("Copy of {}", name))
+                    .unwrap_or_else(|| "Copied volume".to_string()),
+            ),
+            path: output_path.to_string_lossy().to_string(),
+            metadata: json!({
+                "source_input_handle": input.handle,
+                "source_input_name": input.name,
+                "builtin_analysis": BUILTIN_COPY_VOLUME_ANALYSIS_ID,
+            }),
+        },
+        AnalysisArtifact {
+            kind: AnalysisArtifactKind::Metadata,
+            name: Some("Analysis Report".to_string()),
+            path: report_path.to_string_lossy().to_string(),
+            metadata: json!({
+                "builtin_analysis": BUILTIN_COPY_VOLUME_ANALYSIS_ID,
+                "mime": "application/json",
+            }),
+        },
+    ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bridge_types::{AnalysisArtifactKind, AnalysisInput, AnalysisInputKind, AnalysisJobState};
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    #[test]
+    fn default_registry_includes_builtin_analysis() {
+        let registry = build_default_registry();
+        let descriptors = registry.list();
+        assert!(descriptors
+            .iter()
+            .any(|descriptor| descriptor.id == BUILTIN_COPY_VOLUME_ANALYSIS_ID));
+    }
+
+    fn repo_analysis_plugins_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../plugins/analyses")
+            .canonicalize()
+            .expect("repo analysis plugin dir should resolve")
+    }
+
+    fn status_with_state(job_id: &str, state: AnalysisJobState) -> Arc<Mutex<AnalysisJobStatus>> {
+        Arc::new(Mutex::new(AnalysisJobStatus {
+            job_id: job_id.to_string(),
+            analysis_id: BUILTIN_COPY_VOLUME_ANALYSIS_ID.to_string(),
+            state,
+            started_at_ms: Some(current_time_ms()),
+            finished_at_ms: None,
+            progress: None,
+            message: None,
+            artifacts: None,
+            error: None,
+        }))
+    }
+
+    #[tokio::test]
+    async fn cancel_active_cancels_only_unfinished_jobs() {
+        let mut jobs = AnalysisJobManager::new();
+        // The job future owns `dropped_tx`; aborting the task drops it.
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel::<()>();
+        let running = tokio::spawn(async move {
+            let _owned = dropped_tx;
+            std::future::pending::<()>().await
+        });
+        jobs.insert(
+            "running".to_string(),
+            status_with_state("running", AnalysisJobState::Running),
+            running,
+        );
+        jobs.insert(
+            "queued".to_string(),
+            status_with_state("queued", AnalysisJobState::Queued),
+            tokio::spawn(std::future::pending::<()>()),
+        );
+        jobs.insert(
+            "done".to_string(),
+            status_with_state("done", AnalysisJobState::Completed),
+            tokio::spawn(async {}),
+        );
+
+        assert_eq!(jobs.cancel_active("Module disabled").await, 2);
+
+        for id in ["running", "queued"] {
+            let status = jobs.get_status(id).await.expect("status");
+            assert_eq!(status.state, AnalysisJobState::Cancelled);
+            assert_eq!(status.message.as_deref(), Some("Module disabled"));
+            assert!(status.finished_at_ms.is_some());
+        }
+        let done = jobs.get_status("done").await.expect("status");
+        assert_eq!(done.state, AnalysisJobState::Completed);
+        assert_eq!(done.message, None);
+
+        let dropped = tokio::time::timeout(Duration::from_secs(5), dropped_rx)
+            .await
+            .expect("aborted job future is dropped promptly");
+        assert!(
+            dropped.is_err(),
+            "cancelled job task is aborted, not completed"
+        );
+        assert_eq!(jobs.cancel_active("again").await, 0);
+    }
+
+    #[test]
+    fn bundled_example_sidecar_manifest_loads() {
+        let mut registry = AnalysisRegistry::new();
+        registry.load_from_dir(&repo_analysis_plugins_dir());
+
+        let descriptors = registry.list();
+        let example = descriptors
+            .iter()
+            .find(|descriptor| descriptor.id == "example-copy-volume-sidecar")
+            .expect("bundled example sidecar should load");
+
+        assert_eq!(example.runner, AnalysisRunnerKind::Sidecar);
+        assert_eq!(example.inputs, vec![AnalysisInputKind::Volume]);
+        assert_eq!(
+            example.outputs,
+            vec![AnalysisArtifactKind::Volume, AnalysisArtifactKind::Metadata]
+        );
+    }
+
+    #[tokio::test]
+    async fn builtin_copy_volume_job_completes_and_emits_artifacts() {
+        let source_dir =
+            std::env::temp_dir().join(format!("brainflow-analysis-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&source_dir).expect("create source dir");
+        let source_path = source_dir.join("source-volume.nii.gz");
+        fs::write(&source_path, b"fake-nifti").expect("write source file");
+
+        let registry = Arc::new(Mutex::new(AnalysisRegistry::new()));
+        {
+            let mut guard = registry.lock().await;
+            guard.register_builtin_analyses();
+        }
+        let jobs = Arc::new(Mutex::new(AnalysisJobManager::new()));
+
+        let request = AnalysisStartRequest {
+            analysis_id: BUILTIN_COPY_VOLUME_ANALYSIS_ID.to_string(),
+            inputs: vec![AnalysisInput {
+                kind: AnalysisInputKind::Volume,
+                handle: Some("vol-1".to_string()),
+                path: Some(source_path.to_string_lossy().to_string()),
+                name: Some("Source Volume".to_string()),
+                metadata: json!({}),
+            }],
+            params: json!({}),
+        };
+
+        let job_id = start_analysis_job(Arc::clone(&registry), Arc::clone(&jobs), request)
+            .await
+            .expect("start builtin analysis");
+
+        let final_status = loop {
+            let snapshot = {
+                let guard = jobs.lock().await;
+                guard
+                    .get_status(&job_id)
+                    .await
+                    .expect("job status should exist")
+            };
+
+            match snapshot.state {
+                AnalysisJobState::Queued | AnalysisJobState::Running => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                _ => break snapshot,
+            }
+        };
+
+        assert_eq!(final_status.state, AnalysisJobState::Completed);
+        let artifacts = final_status.artifacts.expect("completed artifacts");
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Volume));
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Metadata));
+        for artifact in artifacts {
+            assert!(
+                Path::new(&artifact.path).exists(),
+                "artifact path should exist: {}",
+                artifact.path
+            );
+        }
+
+        let _ = fs::remove_dir_all(source_dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test]
+    async fn bundled_example_sidecar_job_completes_and_emits_artifacts() {
+        let source_dir = std::env::temp_dir().join(format!(
+            "brainflow-sidecar-analysis-test-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&source_dir).expect("create source dir");
+        let source_path = source_dir.join("source-volume.nii.gz");
+        fs::write(&source_path, b"fake-nifti").expect("write source file");
+
+        let registry = Arc::new(Mutex::new(AnalysisRegistry::new()));
+        {
+            let mut guard = registry.lock().await;
+            guard.load_from_dir(&repo_analysis_plugins_dir());
+        }
+        let jobs = Arc::new(Mutex::new(AnalysisJobManager::new()));
+
+        let request = AnalysisStartRequest {
+            analysis_id: "example-copy-volume-sidecar".to_string(),
+            inputs: vec![AnalysisInput {
+                kind: AnalysisInputKind::Volume,
+                handle: Some("vol-sidecar".to_string()),
+                path: Some(source_path.to_string_lossy().to_string()),
+                name: Some("Source Volume".to_string()),
+                metadata: json!({}),
+            }],
+            params: json!({ "label": "test sidecar run" }),
+        };
+
+        let job_id = start_analysis_job(Arc::clone(&registry), Arc::clone(&jobs), request)
+            .await
+            .expect("start sidecar analysis");
+
+        let final_status = loop {
+            let snapshot = {
+                let guard = jobs.lock().await;
+                guard
+                    .get_status(&job_id)
+                    .await
+                    .expect("job status should exist")
+            };
+
+            match snapshot.state {
+                AnalysisJobState::Queued | AnalysisJobState::Running => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                _ => break snapshot,
+            }
+        };
+
+        assert_eq!(final_status.state, AnalysisJobState::Completed);
+        let artifacts = final_status.artifacts.expect("completed artifacts");
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Volume));
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Metadata));
+        for artifact in artifacts {
+            assert!(
+                Path::new(&artifact.path).exists(),
+                "artifact path should exist: {}",
+                artifact.path
+            );
+        }
+
+        let _ = fs::remove_dir_all(source_dir);
+    }
+}

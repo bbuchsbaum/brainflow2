@@ -45,4 +45,9 @@ export type BridgeError = {
     };
 } | {
     "LoaderError": string;
+} | {
+    "ModuleDisabled": {
+        code: number;
+        module: string;
+    };
 };

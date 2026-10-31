@@ -157,15 +157,27 @@ describe("WorkspaceMenu", () => {
     mockShowError.mockReset();
   });
 
-  it("offers New view and the three tools, not the retired view presets", () => {
+  it("offers New view and the tools, not the retired view presets", () => {
     render(<WorkspaceMenu />);
 
-    for (const label of ["New view", "Set studio", "BIDS", "Analysis"]) {
+    for (const label of ["New view", "Set studio", "BIDS"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
+    // Analysis is an experimental module, off by default.
+    expect(screen.queryByText("Analysis")).toBeNull();
     for (const label of ["Read", "Explore", "Analyze", "Compare"]) {
       expect(screen.queryByText(label)).toBeNull();
     }
+  });
+
+  it("lists module tools after the core tools, labelled with a stage that is not stable", async () => {
+    const { registerFixtureModule } = await import("@/modules/__tests__/fixtureModule");
+    registerFixtureModule();
+    render(<WorkspaceMenu />);
+    const fixture = screen.getByText("Fixture");
+    expect(fixture.parentElement).toHaveTextContent("FixturePreview");
+    fireEvent.click(fixture);
+    expect(nav.openTool).toHaveBeenCalledWith("fixture.tool");
   });
 
   it("New view opens a tab; a tool opens (or refocuses) its tab", () => {
@@ -174,8 +186,19 @@ describe("WorkspaceMenu", () => {
     fireEvent.click(screen.getByText("New view"));
     expect(nav.openNewView).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByText("Analysis"));
+    fireEvent.click(screen.getByText("BIDS"));
+    expect(nav.openTool).toHaveBeenCalledWith("bids-explorer");
+  });
+
+  it("lists Analysis, labelled Experimental, once its module is switched on", async () => {
+    const { useModuleSettingsStore } = await import("@/modules/settingsStore");
+    useModuleSettingsStore.getState().setModuleEnabled("analysis", true);
+    render(<WorkspaceMenu />);
+    const analysis = screen.getByText("Analysis");
+    expect(analysis.parentElement).toHaveTextContent("AnalysisExperimental");
+    fireEvent.click(analysis);
     expect(nav.openTool).toHaveBeenCalledWith("analysis-workbench");
+    useModuleSettingsStore.getState().setModuleEnabled("analysis", false);
   });
 
   it("registers Cmd/Ctrl+T, +1–4 (current tab layout) and +5/6 (tools) in the browser build", () => {

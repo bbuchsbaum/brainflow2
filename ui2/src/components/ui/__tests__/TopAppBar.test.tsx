@@ -17,6 +17,9 @@ vi.mock("@/components/ui/DisplayModeSelector", () => ({
     <div data-testid="display-mode-selector-stub">display-mode</div>
   ),
 }));
+vi.mock("@/components/ui/PinnedTools", () => ({
+  PinnedTools: () => <div data-testid="pinned-tools-stub">pinned</div>,
+}));
 vi.mock("@/components/ui/WorkspaceMenu", () => ({
   WorkspaceMenu: () => (
     <div data-testid="workspace-menu-stub">workspace-menu</div>
@@ -40,9 +43,15 @@ describe("TopAppBar", () => {
       screen.getByTestId("display-mode-selector-stub"),
     );
 
-    // Utility region collects the single merged Workspace menu.
+    // Utility region collects the pinned tools and the single merged Workspace menu.
     const utility = screen.getByTestId("top-app-bar-utility");
     expect(utility).toContainElement(screen.getByTestId("workspace-menu-stub"));
+    expect(utility).toContainElement(screen.getByTestId("pinned-tools-stub"));
+    expect(
+      screen.getByTestId("pinned-tools-stub").compareDocumentPosition(
+        screen.getByTestId("workspace-menu-stub"),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("renders the bar at the 40px height defined in Design.md §2.2", () => {

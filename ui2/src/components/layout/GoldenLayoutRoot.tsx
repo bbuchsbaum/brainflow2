@@ -615,9 +615,14 @@ export function GoldenLayoutRoot() {
     markFocusedStack(root, getCenterWorkspaceStack(layout)?.element ?? null);
   }, [activeWorkspaceId, isLayoutReady]);
 
-  // Create default workspace after GoldenLayout is ready
+  // Create default workspace after GoldenLayout is ready. The first check
+  // after the layout is ready is the launch: a fixed startup list (Settings ›
+  // Top bar) opens then instead of the default view.
+  const launchCheckRef = useRef(true);
   useEffect(() => {
     if (!isLayoutReady || !layoutRef.current) return;
+    const atLaunch = launchCheckRef.current;
+    launchCheckRef.current = false;
 
     if (workspaces.size === 0) {
       // Cold start, or the user closed the last tab: one default view
@@ -626,7 +631,7 @@ export function GoldenLayoutRoot() {
       // here — it once let a stale pick (a BIDS Explorer) override the
       // default. ensureDefaultView shares its pending create with a startup
       // `--workspace` request, so the two never make two tabs.
-      ensureDefaultView()?.catch((error) => {
+      ensureDefaultView({ atLaunch })?.catch((error) => {
         console.error('[GoldenLayoutRoot] Failed to create initial workspace:', error);
       });
     }

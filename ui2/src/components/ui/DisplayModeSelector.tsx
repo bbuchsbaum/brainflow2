@@ -7,7 +7,7 @@
  * 2026-10-30 §1, `services/workspaceNavigation.ts`). Only with no tab open at
  * all does a click create the first view.
  *
- * When a tool (BIDS, Analysis, Set studio) or the surface tab is in front, the
+ * When a tool (Set studio, BIDS, a module tool) or the surface tab is in front, the
  * switcher stays visible but disabled with no active segment, and a pill says
  * which tool is open: those tabs have no slice layout to change.
  *
@@ -30,6 +30,7 @@ import { useCenterTabStore } from "@/stores/centerTabStore";
 import type { DisplayMode, DisplayModeMetadata } from "@/types/displayModes";
 import { SegmentedControl } from "@/components/ui/bf";
 import { setCurrentTabLayout } from "@/services/workspaceNavigation";
+import { moduleRegistry, useModuleRegistryVersion } from "@/modules/registry";
 
 import {
   getDisplayModePillMetadata,
@@ -54,6 +55,7 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
   const setIntegratedDefaultDisplayMode = useLayoutSettingsStore(
     (state) => state.setIntegratedDefaultDisplayMode,
   );
+  useModuleRegistryVersion();
 
   // A tool TAB (the surface view) inside a view workspace is a tool too: no
   // view mode is active while it is in front (v3 visual critic). Read the
@@ -110,13 +112,13 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
   // a whole layout, so arrows only move focus and Enter/Space switch. The
   // `md` size keeps app-level navigation a step above in-panel controls. In a tool workspace `value` is "" so no
   // segment is checked and the tab stop falls on the first segment.
-  // In a tool workspace (Studio, BIDS, Analysis) no view mode is active:
+  // In a tool workspace (Studio, BIDS, a module tool) no view mode is active:
   // say where the user is, beside the switcher, as a neutral pill (P3.13).
   const toolLabel = !toolInFront
     ? null
     : surfaceTabActive
       ? "Surface"
-      : (TOOL_LABELS[activeWorkspaceType ?? ""] ?? "Tool");
+      : (moduleRegistry.getToolDescriptor(activeWorkspaceType)?.shortLabel ?? "Tool");
 
   return (
     <span className="inline-flex items-center gap-2">
@@ -154,13 +156,6 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
     ) : null}
     </span>
   );
-};
-
-/** Names of the tool workspaces (not view modes) for the switcher's pill. */
-const TOOL_LABELS: Partial<Record<string, string>> = {
-  "set-studio": "Studio",
-  "bids-explorer": "BIDS",
-  "analysis-workbench": "Analysis",
 };
 
 export default DisplayModeSelector;

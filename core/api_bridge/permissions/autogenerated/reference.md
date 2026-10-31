@@ -88,10 +88,9 @@ Default permissions for api-bridge plugin
 - `allow-get-surface-overlay-data`
 - `allow-set-layer-mask`
 - `allow-set-layer-border`
-- `allow-list-analyses`
-- `allow-start-analysis`
-- `allow-cancel-analysis`
-- `allow-get-analysis-job-status`
+- `allow-list-modules`
+- `allow-set-enabled-modules`
+- `module-analysis`
 - `allow-preview-folder-ontology`
 - `allow-preview-set-studio-imports`
 - `allow-promote-discovery-to-neurotabs`
@@ -1434,6 +1433,32 @@ Denies the list_analyses command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-list-modules`
+
+</td>
+<td>
+
+Enables the list_modules command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-list-modules`
+
+</td>
+<td>
+
+Denies the list_modules command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-list-remote-directory`
 
 </td>
@@ -2734,6 +2759,32 @@ Denies the set_crosshair command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-set-enabled-modules`
+
+</td>
+<td>
+
+Enables the set_enabled_modules command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-set-enabled-modules`
+
+</td>
+<td>
+
+Denies the set_enabled_modules command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-set-layer-border`
 
 </td>
@@ -3325,6 +3376,19 @@ Enables the wait_for_layer_ready command without any pre-configured scope.
 <td>
 
 Denies the wait_for_layer_ready command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:module-analysis`
+
+</td>
+<td>
+
+Enables every command of the analysis module.
 
 </td>
 </tr>

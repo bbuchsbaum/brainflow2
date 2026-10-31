@@ -16,7 +16,7 @@ Tauri plugin providing command bridge between TypeScript frontend and Rust backe
 | `src/error_context.rs` | User-friendly error message generation and context enrichment |
 | `src/error_helpers.rs` | Error conversion utilities and helper functions |
 | `src/user_errors.rs` | User-facing error types with actionable messages |
-| `src/analysis.rs` | Volume analysis and statistical computation commands |
+| `src/modules/` | First-party module framework (descriptors, state slots, enable gate) and module adapters such as `analysis.rs`; see `src/modules/AGENTS.md` |
 | `src/bin/export_types.rs` | Binary for generating TypeScript type bindings |
 | `build.rs` | Build script for Tauri plugin setup and command registration |
 
@@ -31,7 +31,7 @@ Tauri plugin providing command bridge between TypeScript frontend and Rust backe
 ## For AI Agents
 
 ### Working In This Directory
-The command inventory is single-sourced in `src/command_list.rs`. Define the `#[command]` function, list its bare name there, grant `allow-*` in `permissions/default.toml` or a window capability, then regenerate with `cargo xtask ts-bindings` (or `cargo run -p xtask -- ts-bindings` when the alias is unavailable). Rebuild `packages/api` for frontend transport discovery and run `node tools/check_api_bridge_permissions.mjs --strict` from the repository root. See `ADDING_COMMANDS.md`; do not hand-maintain transport or handler lists. Commands return `BridgeResult<T>`; Tauri translates JS camelCase arguments to Rust snake_case.
+The command inventory is single-sourced in `src/command_list.rs` (a `core { ... }` section, then one `module <id> { ... }` section per module). Define the `#[command]` function, list its bare name in the right section, grant `allow-*` in `permissions/default.toml` or a window capability (module commands are granted through their generated `module-<id>` set), then regenerate with `cargo xtask ts-bindings` (or `cargo run -p xtask -- ts-bindings` when the alias is unavailable). Rebuild `packages/api` for frontend transport discovery and run `node tools/check_api_bridge_permissions.mjs --strict` from the repository root. See `ADDING_COMMANDS.md`; do not hand-maintain transport or handler lists. Commands return `BridgeResult<T>`; Tauri translates JS camelCase arguments to Rust snake_case.
 
 ### Testing Requirements
 Run `cargo test -p api-bridge` for unit tests. Integration tests in `tests/pipeline_integration_test.rs` validate end-to-end workflows. Test both success and error paths. Verify TypeScript bindings with `cargo run --bin export_api_bridge_types` and check `bindings/` output matches frontend expectations.

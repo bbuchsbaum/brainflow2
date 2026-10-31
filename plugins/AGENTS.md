@@ -22,7 +22,8 @@ described those; they were never implemented.
 
 ## How the host runs plugins
 - **Discovery:** `AnalysisRegistry::load_default_locations` in
-  `core/api_bridge/src/analysis.rs` scans `plugins/analyses/*` relative to the
+  `core/modules/analysis/src/lib.rs` (crate `bf_analysis`; the bridge adapter is
+  `core/api_bridge/src/modules/analysis.rs`) scans `plugins/analyses/*` relative to the
   process working directory, then `plugins/analyses/*` under the local data dir
   from `directories::ProjectDirs::from("", "", "brainflow")` (for example
   `~/.local/share/brainflow/plugins/analyses` on Linux). Each plugin folder needs
@@ -41,8 +42,8 @@ described those; they were never implemented.
 - **Types:** `AnalysisDescriptor`, `AnalysisStartRequest`, `AnalysisJobStatus`
   and related types live in `core/bridge_types/src/lib.rs` and are exported to
   TypeScript with ts-rs.
-- **UI:** the Analysis Workbench (`ui2/src/components/analysis/`,
-  `ui2/src/services/analysis/AnalysisService.ts`, `ui2/src/stores/analysisStore.ts`).
+- **UI:** the Analysis module (`ui2/src/modules/analysis/`; experimental, off
+  by default, switched on in Settings › Modules).
 
 ## Adding a plugin
 1. Create `plugins/analyses/<id>/` with an `analysis.json` and an executable.

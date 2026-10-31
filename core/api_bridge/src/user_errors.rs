@@ -97,6 +97,10 @@ impl UserFriendly for BridgeError {
             BridgeError::LoaderError(details) => {
                 format!("Failed to load file: {}", details)
             }
+
+            BridgeError::ModuleDisabled { module, .. } => {
+                format!("The {} module is turned off.", module)
+            }
         }
     }
 
@@ -191,6 +195,10 @@ impl UserFriendly for BridgeError {
                     "Try loading a different file".to_string(),
                 ]
             }
+
+            BridgeError::ModuleDisabled { .. } => {
+                vec!["Turn the module on in Settings to use it".to_string()]
+            }
         }
     }
 }
@@ -255,6 +263,7 @@ fn error_title(error: &BridgeError) -> String {
         BridgeError::ServiceNotInitialized { .. } => "Not Ready".to_string(),
         BridgeError::Internal { .. } => "System Error".to_string(),
         BridgeError::LoaderError(_) => "Loading Error".to_string(),
+        BridgeError::ModuleDisabled { .. } => "Module Disabled".to_string(),
     }
 }
 
@@ -269,7 +278,8 @@ fn error_code(error: &BridgeError) -> u16 {
         | BridgeError::VolumeError { code, .. }
         | BridgeError::GpuError { code, .. }
         | BridgeError::VolumeNotFound { code, .. }
-        | BridgeError::ServiceNotInitialized { code, .. } => *code,
+        | BridgeError::ServiceNotInitialized { code, .. }
+        | BridgeError::ModuleDisabled { code, .. } => *code,
         BridgeError::LoaderError(_) => 1000, // Default code for LoaderError
     }
 }

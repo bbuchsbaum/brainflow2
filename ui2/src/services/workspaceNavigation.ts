@@ -7,7 +7,10 @@
  *   created in that layout. A tool tab or the surface tab has no slice layout,
  *   so a layout request there does nothing (the pills are disabled).
  * - Tabs are views the user created: New view (⌘T), "Open in new tab", or a tool.
- * - Tools (Set studio, BIDS, Analysis) open once; opening one again focuses it.
+ * - Tools open once; opening one again focuses it. The tools are Set studio,
+ *   BIDS and the tool tabs of enabled modules (`modules/registry.ts`).
+ * - Startup tabs: relaunch restores the user's tabs, or, with Settings › Top
+ *   bar › Startup tabs set to a fixed list, opens that list once.
  *
  * Orthogonal has two variants. ⌘1 / the Orthogonal pill keep the current
  * variant when the tab is already orthogonal and otherwise open the locked
@@ -27,6 +30,8 @@ import {
   isViewWorkspaceType,
   resolveActiveDisplayMode,
 } from '@/components/ui/displayModeSelector.helpers';
+import { moduleRegistry, type ToolDescriptor } from '@/modules/registry';
+import { usableStartupTabs } from '@/services/workspaceTypes';
 
 /** ⌘1–⌘4, in pill order. */
 export const LAYOUT_SHORTCUT_MODES: readonly DisplayMode[] = [
@@ -36,25 +41,20 @@ export const LAYOUT_SHORTCUT_MODES: readonly DisplayMode[] = [
   'compare',
 ];
 
-export interface ToolDestination {
-  type: WorkspaceType;
-  label: string;
-  /** Shortcut digit with ⌘/Ctrl, when the tool has one. */
-  shortcutKey?: string;
-}
+/** A tool in the Tools list (core, or the tool tab of an enabled module). */
+export type ToolDestination = ToolDescriptor;
 
-/** The tools, in menu order. ⌘5 / ⌘6 open the first two. */
-export const TOOL_DESTINATIONS: readonly ToolDestination[] = [
-  { type: 'set-studio', label: 'Set studio', shortcutKey: '5' },
-  { type: 'bids-explorer', label: 'BIDS', shortcutKey: '6' },
-  { type: 'analysis-workbench', label: 'Analysis' },
-];
+/** The tools, in menu order (core first). ⌘5 / ⌘6 open the first two. */
+export function toolDestinations(): readonly ToolDestination[] {
+  return moduleRegistry.getTools();
+}
 
 /** The layout a fresh view opens in when there is no view to copy. */
 export const DEFAULT_VIEW_TYPE: WorkspaceType = 'orthogonal-flexible';
 
+/** A tool type (core or module, whether or not its module is on). */
 export function isToolWorkspaceType(type: WorkspaceType | null | undefined): boolean {
-  return TOOL_DESTINATIONS.some((tool) => tool.type === type);
+  return Boolean(moduleRegistry.getToolDescriptor(type));
 }
 
 function isModeAvailable(mode: DisplayMode): boolean {
@@ -107,15 +107,64 @@ function createFirstView(type: WorkspaceType): Promise<string> {
   return pendingFirstView;
 }
 
+/** A tab Settings › Top bar can open at startup: a view layout or a tool. */
+export interface StartupTabCandidate {
+  type: WorkspaceType;
+  label: string;
+}
+
 /**
- * The one default view when no tab exists (cold start with nothing saved, or
- * the user closed the last tab). `null` when a tab exists or one is already
- * being created.
+ * Startup-tab choices in display order: one view per layout (Orthogonal opens
+ * as panels, like a new view; Integrated only while its flag is on), then the
+ * available tools.
  */
-export function ensureDefaultView(): Promise<string> | null {
+export function startupTabCandidates(): StartupTabCandidate[] {
+  const views = LAYOUT_SHORTCUT_MODES.filter(isModeAvailable).map((mode) => ({
+    type: mode === 'orthogonal' ? DEFAULT_VIEW_TYPE : DISPLAY_MODES[mode].defaultWorkspaceType!,
+    label: `${DISPLAY_MODES[mode].label} view`,
+  }));
+  const tools = toolDestinations().map((tool) => ({ type: tool.type, label: tool.label }));
+  return [...views, ...tools];
+}
+
+/** Whether this session's launch already decided its tabs. */
+let startupTabsHandled = false;
+
+/** Test helper: the next `ensureDefaultView({ atLaunch: true })` is a fresh launch. */
+export function resetStartupTabsForTests(): void {
+  startupTabsHandled = false;
+}
+
+function createStartupTabs(types: readonly WorkspaceType[]): Promise<string> {
+  pendingFirstView = trackFirstTab(async () => {
+    let firstId: string | null = null;
+    for (const type of types) {
+      const id = await useWorkspaceStore.getState().createWorkspace(type);
+      firstId ??= id;
+    }
+    // The first tab of the list is in front.
+    if (firstId) useWorkspaceStore.getState().activateWorkspace(firstId);
+    return firstId!;
+  }).finally(() => {
+    pendingFirstView = null;
+  });
+  return pendingFirstView;
+}
+
+/**
+ * The tabs to open when none exist. At launch (`atLaunch`, the layout root's
+ * first check) that is the fixed startup list when Settings › Top bar asks for
+ * one; otherwise — cold start with nothing saved, or the user closed the last
+ * tab — one default view. `null` when a tab exists or one is being created.
+ */
+export function ensureDefaultView(options: { atLaunch?: boolean } = {}): Promise<string> | null {
+  const launch = Boolean(options.atLaunch) && !startupTabsHandled;
+  if (options.atLaunch) startupTabsHandled = true;
   if (useWorkspaceStore.getState().workspaces.size > 0) return null;
   if (pendingFirstView) return pendingFirstView;
   if (firstTabCreates > 0) return null;
+  const startup = launch ? usableStartupTabs() : null;
+  if (startup) return createStartupTabs(startup);
   return createFirstView(DEFAULT_VIEW_TYPE);
 }
 
@@ -167,10 +216,23 @@ export function openNewView(): Promise<string> {
   return trackFirstTab(() => createWorkspace(type));
 }
 
-/** Open a tool, or focus its tab when it is already open. */
-export function openTool(type: WorkspaceType): Promise<string> {
+/**
+ * Open a tool, or focus its tab when it is already open. Resolves null when
+ * the tool is not available (its module is switched off or unsupported here).
+ */
+export function openTool(type: WorkspaceType): Promise<string | null> {
+  if (!moduleRegistry.isToolAvailable(type)) {
+    console.warn(`[workspaceNavigation] Tool "${type}" is not available`);
+    return Promise.resolve(null);
+  }
   // createWorkspace refocuses singleton (tool) workspaces instead of adding one.
-  return trackFirstTab(() => useWorkspaceStore.getState().createWorkspace(type));
+  return trackFirstTab(() => useWorkspaceStore.getState().createWorkspace(type)).catch(
+    (error: unknown) => {
+      // Switched off while the tab was being created: nothing opened.
+      if (!moduleRegistry.isToolAvailable(type)) return null;
+      throw error;
+    },
+  );
 }
 
 /**

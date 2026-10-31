@@ -5,6 +5,7 @@
 
 import type { LayoutConfig } from 'golden-layout';
 import type { WorkspaceType, WorkspaceConfig } from '@/types/workspace';
+import { moduleRegistry } from '@/modules/registry';
 
 /**
  * Factory interface for creating view layouts
@@ -32,7 +33,7 @@ export class ViewRegistry {
    * Create a layout configuration for a workspace type
    */
   static createLayout(type: WorkspaceType, config?: WorkspaceConfig): LayoutConfig {
-    const factory = this.factories.get(type);
+    const factory = this.factories.get(type) ?? moduleToolFactory(type);
     if (!factory) {
       throw new Error(`Unknown workspace type: ${type}. Did you forget to register it?`);
     }
@@ -45,10 +46,10 @@ export class ViewRegistry {
   }
   
   /**
-   * Check if a workspace type is registered
+   * Check if a workspace type is registered (a factory, or a module tool)
    */
   static isRegistered(type: WorkspaceType): boolean {
-    return this.factories.has(type);
+    return this.factories.has(type) || Boolean(moduleRegistry.getModuleTool(type));
   }
   
   /**
@@ -57,6 +58,21 @@ export class ViewRegistry {
   static getRegisteredTypes(): WorkspaceType[] {
     return Array.from(this.factories.keys());
   }
+}
+
+/**
+ * Layout of a module's tool tab: one component named after the type (the
+ * Workspace router renders the module's component; see ModuleWorkspace).
+ */
+function moduleToolFactory(type: WorkspaceType): ViewFactory | undefined {
+  const tool = moduleRegistry.getModuleTool(type);
+  if (!tool) return undefined;
+  return {
+    getDefaultConfig: () => ({}),
+    createLayout: () => ({
+      root: { type: 'component', componentType: tool.type, title: tool.title, componentState: {} },
+    }),
+  };
 }
 
 /**
@@ -350,26 +366,6 @@ export class BidsExplorerFactory implements ViewFactory {
 }
 
 /**
- * Factory for Analysis Workbench workspace
- */
-export class AnalysisWorkbenchFactory implements ViewFactory {
-  getDefaultConfig(): Partial<WorkspaceConfig> {
-    return {};
-  }
-
-  createLayout(_config?: WorkspaceConfig): LayoutConfig {
-    return {
-      root: {
-        type: 'component',
-        componentType: 'AnalysisWorkbenchWorkspace',
-        title: 'Analysis Workbench',
-        componentState: {}
-      }
-    };
-  }
-}
-
-/**
  * Factory for comparison view
  */
 export class ComparisonViewFactory implements ViewFactory {
@@ -433,7 +429,6 @@ export function initializeViewRegistry() {
   ViewRegistry.register('comparison', new ComparisonViewFactory());
   ViewRegistry.register('set-studio', new SetStudioFactory());
   ViewRegistry.register('bids-explorer', new BidsExplorerFactory());
-  ViewRegistry.register('analysis-workbench', new AnalysisWorkbenchFactory());
   
   console.log('[ViewRegistry] Initialized with all view factories');
 }

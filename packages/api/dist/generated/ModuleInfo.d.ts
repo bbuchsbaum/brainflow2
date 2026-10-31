@@ -1,0 +1,15 @@
+import type { ModuleStage } from "./ModuleStage";
+/**
+ * A module descriptor plus its current runtime state, as returned by
+ * `list_modules` and `set_enabled_modules`.
+ */
+export type ModuleInfo = {
+    enabled: boolean;
+    /**
+     * Module id; matches the `module <id>` section in `command_list.rs`.
+     */
+    id: string;
+    title: string;
+    version: string;
+    stage: ModuleStage;
+};

@@ -6,17 +6,56 @@ invocation) drives all of:
 
 - the runtime Tauri invoke handler (`api_bridge::invoke_handler`, via the macro in
   `command_registry.rs`),
-- `api_bridge::COMMANDS` (consumed by the TS export),
-- the Tauri plugin permission autogeneration (`build.rs` parses the same file), and
-- the frontend transport namespacing list
-  (`packages/api/src/generated/apiBridgeCommands.ts`, emitted from `COMMANDS`).
+- `api_bridge::COMMANDS` (flat list), `CORE_COMMANDS` and `MODULE_COMMANDS`
+  (`(module id, commands)` per module), consumed by the TS export,
+- the Tauri plugin permission autogeneration (`build.rs` parses the same file):
+  one `allow-*`/`deny-*` pair per command, plus one `module-<id>` permission set
+  per module, and
+- the generated frontend files: the transport namespacing list
+  (`packages/api/src/generated/apiBridgeCommands.ts`, from `COMMANDS`) and the
+  module map (`apiBridgeModules.ts`, `BRIDGE_MODULES`, from `MODULE_COMMANDS` and
+  the module descriptors).
 
 So adding a command is mostly: **write the function, add one identifier, grant it,
 regenerate.**
 
+## Core commands and module commands
+
+The list has one `core { ... }` section, then one `module <id> { ... }` section
+per first-party module:
+
+```rust
+bridge_commands! {
+    core {
+        load_file,
+        // ...
+        list_modules,
+        set_enabled_modules,
+    }
+
+    module analysis {
+        list_analyses,
+        start_analysis,
+        cancel_analysis,
+        get_analysis_job_status,
+    }
+}
+```
+
+- **Core** commands belong to the shell and are always available.
+- **Module** commands belong to a module (see `src/modules/AGENTS.md`). They are
+  defined in the module's adapter file, `src/modules/<id>.rs`, and the handler
+  resolves them as `modules::<id>::<cmd>`, so no `use` in `lib.rs` is needed.
+- **Names.** Tauri command names are flat, so a new module command must be named
+  `<id>_<name>` (for example `segmentation_create_session`). A test in
+  `command_registry.rs` enforces this. The four analysis commands predate the rule
+  and keep their names because the UI and the dev harness call them by name.
+- Use only `//` line comments in `command_list.rs`. The build-script parser
+  rejects other punctuation, including `/* */` block comments.
+
 ## 1. Define the command function
 
-In `lib.rs` (or `analysis.rs` for analysis commands):
+Core command, in `lib.rs` or a core submodule:
 
 ```rust
 #[command]
@@ -29,70 +68,101 @@ async fn your_command_name(
 }
 ```
 
-Commands defined in a submodule (e.g. `analysis.rs`, `clusters.rs`) must be
-brought into crate scope so they can be listed as a bare identifier — see the
-`use analysis::{...};` line in `lib.rs`. The permission checker scans every
-top-level `src/*.rs` file for `#[command]` fns.
+Core commands defined in a submodule (e.g. `clusters.rs`) must be brought into
+crate scope so they can be listed as a bare identifier — see the `use` lines in
+`lib.rs`.
 
-## 2. Register it in the single source (`command_list.rs`)
-
-Add the bare identifier (no quotes, no module path):
+Module command, in `src/modules/<id>.rs`. Enter the module's enable gate first and
+keep the guard for the whole command:
 
 ```rust
-bridge_commands! {
-    // ...
-    your_command_name,
+#[tauri::command]
+pub async fn segmentation_create_session(
+    state: State<'_, BridgeState>,
+    request: CreateSessionRequest,
+) -> BridgeResult<SessionId> {
+    let segmentation = state.modules.enter::<SegmentationState>(ID).await?;
+    // ... use segmentation.<fields>
 }
 ```
 
-That is the only place the command name is hand-written. The invoke handler,
-`COMMANDS`, `build.rs` permission autogeneration, and the generated transport list
-all derive from it.
+`enter` rejects with `BridgeError::ModuleDisabled { code: 12001, module }` while
+the module is switched off (`set_enabled_modules`), and returns the module's state
+slot otherwise. Keep the command body thin: put logic that needs neither Tauri nor
+`BridgeState` in the module crate (`core/modules/<id>`).
+
+The permission checker scans every `src/*.rs` and `src/modules/*.rs` file for
+`#[command]` fns.
+
+## 2. Register it in the single source (`command_list.rs`)
+
+Add the bare identifier (no quotes, no module path) to the right section. That is
+the only place the command name is hand-written. The invoke handler, the command
+constants, `build.rs` permission autogeneration and the generated TS files all
+derive from it.
 
 ## 3. Grant a permission
 
-Most commands are granted by default: add an `allow-*` entry to
-`core/api_bridge/permissions/default.toml`:
+- **Core command:** most are granted by default with an `allow-*` entry in
+  `core/api_bridge/permissions/default.toml`:
 
-```toml
-"allow-your-command-name",
-```
+  ```toml
+  "allow-your-command-name",
+  ```
 
-Sensitive commands (e.g. the remote-mount connect/auth family) are instead granted
-per-window in `src-tauri/capabilities/*.json` and deliberately left out of
-`default.toml`. Pick one — every command must be granted somewhere.
+  Sensitive commands (e.g. the remote-mount connect/auth family) are instead
+  granted per-window in `src-tauri/capabilities/*.json` and deliberately left out
+  of `default.toml`. Pick one — every command must be granted somewhere.
+- **Module command:** nothing to add. `build.rs` writes the module's set to
+  `permissions/autogenerated/modules/<id>.toml`, and `default.toml` grants the
+  whole module once through `"module-<id>"` (added with the module). Do not grant
+  module commands individually in `default.toml`; the checker rejects it.
+
+Compiled-in modules are always granted, so permissions never depend on whether a
+module is enabled. Runtime enablement is the gate in step 1.
 
 ## 4. Regenerate
 
 ```bash
-cargo xtask ts-bindings          # regenerates apiBridgeCommands.ts (+ types)
-pnpm --filter @brainflow/api build   # compiles the generated file into dist/ (the UI consumes dist)
-cargo build -p api-bridge        # regenerates permissions/autogenerated/*.toml
+cargo xtask ts-bindings          # regenerates apiBridgeCommands.ts, apiBridgeModules.ts (+ types)
+pnpm --filter @brainflow/api build   # compiles the generated files into dist/ (the UI consumes dist)
+cargo build -p api-bridge        # regenerates permissions/autogenerated/ (commands and module sets)
 ```
 
 If you removed a command, delete its now-stale
 `permissions/autogenerated/commands/<cmd>.toml` (the plugin codegen adds files but
-does not prune them). The checker below lists stale files.
+does not prune them). Module set files are pruned by `build.rs`. The checker below
+lists stale files.
+
+Typed per-command client wrappers (`packages/api/src/generated/modules/<id>.ts`)
+are not generated yet; the UI invokes module commands by name, using
+`BRIDGE_MODULES` for module ids, stages and command lists.
 
 ## 5. Verify
 
 ```bash
 pnpm check:permissions            # advisory
 pnpm check:permissions:strict     # non-zero exit on any drift (CI gate)
-cargo test -p api-bridge          # includes the command_list <-> COMMANDS sync test
+cargo test -p api-bridge          # command_list <-> COMMANDS/MODULE_COMMANDS sync, parser, prefix rule
 ```
 
 `tools/check_api_bridge_permissions.mjs` cross-checks every surface: `#[command]`
-functions in `src/*.rs`, `command_list.rs`, the generated
-`apiBridgeCommands.ts`, the autogenerated tomls, and grants in `default.toml` +
-capability JSONs. It flags missing grants, dangling `allow-*`, stale tomls, and
-transport/handler mismatches.
+functions in `src/*.rs` and `src/modules/*.rs`, the sections of `command_list.rs`,
+the generated `apiBridgeCommands.ts` and `apiBridgeModules.ts`, the autogenerated
+command tomls and module sets, and grants in `default.toml` + capability JSONs
+(expanding `module-<id>` sets). It flags missing grants, dangling `allow-*` or set
+grants, module commands granted individually, stale tomls, and transport/handler
+mismatches.
 
 ## Common Pitfalls
 
 - **Forgot `command_list.rs`**: the function compiles but is never registered, so
   `invoke` fails at runtime with "command not found". The sync test and the checker
   both catch this.
+- **Module command outside its adapter**: a `module <id>` entry must be defined in
+  `src/modules/<id>.rs`, or the handler fails to compile.
+- **Module command without the gate**: it keeps working while the module is off.
+  Start every module command with `state.modules.enter::<State>(ID).await?`.
 - **Forgot the grant**: the command is registered but blocked by the permission
   system. `pnpm check:permissions:strict` fails.
 - **Forgot to rebuild `@brainflow/api`**: the UI imports the transport list from the

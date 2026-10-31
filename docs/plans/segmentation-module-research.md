@@ -759,7 +759,7 @@ A channel selector chooses which contrast is sent, because the model takes one c
 - Record the model and licence in the provenance sidecar.
 - Never bundle or auto-download nnInteractive or MedSAM2 weights.
 
-**Batch presegmentation** uses the existing one-shot sidecar once inputs are saved to files; `ui2/src/services/analysis/AnalysisService.ts:29-42` already loads volume results. Results load as proposals for correction. A candidate is NV-Segment-CTMR, for non-commercial use.
+**Batch presegmentation** uses the existing one-shot sidecar once inputs are saved to files; `ui2/src/modules/analysis/services/AnalysisService.ts` (`openArtifact`) already loads volume results. Results load as proposals for correction. A candidate is NV-Segment-CTMR, for non-commercial use.
 
 **Later options:**
 

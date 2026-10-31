@@ -91,7 +91,7 @@ fn generate_ts_bindings() -> Result<()> {
     }
 
     // Check what files were generated
-    let generated_files: Vec<_> = fs::read_dir(&output_dir)?
+    let mut generated_files: Vec<_> = fs::read_dir(&output_dir)?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
             entry
@@ -101,6 +101,8 @@ fn generate_ts_bindings() -> Result<()> {
                 .unwrap_or(false)
         })
         .collect();
+    // Directory order differs between filesystems; sort so index.ts is stable.
+    generated_files.sort_by_key(|entry| entry.file_name());
 
     if generated_files.is_empty() {
         println!("Warning: No TypeScript files were generated. Make sure types are marked with #[ts(export)]");

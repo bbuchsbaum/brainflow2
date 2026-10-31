@@ -8,22 +8,32 @@ import type { ViewType } from './coordinates';
 import type { WorkspacePresetId } from './workspacePresets';
 
 /**
- * Categories for organizing workspaces
+ * Categories for organizing workspaces: views take a slice layout; tools open
+ * once and are refocused afterwards.
  */
-export type WorkspaceCategory = 'visualization' | 'analysis' | 'tool';
+export type WorkspaceCategory = 'visualization' | 'tool';
 
 /**
- * Workspace types represent different view configurations
+ * The workspace types the shell itself provides: the views and the core tools.
  */
-export type WorkspaceType =
-  | 'orthogonal-locked'
-  | 'orthogonal-flexible'
-  | 'mosaic'
-  | 'comparison'
-  | 'integrated'
-  | 'set-studio'
-  | 'bids-explorer'
-  | 'analysis-workbench';
+export const CORE_WORKSPACE_TYPES = [
+  'orthogonal-locked',
+  'orthogonal-flexible',
+  'mosaic',
+  'comparison',
+  'integrated',
+  'set-studio',
+  'bids-explorer',
+] as const;
+
+export type CoreWorkspaceType = (typeof CORE_WORKSPACE_TYPES)[number];
+
+/**
+ * A workspace (tab) type: a core type, or the tool tab of a module registered
+ * in `modules/registry.ts` (`<module>.<name>`, or a grandfathered persisted id).
+ * Look non-core types up through `services/workspaceTypes.ts`.
+ */
+export type WorkspaceType = CoreWorkspaceType | (string & {});
 
 /**
  * Represents a complete workspace with its layout and state
@@ -76,21 +86,27 @@ export interface WorkspaceConfig {
 /**
  * Workspace metadata including category
  */
-export const WORKSPACE_METADATA: Record<WorkspaceType, { category: WorkspaceCategory; name: string; singleton?: boolean }> = {
+export interface WorkspaceMetadata {
+  category: WorkspaceCategory;
+  name: string;
+  singleton?: boolean;
+}
+
+/** Metadata of the core types. Module tools: `getWorkspaceMetadata()`. */
+export const WORKSPACE_METADATA: Record<CoreWorkspaceType, WorkspaceMetadata> = {
   'orthogonal-locked': { category: 'visualization', name: 'Orthogonal (Locked)' },
   'orthogonal-flexible': { category: 'visualization', name: 'Orthogonal Panels' },
   'mosaic': { category: 'visualization', name: 'Mosaic View' },
   'comparison': { category: 'visualization', name: 'Comparison View' },
   'integrated': { category: 'visualization', name: 'Integrated Workspace' },
-  'set-studio': { category: 'analysis', name: 'Set studio', singleton: true },
-  'bids-explorer': { category: 'analysis', name: 'BIDS Explorer', singleton: true },
-  'analysis-workbench': { category: 'analysis', name: 'Analysis Workbench', singleton: true },
+  'set-studio': { category: 'tool', name: 'Set studio', singleton: true },
+  'bids-explorer': { category: 'tool', name: 'BIDS Explorer', singleton: true },
 };
 
 /**
  * Default configurations for different workspace types
  */
-export const DEFAULT_WORKSPACE_CONFIGS: Record<WorkspaceType, Partial<WorkspaceConfig>> = {
+export const DEFAULT_WORKSPACE_CONFIGS: Record<CoreWorkspaceType, Partial<WorkspaceConfig>> = {
   'orthogonal-locked': {},
   'orthogonal-flexible': {},
   'mosaic': {
@@ -102,7 +118,6 @@ export const DEFAULT_WORKSPACE_CONFIGS: Record<WorkspaceType, Partial<WorkspaceC
   'integrated': {},
   'set-studio': {},
   'bids-explorer': {},
-  'analysis-workbench': {},
 };
 
 /**
