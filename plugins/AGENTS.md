@@ -22,7 +22,8 @@ described those; they were never implemented.
 
 ## How the host runs plugins
 - **Discovery:** `AnalysisRegistry::load_default_locations` in
-  `core/api_bridge/src/analysis.rs` scans `plugins/analyses/*` relative to the
+  `core/modules/analysis/src/lib.rs` (crate `bf_analysis`; the bridge adapter is
+  `core/api_bridge/src/modules/analysis.rs`) scans `plugins/analyses/*` relative to the
   process working directory, then `plugins/analyses/*` under the local data dir
   from `directories::ProjectDirs::from("", "", "brainflow")` (for example
   `~/.local/share/brainflow/plugins/analyses` on Linux). Each plugin folder needs

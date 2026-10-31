@@ -24,7 +24,7 @@ Two outcomes define success:
 "Plugin" means three different things in the repository today, and only one of
 them works:
 
-- **Analysis sidecars** (`analysis.json`, `core/api_bridge/src/analysis.rs`). They
+- **Analysis sidecars** (`analysis.json`, now `core/modules/analysis`). They
   work, but they are one-shot: stdin is closed after one request, inputs are file
   paths, and the UI polls for status. They cannot add UI. See `plugins/AGENTS.md`.
 - **`packages/plugin-sdk`** (BasePlugin, LoaderPlugin, VisualizationPlugin, UIPlugin…).
