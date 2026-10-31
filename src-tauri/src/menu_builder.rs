@@ -954,6 +954,13 @@ mod tests {
         // View › Layout › Integrated follows the UI feature flag.
         assert!(main_rs.contains("app.listen(\"integrated-layout-availability\""));
         assert!(main_rs.contains("integrated_item.set_enabled(enabled)"));
+        // The current tab's layout carries a check mark.
+        assert!(main_rs.contains("app.listen(\"current-layout-changed\""));
+        assert_eq!(
+            main_rs.matches("CheckMenuItemBuilder::new(").count(),
+            6,
+            "five View › Layout items plus Show Crosshair are check items"
+        );
     }
 
     /// Cmd+1–4 set the current tab's layout, Cmd+5/6 open tools, Cmd+T opens a

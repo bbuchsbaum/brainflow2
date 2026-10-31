@@ -107,3 +107,26 @@ describe('the export target follows the focused view (native R2-5)', () => {
     unregister();
   });
 });
+
+describe('Export from a tab switched to Mosaic in place (QA 2026-10-30 F26)', () => {
+  it('defaults to the mosaic, not the slice view focused before the switch', () => {
+    resetExportFocusRecency();
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [
+        { id: 't1', name: 't1', volumeId: 't1', visible: true, opacity: 1, colormap: 'gray', intensity: [0, 1], threshold: [0, 0] },
+      ] as never;
+    });
+    useWorkspaceStore.setState({
+      workspaces: new Map([['ws', { id: 'ws', type: 'orthogonal' }]]),
+      activeWorkspaceId: 'ws',
+    } as never);
+    useActiveRenderContextStore.getState().setActive('sagittal');
+    expect(defaultExportTarget()).toBe('sagittal');
+    // The layout pill turns the same tab into a mosaic: no workspace switch.
+    const unregister = registerMosaicExportSource('ws', () => ({ workspaceId: 'ws', axis: 'axial', cols: 4, tiles: [] }));
+    expect(defaultExportTarget()).toBe('mosaic');
+    unregister();
+    // Mosaic not exportable (gone, or not ready): axial, not the stale sagittal.
+    expect(defaultExportTarget()).toBe('axial');
+  });
+});

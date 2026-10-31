@@ -15,7 +15,7 @@ describe('SettingsDialog', () => {
 
   it('Experimental features is off by default and persists when switched on', () => {
     render(<SettingsDialog onClose={() => {}} />);
-    const experimental = screen.getByRole('switch', { name: 'Show unfinished features' });
+    const experimental = screen.getByRole('switch', { name: 'Unfinished features' });
     expect(experimental).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(experimental);
     expect(experimental).toHaveAttribute('aria-checked', 'true');

@@ -16,6 +16,7 @@
  */
 
 import { create } from 'zustand';
+import { sanitizeLogMessage } from '@/utils/logLabels';
 
 export type LogLevel = 'info' | 'warn' | 'error';
 
@@ -59,7 +60,8 @@ const createLogStore = () =>
         timestamp: entry.timestamp ?? Date.now(),
         level: entry.level,
         source: entry.source,
-        message: entry.message,
+        // Never "undefined" where a message was missing (QA 2026-10-30 F40).
+        message: sanitizeLogMessage(entry.message),
       };
       set((state) => {
         const next = state.entries.length >= state.maxEntries

@@ -4,9 +4,13 @@ import { PopulationInferenceControls } from './PopulationInferenceControls';
 import { selectInferenceChannel } from '@/services/studio/populationInference';
 import {
   populationAnatomyStatus,
+  populationCountsSummary,
   populationDiverging,
+  populationHiddenBand,
   populationSharesEffectScale,
 } from '@/services/studio/PopulationSliceService';
+import { PopulationColorbar } from './PopulationColorbar';
+import { populationLensMemory } from './populationLensMemory';
 import { PopulationRelationshipPanel } from './PopulationRelationshipPanel';
 import { populationRelationshipService } from '@/services/studio/PopulationRelationshipService';
 import { PopulationGroupViews } from './PopulationGroupViews';
@@ -106,9 +110,17 @@ export function PopulationLens({
     probeSnapshot?.displayed?.frame.rows.some(
       (row) => typeof row.value === 'number' && Number.isFinite(row.value),
     ) ?? false;
-  const [orientation, setOrientation] = useState<PopulationOrientation>('axial');
-  const [summary, setSummary] = useState<PopulationSummary>('mean');
-  const [zoom, setZoom] = useState(1);
+  // Reopening the lens in the same session keeps its view (QA F44: the
+  // Summary fell back from Median to Mean); a new session or restore resets it.
+  const remembered = populationLensMemory.recall(
+    studio.population.sessionRevision,
+    studio.population.restoredView,
+  );
+  const [orientation, setOrientation] = useState<PopulationOrientation>(
+    remembered?.orientation ?? 'axial',
+  );
+  const [summary, setSummary] = useState<PopulationSummary>(remembered?.summary ?? 'mean');
+  const [zoom, setZoom] = useState(remembered?.zoom ?? 1);
   // Hold-to-preview lives in the store as presentation state, so the values
   // table (another React root) shows the same preview.
   const withoutFocused = studio.populationPreview.holding;
@@ -118,6 +130,7 @@ export function PopulationLens({
   const [groupPage, setGroupPage] = useState(0);
   useEffect(() => {
     const restored = studio.population.restoredView;
+    if (populationLensMemory.recall(studio.population.sessionRevision, restored)) return;
     setOrientation(restored?.orientation ?? 'axial');
     setSummary(restored?.summary ?? 'mean');
     setZoom(restored?.zoom ?? 1);
@@ -125,6 +138,15 @@ export function PopulationLens({
     setCutoutPage(0);
     setGroupPage(0);
   }, [studio.population.sessionRevision, studio.population.restoredView]);
+  useEffect(() => {
+    populationLensMemory.remember({
+      session: studio.population.sessionRevision,
+      restored: studio.population.restoredView,
+      orientation,
+      summary,
+      zoom,
+    });
+  }, [studio.population.sessionRevision, studio.population.restoredView, orientation, summary, zoom]);
 
   const population = useMemo(() => resolvePopulation(studio), [studio]);
   const participants = useMemo(
@@ -564,31 +586,6 @@ export function PopulationLens({
           {issue}
         </Notice>
       )}
-      <PopulationInferenceControls />
-      <PopulationRelationshipPanel summaryKind={summary} sliceService={service} />
-      <PopulationNavigation
-        ids={navigationIds}
-        focusedId={studio.selection.activeMemberId}
-        ready={current && !snapshot.pending}
-        failed={!!issue}
-        scope={`${workspaceId}:${studio.population.sessionRevision}:${studio.selection.activeFeatureId}`}
-        onFocus={populationProbeActions.focus}
-        label={
-          savedOrderLabel ??
-          (arrangement ? populationArrangementLabel(arrangement) : 'Source order')
-        }
-      />
-      <PopulationSelectionRange
-        ids={navigationIds}
-        origin={
-          savedOrder || arrangement
-            ? 'map-derived'
-            : contributors
-              ? (studio.population.partition?.origin ?? 'metadata')
-              : 'manual'
-        }
-        scope={`${workspaceId}:${studio.population.sessionRevision}`}
-      />
       <div
         className="flex flex-wrap items-center gap-2 text-bf-sm"
         aria-label="Population arrangement"
@@ -767,6 +764,22 @@ export function PopulationLens({
                   )}
                 />
                 {result && (
+                  <PopulationColorbar
+                    limit={pane === 'summary' ? result.summaryLimit : result.effectLimit}
+                    band={
+                      pane === 'summary'
+                        ? populationHiddenBand(
+                            result.summaryLimit,
+                            populationCountsSummary(result.query.request),
+                          )
+                        : populationHiddenBand(result.effectLimit)
+                    }
+                    diverging={pane !== 'summary' || populationDiverging(result.query.request)}
+                    paneHeight={paneHeight}
+                    label={pane === 'summary' ? names[result.query.request.summary] : pane === 'reference' ? 'B mean' : 'Actual observation'}
+                  />
+                )}
+                {result && (
                   <div
                     className="pointer-events-none absolute inset-0 text-bf-sm text-white/80"
                     aria-hidden
@@ -830,6 +843,33 @@ export function PopulationLens({
           Fit scale to visible context
         </Button>
       </div>
+      {/* Analysis panels sit below the maps, so the maps keep their height
+          when the dock is open (QA F45). */}
+      <PopulationInferenceControls />
+      <PopulationRelationshipPanel summaryKind={summary} sliceService={service} />
+      <PopulationNavigation
+        ids={navigationIds}
+        focusedId={studio.selection.activeMemberId}
+        ready={current && !snapshot.pending}
+        failed={!!issue}
+        scope={`${workspaceId}:${studio.population.sessionRevision}:${studio.selection.activeFeatureId}`}
+        onFocus={populationProbeActions.focus}
+        label={
+          savedOrderLabel ??
+          (arrangement ? populationArrangementLabel(arrangement) : 'Source order')
+        }
+      />
+      <PopulationSelectionRange
+        ids={navigationIds}
+        origin={
+          savedOrder || arrangement
+            ? 'map-derived'
+            : contributors
+              ? (studio.population.partition?.origin ?? 'metadata')
+              : 'manual'
+        }
+        scope={`${workspaceId}:${studio.population.sessionRevision}`}
+      />
       <div className="flex flex-wrap items-center gap-2 text-bf-sm">
         <Button variant="secondary" size="sm"
           hidden={montage}
@@ -1021,9 +1061,9 @@ export function PopulationLens({
         </details>
       )}
       <p className="text-bf-sm text-muted-foreground">
-        Click either image to pin a location. Mean and individual share the blue–white–red effect
-        scale; magnitude, spread, cancellation and coverage use a separate gold scale. Scales stay
-        fixed while browsing.
+        Click either image to pin a location. Mean, median and individual share the blue–white–red
+        effect scale; magnitude, spread, cancellation and coverage use a separate translucent gold
+        scale. Scales stay fixed while browsing.
       </p>
     </section>
   );

@@ -10,8 +10,9 @@
  * - Tools (Set studio, BIDS, Analysis) open once; opening one again focuses it.
  *
  * Orthogonal has two variants. ⌘1 / the Orthogonal pill keep the current
- * variant when the tab is already orthogonal and otherwise open the locked
- * grid (the mode's default); View › Layout › "Orthogonal panels" switches the
+ * variant when the tab is already orthogonal, return to the variant the tab
+ * last used when it is not (workspace.orthogonalVariant), and otherwise open
+ * the locked grid (the mode's default); View › Layout › "Orthogonal panels" switches the
  * tab to separate, rearrangeable panels. The locked grid's own lock button
  * links or unlinks its slices.
  *

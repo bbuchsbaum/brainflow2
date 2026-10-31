@@ -245,18 +245,20 @@ describe("WorkspaceRouter", () => {
     }
   });
 
-  it("does NOT wrap the BIDS and analysis workspaces in the bottom dock", () => {
+  // The tools share the dock too, so ⌘P / View › Panels › Plot Panel and the
+  // Log work whichever tab is in front (QA 2026-10-30 F31).
+  it("wraps the BIDS and analysis tools in the bottom dock", () => {
     const cases: Array<{ type: WorkspaceType; testid: string }> = [
       { type: "bids-explorer", testid: "route-bids-explorer" },
       { type: "analysis-workbench", testid: "route-analysis-workbench" },
     ];
     for (const { type, testid } of cases) {
-      seedWorkspace(`w-bare-${type}`, type);
+      seedWorkspace(`w-tool-${type}`, type);
       const { unmount } = render(
-        <WorkspaceRouter workspaceId={`w-bare-${type}`} workspaceType={type} />,
+        <WorkspaceRouter workspaceId={`w-tool-${type}`} workspaceType={type} />,
       );
       expect(screen.getByTestId(testid)).toBeInTheDocument();
-      expect(screen.queryByTestId("center-with-bottom-dock")).toBeNull();
+      expect(screen.getByTestId("center-with-bottom-dock")).toBeInTheDocument();
       unmount();
     }
   });

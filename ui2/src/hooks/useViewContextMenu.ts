@@ -67,7 +67,7 @@ export function useViewContextMenu(contextId: string) {
         },
         {
           id: 'toggle-orientation-labels',
-          label: markersOn ? 'Hide Orientation Labels' : 'Show Orientation Labels',
+          label: markersOn ? 'Hide orientation labels' : 'Show orientation labels',
           onClick: () => {
             const layers = useLayerStore.getState().layers.filter(l => l.visible);
             const store = useDisplayOptionsStore.getState();
@@ -84,12 +84,13 @@ export function useViewContextMenu(contextId: string) {
         },
         {
           id: 'image-header',
-          label: 'Image Header…',
+          // Sentence case, like the toggles above (QA 2026-10-30 F47).
+          label: 'Image header…',
           onClick: () => getEventBus().emit('ui.imageHeader.open', {})
         },
         {
           id: 'export-image',
-          label: 'Export View as Image…',
+          label: 'Export view as image…',
           onClick: () => useExportDialogStore.getState().open()
         }
       ]);

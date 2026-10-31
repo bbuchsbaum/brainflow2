@@ -415,6 +415,51 @@ describe('LayerApiImpl', () => {
     expect(mockHistogramService.computeHistogram).not.toHaveBeenCalled();
   });
 
+  it('a binary file is drawn as labels whatever its name (QA 2026-10-30 F17)', async () => {
+    mockApiService.requestLayerGpuResources.mockResolvedValueOnce({
+      data_range: { min: 0, max: 1 },
+      center_world: [0, 0, 0],
+      is_binary_like: true,
+      dim: [8, 8, 8],
+      voxel_to_world: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    });
+    const api = new LayerApiImpl();
+    const added = await api.addLayer(
+      { name: 'lesion.nii', volumeId: 'vol-lesion', visible: true, type: 'anatomical', order: 0 },
+      { workspaceId: 'test' },
+    );
+    expect(added.type).toBe('label');
+    const render = mockLayerStoreState.layerMetadata.get(added.id)?.renderProps;
+    expect(render).toMatchObject({ layerMode: 'label', interpolation: 'nearest', intensity: [0, 1] });
+  });
+
+  it('a small-integer count map keeps its type (review: lesion_overlap_n20)', async () => {
+    mockLayerStoreState.layerMetadata.set('vol-overlap', { nativeDtype: 'u8', source: 'file' });
+    mockApiService.requestLayerGpuResources.mockResolvedValueOnce({
+      data_range: { min: 0, max: 20 },
+      center_world: [0, 0, 0],
+      is_binary_like: false,
+      dim: [8, 8, 8],
+      voxel_to_world: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    });
+    const api = new LayerApiImpl();
+    const added = await api.addLayer(
+      { name: 'lesion_overlap_n20', volumeId: 'vol-overlap', visible: true, type: 'anatomical', order: 0 },
+      { workspaceId: 'test' },
+    );
+    expect(added.type).toBe('anatomical');
+    expect(mockLayerStoreState.layerMetadata.get(added.id)?.renderProps?.layerMode).toBe('scalar');
+  });
+
+  it('a continuous anatomical image keeps its type', async () => {
+    const api = new LayerApiImpl();
+    const added = await api.addLayer(
+      { name: 'T1.nii', volumeId: 'vol-t1', visible: true, type: 'anatomical', order: 0 },
+      { workspaceId: 'test' },
+    );
+    expect(added.type).toBe('anatomical');
+  });
+
   describe('frame boxes for the union field of view (QA 2026-10-29 §3.2)', () => {
     beforeEach(() => layerFrameBoxes.clear());
 

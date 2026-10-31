@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PopulationLens } from '../PopulationLens';
+import { populationLensMemory } from '../populationLensMemory';
 import {
   PopulationSliceService,
   type PopulationSliceRequest,
@@ -33,6 +34,7 @@ beforeEach(() => {
   } as unknown as CanvasRenderingContext2D);
   useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
   useSetStudioStore.getState().loadDemoSession();
+  populationLensMemory.reset();
 });
 afterEach(() => {
   cleanup();
@@ -325,4 +327,36 @@ it('shows a lens hold-to-preview in a values table mounted in a separate React r
   expect(useSetStudioStore.getState().populationPreview.holding).toBe(true);
   cleanup();
   expect(useSetStudioStore.getState().populationPreview.holding).toBe(false);
+});
+
+it('keeps the chosen summary when the lens is reopened in the same session (F44)', async () => {
+  const first = setup();
+  await waitFor(() => expect(first.service.getSnapshot().displayed).not.toBeNull());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Summary' }), {
+    target: { value: 'median' },
+  });
+  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('median');
+  first.unmount();
+  setup();
+  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('median');
+  cleanup();
+  // A new session starts from the default again.
+  useSetStudioStore.getState().loadDemoSession();
+  setup();
+  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('mean');
+});
+
+it('draws a colourbar per map: diverging for the mean and the observation, gold for coverage (F12/F20)', async () => {
+  const { service } = setup();
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  await waitFor(() => expect(screen.getAllByTestId('population-colorbar')).toHaveLength(2));
+  const bars = () => screen.getAllByTestId('population-colorbar');
+  expect(bars().map((bar) => bar.dataset.diverging)).toEqual(['true', 'true']);
+  expect(bars()[0].getAttribute('aria-label')).toMatch(/^Colorbar for Mean: blue–white–red/);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Summary' }), {
+    target: { value: 'coverage' },
+  });
+  await waitFor(() => expect(bars()[0].dataset.diverging).toBe('false'));
+  expect(bars()[0].getAttribute('aria-label')).toMatch(/^Colorbar for Coverage: gold, 0 to /);
+  expect(bars()[1].dataset.diverging).toBe('true');
 });

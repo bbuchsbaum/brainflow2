@@ -65,7 +65,8 @@ export function useNavigationShortcuts({ onOpenGoToDialog }: UseNavigationShortc
         id: 'nav.goToOrigin',
         key: 'o',
         category: CATEGORY,
-        description: 'Go to image origin (0, 0, 0)',
+        // Letter O, not zero (0 is Show all layers; QA 2026-10-30 F41 read them as one key).
+        description: 'Go to world origin',
         handler: goToOrigin,
       }),
       service.register({

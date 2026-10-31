@@ -11,6 +11,7 @@
 import { useLayerStore, type LayerInfo } from "@/stores/layerStore";
 import { sampleLayerAtWorld } from "./SamplingService";
 import type { AtlasPaletteLegendEntry } from "@/types/atlasPalette";
+import { sourceLabel } from "@/utils/logLabels";
 
 export interface AtlasRegionHit {
   layerId: string;
@@ -100,4 +101,17 @@ export function formatRegionLabel(entry: AtlasPaletteLegendEntry): string {
         : "";
   const name = entry.roi.replace(/_/g, " ");
   return [hemi, name].filter(Boolean).join(" ");
+}
+
+/**
+ * The status bar's Region text. When the region comes from an atlas other
+ * than the reported layer (a z map is selected, so the first atlas answers),
+ * the atlas is named: "LH Pallidum · aseg.nii.gz" (QA 2026-10-30 F49).
+ */
+export function regionReadoutText(hit: AtlasRegionHit, reportedLayerId?: string | null): string {
+  const label = formatRegionLabel(hit.entry);
+  if (!reportedLayerId || hit.layerId === reportedLayerId) return label;
+  const atlas = useLayerStore.getState().layers.find((layer) => layer.id === hit.layerId);
+  const name = atlas ? sourceLabel(atlas.sourcePath, atlas.name, atlas.id) : "";
+  return name ? `${label} · ${name}` : label;
 }

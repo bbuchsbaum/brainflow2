@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { LayerService, type LayerApi } from '@/services/LayerService';
 import { layerFrameBoxes } from '@/services/layerFrameBoxes';
-import { fitViewsToWorldBox, worldBoxFromViews, type WorldBox } from '@/utils/worldFrame';
+import { edgeBoxFromAffine, fitViewsToWorldBox, insideVoxelGrid, worldBoxFromViews, type WorldBox } from '@/utils/worldFrame';
 import type { ViewLayer, ViewState } from '@/types/viewState';
 
 vi.mock('@/services/apiService', () => ({ getApiService: () => ({}) }));
@@ -123,6 +123,47 @@ describe('union field of view', () => {
     expect(views().axial.origin_mm[2]).toBe(108);
     expect(views().coronal.origin_mm[1]).toBe(90);
     expect(views().sagittal.origin_mm[0]).toBe(90);
+  });
+
+  it('moves the crosshair into an oblique layer, not an empty corner of its box (QA 2026-10-30 F6)', () => {
+    // 40³ voxels of 2 mm rotated 45° about z, centred at the origin.
+    const c = Math.SQRT1_2 * 2;
+    const voxelToWorld = [c, c, 0, 0, -c, c, 0, 0, 0, 0, 2, 0, 0, -39 * c, -39, 1];
+    const grid = { voxelToWorld, dims: [40, 40, 40] };
+    const obliqueBox = edgeBoxFromAffine(voxelToWorld, grid.dims)!;
+    loadFirst('t1', t1);
+    layerFrameBoxes.record('oblique', obliqueBox, grid);
+    useViewStateStore.getState().setViewState((draft: ViewState) => {
+      draft.layers.push(viewLayer('oblique', true));
+    });
+    // Inside the oblique's world box, outside its voxels (a box corner).
+    const corner: [number, number, number] = [obliqueBox.max[0] - 2, obliqueBox.max[1] - 2, 33];
+    expect(insideVoxelGrid(corner, grid)).toBe(false);
+    useViewStateStore.getState().setViewState((draft: ViewState) => {
+      draft.crosshair.world_mm = corner;
+    });
+    useViewStateStore.getState().setViewState((draft: ViewState) => {
+      draft.layers = draft.layers.filter((layer) => layer.id !== 't1');
+    });
+    const moved = state().crosshair.world_mm as [number, number, number];
+    expect(insideVoxelGrid(moved, grid)).toBe(true);
+    // z was inside the slab range and stays.
+    expect(moved[2]).toBeCloseTo(33, 6);
+  });
+
+  it('leaves a crosshair already inside a remaining oblique layer where it is', () => {
+    const voxelToWorld = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, -20, -20, -20, 1];
+    const grid = { voxelToWorld, dims: [20, 20, 20] };
+    loadFirst('t1', t1);
+    layerFrameBoxes.record('small', edgeBoxFromAffine(voxelToWorld, grid.dims)!, grid);
+    useViewStateStore.getState().setViewState((draft: ViewState) => {
+      draft.layers.push(viewLayer('small', true));
+      draft.crosshair.world_mm = [1, 2, 3];
+    });
+    useViewStateStore.getState().setViewState((draft: ViewState) => {
+      draft.layers = draft.layers.filter((layer) => layer.id !== 't1');
+    });
+    expect(state().crosshair.world_mm).toEqual([1, 2, 3]);
   });
 
   it('drops frame boxes on reset and when their workspace closes (M10)', () => {

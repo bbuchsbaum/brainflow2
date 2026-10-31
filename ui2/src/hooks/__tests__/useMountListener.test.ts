@@ -178,7 +178,103 @@ describe('useMountListener', () => {
     });
 
     expect(mockLoadFile).toHaveBeenCalledTimes(1);
-    expect(mockLoadFile).toHaveBeenCalledWith('/tmp/brain.nii.gz', 'file-dialog', 'default');
+    expect(mockLoadFile).toHaveBeenCalledWith('/tmp/brain.nii.gz', 'file-dialog', 'default', expect.any(String));
+  });
+
+  it('loads every file of a multi-select Open, one after another (QA 2026-10-30 F25)', async () => {
+    renderHook(() => useMountListener());
+    await waitFor(() => {
+      expect(listeners['open-file-event']).toBeTypeOf('function');
+    });
+    const order: string[] = [];
+    mockLoadFile.mockImplementation(async (path: string) => {
+      order.push(`start ${path}`);
+      await Promise.resolve();
+      if (path.includes('bad')) throw new Error('truncated');
+      order.push(`end ${path}`);
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await act(async () => {
+      await listeners['open-file-event']({
+        payload: { path: '/tmp/a.nii.gz', paths: ['/tmp/a.nii.gz', '/tmp/bad.nii', '/tmp/c.gii'] },
+      });
+    });
+
+    expect(order).toEqual([
+      'start /tmp/a.nii.gz',
+      'end /tmp/a.nii.gz',
+      'start /tmp/bad.nii',
+      'start /tmp/c.gii',
+      'end /tmp/c.gii',
+    ]);
+    expect(mockLoadFile).toHaveBeenCalledWith('/tmp/c.gii', 'file-dialog', 'default', expect.any(String));
+    error.mockRestore();
+    mockLoadFile.mockReset();
+  });
+
+  it('a multi-file open stays in the tab it started in, and stops if that tab closes', async () => {
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    const original = useViewStateStore.getState();
+    const views = new Map(original.workspaceViewStates);
+    views.set('tab-a', original.viewState);
+    views.set('tab-b', original.viewState);
+    useViewStateStore.setState({ workspaceViewStates: views, activeWorkspaceKey: 'tab-a' });
+
+    renderHook(() => useMountListener());
+    await waitFor(() => {
+      expect(listeners['open-file-event']).toBeTypeOf('function');
+    });
+    const seen: Array<[string, string | undefined]> = [];
+    mockLoadFile.mockImplementation(async (path: string, _i: string, _n: string, ws?: string) => {
+      seen.push([path, ws]);
+      if (path === '/tmp/1.nii') {
+        // The user switches tabs while the first file loads.
+        useViewStateStore.setState({ activeWorkspaceKey: 'tab-b' });
+      }
+      if (path === '/tmp/2.nii') {
+        // …then closes the tab the open belongs to.
+        const next = new Map(useViewStateStore.getState().workspaceViewStates);
+        next.delete('tab-a');
+        useViewStateStore.setState({ workspaceViewStates: next });
+      }
+    });
+
+    await act(async () => {
+      await listeners['open-file-event']({
+        payload: { path: '/tmp/1.nii', paths: ['/tmp/1.nii', '/tmp/2.nii', '/tmp/3.nii'] },
+      });
+    });
+
+    expect(seen).toEqual([
+      ['/tmp/1.nii', 'tab-a'],
+      ['/tmp/2.nii', 'tab-a'],
+    ]);
+    mockLoadFile.mockReset();
+    useViewStateStore.setState({
+      workspaceViewStates: original.workspaceViewStates,
+      activeWorkspaceKey: original.activeWorkspaceKey,
+    });
+  });
+
+  it('reports every unsupported file of a multi-file open in one notification', async () => {
+    const { getEventBus } = await import('@/events/EventBus');
+    const emit = vi.spyOn(getEventBus(), 'emit');
+    renderHook(() => useMountListener());
+    await waitFor(() => {
+      expect(listeners['open-file-event']).toBeTypeOf('function');
+    });
+    await act(async () => {
+      await listeners['open-file-event']({
+        payload: { path: '/tmp/a.txt', paths: ['/tmp/a.txt', '/tmp/b.nii', '/tmp/c.tar.gz'] },
+      });
+    });
+    const toasts = emit.mock.calls.filter(([name]) => name === 'ui.notification');
+    expect(toasts).toHaveLength(1);
+    expect((toasts[0][1] as { message: string }).message).toContain('a.txt, c.tar.gz');
+    expect(mockLoadFile).toHaveBeenCalledTimes(1);
+    expect(mockLoadFile).toHaveBeenCalledWith('/tmp/b.nii', 'file-dialog', 'default', expect.any(String));
+    emit.mockRestore();
   });
 
   it('passes explicit open intents through open-file-event', async () => {
@@ -195,7 +291,7 @@ describe('useMountListener', () => {
     });
 
     expect(mockLoadFile).toHaveBeenCalledTimes(1);
-    expect(mockLoadFile).toHaveBeenCalledWith('/tmp/brain.nii.gz', 'file-dialog', 'comparison');
+    expect(mockLoadFile).toHaveBeenCalledWith('/tmp/brain.nii.gz', 'file-dialog', 'comparison', expect.any(String));
   });
 
   it('ignores open-file-event when path is empty', async () => {

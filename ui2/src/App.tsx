@@ -20,7 +20,7 @@ import { useStudioStatusBridge } from '@/hooks/useStudioStatusBridge';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { useAppSettingsMenuListener } from '@/hooks/useAppSettingsMenuListener';
 import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
-import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
+import { handleVolumeAtlasPreset, useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
 import { useExportMenuListener } from '@/hooks/useExportMenuListener';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
@@ -58,6 +58,7 @@ import { KeyboardShortcutsDialog } from '@/components/dialogs/KeyboardShortcutsD
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { getCrosshairService } from '@/services/CrosshairService';
 import { useAppModeStore } from '@/stores/appModeStore';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { getAnalysisWorkbenchService } from '@/services/analysis/AnalysisWorkbenchService';
@@ -262,6 +263,18 @@ function AppContent() {
         keywords: ['crosshair', 'settings', 'snap', 'voxel', 'colour', 'color'],
         group: 'Navigation',
         run: () => setShowCrosshairSettings(true),
+      },
+      {
+        // The native View › Show Crosshair item, from the palette (F41).
+        id: 'crosshair.toggleVisible',
+        title: 'Toggle Crosshair',
+        subtitle: 'Show or hide the crosshair in every view.',
+        keywords: ['crosshair', 'show', 'hide', 'cursor', 'visible'],
+        group: 'Navigation',
+        run: () => {
+          const crosshair = getCrosshairService();
+          crosshair.setVisible(!crosshair.getCrosshairState().isVisible);
+        },
       },
       {
         id: 'crosshair.toggleSnap',
@@ -530,6 +543,35 @@ function AppContent() {
       })),
     ];
 
+    // Atlases › the volume presets (QA 2026-10-30 F30: "atlas" and "aseg"
+    // found nothing to load), through the native menu's own handler.
+    const atlasCommands: CommandPaletteCommand[] = (
+      [
+        ['freesurfer_aseg', 'ASEG Subcortical', ['aseg', 'freesurfer', 'subcortical']],
+        ['olsen_mtl', 'Olsen MTL', ['olsen', 'mtl', 'medial temporal', 'hippocampus']],
+        ['glasser2016', 'Glasser 360', ['glasser', 'hcp', 'mmp', 'cortical', 'parcellation']],
+      ] as const
+    ).map(([atlasId, label, words]) => ({
+      id: `atlas.load.${atlasId}`,
+      title: `Load Atlas: ${label}`,
+      subtitle: 'Add the atlas (MNI152NLin2009cAsym, 1 mm) as a label layer.',
+      keywords: ['atlas', 'label', 'regions', ...words],
+      group: 'Atlases',
+      // Failures take the native menu's path: logged, then an error toast.
+      run: () =>
+        handleVolumeAtlasPreset(
+          { atlas_id: atlasId, space: 'MNI152NLin2009cAsym', resolution: '1mm' },
+          getEventBus(),
+        ).catch((error: unknown) => {
+          console.error('[CommandPalette] Failed to load atlas preset:', error);
+          getEventBus().emit('ui.notification', {
+            type: 'error',
+            message:
+              error instanceof Error ? `Failed to load atlas: ${error.message}` : 'Failed to load atlas preset.',
+          });
+        }),
+    }));
+
     const savedLayoutCommands: CommandPaletteCommand[] = savedLayouts.map((layout) => ({
       id: `layout.named.${layout.id}`,
       title: `Load Layout: ${layout.name}`,
@@ -541,7 +583,7 @@ function AppContent() {
       },
     }));
 
-    return [...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths), ...navigationCommands, ...savedLayoutCommands];
+    return [...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths), ...navigationCommands, ...atlasCommands, ...savedLayoutCommands];
   }, [integratedWorkspaceEnabled, loadSavedLayout, savedLayouts]);
 
   // Register '?' shortcut to open the keyboard shortcuts dialog

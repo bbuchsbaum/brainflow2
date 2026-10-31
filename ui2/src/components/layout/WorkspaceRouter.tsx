@@ -122,10 +122,20 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
           <SetStudioWorkspace />
         </CenterWithBottomDock>
       );
+    // The tools have the dock too: ⌘P, View › Panels › Plot Panel and the Log
+    // must not depend on which tab is in front (QA 2026-10-30 F31).
     case "bids-explorer":
-      return <BidsExplorerWorkspace workspaceId={workspaceId} />;
+      return (
+        <CenterWithBottomDock>
+          <BidsExplorerWorkspace workspaceId={workspaceId} />
+        </CenterWithBottomDock>
+      );
     case "analysis-workbench":
-      return <AnalysisWorkbenchWorkspace workspaceId={workspaceId} />;
+      return (
+        <CenterWithBottomDock>
+          <AnalysisWorkbenchWorkspace workspaceId={workspaceId} />
+        </CenterWithBottomDock>
+      );
     default:
       return (
         <div

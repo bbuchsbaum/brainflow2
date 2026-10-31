@@ -42,6 +42,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
         <Section variant="static" title="Status bar" divider={false}>
           <FieldRow
             label="Pointer readout"
+            labelWidth="wide"
             controlId="settings-pointer-readout"
             hint="Position, value and region under the pointer, beside the crosshair's."
           >
@@ -51,7 +52,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
         <Section variant="static" title="Experimental features">
           <FieldRow
-            label="Show unfinished features"
+            // Wide column, short label: "Show unfinished features" was cut
+            // to "Show unfinishe…" (QA 2026-10-30 F47).
+            label="Unfinished features"
+            labelWidth="wide"
             controlId="settings-experimental"
             hint="The Inspector's Annotate tab and Advanced section. They do not work yet."
           >

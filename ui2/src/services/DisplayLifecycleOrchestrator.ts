@@ -17,12 +17,14 @@ import { getTransport } from './transport';
 import type { WorkspaceBrowserTransport } from './browser/WorkspaceBrowserTransport';
 import { matchingOverlayTarget } from './surfaceOverlayIdentity';
 import { formatTauriError, toError, loadFailureMessage } from '@/utils/formatTauriError';
+import { SUPPORTED_DISPLAY_EXTENSIONS, isSupportedDisplayPath } from '@/utils/displayFileTypes';
 import { fileLoadScheduler } from './LoadScheduler';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService } from './apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
+import { addLogEntry } from '@/stores/logStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 import { looksLikeSegmentation } from '@/utils/labelTable';
 import type { Layer } from '@/types/layers';
@@ -51,7 +53,7 @@ type DroppedFile = File & {
   path?: string;
 };
 
-const SUPPORTED_EXTENSIONS = ['.nii', '.nii.gz', '.gii', '.gifti'] as const;
+const SUPPORTED_EXTENSIONS = SUPPORTED_DISPLAY_EXTENSIONS;
 
 export class DisplayLifecycleOrchestrator {
   private static instance: DisplayLifecycleOrchestrator | null = null;
@@ -286,8 +288,7 @@ export class DisplayLifecycleOrchestrator {
   }
 
   private hasSupportedExtension(path: string): boolean {
-    const lower = path.toLowerCase();
-    return SUPPORTED_EXTENSIONS.some((extension) => lower.endsWith(extension));
+    return isSupportedDisplayPath(path);
   }
 
   private extractFilename(path: string): string {
@@ -337,9 +338,11 @@ export class DisplayLifecycleOrchestrator {
     workspaceId = useViewStateStore.getState().activeWorkspaceKey,
   ): Promise<Layer | null> {
     if (useLoadingQueueStore.getState().isLoading(path)) {
+      // Logged too: a second open of the same file is not lost silently (F29).
       this.eventBus.emit('ui.notification', {
-        type: 'info',
-        message: `File is already being loaded: ${filename}`,
+        type: 'warning',
+        message: `Already opening ${filename}`,
+        logSource: 'volume',
       });
       return null;
     }
@@ -348,6 +351,7 @@ export class DisplayLifecycleOrchestrator {
       type: 'volume-load',
       path,
       displayName: filename,
+      ...(workspaceId !== undefined ? { workspaceId } : {}),
       retry: {
         kind: 'volume-load',
         path,
@@ -423,7 +427,27 @@ export class DisplayLifecycleOrchestrator {
       if (provisional && !handedOff)
         await this.apiService.unloadVolume(provisional).catch(() => {});
       if (abort.signal.aborted || /cancelled/i.test(formatTauriError(error))) {
+        // An open never ends silently (QA 2026-10-30 F29): say why it stopped.
+        // A closed workspace first: closing its tab also drops the queue item,
+        // which must not read as the user cancelling the open.
+        const closed =
+          workspaceId !== undefined && !useViewStateStore.getState().workspaceViewStates.has(workspaceId);
+        const byUser =
+          !closed &&
+          !useLoadingQueueStore.getState().activeLoads.has(queueId) &&
+          !useLoadingQueueStore.getState().queue.some((item) => item.id === queueId);
         useLoadingQueueStore.getState().cancel(queueId);
+        if (byUser) {
+          addLogEntry({ level: 'info', source: 'volume', message: `Cancelled opening ${filename}` });
+        } else {
+          this.eventBus.emit('ui.notification', {
+            type: 'warning',
+            message: closed
+              ? `Did not open ${filename}: the view it was opened in was closed`
+              : `Did not open ${filename}: the load was interrupted`,
+            logSource: 'volume',
+          });
+        }
         return null;
       }
       const failure = toError(error);
@@ -432,6 +456,7 @@ export class DisplayLifecycleOrchestrator {
       this.eventBus.emit('ui.notification', {
         type: 'error',
         message: loadFailureMessage(filename, failure),
+        logSource: 'volume',
       });
       return null;
     } finally {
@@ -530,6 +555,7 @@ export class DisplayLifecycleOrchestrator {
       this.eventBus.emit('ui.notification', {
         type: 'error',
         message: loadFailureMessage(`overlay ${filename}`, failure),
+        logSource: 'surface',
       });
       return null;
     }

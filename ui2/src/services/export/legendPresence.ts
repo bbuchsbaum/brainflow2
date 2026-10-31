@@ -97,9 +97,25 @@ const rgbKey = (r: number, g: number, b: number) => (r << 16) | (g << 8) | b;
 export const LEGEND_COLOR_TOLERANCE = 1;
 
 /**
+ * The probe's background: render_view clears to opaque black whatever the
+ * requested transparency, so label id 0 reads back as (0, 0, 0, 255). It is
+ * not a region (QA 2026-10-30 F18: at z = 48 the black background alone
+ * matched no entry, the probe answered "unreadable", and the whole ASEG
+ * legend was listed).
+ */
+export const PROBE_BACKGROUND: readonly [number, number, number] = [0, 0, 0];
+
+const nearBackground = ([r, g, b]: readonly number[]) =>
+  Math.abs(r - PROBE_BACKGROUND[0]) <= LEGEND_COLOR_TOLERANCE &&
+  Math.abs(g - PROBE_BACKGROUND[1]) <= LEGEND_COLOR_TOLERANCE &&
+  Math.abs(b - PROBE_BACKGROUND[2]) <= LEGEND_COLOR_TOLERANCE;
+
+/**
  * The legend entries whose colour (±{@link LEGEND_COLOR_TOLERANCE} per
  * channel) is drawn fully opaque in any raster; partly transparent pixels
- * are edges or halos, not a region's colour. Null when regions were drawn
+ * are edges or halos, not a region's colour, and the opaque black background
+ * ({@link PROBE_BACKGROUND}) is no region. An entry drawn in the background
+ * colour cannot be told from it and is kept. Null when regions were drawn
  * but none matched a legend colour: the colours are not the legend's (a LUT
  * the probe cannot read back), so nothing can be said about presence.
  */
@@ -110,7 +126,9 @@ export function presentLegendEntries(
   const drawn = new Set<number>();
   for (const pixels of rasters) {
     for (let i = 0; i + 3 < pixels.length; i += 4) {
-      if (pixels[i + 3] === 255) drawn.add(rgbKey(pixels[i], pixels[i + 1], pixels[i + 2]));
+      if (pixels[i + 3] !== 255) continue;
+      const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
+      if (!nearBackground(rgb)) drawn.add(rgbKey(rgb[0], rgb[1], rgb[2]));
     }
   }
   const t = LEGEND_COLOR_TOLERANCE;
@@ -126,8 +144,14 @@ export function presentLegendEntries(
     }
     return false;
   };
-  const present = legend.filter((entry) => isDrawn(entry.color.map((c) => Math.round(c))));
-  return present.length === 0 && drawn.size > 0 ? null : present;
+  const rgbOf = (entry: AtlasPaletteLegendEntry) => entry.color.map((c) => Math.round(c));
+  // Presence is decided by the entries the probe can see; background-coloured
+  // ones are added back afterwards. Counting them first would make an
+  // unreadable LUT look readable (review of F18).
+  const seen = legend.filter((entry) => !nearBackground(rgbOf(entry)) && isDrawn(rgbOf(entry)));
+  if (seen.length === 0 && drawn.size > 0) return null;
+  const kept = new Set(seen);
+  return legend.filter((entry) => kept.has(entry) || nearBackground(rgbOf(entry)));
 }
 
 /**

@@ -187,6 +187,38 @@ export interface ExportSideBar {
   /** Value at the crosshair, drawn as a caret like the frame (As shown only). */
   value?: number | null;
   legend?: AtlasPaletteLegendEntry[] | null;
+  /**
+   * The legend by label layer (topmost first), when several are drawn: each
+   * group is listed under its layer's name, so regions of two atlases are
+   * told apart. `legend` is then the groups' entries, in order.
+   */
+  legendGroups?: LegendGroup[] | null;
+}
+
+/** One label layer's regions in the legend. */
+export interface LegendGroup {
+  name: string;
+  entries: AtlasPaletteLegendEntry[];
+}
+
+/** A row of the Regions legend: a layer subheader or a region. */
+export type LegendLine =
+  | { kind: 'group'; name: string }
+  | { kind: 'entry'; entry: AtlasPaletteLegendEntry };
+
+/**
+ * The legend's rows: with two or more non-empty groups each is headed by its
+ * layer name; otherwise just the regions.
+ */
+export function legendLines(side: Pick<ExportSideBar, 'legend' | 'legendGroups'>): LegendLine[] {
+  const groups = (side.legendGroups ?? []).filter((g) => g.entries.length > 0);
+  if (groups.length > 1) {
+    return groups.flatMap((g): LegendLine[] => [
+      { kind: 'group', name: g.name },
+      ...g.entries.map((entry): LegendLine => ({ kind: 'entry', entry })),
+    ]);
+  }
+  return (side.legend ?? []).map((entry) => ({ kind: 'entry', entry }));
 }
 
 /** Colours for text drawn on the page (header band, colorbar column). */
@@ -823,13 +855,62 @@ function colorbarBlockLayout(ctx: CanvasRenderingContext2D, side: ExportSideBar,
   return { caretRoom, prefix, nameInline, nameLines, headroom, footerTwoLines, noteLines, footBlock };
 }
 
-/** Height the side column needs (colorbar block, and a legend below it). */
-export function sideColumnMinHeight(ctx: CanvasRenderingContext2D, side: ExportSideBar, u: number): number {
-  if (!side.colorbar) return 0;
+/**
+ * Rows of the Regions legend the canvas grows to hold. A legend longer than
+ * the figure is tall and than this ends in a "+N more" row; below it every
+ * region is listed (QA 2026-10-30 F18: the legend stopped at 8 rows, wherever
+ * the column ran out, dropping drawn regions without a word).
+ */
+export const LEGEND_GROW_ROWS = 40;
+
+/** Height of a Regions legend block of `rows` rows. */
+export function legendBlockHeight(rows: number, u: number): number {
+  return rows * ptToPx(TEXT_PT.label, u) * 1.6 + 16 * u;
+}
+
+/**
+ * The entries a legend of `capacity` rows lists, and how many it leaves for
+ * its closing "+N more" row (0: all are listed).
+ */
+export function legendRows<T>(
+  legend: readonly T[],
+  capacity: number,
+  /** Rows that count toward "+N more" (subheaders do not). */
+  counts: (row: T) => boolean = () => true,
+): { rows: T[]; more: number } {
+  const cap = Math.max(1, Math.floor(capacity));
+  if (legend.length <= cap) return { rows: [...legend], more: 0 };
+  const rows = legend.slice(0, Math.max(0, cap - 1));
+  // No subheader left dangling over the "+N more" row.
+  while (rows.length > 0 && !counts(rows[rows.length - 1])) rows.pop();
+  return { rows, more: legend.slice(rows.length).filter(counts).length };
+}
+
+/** Height of the colorbar block alone (caption, shortest bar, footer). */
+function colorbarBlockMinHeight(ctx: CanvasRenderingContext2D, side: ExportSideBar, u: number): number {
   const l = colorbarBlockLayout(ctx, side, u);
-  const block = l.headroom + MIN_EXPORT_BAR * u + l.footBlock;
-  // With a legend the colorbar gets the top 60% of the column.
-  return side.legend && side.legend.length > 0 ? block / 0.6 : block;
+  return l.headroom + MIN_EXPORT_BAR * u + l.footBlock;
+}
+
+/** Height the side column needs (colorbar block, and a legend below it). */
+export function sideColumnMinHeight(
+  ctx: CanvasRenderingContext2D | null,
+  side: ExportSideBar,
+  u: number,
+): number {
+  const entries = legendLines(side).length;
+  const legendH = entries > 0 ? legendBlockHeight(Math.min(entries, LEGEND_GROW_ROWS), u) : 0;
+  if (!side.colorbar || !ctx) return legendH;
+  return colorbarBlockMinHeight(ctx, side, u) + legendH;
+}
+
+/**
+ * Where the colorbar block ends and the legend begins in a side column of
+ * height `sh`: the colorbar keeps the top 60% unless the legend needs more,
+ * and never less than its own block.
+ */
+export function sideColumnSplit(sh: number, colorbarMin: number, legendH: number): number {
+  return Math.round(Math.max(colorbarMin, Math.min(sh * 0.6, sh - legendH)));
 }
 
 function drawColorbar(
@@ -1021,19 +1102,32 @@ function drawLegend(
   x: number,
   y: number,
   height: number,
-  legend: AtlasPaletteLegendEntry[],
+  legend: LegendLine[],
   u: number,
   theme: PageTheme,
 ): void {
   const px = ptToPx(TEXT_PT.label, u);
   const line = px * 1.6;
-  const rows = legend.slice(0, Math.max(1, Math.floor((height - 16 * u) / line)));
-  let ty = y + (height - rows.length * line) / 2;
+  const { rows, more } = legendRows(legend, (height - 16 * u) / line, (r) => r.kind === 'entry');
+  let ty = y + (height - (rows.length + (more > 0 ? 1 : 0)) * line) / 2;
   const room = SIDEBAR_W * u - 26 * u;
   ctx.save();
   ctx.font = font(px, SANS);
   ctx.textBaseline = 'middle';
-  for (const entry of rows) {
+  for (const row of rows) {
+    if (row.kind === 'group') {
+      // The layer's name over its regions, muted, at the swatch's left edge.
+      ctx.fillStyle = theme.muted;
+      const full = row.name;
+      let name = full;
+      for (let chars = full.length; chars >= 4 && ctx.measureText(name).width > room + 12 * u; chars -= 1) {
+        name = middleTruncate(full, chars, 4) ?? full;
+      }
+      ctx.fillText(name, x + 8 * u, ty + line / 2);
+      ty += line;
+      continue;
+    }
+    const entry = row.entry;
     ctx.fillStyle = `rgb(${entry.color[0]}, ${entry.color[1]}, ${entry.color[2]})`;
     ctx.fillRect(x + 8 * u, ty + line / 2 - 3 * u, 6 * u, 6 * u);
     ctx.fillStyle = theme.text;
@@ -1045,6 +1139,10 @@ function drawLegend(
     }
     ctx.fillText(name, x + 20 * u, ty + line / 2);
     ty += line;
+  }
+  if (more > 0) {
+    ctx.fillStyle = theme.muted;
+    ctx.fillText(`+${more} more`, x + 20 * u, ty + line / 2);
   }
   ctx.restore();
 }
@@ -1150,7 +1248,7 @@ export function compose(
   // The side column's height, measured with the same fonts (a scratch
   // context): a short figure row grows to hold the whole colorbar block.
   const measureCtx = hasSide && side.colorbar ? (makeCanvas(1, 1).getContext('2d') as CanvasRenderingContext2D | null) : null;
-  const sideMin = measureCtx ? sideColumnMinHeight(measureCtx, side, u) : 0;
+  const sideMin = hasSide ? sideColumnMinHeight(measureCtx, side, u) : 0;
   const layout = compositionLayout(
     rows.map((r) => r.map((p) => ({ width: p.width, height: p.height, tile: !!p.tileLabel }))),
     options,
@@ -1176,10 +1274,12 @@ export function compose(
 
   if (layout.side) {
     const { x: sx, height: sh } = layout.side;
-    const legend = side.legend && side.legend.length > 0 ? side.legend : null;
+    const lines = legendLines(side);
+    const legend = lines.length > 0 ? lines : null;
     if (side.colorbar && legend) {
       // A statistic over a label map: the colorbar above, the regions below.
-      const split = Math.round(sh * 0.6);
+      const colorbarMin = measureCtx ? colorbarBlockMinHeight(measureCtx, side, u) : 0;
+      const split = sideColumnSplit(sh, colorbarMin, legendBlockHeight(legend.length, u));
       drawColorbar(ctx, sx, 0, split, side, u, theme);
       drawLegend(ctx, sx, split, sh - split, legend, u, theme);
     } else if (side.colorbar) drawColorbar(ctx, sx, 0, sh, side, u, theme);

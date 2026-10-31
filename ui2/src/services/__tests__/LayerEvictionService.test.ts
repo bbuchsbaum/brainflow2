@@ -42,6 +42,11 @@ vi.mock('@/services/apiService', () => ({
   getApiService: () => mockApiService,
 }));
 
+const derived = vi.hoisted(() => ({ live: 0 }));
+vi.mock('@/services/studio/StudioDerivedMapService', () => ({
+  getStudioDerivedMapService: () => ({ liveCount: () => derived.live }),
+}));
+
 vi.mock('@/events/EventBus', () => ({
   getEventBus: () => mockEventBus,
 }));
@@ -57,6 +62,30 @@ describe('LayerEvictionService', () => {
     mockViewStateStoreState.viewState = {
       layers: [],
     };
+    derived.live = 0;
+  });
+
+  it('counts Set studio Compare maps against the GPU budget (QA wave 3 review W1)', async () => {
+    // Under the budget by layer count alone, over it with three derived maps.
+    const layers = Array.from({ length: MAX_GPU_LAYERS - 1 }, (_, index) => ({
+      id: `layer-${index}`,
+      name: `Layer ${index}`,
+      volumeId: `layer-${index}`,
+      visible: index !== 0,
+      type: 'anatomical',
+      order: index,
+    }));
+    mockLayerStoreState.layers = layers as never;
+    mockViewStateStoreState.viewState.layers = layers.map((l) => ({ id: l.id, visible: l.visible })) as never;
+    for (const layer of layers)
+      mockLayerStoreState.layerMetadata.set(layer.id, { gpuResident: true, lastRenderTime: 1 });
+
+    await layerEvictionService.checkAndEvict();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+
+    derived.live = 3;
+    await layerEvictionService.checkAndEvict();
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
   });
 
   it('ignores deferred hidden layers and evicts the oldest invisible resident layer when over budget', async () => {

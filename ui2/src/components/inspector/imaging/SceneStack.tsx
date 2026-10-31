@@ -24,6 +24,9 @@ import { useLayerStore } from "@/stores/layerStore";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
 import { removeLayerFromScene } from "@/services/layerRemoval";
+import { useLoadingQueueStore } from "@/stores/loadingQueueStore";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import { getEventBus } from "@/events/EventBus";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import type { SceneItem } from "@/types/sceneItem";
 import {
@@ -55,6 +58,24 @@ import { useIjkSuffix, useReadoutGrid } from "@/hooks/useReadoutGrid";
  * is volume-first; if there are zero volumes the user is on a brand-new
  * canvas and the empty placeholder serves as the obvious next-action).
  */
+const VOLUME_OPENS = new Set(["volume-load", "template", "atlas"]);
+
+/**
+ * A volume, template or atlas is opening into `workspaceId` and was asked
+ * for after the row was selected: the new layer has no row yet, so Delete
+ * then most likely meant it. Loads elsewhere (another workspace, a Studio
+ * population load) and loads older than the selection do not count.
+ */
+function openPendingSinceSelection(workspaceId: string, selectedAt: number): boolean {
+  const { queue, activeLoads } = useLoadingQueueStore.getState();
+  return [...queue, ...activeLoads.values()].some(
+    (item) =>
+      VOLUME_OPENS.has(item.type) &&
+      item.workspaceId === workspaceId &&
+      (item.enqueuedAt ?? 0) >= selectedAt,
+  );
+}
+
 export function SceneStack() {
   const { volumes, surfaces, mappings } = useSceneStack();
   const activeItemId = useInspectorSelectionStore(
@@ -276,6 +297,11 @@ function VolumeSceneGroup({
   rovingFor: RovingFor;
 }) {
   const listRef = React.useRef<HTMLDivElement>(null);
+  // When the current row was selected (F35: only later opens block Delete).
+  const selectedAt = React.useRef(Date.now());
+  React.useEffect(() => {
+    selectedAt.current = Date.now();
+  }, [activeItemId]);
   // Delete / Backspace removes the selected volume while focus is in the
   // list (never from a text field: the list holds none, but guard anyway).
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -288,6 +314,19 @@ function VolumeSceneGroup({
     if (!item || item.ref.type !== "volume") return;
     event.preventDefault();
     event.stopPropagation();
+    // An image opened since this row was selected has no row yet: Delete
+    // then most likely means "stop that", and must not remove the selected
+    // row (QA 2026-10-30 F35). Said in a toast (and the Log); Remove layer in
+    // the row menu still works.
+    const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
+    if (openPendingSinceSelection(workspaceId, selectedAt.current)) {
+      getEventBus().emit("ui.notification", {
+        type: "warning",
+        message: `Did not remove ${item.name}: an image is still opening. Use Remove layer in the row menu.`,
+        logSource: "layer",
+      });
+      return;
+    }
     void removeLayerFromScene(item.ref.layerId);
   };
   const titleId = `scene-group-${useId().replace(/:/g, "")}`;

@@ -218,6 +218,24 @@ describe('LayerService', () => {
     });
   });
 
+  describe('bridge rejections (QA F10)', () => {
+    it('emits layer.error with an Error carrying the bridge details, never undefined', async () => {
+      mockApi.updateLayer = vi.fn().mockRejectedValue({
+        GpuError: { code: 5007, details: 'Failed to update layer opacity: Layer 3 not found' },
+      });
+      layerService.toggleVisibility('layer1', false);
+      await vi.waitFor(() =>
+        expect(mockEventBus.emit).toHaveBeenCalledWith('layer.error', expect.anything()),
+      );
+      const [, payload] = mockEventBus.emit.mock.calls.find(
+        ([name]: [string]) => name === 'layer.error',
+      );
+      expect(payload.layerId).toBe('layer1');
+      expect(payload.error).toBeInstanceOf(Error);
+      expect(payload.error.message).toBe('Failed to update layer opacity: Layer 3 not found');
+    });
+  });
+
   describe('error handling', () => {
     it('should track loading states', async () => {
       expect(layerService.isLayerLoading('layer1')).toBe(false);

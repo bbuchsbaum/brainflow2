@@ -34,6 +34,16 @@ export interface Workspace {
   title: string;                // Display name for tab
   presetId?: WorkspacePresetId | null; // Optional preset origin for reusable workflows
   timestamp: number;            // Creation timestamp
+  /**
+   * The label the tab last showed ("Orthogonal 2"). Kept so a tab's name
+   * changes only when its own layout does (workspaceTabLabels).
+   */
+  tabLabel?: string;
+  /**
+   * The orthogonal variant (locked grid / panels) this tab last used, so ⌘1
+   * after a switch to another layout returns to it.
+   */
+  orthogonalVariant?: WorkspaceType;
   isActive: boolean;            // Currently visible workspace
   layoutConfig: LayoutConfig;   // Golden Layout configuration
   panelStates: Map<string, PanelState>; // Track individual panel states

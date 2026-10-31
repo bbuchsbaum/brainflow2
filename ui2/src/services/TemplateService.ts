@@ -138,7 +138,8 @@ export class TemplateService {
     const queueId = useLoadingQueueStore.getState().enqueue({
       type: 'template',
       path: templatePath,
-      displayName: templateId
+      displayName: templateId,
+      workspaceId: useViewStateStore.getState().activeWorkspaceKey,
     });
 
     try {

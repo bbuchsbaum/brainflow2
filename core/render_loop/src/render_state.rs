@@ -406,6 +406,15 @@ impl LayerStateManager {
         &self.active_layers
     }
 
+    /// Slot of the active render layer that samples atlas texture `atlas_index`,
+    /// if the current frame draws it. Render-layer slots are rebuilt from each
+    /// ViewState and are not atlas indices.
+    pub fn index_for_atlas(&self, atlas_index: u32) -> Option<usize> {
+        self.active_layers
+            .iter()
+            .position(|layer| layer.atlas_index == atlas_index)
+    }
+
     /// Set the alpha-mask state for the layer with the given atlas index.
     pub fn set_layer_has_alpha_mask(&mut self, atlas_index: u32, has_mask: bool) -> bool {
         if let Some(layer) = self
@@ -512,6 +521,17 @@ mod tests {
         let idx = manager.add_layer(layer1.clone()).unwrap();
         assert_eq!(idx, 0);
         assert_eq!(manager.layer_count(), 1);
+
+        // Slots are positions in the frame's layer list, found by atlas index.
+        let other = LayerInfo {
+            atlas_index: 5,
+            ..layer1.clone()
+        };
+        assert_eq!(manager.add_layer(other).unwrap(), 1);
+        assert_eq!(manager.index_for_atlas(5), Some(1));
+        assert_eq!(manager.index_for_atlas(0), Some(0));
+        assert_eq!(manager.index_for_atlas(3), None);
+        manager.remove_layer(1);
 
         // Remove layer
         let removed = manager.remove_layer(0).unwrap();

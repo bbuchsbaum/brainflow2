@@ -22,7 +22,10 @@ import {
   type WorkspacePresetId,
 } from "@/types/workspacePresets";
 import { DISPLAY_MODES, type DisplayMode } from "@/types/displayModes";
-import { resolveActiveDisplayMode } from "@/components/ui/displayModeSelector.helpers";
+import {
+  resolveActiveDisplayMode,
+  workspaceTabLabels,
+} from "@/components/ui/displayModeSelector.helpers";
 import {
   pruneLegacyViewSprawl,
   restoreWorkspaces,
@@ -125,6 +128,22 @@ type PersistedWorkspaceState = {
   workspaces: Map<string, Workspace>;
   activeWorkspaceId: string | null;
 };
+
+/**
+ * Record each tab's label (`tabLabel`) after a tab arrives or changes layout,
+ * so later labels are computed against what the tabs show and one tab's
+ * change never renames another (workspaceTabLabels).
+ */
+function withTabLabels(workspaces: Map<string, Workspace>): Map<string, Workspace> {
+  const labels = workspaceTabLabels(workspaces.values());
+  labels.forEach((label, id) => {
+    const workspace = workspaces.get(id);
+    if (workspace && workspace.tabLabel !== label) {
+      workspaces.set(id, { ...workspace, tabLabel: label });
+    }
+  });
+  return workspaces;
+}
 
 /** Normalise `isActive` flags to the chosen active workspace. */
 function withActiveFlags(
@@ -248,7 +267,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         const newWorkspace: Workspace = { ...workspace, isActive: true };
         nextWorkspaces.set(id, newWorkspace);
         set({
-          workspaces: nextWorkspaces,
+          workspaces: withTabLabels(nextWorkspaces),
           activeWorkspaceId: id,
         });
 
@@ -304,8 +323,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
 
       setActiveWorkspaceMode: (mode) => {
-        const nextType = DISPLAY_MODES[mode]?.defaultWorkspaceType;
-        if (!nextType) return; // unmapped display mode (e.g. surface)
+        const defaultType = DISPLAY_MODES[mode]?.defaultWorkspaceType;
+        if (!defaultType) return; // unmapped display mode (e.g. surface)
 
         const { activeWorkspaceId, workspaces } = get();
         const workspace = activeWorkspaceId
@@ -318,6 +337,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // workspace flexible instead of snapping it to orthogonal-locked.
         if (resolveActiveDisplayMode(workspace.type) === mode) return;
 
+        // Back to Orthogonal: the variant this tab last used (QA 2026-10-30
+        // F13: Panels, ⌘2, ⌘1 came back as the locked grid).
+        const remembered = workspace.orthogonalVariant;
+        const nextType =
+          remembered && resolveActiveDisplayMode(remembered) === mode
+            ? remembered
+            : defaultType;
         get().setActiveWorkspaceType(nextType);
       },
 
@@ -334,13 +360,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         if (workspace.type === nextType) return;
 
         // A layout change in place drops any preset origin the tab had.
+        const isOrthogonal = (type: WorkspaceType) =>
+          resolveActiveDisplayMode(type) === "orthogonal";
         const nextWorkspaces = new Map(currentState.workspaces);
         nextWorkspaces.set(id, {
           ...workspace,
           type: nextType,
           presetId: null,
+          orthogonalVariant: isOrthogonal(nextType)
+            ? nextType
+            : isOrthogonal(workspace.type)
+              ? workspace.type
+              : workspace.orthogonalVariant,
         });
-        set({ workspaces: nextWorkspaces });
+        set({ workspaces: withTabLabels(nextWorkspaces) });
 
         console.log(
           `[WorkspaceStore] Set active workspace ${id} layout → ${nextType}`,

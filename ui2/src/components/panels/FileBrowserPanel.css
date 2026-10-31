@@ -311,3 +311,12 @@
   color: var(--bf-text-muted);
   font-size: var(--bf-text-xs);
 }
+
+/* The search no-match card covers the (empty, filtered) tree, which stays
+   mounted so its open folders survive the search. */
+.file-browser-panel .fb-search-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--bf-bg-panel);
+}

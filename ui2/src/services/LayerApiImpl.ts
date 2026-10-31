@@ -11,7 +11,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
 import { layerFrameBoxes } from './layerFrameBoxes';
-import { edgeBoxFromAffine, type WorldBox } from '@/utils/worldFrame';
+import { edgeBoxFromAffine, type VoxelGrid, type WorldBox } from '@/utils/worldFrame';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { colormapNameToId } from '@/components/ui/colormapOptions';
@@ -33,7 +33,8 @@ import { useInspectorSelectionStore, focusVolumeLayer } from '@/stores/inspector
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useSeriesStore } from '@/stores/seriesStore';
-import { planLayerPlacement, placementOrder } from './layerPlacement';
+import { categoricalTypeFromData, planLayerPlacement, placementOrder } from './layerPlacement';
+import { releaseVolumeCaches } from './volumeCacheRelease';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -279,6 +280,7 @@ export class LayerApiImpl implements LayerApi {
     let placement: { index: number; opacity?: number } | undefined;
     // Exact voxel-edge world box, for framing the union of visible layers.
     let frameBox: WorldBox | null = null;
+    let frameGrid: VoxelGrid | null = null;
 
     try {
       const gpuInfo = await this.apiService.requestLayerGpuResources(
@@ -287,6 +289,7 @@ export class LayerApiImpl implements LayerApi {
         metadataOnly,
       );
       frameBox = edgeBoxFromAffine(gpuInfo.voxel_to_world, gpuInfo.dim);
+      if (frameBox) frameGrid = { voxelToWorld: gpuInfo.voxel_to_world, dims: gpuInfo.dim };
       const gpuElapsed = performance.now() - gpuStartTime;
       layerDebugLog(
         `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`,
@@ -312,6 +315,16 @@ export class LayerApiImpl implements LayerApi {
 
       const earlyMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
       if (!context?.replaceLayerId) {
+        // A binary or small-integer image is drawn as labels (F17).
+        const categorical = categoricalTypeFromData(
+          { ...newLayer, source: (earlyMetadata as { source?: string }).source },
+          {
+            isBinaryLike: gpuInfo.is_binary_like,
+            dataRange: gpuInfo.data_range ?? undefined,
+            nativeDtype: (earlyMetadata as { nativeDtype?: string }).nativeDtype,
+          },
+        );
+        if (categorical) newLayer.type = categorical;
         placement = planLayerPlacement(
           useLayerStore.getState().layers,
           newLayer,
@@ -414,7 +427,7 @@ export class LayerApiImpl implements LayerApi {
     layerDebugLog(`  - layerStore: ${stateBefore} layers`);
     layerDebugLog(`  - viewStateStore: ${viewStateBefore} layers`);
 
-    if (frameBox) layerFrameBoxes.record(newLayer.id, frameBox);
+    if (frameBox) layerFrameBoxes.record(newLayer.id, frameBox, frameGrid ?? undefined);
     // Add to layer store first.
     if (context?.replaceLayerId) {
       this.publishReplacement(context.replaceLayerId, newLayer, context);
@@ -748,6 +761,7 @@ export class LayerApiImpl implements LayerApi {
 
       queueStore.updateProgress(queueId, 85);
       VolumeHandleStore.clearVolumeHandle(volumeId);
+      releaseVolumeCaches(volumeId);
 
       // Remove from both stores explicitly, then forget per-layer UI state.
       useLayerStore.getState().removeLayer(id);

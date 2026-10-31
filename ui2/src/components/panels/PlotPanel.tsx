@@ -37,6 +37,7 @@ import { useAtlasLayerId } from '@/components/plots/regionStatsPlot.helpers';
 import { useActiveCohort } from '@/components/plots/cohortPlot.helpers';
 import { usePlotModeSelection } from '@/components/plots/plotMode.helpers';
 import { useSetStudioStore } from '@/stores/setStudioStore';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { PlotMode, PlotModeContext } from '@/components/plots/plotHost.types';
 
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
@@ -78,8 +79,15 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({
   // an atlas / cohort loads (their supports() gates read these from ctx rather
   // than non-reactively from the stores).
   const atlasLayerId = useAtlasLayerId();
-  const hasCohort = useActiveCohort() !== null;
-  const hasPopulation = useSetStudioStore((state) => state.selection.activeSetId !== null);
+  // Studio plots (population, dataset series) belong to the Studio: another
+  // workspace's Plot dock does not keep them (QA F11).
+  const inStudio = useWorkspaceStore(
+    (state) => state.getActiveWorkspace?.()?.type === 'set-studio',
+  );
+  const hasPopulation = useSetStudioStore(
+    (state) => inStudio && state.selection.activeSetId !== null,
+  );
+  const hasCohort = useActiveCohort() !== null && inStudio;
 
   // Build the same ctx the host will see. `supports()` checks in the policy
   // never read `width`/`height`, so passing 0 here is fine — the actual
@@ -95,7 +103,9 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({
       width: 0,
       height: 0,
     }),
-    [selectedLayerId, selectedLayerName, crosshairMm, atlasLayerId, hasCohort, hasPopulation],
+    // `inStudio`: the Series mode's dataset source is read on entering/leaving.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedLayerId, selectedLayerName, crosshairMm, atlasLayerId, hasCohort, hasPopulation, inStudio],
   );
 
   // Context-sensitive tabs: only surface modes the active data/view actually

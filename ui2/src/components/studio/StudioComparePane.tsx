@@ -5,6 +5,7 @@ import type {
   SpatialFieldSetSummary,
   StudioComparePaneSpec,
 } from '@/types/studio';
+import { paneReasonText } from './paneReasonText';
 
 export type ComparePaneLetter = 'A' | 'B' | 'C' | 'D';
 export type ComparePaneAccent = 'sky' | 'emerald' | 'amber' | 'violet';
@@ -15,7 +16,6 @@ interface StudioComparePaneProps {
   pane: StudioComparePaneSpec | undefined;
   fallbackTitle: string;
   fallbackSubtitle: string;
-  unitsLabel: string;
   selected: boolean;
   isRefreshing: boolean;
   isAnyLoading: boolean;
@@ -60,7 +60,6 @@ export function StudioComparePane({
   pane,
   fallbackTitle,
   fallbackSubtitle,
-  unitsLabel,
   selected,
   isRefreshing,
   isAnyLoading,
@@ -128,8 +127,9 @@ export function StudioComparePane({
 
       {/* Body — host area for the renderer canvas (or skeleton/empty state) */}
       <div className="relative min-h-0 flex-1 bg-bf-bg-canvas">
+        {/* The live body draws its own colorbar (a static chip sat on the
+            viewer's lock button and showed no real scale; QA F44). */}
         {children ?? <PaneSkeleton status={status} reason={pane?.reason ?? null} />}
-        <ColorbarChip label={unitsLabel} />
       </div>
 
       {/* Footer provenance chips */}
@@ -326,18 +326,6 @@ function DrillIcon() {
   );
 }
 
-function ColorbarChip({ label }: { label: string }) {
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-sm border border-border bg-background/80 px-2 py-0.5 text-bf-2xs text-muted-foreground"
-    >
-      <span className="h-2 w-3 rounded-sm bg-gradient-to-r from-sky-600 via-slate-200 to-rose-500" />
-      <span className="font-mono">{label}</span>
-    </div>
-  );
-}
-
 function PaneSkeleton({
   status,
   reason,
@@ -353,8 +341,10 @@ function PaneSkeleton({
         : status === 'stale'
           ? 'Stale — recompute to refresh.'
           : status === 'failed'
-            ? reason ?? 'Materialization failed.'
-            : reason ?? 'No binding yet.';
+            ? paneReasonText(reason) ?? 'Materialization failed.'
+            : status === 'ready'
+              ? 'Map ready.'
+              : paneReasonText(reason) ?? 'No binding yet.';
   return (
     <div className="flex h-full items-center justify-center px-4 text-center text-bf-xs text-muted-foreground">
       {message}

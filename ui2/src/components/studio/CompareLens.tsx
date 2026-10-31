@@ -1,4 +1,5 @@
 import React from 'react';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type {
   SpatialFieldSetSummary,
   StudioArtifactSummary,
@@ -10,6 +11,7 @@ import type {
 } from '@/types/studio';
 import { StudioRenderAdapter } from './StudioRenderAdapter';
 import { StudioComparePane } from './StudioComparePane';
+import { StudioDerivedPaneCanvas } from './StudioDerivedPaneCanvas';
 import type { ComparePaneAccent, ComparePaneLetter } from './StudioComparePane';
 
 interface CompareLensProps {
@@ -42,7 +44,6 @@ interface PaneSlot {
   paneId: StudioComparePaneSpec['id'];
   letter: ComparePaneLetter;
   accent: ComparePaneAccent;
-  units: string;
   fallbackTitle: string;
   fallbackSubtitle: string;
 }
@@ -52,7 +53,6 @@ const PANE_SLOTS: PaneSlot[] = [
     paneId: 'current',
     letter: 'A',
     accent: 'sky',
-    units: 't',
     fallbackTitle: 'Current (Selected)',
     fallbackSubtitle: 'Active member',
   },
@@ -60,7 +60,6 @@ const PANE_SLOTS: PaneSlot[] = [
     paneId: 'cohort-mean',
     letter: 'B',
     accent: 'emerald',
-    units: 'β',
     fallbackTitle: 'Cohort mean',
     fallbackSubtitle: 'Select a cohort to enable comparisons',
   },
@@ -68,7 +67,6 @@ const PANE_SLOTS: PaneSlot[] = [
     paneId: 'residual',
     letter: 'C',
     accent: 'amber',
-    units: 'Δ',
     fallbackTitle: 'Residual (Current − Mean)',
     fallbackSubtitle: 'Needs cohort selection',
   },
@@ -76,7 +74,6 @@ const PANE_SLOTS: PaneSlot[] = [
     paneId: 'zscore',
     letter: 'D',
     accent: 'violet',
-    units: 'z',
     fallbackTitle: 'Z-score (Current vs Mean)',
     fallbackSubtitle: 'Needs cohort selection',
   },
@@ -105,6 +102,14 @@ export function CompareLens({
   const cohortLabel = compareCohort?.label ?? null;
   const cohortId = compareCohort?.id ?? null;
   const cohortMemberCount = compareCohort?.memberCount ?? null;
+  // The derived panes belong to the Studio's workspace, not to whichever
+  // workspace is in front (Set Studio is a singleton tab).
+  const studioWorkspaceId = useWorkspaceStore((state) => {
+    for (const workspace of state.workspaces.values()) {
+      if (workspace.type === 'set-studio') return workspace.id;
+    }
+    return null;
+  });
 
   return (
     <div
@@ -137,12 +142,25 @@ export function CompareLens({
           !isCurrent && cohortId ? () => onDrillToCohort(cohortId) : undefined;
 
         // Pane A renders the live ortho/surface viewer for the active member.
-        // Other panes show a renderer-aware skeleton until the pop-out viewer is wired.
+        // B–D draw their materialized map once it is ready (QA F8); until
+        // then, or for a surface set, the pane says its status.
+        const derivedPath =
+          !isCurrent && pane?.binding?.ready ? pane.binding.sourcePath?.trim() || null : null;
         const body = isCurrent ? (
           <CurrentPaneCanvas
             activeSet={activeSet}
             memberLabel={activeMemberId}
             memberSourcePath={activeMember?.sourcePath ?? null}
+          />
+        ) : derivedPath &&
+          studioWorkspaceId &&
+          activeSet?.supportKind === 'volume' &&
+          !isRefreshing ? (
+          <StudioDerivedPaneCanvas
+            paneId={slot.paneId}
+            sourcePath={derivedPath}
+            label={pane?.title ?? slot.fallbackTitle}
+            workspaceId={studioWorkspaceId}
           />
         ) : null;
 
@@ -166,7 +184,6 @@ export function CompareLens({
             pane={pane}
             fallbackTitle={slot.fallbackTitle}
             fallbackSubtitle={isCurrent ? activeMemberId ?? slot.fallbackSubtitle : slot.fallbackSubtitle}
-            unitsLabel={slot.units}
             selected={activeViewId === slot.paneId}
             isRefreshing={isRefreshing}
             isAnyLoading={loading}

@@ -77,7 +77,7 @@ describe('layoutLibraryStore', () => {
 
   it('supports save, rename, load, and delete workflow', async () => {
     captureLayoutMock.mockReturnValue(TEST_LAYOUT);
-    applyLayoutMock.mockReturnValue(true);
+    applyLayoutMock.mockReturnValue('applied');
 
     const { useLayoutLibraryStore } = await loadFreshStore();
     const store = useLayoutLibraryStore.getState();
@@ -101,10 +101,10 @@ describe('layoutLibraryStore', () => {
     expect(useLayoutLibraryStore.getState().activeLayoutId).toBeNull();
   });
 
-  it('recovers with default layout when loading fails', async () => {
+  it('says the panels were reset when loading falls back to the default shell', async () => {
     captureLayoutMock.mockReturnValue(TEST_LAYOUT);
-    applyLayoutMock.mockReturnValue(false);
-    resetToDefaultLayoutMock.mockReturnValue(true);
+    // applyLayout loads the default shell itself when the saved one fails.
+    applyLayoutMock.mockReturnValue('reset');
 
     const { useLayoutLibraryStore } = await loadFreshStore();
     const store = useLayoutLibraryStore.getState();
@@ -114,7 +114,22 @@ describe('layoutLibraryStore', () => {
 
     const loaded = useLayoutLibraryStore.getState().loadLayout(layoutId);
     expect(loaded).toBe(false);
-    expect(resetToDefaultLayoutMock).toHaveBeenCalledTimes(1);
-    expect(useLayoutLibraryStore.getState().lastError).toContain('Recovered with default layout');
+    expect(resetToDefaultLayoutMock).not.toHaveBeenCalled();
+    expect(useLayoutLibraryStore.getState().lastError).toContain(
+      'the panels were reset to the default arrangement',
+    );
+  });
+
+  it('does not claim a recovery when nothing could be loaded', async () => {
+    captureLayoutMock.mockReturnValue(TEST_LAYOUT);
+    applyLayoutMock.mockReturnValue('failed');
+
+    const { useLayoutLibraryStore } = await loadFreshStore();
+    expect(useLayoutLibraryStore.getState().saveCurrentLayout('Broken')).toBe(true);
+    const layoutId = useLayoutLibraryStore.getState().layouts[0].id;
+
+    expect(useLayoutLibraryStore.getState().loadLayout(layoutId)).toBe(false);
+    const error = useLayoutLibraryStore.getState().lastError ?? '';
+    expect(error).toBe("Layout 'Broken' could not be restored.");
   });
 });

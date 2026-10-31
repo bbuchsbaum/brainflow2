@@ -4,6 +4,7 @@
  */
 
 import { getEventBus } from '@/events/EventBus';
+import { toError } from '@/utils/formatTauriError';
 import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import type { EventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
@@ -88,11 +89,8 @@ export class LayerService {
     } catch (error) {
       const key = layer.name ?? layer.volumeId;
       this.setLoadingState(key, false);
-      this.recordError(key, error as Error);
-      this.eventBus.emit('layer.error', { 
-        layerId: layer.name, 
-        error: error as Error 
-      });
+      this.recordError(key, toError(error));
+      this.eventBus.emit('layer.error', { layerId: key, error: toError(error) });
       throw error;
     }
   }
@@ -112,7 +110,7 @@ export class LayerService {
         this.clearError(id);
         this.setLoadingState(id, false);
       } catch (error) {
-        this.eventBus.emit('layer.error', { layerId: id, error: error as Error });
+        this.eventBus.emit('layer.error', { layerId: id, error: toError(error) });
         throw error;
       } finally {
         this.removing.delete(id);
@@ -145,7 +143,7 @@ export class LayerService {
       
       return updatedLayer;
     } catch (error) {
-      this.eventBus.emit('layer.error', { layerId: id, error: error as Error });
+      this.eventBus.emit('layer.error', { layerId: id, error: toError(error) });
       throw error;
     }
   }
@@ -193,8 +191,8 @@ export class LayerService {
     void this.api.updateLayer(id, { visible }).then(() => {
       this.clearError(id);
     }).catch((error) => {
-      this.recordError(id, error as Error);
-      this.eventBus.emit('layer.error', { layerId: id, error: error as Error });
+      this.recordError(id, toError(error));
+      this.eventBus.emit('layer.error', { layerId: id, error: toError(error) });
     });
   }
 
@@ -217,10 +215,7 @@ export class LayerService {
         : this.api.reorderLayers(layerIds, workspaceId));
       this.eventBus.emit('layer.reordered', { layerIds });
     } catch (error) {
-      this.eventBus.emit('layer.error', { 
-        layerId: 'reorder', 
-        error: error as Error 
-      });
+      this.eventBus.emit('layer.error', { layerId: 'reorder', error: toError(error) });
       throw error;
     }
   }
@@ -238,10 +233,10 @@ export class LayerService {
       this.clearError(id);
     } catch (error) {
       this.setLoadingState(id, false);
-      this.recordError(id, error as Error);
+      this.recordError(id, toError(error));
       useLayerStore.getState().setLayerLoading(id, false);
-      useLayerStore.getState().setLayerError(id, error as Error);
-      this.eventBus.emit('layer.error', { layerId: id, error: error as Error });
+      useLayerStore.getState().setLayerError(id, toError(error));
+      this.eventBus.emit('layer.error', { layerId: id, error: toError(error) });
       throw error;
     }
   }
@@ -266,7 +261,9 @@ export class LayerService {
       this.clearError(id);
       this.eventBus.emit('layer.patched', { layerId: id, patch });
     } catch (err) {
-      const error = err as Error;
+      // Bridge rejections are plain objects ({ GpuError: { code, details } }):
+      // the event carries an Error with their message, never "undefined".
+      const error = toError(err);
       this.recordError(id, error);
       this.eventBus.emit('layer.error', { layerId: id, error });
 

@@ -16,6 +16,7 @@ import { focusVolumeLayer, useInspectorSelectionStore } from '@/stores/inspector
 import { formatTauriError } from '@/utils/formatTauriError';
 import { addLogEntry } from '@/stores/logStore';
 import { inspectorVolumeLayerId } from '@/utils/activeLayer';
+import { sourceLabel } from '@/utils/logLabels';
 
 /** The layer to select after `removedId` leaves `layerIds` (list order). */
 export function neighbourAfterRemoval(
@@ -29,8 +30,8 @@ export function neighbourAfterRemoval(
 
 /** The file a layer came from, for user-facing text ("Removed T1w.nii.gz"). */
 export function layerFileLabel(layer: { id: string; name?: string; sourcePath?: string }): string {
-  const fromPath = layer.sourcePath?.split(/[\\/]/).pop();
-  return fromPath || layer.name || layer.id;
+  // An atlas or template by its name, not "atlas:olsen_mtl" (QA 2026-10-30 F40).
+  return sourceLabel(layer.sourcePath, layer.name, layer.id);
 }
 
 export async function removeLayerFromScene(layerId: string): Promise<boolean> {

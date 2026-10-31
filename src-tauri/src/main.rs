@@ -178,6 +178,41 @@ fn open_bids_dialog(app_handle: AppHandle) {
     println!("BIDS dialog setup complete");
 }
 
+/// Extensions of the Open dialog's "Neuroimaging Files" filter. One component
+/// each: macOS matches a filter by the last extension only, so "nii.gz" greyed
+/// out every `.nii.gz` (QA 2026-10-30 F25); "gz" lists them, and the frontend
+/// rejects a `.gz` it cannot load with a message. "gii" covers `.surf.gii`,
+/// `.func.gii`, `.shape.gii` and `.label.gii`. Gzipped GIfTI (`.gii.gz`) is not
+/// listed: the GIfTI loader only accepts `.gii`.
+const OPEN_DIALOG_EXTENSIONS: &[&str] = &["nii", "gz", "gii"];
+
+/// Intents whose Open dialog takes several files: each is loaded in turn. A new
+/// workspace or a comparison opens one file.
+fn open_dialog_allows_multiple(intent: Option<&str>) -> bool {
+    matches!(intent, None | Some("default") | Some("add-layer"))
+}
+
+fn emit_open_files_event(
+    app_handle: &AppHandle,
+    paths: &[String],
+    intent: Option<&str>,
+) -> Result<(), tauri::Error> {
+    println!(
+        "Emitting open-file-event with {} path(s) and intent: {:?}",
+        paths.len(),
+        intent
+    );
+    // `path` stays the first file for listeners that read one; `paths` lists all.
+    app_handle.emit(
+        "open-file-event",
+        serde_json::json!({
+            "path": paths.first(),
+            "paths": paths,
+            "intent": intent,
+        }),
+    )
+}
+
 // Command to open a file picker and request immediate file load in frontend
 #[tauri::command]
 fn open_file_dialog(app_handle: AppHandle, intent: Option<String>) {
@@ -186,35 +221,36 @@ fn open_file_dialog(app_handle: AppHandle, intent: Option<String>) {
     println!("Opening file dialog...");
 
     let app_handle_clone = app_handle.clone();
-
-    app_handle
+    let multiple = open_dialog_allows_multiple(intent.as_deref());
+    let dialog = app_handle
         .dialog()
         .file()
-        .add_filter(
-            "Neuroimaging Files",
-            &[
-                "nii",
-                "nii.gz",
-                "gii",
-                "surf.gii",
-                "shape.gii",
-                "func.gii",
-                "label.gii",
-            ],
-        )
-        .add_filter("All Files", &["*"])
-        .pick_file(move |file_path| {
-            println!("File dialog callback triggered with: {:?}", file_path);
-            if let Some(file) = file_path {
-                let path_str = file.to_string();
-                match emit_open_file_event(&app_handle_clone, &path_str, intent.as_deref()) {
-                    Ok(_) => println!("Open file event emitted successfully"),
-                    Err(e) => eprintln!("Failed to emit open file event: {}", e),
-                }
-            } else {
-                println!("File dialog was cancelled");
-            }
+        .add_filter("Neuroimaging Files", OPEN_DIALOG_EXTENSIONS)
+        .add_filter("All Files", &["*"]);
+
+    let emit = move |paths: Vec<String>| {
+        if paths.is_empty() {
+            println!("File dialog was cancelled");
+            return;
+        }
+        match emit_open_files_event(&app_handle_clone, &paths, intent.as_deref()) {
+            Ok(_) => println!("Open file event emitted successfully"),
+            Err(e) => eprintln!("Failed to emit open file event: {}", e),
+        }
+    };
+    if multiple {
+        dialog.pick_files(move |files| {
+            emit(
+                files
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|f| f.to_string())
+                    .collect(),
+            )
         });
+    } else {
+        dialog.pick_file(move |file| emit(file.into_iter().map(|f| f.to_string()).collect()));
+    }
 
     println!("File dialog setup complete");
 }
@@ -323,11 +359,27 @@ fn main() {
                 .checked(true)
                 .build(app)?;
 
-            // Enabled only while the UI's Integrated feature flag is on
-            // (integrated-layout-availability below).
-            let layout_integrated = MenuItemBuilder::new("Integrated")
+            // View › Layout: check items, so the current tab's layout carries
+            // a ✓ (current-layout-changed below). Integrated is enabled only
+            // while the UI's feature flag is on (integrated-layout-availability).
+            let layout_orthogonal = CheckMenuItemBuilder::new("Orthogonal")
+                .id("layout_orthogonal")
+                .accelerator("CmdOrCtrl+1")
+                .build(app)?;
+            let layout_integrated = CheckMenuItemBuilder::new("Integrated")
                 .id("layout_integrated")
                 .accelerator("CmdOrCtrl+2")
+                .build(app)?;
+            let layout_mosaic = CheckMenuItemBuilder::new("Mosaic")
+                .id("layout_mosaic")
+                .accelerator("CmdOrCtrl+3")
+                .build(app)?;
+            let layout_compare = CheckMenuItemBuilder::new("Compare")
+                .id("layout_compare")
+                .accelerator("CmdOrCtrl+4")
+                .build(app)?;
+            let layout_orthogonal_panels = CheckMenuItemBuilder::new("Orthogonal Panels")
+                .id("layout_orthogonal_panels")
                 .build(app)?;
 
             // Build templates menu directly
@@ -638,31 +690,12 @@ fn main() {
                         // services/workspaceNavigation.ts); they never open a tab.
                         .item(
                             &SubmenuBuilder::new(app, "Layout")
-                                .item(
-                                    &MenuItemBuilder::new("Orthogonal")
-                                        .id("layout_orthogonal")
-                                        .accelerator("CmdOrCtrl+1")
-                                        .build(app)?,
-                                )
+                                .item(&layout_orthogonal)
                                 .item(&layout_integrated)
-                                .item(
-                                    &MenuItemBuilder::new("Mosaic")
-                                        .id("layout_mosaic")
-                                        .accelerator("CmdOrCtrl+3")
-                                        .build(app)?,
-                                )
-                                .item(
-                                    &MenuItemBuilder::new("Compare")
-                                        .id("layout_compare")
-                                        .accelerator("CmdOrCtrl+4")
-                                        .build(app)?,
-                                )
+                                .item(&layout_mosaic)
+                                .item(&layout_compare)
                                 .separator()
-                                .item(
-                                    &MenuItemBuilder::new("Orthogonal Panels")
-                                        .id("layout_orthogonal_panels")
-                                        .build(app)?,
-                                )
+                                .item(&layout_orthogonal_panels)
                                 .build()?,
                         )
                         // New tabs: a new view, or a tool (opened once, then refocused).
@@ -729,6 +762,34 @@ fn main() {
                 if let Some(enabled) = enabled {
                     if let Err(e) = integrated_item.set_enabled(enabled) {
                         eprintln!("Failed to sync Integrated layout item: {}", e);
+                    }
+                }
+            });
+
+            // The UI reports the front tab's layout (a view type, or null for a
+            // tool or surface tab); View › Layout checks that one item only. The
+            // UI re-reports after every layout request, which also undoes the
+            // check toggle macOS applies to a clicked item.
+            let layout_checks = [
+                (layout_orthogonal.clone(), "orthogonal-locked"),
+                (layout_integrated.clone(), "integrated"),
+                (layout_mosaic.clone(), "mosaic"),
+                (layout_compare.clone(), "comparison"),
+                (layout_orthogonal_panels.clone(), "orthogonal-flexible"),
+            ];
+            app.listen("current-layout-changed", move |event| {
+                let layout = serde_json::from_str::<serde_json::Value>(event.payload())
+                    .ok()
+                    .and_then(|payload| {
+                        payload
+                            .get("layout")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_owned)
+                    });
+                for (item, view_type) in &layout_checks {
+                    let checked = layout.as_deref() == Some(*view_type);
+                    if let Err(e) = item.set_checked(checked) {
+                        eprintln!("Failed to sync View › Layout check: {}", e);
                     }
                 }
             });
@@ -973,4 +1034,26 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod open_dialog_tests {
+    use super::{open_dialog_allows_multiple, OPEN_DIALOG_EXTENSIONS};
+
+    #[test]
+    fn filter_extensions_are_single_components() {
+        // macOS matches the last extension only: "nii.gz" greys out .nii.gz files.
+        assert!(OPEN_DIALOG_EXTENSIONS.iter().all(|e| !e.contains('.')));
+        for ext in ["nii", "gz", "gii"] {
+            assert!(OPEN_DIALOG_EXTENSIONS.contains(&ext), "{ext} missing");
+        }
+    }
+
+    #[test]
+    fn multi_select_only_where_each_file_is_loaded_in_turn() {
+        assert!(open_dialog_allows_multiple(None));
+        assert!(open_dialog_allows_multiple(Some("add-layer")));
+        assert!(!open_dialog_allows_multiple(Some("new-workspace")));
+        assert!(!open_dialog_allows_multiple(Some("comparison")));
+    }
 }

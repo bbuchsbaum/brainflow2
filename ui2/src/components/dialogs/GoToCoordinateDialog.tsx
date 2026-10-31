@@ -48,6 +48,12 @@ interface CoordInputs {
   z: string;
 }
 
+/** Field names: x, y, z in world mm; i, j, k for voxel indices (QA 2026-10-30 F42). */
+const AXIS_LABEL: Record<CoordSpace, Record<'x' | 'y' | 'z', string>> = {
+  world: { x: 'X', y: 'Y', z: 'Z' },
+  voxel: { x: 'i', y: 'j', z: 'k' },
+};
+
 export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProps) {
   const firstInputRef = useRef<HTMLInputElement>(null);
   const goButtonRef = useRef<HTMLButtonElement>(null);
@@ -139,6 +145,7 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
       // No transform: the numbers cannot be converted, so they are cleared
       // (never shown under the other unit). Switching straight back restores them.
       const cleared = { x: '', y: '', z: '' };
+      clearInvalid();
       setSpace(next);
       lastConversion.current = { from: inputs, to: cleared };
       setInputs(cleared);
@@ -157,21 +164,33 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
       // An oblique affine mixes all three axes: an unparseable field would
       // leave the others meaningless. Stay in this space and say why.
       setSpaceNotice(
-        `Fix ${result.axes.map(a => a.toUpperCase()).join(', ')} before switching the coordinate space.`,
+        `Fix ${result.axes.map(a => AXIS_LABEL[space][a]).join(', ')} before switching the coordinate space.`,
       );
       return;
     }
+    // Text that was not a number is never carried into the other space
+    // (QA 2026-10-30 F42): the fields are remounted (keyed by space) and empty.
+    clearInvalid();
     setSpace(next);
-    setSpaceNotice(
+    const notes = [
       result.filled.length > 0
-        ? `Empty ${result.filled.map(a => a.toUpperCase()).join(', ')} taken from the crosshair.`
+        ? `Empty ${result.filled.map(a => AXIS_LABEL[space][a]).join(', ')} taken from the crosshair.`
         : null,
-    );
+      result.cleared.length > 0
+        ? `${result.cleared.map(a => AXIS_LABEL[space][a]).join(', ')} was not a number and was cleared.`
+        : null,
+    ].filter(Boolean);
+    setSpaceNotice(notes.length > 0 ? notes.join(' ') : null);
     if (result.inputs) {
       lastConversion.current = { from: inputs, to: result.inputs };
       setInputs(result.inputs);
     }
   };
+
+  function clearInvalid() {
+    setBadInput({ x: false, y: false, z: false });
+    setRefusedPaste({ x: false, y: false, z: false });
+  }
 
   const parseCoords = (): [number, number, number] | null => {
     if (isUnparseable('x') || isUnparseable('y') || isUnparseable('z')) return null;
@@ -332,16 +351,17 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
             {(['x', 'y', 'z'] as const).map(axis => {
               const bad = isUnparseable(axis);
               const oob = !bad && isOutOfBounds(axis);
+              const name = AXIS_LABEL[space][axis];
               return (
                 <FieldRow
-                  key={axis}
-                  label={axis.toUpperCase()}
+                  key={`${space}-${axis}`}
+                  label={name}
                   controlId={`goto-${axis}`}
                   layout="stacked"
                   className="py-0"
                 >
                   <NumberField
-                    aria-label={`${axis.toUpperCase()} ${space === 'world' ? '(mm)' : '(voxel index)'}`}
+                    aria-label={`${name} ${space === 'world' ? '(mm)' : '(voxel index)'}`}
                     // Out of bounds is allowed (warning, Go enabled): described
                     // by the warning, never marked invalid.
                     invalid={bad}
@@ -349,7 +369,7 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
                     fieldClassName={oob ? 'border-bf-warning hover:border-bf-warning' : undefined}
                     data-numeric-paste="self"
                     ref={axis === 'x' ? firstInputRef : undefined}
-                    unit={space === 'world' ? 'mm' : 'vox'}
+                    unit={space === 'world' ? 'mm' : undefined}
                     value={inputs[axis]}
                     onChange={e => {
                       const isBad = e.target.validity?.badInput === true;
@@ -376,7 +396,7 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
             <Notice id="goto-invalid" severity="danger" role="alert">
               {(['x', 'y', 'z'] as const)
                 .filter(a => isUnparseable(a))
-                .map(a => (refusedPaste[a] ? `Pasted ${a.toUpperCase()}` : a.toUpperCase()))
+                .map(a => (refusedPaste[a] ? `Pasted ${AXIS_LABEL[space][a]}` : AXIS_LABEL[space][a]))
                 .join(', ')}{' '}
               is not a number.
             </Notice>
@@ -449,15 +469,21 @@ function isAxisAligned(m: number[]): boolean {
 }
 
 type ConversionResult =
-  | { kind: 'converted'; inputs: CoordInputs | null; filled: Array<'x' | 'y' | 'z'> }
+  | {
+      kind: 'converted';
+      inputs: CoordInputs | null;
+      filled: Array<'x' | 'y' | 'z'>;
+      /** Fields that were not numbers: emptied, never carried across. */
+      cleared: Array<'x' | 'y' | 'z'>;
+    }
   | { kind: 'blocked'; axes: Array<'x' | 'y' | 'z'> };
 
 /**
  * Convert typed coordinates into the target space through `affine`
  * (column-major; either direction is the same 4x4 product).
  * - All three fields valid: a full transform.
- * - Axis-aligned affine: each valid field converts on its own; empty or
- *   invalid ones are left as typed.
+ * - Axis-aligned affine: each valid field converts on its own; empty ones
+ *   stay empty and invalid ones are emptied (reported in `cleared`).
  * - Oblique affine (every output mixes all inputs): EMPTY fields take the
  *   crosshair's value in the source space (`fallback`) and are reported in
  *   `filled`; all three outputs are then shown, so no number keeps its old
@@ -479,18 +505,23 @@ function convertCoordInputs(
     return { x: fmt(out[0]), y: fmt(out[1]), z: fmt(out[2]) };
   };
   if (vals.every(v => v !== null)) {
-    return { kind: 'converted', inputs: full(vals as number[]), filled: [] };
+    return { kind: 'converted', inputs: full(vals as number[]), filled: [], cleared: [] };
   }
   if (vals.every(v => v === null) && axes.every(a => !invalid[a] && inputs[a].trim() === '')) {
-    return { kind: 'converted', inputs: null, filled: [] };
+    return { kind: 'converted', inputs: null, filled: [], cleared: [] };
   }
   if (isAxisAligned(affine)) {
     const next = { ...inputs };
+    const cleared: Array<'x' | 'y' | 'z'> = [];
     vals.forEach((v, i) => {
-      if (v === null) return;
+      if (v === null) {
+        if (invalid[axes[i]] || inputs[axes[i]].trim() !== '') cleared.push(axes[i]);
+        next[axes[i]] = '';
+        return;
+      }
       next[axes[i]] = fmt(affine[i * 5] * v + affine[12 + i]);
     });
-    return { kind: 'converted', inputs: next, filled: [] };
+    return { kind: 'converted', inputs: next, filled: [], cleared };
   }
   const unparseable = axes.filter((a, i) => vals[i] === null && inputs[a].trim() !== '');
   const forcedInvalid = axes.filter(a => invalid[a]);
@@ -499,5 +530,5 @@ function convertCoordInputs(
     return { kind: 'blocked', axes: blocked.length > 0 ? blocked : axes.filter((_, i) => vals[i] === null) };
   }
   const filled = axes.filter((_, i) => vals[i] === null);
-  return { kind: 'converted', inputs: full(vals.map((v, i) => v ?? fallback[i])), filled };
+  return { kind: 'converted', inputs: full(vals.map((v, i) => v ?? fallback[i])), filled, cleared: [] };
 }

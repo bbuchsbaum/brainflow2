@@ -276,6 +276,9 @@ const LogPanelContent: React.FC = () => {
       <div
         ref={bodyRef}
         data-testid="log-panel-body"
+        // Arrow keys after clicking a line stay with the Log (F23).
+        role="log"
+        aria-label="Log entries"
         style={{
           flex: "1 1 auto",
           minWidth: 0,

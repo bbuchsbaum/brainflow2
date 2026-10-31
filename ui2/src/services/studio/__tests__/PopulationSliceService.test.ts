@@ -7,6 +7,12 @@ import {
   populationHiddenBand,
   populationOverlayRgba,
   populationAnatomyStatus,
+  populationColorbarGradient,
+  populationSummaryOpacity,
+  POPULATION_NEGATIVE,
+  POPULATION_POSITIVE,
+  POPULATION_SEQUENTIAL,
+  POPULATION_SEQUENTIAL_OPACITY,
   populationRgba,
   populationUnderlayGrey,
   populationUnderlayWindow,
@@ -622,19 +628,19 @@ describe('population display over anatomy', () => {
     });
     expect(pixel(rgba, 0)).toEqual([100, 100, 100, 255]);
     expect(pixel(rgba, 1)).toEqual([100, 100, 100, 255]);
-    // Positive ends yellow, negative ends cyan: both saturated, neither grey.
-    expect(pixel(rgba, 2)).toEqual([255, 235, 80, 255]);
-    expect(pixel(rgba, 3)).toEqual([90, 225, 255, 255]);
+    // Positive ends deep red, negative deep blue: both saturated, neither grey.
+    expect(pixel(rgba, 2)).toEqual([200, 25, 35, 255]);
+    expect(pixel(rgba, 3)).toEqual([35, 80, 200, 255]);
     // No anatomy there and nothing to show: transparent onto the dark pane.
     expect(pixel(rgba, 4)).toEqual([0, 0, 0, 0]);
   });
 
   it('starts each ramp saturated at the hidden band', () => {
     const low = populationOverlayRgba([0.1], 1, true, { band: 0.1 });
-    expect(pixel(low, 0)).toEqual([200, 30, 30, 255]);
+    expect(pixel(low, 0)).toEqual([240, 150, 125, 255]);
     const sequential = populationOverlayRgba([0.1, 1, -1], 1, false, { band: 0.1 });
-    expect(pixel(sequential, 0)).toEqual([150, 25, 10, 255]);
-    expect(pixel(sequential, 1)).toEqual([255, 240, 140, 255]);
+    expect(pixel(sequential, 0)).toEqual([110, 60, 10, 255]);
+    expect(pixel(sequential, 1)).toEqual([255, 235, 150, 255]);
     // A nonnegative map has no colour for negative values.
     expect(pixel(sequential, 2)).toEqual([0, 0, 0, 0]);
   });
@@ -727,9 +733,77 @@ describe('population display over anatomy', () => {
     const [summary, focused] = bitmap.mock.calls.map((call) => call[0] as Uint8ClampedArray);
     // Zero shows the (dark end of the) anatomy, not a white square.
     expect(pixel(summary, 0)).toEqual([0, 0, 0, 255]);
-    expect(pixel(summary, 1)).toEqual([255, 235, 80, 255]);
+    expect(pixel(summary, 1)).toEqual([200, 25, 35, 255]);
     expect(pixel(focused, 1)).toEqual([200, 200, 200, 255]);
     service.stop();
+  });
+
+  it('keeps the signed and nonnegative ramps apart: no red in the gold ramp', () => {
+    // QA F20: a mostly positive mean looked like SD/coverage when both ramps
+    // ran red to yellow. Signed maps are blue–white–red; gold has no red.
+    for (const stop of POPULATION_SEQUENTIAL) expect(stop[1]).toBeGreaterThan(stop[2]);
+    for (const stop of POPULATION_SEQUENTIAL) expect(stop[1] / stop[0]).toBeGreaterThan(0.5);
+    expect(POPULATION_POSITIVE[1][0]).toBeGreaterThan(4 * POPULATION_POSITIVE[1][1]);
+    expect(POPULATION_NEGATIVE[1][2]).toBeGreaterThan(2 * POPULATION_NEGATIVE[1][0]);
+  });
+
+  it('draws nonnegative summaries translucent over the anatomy (coverage is not a box)', () => {
+    const underlay = new Float32Array([0.5, 0.5]);
+    const rgba = populationOverlayRgba([72, 0], 72, false, {
+      band: populationHiddenBand(72, true),
+      underlay,
+      opacity: POPULATION_SEQUENTIAL_OPACITY,
+    });
+    const top = POPULATION_SEQUENTIAL[2];
+    const k = POPULATION_SEQUENTIAL_OPACITY;
+    // Full coverage shows the anatomy through the gold, not an opaque gold box.
+    expect(pixel(rgba, 0)).toEqual([...top.map((c) => Math.round(100 + k * (c - 100))), 255]);
+    expect(pixel(rgba, 1)).toEqual([100, 100, 100, 255]);
+    // Without anatomy the colour itself is see-through onto the dark pane.
+    const bare = populationOverlayRgba([72], 72, false, { band: 0.5, opacity: k });
+    expect(pixel(bare, 0)[3]).toBe(Math.round(k * 255));
+    const request = (summary: PopulationSummary) => ({ ...query().request, summary });
+    expect(populationSummaryOpacity(request('coverage'))).toBe(k);
+    expect(populationSummaryOpacity(request('sampleSd'))).toBe(k);
+    expect(populationSummaryOpacity(request('mean'))).toBe(1);
+  });
+
+  it('renders mean/median diverging and coverage translucent gold in the service itself', async () => {
+    const run = async (summary: PopulationSummary) => {
+      const { service, evaluate, bitmap } = setup();
+      evaluate.mockResolvedValue({
+        ...data(),
+        summary: [-2, 2],
+        focused: [0, 0],
+        underlay: { values: [10, 10] },
+      });
+      service.request({ ...query(), request: { ...query().request, summary } });
+      await vi.runAllTimersAsync();
+      const rgba = bitmap.mock.calls[0][0] as Uint8ClampedArray;
+      service.stop();
+      return rgba;
+    };
+    for (const summary of ['mean', 'median'] as const) {
+      const rgba = await run(summary);
+      expect(pixel(rgba, 0)).toEqual([...POPULATION_NEGATIVE[1], 255]);
+      expect(pixel(rgba, 1)).toEqual([...POPULATION_POSITIVE[1], 255]);
+    }
+    const coverage = await run('coverage');
+    // Negative counts never paint; a positive count is mixed onto the grey.
+    expect(pixel(coverage, 0)).toEqual([0, 0, 0, 255]);
+    expect(pixel(coverage, 1)[0]).toBeLessThan(POPULATION_SEQUENTIAL[2][0]);
+    expect(pixel(coverage, 1)[2]).toBeLessThan(POPULATION_SEQUENTIAL[2][2]);
+  });
+
+  it('builds the colourbar gradient from the renderer stops', () => {
+    const diverging = populationColorbarGradient(true, 0.1);
+    expect(diverging).toContain('to top');
+    expect(diverging).toContain(`rgb(${POPULATION_NEGATIVE[1].join(', ')}) 0%`);
+    expect(diverging).toContain(`rgb(${POPULATION_POSITIVE[1].join(', ')}) 100%`);
+    expect(diverging).toContain('transparent 45.00%, transparent 55.00%');
+    const sequential = populationColorbarGradient(false, 0.25);
+    expect(sequential).toContain('transparent 25.00%');
+    expect(sequential).toContain(`rgb(${POPULATION_SEQUENTIAL[2].join(', ')}) 100.00%`);
   });
 
   it('rejects an underlay that does not match the plane', async () => {

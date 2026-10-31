@@ -11,6 +11,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { getApiService } from './apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getEventBus } from '@/events/EventBus';
+import { getStudioDerivedMapService } from '@/services/studio/StudioDerivedMapService';
 
 export const MAX_GPU_LAYERS = 16;
 
@@ -79,7 +80,9 @@ class LayerEvictionService {
       return meta?.gpuResident !== false;
     });
 
-    if (activeGpuLayers.length <= MAX_GPU_LAYERS) {
+    // Set studio Compare maps take texture slots too, outside the layer
+    // store (StudioDerivedMapService; QA wave 3 review W1).
+    if (activeGpuLayers.length + getStudioDerivedMapService().liveCount() <= MAX_GPU_LAYERS) {
       return;
     }
 

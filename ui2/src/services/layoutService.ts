@@ -7,15 +7,22 @@ import {
   type ComponentItemConfig,
   type ContentItem,
   GoldenLayout,
-  type LayoutConfig,
+  LayoutConfig,
+  type ResolvedLayoutConfig,
   Stack,
 } from 'golden-layout';
 import { nanoid } from 'nanoid';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
+
+type SurfaceStoreState = ReturnType<typeof useSurfaceStore.getState>;
 import { workspaceTabLabels } from '@/components/ui/displayModeSelector.helpers';
 import { cloneLayoutConfig } from '@/utils/layoutConfigUtils';
-import { programmaticTabRemoval } from '@/components/layout/workspaceTabSync';
+import {
+  programmaticTabChange,
+  programmaticTabRemoval,
+} from '@/components/layout/workspaceTabSync';
+import { ensureCentreStack, getCentreStack } from '@/components/layout/centreStack';
 import { surfaceGroupKey } from '@/utils/surfaceIdentity';
 
 type LayoutComponentState = Record<string, unknown>;
@@ -53,6 +60,21 @@ const getComponentState = (item: ComponentItem): LayoutComponentState => {
 };
 
 const isComponentItem = (item: ContentItem): item is ComponentItem => item.type === 'component';
+
+/**
+ * A layout `loadLayout` accepts. `saveLayout()` returns a *resolved* config
+ * (numeric sizes, `resolved: true`, …) that `loadLayout` rejects ("value.trimStart
+ * is not a function"), which is why every saved layout failed to restore
+ * (QA 2026-10-30 F2). Layouts saved before this fix are stored resolved, so
+ * both shapes are accepted here.
+ */
+export function toLoadableLayoutConfig(
+  config: LayoutConfig | ResolvedLayoutConfig,
+): LayoutConfig {
+  return LayoutConfig.isResolved(config as LayoutConfig | ResolvedLayoutConfig)
+    ? LayoutConfig.fromResolved(config as ResolvedLayoutConfig)
+    : (config as LayoutConfig);
+}
 
 /**
  * The default app shell: Files/Subjects on the left, the workspace tab stack in
@@ -119,6 +141,33 @@ export function createDefaultLayoutConfig(): LayoutConfig {
   };
 }
 
+type SavedItem = {
+  type?: string;
+  componentType?: unknown;
+  content?: SavedItem[];
+  activeItemIndex?: number;
+};
+
+/**
+ * Remove surfaceView components under `item` (a saved layout item), dropping
+ * stacks, rows and columns that end up empty. True when `item` itself is
+ * empty afterwards (and should be dropped by its parent).
+ */
+function stripSurfaceViews(item: SavedItem): boolean {
+  if (item.type === 'component') return item.componentType === 'surfaceView';
+  if (!Array.isArray(item.content)) return false;
+  const hadContent = item.content.length > 0;
+  const active =
+    typeof item.activeItemIndex === 'number' ? item.content[item.activeItemIndex] : undefined;
+  item.content = item.content.filter((child) => !stripSurfaceViews(child));
+  if (typeof item.activeItemIndex === 'number') {
+    // GoldenLayout rejects a stack whose active index is out of range.
+    const kept = active ? item.content.indexOf(active) : -1;
+    item.activeItemIndex = kept >= 0 ? kept : 0;
+  }
+  return hadContent && item.content.length === 0;
+}
+
 /** Legacy per-kind right-rail panels; all resolve to the single Inspector tab. */
 const INSPECTOR_ALIASES: ReadonlySet<string> = new Set([
   'LayerPanel',
@@ -176,9 +225,13 @@ export interface LayoutService {
   ensureSurfaceView(surfaceHandle: string, path?: string, options?: EnsureSurfaceViewOptions): void;
   closeSurfaceViewTabs(surfaceHandle: string): void;
   captureLayout(): LayoutConfig | null;
-  applyLayout(config: LayoutConfig): boolean;
+  /** Load a saved shell; on failure the default shell is loaded instead ('reset'). */
+  applyLayout(config: LayoutConfig | ResolvedLayoutConfig): LayoutApplyResult;
   resetToDefaultLayout(): boolean;
 }
+
+/** What `applyLayout` left on screen. */
+export type LayoutApplyResult = 'applied' | 'reset' | 'failed';
 
 class LayoutServiceImpl implements LayoutService {
   private layoutRef: GoldenLayout | null = null;
@@ -189,9 +242,12 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   private getCenterStack(): Stack | null {
-    const root = this.getRootRow();
-    const centerStack = root?.contentItems[1];
-    return centerStack?.type === 'stack' ? (centerStack as Stack) : null;
+    return getCentreStack(this.layoutRef);
+  }
+
+  /** The centre stack, re-created when GoldenLayout removed it with its last tab. */
+  private ensureCenterStack(): Stack | null {
+    return ensureCentreStack(this.layoutRef);
   }
 
   private getSidebarStack(): Stack | null {
@@ -247,7 +303,13 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   private normalizeLayoutConfig(config: LayoutConfig): LayoutConfig | null {
-    const cloned = cloneLayoutConfig(config);
+    let cloned: LayoutConfig;
+    try {
+      cloned = cloneLayoutConfig(toLoadableLayoutConfig(config));
+    } catch (error) {
+      console.warn('[LayoutService] Unreadable layout config:', error);
+      return null;
+    }
     const root = cloned.root;
 
     if (!root || root.type !== 'row' || !Array.isArray(root.content) || root.content.length < 3) {
@@ -261,12 +323,20 @@ class LayoutServiceImpl implements LayoutService {
 
     // Workspace tabs are rehydrated from workspaceStore to avoid stale ids.
     centerStack.content = [];
+    if (typeof (centerStack as SavedItem).activeItemIndex === 'number') {
+      (centerStack as SavedItem).activeItemIndex = 0;
+    }
+    // Surface tabs are carried across a reload from the live layout, wherever
+    // they are docked. A saved copy would show twice (one dragged to a side
+    // stack) or come back dead (its surface closed since it was saved).
+    // The row's three columns stay in place (the centre must stay second).
+    root.content.forEach((item) => stripSurfaceViews(item as SavedItem));
 
     return cloned;
   }
 
   private addWorkspaceTabsFromStore(): void {
-    const centerStack = this.getCenterStack();
+    const centerStack = this.ensureCenterStack();
     if (!centerStack) {
       console.warn('[LayoutService] Cannot rehydrate workspaces - center stack unavailable');
       return;
@@ -295,25 +365,92 @@ class LayoutServiceImpl implements LayoutService {
       };
 
       try {
-        const newItem = layout.newItem(itemConfig);
-        centerStack.addChild(newItem, undefined, false);
+        centerStack.addItem(itemConfig);
       } catch (error) {
         console.warn('[LayoutService] Failed to restore workspace tab:', error);
       }
     });
 
-    if (!state.activeWorkspaceId) {
-      return;
-    }
+    this.focusActiveWorkspaceTab(centerStack);
+  }
 
-    const activeItem = centerStack.contentItems.find((item) => {
-      if (!isComponentItem(item)) {
-        return false;
-      }
-      const componentState = getComponentState(item);
-      return componentState.workspaceId === state.activeWorkspaceId;
+  /**
+   * Surface view tabs have no store of their own, so a layout reload carries
+   * them across. Each tab's per-view settings, selection and viewpoint live in
+   * surfaceStore under its surfaceViewId; the old panels unmount after the
+   * reload, so the entries are captured now and put back unowned: the
+   * remounted panel (same id) claims them, the old one's cleanup cannot.
+   */
+  private captureSurfaceTabs(): {
+    tabs: ComponentItemConfig[];
+    snapshots: ReadonlyArray<readonly [string, ReturnType<SurfaceStoreState['captureSurfaceView']>]>;
+    /** The surface tab in front of the centre stack, if one was. */
+    frontSurfaceViewId: string | null;
+  } {
+    const front = this.getCenterStack()?.getActiveComponentItem?.();
+    const frontState = front && front.componentType === 'surfaceView' ? getComponentState(front) : {};
+    const frontSurfaceViewId =
+      typeof frontState.surfaceViewId === 'string' ? frontState.surfaceViewId : null;
+    const tabs = this.layoutRef
+      ? findComponentItemsByType(this.layoutRef.rootItem, 'surfaceView').map(
+          (item): ComponentItemConfig => ({
+            type: 'component',
+            componentType: 'surfaceView',
+            title: item.title,
+            componentState: getComponentState(item),
+          }),
+        )
+      : [];
+    const surfaceStore = useSurfaceStore.getState();
+    const snapshots = tabs.flatMap((config) => {
+      const state = config.componentState as LayoutComponentState | undefined;
+      const id = typeof state?.surfaceViewId === 'string' ? state.surfaceViewId : null;
+      const snapshot = id ? surfaceStore.captureSurfaceView(id) : null;
+      return id && snapshot ? [[id, snapshot] as const] : [];
     });
+    return { tabs, snapshots, frontSurfaceViewId };
+  }
 
+  private restoreSurfaceTabs(captured: ReturnType<LayoutServiceImpl['captureSurfaceTabs']>): void {
+    for (const [id, snapshot] of captured.snapshots) {
+      if (snapshot) useSurfaceStore.getState().restoreSurfaceView(id, snapshot);
+    }
+    const centerStack = this.ensureCenterStack();
+    if (!centerStack) return;
+    for (const config of captured.tabs) {
+      try {
+        centerStack.addItem(config);
+      } catch (error) {
+        console.warn('[LayoutService] Failed to restore surface view tab:', error);
+      }
+    }
+    // Adding a tab brings it to the front: put back the tab that was in front.
+    const frontSurface = captured.frontSurfaceViewId
+      ? centerStack.contentItems.find(
+          (item) =>
+            isComponentItem(item) &&
+            item.componentType === 'surfaceView' &&
+            getComponentState(item).surfaceViewId === captured.frontSurfaceViewId,
+        )
+      : undefined;
+    if (frontSurface && isComponentItem(frontSurface)) {
+      try {
+        centerStack.setActiveComponentItem(frontSurface, true);
+      } catch (error) {
+        console.warn('[LayoutService] Failed to activate surface tab after layout restore:', error);
+      }
+    } else {
+      this.focusActiveWorkspaceTab(centerStack);
+    }
+  }
+
+  private focusActiveWorkspaceTab(centerStack: Stack): void {
+    const { activeWorkspaceId } = useWorkspaceStore.getState();
+    if (!activeWorkspaceId) return;
+    const activeItem = centerStack.contentItems.find(
+      (item) =>
+        isComponentItem(item) && getComponentState(item).workspaceId === activeWorkspaceId,
+    );
     if (activeItem && isComponentItem(activeItem)) {
       try {
         centerStack.setActiveComponentItem(activeItem, true);
@@ -323,23 +460,46 @@ class LayoutServiceImpl implements LayoutService {
     }
   }
 
-  private loadLayoutAndRehydrate(config: LayoutConfig): boolean {
+  /**
+   * Reload the shell from `config` and put the workspace and surface tabs back.
+   * When `config` cannot be loaded, `fallback` (the default shell) is loaded
+   * instead. The result says which one is on screen.
+   */
+  private loadLayoutAndRehydrate(
+    config: LayoutConfig,
+    fallback?: LayoutConfig,
+  ): LayoutApplyResult {
     if (!this.layoutRef || typeof this.layoutRef.loadLayout !== 'function') {
       console.warn('[LayoutService] Cannot load layout - layout not initialized');
-      return false;
+      return 'failed';
     }
 
-    try {
-      // Reloading destroys every workspace tab; that is not the user closing
-      // them, so their workspaces stay (and are re-added just below).
-      const layout = this.layoutRef;
-      programmaticTabRemoval.run(() => layout.loadLayout(config));
-      this.addWorkspaceTabsFromStore();
-      return true;
-    } catch (error) {
-      console.error('[LayoutService] Failed to load layout config:', error);
-      return false;
+    const layout = this.layoutRef;
+    const surfaceTabs = this.captureSurfaceTabs();
+    // Reloading destroys every workspace tab; that is not the user closing
+    // them, so their workspaces stay (and are re-added just below).
+    const load = (next: LayoutConfig): boolean => {
+      try {
+        programmaticTabRemoval.run(() => layout.loadLayout(next));
+        return true;
+      } catch (error) {
+        console.error('[LayoutService] Failed to load layout config:', error);
+        return false;
+      }
+    };
+
+    let result: LayoutApplyResult = 'applied';
+    if (!load(config)) {
+      if (!fallback || !load(fallback)) return 'failed';
+      result = 'reset';
     }
+    // Every re-added tab comes to the front; none of that is the user
+    // switching tabs, so the store's active workspace stays put.
+    programmaticTabChange.run(() => {
+      this.addWorkspaceTabsFromStore();
+      this.restoreSurfaceTabs(surfaceTabs);
+    });
+    return result;
   }
 
   setLayoutRef(layout: unknown): void {
@@ -348,7 +508,7 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   addComponent(config: ComponentItemConfig): void {
-    const centerStack = this.getCenterStack();
+    const centerStack = this.ensureCenterStack();
     if (!centerStack) {
       console.error('[LayoutService] Layout center stack not initialized');
       return;
@@ -382,7 +542,7 @@ class LayoutServiceImpl implements LayoutService {
     path?: string,
     options?: EnsureSurfaceViewOptions,
   ): void {
-    const centerStack = this.getCenterStack();
+    const centerStack = this.ensureCenterStack();
     if (!centerStack) {
       console.warn('[LayoutService] Cannot ensure surface view - center stack unavailable');
       return;
@@ -500,9 +660,12 @@ class LayoutServiceImpl implements LayoutService {
     const homeStack = this.getStackForPanelType(resolvedType);
     try {
       if (homeStack) {
-        const newItem = layout.newItem(config);
-        homeStack.addChild(newItem, undefined, true);
-        if (isComponentItem(newItem)) {
+        // Stack.addItem, not layout.newItem: newItem already places the item
+        // at GoldenLayout's default location, so adding it here again made a
+        // second copy (and threw).
+        const index = homeStack.addItem(config);
+        const newItem = homeStack.contentItems[index];
+        if (newItem && isComponentItem(newItem)) {
           homeStack.setActiveComponentItem(newItem, true);
         }
       } else {
@@ -542,59 +705,20 @@ class LayoutServiceImpl implements LayoutService {
     }
   }
 
-  applyLayout(config: LayoutConfig): boolean {
-    const normalized = this.normalizeLayoutConfig(config);
+  applyLayout(config: LayoutConfig | ResolvedLayoutConfig): LayoutApplyResult {
+    const normalized = this.normalizeLayoutConfig(config as LayoutConfig);
     if (!normalized) {
       console.warn(
         '[LayoutService] Saved layout incompatible with current schema; restoring default shell',
       );
-      return this.resetToDefaultLayout();
+      return this.resetToDefaultLayout() ? 'reset' : 'failed';
     }
 
-    return this.loadLayoutAndRehydrate(normalized);
+    return this.loadLayoutAndRehydrate(normalized, createDefaultLayoutConfig());
   }
 
   resetToDefaultLayout(): boolean {
-    // Workspace tabs are rehydrated from workspaceStore; surface view tabs
-    // have no store of their own, so carry them across the reload.
-    const surfaceTabs = this.layoutRef
-      ? findComponentItemsByType(this.layoutRef.rootItem, 'surfaceView').map(
-          (item): ComponentItemConfig => ({
-            type: 'component',
-            componentType: 'surfaceView',
-            title: item.title,
-            componentState: getComponentState(item),
-          }),
-        )
-      : [];
-    // Each tab's per-view settings, selection and viewpoint live in
-    // surfaceStore under its surfaceViewId. The old panels unmount after the
-    // reload, so capture the entries now and put them back unowned: the
-    // remounted panel (same id) claims them, the old one's cleanup cannot.
-    const surfaceStore = useSurfaceStore.getState();
-    const surfaceSnapshots = surfaceTabs.flatMap((config) => {
-      const state = config.componentState as LayoutComponentState | undefined;
-      const id = typeof state?.surfaceViewId === 'string' ? state.surfaceViewId : null;
-      const snapshot = id ? surfaceStore.captureSurfaceView(id) : null;
-      return id && snapshot ? [[id, snapshot] as const] : [];
-    });
-    if (!this.loadLayoutAndRehydrate(createDefaultLayoutConfig())) {
-      return false;
-    }
-    for (const [id, snapshot] of surfaceSnapshots) {
-      useSurfaceStore.getState().restoreSurfaceView(id, snapshot);
-    }
-    const centerStack = this.getCenterStack();
-    if (centerStack && this.layoutRef) {
-      for (const config of surfaceTabs) {
-        try {
-          centerStack.addChild(this.layoutRef.newItem(config), undefined, false);
-        } catch (error) {
-          console.warn('[LayoutService] Failed to restore surface view tab:', error);
-        }
-      }
-    }
-    return true;
+    return this.loadLayoutAndRehydrate(createDefaultLayoutConfig()) === 'applied';
   }
 }
 

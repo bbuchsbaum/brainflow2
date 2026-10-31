@@ -15,7 +15,7 @@ import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { useLayoutStateStore } from "@/stores/layoutStateStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import type { ViewType } from "@/types/coordinates";
-import { isViewerKeyTarget } from "@/utils/viewerKeyTarget";
+import { isViewerKeyTarget, navigationKeyTarget } from "@/utils/viewerKeyTarget";
 import { selectAllInFocusedField } from "@/utils/editSelectAll";
 import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
 
@@ -188,7 +188,7 @@ export function useKeyboardShortcuts() {
           category: SLICE_SHORTCUT_CATEGORY,
           description,
           priority: 10,
-          when: () => isViewerKeyTarget(document.activeElement),
+          when: () => isViewerKeyTarget(navigationKeyTarget()),
           handler: () => {
             nudgeSlice(steps);
           },

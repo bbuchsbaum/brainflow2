@@ -16,6 +16,8 @@ import { loadFailureMessage } from '@/utils/formatTauriError';
 import { getEventBus } from '@/events/EventBus';
 import { addLogEntry } from '@/stores/logStore';
 import { studioMemberForLoad } from '@/services/studio/studioMemberLoads';
+import { useLayerStore } from '@/stores/layerStore';
+import { errorText, sourceLabel } from '@/utils/logLabels';
 
 type Unsubscribe = () => void;
 
@@ -37,7 +39,8 @@ export function bootstrapLogService(): Unsubscribe {
 
   unsubs.push(
     bus.on('volume.load.complete', ({ source, sourcePath, displayName, duration }) => {
-      const file = basename(sourcePath ?? displayName ?? source);
+      // An atlas or template by its name, not its catalogue id.
+      const file = sourceLabel(sourcePath, displayName, basename(source));
       const member = studioMemberForLoad(sourcePath);
       addLogEntry(
         member
@@ -62,7 +65,7 @@ export function bootstrapLogService(): Unsubscribe {
       addLogEntry({
         level: 'error',
         source: 'volume',
-        message: loadFailureMessage(basename(source), error),
+        message: loadFailureMessage(sourceLabel(source, null), error),
       });
     }),
   );
@@ -97,10 +100,12 @@ export function bootstrapLogService(): Unsubscribe {
 
   unsubs.push(
     bus.on('layer.error', ({ layerId, error }) => {
+      const layer = useLayerStore.getState().layers.find((l) => l.id === layerId);
+      const name = layer ? sourceLabel(layer.sourcePath, layer.name, layerId) : layerId;
       addLogEntry({
         level: 'error',
         source: 'layer',
-        message: `Layer ${layerId.slice(0, 8)} error: ${error.message}`,
+        message: `Layer ${name} error: ${errorText(error)}`,
       });
     }),
   );
@@ -147,12 +152,15 @@ export function bootstrapLogService(): Unsubscribe {
   );
 
   unsubs.push(
-    bus.on('ui.notification', ({ type, message }) => {
+    bus.on('ui.notification', ({ type, message, logSource }) => {
       // Only mirror notifications that the user benefits from re-reading.
       if (type === 'info' || type === 'success') return;
+      // Already logged under its own event (e.g. surface.load.error).
+      if (logSource === false) return;
       addLogEntry({
         level: type === 'error' ? 'error' : 'warn',
-        source: 'ui',
+        // A load failure is logged under what failed, not "ui" (F40).
+        source: logSource ?? 'ui',
         message,
       });
     }),

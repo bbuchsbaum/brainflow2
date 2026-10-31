@@ -30,6 +30,33 @@ export interface ShortcutRegistration {
 
 type UnregisterFn = () => void;
 
+/** The chord a registration answers: key plus exact modifiers ("meta+shift+c"). */
+export function shortcutChord(reg: Pick<ShortcutRegistration, 'key' | 'modifiers'>): string {
+  const m = reg.modifiers ?? {};
+  const mods = (['ctrl', 'alt', 'shift', 'meta'] as const).filter((k) => m[k]);
+  return [...mods, normalizeKey(reg.key)].join('+');
+}
+
+/**
+ * Registrations that answer the same chord in the same scope: neither is
+ * conditional (`when`) and they share a priority, so one silently shadows the
+ * other (QA 2026-10-30 F41). Conditional ones are scoped by their predicate.
+ */
+export function findShortcutConflicts(
+  regs: Iterable<ShortcutRegistration>,
+): Array<[ShortcutRegistration, ShortcutRegistration]> {
+  const seen = new Map<string, ShortcutRegistration>();
+  const conflicts: Array<[ShortcutRegistration, ShortcutRegistration]> = [];
+  for (const reg of regs) {
+    if (reg.when) continue;
+    const scope = `${shortcutChord(reg)}@${reg.priority ?? 0}`;
+    const other = seen.get(scope);
+    if (other) conflicts.push([other, reg]);
+    else seen.set(scope, reg);
+  }
+  return conflicts;
+}
+
 function normalizeKey(key: string): string {
   // Normalize single letter keys to lowercase for case-insensitive matching
   if (key.length === 1 && /[a-zA-Z]/.test(key)) {
@@ -135,6 +162,13 @@ class KeyboardShortcutService {
     }
     const full: ShortcutRegistration = { priority: 0, ...reg };
     this.registrations.set(reg.id, full);
+    for (const [a, b] of findShortcutConflicts(this.registrations.values())) {
+      if (a.id === reg.id || b.id === reg.id) {
+        console.warn(
+          `[KeyboardShortcutService] "${shortcutChord(reg)}" is bound twice: "${a.description}" (${a.id}) and "${b.description}" (${b.id})`,
+        );
+      }
+    }
     return () => this.unregister(reg.id);
   }
 
@@ -144,6 +178,11 @@ class KeyboardShortcutService {
 
   unregisterAll(): void {
     this.registrations.clear();
+  }
+
+  /** Unconditional registrations that share a chord (see findShortcutConflicts). */
+  getConflicts(): Array<[ShortcutRegistration, ShortcutRegistration]> {
+    return findShortcutConflicts(this.registrations.values());
   }
 
   getAll(): Record<string, ShortcutRegistration[]> {

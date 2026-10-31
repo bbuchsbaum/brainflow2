@@ -81,6 +81,11 @@ export interface EventMap {
     type: 'info' | 'warning' | 'error' | 'success';
     message: string;
     durationMs?: number;
+    /**
+     * Log source of a mirrored warning or error (default `'ui'`), or `false`
+     * when the failure is already logged under its own event.
+     */
+    logSource?: string | false;
   };
   /** Dismiss every visible toast (e.g. transient load toasts). */
   'ui.notification.clear': Record<string, never>;

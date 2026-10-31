@@ -305,22 +305,34 @@ export function populationUnderlayGrey(
   );
 }
 
-// Colour is data: signed maps run red to yellow above zero and blue to cyan
-// below; nonnegative summaries use one dark-red to pale-yellow ramp. Both start
-// saturated at the hidden band so the lowest shown value never reads as grey.
-const POSITIVE = [
-  [200, 30, 30],
-  [255, 235, 80],
-];
-const NEGATIVE = [
-  [30, 70, 220],
-  [90, 225, 255],
-];
-const SEQUENTIAL = [
-  [150, 25, 10],
-  [240, 110, 15],
-  [255, 240, 140],
-];
+// Colour is data: signed maps are the blue–white–red effect scale (the
+// member view's fMRI Red-Blue), light just above the hidden band and saturated
+// at the limit; nonnegative summaries use one dark-amber to pale-gold ramp
+// with no red, so a mostly positive mean never reads like coverage or SD. Each
+// ramp starts clearly coloured at the band, so the lowest shown value never
+// reads as grey.
+export const POPULATION_POSITIVE = [
+  [240, 150, 125],
+  [200, 25, 35],
+] as const;
+export const POPULATION_NEGATIVE = [
+  [135, 170, 240],
+  [35, 80, 200],
+] as const;
+export const POPULATION_SEQUENTIAL = [
+  [110, 60, 10],
+  [225, 150, 30],
+  [255, 235, 150],
+] as const;
+const POSITIVE = POPULATION_POSITIVE;
+const NEGATIVE = POPULATION_NEGATIVE;
+const SEQUENTIAL = POPULATION_SEQUENTIAL;
+/**
+ * Nonnegative summaries (coverage, SD, MAD, …) fill the whole support, so they
+ * are drawn translucent over the anatomy; signed maps stay opaque, like a
+ * thresholded stat overlay.
+ */
+export const POPULATION_SEQUENTIAL_OPACITY = 0.55;
 /** Brightest underlay grey; kept below white so colour stays legible. */
 const UNDERLAY_MAX = 200;
 
@@ -341,25 +353,61 @@ export function populationOverlayRgba(
   values: readonly (number | null)[],
   limit: number,
   diverging: boolean,
-  options: { band: number; underlay?: Float32Array | null },
+  options: { band: number; underlay?: Float32Array | null; opacity?: number },
 ) {
   const { band, underlay } = options;
+  const opacity = Math.min(1, Math.max(0, options.opacity ?? 1));
   const pixels = new Uint8ClampedArray(values.length * 4);
   const span = limit > band ? limit - band : limit || 1;
   values.forEach((value, i) => {
+    const grey =
+      underlay && Number.isFinite(underlay[i]) ? underlay[i] * UNDERLAY_MAX : null;
     let colour: number[] | null = null;
+    let alpha = 255;
     if (value !== null && Number.isFinite(value) && Math.abs(value) >= band && (diverging || value > 0)) {
       const t = (Math.abs(value) - band) / span;
       colour = ramp(diverging ? (value < 0 ? NEGATIVE : POSITIVE) : SEQUENTIAL, t);
-    } else if (underlay && Number.isFinite(underlay[i])) {
-      const grey = underlay[i] * UNDERLAY_MAX;
+      // Translucent: mixed onto the anatomy, or partly see-through onto the
+      // dark pane without one.
+      if (opacity < 1) {
+        if (grey !== null) colour = colour.map((c) => grey + opacity * (c - grey));
+        else alpha = Math.round(opacity * 255);
+      }
+    } else if (grey !== null) {
       colour = [grey, grey, grey];
     }
     if (!colour) return;
     for (let c = 0; c < 3; c++) pixels[i * 4 + c] = colour[c];
-    pixels[i * 4 + 3] = 255;
+    pixels[i * 4 + 3] = alpha;
   });
   return pixels;
+}
+
+/** Opacity of a summary map: translucent for nonnegative summaries. */
+export function populationSummaryOpacity(request: PopulationSliceRequest) {
+  return populationDiverging(request) ? 1 : POPULATION_SEQUENTIAL_OPACITY;
+}
+
+function cssRgb(colour: readonly number[]) {
+  return `rgb(${colour.map((c) => Math.round(c)).join(', ')})`;
+}
+
+/**
+ * The colourbar gradient for a population map, bottom to top, from the same
+ * stops the renderer uses. Diverging bars run −limit (bottom) to +limit, with
+ * the hidden band (`bandFraction` of the limit) left out around zero;
+ * sequential bars run 0 to the limit, the band at the bottom.
+ */
+export function populationColorbarGradient(diverging: boolean, bandFraction: number) {
+  const pct = (f: number) => `${(f * 100).toFixed(2)}%`;
+  if (!diverging) {
+    const stops = SEQUENTIAL.map(
+      (c, i) => `${cssRgb(c)} ${pct(bandFraction + (i / (SEQUENTIAL.length - 1)) * (1 - bandFraction))}`,
+    );
+    return `linear-gradient(to top, transparent 0%, transparent ${pct(bandFraction)}, ${stops.join(', ')})`;
+  }
+  const half = bandFraction / 2;
+  return `linear-gradient(to top, ${cssRgb(NEGATIVE[1])} 0%, ${cssRgb(NEGATIVE[0])} ${pct(0.5 - half)}, transparent ${pct(0.5 - half)}, transparent ${pct(0.5 + half)}, ${cssRgb(POSITIVE[0])} ${pct(0.5 + half)}, ${cssRgb(POSITIVE[1])} 100%)`;
 }
 
 /** Whether a summary is a count, whose only near-zero value is zero. */
@@ -1226,6 +1274,7 @@ export class PopulationSliceService {
         populationOverlayRgba(data.summary, summaryLimit, populationDiverging(query.request), {
           band: populationHiddenBand(summaryLimit, populationCountsSummary(query.request)),
           underlay,
+          opacity: populationSummaryOpacity(query.request),
         }),
         w,
         h,

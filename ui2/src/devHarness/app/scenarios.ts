@@ -1025,8 +1025,8 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await frames(3);
     await clickWhere(
       '[role="menuitem"]',
-      (el) => el.textContent?.trim() === 'Export View as Image…',
-      "context menu 'Export View as Image…'",
+      (el) => el.textContent?.trim() === 'Export view as image…',
+      "context menu 'Export view as image…'",
     );
     const { useExportDialogStore } = await import('@/stores/exportDialogStore');
     await until(() => useExportDialogStore.getState().isOpen, 'export dialog store open');

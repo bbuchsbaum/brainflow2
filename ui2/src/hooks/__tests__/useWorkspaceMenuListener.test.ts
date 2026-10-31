@@ -6,6 +6,9 @@ const { listeners, store, nav, emitted } = vi.hoisted(() => {
   const store = {
     activateWorkspace: vi.fn(),
     closeWorkspace: vi.fn(),
+    activeWorkspaceId: 'w1' as string | null,
+    workspaces: new Map([['w1', { type: 'mosaic' }]]),
+    subscribers: [] as Array<() => void>,
   };
   const nav = {
     openNewView: vi.fn(async () => 'new-view'),
@@ -13,6 +16,7 @@ const { listeners, store, nav, emitted } = vi.hoisted(() => {
     setCurrentTabLayout: vi.fn(() => 'applied'),
     goToWorkspaceType: vi.fn(),
     isModalDialogOpen: vi.fn(() => false),
+    currentTabTakesLayout: vi.fn(() => true),
   };
   const emitted: Array<[string, unknown]> = [];
   return { listeners, store, nav, emitted };
@@ -30,7 +34,15 @@ vi.mock('@/utils/eventUtils', () => ({
 }));
 
 vi.mock('@/stores/workspaceStore', () => ({
-  useWorkspaceStore: { getState: () => store },
+  useWorkspaceStore: {
+    getState: () => store,
+    subscribe: (fn: () => void) => {
+      store.subscribers.push(fn);
+      return () => {
+        store.subscribers = store.subscribers.filter((f) => f !== fn);
+      };
+    },
+  },
 }));
 
 vi.mock('@/services/workspaceNavigation', () => nav);
@@ -98,5 +110,28 @@ describe('useWorkspaceMenuListener (View › Workspace / View › Layout)', () =
     useFeatureFlagStore.setState({ integratedWorkspaceV1: !initial });
     expect(emitted.at(-1)).toEqual(['integrated-layout-availability', { enabled: !initial }]);
     useFeatureFlagStore.setState({ integratedWorkspaceV1: initial });
+  });
+
+  // QA 2026-10-30 F47: View › Layout had no check mark on the current layout.
+  it('reports the front tab layout so View › Layout can check it', async () => {
+    const layouts = () =>
+      emitted.filter(([name]) => name === 'current-layout-changed').map(([, p]) => p);
+    expect(layouts().at(-1)).toEqual({ layout: 'mosaic' });
+
+    store.workspaces.set('w1', { type: 'orthogonal-flexible' });
+    store.subscribers.forEach((fn) => fn());
+    expect(layouts().at(-1)).toEqual({ layout: 'orthogonal-flexible' });
+
+    // A tool or surface tab in front: nothing is checked.
+    nav.currentTabTakesLayout.mockReturnValue(false);
+    store.subscribers.forEach((fn) => fn());
+    expect(layouts().at(-1)).toEqual({ layout: null });
+    nav.currentTabTakesLayout.mockReturnValue(true);
+
+    // A no-op layout request still re-reports (macOS toggles a clicked check item).
+    const before = layouts().length;
+    await emit('set-layout', { layout: 'orthogonal' });
+    expect(layouts().length).toBe(before + 1);
+    store.workspaces.set('w1', { type: 'mosaic' });
   });
 });

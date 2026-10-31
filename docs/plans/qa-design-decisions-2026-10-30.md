@@ -22,11 +22,15 @@ The QA runs on 2026-10-29 raised five questions that are design decisions rather
 **Implemented 2026-10-30** (`ui2/src/services/workspaceNavigation.ts` is the single entry point for the pills, the shortcuts, the native menu and the `--workspace` startup flag):
 
 - **⌘1–⌘4** are Orthogonal, Integrated, Mosaic and Compare, in pill order. The keys are fixed: ⌘2 does nothing while Integrated's feature flag is off.
-- **Orthogonal variants.** ⌘1 and the Orthogonal pill keep the tab's current orthogonal variant, and otherwise open the locked grid (the mode's default). View › Layout › Orthogonal Panels (also in the command palette) switches the tab to separate panels. The locked grid's own lock button still links its slices.
+- **Orthogonal variants.** ⌘1 and the Orthogonal pill keep the tab's current orthogonal variant. From another layout they return to the variant the tab last used (Panels, ⌘2, ⌘1 gives Panels; QA 2026-10-30 F13), or the locked grid (the mode's default) for a tab that was never orthogonal. View › Layout › Orthogonal Panels (also in the command palette) switches the tab to separate panels. The locked grid's own lock button still links its slices.
 - **Tool and surface tabs have no slice layout.** While one is in front the pills are disabled, a "In <tool>" pill says why, and ⌘1–⌘4 do nothing. Only when no tab is open at all does a layout request create the first view.
 - **New view** opens in the current view's layout, or in the default layout (Orthogonal panels) when a tool is in front.
 - **Menus.** The native View menu has a **Layout** submenu (⌘1–⌘4, Orthogonal Panels) and a **Workspace** submenu (New View ⌘T, Set Studio ⌘5, BIDS ⌘6, Analysis). The in-app Workspace dropdown has New view, the tools, and saved layouts. **Read / Explore / Analyze / Compare were dropped**, not re-pointed: each one duplicated a pill under a different name, and Read and Explore differed only in the orthogonal variant. Their command-palette entries became "Layout: …" commands.
 - **Shortcuts are registered once.** In the desktop shell the native menu owns ⌘T and ⌘1–⌘6, so the in-app registrations are skipped there. Otherwise one key press could open two new views.
+- **Tab names are stable.** A tab keeps its label while its layout stays the same; a tab that joins a layout another tab already shows takes the next free number ("Orthogonal 2"). One tab's change never renames another (QA 2026-10-30 F27).
+- **The centre stack has no stack-level ×.** Tabs close one at a time; closing the last one brings back a default view (QA 2026-10-30 F1).
+- **The bottom dock is in every centre tab**, tools and surface tabs included, so ⌘P and the Log work whichever tab is in front (QA 2026-10-30 F31).
+- **Saved layouts** restore the panel arrangement, the front tab's layout (applied to the current tab, like a pill) and the bottom dock (QA 2026-10-30 F2).
 - **Restore** (`workspaceRestorePolicy.ts`, persist v3) keeps every view tab, one tab per tool, and the active tab. v2 payloads, which still hold the empty duplicate tabs the old pills created, get the old one-view-per-layout prune once during migration, and their retired view presets are cleared. With nothing saved, the layout root creates one default view; it does the same if the user closes the last tab.
 
 ## 2. Stacking and opacity for new layers
@@ -38,8 +42,15 @@ The QA runs on 2026-10-29 raised five questions that are design decisions rather
   4. Labels and atlases.
 
   The band is assigned at load. Within a band, the newest layer goes on top.
+- **What goes in which band, by data as well as name:**
+  - A true {0, 1} image is a mask and is drawn as labels (band 4), whatever its name (`lesion.nii`).
+  - A small-integer image (ids 1–64) is a label map (band 4) only when its name says so (`roi_3`, `_dseg`, `aseg`, an atlas name). Otherwise it is treated as a count or ordinal map (`lesion_overlap_n20`, subject counts): band 3, drawn as values.
+- **Field of view within an image band (bands 1–2):** a new image goes *underneath* the image below it when its box has at least 4× that image's volume and contains its centre. Example: a whole-head T1 opened after a small oblique slab. It then is not "on" that image and opens at full opacity. The rule never passes a layer the user moved or a layer of another band. It needs a box with volume, so a single-slice image never triggers it.
 - **Sorting happens only at load.** A layer the user has moved by hand is never re-sorted.
-- **Opacity:** a continuous image (band 1 or 2) that lands on a visible continuous image in the same band opens at 50 %. All other layers keep their current defaults.
+- **Opacity:**
+  - A continuous image (band 1 or 2) that lands on a visible continuous image in the same band opens at 50 %.
+  - A band-2 image (a BOLD run or mean EPI) that lands on visible band-1 anatomy also opens at 50 %. An opaque EPI hides the anatomy it is registered to.
+  - All other layers keep their current defaults.
 
 ## 3. Coordinates and the status bar
 

@@ -35,6 +35,19 @@ export function mayHaveLabelTable(
 }
 
 /**
+ * Whether a 4D layer opened in this workspace starts the shared frame at its
+ * own: the workspace has no frame yet, or no 4D layer it shows owns the one
+ * it has (left over from an earlier series; QA 2026-10-30 F34).
+ */
+export function startsAtVolumeFrame(
+  workspace: { timepoint?: number; layers: ReadonlyArray<{ id: string }> },
+  layerOf: (id: string) => { volumeType?: string } | undefined,
+): boolean {
+  if (typeof workspace.timepoint !== 'number') return true;
+  return !workspace.layers.some((layer) => layerOf(layer.id)?.volumeType === 'TimeSeries4D');
+}
+
+/**
  * Default crosshair for a newly loaded volume: the backend's voxel-centred
  * `center_voxel_world` (voxel `floor((dims - 1) / 2)`), falling back to the
  * geometric `center` for backends that do not send it.
@@ -308,9 +321,12 @@ export class VolumeLoadingService {
       // backend refuses the render otherwise, error 4103): a workspace without
       // one (restored from an older session) starts at the volume's frame
       // (native R2-3: slices were black until the first frame change).
+      // So does the first 4D layer of a workspace whose frame was left over
+      // from a series no longer shown (QA 2026-10-30 F34: the status bar
+      // read "9/30" while the new run's Inspector read "frame 1/30").
       if (volumeHandle.volume_type === 'TimeSeries4D') {
         const workspaceState = useViewStateStore.getState().workspaceViewStates.get(workspaceId);
-        if (workspaceState && typeof workspaceState.timepoint !== 'number') {
+        if (workspaceState && startsAtVolumeFrame(workspaceState, (id) => useLayerStore.getState().layers.find((layer) => layer.id === id))) {
           useViewStateStore.getState().setViewState((state) => {
             state.timepoint = volumeHandle.current_timepoint ?? 0;
           }, workspaceId);
@@ -342,7 +358,9 @@ export class VolumeLoadingService {
             // A declared label map without a table still renders as
             // categories (generated colours, ids as names).
             const maxLabel = useLayerStore.getState().layerMetadata.get(addedLayer.id)?.dataRange?.max;
-            if (!table && volumeHandle.is_label_map && typeof maxLabel === 'number') {
+            // So does a file whose data made it a label map at commit (F17).
+            const labelByData = addedLayer.type === 'label' && layer.type !== 'label';
+            if (!table && (volumeHandle.is_label_map || labelByData) && typeof maxLabel === 'number') {
               await getLabelTableService().applyGeneratedPalette(addedLayer.id, maxLabel);
             }
           } catch (error) {

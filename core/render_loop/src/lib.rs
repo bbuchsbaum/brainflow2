@@ -3487,6 +3487,12 @@ impl RenderLoopService {
             .any(|layer| layer.atlas_index == atlas_index)
     }
 
+    /// Render-layer slot of the layer that samples `atlas_index` in the current
+    /// frame (see `LayerStateManager::index_for_atlas`).
+    pub fn render_layer_index_for_atlas(&self, atlas_index: u32) -> Option<usize> {
+        self.layer_state_manager.index_for_atlas(atlas_index)
+    }
+
     /// Clear all render layers
     pub fn clear_render_layers(&mut self) {
         self.layer_state_manager.clear_layers();

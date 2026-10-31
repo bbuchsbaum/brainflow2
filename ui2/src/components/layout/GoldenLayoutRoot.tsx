@@ -37,6 +37,7 @@ import {
 
 // Workspace router — owns the workspaceType → component switch (extracted for testability).
 import { WorkspaceRouter } from '@/components/layout/WorkspaceRouter';
+import { CenterWithBottomDock } from '@/components/layout/CenterWithBottomDock';
 
 // Workspace components only used in side panel registrations (everything else
 // the workspace switch needs is now imported by WorkspaceRouter).
@@ -49,13 +50,15 @@ import { PlotPanel } from '@/components/panels/PlotPanel';
 import { ClusterPanelMoved } from '@/components/panels/ClusterPanelMoved';
 import { dockTabForPanel, openDockTab } from './openDockTab';
 import {
-  ProgrammaticTabChange,
   addWorkspaceTabKeepingActive,
   focusWorkspaceTab,
   handleWorkspaceTabDestroyed,
+  programmaticTabChange,
   programmaticTabRemoval,
+  removeClosedWorkspaceTab,
   shouldSyncStoreFromTab,
 } from './workspaceTabSync';
+import { ensureCentreStack, getCentreStack } from './centreStack';
 import { useCenterTabStore } from '@/stores/centerTabStore';
 import { ensureDefaultView } from '@/services/workspaceNavigation';
 // Right-rail Inspector — single tab; mode-aware via InspectorRouter.
@@ -74,15 +77,7 @@ const getComponentState = (
   return isStateRecord(rawState) ? rawState : {};
 };
 
-const getCenterWorkspaceStack = (layout: GoldenLayout): Stack | null => {
-  const root = layout.rootItem;
-  if (!root || root.type !== 'row') {
-    return null;
-  }
-
-  const centerStack = root.contentItems[1];
-  return centerStack?.type === 'stack' ? (centerStack as Stack) : null;
-};
+const getCenterWorkspaceStack = (layout: GoldenLayout): Stack | null => getCentreStack(layout);
 
 const getLeftSidebarStack = (layout: GoldenLayout): Stack | null => {
   const root = layout.rootItem;
@@ -136,8 +131,9 @@ export function GoldenLayoutRoot() {
   const addedWorkspacesRef = useRef<Set<string>>(new Set());
   const pendingWorkspaceAddsRef = useRef<Set<string>>(new Set());
   // Programmatic tab adds must not move the store's active workspace (see
-  // workspaceTabSync.ts): GoldenLayout activates every tab it adds.
-  const programmaticTabChangeRef = useRef(new ProgrammaticTabChange());
+  // workspaceTabSync.ts): GoldenLayout activates every tab it adds. The guard
+  // is shared with layoutService, which re-adds every tab after a reload.
+  const programmaticTabChangeRef = useRef(programmaticTabChange);
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -159,8 +155,9 @@ export function GoldenLayoutRoot() {
       }
 
       try {
-        // Find the center stack in the layout
-        const stack = getCenterWorkspaceStack(layoutRef.current);
+        // Find the center stack in the layout (re-created if GoldenLayout
+        // removed it with its last tab).
+        const stack = ensureCentreStack(layoutRef.current);
         if (!stack) {
           console.error('[GoldenLayoutRoot] Center stack not found');
           return;
@@ -185,7 +182,7 @@ export function GoldenLayoutRoot() {
               return;
             }
 
-            const liveStack = getCenterWorkspaceStack(layoutRef.current);
+            const liveStack = ensureCentreStack(layoutRef.current);
             if (!liveStack) {
               pendingWorkspaceAddsRef.current.delete(workspaceId);
               console.error(
@@ -240,24 +237,15 @@ export function GoldenLayoutRoot() {
   const removeWorkspaceTab = useCallback((workspaceId: string) => {
     if (!layoutRef.current) return;
 
-    const stack = getCenterWorkspaceStack(layoutRef.current);
-    if (!stack) return;
-
-    const item = stack.contentItems.find((item) => {
-      if (item.type === 'component') {
-        const componentItem = item as ComponentItem;
-        const state = getComponentState(componentItem);
-        return state.workspaceId === workspaceId;
-      }
-      return false;
-    });
-
-    if (item) {
-      programmaticTabRemoval.run(() => item.remove());
-      addedWorkspacesRef.current.delete(workspaceId);
-      pendingWorkspaceAddsRef.current.delete(workspaceId);
-      console.log(`[GoldenLayoutRoot] Removed workspace tab: ${workspaceId}`);
-    }
+    // A tab GoldenLayout is destroying (the user closed it, or its stack)
+    // is left to GoldenLayout; see removeClosedWorkspaceTab.
+    const removed = removeClosedWorkspaceTab(
+      getCenterWorkspaceStack(layoutRef.current),
+      workspaceId,
+    );
+    addedWorkspacesRef.current.delete(workspaceId);
+    pendingWorkspaceAddsRef.current.delete(workspaceId);
+    if (removed) console.log(`[GoldenLayoutRoot] Removed workspace tab: ${workspaceId}`);
   }, []);
 
   // Initialize GoldenLayout
@@ -411,12 +399,15 @@ export function GoldenLayoutRoot() {
       root.render(
         <React.StrictMode>
           <PanelErrorBoundary panelName="SurfaceView">
-            <SurfaceViewPanel
-              surfaceHandle={surfaceHandle}
-              path={path}
-              surfaceViewId={surfaceViewId}
-              groupKey={groupKey}
-            />
+            {/* The shared bottom dock, as in every view tab (QA 2026-10-30 F31). */}
+            <CenterWithBottomDock>
+              <SurfaceViewPanel
+                surfaceHandle={surfaceHandle}
+                path={path}
+                surfaceViewId={surfaceViewId}
+                groupKey={groupKey}
+              />
+            </CenterWithBottomDock>
           </PanelErrorBoundary>
         </React.StrictMode>,
       );
@@ -468,7 +459,7 @@ export function GoldenLayoutRoot() {
       } else {
         activePanelStore.clearActivePanel();
         const center = getCenterWorkspaceStack(goldenLayout);
-        if (center && center.contentItems.length === 0) {
+        if (!center || center.contentItems.length === 0) {
           useCenterTabStore.getState().setFrontComponentType(null);
         }
       }
@@ -497,6 +488,7 @@ export function GoldenLayoutRoot() {
       useLayoutSettingsStore.getState().setGoldenLayoutState(null);
     }
     goldenLayout.loadLayout(config);
+    ensureCentreStack(goldenLayout);
 
     // Add panel event listener for menu-triggered panel additions
     const handlePanelAdd = (event: Event) => {
