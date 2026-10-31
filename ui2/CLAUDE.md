@@ -57,7 +57,7 @@ await invoke('render_view', { stateJson: JSON.stringify(viewState), format: 'rgb
 2. **Reduced Complexity**: Frontend doesn't need to know the correct order of backend operations
 3. **Better Performance**: Single RPC call instead of multiple round trips
 4. **Easier Testing**: Can test with complete state snapshots
-5. **Time Travel**: Enables undo/redo by storing and replaying state objects
+5. **Replayable state**: Complete state objects could support undo/redo by storing and replaying them. This is not implemented yet: `viewStateStore` undo/redo are no-op stubs
 
 ### Implementation Details
 
@@ -129,6 +129,7 @@ ui2/
 interface ViewStateStore {
   viewState: ViewState;
   setViewState: (updater: (state: ViewState) => ViewState) => void;
+  // Present for API compatibility; currently no-ops (canUndo/canRedo return false)
   undo: () => void;
   redo: () => void;
 }
@@ -197,7 +198,7 @@ crosshairService.updatePosition(x, y, z);
 The declarative API enables powerful testing patterns:
 1. **Snapshot Testing**: Save and replay complete ViewState objects
 2. **Backend Mocking**: Replace `invoke` with a mock that returns pre-rendered images
-3. **Time Travel Debugging**: Step through state history with undo/redo
+3. **State replay**: Feed recorded ViewState sequences through the renderer (there is no built-in undo history to step through)
 
 ## Performance Considerations
 
