@@ -35,7 +35,7 @@ describe("layoutSettingsStore", () => {
     expect(state.bottomDockPlotMaximized).toBe(false);
     // The dock is shell-level and shown by default in all imaging modes.
     expect(state.bottomDockOpen).toBe(true);
-    expect(state.bottomDockHeight).toBeNull();
+    expect(state.bottomDockHeights).toEqual({});
     expect(state.orthoArrangement).toBe("grid");
     expect(state.integratedSplit).toBe("horizontal");
     expect(state.goldenLayoutState).toBeNull();
@@ -71,8 +71,9 @@ describe("layoutSettingsStore", () => {
         },
         1,
       );
-      // Saved height is preserved under the new key…
-      expect(migrated.bottomDockHeight).toBe(264);
+      // Saved height is preserved, now as the imaging views' (v3)…
+      expect(migrated.bottomDockHeights).toEqual({ imaging: 264 });
+      expect(migrated.bottomDockHeight).toBeUndefined();
       // …the open flag is intentionally dropped (resets to the new default: open)…
       expect(migrated.plotDockOpen).toBeUndefined();
       expect(migrated.bottomDockOpen).toBeUndefined();
@@ -81,13 +82,28 @@ describe("layoutSettingsStore", () => {
       expect(migrated.bottomDockActiveTab).toBe("log");
     });
 
-    it("leaves already-v2 state untouched", () => {
+    it("leaves the rest of v2 state untouched", () => {
       const migrated = migrateLayoutSettings(
         { bottomDockOpen: false, bottomDockHeight: 200 },
         2,
       );
       expect(migrated.bottomDockOpen).toBe(false);
-      expect(migrated.bottomDockHeight).toBe(200);
+      expect(migrated.bottomDockHeights).toEqual({ imaging: 200 });
+    });
+  });
+
+  // N13: the dock remembers its height per tool.
+  describe("v2 → v3 migration (one height → per tool)", () => {
+    it("moves the single height into the imaging key", () => {
+      expect(migrateLayoutSettings({ bottomDockHeight: 310 }, 2)).toEqual({
+        bottomDockHeights: { imaging: 310 },
+      });
+    });
+
+    it("starts empty when no height was saved, and keeps v3 heights", () => {
+      expect(migrateLayoutSettings({ bottomDockHeight: null }, 2).bottomDockHeights).toEqual({});
+      const v3 = { bottomDockHeights: { imaging: 250, "set-studio": 140 } };
+      expect(migrateLayoutSettings(v3, 3)).toEqual(v3);
     });
   });
 
@@ -113,12 +129,20 @@ describe("layoutSettingsStore", () => {
     expect(useLayoutSettingsStore.getState()).toBe(before);
   });
 
-  it("rounds and round-trips the bottom dock height", () => {
+  it("rounds and round-trips the bottom dock height, per tool", () => {
     useLayoutSettingsStore.getState().setBottomDockHeight(247.6);
-    expect(useLayoutSettingsStore.getState().bottomDockHeight).toBe(248);
-    expect(readPersistedState()?.state).toMatchObject({
-      bottomDockHeight: 248,
+    useLayoutSettingsStore.getState().setBottomDockHeight(131.2, "set-studio");
+    expect(useLayoutSettingsStore.getState().bottomDockHeights).toEqual({
+      imaging: 248,
+      "set-studio": 131,
     });
+    expect(readPersistedState()?.state).toMatchObject({
+      bottomDockHeights: { imaging: 248, "set-studio": 131 },
+    });
+    // Unchanged: referentially stable.
+    const before = useLayoutSettingsStore.getState();
+    useLayoutSettingsStore.getState().setBottomDockHeight(131, "set-studio");
+    expect(useLayoutSettingsStore.getState()).toBe(before);
   });
 
   it("round-trips bottom dock sizes through localStorage", () => {

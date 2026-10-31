@@ -141,10 +141,17 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
 
   // Viewer conditions that otherwise leave a silent black pane (context loss,
   // a fit with no mesh bounds) go to the Log dock.
+  // Named by the surface shown, not the view's internal id (QA 2026-10-30
+  // F40: "5jYIE5B3…: WebGL context lost").
+  const surfaceName = surface?.name;
   const handleViewerWarning = useCallback(
     (message: string) =>
-      addLogEntry({ level: 'warn', source: 'surface', message: `${surfaceViewId}: ${message}` }),
-    [surfaceViewId],
+      addLogEntry({
+        level: 'warn',
+        source: 'surface',
+        message: surfaceName ? `Surface view (${surfaceName}): ${message}` : `Surface view: ${message}`,
+      }),
+    [surfaceName],
   );
 
   const handleExporterChange = useCallback(

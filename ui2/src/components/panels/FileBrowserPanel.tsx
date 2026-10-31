@@ -5,7 +5,7 @@ import React, {
   useRef,
   useCallback,
 } from "react";
-import { Tree } from "react-arborist";
+import { Tree, type TreeApi } from "react-arborist";
 import { VscFolder } from "react-icons/vsc";
 import "./FileBrowserPanel.css";
 import { useFileBrowserStore } from "@/stores/fileBrowserStore";
@@ -50,6 +50,18 @@ const FileBrowserPanelContent: React.FC = () => {
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const treeResizeObserverRef = useRef<ResizeObserver | null>(null);
+  // Folders the user opened (outside a search), so a remounted tree (a new
+  // root, the search empty state) opens them again (QA 2026-10-30 F46:
+  // clearing a search collapsed every folder).
+  const treeApiRef = useRef<TreeApi<FileNodeData> | null>(null);
+  const openFolderIdsRef = useRef<Set<string>>(new Set());
+  const handleTreeToggle = useCallback((id: string) => {
+    const api = treeApiRef.current;
+    // A search has its own open state; the user's folders are the unfiltered one.
+    if (!api || api.isFiltered) return;
+    if (api.isOpen(id)) openFolderIdsRef.current.add(id);
+    else openFolderIdsRef.current.delete(id);
+  }, []);
 
   // Reactive values from store
   const currentPath = useFileBrowserStore((state) => state.currentPath);
@@ -85,7 +97,9 @@ const FileBrowserPanelContent: React.FC = () => {
   const rootNode = useMemo<FileTreeNode | null>(() => {
     if (entries.length === 0) return null;
     if (selectedRootMount) return selectedRootMount;
-    return entries[0];
+    // Nothing selected: the root mounted last, not the first one (QA
+    // 2026-10-30 F46: the header kept naming the first root).
+    return entries[entries.length - 1];
   }, [entries, selectedRootMount]);
 
   const selectedFileNode = useMemo<FileTreeNode | null>(() => {
@@ -548,6 +562,32 @@ const FileBrowserPanelContent: React.FC = () => {
         />
       )}
 
+      {/*
+        No matches: an in-flow notice under the search field, so it is in
+        view whatever the tree's height or stacking (QA 2026-10-31: the
+        card centred over the tree never showed in the app). The tree stays
+        mounted, so its open folders survive the search.
+      */}
+      {viewMode === "tree" && isSearchEmptyState && (
+        <div className="fb-search-empty" role="status" data-testid="files-search-empty">
+          <p className="fb-search-empty-title">
+            {searchIndexing ? "Searching folders…" : "No matching files"}
+          </p>
+          <p className="fb-search-empty-message">
+            {searchIndexing
+              ? "Listing folders that have not been opened yet."
+              : searchTruncated
+                ? "No match in the folders searched. Very deep or very large folders were skipped; open a folder to search inside it."
+                : "No neuroimaging files match this search."}
+          </p>
+          {!searchIndexing && (
+            <Button variant="secondary" size="sm" onClick={handleNoResultsReset}>
+              Clear search
+            </Button>
+          )}
+        </div>
+      )}
+
       {viewMode === "tree" &&
         isSearchActive &&
         searchTruncated &&
@@ -628,36 +668,17 @@ const FileBrowserPanelContent: React.FC = () => {
                 display: viewMode === "tree" ? "block" : "none",
               }}
             >
-              {isSearchEmptyState ? (
-                <div className="empty-state">
-                  <div className="empty-state-card" role="status">
-                    <p className="empty-state-kicker">
-                      {searchIndexing ? "Searching folders…" : "No matching files"}
-                    </p>
-                    <p className="empty-state-message">
-                      {searchIndexing
-                        ? "Listing folders that have not been opened yet."
-                        : searchTruncated
-                          ? "Searched in part: no match in the folders searched. Very deep or very large folders were skipped; open a folder to search inside it."
-                          : "No neuroimaging files match your current search. Reset search or mount another folder."}
-                    </p>
-                    <div className="empty-state-actions">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleNoResultsReset}
-                      >
-                        Clear search
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : (treeSize.width > 0 && treeSize.height > 0) ||
+              {(treeSize.width > 0 && treeSize.height > 0) ||
                 treeData.length > 0 ? (
                 <Tree
                   key={`tree-v2-${entries.length}`}
+                  ref={treeApiRef}
                   data={treeData}
                   openByDefault={false}
+                  initialOpenState={Object.fromEntries(
+                    [...openFolderIdsRef.current].map((id) => [id, true]),
+                  )}
+                  onToggle={handleTreeToggle}
                   width={treeSize.width || 300}
                   height={treeSize.height || 400}
                   indent={12}

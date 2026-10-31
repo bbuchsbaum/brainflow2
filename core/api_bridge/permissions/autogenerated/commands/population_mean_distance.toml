@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-population-mean-distance"
+description = "Enables the population_mean_distance command without any pre-configured scope."
+commands.allow = ["population_mean_distance"]
+
+[[permission]]
+identifier = "deny-population-mean-distance"
+description = "Denies the population_mean_distance command without any pre-configured scope."
+commands.deny = ["population_mean_distance"]

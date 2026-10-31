@@ -10,6 +10,15 @@
 
 import { create } from 'zustand';
 
+/**
+ * A surface tab: a live surface view or a placeholder from the last session
+ * (`surfacePlaceholder`, components/layout/surfaceTabRestore.ts). Neither has
+ * a slice layout, so the layout pills are disabled while one is in front.
+ */
+export function isSurfaceTabComponent(componentType: string | null | undefined): boolean {
+  return componentType === 'surfaceView' || componentType === 'surfacePlaceholder';
+}
+
 interface CenterTabStore {
   frontComponentType: string | null;
   setFrontComponentType: (componentType: string | null) => void;

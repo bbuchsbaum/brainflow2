@@ -13,12 +13,14 @@
  */
 import type { ViewState } from '@/types/viewState';
 import type { ViewPlane, ViewType } from '@/types/coordinates';
+import type { AtlasPaletteLegendEntry } from '@/types/atlasPalette';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { mirrorsView, useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 import { activeVolumeLayerId } from '@/utils/activeLayer';
 import { sampleLayerValue } from '@/hooks/useLayerValueAtWorld';
 import {
@@ -52,6 +54,7 @@ import {
   type ExportPane,
   type ExportSideBar,
   type FrameIncludes,
+  type LegendGroup,
   type PaneLayout,
   type SizeSpec,
 } from './compositeExport';
@@ -123,6 +126,11 @@ export function registerMosaicExportSource(
   read: () => MosaicExportSource | null,
 ): () => void {
   mosaicSources.set(workspaceId, read);
+  // A mosaic mounting is the tab's content changing (a layout pill switches
+  // the tab in place, with no workspace switch): a view focused before it
+  // is gone (QA 2026-10-30 F26: Export from a Mosaic tab defaulted to the
+  // sagittal view focused before the switch).
+  workspaceSeq = ++seq;
   return () => {
     if (mosaicSources.get(workspaceId) === read) mosaicSources.delete(workspaceId);
   };
@@ -202,12 +210,23 @@ export function availableExportTargets(): ExportTarget[] {
   return hasVolume ? [...SLICE_TARGETS, 'orthogonal', 'orthogonal-row'] : [];
 }
 
-/** Default target: the view last interacted with, else axial. */
+/**
+ * Default target: what the tab shows (QA features 2026-10-31 §3). A mosaic
+ * tab exports its tiles; a slice view focused in this tab, that view; else an
+ * orthogonal tab exports its orthogonal layout, any other one axial.
+ */
 export function defaultExportTarget(): ExportTarget | null {
   const available = availableExportTargets();
   if (available.length === 0) return null;
   if (available.includes('mosaic')) return 'mosaic';
   if (available.includes('surface')) return 'surface';
+  // A view focused in a tab since left (or replaced) is not the default.
+  if (focusedViewKind() !== 'slice') {
+    const type = useWorkspaceStore.getState().getActiveWorkspace?.()?.type;
+    const orthogonalTab =
+      type === 'orthogonal-locked' || type === 'orthogonal-flexible' || type === 'integrated';
+    return orthogonalTab && available.includes('orthogonal') ? 'orthogonal' : 'axial';
+  }
   const active = useActiveRenderContextStore.getState().activeId;
   const id = typeof active === 'string' ? active.toLowerCase() : '';
   return (SLICE_TARGETS as string[]).includes(id) ? (id as ExportTarget) : 'axial';
@@ -457,6 +476,9 @@ async function renderPane(
     positionMm: crosshair[PLANE_AXIS_INDEX[spec.viewType]],
     layerName,
     crosshairWorld: viewState.crosshair.visible ? [crosshair[0], crosshair[1], crosshair[2]] : null,
+    // As the screen shows it: axial and coronal mirrored under the
+    // radiological convention (the backend render is never flipped).
+    mirrored: mirrorsView(spec.viewType, useViewDisplaySettingsStore.getState().radiological),
     ...spec.extra,
   };
 }
@@ -485,7 +507,7 @@ export function baseColorbarLayerId(
 async function sideBar(
   viewState: ViewState,
   withValue: boolean,
-): Promise<{ side: ExportSideBar; legendLayerId: string | null }> {
+): Promise<{ side: ExportSideBar; legendLayers: LegendLayer[] }> {
   const { layers, layerMetadata } = useLayerStore.getState();
   const activeId = activeVolumeLayerId(viewState.layers);
   const overlayId = chooseColorbarLayerId(layers, viewState.layers, activeId);
@@ -507,13 +529,26 @@ async function sideBar(
     const timepoint = layers.find((l) => l.id === colorbar.layerId)?.currentTimepoint ?? 0;
     value = await sampleLayerValue(colorbar.layerId, [c[0], c[1], c[2]], timepoint);
   }
-  // The topmost visible label map's regions (beside or below the colorbar).
-  const labelLayer = [...viewState.layers]
+  // Every visible label map's regions, topmost first (beside or below the
+  // colorbar). Only the topmost was listed while the label maps under it
+  // were drawn too (QA 2026-10-30 F26: Olsen listed over drawn ASEG outlines).
+  const legendLayers = [...viewState.layers]
     .reverse()
     .map((l) => (l.visible && l.opacity > 0 ? layers.find((x) => x.id === l.id) : undefined))
-    .find((info) => info?.type === 'label' && (info.atlasPaletteLegend?.length ?? 0) > 0);
-  const legend = labelLayer?.atlasPaletteLegend ?? null;
-  return { side: { colorbar, value, legend }, legendLayerId: labelLayer?.id ?? null };
+    .filter((info) => info?.type === 'label' && (info.atlasPaletteLegend?.length ?? 0) > 0)
+    .map((info) => ({ id: info!.id, name: info!.name, legend: info!.atlasPaletteLegend! }));
+  const legend = legendLayers.length > 0 ? legendLayers.flatMap((l) => l.legend) : null;
+  // Grouped by layer: two atlases' regions (same names, same colours) are
+  // told apart under each layer's name (review of F26).
+  const legendGroups = legendLayers.map((l) => ({ name: l.name, entries: l.legend }));
+  return { side: { colorbar, value, legend, legendGroups }, legendLayers };
+}
+
+/** A visible label layer and its full Regions legend. */
+interface LegendLayer {
+  id: string;
+  name: string;
+  legend: AtlasPaletteLegendEntry[];
 }
 
 /**
@@ -877,7 +912,7 @@ export async function captureComposite(
     label = EXPORT_TARGET_LABEL[target];
   }
 
-  const { side, legendLayerId } = await sideBar(viewState, frame.crosshair);
+  const { side, legendLayers } = await sideBar(viewState, frame.crosshair);
 
   // Crop to the brain: the support (finite non-zero voxels, threshold 0) of a
   // brain mask, else the bottom anatomy, else the bottom volume (cropVolumeIds,
@@ -918,7 +953,7 @@ export async function captureComposite(
   // The Regions legend lists only the labels drawn in the exported slices
   // (QA 2026-10-29 §13), probed over each pane's field of view (with the
   // widest letter band: the side column only narrows it).
-  if (side.legend && side.legend.length > 0 && legendLayerId) {
+  if (side.legend && side.legend.length > 0 && legendLayers.length > 0) {
     throwIfAborted(request.signal);
     const bandMm = letterBands ? letterBandPx(unit) * solveWith(true)(cropped) : 0;
     const panes = specRows.flatMap((row, r) =>
@@ -929,10 +964,17 @@ export async function captureComposite(
         return { viewType: p.viewType, plane: rectPlane(p.plane, rect, extent / maxPx) };
       }),
     );
-    const present = await legendInPanes(viewState, legendLayerId, side.legend, panes, {
-      signal: request.signal,
-    });
-    if (present) side.legend = present;
+    // Each label layer is probed alone (their colours may coincide); one
+    // that cannot be read keeps its full legend.
+    const groups: LegendGroup[] = [];
+    for (const layer of legendLayers) {
+      const found = await legendInPanes(viewState, layer.id, layer.legend, panes, {
+        signal: request.signal,
+      });
+      groups.push({ name: layer.name, entries: found ?? layer.legend });
+    }
+    side.legendGroups = groups;
+    side.legend = groups.flatMap((g) => g.entries);
   }
   const hasSide = frame.colorbar && (!!side.colorbar || (side.legend?.length ?? 0) > 0);
   const headerName = figureLayerName(viewState, side);

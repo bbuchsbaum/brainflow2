@@ -2,6 +2,7 @@ import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getLayerService } from '@/services/LayerService';
 import { removeLayerFromScene, selectedVolumeLayerId } from '@/services/layerRemoval';
+import { getSceneHistory, setLayerVisibleByUser } from '@/services/SceneHistoryService';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
@@ -20,13 +21,14 @@ import { useStudioStatusBridge } from '@/hooks/useStudioStatusBridge';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { useAppSettingsMenuListener } from '@/hooks/useAppSettingsMenuListener';
 import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
-import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
+import { handleVolumeAtlasPreset, useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
 import { useExportMenuListener } from '@/hooks/useExportMenuListener';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { openDockTab } from '@/components/layout/openDockTab';
 import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
 import { getClusterService } from '@/services/ClusterService';
+import { CLUSTER_AS_REGION_COMMAND } from '@/services/series/openClusterSeries';
 import { copyValuesAtCrosshair } from '@/services/readoutCopy';
 import { activeVolumeLayerId } from '@/utils/activeLayer';
 import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuListener';
@@ -37,6 +39,12 @@ import {
   initializeCrosshairMenuService,
   destroyCrosshairMenuService,
 } from '@/services/CrosshairMenuService';
+import {
+  initializeViewDisplayMenuService,
+  destroyViewDisplayMenuService,
+} from '@/services/ViewDisplayMenuService';
+import { fitActiveView } from '@/services/ViewZoomService';
+import { useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 import { CrosshairSettingsDialog } from '@/components/dialogs/CrosshairSettingsDialog';
 import { SettingsDialog } from '@/components/dialogs/SettingsDialog';
 import { GoToCoordinateDialog } from '@/components/dialogs/GoToCoordinateDialog';
@@ -45,8 +53,6 @@ import { ConfirmationDialogHost } from '@/components/dialogs/ConfirmationDialogH
 import { ExportImageDialog } from '@/components/dialogs/ExportImageDialog';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNavigationShortcuts } from '@/hooks/useNavigationShortcuts';
-import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
-import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getEventBus, useEvent } from '@/events/EventBus';
 import { PerformanceDashboard } from '@/components/debug/PerformanceDashboard';
 import {
@@ -58,6 +64,8 @@ import { KeyboardShortcutsDialog } from '@/components/dialogs/KeyboardShortcutsD
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { getCrosshairService } from '@/services/CrosshairService';
+import { copyActiveView } from '@/services/export/copyView';
 import { useAppModeStore } from '@/stores/appModeStore';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { TopAppBar } from '@/components/ui/TopAppBar';
@@ -271,6 +279,18 @@ function AppContent() {
         run: () => setShowCrosshairSettings(true),
       },
       {
+        // The native View › Show Crosshair item, from the palette (F41).
+        id: 'crosshair.toggleVisible',
+        title: 'Toggle Crosshair',
+        subtitle: 'Show or hide the crosshair in every view.',
+        keywords: ['crosshair', 'show', 'hide', 'cursor', 'visible'],
+        group: 'Navigation',
+        run: () => {
+          const crosshair = getCrosshairService();
+          crosshair.setVisible(!crosshair.getCrosshairState().isVisible);
+        },
+      },
+      {
         id: 'crosshair.toggleSnap',
         title: 'Toggle Snap to Voxel',
         subtitle: 'Place the crosshair on voxel centres of the bottom image layer.',
@@ -324,6 +344,8 @@ function AppContent() {
         group: 'Statistics',
         run: () => openDockTab('clusters', { focus: true }),
       },
+      // Use the selected cluster row as the Series region (QA F5.4).
+      CLUSTER_AS_REGION_COMMAND,
       {
         id: 'statistics.goToMax',
         title: 'Go to Max',
@@ -361,6 +383,23 @@ function AppContent() {
           if (!layerId) throw new Error('No layer is selected');
           await removeLayerFromScene(layerId);
         },
+      },
+      {
+        id: 'view.fit',
+        title: 'Fit View',
+        subtitle: 'Reset the zoom and pan of the view under the pointer or the active view.',
+        keywords: ['fit', 'zoom', 'pan', 'reset', 'view'],
+        group: 'View',
+        shortcut: 'F',
+        run: () => fitActiveView(),
+      },
+      {
+        id: 'view.toggleRadiological',
+        title: 'Toggle Radiological Convention',
+        subtitle: 'Show axial and coronal views with the patient\u2019s right on the left.',
+        keywords: ['radiological', 'neurological', 'convention', 'flip', 'mirror', 'left', 'right'],
+        group: 'View',
+        run: () => useViewDisplaySettingsStore.getState().toggleRadiological(),
       },
       {
         id: 'info.imageHeader',
@@ -527,6 +566,35 @@ function AppContent() {
       })),
     ];
 
+    // Atlases › the volume presets (QA 2026-10-30 F30: "atlas" and "aseg"
+    // found nothing to load), through the native menu's own handler.
+    const atlasCommands: CommandPaletteCommand[] = (
+      [
+        ['freesurfer_aseg', 'ASEG Subcortical', ['aseg', 'freesurfer', 'subcortical']],
+        ['olsen_mtl', 'Olsen MTL', ['olsen', 'mtl', 'medial temporal', 'hippocampus']],
+        ['glasser2016', 'Glasser 360', ['glasser', 'hcp', 'mmp', 'cortical', 'parcellation']],
+      ] as const
+    ).map(([atlasId, label, words]) => ({
+      id: `atlas.load.${atlasId}`,
+      title: `Load Atlas: ${label}`,
+      subtitle: 'Add the atlas (MNI152NLin2009cAsym, 1 mm) as a label layer.',
+      keywords: ['atlas', 'label', 'regions', ...words],
+      group: 'Atlases',
+      // Failures take the native menu's path: logged, then an error toast.
+      run: () =>
+        handleVolumeAtlasPreset(
+          { atlas_id: atlasId, space: 'MNI152NLin2009cAsym', resolution: '1mm' },
+          getEventBus(),
+        ).catch((error: unknown) => {
+          console.error('[CommandPalette] Failed to load atlas preset:', error);
+          getEventBus().emit('ui.notification', {
+            type: 'error',
+            message:
+              error instanceof Error ? `Failed to load atlas: ${error.message}` : 'Failed to load atlas preset.',
+          });
+        }),
+    }));
+
     const savedLayoutCommands: CommandPaletteCommand[] = savedLayouts.map((layout) => ({
       id: `layout.named.${layout.id}`,
       title: `Load Layout: ${layout.name}`,
@@ -555,6 +623,7 @@ function AppContent() {
     return [
       ...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths),
       ...navigationCommands,
+      ...atlasCommands,
       ...moduleCommandEntries,
       ...savedLayoutCommands,
     ];
@@ -669,7 +738,7 @@ function AppContent() {
             // Through the layer service, so the layer list, the backend and
             // the view state agree (a view-only toggle left the layer
             // "visible" everywhere else, QA §4.2).
-            getLayerService().toggleVisibility(target.id, !target.visible);
+            setLayerVisibleByUser(target.id, !target.visible);
           },
         }),
       );
@@ -683,10 +752,13 @@ function AppContent() {
         category: 'Layers',
         description: 'Show all layers',
         handler: () => {
-          useViewStateStore
-            .getState()
-            .viewState.layers.filter((layer) => !layer.visible)
-            .forEach((layer) => getLayerService().toggleVisibility(layer.id, true));
+          // One undo step for all of them.
+          getSceneHistory().record('showAll', 'Show all layers', () =>
+            useViewStateStore
+              .getState()
+              .viewState.layers.filter((layer) => !layer.visible)
+              .forEach((layer) => getLayerService().toggleVisibility(layer.id, true)),
+          );
         },
       }),
     );
@@ -705,42 +777,8 @@ function AppContent() {
       modifiers: { meta: true, shift: true },
       category: 'Export',
       description: 'Copy view to clipboard',
-      handler: async () => {
-        const activeId = useActiveRenderContextStore.getState().activeId;
-        if (!activeId) {
-          getEventBus().emit('ui.notification', {
-            type: 'warning',
-            message: 'No active view to copy',
-          });
-          return;
-        }
-        const bitmap = useRenderStateStore.getState().getState(activeId).lastImage;
-        if (!bitmap) {
-          getEventBus().emit('ui.notification', {
-            type: 'warning',
-            message: 'No rendered image available',
-          });
-          return;
-        }
-        try {
-          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('Could not get 2D context');
-          ctx.drawImage(bitmap, 0, 0);
-          const blob = await canvas.convertToBlob({ type: 'image/png' });
-          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-          getEventBus().emit('ui.notification', {
-            type: 'success',
-            message: 'View copied to clipboard',
-          });
-        } catch (err) {
-          console.error('[App] copyViewToClipboard failed:', err);
-          getEventBus().emit('ui.notification', {
-            type: 'error',
-            message: err instanceof Error ? err.message : 'Failed to copy to clipboard',
-          });
-        }
-      },
+      // A focused mosaic is copied as shown, like Export (services/export/copyView).
+      handler: () => copyActiveView(),
     });
     return unregister;
   }, []);
@@ -749,10 +787,13 @@ function AppContent() {
   useEffect(() => {
     storeLog('AppContent', 'Initializing crosshair menu service');
     initializeCrosshairMenuService();
+    // View › Radiological Convention (QA features 2026-10-31 §2).
+    initializeViewDisplayMenuService();
 
     return () => {
       storeLog('AppContent', 'Destroying crosshair menu service');
       destroyCrosshairMenuService();
+      destroyViewDisplayMenuService();
     };
   }, []);
 

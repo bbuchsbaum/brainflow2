@@ -3487,6 +3487,12 @@ impl RenderLoopService {
             .any(|layer| layer.atlas_index == atlas_index)
     }
 
+    /// Render-layer slot of the layer that samples `atlas_index` in the current
+    /// frame (see `LayerStateManager::index_for_atlas`).
+    pub fn render_layer_index_for_atlas(&self, atlas_index: u32) -> Option<usize> {
+        self.layer_state_manager.index_for_atlas(atlas_index)
+    }
+
     /// Clear all render layers
     pub fn clear_render_layers(&mut self) {
         self.layer_state_manager.clear_layers();
@@ -5367,6 +5373,21 @@ impl RenderLoopService {
 
     pub fn atlas_metrics(&self) -> AtlasMetrics {
         self.volume_atlas.metrics()
+    }
+
+    /// Volume texture slots this device was configured with
+    /// (`RendererAtlasConfig::resolve_runtime_capacity`): the most layers that
+    /// can hold a GPU texture at once.
+    pub fn runtime_texture_capacity(&self) -> u32 {
+        self.runtime_texture_capacity
+    }
+
+    /// The most layers the render state takes at once (`LayerStateManager`;
+    /// 8, the size of the legacy uniform path's `array<LayerUBO, 8>`). A
+    /// layer upload past it fails with code 1885, "Maximum layer count N
+    /// reached", even with texture slots free.
+    pub fn render_layer_capacity(&self) -> u32 {
+        self.layer_state_manager.max_layers() as u32
     }
 }
 

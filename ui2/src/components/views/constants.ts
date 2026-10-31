@@ -4,3 +4,6 @@
  * canvasHeight, and placement is refit by the shared viewport.
  */
 export const SLIDER_HEIGHT = 24;
+
+/** Top-right space the orthogonal workspace's lock button covers (OrthogonalViewContainer). */
+export const LAYOUT_BUTTON_RESERVE = 48;

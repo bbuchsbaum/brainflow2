@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { formatTauriError, loadFailureMessage, toError } from '../formatTauriError';
+import {
+  formatTauriError,
+  gpuTextureSlotsFullLimit,
+  loadFailureMessage,
+  toError,
+} from '../formatTauriError';
 
 describe('formatTauriError', () => {
   it('returns raw string errors', () => {
@@ -58,5 +63,38 @@ describe('loadFailureMessage', () => {
     );
     expect(loadFailureMessage('x.nii', 'Failed to load')).toBe('Failed to load x.nii: Failed to load');
     expect(loadFailureMessage('x.nii', '')).toBe('Failed to load x.nii');
+  });
+});
+
+// Feature 10 (qa-features-2026-10-31): every layer load that runs out of GPU
+// texture slots names the cause.
+describe('GPU texture slots full', () => {
+  const bridgeError = { GpuError: { code: 6001, details: 'Maximum texture limit 13 reached' } };
+
+  it('reads the slot count from the render loop error', () => {
+    expect(gpuTextureSlotsFullLimit(bridgeError)).toBe(13);
+    expect(gpuTextureSlotsFullLimit(new Error('Failed: Maximum texture limit 7 reached'))).toBe(7);
+    expect(gpuTextureSlotsFullLimit('disk full')).toBeNull();
+  });
+
+  it('turns a load failure into a clear message', () => {
+    expect(loadFailureMessage('zstat1.nii.gz', bridgeError)).toBe(
+      'Failed to load zstat1.nii.gz: GPU texture slots full (all 13 in use). Hide or remove a layer, then load again.',
+    );
+  });
+
+  // QA 2026-10-31 N2: the render state's own cap (code 1885) reads the same.
+  it('maps the render-state layer cap to the same message', () => {
+    const capped = {
+      Internal: { code: 1885, details: 'Failed to add layer: Maximum layer count 8 reached' },
+    };
+    expect(gpuTextureSlotsFullLimit(capped)).toBe(8);
+    expect(loadFailureMessage('lesion.nii', capped)).toBe(
+      'Failed to load lesion.nii: GPU texture slots full (all 8 in use). Hide or remove a layer, then load again.',
+    );
+    // Older builds: no number.
+    expect(loadFailureMessage('lesion.nii', 'Failed to add layer: Maximum layer count exceeded')).toBe(
+      'Failed to load lesion.nii: GPU texture slots full. Hide or remove a layer, then load again.',
+    );
   });
 });

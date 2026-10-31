@@ -9,6 +9,7 @@
 
 import React, { Suspense } from 'react';
 import { CenterWithBottomDock } from '@/components/layout/CenterWithBottomDock';
+import { dockHeightKeyFor } from '@/components/layout/bottomWorkbenchDock.constants';
 import { moduleRegistry, useModuleRegistryVersion } from '@/modules/registry';
 import { lazyComponent } from '@/modules/lazyComponent';
 import { EmptyPane } from '@/components/ui/bf';
@@ -51,5 +52,10 @@ export function ModuleWorkspace({ workspaceId, workspaceType }: ModuleWorkspaceP
       </Suspense>
     </ActiveModuleGate>
   );
-  return tool.bottomDock ? <CenterWithBottomDock>{body}</CenterWithBottomDock> : body;
+  // The dock keeps its height per tool (N13).
+  return tool.bottomDock ? (
+    <CenterWithBottomDock heightKey={dockHeightKeyFor(workspaceType)}>{body}</CenterWithBottomDock>
+  ) : (
+    body
+  );
 }

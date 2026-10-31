@@ -69,6 +69,10 @@ export interface LoadingQueueItem {
   endTime?: number;
   error?: Error;
   retry?: LoadingQueueRetryContext;
+  /** The workspace the load adds a layer to (volume, template and atlas opens). */
+  workspaceId?: string;
+  /** When it was queued (Date.now()). */
+  enqueuedAt?: number;
   result?: {
     layerId?: string;
     volumeId?: string;
@@ -121,7 +125,8 @@ export const useLoadingQueueStore = create<LoadingQueueState>()(
         const queueItem: LoadingQueueItem = {
           ...item,
           id,
-          status: 'queued'
+          status: 'queued',
+          enqueuedAt: Date.now(),
         };
         
         set((state) => {

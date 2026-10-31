@@ -44,6 +44,23 @@ export interface Workspace {
   title: string;                // Display name for tab
   presetId?: WorkspacePresetId | null; // Optional preset origin for reusable workflows
   timestamp: number;            // Creation timestamp
+  /**
+   * The label the tab last showed ("Orthogonal 2"). Kept so a tab's name
+   * changes only when its own layout does (workspaceTabLabels).
+   */
+  tabLabel?: string;
+  /**
+   * The orthogonal variant (locked grid / panels) this tab last used, so ⌘1
+   * after a switch to another layout returns to it.
+   */
+  orthogonalVariant?: WorkspaceType;
+  /**
+   * Created by the app, not the user: the default view of a cold start or
+   * the one that replaces the last closed tab. Until the user changes its
+   * layout, restoring only this tab is not a restored session (QA 2026-10-31
+   * N4: the first screen never came back).
+   */
+  defaultView?: boolean;
   isActive: boolean;            // Currently visible workspace
   layoutConfig: LayoutConfig;   // Golden Layout configuration
   panelStates: Map<string, PanelState>; // Track individual panel states

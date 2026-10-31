@@ -240,11 +240,14 @@ describe("WorkspaceRouter", () => {
     }
   });
 
-  it("does NOT wrap the BIDS workspace in the bottom dock", () => {
-    seedWorkspace("w-bare-bids", "bids-explorer");
-    render(<WorkspaceRouter workspaceId="w-bare-bids" workspaceType="bids-explorer" />);
+  // The tools share the dock too, so ⌘P / View › Panels › Plot Panel and the
+  // Log work whichever tab is in front (QA 2026-10-30 F31). Module tools get
+  // it through their `bottomDock` contribution (Analysis does).
+  it("wraps the BIDS tool in the bottom dock", () => {
+    seedWorkspace("w-tool-bids", "bids-explorer");
+    render(<WorkspaceRouter workspaceId="w-tool-bids" workspaceType="bids-explorer" />);
     expect(screen.getByTestId("route-bids-explorer")).toBeInTheDocument();
-    expect(screen.queryByTestId("center-with-bottom-dock")).toBeNull();
+    expect(screen.getByTestId("center-with-bottom-dock")).toBeInTheDocument();
   });
 
   it("routes any other type to its module's tool (unwrapped unless it asks for the dock)", async () => {

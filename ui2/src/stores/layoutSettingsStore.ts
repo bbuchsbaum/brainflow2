@@ -11,8 +11,10 @@
  *     `CenterWithBottomDock` for every imaging mode) is shown. Defaults open
  *     so the analysis panels are available in all modes, not just Integrated;
  *     the `p` key / dock close button hides it.
- *   - `bottomDockHeight` — last dragged height (px) of that dock pane, restored
- *     on the next open.
+ *   - `bottomDockHeights` — last dragged height (px) of that dock pane, per
+ *     tool (`DockHeightKey`: imaging views, Set studio, BIDS, Analysis),
+ *     restored on the next open. v3 moved the single `bottomDockHeight` into
+ *     the imaging key.
  *   - `goldenLayoutState` — serialized GoldenLayout root config from
  *     `goldenLayout.saveLayout()`. Restored on subsequent mounts so column
  *     widths, side-panel tab order/active-tab, and the side-panel structure
@@ -34,13 +36,18 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-import type { DockSizes, DockTabId } from '@/components/layout/bottomWorkbenchDock.constants';
+import type {
+  DockHeightKey,
+  DockSizes,
+  DockTabId,
+} from '@/components/layout/bottomWorkbenchDock.constants';
 import type { WorkspaceType } from '@/types/workspace';
 
 const LAYOUT_SETTINGS_PERSIST_NAME = 'brainflow2-layout-settings';
 // v2: the plot-only dock (`plotDock*`) became the shell-wide Activity|Plot|Log
 // dock (`bottomDock*`), open by default in all imaging modes.
-const LAYOUT_SETTINGS_PERSIST_VERSION = 2;
+// v3: `bottomDockHeight` became `bottomDockHeights`, keyed by tool (N13).
+const LAYOUT_SETTINGS_PERSIST_VERSION = 3;
 
 /**
  * Migrate persisted layout settings to the current version. v1 stored
@@ -62,6 +69,12 @@ export function migrateLayoutSettings(
     }
     delete state.plotDockOpen;
     delete state.plotDockHeight;
+  }
+  if (version < 3) {
+    // The one height was the imaging views' (Studio did not have its own).
+    const single = state.bottomDockHeight;
+    state.bottomDockHeights = typeof single === 'number' ? { imaging: single } : {};
+    delete state.bottomDockHeight;
   }
   return state;
 }
@@ -99,13 +112,20 @@ export interface LayoutSettingsStore {
   bottomDockOpen: boolean;
   /** Whether the (open) bottom dock is collapsed to just its tab bar. */
   bottomDockMinimized: boolean;
-  bottomDockHeight: number | null;
+  /** Last dragged dock height per tool; a missing key uses DOCK_HEIGHT_DEFAULTS. */
+  bottomDockHeights: Partial<Record<DockHeightKey, number>>;
   /** Arrangement of the three orthogonal slices (flexible ortho + integrated). */
   orthoArrangement: OrthoArrangement;
   /** Orientation of the Integrated volume/surface split. */
   integratedSplit: IntegratedSplit;
   goldenLayoutState: GoldenLayoutSavedState | null;
   integratedDefaultDisplayMode: WorkspaceType | null;
+  /**
+   * First screen (qa-features-2026-10-31 §7): with no restored session, the
+   * default view opens on the MNI T1 with a "Drop a map here" hint. On by
+   * default; Settings › Start turns it off.
+   */
+  firstScreenTemplate: boolean;
 
   setBottomDockSizes: (sizes: DockSizes) => void;
   setBottomDockLogCollapsed: (collapsed: boolean) => void;
@@ -114,11 +134,13 @@ export interface LayoutSettingsStore {
   setBottomDockOpen: (open: boolean) => void;
   setBottomDockMinimized: (minimized: boolean) => void;
   toggleBottomDock: () => void;
-  setBottomDockHeight: (height: number) => void;
+  /** Remember the dock height for `key` (default: the imaging views). */
+  setBottomDockHeight: (height: number, key?: DockHeightKey) => void;
   setOrthoArrangement: (arrangement: OrthoArrangement) => void;
   setIntegratedSplit: (split: IntegratedSplit) => void;
   setGoldenLayoutState: (state: GoldenLayoutSavedState | null) => void;
   setIntegratedDefaultDisplayMode: (mode: WorkspaceType | null) => void;
+  setFirstScreenTemplate: (enabled: boolean) => void;
 
   /** Test helper — restores the initial defaults. */
   resetLayoutSettings: () => void;
@@ -137,11 +159,12 @@ const INITIAL_STATE = {
   bottomDockActiveTab: null,
   bottomDockOpen: true,
   bottomDockMinimized: false,
-  bottomDockHeight: null,
+  bottomDockHeights: {},
   orthoArrangement: 'grid',
   integratedSplit: 'horizontal',
   goldenLayoutState: null,
   integratedDefaultDisplayMode: null,
+  firstScreenTemplate: true,
 } as const;
 
 const createLayoutSettingsStore = () =>
@@ -188,10 +211,12 @@ const createLayoutSettingsStore = () =>
         toggleBottomDock: () => {
           set((state) => ({ bottomDockOpen: !state.bottomDockOpen }));
         },
-        setBottomDockHeight: (height) => {
+        setBottomDockHeight: (height, key = 'imaging') => {
           set((state) => {
             const next = Math.round(height);
-            return state.bottomDockHeight === next ? state : { bottomDockHeight: next };
+            return state.bottomDockHeights[key] === next
+              ? state
+              : { bottomDockHeights: { ...state.bottomDockHeights, [key]: next } };
           });
         },
         setOrthoArrangement: (arrangement) => {
@@ -212,6 +237,11 @@ const createLayoutSettingsStore = () =>
               : { integratedDefaultDisplayMode: mode },
           );
         },
+        setFirstScreenTemplate: (enabled) => {
+          set((state) =>
+            state.firstScreenTemplate === enabled ? state : { firstScreenTemplate: enabled },
+          );
+        },
         resetLayoutSettings: () => {
           set({ ...INITIAL_STATE });
         },
@@ -229,11 +259,12 @@ const createLayoutSettingsStore = () =>
           bottomDockActiveTab: state.bottomDockActiveTab,
           bottomDockOpen: state.bottomDockOpen,
           bottomDockMinimized: state.bottomDockMinimized,
-          bottomDockHeight: state.bottomDockHeight,
+          bottomDockHeights: state.bottomDockHeights,
           orthoArrangement: state.orthoArrangement,
           integratedSplit: state.integratedSplit,
           goldenLayoutState: state.goldenLayoutState,
           integratedDefaultDisplayMode: state.integratedDefaultDisplayMode,
+          firstScreenTemplate: state.firstScreenTemplate,
         }),
       },
     ),

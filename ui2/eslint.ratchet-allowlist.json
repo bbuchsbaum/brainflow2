@@ -3,13 +3,10 @@
   "entries": [
     {
       "file": "src/components/studio/PopulationProbePanel.tsx",
-      "rules": ["no-palette-class"],
+      "rules": [
+        "no-palette-class"
+      ],
       "reason": "Sign-distribution bar (negative/near-zero/positive) is a diverging data encoding, not chrome."
-    },
-    {
-      "file": "src/components/studio/StudioComparePane.tsx",
-      "rules": ["no-palette-class"],
-      "reason": "Colorbar chip gradient is a diverging colormap swatch (data colours)."
     }
   ]
 }

@@ -30,12 +30,16 @@ import type { CompareLinkMode, ComparisonPanelConfig, PanelOverrideField } from 
 import { isFieldLinked, panelHasOverrides } from '@/utils/compareDisplay';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import { createDebugLogger } from '@/utils/debug';
-import { isClickOnData, volumeEdgeBounds } from './clickDataBounds';
+import { isClickOnData, unionWorldBoxes, volumeEdgeBounds } from './clickDataBounds';
+import { ComparePaneHeader } from './ComparePaneHeader';
+import { comparePickerOptions, paneUnderlayId } from '@/utils/comparePanes';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
+import { useCanvasPixelRatio } from '@/hooks/useCanvasPixelRatio';
+import { crosshairOnPane, dataRectOnPane } from './viewportFrame/paneGeometry';
 import {
   OrientationLabels,
   PLANE_AXIS_INDEX,
   ViewportColorbar,
-  ViewportHeader,
   shortLayerLabel,
   useLayerColorbar,
   orientationLabelKey as buildOrientationLabelKey,
@@ -43,6 +47,12 @@ import {
 } from './viewportFrame';
 
 const debug = createDebugLogger('comparison-render');
+
+/** Header controls: the plane select and the remove button. */
+const CONTROLS_PX = 112;
+/** The "Add layer…" select, shown in the header from this pane width. */
+const ADD_LAYER_PX = 104;
+const WIDE_PANE_PX = 520;
 
 const PANEL_PLANE_OPTIONS = [
   { value: 'axial', label: 'Axial' },
@@ -159,6 +169,8 @@ export function ComparisonPanel({
     state => state.getWorkspaceViewStateRevisions(workspaceId).state
   );
 
+  // HiDPI canvas; the pane is rendered at the same ratio (ComparisonRenderService).
+  const pixelRatio = useCanvasPixelRatio();
   useEffect(() => {
     void renderService.renderPanel({
       workspaceId,
@@ -179,6 +191,8 @@ export function ComparisonPanel({
     viewStateRevision,
     workspaceId,
     linkMode,
+    // A move to a display of another ratio re-renders the pane.
+    pixelRatio,
   ]);
 
   const renderContext = useMemo(() => ({
@@ -231,7 +245,9 @@ export function ComparisonPanel({
   // The panel IS its frame: canvas + header overlay (the panel's own layer,
   // plane, slice mm) + letters + rail + colorbar. Plane select and close sit
   // in a header right slot revealed on hover or keyboard focus.
-  const labelKey = buildOrientationLabelKey(viewPlane, true);
+  // Radiological convention: axial/coronal panes mirrored (display only).
+  const mirrorX = useMirrorsView(panel.viewType);
+  const labelKey = buildOrientationLabelKey(viewPlane, true, mirrorX);
   const { refs: orientationLabelRefs, getKnockouts } = useOrientationLabelKnockouts(labelKey);
   const setHeaderElement = useCallback(
     (el: HTMLDivElement | null) => {
@@ -286,11 +302,17 @@ export function ComparisonPanel({
     [sliceRange.min, sliceRange.max],
   );
 
-  // Crosshair clip: the volume's outer voxel EDGES (voxel-centre bounds
-  // widened by half a voxel per axis), so lines reach the image border.
+  // Crosshair clip: the outer voxel EDGES (voxel-centre bounds widened by
+  // half a voxel per axis) of what the pane draws: its layer AND the
+  // anatomy under it. Clipped to a small (oblique) map alone, a crosshair on
+  // the anatomy outside it vanished (QA 2026-10-31 F7.3).
+  const underlayId = useLayerStore((state) => paneUnderlayId(panel.visibleLayerIds, state.layers));
+  const underlayMetadata = useLayerStore((state) =>
+    underlayId ? state.layerMetadata.get(underlayId) : undefined,
+  );
   const crosshairEdgeBounds = useMemo(
-    () => volumeEdgeBounds(panelMetadata),
-    [panelMetadata],
+    () => unionWorldBoxes([volumeEdgeBounds(panelMetadata), volumeEdgeBounds(underlayMetadata)]),
+    [panelMetadata, underlayMetadata],
   );
 
   // A click places the crosshair only on the image data: the panel margin
@@ -358,6 +380,12 @@ export function ComparisonPanel({
   // A layer can be added to a panel without dragging (v6 native check: the
   // only way was drag-and-drop): the loaded volumes this panel does not show.
   const loadedLayers = useLayerStore((state) => state.layers);
+  // The header picker: the tab's visible volumes (a hidden one would draw
+  // only the anatomy), plus this pane's own layer once hidden.
+  const pickableLayers = useMemo(
+    () => comparePickerOptions(workspaceLayers, loadedLayers, panelLayerId),
+    [workspaceLayers, loadedLayers, panelLayerId],
+  );
   const addableLayers = useMemo(
     () => loadedLayers.filter((l) => l.volumeId && !panel.visibleLayerIds.has(l.id)),
     [loadedLayers, panel.visibleLayerIds],
@@ -431,7 +459,11 @@ export function ComparisonPanel({
       current.x === next.x &&
       current.y === next.y &&
       current.width === next.width &&
-      current.height === next.height
+      current.height === next.height &&
+      // A new bitmap ratio or size changes the image <-> canvas mapping.
+      current.imageWidth === next.imageWidth &&
+      current.imageHeight === next.imageHeight &&
+      !!current.mirrorX === !!next.mirrorX
         ? current
         : next
     );
@@ -450,7 +482,48 @@ export function ComparisonPanel({
     };
   }, [placement, canvasSize.width, canvasSize.height]);
 
+  // The crosshair and the data on the pane, for the colorbar placement.
+  // The CSS scale from the measured image rectangle: no layout read per
+  // crosshair move (review L4a).
+  const paneOverlay = useMemo(() => {
+    if (!placement || !imageRect || !(placement.width > 0)) return { crosshair: null, data: null };
+    const k = (imageRect.right - imageRect.left) / placement.width;
+    return {
+      crosshair: crosshairOnPane(crosshair.world_mm, viewPlane, placement, k),
+      data: dataRectOnPane(crosshairEdgeBounds, viewPlane, placement, crosshair.world_mm, k),
+    };
+  }, [placement, imageRect, viewPlane, crosshair.world_mm, crosshairEdgeBounds]);
+
   const extraLayerIds = panel.visibleLayerIds.size > 1 ? Array.from(panel.visibleLayerIds) : [];
+
+  // Header controls (QA 2026-10-31 F7.3): they replace the position on
+  // hover / focus and never cover the name. "Add layer…" joins them when
+  // the pane is wide enough; the picker and drag-and-drop remain otherwise.
+  const withAddLayer = !!addLayerSelect && canvasSize.width >= WIDE_PANE_PX;
+  const headerControls = (
+    <>
+      {withAddLayer ? addLayerSelect : null}
+      <Select
+        className="h-5 w-auto"
+        aria-label={`Panel orientation, ${panelLabel}`}
+        value={panel.viewType}
+        options={PANEL_PLANE_OPTIONS}
+        onValueChange={v => onViewTypeChange(panel.id, v as 'axial' | 'sagittal' | 'coronal')}
+      />
+      <IconButton
+        size="xs"
+        icon={<X />}
+        onClick={() => onRemovePanel(panel.id)}
+        title="Remove panel"
+        aria-label={`Remove panel ${panelLabel}`}
+      />
+    </>
+  );
+  const headerControlsPx = CONTROLS_PX + (withAddLayer ? ADD_LAYER_PX : 0);
+  // The right slot: the pane's value (mono) and, unlinked, the link glyph.
+  const rightSlotPx =
+    (panelValueText !== null && hasLayers ? panelValueText.length * 6.6 + 44 : 0) +
+    (linkMode !== 'all' && hasLayers ? 34 : 0);
 
   return (
     <div
@@ -496,25 +569,34 @@ export function ComparisonPanel({
           onWorldClick={handleWorldClick}
           className="w-full h-full"
           canvasClassName="cursor-crosshair"
+          mirrorX={mirrorX}
+          pixelRatio={pixelRatio}
         />
-        {hasLayers ? (
-          <ViewportHeader
-            plane={panel.viewType}
-            positionMm={crosshair.world_mm[axis]}
-            layerName={panelLayerName}
-            width={canvasSize.width}
-            height={canvasSize.height}
-            elementRef={setHeaderElement}
-            rangeMm={headerRangeMm}
-            showPlane={false}
-            requireName
-            letter={letter || null}
-            letterActive={active}
-          />
-        ) : (
+        {/* The pane's header: letter, layer picker (its name, never
+            dropped) and slice position (QA features 2026-10-31 §6). */}
+        <ComparePaneHeader
+          letter={letter || null}
+          active={active}
+          plane={panel.viewType}
+          positionMm={crosshair.world_mm[axis]}
+          layerId={panelLayerId}
+          options={pickableLayers}
+          onChoose={(layerId) =>
+            useComparisonStore
+              .getState()
+              .setPanelLayer(workspaceId, panel.id, layerId, panelLayerId, layerNames.get(layerId))
+          }
+          width={canvasSize.width}
+          paneLabel={panelLabel}
+          elementRef={setHeaderElement}
+          rangeMm={headerRangeMm}
+          rightReservePx={rightSlotPx}
+          controls={headerControls}
+          controlsPx={headerControlsPx}
+        />
+        {!hasLayers && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-bf-xs text-bf-text-muted">
-            Drop a layer or file here, or
-            <span className="pointer-events-auto">{addLayerSelect}</span>
+            Choose a layer above, or drop a layer or file here
           </div>
         )}
         {showColorbar && colorbarLayer && !reserveColorbarColumn && (
@@ -523,10 +605,11 @@ export function ComparisonPanel({
             width={canvasSize.width}
             height={canvasSize.height}
             imageRect={imageRect}
+            // Off the image when a margin holds it, else the corner with the
+            // least data and never under the crosshair (QA 2026-10-31 N16).
+            avoidPoint={paneOverlay.crosshair}
+            dataRect={paneOverlay.data}
             topReserve={PANEL_ACTIONS_RESERVE}
-            // Top-right corner, clear of the cortex (the bottom-right sat on
-            // the brain in Compare's wide panes).
-            corner="top"
             // Never wider than the pane (the caption wraps or drops the name).
             maxWidth={Math.max(96, canvasSize.width - 16)}
             value={colorbarReading?.value ?? null}
@@ -536,7 +619,17 @@ export function ComparisonPanel({
         {viewPlane && hasLayers && (
           // The top letter sits under the header row (the badge and the
           // value), never in it.
-          <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} topInset={18} />
+          <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} topInset={18} mirrorX={mirrorX} />
+        )}
+        {/* Radiological convention: the screen's left is the patient's right. */}
+        {hasLayers && mirrorX && (
+          <span
+            className="pointer-events-none absolute bottom-1 left-1.5 select-none font-mono text-bf-xs text-bf-text-muted"
+            data-testid="radiological-badge"
+            title="Radiological convention: the patient's right is on the left"
+          >
+            R | L
+          </span>
         )}
 
         {/* Header right slot: the pane's value (always shown, mono) and the
@@ -546,6 +639,8 @@ export function ComparisonPanel({
             data-testid="comparison-panel-actions"
             className="flex items-center gap-1 rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/panel:opacity-100 motion-reduce:transition-none"
           >
+            {/* The plane, remove and (wide panes) add-layer controls live in
+                the header, in the position's place (QA 2026-10-31 F7.3). */}
             {extraLayerIds.map(lid => (
               <span
                 key={lid}
@@ -563,21 +658,6 @@ export function ComparisonPanel({
                 />
               </span>
             ))}
-            {addLayerSelect}
-            <Select
-              className="w-auto"
-              aria-label={`Panel orientation, ${panelLabel}`}
-              value={panel.viewType}
-              options={PANEL_PLANE_OPTIONS}
-              onValueChange={v => onViewTypeChange(panel.id, v as 'axial' | 'sagittal' | 'coronal')}
-            />
-            <IconButton
-              size="xs"
-              icon={<X />}
-              onClick={() => onRemovePanel(panel.id)}
-              title="Remove panel"
-              aria-label={`Remove panel ${panelLabel}`}
-            />
           </div>
           {linkMode !== 'all' && hasLayers ? (
             // Shared or own display: a link / broken-link glyph, plus a

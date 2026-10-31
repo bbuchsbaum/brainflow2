@@ -20,6 +20,8 @@ import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import type { ViewState } from "@/types/viewState";
 import type { ViewType } from "@/types/coordinates";
 import { buildRequestedViewPayload } from "@/utils/viewGeometry";
+import { mirrorsView, useViewDisplaySettingsStore } from "@/stores/viewDisplaySettingsStore";
+import { mirrorEncodedImage } from "@/utils/mirrorImage";
 import {
   buildSurfaceViewExporterKey,
   parseSurfaceViewContextId,
@@ -318,7 +320,7 @@ export class ViewExportService {
     const viewPlane = viewState.views[viewType];
     const width = viewPlane?.dim_px?.[0] ?? 512;
     const height = viewPlane?.dim_px?.[1] ?? 512;
-    return this.renderViewToBytes(
+    const bytes = await this.renderViewToBytes(
       viewState,
       viewType,
       width,
@@ -326,6 +328,10 @@ export class ViewExportService {
       options.format,
       options.transparentBackground,
     );
+    // As the screen shows it: radiological axial / coronal are mirrored
+    // (the composite export mirrors its panes itself, compositeExport).
+    if (!mirrorsView(viewType, useViewDisplaySettingsStore.getState().radiological)) return bytes;
+    return mirrorEncodedImage(bytes, options.format === "jpg" ? "image/jpeg" : "image/png");
   }
 
   /**

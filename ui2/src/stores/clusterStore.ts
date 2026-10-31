@@ -10,8 +10,19 @@ import type { ClusterSign, ClusterTable } from '@brainflow/api';
 export type ClusterConnectivity = 6 | 18 | 26;
 
 export interface ClusterParams {
-  /** |threshold|; null while the field is empty or invalid. */
+  /** |threshold| (the positive tail's when two are typed); null while the field is empty or invalid. */
   threshold: number | null;
+  /**
+   * The negative tail's |threshold| when it differs (an asymmetric layer
+   * threshold the user then edited); null: the same as `threshold`.
+   */
+  negativeThreshold: number | null;
+  /**
+   * Two threshold fields (negative and positive tail) kept while the user
+   * edits them (review of N6, M3): entered from an asymmetric layer
+   * threshold, left only through "Make symmetric" or "Use layer threshold".
+   */
+  split: boolean;
   /** Follow the layer's display threshold until the user edits the field. */
   linked: boolean;
   sign: ClusterSign;
@@ -47,6 +58,22 @@ export interface ClusterResult {
 
 export type ClusterStatus = 'idle' | 'computing' | 'ready' | 'error';
 
+/**
+ * The strongest peak of a statistic layer at its display threshold
+ * (clusters on load, QA features 2026-10-31 §8): the Inspector's "Peak z
+ * 6.41 at (−40, −20, 50)". `value` / `mm` are null when no voxel passes.
+ */
+export interface LayerPeak {
+  threshold: number;
+  /** Negative tail's |threshold| when it differs (sign "both"). */
+  negativeThreshold?: number | null;
+  /** Which tail(s) were searched: the readout says |z| > t, z > t or z < −t. */
+  sign: ClusterSign;
+  value: number | null;
+  mm: [number, number, number] | null;
+  clusters: number;
+}
+
 interface ClusterStore {
   params: ClusterParams;
   status: ClusterStatus;
@@ -54,6 +81,9 @@ interface ClusterStore {
   error: string | null;
   /** Selected cluster id (1-based rank), or null. */
   selectedId: number | null;
+  /** Strongest peak per statistic layer, from the automatic cluster runs. */
+  peaks: Record<string, LayerPeak>;
+  setPeak: (layerId: string, peak: LayerPeak | null) => void;
   setParams: (patch: Partial<ClusterParams>) => void;
   setComputing: () => void;
   setResult: (result: ClusterResult) => void;
@@ -67,6 +97,8 @@ interface ClusterStore {
 /** Defaults (critics, v0): 26-connectivity like FSL `cluster`; min 1 voxel so 6 vs 26 is visible. */
 export const DEFAULT_CLUSTER_PARAMS: ClusterParams = {
   threshold: null,
+  negativeThreshold: null,
+  split: false,
   linked: true,
   sign: 'both',
   connectivity: 26,
@@ -82,6 +114,17 @@ export const useClusterStore = create<ClusterStore>((set) => ({
   result: null,
   error: null,
   selectedId: null,
+  peaks: {},
+  setPeak: (layerId, peak) =>
+    set((state) => {
+      if (!peak) {
+        if (!(layerId in state.peaks)) return state;
+        const rest = { ...state.peaks };
+        delete rest[layerId];
+        return { peaks: rest };
+      }
+      return { peaks: { ...state.peaks, [layerId]: peak } };
+    }),
   setParams: (patch) => set((state) => ({ params: { ...state.params, ...patch } })),
   setComputing: () => set({ status: 'computing', error: null }),
   setResult: (result) => set({ status: 'ready', result, error: null, selectedId: null }),
@@ -98,5 +141,6 @@ export const useClusterStore = create<ClusterStore>((set) => ({
       result: null,
       error: null,
       selectedId: null,
+      peaks: {},
     }),
 }));

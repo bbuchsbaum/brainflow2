@@ -40,3 +40,10 @@ export function selectAllInFocusedField(doc: Document = document): boolean {
   }
   return false;
 }
+
+/** The text-editing control with focus, whose own undo ⌘Z belongs to (not a slider or select). */
+export function isTextEditingElement(el: Element | null): boolean {
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly;
+  if (el instanceof HTMLInputElement) return !el.readOnly && SELECTABLE_INPUT_TYPES.has(el.type);
+  return el instanceof HTMLElement && el.isContentEditable === true;
+}

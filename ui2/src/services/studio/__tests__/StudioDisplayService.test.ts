@@ -39,6 +39,17 @@ const mockWorkspaceStoreState = {
   activateWorkspace: vi.fn(),
 };
 
+type MockViewLayer = {
+  id: string;
+  intensity: [number, number];
+  threshold: [number, number];
+  colormap: string;
+};
+const mockViewState = { layers: [] as MockViewLayer[] };
+const mockViewStateStoreState = {
+  setViewState: vi.fn((updater: (draft: typeof mockViewState) => void) => updater(mockViewState)),
+};
+
 const mockComparisonStoreState = {
   initFromCurrentAndNewLayer: vi.fn(),
   ensurePanelsForLayers: vi.fn(),
@@ -68,6 +79,12 @@ vi.mock('@/stores/workspaceStore', () => ({
   },
 }));
 
+vi.mock('@/stores/viewStateStore', () => ({
+  useViewStateStore: {
+    getState: () => mockViewStateStoreState,
+  },
+}));
+
 vi.mock('@/stores/comparisonStore', () => ({
   useComparisonStore: {
     getState: () => mockComparisonStoreState,
@@ -89,6 +106,7 @@ describe('StudioDisplayService', () => {
     ]);
     mockWorkspaceStoreState.workspaces = new Map();
     mockWorkspaceStoreState.createWorkspace.mockResolvedValue('comparison-workspace-1');
+    mockViewState.layers = [];
 
     mockFileLoadingService.loadFile.mockImplementation(async (path: string) => {
       if (path === '/tmp/compare.nii.gz') {
@@ -327,5 +345,118 @@ describe('StudioDisplayService', () => {
       expect(service.ownsLayer('layer-late')).toBe(true);
     });
   });
-});
 
+  describe('QA wave 3', () => {
+    function deferredLoad(path: string, id: string) {
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => {
+        finish = () => {
+          mockLayerStoreState.layers.push({ id, sourcePath: path, visible: true });
+          mockLayerStoreState.layerMetadata.set(id, { sourcePath: path });
+          resolve();
+        };
+      });
+      return { done, finish: () => finish() };
+    }
+
+    it('loads a member once even when another path loads meanwhile (F44 double load)', async () => {
+      const x = deferredLoad('/tmp/x.nii.gz', 'layer-x');
+      const y = deferredLoad('/tmp/y.nii.gz', 'layer-y');
+      mockFileLoadingService.loadFile.mockImplementation((path: string) =>
+        path === '/tmp/x.nii.gz' ? x.done : y.done,
+      );
+      const service = new StudioDisplayService();
+      const first = service.ensureSourcePathDisplayed('/tmp/x.nii.gz', ['/tmp/x.nii.gz']);
+      const other = service.ensureSourcePathDisplayed('/tmp/y.nii.gz', ['/tmp/y.nii.gz']);
+      const again = service.ensureSourcePathDisplayed('/tmp/x.nii.gz', ['/tmp/x.nii.gz']);
+      await Promise.resolve();
+      x.finish();
+      y.finish();
+      await Promise.all([first, other, again]);
+      const xLoads = mockFileLoadingService.loadFile.mock.calls.filter(([p]) => p === '/tmp/x.nii.gz');
+      expect(xLoads).toHaveLength(1);
+    });
+
+    it('gives a newly loaded deck member the display of the member before it (F33)', async () => {
+      mockViewState.layers = [
+        { id: 'layer-current', intensity: [-0.7, 0.7], threshold: [-0.1, 0.1], colormap: 'fmri' },
+      ];
+      mockFileLoadingService.loadFile.mockImplementation(async (path: string) => {
+        mockLayerStoreState.layers.push({ id: 'layer-next', sourcePath: path, visible: true });
+        mockLayerStoreState.layerMetadata.set('layer-next', { sourcePath: path });
+        mockViewState.layers.push({ id: 'layer-next', intensity: [0, 0.1], threshold: [0, 0], colormap: 'gray' });
+      });
+      const service = new StudioDisplayService();
+      await service.ensureSourcePathDisplayed('/tmp/next.nii.gz', ['/tmp/current.nii.gz', '/tmp/next.nii.gz']);
+      expect(mockViewState.layers[1]).toMatchObject({
+        intensity: [-0.7, 0.7],
+        threshold: [-0.1, 0.1],
+        colormap: 'fmri',
+      });
+      expect(mockLayerService.toggleVisibility).toHaveBeenCalledWith('layer-current', false);
+    });
+
+    it('shares the window at both ends, for already-loaded members too (run-4 F33)', async () => {
+      mockLayerStoreState.layers = [
+        { id: 'layer-current', sourcePath: '/tmp/current.nii.gz', visible: true },
+        { id: 'layer-back', sourcePath: '/tmp/back.nii.gz', visible: false },
+      ];
+      mockLayerStoreState.layerMetadata = new Map([
+        ['layer-current', { sourcePath: '/tmp/current.nii.gz' }],
+        ['layer-back', { sourcePath: '/tmp/back.nii.gz' }],
+      ]);
+      mockViewState.layers = [
+        { id: 'layer-current', intensity: [0.43, 1.4], threshold: [0, 0], colormap: 'hot' },
+        { id: 'layer-back', intensity: [0.63, 1.2], threshold: [0, 0], colormap: 'gray' },
+      ];
+      const service = new StudioDisplayService();
+      // Stepping back to a member loaded earlier (no new load).
+      await service.ensureSourcePathDisplayed('/tmp/back.nii.gz', ['/tmp/current.nii.gz', '/tmp/back.nii.gz']);
+      expect(mockFileLoadingService.loadFile).not.toHaveBeenCalled();
+      expect(mockViewState.layers[1]).toMatchObject({ intensity: [0.43, 1.4], colormap: 'hot' });
+    });
+
+    it('the shared window survives the load-time auto-window in either order, once settled (review L3)', async () => {
+      // LayerApiImpl starts its histogram refinement inside addLayer, i.e.
+      // before loadFile resolves, and backs off if the window changed
+      // meanwhile (LayerApiImpl.test "late histogram keeps a user-edited
+      // intensity window"). Both orders end with the shared window.
+      const renderKey = (l: MockViewLayer) => JSON.stringify([l.intensity, l.threshold, l.colormap]);
+      for (const order of ['refine-first', 'refine-late'] as const) {
+        vi.useFakeTimers();
+        try {
+          mockLayerStoreState.layers = mockLayerStoreState.layers.filter((l) => l.id === 'layer-current');
+          mockLayerStoreState.layers[0].visible = true;
+          mockLayerStoreState.layerMetadata = new Map([['layer-current', { sourcePath: '/tmp/current.nii.gz' }]]);
+          mockViewState.layers = [
+            { id: 'layer-current', intensity: [-0.7, 0.7], threshold: [-0.1, 0.1], colormap: 'fmri' },
+          ];
+          mockFileLoadingService.loadFile.mockImplementation(async (path: string) => {
+            mockLayerStoreState.layers.push({ id: 'layer-next', sourcePath: path, visible: true });
+            mockLayerStoreState.layerMetadata.set('layer-next', { sourcePath: path });
+            const next: MockViewLayer = { id: 'layer-next', intensity: [0, 0.1], threshold: [0, 0], colormap: 'gray' };
+            mockViewState.layers.push(next);
+            const initial = renderKey(next);
+            const refine = () => {
+              if (renderKey(next) !== initial) return; // user (or Studio) took over
+              next.intensity = [0.02, 0.09];
+              next.colormap = 'hot';
+            };
+            if (order === 'refine-first') refine();
+            else setTimeout(refine, 50);
+          });
+          const service = new StudioDisplayService();
+          await service.ensureSourcePathDisplayed('/tmp/next.nii.gz', ['/tmp/current.nii.gz', '/tmp/next.nii.gz']);
+          await vi.runAllTimersAsync();
+          expect(mockViewState.layers[1], order).toMatchObject({
+            intensity: [-0.7, 0.7],
+            threshold: [-0.1, 0.1],
+            colormap: 'fmri',
+          });
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+    });
+  });
+});

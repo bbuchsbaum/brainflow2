@@ -60,8 +60,9 @@ export function worldToSliceImagePoint(worldMm, plane, toleranceMm = 0.5) {
 export function imagePointToCanvasPoint(imagePoint, placement) {
     const scaleX = placement.width / placement.imageWidth;
     const scaleY = placement.height / placement.imageHeight;
+    const imageX = placement.mirrorX ? placement.imageWidth - imagePoint[0] : imagePoint[0];
     return {
-        canvasX: placement.x + imagePoint[0] * scaleX,
+        canvasX: placement.x + imageX * scaleX,
         canvasY: placement.y + imagePoint[1] * scaleY,
     };
 }
@@ -78,8 +79,9 @@ export function isCanvasPointInPlacement(canvasPoint, placement) {
 export function canvasPointToImagePoint(canvasPoint, placement) {
     if (!isCanvasPointInPlacement(canvasPoint, placement))
         return null;
+    const imageX = ((canvasPoint.canvasX - placement.x) / placement.width) * placement.imageWidth;
     return [
-        ((canvasPoint.canvasX - placement.x) / placement.width) * placement.imageWidth,
+        placement.mirrorX ? placement.imageWidth - imageX : imageX,
         ((canvasPoint.canvasY - placement.y) / placement.height) * placement.imageHeight,
     ];
 }

@@ -26,7 +26,8 @@ export interface EventMap {
   'layer.reordered': { layerIds: string[] };
   'layer.visibility': { layerId: string; visible: boolean };
   'layer.loading': { layerId: string; loading: boolean };
-  'layer.error': { layerId: string; error: Error };
+  /** `sourcePath`: what a failed add was loading, when known (Log dedup). */
+  'layer.error': { layerId: string; error: Error; sourcePath?: string };
   'layer.metadata.updated': { layerId: string; metadata: any };
   'layer.updated': { layerId: string; updates?: Record<string, unknown> };
   'layer.render.changed': { layerId: string; renderProps: Record<string, unknown> };
@@ -64,7 +65,7 @@ export interface EventMap {
     displayName?: string;
     duration: number;
   };
-  'volume.load.error': { volumeId: string; source: string; error: Error };
+  'volume.load.error': { volumeId: string; source: string; error: Error; sourcePath?: string };
 
   // File browser events
   'file.selected': { path: string };
@@ -81,6 +82,13 @@ export interface EventMap {
     type: 'info' | 'warning' | 'error' | 'success';
     message: string;
     durationMs?: number;
+    /**
+     * Log source of a mirrored warning or error (default `'ui'`), or `false`
+     * when the failure is already logged under its own event.
+     */
+    logSource?: string | false;
+    /** One action on the message ("Removed T1w.nii.gz — Undo"). */
+    action?: { label: string; run: () => void };
   };
   /** Dismiss every visible toast (e.g. transient load toasts). */
   'ui.notification.clear': Record<string, never>;

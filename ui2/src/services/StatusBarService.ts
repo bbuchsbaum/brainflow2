@@ -15,7 +15,7 @@ import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { useStatusReadoutStore } from "@/stores/statusReadoutStore";
 import {
   resolveAtlasRegionAtWorld,
-  formatRegionLabel,
+  regionReadoutText,
   findActiveAtlasLayer,
 } from "@/services/atlasRegionLookup";
 import { resolveLayerVoxelGrid, sameVoxel } from "@/utils/voxelSnap";
@@ -167,8 +167,10 @@ export class StatusBarService {
     if (!this.isInitialized) return;
     const request = ++this.pointerRegionRequest;
     let hit: Awaited<ReturnType<typeof resolveAtlasRegionAtWorld>> = null;
+    let reported: string | null | undefined;
     try {
-      hit = await resolveAtlasRegionAtWorld(worldMm, statusLayerId());
+      reported = statusLayerId();
+      hit = await resolveAtlasRegionAtWorld(worldMm, reported);
     } catch (error) {
       console.warn("[StatusBarService] Pointer region lookup failed:", error);
     }
@@ -177,7 +179,7 @@ export class StatusBarService {
     if (!pointer || !sameVoxel(pointer, worldMm, this.atlasGrid())) return;
     this.pointerRegionAt = worldMm;
     useStatusBarStore.getState().setBatch([
-      ["pointerRegion", hit ? formatRegionLabel(hit.entry) : "--"],
+      ["pointerRegion", hit ? regionReadoutText(hit, reported) : "--"],
       [
         "pointerRegionColor",
         hit ? `rgb(${hit.entry.color[0]}, ${hit.entry.color[1]}, ${hit.entry.color[2]})` : null,
@@ -197,11 +199,12 @@ export class StatusBarService {
     const { setValue } = useStatusBarStore.getState();
     const request = ++this.regionRequest;
     try {
-      const hit = await resolveAtlasRegionAtWorld(worldMm, statusLayerId());
+      const reported = statusLayerId();
+      const hit = await resolveAtlasRegionAtWorld(worldMm, reported);
       // A newer lookup (crosshair move, layer switch) supersedes this one.
       if (request !== this.regionRequest) return;
       if (this.isInitialized) {
-        setValue("region", hit ? formatRegionLabel(hit.entry) : "--");
+        setValue("region", hit ? regionReadoutText(hit, reported) : "--");
         // LUT colour of the region, for the slot's swatch.
         setValue(
           "regionColor",

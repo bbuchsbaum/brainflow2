@@ -98,7 +98,8 @@ describe('ViewportColorbar', () => {
     for (const label of ['≥ 6', '2.3', '0', '−2.3', '−6']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
-    expect(bar.style.bottom).toBe('8px');
+    // No image rectangle: a corner of the pane, bottom-right first.
+    expect(bar).toHaveAttribute('data-placement', 'corner-br');
   });
 
   it('flips to the top-right when the crosshair centre is under it', () => {
@@ -112,7 +113,7 @@ describe('ViewportColorbar', () => {
       <ViewportColorbar layer={overlay} width={948} height={311} imageRect={{ left: 333, top: 0, right: 615, bottom: 311 }} />,
     );
     const bar = screen.getByTestId('viewport-colorbar');
-    expect(bar).toHaveAttribute('data-placement', 'beside');
+    expect(bar).toHaveAttribute('data-placement', 'right');
     expect(bar.style.left).toBe('627px');
   });
 
@@ -120,7 +121,7 @@ describe('ViewportColorbar', () => {
     render(
       <ViewportColorbar layer={overlay} width={469} height={311} imageRect={{ left: 20, top: 0, right: 449, bottom: 311 }} />,
     );
-    expect(screen.getByTestId('viewport-colorbar')).toHaveAttribute('data-placement', 'corner');
+    expect(screen.getByTestId('viewport-colorbar').getAttribute('data-placement')).toMatch(/^corner-/);
   });
 
   it('draws the crosshair value as a caret, clamped to the bar', () => {
@@ -161,8 +162,8 @@ describe('ViewportColorbar', () => {
     expect(screen.getByText('≤ 1')).toBeInTheDocument();
   });
 
-  it('is omitted when the view is too small or the colormap is unknown', () => {
-    const { rerender } = render(<ViewportColorbar layer={overlay} width={900} height={120} />);
+  it('is omitted when not even the compact bar fits, or the colormap is unknown', () => {
+    const { rerender } = render(<ViewportColorbar layer={overlay} width={900} height={40} />);
     expect(screen.queryByTestId('viewport-colorbar')).toBeNull();
     rerender(<ViewportColorbar layer={{ ...overlay, colormap: 'nope' }} width={900} height={320} />);
     expect(screen.queryByTestId('viewport-colorbar')).toBeNull();
@@ -237,5 +238,32 @@ describe('chooseColorbarLayerId', () => {
     // A visible overlay still wins.
     expect(chooseColorbarLayerId(layers, [vl('mni'), vl('stat')], 'mni', isRun)).toBe('stat');
   });
-});
 
+  describe('narrow and short panes (QA 2026-10-31 N16)', () => {
+    it('a narrow pane keeps a compact bar with the two window ends', () => {
+      render(<ViewportColorbar layer={overlay} width={120} height={300} value={2} />);
+      const bar = screen.getByTestId('viewport-colorbar');
+      expect(bar).toHaveAttribute('data-compact', 'true');
+      expect(screen.getByText('≥ 6')).toBeInTheDocument();
+      expect(screen.queryByText('2.3')).toBeNull();
+      expect(screen.queryByTestId('viewport-colorbar-caption')).toBeNull();
+      expect(screen.queryByTestId('viewport-colorbar-caret')).toBeNull();
+    });
+
+    it('a short pane falls back to the compact form rather than vanishing', () => {
+      render(<ViewportColorbar layer={overlay} width={900} height={120} />);
+      expect(screen.getByTestId('viewport-colorbar')).toHaveAttribute('data-compact', 'true');
+    });
+
+    it('a block on the image has a scrim; one in a margin does not', () => {
+      const { rerender } = render(
+        <ViewportColorbar layer={overlay} width={948} height={311} imageRect={{ left: 333, top: 0, right: 615, bottom: 311 }} />,
+      );
+      expect(screen.getByTestId('viewport-colorbar').className).not.toMatch(/bf-bg-canvas/);
+      rerender(
+        <ViewportColorbar layer={overlay} width={469} height={311} imageRect={{ left: 0, top: 0, right: 469, bottom: 311 }} />,
+      );
+      expect(screen.getByTestId('viewport-colorbar').className).toMatch(/bf-bg-canvas/);
+    });
+  });
+});

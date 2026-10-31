@@ -116,9 +116,9 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
   it('typed voxel indices go to the voxel centre in world mm, not to the indices as mm', async () => {
     render(<GoToCoordinateDialog open onClose={() => {}} />);
     toVoxel();
-    set('X (voxel index)', '45');
-    set('Y (voxel index)', '63');
-    set('Z (voxel index)', '54');
+    set('i (voxel index)', '45');
+    set('j (voxel index)', '63');
+    set('k (voxel index)', '54');
     fireEvent.click(screen.getByRole('button', { name: 'Go' }));
     await waitFor(() => expect(setCrosshair).toHaveBeenCalledWith([0, 0, 36], true));
   });
@@ -126,10 +126,10 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
   it('an index outside the volume warns (not invalid), keeps Go enabled and is not clamped', async () => {
     render(<GoToCoordinateDialog open onClose={() => {}} />);
     toVoxel();
-    set('X (voxel index)', '0');
-    set('Y (voxel index)', '0');
-    set('Z (voxel index)', '120');
-    const z = screen.getByLabelText('Z (voxel index)');
+    set('i (voxel index)', '0');
+    set('j (voxel index)', '0');
+    set('k (voxel index)', '120');
+    const z = screen.getByLabelText('k (voxel index)');
     expect(z).not.toHaveAttribute('aria-invalid');
     expect(screen.getByRole('status')).toHaveTextContent('Voxel index is outside the volume.');
     expect(z.getAttribute('aria-describedby')).toContain('goto-oob');
@@ -144,9 +144,9 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
     toVoxel();
     fireEvent.click(screen.getByRole('button', { name: 'Current' }));
     // crosshair (10, -18.5, 17.5) -> (40, 53.75, 44.75) -> rounded.
-    expect((screen.getByLabelText('X (voxel index)') as HTMLInputElement).value).toBe('40');
-    expect((screen.getByLabelText('Y (voxel index)') as HTMLInputElement).value).toBe('54');
-    expect((screen.getByLabelText('Z (voxel index)') as HTMLInputElement).value).toBe('45');
+    expect((screen.getByLabelText('i (voxel index)') as HTMLInputElement).value).toBe('40');
+    expect((screen.getByLabelText('j (voxel index)') as HTMLInputElement).value).toBe('54');
+    expect((screen.getByLabelText('k (voxel index)') as HTMLInputElement).value).toBe('45');
   });
 
   it('without an affine, voxel mode cannot navigate (Go disabled, explained)', () => {
@@ -172,17 +172,17 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
     set('Y (mm)', '20'); // j = (20 + 126) / 2 = 73
     set('Z (mm)', '30.4'); // k = (30.4 + 72) / 2 = 51.2 -> 51
     toVoxel();
-    expect(val('X (voxel index)')).toBe('40');
-    expect(val('Y (voxel index)')).toBe('73');
-    expect(val('Z (voxel index)')).toBe('51');
+    expect(val('i (voxel index)')).toBe('40');
+    expect(val('j (voxel index)')).toBe('73');
+    expect(val('k (voxel index)')).toBe('51');
   });
 
   it('Voxel -> World converts the typed indices to their voxel centre in mm', () => {
     render(<GoToCoordinateDialog open onClose={() => {}} />);
     toVoxel();
-    set('X (voxel index)', '45');
-    set('Y (voxel index)', '63');
-    set('Z (voxel index)', '54');
+    set('i (voxel index)', '45');
+    set('j (voxel index)', '63');
+    set('k (voxel index)', '54');
     fireEvent.click(screen.getByRole('radio', { name: 'World (mm)' }));
     expect(val('X (mm)')).toBe('0');
     expect(val('Y (mm)')).toBe('0');
@@ -195,11 +195,11 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
     set('Y (mm)', '20');
     set('Z (mm)', '30');
     toVoxel();
-    expect(val('X (voxel index)')).toBe('39'); // (11.3 - 90) / -2 = 39.35
+    expect(val('i (voxel index)')).toBe('39'); // (11.3 - 90) / -2 = 39.35
     fireEvent.click(screen.getByRole('radio', { name: 'World (mm)' }));
     expect([val('X (mm)'), val('Y (mm)'), val('Z (mm)')]).toEqual(['11.3', '20', '30']);
     toVoxel();
-    expect(val('X (voxel index)')).toBe('39');
+    expect(val('i (voxel index)')).toBe('39');
   });
 
   it('after an edit, switching back converts the edited indices (voxel centre)', async () => {
@@ -208,7 +208,7 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
     set('Y (mm)', '20');
     set('Z (mm)', '30');
     toVoxel();
-    set('X (voxel index)', '40');
+    set('i (voxel index)', '40');
     fireEvent.click(screen.getByRole('radio', { name: 'World (mm)' }));
     expect([val('X (mm)'), val('Y (mm)'), val('Z (mm)')]).toEqual(['10', '20', '30']);
     toVoxel();
@@ -216,17 +216,27 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
     await waitFor(() => expect(setCrosshair).toHaveBeenCalledWith([10, 20, 30], true));
   });
 
-  it('empty or invalid fields are left as typed; valid ones still convert', () => {
+  it('empty fields stay empty, invalid ones are cleared, valid ones convert (QA 2026-10-30 F42)', () => {
     render(<GoToCoordinateDialog open onClose={() => {}} />);
     set('X (mm)', '');
     set('Y (mm)', '20');
     // A refused paste marks Z invalid (its text stays "17.5").
     paste(screen.getByLabelText('Z (mm)'), '30 mm up');
     toVoxel();
-    expect(val('X (voxel index)')).toBe('');
-    expect(val('Y (voxel index)')).toBe('73');
-    expect(val('Z (voxel index)')).toBe('17.5');
-    expect(screen.getByLabelText('Z (voxel index)')).toHaveAttribute('aria-invalid', 'true');
+    expect(val('i (voxel index)')).toBe('');
+    expect(val('j (voxel index)')).toBe('73');
+    // Never carried into voxel space under the other unit.
+    expect(val('k (voxel index)')).toBe('');
+    expect(screen.getByLabelText('k (voxel index)')).not.toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('World Z was not a number and was cleared.')).toBeInTheDocument();
+  });
+
+  it('names voxel fields i, j, k without a unit', () => {
+    render(<GoToCoordinateDialog open onClose={() => {}} />);
+    toVoxel();
+    expect(screen.getByText('i')).toBeInTheDocument();
+    expect(screen.getByText('k')).toBeInTheDocument();
+    expect(screen.queryByText('vox')).toBeNull();
   });
 });
 
@@ -308,9 +318,9 @@ describe('GoToCoordinateDialog: oblique affine and partial fields', () => {
     set('Z (mm)', '34');
     fireEvent.click(screen.getByRole('radio', { name: 'Voxel' }));
     // i = (y - 20) / 2 = -19.25 -> -19; j = (10 - x) / 2 = -2; k = (z - 30) / 2 = 2
-    expect([val('X (voxel index)'), val('Y (voxel index)'), val('Z (voxel index)')]).toEqual(['-19', '-2', '2']);
+    expect([val('i (voxel index)'), val('j (voxel index)'), val('k (voxel index)')]).toEqual(['-19', '-2', '2']);
     // (Index -19 is also outside the volume: a second status, the warning.)
-    expect(screen.getAllByRole('status').map(n => n.textContent)).toContain('Empty Y taken from the crosshair.');
+    expect(screen.getAllByRole('status').map(n => n.textContent)).toContain('Empty world Y taken from the crosshair.');
     fireEvent.click(screen.getByRole('button', { name: 'Go' }));
     await waitFor(() => expect(setCrosshair).toHaveBeenCalledWith([14, -18, 34], true));
   });
@@ -340,7 +350,7 @@ describe('GoToCoordinateDialog: no affine', () => {
     render(<GoToCoordinateDialog open onClose={() => {}} />);
     fireEvent.change(screen.getByLabelText('X (mm)'), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('radio', { name: 'Voxel' }));
-    expect((screen.getByLabelText('X (voxel index)') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('i (voxel index)') as HTMLInputElement).value).toBe('');
     fireEvent.click(screen.getByRole('radio', { name: 'World (mm)' }));
     expect((screen.getByLabelText('X (mm)') as HTMLInputElement).value).toBe('12');
     layerState.current = { layers: [], layerMetadata: new Map() };
@@ -413,12 +423,12 @@ describe('GoToCoordinateDialog: voxel indices are on the selected layer\u2019s g
     expect(screen.getByTestId('goto-grid')).toHaveTextContent('ijk on the grid of zstat1');
     fireEvent.click(screen.getByRole('button', { name: 'Current' }));
     // Crosshair (10, −18.5, 17.5) on the 3 mm grid: (33.33, 35.83, 29.83) -> 33, 36, 30.
-    expect(screen.getByLabelText('X (voxel index)')).toHaveValue(33);
-    expect(screen.getByLabelText('Y (voxel index)')).toHaveValue(36);
-    expect(screen.getByLabelText('Z (voxel index)')).toHaveValue(30);
-    fireEvent.change(screen.getByLabelText('X (voxel index)'), { target: { value: '23' } });
-    fireEvent.change(screen.getByLabelText('Y (voxel index)'), { target: { value: '41' } });
-    fireEvent.change(screen.getByLabelText('Z (voxel index)'), { target: { value: '30' } });
+    expect(screen.getByLabelText('i (voxel index)')).toHaveValue(33);
+    expect(screen.getByLabelText('j (voxel index)')).toHaveValue(36);
+    expect(screen.getByLabelText('k (voxel index)')).toHaveValue(30);
+    fireEvent.change(screen.getByLabelText('i (voxel index)'), { target: { value: '23' } });
+    fireEvent.change(screen.getByLabelText('j (voxel index)'), { target: { value: '41' } });
+    fireEvent.change(screen.getByLabelText('k (voxel index)'), { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Go' }));
     await waitFor(() =>
       expect(setCrosshair).toHaveBeenCalledWith([-21, -3, 18], true, false, undefined, { snap: false }),

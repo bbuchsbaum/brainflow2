@@ -23,10 +23,12 @@ interface UseRenderCanvasOptions {
   // Callbacks
   onImageReceived?: (imageBitmap: ImageBitmap) => void;
   customRender?: (ctx: CanvasRenderingContext2D, placement: ImagePlacement) => void;
+  /** Draw the image mirrored left-right (radiological display). */
+  mirrorX?: boolean;
 }
 
 export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
-  const { context, tag, viewType, onImageReceived, customRender } = options;
+  const { context, tag, viewType, onImageReceived, customRender, mirrorX = false } = options;
   
   // Use context ID if provided, otherwise fall back to tag/viewType
   const storeKey = context?.id || tag || viewType || 'default';
@@ -97,7 +99,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       }
       
       // Use the shared canvas utility to draw the image with proper scaling
-      const placement = drawScaledImage(ctx, image, canvasWidth, canvasHeight);
+      const placement = drawScaledImage(ctx, image, canvasWidth, canvasHeight, mirrorX);
       
       retryCountRef.current = 0;
       if (errorRef.current) setError(storeKey, null);
@@ -147,7 +149,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       
       return null;
     }
-  }, [storeKey, onImageReceived, customRender, setError]);
+  }, [storeKey, onImageReceived, customRender, setError, mirrorX]);
   
   // React to changes in lastImage from the store
   // When RenderStateStore updates with a new image, draw it to the canvas

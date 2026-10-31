@@ -1,3 +1,4 @@
+import { useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { Button, Notice, NumberField, Section, SegmentedControl, Select } from '@/components/ui/bf';
 import { isRegionSource } from '@/services/atlasRegionLookup';
 import { resolveSeriesRegion } from '@/services/series/seriesRegion';
@@ -53,7 +54,7 @@ export function PopulationProbePanel({
   controller: suppliedController,
 }: { controller?: PopulationProbeController } = {}) {
   const studio = useSetStudioStore();
-  const workspaceId = useViewStateStore((state) => state.activeWorkspaceKey);
+  const workspaceId = useStudioWorkspaceKey();
   const [controller] = useState(() => suppliedController ?? new PopulationProbeController());
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const relationshipSnapshot = useSyncExternalStore(
@@ -155,7 +156,8 @@ export function PopulationProbePanel({
       setPinError(null);
       return populationProbeActions.clearRegion();
     }
-    const crosshair = useViewStateStore.getState().viewState.crosshair.world_mm;
+    // The Studio workspace's crosshair, not the tab in front (F44).
+    const crosshair = useViewStateStore.getState().getWorkspaceViewState(workspaceId).crosshair.world_mm;
     const resolved = await resolveSeriesRegion({ locus: kind, regionPick: pick }, crosshair);
     if (request !== locusRequest.current) return;
     if (!resolved?.region) {

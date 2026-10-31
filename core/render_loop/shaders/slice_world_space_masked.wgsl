@@ -142,24 +142,13 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 // @include sample_mask
 
-fn sampleLayerLabelId(layer: LayerData, world_mm: vec3<f32>) -> u32 {
-    let voxel_coord_h = layer.world_to_voxel * vec4<f32>(world_mm, 1.0);
-    if (voxel_coord_h.w <= 0.0) { return 0u; }
-
-    let voxel_coord = voxel_coord_h.xyz / voxel_coord_h.w;
-    let dim_f = vec3<f32>(layer.dim);
-    // Voxel-centre domain: voxel i covers [i-0.5, i+0.5), so the volume spans
-    // [-0.5, dim-0.5). Matches the CPU renderer and picker (round to nearest).
-    if (any(voxel_coord < vec3<f32>(-0.5)) || any(voxel_coord >= dim_f - 0.5)) {
+// Label id of one voxel by integer index; outside the volume is background.
+// Sampled at the voxel centre with the nearest sampler, as the fill is.
+fn labelAtVoxel(layer: LayerData, voxel: vec3<i32>) -> u32 {
+    if (any(voxel < vec3<i32>(0)) || any(voxel >= vec3<i32>(layer.dim))) {
         return 0u;
     }
-
-    // Half-texel offset: voxel index i is the voxel CENTER, but a WGPU texel's
-    // center is at (i+0.5)/dim. Mapping i -> i/dim lands on the texel boundary,
-    // so linear sampling returns the 50/50 average of voxels i-1 and i (a
-    // half-voxel shift). The CPU reference samples voxel centers; +0.5 aligns
-    // the GPU path. ClampToEdge addressing keeps boundary voxels correct.
-    let tex_coord = (voxel_coord + 0.5) / dim_f;
+    let tex_coord = (vec3<f32>(voxel) + 0.5) / vec3<f32>(layer.dim);
     let raw_value = sampleVolumeTexture(layer.texture_index, tex_coord, 0u);
     return u32(max(round(raw_value), 0.0));
 }
@@ -175,92 +164,7 @@ fn labelLutTexel(colormap_id: u32, label_id: i32) -> vec4<f32> {
     return textureLoad(colormapLutTexture, vec2<i32>(label_id, 0), i32(colormap_id), 0);
 }
 
-fn labelOutlineTexel(layer: LayerData, label_id: u32) -> vec4<f32> {
-    // Per-region colour: the label's LUT texel (alpha encodes visibility).
-    return labelLutTexel(layer.colormap_id, i32(min(label_id, 0x7fffffffu)));
-}
-
-fn labelOutlineColor(layer: LayerData, label_id: u32) -> vec4<f32> {
-    // outline_color_mode: 0 = uniform outline_color, 1 = the region's LUT colour.
-    // LUT alpha multiplies the outline alpha so hidden regions stay hidden.
-    if (slice_features.outline_color_mode == 1u) {
-        let texel = labelOutlineTexel(layer, label_id);
-        return vec4<f32>(texel.rgb, slice_features.outline_color.a * texel.a);
-    }
-    return slice_features.outline_color;
-}
-
-fn labelHaloColor(layer: LayerData, label_id: u32) -> vec4<f32> {
-    var alpha = slice_features.halo_color.a;
-    if (slice_features.outline_color_mode == 1u) {
-        alpha = alpha * labelOutlineTexel(layer, label_id).a;
-    }
-    return vec4<f32>(slice_features.halo_color.rgb, alpha);
-}
-
-// True when any 4-neighbour at `distance_px` screen pixels has a label other
-// than `label_id` (pixels nearer the boundary than that also qualify).
-fn labelDiffersWithin(layer: LayerData, world_mm: vec3<f32>, label_id: u32, distance_px: f32) -> bool {
-    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * distance_px;
-    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * distance_px;
-    return sampleLayerLabelId(layer, world_mm + du) != label_id ||
-        sampleLayerLabelId(layer, world_mm - du) != label_id ||
-        sampleLayerLabelId(layer, world_mm + dv) != label_id ||
-        sampleLayerLabelId(layer, world_mm - dv) != label_id;
-}
-
-// True when any 4-neighbour at `distance_px` screen pixels has `label_id`.
-fn labelNearWithin(layer: LayerData, world_mm: vec3<f32>, label_id: u32, distance_px: f32) -> bool {
-    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * distance_px;
-    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * distance_px;
-    return sampleLayerLabelId(layer, world_mm + du) == label_id ||
-        sampleLayerLabelId(layer, world_mm - du) == label_id ||
-        sampleLayerLabelId(layer, world_mm + dv) == label_id ||
-        sampleLayerLabelId(layer, world_mm - dv) == label_id;
-}
-
-fn sampleSelectedLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
-    if (slice_features.outline_enabled == 0u || layer.layer_mode != LAYER_MODE_LABEL) {
-        return vec4<f32>(0.0);
-    }
-
-    let center_label = sampleLayerLabelId(layer, world_mm);
-    let thickness_px = max(slice_features.outline_thickness_px, 1.0);
-    let halo_px = max(slice_features.halo_thickness_px, 0.0);
-
-    // outline_mode: 0 = single selected label, 1 = all parcel boundaries.
-    if (slice_features.outline_mode == 1u) {
-        // All boundaries: every non-background voxel adjacent to a different
-        // label. The halo is a second band inside each region, behind the outline.
-        if (center_label == 0u) {
-            return vec4<f32>(0.0);
-        }
-        if (labelDiffersWithin(layer, world_mm, center_label, thickness_px)) {
-            return labelOutlineColor(layer, center_label);
-        }
-        if (halo_px > 0.0 && labelDiffersWithin(layer, world_mm, center_label, thickness_px + halo_px)) {
-            return labelHaloColor(layer, center_label);
-        }
-        return vec4<f32>(0.0);
-    }
-
-    // Single label: the outline is the selected region's inner boundary band;
-    // the halo is a band just outside it.
-    let selected_label = slice_features.selected_label_id;
-    if (selected_label == 0u) {
-        return vec4<f32>(0.0);
-    }
-    if (center_label == selected_label) {
-        if (labelDiffersWithin(layer, world_mm, center_label, thickness_px)) {
-            return labelOutlineColor(layer, selected_label);
-        }
-        return vec4<f32>(0.0);
-    }
-    if (halo_px > 0.0 && labelNearWithin(layer, world_mm, selected_label, halo_px)) {
-        return labelHaloColor(layer, selected_label);
-    }
-    return vec4<f32>(0.0);
-}
+// @include label_outline
 
 // Debug: visualize raw sampling for a specific texture index.
 // When SLICE_DEBUG_MODE == 1u and layer.texture_index == SLICE_DEBUG_TEXTURE_INDEX,
@@ -570,7 +474,7 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
         final_color = composite(final_color, layer_color, layer.blend_mode);
 
         if (slice_features.outline_enabled == 1u && i == slice_features.outline_layer_index) {
-            let outline_color = sampleSelectedLabelOutline(layer, world_mm);
+            let outline_color = sampleLabelOutline(layer, world_mm);
             final_color = composite(final_color, outline_color, 0u);
         }
     }

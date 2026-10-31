@@ -924,6 +924,8 @@ pub fn navigation_menu_action(menu_id: &str) -> Option<serde_json::Value> {
         "layout_compare" => layout("compare"),
         "layout_orthogonal_panels" => layout("orthogonal-flexible"),
         "workspace_new_view" => serde_json::json!({ "action": "new-view" }),
+        // File › Close Tab (⌘W): the front tab closes like its ×.
+        "workspace_close_tab" => serde_json::json!({ "action": "close-tab" }),
         "workspace_set_studio" => tool("set-studio"),
         "workspace_bids" => tool("bids-explorer"),
         _ => return None,
@@ -1121,10 +1123,20 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 8, "expected 5 layout items and 3 workspace items");
+        assert_eq!(
+            checked, 9,
+            "expected 5 layout items and 4 workspace items (New View, the two core tools, Close Tab)"
+        );
         // View › Layout › Integrated follows the UI feature flag.
         assert!(main_rs.contains("app.listen(\"integrated-layout-availability\""));
         assert!(main_rs.contains("integrated_item.set_enabled(enabled)"));
+        // The current tab's layout carries a check mark.
+        assert!(main_rs.contains("app.listen(\"current-layout-changed\""));
+        assert_eq!(
+            main_rs.matches("CheckMenuItemBuilder::new(").count(),
+            7,
+            "five View › Layout items, Show Crosshair and Radiological Convention are check items"
+        );
     }
 
     /// Cmd+1–4 set the current tab's layout, Cmd+5/6 open tools, Cmd+T opens a
@@ -1140,8 +1152,16 @@ mod tests {
             ("CmdOrCtrl+5", "workspace_set_studio"),
             ("CmdOrCtrl+6", "workspace_bids"),
             ("CmdOrCtrl+T", "workspace_new_view"),
+            // QA 2026-10-31 N1: ⌘W closes the tab, ⇧⌘W the window.
+            ("CmdOrCtrl+W", "workspace_close_tab"),
+            ("CmdOrCtrl+Shift+W", "close_window"),
             ("CmdOrCtrl+,", "app_settings"),
         ];
+        // The predefined Close Window would bind ⌘W again.
+        assert!(
+            !main_rs.contains("PredefinedMenuItem::close_window"),
+            "Close Window is a custom item on ⇧⌘W"
+        );
         for (accelerator, id) in expected {
             let needle = format!(".accelerator(\"{accelerator}\")");
             assert_eq!(

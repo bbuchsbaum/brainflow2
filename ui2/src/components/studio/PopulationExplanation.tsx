@@ -1,3 +1,5 @@
+import { useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { Button, Notice, Select, Slider } from '@/components/ui/bf';
 import { ReusableSliceViewport, SliceViewerImageSurface } from '@/components/views/sliceViewer';
 import {
@@ -55,6 +57,7 @@ export function PopulationExplanation({
     showButton.current?.focus();
   }, [activePair, ids]);
   const [orientation, setOrientation] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
+  const mirrorX = useMirrorsView(orientation);
   const scores = fit.geometry.componentScores ?? fit.geometry.coordinates;
   const available = Math.min(
     scores[0]?.length ?? 0,
@@ -67,8 +70,8 @@ export function PopulationExplanation({
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(320);
   const [preview, setPreview] = useState<{ image: ImageBitmap; plane: ViewPlane } | null>(null);
-  const crosshairState = useViewStateStore((s) => s.viewState.crosshair);
-  const workspace = useViewStateStore((s) => s.activeWorkspaceKey);
+  const workspace = useStudioWorkspaceKey();
+  const crosshairState = useViewStateStore((s) => s.getWorkspaceViewState(workspace).crosshair);
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
       const next = Math.max(1, Math.floor(entry.contentRect.width));
@@ -93,7 +96,7 @@ export function PopulationExplanation({
     setBusy(true);
     setError(null);
     try {
-      const crosshair = useViewStateStore.getState().viewState.crosshair.world_mm;
+      const crosshair = useViewStateStore.getState().getWorkspaceViewState(workspace).crosshair.world_mm;
       const result = await explainRelationship(
         fit,
         {
@@ -262,6 +265,7 @@ export function PopulationExplanation({
             renderSurface={(props) => (
               <SliceViewerImageSurface
                 {...props}
+                mirrorX={mirrorX}
                 image={preview?.image ?? null}
                 emptyFallback={
                   <p className="absolute inset-0 grid place-items-center text-bf-sm text-muted-foreground">
@@ -274,10 +278,10 @@ export function PopulationExplanation({
           {preview && (
             <div className="pointer-events-none absolute inset-0 text-bf-sm text-white/80" aria-hidden>
               <span className="absolute left-1 top-1/2">
-                {populationAxisLabel(preview.plane.u_mm.map((v) => -v))}
+                {populationAxisLabel(mirrorX ? preview.plane.u_mm : preview.plane.u_mm.map((v) => -v))}
               </span>
               <span className="absolute right-1 top-1/2">
-                {populationAxisLabel(preview.plane.u_mm)}
+                {populationAxisLabel(mirrorX ? preview.plane.u_mm.map((v) => -v) : preview.plane.u_mm)}
               </span>
               <span className="absolute left-1/2 top-1">
                 {populationAxisLabel(preview.plane.v_mm.map((v) => -v))}

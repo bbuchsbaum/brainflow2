@@ -1,6 +1,7 @@
 /**
  * Canvas utility functions for image rendering
  */
+import { bitmapPixelRatio } from '@/utils/renderPixelRatio';
 
 export interface ImagePlacement {
   x: number;
@@ -9,6 +10,8 @@ export interface ImagePlacement {
   height: number;
   imageWidth: number;
   imageHeight: number;
+  /** Drawn mirrored left-right (radiological display; see drawScaledImage). */
+  mirrorX?: boolean;
 }
 
 /**
@@ -69,19 +72,37 @@ export function drawScaledImage(
   ctx: CanvasRenderingContext2D,
   image: ImageBitmap,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
+  mirrorX = false
 ): ImagePlacement {
   // Don't clear the canvas - draw new image directly over old one to prevent flickering
   // The new image will completely cover the old one
   
-  // Calculate placement
-  const placement = calculateImagePlacement(
+  // Calculate placement. A bitmap rendered at a device-pixel ratio
+  // (utils/renderPixelRatio) reports its image size in plane (CSS) pixels,
+  // so every image <-> plane mapping is independent of the render ratio.
+  const drawn = calculateImagePlacement(
     image.width,
     image.height,
     canvasWidth,
     canvasHeight
   );
+  const ratio = bitmapPixelRatio(image);
+  const placement: ImagePlacement =
+    ratio === 1 ? drawn : { ...drawn, imageWidth: image.width / ratio, imageHeight: image.height / ratio };
   
+  // Radiological display: the same rectangle, mirrored left-right. The
+  // placement carries the flip, so the shared geometry (crosshair, clicks,
+  // hover) maps through it; the plane and world coordinates are unchanged.
+  if (mirrorX) {
+    ctx.save();
+    ctx.translate(placement.x + placement.width, placement.y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(image, 0, 0, placement.width, placement.height);
+    ctx.restore();
+    return { ...placement, mirrorX: true };
+  }
+
   // Draw the image
   ctx.drawImage(
     image,

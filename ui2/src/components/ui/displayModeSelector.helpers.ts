@@ -91,16 +91,28 @@ export function workspaceTabLabel(workspace: Pick<Workspace, "type">): string {
   return getWorkspaceMetadata(workspace.type)?.name ?? workspace.type;
 }
 
-type LabelWorkspace = Pick<Workspace, "id" | "type" | "timestamp">;
+type LabelWorkspace = Pick<Workspace, "id" | "type" | "timestamp" | "tabLabel">;
+
+/** True when `label` is `base` or `base N` (N ≥ 2), a label the mode can show. */
+function isLabelOfMode(label: string, base: string): boolean {
+  if (label === base) return true;
+  if (!label.startsWith(`${base} `)) return false;
+  const ordinal = label.slice(base.length + 1);
+  return /^[1-9]\d*$/.test(ordinal) && Number(ordinal) >= 2;
+}
 
 /**
  * Tab labels for a whole set of workspaces, keyed by workspace id.
  *
  * Same as {@link workspaceTabLabel} per workspace, but disambiguates view tabs
- * that resolve to the *same* display mode by appending an ordinal: two
- * orthogonal views become "Orthogonal" and "Orthogonal 2" (oldest first, ties
- * broken by id) so distinct destinations stay distinguishable. Tool workspaces
- * are singletons and never numbered.
+ * that resolve to the *same* display mode with an ordinal ("Orthogonal",
+ * "Orthogonal 2"). Labels are stable: a tab keeps the label it last showed
+ * (`tabLabel`) while it stays in that mode, and only a tab that is new to a
+ * mode takes the lowest free label. So one tab's switch never renames another
+ * (QA 2026-10-30 F27: switching the front tab to Orthogonal renamed a
+ * different tab "Orthogonal 2"). Without remembered labels, the oldest tab of
+ * a mode gets the bare name. Tool workspaces are singletons and never
+ * numbered.
  */
 export function workspaceTabLabels(
   workspaces: Iterable<LabelWorkspace>,
@@ -114,28 +126,34 @@ export function workspaceTabLabels(
     if (group) group.push(w);
     else byMode.set(mode, [w]);
   }
-  for (const group of byMode.values()) {
+
+  const labels = new Map<string, string>();
+  for (const w of list) {
+    if (!resolveActiveDisplayMode(w.type)) labels.set(w.id, workspaceTabLabel(w));
+  }
+  for (const [mode, group] of byMode) {
     group.sort(
       (a, b) =>
         a.timestamp - b.timestamp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
-  }
-
-  const labels = new Map<string, string>();
-  for (const w of list) {
-    const base = workspaceTabLabel(w);
-    const mode = resolveActiveDisplayMode(w.type);
-    if (!mode) {
-      labels.set(w.id, base);
-      continue;
+    const base = DISPLAY_MODES[mode].label;
+    const taken = new Set<string>();
+    // Tabs already showing a label of this mode keep it.
+    for (const w of group) {
+      const kept = w.tabLabel;
+      if (kept && isLabelOfMode(kept, base) && !taken.has(kept)) {
+        taken.add(kept);
+        labels.set(w.id, kept);
+      }
     }
-    const group = byMode.get(mode);
-    if (!group || group.length <= 1) {
-      labels.set(w.id, base);
-      continue;
+    // The rest take the lowest free label.
+    for (const w of group) {
+      if (labels.has(w.id)) continue;
+      let label = base;
+      for (let n = 2; taken.has(label); n += 1) label = `${base} ${n}`;
+      taken.add(label);
+      labels.set(w.id, label);
     }
-    const index = group.findIndex((x) => x.id === w.id);
-    labels.set(w.id, index <= 0 ? base : `${base} ${index + 1}`);
   }
   return labels;
 }

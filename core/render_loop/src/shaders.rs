@@ -45,6 +45,7 @@ pub fn compose_shader_source_with_capacity(
                 output.push_str(sources::FULLSCREEN_VERTEX)
             }
             "// @include texture_bindings" => output.push_str(&texture_bindings_source(capacity)),
+            "// @include label_outline" => output.push_str(sources::LABEL_OUTLINE),
             "// @include sample_volume" => {
                 output.push_str(&volume_sampling_source(capacity, false))
             }
@@ -69,6 +70,15 @@ pub fn compose_shader_source_with_capacity(
         }
     }
     Ok(Cow::Owned(output))
+}
+
+/// Shader files that are `// @include` fragments of other shaders, not
+/// standalone modules (the hot-reload watcher must not load them alone).
+pub const INCLUDE_FRAGMENTS: &[&str] = &["fullscreen_vertex", "label_outline"];
+
+/// True when the shader file stem `name` is an `// @include` fragment.
+pub fn is_include_fragment(name: &str) -> bool {
+    INCLUDE_FRAGMENTS.contains(&name)
 }
 
 fn texture_bindings_source(capacity: u32) -> String {
@@ -471,6 +481,8 @@ mod tests {
 // Embedded shader sources
 pub mod sources {
     pub const FULLSCREEN_VERTEX: &str = include_str!("../shaders/fullscreen_vertex.wgsl");
+    /// Anti-aliased label outline helpers shared by both masked slice shaders.
+    pub const LABEL_OUTLINE: &str = include_str!("../shaders/label_outline.wgsl");
     /// World-space slice shader with multi-texture + alpha mask support
     pub const SLICE_WORLD_SPACE: &str = concat!(
         include_str!("../shaders/fullscreen_vertex.wgsl"),

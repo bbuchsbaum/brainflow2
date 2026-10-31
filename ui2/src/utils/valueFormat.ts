@@ -71,6 +71,26 @@ export function formatLayerValue(value: number): string {
   return displayMinus(formatLayerValueAscii(value));
 }
 
+/**
+ * A voxel value for the status bar: fixed decimals, never an exponent (QA
+ * 2026-10-31: "9.2e-3"). Below 1, three significant digits (0.0123,
+ * 0.00920 → "0.0092", 0.456); from 1, the layer formatter (2 decimals,
+ * grouped thousands); from 1e6, grouped integers. A non-zero value smaller
+ * than 1e-6 reads "<0.000001" (or ">−0.000001"), never a misleading zero.
+ * Display minus.
+ */
+export function formatReadoutValue(value: number): string {
+  if (!Number.isFinite(value)) return EMPTY_VALUE;
+  const abs = Math.abs(value);
+  if (abs === 0) return "0";
+  if (abs >= 1e6) return displayMinus(Math.round(value).toLocaleString('en-US'));
+  if (abs >= 1) return formatLayerValue(value);
+  if (abs < 1e-6) return value > 0 ? "<0.000001" : `>${MINUS}0.000001`;
+  // toPrecision stays in fixed notation from 1e-6 up; trim trailing zeros.
+  const fixed = value.toPrecision(3).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return displayMinus(fixed);
+}
+
 /** World mm at 0.1 mm, ASCII, negative zero folded ("-0.0" never shows). */
 export function formatWorldMmAscii(value: number): string {
   if (!Number.isFinite(value)) return "—";

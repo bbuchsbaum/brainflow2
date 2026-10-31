@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { DesignPane } from '../DesignPane';
+import { DISTANCE_TO_MEAN_SORT } from '@/services/studio/StudioMeanDistanceService';
 import type {
   SpatialFieldSetSummary,
   StudioCohortSummary,
@@ -299,5 +300,87 @@ describe('DesignPane filter chip focus', () => {
     search.focus();
     act(() => { fireEvent.click(chip); });
     expect(document.activeElement).toBe(search);
+  });
+
+  it('offers the distance-to-mean sort and shows each distance with an Open in Deck action', () => {
+    const onSortColumnChange = vi.fn();
+    const onOpenInDeck = vi.fn();
+    const props = {
+      activeSet: ACTIVE_SET,
+      cohorts: COHORTS,
+      activeMemberId: 'sub002',
+      visibleMemberIds: ['sub003', 'sub002', 'sub001'],
+      onSelectMember: vi.fn(),
+      onSortColumnChange,
+      onOpenInDeck,
+    };
+    const { rerender } = render(<DesignPane {...props} sortColumn={null} />);
+    const sort = screen.getByRole('combobox');
+    expect(within(sort).getByRole('option', { name: 'Distance to group mean' })).toBeInTheDocument();
+    fireEvent.change(sort, { target: { value: DISTANCE_TO_MEAN_SORT } });
+    expect(onSortColumnChange).toHaveBeenCalledWith(DISTANCE_TO_MEAN_SORT);
+
+    rerender(
+      <DesignPane
+        {...props}
+        sortColumn={DISTANCE_TO_MEAN_SORT}
+        sortDirection="desc"
+        meanDistance={{ key: 'k', listKey: 'l', listSize: 3, status: 'pending', byMember: new Map(), supportVoxels: 0, groupSize: 2, error: null }}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Computing distances to the mean of 2 members');
+    expect(screen.queryAllByTestId('distance-to-mean')).toHaveLength(0);
+
+    rerender(
+      <DesignPane
+        {...props}
+        sortColumn={DISTANCE_TO_MEAN_SORT}
+        sortDirection="desc"
+        meanDistance={{
+          key: 'k',
+          listKey: 'l',
+          listSize: 4,
+          status: 'ready',
+          byMember: new Map([
+            ['sub003', { memberId: 'sub003', euclidean: 4, correlation: 0 }],
+            ['sub002', { memberId: 'sub002', euclidean: 1.4142, correlation: 0.2254 }],
+            ['sub001', { memberId: 'sub001', euclidean: 0.5, correlation: null }],
+          ]),
+          supportVoxels: 4,
+          groupSize: 3,
+          error: null,
+        }}
+      />,
+    );
+    // The measured group (3 of 4 listed), and the mean's composition.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Distance to the mean of 3 members over 4 shared voxels',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('includes each member (not leave-one-out)');
+    expect(screen.getByRole('status')).toHaveTextContent('1 listed member without a usable source is not measured.');
+    const cells = screen.getAllByTestId('distance-to-mean').map((cell) => cell.textContent);
+    expect(cells[0]).toMatch(/^4/);
+    expect(cells[1]).toBe("1.41 (0.23)");
+    expect(cells[2]).toMatch(/\(—\)$/);
+    // The focused member (sub002) is not offered: the top row, the member
+    // least like the mean, is (run-4 F6)…
+    fireEvent.click(screen.getByRole('button', { name: 'Open sub003 in Deck' }));
+    expect(onOpenInDeck).toHaveBeenLastCalledWith('sub003');
+    // …until a row is picked.
+    fireEvent.click(screen.getByText('sub002', { selector: 'span' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open sub002 in Deck' }));
+    expect(onOpenInDeck).toHaveBeenLastCalledWith('sub002');
+    // The distance column keeps a minimum width.
+    const row = screen.getAllByTestId('distance-to-mean')[0].closest('button')!;
+    expect(row.style.gridTemplateColumns).toMatch(/minmax\(7\.5rem, 9fr\)$/);
+
+    rerender(
+      <DesignPane
+        {...props}
+        sortColumn={DISTANCE_TO_MEAN_SORT}
+        meanDistance={{ key: 'k', listKey: 'l', listSize: 3, status: 'failed', byMember: new Map(), supportVoxels: 0, groupSize: 3, error: 'grids differ' }}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('No distances: grids differ');
   });
 });

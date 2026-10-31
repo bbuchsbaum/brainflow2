@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MAX_GPU_LAYERS, layerEvictionService } from '@/services/LayerEvictionService';
+import { FALLBACK_GPU_TEXTURE_SLOTS, layerEvictionService } from '@/services/LayerEvictionService';
 
 const {
   mockLayerStoreState,
@@ -19,6 +19,7 @@ const {
   },
   mockApiService: {
     releaseLayerGpuResources: vi.fn().mockResolvedValue(undefined),
+    getAtlasStats: vi.fn(),
   },
   mockEventBus: {
     emit: vi.fn(),
@@ -42,6 +43,11 @@ vi.mock('@/services/apiService', () => ({
   getApiService: () => mockApiService,
 }));
 
+const derived = vi.hoisted(() => ({ live: 0 }));
+vi.mock('@/services/studio/StudioDerivedMapService', () => ({
+  getStudioDerivedMapService: () => ({ liveCount: () => derived.live }),
+}));
+
 vi.mock('@/events/EventBus', () => ({
   getEventBus: () => mockEventBus,
 }));
@@ -57,10 +63,171 @@ describe('LayerEvictionService', () => {
     mockViewStateStoreState.viewState = {
       layers: [],
     };
+    (mockViewStateStoreState as Record<string, unknown>).workspaceViewStates = new Map();
+    derived.live = 0;
+    // Render loop not up yet: the fallback budget applies.
+    mockApiService.getAtlasStats.mockRejectedValue(new Error('not initialised'));
+    layerEvictionService.resetGpuTextureSlotsForTests();
+  });
+
+  function residentLayers(count: number, hidden: number[] = []) {
+    const layers = Array.from({ length: count }, (_, index) => ({
+      id: `layer-${index}`,
+      name: `Layer ${index}`,
+      volumeId: `layer-${index}`,
+      visible: !hidden.includes(index),
+      type: 'anatomical',
+      order: index,
+    }));
+    mockLayerStoreState.layers = layers as never;
+    mockViewStateStoreState.viewState.layers = layers.map((l) => ({ id: l.id, visible: l.visible })) as never;
+    for (const layer of layers)
+      mockLayerStoreState.layerMetadata.set(layer.id, { gpuResident: true, lastRenderTime: 1 });
+  }
+
+  // Feature 10 (qa-features-2026-10-31): the budget is the backend's runtime
+  // texture capacity, which depends on the adapter, not a hard-coded 16.
+  // Review H3: the render loop refuses an upload once every slot is taken
+  // (multi_texture_manager.rs, next_index >= max_textures), so a slot is freed
+  // BEFORE the upload: 7 resident layers on 7 slots evict one first.
+  it("frees a slot before an upload when the backend's slots are all taken", async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 7 });
+    residentLayers(6, [0]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    expect(layerEvictionService.knownGpuTextureSlots()).toBe(7);
+
+    residentLayers(7, [0]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledTimes(1);
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockLayerStoreState.layerMetadata.get('layer-0')).toMatchObject({ gpuResident: false });
+    // Asked once, then cached.
+    expect(mockApiService.getAtlasStats).toHaveBeenCalledTimes(1);
+  });
+
+  // QA 2026-10-31 N2: the render state takes 8 layers whatever the texture
+  // slots; the budget is the smaller of the two.
+  it('uses the render-state layer cap when it is below the texture slots', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 13, renderLayerCapacity: 8 });
+    expect(await layerEvictionService.gpuTextureSlots()).toBe(8);
+    residentLayers(8, [0]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+  });
+
+  // A layer shown in an Orthogonal tab behind the front one (Set studio) is
+  // not evictable: only a layer hidden in every workspace is.
+  it('keeps a layer that is visible only in an inactive workspace', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 3 });
+    residentLayers(3, [0, 1]);
+    // Front (active) workspace: layer-0 and layer-1 hidden. The Orthogonal
+    // tab behind it shows layer-0.
+    (mockViewStateStoreState as Record<string, unknown>).workspaceViewStates = new Map([
+      [
+        'studio',
+        { layers: [{ id: 'layer-0', visible: false }, { id: 'layer-1', visible: false }, { id: 'layer-2', visible: true }] },
+      ],
+      [
+        'orthogonal',
+        { layers: [{ id: 'layer-0', visible: true }, { id: 'layer-1', visible: false }, { id: 'layer-2', visible: false }] },
+      ],
+    ]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1']]);
+
+    // With layer-1 also shown in the hidden tab, nothing can go.
+    mockApiService.releaseLayerGpuResources.mockClear();
+    residentLayers(3, [0, 1]);
+    (mockViewStateStoreState as Record<string, unknown>).workspaceViewStates = new Map([
+      ['orthogonal', { layers: [{ id: 'layer-0', visible: true }, { id: 'layer-1', visible: true }] }],
+    ]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+  });
+
+  it('never evicts the layer being uploaded, and stops when only visible layers remain', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 3 });
+    residentLayers(3, [0, 1]);
+    await layerEvictionService.makeRoomForUpload('layer-0');
+    // Three resident on three slots: one must go, and layer-0 is the one
+    // being uploaded, so layer-1 goes.
+    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1']]);
+
+    mockApiService.releaseLayerGpuResources.mockClear();
+    residentLayers(3);
+    await layerEvictionService.makeRoomForUpload('x');
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+  });
+
+  it('after an upload, checkAndEvict only acts when the layers exceed the slots', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 7 });
+    residentLayers(7, [0]);
+    await layerEvictionService.checkAndEvict();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+  });
+
+  it('falls back to 16 until the capacity is known; an old backend is not asked again', async () => {
+    residentLayers(8, [0]);
+    await layerEvictionService.makeRoomForUpload();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    expect(layerEvictionService.knownGpuTextureSlots()).toBeNull();
+
+    // A backend without the field: remembered as the fallback.
+    mockApiService.getAtlasStats.mockResolvedValue({ totalLayers: 4 });
+    expect(await layerEvictionService.gpuTextureSlots()).toBe(FALLBACK_GPU_TEXTURE_SLOTS);
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 4 });
+    expect(await layerEvictionService.gpuTextureSlots()).toBe(FALLBACK_GPU_TEXTURE_SLOTS);
+    expect(mockApiService.getAtlasStats).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the layers after the capacity answer arrives', async () => {
+    let answer!: (stats: unknown) => void;
+    mockApiService.getAtlasStats.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    residentLayers(2, [0]);
+    const making = layerEvictionService.makeRoomForUpload('incoming');
+    residentLayers(3, [0]); // a layer arrived meanwhile
+    answer({ volumeTextureSlots: 3 });
+    await making;
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+  });
+
+  it('counts Set studio maps against the reported capacity', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 5 });
+    residentLayers(3, [0]);
+    derived.live = 1;
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    derived.live = 2;
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+  });
+
+  it('counts Set studio Compare maps against the GPU budget (QA wave 3 review W1)', async () => {
+    // Under the budget by layer count alone, over it with three derived maps.
+    const layers = Array.from({ length: FALLBACK_GPU_TEXTURE_SLOTS - 1 }, (_, index) => ({
+      id: `layer-${index}`,
+      name: `Layer ${index}`,
+      volumeId: `layer-${index}`,
+      visible: index !== 0,
+      type: 'anatomical',
+      order: index,
+    }));
+    mockLayerStoreState.layers = layers as never;
+    mockViewStateStoreState.viewState.layers = layers.map((l) => ({ id: l.id, visible: l.visible })) as never;
+    for (const layer of layers)
+      mockLayerStoreState.layerMetadata.set(layer.id, { gpuResident: true, lastRenderTime: 1 });
+
+    await layerEvictionService.checkAndEvict();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+
+    derived.live = 3;
+    await layerEvictionService.checkAndEvict();
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
   });
 
   it('ignores deferred hidden layers and evicts the oldest invisible resident layer when over budget', async () => {
-    const visibleLayers = Array.from({ length: MAX_GPU_LAYERS }, (_, index) => ({
+    const visibleLayers = Array.from({ length: FALLBACK_GPU_TEXTURE_SLOTS }, (_, index) => ({
       id: `visible-${index}`,
       name: `Visible ${index}`,
       volumeId: `visible-${index}`,
@@ -75,7 +242,7 @@ describe('LayerEvictionService', () => {
       volumeId: 'hidden-resident',
       visible: false,
       type: 'anatomical',
-      order: MAX_GPU_LAYERS,
+      order: FALLBACK_GPU_TEXTURE_SLOTS,
     };
 
     const hiddenDeferredLayer = {
@@ -84,7 +251,7 @@ describe('LayerEvictionService', () => {
       volumeId: 'hidden-deferred',
       visible: false,
       type: 'anatomical',
-      order: MAX_GPU_LAYERS + 1,
+      order: FALLBACK_GPU_TEXTURE_SLOTS + 1,
     };
 
     mockLayerStoreState.layers = [...visibleLayers, hiddenResidentLayer, hiddenDeferredLayer];

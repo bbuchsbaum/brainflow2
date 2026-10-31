@@ -144,4 +144,49 @@ describe('CommandPaletteDialog focus (v3 function critic)', () => {
       expect(document.activeElement).toBe(screen.getByTestId('target'));
     },
   );
+
+  it('keys typed before the field has focus go to the query, not to app shortcuts (QA 2026-10-31 N14)', () => {
+    const shortcut = vi.fn();
+    const onWindow = (event: KeyboardEvent) => {
+      if (!event.defaultPrevented) shortcut(event.key);
+    };
+    window.addEventListener('keydown', onWindow);
+    try {
+      render(
+        <CommandPaletteDialog
+          open
+          onClose={vi.fn()}
+          commands={[{ id: 'view.toggleRadiological', title: 'Toggle Radiological Convention', run: vi.fn() }]}
+        />,
+      );
+      (document.activeElement as HTMLElement | null)?.blur();
+      for (const key of 'radiol') fireEvent.keyDown(document.body, { key });
+      expect(shortcut).not.toHaveBeenCalled();
+      const input = screen.getByLabelText('Command search') as HTMLInputElement;
+      expect(input.value).toBe('radiol');
+      expect(screen.getByText('Toggle Radiological Convention')).toBeInTheDocument();
+    } finally {
+      window.removeEventListener('keydown', onWindow);
+    }
+  });
+
+  it('no document listener sees a key typed while it opens (Space-to-pan), and IME composition is left alone (review L2)', () => {
+    const documentCapture = vi.fn();
+    document.addEventListener('keydown', documentCapture, true);
+    try {
+      render(<CommandPaletteDialog open onClose={vi.fn()} commands={[]} />);
+      (document.activeElement as HTMLElement | null)?.blur();
+      fireEvent.keyDown(document.body, { key: ' ' });
+      expect(documentCapture).not.toHaveBeenCalled();
+      const input = screen.getByLabelText('Command search') as HTMLInputElement;
+      expect(input.value).toBe(' ');
+      // Composing (an input method): not captured.
+      fireEvent.keyDown(document.body, { key: 'a', isComposing: true });
+      fireEvent.keyDown(document.body, { key: 'a', keyCode: 229 });
+      expect(input.value).toBe(' ');
+      expect(documentCapture).toHaveBeenCalledTimes(2);
+    } finally {
+      document.removeEventListener('keydown', documentCapture, true);
+    }
+  });
 });

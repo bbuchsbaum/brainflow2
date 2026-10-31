@@ -37,8 +37,19 @@ export function getNonzeroBbox(volumeId: string, threshold = 0): Promise<VolumeN
 
 /** Forget a volume's box (unload) or everything (tests). */
 export function clearNonzeroBbox(volumeId?: string): void {
-  if (volumeId) cache.delete(volumeId);
-  else cache.clear();
+  if (!volumeId) {
+    cache.clear();
+    return;
+  }
+  // With every threshold's box ("<id>|<threshold>"), not only threshold 0.
+  for (const key of [...cache.keys()]) {
+    if (key === volumeId || key.startsWith(`${volumeId}|`)) cache.delete(key);
+  }
+}
+
+/** Cached box count (tests, diagnostics). */
+export function nonzeroBboxCacheSize(): number {
+  return cache.size;
 }
 
 /**

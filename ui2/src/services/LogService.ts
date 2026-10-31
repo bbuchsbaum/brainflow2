@@ -16,10 +16,30 @@ import { loadFailureMessage } from '@/utils/formatTauriError';
 import { getEventBus } from '@/events/EventBus';
 import { addLogEntry } from '@/stores/logStore';
 import { studioMemberForLoad } from '@/services/studio/studioMemberLoads';
+import { useLayerStore } from '@/stores/layerStore';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
+import { errorText, sourceLabel } from '@/utils/logLabels';
 
 type Unsubscribe = () => void;
 
 let installed: { teardown: Unsubscribe } | null = null;
+
+/**
+ * The queued open (a file or template) that `sourcePath` / `name` belong
+ * to, if one is running. That open reports its failure once, as an error
+ * notification naming the file, so the lower-level events of the same
+ * failure (`volume.load.error`, and `layer.error` for a layer that never
+ * joined the scene) are not logged again (QA 2026-10-31 N2: one failed open
+ * read as three Log lines). Only that open's events: a failure from any
+ * other source (an atlas during a T1 load) is still logged (review M5).
+ */
+function belongsToRunningOpen(sourcePath?: string, name?: string): boolean {
+  for (const item of useLoadingQueueStore.getState().activeLoads.values()) {
+    if (sourcePath && item.path === sourcePath) return true;
+    if (name && (item.displayName === name || basename(item.path) === name)) return true;
+  }
+  return false;
+}
 
 function basename(path: string): string {
   if (!path) return path;
@@ -37,7 +57,8 @@ export function bootstrapLogService(): Unsubscribe {
 
   unsubs.push(
     bus.on('volume.load.complete', ({ source, sourcePath, displayName, duration }) => {
-      const file = basename(sourcePath ?? displayName ?? source);
+      // An atlas or template by its name, not its catalogue id.
+      const file = sourceLabel(sourcePath, displayName, basename(source));
       const member = studioMemberForLoad(sourcePath);
       addLogEntry(
         member
@@ -58,11 +79,12 @@ export function bootstrapLogService(): Unsubscribe {
     }),
   );
   unsubs.push(
-    bus.on('volume.load.error', ({ source, error }) => {
+    bus.on('volume.load.error', ({ source, sourcePath, error }) => {
+      if (belongsToRunningOpen(sourcePath)) return;
       addLogEntry({
         level: 'error',
         source: 'volume',
-        message: loadFailureMessage(basename(source), error),
+        message: loadFailureMessage(sourceLabel(source, null), error),
       });
     }),
   );
@@ -96,11 +118,15 @@ export function bootstrapLogService(): Unsubscribe {
   );
 
   unsubs.push(
-    bus.on('layer.error', ({ layerId, error }) => {
+    bus.on('layer.error', ({ layerId, error, sourcePath }) => {
+      const layer = useLayerStore.getState().layers.find((l) => l.id === layerId);
+      // A layer that failed while it was being added belongs to that load.
+      if (!layer && belongsToRunningOpen(sourcePath, layerId)) return;
+      const name = layer ? sourceLabel(layer.sourcePath, layer.name, layerId) : layerId;
       addLogEntry({
         level: 'error',
         source: 'layer',
-        message: `Layer ${layerId.slice(0, 8)} error: ${error.message}`,
+        message: `Layer ${name} error: ${errorText(error)}`,
       });
     }),
   );
@@ -147,12 +173,15 @@ export function bootstrapLogService(): Unsubscribe {
   );
 
   unsubs.push(
-    bus.on('ui.notification', ({ type, message }) => {
+    bus.on('ui.notification', ({ type, message, logSource }) => {
       // Only mirror notifications that the user benefits from re-reading.
       if (type === 'info' || type === 'success') return;
+      // Already logged under its own event (e.g. surface.load.error).
+      if (logSource === false) return;
       addLogEntry({
         level: type === 'error' ? 'error' : 'warn',
-        source: 'ui',
+        // A load failure is logged under what failed, not "ui" (F40).
+        source: logSource ?? 'ui',
         message,
       });
     }),

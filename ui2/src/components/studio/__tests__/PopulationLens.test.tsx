@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PopulationLens } from '../PopulationLens';
+import { populationLensMemory } from '../populationLensMemory';
 import {
   PopulationSliceService,
   type PopulationSliceRequest,
@@ -15,11 +16,17 @@ vi.mock('@/components/views/sliceViewer', () => ({
   ReusableSliceViewport: ({
     onWorldClick,
     crosshairStyle,
+    height,
   }: {
     onWorldClick: (world: number[]) => void;
     crosshairStyle: unknown;
+    height: number;
   }) => (
-    <button data-style={JSON.stringify(crosshairStyle)} onClick={() => onWorldClick([4, 5, 6])}>
+    <button
+      data-style={JSON.stringify(crosshairStyle)}
+      data-height={height}
+      onClick={() => onWorldClick([4, 5, 6])}
+    >
       Pin image location
     </button>
   ),
@@ -33,6 +40,7 @@ beforeEach(() => {
   } as unknown as CanvasRenderingContext2D);
   useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
   useSetStudioStore.getState().loadDemoSession();
+  populationLensMemory.reset();
 });
 afterEach(() => {
   cleanup();
@@ -325,4 +333,124 @@ it('shows a lens hold-to-preview in a values table mounted in a separate React r
   expect(useSetStudioStore.getState().populationPreview.holding).toBe(true);
   cleanup();
   expect(useSetStudioStore.getState().populationPreview.holding).toBe(false);
+});
+
+it('keeps the chosen summary when the lens is reopened in the same session (F44)', async () => {
+  const first = setup();
+  await waitFor(() => expect(first.service.getSnapshot().displayed).not.toBeNull());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Summary' }), {
+    target: { value: 'median' },
+  });
+  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('median');
+  first.unmount();
+  setup();
+  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('median');
+  cleanup();
+  // A new session starts from the default again.
+  useSetStudioStore.getState().loadDemoSession();
+  setup();
+  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('mean');
+});
+
+it('draws a colourbar per map: diverging for the mean and the observation, gold for coverage (F12/F20)', async () => {
+  const { service } = setup();
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  await waitFor(() => expect(screen.getAllByTestId('population-colorbar')).toHaveLength(2));
+  const bars = () => screen.getAllByTestId('population-colorbar');
+  expect(bars().map((bar) => bar.dataset.diverging)).toEqual(['true', 'true']);
+  expect(bars()[0].getAttribute('aria-label')).toMatch(/^Colorbar for Mean: blue–white–red/);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Summary' }), {
+    target: { value: 'coverage' },
+  });
+  await waitFor(() => expect(bars()[0].dataset.diverging).toBe('false'));
+  expect(bars()[0].getAttribute('aria-label')).toMatch(/^Colorbar for Coverage: gold, 0 to /);
+  expect(bars()[1].dataset.diverging).toBe('true');
+});
+
+it('swaps the left/right letters of an axial pane under the radiological convention', async () => {
+  const { useViewDisplaySettingsStore } = await import('@/stores/viewDisplaySettingsStore');
+  const sideLetters = () =>
+    Array.from(document.querySelectorAll('span.absolute.top-1\\/2')).map((el) => el.textContent);
+  const { service } = setup();
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  // Neurological: the patient's left on the screen's left.
+  await waitFor(() => expect(sideLetters().slice(0, 2)).toEqual(['L', 'R']));
+  act(() => useViewDisplaySettingsStore.getState().setRadiological(true));
+  try {
+    await waitFor(() => expect(sideLetters().slice(0, 2)).toEqual(['R', 'L']));
+  } finally {
+    act(() => useViewDisplaySettingsStore.getState().setRadiological(false));
+  }
+});
+
+it('↑ over the Mean map steps the population slice, not another workspace (QA N9, F44)', async () => {
+  const { getKeyboardShortcutService } = await import('@/services/KeyboardShortcutService');
+  const keys = getKeyboardShortcutService();
+  keys.init();
+  try {
+    const { service } = setup();
+    await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+    const before = [...useViewStateStore.getState().viewState.crosshair.world_mm];
+    const host = screen.getAllByRole('button', { name: 'Pin image location' })[0].closest('.grid')!
+      .parentElement!;
+    // jsdom has no layout: the maps are on screen.
+    vi.spyOn(host as HTMLElement, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+    fireEvent.mouseEnter(host);
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    // The fixture plane is u = x, v = y: the population slice axis is z.
+    const after = useViewStateStore.getState().viewState.crosshair.world_mm;
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(Math.abs(after[2] - before[2])).toBeCloseTo(2);
+  } finally {
+    keys.destroy();
+  }
+});
+
+it('a lens left behind another tab requests nothing and moves no other workspace (F44)', async () => {
+  const { useWorkspaceStore } = await import('@/stores/workspaceStore');
+  const previous = useWorkspaceStore.getState();
+  useWorkspaceStore.setState({
+    workspaces: new Map([['studio-tab', { id: 'studio-tab', type: 'set-studio' } as never]]),
+    activeWorkspaceId: 'elsewhere',
+  } as never);
+  try {
+    const before = [...useViewStateStore.getState().viewState.crosshair.world_mm];
+    const { evaluate } = setup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual(before);
+  } finally {
+    useWorkspaceStore.setState(previous, true);
+  }
+});
+
+it('puts its controls in the Studio toolbar and fills the visible height, never below 240 px (N13)', async () => {
+  const { StudioToolbarSlotContext, StudioViewportHeightContext } = await import('../StudioToolbarSlot');
+  const slot = document.createElement('div');
+  document.body.appendChild(slot);
+  const service = new PopulationSliceService(
+    { evaluate: vi.fn(() => new Promise(() => {})), release: vi.fn(), bitmap: vi.fn() } as never,
+    0,
+  );
+  const lens = (height: number) => (
+    <StudioToolbarSlotContext.Provider value={slot}>
+      <StudioViewportHeightContext.Provider value={height}>
+        <PopulationLens service={service} />
+      </StudioViewportHeightContext.Provider>
+    </StudioToolbarSlotContext.Provider>
+  );
+  const { rerender } = render(lens(500));
+  // The summary, plane and Save calculation live in the toolbar row…
+  expect(slot.querySelector('[aria-label="Population controls"]')).not.toBeNull();
+  expect(slot.textContent).toContain('Save calculation');
+  expect(slot.querySelector('select[aria-label="Summary"]')).not.toBeNull();
+  // …and each map takes the visible height under it (500 − 60 px of chrome).
+  const heights = () =>
+    screen.getAllByRole('button', { name: 'Pin image location' }).map((b) => b.dataset.height);
+  expect(heights()).toEqual(['440', '440']);
+  rerender(lens(200));
+  expect(heights()).toEqual(['240', '240']);
+  slot.remove();
 });

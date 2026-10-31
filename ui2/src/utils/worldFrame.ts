@@ -91,6 +91,52 @@ export function clampToWorldBox(point: WorldCoordinates, box: WorldBox): WorldCo
   return [0, 1, 2].map((a) => Math.min(box.max[a], Math.max(box.min[a], point[a]))) as WorldCoordinates;
 }
 
+/** A volume's voxel grid: column-major 4x4 voxel-to-world and dimensions. */
+export interface VoxelGrid {
+  voxelToWorld: ReadonlyArray<number>;
+  dims: ReadonlyArray<number>;
+}
+
+/** Continuous voxel coordinates of a world point, or null for a singular affine. */
+function worldToVoxel(point: WorldCoordinates, m: ReadonlyArray<number>): WorldCoordinates | null {
+  // Column-major: world = A · ijk + t with A[r][c] = m[4c + r].
+  const a = (r: number, c: number) => m[4 * c + r];
+  const det =
+    a(0, 0) * (a(1, 1) * a(2, 2) - a(1, 2) * a(2, 1)) -
+    a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0)) +
+    a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
+  const d = [0, 1, 2].map((r) => point[r] - m[12 + r]);
+  // Cramer's rule, one column replaced by d at a time.
+  const col = (c: number, r: number) => (c === -1 ? d[r] : a(r, c));
+  const det3 = (c0: number, c1: number, c2: number) =>
+    col(c0, 0) * (col(c1, 1) * col(c2, 2) - col(c2, 1) * col(c1, 2)) -
+    col(c1, 0) * (col(c0, 1) * col(c2, 2) - col(c2, 1) * col(c0, 2)) +
+    col(c2, 0) * (col(c0, 1) * col(c1, 2) - col(c1, 1) * col(c0, 2));
+  return [det3(-1, 1, 2) / det, det3(0, -1, 2) / det, det3(0, 1, -1) / det];
+}
+
+/** True when `point` lies within the grid's outer voxel edges. */
+export function insideVoxelGrid(point: WorldCoordinates, grid: VoxelGrid): boolean {
+  const ijk = worldToVoxel(point, grid.voxelToWorld);
+  return !!ijk && [0, 1, 2].every((a) => ijk[a] >= -0.5 && ijk[a] <= grid.dims[a] - 0.5);
+}
+
+/**
+ * `point` moved into the grid along voxel axes, onto the nearest voxel
+ * centre's slab on each axis (unchanged when inside). Unlike a world-box
+ * clamp it stays inside an oblique volume, whose world box has empty corners
+ * (QA 2026-10-30 F6). Null for a singular affine.
+ */
+export function clampToVoxelGrid(point: WorldCoordinates, grid: VoxelGrid): WorldCoordinates | null {
+  if (insideVoxelGrid(point, grid)) return point;
+  const ijk = worldToVoxel(point, grid.voxelToWorld);
+  if (!ijk) return null;
+  const c = [0, 1, 2].map((a) => Math.min(grid.dims[a] - 1, Math.max(0, ijk[a])));
+  const m = grid.voxelToWorld;
+  return [0, 1, 2].map((r) => m[r] * c[0] + m[4 + r] * c[1] + m[8 + r] * c[2] + m[12 + r]) as WorldCoordinates;
+}
+
 /**
  * True when `shown` contains `box` with at most `slack` mm to spare on any
  * side: a frame fit to `box` already, up to the square-pixel ceil.

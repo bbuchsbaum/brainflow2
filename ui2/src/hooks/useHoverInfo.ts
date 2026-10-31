@@ -44,7 +44,21 @@ export interface UseHoverInfoOptions {
   ) => [number, number, number] | null;
   /** Called when hover starts/updates (for marking view as active) */
   onHoverStart?: () => void;
+  /**
+   * Identity of the view geometry (slice plane, zoom). When it changes under
+   * a still pointer (arrow keys, scroll, a crosshair jump), the reading is
+   * recomputed from the last pointer position, so the Pointer group never
+   * shows the previous slice's value (QA 2026-10-30 F5).
+   */
+  viewKey?: string;
 }
+
+type HoverMouseSample = {
+  clientX: number;
+  clientY: number;
+  rectLeft: number;
+  rectTop: number;
+};
 
 export interface UseHoverInfoResult {
   /** Call this on mouse move with the event */
@@ -83,6 +97,7 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
     layerIds,
     canvasToWorld,
     onHoverStart,
+    viewKey,
   } = options;
   const layerIdsRef = useRef(layerIds);
   useEffect(() => {
@@ -122,6 +137,9 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   // pointer leaves must not re-set the position (the status bar's Pointer
   // group would show a stale reading).
   const hoverGeneration = useRef(0);
+  // The pointer's last client position over this view and the element it
+  // was over (null once it leaves).
+  const lastPointer = useRef<{ clientX: number; clientY: number; element: HTMLElement } | null>(null);
 
   const clearHoverState = useCallback(() => {
     hoverGeneration.current += 1;
@@ -143,13 +161,6 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
       clearHoverState();
     }
   }, [clearHoverState, enabled]);
-
-  type HoverMouseSample = {
-    clientX: number;
-    clientY: number;
-    rectLeft: number;
-    rectTop: number;
-  };
 
   // Create throttled handler (do not capture React's pooled event object)
   const throttledMouseMove = useMemo(() => {
@@ -235,6 +246,7 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
         return;
       }
       const rect = target.getBoundingClientRect();
+      lastPointer.current = { clientX: event.clientX, clientY: event.clientY, element: target };
       throttledMouseMove({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -244,6 +256,24 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
     },
     [throttledMouseMove],
   );
+
+  // The slice moved under a still pointer: read the new slice at the same
+  // screen position, measured against the element as it is now (the view may
+  // have been resized, which also changes the key).
+  const viewKeyRef = useRef(viewKey);
+  useEffect(() => {
+    if (viewKeyRef.current === viewKey) return;
+    viewKeyRef.current = viewKey;
+    const pointer = lastPointer.current;
+    if (!pointer || pointer.element.isConnected === false) return;
+    const rect = pointer.element.getBoundingClientRect();
+    throttledMouseMove({
+      clientX: pointer.clientX,
+      clientY: pointer.clientY,
+      rectLeft: rect.left,
+      rectTop: rect.top,
+    });
+  }, [viewKey, throttledMouseMove]);
 
   // Cleanup throttled handler on unmount
   useEffect(() => {
@@ -256,6 +286,7 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   const handleMouseLeave = useCallback(() => {
     // A trailing throttled move must not re-set the position after leaving.
     (throttledMouseMove as ReturnType<typeof throttle>).cancel?.();
+    lastPointer.current = null;
     clearHoverState();
   }, [clearHoverState, throttledMouseMove]);
 

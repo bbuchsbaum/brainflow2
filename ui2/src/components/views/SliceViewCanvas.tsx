@@ -53,8 +53,19 @@ import { useActiveLayer } from "@/utils/activeLayer";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { pointerToWorld } from "@/utils/slicePointer";
 import { createWheelStepper } from "@/utils/wheelSteps";
+import { imagePointToCanvasPoint } from "@brainflow/visualization/slice";
+import { useMirrorsView } from "@/stores/viewDisplaySettingsStore";
+import { useCanvasPixelRatio } from "@/hooks/useCanvasPixelRatio";
+import {
+  beginRenderInteraction,
+  endRenderInteraction,
+  pulseRenderInteraction,
+} from "@/utils/renderPixelRatio";
+import { useViewPanZoom, wheelZoomFactor } from "@/hooks/useViewPanZoom";
+import { fitActiveView, fitView, useIsViewZoomed, zoomView } from "@/services/ViewZoomService";
 import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
 import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
+import { dataRectOnPane } from "./viewportFrame/paneGeometry";
 import {
   OrientationLabels,
   ViewportColorbar,
@@ -65,8 +76,6 @@ import {
   useOverlayColorbar,
 } from "./viewportFrame";
 
-/** Top-right space kept for the workspace layout button (OrthogonalViewContainer). */
-const LAYOUT_BUTTON_RESERVE = 48;
 /** Pane width below which the Temporal selector shows its menu only. */
 const TEMPORAL_CAPTION_MIN_WIDTH = 480;
 
@@ -85,6 +94,12 @@ interface SliceViewCanvasProps {
   width: number;
   height: number;
   className?: string;
+  /**
+   * Top-right space a container control covers (the orthogonal workspace's
+   * lock button, LAYOUT_BUTTON_RESERVE): the colorbar keeps below it. 0 where
+   * there is none (Orthogonal Panels, the Studio Deck), review L4.
+   */
+  topRightReserve?: number;
 }
 
 function SliceViewCanvasRaw({
@@ -92,6 +107,7 @@ function SliceViewCanvasRaw({
   width,
   height,
   className = "",
+  topRightReserve = 0,
 }: SliceViewCanvasProps) {
   const model = useSliceViewModel(viewId, { width, height });
   // The early return lives here, and every other hook in the body component,
@@ -115,6 +131,7 @@ function SliceViewCanvasRaw({
       height={height}
       className={className}
       model={model}
+      topRightReserve={topRightReserve}
     />
   );
 }
@@ -127,6 +144,7 @@ function SliceViewCanvasBody({
   height,
   className,
   model,
+  topRightReserve = 0,
 }: SliceViewCanvasProps & { className: string; model: SliceViewModel }) {
   const {
     crosshair,
@@ -177,6 +195,11 @@ function SliceViewCanvasBody({
     if (viewId === "coronal") return "coronal";
     return "axial";
   }, [viewId]);
+
+  // The 4D layer's affine: the heatmap is placed through it onto the image.
+  const heatmapAffine = useLayerStore((s) =>
+    primaryLayer?.id ? s.layerMetadata.get(primaryLayer.id)?.voxelToWorld ?? null : null,
+  );
 
   // Current slice index in voxel space (integer, clamped to valid range)
   const heatmapSliceIndex = useMemo(() => {
@@ -286,6 +309,8 @@ function SliceViewCanvasBody({
     layerIds: hoverLayerIds,
     canvasToWorld,
     onHoverStart: markActive,
+    // A slice step or zoom under a still pointer re-reads the pointer (F5).
+    viewKey: `${viewPlane.origin_mm}|${viewPlane.u_mm}|${viewPlane.v_mm}|${viewPlane.dim_px}`,
   });
 
   // Slider navigation using the same approach as original SliceView
@@ -362,9 +387,15 @@ function SliceViewCanvasBody({
 
   // Orientation letters: the crosshair stroke is clipped around them (the
   // letters and the line geometry are unchanged). Measured at draw time.
+  // Radiological convention: axial and coronal panes are drawn mirrored (a
+  // display transform; the placement carries it to every mapping).
+  const mirrorX = useMirrorsView(viewId);
+  // HiDPI backing store (docs/plans/hidpi-slice-rendering-2026-10-31.md).
+  const pixelRatio = useCanvasPixelRatio();
   const orientationLabelKey = buildOrientationLabelKey(
     viewPlane,
     showMarkers && hasLayers,
+    mirrorX,
   );
   const { refs: orientationLabelRefs, getKnockouts: getCrosshairKnockouts } =
     useOrientationLabelKnockouts(orientationLabelKey);
@@ -419,10 +450,9 @@ function SliceViewCanvasBody({
         crosshair.world_mm,
         viewPlane,
       );
-      crosshairPoint = {
-        x: (p.x + (ix / p.imageWidth) * p.width) * k,
-        y: (p.y + (iy / p.imageHeight) * p.height) * k,
-      };
+      // Through the placement, so a mirrored display is followed.
+      const point = imagePointToCanvasPoint([ix, iy], p);
+      crosshairPoint = { x: point.canvasX * k, y: point.canvasY * k };
     }
     return { imageRect, crosshairPoint };
   }, [placementState, crosshair, viewPlane, width, canvasHeight]);
@@ -450,11 +480,27 @@ function SliceViewCanvasBody({
   useEffect(() => {
     isDraggingRef.current = isDragging;
   }, [isDragging]);
+  // 1× while a window/level drag runs (utils/renderPixelRatio).
+  useEffect(() => {
+    if (!isDragging) return;
+    const source = `window-level:${viewId}`;
+    beginRenderInteraction(source);
+    return () => endRenderInteraction(source);
+  }, [isDragging, viewId]);
 
   // Clicks off the image data (letterbox / margin around the volume inside
   // the bitmap) do not move the crosshair.
   const dataLayerIds = useMemo(() => layers.map((l) => l.id), [layers]);
   const dataEdgeBounds = useLayerEdgeBounds(dataLayerIds);
+  // Where the data is drawn: the colorbar keeps off it (QA 2026-10-31 N16).
+  // The CSS scale comes from the measured image rectangle (frameGeometry),
+  // never a layout read per crosshair move (review L4a).
+  const frameImageRect = frameGeometry?.imageRect ?? null;
+  const colorbarDataRect = useMemo(() => {
+    if (!frameImageRect || !placementState || !(placementState.width > 0)) return null;
+    const k = (frameImageRect.right - frameImageRect.left) / placementState.width;
+    return dataRectOnPane(dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, k);
+  }, [dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, frameImageRect]);
 
   const handleWorldClick = useCallback(
     (
@@ -507,10 +553,31 @@ function SliceViewCanvasBody({
         sliceNavService.stepSlice(viewId, steps);
       }
     };
+    let zoomFactor = 1;
+    let zoomAt = { x: 0, y: 0 };
+    let zoomFrame: number | null = null;
+    const flushZoom = () => {
+      zoomFrame = null;
+      const factor = zoomFactor;
+      zoomFactor = 1;
+      if (factor !== 1) {
+        pulseRenderInteraction(`zoom:${viewId}`);
+        zoomView(viewId, factor, zoomAt, canvasRef.current);
+      }
+    };
     const fn = (event: WheelEvent) => {
       event.preventDefault();
       markActive();
       if (!layersRef.current.some((l) => l.visible)) return;
+      // ⌥-scroll and a pinch (ctrl-wheel) zoom about the pointer; plain and
+      // ⌘-scroll step slices (QA features 2026-10-31 §1).
+      const factor = wheelZoomFactor(event);
+      if (factor !== null) {
+        zoomFactor *= factor;
+        zoomAt = { x: event.clientX, y: event.clientY };
+        if (zoomFrame === null) zoomFrame = requestAnimationFrame(flushZoom);
+        return;
+      }
       const steps = toSteps(event as WheelEvent & { wheelDeltaY?: number });
       if (steps === 0) return;
       // One reference voxel per step (ten with Shift), always moving.
@@ -519,8 +586,11 @@ function SliceViewCanvasBody({
     };
     fn.cancel = () => {
       if (frame !== null) cancelAnimationFrame(frame);
+      if (zoomFrame !== null) cancelAnimationFrame(zoomFrame);
       frame = null;
+      zoomFrame = null;
       pending = 0;
+      zoomFactor = 1;
     };
     return fn;
   }, [viewId, sliceNavService, timeNavService, markActive]);
@@ -548,7 +618,9 @@ function SliceViewCanvasBody({
         prev.width === placement.width &&
         prev.height === placement.height &&
         prev.imageWidth === placement.imageWidth &&
-        prev.imageHeight === placement.imageHeight
+        prev.imageHeight === placement.imageHeight &&
+        // The radiological mirror changes every mapping (heatmap, colorbar).
+        !!prev.mirrorX === !!placement.mirrorX
           ? prev
           : placement,
       );
@@ -575,6 +647,23 @@ function SliceViewCanvasBody({
         store.setOptions(layer.id, { showOrientationMarkers: !current });
       }
     },
+  });
+
+  // Pan (Space-drag, middle drag) and pinch zoom; Fit with F (all views
+  // register one id; it fits the view under the pointer, else the active one).
+  const { panReady, panning } = useViewPanZoom({
+    viewType: viewId,
+    areaRef: containerAreaRef,
+    canvas: () => canvasRef.current,
+    size: [width, canvasHeight],
+  });
+  const zoomed = useIsViewZoomed(viewId);
+  useShortcut({
+    id: "view.fit",
+    key: "f",
+    category: "View",
+    description: "Fit the view (reset zoom and pan)",
+    handler: () => void fitActiveView(),
   });
 
   // Context menu (right-click)
@@ -665,6 +754,9 @@ function SliceViewCanvasBody({
           showNoLayers={false}
           showLoadingVolume={isLoadingAnyLayer}
           className="w-full h-full"
+          mirrorX={mirrorX}
+          pixelRatio={pixelRatio}
+          canvasClassName={panning ? "cursor-grabbing" : panReady ? "cursor-grab" : ""}
         />
 
         {/* Temporal heatmap overlay */}
@@ -676,6 +768,10 @@ function SliceViewCanvasBody({
             sliceIndex={heatmapSliceIndex}
             width={width}
             height={canvasHeight}
+            viewPlane={viewPlane}
+            placement={placementState}
+            voxelToWorld={heatmapAffine}
+            pixelRatio={pixelRatio}
             opacity={heatmapOpacity}
           />
         )}
@@ -709,7 +805,8 @@ function SliceViewCanvasBody({
             height={canvasHeight}
             imageRect={frameGeometry?.imageRect ?? null}
             avoidPoint={frameGeometry?.crosshairPoint ?? null}
-            topReserve={LAYOUT_BUTTON_RESERVE}
+            dataRect={colorbarDataRect}
+            topReserve={topRightReserve}
             value={colorbarReading?.value ?? null}
           />
         )}
@@ -717,6 +814,29 @@ function SliceViewCanvasBody({
         {/* Window/level drag overlay */}
         {overlayProps && (
           <div style={overlayProps.style}>{overlayProps.children}</div>
+        )}
+
+        {/* Radiological convention: the screen's left is the patient's right. */}
+        {hasLayers && mirrorX && (
+          <span
+            className="pointer-events-none absolute bottom-1 left-1.5 select-none font-mono text-bf-xs text-bf-text-muted"
+            data-testid="radiological-badge"
+            title="Radiological convention: the patient's right is on the left"
+          >
+            R | L
+          </span>
+        )}
+        {hasLayers && zoomed && (
+          <button
+            type="button"
+            className="absolute bottom-1 right-1 rounded-sm border border-bf-border bg-bf-bg-canvas/90 px-1.5 py-0.5 text-bf-xs text-bf-text-secondary hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => void fitView(viewId)}
+            onMouseDown={(event) => event.stopPropagation()}
+            title="Fit the view (F)"
+            data-testid="view-fit"
+          >
+            Fit
+          </button>
         )}
       </div>
 
@@ -770,6 +890,7 @@ function SliceViewCanvasBody({
           viewPlane={viewPlane}
           refs={orientationLabelRefs}
           bottomInset={SLIDER_HEIGHT}
+          mirrorX={mirrorX}
         />
       )}
 

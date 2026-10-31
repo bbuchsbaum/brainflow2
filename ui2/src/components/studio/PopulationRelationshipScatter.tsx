@@ -1,3 +1,4 @@
+import { studioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 /**
  * The relationship scatter (classical MDS at fitted positions) with its hover
  * peek and keyboard navigation (W1 UI).
@@ -208,7 +209,9 @@ export function PopulationRelationshipScatter({
         orientation: displayed.query.request.orientation,
       };
     return {
-      crosshairMm: [...useViewStateStore.getState().viewState.crosshair.world_mm] as [
+      crosshairMm: [
+        ...useViewStateStore.getState().getWorkspaceViewState(studioWorkspaceKey()).crosshair.world_mm,
+      ] as [
         number,
         number,
         number,

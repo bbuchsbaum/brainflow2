@@ -245,6 +245,8 @@ export class SurfaceLoadingService {
       this.eventBus.emit('ui.notification', {
         type: 'error',
         message: loadFailureMessage(`surface ${filename}`, failure),
+        // Logged by the surface.load.error subscriber.
+        logSource: false,
       });
 
       return null;

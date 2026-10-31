@@ -7,10 +7,11 @@ import {
   anatomyUnderStatisticOrder,
   defaultCrosshairWorld,
   mayHaveLabelTable,
+  startsAtVolumeFrame,
 } from '../VolumeLoadingService';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { STACKED_CONTINUOUS_OPACITY, STACKED_OVERLAY_OPACITY } from '@/services/layerPlacement';
+import { STACKED_CONTINUOUS_OPACITY, LABEL_OVER_STATISTIC_OPACITY } from '@/services/layerPlacement';
 
 describe('defaultCrosshairWorld', () => {
   it('prefers the voxel-centred centre over the geometric one', () => {
@@ -86,7 +87,7 @@ describe('applyStackedOverlayOpacity (review W9)', () => {
 
     applyStackedOverlayOpacity('seg');
     const opacityOf = (id: string) => useViewStateStore.getState().viewState.layers.find((l) => l.id === id)?.opacity;
-    expect(opacityOf('seg')).toBe(STACKED_OVERLAY_OPACITY);
+    expect(opacityOf('seg')).toBe(LABEL_OVER_STATISTIC_OPACITY);
     expect(opacityOf('z')).toBe(1);
 
     // A user-set opacity is never overridden.
@@ -117,5 +118,16 @@ describe('applyStackedOverlayOpacity: continuous on continuous (QA decisions §2
     expect(opacityOf('t1')).toBe(1);
     // Review minor 8: the layer's default render properties agree.
     expect(useLayerStore.getState().getLayerMetadata('mni')?.renderProps?.opacity).toBe(STACKED_CONTINUOUS_OPACITY);
+  });
+});
+
+describe('startsAtVolumeFrame (QA 2026-10-30 F34)', () => {
+  const kinds: Record<string, { volumeType?: string }> = { t1: {}, run1: { volumeType: 'TimeSeries4D' } };
+  const layerOf = (id: string) => kinds[id];
+  it('a 4D layer starts at its own frame unless another shown series owns the frame', () => {
+    expect(startsAtVolumeFrame({ layers: [] }, layerOf)).toBe(true);
+    // Frame 8 left over from a series no longer shown.
+    expect(startsAtVolumeFrame({ timepoint: 8, layers: [{ id: 't1' }] }, layerOf)).toBe(true);
+    expect(startsAtVolumeFrame({ timepoint: 8, layers: [{ id: 't1' }, { id: 'run1' }] }, layerOf)).toBe(false);
   });
 });

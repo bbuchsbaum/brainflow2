@@ -38,6 +38,8 @@ export default defineModule({
         legacyId: true,
         title: 'Analysis Workbench',
         label: 'Analysis',
+        // The shared dock, as in every centre tab (QA 2026-10-30 F31).
+        bottomDock: true,
         component: () =>
           import('./components/AnalysisWorkbenchWorkspace').then((m) => ({
             default: m.AnalysisWorkbenchWorkspace,

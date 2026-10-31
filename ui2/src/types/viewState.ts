@@ -23,8 +23,9 @@ export interface LayerOutlineConfig {
   /** Omitted: "uniform". */
   colorMode?: OutlineColorMode;
   /**
-   * Dark halo width in screen pixels (0 or omitted: none). Outside a selected
-   * region; a second inner band when every boundary is drawn.
+   * Dark halo width in screen pixels (0 or omitted: none) around the centred
+   * outline: outside a selected region, on both sides when every boundary is
+   * drawn. The renderer keeps line plus halo within about two voxels on screen.
    */
   haloPx?: number;
   haloColor?: [number, number, number, number];

@@ -2,6 +2,8 @@
  * useServicesInit - Initialize singleton services on app startup
  */
 
+import { initializeSceneHistory } from '@/services/SceneHistoryService';
+import { initializeAutoClusters } from '@/services/autoClusters';
 import { useEffect } from 'react';
 import { isBrowserHost } from '@/services/applicationHost';
 import { initializeLayerService } from '@/services/LayerService';
@@ -135,6 +137,9 @@ export function useServicesInit() {
         try {
           initializeFileLoadingService();
           serviceInitDebugLog('[useServicesInit] FileLoadingService initialized');
+          // Scene undo and clusters on load follow layer edits and loads.
+          initializeSceneHistory();
+          initializeAutoClusters();
         } catch (error) {
           console.error('[useServicesInit] FileLoadingService initialization failed:', error);
           getEventBus().emit('services.error', {
@@ -220,6 +225,19 @@ export function useServicesInit() {
             .renderChangedViews(viewState, undefined, viewStateRevisions)
             .catch((error) => {
               console.error('[useServicesInit] Scoped render failed:', error);
+            });
+        });
+
+        // The device-pixel ratio changed (an interaction ended, the window
+        // moved to another display): redraw the orthogonal views at it.
+        // (Pane resizes drop the ratio from FlexibleSlicePanel's observer.)
+        const { subscribeRenderRatio } = await import('@/utils/renderPixelRatio');
+        subscribeRenderRatio(() => {
+          const { viewState, viewStateRevisions } = useViewStateStore.getState();
+          optimizedRenderService
+            .renderChangedViews(viewState, undefined, viewStateRevisions)
+            .catch((error) => {
+              console.error('[useServicesInit] Ratio render failed:', error);
             });
         });
 

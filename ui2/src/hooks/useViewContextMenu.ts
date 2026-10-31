@@ -14,7 +14,10 @@ import { getEventBus } from '@/events/EventBus';
 import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
-import { isOverlayLayer } from '@/components/views/viewportFrame/useOverlayColorbar';
+import { currentOverlayColorbarLayerId } from '@/components/views/viewportFrame/useOverlayColorbar';
+import { useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
+import { fitView } from '@/services/ViewZoomService';
+import type { ViewType } from '@/types/coordinates';
 
 export function useViewContextMenu(contextId: string) {
   const markActive = useActiveRenderable(contextId);
@@ -37,10 +40,9 @@ export function useViewContextMenu(contextId: string) {
         ? useDisplayOptionsStore.getState().getOptions(primaryLayerId).showOrientationMarkers
         : true;
 
-      // Colorbar toggle for the selected overlay layer (on-image colorbar).
-      const { layers: allLayers, selectedLayerId } = useLayerStore.getState();
-      const colorbarLayerId =
-        selectedLayerId && isOverlayLayer(allLayers, selectedLayerId) ? selectedLayerId : null;
+      // Colorbar toggle for the colorbar the view shows: the same layer as
+      // useOverlayColorbar (active layer, topmost overlay, run-group base).
+      const colorbarLayerId = currentOverlayColorbarLayerId();
       const colorbarOn = colorbarLayerId
         ? useDisplayOptionsStore.getState().getOptions(colorbarLayerId).showColorbar !== false
         : false;
@@ -67,7 +69,7 @@ export function useViewContextMenu(contextId: string) {
         },
         {
           id: 'toggle-orientation-labels',
-          label: markersOn ? 'Hide Orientation Labels' : 'Show Orientation Labels',
+          label: markersOn ? 'Hide orientation labels' : 'Show orientation labels',
           onClick: () => {
             const layers = useLayerStore.getState().layers.filter(l => l.visible);
             const store = useDisplayOptionsStore.getState();
@@ -77,6 +79,7 @@ export function useViewContextMenu(contextId: string) {
           }
         },
         ...colorbarItems,
+        ...sliceViewItems(contextId),
         {
           id: 'separator-1',
           label: '',
@@ -84,17 +87,41 @@ export function useViewContextMenu(contextId: string) {
         },
         {
           id: 'image-header',
-          label: 'Image Header…',
+          // Sentence case, like the toggles above (QA 2026-10-30 F47).
+          label: 'Image header…',
           onClick: () => getEventBus().emit('ui.imageHeader.open', {})
         },
         {
           id: 'export-image',
-          label: 'Export View as Image…',
+          label: 'Export view as image…',
           onClick: () => useExportDialogStore.getState().open()
         }
       ]);
     },
-    [markActive]
+    [contextId, markActive]
   );
+}
+
+const SLICE_VIEWS = new Set(['axial', 'sagittal', 'coronal']);
+
+/**
+ * Slice views: Fit (drop zoom and pan) and the display convention (QA
+ * features 2026-10-31 §1–2).
+ */
+function sliceViewItems(contextId: string) {
+  if (!SLICE_VIEWS.has(contextId)) return [];
+  const radiological = useViewDisplaySettingsStore.getState().radiological;
+  return [
+    {
+      id: 'fit-view',
+      label: 'Fit to view',
+      onClick: () => void fitView(contextId as ViewType),
+    },
+    {
+      id: 'toggle-radiological',
+      label: radiological ? 'Use neurological convention' : 'Use radiological convention',
+      onClick: () => useViewDisplaySettingsStore.getState().toggleRadiological(),
+    },
+  ];
 }
 

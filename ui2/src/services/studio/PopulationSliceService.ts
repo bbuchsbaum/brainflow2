@@ -177,6 +177,30 @@ interface Dependencies {
     signal: AbortSignal,
   ) => Promise<[number, number, number] | null>;
 }
+/** What a transport that cannot evaluate population slices yields. */
+export const POPULATION_SLICES_UNAVAILABLE = 'Population slices are unavailable.';
+
+/**
+ * A population slice result in the shape the service reads (review M4): an
+ * object with summary and focused arrays and a plane with a pixel size. Any
+ * other answer (null from a transport without the command) is an error, never
+ * a TypeError deep in the reduction.
+ */
+export function checkedPopulationSliceData(result: unknown): PopulationSliceData {
+  const data = result as Partial<PopulationSliceData> | null;
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    !Array.isArray(data.summary) ||
+    !Array.isArray(data.focused) ||
+    !data.plane ||
+    typeof data.plane !== 'object' ||
+    !Array.isArray(data.plane.dim_px)
+  )
+    throw new Error(POPULATION_SLICES_UNAVAILABLE);
+  return data as PopulationSliceData;
+}
+
 const native: Dependencies = {
   async evaluate(request, signal) {
     signal.throwIfAborted();
@@ -188,12 +212,12 @@ const native: Dependencies = {
     };
     signal.addEventListener('abort', cancel, { once: true });
     try {
-      const result = await getTransport().invoke<PopulationSliceData>('evaluate_population_slice', {
+      const result = await getTransport().invoke<unknown>('evaluate_population_slice', {
         request,
         ticket,
       });
       signal.throwIfAborted();
-      return result;
+      return checkedPopulationSliceData(result);
     } finally {
       signal.removeEventListener('abort', cancel);
     }
@@ -211,12 +235,20 @@ const native: Dependencies = {
     };
     signal.addEventListener('abort', cancel, { once: true });
     try {
-      const result = await getTransport().invoke<[number, number, number] | null>(
-        'population_peak_slice',
-        { request, ticket },
-      );
+      const result = await getTransport().invoke<unknown>('population_peak_slice', {
+        request,
+        ticket,
+      });
       signal.throwIfAborted();
-      return result;
+      // Null is the native "no peak"; any other non-point answer is an error.
+      if (result === null) return null;
+      if (
+        !Array.isArray(result) ||
+        result.length !== 3 ||
+        !result.every((v) => typeof v === 'number' && Number.isFinite(v))
+      )
+        throw new Error(POPULATION_SLICES_UNAVAILABLE);
+      return result as [number, number, number];
     } finally {
       signal.removeEventListener('abort', cancel);
     }
@@ -305,22 +337,34 @@ export function populationUnderlayGrey(
   );
 }
 
-// Colour is data: signed maps run red to yellow above zero and blue to cyan
-// below; nonnegative summaries use one dark-red to pale-yellow ramp. Both start
-// saturated at the hidden band so the lowest shown value never reads as grey.
-const POSITIVE = [
-  [200, 30, 30],
-  [255, 235, 80],
-];
-const NEGATIVE = [
-  [30, 70, 220],
-  [90, 225, 255],
-];
-const SEQUENTIAL = [
-  [150, 25, 10],
-  [240, 110, 15],
-  [255, 240, 140],
-];
+// Colour is data: signed maps are the blue–white–red effect scale (the
+// member view's fMRI Red-Blue), light just above the hidden band and saturated
+// at the limit; nonnegative summaries use one dark-amber to pale-gold ramp
+// with no red, so a mostly positive mean never reads like coverage or SD. Each
+// ramp starts clearly coloured at the band, so the lowest shown value never
+// reads as grey.
+export const POPULATION_POSITIVE = [
+  [240, 150, 125],
+  [200, 25, 35],
+] as const;
+export const POPULATION_NEGATIVE = [
+  [135, 170, 240],
+  [35, 80, 200],
+] as const;
+export const POPULATION_SEQUENTIAL = [
+  [110, 60, 10],
+  [225, 150, 30],
+  [255, 235, 150],
+] as const;
+const POSITIVE = POPULATION_POSITIVE;
+const NEGATIVE = POPULATION_NEGATIVE;
+const SEQUENTIAL = POPULATION_SEQUENTIAL;
+/**
+ * Nonnegative summaries (coverage, SD, MAD, …) fill the whole support, so they
+ * are drawn translucent over the anatomy; signed maps stay opaque, like a
+ * thresholded stat overlay.
+ */
+export const POPULATION_SEQUENTIAL_OPACITY = 0.55;
 /** Brightest underlay grey; kept below white so colour stays legible. */
 const UNDERLAY_MAX = 200;
 
@@ -341,25 +385,61 @@ export function populationOverlayRgba(
   values: readonly (number | null)[],
   limit: number,
   diverging: boolean,
-  options: { band: number; underlay?: Float32Array | null },
+  options: { band: number; underlay?: Float32Array | null; opacity?: number },
 ) {
   const { band, underlay } = options;
+  const opacity = Math.min(1, Math.max(0, options.opacity ?? 1));
   const pixels = new Uint8ClampedArray(values.length * 4);
   const span = limit > band ? limit - band : limit || 1;
   values.forEach((value, i) => {
+    const grey =
+      underlay && Number.isFinite(underlay[i]) ? underlay[i] * UNDERLAY_MAX : null;
     let colour: number[] | null = null;
+    let alpha = 255;
     if (value !== null && Number.isFinite(value) && Math.abs(value) >= band && (diverging || value > 0)) {
       const t = (Math.abs(value) - band) / span;
       colour = ramp(diverging ? (value < 0 ? NEGATIVE : POSITIVE) : SEQUENTIAL, t);
-    } else if (underlay && Number.isFinite(underlay[i])) {
-      const grey = underlay[i] * UNDERLAY_MAX;
+      // Translucent: mixed onto the anatomy, or partly see-through onto the
+      // dark pane without one.
+      if (opacity < 1) {
+        if (grey !== null) colour = colour.map((c) => grey + opacity * (c - grey));
+        else alpha = Math.round(opacity * 255);
+      }
+    } else if (grey !== null) {
       colour = [grey, grey, grey];
     }
     if (!colour) return;
     for (let c = 0; c < 3; c++) pixels[i * 4 + c] = colour[c];
-    pixels[i * 4 + 3] = 255;
+    pixels[i * 4 + 3] = alpha;
   });
   return pixels;
+}
+
+/** Opacity of a summary map: translucent for nonnegative summaries. */
+export function populationSummaryOpacity(request: PopulationSliceRequest) {
+  return populationDiverging(request) ? 1 : POPULATION_SEQUENTIAL_OPACITY;
+}
+
+function cssRgb(colour: readonly number[]) {
+  return `rgb(${colour.map((c) => Math.round(c)).join(', ')})`;
+}
+
+/**
+ * The colourbar gradient for a population map, bottom to top, from the same
+ * stops the renderer uses. Diverging bars run −limit (bottom) to +limit, with
+ * the hidden band (`bandFraction` of the limit) left out around zero;
+ * sequential bars run 0 to the limit, the band at the bottom.
+ */
+export function populationColorbarGradient(diverging: boolean, bandFraction: number) {
+  const pct = (f: number) => `${(f * 100).toFixed(2)}%`;
+  if (!diverging) {
+    const stops = SEQUENTIAL.map(
+      (c, i) => `${cssRgb(c)} ${pct(bandFraction + (i / (SEQUENTIAL.length - 1)) * (1 - bandFraction))}`,
+    );
+    return `linear-gradient(to top, transparent 0%, transparent ${pct(bandFraction)}, ${stops.join(', ')})`;
+  }
+  const half = bandFraction / 2;
+  return `linear-gradient(to top, ${cssRgb(NEGATIVE[1])} 0%, ${cssRgb(NEGATIVE[0])} ${pct(0.5 - half)}, transparent ${pct(0.5 - half)}, transparent ${pct(0.5 + half)}, ${cssRgb(POSITIVE[0])} ${pct(0.5 + half)}, ${cssRgb(POSITIVE[1])} 100%)`;
 }
 
 /** Whether a summary is a count, whose only near-zero value is zero. */
@@ -367,6 +447,34 @@ export function populationCountsSummary(request: PopulationSliceRequest) {
   return request.inference
     ? !!inferenceChannel(request.inference).countPopulation
     : request.summary === 'coverage';
+}
+
+/** Delay before a result that lost its anatomy is asked for once more. */
+export const POPULATION_UNDERLAY_RETRY_MS = 1500;
+
+/** A missing-anatomy reason that may pass (not a space mismatch). */
+function transientUnderlayIssue(issue: string | null | undefined) {
+  return !!issue && !/not in one space/.test(issue);
+}
+
+/**
+ * The previously shown anatomy, when it was sampled for the same underlay
+ * source on the same plane (and, for cutouts, the same cutout plane).
+ */
+function reusableUnderlay(
+  base: { query: PopulationSliceQuery; data: PopulationSliceData },
+  query: PopulationSliceQuery,
+  data: PopulationSliceData,
+): PopulationSliceData['underlay'] | null {
+  const shown = base.data.underlay;
+  if (!shown || base.query.request.underlay?.sourcePath !== query.request.underlay?.sourcePath)
+    return null;
+  if (JSON.stringify(base.data.plane) !== JSON.stringify(data.plane)) return null;
+  const cutoutsMatch =
+    !!data.cutouts &&
+    !!base.data.cutouts &&
+    JSON.stringify(base.data.cutouts.plane) === JSON.stringify(data.cutouts.plane);
+  return cutoutsMatch ? { values: shown.values, cutouts: shown.cutouts } : { values: shown.values };
 }
 
 /** Anatomy per declared template space (TemplateFlow IDs the app resolves). */
@@ -758,6 +866,15 @@ export class PopulationSliceService {
     this.releaseBase = null;
     this.focusBase = null;
   }
+  /** Query keys already retried for a missing underlay (one retry each). */
+  private underlayRetries = new Set<string>();
+  private retryUnderlay(query: PopulationSliceQuery) {
+    if (this.underlayRetries.has(query.key)) return;
+    this.underlayRetries.add(query.key);
+    setTimeout(() => {
+      if (this.active && this.snapshot.requested?.key === query.key) this.request(query, true);
+    }, POPULATION_UNDERLAY_RETRY_MS);
+  }
   private samePopulation(a: PopulationSliceQuery, b: PopulationSliceQuery) {
     return (
       a.datasetKey === b.datasetKey &&
@@ -1030,7 +1147,7 @@ export class PopulationSliceService {
     };
     delete request.focusStackIndex;
     this.contexts.add(contextKey);
-    const data = await this.dependencies.evaluate(request, signal);
+    const data = checkedPopulationSliceData(await this.dependencies.evaluate(request, signal));
     signal.throwIfAborted();
     const [w, h] = data.plane?.dim_px ?? [0, 0];
     const ids = query.request.members.map((m) => m.memberId);
@@ -1107,9 +1224,11 @@ export class PopulationSliceService {
           query.request.focusStackIndex !== undefined
             ? []
             : [...ids.slice(Math.max(0, index - 1), Math.max(0, index - 1) + count)];
-        data = await this.dependencies.evaluate(
-          { ...query.request, contextKey, focusOnly: reuse, focusWindow },
-          abort.signal,
+        data = checkedPopulationSliceData(
+          await this.dependencies.evaluate(
+            { ...query.request, contextKey, focusOnly: reuse, focusWindow },
+            abort.signal,
+          ),
         );
         if (!this.active || version !== this.generation) return;
         if (reuse && base && data.summary.length === 0) {
@@ -1130,9 +1249,11 @@ export class PopulationSliceService {
             };
             shared = true;
           } else {
-            data = await this.dependencies.evaluate(
-              { ...query.request, contextKey, focusWindow },
-              abort.signal,
+            data = checkedPopulationSliceData(
+              await this.dependencies.evaluate(
+                { ...query.request, contextKey, focusWindow },
+                abort.signal,
+              ),
             );
             if (!this.active || version !== this.generation) return;
           }
@@ -1156,6 +1277,17 @@ export class PopulationSliceService {
         this.focusExpires = Date.now() + 1000;
       }
       data = { ...data, focusWindow: undefined };
+      // The anatomy depends only on the plane, not the summary: a result that
+      // came back without it (a transient read failure, QA N12) keeps the
+      // anatomy already shown on the same plane, or is retried once.
+      let underlayRetry = false;
+      if (!data.underlay && query.request.underlay) {
+        // The shown result, not the focus base (cleared when the summary changes).
+        const shown = this.snapshot.displayed;
+        const reused = shown ? reusableUnderlay(shown, query, data) : null;
+        if (reused) data = { ...data, underlay: reused, underlayIssue: null };
+        else underlayRetry = transientUnderlayIssue(data.underlayIssue);
+      }
       validateData(data, query);
       if (shared && base) {
         const releaseShared = base.images.retain();
@@ -1226,6 +1358,7 @@ export class PopulationSliceService {
         populationOverlayRgba(data.summary, summaryLimit, populationDiverging(query.request), {
           band: populationHiddenBand(summaryLimit, populationCountsSummary(query.request)),
           underlay,
+          opacity: populationSummaryOpacity(query.request),
         }),
         w,
         h,
@@ -1275,6 +1408,7 @@ export class PopulationSliceService {
         pending: false,
         error: null,
       });
+      if (underlayRetry) this.retryUnderlay(query);
       this.startPeak(query);
     } catch (error) {
       if (this.active && version === this.generation)

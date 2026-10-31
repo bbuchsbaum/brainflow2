@@ -18,6 +18,7 @@ import {
   resolveAtlasRegionAtWorld,
   formatRegionLabel,
   findActiveAtlasLayer,
+  regionReadoutText,
 } from "../atlasRegionLookup";
 
 const mockSample = SamplingService.sampleLayerAtWorld as ReturnType<
@@ -165,5 +166,53 @@ describe("user-loaded label tables (P3 item 4)", () => {
   it("ignores label layers with neither atlas metadata nor a legend", () => {
     layersRef.current = [{ id: "seg", type: "label" }];
     expect(findActiveAtlasLayer()).toBeUndefined();
+  });
+
+  describe("regionReadoutText (QA 2026-10-30 F49)", () => {
+    const hit = { layerId: "atlas-1", labelId: 1, entry: legend[0] };
+    it("names the atlas when the region comes from another layer than the one reported", () => {
+      layersRef.current = [atlasLayer({ name: "Schaefer 400", sourcePath: "atlas:schaefer" })];
+      expect(regionReadoutText(hit, "zmap")).toBe("LH VisCent ExStr 1 · Schaefer 400");
+    });
+    it("shows the region alone for the reported atlas itself or no reported layer", () => {
+      layersRef.current = [atlasLayer({ name: "Schaefer 400" })];
+      expect(regionReadoutText(hit, "atlas-1")).toBe("LH VisCent ExStr 1");
+      expect(regionReadoutText(hit, null)).toBe("LH VisCent ExStr 1");
+    });
+  });
+
+  describe("several atlases (QA 2026-10-31)", () => {
+    it("falls back to the next atlas that has a label at the point", async () => {
+      layersRef.current = [
+        atlasLayer({ id: "glasser" }),
+        atlasLayer({ id: "aseg", atlasPaletteLegend: [{ label_id: 13, roi: "Pallidum", color: [1, 1, 1], hemisphere: "left" }] }),
+        { id: "z", type: "volume" },
+      ];
+      mockSample.mockImplementation(async ({ layerId }: { layerId: string }) => ({ value: layerId === "glasser" ? 0 : 13 }));
+      const hit = await resolveAtlasRegionAtWorld([0, 0, 0], "z");
+      expect(hit?.layerId).toBe("aseg");
+      expect(formatRegionLabel(hit!.entry)).toBe("LH Pallidum");
+    });
+
+    it("a selected atlas answers alone", async () => {
+      layersRef.current = [atlasLayer({ id: "glasser" }), atlasLayer({ id: "aseg" })];
+      mockSample.mockImplementation(async ({ layerId }: { layerId: string }) => ({ value: layerId === "glasser" ? 0 : 1 }));
+      expect(await resolveAtlasRegionAtWorld([0, 0, 0], "glasser")).toBeNull();
+    });
+  });
+
+  it("one atlas failing to sample does not end the lookup (review L7)", async () => {
+    layersRef.current = [
+      atlasLayer({ id: "broken" }),
+      atlasLayer({ id: "aseg", atlasPaletteLegend: [{ label_id: 13, roi: "Pallidum", color: [1, 1, 1], hemisphere: "left" }] }),
+    ];
+    mockSample.mockImplementation(async ({ layerId }: { layerId: string }) => {
+      if (layerId === "broken") throw new Error("evicted");
+      return { value: 13 };
+    });
+    expect((await resolveAtlasRegionAtWorld([0, 0, 0], "z"))?.layerId).toBe("aseg");
+    // All failing: the error is reported.
+    mockSample.mockRejectedValue(new Error("evicted"));
+    await expect(resolveAtlasRegionAtWorld([0, 0, 0], "z")).rejects.toThrow("evicted");
   });
 });

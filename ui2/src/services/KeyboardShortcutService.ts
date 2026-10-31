@@ -30,6 +30,33 @@ export interface ShortcutRegistration {
 
 type UnregisterFn = () => void;
 
+/** The chord a registration answers: key plus exact modifiers ("meta+shift+c"). */
+export function shortcutChord(reg: Pick<ShortcutRegistration, 'key' | 'modifiers'>): string {
+  const m = reg.modifiers ?? {};
+  const mods = (['ctrl', 'alt', 'shift', 'meta'] as const).filter((k) => m[k]);
+  return [...mods, normalizeKey(reg.key)].join('+');
+}
+
+/**
+ * Registrations that answer the same chord in the same scope: neither is
+ * conditional (`when`) and they share a priority, so one silently shadows the
+ * other (QA 2026-10-30 F41). Conditional ones are scoped by their predicate.
+ */
+export function findShortcutConflicts(
+  regs: Iterable<ShortcutRegistration>,
+): Array<[ShortcutRegistration, ShortcutRegistration]> {
+  const seen = new Map<string, ShortcutRegistration>();
+  const conflicts: Array<[ShortcutRegistration, ShortcutRegistration]> = [];
+  for (const reg of regs) {
+    if (reg.when) continue;
+    const scope = `${shortcutChord(reg)}@${reg.priority ?? 0}`;
+    const other = seen.get(scope);
+    if (other) conflicts.push([other, reg]);
+    else seen.set(scope, reg);
+  }
+  return conflicts;
+}
+
 function normalizeKey(key: string): string {
   // Normalize single letter keys to lowercase for case-insensitive matching
   if (key.length === 1 && /[a-zA-Z]/.test(key)) {
@@ -64,7 +91,7 @@ function isSpaceOwnerTarget(target: EventTarget | null): boolean {
   return !isPointerFocused(target);
 }
 
-function isPointerFocused(target: Element): boolean {
+export function isPointerFocused(target: Element): boolean {
   if (target.ownerDocument.activeElement !== target) return false;
   if (target instanceof HTMLElement && target.isContentEditable) return false;
   try {
@@ -114,7 +141,14 @@ function modifiersMatch(
 }
 
 class KeyboardShortcutService {
+  /** The registration in effect per id (the latest still registered). */
   private registrations: Map<string, ShortcutRegistration> = new Map();
+  /**
+   * Every live registration per id, oldest first. Views register shared ids
+   * (`view.fit`, `toggle-orientation-labels`) once per mounted view; one
+   * view unmounting must not remove the shortcut the others still hold.
+   */
+  private holders: Map<string, ShortcutRegistration[]> = new Map();
   private initialized = false;
 
   init(): void {
@@ -127,23 +161,53 @@ class KeyboardShortcutService {
     window.removeEventListener('keydown', this.handleKeyDown);
     this.initialized = false;
     this.registrations.clear();
+    this.holders.clear();
   }
 
   register(reg: ShortcutRegistration): UnregisterFn {
-    if (this.registrations.has(reg.id)) {
-      console.warn(`[KeyboardShortcutService] Overwriting shortcut id="${reg.id}"`);
+    const current = this.registrations.get(reg.id);
+    if (current && shortcutChord(current) !== shortcutChord(reg)) {
+      console.warn(`[KeyboardShortcutService] Overwriting shortcut id="${reg.id}" with another key`);
     }
     const full: ShortcutRegistration = { priority: 0, ...reg };
+    this.holders.set(reg.id, [...(this.holders.get(reg.id) ?? []), full]);
     this.registrations.set(reg.id, full);
-    return () => this.unregister(reg.id);
+    for (const [a, b] of findShortcutConflicts(this.registrations.values())) {
+      if (a.id === reg.id || b.id === reg.id) {
+        console.warn(
+          `[KeyboardShortcutService] "${shortcutChord(reg)}" is bound twice: "${a.description}" (${a.id}) and "${b.description}" (${b.id})`,
+        );
+      }
+    }
+    // Removes this registration only; another holder of the id takes over.
+    return () => this.release(reg.id, full);
   }
 
+  private release(id: string, reg: ShortcutRegistration): void {
+    const rest = (this.holders.get(id) ?? []).filter((r) => r !== reg);
+    if (rest.length > 0) {
+      this.holders.set(id, rest);
+      if (this.registrations.get(id) === reg) this.registrations.set(id, rest[rest.length - 1]);
+    } else {
+      this.holders.delete(id);
+      if (this.registrations.get(id) === reg) this.registrations.delete(id);
+    }
+  }
+
+  /** Remove every registration of `id`, whoever made it (tests, teardown). */
   unregister(id: string): void {
     this.registrations.delete(id);
+    this.holders.delete(id);
   }
 
   unregisterAll(): void {
     this.registrations.clear();
+    this.holders.clear();
+  }
+
+  /** Unconditional registrations that share a chord (see findShortcutConflicts). */
+  getConflicts(): Array<[ShortcutRegistration, ShortcutRegistration]> {
+    return findShortcutConflicts(this.registrations.values());
   }
 
   getAll(): Record<string, ShortcutRegistration[]> {

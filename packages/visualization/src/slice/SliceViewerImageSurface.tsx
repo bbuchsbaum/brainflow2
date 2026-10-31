@@ -12,6 +12,12 @@ export interface SliceViewerImageSurfaceProps extends SliceViewerSurfaceProps {
   errorFallback?: ReactNode;
   emptyFallback?: ReactNode;
   onImageReceived?: (image: ImageBitmap) => void;
+  /**
+   * Draw the image mirrored left-right (a display convention such as
+   * radiological). The placement passed on says so, so crosshair, clicks
+   * and hover map through it unchanged.
+   */
+  mirrorX?: boolean;
 }
 
 export function SliceViewerImageSurface({
@@ -28,6 +34,7 @@ export function SliceViewerImageSurface({
   customRender,
   onCanvasReady,
   onImageReceived,
+  mirrorX = false,
 }: SliceViewerImageSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -46,10 +53,10 @@ export function SliceViewerImageSurface({
 
     ctx.clearRect(0, 0, width, height);
     if (!image) return;
-    const placement = drawScaledImage(ctx, image, width, height);
+    const placement = drawScaledImage(ctx, image, width, height, mirrorX);
     customRender(ctx, placement);
     onImageReceived?.(image);
-  }, [customRender, height, image, onImageReceived, width]);
+  }, [customRender, height, image, onImageReceived, width, mirrorX]);
 
   return (
     <div className={`relative h-full w-full ${className}`}>

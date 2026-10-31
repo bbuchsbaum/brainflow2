@@ -16,14 +16,16 @@ class HistogramService {
     // Listen for layer events to invalidate cache
     const eventBus = getEventBus();
     
+    // Entries are keyed "<layerId>-<bins>-…" (getCacheKey): deleting the
+    // bare layer id removed nothing, so every removed layer's histograms
+    // stayed cached (QA 2026-10-30 F9).
     eventBus.on('layer.removed', ({ layerId }) => {
-      this.cache.delete(layerId);
-      this.pendingRequests.delete(layerId);
+      this.clearLayerCache(layerId);
     });
     
     eventBus.on('layer.updated', ({ layerId }) => {
       // Invalidate cache when layer is updated
-      this.cache.delete(layerId);
+      this.clearLayerCache(layerId);
     });
     
     eventBus.on('layer.render.changed', ({ layerId }) => {
@@ -66,11 +68,15 @@ class HistogramService {
     
     try {
       const data = await promise;
-      this.cache.set(cacheKey, data);
-      this.pendingRequests.delete(cacheKey);
+      // Cached only while this request is still the layer's: one dropped by
+      // a removal (or superseded) meanwhile must not come back (F9 review).
+      if (this.pendingRequests.get(cacheKey) === promise) {
+        this.cache.set(cacheKey, data);
+        this.pendingRequests.delete(cacheKey);
+      }
       return data;
     } catch (error) {
-      this.pendingRequests.delete(cacheKey);
+      if (this.pendingRequests.get(cacheKey) === promise) this.pendingRequests.delete(cacheKey);
       throw error;
     }
   }
@@ -103,12 +109,18 @@ class HistogramService {
    * Clear cached histogram for a specific layer
    */
   clearLayerCache(layerId: string): void {
-    // Clear all cache entries for this layer
-    for (const key of this.cache.keys()) {
-      if (key.startsWith(layerId)) {
-        this.cache.delete(key);
+    // This layer's entries only: "volume_1-" must not match "volume_10-…".
+    const prefix = `${layerId}-`;
+    for (const map of [this.cache, this.pendingRequests] as Map<string, unknown>[]) {
+      for (const key of [...map.keys()]) {
+        if (key.startsWith(prefix)) map.delete(key);
       }
     }
+  }
+
+  /** Cached and in-flight histogram count (tests, diagnostics). */
+  cacheSize(): number {
+    return this.cache.size + this.pendingRequests.size;
   }
   
   private async fetchHistogram(request: HistogramRequest): Promise<HistogramData> {

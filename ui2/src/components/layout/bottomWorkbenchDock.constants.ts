@@ -41,3 +41,32 @@ export const DOCK_TAB_BAR_HEIGHT = 29;
 export const DOCK_HEIGHT_PREFERRED = 220;
 export const DOCK_HEIGHT_MIN = 160;
 export const DOCK_HEIGHT_MAX = 340;
+
+/**
+ * The dock remembers its height per tool (QA 2026-10-31 N13): imaging views
+ * (every slice layout and surface tabs) share one height; Set studio, BIDS
+ * and Analysis each have their own.
+ */
+export type DockHeightKey = 'imaging' | 'set-studio' | 'bids-explorer' | 'analysis-workbench';
+
+/** First height of each tool's dock: Studio starts short (its plots sit above). */
+export const DOCK_HEIGHT_DEFAULTS: Readonly<Record<DockHeightKey, number>> = {
+  imaging: DOCK_HEIGHT_PREFERRED,
+  'set-studio': 120,
+  'bids-explorer': DOCK_HEIGHT_PREFERRED,
+  'analysis-workbench': DOCK_HEIGHT_PREFERRED,
+};
+
+/** The smallest height a drag gives: never above the tool's own default. */
+export function dockHeightMin(key: DockHeightKey): number {
+  return Math.min(DOCK_HEIGHT_MIN, DOCK_HEIGHT_DEFAULTS[key]);
+}
+
+/** The dock-height key of a tab: its tool, or `imaging` for a view or surface tab. */
+export function dockHeightKeyFor(workspaceType: string | null | undefined): DockHeightKey {
+  return workspaceType === 'set-studio' ||
+    workspaceType === 'bids-explorer' ||
+    workspaceType === 'analysis-workbench'
+    ? workspaceType
+    : 'imaging';
+}

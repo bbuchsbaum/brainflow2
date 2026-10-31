@@ -2,6 +2,7 @@ import { getFileLoadingService } from '@/services/FileLoadingService';
 import { getLayerService } from '@/services/LayerService';
 import { getTemplateService } from '@/services/TemplateService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import type { SpatialFieldSetSummary } from '@/types/studio';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
@@ -31,7 +32,12 @@ export function findLayerIdForSourcePath(
 
 export class StudioDisplayService {
   private static instance: StudioDisplayService | null = null;
-  private inFlightPath: string | null = null;
+  /**
+   * Loads in flight, per source path: a second request for the same path
+   * joins the first. One slot for all paths let a load of another path
+   * clear it, so the first path loaded twice (QA F44).
+   */
+  private readonly inFlight = new Map<string, Promise<string | null>>();
   /**
    * Layers the Studio loaded to display its members. They belong to the
    * Studio session: leaving the Studio removes them, so a member such as
@@ -82,13 +88,50 @@ export class StudioDisplayService {
       return;
     }
 
+    const previous = this.visibleManagedLayerId(managedSourcePaths);
     const layerId = await this.ensureLayerLoaded(normalizedPath, 'default', memberLabel);
     if (!layerId) {
       return;
     }
 
+    // Deck cards share one scale (QA F33): each member shown takes the
+    // display of the member shown before it, its window widened to cover
+    // both members' windows at both ends, so stepping compares like with like.
+    if (previous && previous !== layerId) {
+      this.shareDisplay(previous, layerId);
+    }
     this.syncSourcePathVisibility(managedSourcePaths, layerId);
     useLayerStore.getState().selectLayer(layerId);
+  }
+
+  /** The visible layer loaded from one of `sourcePaths`, if any. */
+  private visibleManagedLayerId(sourcePaths: string[]): string | null {
+    const paths = new Set(sourcePaths.map((path) => path.trim()).filter(Boolean));
+    if (paths.size === 0) return null;
+    const { layers, layerMetadata } = useLayerStore.getState();
+    const layer = layers.find((candidate) => {
+      const path = layerMetadata.get(candidate.id)?.sourcePath ?? candidate.sourcePath;
+      return candidate.visible && !!path && paths.has(path);
+    });
+    return layer?.id ?? null;
+  }
+
+  /**
+   * Give `toId` the threshold and colour map of `fromId`, and a window that
+   * covers both layers' windows (the lower ends too).
+   */
+  private shareDisplay(fromId: string, toId: string): void {
+    useViewStateStore.getState().setViewState((draft) => {
+      const from = draft.layers.find((layer) => layer.id === fromId);
+      const to = draft.layers.find((layer) => layer.id === toId);
+      if (!from || !to) return;
+      to.intensity = [
+        Math.min(from.intensity[0], to.intensity[0]),
+        Math.max(from.intensity[1], to.intensity[1]),
+      ];
+      to.threshold = [from.threshold[0], from.threshold[1]];
+      to.colormap = from.colormap;
+    });
   }
 
   async openComparisonForPaths(args: {
@@ -202,11 +245,27 @@ export class StudioDisplayService {
       return existingLayerId;
     }
 
-    if (this.inFlightPath === sourcePath) {
-      return null;
+    const pending = this.inFlight.get(sourcePath);
+    if (pending) {
+      return pending;
     }
 
-    this.inFlightPath = sourcePath;
+    const load = this.loadLayer(sourcePath, intent, memberLabel);
+    this.inFlight.set(sourcePath, load);
+    try {
+      return await load;
+    } finally {
+      if (this.inFlight.get(sourcePath) === load) {
+        this.inFlight.delete(sourcePath);
+      }
+    }
+  }
+
+  private async loadLayer(
+    sourcePath: string,
+    intent: 'default' | 'add-layer',
+    memberLabel?: string | null
+  ): Promise<string | null> {
     const session = this.session;
     // The log attributes this load to the Studio member, not to a plain file.
     const unmark = markStudioMemberLoad(
@@ -232,9 +291,6 @@ export class StudioDisplayService {
       return layerId;
     } finally {
       unmark();
-      if (this.inFlightPath === sourcePath) {
-        this.inFlightPath = null;
-      }
     }
   }
 

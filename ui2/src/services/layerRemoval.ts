@@ -16,6 +16,8 @@ import { focusVolumeLayer, useInspectorSelectionStore } from '@/stores/inspector
 import { formatTauriError } from '@/utils/formatTauriError';
 import { addLogEntry } from '@/stores/logStore';
 import { inspectorVolumeLayerId } from '@/utils/activeLayer';
+import { sourceLabel } from '@/utils/logLabels';
+import { getSceneHistory } from '@/services/SceneHistoryService';
 
 /** The layer to select after `removedId` leaves `layerIds` (list order). */
 export function neighbourAfterRemoval(
@@ -29,8 +31,8 @@ export function neighbourAfterRemoval(
 
 /** The file a layer came from, for user-facing text ("Removed T1w.nii.gz"). */
 export function layerFileLabel(layer: { id: string; name?: string; sourcePath?: string }): string {
-  const fromPath = layer.sourcePath?.split(/[\\/]/).pop();
-  return fromPath || layer.name || layer.id;
+  // An atlas or template by its name, not "atlas:olsen_mtl" (QA 2026-10-30 F40).
+  return sourceLabel(layer.sourcePath, layer.name, layer.id);
 }
 
 export async function removeLayerFromScene(layerId: string): Promise<boolean> {
@@ -63,9 +65,22 @@ export async function removeLayerFromScene(layerId: string): Promise<boolean> {
     );
   }
 
+  // Saved before the layer goes, so the removal can be undone (reopened).
+  const history = getSceneHistory();
+  const undoable = history.captureRemoval(layerId);
   try {
     await getLayerService().removeLayer(layerId);
     addLogEntry({ level: 'info', source: 'layer', message: `Removed ${layerFileLabel(layer)}` });
+    const step = undoable ? history.commitRemoval(layerId, undoable) : null;
+    if (step) {
+      getEventBus().emit('ui.notification', {
+        type: 'info',
+        message: `Removed ${layerFileLabel(layer)}`,
+        durationMs: 8000,
+        logSource: false,
+        action: { label: 'Undo', run: () => void history.undoStep(step) },
+      });
+    }
     return true;
   } catch (error) {
     // The layer is still there: give it back its selection.

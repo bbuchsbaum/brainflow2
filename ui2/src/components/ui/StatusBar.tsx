@@ -14,7 +14,7 @@ import { NotificationToast } from "./NotificationToast";
 import { TimeSlider } from "./TimeSlider";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import { resolveStatusLayer } from "@/utils/activeLayer";
-import { EMPTY_VALUE, formatLayerValue } from "@/utils/valueFormat";
+import { EMPTY_VALUE, formatReadoutValue } from "@/utils/valueFormat";
 import { asciiCopyHandler } from "@/utils/numericInput";
 import { isInsideVolume, useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { useHoverSettingsStore, selectShowInStatusBar } from "@/stores/hoverSettingsStore";
@@ -278,7 +278,7 @@ function StatusValueReadout({
   }
   const units = statisticUnits(statistic, dataRange);
   const number =
-    current && current.value !== null ? formatLayerValue(current.value) : EMPTY_VALUE;
+    current && current.value !== null ? formatReadoutValue(current.value) : EMPTY_VALUE;
   const value = units ? (
     <>
       <StatSymbol label={units} className="status-value__symbol" /> {number}
@@ -535,10 +535,10 @@ function StatusVertexReadout({
   const map = overlayName ? overlayMapName(overlayName) : null;
   const value = fromPick
     ? pickedValue !== null
-      ? formatLayerValue(pickedValue)
+      ? formatReadoutValue(pickedValue)
       : null
     : reading
-      ? formatLayerValue(reading.value)
+      ? formatReadoutValue(reading.value)
       : null;
   const title = fromPick
     ? `Vertex ${nearest!.vertex}, clicked on the surface` + (value !== null && overlayName ? `; ${overlayName} = ${value}` : "")

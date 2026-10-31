@@ -16,9 +16,14 @@ interface WorkspaceReadiness {
 interface StudioAuditBannerProps {
   activeSet: SpatialFieldSetSummary | null;
   readiness: WorkspaceReadiness | null;
+  /**
+   * One line inside the Studio header (QA N13): no frame, never wraps; facts
+   * that do not fit are clipped and read in full from the tooltip.
+   */
+  inline?: boolean;
 }
 
-export function StudioAuditBanner({ activeSet, readiness }: StudioAuditBannerProps) {
+export function StudioAuditBanner({ activeSet, readiness, inline = false }: StudioAuditBannerProps) {
   if (!activeSet || !readiness) {
     return null;
   }
@@ -31,10 +36,24 @@ export function StudioAuditBanner({ activeSet, readiness }: StudioAuditBannerPro
 
   const tone = toneClasses(readiness.state);
 
+  const summary = [
+    readiness.eyebrow,
+    `Matched ${audit.join.matchedRows}${totalRows > 0 ? ` (${matchedPct}%)` : ''}`,
+    `Unmatched ${audit.join.unmatchedRows}`,
+    `Duplicates ${audit.join.duplicateKeys}`,
+    `Alignment ${audit.support.alignmentClass}`,
+    `Support ${audit.support.supportLabel}${supportCoveragePct != null ? ` (${supportCoveragePct}%)` : ''}`,
+  ].join(' · ');
+
   return (
     <section
       aria-label="Set studio audit summary"
-      className={`mx-3 mt-3 flex flex-wrap items-center gap-2 rounded-sm border px-3 py-1.5 text-bf-sm ${tone.container}`}
+      title={inline ? summary : undefined}
+      className={
+        inline
+          ? 'flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-hidden text-bf-sm [&>*]:shrink-0'
+          : `mx-3 mt-3 flex flex-wrap items-center gap-2 rounded-sm border px-3 py-1.5 text-bf-sm ${tone.container}`
+      }
     >
       <StatusPill status={readinessStatus(readiness.state)}>{readiness.eyebrow}</StatusPill>
       <span className="h-4 w-px bg-border" aria-hidden />

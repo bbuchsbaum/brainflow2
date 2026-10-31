@@ -2,10 +2,10 @@
  * Command palette matching and shortcut display.
  *
  * Each query token must match the command's title, keywords, group or
- * subtitle, as a substring or (title and keywords only) as an in-order
- * subsequence, so "hdr" finds "Image Header…" and "xhair" (an alias) finds the
- * crosshair commands. Results rank title-prefix > word-start > substring >
- * subsequence, title above keywords above group/subtitle; ties keep the
+ * subtitle, as a substring or (title and keywords only) as runs that each
+ * start a word ("tsv" → Toggle Snap to Voxel); "hdr" and "xhair" are aliases
+ * (header, crosshair). Results rank title-prefix > word-start > substring >
+ * word-prefix runs, title above keywords above group/subtitle; ties keep the
  * caller's order.
  */
 
@@ -40,33 +40,93 @@ function scoreField(token: string, field: string, allowSubsequence: boolean): nu
   if (field.startsWith(token)) return 1000;
   const at = field.indexOf(token);
   if (at >= 0) {
-    const wordStart = at === 0 || /[^\p{L}\p{N}]/u.test(field[at - 1]);
-    return (wordStart ? 800 : 600) - Math.min(at, 100);
+    if (isWordStart(field, at)) return 800 - Math.min(at, 100);
+    // Two letters inside a word ("rm" in "colormap") are weaker than an
+    // abbreviated word ("rm" → Remove).
+    return token.length < 3 ? 150 : 600 - Math.min(at, 100);
   }
   return allowSubsequence ? scoreSubsequence(token, field) : 0;
 }
 
+const isWordStart = (field: string, at: number) =>
+  at === 0 || /[^\p{L}\p{N}]/u.test(field[at - 1]);
+
 /**
- * In-order subsequence score (0 when `token` is not a subsequence). Rewards
- * matches at word starts and consecutive runs; penalises the spread.
+ * Word-anchored subsequence score (0 when there is none). Two forms, both
+ * anchored at word starts, words in order:
+ * - word-prefix runs: `token` splits into runs, each matched contiguously
+ *   from the START of a word ("tsv" → Toggle Snap to Voxel, "orthpan" →
+ *   Orthogonal Panels); fewer, longer runs score higher;
+ * - abbreviated words (lower): each piece is a subsequence of ONE word,
+ *   starting at its first letter ("kb" → Keyboard, "nsynth" → Neurosynth,
+ *   "expimg" → Export … Image, "tmpl" → Template).
+ * A subsequence scattered across words without that anchoring is no match
+ * (QA 2026-10-30 F30: "atlas" found "Layout: Orthogonal Panels" and "aseg"
+ * "Crosshair Settings…").
  */
 function scoreSubsequence(token: string, field: string): number {
   if (token.length < 2) return 0;
-  let score = 300;
-  let from = 0;
-  let previous = -2;
-  const first = field.indexOf(token[0]);
-  if (first < 0) return 0;
-  for (const ch of token) {
-    const at = field.indexOf(ch, from);
-    if (at < 0) return 0;
-    if (at === previous + 1) score += 15;
-    if (at === 0 || /[^\p{L}\p{N}]/u.test(field[at - 1])) score += 10;
-    previous = at;
-    from = at + 1;
+  const runs = wordPrefixRuns(token, field, 0);
+  if (runs !== null) return Math.max(1, 400 - (runs - 1) * 40);
+  const words = wordSpans(field);
+  const pieces = abbreviatedWords(token, field, words, 0);
+  if (pieces === null) return 0;
+  return Math.max(1, 250 - (pieces - 1) * 30);
+}
+
+/** Fewest word-prefix runs covering `token` from word index `from`, or null. */
+function wordPrefixRuns(token: string, field: string, from: number): number | null {
+  if (token.length === 0) return 0;
+  let best: number | null = null;
+  for (let at = from; at < field.length; at += 1) {
+    if (!isWordStart(field, at) || field[at] !== token[0]) continue;
+    // The longest run here first, then shorter ones.
+    let len = 0;
+    while (len < token.length && field[at + len] === token[len]) len += 1;
+    for (let take = len; take >= 1; take -= 1) {
+      const rest = wordPrefixRuns(token.slice(take), field, at + take);
+      if (rest !== null && (best === null || rest + 1 < best)) best = rest + 1;
+      if (best === 1) return best;
+    }
   }
-  const spread = previous - first + 1 - token.length;
-  return Math.max(1, score - spread * 4);
+  return best;
+}
+
+/** [start, end) of each letter/digit word of `field`. */
+function wordSpans(field: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  const re = /[\p{L}\p{N}]+/gu;
+  for (let m = re.exec(field); m; m = re.exec(field)) spans.push([m.index, m.index + m[0].length]);
+  return spans;
+}
+
+/**
+ * Fewest words covering `token` as pieces, each a subsequence of one word
+ * that starts at the word's first letter (words from index `from`), or null.
+ */
+function abbreviatedWords(
+  token: string,
+  field: string,
+  words: ReadonlyArray<[number, number]>,
+  from: number,
+): number | null {
+  if (token.length === 0) return 0;
+  let best: number | null = null;
+  for (let w = from; w < words.length; w += 1) {
+    const [start, end] = words[w];
+    if (field[start] !== token[0]) continue;
+    // Greedy: the most of `token` this word holds in order, then fewer.
+    let taken = 1;
+    for (let at = start + 1; at < end && taken < token.length; at += 1) {
+      if (field[at] === token[taken]) taken += 1;
+    }
+    for (let take = taken; take >= 1; take -= 1) {
+      const rest = abbreviatedWords(token.slice(take), field, words, w + 1);
+      if (rest !== null && (best === null || rest + 1 < best)) best = rest + 1;
+      if (best === 1) return best;
+    }
+  }
+  return best;
 }
 
 function scoreToken(token: string, command: MatchableCommand): number {
@@ -79,6 +139,21 @@ function scoreToken(token: string, command: MatchableCommand): number {
   return Math.max(titleScore, keywordScore, otherScore);
 }
 
+/**
+ * A token that starts with an alias and continues ("xhset": crosshair +
+ * set): both parts must match; the score is their mean.
+ */
+function aliasPrefixScore(token: string, command: MatchableCommand): number {
+  let best = 0;
+  for (const [short, word] of Object.entries(QUERY_ALIASES)) {
+    if (token.length <= short.length || !token.startsWith(short)) continue;
+    const head = scoreToken(word, command);
+    const tail = head > 0 ? scoreToken(token.slice(short.length), command) : 0;
+    if (head > 0 && tail > 0) best = Math.max(best, (head + tail) / 2);
+  }
+  return best;
+}
+
 /** Relevance of `command` for `query`; 0 = no match. An empty query matches all (1). */
 export function scoreCommand(command: MatchableCommand, query: string): number {
   const tokens = normalize(query).trim().split(/\s+/).filter(Boolean);
@@ -86,7 +161,11 @@ export function scoreCommand(command: MatchableCommand, query: string): number {
   let total = 0;
   for (const token of tokens) {
     const alias = QUERY_ALIASES[token];
-    const best = Math.max(scoreToken(token, command), alias ? scoreToken(alias, command) : 0);
+    const best = Math.max(
+      scoreToken(token, command),
+      alias ? scoreToken(alias, command) : 0,
+      aliasPrefixScore(token, command),
+    );
     if (best === 0) return 0;
     total += best;
   }

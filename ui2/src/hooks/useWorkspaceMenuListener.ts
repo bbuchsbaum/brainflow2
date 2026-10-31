@@ -8,16 +8,20 @@
  * modal dialog is open (the accelerators still reach the UI then).
  *
  * It also reports the Integrated feature flag to the native menu, which
- * disables View › Layout › Integrated while the flag is off.
+ * disables View › Layout › Integrated while the flag is off, and the front
+ * tab's layout, which View › Layout checks (QA 2026-10-30 F47).
  */
 
 import { useEffect } from 'react';
 import { safeEmit, safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
+import { useCenterTabStore } from '@/stores/centerTabStore';
+import { getLayoutService } from '@/services/layoutService';
 import type { WorkspaceType } from '@/types/workspace';
 import type { DisplayMode } from '@/types/displayModes';
 import {
+  currentTabTakesLayout,
   goToWorkspaceType,
   isModalDialogOpen,
   openNewView,
@@ -32,6 +36,7 @@ interface WorkspaceActionEvent {
     | 'open-tool'
     | 'new-workspace'
     | 'close-workspace'
+    | 'close-tab'
     | 'switch-workspace';
   payload?: {
     /** set-layout: a display mode or an exact view type. */
@@ -42,8 +47,22 @@ interface WorkspaceActionEvent {
   };
 }
 
+/** The front tab's view type, or null when a tool or surface tab is in front. */
+export function currentLayoutForMenu(): WorkspaceType | null {
+  if (!currentTabTakesLayout()) return null;
+  const { activeWorkspaceId, workspaces } = useWorkspaceStore.getState();
+  return (activeWorkspaceId && workspaces.get(activeWorkspaceId)?.type) || null;
+}
+
+function reportCurrentLayout(): WorkspaceType | null {
+  const layout = currentLayoutForMenu();
+  void safeEmit('current-layout-changed', { layout });
+  return layout;
+}
+
 const NAVIGATION_ACTIONS = new Set<WorkspaceActionEvent['action']>([
   'new-view',
+  'close-tab',
   'set-layout',
   'open-tool',
 ]);
@@ -58,6 +77,21 @@ export function useWorkspaceMenuListener() {
       last = state.integratedWorkspaceV1;
       void safeEmit('integrated-layout-availability', { enabled: last });
     });
+  }, []);
+
+  // View › Layout checks the front tab's layout (src-tauri main.rs).
+  useEffect(() => {
+    let last = reportCurrentLayout();
+    const onChange = () => {
+      if (currentLayoutForMenu() === last) return;
+      last = reportCurrentLayout();
+    };
+    const offWorkspaces = useWorkspaceStore.subscribe(onChange);
+    const offCentre = useCenterTabStore.subscribe(onChange);
+    return () => {
+      offWorkspaces();
+      offCentre();
+    };
   }, []);
 
   useEffect(() => {
@@ -82,6 +116,9 @@ export function useWorkspaceMenuListener() {
 
             case 'set-layout':
               if (payload.layout) setCurrentTabLayout(payload.layout);
+              // Always re-report: macOS toggles a clicked check item itself,
+              // and an unchanged layout would otherwise leave it toggled.
+              reportCurrentLayout();
               break;
 
             case 'open-tool':
@@ -102,6 +139,12 @@ export function useWorkspaceMenuListener() {
 
             case 'switch-workspace':
               if (payload.workspaceId) workspaceStore.activateWorkspace(payload.workspaceId);
+              break;
+
+            // File › Close Tab (⌘W): the front tab, as its × would (QA
+            // 2026-10-31 N1; ⇧⌘W closes the window).
+            case 'close-tab':
+              getLayoutService().closeFrontTab();
               break;
 
             case 'close-workspace':
