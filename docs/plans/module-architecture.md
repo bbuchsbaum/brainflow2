@@ -1,7 +1,8 @@
 # Module architecture (2026-10-31)
 
-Status: proposal. Nothing here is implemented yet. The decisions the owner needs
-to make are listed at the end.
+Status: accepted. The owner approved decisions 1–6 on 2026-10-31 (listed at the
+end) and asked that modules can be switched off and that the top-level tabs
+shown and opened at startup are configurable. Phase A is in progress.
 
 ## Goal
 
@@ -27,9 +28,9 @@ them works:
   work, but they are one-shot: stdin is closed after one request, inputs are file
   paths, and the UI polls for status. They cannot add UI. See `plugins/AGENTS.md`.
 - **`packages/plugin-sdk`** (BasePlugin, LoaderPlugin, VisualizationPlugin, UIPlugin…).
-  It is not imported by `ui2`, any other package or Rust.
-- **`schemas/0.1.1/brainflow-plugin.json`** with `tools/plugin-verify`. CI compiles
-  the schema, but the host never loads such a manifest.
+  It was not imported by `ui2`, any other package or Rust. Removed 2026-10-31.
+- **`schemas/0.1.1/brainflow-plugin.json`** with `tools/plugin-verify`. CI compiled
+  the schema, but the host never loaded such a manifest. Removed 2026-10-31.
 
 Everything else is first-party code wired by hand. Adding a top-level tab today
 touches about eleven places:
@@ -336,6 +337,26 @@ The order of core work should follow the order of modules.
 A top-level tab is therefore earned, not assumed. A module can be very useful at
 preview through view modes and the Tools menu.
 
+## Switching modules off and configuring the top bar
+
+Stage decides what a module may claim. The user decides what they see:
+
+- **Settings › Modules** lists every module with an on/off switch, at every
+  stage. Experimental modules default to off; preview and stable modules default
+  to on. A module that is off is not activated, contributes no tabs, menu items,
+  commands, shortcuts or settings, and its bridge commands reject. Its saved data
+  is kept, so switching it back on restores it.
+- **Settings › Top bar** chooses which tool tabs appear in the Tools menu and
+  which are pinned in the top bar, and which tabs open at startup. The default is
+  today's behaviour: relaunch restores the tabs the user had open
+  (`docs/plans/qa-design-decisions-2026-10-30.md` §1). The alternative is a fixed
+  list, for example one Orthogonal view and Segment.
+- A module's manifest only proposes defaults (`pinned`, `openAtStartup`). The
+  user's settings always win, and a module never adds itself to the top bar once
+  the user has removed it.
+- Restore skips tabs whose module is off, and brings them back when it is
+  switched on again.
+
 ## The three example modules
 
 **Segmentation** (research: `docs/plans/segmentation-module-research.md`):
@@ -387,7 +408,7 @@ API before a new module depends on it, and it shrinks `App.tsx` and `main.rs`.
 
 | Phase | Ships | Exit evidence |
 |---|---|---|
-| A. Registry skeleton | `ui2/src/modules/` registry with commands, keybindings, palette, menus, workspaces, inspector modes, dock tabs and settings. Rust `BridgeModule`, the state slot map, named `bridge_commands!` sections, per-module permission sets and generated clients. **Port the Analysis workbench** (tool tab, four commands, sidecar runner) as the first module | The Analysis workbench is defined entirely by its module: no edits to `App.tsx`, `main.rs`, `WorkspaceRouter.tsx` or `types/workspace.ts` remain. Existing tests and harness scenarios still pass |
+| A. Registry skeleton | `ui2/src/modules/` registry with commands, keybindings, palette, menus, workspaces, inspector modes, dock tabs and settings. Settings › Modules switches and Settings › Top bar (pinned tools, startup tabs). Rust `BridgeModule`, the state slot map, named `bridge_commands!` sections, per-module permission sets and generated clients. **Port the Analysis workbench** (tool tab, four commands, sidecar runner) as the first module | The Analysis workbench is defined entirely by its module: no edits to `App.tsx`, `main.rs`, `WorkspaceRouter.tsx` or `types/workspace.ts` remain. Existing tests and harness scenarios still pass |
 | B. Data and render seams | An open loader registry used by the load path; a file-format registry with one generated extension list; layer-kind descriptors; the typed event registry; workspace-scoped persistence; host-capability declarations; `get_render_capabilities` | A test format (for example `.tck` loaded as metadata only) added with no edits outside its module |
 | C. Process tooling | `cargo xtask new-module`; proposal and acceptance templates; `pnpm check:modules` in CI; stage switches in Settings | A scaffolded empty module passes CI unchanged |
 | D. Provider protocol v2 | `job` and `session` runners, pushed events, capability consent, licence field, raw-byte inputs; `analysis.json` migrated to `runner.type = "job"` | The bundled example sidecar runs unchanged; a mock session provider passes stale-response and teardown tests |
@@ -412,7 +433,9 @@ when convenient.
 - **No compensating geometry.** Modules use the shared `SliceViewport` geometry
   and the coordinate contract; they never add their own flips or reflections.
 
-## Decisions for the owner
+## Decisions (approved 2026-10-31)
+
+The owner approved the recommendation in each item below.
 
 1. **Third-party scope.** Recommended: providers only for now; revisit
    in-process UI plugins after the module API has been stable.

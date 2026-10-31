@@ -50,9 +50,12 @@ described those; they were never implemented.
 3. Check that the bundled example still loads and runs:
    `cargo test -p api_bridge bundled_example_sidecar`.
 
-## Not the host manifest
-`schemas/0.1.1/brainflow-plugin.json` and `tools/plugin-verify` validate an
-older `brainflow-plugin.json` manifest that the host does not load. A plugin
-needs `analysis.json` to be discovered.
+## Where this is going
+Out-of-process plugins are **providers** in the module architecture
+(`docs/plans/module-architecture.md`). Today's `analysis.json` sidecar becomes the
+`job` runner, and a long-lived `session` runner is planned for interactive tools.
+The unused `brainflow-plugin.json` schema, `tools/plugin-verify` and
+`packages/plugin-sdk` were removed on 2026-10-31; a provider manifest schema
+replaces them when the session runner lands.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
