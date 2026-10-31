@@ -6,7 +6,8 @@
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 use api_bridge::{self, BridgeState};
 use tauri::menu::{
-    CheckMenuItemBuilder, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+    CheckMenuItemBuilder, Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem, Submenu,
+    SubmenuBuilder,
 };
 use tauri::AppHandle;
 use tauri::{Emitter, Listener, Manager, State};
@@ -18,12 +19,6 @@ use startup_args::{
     format_cli_help, parse_startup_args, EarlyExit, StartupAction, StartupActionQueue,
     StartupRemoteMountSpec,
 };
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct MountedDir {
-    id: String,
-    path: String,
-}
 
 fn emit_mount_directory_event(app_handle: &AppHandle, path: &str) -> Result<(), tauri::Error> {
     println!("Emitting mount-directory-event with path: {}", path);
@@ -219,18 +214,42 @@ fn open_file_dialog(app_handle: AppHandle, intent: Option<String>) {
     println!("File dialog setup complete");
 }
 
-// Command to update dynamic menus
+/// The View › Workspace submenu and the module items currently in it. Rust
+/// owns the predefined items and accelerators; the UI only lists module items.
+struct ModuleMenus {
+    workspace: Submenu<tauri::Wry>,
+    items: std::sync::Mutex<Vec<MenuItem<tauri::Wry>>>,
+}
+
+/// Replace the module items with the UI's menu model (ui2 `modules/runtime.ts`
+/// sends it at start and whenever a module is switched on or off). The model
+/// is validated whole first (`menu_builder::plan_module_menu_items`). Runs on
+/// the main thread (a sync command), like every other menu change.
 #[tauri::command]
-async fn update_dynamic_menus(
-    _app_handle: AppHandle,
-    mounted: Vec<MountedDir>,
+fn set_module_menu_items(
+    app_handle: AppHandle,
+    menus: State<'_, ModuleMenus>,
+    items: Vec<menu_builder::ModuleMenuItem>,
 ) -> Result<(), String> {
-    // TODO: Implement dynamic menu updates
-    // For now, just log the request
-    println!(
-        "Update dynamic menus called with {} mounted directories",
-        mounted.len()
-    );
+    let planned = menu_builder::plan_module_menu_items(&items)?;
+    let mut current = menus
+        .items
+        .lock()
+        .map_err(|_| "module menu state is poisoned".to_string())?;
+    for item in current.drain(..) {
+        menus.workspace.remove(&item).map_err(|e| e.to_string())?;
+    }
+    for planned_item in planned {
+        let item = MenuItemBuilder::new(&planned_item.label)
+            .id(&planned_item.id)
+            .build(&app_handle)
+            .map_err(|e| e.to_string())?;
+        match planned_item.path {
+            menu_builder::ModuleMenuPath::ViewWorkspace => menus.workspace.append(&item),
+        }
+        .map_err(|e| e.to_string())?;
+        current.push(item);
+    }
     Ok(())
 }
 
@@ -329,6 +348,30 @@ fn main() {
                 .id("layout_integrated")
                 .accelerator("CmdOrCtrl+2")
                 .build(app)?;
+
+            // View › Workspace: New View and the core tools. Enabled modules add
+            // their items after these (set_module_menu_items / ModuleMenus).
+            let workspace_menu = SubmenuBuilder::new(app, "Workspace")
+                .item(
+                    &MenuItemBuilder::new("New View")
+                        .id("workspace_new_view")
+                        .accelerator("CmdOrCtrl+T")
+                        .build(app)?,
+                )
+                .separator()
+                .item(
+                    &MenuItemBuilder::new("Set Studio")
+                        .id("workspace_set_studio")
+                        .accelerator("CmdOrCtrl+5")
+                        .build(app)?,
+                )
+                .item(
+                    &MenuItemBuilder::new("BIDS")
+                        .id("workspace_bids")
+                        .accelerator("CmdOrCtrl+6")
+                        .build(app)?,
+                )
+                .build()?;
 
             // Build templates menu directly
             let templates_menu = {
@@ -665,35 +708,9 @@ fn main() {
                                 )
                                 .build()?,
                         )
-                        // New tabs: a new view, or a tool (opened once, then refocused).
-                        .item(
-                            &SubmenuBuilder::new(app, "Workspace")
-                                .item(
-                                    &MenuItemBuilder::new("New View")
-                                        .id("workspace_new_view")
-                                        .accelerator("CmdOrCtrl+T")
-                                        .build(app)?,
-                                )
-                                .separator()
-                                .item(
-                                    &MenuItemBuilder::new("Set Studio")
-                                        .id("workspace_set_studio")
-                                        .accelerator("CmdOrCtrl+5")
-                                        .build(app)?,
-                                )
-                                .item(
-                                    &MenuItemBuilder::new("BIDS")
-                                        .id("workspace_bids")
-                                        .accelerator("CmdOrCtrl+6")
-                                        .build(app)?,
-                                )
-                                .item(
-                                    &MenuItemBuilder::new("Analysis")
-                                        .id("workspace_analysis")
-                                        .build(app)?,
-                                )
-                                .build()?,
-                        )
+                        // New tabs: a new view, or a tool (opened once, then
+                        // refocused). Module tools are appended at runtime.
+                        .item(&workspace_menu)
                         .build()?,
                     &SubmenuBuilder::new(app, "Window")
                         .item(&PredefinedMenuItem::minimize(app, None)?)
@@ -705,6 +722,10 @@ fn main() {
             )?;
 
             app.set_menu(menu)?;
+            app.manage(ModuleMenus {
+                workspace: workspace_menu.clone(),
+                items: std::sync::Mutex::new(Vec::new()),
+            });
 
             // The UI owns crosshair visibility (this item only asks it to toggle);
             // it reports every change so the check mark follows.
@@ -820,6 +841,15 @@ fn main() {
                             serde_json::json!({ "action": "reset-layout" }),
                         ) {
                             eprintln!("Failed to emit reset-layout event: {}", e);
+                        }
+                    }
+                    // Module items (set_module_menu_items): the UI runs the command.
+                    id if id.starts_with(menu_builder::MODULE_COMMAND_MENU_PREFIX) => {
+                        let Some(payload) = menu_builder::module_command_payload(id) else {
+                            return;
+                        };
+                        if let Err(e) = app.emit(menu_builder::MODULE_COMMAND_EVENT, payload) {
+                            eprintln!("Failed to emit module-command event: {}", e);
                         }
                     }
                     // Handle panel menu items
@@ -968,7 +998,7 @@ fn main() {
             open_mount_dialog,
             open_bids_dialog,
             open_file_dialog,
-            update_dynamic_menus,
+            set_module_menu_items,
             flush_startup_actions
         ])
         .run(tauri::generate_context!())

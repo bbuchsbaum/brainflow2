@@ -1257,6 +1257,8 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       enabled: enabledModules.has(id),
     }));
   handlers.list_modules = () => moduleInfos();
+  // src-tauri host command: the native menu's module items (no menu here).
+  handlers.set_module_menu_items = () => null;
   handlers.set_enabled_modules = ({ moduleIds }: { moduleIds: string[] }) => {
     const unknown = moduleIds.find((id) => !(id in BRIDGE_MODULES));
     if (unknown) throw new Error(`Unknown module id '${unknown}'`);

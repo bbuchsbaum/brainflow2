@@ -57,12 +57,22 @@ function deferred<T>(): Deferred<T> {
 }
 
 function runtimeDeps(registry: ModuleRegistry, over: Partial<ModuleRuntimeDeps> = {}) {
-  const calls: Array<{ cmd: string; args: unknown; reply: Deferred<unknown> }> = [];
+  const allCalls: Array<{ cmd: string; args: unknown; reply: Deferred<unknown> }> = [];
+  // Bridge calls only; menu-model calls are answered at once (see `menuCalls`).
+  const calls: typeof allCalls = [];
+  const menuCalls: Array<{ cmd: string; args: unknown }> = [];
+  const listeners = new Map<string, (payload: unknown) => void>();
   const deps: ModuleRuntimeDeps = {
     registry,
     invoke: <T,>(cmd: string, args?: unknown) => {
+      if (cmd === 'set_module_menu_items') {
+        menuCalls.push({ cmd, args });
+        return Promise.resolve(undefined as T);
+      }
       const reply = deferred<unknown>();
-      calls.push({ cmd, args, reply });
+      const call = { cmd, args, reply };
+      allCalls.push(call);
+      calls.push(call);
       return reply.promise as Promise<T>;
     },
     isDesktop: () => true,
@@ -71,9 +81,15 @@ function runtimeDeps(registry: ModuleRegistry, over: Partial<ModuleRuntimeDeps> 
     parkModuleWorkspaces: vi.fn(),
     unparkModuleWorkspaces: vi.fn(),
     notifyError: vi.fn(),
+    listen: async (event, handler) => {
+      listeners.set(event, handler as (payload: unknown) => void);
+      return () => listeners.delete(event);
+    },
+    unlisten: (fn) => void fn(),
+    isModalDialogOpen: () => false,
     ...over,
   };
-  return { deps, calls };
+  return { deps, calls, menuCalls, listeners };
 }
 
 const infos = (ids: string[], all: string[]): ModuleInfo[] =>
@@ -231,5 +247,80 @@ describe('createLatestSender', () => {
     sender.push(3);
     await sender.idle();
     expect(results).toEqual([-1, 2]);
+  });
+});
+
+describe('module runtime: native menus', () => {
+  const menuModule = (id: string, stage: ModuleManifest['stage'] = 'preview') =>
+    module(id, stage, {
+      commands: [{ id: `${id}.open`, title: `Open ${id}` }],
+      menus: { 'view/workspace': [{ command: `${id}.open`, title: id }] },
+    });
+
+  it('sends the menu model at start and when a module is switched on or off', async () => {
+    const { registry, set } = registryWith([menuModule('ana'), menuModule('lab', 'experimental')], {});
+    const { deps, menuCalls, calls } = runtimeDeps(registry);
+    const runtime = startModuleRuntime(deps);
+    calls[0].reply.resolve([]); // set_enabled_modules (no bridge modules here)
+    await runtime.idle();
+    expect(menuCalls.map((c) => c.args)).toEqual([
+      { items: [{ command: 'ana.open', label: 'ana', path: 'view/workspace' }] },
+    ]);
+    set('lab', true);
+    await runtime.idle();
+    set('ana', false);
+    await runtime.idle();
+    expect(menuCalls.map((c) => c.args)).toEqual([
+      { items: [{ command: 'ana.open', label: 'ana', path: 'view/workspace' }] },
+      {
+        items: [
+          { command: 'ana.open', label: 'ana', path: 'view/workspace' },
+          { command: 'lab.open', label: 'lab', path: 'view/workspace' },
+        ],
+      },
+      { items: [{ command: 'lab.open', label: 'lab', path: 'view/workspace' }] },
+    ]);
+    runtime.dispose();
+  });
+
+  it('runs a clicked module item through the registry, but not behind a dialog', async () => {
+    const { registry } = registryWith([menuModule('ana')], {});
+    let modal = false;
+    const { deps, listeners } = runtimeDeps(registry, { isModalDialogOpen: () => modal });
+    const execute = vi.spyOn(registry, 'executeCommand').mockResolvedValue(true);
+    const runtime = startModuleRuntime(deps);
+    await vi.waitFor(() => expect(listeners.has('module-command')).toBe(true));
+    listeners.get('module-command')!({ command: 'ana.open' });
+    expect(execute).toHaveBeenCalledWith('ana.open');
+    modal = true;
+    listeners.get('module-command')!({ command: 'ana.open' });
+    listeners.get('module-command')!({ nope: 1 });
+    expect(execute).toHaveBeenCalledTimes(1);
+    runtime.dispose();
+    expect(listeners.has('module-command')).toBe(false);
+  });
+
+  it('detaches the click listener even when it attaches after dispose', async () => {
+    const { registry } = registryWith([menuModule('ana')], {});
+    let attach!: () => void;
+    const unlisten = vi.fn();
+    const { deps } = runtimeDeps(registry, {
+      listen: () => new Promise((resolve) => (attach = () => resolve(unlisten))),
+    });
+    const runtime = startModuleRuntime(deps);
+    runtime.dispose();
+    attach();
+    await vi.waitFor(() => expect(unlisten).toHaveBeenCalledTimes(1));
+  });
+
+  it('has no native menu in the browser host', async () => {
+    const { registry } = registryWith([menuModule('ana')], {});
+    const listen = vi.fn(async () => () => {});
+    const { deps, menuCalls } = runtimeDeps(registry, { isDesktop: () => false, listen });
+    const runtime = startModuleRuntime(deps);
+    await runtime.idle();
+    expect(menuCalls).toEqual([]);
+    expect(listen).not.toHaveBeenCalled();
+    runtime.dispose();
   });
 });

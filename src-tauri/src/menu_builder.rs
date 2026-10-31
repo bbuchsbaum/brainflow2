@@ -911,7 +911,8 @@ pub fn build_surface_templates_menu(
 
 /// The `workspace-action` payload for a View › Layout or View › Workspace item
 /// (ui2 `useWorkspaceMenuListener`). Layouts apply to the current tab in place;
-/// New View opens a tab; a tool opens once and is refocused afterwards.
+/// New View opens a tab; a core tool opens once and is refocused afterwards.
+/// Module tools are module menu items (below), not navigation items.
 pub fn navigation_menu_action(menu_id: &str) -> Option<serde_json::Value> {
     let layout = |layout: &str| serde_json::json!({ "action": "set-layout", "payload": { "layout": layout } });
     let tool =
@@ -925,9 +926,134 @@ pub fn navigation_menu_action(menu_id: &str) -> Option<serde_json::Value> {
         "workspace_new_view" => serde_json::json!({ "action": "new-view" }),
         "workspace_set_studio" => tool("set-studio"),
         "workspace_bids" => tool("bids-explorer"),
-        "workspace_analysis" => tool("analysis-workbench"),
         _ => return None,
     })
+}
+
+// ============================================================================
+// Module menu items (docs/plans/module-architecture.md, "Menus")
+// ============================================================================
+//
+// The UI sends a menu model (`set_module_menu_items` in main.rs) listing the
+// items of the modules that are switched on. Rust keeps the predefined items,
+// accelerators and their order, places each module item at its path, and a
+// click emits `module-command` with the command id, which the UI runs through
+// its module registry (ui2 `modules/runtime.ts`).
+
+/// Menu-id prefix of a module item; the rest of the id is the command id.
+pub const MODULE_COMMAND_MENU_PREFIX: &str = "module_command:";
+/// Event a module item emits on click: `{ "command": "<module>.<name>" }`.
+pub const MODULE_COMMAND_EVENT: &str = "module-command";
+/// Upper bound on module items, against a runaway model.
+pub const MAX_MODULE_MENU_ITEMS: usize = 64;
+const MAX_MODULE_MENU_LABEL: usize = 64;
+
+/// One item of the UI's menu model.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct ModuleMenuItem {
+    /// Namespaced command id, `<module>.<name>`.
+    pub command: String,
+    pub label: String,
+    /// Menu path, e.g. `view/workspace`.
+    pub path: String,
+}
+
+/// Where module items may go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleMenuPath {
+    /// View › Workspace, after New View and the core tools.
+    ViewWorkspace,
+}
+
+impl ModuleMenuPath {
+    fn parse(path: &str) -> Option<Self> {
+        match path {
+            "view/workspace" => Some(Self::ViewWorkspace),
+            _ => None,
+        }
+    }
+}
+
+/// A validated module item: its menu id, label and place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedModuleMenuItem {
+    pub id: String,
+    pub label: String,
+    pub path: ModuleMenuPath,
+}
+
+/// `<module>.<name>`: a lowercase module id, a dot, then letters, digits,
+/// `.`, `_` or `-` (the UI registry's namespacing rule).
+fn is_module_command_id(command: &str) -> bool {
+    let Some((module, name)) = command.split_once('.') else {
+        return false;
+    };
+    let module_ok = module.starts_with(|c: char| c.is_ascii_lowercase())
+        && module
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    let name_ok = name.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    module_ok && name_ok
+}
+
+/// Validate the UI's menu model and give each item its menu id, in order.
+/// The whole model is rejected if any item is invalid, so a bad update never
+/// leaves half a menu.
+pub fn plan_module_menu_items(
+    items: &[ModuleMenuItem],
+) -> Result<Vec<PlannedModuleMenuItem>, String> {
+    if items.len() > MAX_MODULE_MENU_ITEMS {
+        return Err(format!(
+            "{} module menu items; at most {MAX_MODULE_MENU_ITEMS} are allowed",
+            items.len()
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    items
+        .iter()
+        .map(|item| {
+            if !is_module_command_id(&item.command) {
+                return Err(format!(
+                    "module menu item `{}` is not a namespaced command id (<module>.<name>)",
+                    item.command
+                ));
+            }
+            if !seen.insert(item.command.as_str()) {
+                return Err(format!("module menu item `{}` is listed twice", item.command));
+            }
+            let label = item.label.trim();
+            if label.is_empty()
+                || label.chars().count() > MAX_MODULE_MENU_LABEL
+                || label.chars().any(char::is_control)
+            {
+                return Err(format!(
+                    "module menu item `{}` needs a label of 1-{MAX_MODULE_MENU_LABEL} printable characters",
+                    item.command
+                ));
+            }
+            let path = ModuleMenuPath::parse(&item.path).ok_or_else(|| {
+                format!(
+                    "module menu item `{}` has unknown path `{}`",
+                    item.command, item.path
+                )
+            })?;
+            Ok(PlannedModuleMenuItem {
+                id: format!("{MODULE_COMMAND_MENU_PREFIX}{}", item.command),
+                label: label.to_string(),
+                path,
+            })
+        })
+        .collect()
+}
+
+/// The `module-command` payload of a clicked module item, or None for any
+/// other menu id.
+pub fn module_command_payload(menu_id: &str) -> Option<serde_json::Value> {
+    let command = menu_id.strip_prefix(MODULE_COMMAND_MENU_PREFIX)?;
+    is_module_command_id(command).then(|| serde_json::json!({ "command": command }))
 }
 
 #[cfg(test)]
@@ -950,7 +1076,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 9, "expected 5 layout items and 4 workspace items");
+        assert_eq!(checked, 8, "expected 5 layout items and 3 workspace items");
         // View › Layout › Integrated follows the UI feature flag.
         assert!(main_rs.contains("app.listen(\"integrated-layout-availability\""));
         assert!(main_rs.contains("integrated_item.set_enabled(enabled)"));
@@ -1038,6 +1164,111 @@ mod tests {
             "bids-explorer"
         );
         assert!(navigation_menu_action("workspace_orthogonal_locked").is_none());
+        // Module tools come from the UI's menu model, not a fixed id.
+        assert!(navigation_menu_action("workspace_analysis").is_none());
+    }
+
+    fn module_item(command: &str, label: &str, path: &str) -> ModuleMenuItem {
+        ModuleMenuItem {
+            command: command.into(),
+            label: label.into(),
+            path: path.into(),
+        }
+    }
+
+    #[test]
+    fn module_menu_items_are_placed_in_order_with_prefixed_ids() {
+        let planned = plan_module_menu_items(&[
+            module_item("analysis.open", " Analysis ", "view/workspace"),
+            module_item("segmentation.segment", "Segment", "view/workspace"),
+        ])
+        .expect("valid model");
+        assert_eq!(
+            planned,
+            vec![
+                PlannedModuleMenuItem {
+                    id: "module_command:analysis.open".into(),
+                    label: "Analysis".into(),
+                    path: ModuleMenuPath::ViewWorkspace,
+                },
+                PlannedModuleMenuItem {
+                    id: "module_command:segmentation.segment".into(),
+                    label: "Segment".into(),
+                    path: ModuleMenuPath::ViewWorkspace,
+                },
+            ]
+        );
+        assert_eq!(plan_module_menu_items(&[]).unwrap(), vec![]);
+    }
+
+    #[test]
+    fn module_menu_model_is_rejected_whole_when_an_item_is_invalid() {
+        let ok = module_item("analysis.open", "Analysis", "view/workspace");
+        for (bad, why) in [
+            (module_item("open", "Open", "view/workspace"), "namespaced"),
+            (
+                module_item("Analysis.open", "Open", "view/workspace"),
+                "namespaced",
+            ),
+            (
+                module_item("analysis.", "Open", "view/workspace"),
+                "namespaced",
+            ),
+            (
+                module_item("analysis.open", "Again", "view/workspace"),
+                "twice",
+            ),
+            (module_item("seg.x", "  ", "view/workspace"), "label"),
+            (
+                module_item("seg.x", "Line\nbreak", "view/workspace"),
+                "label",
+            ),
+            (
+                module_item("seg.x", &"x".repeat(65), "view/workspace"),
+                "label",
+            ),
+            (module_item("seg.x", "X", "file/open"), "unknown path"),
+        ] {
+            let err = plan_module_menu_items(&[ok.clone(), bad]).expect_err(why);
+            assert!(err.contains(why), "{err}");
+        }
+        let many: Vec<_> = (0..=MAX_MODULE_MENU_ITEMS)
+            .map(|i| module_item(&format!("m.c{i}"), "C", "view/workspace"))
+            .collect();
+        assert!(plan_module_menu_items(&many).is_err());
+    }
+
+    #[test]
+    fn module_menu_clicks_emit_the_command_id() {
+        assert_eq!(
+            module_command_payload("module_command:analysis.open").unwrap(),
+            serde_json::json!({ "command": "analysis.open" })
+        );
+        assert!(module_command_payload("module_command:not-namespaced").is_none());
+        assert!(module_command_payload("workspace_bids").is_none());
+        assert!(module_command_payload("analysis.open").is_none());
+    }
+
+    /// main.rs registers the host command, keeps the Workspace submenu for
+    /// module items, and turns clicks on them into `module-command`.
+    #[test]
+    fn module_menu_items_are_wired_in_main() {
+        let main_rs = include_str!("main.rs");
+        let handler = main_rs
+            .find("tauri::generate_handler![")
+            .expect("invoke handler");
+        assert!(main_rs[handler..].contains("set_module_menu_items"));
+        assert!(!main_rs.contains("update_dynamic_menus"));
+        assert!(main_rs.contains("app.manage(ModuleMenus"));
+        let arm = main_rs
+            .find("id if id.starts_with(menu_builder::MODULE_COMMAND_MENU_PREFIX)")
+            .expect("module command arm");
+        assert!(main_rs[arm..].contains("menu_builder::module_command_payload(id)"));
+        assert!(main_rs[arm..].contains("menu_builder::MODULE_COMMAND_EVENT"));
+        // The arm must come before the generic prefix arms that could swallow it.
+        let template_arm = main_rs.find("id if id.starts_with(\"template_\")").unwrap();
+        assert!(arm < template_arm);
+        assert!(!main_rs.contains("workspace_analysis"));
     }
 
     /// Every Templates-menu item must name a catalog entry; otherwise the click

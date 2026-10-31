@@ -160,6 +160,10 @@ export class MockTransport implements BackendTransport {
       case 'list_modules':
         return this.moduleInfos();
 
+      // src-tauri host command (native menu model); nothing to draw here.
+      case 'set_module_menu_items':
+        return null;
+
       case 'set_enabled_modules': {
         const ids: string[] = args?.moduleIds ?? [];
         const unknown = ids.filter((id) => !(id in BRIDGE_MODULES));
