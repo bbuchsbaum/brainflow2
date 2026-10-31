@@ -101,25 +101,10 @@ yet: editing is not implemented.
   counts, provenance codes, ruler and matrix marks) come from
   `shared/session.ts` only; every proposal, AI included, is accepted slice
   by slice by default; lesions are outline only by default.
-- **Tests:** `__tests__/` here (geometry, gate, scenes; `round1.test.tsx`
-  for the partition renderer, crosshair gap, review encoding, Approve gate
-  and native readouts; `round2.test.tsx` for the crosshair clear box and
-  ticks, dash discipline, single-source volumes, per-slice bars, the
-  flagged review gate and direction H's cuts; `round3.test.tsx` for
-  inner-edge strokes, emphasis levels, gaps, neighbour departures, the
-  per-label slice matrix, lock departures, review ordering and the ortho
-  gutter; `round4.test.tsx` for tint muting and ΔE, islands, area flags
-  and the one-scale matrix, the example style, active-only orthogonals and
-  reconciliation; `round5.test.tsx` for the workflow states: proposals
-  never take other labels' voxels, the filter badge, one lesion row per
-  component, the range brush and partial-volume rule, per-label undo, colour
-  candidates, intent 1002 and the table writers, sheets beside the primary,
-  no dashes; `round6.test.tsx` for one session model across states,
-  per-slice AI accept and the reviewed/unreviewed codes, no AI marks before
-  first use, over-reach, plain-language records, the quiet save and draft
-  warning, outline-only lesions, seed rows, types, span and mm³ bars,
-  Fazekas, connectivity, setup identity and registration, the island key
-  and the dock); the shell side
-  (registration, stage, every direction x state and H's workflow states
-  render) is in
-  `../__tests__/segmentation.test.tsx`.
+- **Tests:** `__tests__/designContract.test.tsx` holds the design rules, one
+  `describe` per DESIGN.md section (DESIGN.md, "Contract-tested rules"). It
+  reaches screens through `__tests__/designSubjects.tsx`; point that at a
+  promoted component instead of deleting a rule test.
+  `__tests__/mockSession.test.ts` holds facts about the mock data only. The
+  shell side (registration, stage, every direction x state and H's workflow
+  states render) is in `../__tests__/segmentation.test.tsx`.

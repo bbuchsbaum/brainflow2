@@ -634,6 +634,41 @@ Open questions: whether ids should be editable at all (pack ids are fixed);
 a colour-blind check for the palette; where hierarchy shows in the label
 list (indent or a parent row).
 
+## Contract-tested rules
+
+`__tests__/designContract.test.tsx` tests the rules below, one `describe`
+per section of this document. It tests rule functions directly and
+renderers through their DOM (data attributes and test ids). It reaches the
+screens through `__tests__/designSubjects.tsx`, so the same tests can run
+against promoted components. Facts about the mock data alone are in
+`__tests__/mockSession.test.ts`.
+
+| Rule (section) | Tested through |
+| --- | --- |
+| Partition, inner-edge strokes, emphasis, tints and ΔE ≥ 15, gaps, islands, example style (Labels) | `partitionEdges`, `innerEdges`, `innerBandPath`, `labelEmphasis`, `insetVoxels`, `mutedColor`/`deltaE76`, `enclosedGaps`, `labelIslands`; `SliceView` label layer; tracing state |
+| A dash means rater B; neighbour departures; proposal outline (Line meanings) | every core and workflow state; `neighbourDeparturePath`; `OVERLAYS.proposal` |
+| Brush footprint and the constraint gate; one refusal message | `discFootprint`, `strokeFootprint`, `gateStroke`, `brushReadout`; blocked state |
+| Crosshair gap, clear box, edge ticks, solid hairline (Crosshair) | `crosshairGapRadius`; `SliceView` |
+| World/display round trip, native naming, volume format, one volume source (Geometry headers) | `worldToDisplay`/`displayToWorld`, `formatVolume`; tracing and review states |
+| Orthogonals and ruler (Orthogonal views, Slice ruler) | tracing and review states |
+| Step card, locks, slice matrix flags and scale (Inspector) | `areaFlags`, `lockDeparts`, `Sparkline`; tracing and proposal states |
+| One proposal grammar, add-only gate, per-slice accept (Proposal, AI assist) | `gateProposal`, `nextUnseen`; proposal and AI states |
+| Review encoding, flag rule, regions, Approve gate, "B: none" (Review and reconciliation) | `reviewEncoding`, `canApprove`; `ReviewDecision`; review state |
+| Contrast strip, filter badge, filters never change labels, square lens, View aids line (Contrast aids) | `filterBadge`; multi-contrast and contrast-aids states |
+| Sheets beside the primary, plain language, island key (Workflow states) | every workflow state |
+| One session model, `asOf`, one step count (Workflow states) | `session.ts` API; history, resume, save, AI states |
+| Licence gate, over-reach (empty labels, out-of-range slices), AI said once, four-action bar, 3D reach (AI assist) | `overreach`, `slicesOutside`; AI states |
+| 26-connected rows, > 50% range brush, outline only, types, bars, Fazekas, small multiples, visible band (Lesions) | `components26`, `voxelCoverage`, `rangeFootprint`, `defaultConnectivity`; lesion states |
+| Per-label undo, label names once (History) | `undoForLabel`; history state |
+| Draft save, writers, intent 1002, provenance sum, resume (Save and export, Resume) | `saveCheck`, `labelVolumeHeader`, `dsegTsv`, `itksnapTxt`; save and resume states |
+| Colour candidates, identity, registration gate (Session setup) | `colourCandidates`; setup state |
+
+Not contract-tested, because only pixels show them: stroke widths and halos
+as rendered, the 80% orthogonal fit, panel widths, and the look on real
+tissue. The design-parity capture checks those against
+`docs/design/segmentation/reference/`, and the prototype checks them on
+real data.
+
 ## Score history
 
 Overall score per critic and round. R0: the best of the three round-0
