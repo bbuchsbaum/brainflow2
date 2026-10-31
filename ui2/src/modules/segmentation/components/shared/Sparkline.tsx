@@ -73,7 +73,11 @@ export function Sparkline({
         {hover !== undefined ? (
           <rect x={hover * col} y={0} width={col} height={height} className="fill-bf-text-primary" fillOpacity={0.18} data-hover />
         ) : null}
-        {values.map((_, i) => (
+        {variant === 'bars' ? (
+          // One continuous hairline baseline: a missing bar is the hole (no dotted baseline).
+          <line x1={0} x2={width} y1={base + 0.5} y2={base + 0.5} className="stroke-bf-text-faint" strokeWidth={1} data-baseline />
+        ) : null}
+        {(variant === 'bars' ? [] : values).map((_, i) => (
           <line
             key={i}
             x1={x(i)}

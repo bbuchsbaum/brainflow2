@@ -10,18 +10,23 @@ import type { LabelDef, LabelState, ToolDef } from './types';
 
 /**
  * Label colours are data (swatches, fills, outlines), never chrome. None is a
- * saturated green, so no label can be confused with the crosshair.
+ * saturated green, so no label can be confused with the crosshair. Round 3
+ * raised the lightness of the two low-contrast hues (subiculum violet, SRLM
+ * brown) so their 1 px strokes hold on mid-grey; swatches use the same values.
  */
 export const LABEL_DEFS: readonly LabelDef[] = [
   { id: 1, name: 'CA1', long: 'Cornu ammonis 1', color: 'rgb(232 108 92)' },
   { id: 2, name: 'CA2/3', long: 'Cornu ammonis 2 and 3', color: 'rgb(92 178 222)' },
   { id: 3, name: 'DG', long: 'Dentate gyrus', color: 'rgb(232 200 84)' },
-  { id: 4, name: 'Subiculum', long: 'Subiculum', color: 'rgb(150 128 236)' },
+  { id: 4, name: 'Subiculum', long: 'Subiculum', color: 'rgb(176 160 252)' },
   { id: 5, name: 'ERC', long: 'Entorhinal cortex', color: 'rgb(222 134 206)' },
-  { id: 6, name: 'SRLM', long: 'Stratum radiatum, lacunosum and moleculare', color: 'rgb(200 146 98)' },
+  { id: 6, name: 'SRLM', long: 'Stratum radiatum, lacunosum and moleculare', color: 'rgb(232 168 112)' },
 ];
 
 export const LABEL_BY_ID = new Map(LABEL_DEFS.map((l) => [l.id, l]));
+
+/** Labels complete and locked mid-session: their strokes are the quietest. */
+export const QUIET_LABELS: readonly number[] = [2, 3, 6];
 
 export const CA1 = 1;
 export const CA23 = 2;

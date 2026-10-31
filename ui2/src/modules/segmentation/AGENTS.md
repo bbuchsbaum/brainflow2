@@ -39,14 +39,21 @@ yet: editing is not implemented.
     `cruft/hillclimb/segmentation/<round>/<direction>/<state>.png` and a
     `manifest.json` (`SEG_DESIGN_BROWSER` selects the Chromium binary).
 - **Contracts the mocks already follow** (keep them when the UI ships):
-  labels in a layer are an exclusive partition drawn with one constant fill
-  alpha (at most 0.25) and outlines only at label boundaries, each shared
-  edge once (outline-only is a toggle); the crosshair is a solid hairline
+  labels in a layer are an exclusive partition; fills use one constant
+  alpha (at most 0.25); every label strokes the inner edge of its own voxels
+  over a thin dark halo, so both sides of a shared edge show in their own
+  colours (review keeps rater A's edges once); while drawing the active
+  label is 1.5 px full colour with a faint fill (0.10) inset by one voxel,
+  other labels 1 px muted, complete or locked labels quieter, and enclosed
+  unlabelled gaps get a neutral dot ("Outline only" drops the inset fill,
+  F shows all fills); the crosshair is a solid hairline
   that opens a gap of at least three brush radii while a paint tool is
   active and (direction H) stays out of the edited structure's extent in
   every state, as edge ticks only in small tiles; a dash means rater B and
-  nothing else (neighbour slices are a thin neutral line, proposals a thin
-  solid outline plus hatch, open ruler marks hollow boxes); review draws
+  nothing else (neighbour slices are a faint neutral line drawn only where
+  they depart from the current slice, proposals a thin solid outline plus
+  hatch, open ruler marks thin hollow bars, flagged review slices
+  triangles); review draws
   rater A once (solid, label colour), rater B only where it departs
   (mid-grey dash), and disagreement as achromatic textures told apart by
   form (A only dots, B only dense hatch, relabelled crossed), never a
@@ -55,17 +62,21 @@ yet: editing is not implemented.
   visited; label volumes come from `LABEL_VOLUMES` only (labels complete
   mid-session equal the reviewed version); volumes show mm³ on a 1 mm grid and vx plus mm³
   otherwise; the brush preview is the exact voxel set the brush writes, drawn
-  as filled voxels with a neutral voxel-edge outline; locks never
+  as a light fill with a 1 px neutral voxel-edge outline; locks never
   depend on visibility; a refused stroke says why once, at the cursor (plus
   a "Blocked" status chip); proposals use the target label's colour (thin
   solid outline, hatch) and a confirm button that names the label; proposal undo is separate
   from document undo; colour is data only (label swatches, images, semantic
   status), chrome is achromatic; the crosshair is green with a dark halo and
-  the brush outline neutral white.
+  the brush outline neutral white; labels rater B never traced are outlined
+  only (no "A only" texture) with a "B: none" note.
 - **Tests:** `__tests__/` here (geometry, gate, scenes; `round1.test.tsx`
   for the partition renderer, crosshair gap, review encoding, Approve gate
   and native readouts; `round2.test.tsx` for the crosshair clear box and
   ticks, dash discipline, single-source volumes, per-slice bars, the
-  flagged review gate and direction H's cuts); the shell side
+  flagged review gate and direction H's cuts; `round3.test.tsx` for
+  inner-edge strokes, emphasis levels, gaps, neighbour departures, the
+  per-label slice matrix, lock departures, review ordering and the ortho
+  gutter); the shell side
   (registration, stage, every direction x state renders) is in
   `../__tests__/segmentation.test.tsx`.

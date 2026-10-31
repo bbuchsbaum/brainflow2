@@ -12,7 +12,7 @@ import clsx from 'clsx';
 import { Check, Circle, CircleDashed, Eye, EyeOff, Lock, LockOpen, SquareDashed } from 'lucide-react';
 import { IconButton, SelectableRow } from '@/components/ui/bf';
 import { Swatch } from './chrome';
-import { fmtInt, formatVolume, type CountGrid } from './geometry';
+import { fmtInt, formatVolume, lockDeparts, type CountGrid } from './geometry';
 import type { LabelState } from './types';
 
 const STATUS_TEXT: Record<LabelState['status'], string> = {
@@ -68,6 +68,13 @@ export interface LabelRowProps {
   readOnly?: boolean;
   /** Show the eye toggle (default true; lean rows move visibility to the context menu). */
   showEye?: boolean;
+  /**
+   * `always` (default): the lock column always shows. `departures`: the lock
+   * shows only where it departs from the status default (complete but
+   * unlocked, or in progress but locked); otherwise it appears on hover, so
+   * a tick and a lock never say the same thing twice.
+   */
+  lockDisplay?: 'always' | 'departures';
 }
 
 export function LabelRow({
@@ -83,7 +90,9 @@ export function LabelRow({
   spark,
   readOnly = false,
   showEye = true,
+  lockDisplay = 'always',
 }: LabelRowProps) {
+  const lockHidden = lockDisplay === 'departures' && !lockDeparts(label) && !alert;
   const compact = density === 'compact';
   return (
     <SelectableRow
@@ -92,7 +101,7 @@ export function LabelRow({
       aria-label={`${label.name}, ${fmtInt(label.voxels)} voxels${label.locked ? ', locked' : ''}`}
       data-force-hover={hovered || undefined}
       data-label-id={label.id}
-      className={clsx(compact ? 'min-h-6 gap-1.5' : 'min-h-9 gap-2', muted && 'opacity-55')}
+      className={clsx('group/row', compact ? 'min-h-6 gap-1.5' : 'min-h-9 gap-2', muted && 'opacity-55')}
       tabIndex={active ? 0 : -1}
     >
       <span role="gridcell" className="flex items-center">
@@ -140,7 +149,12 @@ export function LabelRow({
             icon={label.locked ? <Lock /> : <LockOpen />}
             pressed={label.locked}
             tabIndex={-1}
-            className={clsx(compact ? 'h-5 w-5' : undefined, alert && 'text-bf-warning shadow-[inset_0_-2px_0_var(--bf-warning)]')}
+            data-lock-hidden={lockHidden || undefined}
+            className={clsx(
+              compact ? 'h-5 w-5' : undefined,
+              alert && 'text-bf-warning shadow-[inset_0_-2px_0_var(--bf-warning)]',
+              lockHidden && 'opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100',
+            )}
           />
         )}
       </span>
@@ -161,6 +175,7 @@ export interface LabelListProps {
   renderSpark?: (label: LabelState) => React.ReactNode;
   readOnly?: boolean;
   showEye?: boolean;
+  lockDisplay?: LabelRowProps['lockDisplay'];
   'aria-label'?: string;
   className?: string;
 }
@@ -178,6 +193,7 @@ export function LabelList({
   renderSpark,
   readOnly,
   showEye,
+  lockDisplay,
   'aria-label': ariaLabel = 'Labels',
   className,
 }: LabelListProps) {
@@ -198,6 +214,7 @@ export function LabelList({
           spark={renderSpark?.(l)}
           readOnly={readOnly}
           showEye={showEye}
+          lockDisplay={lockDisplay}
         />
       ))}
     </div>

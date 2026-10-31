@@ -17,7 +17,7 @@ import {
   centreOf,
   paintInto,
 } from './geometry';
-import { BRUSH, CA1, CA23, DG, SRLM, labelColor } from './mockData';
+import { BRUSH, CA1, CA23, DG, QUIET_LABELS, REVIEW_ROWS, SRLM, labelColor } from './mockData';
 import type { Overlay } from './SliceView';
 import type { LabelVoxel, Point, Voxel } from './types';
 
@@ -127,22 +127,39 @@ export const SCENE = {
   zoom: { brush: zoomBrush, base: tracingBase, footprint: discFootprint(zoomBrush, BRUSH.radiusMm).length },
 };
 
+/** Labels rater B did not trace at all. */
+export const B_NONE: readonly number[] = REVIEW_ROWS.filter((r) => r.volB === 0).map((r) => r.label);
+
 /** Standard overlay stacks. */
 export const OVERLAYS = {
   /**
    * Labels as an exclusive partition: one colour per voxel at the constant
-   * fill alpha, outlines only at label boundaries (shared edges once), the
-   * active label heavier. `fill: false` is the outline-only mode.
+   * fill alpha, each label stroked on the inner edge of its own voxels; the
+   * active label 1.5 px full colour, the others 1 px at 55%, complete and
+   * locked labels quieter. `fill: false` is outline mode; `fillActive`
+   * adds the active label's faint inset fill.
    */
-  labels(voxels: readonly LabelVoxel[], active = CA1, opts: { fill?: boolean; emphasis?: readonly number[] } = {}): Overlay[] {
-    return [{ kind: 'labels', voxels, fill: opts.fill ?? true, width: 1, emphasis: opts.emphasis ?? [active] }];
-  },
-  /** Outline echo: the partition's outlines, faint, with the active label strong. */
-  echo(voxels: readonly LabelVoxel[], active = CA1): Overlay[] {
+  labels(
+    voxels: readonly LabelVoxel[],
+    active = CA1,
+    opts: { fill?: boolean; emphasis?: readonly number[]; fillActive?: boolean } = {},
+  ): Overlay[] {
+    const act = opts.emphasis ?? [active];
     return [
-      { kind: 'labels', voxels, fill: false, width: 1, opacity: 0.55 },
-      { kind: 'labels', voxels, fill: false, width: 1.25, only: [active], emphasis: [active] },
+      {
+        kind: 'labels',
+        voxels,
+        fill: opts.fill ?? true,
+        width: 1,
+        active: act,
+        quiet: QUIET_LABELS.filter((id) => !act.includes(id)),
+        fillActive: opts.fillActive ? [active] : undefined,
+      },
     ];
+  },
+  /** Outline echo (small views): inner-edge strokes, the active label strong, the rest muted. */
+  echo(voxels: readonly LabelVoxel[], active = CA1): Overlay[] {
+    return [{ kind: 'labels', voxels, fill: false, active: [active], quiet: QUIET_LABELS.filter((id) => id !== active) }];
   },
   /** The voxels a stroke has written so far join the partition as the label. */
   withStroke(voxels: readonly LabelVoxel[], written: readonly Voxel[], label = CA1): LabelVoxel[] {
@@ -162,7 +179,8 @@ export const OVERLAYS = {
   },
   /** Review: A solid once, B only where it departs, achromatic disagreement textures. */
   review(show: 'a' | 'b' | 'both' = 'both'): Overlay[] {
-    return [{ kind: 'review', a: A, b: B, show }];
+    // Labels rater B never traced are outlined only (no "A only" texture); the table says "B: none".
+    return [{ kind: 'review', a: A, b: B, show, bNone: B_NONE }];
   },
 };
 

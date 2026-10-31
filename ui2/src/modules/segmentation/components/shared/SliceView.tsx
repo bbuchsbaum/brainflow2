@@ -14,9 +14,15 @@
 import React, { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import {
+  ACTIVE_FILL_ALPHA,
   crosshairGapRadius,
   discFootprint,
+  enclosedGaps,
+  innerBandPath,
+  insetVoxels,
   LABEL_FILL_ALPHA,
+  LABEL_STROKE,
+  labelEmphasis,
   partitionEdges,
   reviewEncoding,
   voxelFillPath,
@@ -27,21 +33,33 @@ import { labelColor } from './mockData';
 import type { LabelVoxel, Point, SliceImage, Voxel } from './types';
 
 /**
- * Labels as an exclusive partition (one label per voxel): every voxel filled
- * once at the constant `LABEL_FILL_ALPHA`, outlines only where the label
- * changes, each shared edge drawn once (`geometry.partitionEdges`).
+ * Labels as an exclusive partition (one label per voxel). Fills use the
+ * constant `LABEL_FILL_ALPHA`. Every label strokes the inner edge of its own
+ * voxels over a 1 px dark halo (`geometry.innerBandPath`), so on a shared
+ * edge both labels show, each in its own colour on its own side. Emphasis
+ * (`geometry.LABEL_STROKE`): the active label 1.5 px full colour, other
+ * labels 1 px at 55%, complete or locked labels (`quiet`) quieter still.
+ * Unlabelled voxels enclosed by labels get a neutral dot (visible gaps).
  */
 export interface LabelOverlay {
   kind: 'labels';
   voxels: readonly LabelVoxel[];
-  /** Fill voxels (default true); false is the outline-only mode. */
+  /** Fill every label at the constant alpha (default true); false is outline mode. */
   fill?: boolean;
-  /** Draw outlines (default true). */
+  /** Draw strokes (default true). */
   outline?: boolean;
-  /** Outline width, screen px; emphasised labels draw 0.75 px heavier. */
+  /** Stroke width (screen px) when no label is active. */
   width?: number;
-  /** Labels that own their shared edges and draw heavier (the active label). */
+  /** Active labels: 1.5 px, full colour (alias: `emphasis`). */
+  active?: readonly number[];
+  /** @deprecated use `active`. */
   emphasis?: readonly number[];
+  /** Complete or locked labels: drawn quieter than other inactive labels. */
+  quiet?: readonly number[];
+  /** Faint fill (`ACTIVE_FILL_ALPHA`) of these labels, inset by one voxel. */
+  fillActive?: readonly number[];
+  /** Mark unlabelled voxels enclosed by labels (default true, voxels of 6 px or more). */
+  gaps?: boolean;
   /** Only these labels (hidden labels are not drawn). */
   only?: readonly number[];
   /** Overall opacity of the layer. */
@@ -105,6 +123,8 @@ export interface BandOverlay {
   through: Point;
   dir: Point;
   widthMm: number;
+  /** Half-length along `dir`, mm (default: across the whole frame). */
+  lengthMm?: number;
 }
 
 /**
@@ -117,6 +137,20 @@ export interface ReviewOverlay {
   a: readonly LabelVoxel[];
   b: readonly LabelVoxel[];
   show?: 'a' | 'b' | 'both';
+  /** Labels rater B did not trace: drawn outline-only, never textured as "A only". */
+  bNone?: readonly number[];
+}
+
+/** A raw path in display units (the neighbour slice's departures). */
+export interface PathOverlay {
+  kind: 'path';
+  d: string;
+  /** Tailwind stroke class. */
+  className: string;
+  /** Screen px. */
+  width?: number;
+  opacity?: number;
+  testId?: string;
 }
 
 /** A small neutral glyph in each voxel (locked voxels a proposal skipped). */
@@ -125,7 +159,7 @@ export interface MarksOverlay {
   voxels: readonly Voxel[];
 }
 
-export type Overlay = LabelOverlay | VoxelOverlay | SlabOverlay | LimitOverlay | BandOverlay | ReviewOverlay | MarksOverlay;
+export type Overlay = LabelOverlay | VoxelOverlay | SlabOverlay | LimitOverlay | BandOverlay | ReviewOverlay | MarksOverlay | PathOverlay;
 
 export interface BrushCursor {
   center: Point;
@@ -172,6 +206,12 @@ export interface SliceViewProps {
   brush?: BrushCursor | null;
   /** Voxel grid lines (only drawn when a voxel is at least 6 px). */
   grid?: boolean;
+  /** Grid line opacity (dimmed while a neighbour line shares the voxel edges). */
+  gridOpacity?: number;
+  /** Fit this display box (plus `marginMm` on every side) instead of `fovMm` / `center`. */
+  fit?: { box: Box; marginMm: number } | null;
+  /** A margin outside the image for native slice ticks and landmark zones. */
+  gutter?: Gutter | null;
   letters?: boolean;
   /** Dim the image (empty states, protocol picker backdrops). */
   dim?: boolean;
@@ -191,7 +231,27 @@ export interface Box {
   y1: number;
 }
 
+/**
+ * A strip outside the image (bottom or right): a scale of the native slices
+ * where each crosses the structure (its `through` point, projected straight
+ * onto the gutter), one short tick per slice (the current one longer), a
+ * full tick at each landmark limit and the zone names between them, so no
+ * label ever sits over anatomy or is clipped.
+ */
+export interface Gutter {
+  side: 'bottom' | 'right';
+  /** Screen px. */
+  size: number;
+  slices: ReadonlyArray<{ through: Point; current?: boolean }>;
+  limits: readonly Point[];
+  /** Zone names in increasing gutter coordinate (limits + 1). */
+  zones: readonly string[];
+}
+
 const FALLBACK = { width: 480, height: 360 };
+
+/** Fill alpha of the brush preview (the voxels it writes): light, so the image shows through. */
+export const BRUSH_PREVIEW_ALPHA = 0.16;
 
 /** Where a line through `p` along `d` enters and leaves a w x h frame (screen px). */
 function clipLine(p: { x: number; y: number }, d: Point, w: number, h: number) {
@@ -236,6 +296,9 @@ export function SliceView({
   crosshairTicks = false,
   brush,
   grid = false,
+  gridOpacity = 0.14,
+  fit = null,
+  gutter = null,
   letters = true,
   dim = false,
   zoomLabel,
@@ -245,9 +308,19 @@ export function SliceView({
 }: SliceViewProps) {
   const [ref, { width, height }] = useElementSize<HTMLDivElement>();
   const uid = useId().replace(/:/g, '');
-  const s = Math.min(width, height) / fovMm;
-  const tx = width / 2 - center[0] * s;
-  const ty = height / 2 - center[1] * s;
+  // The image area: the view less its gutter.
+  const vw = width - (gutter?.side === 'right' ? gutter.size : 0);
+  const vh = height - (gutter?.side === 'bottom' ? gutter.size : 0);
+  const fitted = fit
+    ? {
+        s: Math.min(vw / (fit.box.x1 - fit.box.x0 + 2 * fit.marginMm), vh / (fit.box.y1 - fit.box.y0 + 2 * fit.marginMm)),
+        c: [(fit.box.x0 + fit.box.x1) / 2, (fit.box.y0 + fit.box.y1) / 2] as Point,
+      }
+    : null;
+  const s = fitted ? fitted.s : Math.min(vw, vh) / fovMm;
+  const cc = fitted ? fitted.c : center;
+  const tx = vw / 2 - cc[0] * s;
+  const ty = vh / 2 - cc[1] * s;
   const px = (n: number) => n / s;
   const projector: Projector = {
     project: (p) => ({ x: tx + p[0] * s, y: ty + p[1] * s }),
@@ -297,7 +370,7 @@ export function SliceView({
     const through = o.through ?? (o.axis === 'y' ? ([0, o.at] as Point) : ([o.at, 0] as Point));
     const dir = o.dir ?? (o.axis === 'y' ? ([1, 0] as Point) : ([0, 1] as Point));
     const p = projector.project(through);
-    return { o, ends: clipLine(p, dir, width, height), dir };
+    return { o, ends: clipLine(p, dir, vw, vh), dir };
   });
   const [lL, lR, lT, lB] = PLANE_LETTERS[image.plane];
 
@@ -359,7 +432,7 @@ export function SliceView({
               const n = Math.hypot(o.dir[0], o.dir[1]) || 1;
               const [ux, uy] = [o.dir[0] / n, o.dir[1] / n];
               const [nx, ny] = [-uy, ux];
-              const L = 400;
+              const L = o.lengthMm ?? 400;
               const hw = o.widthMm / 2;
               const [cx, cy] = o.through;
               const pts = [
@@ -373,52 +446,25 @@ export function SliceView({
                   key={i}
                   points={pts.map((q) => q.join(',')).join(' ')}
                   className="fill-bf-text-primary"
-                  fillOpacity={0.13}
+                  fillOpacity={o.lengthMm ? 0.1 : 0.13}
                   data-band
                 />
               );
             }
-            if (o.kind === 'labels') {
-              const vs = o.only ? o.voxels.filter((v) => o.only!.includes(v[2])) : o.voxels;
-              const emphasis = o.emphasis ?? [];
-              const edges = o.outline === false ? [] : partitionEdges(vs, emphasis);
-              const ids = [...new Set(vs.map((v) => v[2]))];
-              const w = o.width ?? 1;
-              const filled = o.fill === false ? [] : o.fillOnly ? ids.filter((id) => o.fillOnly!.includes(id)) : ids;
-              return (
-                <g key={i} opacity={o.opacity ?? 1}>
-                  {filled.length
-                    ? filled.map((id) => (
-                        <path
-                          key={id}
-                          d={voxelFillPath(vs.filter((v) => v[2] === id).map(([c, r]) => [c, r] as Voxel))}
-                          style={{ fill: labelColor(id) }}
-                          fillOpacity={LABEL_FILL_ALPHA}
-                        />
-                      ))
-                    : null}
-                  {edges.length ? (
-                    <path
-                      d={edges.map((e) => e.d).join('')}
-                      fill="none"
-                      className="stroke-bf-bg-canvas"
-                      strokeOpacity={0.5}
-                      strokeWidth={px(w + 1.5)}
-                      strokeLinecap="square"
-                    />
-                  ) : null}
-                  {edges.map((e) => (
-                    <path
-                      key={e.label}
-                      d={e.d}
-                      fill="none"
-                      style={{ stroke: labelColor(e.label) }}
-                      strokeWidth={px(emphasis.includes(e.label) ? w + 0.75 : w)}
-                      strokeLinecap="square"
-                    />
-                  ))}
-                </g>
-              );
+            if (o.kind === 'labels') return <LabelLayer key={i} o={o} px={px} voxelPx={s} />;
+            if (o.kind === 'path') {
+              return o.d ? (
+                <path
+                  key={i}
+                  d={o.d}
+                  fill="none"
+                  className={o.className}
+                  strokeWidth={px(o.width ?? 1)}
+                  strokeOpacity={o.opacity ?? 1}
+                  strokeLinecap="square"
+                  data-testid={o.testId}
+                />
+              ) : null;
             }
             if (o.kind === 'review') return <ReviewLayer key={i} o={o} uid={uid} px={px} />;
             if (o.kind === 'marks') {
@@ -453,30 +499,37 @@ export function SliceView({
             );
           })}
           {gridPath ? (
-            <path d={gridPath} className="stroke-bf-text-primary" strokeOpacity={0.14} strokeWidth={px(1)} fill="none" />
+            <path d={gridPath} className="stroke-bf-text-primary" strokeOpacity={gridOpacity} strokeWidth={px(1)} fill="none" data-grid />
           ) : null}
           {footprint.length ? (
             <g>
-              {/* The exact voxels the brush writes: filled in the label's colour (preview alpha). */}
+              {/* The exact voxels the brush writes: a light preview fill, so the voxels underneath stay readable. */}
               {brush?.tone === 'blocked' ? (
                 <path d={voxelFillPath(footprint)} fill={`url(#${hatchColors.get('var(--bf-warning)')})`} />
               ) : (
-                <path d={voxelFillPath(footprint)} style={{ fill: brush?.label ? labelColor(brush.label) : 'var(--bf-text-primary)' }} fillOpacity={0.45} />
+                <path
+                  d={voxelFillPath(footprint)}
+                  style={{ fill: brush?.label ? labelColor(brush.label) : 'var(--bf-text-primary)' }}
+                  fillOpacity={BRUSH_PREVIEW_ALPHA}
+                  data-brush-preview
+                />
               )}
-              {/* Its boundary is the cursor: neutral white with a dark halo. */}
-              <path d={voxelOutlinePath(footprint)} className="stroke-bf-bg-canvas" strokeOpacity={0.85} strokeWidth={px(3)} fill="none" strokeLinecap="square" />
+              {/* Its boundary is the cursor: a 1 px neutral line over a light dark halo. */}
+              <path d={voxelOutlinePath(footprint)} className="stroke-bf-bg-canvas" strokeOpacity={0.6} strokeWidth={px(2.5)} fill="none" strokeLinecap="square" />
               <path
                 d={voxelOutlinePath(footprint)}
                 className={brush?.tone === 'blocked' ? 'stroke-bf-warning' : 'stroke-bf-text-primary'}
-                strokeWidth={px(1.25)}
+                strokeWidth={px(1)}
                 fill="none"
                 strokeLinecap="square"
+                data-brush-outline
               />
             </g>
           ) : null}
         </g>
 
-        {ch ? <Crosshair x={ch.x} y={ch.y} w={width} h={height} gapAt={gapAt} gap={gap} box={screenBox} ticks={crosshairTicks} /> : null}
+        {ch ? <Crosshair x={ch.x} y={ch.y} w={vw} h={vh} gapAt={gapAt} gap={gap} box={screenBox} ticks={crosshairTicks} /> : null}
+        {gutter ? <GutterMarks g={gutter} project={projector.project} vw={vw} vh={vh} /> : null}
 
         {brushScreen ? (
           <g>
@@ -519,13 +572,14 @@ export function SliceView({
         })}
       </svg>
 
+      {gutter ? <GutterBand g={gutter} project={projector.project} vw={vw} vh={vh} /> : null}
       {letters ? (
-        <>
+        <div className="pointer-events-none absolute left-0 top-0" style={{ width: vw, height: vh }}>
           <Letter className="left-1.5 top-1/2 -translate-y-1/2">{lL}</Letter>
           <Letter className="right-1.5 top-1/2 -translate-y-1/2">{lR}</Letter>
           <Letter className="left-1/2 top-1 -translate-x-1/2">{lT}</Letter>
           <Letter className="bottom-1 left-1/2 -translate-x-1/2">{lB}</Letter>
-        </>
+        </div>
       ) : null}
       {zoomLabel ? (
         <span className="pointer-events-none absolute bottom-1 right-2 font-mono text-bf-2xs text-bf-text-muted [text-shadow:0_0_3px_black]">
@@ -576,6 +630,158 @@ export function SliceView({
         );
       })}
       {overlay ? overlay(projector) : null}
+    </div>
+  );
+}
+
+/**
+ * Labels: constant-alpha fills (when on), the active label's faint inset
+ * fill, then every label's inner-edge stroke between dark halo rims (just
+ * outside the edge and just inside the stroke, never under the colour, so a
+ * muted stroke stays light). Halos go down first, so a label's halo never
+ * covers its neighbour's colour; one path per label, so overlapping corner
+ * bands never double the alpha.
+ */
+function LabelLayer({ o, px, voxelPx }: { o: LabelOverlay; px: (n: number) => number; voxelPx: number }) {
+  const vs = useMemo(() => (o.only ? o.voxels.filter((v) => o.only!.includes(v[2])) : o.voxels), [o.voxels, o.only]);
+  const ids = useMemo(() => [...new Set(vs.map((v) => v[2]))].sort((a, b) => a - b), [vs]);
+  const active = o.active ?? o.emphasis ?? [];
+  const quiet = o.quiet ?? [];
+  const filled = o.fill === false ? [] : o.fillOnly ? ids.filter((id) => o.fillOnly!.includes(id)) : ids;
+  const fillActive = (o.fillActive ?? []).filter((id) => ids.includes(id) && !filled.includes(id));
+  const strokes =
+    o.outline === false
+      ? []
+      : ids
+          .map((id) => {
+            const em = labelEmphasis(id, active, quiet);
+            const st = LABEL_STROKE[em];
+            return { id, em, opacity: st.opacity, w: em === 'plain' && o.width ? o.width : st.width };
+          })
+          // The active label draws last (on top).
+          .sort((a, b) => Number(a.em === 'active') - Number(b.em === 'active'));
+  const gaps = useMemo(() => (o.gaps !== false && voxelPx >= 6 ? enclosedGaps(vs) : []), [o.gaps, voxelPx, vs]);
+  return (
+    <g opacity={o.opacity ?? 1} data-labels>
+      {filled.map((id) => (
+        <path
+          key={`f${id}`}
+          d={voxelFillPath(vs.filter((v) => v[2] === id).map(([c, r]) => [c, r] as Voxel))}
+          style={{ fill: labelColor(id) }}
+          fillOpacity={LABEL_FILL_ALPHA}
+        />
+      ))}
+      {fillActive.map((id) => (
+        <path
+          key={`a${id}`}
+          d={voxelFillPath(insetVoxels(vs, id))}
+          style={{ fill: labelColor(id) }}
+          fillOpacity={ACTIVE_FILL_ALPHA}
+          data-active-fill={id}
+        />
+      ))}
+      {strokes.map((st) => (
+        <path
+          key={`h${st.id}`}
+          d={innerBandPath(vs, st.id, -px(0.75), 0) + innerBandPath(vs, st.id, px(st.w), px(st.w + 1))}
+          className="fill-bf-bg-canvas"
+          opacity={st.em === 'active' || st.em === 'plain' ? 0.6 : 0.35}
+          data-halo={st.id}
+        />
+      ))}
+      {strokes.map((st) => (
+        <path
+          key={`s${st.id}`}
+          d={innerBandPath(vs, st.id, 0, px(st.w))}
+          style={{ fill: labelColor(st.id) }}
+          opacity={st.opacity}
+          data-label-stroke={st.id}
+          data-emphasis={st.em}
+          data-width={st.w}
+        />
+      ))}
+      {gaps.length ? (
+        <g data-gaps={gaps.length}>
+          {gaps.map(([c, r]) => (
+            <circle key={`${c},${r}`} cx={c + 0.5} cy={r + 0.5} r={px(1.5)} className="fill-bf-text-secondary" opacity={0.75} />
+          ))}
+        </g>
+      ) : null}
+    </g>
+  );
+}
+
+/** A point's position along the gutter (screen px), or null outside the image. */
+function gutterHit(p: { x: number; y: number }, side: Gutter['side'], vw: number, vh: number): number | null {
+  const v = side === 'bottom' ? p.x : p.y;
+  return v >= 0 && v <= (side === 'bottom' ? vw : vh) ? v : null;
+}
+
+function GutterMarks({ g, project, vw, vh }: { g: Gutter; project: Projector['project']; vw: number; vh: number }) {
+  const tick = (at: number, len: number) =>
+    g.side === 'bottom' ? `M${at} ${vh}v${len}` : `M${vw} ${at}h${len}`;
+  const slices = g.slices
+    .map((sl) => ({ at: gutterHit(project(sl.through), g.side, vw, vh), current: sl.current }))
+    .filter((t): t is { at: number; current: boolean | undefined } => t.at !== null);
+  const limits = g.limits.map((p) => gutterHit(project(p), g.side, vw, vh)).filter((v): v is number => v !== null);
+  return (
+    <g data-gutter={g.side}>
+      <rect
+        x={g.side === 'bottom' ? 0 : vw}
+        y={g.side === 'bottom' ? vh : 0}
+        width={g.side === 'bottom' ? vw + g.size : g.size}
+        height={g.side === 'bottom' ? g.size : vh + g.size}
+        className="fill-bf-bg-panel-sunken"
+      />
+      <path d={g.side === 'bottom' ? `M0 ${vh + 0.5}H${vw}` : `M${vw + 0.5} 0V${vh}`} className="stroke-bf-border-subtle" strokeWidth={1} />
+      <path d={slices.filter((t) => !t.current).map((t) => tick(t.at, 3)).join('')} className="stroke-bf-text-muted" strokeWidth={1} />
+      <path d={limits.map((at) => tick(at, g.size)).join('')} className="stroke-bf-text-secondary" strokeWidth={1} data-gutter-limits={limits.length} />
+      {slices
+        .filter((t) => t.current)
+        .map((t) => (
+          <path key="cur" d={tick(t.at, 7)} className="stroke-bf-text-primary" strokeWidth={1.5} data-gutter-current />
+        ))}
+    </g>
+  );
+}
+
+/** The gutter's background and zone names (head, body, tail), centred in their zones, dropped when a zone is too short. */
+function GutterBand({ g, project, vw, vh }: { g: Gutter; project: Projector['project']; vw: number; vh: number }) {
+  const len = g.side === 'bottom' ? vw : vh;
+  const cuts = g.limits
+    .map((p) => gutterHit(project(p), g.side, vw, vh))
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b);
+  const bounds = [0, ...cuts, len];
+  const charPx = 6;
+  return (
+    <div
+      className={clsx('pointer-events-none absolute', g.side === 'bottom' ? 'inset-x-0 bottom-0' : 'inset-y-0 right-0')}
+      style={g.side === 'bottom' ? { height: g.size } : { width: g.size }}
+      data-testid="ortho-gutter"
+    >
+      {g.zones.map((name, i) => {
+        const a = bounds[i];
+        const b = bounds[i + 1];
+        if (a === undefined || b === undefined) return null;
+        const need = g.side === 'bottom' ? name.length * charPx + 6 : 16;
+        if (b - a < need) return null;
+        const mid = (a + b) / 2;
+        return (
+          <span
+            key={name}
+            className="absolute whitespace-nowrap font-sans text-bf-2xs leading-none text-bf-text-muted"
+            style={
+              g.side === 'bottom'
+                ? { left: mid, bottom: 2, transform: 'translateX(-50%)' }
+                : { top: mid, right: 0, width: g.size - 6, textAlign: 'center', transform: 'translateY(-50%)' }
+            }
+            data-zone={name}
+          >
+            {name}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -639,7 +845,13 @@ function ReviewPatterns({ uid, px }: { uid: string; px: (n: number) => number })
 }
 
 function ReviewLayer({ o, uid, px }: { o: ReviewOverlay; uid: string; px: (n: number) => number }) {
-  const enc = useMemo(() => reviewEncoding(o.a, o.b), [o.a, o.b]);
+  const enc = useMemo(() => {
+    const e = reviewEncoding(o.a, o.b);
+    if (!o.bNone?.length) return e;
+    // A label B never traced is not an "A only" disagreement: it is outlined, with a "B: none" note beside it.
+    const none = new Set(o.a.filter((v) => o.bNone!.includes(v[2])).map(([c, r]) => `${c},${r}`));
+    return { ...e, aOnly: e.aOnly.filter(([c, r]) => !none.has(`${c},${r}`)) };
+  }, [o.a, o.b, o.bNone]);
   const show = o.show ?? 'both';
   const ref = show === 'b' ? o.b : o.a;
   const edges = partitionEdges(ref);

@@ -140,10 +140,10 @@ describe('direction H cuts', () => {
     m.unmount();
   });
 
-  it('label rows carry swatch, id, name, volume, status and lock; a sparkline only on the active row', () => {
+  it('label rows carry swatch, id, name, volume, status and lock; per-slice bars live in one matrix (round 3)', () => {
     const { container, unmount } = render(<DirectionH state="tracing" />);
     expect(container.querySelector('[aria-label^="Hide "]')).toBeNull();
-    expect(container.querySelectorAll('[aria-label="Labels"] [aria-label$="click a slice to go there"]').length).toBe(1);
+    expect(container.querySelectorAll('[aria-label="Labels"] [aria-label$="click a slice to go there"]').length).toBe(0);
     expect(container.textContent).not.toContain('Lines: area per slice');
     unmount();
   });

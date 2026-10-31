@@ -11,6 +11,13 @@
  * label rows keep swatch, id, name, volume, status and lock; one meaning per
  * dash (rater B only); the crosshair stays out of the structure being edited.
  *
+ * Round 3 is balance: labels stroke the inner edge of their own voxels with
+ * an emphasis hierarchy (the active label 1.5 px plus a faint inset fill);
+ * the Inspector holds the step's way forward (open checks, a k-matched
+ * reference, "Mark CA1 complete") and per-slice bars for every label on the
+ * ruler's axis; the orthogonal views fit the structure with native slice
+ * ticks and landmark zones in a gutter; review leads with the decision.
+ *
  * Geometry is stated honestly: the primary is named by native slice (k), the
  * orthogonal views say they are world-frame reslices and draw the native
  * slab tilted by the (SIMULATED) obliquity, and the brush readout gives the
@@ -22,6 +29,8 @@ import clsx from 'clsx';
 import {
   AlertTriangle,
   Brush,
+  Check,
+  ChevronLeft,
   ChevronRight,
   Eraser,
   Layers3,
@@ -34,25 +43,18 @@ import {
   Sprout,
   Undo2,
 } from 'lucide-react';
-import { Button, Chip, IconButton, Section, SegmentedControl, Select, Slider, Tabs } from '@/components/ui/bf';
+import { Button, Chip, IconButton, Section, SegmentedControl, SelectableRow, Select, Slider, Tabs } from '@/components/ui/bf';
 import { LabelList } from '@/modules/segmentation/components/shared/LabelList';
-import {
-  DiceTable,
-  DisagreementList,
-  DisagreementNav,
-  ProposalPill,
-  ReviewDecision,
-  ReviewLegend,
-} from '@/modules/segmentation/components/shared/ProposalParts';
+import { ProposalPill, ReviewDecision, TextureSwatch } from '@/modules/segmentation/components/shared/ProposalParts';
 import { SliceView, type Box, type Overlay, type Projector } from '@/modules/segmentation/components/shared/SliceView';
-import { Sparkline } from '@/modules/segmentation/components/shared/Sparkline';
-import { LensBadge, ModeSwitcher, ShellFrame, StatusItem, Swatch, ViewportFrame } from '@/modules/segmentation/components/shared/chrome';
+import { LensBadge, LineSample, ModeSwitcher, ShellFrame, StatusItem, Swatch, ViewportFrame } from '@/modules/segmentation/components/shared/chrome';
 import { blockedCopy } from '@/modules/segmentation/components/shared/copy';
 import {
   bboxOf,
   brushReadout,
   fmtInt,
   fmtMm,
+  neighbourDeparturePath,
   PLANE_AXIS,
   PLANE_NAME,
   slicePositionMm,
@@ -63,25 +65,31 @@ import {
   BRUSH,
   CA1,
   CONTRASTS,
+  DICE_THRESHOLD,
   DISAGREEMENTS,
+  FLAG_MIN_VX,
   INTERP,
   LABEL_BY_ID,
+  LABEL_DEFS,
   NATIVE,
   NATIVE_GEOMETRY,
   NATIVE_SLICES_J,
   PROTOCOL,
+  QUIET_LABELS,
   REVIEW_NAV,
+  REVIEW_ROWS,
   SESSION,
   TOOLS,
   areaByNativeSlice,
+  labelColor,
   proposalSliceStatus,
   sessionLabels,
   tracingSliceStatus,
   yOfJ,
 } from '@/modules/segmentation/components/shared/mockData';
-import { CROSSHAIR_WORLD, OVERLAYS, SCENE } from '@/modules/segmentation/components/shared/scenes';
+import { B_NONE, CROSSHAIR_WORLD, OVERLAYS, SCENE } from '@/modules/segmentation/components/shared/scenes';
 import { orthoViews, primaryView, stripViews, zoomFactor, type PanelProps } from '@/modules/segmentation/components/shared/views';
-import type { DesignState, Point, SliceImage, ToolId, Voxel } from '@/modules/segmentation/components/shared/types';
+import type { DesignState, LabelVoxel, Point, SliceImage, ToolId, Voxel } from '@/modules/segmentation/components/shared/types';
 import { DESIGN } from '@/modules/segmentation/__design__/designData';
 
 const TOOL_ICON: Record<ToolId, React.ReactNode> = {
@@ -103,6 +111,8 @@ const N_SLICES = NATIVE_SLICES_J.length;
 /** Native slice number (1-based) of a template slice. */
 const kOf = (j: number) => NATIVE_SLICES_J.indexOf(j) + 1;
 const SLICE_K = SLICE_INDEX + 1;
+/** Template slice index of a world y (mm). */
+const jOfY = (y: number) => y - DESIGN.grid.origin[1];
 const SLAB = PROTOCOL.slab;
 const DIAMETER = BRUSH.radiusMm * 2;
 /** What the brush writes on the (simulated) native grid, and what the 1 mm mock imagery can draw. */
@@ -288,10 +298,6 @@ function BrushStrip({ sizeOpen = false }: { sizeOpen?: boolean }) {
           = {READOUT.across} native vx ({DRAWN.across} drawn)
         </span>
       </StripItem>
-      <span className="flex items-center gap-0.5 max-[1399px]:hidden">
-        <Sep />
-        <StripItem title="Intensity range: off (click to restrict the brush to an intensity window)">range off</StripItem>
-      </span>
       {sizeOpen ? <SizePopover /> : null}
     </div>
   );
@@ -330,19 +336,18 @@ function SizePopover() {
   );
 }
 
-/** The one neighbour shown (the slice you came from): a thin neutral line. */
+/** The one neighbour shown (the slice you came from): a faint neutral line; the keys live in the tooltip. */
 function NeighbourKey() {
   return (
     <span
       className="flex shrink-0 items-center gap-1.5 whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted"
-      title={`Grey line: CA1 on k ${kOf(PREV_J)} (y ${fmtMm(yOfJ(PREV_J), 0)}), the slice you came from. Hold , to show k ${kOf(NEXT_J)} instead.`}
+      title={`Neighbour: CA1 on k ${kOf(PREV_J)} (y ${fmtMm(yOfJ(PREV_J), 0)}), the slice you came from, drawn only where it departs from k ${SLICE_K} by more than one voxel. Hold , for k ${kOf(NEXT_J)}.`}
       data-testid="neighbour-key"
     >
       <svg width={14} height={6} aria-hidden>
-        <line x1={0} y1={3} x2={14} y2={3} strokeWidth={1} className="stroke-bf-text-secondary" />
+        <line x1={0} y1={3} x2={14} y2={3} strokeWidth={1} className="stroke-bf-text-primary" strokeOpacity={NEIGHBOUR_OPACITY} />
       </svg>
       k {kOf(PREV_J)}
-      <span className="text-bf-text-faint max-[1399px]:hidden">(hold , for k {kOf(NEXT_J)})</span>
     </span>
   );
 }
@@ -386,7 +391,7 @@ function PrimaryHeader({ state, image, fovMm }: { state: DesignState; image: Sli
           {review ? null : (
             <TextToggle
               pressed={multi}
-              title={multi ? 'Linked contrasts (C): on in the multi-contrast layout' : 'Linked contrasts (C): off while tracing; click or press C to show T1w and the unsharp lens'}
+              title={multi ? 'Linked contrasts (C): on in the multi-contrast layout' : 'Linked contrasts (C): off for CA-field steps traced on T2w; on automatically for steps whose rule cites T1w (ERC, uncus, head). Click or press C to show T1w, the unsharp lens and the reference.'}
             >
               Contrasts
             </TextToggle>
@@ -405,15 +410,34 @@ const STRUCTURE_BOX: Box = bboxOf(
   2,
 );
 
-/** Labels outline-only (hue carried by line), except `fillOnly`. */
-function outlineLabels(overlays: readonly Overlay[] | undefined, fillOnly?: readonly number[]): Overlay[] {
-  return (overlays ?? []).map((o) => (o.kind === 'labels' ? (fillOnly ? { ...o, fillOnly } : { ...o, fill: false }) : o));
+/** Opacity of the neighbour line: fainter than any label stroke. */
+const NEIGHBOUR_OPACITY = 0.35;
+
+/**
+ * Labels while drawing: no constant fill; each label stroked on its own inner
+ * edge (active 1.5 px, others 1 px at 55%, complete and locked quieter); the
+ * active label's faint fill inset by one voxel unless "Outline only" is on.
+ */
+function strokeLabels(overlays: readonly Overlay[] | undefined, outlineOnly = false): Overlay[] {
+  return (overlays ?? []).map((o) =>
+    o.kind === 'labels' ? { ...o, fill: false, fillActive: outlineOnly ? undefined : [CA1] } : o,
+  );
 }
 
-/** The neighbour slice (the one you came from) as a thin neutral line, never the label's hue, never dashed. */
-function neighbourOverlay(): Overlay {
+/**
+ * The neighbour slice (the one you came from): a faint neutral line, never
+ * the label's hue, never dashed, and only where it departs from this slice
+ * by more than one voxel.
+ */
+function neighbourOverlay(current: readonly LabelVoxel[]): Overlay {
   const prev = voxelsOf(DESIGN.labels.cor(PREV_J), CA1);
-  return { kind: 'voxels', voxels: prev, color: 'var(--bf-text-secondary)', outline: true, width: 1, bare: true, opacity: 0.85 };
+  const d = neighbourDeparturePath(prev, voxelsOf(current, CA1), 1);
+  return { kind: 'path', d, className: 'stroke-bf-text-primary', width: 1, opacity: NEIGHBOUR_OPACITY, testId: 'neighbour-line' };
+}
+
+function labelVoxelsOf(overlays: readonly Overlay[] | undefined): readonly LabelVoxel[] {
+  const o = (overlays ?? []).find((x) => x.kind === 'labels');
+  return o && o.kind === 'labels' ? o.voxels : [];
 }
 
 function hPrimary(state: DesignState): PanelProps {
@@ -422,15 +446,15 @@ function hPrimary(state: DesignState): PanelProps {
   switch (state) {
     case 'tracing':
     case 'multi-contrast':
-      // While drawing, every label is outline-only so the borders being traced are not tinted.
-      return { ...p, ...clear, fovMm: 48, overlays: [neighbourOverlay(), ...outlineLabels(p.overlays)] };
+      return { ...p, ...clear, fovMm: 48, overlays: [neighbourOverlay(labelVoxelsOf(p.overlays)), ...strokeLabels(p.overlays)] };
     case 'zoom':
-      return { ...p, ...clear, overlays: [neighbourOverlay(), ...outlineLabels(p.overlays)] };
+      // The grid dims while the neighbour line shares the voxel edges.
+      return { ...p, ...clear, gridOpacity: 0.07, overlays: [neighbourOverlay(labelVoxelsOf(p.overlays)), ...strokeLabels(p.overlays)] };
     case 'blocked':
-      return { ...p, ...clear, overlays: outlineLabels(p.overlays) };
+      return { ...p, ...clear, overlays: strokeLabels(p.overlays) };
     case 'proposal':
-      // Existing CA1 solid (the only fill), added voxels hatched; the rest outline-only.
-      return { ...p, ...clear, fovMm: 48, overlays: outlineLabels(p.overlays, [CA1]) };
+      // Existing CA1 with its faint inset fill, added voxels hatched; strokes as while drawing.
+      return { ...p, ...clear, fovMm: 48, overlays: strokeLabels(p.overlays) };
     case 'review':
       return { ...p, ...clear };
     default:
@@ -438,17 +462,35 @@ function hPrimary(state: DesignState): PanelProps {
   }
 }
 
+/** Size of the blocked card (px), for placing it. */
+const BLOCKED_CARD = { w: 268, h: 112, inset: 12 };
+
+/**
+ * The blocked card sits in the corner of the view nearest the cursor whose
+ * rectangle does not overlap the structure's extent (plus the clear box's
+ * margin), so it never covers the anatomy being edited.
+ */
+function blockedCardBox(p: Projector, cursor: { x: number; y: number }): { left: number; top: number } {
+  const { w, h, inset } = BLOCKED_CARD;
+  const a = p.project([STRUCTURE_BOX.x0, STRUCTURE_BOX.y0]);
+  const b = p.project([STRUCTURE_BOX.x1, STRUCTURE_BOX.y1]);
+  const corners = [
+    { left: inset, top: inset },
+    { left: p.width - w - inset, top: inset },
+    { left: inset, top: p.height - h - inset },
+    { left: p.width - w - inset, top: p.height - h - inset },
+  ];
+  const clear = (c: { left: number; top: number }) => c.left + w < a.x || c.left > b.x || c.top + h < a.y || c.top > b.y;
+  const dist = (c: { left: number; top: number }) => Math.hypot(c.left + w / 2 - cursor.x, c.top + h / 2 - cursor.y);
+  const ok = corners.filter(clear).sort((x, y) => dist(x) - dist(y));
+  return ok[0] ?? [...corners].sort((x, y) => dist(x) - dist(y))[0];
+}
+
 function BlockedCallout({ p }: { p: Projector }) {
   const copy = blockedCopy();
   const brush = p.project(SCENE.blocked.brush);
-  // Park the message outside the traced structure (beside or below its bounding box), never on it.
-  const xs = SCENE.blocked.base.map((v) => v[0]);
-  const ys = SCENE.blocked.base.map((v) => v[1]);
-  const left = p.project([Math.min(...xs), 0]).x;
-  const bottom = p.project([0, Math.max(...ys) + 1]).y;
-  const w = 268;
-  const room = left - 24 >= w;
-  const box = room ? { left: left - 24 - w, top: brush.y - 40 } : { left: Math.max(8, brush.x - w / 2), top: bottom + 16 };
+  const box = blockedCardBox(p, brush);
+  const w = BLOCKED_CARD.w;
   return (
     <div
       role="status"
@@ -471,6 +513,30 @@ function BlockedCallout({ p }: { p: Projector }) {
         <span className="text-bf-2xs text-bf-text-muted">re-locks after the stroke · logged</span>
       </span>
     </div>
+  );
+}
+
+/** A direct "B: none" note beside each label rater B never traced (it is outlined, not textured). */
+function BNoneTags({ p }: { p: Projector }) {
+  return (
+    <>
+      {B_NONE.map((id) => {
+        const vs = voxelsOf(SCENE.labelsA, id);
+        if (!vs.length) return null;
+        const b = bboxOf(vs);
+        const at = p.project([b.x1 + 0.6, (b.y0 + b.y1) / 2]);
+        return (
+          <span
+            key={id}
+            className="pointer-events-none absolute whitespace-nowrap rounded-sm bg-bf-bg-canvas/80 px-1 font-sans text-bf-2xs leading-4 text-bf-text-secondary"
+            style={{ left: at.x, top: at.y - 8 }}
+            data-testid="b-none-tag"
+          >
+            {LABEL_BY_ID.get(id)!.name} · B: none
+          </span>
+        );
+      })}
+    </>
   );
 }
 
@@ -561,12 +627,12 @@ function rulerRows(state: DesignState): RulerRow[] {
       const flagged = DISAGREEMENTS.filter((r) => r.flagged && r.k === k);
       const left = flagged.filter((r) => !visited.has(r.id)).length;
       const mark: Mark = flagged.length === 0 ? 'none' : left ? 'open' : 'solid';
-      return { j, k, mark, why: 'to visit', title: `k ${k} · ${flagged.length} flagged, ${flagged.length - left} visited` };
+      return { j, k, mark, why: 'visit', title: `k ${k} · ${flagged.length} flagged, ${flagged.length - left} visited` };
     }
     if (proposal) {
       const st = proposalSliceStatus(j);
       const mark: Mark = st === 'interpolated' ? 'open' : st === 'empty' ? 'none' : 'solid';
-      return { j, k, mark, key: st === 'keyframe', why: 'to review', title: `k ${k} · ${st === 'reviewed' ? 'interpolated, reviewed' : st === 'interpolated' ? 'interpolated, not reviewed' : st}` };
+      return { j, k, mark, key: st === 'keyframe', why: 'review', title: `k ${k} · ${st === 'reviewed' ? 'interpolated, reviewed' : st === 'interpolated' ? 'interpolated, not reviewed' : st}` };
     }
     const st = tracingSliceStatus(j);
     const mark: Mark = st === 'interpolated' || st === 'ai' ? 'open' : st === 'empty' ? 'none' : 'solid';
@@ -588,21 +654,25 @@ function openRuns(rows: readonly RulerRow[]): Array<{ start: number; len: number
 
 /**
  * Through-plane slice ruler on the primary's edge, in native slices (k),
- * anterior at the top. Labelled directly: open runs carry their reason
- * beside a bracket; the body-slab limits are hairlines.
+ * anterior at the top. Labelled directly with short horizontal captions
+ * beside a bracket over each open run; the body-slab limits are hairlines.
+ * Tracing and proposal: a solid bar is done, a thin hollow bar needs review.
+ * Review: a solid triangle is a visited flagged slice, a hollow one is still
+ * to visit (the same ▲ that marks flagged rows in the list).
  */
 function SliceRuler({ state }: { state: DesignState }) {
   const rows = rulerRows(state);
   const runs = openRuns(rows);
   const n = rows.length;
+  const review = state === 'review';
   return (
     <div
-      className="flex w-[62px] shrink-0 flex-col border-l border-bf-border-subtle bg-bf-bg-panel-sunken py-1"
+      className="flex w-[80px] shrink-0 flex-col border-l border-bf-border-subtle bg-bf-bg-panel-sunken py-1"
       aria-label="Slice ruler, native slices"
-      title={`Native slices k 1–${n}. Solid: done · open: needs review · hairline: empty. Jump: U next unreviewed, ⌥↓ next gap${state === 'review' ? ', N next flagged' : ''}.`}
+      title={`Native slices k 1–${n}. ${review ? 'Solid ▲: flagged, visited · hollow: to visit' : 'Solid: done · hollow: needs review'} · hairline: empty. Jump: U next unreviewed, ⌥↓ next gap${review ? ', N next flagged' : ''}.`}
       data-testid="slice-ruler"
     >
-      <span className="text-center font-mono text-bf-2xs text-bf-text-muted">A</span>
+      <span className="w-[20px] text-right font-mono text-bf-2xs text-bf-text-muted">A</span>
       <div className="relative flex min-h-0 flex-1 flex-col">
         {rows.map((r) => {
           const current = r.j === PRIMARY_J;
@@ -622,34 +692,42 @@ function SliceRuler({ state }: { state: DesignState }) {
               <span className={clsx('w-[20px] pr-0.5 text-right font-mono text-bf-2xs leading-none', current ? 'text-bf-text-primary' : 'text-bf-text-muted')}>
                 {current || r.k % 5 === 0 ? r.k : ''}
               </span>
-              <span className="flex w-[18px] items-center justify-center">
-                {r.mark === 'solid' ? (
-                  <span className="block h-[3px] w-3.5 bg-bf-text-secondary" />
-                ) : r.mark === 'open' ? (
-                  <span className="block h-[5px] w-3.5 border border-bf-text-secondary" />
-                ) : (
+              <span className="flex w-[18px] items-center justify-center" data-mark={r.mark}>
+                {r.mark === 'none' ? (
                   <span className="block h-px w-1.5 bg-bf-text-faint" />
+                ) : review ? (
+                  <svg width={9} height={8} aria-hidden data-shape="triangle">
+                    <path
+                      d="M4.5 1L8 7H1Z"
+                      className={r.mark === 'solid' ? 'fill-bf-text-secondary stroke-bf-text-secondary' : 'fill-none stroke-bf-text-secondary'}
+                      strokeWidth={1}
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : r.mark === 'solid' ? (
+                  <span className="block h-[3px] w-3.5 bg-bf-text-secondary" data-shape="bar" />
+                ) : (
+                  <span className="block h-[4px] w-3.5 border border-bf-text-secondary" data-shape="hollow-bar" />
                 )}
               </span>
-              {r.key ? <span className="font-mono text-bf-2xs leading-none text-bf-text-muted">key</span> : null}
+              {r.key ? <span className="pl-1 font-sans text-bf-2xs leading-none text-bf-text-muted">key</span> : null}
             </div>
           );
         })}
         {runs.map((run) => (
           <span
             key={run.start}
-            className="pointer-events-none absolute right-[3px] flex items-center"
+            className="pointer-events-none absolute left-[38px] flex items-center gap-[3px]"
             style={{ top: `${(run.start / n) * 100}%`, height: `${(run.len / n) * 100}%` }}
             aria-hidden
+            data-ruler-caption={run.why}
           >
-            <span className="mr-[2px] overflow-hidden whitespace-nowrap font-mono text-bf-2xs leading-none text-bf-text-muted [writing-mode:vertical-rl]">
-              {run.len * 1 >= 1 ? run.why : ''}
-            </span>
             <span className="h-[calc(100%-6px)] w-[3px] border-y border-r border-bf-text-muted" />
+            <span className="whitespace-nowrap bg-bf-bg-panel-sunken px-px font-sans text-bf-2xs leading-none text-bf-text-muted">{run.why}</span>
           </span>
         ))}
       </div>
-      <span className="text-center font-mono text-bf-2xs text-bf-text-muted">P</span>
+      <span className="w-[20px] text-right font-mono text-bf-2xs text-bf-text-muted">P</span>
     </div>
   );
 }
@@ -667,28 +745,49 @@ function sliceDir(plane: 'axial' | 'sagittal'): Point {
   return [Math.sin(t), Math.cos(t)];
 }
 
+/** Half-length of the native-slice band (mm): only near the structure. */
+const BAND_HALF_MM = 9;
+/** Margin around the structure when the orthogonal views fit it (mm). */
+const ORTHO_FIT_MARGIN_MM = 10;
+/** Gutters outside the image: the native slices meet the bottom edge in the sagittal view, the right edge in the axial. */
+const GUTTER = { sagittal: { side: 'bottom' as const, size: 16 }, axial: { side: 'right' as const, size: 34 } };
+
+/**
+ * Orthogonal views fitted to the structure (its whole extent plus 10 mm), so
+ * through-plane continuity can be checked. The primary's native slice is a
+ * faint band only near the structure; native slices, the landmark limits and
+ * the head / body / tail zones sit in a gutter outside the image.
+ */
 function hOrtho(state: DesignState): { axial: PanelProps; sagittal: PanelProps } {
   const o = orthoViews(state);
   if (state === 'empty') return o;
   const [x0, y0, z0] = CROSSHAIR_WORLD;
-  const review = state === 'review';
-  const mk = (plane: 'axial' | 'sagittal', axis: 'x' | 'y'): Overlay[] => {
+  const extent = (v: readonly LabelVoxel[]) => bboxOf(v.map(([c, r]) => [c, r] as Voxel));
+  const mk = (plane: 'axial' | 'sagittal', all: readonly LabelVoxel[]): PanelProps => {
     const at = (y: number) => worldToDisplay(plane, [x0, y, z0]);
     const dir = sliceDir(plane);
-    return [
-      // The primary's native slice (2.0 mm), tilted by the obliquity: a faint band, no edge lines.
-      { kind: 'band', through: at(y0), dir, widthMm: NATIVE.spacing[2] },
-      // Landmark limits: ticks at the frame with unboxed margin labels, parallel to the native slices.
-      { kind: 'limit', axis, at: 0, through: at(SLAB.toY), dir, ticks: true, label: 'head|body' },
-      { kind: 'limit', axis, at: 0, through: at(SLAB.fromY), dir, ticks: true, label: 'body|tail' },
-    ];
+    const box = extent(all);
+    const base = o[plane];
+    return {
+      ...base,
+      fit: { box, marginMm: ORTHO_FIT_MARGIN_MM },
+      crosshairClearBox: bboxOf(all.map(([c, r]) => [c, r] as Voxel), 2),
+      gutter: {
+        ...GUTTER[plane],
+        slices: NATIVE_SLICES_J.map((j) => ({ through: at(yOfJ(j)), current: j === PRIMARY_J })),
+        limits: [at(SLAB.toY), at(SLAB.fromY)],
+        zones: ['head', 'body', 'tail'],
+      },
+      overlays: [
+        // The primary's native slice (2.0 mm), tilted by the obliquity: a faint fill near the structure, no edge lines.
+        { kind: 'band', through: at(y0), dir, widthMm: NATIVE.spacing[2], lengthMm: BAND_HALF_MM },
+        ...(base.overlays ?? []),
+      ],
+    };
   };
-  const labelsAx = review ? DESIGN.labels.axAll : DESIGN.labels.axTraced;
-  const labelsSag = review ? DESIGN.labels.sagAll : DESIGN.labels.sagTraced;
-  const box = (v: readonly (readonly [number, number, number])[]) => bboxOf(v.map(([c, r]) => [c, r] as Voxel), 2);
   return {
-    axial: { ...o.axial, crosshairClearBox: box(labelsAx), overlays: [...mk('axial', 'y'), ...(o.axial.overlays ?? [])] },
-    sagittal: { ...o.sagittal, crosshairClearBox: box(labelsSag), overlays: [...mk('sagittal', 'x'), ...(o.sagittal.overlays ?? [])] },
+    axial: mk('axial', DESIGN.labels.axAll),
+    sagittal: mk('sagittal', DESIGN.labels.sagAll),
   };
 }
 
@@ -697,14 +796,21 @@ function OrthoHeader({ image, slab = true }: { image: SliceImage; slab?: boolean
   return (
     <span
       className="flex min-w-0 items-baseline gap-2 whitespace-nowrap text-bf-xs"
-      title={`Resliced in the world frame; the band is the primary's native slice (2.0 mm), tilted ${NATIVE.tiltDeg[plane]}° (simulated obliquity)`}
+      title={`Resliced in the world frame, fitted to the structure; the band is the primary's native slice (2.0 mm), tilted ${NATIVE.tiltDeg[plane]}° (simulated obliquity). Gutter: one tick per native slice (k ${SLICE_K} longer), the head | body | tail limits.`}
     >
       <span className="text-bf-text-primary">{PLANE_NAME[image.plane]}</span>
       <span className="font-mono text-bf-text-secondary">
         {PLANE_AXIS[image.plane]} {fmtMm(slicePositionMm(image.plane, image.index))}
       </span>
       <span className="text-bf-text-muted">
-        world frame{slab ? <span className="max-[1366px]:hidden"> · slab ∠{NATIVE.tiltDeg[plane]}°</span> : null}
+        {slab ? (
+          <>
+            <span className="max-[1366px]:hidden">world frame · slab ∠{NATIVE.tiltDeg[plane]}°</span>
+            <span className="min-[1367px]:hidden">world · ∠{NATIVE.tiltDeg[plane]}°</span>
+          </>
+        ) : (
+          'world frame'
+        )}
       </span>
     </span>
   );
@@ -712,24 +818,30 @@ function OrthoHeader({ image, slab = true }: { image: SliceImage; slab?: boolean
 
 // ---------------------------------------------------------- bottom band
 
-function ReferenceTile() {
-  const j = 106;
+/** The pack's example at the primary's native position (k-matched), CA1 complete; mock: the template's own labels. */
+const REFERENCE_J = PRIMARY_J;
+
+function ReferenceTile({ fovMm = 40 }: { fovMm?: number }) {
   return (
     <SliceView
-      image={DESIGN.images.cor(j)}
+      image={DESIGN.images.cor(REFERENCE_J)}
       center={SCENE.hippoCentre}
-      fovMm={40}
+      fovMm={fovMm}
       letters={false}
-      overlays={OVERLAYS.labels(DESIGN.labels.cor(j), CA1, { fill: false })}
-      aria-label={`Reference example, coronal k ${kOf(j)}`}
+      overlays={OVERLAYS.labels(DESIGN.labels.cor(REFERENCE_J), CA1, { fill: false })}
+      aria-label={`Reference example, coronal k ${kOf(REFERENCE_J)}`}
     />
   );
 }
 
-/** Multi-contrast only: the linked contrasts at the primary's zoom and centre; crosshair as edge ticks. */
+/**
+ * Multi-contrast only: the linked contrasts at the primary's zoom and centre
+ * (crosshair as edge ticks) and the reference. The T2w tile is gone (the
+ * primary is the T2w), so three tiles share the width.
+ */
 function ContrastStrip({ fovMm }: { fovMm: number }) {
-  const strip = stripViews('multi-contrast');
-  const titles = ['tracing', 'linked · 1.0 mm', ''];
+  const strip = stripViews('multi-contrast').slice(1);
+  const titles = ['linked · 1.0 mm', ''];
   return (
     <div className="flex h-full min-h-0 flex-col bg-bf-bg-canvas" data-testid="contrast-strip">
       <div className="flex h-6 shrink-0 items-center gap-3 border-b border-bf-border-subtle bg-bf-bg-panel-sunken px-2 text-bf-xs">
@@ -737,9 +849,11 @@ function ContrastStrip({ fovMm }: { fovMm: number }) {
         <span className="font-mono text-bf-2xs text-bf-text-muted" data-testid="strip-caption">
           k {SLICE_K} · same slice, centre and zoom ({zoomFactor(fovMm)})
         </span>
-        <span className="ml-auto whitespace-nowrap text-bf-2xs text-bf-text-muted">hold Space: flicker T2w ↔ T1w in the primary</span>
+        <span className="ml-auto whitespace-nowrap text-bf-2xs text-bf-text-muted" title="Hold Space: flicker T2w ↔ T1w in the primary">
+          Space: flicker
+        </span>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-4 gap-px bg-bf-border-subtle">
+      <div className="grid min-h-0 flex-1 grid-cols-3 gap-px bg-bf-border-subtle">
         {strip.map((v, i) => (
           <ViewportFrame
             key={v.image.key}
@@ -752,16 +866,16 @@ function ContrastStrip({ fovMm }: { fovMm: number }) {
             }
             headerRight={v.image.viewOnly ? <LensBadge /> : null}
           >
-            <SliceView {...v} fovMm={fovMm} crosshairTicks letters={false} aria-label={`${v.image.contrast}, ${CONTRASTS[i].role}`} />
+            <SliceView {...v} fovMm={fovMm} crosshairTicks letters={false} aria-label={`${v.image.contrast}, ${CONTRASTS[i + 1].role}`} />
           </ViewportFrame>
         ))}
         <section aria-label="Reference example" className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-bf-bg-canvas">
           <div className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap border-b border-bf-border-subtle bg-bf-bg-panel-sunken px-2 text-bf-xs">
             <span className="text-bf-text-primary">Reference</span>
-            <span className="text-bf-text-muted">pack example · k {kOf(106)}</span>
+            <span className="text-bf-text-muted">pack example · k {kOf(REFERENCE_J)}</span>
           </div>
           <div className="relative min-h-0 flex-1">
-            <ReferenceTile />
+            <ReferenceTile fovMm={fovMm} />
           </div>
         </section>
       </div>
@@ -793,6 +907,7 @@ function TraceLayout({ state }: { state: DesignState }) {
                 <>
                   {state === 'blocked' ? <BlockedCallout p={p} /> : null}
                   {review ? <CommentPin p={p} /> : null}
+                  {review ? <BNoneTags p={p} /> : null}
                 </>
               )}
             />
@@ -917,20 +1032,23 @@ function StepProgress({ current }: { current: number }) {
   );
 }
 
-/** C's protocol step, collapsed to one summary line once the step is open (rules and reference behind the chevron). */
+/** The open check the rule text speaks to (the first one not done). */
+const OPEN_CHECKS = PROTOCOL.ca1Checks.filter((c) => !c.done);
+const CHECK_RULE: Record<string, number> = { 'CA1/subiculum line drawn': 2, 'Every body slice from y −32 to −16': 0 };
+
+/** C's protocol step, collapsed to one summary line (the rule for the next open check; all rules behind the chevron). */
 function StepCard({ state }: { state: DesignState }) {
   const review = state === 'review';
   const cur = review ? PROTOCOL.steps.length - 1 : PROTOCOL.currentStep;
-  const left = PROTOCOL.ca1Checks.filter((c) => !c.done).length;
   const summary = review
     ? 'Visit flagged first: the CA1/subiculum line and the SRLM ends.'
-    : `Rule 1 · ${PROTOCOL.ca1Checks[0].text.toLowerCase()} · ${left} checks left${state === 'multi-contrast' ? ' · reference in the strip' : ''}`;
+    : 'Rule 2 · medial border: from the SRLM tip straight down to the white matter';
   return (
     <div className="flex flex-col border-b border-bf-border-subtle bg-bf-bg-panel-raised" data-testid="step-card" data-collapsed="true">
       <button
         type="button"
         aria-expanded={false}
-        title={review ? 'Show the review protocol' : `Show the rules, reference and checks:\n${PROTOCOL.ca1Rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`}
+        title={review ? 'Show the review protocol' : `Show every rule:\n${PROTOCOL.ca1Rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`}
         className="flex h-8 items-center gap-2 px-3 text-left hover:bg-bf-bg-hover"
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-bf-text-muted" aria-hidden />
@@ -943,85 +1061,404 @@ function StepCard({ state }: { state: DesignState }) {
           <StepProgress current={cur} />
         </span>
       </button>
-      <div className="px-3 pb-2 pl-[34px] text-bf-2xs text-bf-text-muted">{summary}</div>
+      <div className="truncate px-3 pb-2 pl-[34px] text-bf-2xs text-bf-text-muted" title={PROTOCOL.ca1Rules[1]}>
+        {summary}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The step's way forward, under the collapsed card: the open checks, a small
+ * k-matched reference and "Mark CA1 complete" (disabled until the checks are
+ * done). The multi-contrast layout shows the reference in its strip instead.
+ */
+function StepNext({ state }: { state: DesignState }) {
+  const thumb = state !== 'multi-contrast';
+  const done = PROTOCOL.ca1Checks.length - OPEN_CHECKS.length;
+  return (
+    <div className="flex gap-2.5 border-b border-bf-border-subtle px-3 py-2" data-testid="step-next">
+      {thumb ? (
+        <div
+          className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-sm border border-bf-border-subtle"
+          title={`Pack example at k ${kOf(REFERENCE_J)}, CA1 complete (click to enlarge)`}
+          data-testid="reference-thumb"
+        >
+          <ReferenceTile fovMm={24} />
+        </div>
+      ) : null}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-bf-xs" aria-label="Open checks">
+          {OPEN_CHECKS.map((c) => (
+            <li key={c.text} className="flex min-w-0 items-center gap-1.5 text-bf-text-secondary" data-check="open">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-[1px] border border-bf-text-muted" aria-hidden />
+              <span className="truncate" title={CHECK_RULE[c.text] ? PROTOCOL.ca1Rules[CHECK_RULE[c.text] - 1] : undefined}>
+                {c.text === 'Every body slice from y −32 to −16' ? `Every body slice, k ${kOf(jOfY(SLAB.fromY))}–${kOf(jOfY(SLAB.toY))}` : c.text}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <span className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled
+            title={`Finish the ${OPEN_CHECKS.length} open checks first. Marking complete locks CA1 and shows labels × slices for a last look.`}
+          >
+            Mark CA1 complete
+          </Button>
+          <span className="whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted">
+            {done}/{PROTOCOL.ca1Checks.length} checks
+          </span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+type MatrixEmphasis = 'active' | 'inactive' | 'quiet';
+const MATRIX_OPACITY: Record<MatrixEmphasis, number> = { active: 0.9, inactive: 0.45, quiet: 0.32 };
+
+/**
+ * Small multiples by native slice: one row of bars per label on one shared k
+ * axis, in the slice ruler's order (anterior k 20 first, as the ruler reads
+ * top to bottom), k 11 marked through every row. The active row is in full
+ * colour, the others muted. A missing bar is a slice with nothing on it.
+ */
+function SliceMatrix({
+  rows,
+  caption,
+  testId,
+}: {
+  rows: ReadonlyArray<{ id: number; values: readonly number[]; emphasis: MatrixEmphasis; note?: string }>;
+  caption: React.ReactNode;
+  testId: string;
+}) {
+  // One column per native slice in viewBox units; the rows stretch to the Inspector's width.
+  const col = 10;
+  const rowH = 20;
+  const W = N_SLICES * col;
+  // Ruler order: k 20 (anterior) at the left.
+  const xOfK = (k: number) => (N_SLICES - k) * col;
+  const pct = (k: number) => `${((xOfK(k) + col / 2) / W) * 100}%`;
+  const curX = xOfK(SLICE_K) + col / 2;
+  return (
+    <div className="flex flex-col gap-1 px-3 py-2" data-testid={testId}>
+      <span className="text-bf-2xs text-bf-text-muted">{caption}</span>
+      <div className="flex flex-col">
+        {rows.map((r) => {
+          const def = LABEL_BY_ID.get(r.id)!;
+          const max = Math.max(1, ...r.values);
+          return (
+            <div key={r.id} className="flex items-center gap-2" style={{ height: rowH }} data-matrix-row={r.id} data-emphasis={r.emphasis}>
+              <span
+                className={clsx(
+                  'w-[64px] shrink-0 truncate text-bf-2xs',
+                  r.emphasis === 'active' ? 'font-medium text-bf-text-primary' : 'text-bf-text-muted',
+                )}
+              >
+                {def.name}
+              </span>
+              <span className="relative block h-full min-w-0 flex-1">
+                <svg
+                  viewBox={`0 0 ${W} ${rowH}`}
+                  preserveAspectRatio="none"
+                  aria-label={`${def.name} by native slice`}
+                  className="absolute inset-0 block h-full w-full"
+                >
+                  <line x1={0} x2={W} y1={rowH - 1.5} y2={rowH - 1.5} className="stroke-bf-text-faint" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                  <line x1={curX} x2={curX} y1={0} y2={rowH} className="stroke-bf-text-muted" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                  {r.values.map((v, i) =>
+                    v > 0 ? (
+                      <rect
+                        key={i}
+                        x={xOfK(i + 1) + 1}
+                        width={col - 2}
+                        y={rowH - 2 - (v / max) * (rowH - 5)}
+                        height={(v / max) * (rowH - 5)}
+                        style={{ fill: def.color }}
+                        opacity={MATRIX_OPACITY[r.emphasis]}
+                        data-bar
+                      />
+                    ) : null,
+                  )}
+                </svg>
+                {r.note ? <span className="absolute bottom-[3px] left-1 text-bf-2xs leading-none text-bf-text-muted">{r.note}</span> : null}
+              </span>
+              <span className="w-2 shrink-0" aria-hidden />
+            </div>
+          );
+        })}
+        <div className="flex items-start gap-2" aria-hidden>
+          <span className="w-[64px] shrink-0 text-right font-mono text-bf-2xs leading-4 text-bf-text-faint">A</span>
+          <span className="relative block h-4 min-w-0 flex-1 font-mono text-bf-2xs leading-4">
+            {[20, 15, 10, 5, 1]
+              .filter((k) => Math.abs(k - SLICE_K) > 1)
+              .map((k) => (
+                <span key={k} className="absolute -translate-x-1/2 text-bf-text-faint" style={{ left: pct(k) }}>
+                  {k}
+                </span>
+              ))}
+            <span className="absolute -translate-x-1/2 text-bf-text-primary" style={{ left: pct(SLICE_K) }} data-current-k>
+              {SLICE_K}
+            </span>
+          </span>
+          <span className="w-2 shrink-0 font-mono text-bf-2xs leading-4 text-bf-text-faint">P</span>
+        </div>
+      </div>
     </div>
   );
 }
 
 function LabelsSection({ state }: { state: DesignState }) {
-  const paint = isPaint(state);
   const labels = sessionLabels(
     Object.fromEntries(
       [...LABEL_BY_ID.keys()].map((id) => [
         id,
         {
           ...(id === CA1 && state === 'proposal' ? { status: 'proposal' as const } : {}),
-          ...(id !== CA1 && id !== 4 && id !== 5 ? { lockReason: `Locked: step ${id === 6 ? 3 : id === 3 ? 4 : 5} complete` } : {}),
+          ...(id !== CA1 && id !== 4 && id !== 5 ? { lockReason: `Complete and locked: step ${id === 6 ? 3 : id === 3 ? 4 : 5}` } : {}),
         },
       ]),
     ),
   );
   return (
-    <Section
-      title="Labels"
-      meta="6"
-      variant="static"
-      divider={false}
-      actions={
-        <span className="flex items-center gap-0.5">
-          <TextToggle pressed={paint} title={paint ? 'Outline only while drawing, so the borders you trace are not tinted (O; hold F for fills)' : 'Outline only (O)'}>
-            Outline only
-          </TextToggle>
-          <TextToggle pressed={paint && state !== 'blocked'} title={`Neighbour slice: CA1 on k ${kOf(PREV_J)} as a grey line (hold , for k ${kOf(NEXT_J)})`}>
-            Neighbour
-          </TextToggle>
-          <IconButton aria-label="New label" title="New label" icon={<Plus />} size="sm" variant="ghost" />
-        </span>
-      }
-      bodyClassName="px-0"
-    >
-      <LabelList
-        labels={labels}
-        activeId={CA1}
-        grid={GRID}
-        showEye={false}
-        renderSpark={(l) =>
-          l.id === CA1 ? (
-            <Sparkline
-              values={areaByNativeSlice(l.id)}
-              current={SLICE_INDEX}
-              color={l.color}
-              width={N_SLICES * 4}
-              height={14}
-              variant="bars"
-              label={`${l.name} area by native slice (a gap is an untraced slice)`}
-            />
-          ) : null
+    <>
+      <Section
+        title="Labels"
+        meta="6"
+        variant="static"
+        divider={false}
+        actions={
+          <span className="flex items-center gap-0.5">
+            <TextToggle
+              pressed={false}
+              title="Outline only (O): drop the active label's faint fill. Hold F for fills on every label."
+            >
+              Outline only
+            </TextToggle>
+            <TextToggle
+              pressed={isPaint(state) && state !== 'blocked'}
+              title={`Neighbour slice (,): CA1 on k ${kOf(PREV_J)} as a faint grey line where it departs from k ${SLICE_K}; hold , for k ${kOf(NEXT_J)}`}
+            >
+              Neighbour
+            </TextToggle>
+            <IconButton aria-label="New label" title="New label" icon={<Plus />} size="sm" variant="ghost" />
+          </span>
         }
+        bodyClassName="px-0"
+      >
+        <LabelList labels={labels} activeId={CA1} grid={GRID} showEye={false} lockDisplay="departures" />
+      </Section>
+      <SliceMatrix
+        testId="slice-matrix"
+        caption={
+          <span title="Area per native slice, one row per label on the slice ruler's axis (anterior left). A gap is a slice with nothing traced. Click a bar to go to that slice.">
+            Area by native slice
+          </span>
+        }
+        rows={LABEL_DEFS.map((d) => ({
+          id: d.id,
+          values: areaByNativeSlice(d.id),
+          emphasis: d.id === CA1 ? 'active' : QUIET_LABELS.includes(d.id) ? 'quiet' : 'inactive',
+          note: areaByNativeSlice(d.id).every((v) => v === 0) ? 'not started' : undefined,
+        }))}
       />
-    </Section>
+    </>
   );
 }
 
-function ReviewInspector() {
+function fmtDelta(v: number | null): string {
+  if (v === null) return 'n/a';
+  const t = `${Math.abs(v).toFixed(0)}%`;
+  return v > 0.5 ? `+${t}` : v < -0.5 ? `−${t}` : '0%';
+}
+
+/** Label · Dice · Δ only; HD95 and the per-slice rows are behind a disclosure. */
+function AgreementTable() {
   return (
-    <div className="flex flex-col gap-3 py-2.5">
-      <div className="px-3">
-        <ReviewLegend vertical toggle />
-      </div>
-      <div className="flex flex-col gap-1 border-t border-bf-border-subtle px-3 pt-2.5">
-        <span className="text-bf-xs text-bf-text-secondary">Agreement · whole structure, {N_SLICES} native slices</span>
-        <DiceTable columns="inspector" voxelMm3={NATIVE.voxelMm3} currentSlice={SLICE_INDEX} />
-      </div>
-      <div className="flex flex-col gap-1.5 border-t border-bf-border-subtle pt-2.5">
-        <div className="px-3">
-          <DisagreementNav />
-        </div>
-        <DisagreementList limit={6} />
-      </div>
-      <div className="border-t border-bf-border-subtle px-3 pt-2.5">
+    <table className="w-full border-collapse text-bf-xs" data-testid="agreement-table">
+      <thead>
+        <tr className="text-bf-2xs text-bf-text-muted">
+          <th className="py-0.5 text-left font-normal">Label</th>
+          <th className="w-14 py-0.5 text-right font-normal">Dice</th>
+          <th className="w-16 py-0.5 text-right font-normal" title="(B − A) / A">
+            Δ B−A
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {REVIEW_ROWS.map((d) => {
+          const def = LABEL_BY_ID.get(d.label)!;
+          const low = d.dice !== null && d.dice < DICE_THRESHOLD;
+          return (
+            <tr key={d.label} className="text-bf-text-secondary">
+              <td className="py-0.5">
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <Swatch color={def.color} size={8} />
+                  {def.name}
+                </span>
+              </td>
+              <td className={clsx('py-0.5 text-right font-mono tabular-nums', low ? 'text-bf-warning' : d.dice === null ? 'text-bf-text-muted' : 'text-bf-text-primary')}>
+                {d.dice === null ? 'n/a' : d.dice.toFixed(2)}
+                <span className="inline-block w-3 text-center">{low ? '▲' : ''}</span>
+              </td>
+              <td className="py-0.5 text-right font-mono tabular-nums">
+                {d.volB ? fmtDelta(d.deltaPct) : <span className="font-sans text-bf-text-muted">B: none</span>}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/** Rater A's volume and HD95 split into in-plane and through-plane columns (no "1.0/2" fraction). */
+function Hd95Table() {
+  return (
+    <table className="w-full border-collapse text-bf-xs" data-testid="hd95-table">
+      <thead>
+        <tr className="text-bf-2xs text-bf-text-muted">
+          <th className="py-0.5 text-left font-normal">Label</th>
+          <th className="w-14 py-0.5 text-right font-normal">A mm³</th>
+          <th className="w-16 py-0.5 text-right font-normal" title="HD95 in mm, within the slice">
+            HD95 in
+          </th>
+          <th className="w-16 py-0.5 text-right font-normal" title="HD95 in mm, across slices: whole 2.0 mm native slices (mock)">
+            HD95 thru
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {REVIEW_ROWS.map((d) => (
+          <tr key={d.label} className="text-bf-text-secondary">
+            <td className="py-0.5">{LABEL_BY_ID.get(d.label)!.name}</td>
+            <td className="py-0.5 text-right font-mono tabular-nums">{fmtInt(d.volA * NATIVE.voxelMm3)}</td>
+            <td className="py-0.5 text-right font-mono tabular-nums">{d.hd95InPlane === null ? <span className="font-sans text-bf-text-muted">n/a</span> : d.hd95InPlane.toFixed(1)}</td>
+            <td className="py-0.5 text-right font-mono tabular-nums">{d.hd95Through === null ? <span className="font-sans text-bf-text-muted">n/a</span> : d.hd95Through.toFixed(1)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** The texture legend, shown on hover of "Both" and inside the details. */
+const TEXTURE_LEGEND = 'Rater A (you): solid, label colour · rater B: grey dash, only where it departs · A only: dots · B only: dense hatch · relabelled: crossed. Labels B did not trace are outlined only.';
+
+function DisagreementHeader() {
+  return (
+    <div className="flex items-center gap-1 px-3">
+      <span className="text-bf-xs text-bf-text-secondary">Disagreements</span>
+      <span className="font-mono text-bf-2xs tabular-nums text-bf-text-muted" title={`▲ flagged: a protocol landmark or ≥ ${FLAG_MIN_VX} vx; listed first`}>
+        {REVIEW_NAV.total} · ▲ {REVIEW_NAV.flagged} flagged
+      </span>
+      <span className="ml-auto flex items-center gap-0.5">
+        <IconButton aria-label="Previous disagreement" title="Previous flagged disagreement (⇧N)" icon={<ChevronLeft />} variant="ghost" size="sm" />
+        <IconButton aria-label="Next disagreement" title="Next flagged disagreement (N)" icon={<ChevronRight />} variant="ghost" size="sm" />
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Review in the order the decision needs it: the disagreements (one header,
+ * the flagged list), then the note and the decision (the only progress
+ * count, next to Approve), then agreement as Label · Dice · Δ with HD95, the
+ * per-slice rows and the texture legend behind a disclosure.
+ */
+function ReviewInspector() {
+  const visited = new Set(REVIEW_NAV.visitedIds);
+  const shown = DISAGREEMENTS.slice(0, 6);
+  return (
+    <div className="flex flex-col gap-2.5 py-2.5" data-testid="review-inspector">
+      <section className="flex flex-col gap-1" data-review-part="disagreements">
+        <DisagreementHeader />
+        <ol className="m-0 flex list-none flex-col p-0" aria-label="Disagreement regions">
+          {shown.map((r) => {
+            const def = LABEL_BY_ID.get(r.label)!;
+            const current = r.id === REVIEW_NAV.current;
+            return (
+              <li key={r.id} aria-current={current ? 'true' : undefined} data-flagged={r.flagged || undefined}>
+                <SelectableRow selected={current} tabIndex={current ? 0 : -1} className={clsx('min-h-6 gap-2 text-bf-xs', current ? 'text-bf-text-primary' : 'text-bf-text-secondary')}>
+                  <span className="w-3 shrink-0 text-center">{visited.has(r.id) ? <Check className="h-3 w-3 text-bf-text-secondary" aria-label="visited" /> : null}</span>
+                  <span className="w-9 shrink-0 font-mono text-bf-2xs tabular-nums text-bf-text-muted">k {r.k}</span>
+                  <Swatch color={def.color} size={8} />
+                  <span className="min-w-0 flex-1 truncate">
+                    {def.name}
+                    {r.landmark ? <span className="text-bf-text-muted"> · {r.landmark}</span> : null}
+                  </span>
+                  <span className="w-10 shrink-0 text-right font-mono text-bf-2xs tabular-nums text-bf-text-muted">{r.vx} vx</span>
+                  <span className="w-2.5 shrink-0 text-bf-2xs text-bf-text-secondary">{r.flagged ? '▲' : ''}</span>
+                </SelectableRow>
+              </li>
+            );
+          })}
+        </ol>
+        <span className="px-3 text-bf-2xs text-bf-text-muted" title="Smaller regions away from the protocol landmarks">
+          {DISAGREEMENTS.length - shown.length} more below
+        </span>
+      </section>
+      <section className="border-t border-bf-border-subtle px-3 pt-2.5" data-review-part="decision">
         <ReviewDecision />
-      </div>
+      </section>
+      <section className="flex flex-col gap-1.5 border-t border-bf-border-subtle px-3 pt-2.5" data-review-part="agreement">
+        <div className="flex items-center gap-2">
+          <span className="text-bf-xs text-bf-text-secondary">Agreement</span>
+          <span className="text-bf-2xs text-bf-text-muted">whole structure</span>
+          <SegmentedControl
+            aria-label="Raters shown"
+            size="sm"
+            value="both"
+            onValueChange={() => undefined}
+            options={[
+              { value: 'a', label: 'A' },
+              { value: 'b', label: 'B' },
+              { value: 'both', label: 'Both' },
+            ]}
+            className="ml-auto"
+            title={`Show rater A, rater B or both (A / B / ⇧B). ${TEXTURE_LEGEND}`}
+          />
+        </div>
+        <AgreementTable />
+        <details className="text-bf-2xs text-bf-text-muted" data-testid="review-details">
+          <summary className="cursor-pointer select-none text-bf-text-secondary">Volumes, HD95, by slice and legend</summary>
+          <div className="flex flex-col gap-2 pt-1.5">
+            <Hd95Table />
+            <div className="-mx-3">
+              <SliceMatrix
+                testId="review-matrix"
+                caption="Disagreeing voxels by native slice"
+                rows={REVIEW_ROWS.map((r) => ({
+                  id: r.label,
+                  values: r.bySlice,
+                  emphasis: r.dice !== null && r.dice < DICE_THRESHOLD ? 'active' : 'inactive',
+                  note: r.volB ? undefined : 'B: none',
+                }))}
+              />
+            </div>
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1" data-rater="b">
+              <span className="flex items-center gap-1.5">
+                <LineSample color={labelColor(CA1)} />A solid
+              </span>
+              <span className="flex items-center gap-1.5">
+                <LineSample dashed muted />B where it departs
+              </span>
+              <span className="flex items-center gap-1">
+                <TextureSwatch kind="a-only" />A only
+              </span>
+              <span className="flex items-center gap-1">
+                <TextureSwatch kind="b-only" />B only
+              </span>
+              <span className="flex items-center gap-1">
+                <TextureSwatch kind="relabelled" />relabelled
+              </span>
+            </span>
+            <span>▲ Dice &lt; {DICE_THRESHOLD.toFixed(2)} · Δ = (B − A) / A · ERC: not traced by B (outlined only)</span>
+          </div>
+        </details>
+      </section>
     </div>
   );
 }
@@ -1061,7 +1498,14 @@ function Inspector({ state }: { state: DesignState }) {
           <>
             <SessionHeader state={state} />
             <StepCard state={state} />
-            {state === 'review' ? <ReviewInspector /> : <LabelsSection state={state} />}
+            {state === 'review' ? (
+              <ReviewInspector />
+            ) : (
+              <>
+                <StepNext state={state} />
+                <LabelsSection state={state} />
+              </>
+            )}
           </>
         )}
       </div>

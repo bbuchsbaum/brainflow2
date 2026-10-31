@@ -9,7 +9,7 @@
  * the written voxels are the same set at every zoom.
  */
 
-import type { LabelVoxel, Plane, Point, Voxel } from './types';
+import type { LabelState, LabelVoxel, Plane, Point, Voxel } from './types';
 
 /** Grid of the MNI152NLin2009cAsym 1 mm template (origin of voxel 0,0,0). */
 const ORIGIN = [-96, -132, -78] as const;
@@ -392,4 +392,167 @@ export interface CountGrid {
 export function formatVolume(voxels: number, grid: CountGrid = { voxelMm3: 1 }): string {
   if (Math.abs(grid.voxelMm3 - 1) < 1e-9) return `${fmtInt(voxels)} mm³`;
   return `${fmtInt(voxels)} vx · ${fmtInt(voxels * grid.voxelMm3)} mm³`;
+}
+
+// ---------------------------------------------------------------------------
+// Round 3: inner-edge label strokes. Every label strokes the inner edge of
+// its own voxels, so on a shared edge both labels show, each in its own
+// colour on its own side; emphasis levels set width and opacity.
+
+export type InnerSide = 'top' | 'bottom' | 'left' | 'right';
+
+/** One boundary edge of a label, on the inside of the voxel that owns it. */
+export interface InnerEdge {
+  c: number;
+  r: number;
+  side: InnerSide;
+}
+
+/**
+ * Boundary edges of one label (every edge where the neighbour is another
+ * label or background), each attributed to the label's own voxel. A shared
+ * edge between labels 1 and 2 appears once for each, on opposite sides.
+ */
+export function innerEdges(voxels: readonly LabelVoxel[], label: number): InnerEdge[] {
+  const at = labelIndex(voxels);
+  const out: InnerEdge[] = [];
+  for (const [c, r, l] of voxels) {
+    if (l !== label) continue;
+    if ((at.get(key(c, r - 1)) ?? 0) !== l) out.push({ c, r, side: 'top' });
+    if ((at.get(key(c, r + 1)) ?? 0) !== l) out.push({ c, r, side: 'bottom' });
+    if ((at.get(key(c - 1, r)) ?? 0) !== l) out.push({ c, r, side: 'left' });
+    if ((at.get(key(c + 1, r)) ?? 0) !== l) out.push({ c, r, side: 'right' });
+  }
+  return out;
+}
+
+const n4 = (v: number) => +v.toFixed(4);
+
+/**
+ * Filled SVG path of the band between `t0` and `t1` (display units, measured
+ * inward from the edge; a negative `t0` reaches outside) along a label's
+ * inner edges, plus the concave corners the edge bands leave open.
+ */
+export function innerBandPath(voxels: readonly LabelVoxel[], label: number, t0: number, t1: number): string {
+  const at = labelIndex(voxels);
+  const own = (c: number, r: number) => (at.get(key(c, r)) ?? 0) === label;
+  const rect = (x: number, y: number, w: number, h: number) => `M${n4(x)} ${n4(y)}h${n4(w)}v${n4(h)}h${n4(-w)}z`;
+  const parts: string[] = [];
+  const t = t1 - t0;
+  for (const e of innerEdges(voxels, label)) {
+    const { c, r } = e;
+    if (e.side === 'top') parts.push(rect(c, r + t0, 1, t));
+    else if (e.side === 'bottom') parts.push(rect(c, r + 1 - t1, 1, t));
+    else if (e.side === 'left') parts.push(rect(c + t0, r, t, 1));
+    else parts.push(rect(c + 1 - t1, r, t, 1));
+  }
+  // Concave corners: both side neighbours belong to the label, the diagonal does not.
+  for (const [c, r, l] of voxels) {
+    if (l !== label) continue;
+    for (const [dc, dr] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+      if (own(c + dc, r) && own(c, r + dr) && !own(c + dc, r + dr)) {
+        // The square within t1 of the corner, less the square within t0 (an L when t0 > 0).
+        const a = Math.max(0, t0);
+        const x = dc > 0 ? c + 1 - t1 : c;
+        const y = dr > 0 ? r + 1 - t1 : r;
+        if (a === 0) parts.push(rect(x, y, t1, t1));
+        else {
+          const w = t1 - a;
+          // Strip along the far side (full t1 height), then the remaining strip.
+          parts.push(rect(dc > 0 ? x : c + a, y, w, t1));
+          parts.push(rect(dc > 0 ? c + 1 - a : c, dr > 0 ? y : r + a, a, w));
+        }
+      }
+    }
+  }
+  return parts.join('');
+}
+
+/** Voxels of a label whose eight neighbours all share it: the fill inset by one voxel. */
+export function insetVoxels(voxels: readonly LabelVoxel[], label: number): Voxel[] {
+  const at = labelIndex(voxels);
+  const out: Voxel[] = [];
+  for (const [c, r, l] of voxels) {
+    if (l !== label) continue;
+    let inside = true;
+    for (let dr = -1; dr <= 1 && inside; dr++)
+      for (let dc = -1; dc <= 1; dc++) if ((at.get(key(c + dc, r + dr)) ?? 0) !== label) inside = false;
+    if (inside) out.push([c, r]);
+  }
+  return out;
+}
+
+/** Unlabelled voxels enclosed by labels (not connected to the outside through unlabelled voxels). */
+export function enclosedGaps(voxels: readonly LabelVoxel[]): Voxel[] {
+  if (!voxels.length) return [];
+  const at = labelIndex(voxels);
+  const { x0, y0, x1, y1 } = bboxOf(voxels.map(([c, r]) => [c, r] as Voxel), 1);
+  const outside = new Set<string>();
+  const stack: Voxel[] = [[x0, y0]];
+  outside.add(key(x0, y0));
+  while (stack.length) {
+    const [c, r] = stack.pop()!;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const [nc, nr] = [c + dc, r + dr];
+      if (nc < x0 || nr < y0 || nc >= x1 || nr >= y1) continue;
+      const k = key(nc, nr);
+      if (outside.has(k) || at.has(k)) continue;
+      outside.add(k);
+      stack.push([nc, nr]);
+    }
+  }
+  const out: Voxel[] = [];
+  for (let r = y0; r < y1; r++) for (let c = x0; c < x1; c++) if (!at.has(key(c, r)) && !outside.has(key(c, r))) out.push([c, r]);
+  return out;
+}
+
+/** Emphasis of a label's stroke: the active label, the other labels, and complete or locked ones (quieter). */
+export type LabelEmphasis = 'active' | 'inactive' | 'quiet' | 'plain';
+
+/** Stroke width (screen px) and opacity per emphasis level. */
+export const LABEL_STROKE: Readonly<Record<LabelEmphasis, { width: number; opacity: number }>> = {
+  active: { width: 1.5, opacity: 1 },
+  inactive: { width: 1, opacity: 0.58 },
+  quiet: { width: 1, opacity: 0.46 },
+  plain: { width: 1, opacity: 1 },
+};
+
+/** Faint fill of the active label, inset by one voxel so the traced edge stays untinted. */
+export const ACTIVE_FILL_ALPHA = 0.1;
+
+/** With no active label every stroke is plain; otherwise active, quiet (complete/locked) or inactive. */
+export function labelEmphasis(id: number, active: readonly number[], quiet: readonly number[] = []): LabelEmphasis {
+  if (!active.length) return 'plain';
+  if (active.includes(id)) return 'active';
+  return quiet.includes(id) ? 'quiet' : 'inactive';
+}
+
+/**
+ * The neighbour slice's outline only where it departs from the current
+ * slice's by more than `tol` voxels (edge midpoints, Chebyshev distance):
+ * where the two agree the line would only double the label's own.
+ */
+export function neighbourDeparturePath(prev: readonly Voxel[], cur: readonly Voxel[], tol = 1): string {
+  const mids = (vs: readonly Voxel[]) => {
+    const set = new Set(vs.map(([c, r]) => key(c, r)));
+    const out: Array<{ x: number; y: number; d: string }> = [];
+    for (const [c, r] of vs) {
+      if (!set.has(key(c, r - 1))) out.push({ x: c + 0.5, y: r, d: `M${c} ${r}h1` });
+      if (!set.has(key(c, r + 1))) out.push({ x: c + 0.5, y: r + 1, d: `M${c} ${r + 1}h1` });
+      if (!set.has(key(c - 1, r))) out.push({ x: c, y: r + 0.5, d: `M${c} ${r}v1` });
+      if (!set.has(key(c + 1, r))) out.push({ x: c + 1, y: r + 0.5, d: `M${c + 1} ${r}v1` });
+    }
+    return out;
+  };
+  const a = mids(prev);
+  const b = mids(cur);
+  return a
+    .filter((e) => b.every((f) => Math.max(Math.abs(e.x - f.x), Math.abs(e.y - f.y)) > tol))
+    .map((e) => e.d)
+    .join('');
+}
+
+/** Whether a label's lock departs from what its status implies (complete means locked). */
+export function lockDeparts(label: Pick<LabelState, 'status' | 'locked'>): boolean {
+  return label.status === 'complete' ? !label.locked : label.locked;
 }
