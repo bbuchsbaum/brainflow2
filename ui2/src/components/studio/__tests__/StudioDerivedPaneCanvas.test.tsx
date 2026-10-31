@@ -155,8 +155,12 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
   it('a click puts the crosshair in the Studio workspace, not the one in front', async () => {
     const setCrosshair = vi.spyOn(useViewStateStore.getState(), 'setCrosshair').mockResolvedValue();
     render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/z2.nii.gz" label="Z" workspaceId={STUDIO} />);
-    fireEvent.click(await screen.findByTestId('pane-viewport'));
-    expect(setCrosshair).toHaveBeenCalledWith([3, -4, 5], true, false, STUDIO);
+    await screen.findByTestId('pane-viewport');
+    // Once the pane's plane is drawn, a click maps through it.
+    await waitFor(() => {
+      fireEvent.click(screen.getByTestId('pane-viewport'));
+      expect(setCrosshair).toHaveBeenCalledWith([3, -4, 5], true, false, STUDIO);
+    });
     setCrosshair.mockRestore();
   });
 
@@ -236,5 +240,29 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     expect(bar.dataset.colormap).toBe('fmri');
     // Symmetric about zero for the mean, its near-zero band hidden.
     expect(bar.getAttribute('aria-label')).toMatch(/−2 to 2, −0\.2 to 0\.2 hidden/);
+  });
+
+  it('after a plane switch, clicks wait for the new plane instead of using the old one (review of 456128a2)', async () => {
+    const setCrosshair = vi.spyOn(useViewStateStore.getState(), 'setCrosshair').mockResolvedValue();
+    const pane = (plane: 'axial' | 'coronal') => (
+      <StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/plane.nii.gz" label="Z" workspaceId={STUDIO} plane={plane} />
+    );
+    const view = render(pane('axial'));
+    await waitFor(() => expect(api.applyAndRenderViewState).toHaveBeenCalled());
+    // The axial plane is drawn: a click maps through it.
+    await waitFor(() => {
+      fireEvent.click(screen.getByTestId('pane-viewport'));
+      expect(setCrosshair).toHaveBeenCalledTimes(1);
+    });
+    // Switch to coronal while its render never lands.
+    api.applyAndRenderViewState.mockImplementation(() => new Promise(() => {}));
+    view.rerender(pane('coronal'));
+    await waitFor(() =>
+      expect(api.applyAndRenderViewState.mock.calls.at(-1)?.[1]).toBe('coronal'),
+    );
+    fireEvent.click(screen.getByTestId('pane-viewport'));
+    // No crosshair set through the stale axial plane.
+    expect(setCrosshair).toHaveBeenCalledTimes(1);
+    setCrosshair.mockRestore();
   });
 });

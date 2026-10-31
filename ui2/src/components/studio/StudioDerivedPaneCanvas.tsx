@@ -141,14 +141,18 @@ export function StudioDerivedPaneCanvas({
   );
   const timepoint = useViewStateStore((state) => state.getWorkspaceViewState(workspaceId).timepoint);
   const tag = studioPaneTag(paneId, plane);
-  const [viewPlane, setViewPlane] = useState<ViewPlane | null>(null);
+  // The plane last drawn, with the tag it was drawn for: after a plane
+  // switch, clicks, the crosshair and ↑/↓ wait for the new plane's render
+  // instead of using the old one (review of 456128a2).
+  const [drawn, setDrawn] = useState<{ tag: string; plane: ViewPlane } | null>(null);
+  const viewPlane = drawn && drawn.tag === tag ? drawn.plane : null;
   useEffect(() => {
     if (!studioActive || !map || !layer || size.width <= 0 || size.height <= 0) return;
     let alive = true;
     scheduleStudioPaneRender(
       { tag, workspaceId, map, layers, plane, width: size.width, height: size.height },
-      (drawn) => {
-        if (alive) setViewPlane(drawn);
+      (plane) => {
+        if (alive) setDrawn({ tag, plane });
       },
     );
     return () => {
@@ -222,6 +226,8 @@ export function StudioDerivedPaneCanvas({
           crosshairStyle={crosshairStyle}
           mirrorX={mirrorX}
           onWorldClick={(world) => {
+            // No click mapping until this plane has been drawn.
+            if (!viewPlane) return;
             void useViewStateStore.getState().setCrosshair(world, true, false, workspaceId);
           }}
           className="h-full w-full"

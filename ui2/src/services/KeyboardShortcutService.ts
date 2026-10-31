@@ -141,7 +141,14 @@ function modifiersMatch(
 }
 
 class KeyboardShortcutService {
+  /** The registration in effect per id (the latest still registered). */
   private registrations: Map<string, ShortcutRegistration> = new Map();
+  /**
+   * Every live registration per id, oldest first. Views register shared ids
+   * (`view.fit`, `toggle-orientation-labels`) once per mounted view; one
+   * view unmounting must not remove the shortcut the others still hold.
+   */
+  private holders: Map<string, ShortcutRegistration[]> = new Map();
   private initialized = false;
 
   init(): void {
@@ -154,13 +161,16 @@ class KeyboardShortcutService {
     window.removeEventListener('keydown', this.handleKeyDown);
     this.initialized = false;
     this.registrations.clear();
+    this.holders.clear();
   }
 
   register(reg: ShortcutRegistration): UnregisterFn {
-    if (this.registrations.has(reg.id)) {
-      console.warn(`[KeyboardShortcutService] Overwriting shortcut id="${reg.id}"`);
+    const current = this.registrations.get(reg.id);
+    if (current && shortcutChord(current) !== shortcutChord(reg)) {
+      console.warn(`[KeyboardShortcutService] Overwriting shortcut id="${reg.id}" with another key`);
     }
     const full: ShortcutRegistration = { priority: 0, ...reg };
+    this.holders.set(reg.id, [...(this.holders.get(reg.id) ?? []), full]);
     this.registrations.set(reg.id, full);
     for (const [a, b] of findShortcutConflicts(this.registrations.values())) {
       if (a.id === reg.id || b.id === reg.id) {
@@ -169,15 +179,30 @@ class KeyboardShortcutService {
         );
       }
     }
-    return () => this.unregister(reg.id);
+    // Removes this registration only; another holder of the id takes over.
+    return () => this.release(reg.id, full);
   }
 
+  private release(id: string, reg: ShortcutRegistration): void {
+    const rest = (this.holders.get(id) ?? []).filter((r) => r !== reg);
+    if (rest.length > 0) {
+      this.holders.set(id, rest);
+      if (this.registrations.get(id) === reg) this.registrations.set(id, rest[rest.length - 1]);
+    } else {
+      this.holders.delete(id);
+      if (this.registrations.get(id) === reg) this.registrations.delete(id);
+    }
+  }
+
+  /** Remove every registration of `id`, whoever made it (tests, teardown). */
   unregister(id: string): void {
     this.registrations.delete(id);
+    this.holders.delete(id);
   }
 
   unregisterAll(): void {
     this.registrations.clear();
+    this.holders.clear();
   }
 
   /** Unconditional registrations that share a chord (see findShortcutConflicts). */

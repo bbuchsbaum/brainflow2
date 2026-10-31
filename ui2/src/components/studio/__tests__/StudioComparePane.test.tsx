@@ -50,4 +50,47 @@ describe('Studio Compare pane text (QA F8)', () => {
     expect(screen.getByText('Map ready.')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/brainflow_set_studio_cache|\/var\//);
   });
+
+  it('a long title shrinks inside its header, and a clipped footer carries its full provenance (review of 456128a2)', () => {
+    const longTitle = 'All members of the matched controls cohort, Site A, scanner 2 (n=72)';
+    const pane = {
+      id: 'cohort-mean',
+      title: longTitle,
+      subtitle: 'Mean',
+      status: 'ready',
+      reason: null,
+      recipe: 'reducer: Mean; norm: z',
+      binding: { kind: 'derived_field', ready: true, cacheStatus: 'hit', sourcePath: '/x.nii.gz' },
+    } as unknown as StudioComparePaneSpec;
+    render(
+      <StudioComparePane
+        letter="B"
+        accent="emerald"
+        pane={pane}
+        fallbackTitle="Cohort mean"
+        fallbackSubtitle=""
+        selected={false}
+        isRefreshing={false}
+        isAnyLoading={false}
+        cohortMemberCount={72}
+        cohortLabel="All members"
+        cohortId={null}
+        activeMemberId="s01"
+        activeSet={{ supportLabel: 'MNI152NLin2009cAsym (2mm)' } as never}
+      />,
+    );
+    const title = screen.getByText(longTitle);
+    expect(title.className).toContain('min-w-0');
+    expect(title.className).toContain('truncate');
+    expect(title.className).not.toContain('shrink-0');
+    expect(title.parentElement!.className).toContain('overflow-hidden');
+    const footer = screen.getByRole('article').querySelector('footer')!;
+    expect(footer.getAttribute('title')).toBe(
+      'n=72 · Reducer Mean · Norm z · Support MNI152NLin2009cAsym (2mm)',
+    );
+    // The last chip truncates instead of clipping at the pane edge.
+    const support = screen.getByTitle('Support MNI152NLin2009cAsym (2mm)');
+    expect(support.className).toMatch(/\bshrink\b/);
+    expect(support.className).toContain('min-w-0');
+  });
 });

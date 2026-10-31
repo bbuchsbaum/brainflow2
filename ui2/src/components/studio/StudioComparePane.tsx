@@ -90,6 +90,15 @@ export function StudioComparePane({
   const normalization = parseRecipeField(pane?.recipe ?? null, 'norm');
   const threshold = parseRecipeField(pane?.recipe ?? null, 'threshold');
   const supportLabel = activeSet?.supportLabel ?? null;
+  const provenanceTitle = [
+    memberCountText,
+    reducer ? `Reducer ${reducer}` : null,
+    normalization ? `Norm ${normalization}` : null,
+    threshold ? `Threshold ${threshold}` : null,
+    supportLabel ? `Support ${supportLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <article
@@ -108,8 +117,8 @@ export function StudioComparePane({
           >
             {letter}
           </span>
-          <div className="flex min-w-0 items-baseline gap-2" title={`${title} · ${subtitle}`}>
-            <span className={`shrink-0 truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</span>
+          <div className="flex min-w-0 items-baseline gap-2 overflow-hidden" title={`${title} · ${subtitle}`}>
+            <span className={`min-w-0 max-w-full truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</span>
             <span className="min-w-0 truncate text-bf-xs text-muted-foreground">{subtitle}</span>
           </div>
         </div>
@@ -134,7 +143,11 @@ export function StudioComparePane({
       </div>
 
       {/* Footer provenance chips */}
-      <footer className="flex flex-nowrap items-center gap-1.5 overflow-hidden border-t border-border bg-card/80 px-2 py-1 text-bf-xs text-muted-foreground">
+      <footer
+        className="flex flex-nowrap items-center gap-1.5 overflow-hidden border-t border-border bg-card/80 px-2 py-1 text-bf-xs text-muted-foreground"
+        // The chips clip in a narrow pane: the full provenance is here.
+        title={provenanceTitle}
+      >
         {letter !== 'A' && cohortId && onDrillToCohort ? (
           <Button
             variant="secondary"
@@ -153,15 +166,16 @@ export function StudioComparePane({
         {reducer ? <FactChip label="Reducer" value={reducer} /> : null}
         {normalization ? <FactChip label="Norm" value={normalization} /> : null}
         {threshold ? <FactChip label="Threshold" value={threshold} /> : null}
-        {supportLabel ? <FactChip label="Support" value={supportLabel} /> : null}
+        {supportLabel ? <FactChip label="Support" value={supportLabel} shrink /> : null}
       </footer>
     </article>
   );
 }
 
-function FactChip({ label, value }: { label: string; value: string }) {
+function FactChip({ label, value, shrink = false }: { label: string; value: string; shrink?: boolean }) {
+  // The last chip (Support) truncates rather than clip at the pane edge.
   return (
-    <Chip title={`${label} ${value}`}>
+    <Chip title={`${label} ${value}`} className={shrink ? 'min-w-0 shrink truncate' : 'shrink-0'}>
       <span className="text-muted-foreground">{label}</span>{' '}
       <span className="text-foreground">{value}</span>
     </Chip>
