@@ -1164,8 +1164,6 @@ mod tests {
             "bids-explorer"
         );
         assert!(navigation_menu_action("workspace_orthogonal_locked").is_none());
-        // Module tools come from the UI's menu model, not a fixed id.
-        assert!(navigation_menu_action("workspace_analysis").is_none());
     }
 
     fn module_item(command: &str, label: &str, path: &str) -> ModuleMenuItem {
@@ -1179,7 +1177,7 @@ mod tests {
     #[test]
     fn module_menu_items_are_placed_in_order_with_prefixed_ids() {
         let planned = plan_module_menu_items(&[
-            module_item("analysis.open", " Analysis ", "view/workspace"),
+            module_item("tracts.open", " Tracts ", "view/workspace"),
             module_item("segmentation.segment", "Segment", "view/workspace"),
         ])
         .expect("valid model");
@@ -1187,8 +1185,8 @@ mod tests {
             planned,
             vec![
                 PlannedModuleMenuItem {
-                    id: "module_command:analysis.open".into(),
-                    label: "Analysis".into(),
+                    id: "module_command:tracts.open".into(),
+                    label: "Tracts".into(),
                     path: ModuleMenuPath::ViewWorkspace,
                 },
                 PlannedModuleMenuItem {
@@ -1203,19 +1201,19 @@ mod tests {
 
     #[test]
     fn module_menu_model_is_rejected_whole_when_an_item_is_invalid() {
-        let ok = module_item("analysis.open", "Analysis", "view/workspace");
+        let ok = module_item("tracts.open", "Tracts", "view/workspace");
         for (bad, why) in [
             (module_item("open", "Open", "view/workspace"), "namespaced"),
             (
-                module_item("Analysis.open", "Open", "view/workspace"),
+                module_item("Tracts.open", "Open", "view/workspace"),
                 "namespaced",
             ),
             (
-                module_item("analysis.", "Open", "view/workspace"),
+                module_item("tracts.", "Open", "view/workspace"),
                 "namespaced",
             ),
             (
-                module_item("analysis.open", "Again", "view/workspace"),
+                module_item("tracts.open", "Again", "view/workspace"),
                 "twice",
             ),
             (module_item("seg.x", "  ", "view/workspace"), "label"),
@@ -1241,12 +1239,12 @@ mod tests {
     #[test]
     fn module_menu_clicks_emit_the_command_id() {
         assert_eq!(
-            module_command_payload("module_command:analysis.open").unwrap(),
-            serde_json::json!({ "command": "analysis.open" })
+            module_command_payload("module_command:tracts.open").unwrap(),
+            serde_json::json!({ "command": "tracts.open" })
         );
         assert!(module_command_payload("module_command:not-namespaced").is_none());
         assert!(module_command_payload("workspace_bids").is_none());
-        assert!(module_command_payload("analysis.open").is_none());
+        assert!(module_command_payload("tracts.open").is_none());
     }
 
     /// main.rs registers the host command, keeps the Workspace submenu for
@@ -1265,10 +1263,11 @@ mod tests {
             .expect("module command arm");
         assert!(main_rs[arm..].contains("menu_builder::module_command_payload(id)"));
         assert!(main_rs[arm..].contains("menu_builder::MODULE_COMMAND_EVENT"));
+        // Module tools are not fixed View › Workspace items (see the count in
+        // every_navigation_menu_id_has_an_action).
         // The arm must come before the generic prefix arms that could swallow it.
         let template_arm = main_rs.find("id if id.starts_with(\"template_\")").unwrap();
         assert!(arm < template_arm);
-        assert!(!main_rs.contains("workspace_analysis"));
     }
 
     /// Every Templates-menu item must name a catalog entry; otherwise the click

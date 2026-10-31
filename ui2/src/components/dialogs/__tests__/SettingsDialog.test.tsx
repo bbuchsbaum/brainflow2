@@ -74,6 +74,20 @@ describe('SettingsDialog', () => {
     expect(within(pinned).getByRole('checkbox', { name: 'Analysis' })).not.toBeChecked();
   });
 
+  it('does not list desktop-only modules in the browser host', async () => {
+    const { setTransport, getConfiguredTransport, MockTransport } = await import('@/services/transport');
+    const previous = getConfiguredTransport();
+    setTransport({ host: 'browser', invoke: vi.fn() } as never);
+    try {
+      render(<SettingsDialog onClose={() => {}} />);
+      const modules = screen.getByRole('group', { name: 'Modules' });
+      expect(within(modules).queryByRole('switch', { name: 'Analysis' })).toBeNull();
+      expect(within(modules).getByRole('switch', { name: 'Fixture' })).toBeInTheDocument();
+    } finally {
+      setTransport(previous ?? new MockTransport());
+    }
+  });
+
   it('Top bar: pins tools and chooses startup tabs', () => {
     render(<SettingsDialog onClose={() => {}} />);
     const topBar = screen.getByRole('group', { name: 'Top bar' });
