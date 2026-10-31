@@ -34,6 +34,22 @@ export function labelColor(id: number): string {
   return LABEL_BY_ID.get(id)?.color ?? 'rgb(255 255 255)';
 }
 
+/**
+ * Label volumes, one source of truth (vx on the reference grid). `final` is
+ * rater A's submitted version (every label complete), the one review
+ * compares against rater B; `now` is the mid-session state the tracing
+ * screens show. Labels already complete mid-session have `now === final`,
+ * so the label list and the review table never disagree about them.
+ */
+export const LABEL_VOLUMES: Readonly<Record<number, { now: number; final: number; complete: boolean }>> = Object.fromEntries(
+  [CA1, CA23, DG, SUB, ERC, SRLM].map((id) => {
+    const final = DESIGN.review.labels[String(id)]?.volA ?? 0;
+    const complete = id === CA23 || id === DG || id === SRLM;
+    const now = complete ? final : id === ERC ? 0 : (DESIGN.counts[String(id)] ?? 0);
+    return [id, { now, final, complete }];
+  }),
+);
+
 /** The label table mid-session: DG, SRLM and CA2/3 done and locked, CA1 active. */
 export function sessionLabels(overrides: Partial<Record<number, Partial<LabelState>>> = {}): LabelState[] {
   const base: Record<number, Partial<LabelState>> = {
@@ -45,7 +61,7 @@ export function sessionLabels(overrides: Partial<Record<number, Partial<LabelSta
     [SRLM]: { status: 'complete', locked: true, lockReason: 'Marked complete' },
   };
   return LABEL_DEFS.map((def) => {
-    const voxels = def.id === ERC ? 0 : (DESIGN.counts[String(def.id)] ?? 0);
+    const voxels = LABEL_VOLUMES[def.id]?.now ?? 0;
     return {
       ...def,
       voxels,
@@ -166,6 +182,12 @@ export const NATIVE = {
   plane: 'native oblique ⊥ long axis',
   /** One native slice spans two template slices (j step). */
   stepJ: 2,
+  /**
+   * Simulated obliquity of the native slices against the world axes, as the
+   * orthogonal (world-frame) views see them: in the sagittal view the slice
+   * leans ⊥ the hippocampal long axis; in the axial view it yaws slightly.
+   */
+  tiltDeg: { sagittal: 30, axial: 12 },
   voxelMm3: 0.4 * 0.4 * 2.0,
 };
 
@@ -210,9 +232,14 @@ export function proposalSliceStatus(j: number): SliceStatus {
   return i < INTERP.reviewed ? 'reviewed' : 'interpolated';
 }
 
-/** Area by native slice for one label (traced labels, or all for review). */
-export function areaByNativeSlice(label: number, source: 'traced' | 'all' = 'traced'): number[] {
-  const rows = DESIGN.area[source][String(label)] ?? [];
+/**
+ * Area by native slice for one label. `now` follows `LABEL_VOLUMES` (complete
+ * labels over their whole extent, labels in progress where traced so far);
+ * `all` is rater A's final version.
+ */
+export function areaByNativeSlice(label: number, source: 'now' | 'traced' | 'all' = 'now'): number[] {
+  const src = source === 'now' ? (LABEL_VOLUMES[label]?.complete ? 'all' : 'traced') : source;
+  const rows = label === ERC && source === 'now' ? [] : (DESIGN.area[src][String(label)] ?? []);
   return NATIVE_SLICES_J.map((j) => rows[j - J0] ?? 0);
 }
 
@@ -224,6 +251,9 @@ export interface ReviewRow {
   /** Signed (B − A) / A, percent; null when A is empty. */
   deltaPct: number | null;
   hd95: number | null;
+  /** HD95 split by direction (mm): in-plane, and through-plane in whole 2.0 mm slices (mock). */
+  hd95InPlane: number | null;
+  hd95Through: number | null;
   /** Disagreeing voxels by native slice (navigation sparkline). */
   bySlice: number[];
   /** Why the row has no Dice. */
@@ -243,13 +273,73 @@ export const REVIEW_ROWS: readonly ReviewRow[] = LABEL_DEFS.map((def) => {
     volB: r?.volB ?? 0,
     deltaPct: r && r.volA > 0 ? ((r.volB - r.volA) / r.volA) * 100 : null,
     hd95: r?.hd95 ?? null,
+    hd95InPlane: r?.hd95 ?? null,
+    hd95Through: r?.hd95 == null ? null : Math.ceil(r.hd95 / NATIVE.spacing[2] - 1e-9) * NATIVE.spacing[2],
     bySlice: NATIVE_SLICES_J.map((j) => rows[j - DESIGN.review.j[0]] ?? 0),
     note: r && r.volB === 0 ? 'not traced by B' : undefined,
   };
 });
 
-/** Disagreement regions on native slices (navigation), and the review position. */
+export interface DisagreementRegion {
+  id: number;
+  /** Native slice index (1-based, k). */
+  k: number;
+  label: number;
+  vx: number;
+  /** A protocol landmark the region touches (flagged regardless of size). */
+  landmark?: string;
+  flagged: boolean;
+}
+
+/** Regions of at least this many voxels are flagged for review (stated in the list). */
+export const FLAG_MIN_VX = 15;
+
+const LANDMARK: Partial<Record<number, string>> = { [SUB]: 'CA1/subiculum line', [SRLM]: 'medial end' };
+
+/**
+ * Disagreement regions on native slices (mock, derived from the review
+ * statistics): one region per label that disagrees on a slice, up to the
+ * slice's region count. Flagged = touches a protocol landmark or is at least
+ * `FLAG_MIN_VX`; landmarks first, then size-only flags, then the rest, each
+ * by size. Approve waits for the flagged.
+ */
+export const DISAGREEMENTS: readonly DisagreementRegion[] = (() => {
+  const out: Omit<DisagreementRegion, 'id'>[] = [];
+  NATIVE_SLICES_J.forEach((j, i) => {
+    const n = DESIGN.review.regionsBySlice[String(j)] ?? 0;
+    const cands = LABEL_DEFS.map((d) => ({ label: d.id, vx: DESIGN.review.labels[String(d.id)]?.disagreeBySlice[j - DESIGN.review.j[0]] ?? 0 }))
+      .filter((c) => c.vx > 0 && (DESIGN.review.labels[String(c.label)]?.volB ?? 0) > 0)
+      .sort((a, b) => b.vx - a.vx || a.label - b.label)
+      .slice(0, n);
+    for (const c of cands) {
+      const landmark = j >= 104 && j <= 116 ? LANDMARK[c.label] : undefined;
+      out.push({ k: i + 1, label: c.label, vx: c.vx, landmark, flagged: !!landmark || c.vx >= FLAG_MIN_VX });
+    }
+  });
+  // Flagged first (landmarks before size-only), then by size.
+  const rank = (r: Omit<DisagreementRegion, 'id'>) => (r.landmark ? 2 : r.flagged ? 1 : 0);
+  return out
+    .sort((a, b) => rank(b) - rank(a) || b.vx - a.vx || a.k - b.k)
+    .map((r, i) => ({ ...r, id: i + 1 }));
+})();
+
+/**
+ * Review position: the region under the cursor is the flagged one on the
+ * primary slice; the gate counts flagged regions only, and every counter
+ * (inspector, ruler, list) reads from here.
+ */
 export const REVIEW_NAV = (() => {
-  const total = NATIVE_SLICES_J.reduce((n, j) => n + (DESIGN.review.regionsBySlice[String(j)] ?? 0), 0);
-  return { total, visited: 3, current: 3 };
+  const flaggedIds = DISAGREEMENTS.filter((r) => r.flagged).map((r) => r.id);
+  const primaryK = NATIVE_SLICES_J.indexOf(DESIGN.primaryJ) + 1;
+  const here = DISAGREEMENTS.find((r) => r.flagged && r.k === primaryK) ?? DISAGREEMENTS[0];
+  const visitedIds = [...new Set([flaggedIds[0], flaggedIds[1], here.id])];
+  return {
+    total: DISAGREEMENTS.length,
+    flagged: flaggedIds.length,
+    visited: visitedIds.length,
+    visitedIds,
+    current: here.id,
+    /** Position of the current region in the flagged order (1-based). */
+    currentFlagged: flaggedIds.indexOf(here.id) + 1,
+  };
 })();

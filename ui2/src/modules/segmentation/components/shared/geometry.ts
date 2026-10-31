@@ -205,6 +205,18 @@ export function components(voxels: readonly Voxel[]): Voxel[][] {
   return groups.sort((x, y) => y.length - x.length);
 }
 
+/** Bounding box of a voxel set (display coords), grown by `marginMm` on every side. */
+export function bboxOf(voxels: readonly Voxel[], marginMm = 0): { x0: number; y0: number; x1: number; y1: number } {
+  const xs = voxels.map((v) => v[0]);
+  const ys = voxels.map((v) => v[1]);
+  return {
+    x0: Math.min(...xs) - marginMm,
+    y0: Math.min(...ys) - marginMm,
+    x1: Math.max(...xs) + 1 + marginMm,
+    y1: Math.max(...ys) + 1 + marginMm,
+  };
+}
+
 /** Bounding-box centre of a voxel set (display coords). */
 export function centreOf(voxels: readonly Voxel[]): Point {
   const xs = voxels.map((v) => v[0]);

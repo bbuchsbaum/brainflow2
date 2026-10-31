@@ -66,6 +66,8 @@ export interface LabelRowProps {
   spark?: React.ReactNode;
   /** Read-only rows (review) hide the lock. */
   readOnly?: boolean;
+  /** Show the eye toggle (default true; lean rows move visibility to the context menu). */
+  showEye?: boolean;
 }
 
 export function LabelRow({
@@ -80,6 +82,7 @@ export function LabelRow({
   grid,
   spark,
   readOnly = false,
+  showEye = true,
 }: LabelRowProps) {
   const compact = density === 'compact';
   return (
@@ -122,12 +125,14 @@ export function LabelRow({
         </span>
       ) : null}
       <span role="gridcell" className="flex shrink-0 items-center">
-        <IconButton
-          aria-label={`${label.visible ? 'Hide' : 'Show'} ${label.name}`}
-          icon={label.visible ? <Eye /> : <EyeOff />}
-          tabIndex={-1}
-          className={compact ? 'h-5 w-5' : undefined}
-        />
+        {showEye ? (
+          <IconButton
+            aria-label={`${label.visible ? 'Hide' : 'Show'} ${label.name}`}
+            icon={label.visible ? <Eye /> : <EyeOff />}
+            tabIndex={-1}
+            className={compact ? 'h-5 w-5' : undefined}
+          />
+        ) : null}
         {readOnly ? null : (
           <IconButton
             aria-label={`${label.locked ? 'Unlock' : 'Lock'} ${label.name}`}
@@ -155,6 +160,7 @@ export interface LabelListProps {
   grid?: CountGrid;
   renderSpark?: (label: LabelState) => React.ReactNode;
   readOnly?: boolean;
+  showEye?: boolean;
   'aria-label'?: string;
   className?: string;
 }
@@ -171,6 +177,7 @@ export function LabelList({
   grid,
   renderSpark,
   readOnly,
+  showEye,
   'aria-label': ariaLabel = 'Labels',
   className,
 }: LabelListProps) {
@@ -190,6 +197,7 @@ export function LabelList({
           grid={grid}
           spark={renderSpark?.(l)}
           readOnly={readOnly}
+          showEye={showEye}
         />
       ))}
     </div>

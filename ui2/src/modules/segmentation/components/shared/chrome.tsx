@@ -50,7 +50,18 @@ export function Swatch({
 }
 
 /** Line sample for legends: solid or dashed, in a data colour or neutral. */
-export function LineSample({ dashed, color, width = 18 }: { dashed?: boolean; color?: string; width?: number }) {
+export function LineSample({
+  dashed,
+  color,
+  width = 18,
+  muted = false,
+}: {
+  dashed?: boolean;
+  color?: string;
+  width?: number;
+  /** Mid-grey (rater B, neighbour slices) instead of the primary ink. */
+  muted?: boolean;
+}) {
   return (
     <svg width={width} height={8} aria-hidden className="shrink-0">
       <line
@@ -58,9 +69,9 @@ export function LineSample({ dashed, color, width = 18 }: { dashed?: boolean; co
         y1={4}
         x2={width - 1}
         y2={4}
-        strokeWidth={1.75}
+        strokeWidth={muted ? 1.25 : 1.75}
         strokeDasharray={dashed ? '4 3' : undefined}
-        className={color ? undefined : 'stroke-bf-text-primary'}
+        className={color ? undefined : muted ? 'stroke-bf-text-muted' : 'stroke-bf-text-primary'}
         style={color ? { stroke: color } : undefined}
       />
     </svg>

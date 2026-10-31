@@ -20,11 +20,11 @@ const pick = (v: string | undefined, all: string[]) =>
 const DIRECTIONS: Record<string, string> = { a: 'Workstation', b: 'Reading room', c: 'Protocol-guided', h: 'Hybrid' };
 const STATES: Array<[string, string]> = [
   ['empty', 'Empty session: T2w and T1w loaded, no segmentation yet'],
-  ['tracing', 'Tracing: brush mid-stroke on coronal T2w, constraint strip, label list'],
+  ['tracing', 'Tracing: brush mid-stroke on the oblique coronal T2w, constraint strip, label list'],
   ['multi-contrast', 'Multi-contrast Trace layout: primary, two orthogonal panels, linked contrast strip'],
   ['blocked', 'Blocked stroke: painting CA1 over the locked DG; the UI explains why nothing happened'],
-  ['proposal', 'Fill-between-slices proposal: dashed/hatched CA1, Confirm CA1, keyframes, proposal undo'],
-  ['review', 'Review mode: rater A solid, rater B dashed, disagreement, navigation, approve/return'],
+  ['proposal', 'Fill-between-slices proposal: hatched CA1 with a thin solid outline, accept per slice, keyframes, proposal undo'],
+  ['review', 'Review mode: rater A solid, rater B dashed where it departs, disagreement textures, flagged navigation, approve/return'],
   ['zoom', 'Zoomed tracing: 6x with voxel grid and the exact brush footprint'],
 ];
 const VARIANTS: Array<[string, number, number]> = [

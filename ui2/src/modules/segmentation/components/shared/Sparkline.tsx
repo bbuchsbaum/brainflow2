@@ -25,6 +25,12 @@ export interface SparklineProps {
   onPick?: (index: number) => void;
   /** Mark columns (e.g. flagged slices) with a stronger baseline tick. */
   marks?: readonly number[];
+  /**
+   * `line` (default): a line of the value. `bars`: one stepped bar per slice
+   * with a gap between slices, so a slice with no value is a visible hole
+   * (a smoothed line would hide it).
+   */
+  variant?: 'line' | 'bars';
   className?: string;
 }
 
@@ -38,6 +44,7 @@ export function Sparkline({
   label,
   onPick,
   marks = [],
+  variant = 'line',
   className,
 }: SparklineProps) {
   const n = values.length;
@@ -77,19 +84,40 @@ export function Sparkline({
             strokeWidth={1}
           />
         ))}
-        <path d={area} className={color ? undefined : 'fill-bf-text-secondary'} style={color ? { fill: color } : undefined} fillOpacity={0.18} />
-        <path
-          d={d}
-          fill="none"
-          className={color ? undefined : 'stroke-bf-text-secondary'}
-          style={color ? { stroke: color } : undefined}
-          strokeWidth={1.25}
-          strokeLinejoin="round"
-        />
+        {variant === 'bars' ? (
+          <g data-bars>
+            {values.map((v, i) =>
+              v > 0 ? (
+                <rect
+                  key={i}
+                  x={i * col + 0.5}
+                  width={Math.max(1, col - 1)}
+                  y={y(v)}
+                  height={base - y(v)}
+                  className={color ? undefined : 'fill-bf-text-secondary'}
+                  style={color ? { fill: color } : undefined}
+                  fillOpacity={0.85}
+                />
+              ) : null,
+            )}
+          </g>
+        ) : (
+          <>
+            <path d={area} className={color ? undefined : 'fill-bf-text-secondary'} style={color ? { fill: color } : undefined} fillOpacity={0.18} />
+            <path
+              d={d}
+              fill="none"
+              className={color ? undefined : 'stroke-bf-text-secondary'}
+              style={color ? { stroke: color } : undefined}
+              strokeWidth={1.25}
+              strokeLinejoin="round"
+            />
+          </>
+        )}
         {current !== undefined ? (
           <g data-current>
             <line x1={x(current)} x2={x(current)} y1={1} y2={height} className="stroke-bf-text-primary" strokeWidth={1} />
-            <circle cx={x(current)} cy={y(values[current] ?? 0)} r={1.75} className="fill-bf-text-primary" />
+            {variant === 'line' ? <circle cx={x(current)} cy={y(values[current] ?? 0)} r={1.75} className="fill-bf-text-primary" /> : null}
           </g>
         ) : null}
       </svg>

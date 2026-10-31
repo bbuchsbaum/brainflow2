@@ -21,7 +21,8 @@ yet: editing is not implemented.
     chosen direction; fixes to shared rendering reach every direction.
   - `components/shared/`: pieces every direction uses: `SliceView` (SVG over
     the slice PNG; square pixels, nearest-neighbour voxels, partition
-    labels, review encoding, brush footprint), `geometry.ts` (display/world
+    labels, review encoding, brush footprint, crosshair clear box and edge
+    ticks, tilted slab band, tick landmarks), `geometry.ts` (display/world
     mm, the brush rule "voxel centre inside the disc", the constraint gate,
     partition edges, review encoding, crosshair gap, native brush readout,
     Approve gate), `LabelList`, `Sparkline`, `ConstraintStrip`, proposal and
@@ -40,22 +41,31 @@ yet: editing is not implemented.
 - **Contracts the mocks already follow** (keep them when the UI ships):
   labels in a layer are an exclusive partition drawn with one constant fill
   alpha (at most 0.25) and outlines only at label boundaries, each shared
-  edge once (outline-only is a toggle); the crosshair opens a gap of at
-  least three brush radii while a paint tool is active; review draws rater A
-  once (solid, label colour), rater B only where it departs (neutral dash),
-  and disagreement as achromatic textures (A only, B only, relabelled), never
-  a proposal hatch; Return is the default and Approve waits until every
-  disagreement was visited; volumes show mm³ on a 1 mm grid and vx plus mm³
+  edge once (outline-only is a toggle); the crosshair is a solid hairline
+  that opens a gap of at least three brush radii while a paint tool is
+  active and (direction H) stays out of the edited structure's extent in
+  every state, as edge ticks only in small tiles; a dash means rater B and
+  nothing else (neighbour slices are a thin neutral line, proposals a thin
+  solid outline plus hatch, open ruler marks hollow boxes); review draws
+  rater A once (solid, label colour), rater B only where it departs
+  (mid-grey dash), and disagreement as achromatic textures told apart by
+  form (A only dots, B only dense hatch, relabelled crossed), never a
+  proposal hatch; Return is the default and Approve waits until every
+  flagged disagreement (a protocol landmark or at least `FLAG_MIN_VX`) was
+  visited; label volumes come from `LABEL_VOLUMES` only (labels complete
+  mid-session equal the reviewed version); volumes show mm³ on a 1 mm grid and vx plus mm³
   otherwise; the brush preview is the exact voxel set the brush writes, drawn
   as filled voxels with a neutral voxel-edge outline; locks never
-  depend on visibility; a refused stroke says why at the cursor and in the
-  constraint strip; proposals use the target label's colour (dashed outline,
-  hatch) and a confirm button that names the label; proposal undo is separate
+  depend on visibility; a refused stroke says why once, at the cursor (plus
+  a "Blocked" status chip); proposals use the target label's colour (thin
+  solid outline, hatch) and a confirm button that names the label; proposal undo is separate
   from document undo; colour is data only (label swatches, images, semantic
   status), chrome is achromatic; the crosshair is green with a dark halo and
   the brush outline neutral white.
 - **Tests:** `__tests__/` here (geometry, gate, scenes; `round1.test.tsx`
   for the partition renderer, crosshair gap, review encoding, Approve gate
-  and native readouts); the shell side
+  and native readouts; `round2.test.tsx` for the crosshair clear box and
+  ticks, dash discipline, single-source volumes, per-slice bars, the
+  flagged review gate and direction H's cuts); the shell side
   (registration, stage, every direction x state renders) is in
   `../__tests__/segmentation.test.tsx`.

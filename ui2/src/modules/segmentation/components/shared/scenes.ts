@@ -148,11 +148,15 @@ export const OVERLAYS = {
   withStroke(voxels: readonly LabelVoxel[], written: readonly Voxel[], label = CA1): LabelVoxel[] {
     return paintInto(voxels, written, label);
   },
-  /** Proposal: added voxels only, hatched in the target colour with a dashed outline; locked skips marked. */
+  /**
+   * Proposal: added voxels only, hatched in the target colour with a thin
+   * solid outline (the hatch says "proposed"; dashes belong to rater B);
+   * locked voxels the contour skipped are marked.
+   */
   proposal(voxels: readonly Voxel[], label = CA1, skipped: readonly Voxel[] = []): Overlay[] {
     return [
       { kind: 'voxels', voxels, color: labelColor(label), hatch: true, opacity: 0.85 },
-      { kind: 'voxels', voxels, color: labelColor(label), outline: true, dashed: true, width: 1.5 },
+      { kind: 'voxels', voxels, color: labelColor(label), outline: true, width: 1 },
       ...(skipped.length ? [{ kind: 'marks', voxels: skipped } as Overlay] : []),
     ];
   },

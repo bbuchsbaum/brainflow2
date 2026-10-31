@@ -36,7 +36,7 @@ export function primaryView(state: DesignState): PanelProps {
           // DG, the label that refused the stroke, owns its edges and draws heavier.
           ...OVERLAYS.labels(SCENE.blocked.base, CA1, { emphasis: [DG, CA1] }),
           { kind: 'voxels', voxels: SCENE.blocked.footprint, color: 'var(--bf-warning)', hatch: true, opacity: 0.8 },
-          { kind: 'voxels', voxels: SCENE.blocked.footprint, color: 'var(--bf-warning)', outline: true, dashed: true, width: 1.5 },
+          { kind: 'voxels', voxels: SCENE.blocked.footprint, color: 'var(--bf-warning)', outline: true, width: 1.25 },
         ],
         brush: { center: SCENE.blocked.brush, radiusMm: BRUSH.radiusMm, tone: 'blocked' },
       };

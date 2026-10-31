@@ -5,9 +5,10 @@
  * for both axes; the image is upscaled nearest-neighbour so voxels stay
  * honest. Label fills are voxel squares, outlines run along voxel edges, and
  * the brush footprint is the exact voxel set the brush rule writes
- * (`geometry.discFootprint`). The crosshair is green with a dark halo and
- * opens a gap around the brush while drawing; the brush ring is neutral white
- * with a dark halo.
+ * (`geometry.discFootprint`). The crosshair is a solid green hairline with
+ * a light dark halo; it opens a gap around the brush while drawing, can stop
+ * at a clear box (the structure being edited) or show as edge ticks only;
+ * the brush outline is neutral white with a dark halo.
  */
 
 import React, { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -45,6 +46,8 @@ export interface LabelOverlay {
   only?: readonly number[];
   /** Overall opacity of the layer. */
   opacity?: number;
+  /** Fill only these labels; the rest are outline-only (hue carried by line, not by a blend). */
+  fillOnly?: readonly number[];
 }
 
 export interface VoxelOverlay {
@@ -76,12 +79,32 @@ export interface SlabOverlay {
   tone?: 'landmark' | 'slice';
 }
 
-/** A landmark limit: a solid labelled line across the view. */
+/**
+ * A landmark limit: a solid labelled line across the view, or (`ticks`)
+ * only short ticks where the line meets the frame, labelled in the margin,
+ * unboxed. `through` + `dir` draw it tilted (an oblique native plane).
+ */
 export interface LimitOverlay {
   kind: 'limit';
   axis: 'x' | 'y';
   at: number;
   label: string;
+  through?: Point;
+  /** Direction of the line, display units (default along the axis). */
+  dir?: Point;
+  ticks?: boolean;
+}
+
+/**
+ * A tilted band: the primary's native slice seen in a world-frame view, as a
+ * faint fill with no edge lines (`through` its centre, `dir` along it,
+ * `widthMm` across it).
+ */
+export interface BandOverlay {
+  kind: 'band';
+  through: Point;
+  dir: Point;
+  widthMm: number;
 }
 
 /**
@@ -102,7 +125,7 @@ export interface MarksOverlay {
   voxels: readonly Voxel[];
 }
 
-export type Overlay = LabelOverlay | VoxelOverlay | SlabOverlay | LimitOverlay | ReviewOverlay | MarksOverlay;
+export type Overlay = LabelOverlay | VoxelOverlay | SlabOverlay | LimitOverlay | BandOverlay | ReviewOverlay | MarksOverlay;
 
 export interface BrushCursor {
   center: Point;
@@ -139,6 +162,13 @@ export interface SliceViewProps {
   crosshairGap?: number;
   /** Keep the crosshair out of a region under review (display centre, mm radius). */
   crosshairClear?: { center: Point; radiusMm: number } | null;
+  /**
+   * Keep the crosshair out of a structure's extent (display rect): the lines
+   * stop at the box, leaving margin segments outside it.
+   */
+  crosshairClearBox?: Box | null;
+  /** Edge ticks only (small tiles): the crosshair never crosses the image. */
+  crosshairTicks?: boolean;
   brush?: BrushCursor | null;
   /** Voxel grid lines (only drawn when a voxel is at least 6 px). */
   grid?: boolean;
@@ -153,7 +183,27 @@ export interface SliceViewProps {
   'aria-label'?: string;
 }
 
+/** A display-coordinate rectangle. */
+export interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 const FALLBACK = { width: 480, height: 360 };
+
+/** Where a line through `p` along `d` enters and leaves a w x h frame (screen px). */
+function clipLine(p: { x: number; y: number }, d: Point, w: number, h: number) {
+  const ts: number[] = [];
+  if (Math.abs(d[0]) > 1e-9) ts.push(-p.x / d[0], (w - p.x) / d[0]);
+  if (Math.abs(d[1]) > 1e-9) ts.push(-p.y / d[1], (h - p.y) / d[1]);
+  const inside = ts
+    .map((t) => ({ t, x: p.x + d[0] * t, y: p.y + d[1] * t }))
+    .filter((q) => q.x >= -0.5 && q.x <= w + 0.5 && q.y >= -0.5 && q.y <= h + 0.5)
+    .sort((a, b) => a.t - b.t);
+  return inside.length >= 2 ? [inside[0], inside[inside.length - 1]] : null;
+}
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -182,6 +232,8 @@ export function SliceView({
   crosshair,
   crosshairGap = 12,
   crosshairClear = null,
+  crosshairClearBox = null,
+  crosshairTicks = false,
   brush,
   grid = false,
   letters = true,
@@ -237,6 +289,16 @@ export function SliceView({
   const gapAt = brushScreen ?? clear?.at ?? null;
   const gap = brush ? crosshairGapRadius(brushR, crosshairGap) : clear ? clear.r : 0;
   const limits = overlays.filter((o): o is LimitOverlay => o.kind === 'limit');
+  const box = crosshairClearBox
+    ? { ...projector.project([crosshairClearBox.x0, crosshairClearBox.y0]), r: projector.project([crosshairClearBox.x1, crosshairClearBox.y1]) }
+    : null;
+  const screenBox = box ? { x0: box.x, y0: box.y, x1: box.r.x, y1: box.r.y } : null;
+  const limitGeom = limits.map((o) => {
+    const through = o.through ?? (o.axis === 'y' ? ([0, o.at] as Point) : ([o.at, 0] as Point));
+    const dir = o.dir ?? (o.axis === 'y' ? ([1, 0] as Point) : ([0, 1] as Point));
+    const p = projector.project(through);
+    return { o, ends: clipLine(p, dir, width, height), dir };
+  });
   const [lL, lR, lT, lB] = PLANE_LETTERS[image.plane];
 
   return (
@@ -293,16 +355,40 @@ export function SliceView({
               );
             }
             if (o.kind === 'limit') return null;
+            if (o.kind === 'band') {
+              const n = Math.hypot(o.dir[0], o.dir[1]) || 1;
+              const [ux, uy] = [o.dir[0] / n, o.dir[1] / n];
+              const [nx, ny] = [-uy, ux];
+              const L = 400;
+              const hw = o.widthMm / 2;
+              const [cx, cy] = o.through;
+              const pts = [
+                [cx - ux * L + nx * hw, cy - uy * L + ny * hw],
+                [cx + ux * L + nx * hw, cy + uy * L + ny * hw],
+                [cx + ux * L - nx * hw, cy + uy * L - ny * hw],
+                [cx - ux * L - nx * hw, cy - uy * L - ny * hw],
+              ];
+              return (
+                <polygon
+                  key={i}
+                  points={pts.map((q) => q.join(',')).join(' ')}
+                  className="fill-bf-text-primary"
+                  fillOpacity={0.13}
+                  data-band
+                />
+              );
+            }
             if (o.kind === 'labels') {
               const vs = o.only ? o.voxels.filter((v) => o.only!.includes(v[2])) : o.voxels;
               const emphasis = o.emphasis ?? [];
               const edges = o.outline === false ? [] : partitionEdges(vs, emphasis);
               const ids = [...new Set(vs.map((v) => v[2]))];
               const w = o.width ?? 1;
+              const filled = o.fill === false ? [] : o.fillOnly ? ids.filter((id) => o.fillOnly!.includes(id)) : ids;
               return (
                 <g key={i} opacity={o.opacity ?? 1}>
-                  {o.fill !== false
-                    ? ids.map((id) => (
+                  {filled.length
+                    ? filled.map((id) => (
                         <path
                           key={id}
                           d={voxelFillPath(vs.filter((v) => v[2] === id).map(([c, r]) => [c, r] as Voxel))}
@@ -390,7 +476,7 @@ export function SliceView({
           ) : null}
         </g>
 
-        {ch ? <Crosshair x={ch.x} y={ch.y} w={width} h={height} gapAt={gapAt} gap={gap} /> : null}
+        {ch ? <Crosshair x={ch.x} y={ch.y} w={width} h={height} gapAt={gapAt} gap={gap} box={screenBox} ticks={crosshairTicks} /> : null}
 
         {brushScreen ? (
           <g>
@@ -408,13 +494,26 @@ export function SliceView({
             />
           </g>
         ) : null}
-        {limits.map((o, i) => {
-          const a = projector.project(o.axis === 'y' ? [0, o.at] : [o.at, 0]);
-          const line = o.axis === 'y' ? { x1: 0, y1: a.y, x2: width, y2: a.y } : { x1: a.x, y1: 0, x2: a.x, y2: height };
+        {limitGeom.map(({ o, ends }, i) => {
+          if (!ends) return null;
+          const [a, b] = ends;
+          if (o.ticks) {
+            // Ticks only, where the line meets the frame: outside the anatomy.
+            const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+            const [ux, uy] = [(b.x - a.x) / len, (b.y - a.y) / len];
+            const T = 9;
+            const d = `M${a.x} ${a.y}L${a.x + ux * T} ${a.y + uy * T}M${b.x} ${b.y}L${b.x - ux * T} ${b.y - uy * T}`;
+            return (
+              <g key={`limit${i}`} data-limit="ticks">
+                <path d={d} className="stroke-bf-bg-canvas" strokeWidth={3} strokeOpacity={0.6} />
+                <path d={d} className="stroke-bf-text-secondary" strokeWidth={1.25} />
+              </g>
+            );
+          }
           return (
             <g key={`limit${i}`}>
-              <line {...line} className="stroke-bf-bg-canvas" strokeWidth={3} strokeOpacity={0.6} />
-              <line {...line} className="stroke-bf-text-secondary" strokeWidth={1} />
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-bf-bg-canvas" strokeWidth={3} strokeOpacity={0.6} />
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-bf-text-secondary" strokeWidth={1} />
             </g>
           );
         })}
@@ -433,8 +532,35 @@ export function SliceView({
           {zoomLabel}
         </span>
       ) : null}
-      {limits.map((o, i) => {
-        const a = projector.project(o.axis === 'y' ? [0, o.at] : [o.at, 0]);
+      {limitGeom.map(({ o, ends }, i) => {
+        if (!ends) return null;
+        if (o.ticks) {
+          // Unboxed margin label beside a tick, alternating ends so neighbouring labels never collide.
+          const [e0, e1] = ends;
+          const first = i % 2 === 0;
+          const style: React.CSSProperties =
+            o.axis === 'y'
+              ? (() => {
+                  const end = first === e0.x < e1.x ? e0 : e1;
+                  return end.x < width / 2 ? { left: 3, top: end.y - 13 } : { right: 3, top: end.y - 13 };
+                })()
+              : (() => {
+                  const end = first === e0.y < e1.y ? e0 : e1;
+                  const v: React.CSSProperties = end.y < height / 2 ? { top: 3 } : { bottom: 3 };
+                  return end.x > width - 64 ? { ...v, right: width - end.x + 5 } : { ...v, left: end.x + 5 };
+                })();
+          return (
+            <span
+              key={`limit-label${i}`}
+              className="pointer-events-none absolute whitespace-nowrap font-mono text-bf-2xs leading-none text-bf-text-secondary [text-shadow:0_0_3px_black,0_0_2px_black]"
+              style={style}
+              data-limit-label
+            >
+              {o.label}
+            </span>
+          );
+        }
+        const a = ends[0];
         return (
           <span
             key={`limit-label${i}`}
@@ -489,18 +615,21 @@ function OutlinePath({
   );
 }
 
-/** Achromatic textures for rater disagreement: A only "/", B only "\\", relabelled crossed. */
+/**
+ * Achromatic textures for rater disagreement, told apart by form and
+ * density (not just angle): A only sparse dots, B only dense hatching,
+ * relabelled crossed.
+ */
 function ReviewPatterns({ uid, px }: { uid: string; px: (n: number) => number }) {
-  const lines = (angle: number, id: string) => (
-    <pattern key={id} id={`${uid}-${id}`} patternUnits="userSpaceOnUse" width={px(6)} height={px(6)} patternTransform={`rotate(${angle})`}>
-      <rect width={px(1.5)} height={px(6)} className="fill-bf-bg-canvas" fillOpacity={0.75} />
-      <rect x={px(1.5)} width={px(1.25)} height={px(6)} className="fill-bf-text-primary" />
-    </pattern>
-  );
   return (
     <>
-      {lines(45, 'a-only')}
-      {lines(-45, 'b-only')}
+      <pattern id={`${uid}-a-only`} patternUnits="userSpaceOnUse" width={px(6)} height={px(6)}>
+        <circle cx={px(3)} cy={px(3)} r={px(2)} className="fill-bf-bg-canvas" fillOpacity={0.7} />
+        <circle cx={px(3)} cy={px(3)} r={px(1.25)} className="fill-bf-text-primary" />
+      </pattern>
+      <pattern id={`${uid}-b-only`} patternUnits="userSpaceOnUse" width={px(3)} height={px(3)} patternTransform="rotate(-45)">
+        <rect width={px(1)} height={px(3)} className="fill-bf-text-primary" />
+      </pattern>
       <pattern id={`${uid}-relabelled`} patternUnits="userSpaceOnUse" width={px(6)} height={px(6)} patternTransform="rotate(45)">
         <rect width={px(1.25)} height={px(6)} className="fill-bf-text-primary" />
         <rect width={px(6)} height={px(1.25)} className="fill-bf-text-primary" />
@@ -531,14 +660,33 @@ function ReviewLayer({ o, uid, px }: { o: ReviewOverlay; uid: string; px: (n: nu
       ))}
       {show === 'both' && enc.departures ? (
         <g data-testid="rater-b-departures">
-          <path d={enc.departures} fill="none" className="stroke-bf-bg-canvas" strokeWidth={px(3)} strokeOpacity={0.8} />
-          <path d={enc.departures} fill="none" className="stroke-bf-text-primary" strokeWidth={px(1.5)} strokeDasharray={`${px(7)} ${px(3)}`} />
+          {/* Mid-grey, thin: B is context for A, not a second heavy chain. */}
+          <path d={enc.departures} fill="none" className="stroke-bf-bg-canvas" strokeWidth={px(2.5)} strokeOpacity={0.5} />
+          <path d={enc.departures} fill="none" className="stroke-bf-text-muted" strokeWidth={px(1.25)} strokeDasharray={`${px(6)} ${px(3)}`} />
         </g>
       ) : null}
     </g>
   );
 }
 
+type Seg = [number, number];
+
+/** Remove [a, b] from a list of 1D segments. */
+function cut(segs: Seg[], a: number, b: number): Seg[] {
+  return segs.flatMap(([s0, s1]): Seg[] => {
+    if (b <= s0 || a >= s1) return [[s0, s1]];
+    const out: Seg[] = [];
+    if (a > s0) out.push([s0, a]);
+    if (b < s1) out.push([b, s1]);
+    return out;
+  });
+}
+
+/**
+ * The crosshair: a solid hairline with a light dark halo (the lightest
+ * reference mark on the view). It opens a gap around the brush, stops at a
+ * clear box (the structure being edited), or shows only as edge ticks.
+ */
 function Crosshair({
   x,
   y,
@@ -546,6 +694,8 @@ function Crosshair({
   h,
   gapAt,
   gap,
+  box = null,
+  ticks = false,
 }: {
   x: number;
   y: number;
@@ -553,24 +703,32 @@ function Crosshair({
   h: number;
   gapAt: { x: number; y: number } | null;
   gap: number;
+  box?: Box | null;
+  ticks?: boolean;
 }) {
-  // Horizontal and vertical lines, split around the brush while drawing.
-  const segs: Array<[number, number, number, number]> = [];
-  const hSplit = gapAt && gap > 0 && Math.abs(gapAt.y - y) < gap;
-  const vSplit = gapAt && gap > 0 && Math.abs(gapAt.x - x) < gap;
-  if (hSplit && gapAt) {
-    segs.push([0, y, gapAt.x - gap, y], [gapAt.x + gap, y, w, y]);
-  } else segs.push([0, y, w, y]);
-  if (vSplit && gapAt) {
-    segs.push([x, 0, x, gapAt.y - gap], [x, gapAt.y + gap, x, h]);
-  } else segs.push([x, 0, x, h]);
+  const T = 10;
+  let hs: Seg[] = ticks ? [[0, T], [w - T, w]] : [[0, w]];
+  let vs: Seg[] = ticks ? [[0, T], [h - T, h]] : [[0, h]];
+  if (!ticks && box) {
+    const m = 6;
+    if (y >= box.y0 - m && y <= box.y1 + m) hs = cut(hs, box.x0 - m, box.x1 + m);
+    if (x >= box.x0 - m && x <= box.x1 + m) vs = cut(vs, box.y0 - m, box.y1 + m);
+  }
+  if (!ticks && gapAt && gap > 0) {
+    if (Math.abs(gapAt.y - y) < gap) hs = cut(hs, gapAt.x - gap, gapAt.x + gap);
+    if (Math.abs(gapAt.x - x) < gap) vs = cut(vs, gapAt.y - gap, gapAt.y + gap);
+  }
+  const segs: Array<[number, number, number, number]> = [
+    ...hs.map(([a, b]): [number, number, number, number] => [a, y, b, y]),
+    ...vs.map(([a, b]): [number, number, number, number] => [x, a, x, b]),
+  ].filter(([a, b, c, d]) => Math.hypot(c - a, d - b) > 1);
   return (
-    <g>
+    <g data-crosshair={ticks ? 'ticks' : box ? 'cleared' : 'full'}>
       {segs.map(([a, b, c, d], i) => (
-        <line key={`h${i}`} x1={a} y1={b} x2={c} y2={d} className="stroke-bf-bg-canvas" strokeOpacity={0.7} strokeWidth={3} />
+        <line key={`h${i}`} x1={a} y1={b} x2={c} y2={d} className="stroke-bf-bg-canvas" strokeOpacity={0.45} strokeWidth={2} />
       ))}
       {segs.map(([a, b, c, d], i) => (
-        <line key={`c${i}`} x1={a} y1={b} x2={c} y2={d} className="stroke-bf-crosshair" strokeWidth={1} strokeDasharray="4 3" />
+        <line key={`c${i}`} x1={a} y1={b} x2={c} y2={d} className="stroke-bf-crosshair" strokeOpacity={0.8} strokeWidth={1} />
       ))}
     </g>
   );
