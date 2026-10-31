@@ -43,7 +43,7 @@ const state = params.get('state') as DesignState | null;
 function Index() {
   return (
     <div className="min-h-screen bg-bf-bg-app p-6 font-sans text-bf-text-primary">
-      <h1 className="m-0 mb-4 text-bf-lg font-semibold">Segmentation design · round 0</h1>
+      <h1 className="m-0 mb-4 text-bf-lg font-semibold">Segmentation design</h1>
       {Object.values(DIRECTIONS).map((d) => (
         <section key={d.id} className="mb-4">
           <h2 className="m-0 text-bf-md font-semibold">

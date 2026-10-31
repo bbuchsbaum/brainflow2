@@ -17,7 +17,7 @@ const OUT = process.env.SEG_DESIGN_OUT ?? resolve(__dirname, '../../cruft/hillcl
 const pick = (v: string | undefined, all: string[]) =>
   v ? v.split(',').map((s) => s.trim()).filter((s) => all.includes(s)) : all;
 
-const DIRECTIONS: Record<string, string> = { a: 'Workstation', b: 'Reading room', c: 'Protocol-guided' };
+const DIRECTIONS: Record<string, string> = { a: 'Workstation', b: 'Reading room', c: 'Protocol-guided', h: 'Hybrid' };
 const STATES: Array<[string, string]> = [
   ['empty', 'Empty session: T2w and T1w loaded, no segmentation yet'],
   ['tracing', 'Tracing: brush mid-stroke on coronal T2w, constraint strip, label list'],
@@ -27,7 +27,10 @@ const STATES: Array<[string, string]> = [
   ['review', 'Review mode: rater A solid, rater B dashed, disagreement, navigation, approve/return'],
   ['zoom', 'Zoomed tracing: 6x with voxel grid and the exact brush footprint'],
 ];
-const VARIANTS: Array<[string, number, number]> = [['multi-contrast', 1280, 800]];
+const VARIANTS: Array<[string, number, number]> = [
+  ['multi-contrast', 1280, 800],
+  ['tracing', 1280, 800],
+];
 
 const directions = pick(process.env.SEG_DESIGN_DIRECTIONS, Object.keys(DIRECTIONS));
 const states = pick(process.env.SEG_DESIGN_STATES, STATES.map(([s]) => s));
@@ -87,7 +90,7 @@ test.afterAll(() => {
     round: ROUND,
     harness: 'ui2/segmentation-harness.html?direction=<id>&state=<state>',
     honesty:
-      'Images are real MNI152NLin2009cAsym 1 mm T2w/T1w template slices (TemplateFlow); the third strip panel is a view-only unsharp mask of T2w. Subfield labels, strokes, proposals, rater B and all counts are mock data; editing is simulated (no bridge).',
+      'Images are real MNI152NLin2009cAsym 1 mm T2w/T1w template slices (TemplateFlow); the third strip panel is a view-only unsharp mask of T2w. Subfield labels, strokes, proposals, rater B and all counts are mock data; editing is simulated (no bridge). Direction h states a native 0.40x0.40/2.0 mm T2 geometry that is SIMULATED: the imagery stays 1 mm, native slices are every second template slice.',
     directions: directions.map((id) => ({ id, title: DIRECTIONS[id] })),
     states: STATES.filter(([s]) => states.includes(s)).map(([id, description], i) => ({ id, index: i + 1, description })),
     shots: shots.sort((a, b) => a.file.localeCompare(b.file)),

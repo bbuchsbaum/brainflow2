@@ -1,5 +1,6 @@
 /**
- * The three round-0 design directions for the segmentation module. Each
+ * The segmentation design directions: three from round 0 and the round-1
+ * hybrid (h) for the segmentation module. Each
  * renders all seven design states (`DESIGN_STATES`) from the same shared
  * scene data; only layout and chrome differ.
  */
@@ -9,6 +10,7 @@ import type { DesignState, DirectionId } from '@/modules/segmentation/components
 import { DirectionA } from './a/DirectionA';
 import { DirectionB } from './b/DirectionB';
 import { DirectionC } from './c/DirectionC';
+import { DirectionH } from './h/DirectionH';
 
 export interface DirectionDef {
   id: DirectionId;
@@ -38,5 +40,12 @@ export const DIRECTIONS: Record<DirectionId, DirectionDef> = {
     concept:
       'A protocol step panel leads the work (rule, reference, landmark slab); tools and labels are scoped to the current step.',
     component: DirectionC,
+  },
+  h: {
+    id: 'h',
+    title: 'Hybrid',
+    concept:
+      "Round 1: A's tiled shell and Inspector label list, C's protocol step card and landmark limits, B's start card, slice ruler and status chip; partition labels, yielding crosshair, honest native geometry.",
+    component: DirectionH,
   },
 };

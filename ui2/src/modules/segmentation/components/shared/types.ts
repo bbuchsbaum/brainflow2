@@ -87,4 +87,4 @@ export const DESIGN_STATE_TITLES: Record<DesignState, string> = {
   zoom: 'Zoomed tracing',
 };
 
-export type DirectionId = 'a' | 'b' | 'c';
+export type DirectionId = 'a' | 'b' | 'c' | 'h';
