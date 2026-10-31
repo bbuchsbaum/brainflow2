@@ -158,7 +158,7 @@ export function SliceTitle({ image, className, showContrast = true }: { image: S
 /** A view-only badge for filtered contrasts (never written to). */
 export function LensBadge({ children = 'View only' }: { children?: React.ReactNode }) {
   return (
-    <span className="inline-flex h-4 items-center rounded-sm border border-bf-border-strong px-1 text-bf-2xs text-bf-text-secondary">
+    <span className="inline-flex h-4 shrink-0 items-center whitespace-nowrap rounded-sm border border-bf-border-strong bg-bf-bg-canvas/80 px-1 text-bf-2xs text-bf-text-secondary">
       {children}
     </span>
   );
@@ -200,7 +200,7 @@ export function ViewportFrame({
       {header === 'bar' ? (
         <div className="flex h-7 shrink-0 items-center gap-3 border-b border-bf-border-subtle bg-bf-bg-panel-sunken px-2">
           <div className="flex shrink-0 items-center">{title ?? <SliceTitle image={image} />}</div>
-          <div className="ml-auto flex min-w-0 items-center justify-end gap-2 overflow-hidden">{headerRight}</div>
+          <div className="ml-auto flex min-w-0 items-center gap-2 overflow-hidden">{headerRight}</div>
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">

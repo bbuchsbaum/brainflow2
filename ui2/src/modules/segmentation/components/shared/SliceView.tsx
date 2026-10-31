@@ -94,6 +94,8 @@ export interface SliceViewProps {
   letters?: boolean;
   /** Dim the image (empty states, protocol picker backdrops). */
   dim?: boolean;
+  /** Zoom readout in the bottom-right corner ("3.0×"). */
+  zoomLabel?: string;
   /** HTML drawn over the view, positioned with the projector. */
   overlay?: (p: Projector) => React.ReactNode;
   className?: string;
@@ -132,6 +134,7 @@ export function SliceView({
   grid = false,
   letters = true,
   dim = false,
+  zoomLabel,
   overlay,
   className,
   'aria-label': ariaLabel,
@@ -316,6 +319,11 @@ export function SliceView({
           <Letter className="left-1/2 top-1 -translate-x-1/2">{lT}</Letter>
           <Letter className="bottom-1 left-1/2 -translate-x-1/2">{lB}</Letter>
         </>
+      ) : null}
+      {zoomLabel ? (
+        <span className="pointer-events-none absolute bottom-1 right-2 font-mono text-bf-2xs text-bf-text-muted [text-shadow:0_0_3px_black]">
+          {zoomLabel}
+        </span>
       ) : null}
       {overlay ? overlay(projector) : null}
     </div>

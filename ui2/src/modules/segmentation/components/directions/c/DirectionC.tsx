@@ -260,7 +260,7 @@ function LabelColumn({ state }: { state: DesignState }) {
             label={l}
             showStatus={false}
             alert={state === 'blocked' && l.id === DG}
-            note={review ? undefined : state === 'blocked' && l.id === DG ? 'blocked your stroke' : `step ${l.id === SRLM ? 3 : l.id === DG ? 4 : 5}`}
+            note={review ? undefined : state === 'blocked' && l.id === DG ? 'blocked' : `step ${l.id === SRLM ? 3 : l.id === DG ? 4 : 5}`}
           />
         ))}
         {review ? null : (
@@ -305,7 +305,6 @@ function PrimaryHeader({ state }: { state: DesignState }) {
     return (
       <span className="flex items-center gap-2">
         <Chip>Review · read only</Chip>
-        <span className="font-mono text-bf-2xs text-bf-text-muted">{zoomFactor(primaryView(state).fovMm)}</span>
       </span>
     );
   if (state === 'proposal')
@@ -320,9 +319,9 @@ function PrimaryHeader({ state }: { state: DesignState }) {
       <ConstraintStrip
         label={CA1}
         hideLabel
+        dense
         blocked={state === 'blocked' ? { reason: 'DG locked by protocol', detail: c.detail } : null}
       />
-      <span className="shrink-0 font-mono text-bf-2xs text-bf-text-muted">{zoomFactor(primaryView(state).fovMm)}</span>
     </span>
   );
 }
@@ -356,13 +355,14 @@ function TraceCenter({ state }: { state: DesignState }) {
         title={
           <span className="flex items-center gap-3">
             <StepBadge state={state} />
-            <span className="font-mono text-bf-xs text-bf-text-secondary">coronal y {fmtMm(CROSSHAIR_WORLD[1])} · T2w</span>
+            <span className="font-mono text-bf-xs text-bf-text-secondary">y {fmtMm(CROSSHAIR_WORLD[1])} · T2w</span>
           </span>
         }
         headerRight={<PrimaryHeader state={state} />}
       >
         <SliceView
           {...primary}
+          zoomLabel={zoomFactor(primary.fovMm)}
           aria-label="Primary tracing view, coronal T2w"
           overlay={(p) => (
             <>
@@ -417,9 +417,12 @@ function TraceCenter({ state }: { state: DesignState }) {
                   {i === 0 ? <span className="text-bf-2xs text-bf-text-muted">protocol contrast</span> : null}
                 </span>
               }
-              headerRight={v.image.viewOnly ? <LensBadge /> : null}
             >
-              <SliceView {...v} letters={false} />
+              <SliceView
+                {...v}
+                letters={false}
+                overlay={() => (v.image.viewOnly ? <span className="absolute right-1.5 top-1.5"><LensBadge /></span> : null)}
+              />
             </ViewportFrame>
           ))}
         </div>

@@ -132,7 +132,6 @@ function PrimaryHeader({ state }: { state: DesignState }) {
     return (
       <span className="flex items-center gap-2">
         <Chip>Review · read only</Chip>
-        <span className="font-mono text-bf-2xs text-bf-text-muted">{zoomFactor(primaryView(state).fovMm)}</span>
       </span>
     );
   }
@@ -157,9 +156,6 @@ function PrimaryHeader({ state }: { state: DesignState }) {
             : null
         }
       />
-      <span className="shrink-0 font-mono text-bf-2xs text-bf-text-muted">
-        {zoomFactor(primaryView(state).fovMm)}
-      </span>
     </span>
   );
 }
@@ -179,6 +175,7 @@ function TraceLayout({ state }: { state: DesignState }) {
       <ViewportFrame image={primary.image} headerRight={<PrimaryHeader state={state} />} active className="row-span-1">
         <SliceView
           {...primary}
+          zoomLabel={zoomFactor(primary.fovMm)}
           aria-label="Primary tracing view, coronal T2w"
           overlay={(p) => (
             <>
@@ -218,10 +215,14 @@ function TraceLayout({ state }: { state: DesignState }) {
               </span>
             }
             headerRight={
-              v.image.viewOnly ? <LensBadge /> : i === 0 ? <span className="text-bf-2xs text-bf-text-muted">tracing</span> : null
+              i === 0 ? <span className="text-bf-2xs text-bf-text-muted">tracing</span> : null
             }
           >
-            <SliceView {...v} letters={false} />
+            <SliceView
+              {...v}
+              letters={false}
+              overlay={() => (v.image.viewOnly ? <span className="absolute right-1.5 top-1.5"><LensBadge /></span> : null)}
+            />
           </ViewportFrame>
         ))}
       </div>

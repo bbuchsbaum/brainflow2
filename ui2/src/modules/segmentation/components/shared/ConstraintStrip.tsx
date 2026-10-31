@@ -25,6 +25,8 @@ export interface ConstraintStripProps {
   variant?: 'bar' | 'float' | 'plain';
   /** Hide the label (when the label is shown next to the strip already). */
   hideLabel?: boolean;
+  /** Below 1400px wide, drop the items that are at their defaults (range off). */
+  dense?: boolean;
   className?: string;
 }
 
@@ -42,6 +44,7 @@ export function ConstraintStrip({
   blocked = null,
   variant = 'bar',
   hideLabel = false,
+  dense = false,
   className,
 }: ConstraintStripProps) {
   const def = LABEL_BY_ID.get(label);
@@ -98,8 +101,10 @@ export function ConstraintStrip({
       <span>{shape}</span>
       <Sep />
       <span>⌀ {diameterMm.toFixed(1)} mm</span>
-      <Sep />
-      <span>{range ? `range ${range}` : 'range off'}</span>
+      <span className={clsx('flex items-center gap-1.5', dense && !range && 'max-[1399px]:hidden')}>
+        <Sep />
+        <span>{range ? `range ${range}` : 'range off'}</span>
+      </span>
       {lens ? (
         <>
           <Sep />
