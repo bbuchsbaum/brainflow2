@@ -14,8 +14,23 @@ yet: editing is not implemented.
   version) before any command reaches Rust.
 - **Design summary:** [DESIGN.md](DESIGN.md) has the final direction H
   layout and states, the encoding rules, the Inspector, review and
-  reconciliation, the score history and the open questions for an
-  interactive prototype. Read it before implementing the UI.
+  reconciliation, the contract-tested rules, the score history and the open
+  questions for an interactive prototype. Read it before implementing the UI.
+- **Implementing it** (read in this order):
+  [implementation brief](../../../../docs/plans/segmentation-implementation.md)
+  (prerequisites, milestones by reference state, acceptance, data policy);
+  [reference captures](../../../../docs/design/segmentation/reference/README.md)
+  (the 19 target screens and what is mocked);
+  [critiques](../../../../docs/design/segmentation/critiques.md) (score
+  history, verdicts, the prototype and real-data checklist);
+  [module architecture](../../../../docs/plans/module-architecture.md)
+  (phases A.2, B, D and the R track); the
+  [research plan](../../../../docs/plans/segmentation-module-research.md).
+  Promote the components in `components/directions/h/` and
+  `components/shared/` by replacing mock data with live session state; do
+  not redraw from screenshots. Check with the contract tests and the design
+  parity capture below. To rerun the critic loop on the real app, see
+  [`tools/design/hillclimb/`](../../../../tools/design/hillclimb/README.md).
 - **Design exploration** (visual hill climb, rounds 0 to 7):
   - `components/directions/{a,b,c}/`: three round-0 directions (Workstation,
     Reading room, Protocol-guided). `directions/h/`: the round-1 hybrid (A's

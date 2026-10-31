@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "brainflow/design-hillclimb/critique.schema.json",
+  "title": "Design critique (one critic, one round)",
+  "type": "object",
+  "required": [
+    "critic",
+    "round",
+    "states",
+    "scores",
+    "issues"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "critic": {
+      "enum": [
+        "tufte",
+        "jobs",
+        "operator"
+      ]
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "states": {
+      "description": "Score per captured state (0-10, half points allowed). Key: the state id from the manifest.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10
+      }
+    },
+    "scores": {
+      "description": "overall plus the critic's five rubric criteria (see prompts/<critic>.md), each 0-10.",
+      "type": "object",
+      "required": [
+        "overall"
+      ],
+      "properties": {
+        "overall": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10
+      }
+    },
+    "previous_issues": {
+      "description": "Each issue this critic raised last round, with its status now. Earlier hill climbs named this key round<N-1>_issues.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "rank",
+          "issue",
+          "status"
+        ],
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "issue": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "resolved",
+              "partly",
+              "open",
+              "regressed"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "issues": {
+      "description": "Remaining issues, most important first (at most 8).",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": [
+          "rank",
+          "states",
+          "problem",
+          "fix",
+          "needs"
+        ],
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "problem": {
+            "type": "string",
+            "description": "What is wrong, with evidence from the screenshot (where, how big, which number)."
+          },
+          "fix": {
+            "type": "string",
+            "description": "A concrete change a builder can make."
+          },
+          "needs": {
+            "enum": [
+              "static",
+              "interactive",
+              "real-data"
+            ],
+            "description": "static: fixable and checkable on screenshots; interactive: needs a prototype in use; real-data: needs real images."
+          }
+        }
+      }
+    },
+    "more_static_rounds_useful": {
+      "type": "boolean"
+    },
+    "more_static_rounds_note": {
+      "type": "string"
+    },
+    "prototype_test_priorities": {
+      "description": "Operator only, when static rounds are exhausted: what to test in a live prototype, most important first.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
