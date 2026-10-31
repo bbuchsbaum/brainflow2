@@ -2,7 +2,8 @@
 
 Status: accepted. The owner approved decisions 1–6 on 2026-10-31 (listed at the
 end) and asked that modules can be switched off and that the top-level tabs
-shown and opened at startup are configurable. Phase A is in progress.
+shown and opened at startup are configurable. Phase A landed on 2026-10-31
+(see the Phase A status below the delivery table).
 
 ## Goal
 
@@ -201,7 +202,8 @@ pub trait BridgeModule: Send + Sync + 'static {
 ### The context a module receives
 
 `activate(ctx)` gets the only API a module may use. It lives in
-`ui2/src/modules/api/` and is re-exported as `@brainflow/module-api`:
+`ui2/src/modules/api/` (imported as `@/modules/api`; lazily loaded module code
+reaches app services through `@/modules/api/host`):
 
 - `ctx.commands`, `ctx.keybindings`: register handlers for the declared ids.
 - `ctx.layers`: add, observe and remove layers; read selection.
@@ -307,7 +309,7 @@ The order of core work should follow the order of modules.
 
 | Stage | Visibility | Gate to enter |
 |---|---|---|
-| Experimental | Off by default; one switch per module in Settings › Experimental features | Accepted proposal; builds; contributions hidden when off |
+| Experimental | Off by default; one switch per module in Settings › Modules | Accepted proposal; builds; contributions hidden when off |
 | Preview | On, labelled "Preview"; reachable from the command palette, the Tools menu and view modes. No top-level tab or pill, no global shortcuts | Experimental gate below |
 | Stable | May own a top-level tab or pill and global shortcuts | Preview gate below, plus owner sign-off |
 
@@ -410,8 +412,35 @@ API before a new module depends on it, and it shrinks `App.tsx` and `main.rs`.
 |---|---|---|
 | A. Registry skeleton | `ui2/src/modules/` registry with commands, keybindings, palette, menus, workspaces, inspector modes, dock tabs and settings. Settings › Modules switches and Settings › Top bar (pinned tools, startup tabs). Rust `BridgeModule`, the state slot map, named `bridge_commands!` sections, per-module permission sets and generated clients. **Port the Analysis workbench** (tool tab, four commands, sidecar runner) as the first module | The Analysis workbench is defined entirely by its module: no edits to `App.tsx`, `main.rs`, `WorkspaceRouter.tsx` or `types/workspace.ts` remain. Existing tests and harness scenarios still pass |
 | B. Data and render seams | An open loader registry used by the load path; a file-format registry with one generated extension list; layer-kind descriptors; the typed event registry; workspace-scoped persistence; host-capability declarations; `get_render_capabilities` | A test format (for example `.tck` loaded as metadata only) added with no edits outside its module |
-| C. Process tooling | `cargo xtask new-module`; proposal and acceptance templates; `pnpm check:modules` in CI; stage switches in Settings | A scaffolded empty module passes CI unchanged |
+| C. Process tooling | `cargo xtask new-module`; proposal and acceptance templates; `pnpm check:modules` in CI (the stage switches in Settings landed in Phase A) | A scaffolded empty module passes CI unchanged |
 | D. Provider protocol v2 | `job` and `session` runners, pushed events, capability consent, licence field, raw-byte inputs; `analysis.json` migrated to `runner.type = "job"` | The bundled example sidecar runs unchanged; a mock session provider passes stale-response and teardown tests |
+
+**Phase A status (2026-10-31).** Landed:
+
+- Rust: `BridgeModule`, the state slot map and enable gate, `module <id>`
+  command sections, per-module permission sets, `list_modules` /
+  `set_enabled_modules` and `BRIDGE_MODULES` (`core/api_bridge/src/modules/`).
+- UI (`ui2/src/modules/`, guide in its `AGENTS.md`): the module API and
+  registry; contribution points for commands (palette), keybindings, native
+  menus (the UI sends a menu model; `set_module_menu_items` in
+  `src-tauri/src/main.rs`), tool workspaces (`WorkspaceType` is the core ids
+  plus registered module ids), Inspector modes and dock tabs; Settings ›
+  Modules and Settings › Top bar (pinned tools, startup tabs: restore last
+  session or a fixed list); switching a module off parks its tabs and turns
+  off its bridge commands; `brainflow-modules` v1 persistence; ESLint
+  boundaries.
+- The Analysis workbench is a module (`ui2/src/modules/analysis/`). No
+  Analysis-specific code remains in `App.tsx`, `main.rs`, `menu_builder.rs`,
+  `WorkspaceRouter.tsx`, `InspectorRouter.tsx` or `types/workspace.ts`; saved
+  `analysis-workbench` tabs still restore. The owner set it to experimental
+  (below), so it is off until switched on in Settings › Modules.
+
+Not in Phase A: typed per-module generated clients (modules use
+`bridgeClient(id)` over the flat command list), module-declared settings
+schemas, view modes, `startupAlias` for `--workspace`, and `pnpm check:modules`
+(a first check, `ui2/src/modules/__tests__/firstParty.test.ts`, compares UI and
+bridge modules). BIDS explorer and Set studio are core tool descriptors in the
+same tool list but not yet modules.
 
 Segmentation can start once Phase A lands. Its own phase 0 (the editable label
 store, sub-region upload, zoom and pan) is core work that overlaps Phase B. BIDS
@@ -421,7 +450,7 @@ when convenient.
 ## Guardrails
 
 - **Boundaries are enforced.** ESLint `no-restricted-imports` lets modules import
-  only `@brainflow/module-api`, `components/ui/bf` and their own folder. Core code
+  only `@/modules/api`, `components/ui/bf` and their own folder. Core code
   never imports from a module. Module crates do not depend on `api_bridge` or
   Tauri; the adapter file is the only glue.
 - **Namespaced ids.** Every contribution id is `<module>.<name>`. The registry
@@ -454,3 +483,11 @@ The owner approved the recommendation in each item below.
    `schemas/0.1.1/brainflow-plugin.json` and `tools/plugin-verify` describe a
    system that was never built. Recommended: remove them, or rework the schema
    into the provider manifest schema in Phase D.
+
+## Owner decisions after approval
+
+- 2026-10-31: the owner set Analysis to experimental (off by default) because
+  it ships only demo analyses. Its UI manifest and its bridge descriptor both
+  say `experimental`; switched on, it appears where it was (Workspace menu,
+  View › Workspace › Analysis, command palette), unpinned and without a
+  shortcut.
