@@ -1,0 +1,213 @@
+/**
+ * Slice geometry for the design mocks: display <-> world mm on the 1 mm MNI
+ * reference grid, the brush rasterization rule, the constraint gate, and SVG
+ * paths for voxel fills and voxel-edge outlines.
+ *
+ * The brush rule is the one research contract 4 asks for ("cursor equals
+ * fill"): a voxel is painted when its CENTRE lies inside the brush disc,
+ * measured in millimetres on the reference grid, so the preview footprint and
+ * the written voxels are the same set at every zoom.
+ */
+
+import type { LabelVoxel, Plane, Point, Voxel } from './types';
+
+/** Grid of the MNI152NLin2009cAsym 1 mm template (origin of voxel 0,0,0). */
+const ORIGIN = [-96, -132, -78] as const;
+const DIMS = [193, 229, 193] as const;
+
+/** World mm of a display point on a slice (voxel centres sit at c + 0.5). */
+export function displayToWorld(plane: Plane, index: number, p: Point): [number, number, number] {
+  const [c, r] = [p[0] - 0.5, p[1] - 0.5];
+  switch (plane) {
+    case 'coronal':
+      return [ORIGIN[0] + c, ORIGIN[1] + index, ORIGIN[2] + (DIMS[2] - 1 - r)];
+    case 'axial':
+      return [ORIGIN[0] + c, ORIGIN[1] + (DIMS[1] - 1 - r), ORIGIN[2] + index];
+    case 'sagittal':
+      return [ORIGIN[0] + index, ORIGIN[1] + (DIMS[1] - 1 - c), ORIGIN[2] + (DIMS[2] - 1 - r)];
+  }
+}
+
+/** Display point of a world position projected onto a slice plane. */
+export function worldToDisplay(plane: Plane, w: readonly [number, number, number]): Point {
+  const i = w[0] - ORIGIN[0];
+  const j = w[1] - ORIGIN[1];
+  const k = w[2] - ORIGIN[2];
+  switch (plane) {
+    case 'coronal':
+      return [i + 0.5, DIMS[2] - 1 - k + 0.5];
+    case 'axial':
+      return [i + 0.5, DIMS[1] - 1 - j + 0.5];
+    case 'sagittal':
+      return [DIMS[1] - 1 - j + 0.5, DIMS[2] - 1 - k + 0.5];
+  }
+}
+
+/** Slice position along the plane normal, mm. */
+export function slicePositionMm(plane: Plane, index: number): number {
+  if (plane === 'coronal') return ORIGIN[1] + index;
+  if (plane === 'axial') return ORIGIN[2] + index;
+  return ORIGIN[0] + index;
+}
+
+export const PLANE_AXIS: Record<Plane, 'x' | 'y' | 'z'> = { coronal: 'y', axial: 'z', sagittal: 'x' };
+export const PLANE_NAME: Record<Plane, string> = { coronal: 'Coronal', axial: 'Axial', sagittal: 'Sagittal' };
+
+/** Orientation letters at the panel edges [left, right, top, bottom]. */
+export const PLANE_LETTERS: Record<Plane, readonly [string, string, string, string]> = {
+  coronal: ['L', 'R', 'S', 'I'],
+  axial: ['L', 'R', 'A', 'P'],
+  sagittal: ['A', 'P', 'S', 'I'],
+};
+
+/** Signed mm with a true minus sign and one decimal ("−22.0"). */
+export function fmtMm(v: number, digits = 1): string {
+  const s = Math.abs(v).toFixed(digits);
+  return v < 0 ? `−${s}` : s;
+}
+
+/** Grouped integer ("1,376"). */
+export function fmtInt(v: number): string {
+  return Math.round(v).toLocaleString('en-US');
+}
+
+const key = (c: number, r: number) => `${c},${r}`;
+
+/** Voxels whose centres lie inside a disc of `radiusMm` (1 px = 1 mm) around `center`. */
+export function discFootprint(center: Point, radiusMm: number): Voxel[] {
+  const out: Voxel[] = [];
+  const r2 = radiusMm * radiusMm;
+  for (let r = Math.floor(center[1] - radiusMm) - 1; r <= Math.ceil(center[1] + radiusMm); r++) {
+    for (let c = Math.floor(center[0] - radiusMm) - 1; c <= Math.ceil(center[0] + radiusMm); c++) {
+      const dx = c + 0.5 - center[0];
+      const dy = r + 0.5 - center[1];
+      if (dx * dx + dy * dy <= r2) out.push([c, r]);
+    }
+  }
+  return out;
+}
+
+/** Union of brush discs swept along a polyline (sampled every quarter voxel). */
+export function strokeFootprint(points: readonly Point[], radiusMm: number): Voxel[] {
+  const seen = new Map<string, Voxel>();
+  const add = (p: Point) => {
+    for (const v of discFootprint(p, radiusMm)) seen.set(key(v[0], v[1]), v);
+  };
+  if (points.length === 1) add(points[0]);
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = [points[i - 1], points[i]];
+    const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.25));
+    for (let s = 0; s <= n; s++) add([a[0] + ((b[0] - a[0]) * s) / n, a[1] + ((b[1] - a[1]) * s) / n]);
+  }
+  return [...seen.values()];
+}
+
+export type PaintOver = 'unlocked' | 'background' | 'all';
+
+export interface GateResult {
+  /** Voxels the stroke writes. */
+  written: Voxel[];
+  /** Voxels refused, with the label that protected each. */
+  blocked: Array<{ voxel: Voxel; label: number }>;
+}
+
+/**
+ * The constraint gate every tool shares: labels in `locked` are never
+ * overwritten; `background` only writes empty voxels; voxels already holding
+ * the active label are no-ops (neither written nor blocked).
+ */
+export function gateStroke(
+  footprint: readonly Voxel[],
+  labelsAt: ReadonlyMap<string, number>,
+  active: number,
+  locked: ReadonlySet<number>,
+  paintOver: PaintOver,
+): GateResult {
+  const written: Voxel[] = [];
+  const blocked: GateResult['blocked'] = [];
+  for (const v of footprint) {
+    const cur = labelsAt.get(key(v[0], v[1])) ?? 0;
+    if (cur === active) continue;
+    if (cur !== 0 && (locked.has(cur) || paintOver === 'background')) {
+      blocked.push({ voxel: v, label: cur });
+      continue;
+    }
+    written.push(v);
+  }
+  return { written, blocked };
+}
+
+export function labelIndex(voxels: readonly LabelVoxel[]): Map<string, number> {
+  return new Map(voxels.map(([c, r, l]) => [key(c, r), l]));
+}
+
+/** SVG path covering a set of voxels (one unit square each). */
+export function voxelFillPath(voxels: readonly Voxel[]): string {
+  return voxels.map(([c, r]) => `M${c} ${r}h1v1h-1z`).join('');
+}
+
+/** SVG path of the voxel edges that separate a set from everything else. */
+export function voxelOutlinePath(voxels: readonly Voxel[]): string {
+  const inSet = new Set(voxels.map(([c, r]) => key(c, r)));
+  const parts: string[] = [];
+  for (const [c, r] of voxels) {
+    if (!inSet.has(key(c, r - 1))) parts.push(`M${c} ${r}h1`);
+    if (!inSet.has(key(c, r + 1))) parts.push(`M${c} ${r + 1}h1`);
+    if (!inSet.has(key(c - 1, r))) parts.push(`M${c} ${r}v1`);
+    if (!inSet.has(key(c + 1, r))) parts.push(`M${c + 1} ${r}v1`);
+  }
+  return parts.join('');
+}
+
+/** Voxels of one label (or several) from a label slice. */
+export function voxelsOf(voxels: readonly LabelVoxel[], ids: number | readonly number[]): Voxel[] {
+  const want = new Set(typeof ids === 'number' ? [ids] : ids);
+  return voxels.filter((v) => want.has(v[2])).map(([c, r]) => [c, r] as Voxel);
+}
+
+/** Voxels where two raters disagree (either labelled, labels differ). */
+export function disagreement(a: readonly LabelVoxel[], b: readonly LabelVoxel[]): Voxel[] {
+  const ia = labelIndex(a);
+  const ib = labelIndex(b);
+  const out: Voxel[] = [];
+  for (const k of new Set([...ia.keys(), ...ib.keys()])) {
+    if ((ia.get(k) ?? 0) !== (ib.get(k) ?? 0)) {
+      const [c, r] = k.split(',').map(Number);
+      out.push([c, r]);
+    }
+  }
+  return out;
+}
+
+/** Connected groups of voxels (4-neighbour), largest first. */
+export function components(voxels: readonly Voxel[]): Voxel[][] {
+  const left = new Map(voxels.map((v) => [key(v[0], v[1]), v]));
+  const groups: Voxel[][] = [];
+  for (const start of voxels) {
+    if (!left.has(key(start[0], start[1]))) continue;
+    const group: Voxel[] = [];
+    const stack: Voxel[] = [start];
+    left.delete(key(start[0], start[1]));
+    while (stack.length) {
+      const v = stack.pop()!;
+      group.push(v);
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const k = key(v[0] + dc, v[1] + dr);
+        const n = left.get(k);
+        if (n) {
+          left.delete(k);
+          stack.push(n);
+        }
+      }
+    }
+    groups.push(group);
+  }
+  return groups.sort((x, y) => y.length - x.length);
+}
+
+/** Bounding-box centre of a voxel set (display coords). */
+export function centreOf(voxels: readonly Voxel[]): Point {
+  const xs = voxels.map((v) => v[0]);
+  const ys = voxels.map((v) => v[1]);
+  return [(Math.min(...xs) + Math.max(...xs) + 1) / 2, (Math.min(...ys) + Math.max(...ys) + 1) / 2];
+}
