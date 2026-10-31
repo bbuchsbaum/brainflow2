@@ -26,7 +26,20 @@ export const LABEL_DEFS: readonly LabelDef[] = [
   { id: 6, name: 'SRLM', long: 'Stratum radiatum, lacunosum and moleculare', color: 'rgb(80 200 190)' },
 ];
 
-export const LABEL_BY_ID = new Map(LABEL_DEFS.map((l) => [l.id, l]));
+/**
+ * Labels outside the subfield table (round 5): the white-matter lesion label
+ * of the lesion session (FreeSurfer's WM-hypointensities index, a violet far
+ * from the crosshair green and the warning orange) and the label the setup
+ * state adds. They resolve colours but never join the subfield list.
+ */
+export const WMH = 77;
+export const NEW_LABEL = 7;
+export const EXTRA_LABEL_DEFS: readonly LabelDef[] = [
+  { id: WMH, name: 'WMH', long: 'White-matter hyperintensity', color: 'rgb(196 118 255)' },
+  { id: NEW_LABEL, name: 'Fimbria', long: 'Fimbria (alveus excluded)', color: 'rgb(190 150 120)' },
+];
+
+export const LABEL_BY_ID = new Map([...LABEL_DEFS, ...EXTRA_LABEL_DEFS].map((l) => [l.id, l]));
 
 /** Labels complete and locked mid-session: their strokes are the quietest. */
 export const QUIET_LABELS: readonly number[] = [2, 3, 6];

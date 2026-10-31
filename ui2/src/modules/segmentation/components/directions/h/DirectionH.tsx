@@ -27,6 +27,10 @@
  * 80% with a locator and the slab's tilted ticks; review reconciles flagged
  * regions (Keep A / Take B / Edit). The design summary is in DESIGN.md.
  *
+ * Round 5 adds workflow states on the same shell (`workflow/`): this file
+ * exports its parts (rail, headers, ruler, Inspector sections, `HShell`) and
+ * `hViews.ts` holds the view data both use.
+ *
  * Geometry is stated honestly: the primary is named by native slice (k), the
  * orthogonal views say they are world-frame reslices and draw the native
  * slab tilted by the (SIMULATED) obliquity, and the brush readout gives the
@@ -49,30 +53,28 @@ import {
   PaintBucket,
   PenTool,
   Plus,
+  Sparkles,
   Sprout,
   Undo2,
 } from 'lucide-react';
 import { Button, Chip, IconButton, Section, SegmentedControl, SelectableRow, Select, Slider, Tabs, TextArea } from '@/components/ui/bf';
 import { LabelList } from '@/modules/segmentation/components/shared/LabelList';
 import { ProposalPill, TextureSwatch } from '@/modules/segmentation/components/shared/ProposalParts';
-import { SliceView, type Box, type Overlay, type Projector } from '@/modules/segmentation/components/shared/SliceView';
+import { SliceView, type Projector } from '@/modules/segmentation/components/shared/SliceView';
 import { LineSample, ModeSwitcher, ShellFrame, StatusItem, Swatch, ViewportFrame } from '@/modules/segmentation/components/shared/chrome';
 import { blockedCopy } from '@/modules/segmentation/components/shared/copy';
 import {
   areaFlags,
   bboxOf,
-  brushReadout,
   canApprove,
   labelIslands,
   type AreaFlag,
   fmtInt,
   fmtMm,
-  neighbourDeparturePath,
   PLANE_AXIS,
   PLANE_NAME,
   slicePositionMm,
   voxelsOf,
-  worldToDisplay,
 } from '@/modules/segmentation/components/shared/geometry';
 import {
   BRUSH,
@@ -105,9 +107,29 @@ import {
   yOfJ,
 } from '@/modules/segmentation/components/shared/mockData';
 import { B_NONE, CROSSHAIR_WORLD, SCENE } from '@/modules/segmentation/components/shared/scenes';
-import { orthoViews, primaryView, stripViews, zoomFactor, type PanelProps } from '@/modules/segmentation/components/shared/views';
-import type { DesignState, LabelVoxel, Point, SliceImage, ToolId, Voxel } from '@/modules/segmentation/components/shared/types';
+import { orthoViews, primaryView, stripViews, zoomFactor } from '@/modules/segmentation/components/shared/views';
+import type { DesignState, SliceImage, ToolId } from '@/modules/segmentation/components/shared/types';
 import { DESIGN } from '@/modules/segmentation/__design__/designData';
+import {
+  DIAMETER,
+  DRAWN,
+  GRID,
+  ISLANDS_HERE,
+  N_SLICES,
+  NEIGHBOUR_OPACITY,
+  NEXT_J,
+  PREV_J,
+  PRIMARY_J,
+  READOUT,
+  SLAB,
+  SLICE_K,
+  STRUCTURE_BOX,
+  hOrtho,
+  hPrimary,
+  isPaint,
+  jOfY,
+  kOf,
+} from './hViews';
 
 const TOOL_ICON: Record<ToolId, React.ReactNode> = {
   navigate: <MousePointer2 />,
@@ -122,25 +144,6 @@ const TOOL_ICON: Record<ToolId, React.ReactNode> = {
 /** Tools the protocol step suggests (soft defaults: the others stay usable and are logged). */
 const STEP_TOOLS: readonly ToolId[] = ['navigate', 'brush', 'eraser', 'contour', 'interpolate'];
 
-const PRIMARY_J = DESIGN.primaryJ;
-const SLICE_INDEX = NATIVE_SLICES_J.indexOf(PRIMARY_J);
-const N_SLICES = NATIVE_SLICES_J.length;
-/** Native slice number (1-based) of a template slice. */
-const kOf = (j: number) => NATIVE_SLICES_J.indexOf(j) + 1;
-const SLICE_K = SLICE_INDEX + 1;
-/** Template slice index of a world y (mm). */
-const jOfY = (y: number) => y - DESIGN.grid.origin[1];
-const SLAB = PROTOCOL.slab;
-const DIAMETER = BRUSH.radiusMm * 2;
-/** What the brush writes on the (simulated) native grid, and what the 1 mm mock imagery can draw. */
-const READOUT = brushReadout(DIAMETER, NATIVE.spacing, BRUSH.shape);
-const DRAWN = brushReadout(DIAMETER, [1, 1, 1], BRUSH.shape);
-const GRID = { voxelMm3: NATIVE.voxelMm3 };
-/** The neighbour shown by default: the slice the tracer came from (k 10); the other is on a held key. */
-const PREV_J = PRIMARY_J - NATIVE.stepJ;
-const NEXT_J = PRIMARY_J + NATIVE.stepJ;
-
-const isPaint = (s: DesignState) => s === 'tracing' || s === 'multi-contrast' || s === 'blocked' || s === 'zoom';
 
 function activeTool(state: DesignState): ToolId {
   if (state === 'empty' || state === 'review') return 'navigate';
@@ -149,7 +152,7 @@ function activeTool(state: DesignState): ToolId {
 }
 
 /** A small text toggle (named, not an unlabelled glyph). */
-function TextToggle({
+export function TextToggle({
   pressed,
   children,
   title,
@@ -180,13 +183,32 @@ function TextToggle({
 
 // ---------------------------------------------------------------- tool rail
 
-function ToolRail({ state }: { state: DesignState }) {
-  const active = activeTool(state);
+/**
+ * The tool rail. Round 5: `active` overrides the state's tool, `ai` adds the
+ * AI assist tool at the end of the rail (only when a provider is configured;
+ * "pending" while its licence gate is open), `extra` appends tools of another
+ * workflow (the lesion range brush), and `stepTools` replaces the step's
+ * suggested tools.
+ */
+export function ToolRail({
+  state,
+  active: activeOverride,
+  ai,
+  extra,
+  stepTools = STEP_TOOLS,
+}: {
+  state: DesignState;
+  active?: ToolId | 'ai' | string;
+  ai?: 'on' | 'off' | 'pending';
+  extra?: React.ReactNode;
+  stepTools?: readonly ToolId[];
+}) {
+  const active = activeOverride ?? activeTool(state);
   const session = state !== 'empty';
   // Review is read only: paint tools are not offered at all.
   const paint = session && state !== 'review';
-  const step = TOOLS.filter((t) => STEP_TOOLS.includes(t.id));
-  const other = TOOLS.filter((t) => !STEP_TOOLS.includes(t.id));
+  const step = TOOLS.filter((t) => stepTools.includes(t.id));
+  const other = TOOLS.filter((t) => !stepTools.includes(t.id));
   const button = (t: (typeof TOOLS)[number], outside: boolean) => {
     const phase = t.phase > 2;
     const usable = t.id === 'navigate' || (paint && !phase);
@@ -216,8 +238,22 @@ function ToolRail({ state }: { state: DesignState }) {
       {paint ? (
         <>
           {step.map((t) => button(t, false))}
+          {extra}
           <div className="my-1.5 h-px w-5 bg-bf-border-subtle" aria-hidden />
           {other.map((t) => button(t, true))}
+          {ai ? (
+            <>
+              <div className="my-1.5 h-px w-5 bg-bf-border-subtle" aria-hidden />
+              <IconButton
+                aria-label="AI assist (A)"
+                title={ai === 'pending' ? 'AI assist (A): licence to acknowledge first' : 'AI assist (A): nnInteractive prompts; results are proposals'}
+                icon={<Sparkles />}
+                size="sm"
+                pressed={active === 'ai' || ai === 'pending'}
+                data-testid="ai-tool"
+              />
+            </>
+          ) : null}
         </>
       ) : (
         button(TOOLS[0], false)
@@ -246,7 +282,7 @@ function stateChip(state: DesignState): React.ReactNode {
 }
 
 /** "Oblique coronal  k 11/20  T2w native ⊥ long axis · 0.40×0.40 / 2.0 mm": named by native slice, not by a world coordinate. */
-function GeometryTitle({ image }: { image: SliceImage }) {
+export function GeometryTitle({ image }: { image: SliceImage }) {
   const [x, y, z] = CROSSHAIR_WORLD;
   return (
     <span
@@ -266,12 +302,12 @@ function GeometryTitle({ image }: { image: SliceImage }) {
   );
 }
 
-function Sep() {
+export function Sep() {
   return <span className="text-bf-text-faint">·</span>;
 }
 
 /** One constraint as a control: click opens its popover. */
-function StripItem({ children, title, open = false }: { children: React.ReactNode; title: string; open?: boolean }) {
+export function StripItem({ children, title, open = false }: { children: React.ReactNode; title: string; open?: boolean }) {
   return (
     <button
       type="button"
@@ -293,7 +329,7 @@ function StripItem({ children, title, open = false }: { children: React.ReactNod
  * label, paint-over, shape, size with its native readout, range. Each item
  * opens a popover; `sizeOpen` shows the size popover as an example.
  */
-function BrushStrip({ sizeOpen = false }: { sizeOpen?: boolean }) {
+export function BrushStrip({ sizeOpen = false }: { sizeOpen?: boolean }) {
   const def = LABEL_BY_ID.get(CA1)!;
   return (
     <div className="relative flex min-w-0 items-center gap-0.5" data-testid="constraint-strip" aria-label="Brush constraints (click to change)">
@@ -358,7 +394,7 @@ function SizePopover() {
  * other key: the neighbour slice (a faint grey line) and an island ring.
  * Legible without a tooltip; the keys stay in the tooltip.
  */
-function NeighbourKey({ island = true }: { island?: boolean }) {
+export function NeighbourKey({ island = true }: { island?: boolean }) {
   return (
     <span className="flex shrink-0 items-center gap-2.5 whitespace-nowrap font-mono text-bf-2xs text-bf-text-muted">
       <span
@@ -435,72 +471,6 @@ function PrimaryHeader({ state, image, fovMm }: { state: DesignState; image: Sli
   );
 }
 
-/** The structure's extent on the primary: the crosshair keeps out of it while editing or reviewing. */
-const STRUCTURE_BOX: Box = bboxOf(
-  [...SCENE.labelsA, ...SCENE.labelsB].map(([c, r]) => [c, r] as Voxel),
-  2,
-);
-
-/** Opacity of the neighbour line: fainter than any label stroke. */
-const NEIGHBOUR_OPACITY = 0.35;
-
-/**
- * Labels while drawing: no constant fill; each label stroked on its own inner
- * edge (active 1.5 px, others 1 px at 55%, complete and locked quieter); the
- * active label's faint fill inset by one voxel unless "Outline only" is on.
- */
-function strokeLabels(overlays: readonly Overlay[] | undefined, outlineOnly = false): Overlay[] {
-  return (overlays ?? []).map((o) =>
-    o.kind === 'labels' ? { ...o, fill: false, fillActive: outlineOnly ? undefined : [CA1] } : o,
-  );
-}
-
-/**
- * The neighbour slice (the one you came from): a faint neutral line, never
- * the label's hue, never dashed, and only where it departs from this slice
- * by more than one voxel.
- */
-function neighbourOverlay(current: readonly LabelVoxel[]): Overlay {
-  const prev = voxelsOf(DESIGN.labels.cor(PREV_J), CA1);
-  const d = neighbourDeparturePath(prev, voxelsOf(current, CA1), 1);
-  return { kind: 'path', d, className: 'stroke-bf-text-primary', width: 1, opacity: NEIGHBOUR_OPACITY, testId: 'neighbour-line' };
-}
-
-function labelVoxelsOf(overlays: readonly Overlay[] | undefined): readonly LabelVoxel[] {
-  const o = (overlays ?? []).find((x) => x.kind === 'labels');
-  return o && o.kind === 'labels' ? o.voxels : [];
-}
-
-/** Islands of the active label (a ring each): quality control while tracing. */
-function islandOverlay(current: readonly LabelVoxel[]): Overlay {
-  return { kind: 'islands', voxels: current, label: CA1 };
-}
-
-/** Islands of CA1 on the primary while tracing (the legend shows "island" only when there is one). */
-const ISLANDS_HERE = labelIslands(labelVoxelsOf(primaryView('tracing').overlays), CA1).length;
-
-function hPrimary(state: DesignState): PanelProps {
-  const p = primaryView(state);
-  const clear = { crosshairClearBox: STRUCTURE_BOX, crosshairClear: null };
-  const here = labelVoxelsOf(p.overlays);
-  switch (state) {
-    case 'tracing':
-    case 'multi-contrast':
-      return { ...p, ...clear, fovMm: 48, overlays: [neighbourOverlay(here), ...strokeLabels(p.overlays), islandOverlay(here)] };
-    case 'zoom':
-      // The grid dims while the neighbour line shares the voxel edges.
-      return { ...p, ...clear, gridOpacity: 0.07, overlays: [neighbourOverlay(here), ...strokeLabels(p.overlays), islandOverlay(here)] };
-    case 'blocked':
-      return { ...p, ...clear, overlays: [...strokeLabels(p.overlays), islandOverlay(here)] };
-    case 'proposal':
-      // Existing CA1 with its faint inset fill, added voxels hatched; strokes as while drawing.
-      return { ...p, ...clear, fovMm: 48, overlays: [...strokeLabels(p.overlays), islandOverlay(here)] };
-    case 'review':
-      return { ...p, ...clear };
-    default:
-      return p;
-  }
-}
 
 /** Size of the blocked card (px), for placing it. */
 const BLOCKED_CARD = { w: 268, h: 112, inset: 12 };
@@ -598,7 +568,7 @@ function CommentPin({ p }: { p: Projector }) {
 }
 
 /** Review the interpolation slice by slice: progress counted once; "Confirm all" is subordinate and asks again. */
-function ProposalBar() {
+export function ProposalBar() {
   const reviewed = INTERP.reviewed;
   const total = INTERP.orderJ.length;
   const unreviewed = total - reviewed;
@@ -655,6 +625,8 @@ interface RulerRow {
   /** Why the slice is open (direct label of its run). */
   why?: string;
   title: string;
+  /** A direct note beside the mark (round 5: "last" for the last edit). */
+  note?: string;
 }
 
 function rulerRows(state: DesignState): RulerRow[] {
@@ -701,8 +673,15 @@ function openRuns(rows: readonly RulerRow[]): Array<{ start: number; len: number
  * Review: a solid triangle is a flagged slice whose regions are decided, a
  * hollow one is still to decide (the same ▲ as in the region header).
  */
-function SliceRuler({ state }: { state: DesignState }) {
-  const rows = rulerRows(state);
+export function SliceRuler({
+  state,
+  marks,
+}: {
+  state: DesignState;
+  /** Round 5: per-k overrides (an AI result's slices: seen solid, unseen hollow "AI"; a recovered session's last edit). */
+  marks?: Readonly<Record<number, { mark: 'solid' | 'open' | 'none'; why?: string; title?: string; key?: boolean; note?: string }>>;
+}) {
+  const rows = rulerRows(state).map((r) => (marks?.[r.k] ? { ...r, ...marks[r.k] } : r));
   const runs = openRuns(rows);
   const n = rows.length;
   const review = state === 'review';
@@ -751,7 +730,13 @@ function SliceRuler({ state }: { state: DesignState }) {
                   <span className="block h-[4px] w-3.5 border border-bf-text-secondary" data-shape="hollow-bar" />
                 )}
               </span>
-              {r.key ? <span className="pl-1 font-sans text-bf-2xs leading-none text-bf-text-muted">key</span> : null}
+              {r.note ? (
+                <span className="pl-1 font-sans text-bf-2xs leading-none text-bf-text-secondary" data-ruler-note>
+                  {r.note}
+                </span>
+              ) : r.key ? (
+                <span className="pl-1 font-sans text-bf-2xs leading-none text-bf-text-muted">key</span>
+              ) : null}
             </div>
           );
         })}
@@ -773,74 +758,8 @@ function SliceRuler({ state }: { state: DesignState }) {
   );
 }
 
-// ------------------------------------------------------------ orthogonals
 
-/** Direction of the native slice plane in a world-frame view (display units), from the simulated tilt. */
-function sliceDir(plane: 'axial' | 'sagittal'): Point {
-  if (plane === 'axial') {
-    const t = (NATIVE.tiltDeg.axial * Math.PI) / 180;
-    return [Math.cos(t), -Math.sin(t)];
-  }
-  // Sagittal: the slice leans with its top anterior (left), perpendicular to the long axis.
-  const t = (NATIVE.tiltDeg.sagittal * Math.PI) / 180;
-  return [Math.sin(t), Math.cos(t)];
-}
-
-/** Half-length of the native-slice band (mm): only near the structure. */
-const BAND_HALF_MM = 9;
-/** Margin around the structure when the orthogonal views fit it (mm; unused once `fraction` is set). */
-const ORTHO_FIT_MARGIN_MM = 10;
-/** Share of the panel the hippocampus fills in the orthogonal views. */
-const ORTHO_FIT_FRACTION = 0.8;
-/** Gutters outside the image: the native slices meet the bottom edge in the sagittal view, the right edge in the axial. */
-const GUTTER = { sagittal: { side: 'bottom' as const, size: 16 }, axial: { side: 'right' as const, size: 34 } };
-
-/**
- * Orthogonal views fitted so the hippocampus fills 80% of the panel, with a
- * whole-slice locator in the corner, so through-plane continuity can be
- * checked without losing place. Only the active label is drawn (a light
- * fill and its outline), so its continuity across k reads at a glance. The
- * primary's native slice is a band (14%) near the structure plus short
- * tilted ticks where its plane meets the frame; native slices, the landmark
- * limits and the head / body / tail zones sit in a gutter outside the image.
- */
-function hOrtho(state: DesignState): { axial: PanelProps; sagittal: PanelProps } {
-  const o = orthoViews(state);
-  if (state === 'empty') return o;
-  const [x0, y0, z0] = CROSSHAIR_WORLD;
-  const extent = (v: readonly LabelVoxel[]) => bboxOf(v.map(([c, r]) => [c, r] as Voxel));
-  const mk = (plane: 'axial' | 'sagittal', all: readonly LabelVoxel[]): PanelProps => {
-    const at = (y: number) => worldToDisplay(plane, [x0, y, z0]);
-    const dir = sliceDir(plane);
-    const box = extent(all);
-    const base = o[plane];
-    const shown = (state === 'review' ? all : plane === 'axial' ? DESIGN.labels.axTraced : DESIGN.labels.sagTraced).filter((v) => v[2] === CA1);
-    return {
-      ...base,
-      fit: { box, marginMm: ORTHO_FIT_MARGIN_MM, fraction: ORTHO_FIT_FRACTION },
-      locator: true,
-      crosshairClearBox: bboxOf(all.map(([c, r]) => [c, r] as Voxel), 2),
-      gutter: {
-        ...GUTTER[plane],
-        slices: NATIVE_SLICES_J.map((j) => ({ through: at(yOfJ(j)), current: j === PRIMARY_J })),
-        limits: [at(SLAB.toY), at(SLAB.fromY)],
-        zones: ['head', 'body', 'tail'],
-      },
-      overlays: [
-        // The primary's native slice (2.0 mm), tilted by the obliquity: a faint fill near the structure, no edge lines.
-        { kind: 'band', through: at(y0), dir, widthMm: NATIVE.spacing[2], lengthMm: BAND_HALF_MM, ticks: true },
-        // The active label only: a light fill (the constant label alpha) and its outline.
-        { kind: 'labels', voxels: shown, fill: true, active: [CA1] },
-      ],
-    };
-  };
-  return {
-    axial: mk('axial', DESIGN.labels.axAll),
-    sagittal: mk('sagittal', DESIGN.labels.sagAll),
-  };
-}
-
-function OrthoHeader({ image, slab = true }: { image: SliceImage; slab?: boolean }) {
+export function OrthoHeader({ image, slab = true }: { image: SliceImage; slab?: boolean }) {
   const plane = image.plane === 'axial' ? 'axial' : 'sagittal';
   return (
     <span
@@ -870,7 +789,7 @@ function OrthoHeader({ image, slab = true }: { image: SliceImage; slab?: boolean
 /** The pack's example at the primary's native position (k-matched), CA1 complete; mock: the template's own labels. */
 const REFERENCE_J = PRIMARY_J;
 
-function ReferenceTile({ fovMm = 40 }: { fovMm?: number }) {
+export function ReferenceTile({ fovMm = 40 }: { fovMm?: number }) {
   return (
     <SliceView
       image={DESIGN.images.cor(REFERENCE_J)}
@@ -937,7 +856,7 @@ function ContrastStrip({ fovMm }: { fovMm: number }) {
 }
 
 /** The example's own key: neutral hairline boundaries, CA1 as a flat fill (not a stroke). */
-function ExampleKey({ className }: { className?: string }) {
+export function ExampleKey({ className }: { className?: string }) {
   return (
     <span className={clsx('flex items-center gap-1 text-bf-2xs text-bf-text-muted', className)} data-testid="example-key" title="A pack example, not your labels: boundaries are neutral hairlines and CA1 is a flat fill">
       <span className="h-2 w-3 rounded-[1px] border border-bf-text-primary/80" style={{ background: `color-mix(in srgb, ${labelColor(CA1)} 40%, transparent)` }} aria-hidden />
@@ -1071,18 +990,20 @@ function StartCard() {
 
 // -------------------------------------------------------------- inspector
 
-function SessionHeader({ state }: { state: DesignState }) {
+export function SessionHeader({ state, status, file }: { state: DesignState; status?: React.ReactNode; file?: string }) {
   const review = state === 'review';
   return (
     <div className="flex items-center gap-2 border-b border-bf-border-subtle px-3 py-2" title={`Labels live on the T2w grid, ${NATIVE_GEOMETRY}, ${N_SLICES} native slices`}>
-      <span className="truncate text-bf-sm font-medium text-bf-text-primary">{SESSION.shortFile}</span>
-      <span className="whitespace-nowrap text-bf-2xs text-bf-text-muted">{review ? 'v2 · all labels complete · vs rater B' : 'on T2w grid · unsaved'}</span>
+      <span className="truncate text-bf-sm font-medium text-bf-text-primary">{file ?? SESSION.shortFile}</span>
+      <span className="whitespace-nowrap text-bf-2xs text-bf-text-muted" data-testid="session-status">
+        {status ?? (review ? 'v2 · all labels complete · vs rater B' : 'on T2w grid · unsaved')}
+      </span>
       <span className="ml-auto whitespace-nowrap text-bf-2xs text-bf-text-muted">{SESSION.rater}</span>
     </div>
   );
 }
 
-function StepProgress({ current }: { current: number }) {
+export function StepProgress({ current }: { current: number }) {
   return (
     <span className="flex items-center gap-0.5" aria-label={`Step ${current + 1} of ${PROTOCOL.steps.length}`}>
       {PROTOCOL.steps.map((s, i) => (
@@ -1100,7 +1021,7 @@ const OPEN_CHECKS = PROTOCOL.ca1Checks.filter((c) => !c.done);
 const CHECK_RULE: Record<string, number> = { 'Lateral border on the ventricle wall': 1, 'CA1/subiculum line drawn': 2, 'Every body slice from y −32 to −16': 0 };
 
 /** C's protocol step, collapsed to one summary line (the rule for the next open check; all rules behind the chevron). */
-function StepCard({ state }: { state: DesignState }) {
+export function StepCard({ state }: { state: DesignState }) {
   const review = state === 'review';
   const cur = review ? PROTOCOL.steps.length - 1 : PROTOCOL.currentStep;
   const summary = review
@@ -1138,7 +1059,7 @@ function StepCard({ state }: { state: DesignState }) {
  * enlarge) and "Mark CA1 complete" (disabled until the checks are done).
  * The multi-contrast layout shows the example in its strip instead.
  */
-function StepNext({ state }: { state: DesignState }) {
+export function StepNext({ state }: { state: DesignState }) {
   const thumb = state !== 'multi-contrast';
   return (
     <div className="flex gap-2.5 border-b border-bf-border-subtle px-3 py-2" data-testid="step-next">
@@ -1240,7 +1161,7 @@ const colOfK = (k: number) => N_SLICES - k;
  * bar; a pending proposal is hollow bars. Every slice is a button: click to
  * go there. `more` rows sit behind a "Show all labels" disclosure.
  */
-function SliceMatrix({
+export function SliceMatrix({
   rows,
   more = [],
   caption,
@@ -1428,14 +1349,33 @@ const HOVER_DEMO = (() => {
   return r && f ? { id: r.id, k: f.k } : null;
 })();
 
-function LabelsSection({ state }: { state: DesignState }) {
-  const matrix = tracingMatrixRows(state);
+/**
+ * The Labels section and the slice matrix. Round 5: `pending` shows a
+ * proposal on CA1 that is not the fill-between one (an AI result): its
+ * slices as hollow bars over the traced ones, the label's status Proposal.
+ */
+export function LabelsSection({
+  state,
+  pending,
+  hover,
+}: {
+  state: DesignState;
+  pending?: { values: readonly number[]; hollow: readonly number[] };
+  hover?: { id: number; k: number } | null;
+}) {
+  const base = tracingMatrixRows(state);
+  const matrix = pending
+    ? {
+        rows: base.rows.map((r) => (r.id === CA1 ? { ...r, values: pending.values, hollow: pending.hollow, flags: [], islands: undefined } : r)),
+        more: base.more,
+      }
+    : base;
   const labels = sessionLabels(
     Object.fromEntries(
       [...LABEL_BY_ID.keys()].map((id) => [
         id,
         {
-          ...(id === CA1 && state === 'proposal' ? { status: 'proposal' as const } : {}),
+          ...(id === CA1 && (state === 'proposal' || pending) ? { status: 'proposal' as const } : {}),
           ...(id !== CA1 && id !== 4 && id !== 5 ? { lockReason: `Complete and locked: step ${id === 6 ? 3 : id === 3 ? 4 : 5}` } : {}),
         },
       ]),
@@ -1477,7 +1417,7 @@ function LabelsSection({ state }: { state: DesignState }) {
           </span>
         }
         {...matrix}
-        hover={state === 'tracing' ? HOVER_DEMO : null}
+        hover={hover !== undefined ? hover : state === 'tracing' ? HOVER_DEMO : null}
       />
     </>
   );
@@ -1764,9 +1704,10 @@ function EmptyInspector() {
   );
 }
 
-function Inspector({ state }: { state: DesignState }) {
+/** The Inspector's frame: the Inspect | Segment tabs over a scrolling body. */
+export function InspectorFrame({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return (
-    <aside aria-label="Inspector" className="flex w-[var(--h-inspector)] shrink-0 flex-col border-l border-bf-border-subtle bg-bf-bg-panel">
+    <aside aria-label="Inspector" className="flex w-[var(--h-inspector)] shrink-0 flex-col border-l border-bf-border-subtle bg-bf-bg-panel" data-testid={testId}>
       <div className="flex h-8 shrink-0 items-center border-b border-bf-border-subtle px-2">
         <Tabs
           aria-label="Inspector mode"
@@ -1778,7 +1719,14 @@ function Inspector({ state }: { state: DesignState }) {
           ]}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    </aside>
+  );
+}
+
+function Inspector({ state }: { state: DesignState }) {
+  return (
+    <InspectorFrame>
         {state === 'empty' ? (
           <EmptyInspector />
         ) : (
@@ -1795,8 +1743,7 @@ function Inspector({ state }: { state: DesignState }) {
             )}
           </>
         )}
-      </div>
-    </aside>
+    </InspectorFrame>
   );
 }
 
@@ -1812,23 +1759,59 @@ function Status({ state }: { state: DesignState }) {
   );
 }
 
-export function DirectionH({ state }: { state: DesignState }) {
+/**
+ * H's shell: top bar with the mode switcher, the status bar and the mock
+ * disclosure, and the rail | main | Inspector row with the panel widths
+ * (Inspector 336 px, orthogonal column 240 px; 304 and 220 at 1366 and
+ * below). Round 5's workflow states fill the same slots.
+ */
+export function HShell({
+  mode = 'trace',
+  status,
+  rail,
+  inspector,
+  children,
+  paint,
+  simulatedGeometry = NATIVE_GEOMETRY,
+  disclosure,
+  testState,
+}: {
+  mode?: string;
+  status: React.ReactNode;
+  rail: React.ReactNode;
+  inspector: React.ReactNode;
+  children: React.ReactNode;
+  paint?: boolean;
+  simulatedGeometry?: string;
+  disclosure?: string;
+  testState?: string;
+}) {
   return (
-    <ShellFrame
-      center={<ModeSwitcher value={state === 'empty' ? 'orthogonal' : 'trace'} />}
-      right={<Button variant="ghost">Workspace</Button>}
-      status={<Status state={state} />}
-      simulatedGeometry={NATIVE_GEOMETRY}
-    >
+    <ShellFrame center={<ModeSwitcher value={mode} />} right={<Button variant="ghost">Workspace</Button>} status={status} simulatedGeometry={simulatedGeometry} disclosure={disclosure}>
       <div
-        className="flex h-full min-h-0 [--h-inspector:336px] [--h-ortho:240px] max-[1366px]:[--h-inspector:304px] max-[1366px]:[--h-ortho:220px]"
+        className="relative flex h-full min-h-0 [--h-inspector:336px] [--h-ortho:240px] max-[1366px]:[--h-inspector:304px] max-[1366px]:[--h-ortho:220px]"
         data-direction="h"
-        data-paint={isPaint(state) || undefined}
+        data-paint={paint || undefined}
+        data-state={testState}
       >
-        <ToolRail state={state} />
-        <div className="flex min-w-0 flex-1 flex-col">{state === 'empty' ? <EmptyLayout /> : <TraceLayout state={state} />}</div>
-        <Inspector state={state} />
+        {rail}
+        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        {inspector}
       </div>
     </ShellFrame>
+  );
+}
+
+export function DirectionH({ state }: { state: DesignState }) {
+  return (
+    <HShell
+      mode={state === 'empty' ? 'orthogonal' : 'trace'}
+      status={<Status state={state} />}
+      paint={isPaint(state)}
+      rail={<ToolRail state={state} />}
+      inspector={<Inspector state={state} />}
+    >
+      {state === 'empty' ? <EmptyLayout /> : <TraceLayout state={state} />}
+    </HShell>
   );
 }

@@ -1,13 +1,14 @@
 /**
  * Captures the segmentation design directions (ui2/segmentation-harness.html):
- * every direction x state at 1440x900, plus the multi-contrast state at
- * 1280x800, into cruft/hillclimb/segmentation/<round>/<direction>/<state>.png
+ * every direction x state at 1440x900, plus the multi-contrast, tracing and
+ * lesion states at 1280x800, and (direction h) the round-5 workflow states
+ * listed in segmentation-design.workflow.json, into cruft/hillclimb/segmentation/<round>/<direction>/<state>.png
  * with a manifest.json. Fails on boot failures and uncaught page errors.
  *
  *   SEG_DESIGN_ROUND=round-0 SEG_DESIGN_DIRECTIONS=a,b SEG_DESIGN_STATES=tracing \
  *     node_modules/.bin/playwright test -c playwright.segmentation-design.config.ts
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { FREEZE_CSS, installStyleScript } from './app-harness.scenarios';
@@ -27,13 +28,29 @@ const STATES: Array<[string, string]> = [
   ['review', 'Review mode: rater A solid, rater B dashed where it departs, disagreement textures, flagged navigation, approve/return'],
   ['zoom', 'Zoomed tracing: 6x with voxel grid and the exact brush footprint'],
 ];
+/**
+ * Round 5: workflow states, direction h only. Each carries its description,
+ * its design decisions and what is mocked, for the manifest.
+ */
+interface WorkflowShot {
+  id: string;
+  description: string;
+  decisions: string[];
+  mocked: string;
+}
+const WORKFLOW: WorkflowShot[] = JSON.parse(
+  readFileSync(resolve(__dirname, 'segmentation-design.workflow.json'), 'utf8'),
+) as WorkflowShot[];
 const VARIANTS: Array<[string, number, number]> = [
   ['multi-contrast', 1280, 800],
   ['tracing', 1280, 800],
+  ['lesion', 1280, 800],
 ];
 
 const directions = pick(process.env.SEG_DESIGN_DIRECTIONS, Object.keys(DIRECTIONS));
-const states = pick(process.env.SEG_DESIGN_STATES, STATES.map(([s]) => s));
+const allStates = [...STATES.map(([s]) => s), ...WORKFLOW.map((w) => w.id)];
+const states = pick(process.env.SEG_DESIGN_STATES, allStates);
+const supports = (direction: string, state: string) => direction === 'h' || STATES.some(([s]) => s === state);
 
 interface Shot {
   direction: string;
@@ -69,13 +86,14 @@ async function capture(page: Page, direction: string, state: string, file: strin
 
 for (const direction of directions) {
   for (const state of states) {
+    if (!supports(direction, state)) continue;
     test(`capture ${direction}/${state}`, async ({ page }) => {
       await capture(page, direction, state, `${state}.png`);
       shots.push({ direction, state, file: `${direction}/${state}.png`, viewport: [1440, 900] });
     });
   }
   for (const [state, width, height] of VARIANTS) {
-    if (!states.includes(state)) continue;
+    if (!states.includes(state) || !supports(direction, state)) continue;
     test(`capture ${direction}/${state} @${width}x${height}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       const file = `${state}@${width}x${height}.png`;
@@ -90,9 +108,12 @@ test.afterAll(() => {
     round: ROUND,
     harness: 'ui2/segmentation-harness.html?direction=<id>&state=<state>',
     honesty:
-      'Images are real MNI152NLin2009cAsym 1 mm T2w/T1w template slices (TemplateFlow); the third strip panel is a view-only unsharp mask of T2w. Subfield labels, strokes, proposals, rater B and all counts are mock data; editing is simulated (no bridge). Direction h states a native 0.40x0.40/2.0 mm T2 geometry that is SIMULATED: the imagery stays 1 mm, native slices are every second template slice.',
+      'Images are real MNI152NLin2009cAsym 1 mm T2w/T1w template slices (TemplateFlow); the third strip panel is a view-only unsharp mask of T2w. Subfield labels, strokes, proposals, rater B and all counts are mock data; editing is simulated (no bridge). Direction h states a native 0.40x0.40/2.0 mm T2 geometry that is SIMULATED: the imagery stays 1 mm, native slices are every second template slice. Round 5 (direction h workflow states): the FLAIR in state lesion is a MOCK derived from the MNI152 T1w template and its lesions are synthetic; AI answers, servers, journals, files and times are mock.',
     directions: directions.map((id) => ({ id, title: DIRECTIONS[id] })),
-    states: STATES.filter(([s]) => states.includes(s)).map(([id, description], i) => ({ id, index: i + 1, description })),
+    states: [
+      ...STATES.filter(([s]) => states.includes(s)).map(([id, description]) => ({ id, description })),
+      ...WORKFLOW.filter((w) => states.includes(w.id)).map((w) => ({ id: w.id, description: w.description, decisions: w.decisions, mocked: w.mocked, round: 5 })),
+    ].map((s, i) => ({ index: i + 1, ...s })),
     shots: shots.sort((a, b) => a.file.localeCompare(b.file)),
   };
   writeFileSync(resolve(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2));

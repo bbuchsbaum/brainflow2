@@ -79,12 +79,12 @@ export function LineSample({
 }
 
 /** The honest disclosure: what is real and what is mocked in these screens. */
-export function MockDisclosure({ className, simulatedGeometry }: { className?: string; simulatedGeometry?: string }) {
+export function MockDisclosure({ className, simulatedGeometry, text }: { className?: string; simulatedGeometry?: string; text?: string }) {
   return (
-    <span className={clsx('whitespace-nowrap text-bf-2xs text-bf-text-faint', className)}>
-      {simulatedGeometry
+    <span className={clsx('whitespace-nowrap text-bf-2xs text-bf-text-faint', className)} data-testid="mock-disclosure">
+      {text ?? (simulatedGeometry
         ? `Design mock · editing simulated · MNI152 1 mm imagery · native ${simulatedGeometry} geometry simulated · labels mock`
-        : 'Design mock · editing simulated · MNI152 2009c T2w/T1w 1 mm · subfield labels mock'}
+        : 'Design mock · editing simulated · MNI152 2009c T2w/T1w 1 mm · subfield labels mock')}
     </span>
   );
 }
@@ -99,10 +99,12 @@ export interface ShellFrameProps {
   topBar?: 'default' | 'quiet';
   /** Simulated native geometry to state in the disclosure ("0.40×0.40 / 2.0 mm"). */
   simulatedGeometry?: string;
+  /** Replace the disclosure (round 5: the lesion session's mock FLAIR). Must still start "Design mock". */
+  disclosure?: string;
 }
 
 /** A stand-in for the app shell around the module (top bar, status bar). */
-export function ShellFrame({ center, right, status, children, topBar = 'default', simulatedGeometry }: ShellFrameProps) {
+export function ShellFrame({ center, right, status, children, topBar = 'default', simulatedGeometry, disclosure }: ShellFrameProps) {
   return (
     <div className="flex h-screen w-screen min-w-0 flex-col overflow-hidden bg-bf-bg-app font-sans text-bf-text-primary">
       <header
@@ -121,7 +123,7 @@ export function ShellFrame({ center, right, status, children, topBar = 'default'
       <main className="relative min-h-0 flex-1">{children}</main>
       <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-bf-border-subtle bg-bf-bg-shell px-3 text-bf-xs">
         <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">{status}</div>
-        <MockDisclosure simulatedGeometry={simulatedGeometry} />
+        <MockDisclosure simulatedGeometry={simulatedGeometry} text={disclosure} />
       </footer>
     </div>
   );

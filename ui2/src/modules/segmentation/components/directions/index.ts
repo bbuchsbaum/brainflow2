@@ -6,17 +6,20 @@
  */
 
 import type { ComponentType } from 'react';
-import type { DesignState, DirectionId } from '@/modules/segmentation/components/shared/types';
+import type { DesignState, DirectionId, WorkflowState } from '@/modules/segmentation/components/shared/types';
 import { DirectionA } from './a/DirectionA';
 import { DirectionB } from './b/DirectionB';
 import { DirectionC } from './c/DirectionC';
 import { DirectionH } from './h/DirectionH';
+import { DirectionHWorkflow } from './h/workflow/WorkflowH';
 
 export interface DirectionDef {
   id: DirectionId;
   title: string;
   concept: string;
   component: ComponentType<{ state: DesignState }>;
+  /** Round 5: the workflow states (`WORKFLOW_STATES`), direction H only. */
+  workflow?: ComponentType<{ state: WorkflowState }>;
 }
 
 export const DIRECTIONS: Record<DirectionId, DirectionDef> = {
@@ -47,5 +50,6 @@ export const DIRECTIONS: Record<DirectionId, DirectionDef> = {
     concept:
       "Round 1: A's tiled shell and Inspector label list, C's protocol step card and landmark limits, B's start card, slice ruler and status chip; partition labels, yielding crosshair, honest native geometry.",
     component: DirectionH,
+    workflow: DirectionHWorkflow,
   },
 };

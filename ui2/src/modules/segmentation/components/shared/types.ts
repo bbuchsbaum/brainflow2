@@ -87,4 +87,44 @@ export const DESIGN_STATE_TITLES: Record<DesignState, string> = {
   zoom: 'Zoomed tracing',
 };
 
+/**
+ * Round 5: workflow states, direction H only (the round-0 directions stop at
+ * the seven design states). They reuse H's shell.
+ */
+export type WorkflowState =
+  | 'ai-prompt'
+  | 'ai-consent'
+  | 'lesion'
+  | 'contrast-aids'
+  | 'history'
+  | 'save'
+  | 'resume'
+  | 'setup';
+
+export const WORKFLOW_STATES: readonly WorkflowState[] = [
+  'ai-prompt',
+  'ai-consent',
+  'lesion',
+  'contrast-aids',
+  'history',
+  'save',
+  'resume',
+  'setup',
+];
+
+export const WORKFLOW_STATE_TITLES: Record<WorkflowState, string> = {
+  'ai-prompt': 'AI assist: prompts and a 3D proposal',
+  'ai-consent': 'AI provider: first-use licence gate',
+  lesion: 'White-matter lesions on FLAIR',
+  'contrast-aids': 'Contrast aids: lens, view-only filter, flicker',
+  history: 'History: named steps, per-label undo, branch',
+  save: 'Save and export',
+  resume: 'Resume: where was I',
+  setup: 'Session setup: grid, label table, new label',
+};
+
+export function isWorkflowState(s: string): s is WorkflowState {
+  return (WORKFLOW_STATES as readonly string[]).includes(s);
+}
+
 export type DirectionId = 'a' | 'b' | 'c' | 'h';

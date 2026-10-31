@@ -207,6 +207,12 @@ export interface BrushCursor {
   footprint?: boolean;
   /** `blocked`: warning-coloured footprint (a refused stroke). */
   tone?: 'neutral' | 'blocked';
+  /**
+   * The exact voxels the brush writes when its rule is not "centre inside
+   * the disc" (round 5: the lesion range brush, in range and more than half
+   * inside). The preview and the outline then draw this set.
+   */
+  voxels?: readonly Voxel[];
 }
 
 export interface Projector {
@@ -375,7 +381,7 @@ export function SliceView({
   };
 
   const footprint = useMemo(
-    () => (brush ? discFootprint(brush.center, brush.radiusMm) : []),
+    () => (brush ? (brush.voxels ?? discFootprint(brush.center, brush.radiusMm)) : []),
     [brush],
   );
 

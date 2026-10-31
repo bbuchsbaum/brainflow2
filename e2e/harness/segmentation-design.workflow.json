@@ -1,0 +1,97 @@
+[
+  {
+    "id": "ai-prompt",
+    "description": "AI assist (nnInteractive): prompt sub-rail, prompts on the slice, the 3D result as a CA1 proposal with locked voxels protected, Confirm CA1, prompt undo apart from document undo",
+    "decisions": [
+      "The AI tool sits at the end of H's rail (only when a provider is configured) and opens a 36 px prompt sub-rail: point +, point −, scribble, box, lasso (keys 1-5).",
+      "Prompts are neutral marks told apart by form: a filled disc with + includes, a hollow ring with − excludes, a solid scribble with a start dot; never colour, never dashed.",
+      "The answer uses H's proposal grammar: hatch in the target label's colour plus a thin solid outline, on the primary and in both orthogonal views (only the slices it spans).",
+      "The gate is stricter than the brush: a proposal adds empty voxels only; voxels another label holds are kept and crossed (the fill-between mark), counted by label in the bar.",
+      "Confirm CA1 writes all slices; unseen slices stay hollow 'AI' bars on the ruler and hollow bars in the slice matrix, and are logged 'AI, not reviewed'.",
+      "Prompt undo (⌥Z) re-asks the model and is labelled apart from document undo (⌘Z).",
+      "Provider, version, 'local' and latency sit quietly in mono at the bar's right; channel, crop and the add-only policy are controls in header line 2."
+    ],
+    "mocked": "The model's answer is the mock CA1 still to trace plus a one-voxel rim (the over-reach), gated by the real rule; per-slice counts on other slices come from the mock area table; no server is called."
+  },
+  {
+    "id": "ai-consent",
+    "description": "First-use licence gate for the AI provider: server, what leaves the computer, CC BY-NC-SA weights, what AI assist does, the provenance record",
+    "decisions": [
+      "A side sheet replaces the orthogonal column and Inspector; the primary keeps its view (sheets never cover the anatomy).",
+      "Local server first and selected: 'Nothing leaves this computer'. The remote option carries its warning (warning hairline and icon) whether or not it is selected, naming exactly what leaves and what does not.",
+      "The licence comes from the server (session.license); Use nnInteractive stays disabled until the acknowledgement is ticked.",
+      "Four plain promises: proposals only, never takes another label's voxels, refine is opt-in, no published accuracy on subfields.",
+      "The provenance record (provider, server, licence, who acknowledged, when) is shown as it will be written."
+    ],
+    "mocked": "Server status, version and URL are mock; nothing is contacted."
+  },
+  {
+    "id": "lesion",
+    "description": "White-matter lesions on a mock FLAIR: range brush with a live preview of what it takes, the >50% partial-volume rule, a lesion list (one row per 3D connected lesion), next/previous lesion, axial ruler",
+    "decisions": [
+      "The intensity range is a constraint of the gate, shown in the strip like 'over unlocked' (range FLAIR 168-255), with the histogram and range in the Inspector ('limits writing, not display').",
+      "The lesion protocol's rule replaces 'centre inside': a voxel is written when in range and more than half inside the disc. The preview is exactly that set; in-range voxels touched by half or less get a small hollow square, keyed inline.",
+      "One WMH label for all lesions; the current lesion is the active label (1.5 px, inset fill), reviewed lesions quiet, the rest inactive, with a direct L-number tag beside each.",
+      "The label list becomes a lesion list derived from the 3D mask (26-connected components): where, location class, mm³, slice span, reviewed; the current row opens 'Mark L1 reviewed ↵' and Remove; N / ⇧N step lesions.",
+      "The ruler runs in axial k: solid where every lesion on the slice is reviewed, hollow where one is not, the current lesion's span bracketed.",
+      "Orthogonal views are same-grid coronal and sagittal cuts through the current lesion (no reslice, no slab angle) with the axial slice as a band."
+    ],
+    "mocked": "FLAIR is a mock made from the 1 mm MNI152 T1w template (non-monotonic intensity map, blur, noise); the six lesions are synthetic blobs with a partial-volume membership (tools/design/segmentation_flair_assets.py)."
+  },
+  {
+    "id": "contrast-aids",
+    "description": "Contrast aids: cursor lens with T1w under the brush tip, a view-only unsharp filter with its badge and recipe, hold-to-flicker keys",
+    "decisions": [
+      "The badge is derived from the image (filterBadge), so a filter is never on without it; neutral outlined chip with an aperture glyph beside the geometry title, which still names the data (T2w).",
+      "Filters change image pixels only: no label colour, no hatch, no outline change; the recipe (σ in mm, world-anchored, window) is in the Inspector's View aids and the badge tooltip.",
+      "The lens is a 136 px round window at the same scale and position, neutral rim with a dark halo, caption 'T1w · 1:1' outside its rim; the active label's outline and the brush footprint continue through it.",
+      "Flicker keys (V raw, Space T1w, ⌥ lens) are key hints on header line 2, no extra panels."
+    ],
+    "mocked": "The filter is the generator's view-only unsharp mask of the template T2w; T1w is the template T1w."
+  },
+  {
+    "id": "history",
+    "description": "History as a bottom-dock tab: named steps with tool, label, voxels, slices and duration; a kept branch; per-label undo; autosave and journal status",
+    "decisions": [
+      "Bottom dock under primary and orthogonals (History | Label statistics); the Inspector stays the label list.",
+      "Newest first; the graph gutter draws the active line, the current step as a filled dot, and the undone-then-replaced steps as a dimmed kept branch joining at its branch point (32′, 33′), restorable.",
+      "Hovering a step outlines its voxels in the primary with the brush's neutral outline (never a label colour) and names it on header line 2.",
+      "Undo per label: each label's latest step, the voxels it would revert and those it keeps because a later step changed them.",
+      "Autosave: journal age, size against the byte budget and minimum depth, last save and steps since."
+    ],
+    "mocked": "Steps, times, sizes and voxel sets are mock; per-label undo counts come from the real rule on mock voxel sets."
+  },
+  {
+    "id": "save",
+    "description": "Save and export: NIfTI-1 label volume (intent 1002, uint8, sform+qform kept), dseg.tsv / ITK-SNAP / FreeSurfer LUT with a preview, provenance sidecar and per-voxel provenance volume, destination and files",
+    "decisions": [
+      "A side sheet; the primary keeps its view.",
+      "The label volume is always written; its header facts are listed (type chosen from the largest id, intent 1002, voxel for voxel on the reference grid).",
+      "Label tables are checkboxes with a live preview of the selected dialect; the parent column carries the hierarchy.",
+      "Provenance: the sidecar (rater, pack version, source hash, time on task split into navigation, drawing and correction, history, AI) and the per-voxel provenance volume with its code table summing to the labelled voxels.",
+      "Destination with a BIDS derivatives switch and the exact file names that will be written."
+    ],
+    "mocked": "Paths, hash, times and software version are mock; table previews come from the real writers on the mock label table."
+  },
+  {
+    "id": "resume",
+    "description": "Reopening after a crash: view restored exactly, a recovered-journal banner above the image, the last edit outlined and marked on the ruler",
+    "decisions": [
+      "The banner sits above the image (it pushes the view, never covers it): what was recovered and when, then 'Restored k 11 · CA1 · brush · 4.0× · T2w window · step 6/9 · last edit'.",
+      "Keep recovered work (primary), Open the 14:02 save, Show changes.",
+      "The last stroke is outlined in the neutral footprint outline with a 'last edit · 14:31' tag beside it, and the ruler marks 'last' at k 11."
+    ],
+    "mocked": "The crash, the journal and the times are mock."
+  },
+  {
+    "id": "setup",
+    "description": "Starting a session: reference grid, protocol pack or imported label table, and a new label with id, parent and a colour picker that only offers distinguishable colours",
+    "decisions": [
+      "A side sheet beside the image to be segmented, at fit.",
+      "Reference grid as two choices with their consequences (labels stored voxel for voxel on the chosen grid).",
+      "Label table from a protocol pack (preview of its labels with parents), an imported ITK-SNAP / FreeSurfer / dseg.tsv table, or empty.",
+      "The colour picker refuses (crossed and dimmed, reason in the tooltip) every candidate whose tints come within ΔE 15 of an existing label's, or within ΔE 25 of the crosshair or the warning colour; a stroke preview shows active, inactive and quiet."
+    ],
+    "mocked": "The palette, the pack and the new label (Fimbria, id 7) are mock."
+  }
+]

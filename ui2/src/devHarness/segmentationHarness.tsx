@@ -23,6 +23,9 @@ import { DIRECTIONS } from '@/modules/segmentation/components/directions';
 import {
   DESIGN_STATES,
   DESIGN_STATE_TITLES,
+  WORKFLOW_STATES,
+  WORKFLOW_STATE_TITLES,
+  isWorkflowState,
   type DesignState,
   type DirectionId,
 } from '@/modules/segmentation/components/shared/types';
@@ -38,7 +41,7 @@ declare global {
 
 const params = new URLSearchParams(location.search);
 const direction = params.get('direction') as DirectionId | null;
-const state = params.get('state') as DesignState | null;
+const state = params.get('state');
 
 function Index() {
   return (
@@ -56,6 +59,13 @@ function Index() {
                 {DESIGN_STATE_TITLES[s]}
               </a>
             ))}
+            {d.workflow
+              ? WORKFLOW_STATES.map((s) => (
+                  <a key={s} className="text-bf-text-secondary underline" href={`?direction=${d.id}&state=${s}`}>
+                    {WORKFLOW_STATE_TITLES[s]}
+                  </a>
+                ))
+              : null}
           </div>
         </section>
       ))}
@@ -66,9 +76,13 @@ function Index() {
 function Harness() {
   if (!direction || !state) return <Index />;
   const def = DIRECTIONS[direction];
-  if (!def || !DESIGN_STATES.includes(state)) throw new Error(`Unknown direction/state: ${direction}/${state}`);
+  if (def && isWorkflowState(state) && def.workflow) {
+    const Workflow = def.workflow;
+    return <Workflow state={state} />;
+  }
+  if (!def || !DESIGN_STATES.includes(state as DesignState)) throw new Error(`Unknown direction/state: ${direction}/${state}`);
   const Component = def.component;
-  return <Component state={state} />;
+  return <Component state={state as DesignState} />;
 }
 
 async function waitForImages(): Promise<void> {

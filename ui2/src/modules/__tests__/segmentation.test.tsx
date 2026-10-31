@@ -12,7 +12,7 @@ import { moduleRegistry, stageDefaultEnabled } from '@/modules/registry';
 import segmentation, { SEGMENTATION_WORKSPACE } from '@/modules/segmentation/module';
 import { DIRECTIONS } from '@/modules/segmentation/components/directions';
 import { SegmentationWorkspace } from '@/modules/segmentation/components/SegmentationWorkspace';
-import { DESIGN_STATES } from '@/modules/segmentation/components/shared/types';
+import { DESIGN_STATES, WORKFLOW_STATES } from '@/modules/segmentation/components/shared/types';
 
 describe('segmentation module', () => {
   it('is registered as an experimental desktop module, off by default', () => {
@@ -35,6 +35,17 @@ describe('segmentation module', () => {
     it.each(DESIGN_STATES)('renders %s', (state) => {
       const Component = direction.component;
       const { container, unmount } = render(<Component state={state} />);
+      expect(container.querySelectorAll('svg image').length).toBeGreaterThan(0);
+      expect(container.textContent).toContain('Design mock');
+      unmount();
+    });
+  });
+
+  // Round 5: direction H's workflow states (AI, lesions, contrast aids, history, save, resume, setup).
+  describe.each(Object.values(DIRECTIONS).filter((d) => d.workflow))('direction $id workflow', (direction) => {
+    it.each(WORKFLOW_STATES)('renders %s', (state) => {
+      const Workflow = direction.workflow!;
+      const { container, unmount } = render(<Workflow state={state} />);
       expect(container.querySelectorAll('svg image').length).toBeGreaterThan(0);
       expect(container.textContent).toContain('Design mock');
       unmount();
