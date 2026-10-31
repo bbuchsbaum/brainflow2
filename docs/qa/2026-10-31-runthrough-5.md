@@ -10,7 +10,7 @@
 
 **Time.** About 1.5 hours. ★ marks the highest priority.
 
-**Build under test.** Install the debug bundle built on 2026-10-31 at 10:23 from branch `qa/fix-wave-3` (162bcae9 plus the uncommitted run-4 fixes):
+**Build under test.** Install the debug bundle built on 2026-10-31 at 12:42 from branch `qa/fix-wave-3` at `6e38a55f`. This includes the main merge (#18 modules), the Studio plane toggle and HiDPI rendering:
 
 ```sh
 rm -rf /Applications/Brainflow.app
@@ -20,7 +20,7 @@ ls -la /Applications/Brainflow.app/Contents/MacOS/brainflow
 open -n /Applications/Brainflow.app
 ```
 
-Record the binary timestamp at the top of the report. It must read Oct 31 10:23 or later.
+Record the binary timestamp at the top of the report. It must read Oct 31 12:42 or later.
 
 **Reporting.**
 - Use the same form as run 4: **Where / Did-expected-got / Evidence / How often / Severity (H/M/L)**.
@@ -85,6 +85,31 @@ Record the binary timestamp at the top of the report. It must read Oct 31 10:23 
 4. Hide one ASEG region (if the UI allows). Its neighbour's border is still drawn.
 5. Frame rate: drag the crosshair quickly with ASEG outlines on. Note any stutter. (physical)
 
+## Part E: added after the main merge ★
+
+### E1. HiDPI rendering (Retina)
+1. At rest, slices are sharp: compare against a screenshot from run 4 if you have one. The crosshair is still a thin, crisp line.
+2. While you drag a splitter, resize the window, pan, ⌥-scroll zoom or right-drag window/level, the slices may soften. They are sharp again about 200 ms after you stop.
+3. One wheel-zoom notch doesn't flash the other two views.
+4. ⌘-Tab away during a window/level drag, then come back. The views aren't stuck soft.
+5. Clicks land exactly where you point, normally, zoomed, and with Radiological on. Compare panes, Mosaic tiles and the temporal heatmap are sharp and aligned.
+6. If a second display is available **(physical)**, move the window between Retina and 1× displays. The views re-render at the new sharpness.
+
+### E2. Set studio plane toggle and dock
+1. In the Deck, one large view shows with an Axial | Coronal | Sagittal toggle in the toolbar.
+   - Switch planes. Clicks and the crosshair work on each plane, including with Radiological on.
+2. In Compare, all four panes follow the same toggle, and pane A is a single view. At 1372×887 all four are visible without scrolling.
+3. Switch the plane and click a B–D pane immediately. The crosshair doesn't jump to a wrong point.
+4. A new study (import) resets the plane to axial.
+5. The Studio dock opens about 120 px tall. Resizing it in Studio doesn't change the Orthogonal tab's dock height, and the reverse.
+
+### E3. Modules (from main, #18)
+1. Settings › Modules: turn Analysis on.
+2. View › Workspace lists Analysis after BIDS. Opening it shows its tab with the bottom dock.
+3. Turn Analysis off and relaunch. Its tab is parked, not lost, and the first screen does not run.
+4. Close Tab (⌘W) and Close Window (⇧⌘W) still work.
+5. F (Fit) and L (orientation labels) still work after you visit and leave the Studio.
+
 ## Part C: lows and regressions
 - Clusters:
   - Right-clicking a cluster row gives Go to peak / Use cluster as region / Copy row, with no WebKit menu.
@@ -115,7 +140,7 @@ Record the binary timestamp at the top of the report. It must read Oct 31 10:23 
 
 | Sev | Item |
 |---|---|
-| M | Slice views render at CSS pixels; Retina softness is a pending decision |
+| L | Copy view (⇧⌘C) pressed mid-interaction copies a 1× frame |
 | M | WebView memory still grows about 6 MB per load/remove cycle (F9) |
 | M | Medial view with both hemispheres shows the contralateral hemisphere (surfview) |
 | L | Deck cards and Compare pane A have no anatomy underneath (F32) |
