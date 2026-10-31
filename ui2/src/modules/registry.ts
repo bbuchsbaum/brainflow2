@@ -125,6 +125,16 @@ const LEGACY_ID = /^[a-z][a-z0-9-]*$/;
 const STAGES: readonly ModuleStage[] = ['experimental', 'preview', 'stable'];
 const HOSTS: readonly ModuleHostKind[] = ['desktop', 'browser'];
 const MENU_PATHS: readonly MenuPath[] = ['view/workspace'];
+/** Limits of the native menu model; src-tauri `plan_module_menu_items` enforces the same. */
+export const MAX_MODULE_MENU_ITEMS = 64;
+const MAX_MENU_LABEL = 64;
+
+/** A menu label Rust accepts: 1-64 printable characters after trimming. */
+function menuLabelOk(label: string): boolean {
+  const trimmed = label.trim();
+  const length = [...trimmed].length;
+  return length >= 1 && length <= MAX_MENU_LABEL && !/\p{Cc}/u.test(trimmed);
+}
 
 const namespaced = (moduleId: string, id: string) =>
   id.startsWith(`${moduleId}.`) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id.slice(moduleId.length + 1));
@@ -176,6 +186,8 @@ export class ModuleRegistry {
   private readonly inspectorModeIds = new Set<string>(CORE_INSPECTOR_MODES.map((m) => m.id));
   private readonly dockTabIds = new Set<string>(CORE_DOCK_TABS.map((t) => t.id));
   private readonly keybindingScopes = new Map<string, string>();
+  /** Commands that have a native menu item (one item per command). */
+  private readonly menuCommands = new Set<string>();
   private readonly reservedWorkspaceTypes = new Set<string>([
     ...CORE_WORKSPACE_TYPES,
     ...CORE_TOOLS.map((t) => t.type),
@@ -217,6 +229,9 @@ export class ModuleRegistry {
     manifest.contributes.keybindings?.forEach((b) =>
       this.keybindingScopes.set(keybindingScopeKey(b), `${manifest.id}:${b.command}`),
     );
+    for (const items of Object.values(manifest.contributes.menus ?? {})) {
+      items?.forEach((item) => this.menuCommands.add(item.command));
+    }
     this.refresh(true);
   }
 
@@ -277,11 +292,25 @@ export class ModuleRegistry {
       }
       scopes.add(scope);
     }
+    // The native menu model must pass src-tauri's plan_module_menu_items, which
+    // rejects the whole model (every module's items) on one bad item.
+    const menuCommands = new Set<string>();
     for (const [path, items] of Object.entries(c.menus ?? {})) {
       if (!MENU_PATHS.includes(path as MenuPath)) problems.push(`unknown menu path "${path}"`);
       for (const item of items ?? []) {
         if (!commandTitles.has(item.command)) problems.push(`menu item names undeclared command "${item.command}"`);
+        if (menuCommands.has(item.command) || this.menuCommands.has(item.command)) {
+          problems.push(`menu item "${item.command}" is listed twice`);
+        }
+        menuCommands.add(item.command);
+        const label = item.title ?? commandTitles.get(item.command) ?? '';
+        if (!menuLabelOk(label)) {
+          problems.push(`menu item "${item.command}" needs a label of 1-${MAX_MENU_LABEL} printable characters`);
+        }
       }
+    }
+    if (this.menuCommands.size + menuCommands.size > MAX_MODULE_MENU_ITEMS) {
+      problems.push(`at most ${MAX_MODULE_MENU_ITEMS} module menu items are allowed`);
     }
     return problems;
   }
@@ -453,7 +482,8 @@ export class ModuleRegistry {
         if (!this.isEnabled(record.manifest.id)) continue;
         for (const path of MENU_PATHS) {
           for (const item of record.manifest.contributes.menus?.[path] ?? []) {
-            items.push({ command: item.command, label: item.title ?? record.commands.get(item.command)!.title, path });
+            const label = item.title ?? record.commands.get(item.command)!.title;
+            items.push({ command: item.command, label: label.trim(), path });
           }
         }
       }

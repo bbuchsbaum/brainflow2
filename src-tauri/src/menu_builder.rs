@@ -1049,6 +1049,51 @@ pub fn plan_module_menu_items(
         .collect()
 }
 
+/// The menu operations `apply_module_menu_items` needs (main.rs implements it
+/// for the View › Workspace submenu; tests use a fake).
+pub trait ModuleMenuTarget {
+    type Item;
+    /// Build the item and add it at its path.
+    fn append(&self, item: &PlannedModuleMenuItem) -> Result<Self::Item, String>;
+    fn remove(&self, item: &Self::Item) -> Result<(), String>;
+}
+
+/// Replace the module items in `target` with the validated model `items`.
+///
+/// `current` lists the module items in the menu and stays exact when a step
+/// fails: an item that cannot be removed is kept (the next update removes it,
+/// so it never lingers as an orphan or a duplicate), and only appended items
+/// are added. An invalid model changes nothing.
+pub fn apply_module_menu_items<T: ModuleMenuTarget>(
+    target: &T,
+    current: &mut Vec<T::Item>,
+    items: &[ModuleMenuItem],
+) -> Result<(), String> {
+    let planned = plan_module_menu_items(items)?;
+    let mut remaining = Vec::new();
+    let mut failure = None;
+    for item in current.drain(..) {
+        if let Err(error) = target.remove(&item) {
+            failure.get_or_insert(error);
+            remaining.push(item);
+        }
+    }
+    *current = remaining;
+    if let Some(error) = failure {
+        return Err(format!("could not remove a module menu item: {error}"));
+    }
+    for planned_item in &planned {
+        let item = target.append(planned_item).map_err(|error| {
+            format!(
+                "could not add module menu item `{}`: {error}",
+                planned_item.label
+            )
+        })?;
+        current.push(item);
+    }
+    Ok(())
+}
+
 /// The `module-command` payload of a clicked module item, or None for any
 /// other menu id.
 pub fn module_command_payload(menu_id: &str) -> Option<serde_json::Value> {
@@ -1245,6 +1290,91 @@ mod tests {
         assert!(module_command_payload("module_command:not-namespaced").is_none());
         assert!(module_command_payload("workspace_bids").is_none());
         assert!(module_command_payload("tracts.open").is_none());
+    }
+
+    /// A fake submenu: the ids it holds, and ids whose remove or append fails once.
+    #[derive(Default)]
+    struct FakeMenu {
+        items: std::cell::RefCell<Vec<String>>,
+        fail_remove: std::cell::RefCell<Vec<String>>,
+        fail_append: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl ModuleMenuTarget for FakeMenu {
+        type Item = String;
+        fn append(&self, item: &PlannedModuleMenuItem) -> Result<String, String> {
+            let mut fail = self.fail_append.borrow_mut();
+            if let Some(i) = fail.iter().position(|id| id == &item.id) {
+                fail.remove(i);
+                return Err(format!("cannot append {}", item.id));
+            }
+            self.items.borrow_mut().push(item.id.clone());
+            Ok(item.id.clone())
+        }
+        fn remove(&self, item: &String) -> Result<(), String> {
+            let mut fail = self.fail_remove.borrow_mut();
+            if let Some(i) = fail.iter().position(|id| id == item) {
+                fail.remove(i);
+                return Err(format!("cannot remove {item}"));
+            }
+            self.items.borrow_mut().retain(|id| id != item);
+            Ok(())
+        }
+    }
+
+    fn model(commands: &[&str]) -> Vec<ModuleMenuItem> {
+        commands
+            .iter()
+            .map(|c| module_item(c, c, "view/workspace"))
+            .collect()
+    }
+
+    #[test]
+    fn a_failed_remove_keeps_tracking_and_leaves_no_orphans() {
+        let menu = FakeMenu::default();
+        let mut current = Vec::new();
+        apply_module_menu_items(&menu, &mut current, &model(&["a.x", "b.x", "c.x"])).unwrap();
+        menu.fail_remove
+            .borrow_mut()
+            .push("module_command:a.x".into());
+        assert!(apply_module_menu_items(&menu, &mut current, &model(&["d.x"])).is_err());
+        // What the menu holds is exactly what is tracked.
+        assert_eq!(*menu.items.borrow(), current);
+        // The next update clears everything that is left: no orphans, no duplicates.
+        apply_module_menu_items(&menu, &mut current, &model(&["d.x"])).unwrap();
+        assert_eq!(*menu.items.borrow(), vec!["module_command:d.x".to_string()]);
+        assert_eq!(current, vec!["module_command:d.x".to_string()]);
+    }
+
+    #[test]
+    fn a_failed_append_tracks_what_was_added() {
+        let menu = FakeMenu::default();
+        let mut current = Vec::new();
+        menu.fail_append
+            .borrow_mut()
+            .push("module_command:b.x".into());
+        assert!(
+            apply_module_menu_items(&menu, &mut current, &model(&["a.x", "b.x", "c.x"])).is_err()
+        );
+        assert_eq!(*menu.items.borrow(), current);
+        apply_module_menu_items(&menu, &mut current, &model(&["a.x", "b.x"])).unwrap();
+        assert_eq!(
+            *menu.items.borrow(),
+            vec![
+                "module_command:a.x".to_string(),
+                "module_command:b.x".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn an_invalid_model_leaves_the_menu_unchanged() {
+        let menu = FakeMenu::default();
+        let mut current = Vec::new();
+        apply_module_menu_items(&menu, &mut current, &model(&["a.x"])).unwrap();
+        assert!(apply_module_menu_items(&menu, &mut current, &model(&["a.x", "a.x"])).is_err());
+        assert_eq!(*menu.items.borrow(), vec!["module_command:a.x".to_string()]);
+        assert_eq!(current, vec!["module_command:a.x".to_string()]);
     }
 
     /// main.rs registers the host command, keeps the Workspace submenu for

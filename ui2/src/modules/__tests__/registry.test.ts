@@ -108,6 +108,52 @@ describe('ModuleRegistry registration', () => {
   });
 });
 
+describe('ModuleRegistry menu validation (mirrors src-tauri plan_module_menu_items)', () => {
+  const commands = [{ id: 'm.open', title: 'Open' }];
+  it('rejects labels Rust would reject and a command listed twice', () => {
+    for (const [title, why] of [
+      ['   ', /label of 1-64 printable characters/],
+      ['x'.repeat(65), /label of 1-64 printable characters/],
+      ['Line\nbreak', /label of 1-64 printable characters/],
+    ] as const) {
+      const registry = new ModuleRegistry(fakeDeps());
+      expect(() =>
+        registry.register(manifest({ id: 'm', contributes: { commands, menus: { 'view/workspace': [{ command: 'm.open', title }] } } })),
+      ).toThrow(why);
+    }
+    const registry = new ModuleRegistry(fakeDeps());
+    expect(() =>
+      registry.register(
+        manifest({
+          id: 'm',
+          contributes: { commands, menus: { 'view/workspace': [{ command: 'm.open' }, { command: 'm.open', title: 'Again' }] } },
+        }),
+      ),
+    ).toThrow(/listed twice/);
+    // A long command title is fine when the menu title is short.
+    registry.register(
+      manifest({
+        id: 'ok',
+        contributes: {
+          commands: [{ id: 'ok.open', title: 'x'.repeat(80) }],
+          menus: { 'view/workspace': [{ command: 'ok.open', title: ' Ok ' }] },
+        },
+      }),
+    );
+    expect(registry.getMenuItems()).toEqual([{ command: 'ok.open', label: 'Ok', path: 'view/workspace' }]);
+  });
+
+  it('caps the number of module menu items like Rust (64)', () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const many = Array.from({ length: 65 }, (_, i) => ({ id: `big.c${i}`, title: `C${i}` }));
+    expect(() =>
+      registry.register(
+        manifest({ id: 'big', contributes: { commands: many, menus: { 'view/workspace': many.map((c) => ({ command: c.id })) } } }),
+      ),
+    ).toThrow(/at most 64 module menu items/);
+  });
+});
+
 describe('ModuleRegistry enabled state', () => {
   it('defaults by stage, follows the user switch and filters contributions', () => {
     const deps = fakeDeps();

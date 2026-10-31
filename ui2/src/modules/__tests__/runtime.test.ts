@@ -371,6 +371,27 @@ describe('module runtime: native menus', () => {
     runtime.dispose();
   });
 
+  it('tells the user when the native menu rejects the model', async () => {
+    const { registry } = registryWith([menuModule('ana')], {});
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { deps, calls } = runtimeDeps(registry, {
+      invoke: <T,>(cmd: string, args?: unknown) => {
+        if (cmd === 'set_module_menu_items') return Promise.reject('module menu item `x` is listed twice') as Promise<T>;
+        const reply = deferred<unknown>();
+        calls.push({ cmd, args, reply });
+        reply.resolve([]);
+        return reply.promise as Promise<T>;
+      },
+    });
+    const runtime = startModuleRuntime(deps);
+    await runtime.idle();
+    expect(deps.notifyError).toHaveBeenCalledWith(
+      'Could not update the native menu: module menu item `x` is listed twice',
+    );
+    errors.mockRestore();
+    runtime.dispose();
+  });
+
   it('runs a clicked module item through the registry, but not behind a dialog', async () => {
     const { registry } = registryWith([menuModule('ana')], {});
     let modal = false;

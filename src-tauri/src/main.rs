@@ -221,36 +221,52 @@ struct ModuleMenus {
     items: std::sync::Mutex<Vec<MenuItem<tauri::Wry>>>,
 }
 
+/// The View › Workspace submenu as a `ModuleMenuTarget`.
+struct WorkspaceMenuTarget<'a> {
+    app: &'a AppHandle,
+    workspace: &'a Submenu<tauri::Wry>,
+}
+
+impl menu_builder::ModuleMenuTarget for WorkspaceMenuTarget<'_> {
+    type Item = MenuItem<tauri::Wry>;
+
+    fn append(&self, planned: &menu_builder::PlannedModuleMenuItem) -> Result<Self::Item, String> {
+        let item = MenuItemBuilder::new(&planned.label)
+            .id(&planned.id)
+            .build(self.app)
+            .map_err(|e| e.to_string())?;
+        match planned.path {
+            menu_builder::ModuleMenuPath::ViewWorkspace => self.workspace.append(&item),
+        }
+        .map_err(|e| e.to_string())?;
+        Ok(item)
+    }
+
+    fn remove(&self, item: &Self::Item) -> Result<(), String> {
+        self.workspace.remove(item).map_err(|e| e.to_string())
+    }
+}
+
 /// Replace the module items with the UI's menu model (ui2 `modules/runtime.ts`
 /// sends it at start and whenever a module is switched on or off). The model
-/// is validated whole first (`menu_builder::plan_module_menu_items`). Runs on
-/// the main thread (a sync command), like every other menu change.
+/// is validated whole first, and the tracked items always match the menu
+/// (`menu_builder::apply_module_menu_items`). Runs on the main thread (a sync
+/// command), like every other menu change.
 #[tauri::command]
 fn set_module_menu_items(
     app_handle: AppHandle,
     menus: State<'_, ModuleMenus>,
     items: Vec<menu_builder::ModuleMenuItem>,
 ) -> Result<(), String> {
-    let planned = menu_builder::plan_module_menu_items(&items)?;
     let mut current = menus
         .items
         .lock()
         .map_err(|_| "module menu state is poisoned".to_string())?;
-    for item in current.drain(..) {
-        menus.workspace.remove(&item).map_err(|e| e.to_string())?;
-    }
-    for planned_item in planned {
-        let item = MenuItemBuilder::new(&planned_item.label)
-            .id(&planned_item.id)
-            .build(&app_handle)
-            .map_err(|e| e.to_string())?;
-        match planned_item.path {
-            menu_builder::ModuleMenuPath::ViewWorkspace => menus.workspace.append(&item),
-        }
-        .map_err(|e| e.to_string())?;
-        current.push(item);
-    }
-    Ok(())
+    let target = WorkspaceMenuTarget {
+        app: &app_handle,
+        workspace: &menus.workspace,
+    };
+    menu_builder::apply_module_menu_items(&target, &mut current, &items)
 }
 
 #[tauri::command]

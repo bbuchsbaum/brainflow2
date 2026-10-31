@@ -193,8 +193,11 @@ function menuSync(deps: ModuleRuntimeDeps) {
     {
       onResult: () => {},
       onError: (_items, error) => {
+        // Retried with the next change. Rust rejects the whole model, so the
+        // module items may be missing from the menu: say so.
         requested = null;
         console.error('[modules] could not update the native menu:', error);
+        deps.notifyError(`Could not update the native menu: ${formatTauriError(error)}`);
       },
     },
   );
