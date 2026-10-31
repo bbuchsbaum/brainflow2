@@ -2,7 +2,7 @@
  * App services for a module's lazily loaded code (components, services,
  * stores). This is the module's only way into the app besides
  * `activate(ctx)`: modules never import core stores, services or Tauri
- * directly (eslint.config.js). Add a facade here when a module needs one;
+ * directly (eslint.boundaries.js). Add a facade here when a module needs one;
  * keep each a thin, documented pass-through.
  *
  * Not imported by manifests: it loads app services, which `@/modules/api`

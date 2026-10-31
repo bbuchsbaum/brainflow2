@@ -18,6 +18,7 @@ First-party features plug into the shell here. The design is in
 | `settingsStore.ts` | `brainflow-modules` v1: switches, pinned tools, startup tabs, applied proposals. |
 | `runtime.ts` | Started by App: `set_enabled_modules`, native menu model, `module-command` clicks, keybindings, tab parking. |
 | `context.ts` | Builds the `ModuleContext`; `state.app` stores (`brainflow-module:<id>:<name>`). |
+| `../components/modules/` | `ModuleWorkspace` and `ActiveModuleGate`: module UI renders only once its module is active. |
 
 ## Adding a module
 
@@ -57,20 +58,28 @@ First-party features plug into the shell here. The design is in
   with `ModuleDisabled` (12001). Its tabs are parked (kept in
   `brainflow2-workspace`) and come back when it is switched on; restore at
   launch parks tabs of modules that are off. Persisted module data is kept.
-- A module activates on first use (its command or its tab), only after the
-  bridge applied the latest switch. Switching it off disposes its context; an
+- A module activates on first use (its command, tab, Inspector mode or dock
+  tab), only after the bridge acknowledged the latest switch (failed switches
+  are retried with backoff; if one finally fails the module does not start and
+  its UI says why). Switching it off disposes its context; an
   activation still running is undone when it finishes. Module stores must drop
   responses that arrive after a reset (see `analysis/stores/analysisStore.ts`).
 
-## Boundaries (`eslint.config.js`)
+## Boundaries (`eslint.boundaries.js`)
 
 - Module code imports only `@/modules/api` (and `api/host`),
   `@/components/ui/bf`, `@brainflow/api`, packages and its own folder (`./x`
-  or `@/modules/<id>/…`, never `../`), and never `@tauri-apps/*`.
-- Core code never imports a module folder. It uses the framework files above.
-  The dev harness is exempt (scenarios drive module stores).
-- Tests inside a module folder follow the module rule; tests that drive the
+  or `@/modules/<id>/…`). No path may contain `..`, never `@tauri-apps/*`, and
+  `import()` follows the same rules with a literal path.
+- A manifest (`<id>/module.ts`) imports only `@/modules/api` and loads code
+  with `() => import('./…')`: the registry loads it during tab restore.
+- `api/index.ts` and `api/types.ts` have no runtime dependencies.
+- Framework files import no module internals; `index.ts` imports only
+  manifests. Core code never imports a module folder; the dev harness is exempt
+  (scenarios drive module stores).
+- Tests inside a module folder follow the module rules; tests that drive the
   shell live in `__tests__/` here (`analysis.integration.test.tsx`).
+  `__tests__/boundaries.test.ts` probes every rule.
 
 ## Stage gates
 

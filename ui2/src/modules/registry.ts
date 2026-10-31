@@ -18,7 +18,7 @@
  *   finishes after the module was switched off is torn down at once.
  *
  * Shell code imports this file, `./api` and the other framework files at the
- * top of `src/modules/`, never a module's own folder (eslint.config.js).
+ * top of `src/modules/`, never a module's own folder (eslint.boundaries.js).
  */
 
 import { useSyncExternalStore } from 'react';
