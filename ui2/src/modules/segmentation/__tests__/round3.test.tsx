@@ -87,12 +87,11 @@ describe('inner-edge label strokes', () => {
 
 describe('emphasis levels', () => {
   it('orders active > inactive > quiet', () => {
-    expect(LABEL_STROKE.active).toEqual({ width: 1.5, opacity: 1 });
+    expect(LABEL_STROKE.active.width).toBe(1.5);
     expect(LABEL_STROKE.inactive.width).toBe(1);
-    expect(LABEL_STROKE.inactive.opacity).toBeGreaterThan(0.5);
-    expect(LABEL_STROKE.inactive.opacity).toBeLessThan(0.65);
-    expect(LABEL_STROKE.quiet.opacity).toBeLessThan(LABEL_STROKE.inactive.opacity);
-    expect(LABEL_STROKE.quiet.opacity).toBeGreaterThanOrEqual(0.4);
+    // Round 4: muting is by tint (round4.test.tsx), not opacity.
+    expect(LABEL_STROKE.inactive.opacity).toBe(1);
+    expect(LABEL_STROKE.quiet.width).toBe(1);
     expect(labelEmphasis(1, [1], [3])).toBe('active');
     expect(labelEmphasis(3, [1], [3])).toBe('quiet');
     expect(labelEmphasis(4, [1], [3])).toBe('inactive');
@@ -137,7 +136,7 @@ describe('gaps and the neighbour line', () => {
   it('keeps the neighbour key short (keys in the tooltip)', () => {
     const { getByTestId, unmount } = render(<DirectionH state="tracing" />);
     const key = getByTestId('neighbour-key');
-    expect(key.textContent?.trim()).toBe('k 10');
+    expect(key.textContent?.trim()).toBe('neighbour k 10');
     expect(key.getAttribute('title')).toContain('Hold ,');
     unmount();
   });
@@ -187,8 +186,8 @@ describe('review Inspector', () => {
     const heads = [...getByTestId('agreement-table').querySelectorAll('thead th')].map((t) => t.textContent?.trim());
     expect(heads).toEqual(['Label', 'Dice', 'Δ B−A']);
     expect(getByTestId('review-details').hasAttribute('open')).toBe(false);
-    // Progress is counted once (next to Approve).
-    expect(getByTestId('review-inspector').textContent?.match(/flagged visited/g)?.length).toBe(1);
+    // Progress is counted once (next to Approve); round 4 counts decided regions.
+    expect(getByTestId('review-inspector').textContent?.match(/regions decided/g)?.length).toBe(1);
     unmount();
   });
 

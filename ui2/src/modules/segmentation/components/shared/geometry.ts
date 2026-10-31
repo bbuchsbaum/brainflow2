@@ -377,9 +377,9 @@ export function brushReadout(diameterMm: number, spacing: Spacing, shape: '2D' |
   return { across: 2 * nx + 1, inPlane, slices: shape === '2D' ? 1 : 2 * nz + 1 };
 }
 
-/** Review gate: Approve is available only once every disagreement was visited. */
-export function canApprove(visited: ReadonlySet<number> | readonly number[], total: number): boolean {
-  const n = Array.isArray(visited) ? new Set(visited).size : (visited as ReadonlySet<number>).size;
+/** Review gate: Approve is available only once every flagged item (disagreement or region) was visited or decided. */
+export function canApprove<T extends number | string>(visited: ReadonlySet<T> | readonly T[], total: number): boolean {
+  const n = Array.isArray(visited) ? new Set(visited).size : (visited as ReadonlySet<T>).size;
   return total === 0 || n >= total;
 }
 
@@ -509,12 +509,18 @@ export function enclosedGaps(voxels: readonly LabelVoxel[]): Voxel[] {
 /** Emphasis of a label's stroke: the active label, the other labels, and complete or locked ones (quieter). */
 export type LabelEmphasis = 'active' | 'inactive' | 'quiet' | 'plain';
 
-/** Stroke width (screen px) and opacity per emphasis level. */
-export const LABEL_STROKE: Readonly<Record<LabelEmphasis, { width: number; opacity: number }>> = {
-  active: { width: 1.5, opacity: 1 },
-  inactive: { width: 1, opacity: 0.58 },
-  quiet: { width: 1, opacity: 0.46 },
-  plain: { width: 1, opacity: 1 },
+/**
+ * Stroke width (screen px) per emphasis level. Round 4: every stroke is
+ * opaque; inactive and quiet labels are muted by colour (their own lighter,
+ * less saturated tint, `mockData.labelTint`), not by opacity, and keep only
+ * the outer dark halo (no inner rim), so a muted edge is one light line, not
+ * a dark double line.
+ */
+export const LABEL_STROKE: Readonly<Record<LabelEmphasis, { width: number; opacity: number; innerRim: boolean }>> = {
+  active: { width: 1.5, opacity: 1, innerRim: true },
+  inactive: { width: 1, opacity: 1, innerRim: false },
+  quiet: { width: 1, opacity: 1, innerRim: false },
+  plain: { width: 1, opacity: 1, innerRim: true },
 };
 
 /** Faint fill of the active label, inset by one voxel so the traced edge stays untinted. */
@@ -555,4 +561,57 @@ export function neighbourDeparturePath(prev: readonly Voxel[], cur: readonly Vox
 /** Whether a label's lock departs from what its status implies (complete means locked). */
 export function lockDeparts(label: Pick<LabelState, 'status' | 'locked'>): boolean {
   return label.status === 'complete' ? !label.locked : label.locked;
+}
+
+// ---------------------------------------------------------------------------
+// Round 4: quality-control marks. Islands of the active label, and problems
+// in a label's area by native slice (gaps, jumps, outside the pack's range).
+
+/** Disconnected pieces of a label on one slice, beyond its largest component (4-connected). */
+export function labelIslands(voxels: readonly LabelVoxel[], label: number): Voxel[][] {
+  return components(voxelsOf(voxels, label)).slice(1);
+}
+
+/** Relative change between adjacent slices that counts as a jump (40%). */
+export const AREA_JUMP = 0.4;
+/** Jumps between slices smaller than this (vx) are tail noise, not flagged. */
+export const AREA_JUMP_MIN_VX = 5;
+
+export type AreaFlagKind = 'gap' | 'jump' | 'outside' | 'missing';
+
+export interface AreaFlag {
+  kind: AreaFlagKind;
+  /** Native slice (1-based); for a jump, the second slice of the pair (in k order). */
+  k: number;
+}
+
+/**
+ * Problems in one label's area by native slice (`values[k - 1]`):
+ * - `gap`: an empty slice between two traced ones;
+ * - `jump`: adjacent slices differ by more than `AREA_JUMP` of the larger
+ *   (both at least `AREA_JUMP_MIN_VX`);
+ * - `outside`: traced on a slice outside the pack's expected k-range;
+ * - `missing`: (complete labels only) empty inside the expected range.
+ */
+export function areaFlags(
+  values: readonly number[],
+  expected: readonly [number, number] | null,
+  complete: boolean,
+): AreaFlag[] {
+  const out: AreaFlag[] = [];
+  const traced = values.map((v, i) => (v > 0 ? i : -1)).filter((i) => i >= 0);
+  if (!traced.length) return out;
+  const [first, last] = [traced[0], traced[traced.length - 1]];
+  values.forEach((v, i) => {
+    const k = i + 1;
+    const inRange = !expected || (k >= expected[0] && k <= expected[1]);
+    if (v > 0 && !inRange) out.push({ kind: 'outside', k });
+    if (v === 0 && i > first && i < last) out.push({ kind: 'gap', k });
+    else if (v === 0 && complete && expected && inRange) out.push({ kind: 'missing', k });
+    if (i > 0) {
+      const a = values[i - 1];
+      if (a >= AREA_JUMP_MIN_VX && v >= AREA_JUMP_MIN_VX && Math.abs(v - a) / Math.max(a, v) > AREA_JUMP) out.push({ kind: 'jump', k });
+    }
+  });
+  return out;
 }

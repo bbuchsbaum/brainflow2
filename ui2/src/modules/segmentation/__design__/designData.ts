@@ -107,6 +107,11 @@ export const DESIGN = {
   labels: {
     /** Rater A's full mock labels on a coronal slice. */
     cor: (j: number) => labels(`cor${j}`),
+    /** Coronal slices that have rater A's labels (j). */
+    corJ: Object.keys(slices.labels as Record<string, RawLabels>)
+      .map((k) => /^cor(\d+)$/.exec(k)?.[1])
+      .filter((v): v is string => !!v)
+      .map(Number),
     raterB: labels(`cor${P.j}_raterB`),
     axTraced: labels(`ax${AX}_traced`),
     sagTraced: labels(`sag${SAG}_traced`),

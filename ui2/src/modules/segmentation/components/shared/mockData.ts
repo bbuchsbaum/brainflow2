@@ -6,6 +6,7 @@
  */
 
 import { DESIGN } from '@/modules/segmentation/__design__/designData';
+import { mutedColor } from './colour';
 import type { LabelDef, LabelState, ToolDef } from './types';
 
 /**
@@ -13,6 +14,8 @@ import type { LabelDef, LabelState, ToolDef } from './types';
  * saturated green, so no label can be confused with the crosshair. Round 3
  * raised the lightness of the two low-contrast hues (subiculum violet, SRLM
  * brown) so their 1 px strokes hold on mid-grey; swatches use the same values.
+ * Round 4 moved SRLM from orange (next to DG gold) to teal, the free hue
+ * between the crosshair green and CA2/3 blue (ΔE*ab 30 from the crosshair).
  */
 export const LABEL_DEFS: readonly LabelDef[] = [
   { id: 1, name: 'CA1', long: 'Cornu ammonis 1', color: 'rgb(232 108 92)' },
@@ -20,7 +23,7 @@ export const LABEL_DEFS: readonly LabelDef[] = [
   { id: 3, name: 'DG', long: 'Dentate gyrus', color: 'rgb(232 200 84)' },
   { id: 4, name: 'Subiculum', long: 'Subiculum', color: 'rgb(176 160 252)' },
   { id: 5, name: 'ERC', long: 'Entorhinal cortex', color: 'rgb(222 134 206)' },
-  { id: 6, name: 'SRLM', long: 'Stratum radiatum, lacunosum and moleculare', color: 'rgb(232 168 112)' },
+  { id: 6, name: 'SRLM', long: 'Stratum radiatum, lacunosum and moleculare', color: 'rgb(80 200 190)' },
 ];
 
 export const LABEL_BY_ID = new Map(LABEL_DEFS.map((l) => [l.id, l]));
@@ -37,6 +40,17 @@ export const SRLM = 6;
 
 export function labelColor(id: number): string {
   return LABEL_BY_ID.get(id)?.color ?? 'rgb(255 255 255)';
+}
+
+/**
+ * A label's colour at an emphasis level: full for the active (and plain)
+ * label, its own lighter, less saturated tint for inactive and quiet labels
+ * (`colour.mutedColor`; opaque, never alpha). Strokes, matrix bars and the
+ * legend all use this, so a muted label looks the same everywhere.
+ */
+export function labelTint(id: number, level: 'active' | 'inactive' | 'quiet' | 'plain' = 'active'): string {
+  const c = labelColor(id);
+  return level === 'inactive' || level === 'quiet' ? mutedColor(c, level) : c;
 }
 
 /**
@@ -167,6 +181,19 @@ export const PROTOCOL = {
     'Medial border with subiculum: a line from the medial tip of the SRLM straight down to the white matter.',
     'Superior border with CA2/3: the end of the thick, dark CA layer.',
   ],
+  /**
+   * Where each label is expected, in native slices (k, inclusive), from the
+   * pack (mock): the slice matrix draws it as a band and flags a label found
+   * outside it, or missing inside it once the label is complete.
+   */
+  expectedK: {
+    [CA1]: [1, 20],
+    [CA23]: [2, 19],
+    [DG]: [1, 20],
+    [SUB]: [2, 18],
+    [ERC]: [8, 20],
+    [SRLM]: [1, 20],
+  } as Readonly<Record<number, readonly [number, number]>>,
   ca1Checks: [
     { text: 'Lateral border on the ventricle wall', done: true },
     { text: 'CA1/subiculum line drawn', done: false },
@@ -346,5 +373,49 @@ export const REVIEW_NAV = (() => {
     current: here.id,
     /** Position of the current region in the flagged order (1-based). */
     currentFlagged: flaggedIds.indexOf(here.id) + 1,
+  };
+})();
+
+// ---------------------------------------------------------------------------
+// Round 4: reconciliation. Flagged disagreements are grouped into regions
+// (one label at one landmark, or one label's large departures) and each
+// region is decided once: keep rater A, take rater B, or edit. Approve waits
+// until every flagged region is decided.
+
+export type Reconcile = 'keep-a' | 'take-b' | 'edit';
+
+export interface ReconcileRegion {
+  key: string;
+  label: number;
+  /** The landmark, or null for a size-only region. */
+  landmark: string | null;
+  /** Flagged disagreement ids in the region. */
+  ids: number[];
+  /** Native slices, ascending. */
+  ks: number[];
+  vx: number;
+  decision?: Reconcile;
+}
+
+export const RECONCILE_LABEL: Record<Reconcile, string> = { 'keep-a': 'Kept A', 'take-b': 'Took B', edit: 'Edited' };
+
+/** Flagged regions in list order; the first is decided (mock), the one under the cursor is being reconciled. */
+export const RECONCILE = (() => {
+  const map = new Map<string, ReconcileRegion>();
+  for (const r of DISAGREEMENTS.filter((d) => d.flagged)) {
+    const key = `${r.label}|${r.landmark ?? 'size'}`;
+    const g = map.get(key) ?? { key, label: r.label, landmark: r.landmark ?? null, ids: [], ks: [], vx: 0 };
+    g.ids.push(r.id);
+    g.ks.push(r.k);
+    g.vx += r.vx;
+    map.set(key, g);
+  }
+  const regions = [...map.values()].map((g) => ({ ...g, ks: [...new Set(g.ks)].sort((a, b) => a - b) }));
+  regions[0].decision = 'keep-a';
+  const current = regions.find((g) => g.ids.includes(REVIEW_NAV.current)) ?? regions[1];
+  return {
+    regions,
+    current: current.key,
+    decided: regions.filter((g) => g.decision).map((g) => g.key),
   };
 })();

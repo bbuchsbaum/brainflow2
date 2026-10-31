@@ -135,7 +135,8 @@ describe('direction H cuts', () => {
     expect(t.queryByTestId('contrast-strip')).toBeNull();
     t.unmount();
     const m = render(<DirectionH state="multi-contrast" />);
-    expect(m.getByTestId('strip-caption').textContent).toContain('(4.0×)');
+    // Round 4: the strip header is "Linked · k 11"; the zoom is in its tooltip and the primary header.
+    expect(m.getByTestId('contrast-strip').querySelector('[title*="(4.0×)"]')).not.toBeNull();
     expect(m.getByTestId('primary-panel').textContent).toContain('4.0×');
     m.unmount();
   });

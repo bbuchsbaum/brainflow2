@@ -12,7 +12,11 @@ yet: editing is not implemented.
   `segmentation.workspace`, which only says the module is in design. No menu
   item, pin, startup tab or shortcut. Add a bridge section (same id, stage and
   version) before any command reaches Rust.
-- **Design exploration** (visual hill climb, round 0 onward):
+- **Design summary:** [DESIGN.md](DESIGN.md) has the final direction H
+  layout and states, the encoding rules, the Inspector, review and
+  reconciliation, the score history and the open questions for an
+  interactive prototype. Read it before implementing the UI.
+- **Design exploration** (visual hill climb, rounds 0 to 4):
   - `components/directions/{a,b,c}/`: three round-0 directions (Workstation,
     Reading room, Protocol-guided). `directions/h/`: the round-1 hybrid (A's
     tiled shell, C's step card and landmark limits, B's start card, slice
@@ -44,8 +48,10 @@ yet: editing is not implemented.
   over a thin dark halo, so both sides of a shared edge show in their own
   colours (review keeps rater A's edges once); while drawing the active
   label is 1.5 px full colour with a faint fill (0.10) inset by one voxel,
-  other labels 1 px muted, complete or locked labels quieter, and enclosed
-  unlabelled gaps get a neutral dot ("Outline only" drops the inset fill,
+  other labels 1 px in their own muted tint (lightness and chroma, never
+  alpha; muted pairs ΔE*ab ≥ 15; outer halo only), complete or locked
+  labels a lighter tint, islands of the active label a neutral ring, and
+  enclosed unlabelled gaps a neutral dot ("Outline only" drops the inset fill,
   F shows all fills); the crosshair is a solid hairline
   that opens a gap of at least three brush radii while a paint tool is
   active and (direction H) stays out of the edited structure's extent in
@@ -59,7 +65,8 @@ yet: editing is not implemented.
   form (A only dots, B only dense hatch, relabelled crossed), never a
   proposal hatch; Return is the default and Approve waits until every
   flagged disagreement (a protocol landmark or at least `FLAG_MIN_VX`) was
-  visited; label volumes come from `LABEL_VOLUMES` only (labels complete
+  visited (direction H: every flagged region decided, Keep A / Take B /
+  Edit); label volumes come from `LABEL_VOLUMES` only (labels complete
   mid-session equal the reviewed version); volumes show mm³ on a 1 mm grid and vx plus mm³
   otherwise; the brush preview is the exact voxel set the brush writes, drawn
   as a light fill with a 1 px neutral voxel-edge outline; locks never
@@ -77,6 +84,8 @@ yet: editing is not implemented.
   flagged review gate and direction H's cuts; `round3.test.tsx` for
   inner-edge strokes, emphasis levels, gaps, neighbour departures, the
   per-label slice matrix, lock departures, review ordering and the ortho
-  gutter); the shell side
+  gutter; `round4.test.tsx` for tint muting and ΔE, islands, area flags
+  and the one-scale matrix, the example style, active-only orthogonals and
+  reconciliation); the shell side
   (registration, stage, every direction x state renders) is in
   `../__tests__/segmentation.test.tsx`.

@@ -20,6 +20,7 @@ import {
   enclosedGaps,
   innerBandPath,
   insetVoxels,
+  labelIslands,
   LABEL_FILL_ALPHA,
   LABEL_STROKE,
   labelEmphasis,
@@ -29,7 +30,7 @@ import {
   voxelOutlinePath,
   PLANE_LETTERS,
 } from './geometry';
-import { labelColor } from './mockData';
+import { labelColor, labelTint } from './mockData';
 import type { LabelVoxel, Point, SliceImage, Voxel } from './types';
 
 /**
@@ -37,9 +38,15 @@ import type { LabelVoxel, Point, SliceImage, Voxel } from './types';
  * constant `LABEL_FILL_ALPHA`. Every label strokes the inner edge of its own
  * voxels over a 1 px dark halo (`geometry.innerBandPath`), so on a shared
  * edge both labels show, each in its own colour on its own side. Emphasis
- * (`geometry.LABEL_STROKE`): the active label 1.5 px full colour, other
- * labels 1 px at 55%, complete or locked labels (`quiet`) quieter still.
- * Unlabelled voxels enclosed by labels get a neutral dot (visible gaps).
+ * (`geometry.LABEL_STROKE`): the active label 1.5 px full colour between
+ * two halo rims; other labels 1 px in their own muted tint
+ * (`mockData.labelTint`, opaque), complete or locked labels (`quiet`) a
+ * lighter tint still, each over the outer halo only. Unlabelled voxels
+ * enclosed by labels get a neutral dot (visible gaps).
+ *
+ * `example`: a protocol pack's example, drawn so it cannot be taken for the
+ * user's work: every boundary one neutral hairline, and the labels in
+ * `active` as a flat fill in their colour (no coloured strokes, no dashes).
  */
 export interface LabelOverlay {
   kind: 'labels';
@@ -66,6 +73,22 @@ export interface LabelOverlay {
   opacity?: number;
   /** Fill only these labels; the rest are outline-only (hue carried by line, not by a blend). */
   fillOnly?: readonly number[];
+  /** Draw as a pack example (neutral hairlines, the active label as a flat fill). */
+  example?: boolean;
+}
+
+/** Example style: fill alpha of the step's label in a pack example. */
+export const EXAMPLE_FILL_ALPHA = 0.4;
+
+/**
+ * Islands of a label (pieces beyond its largest connected component on this
+ * slice): a neutral ring around each, a quality-control mark distinct from
+ * the gap dot.
+ */
+export interface IslandsOverlay {
+  kind: 'islands';
+  voxels: readonly LabelVoxel[];
+  label: number;
 }
 
 export interface VoxelOverlay {
@@ -125,6 +148,8 @@ export interface BandOverlay {
   widthMm: number;
   /** Half-length along `dir`, mm (default: across the whole frame). */
   lengthMm?: number;
+  /** Short tilted ticks where the band's centre line meets the frame (the plane's tilt, outside the anatomy). */
+  ticks?: boolean;
 }
 
 /**
@@ -159,7 +184,19 @@ export interface MarksOverlay {
   voxels: readonly Voxel[];
 }
 
-export type Overlay = LabelOverlay | VoxelOverlay | SlabOverlay | LimitOverlay | BandOverlay | ReviewOverlay | MarksOverlay | PathOverlay;
+export type Overlay =
+  | LabelOverlay
+  | VoxelOverlay
+  | SlabOverlay
+  | LimitOverlay
+  | BandOverlay
+  | ReviewOverlay
+  | MarksOverlay
+  | PathOverlay
+  | IslandsOverlay;
+
+/** Fill opacity of the native-slice band within its window. */
+export const BAND_ALPHA = 0.14;
 
 export interface BrushCursor {
   center: Point;
@@ -208,8 +245,13 @@ export interface SliceViewProps {
   grid?: boolean;
   /** Grid line opacity (dimmed while a neighbour line shares the voxel edges). */
   gridOpacity?: number;
-  /** Fit this display box (plus `marginMm` on every side) instead of `fovMm` / `center`. */
-  fit?: { box: Box; marginMm: number } | null;
+  /**
+   * Fit this display box (plus `marginMm` on every side) instead of `fovMm` /
+   * `center`; with `fraction`, the box itself fills that share of the view.
+   */
+  fit?: { box: Box; marginMm: number; fraction?: number } | null;
+  /** A small whole-slice locator in the top-left corner, with the visible window outlined. */
+  locator?: boolean;
   /** A margin outside the image for native slice ticks and landmark zones. */
   gutter?: Gutter | null;
   letters?: boolean;
@@ -299,6 +341,7 @@ export function SliceView({
   gridOpacity = 0.14,
   fit = null,
   gutter = null,
+  locator = false,
   letters = true,
   dim = false,
   zoomLabel,
@@ -313,7 +356,9 @@ export function SliceView({
   const vh = height - (gutter?.side === 'bottom' ? gutter.size : 0);
   const fitted = fit
     ? {
-        s: Math.min(vw / (fit.box.x1 - fit.box.x0 + 2 * fit.marginMm), vh / (fit.box.y1 - fit.box.y0 + 2 * fit.marginMm)),
+        s: fit.fraction
+          ? fit.fraction * Math.min(vw / (fit.box.x1 - fit.box.x0), vh / (fit.box.y1 - fit.box.y0))
+          : Math.min(vw / (fit.box.x1 - fit.box.x0 + 2 * fit.marginMm), vh / (fit.box.y1 - fit.box.y0 + 2 * fit.marginMm)),
         c: [(fit.box.x0 + fit.box.x1) / 2, (fit.box.y0 + fit.box.y1) / 2] as Point,
       }
     : null;
@@ -446,7 +491,7 @@ export function SliceView({
                   key={i}
                   points={pts.map((q) => q.join(',')).join(' ')}
                   className="fill-bf-text-primary"
-                  fillOpacity={o.lengthMm ? 0.1 : 0.13}
+                  fillOpacity={BAND_ALPHA}
                   data-band
                 />
               );
@@ -467,6 +512,7 @@ export function SliceView({
               ) : null;
             }
             if (o.kind === 'review') return <ReviewLayer key={i} o={o} uid={uid} px={px} />;
+            if (o.kind === 'islands') return <IslandRings key={i} o={o} px={px} />;
             if (o.kind === 'marks') {
               const d = o.voxels.map(([c, r]) => `M${c + 0.3} ${r + 0.3}L${c + 0.7} ${r + 0.7}M${c + 0.7} ${r + 0.3}L${c + 0.3} ${r + 0.7}`).join('');
               return (
@@ -547,6 +593,22 @@ export function SliceView({
             />
           </g>
         ) : null}
+        {overlays.map((o, i) => {
+          if (o.kind !== 'band' || !o.ticks) return null;
+          const ends = clipLine(projector.project(o.through), o.dir, vw, vh);
+          if (!ends) return null;
+          const [a, b] = ends;
+          const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+          const [ux, uy] = [(b.x - a.x) / len, (b.y - a.y) / len];
+          const T = 12;
+          const d = `M${a.x} ${a.y}L${a.x + ux * T} ${a.y + uy * T}M${b.x} ${b.y}L${b.x - ux * T} ${b.y - uy * T}`;
+          return (
+            <g key={`band-ticks${i}`} data-band-ticks>
+              <path d={d} className="stroke-bf-bg-canvas" strokeWidth={3} strokeOpacity={0.6} />
+              <path d={d} className="stroke-bf-text-primary" strokeWidth={1} />
+            </g>
+          );
+        })}
         {limitGeom.map(({ o, ends }, i) => {
           if (!ends) return null;
           const [a, b] = ends;
@@ -573,6 +635,7 @@ export function SliceView({
       </svg>
 
       {gutter ? <GutterBand g={gutter} project={projector.project} vw={vw} vh={vh} /> : null}
+      {locator ? <Locator image={image} tx={tx} ty={ty} s={s} vw={vw} vh={vh} /> : null}
       {letters ? (
         <div className="pointer-events-none absolute left-0 top-0" style={{ width: vw, height: vh }}>
           <Letter className="left-1.5 top-1/2 -translate-y-1/2">{lL}</Letter>
@@ -656,11 +719,12 @@ function LabelLayer({ o, px, voxelPx }: { o: LabelOverlay; px: (n: number) => nu
           .map((id) => {
             const em = labelEmphasis(id, active, quiet);
             const st = LABEL_STROKE[em];
-            return { id, em, opacity: st.opacity, w: em === 'plain' && o.width ? o.width : st.width };
+            return { id, em, rim: st.innerRim, opacity: st.opacity, w: em === 'plain' && o.width ? o.width : st.width };
           })
           // The active label draws last (on top).
           .sort((a, b) => Number(a.em === 'active') - Number(b.em === 'active'));
-  const gaps = useMemo(() => (o.gaps !== false && voxelPx >= 6 ? enclosedGaps(vs) : []), [o.gaps, voxelPx, vs]);
+  const gaps = useMemo(() => (!o.example && o.gaps !== false && voxelPx >= 6 ? enclosedGaps(vs) : []), [o.example, o.gaps, voxelPx, vs]);
+  if (o.example) return <ExampleLayer vs={vs} ids={ids} active={active} px={px} opacity={o.opacity} />;
   return (
     <g opacity={o.opacity ?? 1} data-labels>
       {filled.map((id) => (
@@ -683,18 +747,20 @@ function LabelLayer({ o, px, voxelPx }: { o: LabelOverlay; px: (n: number) => nu
       {strokes.map((st) => (
         <path
           key={`h${st.id}`}
-          d={innerBandPath(vs, st.id, -px(0.75), 0) + innerBandPath(vs, st.id, px(st.w), px(st.w + 1))}
+          d={innerBandPath(vs, st.id, -px(0.75), 0) + (st.rim ? innerBandPath(vs, st.id, px(st.w), px(st.w + 1)) : '')}
           className="fill-bf-bg-canvas"
-          opacity={st.em === 'active' || st.em === 'plain' ? 0.6 : 0.35}
+          opacity={st.em === 'active' || st.em === 'plain' ? 0.6 : 0.45}
           data-halo={st.id}
+          data-inner-rim={st.rim || undefined}
         />
       ))}
       {strokes.map((st) => (
         <path
           key={`s${st.id}`}
           d={innerBandPath(vs, st.id, 0, px(st.w))}
-          style={{ fill: labelColor(st.id) }}
+          style={{ fill: labelTint(st.id, st.em) }}
           opacity={st.opacity}
+          data-colour={labelTint(st.id, st.em)}
           data-label-stroke={st.id}
           data-emphasis={st.em}
           data-width={st.w}
@@ -708,6 +774,94 @@ function LabelLayer({ o, px, voxelPx }: { o: LabelOverlay; px: (n: number) => nu
         </g>
       ) : null}
     </g>
+  );
+}
+
+/**
+ * A pack example: every boundary one neutral hairline over a light halo, and
+ * the step's label a flat fill in its colour. No coloured strokes, so it
+ * cannot be taken for the user's labels (and no dashes: those mean rater B).
+ */
+function ExampleLayer({
+  vs,
+  ids,
+  active,
+  px,
+  opacity,
+}: {
+  vs: readonly LabelVoxel[];
+  ids: readonly number[];
+  active: readonly number[];
+  px: (n: number) => number;
+  opacity?: number;
+}) {
+  const edges = partitionEdges(vs)
+    .map((e) => e.d)
+    .join('');
+  return (
+    <g opacity={opacity ?? 1} data-labels data-example>
+      {ids
+        .filter((id) => active.includes(id))
+        .map((id) => (
+          <path
+            key={`x${id}`}
+            d={voxelFillPath(vs.filter((v) => v[2] === id).map(([c, r]) => [c, r] as Voxel))}
+            style={{ fill: labelColor(id) }}
+            fillOpacity={EXAMPLE_FILL_ALPHA}
+            data-example-fill={id}
+          />
+        ))}
+      <path d={edges} fill="none" className="stroke-bf-bg-canvas" strokeOpacity={0.5} strokeWidth={px(2)} />
+      <path d={edges} fill="none" className="stroke-bf-text-primary" strokeOpacity={0.85} strokeWidth={px(1)} strokeLinecap="square" data-example-edges />
+    </g>
+  );
+}
+
+/** A neutral ring around each island of a label (quality control: a disconnected piece). */
+function IslandRings({ o, px }: { o: IslandsOverlay; px: (n: number) => number }) {
+  const islands = useMemo(() => labelIslands(o.voxels, o.label), [o.voxels, o.label]);
+  if (!islands.length) return null;
+  return (
+    <g data-islands={islands.length}>
+      {islands.map((g) => {
+        const xs = g.map((v) => v[0]);
+        const ys = g.map((v) => v[1]);
+        const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs) + 1, Math.min(...ys), Math.max(...ys) + 1];
+        const r = Math.hypot(x1 - x0, y1 - y0) / 2 + px(3);
+        const [cx, cy] = [(x0 + x1) / 2, (y0 + y1) / 2];
+        return (
+          <g key={`${x0},${y0}`} data-island>
+            <circle cx={cx} cy={cy} r={r} fill="none" className="stroke-bf-bg-canvas" strokeOpacity={0.6} strokeWidth={px(3)} />
+            <circle cx={cx} cy={cy} r={r} fill="none" className="stroke-bf-text-primary" strokeWidth={px(1)} />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+/** The whole slice in miniature with the visible window outlined: where in the brain a fitted view is. */
+function Locator({ image, tx, ty, s, vw, vh }: { image: SliceImage; tx: number; ty: number; s: number; vw: number; vh: number }) {
+  const size = 56;
+  const k = size / Math.max(image.cols, image.rows);
+  const [w, h] = [image.cols * k, image.rows * k];
+  // The visible window in display units, clipped to the image.
+  const x0 = Math.max(0, -tx / s);
+  const y0 = Math.max(0, -ty / s);
+  const x1 = Math.min(image.cols, (vw - tx) / s);
+  const y1 = Math.min(image.rows, (vh - ty) / s);
+  return (
+    <div
+      className="pointer-events-none absolute left-1.5 top-1.5 rounded-sm border border-bf-border-subtle bg-bf-bg-canvas"
+      style={{ width: w + 2, height: h + 2 }}
+      data-testid="ortho-locator"
+      aria-hidden
+    >
+      <svg width={w} height={h} className="block">
+        <image href={image.url} width={w} height={h} preserveAspectRatio="none" opacity={0.75} />
+        <rect x={x0 * k} y={y0 * k} width={Math.max(2, (x1 - x0) * k)} height={Math.max(2, (y1 - y0) * k)} fill="none" className="stroke-bf-text-primary" strokeWidth={1} />
+      </svg>
+    </div>
   );
 }
 
