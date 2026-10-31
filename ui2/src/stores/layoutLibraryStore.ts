@@ -109,7 +109,7 @@ function captureViewState(): SavedViewState {
       open: settings.bottomDockOpen,
       minimized: settings.bottomDockMinimized,
       activeTab: settings.bottomDockActiveTab,
-      height: settings.bottomDockHeight,
+      height: settings.bottomDockHeights.imaging ?? null,
     },
   };
 }

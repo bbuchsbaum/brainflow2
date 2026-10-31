@@ -106,6 +106,40 @@ describe("CenterWithBottomDock", () => {
     expect(dock).toContainElement(screen.getByTestId("bottom-dock-stub"));
   });
 
+  // N13: each tool's dock keeps its own height; Studio starts at 120 px.
+  it("uses and remembers the dock height of its tool", () => {
+    const dockHeight = () => screen.getByTestId("center-dock-pane").style.height;
+    const { unmount } = render(
+      <CenterWithBottomDock heightKey="set-studio">
+        <div>studio</div>
+      </CenterWithBottomDock>,
+    );
+    expect(dockHeight()).toBe("120px");
+
+    // A drag in Studio writes Studio's height only (jsdom: the drag clamps to
+    // Studio's minimum, its 120 px default).
+    act(() => {
+      useLayoutSettingsStore.getState().setBottomDockHeight(150, "set-studio");
+    });
+    expect(dockHeight()).toBe("150px");
+    fireEvent.pointerDown(screen.getByTestId("bottom-dock-resizer"));
+    // jsdom's PointerEvent has no clientY: send the move as a MouseEvent.
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientY: 10 }));
+      window.dispatchEvent(new MouseEvent("pointerup"));
+    });
+    expect(useLayoutSettingsStore.getState().bottomDockHeights).toEqual({ "set-studio": 120 });
+    unmount();
+
+    // The imaging views keep theirs (the 220 px default here).
+    render(
+      <CenterWithBottomDock>
+        <div>view</div>
+      </CenterWithBottomDock>,
+    );
+    expect(dockHeight()).toBe("220px");
+  });
+
   it("hides the dock + resizer when bottomDockOpen is false", () => {
     useLayoutSettingsStore.getState().setBottomDockOpen(false);
     render(

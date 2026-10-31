@@ -122,7 +122,7 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
     // › Plot Panel work there too (NeuroTabs workspace shape: bottom Plot dock).
     case "set-studio":
       return (
-        <CenterWithBottomDock>
+        <CenterWithBottomDock heightKey="set-studio">
           <SetStudioWorkspace />
         </CenterWithBottomDock>
       );
@@ -130,13 +130,13 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
     // must not depend on which tab is in front (QA 2026-10-30 F31).
     case "bids-explorer":
       return (
-        <CenterWithBottomDock>
+        <CenterWithBottomDock heightKey="bids-explorer">
           <BidsExplorerWorkspace workspaceId={workspaceId} />
         </CenterWithBottomDock>
       );
     case "analysis-workbench":
       return (
-        <CenterWithBottomDock>
+        <CenterWithBottomDock heightKey="analysis-workbench">
           <AnalysisWorkbenchWorkspace workspaceId={workspaceId} />
         </CenterWithBottomDock>
       );
