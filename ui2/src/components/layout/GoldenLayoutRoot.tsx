@@ -62,14 +62,13 @@ import { ensureCentreStack, getCentreStack } from './centreStack';
 import {
   SURFACE_PLACEHOLDER_COMPONENT,
   describeSurfaceTabs,
+  PendingTabOrder,
+  applyCentreTabOrder,
+  centreTabOrder,
   placeholderItemConfig,
-  redundantPlaceholders,
 } from './surfaceTabRestore';
 import { SurfacePlaceholderPanel } from '@/components/views/SurfacePlaceholderPanel';
-import {
-  useSurfaceTabRestoreStore,
-  type SavedSurfaceTab,
-} from '@/stores/surfaceTabRestoreStore';
+import { useSurfaceTabRestoreStore, type SavedSurfaceTab } from '@/stores/surfaceTabRestoreStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useCenterTabStore } from '@/stores/centerTabStore';
 import { ensureDefaultView } from '@/services/workspaceNavigation';
@@ -155,6 +154,8 @@ export function GoldenLayoutRoot() {
   const coldStartRef = useRef<boolean | null>(null);
   // Surface placeholders were restored at startup (a restored session).
   const restoredSurfaceTabsRef = useRef(false);
+  // The strip order saved last session, until the restored tabs are in it.
+  const initialTabOrderRef = useRef<PendingTabOrder | null>(null);
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -232,6 +233,20 @@ export function GoldenLayoutRoot() {
             pendingWorkspaceAddsRef.current.delete(workspaceId);
             addedWorkspacesRef.current.add(workspaceId);
             console.log(`[GoldenLayoutRoot] Added workspace tab: ${workspaceId} (${title})`);
+
+            // Relaunch: put the strip back in its saved order once the
+            // restored tabs are in (they arrive one frame at a time).
+            const savedOrder = initialTabOrderRef.current?.current() ?? null;
+            if (savedOrder) {
+              programmaticTabChangeRef.current.run(() => {
+                applyCentreTabOrder(liveStack, savedOrder);
+                focusWorkspaceTab(liveStack, useWorkspaceStore.getState().activeWorkspaceId);
+              });
+              const restored = useWorkspaceStore.getState().workspaces;
+              if ([...restored.keys()].every((id) => addedWorkspacesRef.current.has(id))) {
+                initialTabOrderRef.current?.finish();
+              }
+            }
 
             // If nothing has marked an active panel yet, treat this workspace as active.
             const activePanelStore = useActivePanelStore.getState();
@@ -456,17 +471,20 @@ export function GoldenLayoutRoot() {
         root.render(
           <React.StrictMode>
             <PanelErrorBoundary panelName="SurfacePlaceholder">
-              <SurfacePlaceholderPanel
-                saved={saved}
-                onClose={() => {
-                  // Already gone when its reopened surfaces replaced it.
-                  try {
-                    container.close();
-                  } catch {
-                    /* destroyed */
-                  }
-                }}
-              />
+              {/* The shared dock, as in the live surface tab (QA 2026-10-31 N3). */}
+              <CenterWithBottomDock>
+                <SurfacePlaceholderPanel
+                  saved={saved}
+                  onClose={() => {
+                    // Already gone when its reopened surfaces replaced it.
+                    try {
+                      container.close();
+                    } catch {
+                      /* destroyed */
+                    }
+                  }}
+                />
+              </CenterWithBottomDock>
             </PanelErrorBoundary>
           </React.StrictMode>,
         );
@@ -549,6 +567,8 @@ export function GoldenLayoutRoot() {
     // Last session's surface tabs come back as placeholders; they are not
     // the user switching tabs, so the store's active workspace stays put.
     const savedSurfaceTabs = useSurfaceTabRestoreStore.getState().tabs;
+    const savedTabOrder = useSurfaceTabRestoreStore.getState().order;
+    initialTabOrderRef.current = savedTabOrder.length > 1 ? new PendingTabOrder(savedTabOrder) : null;
     // Placeholders are a restored session too: no first screen beside them.
     restoredSurfaceTabsRef.current = Boolean(centreAtStart) && savedSurfaceTabs.length > 0;
     if (centreAtStart && savedSurfaceTabs.length > 0) {
@@ -566,26 +586,21 @@ export function GoldenLayoutRoot() {
     // Teardown (inside programmaticTabRemoval) is not the user closing them.
     const recordSurfaceTabs = () => {
       if (programmaticTabRemoval.active) return;
-      useSurfaceTabRestoreStore
-        .getState()
-        .setTabs(
-          describeSurfaceTabs(goldenLayout.rootItem, useSurfaceStore.getState().surfaces.values()),
-        );
+      const restore = useSurfaceTabRestoreStore.getState();
+      restore.setTabs(
+        describeSurfaceTabs(goldenLayout.rootItem, useSurfaceStore.getState().surfaces.values()),
+      );
+      // While the saved order is still being applied, keep it.
+      if (!initialTabOrderRef.current?.current()) {
+        restore.setOrder(centreTabOrder(getCentreStack(goldenLayout)));
+      }
     };
     goldenLayout.on('stateChanged', recordSurfaceTabs);
-    // A second hemisphere joins an existing tab without a layout change. A
-    // placeholder whose surfaces the user reopened by hand goes (its live tab
-    // replaces it), so the next launch does not show both.
+    // A second hemisphere joins an existing tab without a layout change. (A
+    // placeholder whose surface comes back is replaced in place by
+    // layoutService.ensureSurfaceView.)
     const offSurfaces = useSurfaceStore.subscribe((state, prev) => {
-      if (state.surfaces === prev.surfaces) return;
-      for (const item of redundantPlaceholders(goldenLayout.rootItem, state.surfaces.values())) {
-        try {
-          item.remove();
-        } catch (error) {
-          console.warn('[GoldenLayoutRoot] Failed to drop a reloaded surface placeholder:', error);
-        }
-      }
-      recordSurfaceTabs();
+      if (state.surfaces !== prev.surfaces) recordSurfaceTabs();
     });
 
     // Add panel event listener for menu-triggered panel additions
@@ -715,9 +730,21 @@ export function GoldenLayoutRoot() {
     // never runs for a restored session or after the user closes the last tab.
     if (coldStartRef.current === null) {
       coldStartRef.current = firstScreenAppliesAtLaunch({
-        restoredWorkspaces: workspaces.size,
+        restoredWorkspaces: workspaces.values(),
         restoredSurfaceTabs: restoredSurfaceTabsRef.current,
       });
+    }
+
+    // Only the app's own empty default view came back: the first screen runs
+    // in it, as it would in a fresh one (QA 2026-10-31 N4).
+    if (coldStartRef.current === true && workspaces.size > 0) {
+      coldStartRef.current = false;
+      const workspaceId =
+        useWorkspaceStore.getState().activeWorkspaceId ?? [...workspaces.keys()][0];
+      if (workspaceId) {
+        void defaultFirstScreenBackend().then((backend) => runFirstScreen(workspaceId, backend));
+      }
+      return;
     }
 
     if (workspaces.size === 0) {

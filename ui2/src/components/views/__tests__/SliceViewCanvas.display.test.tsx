@@ -192,3 +192,19 @@ describe('Compare pane badge', () => {
     expect(screen.getByTestId('radiological-badge').textContent).toBe('R | L');
   });
 });
+
+describe('toggling the convention changes nothing else (QA 2026-10-31 N14)', () => {
+  it('keeps the crosshair and the orientation letters', async () => {
+    const { useDisplayOptionsStore } = await import('@/stores/displayOptionsStore');
+    useViewStateStore.getState().setViewState((state) => {
+      state.crosshair = { world_mm: [-40, -20, 53], visible: true };
+      return state;
+    });
+    useDisplayOptionsStore.getState().setOptions('layer-1', { showOrientationMarkers: true });
+    await renderView('axial');
+    act(() => useViewDisplaySettingsStore.getState().toggleRadiological());
+    act(() => useViewDisplaySettingsStore.getState().toggleRadiological());
+    expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([-40, -20, 53]);
+    expect(useDisplayOptionsStore.getState().getOptions('layer-1').showOrientationMarkers).toBe(true);
+  });
+});

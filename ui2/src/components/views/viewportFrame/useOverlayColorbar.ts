@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
-import { useActiveLayer } from '@/utils/activeLayer';
+import { activeVolumeLayerId, useActiveLayer } from '@/utils/activeLayer';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import type { ViewLayer } from '@/types/viewState';
@@ -133,6 +133,18 @@ export function useOverlayColorbar(): ColorbarLayer | null {
   );
   const isBase = !!layerId && !isOverlayLayer(layers, layerId);
   return useLayerColorbar(layerId, undefined, { allowBase: isBase });
+}
+
+/**
+ * The layer {@link useOverlayColorbar} shows, read from the stores outside
+ * React (the view context menu's "Hide colorbar"): the same inputs, the
+ * active layer and the run-group rule, so the menu toggles the colorbar on
+ * screen.
+ */
+export function currentOverlayColorbarLayerId(): string | null {
+  const layers = useLayerStore.getState().layers;
+  const viewLayers = useViewStateStore.getState().viewState.layers;
+  return chooseColorbarLayerId(layers, viewLayers, activeVolumeLayerId(viewLayers), isRunGroupMember);
 }
 
 /** Which orthogonal view hosts the colorbar (see `chooseColorbarHost`). */

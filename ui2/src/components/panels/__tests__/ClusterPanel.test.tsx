@@ -106,6 +106,117 @@ describe('ClusterPanel', () => {
     expect(compute).toHaveBeenCalledWith({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1, extent: null });
   });
 
+  it('an asymmetric display threshold gives each tail its own field and request (QA N6)', () => {
+    seed([-3.1, Math.fround(3.92923)]);
+    render(<ClusterPanel />);
+    // Display precision: 3.93, not 3.92923.
+    expect(screen.getByLabelText('Cluster threshold, absolute z')).toHaveValue(3.93);
+    expect(screen.getByLabelText('Cluster threshold, negative tail, absolute z')).toHaveValue(3.1);
+    fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
+    expect(compute).toHaveBeenCalledWith(
+      expect.objectContaining({ threshold: 3.93, negativeThreshold: 3.1, sign: 'both' }),
+    );
+  });
+
+  it('keeps two fields while typing through empty and equal values (review M3)', () => {
+    seed([-3.1, 3.93]);
+    render(<ClusterPanel />);
+    const negative = () => screen.getByLabelText('Cluster threshold, negative tail, absolute z');
+    const positive = () => screen.getByLabelText('Cluster threshold, absolute z');
+    const field = negative();
+    field.focus();
+    // Cleared: invalid, not symmetric; the field stays (and keeps focus).
+    fireEvent.change(field, { target: { value: '' } });
+    expect(negative()).toBe(field);
+    expect(document.activeElement).toBe(field);
+    expect(screen.getByRole('button', { name: 'Compute' })).toBeDisabled();
+    // A value equal to the other tail on the way: still two fields.
+    fireEvent.change(field, { target: { value: '3.93' } });
+    expect(negative()).toBe(field);
+    fireEvent.change(field, { target: { value: '2.5' } });
+    expect(positive()).toHaveValue(3.93);
+    fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
+    expect(compute).toHaveBeenLastCalledWith(
+      expect.objectContaining({ threshold: 3.93, negativeThreshold: 2.5, sign: 'both' }),
+    );
+    // Clearing the positive field is invalid too.
+    fireEvent.change(positive(), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Compute' })).toBeDisabled();
+    expect(negative()).toBe(field);
+  });
+
+  it('leaves two fields only through Make symmetric or Use layer threshold (review M3)', () => {
+    seed([-3.1, 3.93]);
+    render(<ClusterPanel />);
+    fireEvent.change(screen.getByLabelText('Cluster threshold, negative tail, absolute z'), { target: { value: '2.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Make symmetric' }));
+    expect(screen.queryByLabelText('Cluster threshold, negative tail, absolute z')).toBeNull();
+    expect(screen.getByLabelText('Cluster threshold, absolute z')).toHaveValue(3.93);
+    fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
+    expect(compute).toHaveBeenLastCalledWith(expect.objectContaining({ threshold: 3.93, sign: 'both' }));
+    expect(compute.mock.lastCall?.[0]).not.toHaveProperty('negativeThreshold');
+    // Following the (asymmetric) layer again: two fields with its values.
+    fireEvent.click(screen.getByRole('button', { name: 'Use layer threshold' }));
+    expect(screen.getByLabelText('Cluster threshold, negative tail, absolute z')).toHaveValue(3.1);
+  });
+
+  it('a one-sided layer threshold searches only its tail (review H2)', () => {
+    seed([0, 3.93]);
+    render(<ClusterPanel />);
+    expect(screen.queryByLabelText('Cluster threshold, negative tail, absolute z')).toBeNull();
+    expect(screen.getByLabelText('Cluster threshold, absolute z')).toHaveValue(3.93);
+    fireEvent.click(screen.getByRole('button', { name: 'Compute' }));
+    expect(compute).toHaveBeenLastCalledWith(expect.objectContaining({ threshold: 3.93, sign: 'positive' }));
+    // Asking for the tail the layer does not threshold says so.
+    fireEvent.click(screen.getByRole('radio', { name: /Negative/ }));
+    expect(screen.getByRole('button', { name: 'Compute' })).toBeDisabled();
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('hides no negative values');
+  });
+
+  it('cluster p with two tails is refused, with the reason (QA N6)', () => {
+    seed([-3.1, 3.93]);
+    render(<ClusterPanel />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cluster p (RFT)' }));
+    fireEvent.change(screen.getByLabelText('FWHM'), { target: { value: '8' } });
+    expect(screen.getByRole('button', { name: 'Compute' })).toBeDisabled();
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('one threshold for both tails');
+  });
+
+  it('rows have a menu (Go to peak, Use cluster as region, Copy row), never WebKit\'s (F5.4)', async () => {
+    const { useContextMenuStore } = await import('@/stores/contextMenuStore');
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap', table: TABLE, regions: [null, null], computedAt: 0 });
+    render(<ClusterPanel />);
+    const row = screen.getByTestId('cluster-row-2');
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 6 });
+    row.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    const menu = useContextMenuStore.getState();
+    expect(menu.isOpen).toBe(true);
+    expect(menu.items.filter((i) => !i.separator).map((i) => i.id)).toEqual([
+      'cluster.goToPeak',
+      'cluster.useAsRegion',
+      'cluster.copyRow',
+    ]);
+    // Right-click selects the row but does not move the crosshair.
+    expect(useClusterStore.getState().selectedId).toBe(2);
+    expect(selectCluster).not.toHaveBeenCalled();
+    menu.items[0].onClick?.();
+    expect(selectCluster).toHaveBeenCalledWith(2);
+    // Anywhere else in the table the WebKit menu is suppressed too.
+    const head = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    screen.getByRole('treegrid').dispatchEvent(head);
+    expect(head.defaultPrevented).toBe(true);
+    act(() => useContextMenuStore.getState().close());
+  });
+
+  it('has a toolbar "Use as region" that needs a selected row (F5.4)', () => {
+    useClusterStore.getState().setResult({ layerId: 'z', layerName: 'zmap', table: TABLE, regions: [null, null], computedAt: 0 });
+    render(<ClusterPanel />);
+    const button = screen.getByTestId('cluster-use-as-region');
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'Select a cluster row.');
+  });
+
   it('cluster p (RFT) is opt-in and needs a stated FWHM, one value or three (C2)', () => {
     render(<ClusterPanel />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Cluster p (RFT)' }));

@@ -46,7 +46,7 @@ import { useActiveLayer } from '@/utils/activeLayer';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { buildSceneStack } from '@/hooks/useSceneStack';
 import { isInferredStatistic, statisticUnits } from '@/utils/statistic';
-import { formatLayerValue, formatWorldMm } from '@/utils/valueFormat';
+import { formatWorldMm } from '@/utils/valueFormat';
 import { trueMinus } from '@/components/views/viewportFrame/frameFormat';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
 import {
@@ -55,13 +55,23 @@ import {
   isMaskLike,
   clusterTableCsv,
   colormapEnds,
-  displayThresholdMagnitude,
+  displayThresholdBounds,
+  clusterThresholds,
+  clusterTestText,
+  type ThresholdBounds,
   formatClusterP,
   getClusterService,
   parseFwhm,
 } from '@/services/ClusterService';
 import { getEventBus } from '@/events/EventBus';
-import { clusterSeriesUnavailable, openClusterSeries } from '@/services/series/openClusterSeries';
+import {
+  clusterRegionUnavailable,
+  clusterRowCsv,
+  clusterSeriesUnavailable,
+  openClusterAsRegion,
+  openClusterSeries,
+} from '@/services/series/openClusterSeries';
+import { useContextMenuStore } from '@/stores/contextMenuStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { cn } from '@/utils/cn';
 import { formatVoxelIndex } from '@/utils/voxelSnap';
@@ -268,18 +278,56 @@ export function ClusterPanel() {
     if (params.searchMaskLayerId && !maskLayerExists) setParams({ searchMaskLayerId: null });
   }, [params.searchMaskLayerId, maskLayerExists, setParams]);
 
-  // f32 thresholds (3.0999999046) shown and used at display precision (3.1).
-  const rawLayerThreshold = displayThresholdMagnitude(target?.threshold);
-  const layerThreshold =
-    rawLayerThreshold === null ? null : Number.parseFloat(rawLayerThreshold.toPrecision(6));
+  // Each tail of the layer's display threshold, at display precision (an
+  // f32 3.0999999 is 3.1, 3.92923 is 3.93): −3.1 ≤ z ≤ 3.93 hidden is
+  // z < −3.1 or z > 3.93 (QA 2026-10-31 N6). A one-sided band ([0, 3.93])
+  // thresholds one tail only, which is then the only one searched.
+  const layerBounds = displayThresholdBounds(target?.threshold);
+  const layerThreshold = layerBounds ? (layerBounds.positive ?? layerBounds.negative) : null;
+  const layerAsymmetric =
+    !!layerBounds &&
+    layerBounds.positive !== null &&
+    layerBounds.negative !== null &&
+    layerBounds.positive !== layerBounds.negative;
+  // Two fields: following an asymmetric layer threshold, or once the user
+  // edits them, until "Make symmetric" or "Use layer threshold" (review M3:
+  // never collapsed by a value typed on the way).
+  const split = params.linked ? layerAsymmetric : params.split;
   const thresholdRef = useRef<HTMLInputElement>(null);
   // Linked to a layer without a display threshold: never 0 (it clusters the
   // whole brain into one; review R7). A z or t map seeds the conventional
   // |z| > 3.1 and says so; other statistics wait for a value.
   const seededDefault =
-    params.linked && layerThreshold === null && symbol && /^[zt]/.test(symbol) ? DEFAULT_STAT_THRESHOLD : null;
-  const threshold = params.linked ? (layerThreshold ?? seededDefault) : params.threshold;
-  const thresholdInvalid = threshold === null || !Number.isFinite(threshold) || threshold < 0;
+    params.linked && layerBounds === null && symbol && /^[zt]/.test(symbol) ? DEFAULT_STAT_THRESHOLD : null;
+  // The fields as shown (null: empty while typing).
+  const linkedBounds: ThresholdBounds | null =
+    layerBounds ?? (seededDefault !== null ? { positive: seededDefault, negative: seededDefault } : null);
+  const positiveField = params.linked ? (linkedBounds?.positive ?? null) : params.threshold;
+  const negativeField = params.linked
+    ? (linkedBounds?.negative ?? null)
+    : split
+      ? params.negativeThreshold
+      : params.threshold;
+  // A typed field left empty is invalid, never "this tail is not thresholded".
+  const typedInvalid =
+    !params.linked &&
+    [positiveField, ...(split ? [negativeField] : [])].some(
+      (v) => v === null || !Number.isFinite(v) || v < 0,
+    );
+  const bounds: ThresholdBounds | null = params.linked
+    ? linkedBounds
+    : typedInvalid
+      ? null
+      : { positive: positiveField, negative: negativeField };
+  const tails = bounds ? clusterThresholds(bounds, params.sign) : null;
+  const threshold = tails?.threshold ?? null;
+  const negativeThreshold = tails?.negativeThreshold ?? null;
+  // The sign actually searched: one tail when the layer thresholds only one.
+  const searchSign: ClusterSign = tails?.sign ?? params.sign;
+  // Both tails searched at different thresholds (no cluster p then).
+  const asymmetric = negativeThreshold !== null;
+  const untailed = params.linked && linkedBounds !== null && tails === null;
+  const thresholdInvalid = typedInvalid || threshold === null || !Number.isFinite(threshold) || threshold < 0;
   const minInvalid =
     params.minVoxels === null || !Number.isInteger(params.minVoxels) || params.minVoxels < 1;
   const fwhm = params.extentP ? parseFwhm(params.fwhmText) : null;
@@ -294,12 +342,19 @@ export function ClusterPanel() {
       : null;
   const thresholdReason = notStatReason
     ? null
-    : threshold === null
+    : untailed
+      ? `The display threshold hides no ${params.sign} values: choose another sign`
+      : typedInvalid
+        ? 'Enter a threshold'
+        : threshold === null
       ? 'Enter a threshold (the layer has no display threshold)'
       : fwhmInvalid
         ? 'Enter the FWHM in mm (one value, or three for i j k) for cluster p'
+        : asymmetric && params.extentP
+          ? 'Cluster p needs one threshold for both tails: make the threshold symmetric, or search one sign'
         : null;
-  const canCompute = !notStatReason && !thresholdInvalid && !minInvalid && !fwhmInvalid && !computing;
+  const canCompute =
+    !notStatReason && !thresholdInvalid && !minInvalid && !fwhmInvalid && !(asymmetric && params.extentP) && !computing;
   // A label/atlas or other non-statistic layer has no parameters to edit: the
   // controls are off, not red (QA §9.5).
   const paramsDisabled = notStatReason !== null;
@@ -320,13 +375,14 @@ export function ClusterPanel() {
     void getClusterService().compute({
       layerId: target.id,
       threshold,
-      sign: params.sign,
+      ...(negativeThreshold !== null ? { negativeThreshold } : {}),
+      sign: searchSign,
       connectivity: params.connectivity,
       minVoxels: params.minVoxels,
       extent: params.extentP && fwhm !== null ? { fwhmMm: fwhm, statistic: declared } : null,
       ...(maskVolumeId ? { searchMask: maskVolumeId } : {}),
     });
-  }, [target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, layer?.statistic, maskVolumeId]);
+  }, [target, threshold, negativeThreshold, searchSign, params.connectivity, params.minVoxels, params.extentP, fwhm, layer?.statistic, maskVolumeId]);
 
   // The table's own statistic (its layer may no longer be the active one):
   // headers, the empty line and the methods sentence use it, never the
@@ -366,14 +422,15 @@ export function ClusterPanel() {
     const changed =
       threshold === null ||
       !sameValue(t.threshold, threshold) ||
-      t.sign !== params.sign ||
+      !sameValue(t.negativeThreshold ?? t.threshold, negativeThreshold ?? threshold) ||
+      t.sign !== searchSign ||
       t.connectivity !== params.connectivity ||
       t.minVoxels !== params.minVoxels ||
       (!!t.extentInference || !!t.extentWithheld) !== params.extentP ||
       tableMask !== maskVolumeId ||
       (t.extentInference !== null && t.extentInference !== undefined && !sameFwhm(t.extentInference.fwhmMm, fwhm));
     return changed ? 'Parameters changed since this table.' : null;
-  }, [result, target, threshold, params.sign, params.connectivity, params.minVoxels, params.extentP, fwhm, maskVolumeId, allLayers]);
+  }, [result, target, threshold, negativeThreshold, searchSign, params.connectivity, params.minVoxels, params.extentP, fwhm, maskVolumeId, allLayers]);
 
   // Sortable by rank (#, = |peak| descending, the backend order), voxels or
   // |peak|. Regions travel with their cluster (indexed by rank).
@@ -451,6 +508,54 @@ export function ClusterPanel() {
   const seriesReason = clusterSeriesUnavailable();
   // Stale: the footer's one stale notice says why; the button only says what to do (round 4 C5).
   const seriesBlocked = stale ? 'Compute to use it.' : seriesReason;
+  // "Use cluster as region" (QA 2026-10-31 F5.4): the toolbar button, the row
+  // menu and ⌘K. A table without a label volume (computed on load) is
+  // computed again first, so that reason does not block it.
+  const regionBlocked = result && stale ? 'Compute to use it.' : clusterRegionUnavailable();
+  const asRegion = useCallback((clusterId?: number) => {
+    openClusterAsRegion(clusterId).catch((err: unknown) =>
+      getEventBus().emit('ui.notification', {
+        type: 'warning',
+        message: err instanceof Error ? err.message : 'The cluster could not be used as a region',
+      }),
+    );
+  }, []);
+  const copyRow = useCallback(async (clusterId: number) => {
+    const csv = clusterRowCsv(clusterId);
+    if (!csv) return;
+    try {
+      await navigator.clipboard.writeText(csv);
+      getEventBus().emit('ui.notification', { type: 'info', message: `Cluster ${clusterId} copied as CSV` });
+    } catch {
+      getEventBus().emit('ui.notification', { type: 'warning', message: 'Could not copy to the clipboard' });
+    }
+  }, []);
+  // Right-click on a row: Go to peak, Use cluster as region, Copy row (never WebKit's menu).
+  const openRowMenu = useCallback(
+    (clusterId: number, event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      // Selected without moving the crosshair; the menu says where to go.
+      useClusterStore.getState().select(clusterId);
+      const blocked = stale ? 'Compute to use it.' : clusterRegionUnavailable(clusterId);
+      useContextMenuStore.getState().open(event.clientX, event.clientY, [
+        {
+          id: 'cluster.goToPeak',
+          label: 'Go to peak',
+          onClick: () => void getClusterService().selectCluster(clusterId),
+        },
+        {
+          id: 'cluster.useAsRegion',
+          label: blocked ? `Use cluster as region (${blocked.replace(/\.$/, '')})` : 'Use cluster as region',
+          disabled: !!blocked,
+          onClick: () => asRegion(clusterId),
+        },
+        { id: 'cluster.sep', label: '', separator: true },
+        { id: 'cluster.copyRow', label: 'Copy row', onClick: () => void copyRow(clusterId) },
+      ]);
+    },
+    [stale, asRegion, copyRow],
+  );
   const caveats = result ? clusterCaveats(result.table) : null;
   const [showAssumptions, setShowAssumptions] = useState(false);
 
@@ -515,11 +620,50 @@ export function ClusterPanel() {
               ? shortLayerLabel(activeName ?? active.name)
               : 'No layer'}
         </span>
+        {split ? (
+          <>
+            <label
+              className="inline-flex items-center whitespace-pre text-bf-text-secondary"
+              htmlFor="cluster-threshold-negative"
+            >
+              {symbol ? <StatSymbol label={variable} /> : variable}
+              {' < \u2212'}
+            </label>
+            <NumberField
+              id="cluster-threshold-negative"
+              fieldClassName="w-[9ch]"
+              step={0.1}
+              min={0}
+              value={negativeField ?? ''}
+              invalid={thresholdInvalid && !paramsDisabled}
+              disabled={paramsDisabled}
+              aria-label={`Cluster threshold, negative tail, absolute ${variable}`}
+              onValueChange={(v) =>
+                setParams({ threshold: positiveField, negativeThreshold: v, split: true, linked: false })
+              }
+            />
+          </>
+        ) : null}
         <label
           className="inline-flex items-center whitespace-pre text-bf-text-secondary"
           htmlFor="cluster-threshold"
         >
-          |{symbol ? <StatSymbol label={variable} /> : variable}|{' >'}
+          {split ? (
+            <>
+              or {symbol ? <StatSymbol label={variable} /> : variable}
+              {' >'}
+            </>
+          ) : searchSign !== params.sign ? (
+            // A one-sided layer threshold: the one tail searched.
+            <>
+              {symbol ? <StatSymbol label={variable} /> : variable}
+              {searchSign === 'positive' ? ' >' : ' < \u2212'}
+            </>
+          ) : (
+            <>
+              |{symbol ? <StatSymbol label={variable} /> : variable}|{' >'}
+            </>
+          )}
         </label>
         <NumberField
           ref={thresholdRef}
@@ -527,18 +671,43 @@ export function ClusterPanel() {
           fieldClassName="w-[9ch]"
           step={0.1}
           min={0}
-          value={threshold ?? ''}
+          value={(split ? positiveField : (threshold ?? positiveField)) ?? ''}
           invalid={thresholdInvalid && !paramsDisabled}
           disabled={paramsDisabled}
           aria-label={`Cluster threshold, absolute ${variable}`}
-          onValueChange={(v) => setParams({ threshold: v, linked: false })}
+          onValueChange={(v) =>
+            // With two fields the other tail keeps its value; one field is symmetric.
+            setParams(
+              split
+                ? { threshold: v, negativeThreshold: negativeField, split: true, linked: false }
+                : { threshold: v, negativeThreshold: null, split: false, linked: false },
+            )
+          }
         />
+        {split ? (
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => {
+              setParams({
+                threshold: positiveField ?? negativeField,
+                negativeThreshold: null,
+                split: false,
+                linked: false,
+              });
+              requestAnimationFrame(() => thresholdRef.current?.focus());
+            }}
+            title="One threshold for both tails (|value| >)"
+          >
+            Make symmetric
+          </Button>
+        ) : null}
         {!params.linked && layerThreshold !== null && (
           <Button
             variant="link"
             size="sm"
             onClick={() => {
-              setParams({ linked: true, threshold: null });
+              setParams({ linked: true, threshold: null, negativeThreshold: null, split: false });
               // The button goes away: focus returns to the threshold field.
               requestAnimationFrame(() => thresholdRef.current?.focus());
             }}
@@ -676,6 +845,17 @@ export function ClusterPanel() {
         >
           {computing ? 'Computing…' : 'Compute'}
         </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => asRegion()}
+          disabled={!!regionBlocked || computing}
+          title={regionBlocked ?? `Use cluster ${selectedId} as the Series region`}
+          className="mt-0.5 shrink-0"
+          data-testid="cluster-use-as-region"
+        >
+          Use as region
+        </Button>
       </div>
       {computing && (
         <div
@@ -726,7 +906,12 @@ export function ClusterPanel() {
           </p>
         ) : clusters.length === 0 ? (
           <p className="p-3 text-bf-text-muted" data-testid="cluster-none">
-            No clusters above |{resultVariable}| &gt; {formatLayerValue(result.table.threshold)} with ≥{' '}
+            No clusters {result.table.negativeThreshold != null ? 'with' : 'above'}{' '}
+            {clusterTestText(
+              result.table.negativeThreshold != null ? result.table : { ...result.table, sign: 'both' },
+              resultVariable,
+            )}{' '}
+            with ≥{' '}
             {result.table.minVoxels} voxel{result.table.minVoxels === 1 ? '' : 's'}.
           </p>
         ) : (
@@ -734,6 +919,8 @@ export function ClusterPanel() {
             role="treegrid"
             aria-label="Clusters"
             className="w-full border-collapse font-mono tabular-nums"
+            // Rows open their own menu; never WebKit's Reload / Inspect Element here.
+            onContextMenu={(e) => e.preventDefault()}
           >
             <thead className="sticky top-0 bg-bf-bg-panel text-bf-text-muted">
               <tr className="h-6 text-left font-sans">
@@ -820,6 +1007,7 @@ export function ClusterPanel() {
                     )}
                     aria-expanded={subPeaks.length > 0 ? open : undefined}
                     onClick={() => select(String(c.id))}
+                    onContextMenu={(e) => openRowMenu(c.id, e)}
                     aria-level={1}
                     aria-posinset={rank + 1}
                     aria-setsize={clusters.length}
@@ -923,6 +1111,7 @@ export function ClusterPanel() {
                             // the id indented under the parent's.
                             className={cn('h-5 cursor-pointer text-bf-2xs text-bf-text-muted outline-none', HOVER_FILL, FOCUS_RING_INSET)}
                             onClick={() => void getClusterService().goToSubPeak(c.id, j)}
+                            onContextMenu={(e) => openRowMenu(c.id, e)}
                             title={`Cluster ${c.id}, peak ${j + 2}: go to it`}
                           >
                             <td />

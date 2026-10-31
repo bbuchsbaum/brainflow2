@@ -91,7 +91,11 @@ export class LayerService {
       const key = layer.name ?? layer.volumeId;
       this.setLoadingState(key, false);
       this.recordError(key, toError(error));
-      this.eventBus.emit('layer.error', { layerId: key, error: toError(error) });
+      this.eventBus.emit('layer.error', {
+        layerId: key,
+        error: toError(error),
+        sourcePath: (layer as { sourcePath?: string }).sourcePath,
+      });
       throw error;
     }
   }

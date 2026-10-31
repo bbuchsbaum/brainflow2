@@ -47,3 +47,18 @@ export function comparePickerOptions(
   }
   return options;
 }
+
+/**
+ * The anatomy drawn under an overlay-only pane: the base (first non-atlas
+ * layer), unless the pane shows it or nothing. Same rule as
+ * ComparisonRenderService's resolvePanelUnderlayId (the renderer), for the
+ * pane's crosshair clip.
+ */
+export function paneUnderlayId(
+  visibleLayerIds: ReadonlySet<string>,
+  layers: ReadonlyArray<{ id: string; source?: string }>,
+): string | null {
+  if (visibleLayerIds.size === 0) return null;
+  const base = layers.find((layer) => layer.source !== 'atlas');
+  return !base || visibleLayerIds.has(base.id) ? null : base.id;
+}

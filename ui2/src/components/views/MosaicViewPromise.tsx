@@ -37,6 +37,7 @@ import { shortLayerLabel } from './viewportFrame/frameFormat';
 import { registerMosaicExportSource } from '@/services/export/compositeCapture';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
+import { setMosaicAxis } from '@/utils/mosaicAxis';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { EmptyPane } from '@/components/ui/bf';
 import { openFileDialog, openFileShortcut } from '@/services/fileActions';
@@ -90,6 +91,8 @@ function MosaicViewPromiseRaw({
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   // Radiological convention: the tiles are mirrored; one badge per mosaic.
   const mirrored = useMirrorsView(sliceAxis);
+  // ↑/↓ step this mosaic's axis while its tab is in front.
+  useEffect(() => setMosaicAxis(workspaceId, sliceAxis), [workspaceId, sliceAxis]);
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
   const [colorbarColumnPx, setColorbarColumnPx] = useState(MOSAIC_COLORBAR_COLUMN_PX);
   const gridSizeRef = useRef(gridSize);

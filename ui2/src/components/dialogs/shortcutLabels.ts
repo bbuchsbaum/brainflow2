@@ -2,6 +2,9 @@
 import type { ShortcutRegistration } from '@/services/KeyboardShortcutService';
 import { formatShortcut, isMacPlatform } from './commandPaletteMatch';
 
+/** Letter keys that look like a digit in the dialog's mono font. */
+const LETTER_LIKE_DIGIT: ReadonlySet<string> = new Set(['o', 'i', 'l']);
+
 /**
  * The chord as the platform writes it: "⇧⌘C" on macOS, "Ctrl+Shift+C"
  * elsewhere (formatShortcut).
@@ -20,6 +23,10 @@ export function shortcutLabel(reg: ShortcutRegistration, mac: boolean = isMacPla
   else if (key === 'ArrowRight') key = '→';
   else if (key === 'ArrowUp') key = '↑';
   else if (key === 'ArrowDown') key = '↓';
+  // A bare letter a mono font draws like a digit is named (QA 2026-10-31:
+  // "O" for the origin read as "0", Show all layers). With a modifier
+  // ("⌘I") there is no digit to confuse it with.
+  else if (parts.length === 0 && LETTER_LIKE_DIGIT.has(key.toLowerCase())) key = `${key.toUpperCase()} (letter)`;
   else if (key.length === 1) key = key.toUpperCase();
   parts.push(key);
 

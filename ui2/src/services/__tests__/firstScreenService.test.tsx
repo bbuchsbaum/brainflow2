@@ -214,4 +214,16 @@ describe('first screen', () => {
     expect(firstScreenAppliesAtLaunch({ restoredWorkspaces: 0, restoredSurfaceTabs: true })).toBe(false);
     expect(firstScreenAppliesAtLaunch({ restoredWorkspaces: 2, restoredSurfaceTabs: false })).toBe(false);
   });
+
+  // QA 2026-10-31 N4: closing the last tab leaves the app's own default view,
+  // which is persisted; restoring only that is not a restored session.
+  it("the app's own default view does not count as a restored session", () => {
+    const applies = (workspaces: Array<{ defaultView?: boolean }>, restoredSurfaceTabs = false) =>
+      firstScreenAppliesAtLaunch({ restoredWorkspaces: workspaces, restoredSurfaceTabs });
+    expect(applies([{ defaultView: true }])).toBe(true);
+    expect(applies([])).toBe(true);
+    expect(applies([{ defaultView: true }, {}])).toBe(false);
+    expect(applies([{}])).toBe(false);
+    expect(applies([{ defaultView: true }], true)).toBe(false);
+  });
 });

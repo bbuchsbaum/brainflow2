@@ -1,4 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { StudioScaleBar } from './StudioScaleBar';
+import { useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
+import { populationUnderlaySource } from '@/services/studio/PopulationSliceService';
+import { findLayerIdForSourcePath } from '@/services/studio/StudioDisplayService';
+import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type {
   SpatialFieldSetSummary,
@@ -102,6 +108,9 @@ export function CompareLens({
   const cohortLabel = compareCohort?.label ?? null;
   const cohortId = compareCohort?.id ?? null;
   const cohortMemberCount = compareCohort?.memberCount ?? null;
+  // Anatomy under B–D by the Population rule: a template only when the set
+  // declares that template space (QA N10).
+  const underlayPath = populationUnderlaySource(activeSet?.supportLabel).sourcePath;
   // The derived panes belong to the Studio's workspace, not to whichever
   // workspace is in front (Set Studio is a singleton tab).
   const studioWorkspaceId = useWorkspaceStore((state) => {
@@ -161,6 +170,7 @@ export function CompareLens({
             sourcePath={derivedPath}
             label={pane?.title ?? slot.fallbackTitle}
             workspaceId={studioWorkspaceId}
+            underlayPath={underlayPath}
           />
         ) : null;
 
@@ -218,8 +228,40 @@ function CurrentPaneCanvas({
   memberLabel: string | null;
   memberSourcePath: string | null;
 }) {
+  // The member's own display, for its colourbar (the shared views draw none
+  // for a lone base layer; QA N10).
+  const layerId = useLayerStore((state) => findLayerIdForSourcePath(state, memberSourcePath));
+  // The Studio workspace's own layer display, never the tab in front (F44).
+  const workspaceId = useStudioWorkspaceKey();
+  const display = useViewStateStore((state) =>
+    layerId
+      ? (state.getWorkspaceViewState(workspaceId).layers.find((layer) => layer.id === layerId) ?? null)
+      : null,
+  );
+  const host = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const node = host.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const next = Math.floor(entries[0]?.contentRect.height ?? 0);
+      setHeight((previous) => (previous === next ? previous : next));
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className="absolute inset-0">
+    <div ref={host} className="absolute inset-0">
+      {display && memberLabel ? (
+        <StudioScaleBar
+          min={display.intensity[0]}
+          max={display.intensity[1]}
+          hidden={display.threshold}
+          colormap={display.colormap}
+          label={memberLabel}
+          paneHeight={height}
+        />
+      ) : null}
       <StudioRenderAdapter
         supportKind={activeSet?.supportKind}
         title=""

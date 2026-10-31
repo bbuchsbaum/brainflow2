@@ -115,23 +115,85 @@ export function placeholderItemConfig(saved: SavedSurfaceTab): ComponentItemConf
   };
 }
 
-/**
- * Placeholders whose surfaces are all loaded again (the user reopened them by
- * hand instead of pressing Reload): the live tab replaces them, so the next
- * launch does not bring back two tabs.
- */
-export function redundantPlaceholders(
-  root: ContentItem | null | undefined,
-  surfaces: Iterable<SurfaceLike>,
-): ContentItem[] {
-  const live = new Set([...surfaces].map((surface) => surface.metadata.path));
-  return componentItems(root).filter((item) => {
-    if ((item as { componentType?: unknown }).componentType !== SURFACE_PLACEHOLDER_COMPONENT) {
-      return false;
-    }
-    const saved = itemState(item).saved;
-    const sources =
-      isRecord(saved) && Array.isArray(saved.sources) ? (saved.sources as SurfaceTabSource[]) : [];
-    return sources.length > 0 && sources.every((source) => live.has(source.path));
+/** The key of a centre tab in the saved strip order, or null for other tabs. */
+export function centreTabKey(item: ContentItem): string | null {
+  const type = (item as { componentType?: unknown }).componentType;
+  const state = itemState(item);
+  if (type === 'Workspace' && typeof state.workspaceId === 'string') return `ws:${state.workspaceId}`;
+  if (type === 'surfaceView' && typeof state.surfaceViewId === 'string') {
+    return `sv:${state.surfaceViewId}`;
+  }
+  if (type === SURFACE_PLACEHOLDER_COMPONENT && isRecord(state.saved)) {
+    const id = state.saved.surfaceViewId;
+    return typeof id === 'string' ? `sv:${id}` : null;
+  }
+  return null;
+}
+
+/** The centre strip's order, for the next launch. */
+export function centreTabOrder(stack: { contentItems: ContentItem[] } | null): string[] {
+  return (stack?.contentItems ?? []).flatMap((item) => {
+    const key = centreTabKey(item);
+    return key ? [key] : [];
   });
+}
+
+type OrderableStack = {
+  contentItems: ContentItem[];
+  removeChild(item: ContentItem, keepChild: boolean): void;
+  addChild(item: ContentItem, index?: number, focus?: boolean): number;
+};
+
+/**
+ * Put the strip back in its saved order (QA 2026-10-31: relaunch put the
+ * surface placeholders first). Tabs the saved order does not know keep their
+ * relative order after the known ones. Moves only; nothing is destroyed.
+ */
+export function applyCentreTabOrder(stack: OrderableStack, order: readonly string[]): void {
+  const rank = new Map(order.map((key, index) => [key, index]));
+  const items = [...stack.contentItems];
+  const wanted = items
+    .map((item, index) => ({ item, index, rank: rank.get(centreTabKey(item) ?? '') }))
+    .sort(
+      (a, b) =>
+        (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) || a.index - b.index,
+    )
+    .map((entry) => entry.item);
+  wanted.forEach((item, target) => {
+    const at = stack.contentItems.indexOf(item);
+    if (at === target) return;
+    stack.removeChild(item, true);
+    stack.addChild(item, target);
+  });
+}
+
+/**
+ * The saved strip order while relaunch is still putting tabs back. It ends
+ * when the restored tabs are all in (`finish`), and in any case after
+ * `windowMs`: a restored tab that failed to add must not stop the order
+ * from being saved for the rest of the session (review L5).
+ */
+export class PendingTabOrder {
+  private readonly order: readonly string[];
+  private readonly windowMs: number;
+  private readonly now: () => number;
+  private readonly startedAt: number;
+  private finished = false;
+
+  constructor(order: readonly string[], windowMs = 5000, now: () => number = () => Date.now()) {
+    this.order = order;
+    this.windowMs = windowMs;
+    this.now = now;
+    this.startedAt = now();
+  }
+
+  /** The order to apply, or null once restore is over. */
+  current(): readonly string[] | null {
+    if (this.finished || this.now() - this.startedAt > this.windowMs) return null;
+    return this.order;
+  }
+
+  finish(): void {
+    this.finished = true;
+  }
 }

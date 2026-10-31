@@ -5381,6 +5381,14 @@ impl RenderLoopService {
     pub fn runtime_texture_capacity(&self) -> u32 {
         self.runtime_texture_capacity
     }
+
+    /// The most layers the render state takes at once (`LayerStateManager`;
+    /// 8, the size of the legacy uniform path's `array<LayerUBO, 8>`). A
+    /// layer upload past it fails with code 1885, "Maximum layer count N
+    /// reached", even with texture slots free.
+    pub fn render_layer_capacity(&self) -> u32 {
+        self.layer_state_manager.max_layers() as u32
+    }
 }
 
 // ... existing tests module ...

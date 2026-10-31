@@ -26,7 +26,7 @@ import React, { useCallback } from "react";
 import { useFeatureFlagStore } from "@/stores/featureFlagStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { useCenterTabStore } from "@/stores/centerTabStore";
+import { isSurfaceTabComponent, useCenterTabStore } from "@/stores/centerTabStore";
 import type { DisplayMode, DisplayModeMetadata } from "@/types/displayModes";
 import { SegmentedControl } from "@/components/ui/bf";
 import { setCurrentTabLayout } from "@/services/workspaceNavigation";
@@ -60,7 +60,7 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
   // centre stack's front tab, not focus, which moves with clicks in Files,
   // Subjects or the dock.
   const surfaceTabActive = useCenterTabStore(
-    (state) => state.frontComponentType === "surfaceView",
+    (state) => isSurfaceTabComponent(state.frontComponentType),
   );
   const activeMode = surfaceTabActive ? null : resolveActiveDisplayMode(activeWorkspaceType);
 

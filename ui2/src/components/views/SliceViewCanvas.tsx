@@ -59,6 +59,7 @@ import { useViewPanZoom, wheelZoomFactor } from "@/hooks/useViewPanZoom";
 import { fitActiveView, fitView, useIsViewZoomed, zoomView } from "@/services/ViewZoomService";
 import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
 import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
+import { dataRectOnPane } from "./viewportFrame/paneGeometry";
 import {
   OrientationLabels,
   ViewportColorbar,
@@ -469,6 +470,15 @@ function SliceViewCanvasBody({
   // the bitmap) do not move the crosshair.
   const dataLayerIds = useMemo(() => layers.map((l) => l.id), [layers]);
   const dataEdgeBounds = useLayerEdgeBounds(dataLayerIds);
+  // Where the data is drawn: the colorbar keeps off it (QA 2026-10-31 N16).
+  // The CSS scale comes from the measured image rectangle (frameGeometry),
+  // never a layout read per crosshair move (review L4a).
+  const frameImageRect = frameGeometry?.imageRect ?? null;
+  const colorbarDataRect = useMemo(() => {
+    if (!frameImageRect || !placementState || !(placementState.width > 0)) return null;
+    const k = (frameImageRect.right - frameImageRect.left) / placementState.width;
+    return dataRectOnPane(dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, k);
+  }, [dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, frameImageRect]);
 
   const handleWorldClick = useCallback(
     (
@@ -583,7 +593,9 @@ function SliceViewCanvasBody({
         prev.width === placement.width &&
         prev.height === placement.height &&
         prev.imageWidth === placement.imageWidth &&
-        prev.imageHeight === placement.imageHeight
+        prev.imageHeight === placement.imageHeight &&
+        // The radiological mirror changes every mapping (heatmap, colorbar).
+        !!prev.mirrorX === !!placement.mirrorX
           ? prev
           : placement,
       );
@@ -766,6 +778,7 @@ function SliceViewCanvasBody({
             height={canvasHeight}
             imageRect={frameGeometry?.imageRect ?? null}
             avoidPoint={frameGeometry?.crosshairPoint ?? null}
+            dataRect={colorbarDataRect}
             topReserve={LAYOUT_BUTTON_RESERVE}
             value={colorbarReading?.value ?? null}
           />

@@ -44,6 +44,13 @@ export interface Workspace {
    * after a switch to another layout returns to it.
    */
   orthogonalVariant?: WorkspaceType;
+  /**
+   * Created by the app, not the user: the default view of a cold start or
+   * the one that replaces the last closed tab. Until the user changes its
+   * layout, restoring only this tab is not a restored session (QA 2026-10-31
+   * N4: the first screen never came back).
+   */
+  defaultView?: boolean;
   isActive: boolean;            // Currently visible workspace
   layoutConfig: LayoutConfig;   // Golden Layout configuration
   panelStates: Map<string, PanelState>; // Track individual panel states

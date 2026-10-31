@@ -452,6 +452,7 @@ export class VolumeLoadingService {
       this.eventBus!.emit('volume.load.error', {
         volumeId: volumeHandle.id,
         source: source,
+        sourcePath,
         error: failure,
       });
 

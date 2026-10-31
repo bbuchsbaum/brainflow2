@@ -97,14 +97,18 @@ export function firstScreenStillApplies(workspaceId: string): boolean {
 }
 
 /**
- * Whether a launch gets the first screen: nothing at all was restored, no
- * view tabs and no surface placeholders (a restored session never does).
+ * Whether a launch gets the first screen: nothing the user made was
+ * restored. The app's own empty default view does not count (QA 2026-10-31
+ * N4: closing the last tab made one, so the next launch always looked
+ * restored); any other tab, or a surface placeholder, does.
  */
 export function firstScreenAppliesAtLaunch(restored: {
-  restoredWorkspaces: number;
+  restoredWorkspaces: number | Iterable<{ defaultView?: boolean }>;
   restoredSurfaceTabs: boolean;
 }): boolean {
-  return restored.restoredWorkspaces === 0 && !restored.restoredSurfaceTabs;
+  if (restored.restoredSurfaceTabs) return false;
+  if (typeof restored.restoredWorkspaces === 'number') return restored.restoredWorkspaces === 0;
+  return [...restored.restoredWorkspaces].every((workspace) => workspace.defaultView === true);
 }
 
 /** The layer `templateId` added, when it is the only new one since `before`. */

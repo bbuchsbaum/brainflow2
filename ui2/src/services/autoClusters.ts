@@ -9,8 +9,11 @@
  *   that also has statistic units (z, t, F…), the panel's own test. A signed
  *   beta map or a count map is placed like a statistic but has no units: it
  *   is left to the manual Compute.
- * - Threshold: |display threshold| at display precision, as the panel shows
- *   it; a z or t map without one uses the conventional 3.1, as the panel
+ * - Threshold: each tail of the display threshold at display precision, as
+ *   the panel and the Inspector show it (−3.1 ≤ z ≤ 3.93 hidden clusters
+ *   z < −3.1 and z > 3.93; QA 2026-10-31 N6). Cluster p needs one forming
+ *   threshold, so it is left out while the tails differ. A z or t map
+ *   without a threshold uses the conventional 3.1, as the panel
  *   seeds it. Sign, connectivity, minimum size, search mask and the opt-in
  *   cluster p follow the panel's parameters.
  * - Which layers are run: visible ones in the active view, not image-set
@@ -37,7 +40,9 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { DEFAULT_STAT_THRESHOLD } from './IntensityRangeComputer';
 import { PlacementBand, placementBand } from './layerPlacement';
 import {
-  displayThresholdMagnitude,
+  clusterThresholds,
+  displayThresholdBounds,
+  type ThresholdBounds,
   getClusterService,
   parseFwhm,
   type ComputeClustersInput,
@@ -49,10 +54,10 @@ import { activeVolumeLayerId } from '@/utils/activeLayer';
 export const AUTO_CLUSTER_DEBOUNCE_MS = 400;
 
 interface Tracked {
-  /** Threshold of the latest scheduled, queued or running request. */
-  threshold: number | null;
-  /** Threshold whose result was published (null: none yet). */
-  done: number | null;
+  /** Thresholds of the latest scheduled, queued or running request. */
+  threshold: ThresholdBounds | null;
+  /** `boundsKey` of the thresholds whose result was published (null: none yet). */
+  done: string | null;
   seq: number;
   timer: ReturnType<typeof setTimeout> | null;
 }
@@ -64,8 +69,10 @@ let running: string | null = null;
 let started = false;
 let lastViewState: unknown = null;
 
-/** The layer's display threshold at display precision, or the z / t default; null when neither applies. */
-export function autoClusterThreshold(layerId: string): number | null {
+const boundsKey = (b: ThresholdBounds | null) => (b ? `${b.positive}/${b.negative}` : null);
+
+/** The layer's display threshold tails at display precision, or the z / t default; null when neither applies. */
+export function autoClusterThreshold(layerId: string): ThresholdBounds | null {
   const layer = useLayerStore.getState().layers.find((l) => l.id === layerId);
   if (!layer) return null;
   const range = useLayerStore.getState().layerMetadata.get(layerId)?.dataRange;
@@ -74,9 +81,11 @@ export function autoClusterThreshold(layerId: string): number | null {
   const viewLayer =
     views.viewState.layers.find((l) => l.id === layerId) ??
     [...views.workspaceViewStates.values()].flatMap((s) => s.layers).find((l) => l.id === layerId);
-  const raw = displayThresholdMagnitude(viewLayer?.threshold);
-  if (raw !== null) return Number.parseFloat(raw.toPrecision(6));
-  return symbol && /^[zt]/.test(symbol) ? DEFAULT_STAT_THRESHOLD : null;
+  const bounds = displayThresholdBounds(viewLayer?.threshold);
+  if (bounds) return bounds;
+  return symbol && /^[zt]/.test(symbol)
+    ? { positive: DEFAULT_STAT_THRESHOLD, negative: DEFAULT_STAT_THRESHOLD }
+    : null;
 }
 
 /** A layer whose clusters are computed on load: statistic band and statistic units. */
@@ -90,11 +99,12 @@ export function isAutoClusterLayer(layerId: string): boolean {
   return statisticUnits(layer.statistic, meta?.dataRange) !== null;
 }
 
-/** The strongest peak of a table (rows are sorted by |peak|). */
-export function strongestPeak(table: ClusterTable, threshold: number): LayerPeak {
+/** The strongest peak of a table (rows are sorted by |peak|), with the test it was formed at. */
+export function strongestPeak(table: ClusterTable): LayerPeak {
   const top = table.clusters[0];
   return {
-    threshold,
+    threshold: table.threshold,
+    negativeThreshold: table.negativeThreshold ?? null,
     sign: table.sign,
     value: top ? top.peakValue : null,
     mm: top ? [top.peakMm[0], top.peakMm[1], top.peakMm[2]] : null,
@@ -102,7 +112,7 @@ export function strongestPeak(table: ClusterTable, threshold: number): LayerPeak
   };
 }
 
-function requestFor(layerId: string, threshold: number): ComputeClustersInput | null {
+function requestFor(layerId: string, bounds: ThresholdBounds): ComputeClustersInput | null {
   const { params } = useClusterStore.getState();
   if (params.minVoxels === null || !Number.isInteger(params.minVoxels) || params.minVoxels < 1)
     return null;
@@ -115,13 +125,19 @@ function requestFor(layerId: string, threshold: number): ComputeClustersInput | 
   const mask = params.searchMaskLayerId
     ? layers.find((l) => l.id === params.searchMaskLayerId)
     : undefined;
+  // Only the tails the display thresholds (a one-sided band searches one sign).
+  const tails = clusterThresholds(bounds, params.sign);
+  if (!tails) return null;
+  const { threshold, negativeThreshold, sign } = tails;
   return {
     layerId,
     threshold,
-    sign: params.sign,
+    ...(negativeThreshold !== null ? { negativeThreshold } : {}),
+    sign,
     connectivity: params.connectivity,
     minVoxels: params.minVoxels,
-    extent: fwhm !== null ? { fwhmMm: fwhm, statistic: declared } : null,
+    // Cluster p is refused with two forming thresholds: the peak still comes.
+    extent: fwhm !== null && negativeThreshold === null ? { fwhmMm: fwhm, statistic: declared } : null,
     ...(mask?.volumeId && mask.id !== layerId ? { searchMask: mask.volumeId } : {}),
   };
 }
@@ -159,7 +175,8 @@ async function run(layerId: string, entry: Tracked, seq: number): Promise<void> 
   if (threshold === null || !visibleInView(layerId)) return;
   const input = requestFor(layerId, threshold);
   if (!input) {
-    entry.done = threshold; // nothing to run until a parameter or the threshold changes
+    entry.done = boundsKey(threshold); // nothing to run until a parameter or the threshold changes
+    useClusterStore.getState().setPeak(layerId, null);
     return;
   }
   const isCurrent = () => tracked.get(layerId) === entry && entry.seq === seq;
@@ -172,8 +189,8 @@ async function run(layerId: string, entry: Tracked, seq: number): Promise<void> 
       return;
     }
     const store = useClusterStore.getState();
-    store.setPeak(layerId, strongestPeak(result.table, threshold));
-    entry.done = threshold;
+    store.setPeak(layerId, strongestPeak(result.table));
+    entry.done = boundsKey(threshold);
     const shown = store.result;
     const active = activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
     if (store.params.linked && (!shown || shown.layerId === layerId || active === layerId)) {
@@ -183,14 +200,14 @@ async function run(layerId: string, entry: Tracked, seq: number): Promise<void> 
     // The Inspector simply shows no peak; Compute in the panel reports errors.
     if (isCurrent()) {
       // Not retried on every view change; the next threshold change runs again.
-      entry.done = threshold;
+      entry.done = boundsKey(threshold);
       console.warn(`[autoClusters] clusters for ${layerId} failed:`, error);
     }
   }
 }
 
 /** Queue now (load, shown) or after the debounce (threshold change); a pending or running request goes stale. */
-function schedule(layerId: string, threshold: number | null, delayMs: number): void {
+function schedule(layerId: string, threshold: ThresholdBounds | null, delayMs: number): void {
   const entry = tracked.get(layerId);
   if (!entry) return;
   if (entry.timer) clearTimeout(entry.timer);
@@ -233,11 +250,12 @@ function onViewState(): void {
   lastViewState = viewState;
   for (const [layerId, entry] of tracked) {
     const threshold = autoClusterThreshold(layerId);
-    if (threshold !== entry.threshold) schedule(layerId, threshold, AUTO_CLUSTER_DEBOUNCE_MS);
+    if (boundsKey(threshold) !== boundsKey(entry.threshold))
+      schedule(layerId, threshold, AUTO_CLUSTER_DEBOUNCE_MS);
     else if (
       // Shown (or the view switched to it) without a result for this threshold.
       threshold !== null &&
-      entry.done !== threshold &&
+      entry.done !== boundsKey(threshold) &&
       !entry.timer &&
       running !== layerId &&
       !queue.includes(layerId) &&

@@ -5,10 +5,18 @@ export type ComputeClustersRequest = {
     layerId?: string | null;
     /**
      * Absolute threshold (>= 0): positive voxels need `v > threshold`,
-     * negative voxels `v < -threshold`. Also the cluster-forming threshold
-     * for `extentP`.
+     * negative voxels `v < -threshold` (unless `negativeThreshold` is set).
+     * Also the cluster-forming threshold for `extentP`.
      */
     threshold: number;
+    /**
+     * Absolute threshold (>= 0) of the negative tail when it differs from
+     * `threshold` (an asymmetric display threshold, e.g. −3.1 ≤ z ≤ 3.93
+     * hidden): negative voxels need `v < -negativeThreshold`. Default
+     * `threshold`. Cluster p needs one forming threshold for both tails, so
+     * `extent` with two different thresholds and sign "both" is refused.
+     */
+    negativeThreshold?: number | null;
     /**
      * Default "both".
      */

@@ -138,15 +138,17 @@ describe("SceneStack layer actions (QA §5.2: no way to remove a layer)", () => 
       }
     });
 
-    it("a load already running when the row was selected does not block", () => {
+    it("a load already running when the row was selected blocks too (QA 2026-10-31 N7)", () => {
       vi.useFakeTimers();
       try {
+        // Double-click the T1 in Files, then select labels.nii, then Delete.
         vi.setSystemTime(1000);
         const id = open(workspace());
         vi.setSystemTime(2000);
         render(<SceneStack />);
         fireEvent.keyDown(screen.getAllByRole("row")[1], { key: "Delete" });
-        expect(removeLayerFromScene).toHaveBeenCalledWith("v2");
+        expect(removeLayerFromScene).not.toHaveBeenCalled();
+        expect(notify).toHaveBeenCalledWith("ui.notification", expect.objectContaining({ type: "warning" }));
         useLoadingQueueStore.getState().cancel(id);
       } finally {
         vi.useRealTimers();

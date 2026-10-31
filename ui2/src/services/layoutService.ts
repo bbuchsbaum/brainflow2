@@ -22,8 +22,13 @@ import {
   programmaticTabChange,
   programmaticTabRemoval,
 } from '@/components/layout/workspaceTabSync';
-import { ensureCentreStack, getCentreStack } from '@/components/layout/centreStack';
+import {
+  CENTRE_STACK_FLAGS,
+  ensureCentreStack,
+  getCentreStack,
+} from '@/components/layout/centreStack';
 import { SURFACE_PLACEHOLDER_COMPONENT } from '@/components/layout/surfaceTabRestore';
+import { isPlaceholderReloading } from '@/services/surfaceTabReload';
 import { surfaceGroupKey } from '@/utils/surfaceIdentity';
 
 type LayoutComponentState = Record<string, unknown>;
@@ -119,6 +124,7 @@ export function createDefaultLayoutConfig(): LayoutConfig {
           type: 'stack', // Center stack for workspace tabs
           width: 59.75,
           content: [], // Workspaces are added from workspaceStore
+          ...CENTRE_STACK_FLAGS, // never closed, never dropped (centreStack.ts)
         },
         {
           type: 'column',
@@ -227,6 +233,12 @@ export interface LayoutService {
   focusSurfacePanel(): void;
   ensureSurfaceView(surfaceHandle: string, path?: string, options?: EnsureSurfaceViewOptions): void;
   closeSurfaceViewTabs(surfaceHandle: string): void;
+  /**
+   * File › Close Tab (⌘W): close the centre stack's front tab exactly as its
+   * × does (a view or tool tab closes its workspace; a surface or placeholder
+   * tab just goes). False when no tab is open.
+   */
+  closeFrontTab(): boolean;
   captureLayout(): LayoutConfig | null;
   /** Load a saved shell; on failure the default shell is loaded instead ('reset'). */
   applyLayout(config: LayoutConfig | ResolvedLayoutConfig): LayoutApplyResult;
@@ -326,6 +338,8 @@ class LayoutServiceImpl implements LayoutService {
 
     // Workspace tabs are rehydrated from workspaceStore to avoid stale ids.
     centerStack.content = [];
+    // Layouts saved before 2026-10-31 lack the centre stack's flags.
+    Object.assign(centerStack, CENTRE_STACK_FLAGS);
     if (typeof (centerStack as SavedItem).activeItemIndex === 'number') {
       (centerStack as SavedItem).activeItemIndex = 0;
     }
@@ -584,6 +598,30 @@ class LayoutServiceImpl implements LayoutService {
     }
 
     const title = path?.split('/').pop() || `Surface ${surfaceHandle.slice(0, 8)}`;
+    // A placeholder from the last session for this surface (Reload, or the
+    // user reopening it by hand): the live tab takes its place in the strip
+    // instead of landing at the end (QA 2026-10-31), and the placeholder goes.
+    const placeholder =
+      intent === 'new-view' || !path ? undefined : this.findSurfacePlaceholder(centerStack, path);
+    if (placeholder) {
+      const saved = getComponentState(placeholder).saved as { title?: string } | undefined;
+      const config: ComponentItemConfig = {
+        type: 'component',
+        componentType: 'surfaceView',
+        title: saved?.title || title,
+        componentState: { surfaceHandle, path, groupKey, surfaceViewId: nanoid() },
+      };
+      requestAnimationFrame(() => {
+        const index = centerStack.contentItems.indexOf(placeholder);
+        try {
+          centerStack.addItem(config, index >= 0 ? index : undefined);
+          if (index >= 0) placeholder.remove();
+        } catch (error) {
+          console.warn('[LayoutService] Failed to replace the surface placeholder:', error);
+        }
+      });
+      return;
+    }
     this.addComponent({
       type: 'component',
       componentType: 'surfaceView',
@@ -595,6 +633,32 @@ class LayoutServiceImpl implements LayoutService {
         surfaceViewId: nanoid(),
       },
     });
+  }
+
+  /**
+   * The centre stack's placeholder this surface replaces: one whose saved
+   * sources include `path`, when it is reloading through its own Reload or
+   * all of its sources are loaded again (reopening only lh by hand keeps the
+   * lh + rh placeholder; review L6).
+   */
+  private findSurfacePlaceholder(centerStack: Stack, path: string): ComponentItem | undefined {
+    const live = new Set(
+      [...useSurfaceStore.getState().surfaces.values()].map((surface) => surface.metadata.path),
+    );
+    live.add(path);
+    const match = centerStack.contentItems.find((item) => {
+      if (!isComponentItem(item) || item.componentType !== SURFACE_PLACEHOLDER_COMPONENT) {
+        return false;
+      }
+      const saved = getComponentState(item).saved as
+        | { surfaceViewId?: string; sources?: Array<{ path?: string }> }
+        | undefined;
+      const sources = Array.isArray(saved?.sources) ? saved.sources : [];
+      if (!sources.some((source) => source.path === path)) return false;
+      if (saved?.surfaceViewId && isPlaceholderReloading(saved.surfaceViewId)) return true;
+      return sources.every((source) => typeof source.path === 'string' && live.has(source.path));
+    });
+    return match && isComponentItem(match) ? match : undefined;
   }
 
   closeSurfaceViewTabs(surfaceHandle: string): void {
@@ -688,6 +752,21 @@ class LayoutServiceImpl implements LayoutService {
 
   focusSurfacePanel(): void {
     this.focusSidebarPanel('SurfacePanel');
+  }
+
+  closeFrontTab(): boolean {
+    const centerStack = this.getCenterStack();
+    const front = centerStack?.getActiveComponentItem?.() ?? centerStack?.contentItems[0];
+    if (!front || !isComponentItem(front)) return false;
+    try {
+      // Outside the programmatic guards, like the ×: a workspace tab's destroy
+      // handler closes its workspace (workspaceTabSync).
+      front.remove();
+      return true;
+    } catch (error) {
+      console.warn('[LayoutService] Failed to close the front tab:', error);
+      return false;
+    }
   }
 
   captureLayout(): LayoutConfig | null {

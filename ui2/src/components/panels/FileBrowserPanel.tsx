@@ -562,6 +562,32 @@ const FileBrowserPanelContent: React.FC = () => {
         />
       )}
 
+      {/*
+        No matches: an in-flow notice under the search field, so it is in
+        view whatever the tree's height or stacking (QA 2026-10-31: the
+        card centred over the tree never showed in the app). The tree stays
+        mounted, so its open folders survive the search.
+      */}
+      {viewMode === "tree" && isSearchEmptyState && (
+        <div className="fb-search-empty" role="status" data-testid="files-search-empty">
+          <p className="fb-search-empty-title">
+            {searchIndexing ? "Searching folders…" : "No matching files"}
+          </p>
+          <p className="fb-search-empty-message">
+            {searchIndexing
+              ? "Listing folders that have not been opened yet."
+              : searchTruncated
+                ? "No match in the folders searched. Very deep or very large folders were skipped; open a folder to search inside it."
+                : "No neuroimaging files match this search."}
+          </p>
+          {!searchIndexing && (
+            <Button variant="secondary" size="sm" onClick={handleNoResultsReset}>
+              Clear search
+            </Button>
+          )}
+        </div>
+      )}
+
       {viewMode === "tree" &&
         isSearchActive &&
         searchTruncated &&
@@ -642,35 +668,6 @@ const FileBrowserPanelContent: React.FC = () => {
                 display: viewMode === "tree" ? "block" : "none",
               }}
             >
-              {/*
-                The no-match card sits over the tree instead of replacing
-                it: an unmounted tree forgets which folders were open.
-              */}
-              {isSearchEmptyState ? (
-                <div className="empty-state fb-search-empty" data-testid="files-search-empty">
-                  <div className="empty-state-card" role="status">
-                    <p className="empty-state-kicker">
-                      {searchIndexing ? "Searching folders…" : "No matching files"}
-                    </p>
-                    <p className="empty-state-message">
-                      {searchIndexing
-                        ? "Listing folders that have not been opened yet."
-                        : searchTruncated
-                          ? "Searched in part: no match in the folders searched. Very deep or very large folders were skipped; open a folder to search inside it."
-                          : "No neuroimaging files match your current search. Reset search or mount another folder."}
-                    </p>
-                    <div className="empty-state-actions">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleNoResultsReset}
-                      >
-                        Clear search
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
               {(treeSize.width > 0 && treeSize.height > 0) ||
                 treeData.length > 0 ? (
                 <Tree

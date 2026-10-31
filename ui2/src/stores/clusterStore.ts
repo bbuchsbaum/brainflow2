@@ -10,8 +10,19 @@ import type { ClusterSign, ClusterTable } from '@brainflow/api';
 export type ClusterConnectivity = 6 | 18 | 26;
 
 export interface ClusterParams {
-  /** |threshold|; null while the field is empty or invalid. */
+  /** |threshold| (the positive tail's when two are typed); null while the field is empty or invalid. */
   threshold: number | null;
+  /**
+   * The negative tail's |threshold| when it differs (an asymmetric layer
+   * threshold the user then edited); null: the same as `threshold`.
+   */
+  negativeThreshold: number | null;
+  /**
+   * Two threshold fields (negative and positive tail) kept while the user
+   * edits them (review of N6, M3): entered from an asymmetric layer
+   * threshold, left only through "Make symmetric" or "Use layer threshold".
+   */
+  split: boolean;
   /** Follow the layer's display threshold until the user edits the field. */
   linked: boolean;
   sign: ClusterSign;
@@ -54,6 +65,8 @@ export type ClusterStatus = 'idle' | 'computing' | 'ready' | 'error';
  */
 export interface LayerPeak {
   threshold: number;
+  /** Negative tail's |threshold| when it differs (sign "both"). */
+  negativeThreshold?: number | null;
   /** Which tail(s) were searched: the readout says |z| > t, z > t or z < −t. */
   sign: ClusterSign;
   value: number | null;
@@ -84,6 +97,8 @@ interface ClusterStore {
 /** Defaults (critics, v0): 26-connectivity like FSL `cluster`; min 1 voxel so 6 vs 26 is visible. */
 export const DEFAULT_CLUSTER_PARAMS: ClusterParams = {
   threshold: null,
+  negativeThreshold: null,
+  split: false,
   linked: true,
   sign: 'both',
   connectivity: 26,

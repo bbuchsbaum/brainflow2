@@ -23,7 +23,7 @@ import { getEventBus } from '@/events/EventBus';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { statisticUnits } from '@/utils/statistic';
-import { DEFAULT_LABEL_OUTLINE } from '@/utils/labelDisplay';
+import { defaultLabelOutline } from '@/utils/labelDisplay';
 import {
   buildLabelPalette,
   labelSidecarCandidates,
@@ -227,6 +227,10 @@ export class LabelTableService {
  * statistic (a blue LUT region over a positive blob read as deactivation).
  * Elsewhere the label layer keeps its fill. Applied once, when the layer's
  * colours are set; the user can switch Fill / Outline / Both afterwards.
+ *
+ * A layer without outline settings also gets the outline style for its size
+ * (defaultLabelOutline): a dense atlas outlines in one neutral 1 px line.
+ * Existing outline settings, the user's or earlier defaults, are kept.
  */
 export function applyLabelDisplayDefault(layerId: string): void {
   const { layers, layerMetadata } = useLayerStore.getState();
@@ -234,18 +238,26 @@ export function applyLabelDisplayDefault(layerId: string): void {
     const info = layers.find((l) => l.id === id);
     return !!info && statisticUnits(info.statistic, layerMetadata.get(id)?.dataRange) !== null;
   };
+  const legendSize = layers.find((l) => l.id === layerId)?.atlasPaletteLegend?.length;
   const viewStore = useViewStateStore.getState();
   for (const workspaceId of viewStore.workspaceViewStates.keys()) {
     const ws = viewStore.getWorkspaceViewState(workspaceId);
     const index = ws.layers.findIndex((l) => l.id === layerId);
-    if (index < 0 || ws.layers[index].labelDisplay) continue;
-    const aboveStatistic = ws.layers.slice(0, index).some((l) => isStatistic(l.id));
-    if (!aboveStatistic) continue;
+    if (index < 0) continue;
+    const current = ws.layers[index];
+    const outlineByDefault =
+      !current.labelDisplay && ws.layers.slice(0, index).some((l) => isStatistic(l.id));
+    if (current.outline && !outlineByDefault) continue;
     viewStore.setViewState((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (!layer) return;
-      layer.labelDisplay = 'outline';
-      layer.outline = { ...(layer.outline ?? DEFAULT_LABEL_OUTLINE), enabled: true, selectedLabelId: 0 };
+      const outline = layer.outline ?? { ...defaultLabelOutline(legendSize ?? layer.atlasMaxLabel), enabled: false };
+      if (outlineByDefault) {
+        layer.labelDisplay = 'outline';
+        layer.outline = { ...outline, enabled: true, selectedLabelId: 0 };
+      } else {
+        layer.outline = outline;
+      }
     }, workspaceId);
   }
 }

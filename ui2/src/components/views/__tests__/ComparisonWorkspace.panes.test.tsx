@@ -51,3 +51,22 @@ describe('ComparisonWorkspace panes', () => {
     expect(screen.getAllByTestId('pane')).toHaveLength(3);
   });
 });
+
+describe('ComparisonWorkspace fills empty panes (QA 2026-10-31)', () => {
+  const original = useViewStateStore.getState().getWorkspaceViewState;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useViewStateStore.setState({ getWorkspaceViewState: original });
+    useComparisonStore.getState().clearWorkspace(WS);
+  });
+
+  it('two empty panes over an anatomy alone: pane A shows it', () => {
+    vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() })));
+    useLayerStore.setState({ layers: [{ id: 't1', name: 't1', volumeId: 't1', type: 'volume', visible: true }] as never });
+    const state = { ...useViewStateStore.getState().viewState, layers: [view('t1')] };
+    useViewStateStore.setState({ getWorkspaceViewState: (() => state) as never });
+    useComparisonStore.getState().setPaneCount(WS, 2, []);
+    render(<ComparisonWorkspace workspaceId={WS} />);
+    expect(screen.getAllByTestId('pane').map((p) => p.textContent)).toEqual(['t1', '']);
+  });
+});

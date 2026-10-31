@@ -91,6 +91,21 @@ describe("CenterWithBottomDock", () => {
     expect(screen.getByTestId("bottom-dock-resizer")).toBeInTheDocument();
   });
 
+  // QA 2026-10-31 N3: Integrated's content outgrew its pane and covered the
+  // dock. The view pane clips and stacks under the dock.
+  it("keeps an oversized view from covering the dock", () => {
+    render(
+      <CenterWithBottomDock>
+        <div data-testid="routed-view" style={{ height: 5000 }}>view</div>
+      </CenterWithBottomDock>,
+    );
+    const pane = screen.getByTestId("center-view-pane");
+    const dock = screen.getByTestId("center-dock-pane");
+    expect(pane.style.overflow).toBe("hidden");
+    expect(Number(dock.style.zIndex)).toBeGreaterThan(Number(pane.style.zIndex || 0));
+    expect(dock).toContainElement(screen.getByTestId("bottom-dock-stub"));
+  });
+
   it("hides the dock + resizer when bottomDockOpen is false", () => {
     useLayoutSettingsStore.getState().setBottomDockOpen(false);
     render(

@@ -24,6 +24,7 @@ import { getApiService, type ApiService } from './apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
+import { useLayerStore } from '@/stores/layerStore';
 import { addLogEntry } from '@/stores/logStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 import { looksLikeSegmentation } from '@/utils/labelTable';
@@ -346,6 +347,15 @@ export class DisplayLifecycleOrchestrator {
       });
       return null;
     }
+    // Opening a file that this view already shows makes a second copy: say
+    // so (QA 2026-10-31: the same file loaded three times with no word).
+    if (fileAlreadyShown(path, workspaceId)) {
+      this.eventBus.emit('ui.notification', {
+        type: 'warning',
+        message: `${filename} is already open; opened another copy`,
+        logSource: 'volume',
+      });
+    }
 
     const queueId = useLoadingQueueStore.getState().enqueue({
       type: 'volume-load',
@@ -598,4 +608,18 @@ export function getDisplayLifecycleOrchestrator(): DisplayLifecycleOrchestrator 
 
 export function initializeDisplayLifecycleOrchestrator(): DisplayLifecycleOrchestrator {
   return getDisplayLifecycleOrchestrator();
+}
+
+/** A layer from `path` is in the workspace's view (or any view, without one). */
+export function fileAlreadyShown(path: string, workspaceId?: string): boolean {
+  const ids = new Set(
+    useLayerStore
+      .getState()
+      .layers.filter((layer) => layer.sourcePath === path)
+      .map((layer) => layer.id),
+  );
+  if (ids.size === 0) return false;
+  if (workspaceId === undefined) return true;
+  const view = useViewStateStore.getState().workspaceViewStates.get(workspaceId);
+  return !!view?.layers.some((layer) => ids.has(layer.id));
 }

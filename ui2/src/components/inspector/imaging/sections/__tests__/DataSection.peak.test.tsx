@@ -3,7 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { SceneItem } from '@/types/sceneItem';
 
 const { goToPeak } = vi.hoisted(() => ({ goToPeak: vi.fn(async () => {}) }));
-vi.mock('@/services/ClusterService', () => ({ getClusterService: () => ({ goToPeak, goToExtremum: vi.fn() }) }));
+vi.mock('@/services/ClusterService', async (orig) => ({
+  ...(await orig<typeof import('@/services/ClusterService')>()),
+  getClusterService: () => ({ goToPeak, goToExtremum: vi.fn() }),
+}));
 
 import { useLayerStore } from '@/stores/layerStore';
 import { useClusterStore } from '@/stores/clusterStore';
@@ -48,6 +51,12 @@ describe('DataSection · peak at the display threshold (clusters on load)', () =
     useClusterStore.getState().setPeak('z', { threshold: 3.1, sign: 'negative', value: null, mm: null, clusters: 0 });
     render(<DataSection item={item('z')} />);
     expect(screen.getByTestId('layer-peak').textContent).toBe('No voxels with z < \u22123.1');
+  });
+
+  it('names both tails of an asymmetric threshold (QA N6)', () => {
+    useClusterStore.getState().setPeak('z', { threshold: 3.93, negativeThreshold: 3.1, sign: 'both', value: null, mm: null, clusters: 0 });
+    render(<DataSection item={item('z')} />);
+    expect(screen.getByTestId('layer-peak').textContent).toBe('No voxels with z > 3.93 or z < \u22123.1');
   });
 
   it('shows nothing before the first run', () => {

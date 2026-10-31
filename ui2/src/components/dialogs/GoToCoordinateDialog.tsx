@@ -172,12 +172,15 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
     // (QA 2026-10-30 F42): the fields are remounted (keyed by space) and empty.
     clearInvalid();
     setSpace(next);
+    // The fields now show the other space's names (i, j, k): say which space
+    // the note is about (QA 2026-10-31: "X was not a number" beside "i").
+    const sourceName = space === 'world' ? 'world' : 'voxel';
     const notes = [
       result.filled.length > 0
-        ? `Empty ${result.filled.map(a => AXIS_LABEL[space][a]).join(', ')} taken from the crosshair.`
+        ? `Empty ${sourceName} ${result.filled.map(a => AXIS_LABEL[space][a]).join(', ')} taken from the crosshair.`
         : null,
       result.cleared.length > 0
-        ? `${result.cleared.map(a => AXIS_LABEL[space][a]).join(', ')} was not a number and was cleared.`
+        ? `${capitalise(sourceName)} ${result.cleared.map(a => AXIS_LABEL[space][a]).join(', ')} was not a number and was cleared.`
         : null,
     ].filter(Boolean);
     setSpaceNotice(notes.length > 0 ? notes.join(' ') : null);
@@ -445,6 +448,10 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
       </form>
     </Modal>
   );
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function sameInputs(a: CoordInputs, b: CoordInputs): boolean {

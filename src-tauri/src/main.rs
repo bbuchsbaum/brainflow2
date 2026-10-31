@@ -255,6 +255,73 @@ fn open_file_dialog(app_handle: AppHandle, intent: Option<String>) {
     println!("File dialog setup complete");
 }
 
+/// Largest image Copy view puts on the clipboard (decoded RGBA bytes).
+const CLIPBOARD_MAX_RGBA_BYTES: usize = 256 * 1024 * 1024;
+
+/// The message a too-large copy shows the user verbatim (the UI passes it
+/// through; any other failure becomes its generic clipboard message).
+const CLIPBOARD_TOO_LARGE: &str = "Image too large for the clipboard";
+
+/// A PNG decoded to 8-bit RGBA rows: (width, height, pixels). The size is
+/// checked from the header before any pixel buffer is allocated.
+fn png_to_rgba(bytes: &[u8], max_rgba_bytes: usize) -> Result<(usize, usize, Vec<u8>), String> {
+    let mut decoder = png::Decoder::new(bytes);
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder.read_info().map_err(|e| format!("Not a PNG: {e}"))?;
+    let (width, height) = (reader.info().width as usize, reader.info().height as usize);
+    if width.saturating_mul(height).saturating_mul(4) > max_rgba_bytes {
+        return Err(format!("{CLIPBOARD_TOO_LARGE} ({width}×{height})"));
+    }
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let frame = reader
+        .next_frame(&mut buf)
+        .map_err(|e| format!("Not a PNG: {e}"))?;
+    buf.truncate(frame.buffer_size());
+    let rgba = match frame.color_type {
+        // Already RGBA: the decode buffer itself, no copy.
+        png::ColorType::Rgba => buf,
+        png::ColorType::Rgb => buf
+            .chunks_exact(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => buf
+            .chunks_exact(2)
+            .flat_map(|p| [p[0], p[0], p[0], p[1]])
+            .collect(),
+        png::ColorType::Grayscale => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+        png::ColorType::Indexed => return Err("Indexed PNG was not expanded".to_string()),
+    };
+    Ok((width, height, rgba))
+}
+
+/// Copy view (⇧⌘C): put a PNG on the system clipboard natively. WebKit's
+/// `navigator.clipboard.write` refuses a write that lands after the key
+/// gesture, and the composite capture of a mosaic always does (QA N8).
+/// The decode and the write run on a blocking worker, off the main thread:
+/// arboard's macOS backend uses NSPasteboard, which may be used from any
+/// thread, so the UI never waits on a large decode.
+#[tauri::command]
+async fn copy_png_to_clipboard(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Copy view expects the PNG as a raw body".to_string());
+    };
+    let png = bytes.to_vec();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (width, height, rgba) = png_to_rgba(&png, CLIPBOARD_MAX_RGBA_BYTES)?;
+        drop(png);
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        clipboard
+            .set_image(arboard::ImageData {
+                width,
+                height,
+                bytes: std::borrow::Cow::Owned(rgba),
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // Command to update dynamic menus
 #[tauri::command]
 async fn update_dynamic_menus(
@@ -346,6 +413,19 @@ fn main() {
                 .id("open_file")
                 .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
+            // ⌘W closes the front tab, like its ×; the window closes on ⇧⌘W
+            // (QA 2026-10-31 N1: the predefined Close Window owned ⌘W, so one
+            // habitual keystroke closed the window and quit). Both live in
+            // File; Window keeps Minimize and Zoom.
+            let close_tab = MenuItemBuilder::new("Close Tab")
+                .id("workspace_close_tab")
+                .accelerator("CmdOrCtrl+W")
+                .build(app)?;
+            let close_window = MenuItemBuilder::new("Close Window")
+                .id("close_window")
+                .accelerator("CmdOrCtrl+Shift+W")
+                .build(app)?;
+
             // Opens the UI's export dialog (ui2 useExportMenuListener).
             let export_view = MenuItemBuilder::new("Export View as Image...")
                 .id("export_view_image")
@@ -579,7 +659,8 @@ fn main() {
                             .separator()
                             .item(&export_view)
                             .separator()
-                            .item(&PredefinedMenuItem::close_window(app, None)?);
+                            .item(&close_tab)
+                            .item(&close_window);
 
                         #[cfg(not(target_os = "macos"))]
                         let file_menu = SubmenuBuilder::new(app, "File")
@@ -608,7 +689,8 @@ fn main() {
                             .separator()
                             .item(&export_view)
                             .separator()
-                            .item(&PredefinedMenuItem::close_window(app, None)?)
+                            .item(&close_tab)
+                            .item(&close_window)
                             .separator()
                             .item(&PredefinedMenuItem::quit(app, None)?);
 
@@ -752,8 +834,6 @@ fn main() {
                     &SubmenuBuilder::new(app, "Window")
                         .item(&PredefinedMenuItem::minimize(app, None)?)
                         .item(&PredefinedMenuItem::maximize(app, None)?)
-                        .separator()
-                        .item(&PredefinedMenuItem::close_window(app, None)?)
                         .build()?,
                 ],
             )?;
@@ -963,7 +1043,22 @@ fn main() {
                             Err(e) => eprintln!("Failed to emit panel event: {}", e),
                         }
                     }
-                    // View › Layout and View › Workspace
+                    "close_window" => {
+                        // The UI's stores persist on every change, so the
+                        // session is already saved when the window goes.
+                        let windows = app.webview_windows();
+                        let target = windows
+                            .values()
+                            .find(|w| w.is_focused().unwrap_or(false))
+                            .or_else(|| windows.get("main"))
+                            .or_else(|| windows.values().next());
+                        if let Some(window) = target {
+                            if let Err(e) = window.close() {
+                                eprintln!("Failed to close the window: {}", e);
+                            }
+                        }
+                    }
+                    // View › Layout, View › Workspace and File › Close Tab
                     id if id.starts_with("layout_") || id.starts_with("workspace_") => {
                         let Some(payload) = menu_builder::navigation_menu_action(id) else {
                             return;
@@ -1084,7 +1179,8 @@ fn main() {
             open_bids_dialog,
             open_file_dialog,
             update_dynamic_menus,
-            flush_startup_actions
+            flush_startup_actions,
+            copy_png_to_clipboard
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1109,5 +1205,60 @@ mod open_dialog_tests {
         assert!(open_dialog_allows_multiple(Some("add-layer")));
         assert!(!open_dialog_allows_multiple(Some("new-workspace")));
         assert!(!open_dialog_allows_multiple(Some("comparison")));
+    }
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    use super::{png_to_rgba, CLIPBOARD_MAX_RGBA_BYTES, CLIPBOARD_TOO_LARGE};
+
+    fn encode(width: u32, height: u32, color: png::ColorType, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(color);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(data)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn decodes_rgba_and_rgb_to_rgba() {
+        let rgba = encode(2, 1, png::ColorType::Rgba, &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(
+            png_to_rgba(&rgba, CLIPBOARD_MAX_RGBA_BYTES).unwrap(),
+            (2, 1, vec![1, 2, 3, 4, 5, 6, 7, 8])
+        );
+        let rgb = encode(1, 2, png::ColorType::Rgb, &[9, 8, 7, 6, 5, 4]);
+        assert_eq!(
+            png_to_rgba(&rgb, CLIPBOARD_MAX_RGBA_BYTES).unwrap(),
+            (1, 2, vec![9, 8, 7, 255, 6, 5, 4, 255])
+        );
+        let gray = encode(1, 1, png::ColorType::Grayscale, &[42]);
+        assert_eq!(
+            png_to_rgba(&gray, CLIPBOARD_MAX_RGBA_BYTES).unwrap().2,
+            vec![42, 42, 42, 255]
+        );
+    }
+
+    #[test]
+    fn rejects_bytes_that_are_not_a_png() {
+        assert!(png_to_rgba(&[0, 1, 2, 3], CLIPBOARD_MAX_RGBA_BYTES)
+            .unwrap_err()
+            .starts_with("Not a PNG"));
+    }
+
+    #[test]
+    fn refuses_an_image_over_the_cap_from_its_header() {
+        // 4 × 4 RGBA is 64 bytes: a 63-byte cap refuses it before decoding.
+        let png = encode(4, 4, png::ColorType::Rgba, &[0; 64]);
+        let err = png_to_rgba(&png, 63).unwrap_err();
+        assert!(err.starts_with(CLIPBOARD_TOO_LARGE), "{err}");
+        assert!(err.contains("4×4"));
+        assert_eq!(png_to_rgba(&png, 64).unwrap().2.len(), 64);
+        assert_eq!(CLIPBOARD_MAX_RGBA_BYTES, 256 * 1024 * 1024);
     }
 }

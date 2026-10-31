@@ -16,11 +16,17 @@ vi.mock('@/components/views/sliceViewer', () => ({
   ReusableSliceViewport: ({
     onWorldClick,
     crosshairStyle,
+    height,
   }: {
     onWorldClick: (world: number[]) => void;
     crosshairStyle: unknown;
+    height: number;
   }) => (
-    <button data-style={JSON.stringify(crosshairStyle)} onClick={() => onWorldClick([4, 5, 6])}>
+    <button
+      data-style={JSON.stringify(crosshairStyle)}
+      data-height={height}
+      onClick={() => onWorldClick([4, 5, 6])}
+    >
       Pin image location
     </button>
   ),
@@ -375,4 +381,76 @@ it('swaps the left/right letters of an axial pane under the radiological convent
   } finally {
     act(() => useViewDisplaySettingsStore.getState().setRadiological(false));
   }
+});
+
+it('↑ over the Mean map steps the population slice, not another workspace (QA N9, F44)', async () => {
+  const { getKeyboardShortcutService } = await import('@/services/KeyboardShortcutService');
+  const keys = getKeyboardShortcutService();
+  keys.init();
+  try {
+    const { service } = setup();
+    await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+    const before = [...useViewStateStore.getState().viewState.crosshair.world_mm];
+    const host = screen.getAllByRole('button', { name: 'Pin image location' })[0].closest('.grid')!
+      .parentElement!;
+    // jsdom has no layout: the maps are on screen.
+    vi.spyOn(host as HTMLElement, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+    fireEvent.mouseEnter(host);
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    // The fixture plane is u = x, v = y: the population slice axis is z.
+    const after = useViewStateStore.getState().viewState.crosshair.world_mm;
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(Math.abs(after[2] - before[2])).toBeCloseTo(2);
+  } finally {
+    keys.destroy();
+  }
+});
+
+it('a lens left behind another tab requests nothing and moves no other workspace (F44)', async () => {
+  const { useWorkspaceStore } = await import('@/stores/workspaceStore');
+  const previous = useWorkspaceStore.getState();
+  useWorkspaceStore.setState({
+    workspaces: new Map([['studio-tab', { id: 'studio-tab', type: 'set-studio' } as never]]),
+    activeWorkspaceId: 'elsewhere',
+  } as never);
+  try {
+    const before = [...useViewStateStore.getState().viewState.crosshair.world_mm];
+    const { evaluate } = setup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual(before);
+  } finally {
+    useWorkspaceStore.setState(previous, true);
+  }
+});
+
+it('puts its controls in the Studio toolbar and fills the visible height, never below 240 px (N13)', async () => {
+  const { StudioToolbarSlotContext, StudioViewportHeightContext } = await import('../StudioToolbarSlot');
+  const slot = document.createElement('div');
+  document.body.appendChild(slot);
+  const service = new PopulationSliceService(
+    { evaluate: vi.fn(() => new Promise(() => {})), release: vi.fn(), bitmap: vi.fn() } as never,
+    0,
+  );
+  const lens = (height: number) => (
+    <StudioToolbarSlotContext.Provider value={slot}>
+      <StudioViewportHeightContext.Provider value={height}>
+        <PopulationLens service={service} />
+      </StudioViewportHeightContext.Provider>
+    </StudioToolbarSlotContext.Provider>
+  );
+  const { rerender } = render(lens(500));
+  // The summary, plane and Save calculation live in the toolbar row…
+  expect(slot.querySelector('[aria-label="Population controls"]')).not.toBeNull();
+  expect(slot.textContent).toContain('Save calculation');
+  expect(slot.querySelector('select[aria-label="Summary"]')).not.toBeNull();
+  // …and each map takes the visible height under it (500 − 60 px of chrome).
+  const heights = () =>
+    screen.getAllByRole('button', { name: 'Pin image location' }).map((b) => b.dataset.height);
+  expect(heights()).toEqual(['440', '440']);
+  rerender(lens(200));
+  expect(heights()).toEqual(['240', '240']);
+  slot.remove();
 });

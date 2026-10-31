@@ -63,6 +63,7 @@ describe('LayerEvictionService', () => {
     mockViewStateStoreState.viewState = {
       layers: [],
     };
+    (mockViewStateStoreState as Record<string, unknown>).workspaceViewStates = new Map();
     derived.live = 0;
     // Render loop not up yet: the fallback budget applies.
     mockApiService.getAtlasStats.mockRejectedValue(new Error('not initialised'));
@@ -103,6 +104,46 @@ describe('LayerEvictionService', () => {
     expect(mockLayerStoreState.layerMetadata.get('layer-0')).toMatchObject({ gpuResident: false });
     // Asked once, then cached.
     expect(mockApiService.getAtlasStats).toHaveBeenCalledTimes(1);
+  });
+
+  // QA 2026-10-31 N2: the render state takes 8 layers whatever the texture
+  // slots; the budget is the smaller of the two.
+  it('uses the render-state layer cap when it is below the texture slots', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 13, renderLayerCapacity: 8 });
+    expect(await layerEvictionService.gpuTextureSlots()).toBe(8);
+    residentLayers(8, [0]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+  });
+
+  // A layer shown in an Orthogonal tab behind the front one (Set studio) is
+  // not evictable: only a layer hidden in every workspace is.
+  it('keeps a layer that is visible only in an inactive workspace', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 3 });
+    residentLayers(3, [0, 1]);
+    // Front (active) workspace: layer-0 and layer-1 hidden. The Orthogonal
+    // tab behind it shows layer-0.
+    (mockViewStateStoreState as Record<string, unknown>).workspaceViewStates = new Map([
+      [
+        'studio',
+        { layers: [{ id: 'layer-0', visible: false }, { id: 'layer-1', visible: false }, { id: 'layer-2', visible: true }] },
+      ],
+      [
+        'orthogonal',
+        { layers: [{ id: 'layer-0', visible: true }, { id: 'layer-1', visible: false }, { id: 'layer-2', visible: false }] },
+      ],
+    ]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1']]);
+
+    // With layer-1 also shown in the hidden tab, nothing can go.
+    mockApiService.releaseLayerGpuResources.mockClear();
+    residentLayers(3, [0, 1]);
+    (mockViewStateStoreState as Record<string, unknown>).workspaceViewStates = new Map([
+      ['orthogonal', { layers: [{ id: 'layer-0', visible: true }, { id: 'layer-1', visible: true }] }],
+    ]);
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
   });
 
   it('never evicts the layer being uploaded, and stops when only visible layers remain', async () => {

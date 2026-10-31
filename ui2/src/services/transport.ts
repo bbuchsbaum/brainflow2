@@ -327,6 +327,7 @@ export class MockTransport implements BackendTransport {
           last_allocation_ms: now,
           last_release_ms: now,
           volume_texture_slots: 16,
+          render_layer_capacity: 8,
         };
       }
 

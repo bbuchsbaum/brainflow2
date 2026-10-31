@@ -15,6 +15,7 @@
  */
 
 import { getApiService } from '@/services/apiService';
+import { getTransport } from '@/services/transport';
 import type { WorldBox } from '@/utils/worldFrame';
 import { edgeBoxFromAffine } from '@/utils/worldFrame';
 import { formatTauriError, tauriErrorCode } from '@/utils/formatTauriError';
@@ -54,6 +55,8 @@ interface GpuInfo {
 
 interface Backend {
   loadFile(path: string): Promise<{ id: string }>;
+  /** A template anatomy ("template:<id>"), loaded as its own volume. */
+  loadTemplate(templateId: string): Promise<{ id: string }>;
   requestLayerGpuResources(layerId: string, volumeId: string, metadataOnly?: boolean): Promise<GpuInfo>;
   releaseLayerGpuResources(layerId: string): Promise<void>;
   unloadVolume(volumeId: string): Promise<void>;
@@ -78,7 +81,7 @@ export class StudioDerivedMapService {
   private readonly makeRoom: () => Promise<void>;
 
   constructor(
-    backend: () => Backend = () => getApiService(),
+    backend: () => Backend = defaultBackend,
     makeRoom: () => Promise<void> = () => Promise.resolve(),
   ) {
     this.backend = backend;
@@ -154,7 +157,9 @@ export class StudioDerivedMapService {
 
   private async load(path: string): Promise<StudioDerivedMap | null> {
     const backend = this.backend();
-    const handle = await backend.loadFile(path);
+    const handle = path.startsWith('template:')
+      ? await backend.loadTemplate(path.slice('template:'.length))
+      : await backend.loadFile(path);
     const layerId = `studio-derived-${this.nextId++}:${handle.id}`;
     let info: GpuInfo;
     try {
@@ -200,12 +205,32 @@ export class StudioDerivedMapService {
   }
 }
 
+function defaultBackend(): Backend {
+  const api = getApiService();
+  return {
+    loadFile: (path) => api.loadFile(path),
+    // Each load registers a fresh volume handle, so unloading it never
+    // touches a workspace layer of the same template.
+    loadTemplate: async (templateId) => {
+      const result = await getTransport().invoke<{ volume_handle_info: { id: string } }>(
+        'load_template_by_id',
+        { templateId },
+      );
+      return { id: result.volume_handle_info.id };
+    },
+    requestLayerGpuResources: (layerId, volumeId, metadataOnly) =>
+      api.requestLayerGpuResources(layerId, volumeId, metadataOnly),
+    releaseLayerGpuResources: (layerId) => api.releaseLayerGpuResources(layerId),
+    unloadVolume: (volumeId) => api.unloadVolume(volumeId),
+  };
+}
+
 let instance: StudioDerivedMapService | null = null;
 
 export function getStudioDerivedMapService(): StudioDerivedMapService {
   if (!instance)
     instance = new StudioDerivedMapService(
-      () => getApiService(),
+      defaultBackend,
       () => import('@/services/LayerEvictionService').then((m) => m.layerEvictionService.makeRoomForUpload()),
     );
   return instance;

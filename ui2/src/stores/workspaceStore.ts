@@ -34,6 +34,8 @@ import {
 interface CreateWorkspaceOptions {
   title?: string;
   presetId?: WorkspacePresetId | null;
+  /** The app's own default view (cold start, or after the last tab closed). */
+  defaultView?: boolean;
 }
 
 interface WorkspaceStore {
@@ -248,6 +250,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           type,
           title,
           presetId: options?.presetId ?? null,
+          ...(options?.defaultView ? { defaultView: true } : {}),
           timestamp,
           isActive: false,
           layoutConfig,
@@ -367,6 +370,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ...workspace,
           type: nextType,
           presetId: null,
+          // Changing its layout makes the default view the user's own.
+          defaultView: undefined,
           orthogonalVariant: isOrthogonal(nextType)
             ? nextType
             : isOrthogonal(workspace.type)

@@ -6,4 +6,9 @@ export type AtlasStats = { total_layers: number, used_layers: number, free_layer
  * the layer budget the UI's eviction counts against. Past it, a GPU
  * upload fails with "Maximum texture limit N reached".
  */
-volume_texture_slots: number, };
+volume_texture_slots: number, 
+/**
+ * Layers the render state takes at once (code 1885 past it). The UI's
+ * layer budget is the smaller of this and `volume_texture_slots`.
+ */
+render_layer_capacity: number, };

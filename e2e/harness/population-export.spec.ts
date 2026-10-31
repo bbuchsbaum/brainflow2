@@ -1,4 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+/** The population toolbar's overflow (QA N13): open it to reach its controls. */
+async function openMore(page: Page) {
+  const more = page.locator('details:has(> summary[title="More"])').first();
+  if (!(await more.evaluate((element) => (element as HTMLDetailsElement).open)))
+    await more.locator('> summary').click();
+}
 
 test('exports the selected participant estimand and common mask with a frozen calculation receipt', async ({
   page,
@@ -125,7 +132,7 @@ test('opens a saved population into linked controls and an Inspector, then explo
   expect(receipt.population.aggregation.groups).toHaveLength(1);
   await page.getByText('Save calculation', { exact: true }).click();
   await page
-    .getByText('NeuroTabs · Explore individuals and populations', { exact: true })
+    .locator('header[title="NeuroTabs · Explore individuals and populations"]')
     .scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('population-workspace-desktop.png') });
   await page.setViewportSize({ width: 480, height: 1000 });
@@ -179,6 +186,7 @@ test('scrubs and plays original observations, unfolds a montage and returns to t
   await page.getByRole('radio', { name: 'Inspect', exact: true }).click();
   await expect(page.getByText('Actual observation · S042', { exact: true })).toBeVisible();
   await expect(page.getByText(/Selected mean:/)).toContainText('1.000');
+  await openMore(page);
   await page
     .getByRole('button', { name: 'Order observations by pinned response', exact: true })
     .click();
@@ -247,6 +255,7 @@ test('groups, compares, unfolds contributors and restores exact A/B operands', a
     '40 selected / 80 available',
   );
 
+  await openMore(page);
   const exclusion = page.getByLabel('Preview exclusion unit', { exact: true });
   const subset = await exclusion
     .locator('option')

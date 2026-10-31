@@ -47,6 +47,9 @@ vi.mock('@/stores/workspaceStore', () => ({
 
 vi.mock('@/services/workspaceNavigation', () => nav);
 
+const layout = vi.hoisted(() => ({ closeFrontTab: vi.fn(() => true) }));
+vi.mock('@/services/layoutService', () => ({ getLayoutService: () => layout }));
+
 import { useWorkspaceMenuListener } from '../useWorkspaceMenuListener';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 
@@ -133,5 +136,15 @@ describe('useWorkspaceMenuListener (View › Workspace / View › Layout)', () =
     await emit('set-layout', { layout: 'orthogonal' });
     expect(layouts().length).toBe(before + 1);
     store.workspaces.set('w1', { type: 'mosaic' });
+  });
+
+  // QA 2026-10-31 N1: ⌘W is File › Close Tab, not Close Window.
+  it('Close Tab (Cmd+W) closes the front tab, and not behind a dialog', async () => {
+    layout.closeFrontTab.mockClear();
+    await emit('close-tab');
+    expect(layout.closeFrontTab).toHaveBeenCalledTimes(1);
+    nav.isModalDialogOpen.mockReturnValue(true);
+    await emit('close-tab');
+    expect(layout.closeFrontTab).toHaveBeenCalledTimes(1);
   });
 });

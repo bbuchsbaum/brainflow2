@@ -228,7 +228,7 @@ describe('GoToCoordinateDialog: voxel mode converts through the reference affine
     // Never carried into voxel space under the other unit.
     expect(val('k (voxel index)')).toBe('');
     expect(screen.getByLabelText('k (voxel index)')).not.toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByText('Z was not a number and was cleared.')).toBeInTheDocument();
+    expect(screen.getByText('World Z was not a number and was cleared.')).toBeInTheDocument();
   });
 
   it('names voxel fields i, j, k without a unit', () => {
@@ -320,7 +320,7 @@ describe('GoToCoordinateDialog: oblique affine and partial fields', () => {
     // i = (y - 20) / 2 = -19.25 -> -19; j = (10 - x) / 2 = -2; k = (z - 30) / 2 = 2
     expect([val('i (voxel index)'), val('j (voxel index)'), val('k (voxel index)')]).toEqual(['-19', '-2', '2']);
     // (Index -19 is also outside the volume: a second status, the warning.)
-    expect(screen.getAllByRole('status').map(n => n.textContent)).toContain('Empty Y taken from the crosshair.');
+    expect(screen.getAllByRole('status').map(n => n.textContent)).toContain('Empty world Y taken from the crosshair.');
     fireEvent.click(screen.getByRole('button', { name: 'Go' }));
     await waitFor(() => expect(setCrosshair).toHaveBeenCalledWith([14, -18, 34], true));
   });

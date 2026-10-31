@@ -5,6 +5,7 @@
  * truncates with the full name in its tooltip, and the position is the part
  * dropped when the pane is narrow.
  */
+import type { ReactNode } from 'react';
 import { Select } from '@/components/ui/bf';
 import type { FramePlane } from './viewportFrame/frameFormat';
 import { PANE_PICKER_MIN_PX, paneHeaderLayout } from './comparePaneLayout';
@@ -24,6 +25,14 @@ export interface ComparePaneHeaderProps {
   width: number;
   /** Slice range: the layout fits its widest position. */
   rangeMm?: readonly [number, number] | null;
+  /** Width the pane's right slot (value, link glyph) takes. */
+  rightReservePx?: number;
+  /**
+   * Pane controls (plane, remove) shown in place of the position on hover or
+   * keyboard focus, so they take the position's room, never the name's.
+   */
+  controls?: ReactNode;
+  controlsPx?: number;
   /** Accessible pane name ("A, zmap") for the picker label. */
   paneLabel: string;
   elementRef?: (el: HTMLDivElement | null) => void;
@@ -41,14 +50,20 @@ export function ComparePaneHeader({
   paneLabel,
   elementRef,
   rangeMm = null,
+  rightReservePx = 0,
+  controls = null,
+  controlsPx = 0,
 }: ComparePaneHeaderProps) {
-  const { position, pickerMax } = paneHeaderLayout(width, positionMm, plane, !!letter, rangeMm);
+  const { position, pickerMax, trailingPx } = paneHeaderLayout(width, positionMm, plane, !!letter, rangeMm, {
+    rightReservePx,
+    controlsPx: controls ? controlsPx : 0,
+  });
   const current = options.find((o) => o.id === layerId);
   return (
     <div
       ref={elementRef}
       data-testid="compare-pane-header"
-      className="absolute left-1.5 top-1 z-10 flex min-w-0 select-none items-center gap-1.5 whitespace-nowrap rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 text-bf-xs text-bf-text-secondary"
+      className="group/header absolute left-1.5 top-1 z-10 flex min-w-0 select-none items-center gap-1.5 whitespace-nowrap rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 text-bf-xs text-bf-text-secondary"
     >
       {letter && (
         <span
@@ -78,14 +93,32 @@ export function ComparePaneHeader({
         }}
         data-testid="compare-pane-picker"
       />
-      {position && current && (
+      {(position && current) || controls ? (
+        // One cell for the position and the controls: hover or focus swaps
+        // them; the picker (the name) keeps its width either way.
         <span
-          className="pointer-events-none shrink-0 font-mono tabular-nums"
-          data-testid="compare-pane-position"
+          className="grid shrink-0 items-center overflow-hidden"
+          style={{ width: trailingPx }}
+          data-testid="compare-pane-trailing"
         >
-          {position}
+          {position && current && (
+            <span
+              className="pointer-events-none font-mono tabular-nums transition-opacity [grid-area:1/1] motion-reduce:transition-none group-focus-within/header:opacity-0 group-hover/panel:opacity-0"
+              data-testid="compare-pane-position"
+            >
+              {position}
+            </span>
+          )}
+          {controls && (
+            <span
+              className="flex items-center gap-1 opacity-0 transition-opacity [grid-area:1/1] motion-reduce:transition-none focus-within:opacity-100 group-hover/panel:opacity-100"
+              data-testid="compare-pane-controls"
+            >
+              {controls}
+            </span>
+          )}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }

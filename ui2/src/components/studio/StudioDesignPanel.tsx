@@ -12,7 +12,7 @@ import {
   getStudioMeanDistanceService,
   meanDistanceKey,
 } from '@/services/studio/StudioMeanDistanceService';
-import { useViewStateStore } from '@/stores/viewStateStore';
+import { studioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { Button } from '@/components/ui/Button';
 import { DropdownMenu } from '@/components/ui/DropdownMenu';
 
@@ -48,7 +48,7 @@ export function StudioDesignPanel() {
     }
     const { source, issue } = buildPopulationSource(
       useSetStudioStore.getState(),
-      useViewStateStore.getState().activeWorkspaceKey,
+      studioWorkspaceKey(),
     );
     if (!source) {
       distanceService.fail(

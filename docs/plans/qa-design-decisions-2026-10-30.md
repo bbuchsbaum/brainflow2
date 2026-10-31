@@ -50,6 +50,7 @@ The QA runs on 2026-10-29 raised five questions that are design decisions rather
 - **Opacity:**
   - A continuous image (band 1 or 2) that lands on a visible continuous image in the same band opens at 50 %.
   - A band-2 image (a BOLD run or mean EPI) that lands on visible band-1 anatomy also opens at 50 %. An opaque EPI hides the anatomy it is registered to.
+  - A label, atlas or mask layer opens at 25 % over a visible statistic map (as an outline), at 35 % fill over visible images or other labels, and at 100 % alone. An outline-only label's alpha never drops below 70 %, whatever the layer opacity.
   - All other layers keep their current defaults.
 
 ## 3. Coordinates and the status bar

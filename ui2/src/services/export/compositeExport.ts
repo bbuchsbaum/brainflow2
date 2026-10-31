@@ -909,7 +909,10 @@ export function legendRows<T>(
   /** Rows that count toward "+N more" (subheaders do not). */
   counts: (row: T) => boolean = () => true,
 ): { rows: T[]; more: number } {
-  const cap = Math.max(1, Math.floor(capacity));
+  // A column sized for n rows (legendBlockHeight) must hold n: floating
+  // point can leave it a hair short (QA N15: 10 regions in a 10-row column
+  // read "8 … +2 more"; the split no longer rounds up, sideColumnSplit).
+  const cap = Math.max(1, Math.floor(capacity + 1e-3));
   if (legend.length <= cap) return { rows: [...legend], more: 0 };
   const rows = legend.slice(0, Math.max(0, cap - 1));
   // No subheader left dangling over the "+N more" row.
@@ -941,7 +944,8 @@ export function sideColumnMinHeight(
  * and never less than its own block.
  */
 export function sideColumnSplit(sh: number, colorbarMin: number, legendH: number): number {
-  return Math.round(Math.max(colorbarMin, Math.min(sh * 0.6, sh - legendH)));
+  // Rounded down: the legend below keeps every pixel it asked for.
+  return Math.floor(Math.max(colorbarMin, Math.min(sh * 0.6, sh - legendH)));
 }
 
 function drawColorbar(

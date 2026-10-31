@@ -18,6 +18,12 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
 import { getCentreStack } from '@/components/layout/centreStack';
+import { whilePlaceholderReloads } from '@/services/surfaceTabReload';
+import {
+  applyCentreTabOrder,
+  centreTabOrder,
+  placeholderItemConfig,
+} from '@/components/layout/surfaceTabRestore';
 import {
   focusWorkspaceTab,
   handleWorkspaceTabDestroyed,
@@ -286,5 +292,111 @@ describe('saved layouts', () => {
     expect(JSON.stringify(useLayoutLibraryStore.getState().layouts[0].layoutConfig)).not.toContain(
       'surfacePlaceholder',
     );
+  });
+
+  // QA 2026-10-31 N1: File › Close Tab (⌘W) closes the front tab like its ×.
+  it('closeFrontTab closes the front view tab and its workspace, or a surface tab', async () => {
+    const back = await store().createWorkspace('mosaic');
+    const front = await store().createWorkspace('orthogonal-locked');
+    const gl = mountLayout();
+    addTab(gl, back);
+    addTab(gl, front);
+    focusWorkspaceTab(getCentreStack(gl)!, front);
+
+    expect(getLayoutService().closeFrontTab()).toBe(true);
+    expect(store().workspaces.has(front)).toBe(false);
+    expect(centreIds(gl)).toEqual([back]);
+
+    getCentreStack(gl)!.addItem({
+      type: 'component',
+      componentType: 'surfaceView',
+      title: 'lh.pial.gii',
+      componentState: { surfaceHandle: 's1', surfaceViewId: 'sv1' },
+    });
+    expect(getLayoutService().closeFrontTab()).toBe(true);
+    expect(panelCount(gl, 'surfaceView')).toBe(0);
+    expect(store().workspaces.has(back)).toBe(true);
+  });
+
+  // QA 2026-10-31: relaunch put the surface placeholders first, and a
+  // reloaded surface tab jumped to the end of the strip.
+  it('puts the strip back in its saved order', async () => {
+    const a = await store().createWorkspace('mosaic');
+    const b = await store().createWorkspace('comparison');
+    const gl = mountLayout();
+    const centre = getCentreStack(gl)!;
+    centre.addItem(
+      placeholderItemConfig({ surfaceViewId: 'sv1', title: 'pial', sources: [{ kind: 'file', path: '/d/lh.pial.gii' }] }),
+    );
+    addTab(gl, a);
+    addTab(gl, b);
+    expect(centreTabOrder(centre)).toEqual(['sv:sv1', `ws:${a}`, `ws:${b}`]);
+
+    applyCentreTabOrder(centre, [`ws:${a}`, 'sv:sv1', `ws:${b}`]);
+    expect(centreTabOrder(centre)).toEqual([`ws:${a}`, 'sv:sv1', `ws:${b}`]);
+    // Nothing was destroyed by the moves.
+    expect(store().workspaces.size).toBe(2);
+  });
+
+  it('a reloaded surface takes its placeholder\'s place in the strip', async () => {
+    const a = await store().createWorkspace('mosaic');
+    const b = await store().createWorkspace('comparison');
+    const gl = mountLayout();
+    const centre = getCentreStack(gl)!;
+    addTab(gl, a);
+    centre.addItem(
+      placeholderItemConfig({ surfaceViewId: 'sv1', title: 'lh.pial.gii', sources: [{ kind: 'file', path: '/d/lh.pial.gii' }] }),
+    );
+    addTab(gl, b);
+
+    getLayoutService().ensureSurfaceView('handle-1', '/d/lh.pial.gii');
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
+    const types = centre.contentItems.map((item) => (item as ComponentItem).componentType);
+    expect(types).toEqual(['Workspace', 'surfaceView', 'Workspace']);
+    expect(panelCount(gl, 'surfacePlaceholder')).toBe(0);
+  });
+
+  // Review L1: the centre stack is non-closable by config; a layout saved
+  // before that (no flag) is patched on load, so its centre is kept too.
+  it('a layout saved without the centre flag gets it on load', async () => {
+    const view = await store().createWorkspace('mosaic');
+    const gl = mountLayout();
+    addTab(gl, view);
+    const legacy = createDefaultLayoutConfig();
+    delete (legacy.root as { content: Array<Record<string, unknown>> }).content[1].isClosable;
+    expect(getLayoutService().applyLayout(legacy)).toBe('applied');
+    expect(getCentreStack(gl)!.isClosable).toBe(false);
+    expect(getCentreStack(gl)!.header.controlsContainerElement.querySelector('.lm_close')).toBeNull();
+  });
+
+  // Review L6: reopening only lh by hand must not discard the lh + rh
+  // placeholder; its own Reload replaces it at the first surface back.
+  it('a two-source placeholder stays until both are back, unless its own Reload runs', async () => {
+    const gl = mountLayout();
+    const centre = getCentreStack(gl)!;
+    const saved = {
+      surfaceViewId: 'sv-pair',
+      title: 'pial',
+      sources: [
+        { kind: 'file' as const, path: '/d/lh.pial.gii' },
+        { kind: 'file' as const, path: '/d/rh.pial.gii' },
+      ],
+    };
+    centre.addItem(placeholderItemConfig(saved));
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    const types = () => centre.contentItems.map((item) => (item as ComponentItem).componentType);
+
+    getLayoutService().ensureSurfaceView('lh-1', '/d/lh.pial.gii');
+    await frame();
+    expect(types()).toEqual(['surfacePlaceholder', 'surfaceView']);
+
+    // Its own Reload: the first surface back takes the placeholder's place.
+    findComponentItemsByType(gl.rootItem, 'surfaceView')[0].remove();
+    await whilePlaceholderReloads('sv-pair', async () => {
+      getLayoutService().ensureSurfaceView('lh-2', '/d/lh.pial.gii');
+      await frame();
+    });
+    expect(types()).toEqual(['surfaceView']);
   });
 });

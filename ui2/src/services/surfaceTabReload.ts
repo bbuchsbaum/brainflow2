@@ -18,6 +18,29 @@ export interface SurfaceReloadBackend {
   }): Promise<string | null>;
 }
 
+/** Placeholders whose own Reload is running, by saved surface view id. */
+const reloading = new Set<string>();
+
+/**
+ * Whether the placeholder `surfaceViewId` is reloading through its own Reload
+ * button: then its first surface back takes its place at once (the others
+ * join that tab). A surface reopened by hand replaces a placeholder only
+ * when all its sources are back (review L6).
+ */
+export function isPlaceholderReloading(surfaceViewId: string): boolean {
+  return reloading.has(surfaceViewId);
+}
+
+/** Run `reload` with the placeholder marked as reloading. */
+export async function whilePlaceholderReloads<T>(surfaceViewId: string, reload: () => Promise<T>): Promise<T> {
+  reloading.add(surfaceViewId);
+  try {
+    return await reload();
+  } finally {
+    reloading.delete(surfaceViewId);
+  }
+}
+
 function splitPath(path: string): { directory: string; name: string } {
   const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return { directory: path.slice(0, Math.max(0, slash)) || '/', name: path.slice(slash + 1) };

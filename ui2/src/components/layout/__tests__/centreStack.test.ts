@@ -135,6 +135,30 @@ describe('the centre stack', () => {
     expect(gl.rootItem!.contentItems.map((i) => i.type)).toEqual(['column', 'stack', 'column']);
   });
 
+  // QA 2026-10-31: after closing every tab, Files and Inspector stayed about
+  // 2× wide until Reset Layout. The centre stack now survives its last tab.
+  it('closing the last tab keeps the same centre stack and the column widths', async () => {
+    await store().createWorkspace('mosaic');
+    const gl = mountLayout();
+    const centre = getCentreStack(gl)!;
+    const sizes = () => gl.rootItem!.contentItems.map((i) => i.size);
+    const before = sizes();
+
+    (centre.contentItems[0] as ComponentItem).tab.closeElement!.click();
+
+    expect(getCentreStack(gl)).toBe(centre);
+    expect(centre.contentItems).toHaveLength(0);
+    expect(sizes()).toEqual(before);
+  });
+
+  it('a re-created centre gets the default column shares back', async () => {
+    const gl = mountLayout();
+    gl.rootItem!.contentItems[1].remove();
+    expect(gl.rootItem!.contentItems).toHaveLength(2);
+    ensureCentreStack(gl);
+    expect(gl.rootItem!.contentItems.map((i) => i.size)).toEqual([17.25, 59.75, 23]);
+  });
+
   it('a stack removed with all its tabs closes every workspace, then the default view returns', async () => {
     await store().createWorkspace('mosaic');
     await store().createWorkspace('orthogonal-flexible');

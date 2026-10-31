@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ComparePaneHeader } from '../ComparePaneHeader';
-import { PANE_PICKER_MIN_PX, paneHeaderLayout } from '../comparePaneLayout';
+import { PANE_NAME_PREFERRED_PX, PANE_PICKER_MIN_PX, paneHeaderLayout } from '../comparePaneLayout';
 
 /** QA features 2026-10-31 §6: a layer picker in every pane header; names never disappear. */
 const options = [
@@ -52,5 +52,18 @@ describe('ComparePaneHeader', () => {
     const narrowValue = paneHeaderLayout(330, 2, 'axial', true, [-130, 130]);
     const wideValue = paneHeaderLayout(330, -126.5, 'axial', true, [-130, 130]);
     expect(narrowValue.pickerMax).toBe(wideValue.pickerMax);
+  });
+
+  it('the name keeps its room first; the controls take the position’s (QA 2026-10-31 F7.3)', () => {
+    // A 380 px pane with a value slot: the name gets at least ~14 characters.
+    const plain = paneHeaderLayout(380, -126.5, 'axial', true, [-130, 130], { rightReservePx: 90 });
+    expect(plain.pickerMax).toBeGreaterThanOrEqual(PANE_NAME_PREFERRED_PX);
+    const hover = paneHeaderLayout(380, -126.5, 'axial', true, [-130, 130], { rightReservePx: 90, controlsPx: 112 });
+    expect(hover.pickerMax).toBeGreaterThanOrEqual(PANE_NAME_PREFERRED_PX);
+    expect(hover.trailingPx).toBeGreaterThanOrEqual(Math.min(112, 380 - 12 - 90 - 24 - PANE_NAME_PREFERRED_PX));
+    // A narrow pane: controls clip; the name is never squeezed below its floor.
+    const narrow = paneHeaderLayout(200, 0, 'axial', true, null, { controlsPx: 112 });
+    expect(narrow.pickerMax).toBe(PANE_NAME_PREFERRED_PX);
+    expect(narrow.trailingPx).toBe(200 - 12 - 24 - PANE_NAME_PREFERRED_PX);
   });
 });

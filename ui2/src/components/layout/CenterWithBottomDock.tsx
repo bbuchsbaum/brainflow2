@@ -126,14 +126,22 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ chil
       data-testid="center-with-bottom-dock"
       style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
     >
-      {/* View pane — definite height via absolute insets (bottom = reserve). */}
+      {/* View pane — definite height via absolute insets (bottom = reserve).
+          It clips and stacks below the dock: a view whose content outgrows
+          the pane (Integrated's split panes and surface canvas in a short
+          column) drew over the dock, which then looked gone (QA 2026-10-31
+          N3). */}
       <div
+        data-testid="center-view-pane"
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
           bottom: bottomReserve,
+          overflow: 'hidden',
+          isolation: 'isolate',
+          zIndex: 0,
         }}
       >
         {children}
@@ -161,12 +169,14 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ chil
             />
           )}
           <div
+            data-testid="center-dock-pane"
             style={{
               position: 'absolute',
               left: 0,
               right: 0,
               bottom: 0,
               height: `${effectiveDockHeight}px`,
+              zIndex: 3,
             }}
           >
             <BottomWorkbenchDock

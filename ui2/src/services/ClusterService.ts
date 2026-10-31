@@ -51,6 +51,11 @@ export interface ComputeClustersInput {
    * finite non-zero voxels.
    */
   searchMask?: string | null;
+  /**
+   * |threshold| of the negative tail when it differs from `threshold` (an
+   * asymmetric display threshold, sign "both"); null/absent: symmetric.
+   */
+  negativeThreshold?: number | null;
 }
 
 /** `compute_clusters` rejected because a newer request superseded it. */
@@ -88,6 +93,7 @@ export class ClusterService {
       layerId: input.layerId,
       volumeId: layer?.volumeId ?? input.layerId,
       threshold: input.threshold,
+      ...(input.negativeThreshold != null ? { negativeThreshold: input.negativeThreshold } : {}),
       sign: input.sign,
       connectivity: input.connectivity,
       minVoxels: input.minVoxels,
@@ -163,6 +169,7 @@ export class ClusterService {
       layerId: input.layerId,
       volumeId: layer.volumeId ?? input.layerId,
       threshold: input.threshold,
+      ...(input.negativeThreshold != null ? { negativeThreshold: input.negativeThreshold } : {}),
       sign: input.sign,
       connectivity: input.connectivity,
       minVoxels: input.minVoxels,
@@ -405,8 +412,14 @@ export function clusterMethodsSentence(
     table.discardedClusters > 0 ? `, ${table.discardedClusters} smaller dropped` : '';
   const df = symbol && symbol !== variable ? ` (${symbol})` : '';
   const t = formatLayerValueAscii(table.threshold);
+  const tn =
+    table.sign === 'both' && table.negativeThreshold != null && table.negativeThreshold !== table.threshold
+      ? formatLayerValueAscii(table.negativeThreshold)
+      : null;
   const test =
-    table.sign === 'both'
+    table.sign === 'both' && tn !== null
+      ? `${variable} > ${t} or ${variable} < \u2212${tn}${df}, two-tailed`
+      : table.sign === 'both'
       ? `|${variable}| > ${t}${df}, two-tailed`
       : table.sign === 'positive'
         ? `${variable} > ${t}${df}, one-tailed (positive)`
@@ -620,6 +633,86 @@ export function displayThresholdMagnitude(
   const t = Math.max(Math.abs(threshold[0]), Math.abs(threshold[1]));
   // [0, 0] is "no threshold", not a threshold of 0 (review R7).
   return Number.isFinite(t) && t > 0 ? t : null;
+}
+
+/**
+ * A threshold at the precision it is displayed ("3.93" for an f32 3.92923,
+ * "3.1" for 3.0999999): the value the Inspector shows is the one clusters
+ * use (QA 2026-10-31 N6).
+ */
+export function atDisplayPrecision(value: number): number {
+  return Number(formatLayerValueAscii(value).replace(/,/g, ''));
+}
+
+/**
+ * Per-tail |threshold| of a display threshold (hidden band [lo, hi]), at
+ * display precision; null for a tail the band does not threshold.
+ */
+export interface ThresholdBounds {
+  /** Positive voxels need v > positive; null: the positive tail is not thresholded. */
+  positive: number | null;
+  /** Negative voxels need v < −negative; null: the negative tail is not thresholded. */
+  negative: number | null;
+}
+
+/**
+ * The tails of a layer's display threshold: −3.1 ≤ z ≤ 3.93 hidden is
+ * z > 3.93 and z < −3.1 (QA 2026-10-31 N6). A one-sided band thresholds one
+ * tail only: [0, 3.93] (every negative value shown), [−3.1, 0], or [2, 5]
+ * (everything below 2 shown) leave the other tail null, never a 0 threshold
+ * that would make the whole half-brain one cluster (review of N6, H2).
+ * Null for no threshold ([0, 0]).
+ */
+export function displayThresholdBounds(
+  threshold: readonly [number, number] | undefined,
+): ThresholdBounds | null {
+  if (displayThresholdMagnitude(threshold) === null || !threshold) return null;
+  const tail = (v: number) => {
+    const t = v > 0 ? atDisplayPrecision(v) : 0;
+    return t > 0 ? t : null;
+  };
+  const bounds = { positive: tail(threshold[1]), negative: tail(-threshold[0]) };
+  return bounds.positive === null && bounds.negative === null ? null : bounds;
+}
+
+/**
+ * The request for a sign over the thresholded tails: both tails (with
+ * `negativeThreshold` only when they differ), or the one tail searched or
+ * thresholded ("negative" uses the negative tail's own value). Null when the
+ * sign asks only for a tail that is not thresholded.
+ */
+export function clusterThresholds(
+  bounds: ThresholdBounds,
+  sign: ClusterSign,
+): { threshold: number; negativeThreshold: number | null; sign: ClusterSign } | null {
+  const positive = sign !== 'negative' ? bounds.positive : null;
+  const negative = sign !== 'positive' ? bounds.negative : null;
+  if (positive !== null && negative !== null) {
+    return { threshold: positive, negativeThreshold: negative === positive ? null : negative, sign: 'both' };
+  }
+  if (positive !== null) return { threshold: positive, negativeThreshold: null, sign: 'positive' };
+  if (negative !== null) return { threshold: negative, negativeThreshold: null, sign: 'negative' };
+  return null;
+}
+
+/**
+ * The cluster-forming test of a table as text: "|z| > 3.1", "z > 3.1",
+ * "z < −3.1", or for two thresholds "z > 3.93 or z < −3.1". `ascii` uses
+ * "-" (CSV).
+ */
+export function clusterTestText(
+  table: Pick<ClusterTable, 'threshold' | 'sign'> & { negativeThreshold?: number | null },
+  variable: string,
+  ascii = false,
+): string {
+  const fmt = ascii ? formatLayerValueAscii : formatLayerValue;
+  const minus = ascii ? '-' : '\u2212';
+  const t = fmt(table.threshold);
+  if (table.sign === 'positive') return `${variable} > ${t}`;
+  if (table.sign === 'negative') return `${variable} < ${minus}${t}`;
+  const n = table.negativeThreshold;
+  if (n === undefined || n === null || n === table.threshold) return `|${variable}| > ${t}`;
+  return `${variable} > ${t} or ${variable} < ${minus}${fmt(n)}`;
 }
 
 let instance: ClusterService | null = null;

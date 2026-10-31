@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useComparisonStore } from '@/stores/comparisonStore';
-import { comparePaneCandidates, comparePickerOptions, DEFAULT_COMPARE_PANES } from '@/utils/comparePanes';
+import {
+  comparePaneCandidates,
+  comparePickerOptions,
+  DEFAULT_COMPARE_PANES,
+  paneUnderlayId,
+} from '@/utils/comparePanes';
+import { resolvePanelUnderlayId } from '@/services/ComparisonRenderService';
 
 /** QA features 2026-10-31 §6: two panes, a pane count, a layer picker per pane. */
 const WS = 'compare-ws';
@@ -82,5 +88,36 @@ describe('comparePickerOptions (review: a hidden pick showed only the anatomy)',
 
   it('keeps the pane’s own layer listed, marked hidden, after it is hidden', () => {
     expect(comparePickerOptions(view(['z2']), loaded, 'z2').at(-1)).toEqual({ id: 'z2', name: 'hidden map (hidden)' });
+  });
+});
+
+describe('fillEmptyPanes (QA 2026-10-31: ⌘4 opened two empty panes)', () => {
+  beforeEach(() => useComparisonStore.getState().clearWorkspace(WS));
+
+  it('fills panes that show nothing (empty or stale ids) from the candidates', () => {
+    const store = useComparisonStore.getState();
+    store.setPaneCount(WS, 2, []);
+    store.fillEmptyPanes(WS, ['t1'], new Set(['t1']));
+    // Only an anatomy: it goes to pane A.
+    expect(shown()).toEqual([['t1'], []]);
+    store.initPanes(WS, ['old-z', 'old-t1']);
+    store.fillEmptyPanes(WS, ['z', 't1'], new Set(['z', 't1']));
+    expect(shown()).toEqual([['z'], ['t1']]);
+  });
+
+  it('leaves panes alone once any pane shows a present layer', () => {
+    const store = useComparisonStore.getState();
+    store.initPanes(WS, ['z']);
+    const before = panes();
+    store.fillEmptyPanes(WS, ['t1', 'z'], new Set(['t1', 'z']));
+    expect(panes()).toBe(before);
+  });
+});
+
+describe('paneUnderlayId matches the renderer’s underlay rule', () => {
+  const layers = [{ id: 'a', source: 'atlas' }, { id: 't1' }, { id: 'z' }];
+  it.each([[[]], [['z']], [['t1']], [['a', 'z']]])('for a pane showing %j', (ids) => {
+    const set = new Set<string>(ids as string[]);
+    expect(paneUnderlayId(set, layers)).toBe(resolvePanelUnderlayId({ visibleLayerIds: set }, layers));
   });
 });

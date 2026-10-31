@@ -1,3 +1,4 @@
+import { useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { Button } from '@/components/ui/bf';
 import type { ComponentProps } from 'react';
@@ -24,8 +25,8 @@ export function PopulationGroupViews({
   crosshairVisible: boolean;
 }) {
   const state = useSetStudioStore();
-  const workspaceId = useViewStateStore((s) => s.activeWorkspaceKey);
-  const crosshair = useViewStateStore((s) => s.viewState.crosshair);
+  const workspaceId = useStudioWorkspaceKey();
+  const crosshair = useViewStateStore((s) => s.getWorkspaceViewState(workspaceId).crosshair);
   const mirrorX = useMirrorsView(display.query.request.orientation);
   const columns = width < 600 ? 1 : 2;
   const cellWidth = Math.max(100, Math.floor((width - (columns - 1) * 12) / columns));

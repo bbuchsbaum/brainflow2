@@ -3,7 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/services/ViewExportService', () => ({ getViewExportService: () => ({}) }));
 vi.mock('@/services/apiService', () => ({ getApiService: () => ({}) }));
 
-import { copyActiveView, drawForCopy, MOSAIC_COPY_REQUEST, type CopyViewDeps } from '../copyView';
+import {
+  CLIPBOARD_FAILED,
+  clipboardFailureMessage,
+  copyActiveView,
+  drawForCopy,
+  MOSAIC_COPY_REQUEST,
+  writePngToClipboard,
+  type CopyViewDeps,
+} from '../copyView';
 
 /** ⇧⌘C with a focused mosaic copies the mosaic as shown (features 2026-10-31 §3 follow-up). */
 const bitmap = (w: number) => ({ width: w, height: w }) as ImageBitmap;
@@ -99,5 +107,71 @@ describe('copyActiveView', () => {
     calls.length = 0;
     drawForCopy(ctx, bitmap(64), false);
     expect(calls).toEqual(['draw 0 0']);
+  });
+
+  it('a failed clipboard write shows one plain message, never WebKit’s text (QA N8)', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const d = deps({
+      write: async () => {
+        throw new Error('The request is not allowed by the user agent or the platform in the current context');
+      },
+    });
+    await copyActiveView(d);
+    expect(d.notes.at(-1)).toBe(`error: ${CLIPBOARD_FAILED}`);
+    error.mockRestore();
+  });
+});
+
+describe('writePngToClipboard (QA N8)', () => {
+  const png = { arrayBuffer: async () => new Uint8Array([137, 80, 78, 71]).buffer } as unknown as Blob;
+
+  it('writes natively in the desktop app, with the PNG as the raw body', async () => {
+    const invoke = vi.fn(async () => undefined);
+    const web = vi.fn();
+    await writePngToClipboard(png, { native: true, invoke, web });
+    expect(invoke).toHaveBeenCalledWith('copy_png_to_clipboard', new Uint8Array([137, 80, 78, 71]));
+    expect(web).not.toHaveBeenCalled();
+  });
+
+  it('a browser host uses navigator.clipboard; any failure becomes the plain message', async () => {
+    const web = vi.fn(async () => undefined);
+    await writePngToClipboard(png, { native: false, invoke: vi.fn(), web });
+    expect(web).toHaveBeenCalledWith(png);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      writePngToClipboard(png, {
+        native: true,
+        invoke: async () => {
+          throw new Error('NSPasteboard refused');
+        },
+        web,
+      }),
+    ).rejects.toThrow(CLIPBOARD_FAILED);
+    error.mockRestore();
+  });
+
+  it('passes the native too-large refusal through; anything else stays generic', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      writePngToClipboard(png, {
+        native: true,
+        invoke: async () => {
+          throw 'Image too large for the clipboard (12000×12000)';
+        },
+        web: vi.fn(),
+      }),
+    ).rejects.toThrow('Image too large for the clipboard (12000×12000)');
+    expect(clipboardFailureMessage(new Error('Image too large for the clipboard (9×9)'))).toBe(
+      'Image too large for the clipboard (9×9)',
+    );
+    expect(clipboardFailureMessage('NSPasteboard refused')).toBe(CLIPBOARD_FAILED);
+    const d = deps({
+      write: async () => {
+        throw new Error('Image too large for the clipboard (9×9)');
+      },
+    });
+    await copyActiveView(d);
+    expect(d.notes.at(-1)).toBe('error: Image too large for the clipboard (9×9)');
+    error.mockRestore();
   });
 });

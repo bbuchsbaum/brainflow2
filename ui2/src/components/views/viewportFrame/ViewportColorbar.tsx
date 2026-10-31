@@ -14,6 +14,7 @@ import {
 } from './frameFormat';
 import { formatLayerValue, formatRange } from '@/utils/valueFormat';
 import { asciiCopyHandler } from '@/utils/numericInput';
+import { placeColorbar } from './colorbarPlacement';
 
 export interface ColorbarLayer {
   layerId: string;
@@ -48,15 +49,21 @@ interface ViewportColorbarProps {
   height: number;
   /** Drawn image rectangle in canvas-area CSS px (from the viewport placement). */
   imageRect?: ImageRect | null;
-  /** Crosshair centre in canvas-area CSS px; the corner bar flips up if it would cover it. */
+  /** Crosshair centre in canvas-area CSS px: never under the block. */
   avoidPoint?: { x: number; y: number } | null;
+  /** Where the data is drawn (canvas-area CSS px): an on-image block avoids it. */
+  dataRect?: ImageRect | null;
   /** Space kept clear at the top-right when the corner bar flips up (e.g. the layout button). */
   topReserve?: number;
   /** The layer's value at the crosshair: drawn as a caret with its number. */
   value?: number | null;
   /** Muted note on its own line under the caption, e.g. "threshold unlinked" (Compare). */
   tag?: string | null;
-  /** Force the corner placement at the top-right (clear of the image's centre). */
+  /**
+   * A column of its own (Compare's reserved column, no image under it): top
+   * right. Ignored when an image rectangle is given (the placement rules
+   * then decide; colorbarPlacement.ts).
+   */
   corner?: 'top' | null;
   /**
    * Widest the block may be (a reserved column, Compare): the name caption
@@ -66,8 +73,6 @@ interface ViewportColorbarProps {
 }
 
 const EDGE = 8; // px from the canvas-area edges
-const BESIDE_GAP = 12; // px between the image's right edge and the bar
-const LETTER_CLEAR = 24; // right orientation letter (offset 6 + glyph + gap)
 const BAR_W = 8;
 const LABEL_GAP = 4;
 const MARK_W = 3;
@@ -79,14 +84,15 @@ const LABEL_H = 10; // tick label box (text-bf-2xs, leading-none)
 const CAP_H = 4; // clipped-end swatch outside the bar
 const CAP_GAP = 2;
 const MIN_BAR_H = 48;
+/** The compact form's shortest bar (a narrow or short pane). */
+const COMPACT_MIN_BAR_H = 24;
 const NAME_GAP = 6; // name caption → bar group (clears the peak value label)
 const MAX_BAR_H = 160;
 /**
- * Below this canvas-area width the colorbar is not drawn. It differs from the
- * header's 90px rule on purpose: the bar needs a 48px bar plus labels and
- * caption (~50×90px) beside or in the corner of the image, and in panes
- * narrower than 160px that box would sit on the data. The header is one text
- * line and fits much smaller panes.
+ * Below this canvas-area width the colorbar takes its compact form (the bar
+ * and its two window ends): the full block (a 48px bar plus labels and
+ * caption, ~50×90px) would sit on the data. It never vanishes in a narrow
+ * pane (QA 2026-10-31 N16).
  */
 export const COLORBAR_MIN_WIDTH = 160;
 const CHAR_W = 6.2; // Plex Mono at 10px, approx.
@@ -131,11 +137,12 @@ export function colorbarCaptionLines(
  * that colour; the hatch alone would hide it). The crosshair value is a caret
  * with its number (clamped to the bar).
  *
- * Placement: beside the image in the right margin, vertically centred on it,
- * when the margin can hold it (no data, crosshair or letter under it).
- * Otherwise the bottom-right corner below the vertical centre (clear of the
- * right letter), flipping to the top-right when the crosshair centre would
- * fall under it.
+ * Placement (colorbarPlacement.ts): outside the image in the larger side
+ * margin, else the bottom margin; else on the image in the corner covering
+ * the least data and never the crosshair, on a scrim. The threshold caption
+ * and the value caret stay in the same block. A narrow pane, or one with no
+ * room for the whole block, gets the compact form: the bar and its two
+ * window ends.
  */
 export function ViewportColorbar({
   layer,
@@ -143,6 +150,7 @@ export function ViewportColorbar({
   height,
   imageRect,
   avoidPoint,
+  dataRect = null,
   topReserve = 0,
   value = null,
   tag = null,
@@ -164,16 +172,22 @@ export function ViewportColorbar({
   const hasValue = value !== null && Number.isFinite(value);
   const valueLabel = hasValue ? formatLayerValue(value as number) : null;
 
-  const measure = (barH: number) => {
-    const ticks = colorbarTicks(
+  const measure = (barH: number, compactForm = false) => {
+    const allTicks = colorbarTicks(
       layer.intensity,
       layer.threshold,
       Math.max(barH, 1),
       12,
       layer.dataRange,
     );
+    // Compact (a narrow pane): the bar with its two window ends only.
+    const ticks = compactForm ? allTicks.filter((t) => t.kind === 'window') : allTicks;
     const labelChars = Math.max(1, ...ticks.map((t) => t.label.length));
     const labelW = Math.ceil(labelChars * CHAR_W);
+    if (compactForm) {
+      const boxW = BAR_W + MARK_W + LABEL_GAP + labelW + PAD_X;
+      return { ticks, labelW, valueW: -(VALUE_GAP + CARET_W), boxW, lines: [] as string[] };
+    }
     // The value label column (left of the caret) reserves at least 5 chars
     // ("−4.58") so the box does not resize as the crosshair moves.
     const valueW = Math.ceil(Math.max(5, valueLabel?.length ?? 0) * CHAR_W);
@@ -225,50 +239,47 @@ export function ViewportColorbar({
     (layer.nameLabel || layer.units ? LINE_H + NAME_GAP : 0) +
     tagLines.length * LINE_H;
 
-  // ── beside the image ──
-  let layout: { style: CSSProperties; barH: number; beside: boolean } | null = null;
-  if (corner !== 'top' && imageRect && imageRect.bottom > imageRect.top) {
-    const imgH = imageRect.bottom - imageRect.top;
-    const barH = Math.min(MAX_BAR_H, Math.floor(Math.min(imgH * 0.6, height - 2 * EDGE - chromeH)));
-    const { boxW } = measure(barH);
-    const left = Math.round(imageRect.right + BESIDE_GAP);
-    const boxH = barH + chromeH;
-    if (barH >= MIN_BAR_H && left + boxW <= width - LETTER_CLEAR) {
-      const centred = imageRect.top + (imgH - boxH) / 2;
-      const top = Math.round(Math.max(EDGE, Math.min(height - EDGE - boxH, centred)));
-      layout = { style: { left, top }, barH, beside: true };
+  // ── placement (colorbarPlacement.ts) ──
+  let layout: { style: CSSProperties; barH: number; slot: string; scrim: boolean; compact: boolean } | null =
+    null;
+  if (corner === 'top' && !imageRect) {
+    // A column of its own: top right, nothing under it.
+    const flipTop = Math.max(EDGE, topReserve);
+    const barH = Math.min(MAX_BAR_H, Math.floor(height / 2 - 14 - flipTop - chromeH));
+    if (barH >= MIN_BAR_H) {
+      layout = { style: { right: EDGE, top: flipTop }, barH, slot: 'column', scrim: false, compact: false };
+    }
+  } else {
+    const place = (compactForm: boolean) =>
+      placeColorbar({
+        width,
+        height,
+        imageRect,
+        dataRect,
+        avoidPoint,
+        topReserve,
+        chromeH: compactForm ? PAD_Y + capTopH + capBottomH : chromeH,
+        boxWidth: (barH) => measure(barH, compactForm).boxW,
+        minBarH: compactForm ? COMPACT_MIN_BAR_H : MIN_BAR_H,
+        maxBarH: MAX_BAR_H,
+      });
+    const full = width >= COLORBAR_MIN_WIDTH ? place(false) : null;
+    // A narrow pane, or no room for the full block: the compact form, never nothing.
+    const chosen = full ?? place(true);
+    if (chosen) {
+      layout = {
+        style: { left: chosen.left, top: chosen.top },
+        barH: chosen.barH,
+        slot: chosen.slot,
+        scrim: chosen.scrim,
+        compact: !full,
+      };
     }
   }
 
-  // ── corner fallback ──
-  if (!layout) {
-    const flipTop = Math.max(EDGE, topReserve);
-    const barBottom = Math.min(MAX_BAR_H, Math.floor(height / 2 - 14 - EDGE - chromeH));
-    const barTop = Math.min(MAX_BAR_H, Math.floor(height / 2 - 14 - flipTop - chromeH));
-    const margin = 12;
-    const covers = (top: number, barH: number) => {
-      if (!avoidPoint) return false;
-      const { boxW } = measure(barH);
-      return (
-        avoidPoint.x >= width - EDGE - boxW - margin &&
-        avoidPoint.x <= width - EDGE + margin &&
-        avoidPoint.y >= top - margin &&
-        avoidPoint.y <= top + barH + chromeH + margin
-      );
-    };
-    const placeTop =
-      corner === 'top' ||
-      (barTop >= MIN_BAR_H &&
-      covers(height - EDGE - barBottom - chromeH, barBottom) &&
-      !covers(flipTop, barTop));
-    layout = placeTop
-      ? { style: { right: EDGE, top: flipTop }, barH: barTop, beside: false }
-      : { style: { right: EDGE, bottom: EDGE }, barH: barBottom, beside: false };
-  }
-
-  const { barH, beside } = layout;
-  if (!cmap || barH < MIN_BAR_H || width < COLORBAR_MIN_WIDTH) return null;
-  const { ticks, labelW, valueW, lines, boxW } = measure(barH);
+  if (!cmap || !layout) return null;
+  const { barH, compact } = layout;
+  const { ticks, labelW, valueW, lines, boxW } = measure(barH, compact);
   const groupH = capTopH + barH + capBottomH;
   const barTop = capTopH;
 
@@ -292,7 +303,7 @@ export function ViewportColorbar({
   );
 
   let caretY: number | null = null;
-  if (hasValue) {
+  if (hasValue && !compact) {
     const v = value as number;
     if (v > wMax && capTop) caretY = capTopY;
     else if (v < wMin && capBottom) caretY = capBottomY;
@@ -364,17 +375,22 @@ export function ViewportColorbar({
   return (
     <div
       data-testid="viewport-colorbar"
-      data-placement={beside ? 'beside' : 'corner'}
+      data-placement={layout.slot}
+      data-compact={compact || undefined}
       role="img"
       aria-label={ariaLabel}
       // No box: over the image (Compare's corner placement) a scrim read as a
       // grey block behind the value; a text halo, like the orientation
       // letters, keeps the labels legible on any ground.
-      className="pointer-events-none absolute z-10 select-none px-1 pb-0.5 pt-1.5 text-bf-2xs text-bf-text-secondary"
+      // On the image (a corner) the block sits on a scrim so the labels read
+      // over white matter; off the image (a margin) the halo is enough.
+      className={`pointer-events-none absolute z-10 select-none px-1 pb-0.5 pt-1.5 text-bf-2xs text-bf-text-secondary${
+        layout.scrim ? ' rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_72%,transparent)]' : ''
+      }`}
       style={{ ...layout.style, width: boxW, textShadow: COLORBAR_TEXT_HALO }}
       onCopy={asciiCopyHandler}
     >
-      {(layer.nameLabel || layer.units) && (
+      {!compact && (layer.nameLabel || layer.units) && (
         // One-line caption: the statistic symbol (upright text, italic
         // variable), then the muted, middle-truncated layer name.
         <div
@@ -393,7 +409,7 @@ export function ViewportColorbar({
           </span>
         </div>
       )}
-      {nameLines.map((line) => (
+      {!compact && nameLines.map((line) => (
         <div
           key={line}
           className="whitespace-nowrap text-left leading-none text-bf-text-muted"
@@ -403,7 +419,7 @@ export function ViewportColorbar({
           <span className={TEXT_BACKING}>{line}</span>
         </div>
       ))}
-      {tagLines.map((line, i) => (
+      {!compact && tagLines.map((line, i) => (
         <div
           key={line}
           className="whitespace-nowrap text-left leading-none text-bf-text-muted"
@@ -499,7 +515,7 @@ export function ViewportColorbar({
           </div>
         )}
       </div>
-      {lines.length > 0 && (
+      {!compact && lines.length > 0 && (
         <div
           data-testid="viewport-colorbar-caption"
           className="whitespace-nowrap text-left"

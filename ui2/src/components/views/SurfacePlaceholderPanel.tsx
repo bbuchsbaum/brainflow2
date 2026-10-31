@@ -13,6 +13,7 @@ import {
   defaultSurfaceReloadBackend,
   missingSurfaceSources,
   reloadSurfaceSources,
+  whilePlaceholderReloads,
   type SurfaceReloadBackend,
 } from '@/services/surfaceTabReload';
 
@@ -64,7 +65,9 @@ export const SurfacePlaceholderPanel: React.FC<SurfacePlaceholderPanelProps> = (
     setStatus('reloading');
     const api = await backend();
     const available = saved.sources.filter((source) => !missing.includes(source.path));
-    const loaded = await reloadSurfaceSources(available, api);
+    const loaded = await whilePlaceholderReloads(saved.surfaceViewId, () =>
+      reloadSurfaceSources(available, api),
+    );
     if (loaded > 0) onClose();
     else setStatus('failed');
   }, [backend, missing, onClose, saved.sources]);

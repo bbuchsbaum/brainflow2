@@ -117,6 +117,10 @@ describe('workspaceNavigation (qa-design-decisions-2026-10-30 §1)', () => {
       useCenterTabStore.getState().setFrontComponentType('surfaceView');
       expect(setCurrentTabLayout('compare')).toBe('unavailable');
       expect(store().workspaces.get(view)?.type).toBe('mosaic');
+      // A surface placeholder from the last session too (QA 2026-10-31).
+      useCenterTabStore.getState().setFrontComponentType('surfacePlaceholder');
+      expect(setCurrentTabLayout('compare')).toBe('unavailable');
+      expect(store().workspaces.get(view)?.type).toBe('mosaic');
     });
 
     it('does nothing for Integrated while its feature flag is off', async () => {
@@ -124,6 +128,17 @@ describe('workspaceNavigation (qa-design-decisions-2026-10-30 §1)', () => {
       useFeatureFlagStore.setState({ integratedWorkspaceV1: false });
       expect(setCurrentTabLayout('integrated')).toBe('unavailable');
       expect(store().workspaces.get(id)?.type).toBe('mosaic');
+    });
+
+    // QA 2026-10-31 N4: the app's default view is marked until the user
+    // makes it theirs (a layout change); a view the user asked for is not.
+    it('marks the default view as the app\'s own until its layout changes', async () => {
+      const id = (await ensureDefaultView())!;
+      expect(store().workspaces.get(id)?.defaultView).toBe(true);
+      setCurrentTabLayout('mosaic');
+      expect(store().workspaces.get(id)?.defaultView).toBeUndefined();
+      const asked = await openNewView();
+      expect(store().workspaces.get(asked)?.defaultView).toBeUndefined();
     });
 
     it('creates the first view only when no tab is open at all', async () => {

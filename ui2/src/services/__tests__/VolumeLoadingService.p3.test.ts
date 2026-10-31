@@ -11,7 +11,7 @@ import {
 } from '../VolumeLoadingService';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { STACKED_CONTINUOUS_OPACITY, STACKED_OVERLAY_OPACITY } from '@/services/layerPlacement';
+import { STACKED_CONTINUOUS_OPACITY, LABEL_OVER_STATISTIC_OPACITY } from '@/services/layerPlacement';
 
 describe('defaultCrosshairWorld', () => {
   it('prefers the voxel-centred centre over the geometric one', () => {
@@ -87,7 +87,7 @@ describe('applyStackedOverlayOpacity (review W9)', () => {
 
     applyStackedOverlayOpacity('seg');
     const opacityOf = (id: string) => useViewStateStore.getState().viewState.layers.find((l) => l.id === id)?.opacity;
-    expect(opacityOf('seg')).toBe(STACKED_OVERLAY_OPACITY);
+    expect(opacityOf('seg')).toBe(LABEL_OVER_STATISTIC_OPACITY);
     expect(opacityOf('z')).toBe(1);
 
     // A user-set opacity is never overridden.

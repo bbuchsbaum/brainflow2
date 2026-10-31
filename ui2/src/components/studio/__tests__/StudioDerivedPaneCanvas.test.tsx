@@ -29,9 +29,8 @@ vi.mock('@/components/views/SliceViewport', () => ({
     </button>
   ),
 }));
-vi.mock('@/components/views/viewportFrame', () => ({
-  ViewportColorbar: () => <div data-testid="pane-colorbar" />,
-}));
+const transport = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock('@/services/transport', () => ({ getTransport: () => transport }));
 
 import { StudioDerivedPaneCanvas } from '../StudioDerivedPaneCanvas';
 import { useAppModeStore } from '@/stores/appModeStore';
@@ -208,5 +207,34 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     } finally {
       act(() => useViewDisplaySettingsStore.getState().setRadiological(false));
     }
+  });
+
+  it('draws the map diverging over the template anatomy, with its colourbar (N10)', async () => {
+    transport.invoke.mockResolvedValue({ volume_handle_info: { id: 'template_t1' } });
+    render(
+      <StudioDerivedPaneCanvas
+        paneId="cohort-mean"
+        sourcePath="/c/mean-anat.nii.gz"
+        label="All members"
+        workspaceId={STUDIO}
+        underlayPath="template:MNI152NLin2009cAsym_brain_1mm"
+      />,
+    );
+    await waitFor(() =>
+      expect(transport.invoke).toHaveBeenCalledWith('load_template_by_id', {
+        templateId: 'MNI152NLin2009cAsym_brain_1mm',
+      }),
+    );
+    await waitFor(() => {
+      const state = api.applyAndRenderViewState.mock.calls.at(-1)?.[0];
+      expect(state?.layers.map((l: { volumeId: string; colormap: string }) => [l.volumeId, l.colormap])).toEqual([
+        ['template_t1', 'gray'],
+        [expect.stringMatching(/^vol-/), 'fmri'],
+      ]);
+    });
+    const bar = screen.getByTestId('studio-scale-bar');
+    expect(bar.dataset.colormap).toBe('fmri');
+    // Symmetric about zero for the mean, its near-zero band hidden.
+    expect(bar.getAttribute('aria-label')).toMatch(/−2 to 2, −0\.2 to 0\.2 hidden/);
   });
 });

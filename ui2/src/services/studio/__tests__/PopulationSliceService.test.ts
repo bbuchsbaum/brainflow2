@@ -969,3 +969,90 @@ describe('population opening slice', () => {
     second.stop();
   });
 });
+
+describe('anatomy across a summary switch (QA N12)', () => {
+  const pixel = (rgba: Uint8ClampedArray, i: number) => Array.from(rgba.slice(i * 4, i * 4 + 4));
+  const withUnderlay = (summary: PopulationSummary) => ({
+    ...query(summary, 'dataset'),
+    request: { ...query(summary, 'dataset').request, summary, underlay: { sourcePath: 'template:T' } },
+  });
+
+  it('keeps the anatomy of the same plane when the new summary came back without it', async () => {
+    const { service, evaluate, bitmap } = setup();
+    evaluate
+      .mockResolvedValueOnce({ ...data(), summary: [0, 2], underlay: { values: [10, 20] } })
+      .mockResolvedValueOnce({
+        ...data(),
+        summary: [0, 2],
+        underlay: null,
+        underlayIssue: 'Template T is unavailable: busy',
+      });
+    service.request(withUnderlay('mean'));
+    await vi.runAllTimersAsync();
+    bitmap.mockClear();
+    service.request(withUnderlay('coverage'));
+    await vi.runAllTimersAsync();
+    const summary = bitmap.mock.calls[0][0] as Uint8ClampedArray;
+    // Zero coverage shows the anatomy (the darkest grey here), not the dark pane…
+    expect(pixel(summary, 0)).toEqual([0, 0, 0, 255]);
+    // …and full coverage is translucent over the brighter anatomy, opaque.
+    expect(pixel(summary, 1)[3]).toBe(255);
+    expect(service.getSnapshot().displayed?.data.underlay?.values).toEqual([10, 20]);
+    expect(service.getSnapshot().displayed?.data.underlayIssue).toBeNull();
+    service.stop();
+  });
+
+  it('asks once more for an anatomy that could not be read', async () => {
+    const { service, evaluate } = setup();
+    evaluate
+      .mockResolvedValueOnce({ ...data(), underlay: null, underlayIssue: 'Template T is unavailable: busy' })
+      .mockResolvedValue({ ...data(), underlay: { values: [10, 20] } });
+    service.request(withUnderlay('mean'));
+    await vi.runAllTimersAsync();
+    expect(evaluate).toHaveBeenCalledTimes(2);
+    expect(service.getSnapshot().displayed?.data.underlay?.values).toEqual([10, 20]);
+    // A space mismatch is not retried.
+    evaluate.mockClear();
+    evaluate.mockResolvedValue({
+      ...data(),
+      underlay: null,
+      underlayIssue: 'The anatomy image does not cover the population grid; they are not in one space.',
+    });
+    service.request({ ...withUnderlay('mean'), key: 'other', datasetKey: 'other' });
+    await vi.runAllTimersAsync();
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    service.stop();
+  });
+});
+
+describe('a transport that cannot evaluate population slices (review M4)', () => {
+  it('reports the slices unavailable instead of a TypeError', async () => {
+    const { checkedPopulationSliceData, POPULATION_SLICES_UNAVAILABLE } = await import(
+      '../PopulationSliceService'
+    );
+    for (const answer of [null, undefined, 'x', {}, { summary: [], focused: [] }, { ...data(), plane: null }])
+      expect(() => checkedPopulationSliceData(answer)).toThrow(POPULATION_SLICES_UNAVAILABLE);
+    expect(checkedPopulationSliceData(data())).toEqual(data());
+
+    const { service, evaluate } = setup();
+    evaluate.mockResolvedValue(null as never);
+    service.request(query());
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().error).toBe(POPULATION_SLICES_UNAVAILABLE);
+    expect(service.getSnapshot().displayed).toBeNull();
+    service.stop();
+  });
+
+  it('a focus-only read that comes back empty is an error, not a crash', async () => {
+    const { POPULATION_SLICES_UNAVAILABLE } = await import('../PopulationSliceService');
+    const { service, evaluate } = setup();
+    service.request(query());
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed).not.toBeNull();
+    evaluate.mockResolvedValue(null as never);
+    await expect(
+      service.evaluatePeek({ memberId: 'b', crosshairMm: [0, 0, 0], orientation: 'axial' }, new AbortController().signal),
+    ).rejects.toThrow(POPULATION_SLICES_UNAVAILABLE);
+    service.stop();
+  });
+});

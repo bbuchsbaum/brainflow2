@@ -177,6 +177,30 @@ interface Dependencies {
     signal: AbortSignal,
   ) => Promise<[number, number, number] | null>;
 }
+/** What a transport that cannot evaluate population slices yields. */
+export const POPULATION_SLICES_UNAVAILABLE = 'Population slices are unavailable.';
+
+/**
+ * A population slice result in the shape the service reads (review M4): an
+ * object with summary and focused arrays and a plane with a pixel size. Any
+ * other answer (null from a transport without the command) is an error, never
+ * a TypeError deep in the reduction.
+ */
+export function checkedPopulationSliceData(result: unknown): PopulationSliceData {
+  const data = result as Partial<PopulationSliceData> | null;
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    !Array.isArray(data.summary) ||
+    !Array.isArray(data.focused) ||
+    !data.plane ||
+    typeof data.plane !== 'object' ||
+    !Array.isArray(data.plane.dim_px)
+  )
+    throw new Error(POPULATION_SLICES_UNAVAILABLE);
+  return data as PopulationSliceData;
+}
+
 const native: Dependencies = {
   async evaluate(request, signal) {
     signal.throwIfAborted();
@@ -188,12 +212,12 @@ const native: Dependencies = {
     };
     signal.addEventListener('abort', cancel, { once: true });
     try {
-      const result = await getTransport().invoke<PopulationSliceData>('evaluate_population_slice', {
+      const result = await getTransport().invoke<unknown>('evaluate_population_slice', {
         request,
         ticket,
       });
       signal.throwIfAborted();
-      return result;
+      return checkedPopulationSliceData(result);
     } finally {
       signal.removeEventListener('abort', cancel);
     }
@@ -211,12 +235,20 @@ const native: Dependencies = {
     };
     signal.addEventListener('abort', cancel, { once: true });
     try {
-      const result = await getTransport().invoke<[number, number, number] | null>(
-        'population_peak_slice',
-        { request, ticket },
-      );
+      const result = await getTransport().invoke<unknown>('population_peak_slice', {
+        request,
+        ticket,
+      });
       signal.throwIfAborted();
-      return result;
+      // Null is the native "no peak"; any other non-point answer is an error.
+      if (result === null) return null;
+      if (
+        !Array.isArray(result) ||
+        result.length !== 3 ||
+        !result.every((v) => typeof v === 'number' && Number.isFinite(v))
+      )
+        throw new Error(POPULATION_SLICES_UNAVAILABLE);
+      return result as [number, number, number];
     } finally {
       signal.removeEventListener('abort', cancel);
     }
@@ -415,6 +447,34 @@ export function populationCountsSummary(request: PopulationSliceRequest) {
   return request.inference
     ? !!inferenceChannel(request.inference).countPopulation
     : request.summary === 'coverage';
+}
+
+/** Delay before a result that lost its anatomy is asked for once more. */
+export const POPULATION_UNDERLAY_RETRY_MS = 1500;
+
+/** A missing-anatomy reason that may pass (not a space mismatch). */
+function transientUnderlayIssue(issue: string | null | undefined) {
+  return !!issue && !/not in one space/.test(issue);
+}
+
+/**
+ * The previously shown anatomy, when it was sampled for the same underlay
+ * source on the same plane (and, for cutouts, the same cutout plane).
+ */
+function reusableUnderlay(
+  base: { query: PopulationSliceQuery; data: PopulationSliceData },
+  query: PopulationSliceQuery,
+  data: PopulationSliceData,
+): PopulationSliceData['underlay'] | null {
+  const shown = base.data.underlay;
+  if (!shown || base.query.request.underlay?.sourcePath !== query.request.underlay?.sourcePath)
+    return null;
+  if (JSON.stringify(base.data.plane) !== JSON.stringify(data.plane)) return null;
+  const cutoutsMatch =
+    !!data.cutouts &&
+    !!base.data.cutouts &&
+    JSON.stringify(base.data.cutouts.plane) === JSON.stringify(data.cutouts.plane);
+  return cutoutsMatch ? { values: shown.values, cutouts: shown.cutouts } : { values: shown.values };
 }
 
 /** Anatomy per declared template space (TemplateFlow IDs the app resolves). */
@@ -806,6 +866,15 @@ export class PopulationSliceService {
     this.releaseBase = null;
     this.focusBase = null;
   }
+  /** Query keys already retried for a missing underlay (one retry each). */
+  private underlayRetries = new Set<string>();
+  private retryUnderlay(query: PopulationSliceQuery) {
+    if (this.underlayRetries.has(query.key)) return;
+    this.underlayRetries.add(query.key);
+    setTimeout(() => {
+      if (this.active && this.snapshot.requested?.key === query.key) this.request(query, true);
+    }, POPULATION_UNDERLAY_RETRY_MS);
+  }
   private samePopulation(a: PopulationSliceQuery, b: PopulationSliceQuery) {
     return (
       a.datasetKey === b.datasetKey &&
@@ -1078,7 +1147,7 @@ export class PopulationSliceService {
     };
     delete request.focusStackIndex;
     this.contexts.add(contextKey);
-    const data = await this.dependencies.evaluate(request, signal);
+    const data = checkedPopulationSliceData(await this.dependencies.evaluate(request, signal));
     signal.throwIfAborted();
     const [w, h] = data.plane?.dim_px ?? [0, 0];
     const ids = query.request.members.map((m) => m.memberId);
@@ -1155,9 +1224,11 @@ export class PopulationSliceService {
           query.request.focusStackIndex !== undefined
             ? []
             : [...ids.slice(Math.max(0, index - 1), Math.max(0, index - 1) + count)];
-        data = await this.dependencies.evaluate(
-          { ...query.request, contextKey, focusOnly: reuse, focusWindow },
-          abort.signal,
+        data = checkedPopulationSliceData(
+          await this.dependencies.evaluate(
+            { ...query.request, contextKey, focusOnly: reuse, focusWindow },
+            abort.signal,
+          ),
         );
         if (!this.active || version !== this.generation) return;
         if (reuse && base && data.summary.length === 0) {
@@ -1178,9 +1249,11 @@ export class PopulationSliceService {
             };
             shared = true;
           } else {
-            data = await this.dependencies.evaluate(
-              { ...query.request, contextKey, focusWindow },
-              abort.signal,
+            data = checkedPopulationSliceData(
+              await this.dependencies.evaluate(
+                { ...query.request, contextKey, focusWindow },
+                abort.signal,
+              ),
             );
             if (!this.active || version !== this.generation) return;
           }
@@ -1204,6 +1277,17 @@ export class PopulationSliceService {
         this.focusExpires = Date.now() + 1000;
       }
       data = { ...data, focusWindow: undefined };
+      // The anatomy depends only on the plane, not the summary: a result that
+      // came back without it (a transient read failure, QA N12) keeps the
+      // anatomy already shown on the same plane, or is retried once.
+      let underlayRetry = false;
+      if (!data.underlay && query.request.underlay) {
+        // The shown result, not the focus base (cleared when the summary changes).
+        const shown = this.snapshot.displayed;
+        const reused = shown ? reusableUnderlay(shown, query, data) : null;
+        if (reused) data = { ...data, underlay: reused, underlayIssue: null };
+        else underlayRetry = transientUnderlayIssue(data.underlayIssue);
+      }
       validateData(data, query);
       if (shared && base) {
         const releaseShared = base.images.retain();
@@ -1324,6 +1408,7 @@ export class PopulationSliceService {
         pending: false,
         error: null,
       });
+      if (underlayRetry) this.retryUnderlay(query);
       this.startPeak(query);
     } catch (error) {
       if (this.active && version === this.generation)

@@ -151,6 +151,7 @@ describe('autoClusters', () => {
     });
     expect(useClusterStore.getState().peaks.z1).toEqual({
       threshold: 3.1,
+      negativeThreshold: null,
       sign: 'both',
       value: 6.4052,
       mm: [-40, -20, 50],
@@ -165,7 +166,7 @@ describe('autoClusters', () => {
     useViewStateStore.getState().setViewState((d) => {
       d.layers.push(viewLayer('z0', [0, 0]));
     });
-    expect(autoClusterThreshold('z0')).toBe(3.1);
+    expect(autoClusterThreshold('z0')).toEqual({ positive: 3.1, negative: 3.1 });
   });
 
   it('recomputes once, debounced, when the threshold moves, and drops the stale run', async () => {
@@ -331,6 +332,24 @@ describe('autoClusters', () => {
     expect(mockComputeQuiet.mock.calls[0][0].layerId).toBe('hid');
   });
 
+  it('follows an asymmetric threshold per tail, without cluster p (QA N6)', async () => {
+    useClusterStore.getState().setParams({ extentP: true, fwhmText: '8' });
+    addLayer('z1', [-3.1, Math.fround(3.92923)]);
+    await vi.runOnlyPendingTimersAsync();
+    expect(mockComputeQuiet.mock.calls[0][0]).toMatchObject({
+      threshold: 3.93,
+      negativeThreshold: 3.1,
+      extent: null,
+    });
+  });
+
+  it('a one-sided threshold clusters only its tail, never the whole other half (review H2)', async () => {
+    addLayer('z1', [0, 3.93]);
+    await vi.runOnlyPendingTimersAsync();
+    expect(mockComputeQuiet.mock.calls[0][0]).toMatchObject({ threshold: 3.93, sign: 'positive' });
+    expect(mockComputeQuiet.mock.calls[0][0]).not.toHaveProperty('negativeThreshold');
+  });
+
   it('follows the panel parameters (sign, connectivity, size)', async () => {
     useClusterStore
       .getState()
@@ -349,17 +368,19 @@ describe('strongestPeak against the p4 fixture truth', () => {
   const truthPath = join(homedir(), 'Documents/brainflow-p4-native/fixtures/truth.json');
 
   it('is the first (largest |peak|) cluster of the table', () => {
-    expect(strongestPeak(truthTable(3.1), 3.1)).toEqual({
+    expect(strongestPeak(truthTable(3.1))).toEqual({
       threshold: 3.1,
+      negativeThreshold: null,
       sign: 'both',
       value: 6.4052,
       mm: [-40, -20, 50],
       clusters: 3,
     });
     expect(
-      strongestPeak({ ...truthTable(9), clusters: [], totalClusters: 0 } as ClusterTable, 9),
+      strongestPeak({ ...truthTable(9), clusters: [], totalClusters: 0 } as ClusterTable),
     ).toEqual({
       threshold: 9,
+      negativeThreshold: null,
       sign: 'both',
       value: null,
       mm: null,
@@ -387,7 +408,7 @@ describe('strongestPeak against the p4 fixture truth', () => {
         c.peak_mm,
       ]),
     );
-    expect(strongestPeak(table, 3.1)).toMatchObject({
+    expect(strongestPeak(table)).toMatchObject({
       value: strongest.peak_value,
       mm: strongest.peak_mm,
     });

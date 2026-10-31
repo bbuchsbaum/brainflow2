@@ -396,6 +396,26 @@ describe('StudioDisplayService', () => {
       expect(mockLayerService.toggleVisibility).toHaveBeenCalledWith('layer-current', false);
     });
 
+    it('shares the window at both ends, for already-loaded members too (run-4 F33)', async () => {
+      mockLayerStoreState.layers = [
+        { id: 'layer-current', sourcePath: '/tmp/current.nii.gz', visible: true },
+        { id: 'layer-back', sourcePath: '/tmp/back.nii.gz', visible: false },
+      ];
+      mockLayerStoreState.layerMetadata = new Map([
+        ['layer-current', { sourcePath: '/tmp/current.nii.gz' }],
+        ['layer-back', { sourcePath: '/tmp/back.nii.gz' }],
+      ]);
+      mockViewState.layers = [
+        { id: 'layer-current', intensity: [0.43, 1.4], threshold: [0, 0], colormap: 'hot' },
+        { id: 'layer-back', intensity: [0.63, 1.2], threshold: [0, 0], colormap: 'gray' },
+      ];
+      const service = new StudioDisplayService();
+      // Stepping back to a member loaded earlier (no new load).
+      await service.ensureSourcePathDisplayed('/tmp/back.nii.gz', ['/tmp/current.nii.gz', '/tmp/back.nii.gz']);
+      expect(mockFileLoadingService.loadFile).not.toHaveBeenCalled();
+      expect(mockViewState.layers[1]).toMatchObject({ intensity: [0.43, 1.4], colormap: 'hot' });
+    });
+
     it('the shared window survives the load-time auto-window in either order, once settled (review L3)', async () => {
       // LayerApiImpl starts its histogram refinement inside addLayer, i.e.
       // before loadFile resolves, and backs off if the window changed

@@ -107,6 +107,9 @@ export function DesignPane({
   onUseIssueFocusInCompare,
 }: DesignPaneProps) {
   const [page, setPage] = useState(0);
+  // A row picked while the distance ranking is shown; until then "Open in
+  // Deck" offers the top row (the member least like the mean; run-4 F6).
+  const [pickedForDeck, setPickedForDeck] = useState<{ key: string | null; id: string } | null>(null);
   const memberKey = JSON.stringify(visibleMemberIds ?? activeSet?.memberIds ?? []);
   useEffect(() => { setPage(previous => previous === 0 ? previous : 0); }, [activeSet?.id, memberKey]);
   // Keep the selected design row in view (the rail can push it below the fold).
@@ -190,8 +193,15 @@ export function DesignPane({
   const visibleColumns = previewColumns.slice(0, 4);
   const distanceSort = sortColumn === DISTANCE_TO_MEAN_SORT;
   const distances = distanceSort && meanDistance?.status === 'ready' ? meanDistance.byMember : null;
-  const deckTarget =
-    activeMemberId && orderedIds.includes(activeMemberId) ? activeMemberId : (orderedIds[0] ?? null);
+  const picked =
+    pickedForDeck && pickedForDeck.key === (meanDistance?.key ?? null) && orderedIds.includes(pickedForDeck.id)
+      ? pickedForDeck.id
+      : null;
+  const deckTarget = distances
+    ? (picked ?? orderedIds[0] ?? null)
+    : activeMemberId && orderedIds.includes(activeMemberId)
+      ? activeMemberId
+      : (orderedIds[0] ?? null);
   const showImportSummary =
     activeSet.ingestAudit.join.severity !== 'ok' ||
     activeSet.ingestAudit.join.issueDetails.length > 0 ||
@@ -214,7 +224,8 @@ export function DesignPane({
             );
             return `minmax(0, ${Math.min(24, Math.max(3, longest))}fr)`;
           })
-          .join(' ')) + (distances ? ' minmax(0, 9fr)' : '');
+          // The distance ("1.41 (0.23)") keeps its width in a narrow rail.
+          .join(' ')) + (distances ? ' minmax(7.5rem, 9fr)' : '');
   const showColumns = activeSet.designColumns.length > 0;
   const showGroups = cohorts.length > 0;
 
@@ -513,7 +524,10 @@ export function DesignPane({
                 key={row.id}
                 ref={row.id === activeMemberId ? selectedRowRef : undefined}
                 type="button"
-                onClick={() => onSelectMember(row.id)}
+                onClick={() => {
+                  if (distances) setPickedForDeck({ key: meanDistance?.key ?? null, id: row.id });
+                  onSelectMember(row.id);
+                }}
                 className={`grid w-full gap-3 px-3 py-2 text-left text-bf-md transition-colors ${
                   row.id === activeMemberId
                     ? SELECTED

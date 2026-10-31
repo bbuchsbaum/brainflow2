@@ -28,6 +28,7 @@ import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { openDockTab } from '@/components/layout/openDockTab';
 import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
 import { getClusterService } from '@/services/ClusterService';
+import { CLUSTER_AS_REGION_COMMAND } from '@/services/series/openClusterSeries';
 import { copyValuesAtCrosshair } from '@/services/readoutCopy';
 import { activeVolumeLayerId } from '@/utils/activeLayer';
 import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuListener';
@@ -336,6 +337,8 @@ function AppContent() {
         group: 'Statistics',
         run: () => openDockTab('clusters', { focus: true }),
       },
+      // Use the selected cluster row as the Series region (QA F5.4).
+      CLUSTER_AS_REGION_COMMAND,
       {
         id: 'statistics.goToMax',
         title: 'Go to Max',

@@ -74,8 +74,9 @@ class LayerEvictionService {
   }
 
   /**
-   * The GPU's volume texture slots: the render loop's runtime capacity
-   * (`resolve_runtime_capacity`, which depends on the adapter), or
+   * The GPU's layer budget: the render loop's runtime texture capacity
+   * (`resolve_runtime_capacity`, which depends on the adapter) or its render
+   * state's layer cap, whichever is smaller; or
    * {@link FALLBACK_GPU_TEXTURE_SLOTS} until the backend has reported it.
    * A backend that answers without the field (built before 2026-10-31) is
    * remembered as the fallback, so it is not asked again.
@@ -84,11 +85,15 @@ class LayerEvictionService {
     if (this.textureSlots !== null) return this.textureSlots;
     try {
       const stats = await getApiService().getAtlasStats();
-      const slots = stats?.volumeTextureSlots;
-      this.textureSlots =
-        typeof slots === 'number' && Number.isFinite(slots) && slots > 0
-          ? slots
-          : FALLBACK_GPU_TEXTURE_SLOTS;
+      const positive = (n: unknown): n is number =>
+        typeof n === 'number' && Number.isFinite(n) && n > 0;
+      const slots = positive(stats?.volumeTextureSlots)
+        ? stats.volumeTextureSlots
+        : FALLBACK_GPU_TEXTURE_SLOTS;
+      // The render state has its own layer cap (8; QA 2026-10-31 N2): the
+      // budget is whichever runs out first.
+      const layerCap = stats?.renderLayerCapacity;
+      this.textureSlots = positive(layerCap) ? Math.min(slots, layerCap) : slots;
       return this.textureSlots;
     } catch {
       // Render loop not initialised yet: ask again next time.
@@ -140,7 +145,7 @@ class LayerEvictionService {
   ): Promise<boolean> {
     // Read the stores after any await: layers change while the backend answers.
     const { layers, layerMetadata, setLayerMetadata } = useLayerStore.getState();
-    const viewLayers = useViewStateStore.getState().viewState.layers;
+    const shownSomewhere = layersShownInAnyWorkspace();
 
     // Count only layers that still hold live GPU resources.
     const activeGpuLayers = layers.filter((l) => layerMetadata.get(l.id)?.gpuResident !== false);
@@ -149,11 +154,13 @@ class LayerEvictionService {
     // store (StudioDerivedMapService; QA wave 3 review W1).
     if (!over(activeGpuLayers.length + getStudioDerivedMapService().liveCount())) return false;
 
-    // Candidates: invisible GPU-resident layers.
+    // Candidates: GPU-resident layers hidden in every workspace. A layer shown
+    // in a tab behind the front one (an Orthogonal tab while Set studio is in
+    // front) stays: releasing it costs a visible re-upload on return.
     const candidates = activeGpuLayers.filter((layer) => {
       if (layer.id === keepLayerId) return false;
-      const viewLayer = viewLayers.find((vl) => vl.id === layer.id);
-      return !(viewLayer?.visible ?? layer.visible);
+      const shown = shownSomewhere.get(layer.id);
+      return !(shown ?? layer.visible);
     });
     // All GPU layers are visible: nothing can go.
     if (candidates.length === 0) return false;
@@ -188,6 +195,23 @@ class LayerEvictionService {
     setLayerMetadata(lruLayer.id, { ...meta, evicted: true, gpuResident: false });
     return true;
   }
+}
+
+/**
+ * For each layer some workspace's view state lists: whether it is visible in
+ * at least one of them (the active view state and every workspace's). A
+ * layer no view state lists is absent from the map.
+ */
+function layersShownInAnyWorkspace(): Map<string, boolean> {
+  const { viewState, workspaceViewStates } = useViewStateStore.getState();
+  const shown = new Map<string, boolean>();
+  const states = [viewState, ...(workspaceViewStates?.values() ?? [])];
+  for (const state of states) {
+    for (const viewLayer of state?.layers ?? []) {
+      shown.set(viewLayer.id, Boolean(shown.get(viewLayer.id)) || Boolean(viewLayer.visible));
+    }
+  }
+  return shown;
 }
 
 export const layerEvictionService = LayerEvictionService.getInstance();

@@ -17,6 +17,7 @@ import { safeEmit, safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { useCenterTabStore } from '@/stores/centerTabStore';
+import { getLayoutService } from '@/services/layoutService';
 import type { WorkspaceType } from '@/types/workspace';
 import type { DisplayMode } from '@/types/displayModes';
 import {
@@ -35,6 +36,7 @@ interface WorkspaceActionEvent {
     | 'open-tool'
     | 'new-workspace'
     | 'close-workspace'
+    | 'close-tab'
     | 'switch-workspace';
   payload?: {
     /** set-layout: a display mode or an exact view type. */
@@ -60,6 +62,7 @@ function reportCurrentLayout(): WorkspaceType | null {
 
 const NAVIGATION_ACTIONS = new Set<WorkspaceActionEvent['action']>([
   'new-view',
+  'close-tab',
   'set-layout',
   'open-tool',
 ]);
@@ -136,6 +139,12 @@ export function useWorkspaceMenuListener() {
 
             case 'switch-workspace':
               if (payload.workspaceId) workspaceStore.activateWorkspace(payload.workspaceId);
+              break;
+
+            // File › Close Tab (⌘W): the front tab, as its × would (QA
+            // 2026-10-31 N1; ⇧⌘W closes the window).
+            case 'close-tab':
+              getLayoutService().closeFrontTab();
               break;
 
             case 'close-workspace':

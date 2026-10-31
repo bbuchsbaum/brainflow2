@@ -8,8 +8,8 @@ import type { ContentItem } from 'golden-layout';
 import {
   SURFACE_PLACEHOLDER_COMPONENT,
   describeSurfaceTabs,
+  PendingTabOrder,
   placeholderItemConfig,
-  redundantPlaceholders,
   surfaceSourceFromPath,
 } from '../surfaceTabRestore';
 import type { SavedSurfaceTab } from '@/stores/surfaceTabRestoreStore';
@@ -95,30 +95,17 @@ describe('surface tab restore', () => {
     expect(describeSurfaceTabs(root, [])[0].sources).toEqual([{ kind: 'file', path: '/d/rh.pial.gii' }]);
   });
 
-  // Review low: a surface reopened by hand replaces its placeholder.
-  it('finds the placeholders whose surfaces are all loaded again', () => {
-    const both: SavedSurfaceTab = {
-      surfaceViewId: 'sv-pial',
-      title: 'fsaverage5_pial_left',
-      sources: [
-        { kind: 'template', path: 'templateflow://fsaverage5_pial_left', space: 'fsaverage5', geometryType: 'pial', hemisphere: 'left' },
-        { kind: 'template', path: 'templateflow://fsaverage5_pial_right', space: 'fsaverage5', geometryType: 'pial', hemisphere: 'right' },
-      ],
-    };
-    const file: SavedSurfaceTab = {
-      surfaceViewId: 'sv-file',
-      title: 'lh.white.gii',
-      sources: [{ kind: 'file', path: '/d/lh.white.gii' }],
-    };
-    const root = tree(
-      tab(SURFACE_PLACEHOLDER_COMPONENT, both.title, { saved: both }),
-      tab(SURFACE_PLACEHOLDER_COMPONENT, file.title, { saved: file }),
-    );
-    const left = { handle: 'L', metadata: { path: 'templateflow://fsaverage5_pial_left' } };
-    const right = { handle: 'R', metadata: { path: 'templateflow://fsaverage5_pial_right' } };
-    // One hemisphere back is not enough.
-    expect(redundantPlaceholders(root, [left])).toEqual([]);
-    const titles = (items: ContentItem[]) => items.map((i) => (i as unknown as { title: string }).title);
-    expect(titles(redundantPlaceholders(root, [left, right]))).toEqual(['fsaverage5_pial_left']);
+  // Review L5: a restored tab that fails to add must not freeze the saved
+  // order for the whole session.
+  it('the pending relaunch order ends when finished, or after its window', () => {
+    let t = 0;
+    const pending = new PendingTabOrder(['ws:a', 'sv:b'], 1000, () => t);
+    expect(pending.current()).toEqual(['ws:a', 'sv:b']);
+    t = 1001;
+    expect(pending.current()).toBeNull();
+
+    const finished = new PendingTabOrder(['ws:a'], 1000, () => 0);
+    finished.finish();
+    expect(finished.current()).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SliceViewport } from '@/components/views/SliceViewport';
-import { ViewportColorbar, type ColorbarLayer } from '@/components/views/viewportFrame';
+import { StudioScaleBar } from './StudioScaleBar';
 import {
   getStudioDerivedMapService,
   isGpuTextureSlotsFull,
@@ -9,20 +9,21 @@ import {
 import {
   clearStudioPane,
   scheduleStudioPaneRender,
+  STUDIO_SIGNED_PANES,
+  studioAnatomyDisplay,
   studioDerivedDisplay,
   studioPaneTag,
   type StudioPanePlane,
 } from '@/services/studio/StudioPaneRenderService';
 import { useAppModeStore } from '@/stores/appModeStore';
+import { useStudioMapSliceKeys } from '@/hooks/useStudioMapSliceKeys';
+import { populationSliceActions } from '@/services/studio/PopulationSliceService';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { ViewPlane } from '@/types/coordinates';
 import { buildActiveCrosshairStyle } from '@/utils/crosshairUtils';
-
-/** Panes whose map is signed: drawn on the diverging map, symmetric about 0. */
-const SIGNED_PANES = new Set(['residual', 'zscore']);
 
 /**
  * Body of a derived Compare pane (B–D): the materialized map itself, held
@@ -36,11 +37,17 @@ export function StudioDerivedPaneCanvas({
   sourcePath,
   label,
   workspaceId,
+  underlayPath = null,
   plane = 'axial',
 }: {
   paneId: string;
   sourcePath: string;
   label: string;
+  /**
+   * Template anatomy drawn under the map ("template:<id>"), when the set's
+   * space declares a known template (populationUnderlaySource); else none.
+   */
+  underlayPath?: string | null;
   /** The Studio's workspace (captured by the lens, not the one in front). */
   workspaceId: string;
   plane?: StudioPanePlane;
@@ -80,9 +87,34 @@ export function StudioDerivedPaneCanvas({
     };
   }, [sourcePath, studioActive]);
 
+  // The anatomy is optional: a pane without it still shows its map.
+  const [anatomy, setAnatomy] = useState<StudioDerivedMap | null>(null);
+  useEffect(() => {
+    setAnatomy(null);
+    if (!studioActive || !underlayPath) return;
+    let alive = true;
+    const hold = getStudioDerivedMapService().acquire(underlayPath);
+    hold.map.then(
+      (loaded) => {
+        if (alive) setAnatomy(loaded);
+      },
+      (error) => {
+        console.warn(`[StudioDerivedPaneCanvas] No anatomy under ${paneId}:`, error);
+      },
+    );
+    return () => {
+      alive = false;
+      hold.release();
+    };
+  }, [underlayPath, studioActive, paneId]);
+
   const layer = useMemo(
-    () => (map ? studioDerivedDisplay(map, SIGNED_PANES.has(paneId), label) : null),
-    [map, paneId, label],
+    () => (map ? studioDerivedDisplay(map, label, STUDIO_SIGNED_PANES.has(paneId)) : null),
+    [map, label, paneId],
+  );
+  const layers = useMemo(
+    () => (layer ? (anatomy ? [studioAnatomyDisplay(anatomy), layer] : [layer]) : []),
+    [layer, anatomy],
   );
 
   const host = useRef<HTMLDivElement>(null);
@@ -114,7 +146,7 @@ export function StudioDerivedPaneCanvas({
     if (!studioActive || !map || !layer || size.width <= 0 || size.height <= 0) return;
     let alive = true;
     scheduleStudioPaneRender(
-      { tag, workspaceId, map, layer, plane, width: size.width, height: size.height },
+      { tag, workspaceId, map, layers, plane, width: size.width, height: size.height },
       (drawn) => {
         if (alive) setViewPlane(drawn);
       },
@@ -126,6 +158,7 @@ export function StudioDerivedPaneCanvas({
     studioActive,
     map,
     layer,
+    layers,
     size.width,
     size.height,
     workspaceId,
@@ -134,6 +167,14 @@ export function StudioDerivedPaneCanvas({
     tag,
     plane,
   ]);
+  // ↑/↓ over (or with focus in) the pane step its slice (N9).
+  useStudioMapSliceKeys(
+    host,
+    (slices) => {
+      if (viewPlane) populationSliceActions.step(workspaceId, viewPlane, crosshairWorld, slices);
+    },
+    studioActive,
+  );
   // The pane's bitmap goes with the pane (review L2).
   useEffect(() => () => clearStudioPane(tag), [tag]);
 
@@ -164,22 +205,6 @@ export function StudioDerivedPaneCanvas({
     }),
     [tag, size.width, size.height, plane],
   );
-  const colorbar = useMemo<ColorbarLayer | null>(
-    () =>
-      layer && map
-        ? {
-            layerId: layer.id,
-            name: label,
-            nameLabel: label,
-            colormap: layer.colormap,
-            intensity: layer.intensity,
-            threshold: layer.threshold,
-            dataRange: map.dataRange,
-          }
-        : null,
-    [layer, map, label],
-  );
-
   // Radiological convention: axial/coronal drawn mirrored by the shared
   // SliceViewport; clicks and the crosshair map through its placement.
   const mirrorX = useMirrorsView(plane);
@@ -207,13 +232,14 @@ export function StudioDerivedPaneCanvas({
           {failure ?? (studioActive ? 'Opening map…' : null)}
         </div>
       )}
-      {ready && colorbar ? (
-        <ViewportColorbar
-          layer={colorbar}
-          width={size.width}
-          height={size.height}
-          corner="top"
-          maxWidth={Math.max(96, size.width - 16)}
+      {ready && layer ? (
+        <StudioScaleBar
+          min={layer.intensity[0]}
+          max={layer.intensity[1]}
+          hidden={layer.threshold}
+          colormap={layer.colormap}
+          label={label}
+          paneHeight={size.height}
         />
       ) : null}
     </div>

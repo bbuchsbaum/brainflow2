@@ -67,5 +67,8 @@ describe('Keyboard shortcuts dialog labels (F41)', () => {
     expect(shortcutLabel(solo, true)).toBe('⇧⌘C');
     expect(shortcutLabel(ctrl, false)).toBe('Ctrl+K');
     expect(shortcutLabel(reg('zero', '0'), true)).toBe('0');
+    // "O" next to "0" in a mono font: the letter is named (QA 2026-10-31).
+    expect(shortcutLabel(reg('origin', 'o'), true)).toBe('O (letter)');
+    expect(shortcutLabel(reg('header', 'i', { modifiers: { meta: true } }), true)).toBe('⌘I');
   });
 });

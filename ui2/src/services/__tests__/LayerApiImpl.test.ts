@@ -5,7 +5,6 @@ import { fitViewsToWorldBox, worldBoxFromViews } from '@/utils/worldFrame';
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useSeriesStore } from '@/stores/seriesStore';
-import { STACKED_OVERLAY_OPACITY } from '@/services/layerPlacement';
 
 const {
   mockApiService,
@@ -480,6 +479,23 @@ describe('LayerApiImpl', () => {
     expect(added.type).toBe('label');
     const render = mockLayerStoreState.layerMetadata.get(added.id)?.renderProps;
     expect(render).toMatchObject({ layerMode: 'label', interpolation: 'nearest', intensity: [0, 1] });
+  });
+
+  it('a binary file named like a mask is a label map too (QA 2026-10-31 N11: p4_brain_mask.nii)', async () => {
+    mockApiService.requestLayerGpuResources.mockResolvedValueOnce({
+      data_range: { min: 0, max: 1 },
+      center_world: [0, 0, 0],
+      is_binary_like: true,
+      dim: [8, 8, 8],
+      voxel_to_world: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    });
+    const api = new LayerApiImpl();
+    const added = await api.addLayer(
+      { name: 'p4_brain_mask', volumeId: 'vol-mask', visible: true, type: 'mask', order: 0 },
+      { workspaceId: 'test' },
+    );
+    expect(added.type).toBe('label');
+    expect(mockLayerStoreState.layerMetadata.get(added.id)?.renderProps?.layerMode).toBe('label');
   });
 
   it('a small-integer count map keeps its type (review: lesion_overlap_n20)', async () => {

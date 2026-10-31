@@ -84,3 +84,23 @@ describe('compose under the radiological convention', () => {
     expect(texts.filter((t) => t.text === RADIOLOGICAL_MARKER)).toHaveLength(1);
   });
 });
+
+describe('single-atlas legend grows like the grouped one (QA N15)', () => {
+  beforeEach(() => {
+    calls = [];
+    texts = [];
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => recorder() as never);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const regions = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ label_id: i + 1, roi: `Region ${i + 1}`, color: [i, 0, 0] as [number, number, number] }));
+
+  it.each([1, 2, 300 / 96, 600 / 96])('lists all 10 ASEG regions at unit %s, no "+N more"', (unit) => {
+    const short = { ...pane(false), height: 90, width: 120 };
+    compose([[short]], { colorbar: null, legend: regions(10) }, { ...options, colorbar: true, unit }, settings);
+    const listed = texts.filter((t) => t.text.startsWith('Region'));
+    expect(listed).toHaveLength(10);
+    expect(texts.some((t) => /^\+\d+ more$/.test(t.text))).toBe(false);
+  });
+});

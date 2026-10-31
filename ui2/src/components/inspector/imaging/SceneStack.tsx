@@ -62,18 +62,15 @@ import { useIjkSuffix, useReadoutGrid } from "@/hooks/useReadoutGrid";
 const VOLUME_OPENS = new Set(["volume-load", "template", "atlas"]);
 
 /**
- * A volume, template or atlas is opening into `workspaceId` and was asked
- * for after the row was selected: the new layer has no row yet, so Delete
- * then most likely meant it. Loads elsewhere (another workspace, a Studio
- * population load) and loads older than the selection do not count.
+ * A volume, template or atlas is opening into `workspaceId`: its layer has
+ * no row yet, so a Delete then may mean "stop that" and must not remove the
+ * selected row, whenever the row was selected (QA 2026-10-31 N7). Loads into
+ * another workspace and Studio population loads do not count.
  */
-function openPendingSinceSelection(workspaceId: string, selectedAt: number): boolean {
+function openPendingInWorkspace(workspaceId: string): boolean {
   const { queue, activeLoads } = useLoadingQueueStore.getState();
   return [...queue, ...activeLoads.values()].some(
-    (item) =>
-      VOLUME_OPENS.has(item.type) &&
-      item.workspaceId === workspaceId &&
-      (item.enqueuedAt ?? 0) >= selectedAt,
+    (item) => VOLUME_OPENS.has(item.type) && item.workspaceId === workspaceId,
   );
 }
 
@@ -298,11 +295,6 @@ function VolumeSceneGroup({
   rovingFor: RovingFor;
 }) {
   const listRef = React.useRef<HTMLDivElement>(null);
-  // When the current row was selected (F35: only later opens block Delete).
-  const selectedAt = React.useRef(Date.now());
-  React.useEffect(() => {
-    selectedAt.current = Date.now();
-  }, [activeItemId]);
   // Delete / Backspace removes the selected volume while focus is in the
   // list (never from a text field: the list holds none, but guard anyway).
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -315,12 +307,10 @@ function VolumeSceneGroup({
     if (!item || item.ref.type !== "volume") return;
     event.preventDefault();
     event.stopPropagation();
-    // An image opened since this row was selected has no row yet: Delete
-    // then most likely means "stop that", and must not remove the selected
-    // row (QA 2026-10-30 F35). Said in a toast (and the Log); Remove layer in
-    // the row menu still works.
+    // While an image opens into this workspace Delete is refused, in a toast
+    // (and the Log); Remove layer in the row menu still works (F35, N7).
     const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
-    if (openPendingSinceSelection(workspaceId, selectedAt.current)) {
+    if (openPendingInWorkspace(workspaceId)) {
       getEventBus().emit("ui.notification", {
         type: "warning",
         message: `Did not remove ${item.name}: an image is still opening. Use Remove layer in the row menu.`,

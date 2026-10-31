@@ -88,17 +88,16 @@ export class StudioDisplayService {
       return;
     }
 
-    const loadedBefore = this.findLayerIdBySourcePath(normalizedPath) !== null;
     const previous = this.visibleManagedLayerId(managedSourcePaths);
     const layerId = await this.ensureLayerLoaded(normalizedPath, 'default', memberLabel);
     if (!layerId) {
       return;
     }
 
-    // Deck cards share one scale (QA F33): a newly loaded member takes the
-    // display of the member shown before it, so stepping compares like with
-    // like. A member already loaded keeps its own (possibly edited) display.
-    if (!loadedBefore && previous && previous !== layerId) {
+    // Deck cards share one scale (QA F33): each member shown takes the
+    // display of the member shown before it, its window widened to cover
+    // both members' windows at both ends, so stepping compares like with like.
+    if (previous && previous !== layerId) {
       this.shareDisplay(previous, layerId);
     }
     this.syncSourcePathVisibility(managedSourcePaths, layerId);
@@ -117,13 +116,19 @@ export class StudioDisplayService {
     return layer?.id ?? null;
   }
 
-  /** Give `toId` the window, threshold and colour map of `fromId`. */
+  /**
+   * Give `toId` the threshold and colour map of `fromId`, and a window that
+   * covers both layers' windows (the lower ends too).
+   */
   private shareDisplay(fromId: string, toId: string): void {
     useViewStateStore.getState().setViewState((draft) => {
       const from = draft.layers.find((layer) => layer.id === fromId);
       const to = draft.layers.find((layer) => layer.id === toId);
       if (!from || !to) return;
-      to.intensity = [from.intensity[0], from.intensity[1]];
+      to.intensity = [
+        Math.min(from.intensity[0], to.intensity[0]),
+        Math.max(from.intensity[1], to.intensity[1]),
+      ];
       to.threshold = [from.threshold[0], from.threshold[1]];
       to.colormap = from.colormap;
     });

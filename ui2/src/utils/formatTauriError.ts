@@ -67,22 +67,28 @@ export function tauriErrorCode(error: unknown, depth = 0): number | null {
 
 const LOAD_FAILURE_PREFIX = /^\s*failed to load\b[^:\n]*:\s*/i;
 
-/** The render loop's error when every volume texture slot is taken. */
-const TEXTURE_SLOTS_FULL = /maximum texture limit (\d+) reached/i;
+/**
+ * The render loop's errors when its layer slots are all taken: the texture
+ * slots ("Maximum texture limit N reached", multi_texture_manager) or the
+ * render state's layer cap ("Maximum layer count N reached", code 1885; older
+ * builds said "Maximum layer count exceeded" without the number).
+ */
+const SLOTS_FULL = /maximum (?:texture limit|layer count)(?: (\d+))? (?:reached|exceeded)/i;
 
 /**
- * The slot count when `error` says the GPU's volume texture slots are all in
- * use (render_loop multi_texture_manager: "Maximum texture limit N reached"),
- * else null.
+ * Whether `error` says the GPU's layer slots are all in use, and the slot
+ * count when it names one (else 0): null when it is another error.
  */
 export function gpuTextureSlotsFullLimit(error: unknown): number | null {
-  const match = TEXTURE_SLOTS_FULL.exec(formatTauriError(error));
-  return match ? Number(match[1]) : null;
+  const match = SLOTS_FULL.exec(formatTauriError(error));
+  if (!match) return null;
+  return match[1] ? Number(match[1]) : 0;
 }
 
-/** What a load that ran out of GPU texture slots tells the user. */
+/** What a load that ran out of GPU slots tells the user (`limit` 0: unknown). */
 export function gpuTextureSlotsFullMessage(limit: number): string {
-  return `GPU texture slots full (all ${limit} in use). Hide or remove a layer, then load again.`;
+  const count = limit > 0 ? ` (all ${limit} in use)` : '';
+  return `GPU texture slots full${count}. Hide or remove a layer, then load again.`;
 }
 
 /**

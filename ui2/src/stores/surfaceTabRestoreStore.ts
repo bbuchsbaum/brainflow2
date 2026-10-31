@@ -35,23 +35,35 @@ export interface SavedSurfaceTab {
 
 interface SurfaceTabRestoreState {
   tabs: SavedSurfaceTab[];
+  /**
+   * The centre strip's tab order (`ws:<workspaceId>` / `sv:<surfaceViewId>`),
+   * so relaunch puts view, tool and surface tabs back where they were.
+   */
+  order: string[];
   setTabs: (tabs: SavedSurfaceTab[]) => void;
+  setOrder: (order: string[]) => void;
 }
 
 export const useSurfaceTabRestoreStore = create<SurfaceTabRestoreState>()(
   persist(
     (set, get) => ({
       tabs: [],
+      order: [],
       setTabs: (tabs) => {
         // Called on every layout change: write only a real difference.
         if (JSON.stringify(get().tabs) === JSON.stringify(tabs)) return;
         set({ tabs });
       },
+      setOrder: (order) => {
+        const current = get().order;
+        if (current.length === order.length && current.every((key, i) => key === order[i])) return;
+        set({ order });
+      },
     }),
     {
       name: 'brainflow2-surface-tabs',
       version: 1,
-      partialize: (state) => ({ tabs: state.tabs }),
+      partialize: (state) => ({ tabs: state.tabs, order: state.order }),
     },
   ),
 );

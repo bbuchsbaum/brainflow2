@@ -100,7 +100,7 @@ describe('Files panel (QA 2026-10-30 F46)', () => {
     setTransport({ invoke: vi.fn().mockResolvedValue(false) } as never);
   });
 
-  it('shows "No matching files" over the tree, which stays mounted', () => {
+  it('shows "No matching files" above the tree, which stays mounted', () => {
     resetStore([dir('/data/a', [file('/data/a/t1.nii')])]);
     render(<FileBrowserPanel />);
     fireEvent.change(screen.getByRole('textbox', { name: 'Search files' }), {
@@ -110,6 +110,11 @@ describe('Files panel (QA 2026-10-30 F46)', () => {
       useFileBrowserStore.setState({ searchIndexing: false });
     });
     expect(screen.getByTestId('files-search-empty')).toHaveTextContent('No matching files');
+    // In flow above the tree, not inside its (possibly tall) container (QA 2026-10-31).
+    const notice = screen.getByTestId('files-search-empty');
+    expect(notice.closest('.fb-tree-container')).toBeNull();
+    const treeEl = document.querySelector('.fb-tree-container')!;
+    expect(notice.compareDocumentPosition(treeEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByTestId('mock-tree')).toBeInTheDocument();
     expect(tree.mounts).toBe(1);
   });

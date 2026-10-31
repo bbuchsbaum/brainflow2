@@ -1,3 +1,4 @@
+import { useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { Button, Notice, Select, Slider } from '@/components/ui/bf';
 import { ReusableSliceViewport, SliceViewerImageSurface } from '@/components/views/sliceViewer';
@@ -69,8 +70,8 @@ export function PopulationExplanation({
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(320);
   const [preview, setPreview] = useState<{ image: ImageBitmap; plane: ViewPlane } | null>(null);
-  const crosshairState = useViewStateStore((s) => s.viewState.crosshair);
-  const workspace = useViewStateStore((s) => s.activeWorkspaceKey);
+  const workspace = useStudioWorkspaceKey();
+  const crosshairState = useViewStateStore((s) => s.getWorkspaceViewState(workspace).crosshair);
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
       const next = Math.max(1, Math.floor(entry.contentRect.width));
@@ -95,7 +96,7 @@ export function PopulationExplanation({
     setBusy(true);
     setError(null);
     try {
-      const crosshair = useViewStateStore.getState().viewState.crosshair.world_mm;
+      const crosshair = useViewStateStore.getState().getWorkspaceViewState(workspace).crosshair.world_mm;
       const result = await explainRelationship(
         fit,
         {

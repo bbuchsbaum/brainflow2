@@ -16,6 +16,8 @@ import { useLayoutStateStore } from "@/stores/layoutStateStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import type { ViewType } from "@/types/coordinates";
 import { isViewerKeyTarget, navigationKeyTarget } from "@/utils/viewerKeyTarget";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { mosaicAxisOf } from "@/utils/mosaicAxis";
 import { isTextEditingElement, selectAllInFocusedField } from "@/utils/editSelectAll";
 import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
 
@@ -29,7 +31,11 @@ const SLICE_VIEWS: ReadonlySet<ViewType> = new Set([
   "coronal",
 ]);
 
-function resolveActiveSliceView(): ViewType {
+export function resolveActiveSliceView(): ViewType {
+  // A Mosaic tab in front: its own slicing axis (QA 2026-10-31).
+  const workspaces = useWorkspaceStore.getState();
+  const front = workspaces.activeWorkspaceId ? workspaces.getWorkspace(workspaces.activeWorkspaceId) : null;
+  if (front?.type === "mosaic") return mosaicAxisOf(front.id) ?? "axial";
   const activeRenderable = useActiveRenderContextStore.getState().activeId;
   if (activeRenderable && SLICE_VIEWS.has(activeRenderable as ViewType)) {
     return activeRenderable as ViewType;

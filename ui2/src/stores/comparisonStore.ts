@@ -60,6 +60,18 @@ interface ComparisonActions {
    */
   setPaneCount: (workspaceId: string, count: number, candidates: string[], layerLabels?: Map<string, string>) => void;
 
+  /**
+   * When no pane shows any of `presentLayerIds` (empty, or stale ids), give
+   * pane i `candidates[i]`: Compare never opens on empty panes when there is
+   * something to show (QA 2026-10-31: ⌘4 opened two "Choose a layer…" panes).
+   */
+  fillEmptyPanes: (
+    workspaceId: string,
+    candidates: string[],
+    presentLayerIds: ReadonlySet<string>,
+    layerLabels?: Map<string, string>,
+  ) => void;
+
   /** The pane's header picker: show `layerId` in place of `previousLayerId` (its own layer). */
   setPanelLayer: (
     workspaceId: string,
@@ -300,6 +312,30 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
             });
           }
           state.panels.set(workspaceId, next);
+        });
+      },
+
+      fillEmptyPanes: (workspaceId, candidates, presentLayerIds, layerLabels) => {
+        set(state => {
+          const panels = state.panels.get(workspaceId);
+          if (!panels || panels.length === 0 || candidates.length === 0) return;
+          const showsSomething = panels.some((panel) =>
+            Array.from(panel.visibleLayerIds).some((id) => presentLayerIds.has(id)),
+          );
+          if (showsSomething) return;
+          panels.forEach((panel) => state.panelViewPlanes.delete(panel.id));
+          state.panels.set(
+            workspaceId,
+            panels.map((panel, i) => {
+              const id = candidates[i];
+              return {
+                ...panel,
+                label: (id && layerLabels?.get(id)) || `Panel ${i + 1}`,
+                visibleLayerIds: new Set(id ? [id] : []),
+                renderOverrides: undefined,
+              };
+            }),
+          );
         });
       },
 

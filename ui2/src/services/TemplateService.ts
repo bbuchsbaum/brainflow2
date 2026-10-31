@@ -11,7 +11,8 @@ import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import type { VolumeHandle } from './apiService';
 import type { LayerInfo } from '@/stores/layerStore';
 import { getEventBus, type EventBus } from '@/events/EventBus';
-import { toError } from '@/utils/formatTauriError';
+import { loadFailureMessage, toError } from '@/utils/formatTauriError';
+import { addLogEntry } from '@/stores/logStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 
@@ -241,7 +242,15 @@ export class TemplateService {
       if (!options.quiet) {
         this.eventBus.emit('ui.notification', {
           type: 'error',
-          message: `Failed to load template ${templateId}: ${error.message}`
+          message: loadFailureMessage(`template ${templateId}`, rawError),
+          logSource: 'template',
+        });
+      } else {
+        // No toast, but the Log keeps the failure.
+        addLogEntry({
+          level: 'error',
+          source: 'template',
+          message: loadFailureMessage(`template ${templateId}`, rawError),
         });
       }
     }

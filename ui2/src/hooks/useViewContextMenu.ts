@@ -14,7 +14,7 @@ import { getEventBus } from '@/events/EventBus';
 import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
-import { isOverlayLayer } from '@/components/views/viewportFrame/useOverlayColorbar';
+import { currentOverlayColorbarLayerId } from '@/components/views/viewportFrame/useOverlayColorbar';
 import { useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 import { fitView } from '@/services/ViewZoomService';
 import type { ViewType } from '@/types/coordinates';
@@ -40,10 +40,9 @@ export function useViewContextMenu(contextId: string) {
         ? useDisplayOptionsStore.getState().getOptions(primaryLayerId).showOrientationMarkers
         : true;
 
-      // Colorbar toggle for the selected overlay layer (on-image colorbar).
-      const { layers: allLayers, selectedLayerId } = useLayerStore.getState();
-      const colorbarLayerId =
-        selectedLayerId && isOverlayLayer(allLayers, selectedLayerId) ? selectedLayerId : null;
+      // Colorbar toggle for the colorbar the view shows: the same layer as
+      // useOverlayColorbar (active layer, topmost overlay, run-group base).
+      const colorbarLayerId = currentOverlayColorbarLayerId();
       const colorbarOn = colorbarLayerId
         ? useDisplayOptionsStore.getState().getOptions(colorbarLayerId).showColorbar !== false
         : false;

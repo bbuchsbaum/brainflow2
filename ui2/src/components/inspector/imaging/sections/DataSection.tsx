@@ -3,7 +3,7 @@ import { useClusterStore } from "@/stores/clusterStore";
 import { asciiCopyHandler } from "@/utils/numericInput";
 import { describeStatistic, isInferredStatistic, statisticPhrase } from "@/utils/statistic";
 import { StatSymbol } from "@/components/ui/StatSymbol";
-import { getClusterService } from "@/services/ClusterService";
+import { clusterTestText, getClusterService } from "@/services/ClusterService";
 import { getEventBus } from "@/events/EventBus";
 import { formatTauriError } from "@/utils/formatTauriError";
 import React from "react";
@@ -177,16 +177,25 @@ function PeakLine({ layerId, variable }: { layerId: string; variable: string }) 
   // The test the clusters were formed with: |z| > t, z > t or z < −t.
   const t = formatLayerValue(peak.threshold);
   const symbol = <StatSymbol label={variable} />;
+  // Two tails at different thresholds (−3.1 ≤ z ≤ 3.93 hidden; QA N6).
+  const n =
+    peak.sign === "both" && peak.negativeThreshold != null && peak.negativeThreshold !== peak.threshold
+      ? formatLayerValue(peak.negativeThreshold)
+      : null;
   const test =
-    peak.sign === "both" ? (
+    n !== null ? (
+      <>
+        {symbol} &gt; {t} or {symbol} &lt; {"\u2212"}
+        {n}
+      </>
+    ) : peak.sign === "both" ? (
       <>|{symbol}| &gt; {t}</>
     ) : peak.sign === "positive" ? (
       <>{symbol} &gt; {t}</>
     ) : (
       <>{symbol} &lt; {"\u2212"}{t}</>
     );
-  const testText =
-    peak.sign === "both" ? `|${variable}| > ${t}` : peak.sign === "positive" ? `${variable} > ${t}` : `${variable} < \u2212${t}`;
+  const testText = clusterTestText(peak, variable);
   if (peak.value === null || !peak.mm) {
     return (
       <p className="mt-1 text-bf-xs text-bf-text-muted" data-testid="layer-peak">

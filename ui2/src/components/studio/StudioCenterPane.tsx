@@ -1,5 +1,10 @@
 import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  STUDIO_MIN_VIEW_PX,
+  StudioToolbarSlotContext,
+  StudioViewportHeightContext,
+} from './StudioToolbarSlot';
 import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
 import { getStudioCoordinationService } from '@/services/studio/StudioCoordinationService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -61,8 +66,32 @@ function buildCompareArtifact(args: {
   };
 }
 
+/** A Deck view's slice slider and spacing under its canvas (px). */
+const DECK_VIEW_CHROME_PX = 34;
+/** A Compare pane's header and footer around its map (px). */
+const COMPARE_PANE_CHROME_PX = 84;
+
 export function StudioCenterPane() {
   const [populationProbeController] = useState(() => new PopulationProbeController());
+  // The toolbar slot the active lens portals its controls into, and the
+  // visible height under the toolbar its maps fill (QA N13).
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [column, setColumn] = useState<HTMLElement | null>(null);
+  const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!column || !toolbar || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      // 12 px: the column's gap between the toolbar and the lens.
+      const next = Math.max(0, Math.floor(column.clientHeight - toolbar.offsetHeight - 12));
+      setViewportHeight((previous) => (previous === next ? previous : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(column);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
+  }, [column, toolbar]);
   const {
     activeSet,
     activeFeature,
@@ -214,18 +243,49 @@ export function StudioCenterPane() {
     });
   };
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-      <StudioLensSwitcher
-        activeLens={activeLens}
-        populationOnly={!!activeSet?.savedPopulation}
-        onSelectLens={setActiveLens}
-        compareCohort={compareCohort}
-        cohorts={cohortList}
-        onSelectCompareCohort={setCompareCohort}
-      />
+  // Deck: three views of at least STUDIO_MIN_VIEW_PX (two rows) plus the
+  // view chrome; Compare: two rows of panes. Both fill the visible column.
+  const lensHeight =
+    viewportHeight === null
+      ? undefined
+      : activeLens === 'deck'
+        ? Math.max(2 * (STUDIO_MIN_VIEW_PX + DECK_VIEW_CHROME_PX) + 16, viewportHeight)
+        : activeLens === 'compare'
+          ? Math.max(2 * (STUDIO_MIN_VIEW_PX + COMPARE_PANE_CHROME_PX) + 12, viewportHeight)
+          : undefined;
 
-      <div className={activeLens === 'population' ? 'shrink-0' : 'min-h-[480px] flex-1'}>
+  return (
+    // A stable scroll gutter: the column scrolls from its right edge and
+    // margins while a wheel over a map steps that map's slice (QA N13).
+    <div
+      ref={setColumn}
+      data-studio-column
+      className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 [scrollbar-gutter:stable]"
+    >
+      <div
+        ref={setToolbar}
+        className="sticky top-0 z-20 flex min-w-0 shrink-0 flex-wrap items-center gap-2 rounded-sm border border-border bg-card px-2 py-1 lg:flex-nowrap"
+        aria-label="Set studio toolbar"
+      >
+        <StudioLensSwitcher
+          bare
+          activeLens={activeLens}
+          populationOnly={!!activeSet?.savedPopulation}
+          onSelectLens={setActiveLens}
+          compareCohort={compareCohort}
+          cohorts={cohortList}
+          onSelectCompareCohort={setCompareCohort}
+        />
+        <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+        <div ref={setSlot} className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-2" />
+      </div>
+
+      <StudioToolbarSlotContext.Provider value={slot}>
+      <StudioViewportHeightContext.Provider value={viewportHeight}>
+      <div
+        className={activeLens === 'population' ? 'shrink-0' : 'min-h-0 shrink-0'}
+        style={lensHeight === undefined ? undefined : { height: lensHeight }}
+      >
         <LensCanvas
           populationProbeController={populationProbeController}
           activeLens={activeLens}
@@ -257,6 +317,8 @@ export function StudioCenterPane() {
           visibleMemberIds={visibleMemberIds}
         />
       </div>
+      </StudioViewportHeightContext.Provider>
+      </StudioToolbarSlotContext.Provider>
 
       {activeLens === 'compare' ? (
         <StudioTimeRow

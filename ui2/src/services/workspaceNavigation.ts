@@ -19,7 +19,7 @@
  * The native menu and the in-app shortcuts both route here so they cannot drift.
  */
 
-import { useCenterTabStore } from '@/stores/centerTabStore';
+import { isSurfaceTabComponent, useCenterTabStore } from '@/stores/centerTabStore';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { DISPLAY_MODES, type DisplayMode } from '@/types/displayModes';
@@ -72,7 +72,7 @@ function isModeAvailable(mode: DisplayMode): boolean {
  * a view workspace tab, not a tool and not the surface tab.
  */
 export function currentTabTakesLayout(): boolean {
-  if (useCenterTabStore.getState().frontComponentType === 'surfaceView') return false;
+  if (isSurfaceTabComponent(useCenterTabStore.getState().frontComponentType)) return false;
   const { activeWorkspaceId, workspaces } = useWorkspaceStore.getState();
   const active = activeWorkspaceId ? workspaces.get(activeWorkspaceId) : undefined;
   return Boolean(active && isViewWorkspaceType(active.type));
@@ -97,9 +97,14 @@ function trackFirstTab(create: () => Promise<string>): Promise<string> {
   });
 }
 
-function createFirstView(type: WorkspaceType): Promise<string> {
+function createFirstView(type: WorkspaceType, defaultView = false): Promise<string> {
   if (!pendingFirstView) {
-    pendingFirstView = trackFirstTab(() => useWorkspaceStore.getState().createWorkspace(type)).finally(
+    pendingFirstView = trackFirstTab(() => {
+      const { createWorkspace } = useWorkspaceStore.getState();
+      return defaultView
+        ? createWorkspace(type, undefined, { defaultView: true })
+        : createWorkspace(type);
+    }).finally(
       () => {
         pendingFirstView = null;
       },
@@ -117,7 +122,7 @@ export function ensureDefaultView(): Promise<string> | null {
   if (useWorkspaceStore.getState().workspaces.size > 0) return null;
   if (pendingFirstView) return pendingFirstView;
   if (firstTabCreates > 0) return null;
-  return createFirstView(DEFAULT_VIEW_TYPE);
+  return createFirstView(DEFAULT_VIEW_TYPE, true);
 }
 
 /**

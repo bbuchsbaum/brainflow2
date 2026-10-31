@@ -4,7 +4,11 @@ import { ChevronDown } from 'lucide-react';
 import { populationRestoreService } from '@/services/studio/PopulationRestoreService';
 import { formatTauriError } from '@/utils/formatTauriError';
 
-export function PopulationOpenControls() {
+/**
+ * `inline`: one line in the Studio header (QA N13). The relocation form and
+ * any error open in a panel under it instead of wrapping the header.
+ */
+export function PopulationOpenControls({ inline = false }: { inline?: boolean } = {}) {
   const active = useRef<AbortController | null>(null);
   const [fromDirectory, setFromDirectory] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,7 +42,9 @@ export function PopulationOpenControls() {
     }
   };
   return (
-    <div className="flex flex-wrap items-center gap-2 text-bf-sm">
+    <div
+      className={`flex items-center gap-2 text-bf-sm ${inline ? 'relative shrink-0 flex-nowrap' : 'flex-wrap'}`}
+    >
       <Button variant="secondary" size="sm"
         disabled={busy}
         onClick={() => void open()}
@@ -47,7 +53,7 @@ export function PopulationOpenControls() {
       </Button>
       {/* App disclosure grammar: chevron right = closed, down = open (no
           native triangle marker). */}
-      <details className="group/disclosure w-full">
+      <details className={`group/disclosure ${inline ? 'relative' : 'w-full'}`}>
         <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
           <ChevronDown
             aria-hidden
@@ -55,7 +61,13 @@ export function PopulationOpenControls() {
           />
           Sources moved?
         </summary>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div
+          className={
+            inline
+              ? 'absolute right-0 top-full z-30 mt-1 flex w-[24rem] max-w-[80vw] flex-wrap gap-2 rounded-sm border border-border bg-card p-3 shadow-md'
+              : 'mt-2 flex flex-wrap gap-2'
+          }
+        >
           <TextField
             aria-label="Original source directory"
             className="min-w-0 flex-1 w-auto"
@@ -83,7 +95,11 @@ export function PopulationOpenControls() {
         </Button>
       )}
       {error && (
-        <Notice role="alert" severity="danger" className="w-full">
+        <Notice
+          role="alert"
+          severity="danger"
+          className={inline ? 'absolute right-0 top-full z-30 mt-1 w-[24rem] max-w-[80vw]' : 'w-full'}
+        >
           {error}
         </Notice>
       )}

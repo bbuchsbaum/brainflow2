@@ -362,8 +362,17 @@ describe('DesignPane filter chip focus', () => {
     expect(cells[0]).toMatch(/^4/);
     expect(cells[1]).toBe("1.41 (0.23)");
     expect(cells[2]).toMatch(/\(—\)$/);
+    // The focused member (sub002) is not offered: the top row, the member
+    // least like the mean, is (run-4 F6)…
+    fireEvent.click(screen.getByRole('button', { name: 'Open sub003 in Deck' }));
+    expect(onOpenInDeck).toHaveBeenLastCalledWith('sub003');
+    // …until a row is picked.
+    fireEvent.click(screen.getByText('sub002', { selector: 'span' }));
     fireEvent.click(screen.getByRole('button', { name: 'Open sub002 in Deck' }));
-    expect(onOpenInDeck).toHaveBeenCalledWith('sub002');
+    expect(onOpenInDeck).toHaveBeenLastCalledWith('sub002');
+    // The distance column keeps a minimum width.
+    const row = screen.getAllByTestId('distance-to-mean')[0].closest('button')!;
+    expect(row.style.gridTemplateColumns).toMatch(/minmax\(7\.5rem, 9fr\)$/);
 
     rerender(
       <DesignPane

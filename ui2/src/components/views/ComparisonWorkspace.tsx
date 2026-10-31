@@ -140,6 +140,15 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
     [visibleLayerIds, allLayers]
   );
 
+  // Panes that show nothing (empty, or ids of layers since replaced) while
+  // there is something to compare take the candidates, the anatomy alone
+  // in pane A (QA 2026-10-31: ⌘4 opened two empty "Choose a layer…" panes).
+  const fillEmptyPanes = useComparisonStore(state => state.fillEmptyPanes);
+  useEffect(() => {
+    if (panels.length === 0 || paneCandidates.length === 0) return;
+    fillEmptyPanes(workspaceId, paneCandidates, new Set(layers.map(layer => layer.id)), layerNames);
+  }, [fillEmptyPanes, layerNames, layers, paneCandidates, panels, workspaceId]);
+
   // Auto-init: a new Compare tab opens with two panes, not one per layer
   // (QA features 2026-10-31 §6); each picks its layer in its header.
   useEffect(() => {

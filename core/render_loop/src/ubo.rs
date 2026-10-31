@@ -225,8 +225,10 @@ pub struct SliceFeatureUbo {
     /// 0 = uniform `outline_color`; 1 = each region's LUT colour, with alpha
     /// `outline_color[3]` x LUT alpha (hidden regions stay hidden).
     pub outline_color_mode: u32,
-    /// Dark halo band width in screen pixels (0 = none). Single-label mode draws
-    /// it just outside the region; all-boundaries mode draws a second inner band.
+    /// Dark halo band width in screen pixels (0 = none), around the centred
+    /// outline: outside the region in single-label mode, on both sides in
+    /// all-boundaries mode. The shader clamps line plus halo to about two
+    /// voxels on screen (never below a 1 px line).
     pub halo_thickness_px: f32,
     pub _pad1: f32,
     pub halo_color: [f32; 4],

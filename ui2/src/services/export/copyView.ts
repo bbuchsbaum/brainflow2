@@ -11,6 +11,49 @@ import { availableExportTargets, captureComposite, type CompositeRequest } from 
 import { EXPORT_PRESETS } from './compositeExport';
 import { mirrorsView, useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 import type { ViewType } from '@/types/coordinates';
+import { getHostCapabilities, getTransport } from '@/services/transport';
+
+/** The one message a failed clipboard write shows (never WebKit's own text, QA N8). */
+export const CLIPBOARD_FAILED = "Couldn't copy to the clipboard";
+
+/** The native command's too-large refusal (main.rs), shown as it is. */
+export const CLIPBOARD_TOO_LARGE = 'Image too large for the clipboard';
+
+/** A refusal the user can act on (too large), else the generic message. */
+export function clipboardFailureMessage(error: unknown): string {
+  const text = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+  return text.startsWith(CLIPBOARD_TOO_LARGE) ? text : CLIPBOARD_FAILED;
+}
+
+/**
+ * The PNG onto the system clipboard. The desktop app writes natively
+ * (`copy_png_to_clipboard`): WebKit refuses a `navigator.clipboard` write
+ * that lands after the key gesture, as the async mosaic capture always does.
+ * A browser host has only `navigator.clipboard`.
+ */
+export async function writePngToClipboard(
+  png: Blob,
+  env: {
+    native: boolean;
+    invoke: (cmd: string, body: Uint8Array) => Promise<unknown>;
+    web: (png: Blob) => Promise<void>;
+  } = {
+    native: getHostCapabilities().nativePaths,
+    invoke: (cmd, body) => getTransport().invoke(cmd, body),
+    web: (blob) => navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]),
+  },
+): Promise<void> {
+  try {
+    if (env.native) {
+      await env.invoke('copy_png_to_clipboard', new Uint8Array(await png.arrayBuffer()));
+    } else {
+      await env.web(png);
+    }
+  } catch (error) {
+    console.error('[copyView] Clipboard write failed:', error);
+    throw new Error(clipboardFailureMessage(error));
+  }
+}
 
 /** The mosaic as shown: the page's tiles at screen size, framed like the view. */
 export const MOSAIC_COPY_REQUEST: CompositeRequest = {
@@ -42,7 +85,7 @@ const defaultDeps: CopyViewDeps = {
     const result = await captureComposite('mosaic', 'png', MOSAIC_COPY_REQUEST);
     return new Blob([result.bytes as BlobPart], { type: 'image/png' });
   },
-  write: (png) => navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]),
+  write: (png) => writePngToClipboard(png),
   mirrored: (viewId) =>
     mirrorsView(viewId as ViewType, useViewDisplaySettingsStore.getState().radiological),
   bitmapToPng: async (bitmap, mirrored) => {
@@ -80,12 +123,17 @@ export async function copyActiveView(deps: CopyViewDeps = defaultDeps): Promise<
   const mosaic = activeId.startsWith('mosaic:');
   try {
     if (mosaic && deps.mosaicAvailable()) {
+      let png: Blob | null = null;
       try {
-        await deps.write(await deps.captureMosaic());
-        deps.notify('success', 'Mosaic copied to clipboard');
-        return;
+        png = await deps.captureMosaic();
       } catch (error) {
         console.warn('[copyView] Mosaic capture failed; copying the last slice view:', error);
+      }
+      // A failed clipboard write is not a failed capture: no fallback copy.
+      if (png) {
+        await deps.write(png);
+        deps.notify('success', 'Mosaic copied to clipboard');
+        return;
       }
     }
     // A mosaic has no single bitmap: the last rendered slice view of the tab.
@@ -99,6 +147,7 @@ export async function copyActiveView(deps: CopyViewDeps = defaultDeps): Promise<
     deps.notify('success', 'View copied to clipboard');
   } catch (err) {
     console.error('[copyView] Copy view failed:', err);
-    deps.notify('error', err instanceof Error ? err.message : 'Failed to copy to clipboard');
+    // One plain message; the cause is in the console (QA N8).
+    deps.notify('error', clipboardFailureMessage(err));
   }
 }

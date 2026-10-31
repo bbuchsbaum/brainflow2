@@ -24,9 +24,10 @@
  *   lands on visible anatomy, opens at {@link STACKED_CONTINUOUS_OPACITY}:
  *   an opaque EPI hides the anatomy it is shown on (QA 2026-10-30 F16). A
  *   categorical overlay (labels, atlas, mask) opened over a visible
- *   statistic or categorical layer starts at {@link STACKED_OVERLAY_OPACITY},
- *   so the layer under it stays readable. Statistics keep full opacity:
- *   their sub-threshold voxels are already transparent.
+ *   statistic starts at {@link LABEL_OVER_STATISTIC_OPACITY}, so the blobs
+ *   stay visible; over visible images or other labels it starts at
+ *   {@link LABEL_OVER_IMAGE_OPACITY}. Statistics keep full
+ *   opacity: their sub-threshold voxels are already transparent.
  */
 
 import { looksLikeSegmentation } from '@/utils/labelTable';
@@ -57,8 +58,20 @@ export interface PlacementMetadata {
 
 export type PlacementRole = 'underlay' | 'overlay';
 
-/** Start opacity of a categorical overlay opened over another overlay. */
-export const STACKED_OVERLAY_OPACITY = 0.6;
+/**
+ * Start opacity of a label, atlas or mask layer opened over a visible
+ * statistic map: the lowest, so the blobs stay visible (review M4: it was
+ * 0.6, above the 0.35 over anatomy). Such a layer opens as an outline
+ * (LabelTableService), whose alpha has a floor (utils/labelDisplay.ts).
+ */
+export const LABEL_OVER_STATISTIC_OPACITY = 0.25;
+
+/**
+ * Start opacity of a label, atlas or mask layer opened over visible images
+ * with no statistic or label layer under it (one rule for every path: ⌘K,
+ * the Atlases menu, a file).
+ */
+export const LABEL_OVER_IMAGE_OPACITY = 0.35;
 
 /** Start opacity of a continuous image opened on one of its own band. */
 export const STACKED_CONTINUOUS_OPACITY = 0.5;
@@ -130,7 +143,10 @@ export function categoricalTypeFromData(
   layer: Pick<PlacementLayer, 'type' | 'source' | 'volumeType'>,
   meta?: PlacementMetadata,
 ): 'label' | null {
-  if (layer.type !== 'anatomical' || layer.volumeType === 'TimeSeries4D') return null;
+  // A file named like a mask (p4_brain_mask.nii) is typed 'mask' at load and
+  // drew as a white wash; a true {0, 1} one is a label map too (QA
+  // 2026-10-31 N11). Template masks stay masks.
+  if ((layer.type !== 'anatomical' && layer.type !== 'mask') || layer.volumeType === 'TimeSeries4D') return null;
   if (layer.source === 'template' || layer.source === 'atlas' || layer.source === 'parcel-table') return null;
   return meta?.isBinaryLike === true ? 'label' : null;
 }
@@ -209,12 +225,14 @@ export function planLayerPlacement(
       .some((layer) => visible(layer) && bandOf(layer) <= band);
     return onContinuous ? { index, opacity: STACKED_CONTINUOUS_OPACITY } : { index };
   }
-  const overVisibleOverlay = others.some(
-    (layer) => visible(layer) && bandOf(layer) >= PlacementBand.Statistic,
-  );
-  return overVisibleOverlay && band === PlacementBand.Label
-    ? { index, opacity: STACKED_OVERLAY_OPACITY }
-    : { index };
+  if (band !== PlacementBand.Label) return { index };
+  const overStatistic = others.some((layer) => visible(layer) && bandOf(layer) === PlacementBand.Statistic);
+  if (overStatistic) return { index, opacity: LABEL_OVER_STATISTIC_OPACITY };
+  // Labels, atlases and masks over visible images or other labels: a
+  // translucent fill (QA 2026-10-31 N11: a brain-sized mask opened as an
+  // opaque green brain).
+  const overVisible = others.some((layer) => visible(layer));
+  return overVisible ? { index, opacity: LABEL_OVER_IMAGE_OPACITY } : { index };
 }
 
 /** A box at least this many times the volume of another "covers" it. */

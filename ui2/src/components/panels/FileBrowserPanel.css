@@ -312,11 +312,25 @@
   font-size: var(--bf-text-xs);
 }
 
-/* The search no-match card covers the (empty, filtered) tree, which stays
-   mounted so its open folders survive the search. */
+/* The search no-match notice: in flow under the search field (never over
+   or below the tree, where it could fall out of view). */
 .file-browser-panel .fb-search-empty {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  background: var(--bf-bg-panel);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--bf-space-1);
+  padding: var(--bf-space-2);
+  border-bottom: 1px solid var(--bf-border-subtle);
+}
+
+.file-browser-panel .fb-search-empty-title {
+  margin: 0;
+  color: var(--bf-text-secondary);
+  font-size: var(--bf-text-sm);
+}
+
+.file-browser-panel .fb-search-empty-message {
+  margin: 0;
+  color: var(--bf-text-muted);
+  font-size: var(--bf-text-xs);
 }

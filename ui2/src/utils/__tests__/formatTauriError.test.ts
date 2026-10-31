@@ -82,4 +82,19 @@ describe('GPU texture slots full', () => {
       'Failed to load zstat1.nii.gz: GPU texture slots full (all 13 in use). Hide or remove a layer, then load again.',
     );
   });
+
+  // QA 2026-10-31 N2: the render state's own cap (code 1885) reads the same.
+  it('maps the render-state layer cap to the same message', () => {
+    const capped = {
+      Internal: { code: 1885, details: 'Failed to add layer: Maximum layer count 8 reached' },
+    };
+    expect(gpuTextureSlotsFullLimit(capped)).toBe(8);
+    expect(loadFailureMessage('lesion.nii', capped)).toBe(
+      'Failed to load lesion.nii: GPU texture slots full (all 8 in use). Hide or remove a layer, then load again.',
+    );
+    // Older builds: no number.
+    expect(loadFailureMessage('lesion.nii', 'Failed to add layer: Maximum layer count exceeded')).toBe(
+      'Failed to load lesion.nii: GPU texture slots full. Hide or remove a layer, then load again.',
+    );
+  });
 });

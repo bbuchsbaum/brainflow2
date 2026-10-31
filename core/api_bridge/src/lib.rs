@@ -455,6 +455,9 @@ pub struct AtlasStats {
     /// the layer budget the UI's eviction counts against. Past it, a GPU
     /// upload fails with "Maximum texture limit N reached".
     pub volume_texture_slots: u32,
+    /// Layers the render state takes at once (code 1885 past it). The UI's
+    /// layer budget is the smaller of this and `volume_texture_slots`.
+    pub render_layer_capacity: u32,
 }
 
 // Helper alias for Result
@@ -4945,6 +4948,7 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
     let service = service_arc.lock().await;
     let metrics = service.atlas_metrics();
     let volume_texture_slots = service.runtime_texture_capacity();
+    let render_layer_capacity = service.render_layer_capacity();
 
     let last_allocation_ms = metrics
         .last_allocation
@@ -4967,6 +4971,7 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         last_allocation_ms,
         last_release_ms,
         volume_texture_slots,
+        render_layer_capacity,
     })
 }
 

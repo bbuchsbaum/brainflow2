@@ -311,10 +311,12 @@ async fn lut_coloured_outline_and_dark_halo_follow_region_boundaries() {
         "the LUT colour must differ from the uniform colour"
     );
 
-    // Single label: outline is the region's inner 2 px band in its LUT colour,
-    // the halo is the 2 px band just outside it, and pixels beyond are untouched.
+    // Single label: the box edge lies between columns 29|30 and 93|94 (world
+    // x 7.5 and 23.5). The outline is a 2 px line centred on it in the region's
+    // LUT colour, the halo the 2 px band just outside it, and pixels beyond
+    // are untouched.
     let single = frame("single", lut_features(0), lut_view_state(0.3, true));
-    for x in [30, 31, 92, 93] {
+    for x in [29, 30, 93, 94] {
         assert_close(
             px(&single, x),
             region,
@@ -322,7 +324,7 @@ async fn lut_coloured_outline_and_dark_halo_follow_region_boundaries() {
             &format!("single outline at column {x}"),
         );
     }
-    for x in [28, 29, 94, 95] {
+    for x in [27, 28, 95, 96] {
         assert_close(
             px(&single, x),
             haloed(px(&baseline, x)),
@@ -330,7 +332,7 @@ async fn lut_coloured_outline_and_dark_halo_follow_region_boundaries() {
             &format!("outer halo at column {x}"),
         );
     }
-    for x in [27, 32, 62, 91, 96] {
+    for x in [26, 31, 32, 62, 92, 97] {
         assert_eq!(
             px(&single, x),
             px(&baseline, x),
@@ -338,9 +340,9 @@ async fn lut_coloured_outline_and_dark_halo_follow_region_boundaries() {
         );
     }
 
-    // All boundaries: same outline band, halo as a second band inside the region.
+    // All boundaries: the same centred line, with a 2 px halo on both sides.
     let all = frame("all", lut_features(1), lut_view_state(0.3, true));
-    for x in [30, 31, 92, 93] {
+    for x in [29, 30, 93, 94] {
         assert_close(
             px(&all, x),
             region,
@@ -348,15 +350,15 @@ async fn lut_coloured_outline_and_dark_halo_follow_region_boundaries() {
             &format!("all-boundaries outline at column {x}"),
         );
     }
-    for x in [32, 33, 90, 91] {
+    for x in [27, 28, 31, 32, 91, 92, 95, 96] {
         assert_close(
             px(&all, x),
             haloed(px(&baseline, x)),
             3,
-            &format!("inner halo at column {x}"),
+            &format!("halo at column {x}"),
         );
     }
-    for x in [28, 29, 34, 62, 89, 94] {
+    for x in [26, 33, 62, 90, 97] {
         assert_eq!(
             px(&all, x),
             px(&baseline, x),
@@ -378,5 +380,387 @@ async fn lut_coloured_outline_and_dark_halo_follow_region_boundaries() {
     assert_eq!(
         hidden, baseline,
         "zero-alpha outline and halo must not draw"
+    );
+}
+
+/// Label volume with voxel-to-world `affine` and `label_at(i, j, k)` per voxel.
+fn create_label_volume(
+    dims: [usize; 3],
+    affine: Matrix4<f32>,
+    label_at: impl Fn(usize, usize, usize) -> f32,
+) -> DenseVolume3<f32> {
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), affine)
+        .expect("failed to create test neurospace");
+    let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
+    for k in 0..dims[2] {
+        for j in 0..dims[1] {
+            for i in 0..dims[0] {
+                data.push(label_at(i, j, k));
+            }
+        }
+    }
+    DenseVolume3::<f32>::from_data(space, data)
+}
+
+/// 32x32x4 label volume (identity affine) with `label_at(x, y)` in every slice.
+fn create_two_label_volume(label_at: impl Fn(usize, usize) -> f32) -> DenseVolume3<f32> {
+    create_label_volume([32, 32, 4], Matrix4::identity(), |x, y, _| label_at(x, y))
+}
+
+/// All-boundaries outline features: uniform `color`, no halo.
+fn boundary_features(thickness_px: f32, color: [f32; 4]) -> SliceFeatureUbo {
+    SliceFeatureUbo {
+        outline_enabled: 1,
+        outline_layer_index: 0,
+        selected_label_id: 0,
+        outline_mode: 1,
+        outline_color: color,
+        outline_thickness_px: thickness_px,
+        outline_color_mode: 0,
+        halo_thickness_px: 0.0,
+        ..SliceFeatureUbo::default()
+    }
+}
+
+/// Axial 128x128 view of `volume` centred at `center` with a `fov_mm` field of
+/// view, outline `features` on the label layer, and the label colours from
+/// `lut` (a full RGBA LUT row) when given. The fill is drawn at the "outline
+/// only" opacity over black, so the image shows the outline alone (the
+/// target's alpha channel is opaque). Returns RGBA rows.
+async fn render_outline(
+    volume: DenseVolume3<f32>,
+    center: [f32; 3],
+    fov_mm: f32,
+    features: SliceFeatureUbo,
+    lut: Option<Vec<u8>>,
+) -> Vec<Vec<[u8; 4]>> {
+    let mut service = RenderLoopService::new()
+        .await
+        .expect("failed to initialize render service");
+    service.load_shaders().expect("failed to load shaders");
+    service
+        .enable_world_space_rendering()
+        .expect("failed to enable world-space rendering");
+    service
+        .register_volume_with_upload(
+            "two-label".to_string(),
+            &volume,
+            wgpu::TextureFormat::R32Float,
+        )
+        .expect("failed to register label volume");
+    service
+        .initialize_colormap()
+        .expect("failed to initialize colormap");
+    let colormap = match lut {
+        Some(row) => service
+            .upsert_custom_colormap("test-labels".to_string(), &row)
+            .expect("failed to upload label LUT"),
+        None => 1,
+    };
+    service
+        .create_world_space_bind_groups()
+        .expect("failed to create world-space bind groups");
+    service.update_slice_feature_ubo(features);
+
+    let layer = LayerConfig::new("two-label".to_string())
+        .with_opacity(1e-3)
+        .with_colormap(colormap)
+        .with_blend_mode(BlendMode::Normal)
+        .with_intensity_window(0.0, 2.0)
+        .with_interpolation(InterpolationMode::Nearest)
+        .with_layer_mode(LayerMode::Label);
+    let state = ViewState::from_basic_params(
+        "two-label".to_string(),
+        center,
+        SliceOrientation::Axial,
+        fov_mm,
+        [128, 128],
+        (0.0, 2.0),
+    )
+    .with_layers(vec![layer])
+    .with_crosshair(false);
+
+    let image = service
+        .request_frame(ViewId::new("two-label"), state)
+        .await
+        .expect("failed to render outline")
+        .image_data;
+    image
+        .chunks_exact(128 * 4)
+        .map(|row| {
+            row.chunks_exact(4)
+                .map(|px| [px[0], px[1], px[2], px[3]])
+                .collect()
+        })
+        .collect()
+}
+
+/// Renders an all-boundaries outline (uniform white, no halo) of a two-label
+/// 32x32 volume at 4 px per voxel and returns 128x128 rows of outline
+/// coverage (white over black, so the red channel).
+async fn outline_alpha(volume: DenseVolume3<f32>, thickness_px: f32) -> Vec<Vec<u8>> {
+    render_outline(
+        volume,
+        [16.0, 16.0, 2.0],
+        32.0,
+        boundary_features(thickness_px, [1.0, 1.0, 1.0, 1.0]),
+        None,
+    )
+    .await
+    .into_iter()
+    .map(|row| row.into_iter().map(|px| px[0]).collect())
+    .collect()
+}
+
+/// Columns 8..120 only: the volume's own edge (label vs. outside) is also a
+/// boundary and is drawn at the image border.
+const INNER: std::ops::Range<usize> = 8..120;
+
+/// Runs of consecutive non-zero alpha within `INNER`, as (start, end) columns.
+fn runs(row: &[u8]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for x in INNER {
+        match (row[x] > 0, start) {
+            (true, None) => start = Some(x),
+            (false, Some(s)) => {
+                out.push((s, x));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        out.push((s, INNER.end));
+    }
+    out
+}
+
+#[tokio::test]
+async fn shared_border_draws_one_centred_band() {
+    // Labels 1 | 2 meet at world x = 15.5, between columns 61 and 62. A 2 px
+    // outline is one 2 px band there, not a 2 px band inside each region.
+    let alpha = outline_alpha(
+        create_two_label_volume(|x, _| if x < 16 { 1.0 } else { 2.0 }),
+        2.0,
+    )
+    .await;
+    for (y, row) in alpha.iter().enumerate().take(112).skip(16) {
+        assert_eq!(
+            runs(row),
+            vec![(61, 63)],
+            "row {y}: one band at columns 61..63"
+        );
+        assert!(
+            row[61] > 250 && row[62] > 250,
+            "row {y}: the band is fully covered, got {:?}",
+            &row[59..65]
+        );
+    }
+}
+
+#[tokio::test]
+async fn diagonal_staircase_renders_as_a_straight_antialiased_line() {
+    // A 45 degree voxel staircase: label 1 where x + y < 31, else label 2.
+    let alpha = outline_alpha(
+        create_two_label_volume(|x, y| if x + y < 31 { 1.0 } else { 2.0 }),
+        1.0,
+    )
+    .await;
+
+    let mut rows = Vec::new();
+    let mut centroids = Vec::new();
+    let mut partial = 0usize;
+    for (y, row) in alpha.iter().enumerate().take(112).skip(16) {
+        let found = runs(row);
+        assert_eq!(found.len(), 1, "row {y}: expected one band, got {found:?}");
+        let (start, end) = found[0];
+        assert!(
+            end - start <= 4,
+            "row {y}: a 1 px 45 degree line spans at most 4 columns, got {:?}",
+            &row[start..end]
+        );
+        partial += row[start..end]
+            .iter()
+            .filter(|&&a| (30..=225).contains(&a))
+            .count();
+        let weight: f64 = row[start..end].iter().map(|&a| a as f64).sum();
+        let centroid: f64 = (start..end).map(|x| x as f64 * row[x] as f64).sum::<f64>() / weight;
+        rows.push(y as f64);
+        centroids.push(centroid);
+    }
+
+    // Anti-aliased: most rows carry intermediate coverage, not a binary step.
+    assert!(
+        partial >= rows.len(),
+        "expected intermediate alpha along the edge, got {partial} partial pixels in {} rows",
+        rows.len()
+    );
+
+    // Straight: the band centre follows a 45 degree line. A 4 px voxel
+    // staircase would leave residuals of about 1.5 px.
+    let n = rows.len() as f64;
+    let (mean_y, mean_x) = (
+        rows.iter().sum::<f64>() / n,
+        centroids.iter().sum::<f64>() / n,
+    );
+    let slope = rows
+        .iter()
+        .zip(&centroids)
+        .map(|(y, x)| (y - mean_y) * (x - mean_x))
+        .sum::<f64>()
+        / rows.iter().map(|y| (y - mean_y).powi(2)).sum::<f64>();
+    assert!(
+        (slope.abs() - 1.0).abs() < 0.05,
+        "the outline should run at 45 degrees, slope {slope}"
+    );
+    let worst = rows
+        .iter()
+        .zip(&centroids)
+        .map(|(y, x)| (x - (mean_x + slope * (y - mean_y))).abs())
+        .fold(0.0f64, f64::max);
+    eprintln!(
+        "diagonal outline: slope {slope:.3}, worst deviation {worst:.2} px, {partial} partial pixels in {} rows",
+        rows.len()
+    );
+    assert!(
+        worst <= 0.75,
+        "the outline should be straight, worst deviation {worst:.2} px"
+    );
+}
+
+#[tokio::test]
+async fn default_halo_renders_at_two_pixels_per_voxel() {
+    // A 1 mm atlas in a ~400 px pane is about 2 px per voxel. The default
+    // 2 px line plus 1 px halo is wider than one voxel there and must still
+    // render: labels 1 | 2 meet at world x = 31.5, between columns 62 and 63.
+    let volume = create_label_volume([64, 64, 4], Matrix4::identity(), |x, _, _| {
+        if x < 32 {
+            1.0
+        } else {
+            2.0
+        }
+    });
+    let features = SliceFeatureUbo {
+        halo_thickness_px: 1.0,
+        halo_color: [0.0, 0.0, 1.0, 1.0],
+        ..boundary_features(2.0, [1.0, 0.0, 0.0, 1.0])
+    };
+    let image = render_outline(volume, [32.0, 32.0, 2.0], 64.0, features, None).await;
+    for (y, row) in image.iter().enumerate().take(112).skip(16) {
+        let red = |x: usize| row[x][0] > 250 && row[x][2] < 5;
+        let blue = |x: usize| row[x][2] > 250 && row[x][0] < 5;
+        let black = |x: usize| row[x][..3].iter().all(|&c| c < 5);
+        assert!(
+            red(62) && red(63),
+            "row {y}: 2 px line, got {:?}",
+            &row[59..67]
+        );
+        assert!(
+            blue(61) && blue(64),
+            "row {y}: 1 px halo each side, got {:?}",
+            &row[59..67]
+        );
+        assert!(
+            black(60) && black(65),
+            "row {y}: nothing beyond, got {:?}",
+            &row[59..67]
+        );
+    }
+}
+
+#[tokio::test]
+async fn hidden_region_keeps_its_visible_neighbours_border() {
+    // LUT colours: label 1 hidden (alpha 0), label 2 opaque red. The shared
+    // border would tie to the lower (hidden) id; it must draw in label 2's
+    // colour instead of vanishing.
+    let width = render_loop::texture_manager::COLORMAP_LUT_WIDTH as usize;
+    let mut lut = vec![0u8; width * 4];
+    lut[4..8].copy_from_slice(&[0, 255, 0, 0]);
+    lut[8..12].copy_from_slice(&[255, 0, 0, 255]);
+    let features = SliceFeatureUbo {
+        outline_color_mode: 1,
+        ..boundary_features(2.0, [1.0, 1.0, 1.0, 1.0])
+    };
+    let image = render_outline(
+        create_two_label_volume(|x, _| if x < 16 { 1.0 } else { 2.0 }),
+        [16.0, 16.0, 2.0],
+        32.0,
+        features,
+        Some(lut),
+    )
+    .await;
+    for (y, row) in image.iter().enumerate().take(112).skip(16) {
+        for x in [61, 62] {
+            assert!(
+                row[x][0] > 250 && row[x][1] < 5 && row[x][2] < 5,
+                "row {y}, column {x}: the border takes the visible region's red, got {:?}",
+                row[x]
+            );
+        }
+        assert!(
+            row[59][..3].iter().all(|&c| c < 5) && row[64][..3].iter().all(|&c| c < 5),
+            "row {y}: one 2 px band"
+        );
+    }
+}
+
+#[tokio::test]
+async fn oblique_volume_keeps_boundaries_near_parallel_to_the_slice() {
+    // A label volume tilted 30 degrees about x, cut by a world-axial slice.
+    // Its labels change only along voxel k (1 below k = 32, 2 above), so the
+    // boundary plane is 30 degrees off the slice and every in-plane cell sees
+    // it only through the normal-axis voxel each corner crosses. The slice
+    // crosses it along one line parallel to world x.
+    let (s, c) = 30f32.to_radians().sin_cos();
+    let rotation = Matrix4::new(
+        1.0, 0.0, 0.0, 0.0, //
+        0.0, c, -s, 0.0, //
+        0.0, s, c, 0.0, //
+        0.0, 0.0, 0.0, 1.0,
+    );
+    // Voxel (32, 32, 32) sits at the view centre, world (16, 16, 8).
+    let centre = rotation.transform_point(&nalgebra::Point3::new(32.0, 32.0, 32.0));
+    let mut affine = rotation;
+    affine[(0, 3)] = 16.0 - centre.x;
+    affine[(1, 3)] = 16.0 - centre.y;
+    affine[(2, 3)] = 8.0 - centre.z;
+    let volume = create_label_volume(
+        [64, 64, 64],
+        affine,
+        |_, _, k| if k < 32 { 1.0 } else { 2.0 },
+    );
+
+    let image = render_outline(
+        volume,
+        [16.0, 16.0, 8.0],
+        32.0,
+        boundary_features(2.0, [1.0, 1.0, 1.0, 1.0]),
+        None,
+    )
+    .await;
+    let mut band_rows = Vec::new();
+    for x in INNER {
+        let column: Vec<u8> = image.iter().map(|row| row[x][0]).collect();
+        let found = runs(&column);
+        assert_eq!(
+            found.len(),
+            1,
+            "column {x}: expected one boundary, got {found:?}"
+        );
+        let (start, end) = found[0];
+        assert!(
+            column[start..end].iter().any(|&a| a > 250),
+            "column {x}: the boundary is fully drawn somewhere, got {:?}",
+            &column[start..end]
+        );
+        band_rows.push((start, end));
+    }
+    let first = band_rows[0];
+    assert!(
+        band_rows
+            .iter()
+            .all(|&(s, e)| s.abs_diff(first.0) <= 1 && e.abs_diff(first.1) <= 1),
+        "the boundary should run straight along world x, got {band_rows:?}"
     );
 }
