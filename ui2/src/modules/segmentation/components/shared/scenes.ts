@@ -15,6 +15,7 @@ import {
   worldToDisplay,
   components,
   centreOf,
+  paintInto,
 } from './geometry';
 import { BRUSH, CA1, CA23, DG, SRLM, labelColor } from './mockData';
 import type { Overlay } from './SliceView';
@@ -75,9 +76,21 @@ const blockedGate = gateStroke(blockedFootprint, labelIndex(tracingBase), CA1, L
 const blockedByLabel = new Map<number, number>();
 for (const b of blockedGate.blocked) blockedByLabel.set(b.label, (blockedByLabel.get(b.label) ?? 0) + 1);
 
-// Proposal: CA1 on this slice comes from fill-between (keyframes y −26, −18).
-const proposalVoxels = voxelsOf(A, CA1);
-const proposalBase = A.filter((v) => v[2] !== CA1);
+// Proposal: fill-between adds the CA1 voxels this slice does not have yet;
+// the CA1 already traced here stays solid. Locked voxels next to the added
+// region are where the interpolated contour reached a locked label: skipped.
+const tracedCa1 = new Set(voxelsOf(tracingBase, CA1).map(([c, r]) => `${c},${r}`));
+const proposalVoxels = voxelsOf(A, CA1).filter(([c, r]) => !tracedCa1.has(`${c},${r}`));
+const proposalBase = tracingBase;
+const proposedSet = new Set(proposalVoxels.map(([c, r]) => `${c},${r}`));
+const proposalSkipped = tracingBase
+  .filter(
+    ([c, r, l]) =>
+      LOCKED.has(l) &&
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) => proposedSet.has(`${c + dc},${r + dr}`)),
+  )
+  .map(([c, r]) => [c, r] as Voxel)
+  .slice(0, 6);
 
 // Review: rater A against rater B.
 const disagree = disagreement(A, B);
@@ -105,7 +118,7 @@ export const SCENE = {
     blocked: blockedGate.blocked.length,
     byLabel: [...blockedByLabel.entries()].sort((a, b) => b[1] - a[1]),
   },
-  proposal: { base: proposalBase, voxels: proposalVoxels },
+  proposal: { base: proposalBase, voxels: proposalVoxels, skipped: proposalSkipped },
   review: {
     disagree,
     groups: disagreeGroups,
@@ -116,37 +129,36 @@ export const SCENE = {
 
 /** Standard overlay stacks. */
 export const OVERLAYS = {
-  /** Labels as filled voxels with outlines; the active label's outline is heavier. */
-  labels(voxels: readonly LabelVoxel[], active = CA1, fill = 0.38): Overlay[] {
-    return [
-      { kind: 'labels', voxels, fill, outline: false },
-      { kind: 'labels', voxels, outline: true, width: 1, opacity: 0.85 },
-      { kind: 'labels', voxels, outline: true, width: 2, only: [active] },
-    ];
+  /**
+   * Labels as an exclusive partition: one colour per voxel at the constant
+   * fill alpha, outlines only at label boundaries (shared edges once), the
+   * active label heavier. `fill: false` is the outline-only mode.
+   */
+  labels(voxels: readonly LabelVoxel[], active = CA1, opts: { fill?: boolean; emphasis?: readonly number[] } = {}): Overlay[] {
+    return [{ kind: 'labels', voxels, fill: opts.fill ?? true, width: 1, emphasis: opts.emphasis ?? [active] }];
   },
-  /** Outline echo: every label faint, the active label strong. */
+  /** Outline echo: the partition's outlines, faint, with the active label strong. */
   echo(voxels: readonly LabelVoxel[], active = CA1): Overlay[] {
     return [
-      { kind: 'labels', voxels, outline: true, width: 1, opacity: 0.45 },
-      { kind: 'labels', voxels, outline: true, width: 2, only: [active] },
+      { kind: 'labels', voxels, fill: false, width: 1, opacity: 0.55 },
+      { kind: 'labels', voxels, fill: false, width: 1.25, only: [active], emphasis: [active] },
     ];
   },
-  /** Wet ink: the stroke in progress, brighter than committed labels. */
-  wetInk(voxels: readonly Voxel[], label = CA1): Overlay {
-    return { kind: 'voxels', voxels, color: labelColor(label), fill: 0.85 };
+  /** The voxels a stroke has written so far join the partition as the label. */
+  withStroke(voxels: readonly LabelVoxel[], written: readonly Voxel[], label = CA1): LabelVoxel[] {
+    return paintInto(voxels, written, label);
   },
-  proposal(voxels: readonly Voxel[], label = CA1): Overlay[] {
+  /** Proposal: added voxels only, hatched in the target colour with a dashed outline; locked skips marked. */
+  proposal(voxels: readonly Voxel[], label = CA1, skipped: readonly Voxel[] = []): Overlay[] {
     return [
       { kind: 'voxels', voxels, color: labelColor(label), hatch: true, opacity: 0.85 },
-      { kind: 'voxels', voxels, color: labelColor(label), outline: true, dashed: true, width: 1.75 },
+      { kind: 'voxels', voxels, color: labelColor(label), outline: true, dashed: true, width: 1.5 },
+      ...(skipped.length ? [{ kind: 'marks', voxels: skipped } as Overlay] : []),
     ];
   },
-  review(): Overlay[] {
-    return [
-      { kind: 'voxels', voxels: disagree, color: 'var(--bf-warning)', hatch: true, opacity: 0.9 },
-      { kind: 'labels', voxels: A, outline: true, width: 1.75 },
-      { kind: 'labels', voxels: B, outline: true, width: 1.5, dashed: true },
-    ];
+  /** Review: A solid once, B only where it departs, achromatic disagreement textures. */
+  review(show: 'a' | 'b' | 'both' = 'both'): Overlay[] {
+    return [{ kind: 'review', a: A, b: B, show }];
   },
 };
 

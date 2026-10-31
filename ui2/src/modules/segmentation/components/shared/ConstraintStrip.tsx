@@ -27,6 +27,8 @@ export interface ConstraintStripProps {
   hideLabel?: boolean;
   /** Below 1400px wide, drop the items that are at their defaults (range off). */
   dense?: boolean;
+  /** What the brush writes on the native grid ("7 vx in-plane · 1 slice"), shown after the size. */
+  readout?: string;
   className?: string;
 }
 
@@ -45,6 +47,7 @@ export function ConstraintStrip({
   variant = 'bar',
   hideLabel = false,
   dense = false,
+  readout,
   className,
 }: ConstraintStripProps) {
   const def = LABEL_BY_ID.get(label);
@@ -101,6 +104,7 @@ export function ConstraintStrip({
       <span>{shape}</span>
       <Sep />
       <span>⌀ {diameterMm.toFixed(1)} mm</span>
+      {readout ? <span className="text-bf-text-muted">= {readout}</span> : null}
       <span className={clsx('flex items-center gap-1.5', dense && !range && 'max-[1399px]:hidden')}>
         <Sep />
         <span>{range ? `range ${range}` : 'range off'}</span>

@@ -68,10 +68,12 @@ export function LineSample({ dashed, color, width = 18 }: { dashed?: boolean; co
 }
 
 /** The honest disclosure: what is real and what is mocked in these screens. */
-export function MockDisclosure({ className }: { className?: string }) {
+export function MockDisclosure({ className, simulatedGeometry }: { className?: string; simulatedGeometry?: string }) {
   return (
     <span className={clsx('whitespace-nowrap text-bf-2xs text-bf-text-faint', className)}>
-      Design mock · editing simulated · MNI152 2009c T2w/T1w 1 mm · subfield labels mock
+      {simulatedGeometry
+        ? `Design mock · editing simulated · MNI152 1 mm imagery · native ${simulatedGeometry} geometry simulated · labels mock`
+        : 'Design mock · editing simulated · MNI152 2009c T2w/T1w 1 mm · subfield labels mock'}
     </span>
   );
 }
@@ -84,10 +86,12 @@ export interface ShellFrameProps {
   children: React.ReactNode;
   /** `quiet` drops the top bar to a breadcrumb line (direction B). */
   topBar?: 'default' | 'quiet';
+  /** Simulated native geometry to state in the disclosure ("0.40×0.40 / 2.0 mm"). */
+  simulatedGeometry?: string;
 }
 
 /** A stand-in for the app shell around the module (top bar, status bar). */
-export function ShellFrame({ center, right, status, children, topBar = 'default' }: ShellFrameProps) {
+export function ShellFrame({ center, right, status, children, topBar = 'default', simulatedGeometry }: ShellFrameProps) {
   return (
     <div className="flex h-screen w-screen min-w-0 flex-col overflow-hidden bg-bf-bg-app font-sans text-bf-text-primary">
       <header
@@ -106,7 +110,7 @@ export function ShellFrame({ center, right, status, children, topBar = 'default'
       <main className="relative min-h-0 flex-1">{children}</main>
       <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-bf-border-subtle bg-bf-bg-shell px-3 text-bf-xs">
         <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">{status}</div>
-        <MockDisclosure />
+        <MockDisclosure simulatedGeometry={simulatedGeometry} />
       </footer>
     </div>
   );

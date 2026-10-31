@@ -89,11 +89,7 @@ function ReferenceThumb({ state }: { state: DesignState }) {
           overlays={
             state === 'review'
               ? OVERLAYS.echo(DESIGN.labels.cor(j))
-              : [
-                  { kind: 'labels', voxels: DESIGN.labels.cor(j), outline: true, width: 1, opacity: 0.7 },
-                  { kind: 'labels', voxels: DESIGN.labels.cor(j), fill: 0.55, only: [CA1] },
-                  { kind: 'labels', voxels: DESIGN.labels.cor(j), outline: true, width: 2, only: [CA1] },
-                ]
+              : OVERLAYS.labels(DESIGN.labels.cor(j), CA1)
           }
           aria-label="Reference example, coronal y −26 mm"
         />

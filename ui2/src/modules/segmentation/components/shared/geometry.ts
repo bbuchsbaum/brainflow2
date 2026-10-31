@@ -211,3 +211,173 @@ export function centreOf(voxels: readonly Voxel[]): Point {
   const ys = voxels.map((v) => v[1]);
   return [(Math.min(...xs) + Math.max(...xs) + 1) / 2, (Math.min(...ys) + Math.max(...ys) + 1) / 2];
 }
+
+// ---------------------------------------------------------------------------
+// Label partition rendering (round 1). A label slice is an exclusive
+// partition: one label per voxel. Fills use one constant alpha; outlines run
+// only where the label changes, and every voxel edge is drawn exactly once.
+
+/** Constant fill alpha for label voxels (critique round 0: at most 0.25). */
+export const LABEL_FILL_ALPHA = 0.22;
+
+const H = (c: number, r: number) => `h${c},${r}`; // edge on top of voxel (c, r)
+const V = (c: number, r: number) => `v${c},${r}`; // edge on the left of voxel (c, r)
+
+function edgeD(edge: string): string {
+  const [c, r] = edge.slice(1).split(',').map(Number);
+  return edge[0] === 'h' ? `M${c} ${r}h1` : `M${c} ${r}v1`;
+}
+
+/** The 4 edges between a voxel and its neighbours, as [edge key, neighbour]. */
+function edgesOf(c: number, r: number): Array<[string, number, number]> {
+  return [
+    [H(c, r), c, r - 1],
+    [H(c, r + 1), c, r + 1],
+    [V(c, r), c - 1, r],
+    [V(c + 1, r), c + 1, r],
+  ];
+}
+
+export interface PartitionEdge {
+  /** The label whose colour draws the edge. */
+  label: number;
+  /** SVG path in display units. */
+  d: string;
+  /** Edge count (for tests). */
+  count: number;
+}
+
+/**
+ * Boundary edges of a label partition, each drawn once. An edge between a
+ * label and background belongs to the label. An edge between two labels
+ * belongs to the higher-priority one: labels in `priority` first (in order,
+ * normally the active label), then the lower id. Within a label, voxels of
+ * the same label never produce an edge.
+ */
+export function partitionEdges(voxels: readonly LabelVoxel[], priority: readonly number[] = []): PartitionEdge[] {
+  const at = labelIndex(voxels);
+  const rank = (l: number) => {
+    const i = priority.indexOf(l);
+    return i >= 0 ? i - priority.length : l;
+  };
+  const byLabel = new Map<number, string[]>();
+  for (const [c, r, l] of voxels) {
+    for (const [edge, nc, nr] of edgesOf(c, r)) {
+      const m = at.get(key(nc, nr)) ?? 0;
+      if (m === l) continue;
+      // Shared edge: only the owner emits it, so it is drawn once.
+      if (m !== 0 && rank(m) < rank(l)) continue;
+      const list = byLabel.get(l) ?? [];
+      list.push(edge);
+      byLabel.set(l, list);
+    }
+  }
+  return [...byLabel.entries()]
+    .sort((a, b) => rank(b[0]) - rank(a[0]))
+    .map(([label, edges]) => ({ label, d: edges.map(edgeD).join(''), count: edges.length }));
+}
+
+/** The set of boundary edges of a partition (edge keys), for comparisons. */
+export function boundaryEdgeSet(voxels: readonly LabelVoxel[]): Set<string> {
+  const at = labelIndex(voxels);
+  const out = new Set<string>();
+  for (const [c, r, l] of voxels) {
+    for (const [edge, nc, nr] of edgesOf(c, r)) if ((at.get(key(nc, nr)) ?? 0) !== l) out.add(edge);
+  }
+  return out;
+}
+
+export interface ReviewEncoding {
+  /** Rater B's boundary edges that are not rater A's (drawn as a neutral dash). */
+  departures: string;
+  departureCount: number;
+  /** A labelled, B background. */
+  aOnly: Voxel[];
+  /** B labelled, A background. */
+  bOnly: Voxel[];
+  /** Both labelled, with different labels. */
+  relabelled: Voxel[];
+}
+
+/**
+ * Review encoding of two raters on one slice: A's outline is the reference
+ * (drawn once, solid, label colour); B is drawn only where its boundary
+ * departs from A's; disagreeing voxels split into A only, B only and
+ * relabelled, each with its own achromatic texture.
+ */
+export function reviewEncoding(a: readonly LabelVoxel[], b: readonly LabelVoxel[]): ReviewEncoding {
+  const ea = boundaryEdgeSet(a);
+  const eb = boundaryEdgeSet(b);
+  const dep = [...eb].filter((e) => !ea.has(e)).sort();
+  const ia = labelIndex(a);
+  const ib = labelIndex(b);
+  const aOnly: Voxel[] = [];
+  const bOnly: Voxel[] = [];
+  const relabelled: Voxel[] = [];
+  for (const k of [...new Set([...ia.keys(), ...ib.keys()])].sort()) {
+    const la = ia.get(k) ?? 0;
+    const lb = ib.get(k) ?? 0;
+    if (la === lb) continue;
+    const [c, r] = k.split(',').map(Number);
+    (lb === 0 ? aOnly : la === 0 ? bOnly : relabelled).push([c, r]);
+  }
+  return { departures: dep.map(edgeD).join(''), departureCount: dep.length, aOnly, bOnly, relabelled };
+}
+
+/** Replace voxels with `label` (a stroke's written voxels join the partition). */
+export function paintInto(voxels: readonly LabelVoxel[], written: readonly Voxel[], label: number): LabelVoxel[] {
+  const w = new Set(written.map(([c, r]) => key(c, r)));
+  return [...voxels.filter(([c, r]) => !w.has(key(c, r))), ...written.map(([c, r]) => [c, r, label] as LabelVoxel)];
+}
+
+/**
+ * The crosshair yields while a paint tool is active: it opens a gap of at
+ * least three brush radii around the cursor (and never less than `minPx`).
+ */
+export function crosshairGapRadius(brushRadiusPx: number, minPx = 12): number {
+  return Math.max(3 * brushRadiusPx, minPx);
+}
+
+/** Native acquisition geometry (mm): in-plane x, in-plane y, slice thickness. */
+export type Spacing = readonly [number, number, number];
+
+export interface BrushReadout {
+  /** Voxels across the disc's diameter, in-plane. */
+  across: number;
+  /** Voxels inside the disc on one slice (centre-inside rule). */
+  inPlane: number;
+  /** Slices the brush writes through-plane (1 for a 2D disc). */
+  slices: number;
+}
+
+/**
+ * What a brush of `diameterMm` writes on a native grid, centred on a voxel
+ * centre, by the same centre-inside rule as the footprint.
+ */
+export function brushReadout(diameterMm: number, spacing: Spacing, shape: '2D' | '3D'): BrushReadout {
+  const r = diameterMm / 2;
+  const nx = Math.floor(r / spacing[0] + 1e-9);
+  const ny = Math.floor(r / spacing[1] + 1e-9);
+  let inPlane = 0;
+  for (let j = -ny; j <= ny; j++)
+    for (let i = -nx; i <= nx; i++) if ((i * spacing[0]) ** 2 + (j * spacing[1]) ** 2 <= r * r + 1e-9) inPlane++;
+  const nz = Math.floor(r / spacing[2] + 1e-9);
+  return { across: 2 * nx + 1, inPlane, slices: shape === '2D' ? 1 : 2 * nz + 1 };
+}
+
+/** Review gate: Approve is available only once every disagreement was visited. */
+export function canApprove(visited: ReadonlySet<number> | readonly number[], total: number): boolean {
+  const n = Array.isArray(visited) ? new Set(visited).size : (visited as ReadonlySet<number>).size;
+  return total === 0 || n >= total;
+}
+
+/** Voxel volume of the grid the counts are on: 1 mm isotropic shows mm³ only. */
+export interface CountGrid {
+  voxelMm3: number;
+}
+
+/** "1,376 mm³" on a 1 mm grid; "1,376 vx · 440 mm³" otherwise. */
+export function formatVolume(voxels: number, grid: CountGrid = { voxelMm3: 1 }): string {
+  if (Math.abs(grid.voxelMm3 - 1) < 1e-9) return `${fmtInt(voxels)} mm³`;
+  return `${fmtInt(voxels)} vx · ${fmtInt(voxels * grid.voxelMm3)} mm³`;
+}

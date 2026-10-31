@@ -13,7 +13,11 @@
 import React, { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import {
+  crosshairGapRadius,
   discFootprint,
+  LABEL_FILL_ALPHA,
+  partitionEdges,
+  reviewEncoding,
   voxelFillPath,
   voxelOutlinePath,
   PLANE_LETTERS,
@@ -21,16 +25,23 @@ import {
 import { labelColor } from './mockData';
 import type { LabelVoxel, Point, SliceImage, Voxel } from './types';
 
+/**
+ * Labels as an exclusive partition (one label per voxel): every voxel filled
+ * once at the constant `LABEL_FILL_ALPHA`, outlines only where the label
+ * changes, each shared edge drawn once (`geometry.partitionEdges`).
+ */
 export interface LabelOverlay {
   kind: 'labels';
   voxels: readonly LabelVoxel[];
-  /** Fill opacity (0 = none). */
-  fill?: number;
+  /** Fill voxels (default true); false is the outline-only mode. */
+  fill?: boolean;
+  /** Draw outlines (default true). */
   outline?: boolean;
-  /** Outline width, screen px. */
+  /** Outline width, screen px; emphasised labels draw 0.75 px heavier. */
   width?: number;
-  dashed?: boolean;
-  /** Only these labels. */
+  /** Labels that own their shared edges and draw heavier (the active label). */
+  emphasis?: readonly number[];
+  /** Only these labels (hidden labels are not drawn). */
   only?: readonly number[];
   /** Overall opacity of the layer. */
   opacity?: number;
@@ -44,27 +55,61 @@ export interface VoxelOverlay {
   outline?: boolean;
   width?: number;
   dashed?: boolean;
-  /** Diagonal hatch in `color` (proposals, disagreement). */
+  /** Screen-px dash pattern ("2 2"); overrides `dashed`. */
+  dash?: string;
+  /** No dark halo under the outline (faint context lines). */
+  bare?: boolean;
+  /** Diagonal hatch in `color` (proposals, refused strokes). */
   hatch?: boolean;
   /** Draw every voxel's own square edge (footprints). */
   cells?: boolean;
   opacity?: number;
 }
 
-/** A landmark slab: a shaded band between two display coordinates. */
+/** A shaded band between two display coordinates: a landmark slab or the current slice's thickness. */
 export interface SlabOverlay {
   kind: 'slab';
   axis: 'x' | 'y';
   from: number;
   to: number;
+  /** `slice`: the primary slice's true thickness (solid hairline edges). */
+  tone?: 'landmark' | 'slice';
 }
 
-export type Overlay = LabelOverlay | VoxelOverlay | SlabOverlay;
+/** A landmark limit: a solid labelled line across the view. */
+export interface LimitOverlay {
+  kind: 'limit';
+  axis: 'x' | 'y';
+  at: number;
+  label: string;
+}
+
+/**
+ * Two raters on one slice: A's outline (once, solid, label colour); B only
+ * where it departs (neutral long dash); disagreeing voxels textured
+ * achromatically: A only, B only, relabelled.
+ */
+export interface ReviewOverlay {
+  kind: 'review';
+  a: readonly LabelVoxel[];
+  b: readonly LabelVoxel[];
+  show?: 'a' | 'b' | 'both';
+}
+
+/** A small neutral glyph in each voxel (locked voxels a proposal skipped). */
+export interface MarksOverlay {
+  kind: 'marks';
+  voxels: readonly Voxel[];
+}
+
+export type Overlay = LabelOverlay | VoxelOverlay | SlabOverlay | LimitOverlay | ReviewOverlay | MarksOverlay;
 
 export interface BrushCursor {
   center: Point;
   radiusMm: number;
-  /** Show the exact voxel footprint under the ring. */
+  /** The label the brush writes: the footprint fills in its colour. */
+  label?: number;
+  /** Kept for compatibility: the footprint is always drawn. */
   footprint?: boolean;
   /** `blocked`: warning-coloured footprint (a refused stroke). */
   tone?: 'neutral' | 'blocked';
@@ -86,8 +131,14 @@ export interface SliceViewProps {
   center: Point;
   overlays?: readonly Overlay[];
   crosshair?: Point | null;
-  /** Gap (screen px) the crosshair opens around the brush while drawing. */
+  /**
+   * Minimum gap (screen px) the crosshair opens around the brush while a
+   * paint tool is active; the gap is at least three brush radii
+   * (`geometry.crosshairGapRadius`).
+   */
   crosshairGap?: number;
+  /** Keep the crosshair out of a region under review (display centre, mm radius). */
+  crosshairClear?: { center: Point; radiusMm: number } | null;
   brush?: BrushCursor | null;
   /** Voxel grid lines (only drawn when a voxel is at least 6 px). */
   grid?: boolean;
@@ -129,7 +180,8 @@ export function SliceView({
   center,
   overlays = [],
   crosshair,
-  crosshairGap = 0,
+  crosshairGap = 12,
+  crosshairClear = null,
   brush,
   grid = false,
   letters = true,
@@ -153,8 +205,8 @@ export function SliceView({
   };
 
   const footprint = useMemo(
-    () => (brush?.footprint ? discFootprint(brush.center, brush.radiusMm) : []),
-    [brush?.footprint, brush?.center, brush?.radiusMm],
+    () => (brush ? discFootprint(brush.center, brush.radiusMm) : []),
+    [brush],
   );
 
   // Visible voxel window for the grid.
@@ -174,11 +226,17 @@ export function SliceView({
   overlays.forEach((o) => {
     if (o.kind === 'voxels' && o.hatch && !hatchColors.has(o.color)) hatchColors.set(o.color, `${uid}-hatch-${hatchColors.size}`);
   });
+  if (brush?.tone === 'blocked' && !hatchColors.has('var(--bf-warning)'))
+    hatchColors.set('var(--bf-warning)', `${uid}-hatch-${hatchColors.size}`);
+  const hasReview = overlays.some((o) => o.kind === 'review');
 
   const ch = crosshair ? projector.project(crosshair) : null;
   const brushScreen = brush ? projector.project(brush.center) : null;
   const brushR = brush ? brush.radiusMm * s : 0;
-  const gap = brush && crosshairGap > 0 ? brushR + crosshairGap : 0;
+  const clear = crosshairClear ? { at: projector.project(crosshairClear.center), r: crosshairClear.radiusMm * s } : null;
+  const gapAt = brushScreen ?? clear?.at ?? null;
+  const gap = brush ? crosshairGapRadius(brushR, crosshairGap) : clear ? clear.r : 0;
+  const limits = overlays.filter((o): o is LimitOverlay => o.kind === 'limit');
   const [lL, lR, lT, lB] = PLANE_LETTERS[image.plane];
 
   return (
@@ -202,6 +260,7 @@ export function SliceView({
               <rect width={px(1.6)} height={px(5)} style={{ fill: color }} />
             </pattern>
           ))}
+          {hasReview ? <ReviewPatterns uid={uid} px={px} /> : null}
         </defs>
         <g transform={`translate(${tx} ${ty}) scale(${s})`}>
           <image
@@ -219,36 +278,69 @@ export function SliceView({
                   : { x: Math.min(o.from, o.to), y: 0, width: Math.abs(o.to - o.from), height: image.rows };
               const edge = (v: number) =>
                 o.axis === 'y' ? `M0 ${v}H${image.cols}` : `M${v} 0V${image.rows}`;
+              const slice = o.tone === 'slice';
               return (
                 <g key={i}>
-                  <rect {...band} className="fill-bf-text-primary" fillOpacity={0.07} />
+                  <rect {...band} className="fill-bf-text-primary" fillOpacity={slice ? 0.16 : 0.06} />
                   <path
                     d={edge(o.from) + edge(o.to)}
-                    className="stroke-bf-text-secondary"
+                    className="stroke-bf-text-primary"
+                    strokeOpacity={slice ? 0.55 : 0.3}
                     strokeWidth={px(1)}
-                    strokeDasharray={`${px(6)} ${px(4)}`}
                     fill="none"
                   />
                 </g>
               );
             }
+            if (o.kind === 'limit') return null;
             if (o.kind === 'labels') {
-              const ids = o.only ?? [...new Set(o.voxels.map((v) => v[2]))];
+              const vs = o.only ? o.voxels.filter((v) => o.only!.includes(v[2])) : o.voxels;
+              const emphasis = o.emphasis ?? [];
+              const edges = o.outline === false ? [] : partitionEdges(vs, emphasis);
+              const ids = [...new Set(vs.map((v) => v[2]))];
+              const w = o.width ?? 1;
               return (
                 <g key={i} opacity={o.opacity ?? 1}>
-                  {ids.map((id) => {
-                    const vs = o.voxels.filter((v) => v[2] === id).map(([c, r]) => [c, r] as Voxel);
-                    if (!vs.length) return null;
-                    const color = labelColor(id);
-                    return (
-                      <g key={id}>
-                        {o.fill ? <path d={voxelFillPath(vs)} style={{ fill: color }} fillOpacity={o.fill} /> : null}
-                        {o.outline ? (
-                          <OutlinePath d={voxelOutlinePath(vs)} color={color} width={px(o.width ?? 1.5)} dashed={o.dashed} px={px} />
-                        ) : null}
-                      </g>
-                    );
-                  })}
+                  {o.fill !== false
+                    ? ids.map((id) => (
+                        <path
+                          key={id}
+                          d={voxelFillPath(vs.filter((v) => v[2] === id).map(([c, r]) => [c, r] as Voxel))}
+                          style={{ fill: labelColor(id) }}
+                          fillOpacity={LABEL_FILL_ALPHA}
+                        />
+                      ))
+                    : null}
+                  {edges.length ? (
+                    <path
+                      d={edges.map((e) => e.d).join('')}
+                      fill="none"
+                      className="stroke-bf-bg-canvas"
+                      strokeOpacity={0.5}
+                      strokeWidth={px(w + 1.5)}
+                      strokeLinecap="square"
+                    />
+                  ) : null}
+                  {edges.map((e) => (
+                    <path
+                      key={e.label}
+                      d={e.d}
+                      fill="none"
+                      style={{ stroke: labelColor(e.label) }}
+                      strokeWidth={px(emphasis.includes(e.label) ? w + 0.75 : w)}
+                      strokeLinecap="square"
+                    />
+                  ))}
+                </g>
+              );
+            }
+            if (o.kind === 'review') return <ReviewLayer key={i} o={o} uid={uid} px={px} />;
+            if (o.kind === 'marks') {
+              const d = o.voxels.map(([c, r]) => `M${c + 0.3} ${r + 0.3}L${c + 0.7} ${r + 0.7}M${c + 0.7} ${r + 0.3}L${c + 0.3} ${r + 0.7}`).join('');
+              return (
+                <g key={i}>
+                  <path d={d} className="stroke-bf-bg-canvas" strokeWidth={px(3)} strokeOpacity={0.7} fill="none" />
+                  <path d={d} className="stroke-bf-text-primary" strokeWidth={px(1.25)} fill="none" />
                 </g>
               );
             }
@@ -261,7 +353,15 @@ export function SliceView({
                   <path d={fillD} fill="none" style={{ stroke: o.color }} strokeWidth={px(1)} strokeOpacity={0.55} />
                 ) : null}
                 {o.outline ? (
-                  <OutlinePath d={voxelOutlinePath(o.voxels)} color={o.color} width={px(o.width ?? 1.5)} dashed={o.dashed} px={px} />
+                  <OutlinePath
+                    d={voxelOutlinePath(o.voxels)}
+                    color={o.color}
+                    width={px(o.width ?? 1.5)}
+                    dashed={o.dashed}
+                    dash={o.dash}
+                    bare={o.bare}
+                    px={px}
+                  />
                 ) : null}
               </g>
             );
@@ -271,45 +371,53 @@ export function SliceView({
           ) : null}
           {footprint.length ? (
             <g>
-              <path
-                d={voxelFillPath(footprint)}
-                className={brush?.tone === 'blocked' ? 'fill-bf-warning' : 'fill-bf-text-primary'}
-                fillOpacity={0.2}
-              />
-              {/* Every voxel the brush will write, cell by cell. */}
-              <path
-                d={voxelFillPath(footprint)}
-                fill="none"
-                className={brush?.tone === 'blocked' ? 'stroke-bf-warning' : 'stroke-bf-text-primary'}
-                strokeOpacity={0.45}
-                strokeWidth={px(1)}
-              />
+              {/* The exact voxels the brush writes: filled in the label's colour (preview alpha). */}
+              {brush?.tone === 'blocked' ? (
+                <path d={voxelFillPath(footprint)} fill={`url(#${hatchColors.get('var(--bf-warning)')})`} />
+              ) : (
+                <path d={voxelFillPath(footprint)} style={{ fill: brush?.label ? labelColor(brush.label) : 'var(--bf-text-primary)' }} fillOpacity={0.45} />
+              )}
+              {/* Its boundary is the cursor: neutral white with a dark halo. */}
+              <path d={voxelOutlinePath(footprint)} className="stroke-bf-bg-canvas" strokeOpacity={0.85} strokeWidth={px(3)} fill="none" strokeLinecap="square" />
               <path
                 d={voxelOutlinePath(footprint)}
                 className={brush?.tone === 'blocked' ? 'stroke-bf-warning' : 'stroke-bf-text-primary'}
-                strokeWidth={px(1.5)}
+                strokeWidth={px(1.25)}
                 fill="none"
+                strokeLinecap="square"
               />
             </g>
           ) : null}
         </g>
 
-        {ch ? <Crosshair x={ch.x} y={ch.y} w={width} h={height} gapAt={brushScreen} gap={gap} /> : null}
+        {ch ? <Crosshair x={ch.x} y={ch.y} w={width} h={height} gapAt={gapAt} gap={gap} /> : null}
 
         {brushScreen ? (
           <g>
-            <circle cx={brushScreen.x} cy={brushScreen.y} r={brushR} fill="none" className="stroke-bf-bg-canvas" strokeOpacity={0.8} strokeWidth={3} />
-            <circle
-              cx={brushScreen.x}
-              cy={brushScreen.y}
-              r={brushR}
-              fill="none"
-              className={brush?.tone === 'blocked' ? 'stroke-bf-warning' : 'stroke-bf-text-primary'}
-              strokeWidth={1.25}
+            {/* Hairline centre tick (the disc's centre); no circle: the footprint is the cursor. */}
+            <path
+              d={`M${brushScreen.x - 4} ${brushScreen.y}h8M${brushScreen.x} ${brushScreen.y - 4}v8`}
+              className="stroke-bf-bg-canvas"
+              strokeWidth={3}
+              strokeOpacity={0.8}
             />
-            <circle cx={brushScreen.x} cy={brushScreen.y} r={1.25} className="fill-bf-text-primary" />
+            <path
+              d={`M${brushScreen.x - 4} ${brushScreen.y}h8M${brushScreen.x} ${brushScreen.y - 4}v8`}
+              className="stroke-bf-text-primary"
+              strokeWidth={1}
+            />
           </g>
         ) : null}
+        {limits.map((o, i) => {
+          const a = projector.project(o.axis === 'y' ? [0, o.at] : [o.at, 0]);
+          const line = o.axis === 'y' ? { x1: 0, y1: a.y, x2: width, y2: a.y } : { x1: a.x, y1: 0, x2: a.x, y2: height };
+          return (
+            <g key={`limit${i}`}>
+              <line {...line} className="stroke-bf-bg-canvas" strokeWidth={3} strokeOpacity={0.6} />
+              <line {...line} className="stroke-bf-text-secondary" strokeWidth={1} />
+            </g>
+          );
+        })}
       </svg>
 
       {letters ? (
@@ -325,6 +433,22 @@ export function SliceView({
           {zoomLabel}
         </span>
       ) : null}
+      {limits.map((o, i) => {
+        const a = projector.project(o.axis === 'y' ? [0, o.at] : [o.at, 0]);
+        return (
+          <span
+            key={`limit-label${i}`}
+            className="pointer-events-none absolute whitespace-nowrap rounded-sm bg-bf-bg-canvas/75 px-1 font-mono text-bf-2xs leading-4 text-bf-text-secondary"
+            style={
+              o.axis === 'y'
+                ? { right: 4, top: a.y - 17 }
+                : { left: a.x + 3, ...(i % 2 ? { top: 18 } : { bottom: 16 }) }
+            }
+          >
+            {o.label}
+          </span>
+        );
+      })}
       {overlay ? overlay(projector) : null}
     </div>
   );
@@ -335,19 +459,83 @@ function OutlinePath({
   color,
   width,
   dashed,
+  dash,
+  bare,
   px,
 }: {
   d: string;
   color: string;
   width: number;
   dashed?: boolean;
+  dash?: string;
+  bare?: boolean;
   px: (n: number) => number;
 }) {
+  const pattern = dash
+    ? dash
+        .split(' ')
+        .map((n) => px(Number(n)))
+        .join(' ')
+    : dashed
+      ? `${px(4)} ${px(3)}`
+      : undefined;
   return (
     <>
-      <path d={d} fill="none" className="stroke-bf-bg-canvas" strokeOpacity={0.55} strokeWidth={width + px(1.5)} strokeLinecap="square" strokeDasharray={dashed ? `${px(4)} ${px(3)}` : undefined} />
-      <path d={d} fill="none" style={{ stroke: color }} strokeWidth={width} strokeLinecap="square" strokeDasharray={dashed ? `${px(4)} ${px(3)}` : undefined} />
+      {bare ? null : (
+        <path d={d} fill="none" className="stroke-bf-bg-canvas" strokeOpacity={0.55} strokeWidth={width + px(1.5)} strokeLinecap="butt" strokeDasharray={pattern} />
+      )}
+      <path d={d} fill="none" style={{ stroke: color }} strokeWidth={width} strokeLinecap="butt" strokeDasharray={pattern} />
     </>
+  );
+}
+
+/** Achromatic textures for rater disagreement: A only "/", B only "\\", relabelled crossed. */
+function ReviewPatterns({ uid, px }: { uid: string; px: (n: number) => number }) {
+  const lines = (angle: number, id: string) => (
+    <pattern key={id} id={`${uid}-${id}`} patternUnits="userSpaceOnUse" width={px(6)} height={px(6)} patternTransform={`rotate(${angle})`}>
+      <rect width={px(1.5)} height={px(6)} className="fill-bf-bg-canvas" fillOpacity={0.75} />
+      <rect x={px(1.5)} width={px(1.25)} height={px(6)} className="fill-bf-text-primary" />
+    </pattern>
+  );
+  return (
+    <>
+      {lines(45, 'a-only')}
+      {lines(-45, 'b-only')}
+      <pattern id={`${uid}-relabelled`} patternUnits="userSpaceOnUse" width={px(6)} height={px(6)} patternTransform="rotate(45)">
+        <rect width={px(1.25)} height={px(6)} className="fill-bf-text-primary" />
+        <rect width={px(6)} height={px(1.25)} className="fill-bf-text-primary" />
+      </pattern>
+    </>
+  );
+}
+
+function ReviewLayer({ o, uid, px }: { o: ReviewOverlay; uid: string; px: (n: number) => number }) {
+  const enc = useMemo(() => reviewEncoding(o.a, o.b), [o.a, o.b]);
+  const show = o.show ?? 'both';
+  const ref = show === 'b' ? o.b : o.a;
+  const edges = partitionEdges(ref);
+  return (
+    <g>
+      {(
+        [
+          [enc.aOnly, 'a-only'],
+          [enc.bOnly, 'b-only'],
+          [enc.relabelled, 'relabelled'],
+        ] as const
+      ).map(([vs, id]) =>
+        vs.length ? <path key={id} d={voxelFillPath(vs)} fill={`url(#${uid}-${id})`} opacity={0.7} data-texture={id} /> : null,
+      )}
+      <path d={edges.map((e) => e.d).join('')} fill="none" className="stroke-bf-bg-canvas" strokeOpacity={0.5} strokeWidth={px(2.5)} />
+      {edges.map((e) => (
+        <path key={e.label} d={e.d} fill="none" style={{ stroke: labelColor(e.label) }} strokeWidth={px(1.25)} strokeLinecap="square" />
+      ))}
+      {show === 'both' && enc.departures ? (
+        <g data-testid="rater-b-departures">
+          <path d={enc.departures} fill="none" className="stroke-bf-bg-canvas" strokeWidth={px(3)} strokeOpacity={0.8} />
+          <path d={enc.departures} fill="none" className="stroke-bf-text-primary" strokeWidth={px(1.5)} strokeDasharray={`${px(7)} ${px(3)}`} />
+        </g>
+      ) : null}
+    </g>
   );
 }
 

@@ -61,6 +61,22 @@ const P = slices.primary;
 const AX = String(P.axialK).padStart(3, '0');
 const SAG = String(P.sagittalI).padStart(3, '0');
 
+interface RawReviewLabel {
+  volA: number;
+  volB: number;
+  dice: number | null;
+  hd95: number | null;
+  disagreeBySlice: number[];
+}
+
+const AREA = slices.areaBySlice as unknown as { j: [number, number]; traced: Record<string, number[]>; all: Record<string, number[]> };
+const REVIEW_RAW = slices.review as unknown as {
+  j: [number, number];
+  regions: number;
+  regionsBySlice: Record<string, number>;
+  labels: Record<string, RawReviewLabel>;
+};
+
 export const DESIGN = {
   source: slices.source,
   grid: slices.grid,
@@ -71,6 +87,10 @@ export const DESIGN = {
   hippoCentre: slices.hippocampusCentre as [number, number],
   strokeCa1: slices.strokeCa1 as Array<[number, number]>,
   strokeDg: slices.strokeDg as Array<[number, number]>,
+  /** Label area (voxels) on every coronal slice j in `area.j` (inclusive). */
+  area: AREA,
+  /** Rater A (full mock labels) against rater B over the same range. */
+  review: REVIEW_RAW,
   primaryJ: P.j,
   axialK: P.axialK,
   sagittalI: P.sagittalI,

@@ -152,3 +152,104 @@ export const PROTOCOL = {
     { text: 'Every body slice from y −32 to −16', done: false },
   ],
 };
+
+// ---------------------------------------------------------------------------
+// Round 1 (direction H): simulated native geometry, slice status, review
+// statistics. The imagery stays the 1 mm template; the native acquisition
+// geometry below is SIMULATED (stated in the mock disclosure) so headers,
+// readouts and slice counts show what a 0.4 x 0.4 x 2.0 mm T2 TSE would.
+
+/** Simulated native T2 geometry: 0.40 x 0.40 mm in-plane, 2.0 mm slices. */
+export const NATIVE = {
+  simulated: true,
+  spacing: [0.4, 0.4, 2.0] as const,
+  plane: 'native oblique ⊥ long axis',
+  /** One native slice spans two template slices (j step). */
+  stepJ: 2,
+  voxelMm3: 0.4 * 0.4 * 2.0,
+};
+
+/** "0.40×0.40 / 2.0 mm" */
+export const NATIVE_GEOMETRY = `${NATIVE.spacing[0].toFixed(2)}×${NATIVE.spacing[1].toFixed(2)} / ${NATIVE.spacing[2].toFixed(1)} mm`;
+
+const [J0, J1] = DESIGN.area.j;
+
+/** Native slices over the hippocampus (template j of each, every 2nd). */
+export const NATIVE_SLICES_J: readonly number[] = Array.from(
+  { length: Math.floor((J1 - J0) / NATIVE.stepJ) + 1 },
+  (_, i) => J0 + i * NATIVE.stepJ,
+);
+
+/** y (mm) of a template slice index. */
+export const yOfJ = (j: number) => DESIGN.grid.origin[1] + j;
+
+export type SliceStatus = 'traced' | 'interpolated' | 'ai' | 'empty' | 'reviewed' | 'keyframe';
+
+/** Per-slice status while tracing (mock): what the slice ruler shows. */
+export function tracingSliceStatus(j: number): SliceStatus {
+  if (j < 100 || j > 116) return 'empty';
+  if (j === 106) return 'ai';
+  if (j === 112 || j === 114) return 'interpolated';
+  return 'traced';
+}
+
+/** Fill-between proposal reviewed slice by slice (mock). */
+export const INTERP = {
+  label: 1,
+  keyframesJ: [98, 118] as const,
+  /** Interpolated slices, in review order (from the anterior keyframe). */
+  orderJ: [116, 114, 112, 110, 108, 106, 104, 102, 100] as const,
+  reviewed: 3,
+  currentJ: 110,
+};
+
+export function proposalSliceStatus(j: number): SliceStatus {
+  if ((INTERP.keyframesJ as readonly number[]).includes(j)) return 'keyframe';
+  const i = (INTERP.orderJ as readonly number[]).indexOf(j);
+  if (i < 0) return 'empty';
+  return i < INTERP.reviewed ? 'reviewed' : 'interpolated';
+}
+
+/** Area by native slice for one label (traced labels, or all for review). */
+export function areaByNativeSlice(label: number, source: 'traced' | 'all' = 'traced'): number[] {
+  const rows = DESIGN.area[source][String(label)] ?? [];
+  return NATIVE_SLICES_J.map((j) => rows[j - J0] ?? 0);
+}
+
+export interface ReviewRow {
+  label: number;
+  dice: number | null;
+  volA: number;
+  volB: number;
+  /** Signed (B − A) / A, percent; null when A is empty. */
+  deltaPct: number | null;
+  hd95: number | null;
+  /** Disagreeing voxels by native slice (navigation sparkline). */
+  bySlice: number[];
+  /** Why the row has no Dice. */
+  note?: string;
+}
+
+/** Dice below this is flagged. Stated in the table. */
+export const DICE_THRESHOLD = 0.7;
+
+export const REVIEW_ROWS: readonly ReviewRow[] = LABEL_DEFS.map((def) => {
+  const r = DESIGN.review.labels[String(def.id)];
+  const rows = r?.disagreeBySlice ?? [];
+  return {
+    label: def.id,
+    dice: r?.dice ?? null,
+    volA: r?.volA ?? 0,
+    volB: r?.volB ?? 0,
+    deltaPct: r && r.volA > 0 ? ((r.volB - r.volA) / r.volA) * 100 : null,
+    hd95: r?.hd95 ?? null,
+    bySlice: NATIVE_SLICES_J.map((j) => rows[j - DESIGN.review.j[0]] ?? 0),
+    note: r && r.volB === 0 ? 'not traced by B' : undefined,
+  };
+});
+
+/** Disagreement regions on native slices (navigation), and the review position. */
+export const REVIEW_NAV = (() => {
+  const total = NATIVE_SLICES_J.reduce((n, j) => n + (DESIGN.review.regionsBySlice[String(j)] ?? 0), 0);
+  return { total, visited: 3, current: 3 };
+})();

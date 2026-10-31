@@ -23,9 +23,8 @@ export function primaryView(state: DesignState): PanelProps {
     case 'multi-contrast':
       return {
         ...base,
-        overlays: [...OVERLAYS.labels(SCENE.tracing.base), OVERLAYS.wetInk(SCENE.tracing.wet)],
-        brush: { center: SCENE.tracing.brush, radiusMm: BRUSH.radiusMm },
-        crosshairGap: 10,
+        overlays: OVERLAYS.labels(OVERLAYS.withStroke(SCENE.tracing.base, SCENE.tracing.wet)),
+        brush: { center: SCENE.tracing.brush, radiusMm: BRUSH.radiusMm, label: CA1 },
       };
     case 'blocked':
       return {
@@ -34,31 +33,39 @@ export function primaryView(state: DesignState): PanelProps {
         fovMm: 40,
         center: [SCENE.blocked.brush[0] + 4, SCENE.blocked.brush[1] + 1],
         overlays: [
-          ...OVERLAYS.labels(SCENE.blocked.base, CA1, 0.32),
-          { kind: 'labels', voxels: SCENE.blocked.base, outline: true, width: 2.5, only: [DG] },
+          // DG, the label that refused the stroke, owns its edges and draws heavier.
+          ...OVERLAYS.labels(SCENE.blocked.base, CA1, { emphasis: [DG, CA1] }),
           { kind: 'voxels', voxels: SCENE.blocked.footprint, color: 'var(--bf-warning)', hatch: true, opacity: 0.8 },
           { kind: 'voxels', voxels: SCENE.blocked.footprint, color: 'var(--bf-warning)', outline: true, dashed: true, width: 1.5 },
         ],
         brush: { center: SCENE.blocked.brush, radiusMm: BRUSH.radiusMm, tone: 'blocked' },
-        crosshairGap: 10,
       };
     case 'proposal':
       return {
         ...base,
-        overlays: [...OVERLAYS.labels(SCENE.proposal.base, CA1, 0.32), ...OVERLAYS.proposal(SCENE.proposal.voxels)],
+        overlays: [
+          ...OVERLAYS.labels(SCENE.proposal.base, CA1),
+          ...OVERLAYS.proposal(SCENE.proposal.voxels, CA1, SCENE.proposal.skipped),
+        ],
         crosshair: CROSSHAIR.coronal,
       };
     case 'review':
-      return { ...base, overlays: OVERLAYS.review(), center: SCENE.review.focus, fovMm: 44 };
+      return {
+        ...base,
+        overlays: OVERLAYS.review(),
+        center: SCENE.review.focus,
+        fovMm: 44,
+        // The crosshair stays out of the region under review.
+        crosshairClear: { center: SCENE.review.focus, radiusMm: 7 },
+      };
     case 'zoom':
       return {
         ...base,
         center: [SCENE.zoom.brush[0] + 2, SCENE.zoom.brush[1] - 1],
         fovMm: FOV.zoom,
         grid: true,
-        overlays: OVERLAYS.labels(SCENE.zoom.base, CA1, 0.3),
-        brush: { center: SCENE.zoom.brush, radiusMm: BRUSH.radiusMm, footprint: true },
-        crosshairGap: 14,
+        overlays: OVERLAYS.labels(SCENE.zoom.base, CA1),
+        brush: { center: SCENE.zoom.brush, radiusMm: BRUSH.radiusMm, label: CA1 },
       };
   }
 }
@@ -102,7 +109,9 @@ export function stripViews(state: DesignState): Array<PanelProps & { image: Slic
     overlays:
       state === 'review'
         ? OVERLAYS.echo(SCENE.labelsA)
-        : [...OVERLAYS.echo(labels), ...(state === 'tracing' || state === 'multi-contrast' ? [OVERLAYS.wetInk(SCENE.tracing.wet)] : [])],
+        : OVERLAYS.echo(
+            state === 'tracing' || state === 'multi-contrast' ? OVERLAYS.withStroke(labels, SCENE.tracing.wet) : labels,
+          ),
   }));
 }
 

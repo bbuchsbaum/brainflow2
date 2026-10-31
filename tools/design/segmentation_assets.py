@@ -109,19 +109,61 @@ def partition_slice(hip: np.ndarray, cortex: np.ndarray, j: int) -> np.ndarray:
 
 
 def rater_b(a: np.ndarray, hip: np.ndarray) -> np.ndarray:
-    """A second rater's slice: subiculum traced smaller, DG wider, CA1 drawn
-    one voxel into the white matter on its lateral edge."""
+    """A second rater's slice: subiculum traced smaller (its medial part left
+    unlabelled), DG wider (into the SRLM above it), CA1 drawn one voxel into
+    the white matter on its lateral edge. Rater B did not trace ERC."""
     b = a.copy()
+    b[b == ERC] = 0
+    if hip.sum() < 6:
+        return b
     ii, kk = np.nonzero(hip)
     ci = ii.mean()
     hw = max(ii.max() - ii.min(), 4) / 2.0
     gi = np.arange(a.shape[0])[:, None] * np.ones((1, a.shape[1]))
     u = (gi - ci) / hw
-    b[(a == SUB) & (u < 0.55)] = CA1
+    b[(a == SUB) & (u < 0.55)] = 0
     b[(a == SRLM) & ndimage.binary_dilation(a == DG) & (np.arange(a.shape[1])[None, :] > kk.mean())] = DG
     lateral = ndimage.binary_dilation(a == CA1) & (a == 0) & (u < -0.55)
     b[lateral] = CA1
     return b
+
+
+def hd95(a: np.ndarray, b: np.ndarray) -> float | None:
+    """95th percentile symmetric surface distance (mm, 1 mm grid)."""
+    if not a.any() or not b.any():
+        return None
+    sa = a & ~ndimage.binary_erosion(a)
+    sb = b & ~ndimage.binary_erosion(b)
+    da = ndimage.distance_transform_edt(~a)
+    db = ndimage.distance_transform_edt(~b)
+    d = np.concatenate([db[sa], da[sb]])
+    return round(float(np.percentile(d, 95)), 2)
+
+
+def review_stats(labels: np.ndarray, hip: np.ndarray, j_range: range) -> dict:
+    """Rater A (the full mock labels) against rater B (rater_b on every
+    coronal slice): per-label volumes, Dice, HD95 and disagreement by slice,
+    plus the number of 2D disagreement regions (the review's navigation)."""
+    b = np.zeros_like(labels)
+    for j in j_range:
+        b[:, j, :] = rater_b(labels[:, j, :], hip[:, j, :])
+    out: dict = {'labels': {}, 'regions': 0, 'regionsBySlice': {}}
+    for l in (CA1, CA23, DG, SUB, ERC, SRLM):
+        ma, mb = labels == l, b == l
+        va, vb = int(ma.sum()), int(mb.sum())
+        dice = None if va == 0 or vb == 0 else round(2 * int((ma & mb).sum()) / (va + vb), 3)
+        by_slice = [int(((ma ^ mb)[:, j, :]).sum()) for j in j_range]
+        out['labels'][str(l)] = {'volA': va, 'volB': vb, 'dice': dice, 'hd95': hd95(ma, mb), 'disagreeBySlice': by_slice}
+    # Navigation regions: 2D groups of at least 3 disagreeing voxels; ERC is
+    # not compared because rater B did not trace it.
+    for j in j_range:
+        diff = (labels[:, j, :] != b[:, j, :]) & (labels[:, j, :] != ERC)
+        lab, n_all = ndimage.label(diff)
+        sizes = ndimage.sum(diff, lab, range(1, n_all + 1)) if n_all else []
+        n = int(sum(1 for s in sizes if s >= 3))
+        out['regionsBySlice'][str(j)] = n
+        out['regions'] += n
+    return out
 
 
 def sparse(lbl2d: np.ndarray) -> list[list[int]]:
@@ -240,6 +282,12 @@ def main() -> None:
     counts = {str(l): int((traced == l).sum()) for l in (CA1, CA23, DG, SUB, ERC, SRLM)}
     hip_rows, hip_cols = np.nonzero(coronal(hip.astype(np.uint8), PRIMARY_J))
     rows_any = np.nonzero(labels.any(axis=(0, 2)))[0]
+    j_all = range(int(rows_any.min()), int(rows_any.max()) + 1)
+    area_by_slice = {
+        'j': [j_all.start, j_all.stop - 1],
+        'traced': {str(l): [int((traced[:, j, :] == l).sum()) for j in j_all] for l in (CA1, CA23, DG, SUB, ERC, SRLM)},
+        'all': {str(l): [int((labels[:, j, :] == l).sum()) for j in j_all] for l in (CA1, CA23, DG, SUB, ERC, SRLM)},
+    }
     meta = {
         'source': {
             't2': 'TemplateFlow tpl-MNI152NLin2009cAsym_res-01_T2w (real template)',
@@ -253,6 +301,8 @@ def main() -> None:
         'hippocampusRangeJ': [int(rows_any.min()), int(rows_any.max())],
         'tracedJ': [TRACED_J.start, TRACED_J.stop - 1],
         'counts': counts,
+        'areaBySlice': area_by_slice,
+        'review': {'j': [j_all.start, j_all.stop - 1], **review_stats(labels, hip, j_all)},
         'strokeCa1': stroke_points(prim, CA1, 'lateral'),
         'strokeDg': stroke_points(prim, DG, 'all'),
         'images': images,
