@@ -4,7 +4,79 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 import { globalIgnores } from 'eslint/config';
+import { readdirSync } from 'node:fs';
 import { ratchetConfigs } from './eslint.ratchet.js';
+
+// ──────────────────────────────────────────────────────────────────────────
+// Module boundaries (docs/plans/module-architecture.md, Guardrails;
+// src/modules/AGENTS.md). Every folder under src/modules/ except `api` and
+// `__tests__` is a module.
+//   - Module code imports only `@/modules/api` (incl. `@/modules/api/host`),
+//     `@/components/ui/bf`, `@brainflow/api`, packages, and its own folder:
+//     `./x` siblings or `@/modules/<id>/…` (no `../`, so nothing can climb out).
+//     Never `@tauri-apps/*`: the bridge goes through `@/modules/api/host`.
+//   - Core code never imports a module's folder; it uses the framework files
+//     at the top of src/modules (registry, settingsStore, runtime, …) and
+//     `@/modules/api`. The dev harness drives module stores directly, so it is
+//     exempt. Module tests may import test utilities but follow the same rule.
+// ──────────────────────────────────────────────────────────────────────────
+const MODULE_IDS = readdirSync(new URL('./src/modules/', import.meta.url), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && entry.name !== 'api' && entry.name !== '__tests__')
+  .map((entry) => entry.name);
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function moduleBoundaryConfig(id) {
+  const own = escapeRegex(id);
+  return {
+    files: [`src/modules/${id}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: `^@/(?!modules/api(/|$)|components/ui/bf(/|$)|modules/${own}(/|$))`,
+              message:
+                'A module imports only @/modules/api, @/components/ui/bf and its own folder (src/modules/AGENTS.md).',
+            },
+            {
+              regex: '^\\.\\./',
+              message: `Import across the module folder as @/modules/${id}/…, never with ../.`,
+            },
+            {
+              regex: '^@tauri-apps/',
+              message: 'Modules reach the bridge through @/modules/api/host, not Tauri directly.',
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+const coreBoundaryConfig = MODULE_IDS.length
+  ? [
+      {
+        files: ['src/**/*.{ts,tsx}'],
+        ignores: ['src/modules/**', 'src/devHarness/**'],
+        rules: {
+          'no-restricted-imports': [
+            'error',
+            {
+              patterns: [
+                {
+                  regex: `(^@/|/)modules/(${MODULE_IDS.map(escapeRegex).join('|')})(/|$)`,
+                  message:
+                    "Core code never imports a module's folder; use @/modules/registry or @/modules/api.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]
+  : [];
 
 // ──────────────────────────────────────────────────────────────────────────
 // Brainflow UI design discipline — see docs/design-system/ui-contract.md §8.
@@ -72,4 +144,6 @@ export default tseslint.config([
   // Chrome ratchet (errors) and its shrink-only allowlist; see eslint.ratchet.js.
   // BF_RATCHET_IGNORE_ALLOWLIST=1 drops the allowlist (used by the shrink test).
   ...ratchetConfigs({ ignoreAllowlist: process.env.BF_RATCHET_IGNORE_ALLOWLIST === '1' }),
+  ...MODULE_IDS.map(moduleBoundaryConfig),
+  ...coreBoundaryConfig,
 ]);

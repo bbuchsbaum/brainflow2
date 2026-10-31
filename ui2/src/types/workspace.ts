@@ -13,17 +13,23 @@ import type { WorkspacePresetId } from './workspacePresets';
 export type WorkspaceCategory = 'visualization' | 'analysis' | 'tool';
 
 /**
+ * The workspace types the shell itself provides: the views and the core tools.
+ */
+export const CORE_WORKSPACE_TYPES = [
+  'orthogonal-locked',
+  'orthogonal-flexible',
+  'mosaic',
+  'comparison',
+  'integrated',
+  'set-studio',
+  'bids-explorer',
+  'analysis-workbench',
+] as const;
+
+/**
  * Workspace types represent different view configurations
  */
-export type WorkspaceType =
-  | 'orthogonal-locked'
-  | 'orthogonal-flexible'
-  | 'mosaic'
-  | 'comparison'
-  | 'integrated'
-  | 'set-studio'
-  | 'bids-explorer'
-  | 'analysis-workbench';
+export type WorkspaceType = (typeof CORE_WORKSPACE_TYPES)[number];
 
 /**
  * Represents a complete workspace with its layout and state
