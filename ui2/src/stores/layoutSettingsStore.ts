@@ -106,6 +106,12 @@ export interface LayoutSettingsStore {
   integratedSplit: IntegratedSplit;
   goldenLayoutState: GoldenLayoutSavedState | null;
   integratedDefaultDisplayMode: WorkspaceType | null;
+  /**
+   * First screen (qa-features-2026-10-31 §7): with no restored session, the
+   * default view opens on the MNI T1 with a "Drop a map here" hint. On by
+   * default; Settings › Start turns it off.
+   */
+  firstScreenTemplate: boolean;
 
   setBottomDockSizes: (sizes: DockSizes) => void;
   setBottomDockLogCollapsed: (collapsed: boolean) => void;
@@ -119,6 +125,7 @@ export interface LayoutSettingsStore {
   setIntegratedSplit: (split: IntegratedSplit) => void;
   setGoldenLayoutState: (state: GoldenLayoutSavedState | null) => void;
   setIntegratedDefaultDisplayMode: (mode: WorkspaceType | null) => void;
+  setFirstScreenTemplate: (enabled: boolean) => void;
 
   /** Test helper — restores the initial defaults. */
   resetLayoutSettings: () => void;
@@ -142,6 +149,7 @@ const INITIAL_STATE = {
   integratedSplit: 'horizontal',
   goldenLayoutState: null,
   integratedDefaultDisplayMode: null,
+  firstScreenTemplate: true,
 } as const;
 
 const createLayoutSettingsStore = () =>
@@ -212,6 +220,11 @@ const createLayoutSettingsStore = () =>
               : { integratedDefaultDisplayMode: mode },
           );
         },
+        setFirstScreenTemplate: (enabled) => {
+          set((state) =>
+            state.firstScreenTemplate === enabled ? state : { firstScreenTemplate: enabled },
+          );
+        },
         resetLayoutSettings: () => {
           set({ ...INITIAL_STATE });
         },
@@ -234,6 +247,7 @@ const createLayoutSettingsStore = () =>
           integratedSplit: state.integratedSplit,
           goldenLayoutState: state.goldenLayoutState,
           integratedDefaultDisplayMode: state.integratedDefaultDisplayMode,
+          firstScreenTemplate: state.firstScreenTemplate,
         }),
       },
     ),

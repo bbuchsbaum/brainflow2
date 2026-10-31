@@ -109,3 +109,54 @@ describe('hover == click == drawn crosshair (letterboxed pane)', () => {
     expect(drawn[0].canvasY + RECT.top).toBeCloseTo(clientY, 6);
   });
 });
+
+describe('hover == click == drawn crosshair on a radiological (mirrored) display (QA features 2026-10-31 §2)', () => {
+  const mirrored = { ...placement, mirrorX: true };
+  beforeEach(() => {
+    drawn.length = 0;
+    customRender = null;
+  });
+
+  it.each([
+    [703.9, 223.1],
+    [624.37, 69.5],
+  ])('pointer at (%f, %f)', async (clientX, clientY) => {
+    const clicks: Array<[number, number, number]> = [];
+    const { result } = renderHook(() =>
+      useSliceViewerController({ viewPlane: plane, onWorldClick: (w) => clicks.push(w) }),
+    );
+    act(() => {
+      result.current.handleCanvasReady(canvas);
+      result.current.handleRender(ctx, mirrored);
+      result.current.handleMouseDown({
+        clientX,
+        clientY,
+        button: 0,
+        defaultPrevented: false,
+      } as unknown as React.MouseEvent<HTMLDivElement>);
+    });
+    const click = clicks[0];
+    const hover = pointerToWorld(clientX, clientY, canvas, mirrored, plane)!;
+    for (let a = 0; a < 3; a += 1) expect(hover[a]).toBeCloseTo(click[a], 9);
+    // Mirrored about the image centre: the neurological reading's x reflected.
+    const neuro = pointerToWorld(clientX, clientY, canvas, placement, plane)!;
+    const centreX = plane.origin_mm[0] + (plane.dim_px[0] / 2) * plane.u_mm[0];
+    expect(hover[0] - centreX).toBeCloseTo(-(neuro[0] - centreX), 6);
+    expect(hover[1]).toBeCloseTo(neuro[1], 9);
+
+    const { ReusableSliceViewport } = await import('../sliceViewer/ReusableSliceViewport');
+    render(
+      React.createElement(ReusableSliceViewport, {
+        width: 948,
+        height: 311,
+        viewPlane: plane,
+        crosshair: { visible: true, world_mm: hover },
+        crosshairStyle: { color: '#0f0', lineWidth: 1 },
+      } as never),
+    );
+    customRender!(ctx, mirrored);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].canvasX + RECT.left).toBeCloseTo(clientX, 6);
+    expect(drawn[0].canvasY + RECT.top).toBeCloseTo(clientY, 6);
+  });
+});

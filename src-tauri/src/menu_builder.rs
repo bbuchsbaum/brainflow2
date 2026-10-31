@@ -958,8 +958,8 @@ mod tests {
         assert!(main_rs.contains("app.listen(\"current-layout-changed\""));
         assert_eq!(
             main_rs.matches("CheckMenuItemBuilder::new(").count(),
-            6,
-            "five View › Layout items plus Show Crosshair are check items"
+            7,
+            "five View › Layout items, Show Crosshair and Radiological Convention are check items"
         );
     }
 

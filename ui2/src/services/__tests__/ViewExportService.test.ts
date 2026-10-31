@@ -31,6 +31,11 @@ vi.mock("@/services/transport", async (importOriginal) => ({
   }),
 }));
 
+const { mirrorMock } = vi.hoisted(() => ({
+  mirrorMock: vi.fn(async (bytes: Uint8Array) => new Uint8Array([...bytes, 255])),
+}));
+vi.mock("@/utils/mirrorImage", () => ({ mirrorEncodedImage: mirrorMock }));
+
 vi.mock("@/events/EventBus", () => ({
   getEventBus: () => ({
     emit: emitMock,
@@ -229,6 +234,33 @@ describe("ViewExportService", () => {
     );
     expect(emitMock).not.toHaveBeenCalled();
   });
+  it("mirrors a radiological axial / coronal slice export like the screen; sagittal and the default stay as rendered", async () => {
+    const { useViewDisplaySettingsStore } = await import("@/stores/viewDisplaySettingsStore");
+    const { useViewStateStore } = await import("@/stores/viewStateStore");
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [
+        { id: "t1", name: "t1", volumeId: "v1", visible: true, opacity: 1, colormap: "gray", intensity: [0, 100], threshold: [0, 0] },
+      ] as never;
+    });
+    invokeMock.mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+    mirrorMock.mockClear();
+    useViewDisplaySettingsStore.getState().setRadiological(false);
+    const off = await service.captureActiveView({ viewType: "axial" });
+    expect(Array.from(off.bytes)).toEqual([137, 80, 78, 71]);
+    expect(mirrorMock).not.toHaveBeenCalled();
+
+    useViewDisplaySettingsStore.getState().setRadiological(true);
+    const axial = await service.captureActiveView({ viewType: "axial" });
+    expect(Array.from(axial.bytes)).toEqual([137, 80, 78, 71, 255]);
+    expect(mirrorMock).toHaveBeenLastCalledWith(expect.any(Uint8Array), "image/png");
+    await service.captureActiveView({ viewType: "coronal", format: "jpg" });
+    expect(mirrorMock).toHaveBeenLastCalledWith(expect.any(Uint8Array), "image/jpeg");
+    mirrorMock.mockClear();
+    const sagittal = await service.captureActiveView({ viewType: "sagittal" });
+    expect(Array.from(sagittal.bytes)).toEqual([137, 80, 78, 71]);
+    expect(mirrorMock).not.toHaveBeenCalled();
+    useViewDisplaySettingsStore.getState().setRadiological(false);
+  });
 });
 
 describe("export file names", () => {
@@ -245,4 +277,3 @@ describe("export file names", () => {
     expect(withImageExtension("figure2a", "png")).toBe("figure2a.png");
   });
 });
-

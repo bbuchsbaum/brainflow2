@@ -1,5 +1,12 @@
 import { studioMetadata } from '@/services/studio/studioMetadata';
-import { useMemo } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
+import {
+  DISTANCE_TO_MEAN_SORT,
+  getStudioMeanDistanceService,
+  meanDistanceKey,
+  sortByMeanDistance,
+  type MeanDistanceSnapshot,
+} from '@/services/studio/StudioMeanDistanceService';
 import { setImportReadiness } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { PopulationState } from '@/types/population';
@@ -44,6 +51,8 @@ export interface StudioDerivedSnapshotInput {
   sortColumn: string | null;
   sortDirection: 'asc' | 'desc';
   activeDesignFilters: StudioDesignFilter[];
+  /** Distances to the group mean, for the "Distance to group mean" sort. */
+  meanDistance?: MeanDistanceSnapshot;
 }
 
 export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) {
@@ -73,6 +82,7 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
     sortColumn,
     sortDirection,
     activeDesignFilters,
+    meanDistance,
   } = input;
 
   const activeSet = activeSetId ? (sets[activeSetId] ?? null) : null;
@@ -121,8 +131,21 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
             : false;
         });
   const filteredMemberIds = searchFilteredMemberIds;
+  // The group the distance sort measures against: the list as filtered,
+  // before any sort reorders it.
+  const distanceKey = meanDistanceKey(
+    activeSetId,
+    activeFeatureId,
+    populationState.mask?.sourcePath,
+    filteredMemberIds,
+  );
 
   const visibleMemberIds = (() => {
+    if (sortColumn === DISTANCE_TO_MEAN_SORT) {
+      return meanDistance
+        ? sortByMeanDistance(filteredMemberIds, meanDistance, distanceKey, sortDirection)
+        : filteredMemberIds;
+    }
     if (!sortColumn || !metadata || metadata.issue) {
       return filteredMemberIds;
     }
@@ -171,7 +194,12 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
   const activeFilterLabels = activeDesignFilters.map(
     (filter) => `${filter.column}=${filter.value}`,
   );
-  const sortLabel = sortColumn ? `${sortColumn} ${sortDirection}` : null;
+  const sortLabel =
+    sortColumn === DISTANCE_TO_MEAN_SORT
+      ? `distance to mean ${sortDirection}`
+      : sortColumn
+        ? `${sortColumn} ${sortDirection}`
+        : null;
 
   return {
     population,
@@ -201,6 +229,9 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
     sortDirection,
     activeDesignFilters,
     visibleMemberIds,
+    /** Members the distance sort measures against, and that group's key. */
+    distanceGroupMemberIds: filteredMemberIds,
+    distanceKey,
     quickFilterOptions,
     activeFilterLabels,
     sortLabel,
@@ -233,6 +264,8 @@ export function useStudioDerivedState() {
   const sortColumn = useSetStudioStore((state) => state.sortColumn);
   const sortDirection = useSetStudioStore((state) => state.sortDirection);
   const activeDesignFilters = useSetStudioStore((state) => state.activeDesignFilters);
+  const distanceService = getStudioMeanDistanceService();
+  const meanDistance = useSyncExternalStore(distanceService.subscribe, distanceService.getSnapshot);
 
   return useMemo(
     () =>
@@ -262,6 +295,7 @@ export function useStudioDerivedState() {
         sortColumn,
         sortDirection,
         activeDesignFilters,
+        meanDistance,
       }),
     [
       populationState,
@@ -289,6 +323,7 @@ export function useStudioDerivedState() {
       sortColumn,
       sortDirection,
       activeDesignFilters,
+      meanDistance,
     ],
   );
 }

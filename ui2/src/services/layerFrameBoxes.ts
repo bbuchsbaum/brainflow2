@@ -8,6 +8,8 @@
  * volume ids, so one map serves all workspaces.
  */
 import type { ViewPlane, ViewType } from '@/types/coordinates';
+import { alignPlaneToCrosshair } from '@/stores/viewStateGeometry';
+import { planeShowsBox } from '@/utils/viewZoomGeometry';
 import type { ViewState } from '@/types/viewState';
 import {
   clampToVoxelGrid,
@@ -114,20 +116,29 @@ const shownIds = (layers: ReadonlyArray<FramedLayer>) =>
  * panel, the Inspector, the Series view) grows or shrinks the frame. An
  * unchanged union keeps the user's zoom and pan. When the change removed a
  * layer, the crosshair is kept inside the remaining frame.
+ *
+ * A view the user zoomed or panned (`zoomed`) keeps its frame through the
+ * change, only following the crosshair along its normal; it is refit only
+ * when the shown images no longer meet it (QA features 2026-10-31 §1).
+ * Returns the zoomed views that were refit, whose zoom mark is now stale.
  */
-export function reframeForLayerChange(previous: ViewState, next: ViewState): void {
-  if (!next.views || !next.crosshair || !previous.layers || !next.layers) return;
-  if (shownIds(previous.layers) === shownIds(next.layers)) return;
+export function reframeForLayerChange(
+  previous: ViewState,
+  next: ViewState,
+  zoomed: ReadonlySet<ViewType> = new Set(),
+): ViewType[] {
+  if (!next.views || !next.crosshair || !previous.layers || !next.layers) return [];
+  if (shownIds(previous.layers) === shownIds(next.layers)) return [];
   const after = visibleFrameBox(next.layers);
-  if (!after) return;
+  if (!after) return [];
   const before = visibleFrameBox(previous.layers);
   if (before) {
-    if (sameWorldBox(before, after)) return;
+    if (sameWorldBox(before, after)) return [];
   } else {
     // Nothing was framed by layers before (e.g. the first layer, whose initial
     // views were just written): keep panes that already frame the union.
     const shown = worldBoxFromViews(next.views);
-    if (shown && framesWithin(shown, after, largestPixelMm(next.views) * 1.01)) return;
+    if (shown && framesWithin(shown, after, largestPixelMm(next.views) * 1.01)) return [];
   }
 
   const removed = previous.layers.some((old) => !next.layers.some((layer) => layer.id === old.id));
@@ -139,7 +150,22 @@ export function reframeForLayerChange(previous: ViewState, next: ViewState): voi
       crosshair = clamped;
     }
   }
-  next.views = fitViewsToWorldBox(next.views, after, crosshair);
+  const fitted = fitViewsToWorldBox(next.views, after, crosshair);
+  const refitZoomed: ViewType[] = [];
+  const views = { ...next.views };
+  for (const viewType of Object.keys(fitted) as ViewType[]) {
+    const kept = next.views[viewType];
+    if (zoomed.has(viewType) && kept && planeShowsBox(kept, after)) {
+      const plane = { ...kept, origin_mm: [...kept.origin_mm] as [number, number, number] };
+      alignPlaneToCrosshair(plane, crosshair);
+      views[viewType] = plane;
+      continue;
+    }
+    if (zoomed.has(viewType)) refitZoomed.push(viewType);
+    views[viewType] = fitted[viewType];
+  }
+  next.views = views;
+  return refitZoomed;
 }
 
 /**

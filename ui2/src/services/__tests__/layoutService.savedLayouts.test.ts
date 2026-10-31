@@ -39,7 +39,7 @@ function mountLayout(): GoldenLayout {
   document.body.appendChild(host);
   const gl = new GoldenLayout(host);
   layout = gl;
-  for (const type of ['FileBrowser', 'StudioDesignPanel', 'Inspector', 'surfaceView']) {
+  for (const type of ['FileBrowser', 'StudioDesignPanel', 'Inspector', 'surfaceView', 'surfacePlaceholder']) {
     gl.registerComponent(type, () => {});
   }
   // Wired like GoldenLayoutRoot: a tab's × closes its workspace, a store close
@@ -263,5 +263,28 @@ describe('saved layouts', () => {
     expect(getLayoutService().applyLayout(resolved)).toBe('applied');
     expect(panelCount(gl, 'surfaceView')).toBe(0);
     expect(centreIds(gl)).toEqual([view]);
+  });
+
+  // qa-features-2026-10-31 §9: a placeholder not reloaded yet survives Reset
+  // layout like a live surface tab, and is never saved with a layout.
+  it('carries surface placeholders across Reset layout and never saves them', async () => {
+    const view = await store().createWorkspace('mosaic');
+    const gl = mountLayout();
+    addTab(gl, view);
+    getCentreStack(gl)!.addItem({
+      type: 'component',
+      componentType: 'surfacePlaceholder',
+      title: 'lh.white.gii',
+      componentState: {
+        saved: { surfaceViewId: 'sv', title: 'lh.white.gii', sources: [{ kind: 'file', path: '/d/lh.white.gii' }] },
+      },
+    });
+
+    expect(getLayoutService().resetToDefaultLayout()).toBe(true);
+    expect(panelCount(gl, 'surfacePlaceholder')).toBe(1);
+    expect(useLayoutLibraryStore.getState().saveCurrentLayout('with-placeholder')).toBe(true);
+    expect(JSON.stringify(useLayoutLibraryStore.getState().layouts[0].layoutConfig)).not.toContain(
+      'surfacePlaceholder',
+    );
   });
 });

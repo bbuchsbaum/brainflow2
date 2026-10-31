@@ -1,3 +1,4 @@
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { Button, Notice, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
 import { inferenceChannelNames, inferenceChannel } from '@/services/studio/inferenceCatalog';
 import { PopulationInferenceControls } from './PopulationInferenceControls';
@@ -372,6 +373,10 @@ export function PopulationLens({
         )
       : 'unknown';
   const current = !!result && result.query.key === definition.query?.key;
+  // Radiological convention: axial and coronal panes drawn mirrored; the
+  // shared placement keeps clicks, hover and the crosshair on the same world
+  // points (sagittal never mirrors).
+  const mirrorX = useMirrorsView(result?.query.request.orientation ?? orientation);
   const issue = definition.issue ?? snapshot.error;
   const moveSlice = (direction: number) => {
     if (result && current)
@@ -754,6 +759,7 @@ export function PopulationLens({
                   renderSurface={(props) => (
                     <SliceViewerImageSurface
                       {...props}
+                      mirrorX={mirrorX}
                       image={result?.images[pane] ?? null}
                       emptyFallback={
                         <p className="absolute inset-0 grid place-items-center text-bf-sm text-muted-foreground">
@@ -785,10 +791,10 @@ export function PopulationLens({
                     aria-hidden
                   >
                     <span className="absolute left-1 top-1/2">
-                      {populationAxisLabel(result.data.plane.u_mm.map((v) => -v))}
+                      {populationAxisLabel(mirrorX ? result.data.plane.u_mm : result.data.plane.u_mm.map((v) => -v))}
                     </span>
                     <span className="absolute right-1 top-1/2">
-                      {populationAxisLabel(result.data.plane.u_mm)}
+                      {populationAxisLabel(mirrorX ? result.data.plane.u_mm.map((v) => -v) : result.data.plane.u_mm)}
                     </span>
                     <span className="absolute left-1/2 top-1">
                       {populationAxisLabel(result.data.plane.v_mm.map((v) => -v))}

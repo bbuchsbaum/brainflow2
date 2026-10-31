@@ -17,6 +17,10 @@ use uuid::Uuid;
 use volmath::NeuroSpaceExt;
 
 /// Service for managing template operations
+/// Cheap to clone: every field is shared (`Arc`, channel sender, HTTP client),
+/// so a clone sees the same catalog and cache. The bridge clones it to run a
+/// download without holding its mutex (`cache_template`).
+#[derive(Clone)]
 pub struct TemplateService {
     catalog: Arc<RwLock<TemplateCatalog>>,
     progress_tx: broadcast::Sender<TemplateLoadProgress>,
@@ -105,13 +109,32 @@ impl TemplateService {
         Ok(catalog.get_filtered(filter))
     }
 
-    /// Get a specific template entry by ID
+    /// Get a specific template entry by ID. `is_cached` says whether the file
+    /// is in the cache now (on disk), not only whether this session fetched it.
     pub async fn get_template_entry(
         &self,
         template_id: &str,
     ) -> Result<Option<TemplateCatalogEntry>, TemplateError> {
         let catalog = self.catalog.read().await;
-        Ok(catalog.get_by_id(template_id).cloned())
+        let Some(mut entry) = catalog.get_by_id(template_id).cloned() else {
+            return Ok(None);
+        };
+        entry.is_cached = self.get_cache_path(template_id)?.is_file();
+        Ok(Some(entry))
+    }
+
+    /// Put a template in the cache (downloading it when missing) without
+    /// decoding it. Returns the cached file. `timeout` bounds the whole
+    /// download request (the client default is 5 minutes).
+    pub async fn cache_template(
+        &self,
+        template_id: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<std::path::PathBuf, TemplateError> {
+        Ok(self
+            .ensure_entry_cached_within(template_id, timeout)
+            .await?
+            .1)
     }
 
     /// Get templates organized for menu building
@@ -149,6 +172,14 @@ impl TemplateService {
         &self,
         template_id: &str,
     ) -> Result<(TemplateCatalogEntry, std::path::PathBuf), TemplateError> {
+        self.ensure_entry_cached_within(template_id, None).await
+    }
+
+    async fn ensure_entry_cached_within(
+        &self,
+        template_id: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(TemplateCatalogEntry, std::path::PathBuf), TemplateError> {
         let entry = {
             let catalog = self.catalog.read().await;
             catalog
@@ -158,7 +189,7 @@ impl TemplateService {
         };
         let cache_path = self.get_cache_path(template_id)?;
         if !cache_path.exists() {
-            self.download_template(&entry, &cache_path).await?;
+            self.download_template(&entry, &cache_path, timeout).await?;
             let mut catalog = self.catalog.write().await;
             catalog.mark_as_cached(template_id);
         } else {
@@ -237,6 +268,7 @@ impl TemplateService {
         &self,
         entry: &TemplateCatalogEntry,
         cache_path: &Path,
+        timeout: Option<std::time::Duration>,
     ) -> Result<(), TemplateError> {
         let download_url = entry.download_url.as_ref().ok_or_else(|| {
             TemplateError::DownloadFailed("No download URL available".to_string())
@@ -261,9 +293,11 @@ impl TemplateService {
         .await;
 
         // Download the file
-        let response = self
-            .http_client
-            .get(download_url)
+        let mut request = self.http_client.get(download_url);
+        if let Some(timeout) = timeout {
+            request = request.timeout(timeout);
+        }
+        let response = request
             .send()
             .await
             .map_err(|e| TemplateError::DownloadFailed(format!("HTTP request failed: {}", e)))?;
@@ -279,8 +313,10 @@ impl TemplateService {
         let total_size = response.content_length().unwrap_or(0);
         let mut downloaded = 0;
 
-        // Create temporary file
-        let temp_path = cache_path.with_extension(".tmp");
+        // A temporary file of this download's own: downloads no longer run
+        // under one lock (`cache_template` releases it), so two of the same
+        // template must not share a temp file. The rename below is atomic.
+        let temp_path = cache_path.with_extension(format!("{}.tmp", Uuid::new_v4()));
         let mut temp_file = tokio::fs::File::create(&temp_path)
             .await
             .map_err(|e| TemplateError::IoError(format!("Failed to create temp file: {}", e)))?;
@@ -531,5 +567,56 @@ impl TemplateService {
 
         info!("Template cache cleared");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const T1_2MM: &str = "MNI152NLin2009cAsym_T1w_2mm";
+
+    /// The first screen asks whether the MNI T1 is cached before loading it,
+    /// so `is_cached` must reflect the cache on disk at launch
+    /// (qa-features-2026-10-31 §7).
+    #[tokio::test]
+    async fn template_entry_reports_the_cache_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = TemplateService::new(dir.path().to_path_buf()).unwrap();
+        let entry = service.get_template_entry(T1_2MM).await.unwrap().unwrap();
+        assert!(!entry.is_cached);
+
+        let cached = service.get_cache_path(T1_2MM).unwrap();
+        std::fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        std::fs::write(&cached, b"fixture").unwrap();
+        let entry = service.get_template_entry(T1_2MM).await.unwrap().unwrap();
+        assert!(entry.is_cached);
+
+        // Already cached: nothing is downloaded and the file is returned.
+        assert_eq!(service.cache_template(T1_2MM, None).await.unwrap(), cached);
+        assert!(service
+            .get_template_entry("no-such-template")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    /// A clone shares the catalog and cache, so a download run on a clone
+    /// (outside the bridge's lock) is seen by the original.
+    #[tokio::test]
+    async fn a_clone_shares_the_catalog_and_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = TemplateService::new(dir.path().to_path_buf()).unwrap();
+        let clone = service.clone();
+        let cached = clone.get_cache_path(T1_2MM).unwrap();
+        std::fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        std::fs::write(&cached, b"fixture").unwrap();
+        clone
+            .cache_template(T1_2MM, Some(std::time::Duration::from_secs(1)))
+            .await
+            .unwrap();
+        let entry = service.get_template_entry(T1_2MM).await.unwrap().unwrap();
+        assert!(entry.is_cached);
+        assert!(entry.last_accessed.is_some());
     }
 }

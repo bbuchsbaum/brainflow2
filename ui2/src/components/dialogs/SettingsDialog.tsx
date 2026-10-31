@@ -5,6 +5,9 @@
  * and is persisted by its store; Done closes.
  *   - Status bar › Pointer readout (`hoverSettingsStore.showInStatusBar`, the
  *     same setting as the view menu's pointer-readout toggle).
+ *   - Start › MNI anatomy on the first screen
+ *     (`layoutSettingsStore.firstScreenTemplate`, on by default;
+ *     qa-features-2026-10-31 §7).
  *   - Experimental features (`featureFlagStore.experimentalFeatures`, off by
  *     default): shows unfinished UI, the Inspector's Annotate tab and the
  *     empty Advanced section (QA design decisions 2026-10-30, section 4).
@@ -15,6 +18,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button, FieldRow, Section, Switch } from '@/components/ui/bf';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -26,6 +30,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const setShowPointer = useHoverSettingsStore((s) => s.setShowInStatusBar);
   const experimental = useFeatureFlagStore((s) => s.experimentalFeatures);
   const setExperimental = useFeatureFlagStore((s) => s.setExperimentalFeatures);
+  const firstScreen = useLayoutSettingsStore((s) => s.firstScreenTemplate);
+  const setFirstScreen = useLayoutSettingsStore((s) => s.setFirstScreenTemplate);
 
   return (
     <Modal
@@ -47,6 +53,17 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             hint="Position, value and region under the pointer, beside the crosshair's."
           >
             <Switch ref={firstSwitchRef} checked={showPointer} onCheckedChange={setShowPointer} />
+          </FieldRow>
+        </Section>
+
+        <Section variant="static" title="Start">
+          <FieldRow
+            label="MNI anatomy at start"
+            labelWidth="wide"
+            controlId="settings-first-screen"
+            hint="With nothing restored, open on the MNI152 T1 with the crosshair at the origin."
+          >
+            <Switch checked={firstScreen} onCheckedChange={setFirstScreen} />
           </FieldRow>
         </Section>
 

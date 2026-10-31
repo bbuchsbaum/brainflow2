@@ -24,6 +24,7 @@ import { useLayerStore } from "@/stores/layerStore";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
 import { removeLayerFromScene } from "@/services/layerRemoval";
+import { setLayerVisibleByUser } from "@/services/SceneHistoryService";
 import { useLoadingQueueStore } from "@/stores/loadingQueueStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import { getEventBus } from "@/events/EventBus";
@@ -116,7 +117,7 @@ export function SceneStack() {
         {
           id: "layer.toggleVisible",
           label: visible ? "Hide layer" : "Show layer",
-          onClick: () => getLayerService().toggleVisibility(layerId, !visible),
+          onClick: () => setLayerVisibleByUser(layerId, !visible),
         },
         { id: "layer.sep", label: "", separator: true },
         {

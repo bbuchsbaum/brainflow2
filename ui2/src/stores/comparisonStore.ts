@@ -15,6 +15,7 @@ import type {
   PanelOverrideField,
 } from '@/types/comparison';
 import type { ViewPlane } from '@/types/coordinates';
+import { DEFAULT_COMPARE_PANES } from '@/utils/comparePanes';
 
 enableMapSet();
 
@@ -46,6 +47,27 @@ interface ComparisonActions {
   forgetLayer: (layerId: string) => void;
   /** Initialize comparison workspace with one panel per layer */
   initFromLayers: (workspaceId: string, layerIds: string[], layerLabels?: Map<string, string>) => void;
+
+  /**
+   * Open `count` panes: pane i shows `candidates[i]`, or nothing (its header
+   * picker chooses) when there are fewer candidates than panes.
+   */
+  initPanes: (workspaceId: string, candidates: string[], layerLabels?: Map<string, string>, count?: number) => void;
+
+  /**
+   * Show `count` panes: extra panes go from the end; new ones take the next
+   * candidate no pane shows yet, else start empty.
+   */
+  setPaneCount: (workspaceId: string, count: number, candidates: string[], layerLabels?: Map<string, string>) => void;
+
+  /** The pane's header picker: show `layerId` in place of `previousLayerId` (its own layer). */
+  setPanelLayer: (
+    workspaceId: string,
+    panelId: string,
+    layerId: string,
+    previousLayerId: string | null,
+    label?: string,
+  ) => void;
 
   /** Initialize comparison from existing layers + a new volume */
   initFromCurrentAndNewLayer: (workspaceId: string, existingLayerIds: string[], newLayerId: string, newLabel?: string) => void;
@@ -230,6 +252,77 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
           state.panels.set(workspaceId, panels);
           state.layouts.set(workspaceId, 'row');
           state.globalViewTypes.set(workspaceId, 'axial');
+        });
+      },
+
+      initPanes: (workspaceId, candidates, layerLabels, count = DEFAULT_COMPARE_PANES) => {
+        set(state => {
+          const panels: ComparisonPanelConfig[] = Array.from({ length: count }, (_, i) => {
+            const id = candidates[i];
+            return {
+              id: nextPanelId(),
+              label: (id && layerLabels?.get(id)) || `Panel ${i + 1}`,
+              visibleLayerIds: new Set(id ? [id] : []),
+              viewType: 'axial' as const,
+            };
+          });
+          const existing = state.panels.get(workspaceId) ?? [];
+          existing.forEach((panel) => state.panelViewPlanes.delete(panel.id));
+          state.panels.set(workspaceId, panels);
+          state.layouts.set(workspaceId, 'row');
+          state.globalViewTypes.set(workspaceId, 'axial');
+        });
+      },
+
+      setPaneCount: (workspaceId, count, candidates, layerLabels) => {
+        set(state => {
+          const existing = state.panels.get(workspaceId) ?? [];
+          if (count < 1 || existing.length === count) return;
+          if (existing.length > count) {
+            for (const panel of existing.slice(count)) {
+              state.panelViewPlanes.delete(panel.id);
+              if (state.activePanelIds.get(workspaceId) === panel.id) state.activePanelIds.delete(workspaceId);
+            }
+            state.panels.set(workspaceId, existing.slice(0, count));
+            return;
+          }
+          const shown = new Set(existing.flatMap((panel) => Array.from(panel.visibleLayerIds)));
+          const free = candidates.filter((id) => !shown.has(id));
+          const viewType = state.globalViewTypes.get(workspaceId) ?? 'axial';
+          const next = [...existing];
+          while (next.length < count) {
+            const id = free.shift();
+            next.push({
+              id: nextPanelId(),
+              label: (id && layerLabels?.get(id)) || `Panel ${next.length + 1}`,
+              visibleLayerIds: new Set(id ? [id] : []),
+              viewType,
+            });
+          }
+          state.panels.set(workspaceId, next);
+        });
+      },
+
+      setPanelLayer: (workspaceId, panelId, layerId, previousLayerId, label) => {
+        set(state => {
+          const panels = state.panels.get(workspaceId);
+          if (!panels) return;
+          const panel = panels.find((p) => p.id === panelId);
+          if (!panel || (previousLayerId === layerId && panel.visibleLayerIds.has(layerId))) return;
+          state.panelViewPlanes.delete(panelId);
+          state.panels.set(
+            workspaceId,
+            panels.map((p) => {
+              if (p.id !== panelId) return p;
+              const ids = new Set(p.visibleLayerIds);
+              if (previousLayerId) ids.delete(previousLayerId);
+              ids.add(layerId);
+              // The old layer's per-panel display goes with it.
+              const overrides = p.renderOverrides ? { ...p.renderOverrides } : undefined;
+              if (overrides && previousLayerId) delete overrides[previousLayerId];
+              return { ...p, label: label ?? p.label, visibleLayerIds: ids, renderOverrides: overrides };
+            }),
+          );
         });
       },
 

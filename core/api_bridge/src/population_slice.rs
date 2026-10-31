@@ -3,6 +3,7 @@
 mod display;
 pub mod export;
 pub mod inference;
+pub mod mean_distance;
 pub mod relationship;
 pub mod replay;
 mod retention;

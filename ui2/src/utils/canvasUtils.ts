@@ -9,6 +9,8 @@ export interface ImagePlacement {
   height: number;
   imageWidth: number;
   imageHeight: number;
+  /** Drawn mirrored left-right (radiological display; see drawScaledImage). */
+  mirrorX?: boolean;
 }
 
 /**
@@ -69,7 +71,8 @@ export function drawScaledImage(
   ctx: CanvasRenderingContext2D,
   image: ImageBitmap,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
+  mirrorX = false
 ): ImagePlacement {
   // Don't clear the canvas - draw new image directly over old one to prevent flickering
   // The new image will completely cover the old one
@@ -82,6 +85,18 @@ export function drawScaledImage(
     canvasHeight
   );
   
+  // Radiological display: the same rectangle, mirrored left-right. The
+  // placement carries the flip, so the shared geometry (crosshair, clicks,
+  // hover) maps through it; the plane and world coordinates are unchanged.
+  if (mirrorX) {
+    ctx.save();
+    ctx.translate(placement.x + placement.width, placement.y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(image, 0, 0, placement.width, placement.height);
+    ctx.restore();
+    return { ...placement, mirrorX: true };
+  }
+
   // Draw the image
   ctx.drawImage(
     image,

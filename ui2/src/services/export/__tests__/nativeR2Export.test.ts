@@ -130,3 +130,44 @@ describe('Export from a tab switched to Mosaic in place (QA 2026-10-30 F26)', ()
     expect(defaultExportTarget()).toBe('axial');
   });
 });
+
+describe('Export View defaults to what the tab shows (QA features 2026-10-31 §3)', () => {
+  const setup = (type: string) => {
+    resetExportFocusRecency();
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [
+        { id: 't1', name: 't1', volumeId: 't1', visible: true, opacity: 1, colormap: 'gray', intensity: [0, 1], threshold: [0, 0] },
+      ] as never;
+    });
+    useWorkspaceStore.setState({
+      workspaces: new Map([
+        ['ws', { id: 'ws', type }],
+        ['other', { id: 'other', type: 'orthogonal-locked' }],
+      ]),
+      activeWorkspaceId: 'other',
+    } as never);
+    // A tab switch: no view of the new tab is focused yet.
+    useWorkspaceStore.setState({ activeWorkspaceId: 'ws' } as never);
+  };
+
+  it('an orthogonal tab exports its orthogonal layout; a focused slice view, that view', () => {
+    setup('orthogonal-locked');
+    expect(defaultExportTarget()).toBe('orthogonal');
+    useActiveRenderContextStore.getState().setActive('coronal');
+    expect(defaultExportTarget()).toBe('coronal');
+  });
+
+  it('a mosaic tab exports its tiles, also after a click on them following a slice focus', () => {
+    setup('mosaic');
+    useActiveRenderContextStore.getState().setActive('axial');
+    const unregister = registerMosaicExportSource('ws', () => ({ workspaceId: 'ws', axis: 'axial', cols: 4, tiles: [] }));
+    // A slice view focused after the mosaic mounted is the target…
+    useActiveRenderContextStore.getState().setActive('coronal');
+    expect(defaultExportTarget()).toBe('coronal');
+    // …until the user clicks the mosaic tiles (MosaicViewPromise marks "mosaic:<ws>").
+    useActiveRenderContextStore.getState().setActive('mosaic:ws');
+    expect(availableExportTargets()).toEqual(['mosaic']);
+    expect(defaultExportTarget()).toBe('mosaic');
+    unregister();
+  });
+});

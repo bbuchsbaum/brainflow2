@@ -1,3 +1,4 @@
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { Button } from '@/components/ui/bf';
 import type { ComponentProps } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -25,6 +26,7 @@ export function PopulationGroupViews({
   const state = useSetStudioStore();
   const workspaceId = useViewStateStore((s) => s.activeWorkspaceKey);
   const crosshair = useViewStateStore((s) => s.viewState.crosshair);
+  const mirrorX = useMirrorsView(display.query.request.orientation);
   const columns = width < 600 ? 1 : 2;
   const cellWidth = Math.max(100, Math.floor((width - (columns - 1) * 12) / columns));
   return (
@@ -70,6 +72,7 @@ export function PopulationGroupViews({
                 renderSurface={(props) => (
                   <SliceViewerImageSurface
                     {...props}
+                    mirrorX={mirrorX}
                     image={display.images.groups[group.id] ?? null}
                   />
                 )}

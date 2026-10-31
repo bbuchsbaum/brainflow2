@@ -2,6 +2,8 @@
  * useServicesInit - Initialize singleton services on app startup
  */
 
+import { initializeSceneHistory } from '@/services/SceneHistoryService';
+import { initializeAutoClusters } from '@/services/autoClusters';
 import { useEffect } from 'react';
 import { isBrowserHost } from '@/services/applicationHost';
 import { initializeLayerService } from '@/services/LayerService';
@@ -135,6 +137,9 @@ export function useServicesInit() {
         try {
           initializeFileLoadingService();
           serviceInitDebugLog('[useServicesInit] FileLoadingService initialized');
+          // Scene undo and clusters on load follow layer edits and loads.
+          initializeSceneHistory();
+          initializeAutoClusters();
         } catch (error) {
           console.error('[useServicesInit] FileLoadingService initialization failed:', error);
           getEventBus().emit('services.error', {

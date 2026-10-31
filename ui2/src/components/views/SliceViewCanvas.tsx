@@ -53,6 +53,10 @@ import { useActiveLayer } from "@/utils/activeLayer";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { pointerToWorld } from "@/utils/slicePointer";
 import { createWheelStepper } from "@/utils/wheelSteps";
+import { imagePointToCanvasPoint } from "@brainflow/visualization/slice";
+import { useMirrorsView } from "@/stores/viewDisplaySettingsStore";
+import { useViewPanZoom, wheelZoomFactor } from "@/hooks/useViewPanZoom";
+import { fitActiveView, fitView, useIsViewZoomed, zoomView } from "@/services/ViewZoomService";
 import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
 import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
 import {
@@ -177,6 +181,11 @@ function SliceViewCanvasBody({
     if (viewId === "coronal") return "coronal";
     return "axial";
   }, [viewId]);
+
+  // The 4D layer's affine: the heatmap is placed through it onto the image.
+  const heatmapAffine = useLayerStore((s) =>
+    primaryLayer?.id ? s.layerMetadata.get(primaryLayer.id)?.voxelToWorld ?? null : null,
+  );
 
   // Current slice index in voxel space (integer, clamped to valid range)
   const heatmapSliceIndex = useMemo(() => {
@@ -364,9 +373,13 @@ function SliceViewCanvasBody({
 
   // Orientation letters: the crosshair stroke is clipped around them (the
   // letters and the line geometry are unchanged). Measured at draw time.
+  // Radiological convention: axial and coronal panes are drawn mirrored (a
+  // display transform; the placement carries it to every mapping).
+  const mirrorX = useMirrorsView(viewId);
   const orientationLabelKey = buildOrientationLabelKey(
     viewPlane,
     showMarkers && hasLayers,
+    mirrorX,
   );
   const { refs: orientationLabelRefs, getKnockouts: getCrosshairKnockouts } =
     useOrientationLabelKnockouts(orientationLabelKey);
@@ -421,10 +434,9 @@ function SliceViewCanvasBody({
         crosshair.world_mm,
         viewPlane,
       );
-      crosshairPoint = {
-        x: (p.x + (ix / p.imageWidth) * p.width) * k,
-        y: (p.y + (iy / p.imageHeight) * p.height) * k,
-      };
+      // Through the placement, so a mirrored display is followed.
+      const point = imagePointToCanvasPoint([ix, iy], p);
+      crosshairPoint = { x: point.canvasX * k, y: point.canvasY * k };
     }
     return { imageRect, crosshairPoint };
   }, [placementState, crosshair, viewPlane, width, canvasHeight]);
@@ -509,10 +521,28 @@ function SliceViewCanvasBody({
         sliceNavService.stepSlice(viewId, steps);
       }
     };
+    let zoomFactor = 1;
+    let zoomAt = { x: 0, y: 0 };
+    let zoomFrame: number | null = null;
+    const flushZoom = () => {
+      zoomFrame = null;
+      const factor = zoomFactor;
+      zoomFactor = 1;
+      if (factor !== 1) zoomView(viewId, factor, zoomAt, canvasRef.current);
+    };
     const fn = (event: WheelEvent) => {
       event.preventDefault();
       markActive();
       if (!layersRef.current.some((l) => l.visible)) return;
+      // ⌥-scroll and a pinch (ctrl-wheel) zoom about the pointer; plain and
+      // ⌘-scroll step slices (QA features 2026-10-31 §1).
+      const factor = wheelZoomFactor(event);
+      if (factor !== null) {
+        zoomFactor *= factor;
+        zoomAt = { x: event.clientX, y: event.clientY };
+        if (zoomFrame === null) zoomFrame = requestAnimationFrame(flushZoom);
+        return;
+      }
       const steps = toSteps(event as WheelEvent & { wheelDeltaY?: number });
       if (steps === 0) return;
       // One reference voxel per step (ten with Shift), always moving.
@@ -521,8 +551,11 @@ function SliceViewCanvasBody({
     };
     fn.cancel = () => {
       if (frame !== null) cancelAnimationFrame(frame);
+      if (zoomFrame !== null) cancelAnimationFrame(zoomFrame);
       frame = null;
+      zoomFrame = null;
       pending = 0;
+      zoomFactor = 1;
     };
     return fn;
   }, [viewId, sliceNavService, timeNavService, markActive]);
@@ -577,6 +610,23 @@ function SliceViewCanvasBody({
         store.setOptions(layer.id, { showOrientationMarkers: !current });
       }
     },
+  });
+
+  // Pan (Space-drag, middle drag) and pinch zoom; Fit with F (all views
+  // register one id; it fits the view under the pointer, else the active one).
+  const { panReady, panning } = useViewPanZoom({
+    viewType: viewId,
+    areaRef: containerAreaRef,
+    canvas: () => canvasRef.current,
+    size: [width, canvasHeight],
+  });
+  const zoomed = useIsViewZoomed(viewId);
+  useShortcut({
+    id: "view.fit",
+    key: "f",
+    category: "View",
+    description: "Fit the view (reset zoom and pan)",
+    handler: () => void fitActiveView(),
   });
 
   // Context menu (right-click)
@@ -667,6 +717,8 @@ function SliceViewCanvasBody({
           showNoLayers={false}
           showLoadingVolume={isLoadingAnyLayer}
           className="w-full h-full"
+          mirrorX={mirrorX}
+          canvasClassName={panning ? "cursor-grabbing" : panReady ? "cursor-grab" : ""}
         />
 
         {/* Temporal heatmap overlay */}
@@ -678,6 +730,9 @@ function SliceViewCanvasBody({
             sliceIndex={heatmapSliceIndex}
             width={width}
             height={canvasHeight}
+            viewPlane={viewPlane}
+            placement={placementState}
+            voxelToWorld={heatmapAffine}
             opacity={heatmapOpacity}
           />
         )}
@@ -719,6 +774,29 @@ function SliceViewCanvasBody({
         {/* Window/level drag overlay */}
         {overlayProps && (
           <div style={overlayProps.style}>{overlayProps.children}</div>
+        )}
+
+        {/* Radiological convention: the screen's left is the patient's right. */}
+        {hasLayers && mirrorX && (
+          <span
+            className="pointer-events-none absolute bottom-1 left-1.5 select-none font-mono text-bf-xs text-bf-text-muted"
+            data-testid="radiological-badge"
+            title="Radiological convention: the patient's right is on the left"
+          >
+            R | L
+          </span>
+        )}
+        {hasLayers && zoomed && (
+          <button
+            type="button"
+            className="absolute bottom-1 right-1 rounded-sm border border-bf-border bg-bf-bg-canvas/90 px-1.5 py-0.5 text-bf-xs text-bf-text-secondary hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => void fitView(viewId)}
+            onMouseDown={(event) => event.stopPropagation()}
+            title="Fit the view (F)"
+            data-testid="view-fit"
+          >
+            Fit
+          </button>
         )}
       </div>
 
@@ -772,6 +850,7 @@ function SliceViewCanvasBody({
           viewPlane={viewPlane}
           refs={orientationLabelRefs}
           bottomInset={SLIDER_HEIGHT}
+          mirrorX={mirrorX}
         />
       )}
 

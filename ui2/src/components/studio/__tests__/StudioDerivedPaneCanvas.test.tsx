@@ -14,11 +14,17 @@ vi.mock('@/components/views/SliceViewport', () => ({
   SliceViewport: ({
     tag,
     onWorldClick,
+    mirrorX,
   }: {
     tag: string;
     onWorldClick: (world: [number, number, number]) => void;
+    mirrorX?: boolean;
   }) => (
-    <button data-testid="pane-viewport" onClick={() => onWorldClick([3, -4, 5])}>
+    <button
+      data-testid="pane-viewport"
+      data-mirror={mirrorX ? 'true' : 'false'}
+      onClick={() => onWorldClick([3, -4, 5])}
+    >
       {tag}
     </button>
   ),
@@ -185,5 +191,22 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(api.applyAndRenderViewState).toHaveBeenCalledTimes(2);
+  });
+
+  it('draws axial and coronal mirrored under the radiological convention, never sagittal', async () => {
+    const { useViewDisplaySettingsStore } = await import('@/stores/viewDisplaySettingsStore');
+    act(() => useViewDisplaySettingsStore.getState().setRadiological(true));
+    try {
+      const view = render(
+        <StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/mz.nii.gz" label="Z" workspaceId={STUDIO} />,
+      );
+      expect((await screen.findByTestId('pane-viewport')).dataset.mirror).toBe('true');
+      view.rerender(
+        <StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/mz.nii.gz" label="Z" workspaceId={STUDIO} plane="sagittal" />,
+      );
+      await waitFor(() => expect(screen.getByTestId('pane-viewport').dataset.mirror).toBe('false'));
+    } finally {
+      act(() => useViewDisplaySettingsStore.getState().setRadiological(false));
+    }
   });
 });

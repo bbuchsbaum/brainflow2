@@ -258,4 +258,50 @@ describe('Compare status readout claim', () => {
     useComparisonStore.setState({ addLayerToPanel: original });
     vi.unstubAllGlobals();
   });
+
+  it('the header picker swaps the pane layer and keeps the name visible (QA features 2026-10-31 §6)', async () => {
+    vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() })));
+    const { useLayerStore } = await import('@/stores/layerStore');
+    const { useComparisonStore } = await import('@/stores/comparisonStore');
+    useLayerStore.setState({
+      layers: [
+        { id: 'layer-1', name: 'MNI152 T1w', volumeId: 'v1', type: 'volume', visible: true, order: 0 },
+        { id: 'layer-z', name: 'zmap_synthetic.nii', volumeId: 'vz', type: 'volume', visible: true, order: 1 },
+      ] as never,
+    });
+    const workspace = {
+      ...useViewStateStore.getState().viewState,
+      layers: [
+        { ...(useViewStateStore.getState().viewState.layers[0] ?? {}), id: 'layer-1', visible: true },
+        { ...(useViewStateStore.getState().viewState.layers[0] ?? {}), id: 'layer-z', visible: true },
+      ],
+    };
+    const originalView = useViewStateStore.getState().getWorkspaceViewState;
+    useViewStateStore.setState({ getWorkspaceViewState: (() => workspace) as never });
+    const setPanelLayer = vi.fn();
+    const original = useComparisonStore.getState().setPanelLayer;
+    useComparisonStore.setState({ setPanelLayer });
+    render(
+      <ComparisonPanel
+        workspaceId="comparison-workspace"
+        panel={{ id: 'panel-4', label: 'zmap', visibleLayerIds: new Set(['layer-z']), viewType: 'axial' }}
+        letter="B"
+        width={140}
+        height={60}
+        layerNames={new Map([['layer-1', 'MNI152 T1w'], ['layer-z', 'zmap_synthetic.nii']])}
+        onRemoveLayer={vi.fn()}
+        onRemovePanel={vi.fn()}
+        onViewTypeChange={vi.fn()}
+      />,
+    );
+    // Even a 140 × 60 pane keeps its header and name (the overlay header hid below 90 px).
+    const picker = screen.getByTestId('compare-pane-picker') as HTMLSelectElement;
+    expect(picker.value).toBe('layer-z');
+    expect(picker.title).toBe('zmap_synthetic.nii');
+    fireEvent.change(picker, { target: { value: 'layer-1' } });
+    expect(setPanelLayer).toHaveBeenCalledWith('comparison-workspace', 'panel-4', 'layer-1', 'layer-z', 'MNI152 T1w');
+    useComparisonStore.setState({ setPanelLayer: original });
+    useViewStateStore.setState({ getWorkspaceViewState: originalView });
+    vi.unstubAllGlobals();
+  });
 });

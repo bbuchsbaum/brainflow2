@@ -14,6 +14,7 @@ import {
   type StudioPanePlane,
 } from '@/services/studio/StudioPaneRenderService';
 import { useAppModeStore } from '@/stores/appModeStore';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
@@ -179,6 +180,9 @@ export function StudioDerivedPaneCanvas({
     [layer, map, label],
   );
 
+  // Radiological convention: axial/coronal drawn mirrored by the shared
+  // SliceViewport; clicks and the crosshair map through its placement.
+  const mirrorX = useMirrorsView(plane);
   const ready = studioActive && !!map && size.width > 0 && size.height > 0;
   return (
     <div ref={host} className="absolute inset-0" data-testid={`studio-derived-pane-${paneId}`}>
@@ -191,6 +195,7 @@ export function StudioDerivedPaneCanvas({
           viewPlane={viewPlane}
           crosshair={crosshair}
           crosshairStyle={crosshairStyle}
+          mirrorX={mirrorX}
           onWorldClick={(world) => {
             void useViewStateStore.getState().setCrosshair(world, true, false, workspaceId);
           }}

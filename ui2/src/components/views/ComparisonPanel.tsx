@@ -31,11 +31,13 @@ import { isFieldLinked, panelHasOverrides } from '@/utils/compareDisplay';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import { createDebugLogger } from '@/utils/debug';
 import { isClickOnData, volumeEdgeBounds } from './clickDataBounds';
+import { ComparePaneHeader } from './ComparePaneHeader';
+import { comparePickerOptions } from '@/utils/comparePanes';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import {
   OrientationLabels,
   PLANE_AXIS_INDEX,
   ViewportColorbar,
-  ViewportHeader,
   shortLayerLabel,
   useLayerColorbar,
   orientationLabelKey as buildOrientationLabelKey,
@@ -231,7 +233,9 @@ export function ComparisonPanel({
   // The panel IS its frame: canvas + header overlay (the panel's own layer,
   // plane, slice mm) + letters + rail + colorbar. Plane select and close sit
   // in a header right slot revealed on hover or keyboard focus.
-  const labelKey = buildOrientationLabelKey(viewPlane, true);
+  // Radiological convention: axial/coronal panes mirrored (display only).
+  const mirrorX = useMirrorsView(panel.viewType);
+  const labelKey = buildOrientationLabelKey(viewPlane, true, mirrorX);
   const { refs: orientationLabelRefs, getKnockouts } = useOrientationLabelKnockouts(labelKey);
   const setHeaderElement = useCallback(
     (el: HTMLDivElement | null) => {
@@ -358,6 +362,12 @@ export function ComparisonPanel({
   // A layer can be added to a panel without dragging (v6 native check: the
   // only way was drag-and-drop): the loaded volumes this panel does not show.
   const loadedLayers = useLayerStore((state) => state.layers);
+  // The header picker: the tab's visible volumes (a hidden one would draw
+  // only the anatomy), plus this pane's own layer once hidden.
+  const pickableLayers = useMemo(
+    () => comparePickerOptions(workspaceLayers, loadedLayers, panelLayerId),
+    [workspaceLayers, loadedLayers, panelLayerId],
+  );
   const addableLayers = useMemo(
     () => loadedLayers.filter((l) => l.volumeId && !panel.visibleLayerIds.has(l.id)),
     [loadedLayers, panel.visibleLayerIds],
@@ -496,25 +506,30 @@ export function ComparisonPanel({
           onWorldClick={handleWorldClick}
           className="w-full h-full"
           canvasClassName="cursor-crosshair"
+          mirrorX={mirrorX}
         />
-        {hasLayers ? (
-          <ViewportHeader
-            plane={panel.viewType}
-            positionMm={crosshair.world_mm[axis]}
-            layerName={panelLayerName}
-            width={canvasSize.width}
-            height={canvasSize.height}
-            elementRef={setHeaderElement}
-            rangeMm={headerRangeMm}
-            showPlane={false}
-            requireName
-            letter={letter || null}
-            letterActive={active}
-          />
-        ) : (
+        {/* The pane's header: letter, layer picker (its name, never
+            dropped) and slice position (QA features 2026-10-31 §6). */}
+        <ComparePaneHeader
+          letter={letter || null}
+          active={active}
+          plane={panel.viewType}
+          positionMm={crosshair.world_mm[axis]}
+          layerId={panelLayerId}
+          options={pickableLayers}
+          onChoose={(layerId) =>
+            useComparisonStore
+              .getState()
+              .setPanelLayer(workspaceId, panel.id, layerId, panelLayerId, layerNames.get(layerId))
+          }
+          width={canvasSize.width}
+          paneLabel={panelLabel}
+          elementRef={setHeaderElement}
+          rangeMm={headerRangeMm}
+        />
+        {!hasLayers && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-bf-xs text-bf-text-muted">
-            Drop a layer or file here, or
-            <span className="pointer-events-auto">{addLayerSelect}</span>
+            Choose a layer above, or drop a layer or file here
           </div>
         )}
         {showColorbar && colorbarLayer && !reserveColorbarColumn && (
@@ -536,7 +551,17 @@ export function ComparisonPanel({
         {viewPlane && hasLayers && (
           // The top letter sits under the header row (the badge and the
           // value), never in it.
-          <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} topInset={18} />
+          <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} topInset={18} mirrorX={mirrorX} />
+        )}
+        {/* Radiological convention: the screen's left is the patient's right. */}
+        {hasLayers && mirrorX && (
+          <span
+            className="pointer-events-none absolute bottom-1 left-1.5 select-none font-mono text-bf-xs text-bf-text-muted"
+            data-testid="radiological-badge"
+            title="Radiological convention: the patient's right is on the left"
+          >
+            R | L
+          </span>
         )}
 
         {/* Header right slot: the pane's value (always shown, mono) and the

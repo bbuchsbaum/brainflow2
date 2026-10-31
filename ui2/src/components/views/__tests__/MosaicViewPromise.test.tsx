@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -206,6 +206,33 @@ describe('MosaicViewPromise render scheduling', () => {
     // Every cancelled cell still on screen was requested again.
     for (const id of cellsBefore.filter((c) => visible.includes(c))) {
       expect(after.some((r) => r.cellId === id)).toBe(true);
+    }
+  });
+
+  it('a pointer down on the tiles makes the mosaic the focused view', async () => {
+    const { useActiveRenderContextStore } = await import('@/stores/activeRenderContextStore');
+    useActiveRenderContextStore.getState().setActive('sagittal');
+    render(<MosaicViewPromise workspaceId="test-workspace" />);
+    const grid = await waitFor(() => {
+      const el = document.querySelector('.mosaic-grid');
+      if (!el) throw new Error('no grid yet');
+      return el as HTMLElement;
+    });
+    fireEvent.pointerDown(grid);
+    expect(useActiveRenderContextStore.getState().activeId).toBe('mosaic:test-workspace');
+  });
+
+  it('shows one R | L badge for a mirrored (radiological) mosaic (QA features 2026-10-31 §2)', async () => {
+    const { useViewDisplaySettingsStore } = await import('@/stores/viewDisplaySettingsStore');
+    useViewDisplaySettingsStore.getState().setRadiological(true);
+    try {
+      render(<MosaicViewPromise workspaceId="test-workspace" />);
+      await waitFor(() => {
+        if (!document.querySelector('[data-testid="mosaic-frame-header"]')) throw new Error('no header yet');
+      });
+      expect(document.querySelectorAll('[data-testid="radiological-badge"]')).toHaveLength(1);
+    } finally {
+      useViewDisplaySettingsStore.getState().setRadiological(false);
     }
   });
 });

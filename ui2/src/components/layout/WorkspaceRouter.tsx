@@ -26,6 +26,7 @@ import { BidsExplorerWorkspace } from "@/components/bids/BidsExplorerWorkspace";
 import { AnalysisWorkbenchWorkspace } from "@/components/analysis/AnalysisWorkbenchWorkspace";
 import { IntegratedVolumeSurfaceWorkspace } from "@/components/views/IntegratedVolumeSurfaceWorkspace";
 import { CenterWithBottomDock } from "@/components/layout/CenterWithBottomDock";
+import { FirstScreenHint } from "@/components/layout/FirstScreenHint";
 
 export interface WorkspaceRouterProps {
   workspaceId: string;
@@ -72,12 +73,15 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
       return (
         <CenterWithBottomDock>
           <OrthogonalViewContainer />
+          <FirstScreenHint workspaceId={workspaceId} />
         </CenterWithBottomDock>
       );
     case "orthogonal-flexible":
       return (
         <CenterWithBottomDock>
           <OrthogonalPanelsWorkspace />
+          {/* The first screen opens in the default (orthogonal) view. */}
+          <FirstScreenHint workspaceId={workspaceId} />
         </CenterWithBottomDock>
       );
     case "mosaic":

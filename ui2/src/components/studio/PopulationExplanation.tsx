@@ -1,3 +1,4 @@
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { Button, Notice, Select, Slider } from '@/components/ui/bf';
 import { ReusableSliceViewport, SliceViewerImageSurface } from '@/components/views/sliceViewer';
 import {
@@ -55,6 +56,7 @@ export function PopulationExplanation({
     showButton.current?.focus();
   }, [activePair, ids]);
   const [orientation, setOrientation] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
+  const mirrorX = useMirrorsView(orientation);
   const scores = fit.geometry.componentScores ?? fit.geometry.coordinates;
   const available = Math.min(
     scores[0]?.length ?? 0,
@@ -262,6 +264,7 @@ export function PopulationExplanation({
             renderSurface={(props) => (
               <SliceViewerImageSurface
                 {...props}
+                mirrorX={mirrorX}
                 image={preview?.image ?? null}
                 emptyFallback={
                   <p className="absolute inset-0 grid place-items-center text-bf-sm text-muted-foreground">
@@ -274,10 +277,10 @@ export function PopulationExplanation({
           {preview && (
             <div className="pointer-events-none absolute inset-0 text-bf-sm text-white/80" aria-hidden>
               <span className="absolute left-1 top-1/2">
-                {populationAxisLabel(preview.plane.u_mm.map((v) => -v))}
+                {populationAxisLabel(mirrorX ? preview.plane.u_mm : preview.plane.u_mm.map((v) => -v))}
               </span>
               <span className="absolute right-1 top-1/2">
-                {populationAxisLabel(preview.plane.u_mm)}
+                {populationAxisLabel(mirrorX ? preview.plane.u_mm.map((v) => -v) : preview.plane.u_mm)}
               </span>
               <span className="absolute left-1/2 top-1">
                 {populationAxisLabel(preview.plane.v_mm.map((v) => -v))}

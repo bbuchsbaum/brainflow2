@@ -25,7 +25,7 @@ import {
   colorbarBlockModel,
   nameWrapPieces,
 } from '@/components/views/viewportFrame/frameFormat';
-import { anatomicalLabels } from '@/utils/anatomicalLabels';
+import { displayedLabels } from '@/utils/anatomicalLabels';
 import { END_ON, projectGizmoAxes, type CameraBasis } from '@/utils/orientationGizmo';
 import {
   adaptCrosshairStyleToViewport,
@@ -174,6 +174,12 @@ export interface ExportPane {
   orientation?: boolean;
   /** False: no scale bar on this pane (a montage shows one, on its last tile). */
   scaleBar?: boolean;
+  /**
+   * Drawn mirrored left-right, as the screen shows it under the radiological
+   * convention (axial and coronal only): the image flips, the left and right
+   * letters swap, the crosshair follows, and an "R | L" marker says so.
+   */
+  mirrored?: boolean;
   /**
    * A surface pose (phase 4, D4): its header ("Left lateral  overlay",
    * richest first) and the camera for the orientation glyph that replaces
@@ -333,6 +339,9 @@ function textBox(ctx: CanvasRenderingContext2D, text: string, x: number, y: numb
 
 // ── pane ───────────────────────────────────────────────────────────────────
 
+/** Marks a pane drawn in the radiological convention (patient's right on the left). */
+export const RADIOLOGICAL_MARKER = 'R | L';
+
 function drawPane(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -357,7 +366,15 @@ function drawPane(
     ctx.fillStyle = '#000000';
     ctx.fillRect(x, iy, pane.width, pane.height);
   }
-  ctx.drawImage(pane.image, x, iy, pane.width, pane.height);
+  if (pane.mirrored) {
+    ctx.save();
+    ctx.translate(x + pane.width, iy);
+    ctx.scale(-1, 1);
+    ctx.drawImage(pane.image, 0, 0, pane.width, pane.height);
+    ctx.restore();
+  } else {
+    ctx.drawImage(pane.image, x, iy, pane.width, pane.height);
+  }
   const onImage = onImageStyle(options.background);
 
   // Everything on the image first, collecting boxes the crosshair skips.
@@ -367,7 +384,7 @@ function drawPane(
   const letterFont = font(ptToPx(TEXT_PT.letter, u), SANS, 600);
   const letters: Array<{ text: string; x: number; y: number; align: CanvasTextAlign; baseline: CanvasTextBaseline; box: Rect }> = [];
   if (options.orientation && pane.orientation !== false && pane.plane) {
-    const labels = anatomicalLabels(pane.plane);
+    const labels = displayedLabels(pane.plane, !!pane.mirrored);
     if (labels) {
       const off = 5 * u;
       const specs: Array<[string, number, number, CanvasTextAlign, CanvasTextBaseline]> = [
@@ -386,6 +403,17 @@ function drawPane(
       ctx.restore();
     }
   }
+  // The convention, in the top-left corner (as the pane's badge on screen).
+  if (pane.mirrored && pane.orientation !== false && pane.plane) {
+    const off = 5 * u;
+    ctx.save();
+    ctx.font = font(ptToPx(TEXT_PT.tile, u), MONO, 600);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const text = RADIOLOGICAL_MARKER;
+    letters.push({ text, x: x + off, y: iy + off, align: 'left', baseline: 'top', box: textBox(ctx, text, x + off, iy + off, u) });
+    ctx.restore();
+  }
 
   const bar =
     options.scaleBar && pane.scaleBar !== false && pane.plane
@@ -402,6 +430,7 @@ function drawPane(
   ctx.shadowBlur = 3 * u;
   for (const l of letters) {
     if (bar && intersects(l.box, bar.box)) continue;
+    ctx.font = l.text === RADIOLOGICAL_MARKER ? font(ptToPx(TEXT_PT.tile, u), MONO, 600) : letterFont;
     ctx.textAlign = l.align;
     ctx.textBaseline = l.baseline;
     ctx.fillText(l.text, l.x, l.y);
@@ -429,7 +458,9 @@ function drawPane(
   }
 
   if (options.crosshair && pane.crosshairWorld && pane.plane) {
-    const point = projectToImage(pane.crosshairWorld, pane.plane);
+    const projected = projectToImage(pane.crosshairWorld, pane.plane);
+    // A mirrored pane shows the point at the mirrored column.
+    const point = projected && pane.mirrored ? ([pane.width - projected[0], projected[1]] as const) : projected;
     if (point) {
       // The user's stroke at the frame's CSS size, in chrome units; it
       // skips the letters, labels and scale bar like on screen.

@@ -1,5 +1,6 @@
 import type { PopulationState } from '@/types/population';
 import { create } from 'zustand';
+import { DISTANCE_TO_MEAN_SORT } from '@/services/studio/meanDistanceSort';
 import type {
   StudioArtifactSummary,
   SpatialFieldSetSummary,
@@ -615,7 +616,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     if (get().sortColumn === value) {
       return;
     }
-    set({ sortColumn: value });
+    // Distance to the group mean opens on the observation least like the
+    // mean (QA features 2026-10-31 §5).
+    set(value === DISTANCE_TO_MEAN_SORT ? { sortColumn: value, sortDirection: 'desc' } : { sortColumn: value });
   },
 
   toggleSortDirection: () => {

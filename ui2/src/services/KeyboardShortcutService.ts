@@ -91,7 +91,7 @@ function isSpaceOwnerTarget(target: EventTarget | null): boolean {
   return !isPointerFocused(target);
 }
 
-function isPointerFocused(target: Element): boolean {
+export function isPointerFocused(target: Element): boolean {
   if (target.ownerDocument.activeElement !== target) return false;
   if (target instanceof HTMLElement && target.isContentEditable) return false;
   try {

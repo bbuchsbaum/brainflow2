@@ -47,6 +47,20 @@ export interface ClusterResult {
 
 export type ClusterStatus = 'idle' | 'computing' | 'ready' | 'error';
 
+/**
+ * The strongest peak of a statistic layer at its display threshold
+ * (clusters on load, QA features 2026-10-31 §8): the Inspector's "Peak z
+ * 6.41 at (−40, −20, 50)". `value` / `mm` are null when no voxel passes.
+ */
+export interface LayerPeak {
+  threshold: number;
+  /** Which tail(s) were searched: the readout says |z| > t, z > t or z < −t. */
+  sign: ClusterSign;
+  value: number | null;
+  mm: [number, number, number] | null;
+  clusters: number;
+}
+
 interface ClusterStore {
   params: ClusterParams;
   status: ClusterStatus;
@@ -54,6 +68,9 @@ interface ClusterStore {
   error: string | null;
   /** Selected cluster id (1-based rank), or null. */
   selectedId: number | null;
+  /** Strongest peak per statistic layer, from the automatic cluster runs. */
+  peaks: Record<string, LayerPeak>;
+  setPeak: (layerId: string, peak: LayerPeak | null) => void;
   setParams: (patch: Partial<ClusterParams>) => void;
   setComputing: () => void;
   setResult: (result: ClusterResult) => void;
@@ -82,6 +99,17 @@ export const useClusterStore = create<ClusterStore>((set) => ({
   result: null,
   error: null,
   selectedId: null,
+  peaks: {},
+  setPeak: (layerId, peak) =>
+    set((state) => {
+      if (!peak) {
+        if (!(layerId in state.peaks)) return state;
+        const rest = { ...state.peaks };
+        delete rest[layerId];
+        return { peaks: rest };
+      }
+      return { peaks: { ...state.peaks, [layerId]: peak } };
+    }),
   setParams: (patch) => set((state) => ({ params: { ...state.params, ...patch } })),
   setComputing: () => set({ status: 'computing', error: null }),
   setResult: (result) => set({ status: 'ready', result, error: null, selectedId: null }),
@@ -98,5 +126,6 @@ export const useClusterStore = create<ClusterStore>((set) => ({
       result: null,
       error: null,
       selectedId: null,
+      peaks: {},
     }),
 }));

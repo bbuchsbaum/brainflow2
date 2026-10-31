@@ -52,4 +52,11 @@ emitLabelVolume?: boolean | null,
  * voxels. Other grids are resampled by nearest voxel. Default: the map's
  * finite non-zero voxels.
  */
-searchMask?: string | null, };
+searchMask?: string | null, 
+/**
+ * A background request (the UI's clusters on load, default false): it is
+ * superseded only by newer background requests for the volume, never
+ * cancels a user's Compute and is never cancelled by one, and it never
+ * emits a label volume (that would replace the one of the table shown).
+ */
+quiet?: boolean | null, };

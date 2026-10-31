@@ -5,6 +5,14 @@ import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { StudioJoinIssueDetail } from '@/types/studio';
 import { DesignPane } from './DesignPane';
+import { useEffect, useSyncExternalStore } from 'react';
+import { buildPopulationSource } from '@/services/studio/PopulationProbeController';
+import {
+  DISTANCE_TO_MEAN_SORT,
+  getStudioMeanDistanceService,
+  meanDistanceKey,
+} from '@/services/studio/StudioMeanDistanceService';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { Button } from '@/components/ui/Button';
 import { DropdownMenu } from '@/components/ui/DropdownMenu';
 
@@ -24,7 +32,52 @@ export function StudioDesignPanel() {
     activeDesignFilters,
     visibleMemberIds,
     quickFilterOptions,
+    distanceGroupMemberIds,
+    distanceKey,
   } = useStudioDerivedState();
+
+  // Distance to the group mean: computed natively for the listed group while
+  // that sort is chosen; the result is keyed by the group it measured.
+  const distanceService = getStudioMeanDistanceService();
+  const meanDistance = useSyncExternalStore(distanceService.subscribe, distanceService.getSnapshot);
+  const distanceSort = sortColumn === DISTANCE_TO_MEAN_SORT;
+  useEffect(() => {
+    if (!distanceSort) {
+      distanceService.clear();
+      return;
+    }
+    const { source, issue } = buildPopulationSource(
+      useSetStudioStore.getState(),
+      useViewStateStore.getState().activeWorkspaceKey,
+    );
+    if (!source) {
+      distanceService.fail(
+        distanceKey,
+        distanceGroupMemberIds.length,
+        issue ?? 'No observations with a usable source.',
+      );
+      return;
+    }
+    // Measure the listed members that have a usable source, and key the
+    // result by exactly those (the list may hold more).
+    const group = new Set(distanceGroupMemberIds);
+    const members = source.members.filter((member) => group.has(member.memberId));
+    const state = useSetStudioStore.getState();
+    distanceService.request({
+      listKey: distanceKey,
+      listSize: distanceGroupMemberIds.length,
+      key: meanDistanceKey(
+        state.selection.activeSetId,
+        state.selection.activeFeatureId,
+        source.mask?.sourcePath,
+        members.map((member) => member.memberId),
+      ),
+      members,
+      mask: source.mask ?? null,
+    });
+    // distanceKey identifies the group (and dataset, feature, mask).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [distanceSort, distanceKey]);
 
   const setActiveMember = useSetStudioStore((state) => state.setActiveMember);
   const setCompareCohort = useSetStudioStore((state) => state.setCompareCohort);
@@ -246,6 +299,11 @@ export function StudioDesignPanel() {
       onClearDesignFilters={clearDesignFilters}
       onClearSubsetNarrowing={clearSubsetNarrowing}
       onSelectMember={setActiveMember}
+      meanDistance={distanceSort && meanDistance.listKey === distanceKey ? meanDistance : null}
+      onOpenInDeck={(memberId) => {
+        setActiveMember(memberId);
+        setActiveLens('deck');
+      }}
       onUseFilteredSubsetInCompare={handleUseFilteredSubsetInCompare}
       onSaveFilteredSubsetAsCohort={handleSaveFilteredSubsetAsCohort}
       onUseCompareCohort={setCompareCohort}

@@ -15,6 +15,11 @@ import {
   TextField,
 } from '@/components/ui/bf';
 import { StudioPane } from './StudioPane';
+import {
+  DISTANCE_TO_MEAN_SORT,
+  type MeanDistanceSnapshot,
+} from '@/services/studio/StudioMeanDistanceService';
+import { formatLayerValue } from '@/utils/valueFormat';
 import type {
   SpatialFieldSetSummary,
   StudioCohortSummary,
@@ -47,6 +52,10 @@ interface DesignPaneProps {
   onClearDesignFilters?: () => void;
   onClearSubsetNarrowing?: () => void;
   onSelectMember: (memberId: string) => void;
+  /** Distances to the group mean for the listed group (distance sort only). */
+  meanDistance?: MeanDistanceSnapshot | null;
+  /** Focus an observation and show it in the Deck. */
+  onOpenInDeck?: (memberId: string) => void;
   onUseFilteredSubsetInCompare?: () => void;
   onSaveFilteredSubsetAsCohort?: () => void;
   onUseCompareCohort?: (cohortId: string | null) => void;
@@ -84,6 +93,8 @@ export function DesignPane({
   onRemoveDesignFilter,
   onClearSubsetNarrowing,
   onSelectMember,
+  meanDistance,
+  onOpenInDeck,
   onUseFilteredSubsetInCompare,
   onSaveFilteredSubsetAsCohort,
   onUseCompareCohort,
@@ -177,6 +188,10 @@ export function DesignPane({
   const pageCount = Math.max(1, Math.ceil(previewRows.length / 80));
   const currentPage = Math.min(page, pageCount - 1);
   const visibleColumns = previewColumns.slice(0, 4);
+  const distanceSort = sortColumn === DISTANCE_TO_MEAN_SORT;
+  const distances = distanceSort && meanDistance?.status === 'ready' ? meanDistance.byMember : null;
+  const deckTarget =
+    activeMemberId && orderedIds.includes(activeMemberId) ? activeMemberId : (orderedIds[0] ?? null);
   const showImportSummary =
     activeSet.ingestAudit.join.severity !== 'ok' ||
     activeSet.ingestAudit.join.issueDetails.length > 0 ||
@@ -189,7 +204,7 @@ export function DesignPane({
   // that either overlap ("diagnosis" ran into "sex") or truncate ids.
   const pageRows = previewRows.slice(currentPage * 80, (currentPage + 1) * 80);
   const columnTemplate =
-    visibleColumns.length === 0
+    (visibleColumns.length === 0
       ? 'minmax(0, 1fr)'
       : visibleColumns
           .map((column, index) => {
@@ -199,7 +214,7 @@ export function DesignPane({
             );
             return `minmax(0, ${Math.min(24, Math.max(3, longest))}fr)`;
           })
-          .join(' ');
+          .join(' ')) + (distances ? ' minmax(0, 9fr)' : '');
   const showColumns = activeSet.designColumns.length > 0;
   const showGroups = cohorts.length > 0;
 
@@ -290,6 +305,9 @@ export function DesignPane({
                     {column}
                   </option>
                 ))}
+                {activeSet.supportKind === 'volume' ? (
+                  <option value={DISTANCE_TO_MEAN_SORT}>Distance to group mean</option>
+                ) : null}
               </Select>
             </label>
             <Button
@@ -303,6 +321,28 @@ export function DesignPane({
             >
               {sortDirection === 'desc' ? 'Descending' : 'Ascending'}
             </Button>
+          </div>
+        ) : null}
+
+        {distanceSort ? (
+          <div className="flex flex-wrap items-center justify-between gap-2" aria-label="Distance to group mean">
+            <div role="status" className="min-w-0 text-bf-sm text-muted-foreground">
+              {meanDistance?.status === 'ready'
+                ? `Distance to the mean of ${meanDistance.groupSize} members over ${meanDistance.supportVoxels} shared voxels: Euclidean, with correlation distance (1 − r). The mean includes each member (not leave-one-out).${unmeasuredNote(meanDistance)}`
+                : meanDistance?.status === 'failed'
+                  ? `No distances: ${meanDistance.error ?? 'the calculation failed.'}`
+                  : `Computing distances to the mean of ${meanDistance?.groupSize ?? orderedIds.length} members…`}
+            </div>
+            {onOpenInDeck && deckTarget ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onOpenInDeck(deckTarget)}
+                title={`Show ${deckTarget} in the Deck`}
+              >
+                Open {deckTarget} in Deck
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -462,6 +502,11 @@ export function DesignPane({
                   {column}
                 </span>
               ))}
+              {distances ? (
+                <span className="min-w-0 truncate text-right" title="Euclidean distance to the group mean (correlation distance 1 − r)">
+                  Distance
+                </span>
+              ) : null}
             </div>
             {pageRows.map((row) => (
               <button
@@ -483,6 +528,9 @@ export function DesignPane({
                     {cell}
                   </span>
                 ))}
+                {distances ? (
+                  <DistanceCell distance={distances.get(row.id)} />
+                ) : null}
               </button>
             ))}
             {pageCount > 1 && (
@@ -583,6 +631,39 @@ export function DesignPane({
         ) : null}
       </div>
     </StudioPane>
+  );
+}
+
+/** Listed members the calculation could not measure (no usable source). */
+function unmeasuredNote(snapshot: MeanDistanceSnapshot): string {
+  const missing = snapshot.listSize - snapshot.groupSize;
+  return missing > 0
+    ? ` ${missing} listed member${missing === 1 ? '' : 's'} without a usable source ${missing === 1 ? 'is' : 'are'} not measured.`
+    : '';
+}
+
+function DistanceCell({
+  distance,
+}: {
+  distance: { euclidean: number; correlation: number | null } | undefined;
+}) {
+  if (!distance)
+    return (
+      <span className="min-w-0 truncate text-right text-muted-foreground" title="Not part of the measured group">
+        —
+      </span>
+    );
+  const euclidean = formatLayerValue(distance.euclidean);
+  const correlation = distance.correlation === null ? null : formatLayerValue(distance.correlation);
+  return (
+    <span
+      className="min-w-0 truncate text-right font-mono tabular-nums"
+      data-testid="distance-to-mean"
+      title={`Euclidean ${euclidean}; correlation distance ${correlation ?? 'undefined (constant map)'}; the mean includes this member`}
+    >
+      {euclidean}
+      <span className="text-muted-foreground"> ({correlation ?? '—'})</span>
+    </span>
   );
 }
 

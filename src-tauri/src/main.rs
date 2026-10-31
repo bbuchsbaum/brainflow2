@@ -358,6 +358,12 @@ fn main() {
                 .id("toggle_crosshair")
                 .checked(true)
                 .build(app)?;
+            // A persisted UI setting (ui2 viewDisplaySettingsStore); the UI
+            // reports it (radiological-convention-changed) so the check follows.
+            let radiological = CheckMenuItemBuilder::new("Radiological Convention")
+                .id("toggle_radiological")
+                .checked(false)
+                .build(app)?;
 
             // View › Layout: check items, so the current tab's layout carries
             // a ✓ (current-layout-changed below). Integrated is enabled only
@@ -612,8 +618,22 @@ fn main() {
                     &menu_builder::build_atlases_menu(app)?,
                     &menu_builder::build_surface_templates_menu(app)?,
                     &SubmenuBuilder::new(app, "Edit")
-                        .item(&PredefinedMenuItem::undo(app, None)?)
-                        .item(&PredefinedMenuItem::redo(app, None)?)
+                        // Not the predefined Undo/Redo: they reach only the
+                        // focused text field. The UI undoes scene edits, or
+                        // the text field's own edit when one has focus
+                        // (ui2 SceneHistoryService.runEditCommand).
+                        .item(
+                            &MenuItemBuilder::new("Undo")
+                                .id("edit_undo")
+                                .accelerator("CmdOrCtrl+Z")
+                                .build(app)?,
+                        )
+                        .item(
+                            &MenuItemBuilder::new("Redo")
+                                .id("edit_redo")
+                                .accelerator("Shift+CmdOrCtrl+Z")
+                                .build(app)?,
+                        )
                         .separator()
                         .item(&PredefinedMenuItem::cut(app, None)?)
                         .item(&PredefinedMenuItem::copy(app, None)?)
@@ -637,6 +657,7 @@ fn main() {
                                 .id("crosshair_settings")
                                 .build(app)?,
                         )
+                        .item(&radiological)
                         .separator()
                         // Opens the UI's image header dialog for the selected
                         // layer (ui2 App: "image-header-action").
@@ -739,6 +760,19 @@ fn main() {
 
             app.set_menu(menu)?;
 
+            // View › Radiological Convention follows the UI's persisted setting.
+            let radiological_check = radiological.clone();
+            app.listen("radiological-convention-changed", move |event| {
+                let enabled = serde_json::from_str::<serde_json::Value>(event.payload())
+                    .ok()
+                    .and_then(|payload| payload.get("enabled").and_then(|v| v.as_bool()));
+                if let Some(enabled) = enabled {
+                    if let Err(e) = radiological_check.set_checked(enabled) {
+                        eprintln!("Failed to sync Radiological Convention check: {}", e);
+                    }
+                }
+            });
+
             // The UI owns crosshair visibility (this item only asks it to toggle);
             // it reports every change so the check mark follows.
             let crosshair_check = show_crosshair.clone();
@@ -834,6 +868,14 @@ fn main() {
                             eprintln!("Failed to emit export-active-view event: {}", e);
                         }
                     }
+                    "toggle_radiological" => {
+                        if let Err(e) = app.emit(
+                            "view-display-action",
+                            serde_json::json!({ "action": "toggle-radiological" }),
+                        ) {
+                            eprintln!("Failed to emit view-display-action event: {}", e);
+                        }
+                    }
                     "toggle_crosshair" => {
                         println!("Toggle crosshair menu item clicked");
                         match app.emit(
@@ -866,6 +908,18 @@ fn main() {
                         ) {
                             Ok(_) => println!("Crosshair settings event emitted successfully"),
                             Err(e) => eprintln!("Failed to emit crosshair settings event: {}", e),
+                        }
+                    }
+                    "edit_undo" | "edit_redo" => {
+                        let action = if event_id == "edit_undo" {
+                            "undo"
+                        } else {
+                            "redo"
+                        };
+                        if let Err(e) =
+                            app.emit("edit-action", serde_json::json!({ "action": action }))
+                        {
+                            eprintln!("Failed to emit edit {} event: {}", action, e);
                         }
                     }
                     "edit_select_all" => {

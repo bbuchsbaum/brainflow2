@@ -13,6 +13,12 @@ export interface SliceViewerPlacement {
     height: number;
     imageWidth: number;
     imageHeight: number;
+    /**
+     * The image is drawn mirrored left-right (a display convention such as
+     * radiological): image column 0 sits at the right edge of the placement.
+     * Only the display flips; the slice plane and world coordinates do not.
+     */
+    mirrorX?: boolean;
 }
 export interface SliceViewerCrosshair {
     visible: boolean;

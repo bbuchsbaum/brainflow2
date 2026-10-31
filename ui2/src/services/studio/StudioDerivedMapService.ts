@@ -206,7 +206,7 @@ export function getStudioDerivedMapService(): StudioDerivedMapService {
   if (!instance)
     instance = new StudioDerivedMapService(
       () => getApiService(),
-      () => import('@/services/LayerEvictionService').then((m) => m.layerEvictionService.checkAndEvict()),
+      () => import('@/services/LayerEvictionService').then((m) => m.layerEvictionService.makeRoomForUpload()),
     );
   return instance;
 }

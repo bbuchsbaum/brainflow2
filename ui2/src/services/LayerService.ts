@@ -11,6 +11,7 @@ import type { ViewState } from '@/types/viewState';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { getSceneHistory } from './SceneHistoryService';
 
 export interface LayerLoadContext {
   workspaceId: string;
@@ -201,8 +202,11 @@ export class LayerService {
    * never re-sorted by the load-time stack rule (`layerPlacement.ts`).
    */
   async moveLayerByUser(layerIds: string[], movedLayerId: string, workspaceId?: string): Promise<void> {
-    await this.reorderLayers(layerIds, workspaceId);
-    useLayerStore.getState().updateLayer(movedLayerId, { userMoved: true });
+    // Undoable (SceneHistoryService), like the user's display edits.
+    await getSceneHistory().recordOrder(layerIds, movedLayerId, async () => {
+      await this.reorderLayers(layerIds, workspaceId);
+      useLayerStore.getState().updateLayer(movedLayerId, { userMoved: true });
+    });
   }
 
   /**

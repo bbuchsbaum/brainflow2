@@ -64,7 +64,9 @@ export interface SliceRendererProps {
   onRedrawReady?: (redrawFn: () => void) => void;
   
   // Custom rendering
-  customRender?: (ctx: CanvasRenderingContext2D, placement: { x: number, y: number, width: number, height: number, imageWidth: number, imageHeight: number }) => void;
+  customRender?: (ctx: CanvasRenderingContext2D, placement: { x: number, y: number, width: number, height: number, imageWidth: number, imageHeight: number, mirrorX?: boolean }) => void;
+  /** Draw the image mirrored left-right (radiological display). */
+  mirrorX?: boolean;
   
   // Styling
   className?: string;
@@ -99,6 +101,7 @@ export function SliceRenderer({
   onCanvasReady,
   onRedrawReady,
   customRender,
+  mirrorX = false,
   className = '',
   canvasClassName = ''
 }: SliceRendererProps) {
@@ -114,7 +117,8 @@ export function SliceRenderer({
     tag,      // Legacy: Still support tag
     viewType, // Legacy: Still support viewType
     onImageReceived, 
-    customRender 
+    customRender,
+    mirrorX,
   });
   
   // Drag and drop state

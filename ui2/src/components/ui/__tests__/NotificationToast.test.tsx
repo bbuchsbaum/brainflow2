@@ -22,6 +22,22 @@ describe('NotificationToast (status-bar messages)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Permission denied');
   });
 
+  it('shows an action ("Removed T1w.nii.gz — Undo") that runs once and clears the message', () => {
+    render(<NotificationToast />);
+    const run = vi.fn();
+    act(() => {
+      getEventBus().emit('ui.notification', {
+        type: 'info',
+        message: 'Removed T1w.nii.gz',
+        action: { label: 'Undo', run },
+      });
+    });
+    expect(screen.getByTestId('status-notification')).toHaveTextContent('Removed T1w.nii.gz');
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('status-notification')).toBeNull();
+  });
+
   it('opens the full error from the status line (a keyboard button), not only a hover title', () => {
     render(<NotificationToast />);
     const reason = 'Failed to load /Volumes/lab/study/derivatives/sub-01/func/zstat1.nii.gz: Permission denied';

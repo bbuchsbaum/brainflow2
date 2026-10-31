@@ -1,10 +1,10 @@
 # Brainflow desktop: run-through 4 (2026-10-31)
 
-**Purpose.** Verify the fixes for run-through 3 (`2026-10-30-runthrough-report.md`, F1–F50) in the native app. Then repeat the parts of run 3 that touch the same code. This run is shorter than run 3. Part E is optional.
+**Purpose.** Verify the fixes for run-through 3 and the new features in Part F (plan: `docs/plans/qa-features-2026-10-31.md`). For the fixes, (`2026-10-30-runthrough-report.md`, F1–F50) in the native app. Then repeat the parts of run 3 that touch the same code. Part E is optional.
 
-**Time.** About 1.5 hours. ★ marks the highest priority.
+**Time.** About 2.5 hours. ★ marks the highest priority.
 
-**Build under test.** This is the debug bundle built on 2026-10-30 at 21:48 from branch `qa/fix-wave-3`, with uncommitted changes. Install it and launch it from `/Applications`:
+**Build under test.** This is the debug bundle built on 2026-10-30 at 22:58 from branch `qa/fix-wave-3` (commit a547c38c plus the uncommitted feature work). Install it and launch it from `/Applications`:
 
 ```sh
 rm -rf /Applications/Brainflow.app
@@ -14,7 +14,7 @@ ls -la /Applications/Brainflow.app/Contents/MacOS/brainflow
 open -n /Applications/Brainflow.app
 ```
 
-Record the binary's timestamp at the top of the report. It must read 21:48 on 2026-10-30 or later; the 12:24 and 21:40 builds are stale.
+Record the binary's timestamp at the top of the report. It must read 22:58 on 2026-10-30 or later; earlier builds lack the Part F features.
 
 **Reporting.** Use the same form as run 3: **Where / Did-expected-got / Evidence / How often / Severity (H/M/L)**.
 - Write the report to `docs/qa/2026-10-31-runthrough-report.md`.
@@ -117,6 +117,68 @@ Repeat run 3's B1 measurement: 20 cycles of load and remove with 4 files, record
 
 ---
 
+## Part F: new features ★
+
+### F1. Zoom, pan and Fit (F21)
+1. ⌥-scroll over the axial view zooms around the pointer. Plain scroll and ⌘-scroll still step slices.
+2. **(physical)** Pinch on the trackpad zooms.
+3. Pan with Space-drag or middle-drag. Panning never moves the crosshair. Tapping Space over a view still toggles Play/pause, on release.
+4. While zoomed, step slices and add a layer. The zoom is kept.
+5. Use the Fit button (bottom right, shown only while zoomed), the **F** key and right-click › Fit to view. Each returns the view to its fitted frame.
+6. Open a second orthogonal tab, go back to the first, and zoom there. It works, so zoom is not captured by the hidden tab.
+7. Hold Space, ⌘-Tab away and back, then click. The click sets the crosshair; it does not pan.
+
+### F2. Radiological convention (F22)
+1. Turn on View › Radiological Convention. Axial and coronal mirror, R moves to the left, and an "R | L" badge appears. Sagittal is unchanged.
+2. Click on the left hemisphere. The crosshair lands where you clicked, and the readout's x is positive (patient right).
+3. Check Compare panes, Mosaic, the Studio Deck, Compare B–D and the Population panes all follow it.
+4. Export and ⇧⌘C both match the screen, with the marker.
+5. The setting survives a relaunch, and the menu ✓ stays in step with the context-menu toggle.
+
+### F3. Export what I see (C4)
+1. From a Mosaic tab, Export View defaults to the mosaic tiles, with colourbar and per-atlas legend. Click the tiles first, then export again.
+2. With the mosaic focused, ⇧⌘C copies the composite. Paste it into Preview to check.
+
+### F4. Undo (F28, C7)
+1. Change opacity with one slider drag. ⌘Z undoes it in one step; ⇧⌘Z redoes it.
+2. Undo a colormap change, a threshold change, a visibility toggle and a reorder.
+3. Remove a layer. A toast "Removed <file>" with Undo appears. Undo reloads the layer with the same settings and in the same stack slot.
+4. In a text field, ⌘Z undoes typing, not the scene.
+5. In unlinked Compare, make an edit to one pane, then press ⌘Z. That pane's edit reverts.
+
+### F5. Clusters on load (C1)
+1. Open `p4_zmap.nii`. Without pressing Compute, the Inspector shows "Peak z 6.41 at (−40, −20, 50)" and Clusters lists 3.
+2. Click the peak. The crosshair moves to that voxel.
+3. Drag the threshold, then press Compute within half a second. Your table appears, with no error.
+4. Show a table, then drag the threshold. "Use clusters as regions" still works.
+
+### F6. Distance to the group mean (C5)
+1. Import fir3d, then choose Subjects › Sort › Distance to group mean. The status line names 72 members and the shared voxels. The list reorders farthest first, showing distances and correlation distance in brackets.
+2. "Open <id> in Deck" opens that member. The Deck pager follows the distance order.
+3. Change a filter. The distances recompute for the new group.
+4. Note the time it takes (expected under a second).
+
+### F7. Compare panes (C3)
+1. ⌘4 with 3–4 layers opens **2** panes, maps first. Switch Panes between 2, 3 and 4.
+2. Each pane header has a layer picker. Swapping keeps the anatomy underneath and the shared scale.
+3. Narrow a pane. The name stays visible, and the tooltip shows it in full.
+
+### F8. First screen
+1. Quit, clear the saved session (Workspace › Reset Layout, then close all tabs, then quit), and relaunch.
+   - With the T1 cached, MNI anatomy appears at once with the crosshair at the origin and a "Drop a map here" hint.
+   - With nothing cached, it downloads in the background and appears when done.
+2. Drop a map. The hint disappears.
+3. Settings › Start › "MNI anatomy at start" off, then relaunch fresh. You get the empty view.
+4. Relaunch with tabs restored. No T1 is added.
+
+### F9. Surface placeholder (F15)
+1. Open fsaverage5 Pial and White and quit. On relaunch each surface tab is a placeholder with Reload and Close, and nothing loads.
+2. Reload brings the surfaces back into one tab. A placeholder whose file was deleted says the source is gone.
+
+### F10. GPU texture slots
+1. Load layers until the GPU is full (about 13), keeping a few hidden. The next load evicts a hidden layer and succeeds.
+2. With every layer visible, a further load says "GPU texture slots full (all N in use)…".
+
 ## Part C: physical checks (a person at the machine)
 
 These were not run in run 3:
@@ -136,9 +198,11 @@ These were not run in run 3:
 | Sev | Item |
 |---|---|
 | M | Medial view with both hemispheres shows the contralateral hemisphere (surfview) |
-| M | F15: surface tabs don't come back on relaunch (design decision pending) |
 | M | F9: only part of the WebView memory growth is fixed |
-| M | New features pending a decision: zoom/pan (F21), neurological/radiological switch (F22), mosaic composite export (C4), undo (F28), distance-to-mean ranking (C5), Compare pane picker (C3) |
+| L | Crosshair and heatmap may jitter for a frame during a zoom gesture (each bitmap is not yet tagged with its plane) |
+| L | Compare picker offers only visible layers; a hidden layer must be shown first |
+| L | The MNI T1 for the first screen is not bundled; first launch downloads the 2 mm T1 |
+| L | Undo covers files and templates, not atlas, parcel table or image-set removals |
 | L | Scene list: arrow keys move focus but not the selection (by design today) |
 | L | First −1 mm click in Studio sometimes eaten (F44, not investigated) |
 | L | `.surf.gii.gz` not listed in Files |
@@ -146,4 +210,4 @@ These were not run in run 3:
 
 ## Part E: optional, repeat run 3's usability tasks
 
-Repeat run 3's tasks C1 to C3 and C6 (Part C) and note what changed. Tasks C4, C5 and C7 depend on the pending features and will still fail.
+Repeat run 3's tasks C1 to C7 (Part C) and note what changed. C4 (mosaic export), C5 (outlier member) and C7 (undo) should now be possible.

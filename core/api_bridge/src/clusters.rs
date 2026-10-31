@@ -172,6 +172,13 @@ pub struct ComputeClustersRequest {
     #[serde(default)]
     #[ts(optional = nullable)]
     pub search_mask: Option<String>,
+    /// A background request (the UI's clusters on load, default false): it is
+    /// superseded only by newer background requests for the volume, never
+    /// cancels a user's Compute and is never cancelled by one, and it never
+    /// emits a label volume (that would replace the one of the table shown).
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub quiet: Option<bool>,
 }
 
 /// Which voxels were searched.
@@ -388,15 +395,26 @@ pub(crate) fn has_generation(volume_id: &str) -> bool {
         .contains_key(volume_id)
 }
 
+/// Supersede order of a request: user requests per volume, background
+/// (`quiet`) requests in their own order, so neither cancels the other.
+pub(crate) fn generation_key(volume_id: &str, quiet: bool) -> String {
+    if quiet {
+        format!("auto:{volume_id}")
+    } else {
+        volume_id.to_string()
+    }
+}
+
 /// Drop the generation counter of an unloaded volume (unload path), so the
 /// map does not grow with every volume ever clustered. A computation still
 /// running for it keeps its own `Arc` and finishes or is refused at
 /// registration.
 pub(crate) fn forget_generation(volume_id: &str) {
-    generations()
+    let mut map = generations()
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .remove(volume_id);
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.remove(volume_id);
+    map.remove(&generation_key(volume_id, true));
 }
 
 #[derive(Clone)]
@@ -1057,6 +1075,7 @@ pub(crate) async fn compute_clusters_impl(
     state: &BridgeState,
 ) -> BridgeResult<ClusterTable> {
     let connectivity = request.connectivity.unwrap_or(DEFAULT_CONNECTIVITY);
+    let quiet = request.quiet.unwrap_or(false);
     let max_clusters = validate_params(request.threshold, connectivity, request.max_clusters)?;
     let (max_peaks, min_peak_distance_mm) =
         validate_peak_params(request.max_peaks_per_cluster, request.min_peak_distance_mm)?;
@@ -1068,7 +1087,7 @@ pub(crate) async fn compute_clusters_impl(
         max_clusters,
         max_peaks,
         min_peak_distance_mm,
-        emit_labels: request.emit_label_volume.unwrap_or(false),
+        emit_labels: !quiet && request.emit_label_volume.unwrap_or(false),
     };
     let ResolvedVolume {
         id,
@@ -1082,7 +1101,7 @@ pub(crate) async fn compute_clusters_impl(
         request.timepoint,
     )
     .await?;
-    let generation = Generation::begin(&id);
+    let generation = Generation::begin(&generation_key(&id, quiet));
     let extent = match &request.extent {
         Some(ClusterExtentMethodRequest::RftExtent(rft)) => {
             let header = crate::stat_metadata::read_volume_intent(path.into()).await;
@@ -1521,6 +1540,27 @@ mod tests {
     }
 
     #[test]
+    fn background_requests_have_their_own_supersede_order() {
+        let volume = format!("vol-{}", uuid::Uuid::new_v4());
+        let user = Generation::begin(&generation_key(&volume, false));
+        let auto = Generation::begin(&generation_key(&volume, true));
+        // A background run starting after the user's Compute leaves it running…
+        assert!(!user.is_superseded());
+        // …and a user Compute does not cancel the background run.
+        let user2 = Generation::begin(&generation_key(&volume, false));
+        assert!(user.is_superseded());
+        assert!(!auto.is_superseded());
+        // Only a newer background run supersedes a background run.
+        let auto2 = Generation::begin(&generation_key(&volume, true));
+        assert!(auto.is_superseded());
+        assert!(!user2.is_superseded());
+        assert!(!auto2.is_superseded());
+        forget_generation(&volume);
+        assert!(!has_generation(&volume));
+        assert!(!has_generation(&generation_key(&volume, true)));
+    }
+
+    #[test]
     fn superseded_computation_returns_cancelled_error() {
         let frame = fixture();
         match super::find_clusters(&frame, &params(ClusterSign::Both, 26, 1), None, &|| true) {
@@ -1829,6 +1869,66 @@ mod tests {
         );
     }
 
+    /// Clusters on load (QA features 2026-10-31 §8): the request the UI sends
+    /// for a z map at its default threshold (|z| > 3.1, both signs, 26-connected,
+    /// ≥ 1 voxel, default peaks) against the p4 fixture truth
+    /// (`~/Documents/brainflow-p4-native/fixtures/truth.json`). The fixture
+    /// lives outside the repository, so the test is ignored by default and
+    /// fails (does not skip) when run without it:
+    /// `cargo test -p api-bridge --lib p4_zmap_clusters_match_fixture_truth -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs ~/Documents/brainflow-p4-native/fixtures (run with --ignored)"]
+    async fn p4_zmap_clusters_match_fixture_truth() {
+        let home = std::env::var_os("HOME").expect("HOME");
+        let path = std::path::Path::new(&home)
+            .join("Documents/brainflow-p4-native/fixtures/zmap/p4_zmap.nii");
+        assert!(path.exists(), "fixture missing: {}", path.display());
+        let (volume, _affine) = nifti_loader::load_nifti_volume_auto(&path).unwrap();
+        let state = BridgeState::default().unwrap();
+        state.volume_registry.lock().await.insert(
+            "p4".into(),
+            volume,
+            crate::VolumeMetadataInfo {
+                name: "p4_zmap".into(),
+                path: path.display().to_string(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+        let request: ComputeClustersRequest = serde_json::from_str(
+            r#"{"volumeId":"p4","threshold":3.1,"sign":"both","connectivity":26,"minVoxels":1}"#,
+        )
+        .unwrap();
+        let table = compute_clusters_impl(request, &state).await.unwrap();
+        // (voxels, peak value, peak mm, peak ijk) per truth.json b_zmap_clusters.
+        let truth: [(u64, f32, [f32; 3], [u32; 3]); 3] = [
+            (165, 6.4052, [-40.0, -20.0, 50.0], [28, 56, 64]),
+            (31, 4.9027, [42.0, -60.0, -10.0], [69, 36, 34]),
+            (26, -4.75, [0.0, 40.0, 10.0], [48, 86, 44]),
+        ];
+        assert_eq!(table.clusters.len(), 3);
+        for (cluster, (voxels, peak, mm, ijk)) in table.clusters.iter().zip(truth) {
+            assert_eq!(cluster.voxel_count, voxels);
+            assert!(
+                (cluster.peak_value - peak).abs() < 1e-3,
+                "{} vs {peak}",
+                cluster.peak_value
+            );
+            for axis in 0..3 {
+                assert!(
+                    (cluster.peak_mm[axis] - mm[axis]).abs() < 1e-3,
+                    "{:?} vs {mm:?}",
+                    cluster.peak_mm
+                );
+            }
+            assert_eq!(cluster.peak_ijk, ijk);
+        }
+        // Cluster 1's sub-peaks (max 3, ≥ 8 mm apart).
+        let sub: Vec<[f32; 3]> = table.clusters[0].sub_peaks.iter().map(|p| p.mm).collect();
+        assert_eq!(sub, vec![[-28.0, -20.0, 50.0], [-16.0, -20.0, 50.0]]);
+    }
+
     #[tokio::test]
     async fn compute_clusters_command_reports_extent_and_sub_peaks() {
         use crate::volume_queries::test_support::volume_3d;
@@ -1868,6 +1968,43 @@ mod tests {
             }
             other => panic!("expected extent error, got {other:?}"),
         }
+    }
+
+    /// Review H2: a background run never emits labels, so the label volume of
+    /// the table the user is looking at stays registered.
+    #[tokio::test]
+    async fn quiet_request_keeps_the_user_label_volume() {
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        state.volume_registry.lock().await.insert(
+            "stat-quiet".into(),
+            volume_3d(DIMS, [2.0; 3], [-10.0; 3], fixture().values.to_vec()),
+            crate::VolumeMetadataInfo {
+                name: "stat".into(),
+                path: "<memory>".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+        let user: ComputeClustersRequest = serde_json::from_str(
+            r#"{"volumeId":"stat-quiet","threshold":2.0,"minVoxels":2,"emitLabelVolume":true}"#,
+        )
+        .unwrap();
+        let shown = compute_clusters_impl(user, &state).await.unwrap();
+        let label_id = shown.label_volume_id.clone().expect("label volume");
+        let quiet: ComputeClustersRequest = serde_json::from_str(
+            r#"{"volumeId":"stat-quiet","threshold":3.0,"minVoxels":2,"emitLabelVolume":true,"quiet":true}"#,
+        )
+        .unwrap();
+        let background = compute_clusters_impl(quiet, &state).await.unwrap();
+        assert!(background.label_volume_id.is_none());
+        assert!(state
+            .volume_registry
+            .lock()
+            .await
+            .get_entry(&label_id)
+            .is_some());
     }
 
     #[tokio::test]

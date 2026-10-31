@@ -107,6 +107,48 @@ describe('ClusterService', () => {
   });
 });
 
+describe('ClusterService · clusters on load (QA features §8)', () => {
+  beforeEach(() => {
+    useClusterStore.getState().reset();
+    useLayerStore.setState({
+      layers: [{ id: 'z', name: 'zmap_synthetic.nii.gz', volumeId: 'vol-z', type: 'volume', visible: true, order: 0 } as never],
+    });
+  });
+
+  it('computeQuiet returns the result without touching the panel status or table', async () => {
+    const t = transport(TABLE);
+    const result = await new ClusterService(t).computeQuiet(
+      { layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 },
+      () => true,
+    );
+    // Its own backend order (never cancels a Compute) and no label volume (review H1, H2).
+    expect(t.invoke).toHaveBeenCalledWith('compute_clusters', {
+      request: { layerId: 'z', volumeId: 'vol-z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1, emitLabelVolume: false, quiet: true },
+    });
+    expect(result?.regions).toEqual(['L_sensorimotor', null]);
+    expect(useClusterStore.getState()).toMatchObject({ status: 'idle', result: null });
+  });
+
+  it('computeQuiet drops a stale or superseded result', async () => {
+    const service = new ClusterService(transport(TABLE));
+    const input = { layerId: 'z', threshold: 3.1, sign: 'both' as const, connectivity: 26 as const, minVoxels: 1 };
+    await expect(service.computeQuiet(input, () => false)).resolves.toBeNull();
+    const cancelled = { invoke: vi.fn(async () => Promise.reject({ InputError: { code: 4077, details: 'superseded' } })) };
+    await expect(new ClusterService(cancelled as unknown as BackendTransport).computeQuiet(input, () => true)).resolves.toBeNull();
+  });
+
+  it('goToPeak moves the crosshair exactly and selects the row of a shown table', async () => {
+    const service = new ClusterService(transport(TABLE));
+    await service.compute({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
+    useClusterStore.getState().setPeak('z', { threshold: 3.1, sign: 'both', value: 5.965, mm: [-39.5, -19.5, 50.5], clusters: 2 });
+    const setCrosshair = vi.spyOn(useViewStateStore.getState(), 'setCrosshair').mockResolvedValue();
+    await service.goToPeak('z');
+    expect(setCrosshair).toHaveBeenCalledWith([-39.5, -19.5, 50.5], true, false, undefined, { snap: false });
+    expect(useClusterStore.getState().selectedId).toBe(1);
+    setCrosshair.mockRestore();
+  });
+});
+
 describe('cluster methods sentence and CSV', () => {
   it('states the parameters and totals', () => {
     expect(clusterMethodsSentence(TABLE, 'z')).toBe(

@@ -360,3 +360,19 @@ it('draws a colourbar per map: diverging for the mean and the observation, gold 
   expect(bars()[0].getAttribute('aria-label')).toMatch(/^Colorbar for Coverage: gold, 0 to /);
   expect(bars()[1].dataset.diverging).toBe('true');
 });
+
+it('swaps the left/right letters of an axial pane under the radiological convention', async () => {
+  const { useViewDisplaySettingsStore } = await import('@/stores/viewDisplaySettingsStore');
+  const sideLetters = () =>
+    Array.from(document.querySelectorAll('span.absolute.top-1\\/2')).map((el) => el.textContent);
+  const { service } = setup();
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  // Neurological: the patient's left on the screen's left.
+  await waitFor(() => expect(sideLetters().slice(0, 2)).toEqual(['L', 'R']));
+  act(() => useViewDisplaySettingsStore.getState().setRadiological(true));
+  try {
+    await waitFor(() => expect(sideLetters().slice(0, 2)).toEqual(['R', 'L']));
+  } finally {
+    act(() => useViewDisplaySettingsStore.getState().setRadiological(false));
+  }
+});

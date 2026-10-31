@@ -20,6 +20,7 @@ import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { mirrorsView, useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 import { activeVolumeLayerId } from '@/utils/activeLayer';
 import { sampleLayerValue } from '@/hooks/useLayerValueAtWorld';
 import {
@@ -209,14 +210,23 @@ export function availableExportTargets(): ExportTarget[] {
   return hasVolume ? [...SLICE_TARGETS, 'orthogonal', 'orthogonal-row'] : [];
 }
 
-/** Default target: the focused slice view, else axial. */
+/**
+ * Default target: what the tab shows (QA features 2026-10-31 §3). A mosaic
+ * tab exports its tiles; a slice view focused in this tab, that view; else an
+ * orthogonal tab exports its orthogonal layout, any other one axial.
+ */
 export function defaultExportTarget(): ExportTarget | null {
   const available = availableExportTargets();
   if (available.length === 0) return null;
   if (available.includes('mosaic')) return 'mosaic';
   if (available.includes('surface')) return 'surface';
   // A view focused in a tab since left (or replaced) is not the default.
-  if (focusedViewKind() !== 'slice') return 'axial';
+  if (focusedViewKind() !== 'slice') {
+    const type = useWorkspaceStore.getState().getActiveWorkspace?.()?.type;
+    const orthogonalTab =
+      type === 'orthogonal-locked' || type === 'orthogonal-flexible' || type === 'integrated';
+    return orthogonalTab && available.includes('orthogonal') ? 'orthogonal' : 'axial';
+  }
   const active = useActiveRenderContextStore.getState().activeId;
   const id = typeof active === 'string' ? active.toLowerCase() : '';
   return (SLICE_TARGETS as string[]).includes(id) ? (id as ExportTarget) : 'axial';
@@ -466,6 +476,9 @@ async function renderPane(
     positionMm: crosshair[PLANE_AXIS_INDEX[spec.viewType]],
     layerName,
     crosshairWorld: viewState.crosshair.visible ? [crosshair[0], crosshair[1], crosshair[2]] : null,
+    // As the screen shows it: axial and coronal mirrored under the
+    // radiological convention (the backend render is never flipped).
+    mirrored: mirrorsView(spec.viewType, useViewDisplaySettingsStore.getState().radiological),
     ...spec.extra,
   };
 }

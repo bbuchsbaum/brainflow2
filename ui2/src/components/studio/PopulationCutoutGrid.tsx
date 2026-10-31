@@ -2,6 +2,7 @@ import { PopulationBrush } from './PopulationBrush';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { sliceImagePointToWorld } from '@/components/views/sliceViewer';
 import type { PopulationSliceDisplay } from '@/services/studio/PopulationSliceService';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 
 interface Props {
   display: PopulationSliceDisplay;
@@ -38,6 +39,9 @@ export function PopulationCutoutGrid({
   const imageSize = cellWidth - 8;
   const cellHeight = imageSize + 40;
   const height = Math.ceil((cutouts?.members.length ?? 0) / columns) * cellHeight;
+  // Radiological convention: axial/coronal cutouts drawn mirrored; the hover
+  // mapping below reads the same mirrored column back.
+  const mirrorX = useMirrorsView(display.query.request?.orientation ?? 'sagittal');
 
   useEffect(() => {
     if (!container.current || typeof ResizeObserver === 'undefined') return;
@@ -57,19 +61,20 @@ export function PopulationCutoutGrid({
     const [w, h] = cutouts.plane.dim_px;
     const sourceColumns = Math.min(8, cutouts.members.length);
     for (let i = 0; i < cutouts.members.length; i++) {
-      ctx.drawImage(
-        image,
-        (i % sourceColumns) * w,
-        Math.floor(i / sourceColumns) * h,
-        w,
-        h,
-        (i % columns) * cellWidth + 4,
-        Math.floor(i / columns) * cellHeight + 4,
-        imageSize,
-        imageSize,
-      );
+      const x = (i % columns) * cellWidth + 4;
+      const y = Math.floor(i / columns) * cellHeight + 4;
+      const source = [(i % sourceColumns) * w, Math.floor(i / sourceColumns) * h, w, h] as const;
+      if (mirrorX) {
+        ctx.save();
+        ctx.translate(x + imageSize, y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(image, ...source, 0, 0, imageSize, imageSize);
+        ctx.restore();
+      } else {
+        ctx.drawImage(image, ...source, x, y, imageSize, imageSize);
+      }
     }
-  }, [image, cutouts, availableWidth, height, columns, cellWidth, cellHeight, imageSize]);
+  }, [image, cutouts, availableWidth, height, columns, cellWidth, cellHeight, imageSize, mirrorX]);
   useLayoutEffect(() => {
     const scroll = scroller.current,
       button = focusedButton.current;
@@ -134,7 +139,8 @@ export function PopulationCutoutGrid({
                     const y = (event.clientY - bounds.top - 4) / imageSize;
                     if (x < 0 || y < 0 || x >= 1 || y >= 1) return;
                     const [w, h] = cutouts.plane.dim_px;
-                    const px = Math.min(w - 1, Math.floor(x * w)),
+                    const column = Math.min(w - 1, Math.floor(x * w));
+                    const px = mirrorX ? w - 1 - column : column,
                       py = Math.min(h - 1, Math.floor(y * h));
                     const value = member.values[py * w + px];
                     const text = `${member.memberId}: ${value === null || !Number.isFinite(value) ? 'unavailable' : value.toPrecision(4)}`;

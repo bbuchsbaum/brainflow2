@@ -23,7 +23,7 @@ import type {
 } from '@brainflow/api';
 import { getTransport, type BackendTransport } from './transport';
 import { getEventBus } from '@/events/EventBus';
-import { useClusterStore, type ClusterConnectivity } from '@/stores/clusterStore';
+import { useClusterStore, type ClusterConnectivity, type ClusterResult } from '@/stores/clusterStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { formatRegionLabel, resolveAtlasRegionAtWorld } from './atlasRegionLookup';
@@ -146,6 +146,82 @@ export class ClusterService {
       }
       return null;
     }
+  }
+
+  /**
+   * Clusters computed without the toolbar (clusters on load, QA features
+   * 2026-10-31 §8): the same command and region lookups as {@link compute},
+   * but outside its request order and status, so it never cancels or hides
+   * a table the user asked for. The caller publishes the result. Null when
+   * `isCurrent()` turns false meanwhile, the layer is gone, or a newer
+   * request for the same volume superseded it (4077); other errors throw.
+   */
+  async computeQuiet(input: ComputeClustersInput, isCurrent: () => boolean): Promise<ClusterResult | null> {
+    const layer = useLayerStore.getState().layers.find((l) => l.id === input.layerId);
+    if (!layer) return null;
+    const body: ComputeClustersRequest = {
+      layerId: input.layerId,
+      volumeId: layer.volumeId ?? input.layerId,
+      threshold: input.threshold,
+      sign: input.sign,
+      connectivity: input.connectivity,
+      minVoxels: input.minVoxels,
+      // Never a label volume: it would replace (and free) the one of the
+      // table shown, and cost a full volume per threshold drag (review H2).
+      // A published automatic table is made a region by Compute again.
+      emitLabelVolume: false,
+      // Its own supersede order in the backend: it never cancels a Compute
+      // (review H1).
+      quiet: true,
+      ...(input.extent
+        ? {
+            extent: {
+              method: 'rft-extent' as const,
+              fwhmMm: input.extent.fwhmMm,
+              ...(input.extent.statistic ? { statistic: input.extent.statistic } : {}),
+            },
+          }
+        : {}),
+      ...(input.searchMask ? { searchMask: input.searchMask } : {}),
+    };
+    let table: ClusterTable;
+    try {
+      table = await this.bridge().invoke<ClusterTable>('compute_clusters', { request: body });
+    } catch (error) {
+      if (tauriErrorCode(error) === CLUSTERS_CANCELLED_CODE) return null;
+      throw error;
+    }
+    if (!isCurrent()) return null;
+    const { regions, subPeakRegions } = await this.regionsAtPeaks(table);
+    if (!isCurrent()) return null;
+    const live = useLayerStore.getState().layers;
+    if (!live.some((l) => l.id === input.layerId)) return null;
+    const maskLayer = input.searchMask ? live.find((l) => l.volumeId === input.searchMask) : undefined;
+    return {
+      layerId: input.layerId,
+      layerName: layer.name ?? input.layerId,
+      maskName: maskLayer?.name ?? null,
+      table,
+      regions,
+      subPeakRegions,
+      computedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Move the crosshair to a layer's strongest peak at its display threshold
+   * (the Inspector's "Peak z … at (…)"), exactly, like a table row. When the
+   * table shown is that layer's, its row is selected.
+   */
+  async goToPeak(layerId: string): Promise<void> {
+    const peak = useClusterStore.getState().peaks[layerId];
+    if (!peak?.mm) return;
+    const { result, select } = useClusterStore.getState();
+    if (result?.layerId === layerId) {
+      const hit = result.table.clusters.find((c) => c.peakMm.every((v, i) => v === peak.mm![i]));
+      if (hit) select(hit.id);
+    }
+    await useViewStateStore.getState().setCrosshair([...peak.mm], true, false, undefined, { snap: false });
   }
 
   /**
@@ -562,6 +638,7 @@ export const getClusterService = (): ClusterService => {
  */
 export function clearResultForRemovedLayer(layerId: string): void {
   const state = useClusterStore.getState();
+  state.setPeak(layerId, null);
   if (state.result?.layerId !== layerId) return;
   useClusterStore.setState({ status: 'idle', result: null, error: null, selectedId: null });
 }

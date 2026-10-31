@@ -22,8 +22,9 @@
  * "Integrated 2", …); `pruneLegacyViewSprawl` removes those once, in the
  * v2 → v3 migration.
  *
- * Surface view tabs are GoldenLayout-only (the layout tree is not persisted),
- * so they never come back on their own; a surface reload re-opens its tab.
+ * Surface view tabs are GoldenLayout-only (the layout tree is not persisted).
+ * They come back as placeholders with a Reload button (surfaceTabRestoreStore,
+ * qa-features-2026-10-31 §9); nothing is loaded at launch.
  */
 
 import { WORKSPACE_METADATA, type Workspace } from '@/types/workspace';

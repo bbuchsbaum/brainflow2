@@ -5374,6 +5374,13 @@ impl RenderLoopService {
     pub fn atlas_metrics(&self) -> AtlasMetrics {
         self.volume_atlas.metrics()
     }
+
+    /// Volume texture slots this device was configured with
+    /// (`RendererAtlasConfig::resolve_runtime_capacity`): the most layers that
+    /// can hold a GPU texture at once.
+    pub fn runtime_texture_capacity(&self) -> u32 {
+        self.runtime_texture_capacity
+    }
 }
 
 // ... existing tests module ...

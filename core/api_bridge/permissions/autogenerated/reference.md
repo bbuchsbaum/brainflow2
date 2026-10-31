@@ -80,6 +80,7 @@ Default permissions for api-bridge plugin
 - `allow-load-template`
 - `allow-load-template-by-id`
 - `allow-get-template-cache-stats`
+- `allow-cache-template`
 - `allow-clear-template-cache`
 - `allow-load-surface-template`
 - `allow-get-surface-template-catalog`
@@ -111,6 +112,7 @@ Default permissions for api-bridge plugin
 - `allow-evaluate-population-slice`
 - `allow-population-peak-slice`
 - `allow-fit-population-relationship`
+- `allow-population-mean-distance`
 - `allow-export-population-summary`
 - `allow-replay-population-summary`
 - `allow-open-population-summary`
@@ -231,6 +233,32 @@ Enables the bind_surface_parcel_table command without any pre-configured scope.
 <td>
 
 Denies the bind_surface_parcel_table command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-cache-template`
+
+</td>
+<td>
+
+Enables the cache_template command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-cache-template`
+
+</td>
+<td>
+
+Denies the cache_template command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1817,6 +1845,32 @@ Enables the peek_volume_metadata command without any pre-configured scope.
 <td>
 
 Denies the peek_volume_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-population-mean-distance`
+
+</td>
+<td>
+
+Enables the population_mean_distance command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-population-mean-distance`
+
+</td>
+<td>
+
+Denies the population_mean_distance command without any pre-configured scope.
 
 </td>
 </tr>

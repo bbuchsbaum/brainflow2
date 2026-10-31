@@ -10,6 +10,12 @@ export interface SliceViewerImageSurfaceProps extends SliceViewerSurfaceProps {
     errorFallback?: ReactNode;
     emptyFallback?: ReactNode;
     onImageReceived?: (image: ImageBitmap) => void;
+    /**
+     * Draw the image mirrored left-right (a display convention such as
+     * radiological). The placement passed on says so, so crosshair, clicks
+     * and hover map through it unchanged.
+     */
+    mirrorX?: boolean;
 }
-export declare function SliceViewerImageSurface({ width, height, image, isLoading, error, className, canvasClassName, loadingFallback, errorFallback, emptyFallback, customRender, onCanvasReady, onImageReceived, }: SliceViewerImageSurfaceProps): import("react/jsx-runtime").JSX.Element;
+export declare function SliceViewerImageSurface({ width, height, image, isLoading, error, className, canvasClassName, loadingFallback, errorFallback, emptyFallback, customRender, onCanvasReady, onImageReceived, mirrorX, }: SliceViewerImageSurfaceProps): import("react/jsx-runtime").JSX.Element;
 //# sourceMappingURL=SliceViewerImageSurface.d.ts.map

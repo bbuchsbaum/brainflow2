@@ -675,6 +675,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       is_3d: true,
       last_allocation_ms: null,
       last_release_ms: null,
+      volume_texture_slots: 16,
     }),
 
     load_file: ({ path }: { path: string }) => {
@@ -682,6 +683,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       if (!fixture) throw new Error(`harness: no fixture for path ${path}`);
       return registerVolume(path, path.split('/').pop() ?? path, fixture);
     },
+    // The harness has no template cache and cannot download: the first
+    // screen (firstScreenService) stays empty and logs nothing, so the empty
+    // scenarios keep their empty state.
+    get_template_entry: () => null,
+    cache_template: () => false,
     load_template_by_id: ({ templateId }: { templateId: string }) => {
       const info = registerVolume(`template:${templateId}`, `${templateId}.nii.gz`, fixtures.mni);
       return {

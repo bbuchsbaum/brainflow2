@@ -451,6 +451,10 @@ pub struct AtlasStats {
     pub is_3d: bool,
     pub last_allocation_ms: Option<u64>,
     pub last_release_ms: Option<u64>,
+    /// Volume texture slots of the render loop (its runtime texture capacity):
+    /// the layer budget the UI's eviction counts against. Past it, a GPU
+    /// upload fails with "Maximum texture limit N reached".
+    pub volume_texture_slots: u32,
 }
 
 // Helper alias for Result
@@ -4940,6 +4944,7 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         })?;
     let service = service_arc.lock().await;
     let metrics = service.atlas_metrics();
+    let volume_texture_slots = service.runtime_texture_capacity();
 
     let last_allocation_ms = metrics
         .last_allocation
@@ -4961,6 +4966,7 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         is_3d: metrics.is_3d,
         last_allocation_ms,
         last_release_ms,
+        volume_texture_slots,
     })
 }
 
@@ -10331,6 +10337,37 @@ async fn load_template<R: Runtime>(
     Ok(result)
 }
 
+/// The first screen's background fetch gives up sooner than a requested load
+/// (the HTTP client's 5 minutes): the 2 mm T1 is about 2 MB.
+const BACKGROUND_TEMPLATE_DOWNLOAD_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(60);
+
+/// Put a template in the cache, downloading it when missing, without loading
+/// it. The first screen fetches the MNI T1 in the background this way
+/// (qa-features-2026-10-31 §7) and loads it only if the user is still on the
+/// empty default view. Returns true once the file is cached; hosts that cannot
+/// download (the dev harness) answer false.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.cache_template")]
+async fn cache_template(template_id: String, state: State<'_, BridgeState>) -> BridgeResult<bool> {
+    info!(
+        "Bridge: cache_template called for template: {}",
+        template_id
+    );
+    // Clone and release the lock before the network: a background fetch must
+    // not make every other template command wait for it. The clone shares the
+    // catalog, so the download is recorded there.
+    let template_service = state.template_service.lock().await.clone();
+    template_service
+        .cache_template(&template_id, Some(BACKGROUND_TEMPLATE_DOWNLOAD_TIMEOUT))
+        .await
+        .map_err(|e| BridgeError::Internal {
+            code: 7014,
+            details: format!("Failed to cache template {}: {}", template_id, e),
+        })?;
+    Ok(true)
+}
+
 /// Load a template by its menu ID (e.g., "MNI152NLin2009cAsym_T1w_1mm")
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_template_by_id")]
@@ -12824,6 +12861,21 @@ async fn fit_population_relationship(
         .transpose()?
         .unwrap_or_default();
     population_slice::relationship::evaluate(request, state.inner(), cancellation).await
+}
+
+/// Distance of each observation to the group mean on their common finite support.
+#[command]
+async fn population_mean_distance(
+    request: population_slice::mean_distance::Request,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::mean_distance::Result> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::mean_distance::evaluate(request, state.inner(), cancellation).await
 }
 
 /// Save a full native-grid summary, coverage and frozen calculation provenance.

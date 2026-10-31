@@ -236,6 +236,23 @@ describe('useKeyboardShortcuts', () => {
     expect(window.getSelection()?.rangeCount).toBe(0);
   });
 
+  it('binds ⌘Z / ⇧⌘Z (and Ctrl) to scene undo, except in a text field (QA F28)', () => {
+    renderHook(() => useKeyboardShortcuts());
+    const undo = findRegistration('edit.undo.meta');
+    const redo = findRegistration('edit.redo.meta');
+    expect(undo.modifiers).toEqual({ meta: true });
+    expect(redo.modifiers).toEqual({ meta: true, shift: true });
+    expect(findRegistration('edit.undo.ctrl').modifiers).toEqual({ ctrl: true });
+    // Sliders and selects are the scene: the key works there.
+    expect(undo.allowInInputs).toBe(true);
+    document.body.innerHTML = '<input id="t" type="text"><input id="r" type="range">';
+    (document.getElementById('r') as HTMLInputElement).focus();
+    expect(undo.when?.()).toBe(true);
+    (document.getElementById('t') as HTMLInputElement).focus();
+    expect(undo.when?.()).toBe(false);
+    document.body.innerHTML = '';
+  });
+
   it('leaves Up/Down/PageUp/PageDown to trees, lists, logs and scrolling panels', () => {
     renderHook(() => useKeyboardShortcuts());
     document.body.innerHTML = `

@@ -26,6 +26,8 @@ interface Notification {
   id: string;
   type: 'info' | 'warning' | 'error' | 'success';
   message: string;
+  /** "Undo" after "Removed T1w.nii.gz": runs once, then the message goes. */
+  action?: { label: string; run: () => void };
 }
 
 /** Unique per toast (two toasts in the same millisecond must not share an id). */
@@ -110,8 +112,13 @@ export function NotificationToast() {
     if (wasOpen) focusFallback(['[data-testid="status-diagnostics-trigger"]']);
   });
 
-  useEvent('ui.notification', ({ type, message, durationMs }) => {
-    const notification: Notification = { id: `toast-${(nextNotificationId += 1)}`, type, message };
+  useEvent('ui.notification', ({ type, message, durationMs, action }) => {
+    const notification: Notification = {
+      id: `toast-${(nextNotificationId += 1)}`,
+      type,
+      message,
+      ...(action ? { action } : {}),
+    };
     // Several loads become ONE message ("Loaded: a, b, c"), not a stack.
     const item = loadedItem(notification);
     setNotifications((prev) => {
@@ -224,6 +231,20 @@ export function NotificationToast() {
               </ol>
             </PopoverContent>
           </Popover>
+          {current.action ? (
+            <button
+              type="button"
+              className="shrink-0 rounded-bf-xs px-1 text-bf-xs font-medium text-bf-text-primary underline-offset-2 hover:bg-accent hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
+              data-testid="status-notification-action"
+              onClick={() => {
+                const { action, id } = current;
+                setNotifications((prev) => prev.filter((n) => n.id !== id));
+                action?.run();
+              }}
+            >
+              {current.action.label}
+            </button>
+          ) : null}
           <IconButton
             size="xs"
             variant="ghost"

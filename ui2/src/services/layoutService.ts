@@ -23,6 +23,7 @@ import {
   programmaticTabRemoval,
 } from '@/components/layout/workspaceTabSync';
 import { ensureCentreStack, getCentreStack } from '@/components/layout/centreStack';
+import { SURFACE_PLACEHOLDER_COMPONENT } from '@/components/layout/surfaceTabRestore';
 import { surfaceGroupKey } from '@/utils/surfaceIdentity';
 
 type LayoutComponentState = Record<string, unknown>;
@@ -154,7 +155,9 @@ type SavedItem = {
  * empty afterwards (and should be dropped by its parent).
  */
 function stripSurfaceViews(item: SavedItem): boolean {
-  if (item.type === 'component') return item.componentType === 'surfaceView';
+  if (item.type === 'component') {
+    return item.componentType === 'surfaceView' || item.componentType === SURFACE_PLACEHOLDER_COMPONENT;
+  }
   if (!Array.isArray(item.content)) return false;
   const hadContent = item.content.length > 0;
   const active =
@@ -391,14 +394,17 @@ class LayoutServiceImpl implements LayoutService {
     const frontState = front && front.componentType === 'surfaceView' ? getComponentState(front) : {};
     const frontSurfaceViewId =
       typeof frontState.surfaceViewId === 'string' ? frontState.surfaceViewId : null;
+    // Placeholders from the last session (not reloaded yet) come along too.
     const tabs = this.layoutRef
-      ? findComponentItemsByType(this.layoutRef.rootItem, 'surfaceView').map(
-          (item): ComponentItemConfig => ({
-            type: 'component',
-            componentType: 'surfaceView',
-            title: item.title,
-            componentState: getComponentState(item),
-          }),
+      ? ['surfaceView', SURFACE_PLACEHOLDER_COMPONENT].flatMap((componentType) =>
+          findComponentItemsByType(this.layoutRef!.rootItem, componentType).map(
+            (item): ComponentItemConfig => ({
+              type: 'component',
+              componentType,
+              title: item.title,
+              componentState: getComponentState(item),
+            }),
+          ),
         )
       : [];
     const surfaceStore = useSurfaceStore.getState();

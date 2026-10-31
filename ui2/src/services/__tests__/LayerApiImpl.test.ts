@@ -62,6 +62,7 @@ const {
   mockLayerEvictionService: {
     touchLayer: vi.fn(),
     checkAndEvict: vi.fn().mockResolvedValue(undefined),
+    makeRoomForUpload: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -228,6 +229,8 @@ describe('LayerApiImpl', () => {
     expect(mockLayerStoreState.layerMetadata.get('vol-hidden')?.gpuResident).toBe(false);
     expect(mockLayerEvictionService.touchLayer).not.toHaveBeenCalled();
     expect(mockLayerEvictionService.checkAndEvict).not.toHaveBeenCalled();
+    // Metadata only: no texture slot, nothing to make room for.
+    expect(mockLayerEvictionService.makeRoomForUpload).not.toHaveBeenCalled();
   });
 
   it('checks eviction budget after adding an initially visible layer', async () => {
@@ -243,6 +246,12 @@ describe('LayerApiImpl', () => {
 
     expect(mockLayerEvictionService.touchLayer).toHaveBeenCalledWith('vol-visible');
     expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
+    // Review H3: a slot is freed BEFORE the upload (the backend refuses it
+    // once all are taken), not only checked after.
+    expect(mockLayerEvictionService.makeRoomForUpload).toHaveBeenCalledWith('vol-visible');
+    expect(mockLayerEvictionService.makeRoomForUpload.mock.invocationCallOrder[0]).toBeLessThan(
+      mockApiService.requestLayerGpuResources.mock.invocationCallOrder[0],
+    );
   });
 
   it('promotes a non-resident hidden layer when it becomes visible', async () => {
@@ -276,6 +285,10 @@ describe('LayerApiImpl', () => {
     expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
     expect(mockLayerEvictionService.touchLayer).toHaveBeenCalledWith('layer-1');
     expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
+    expect(mockLayerEvictionService.makeRoomForUpload).toHaveBeenCalledWith('layer-1');
+    expect(mockLayerEvictionService.makeRoomForUpload.mock.invocationCallOrder[0]).toBeLessThan(
+      mockApiService.requestLayerGpuResources.mock.invocationCallOrder[0],
+    );
   });
 
   it('a show still promoting to the GPU does not undo a later hide', async () => {
@@ -382,6 +395,42 @@ describe('LayerApiImpl', () => {
     finish({ bins: [{ x0: 0, x1: 50, count: 100 }, { x0: 50, x1: 100, count: 100 }], totalCount: 200, mean: 50, minValue: 0, maxValue: 100 });
     await pending;
     expect(view.intensity).not.toEqual([0, 100]);
+  });
+
+  it('a late histogram leaves the display of a reopened (undone) removal alone, interpolation too', async () => {
+    const { preserveLayerDisplay } = await import('../restoredDisplay');
+    let finish!: (value: unknown) => void;
+    mockHistogramService.computeHistogram.mockReturnValue(new Promise(r => { finish = r; }));
+    const api = new LayerApiImpl() as unknown as Internals;
+    const layer = { id: 'layer-r', name: 'T1', volumeId: 'vol-r', visible: true, type: 'anatomical' };
+    mockLayerStoreState.getLayer.mockReturnValue(layer);
+    // Restored settings equal to the first paint: the render key alone would not notice.
+    const view: Record<string, unknown> = { id: 'layer-r', visible: true, opacity: 1, intensity: [0, 100], threshold: [0, 0], colormap: 'gray', interpolation: 'nearest' };
+    const state = { layers: [view] };
+    mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
+    const pending = api.refineIntensityFromHistogram(layer, { layerType: 'anatomical', dataRange: { min: 0, max: 100 } });
+    preserveLayerDisplay('layer-r');
+    finish({ bins: [{ x0: 0, x1: 50, count: 100 }, { x0: 50, x1: 100, count: 100 }], totalCount: 200, mean: 50, minValue: 0, maxValue: 100 });
+    await pending;
+    expect(view).toMatchObject({ intensity: [0, 100], interpolation: 'nearest' });
+  });
+
+  it('a late histogram keeps an interpolation the user changed meanwhile', async () => {
+    let finish!: (value: unknown) => void;
+    mockHistogramService.computeHistogram.mockReturnValue(new Promise(r => { finish = r; }));
+    const api = new LayerApiImpl() as unknown as Internals;
+    const layer = { id: 'layer-i', name: 'T1', volumeId: 'vol-i', visible: true, type: 'anatomical' };
+    mockLayerStoreState.getLayer.mockReturnValue(layer);
+    const view: Record<string, unknown> = { id: 'layer-i', visible: true, opacity: 1, intensity: [0, 100], threshold: [0, 0], colormap: 'gray', interpolation: 'linear' };
+    const state = { layers: [view] };
+    mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
+    const pending = api.refineIntensityFromHistogram(layer, { layerType: 'anatomical', dataRange: { min: 0, max: 100 } });
+    view.interpolation = 'nearest';
+    finish({ bins: [{ x0: 0, x1: 50, count: 100 }, { x0: 50, x1: 100, count: 100 }], totalCount: 200, mean: 50, minValue: 0, maxValue: 100 });
+    await pending;
+    expect(view).toMatchObject({ intensity: [0, 100], interpolation: 'nearest' });
   });
 
   it('a z map is shown as one from the first paint and never refined (native v6)', async () => {
