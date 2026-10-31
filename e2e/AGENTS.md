@@ -242,3 +242,15 @@ backend-handler errors, and compares each against
 - Baselines are tied to the pinned headless shell (`APP_HARNESS_BROWSER`
   overrides) on macOS arm64; another platform needs its own baseline set.
   Audit browser ownership before and after, as for the other harnesses.
+
+## Segmentation design captures
+
+`playwright.segmentation-design.config.ts` runs
+`harness/segmentation-design.capture.spec.ts` on an owned Vite server at port
+5331 (`SEG_DESIGN_PORT`). It renders `ui2/segmentation-harness.html` for every
+design direction x state (mock data, no Tauri) and writes
+`cruft/hillclimb/segmentation/<SEG_DESIGN_ROUND>/<direction>/<state>.png` plus
+`manifest.json`; it fails on harness, page or console errors. Set
+`SEG_DESIGN_BROWSER` to an installed Chromium headless shell;
+`SEG_DESIGN_DIRECTIONS` / `SEG_DESIGN_STATES` restrict the run. These are
+design specimens for critique, not a regression gate.
