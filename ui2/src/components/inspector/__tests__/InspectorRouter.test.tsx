@@ -32,10 +32,6 @@ vi.mock('@/components/inspector/bids/BidsInspector', () => ({
   BidsInspector: () => <div data-testid="bids-body">bids</div>,
 }));
 
-vi.mock('@/components/inspector/analysis/AnalysisInspector', () => ({
-  AnalysisInspector: () => <div data-testid="analysis-body">analysis</div>,
-}));
-
 vi.mock('@/hooks/useSceneStack', () => ({
   useSceneStack: () => ({
     volumes: [],
@@ -85,12 +81,6 @@ describe('InspectorRouter', () => {
     setMode('bids', 'BIDS');
     render(<InspectorRouter />);
     expect(screen.getByTestId('bids-body')).toBeInTheDocument();
-  });
-
-  it('renders the analysis body for analysis', () => {
-    setMode('analysis', 'Analysis');
-    render(<InspectorRouter />);
-    expect(screen.getByTestId('analysis-body')).toBeInTheDocument();
   });
 
   it('hides the unfinished Annotate tab unless Experimental features is on', () => {

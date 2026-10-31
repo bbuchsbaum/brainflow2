@@ -62,6 +62,18 @@ describe('SettingsDialog', () => {
     expect(within(topBar).queryByRole('checkbox', { name: 'Fixture' })).toBeNull();
   });
 
+  it('lists Analysis as an experimental module, off by default', () => {
+    render(<SettingsDialog onClose={() => {}} />);
+    const modules = screen.getByRole('group', { name: 'Modules' });
+    const analysis = within(modules).getByRole('switch', { name: 'Analysis' });
+    expect(analysis).toHaveAttribute('aria-checked', 'false');
+    expect(within(modules).getByText('Experimental')).toBeInTheDocument();
+    fireEvent.click(analysis);
+    expect(moduleRegistry.isEnabled('analysis')).toBe(true);
+    const pinned = within(screen.getByRole('group', { name: 'Top bar' })).getByRole('group', { name: 'Pinned tools' });
+    expect(within(pinned).getByRole('checkbox', { name: 'Analysis' })).not.toBeChecked();
+  });
+
   it('Top bar: pins tools and chooses startup tabs', () => {
     render(<SettingsDialog onClose={() => {}} />);
     const topBar = screen.getByRole('group', { name: 'Top bar' });
@@ -69,7 +81,6 @@ describe('SettingsDialog', () => {
     expect(within(pinned).getAllByRole('checkbox').map((c) => c.closest('label')?.textContent)).toEqual([
       'Set studio',
       'BIDS',
-      'Analysis',
       'Fixture',
     ]);
     fireEvent.click(within(pinned).getByRole('checkbox', { name: 'Fixture' }));

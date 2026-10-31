@@ -5,10 +5,12 @@ import type {
   AnalysisInput,
   AnalysisJobStatus,
 } from '@brainflow/api';
-import { useSelectedLayer, useSelectedLayerId, useLayerMetadata } from '@/stores/layerStore';
-import { getAnalysisService } from '@/services/analysis/AnalysisService';
-import { buildAnalysisStartRequest, useAnalysisStore } from '@/stores/analysisStore';
+import { useSelectedLayer, useSelectedLayerId, useLayerMetadata } from '@/modules/api/host';
+import { getAnalysisService } from '@/modules/analysis/services/AnalysisService';
+import { buildAnalysisStartRequest, useAnalysisStore } from '@/modules/analysis/stores/analysisStore';
+import { parametersJsonError } from './parameters';
 import {
+  JobStatusPill,
   Button,
   Chip,
   FieldRow,
@@ -20,11 +22,6 @@ import {
   useRovingFocus,
   type KeyValueItem,
 } from '@/components/ui/bf';
-import { JobStatusPill } from './JobStatusPill';
-
-interface AnalysisWorkbenchWorkspaceProps {
-  workspaceId: string;
-}
 
 function runnerLabel(descriptor: AnalysisDescriptor): string {
   return descriptor.runner.type === 'builtin' ? 'Builtin' : 'Sidecar';
@@ -189,7 +186,8 @@ function JobCard({
   );
 }
 
-export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: AnalysisWorkbenchWorkspaceProps) {
+/** The Analysis tool tab (the module's `analysis-workbench` workspace). */
+export function AnalysisWorkbenchWorkspace() {
   const descriptors = useAnalysisStore((state) => state.descriptors);
   const selectedAnalysisId = useAnalysisStore((state) => state.selectedAnalysisId);
   const loadStatus = useAnalysisStore((state) => state.loadStatus);
@@ -507,16 +505,4 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
       </main>
     </div>
   );
-}
-
-/** Sentence-case message for parameters text that is not valid JSON, or null. */
-export function parametersJsonError(text: string): string | null {
-  if (text.trim().length === 0) return null;
-  try {
-    JSON.parse(text);
-    return null;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return `Not valid JSON: ${detail.charAt(0).toLowerCase()}${detail.slice(1)}`;
-  }
 }

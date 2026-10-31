@@ -47,14 +47,6 @@ export const CORE_TOOLS: readonly ToolDescriptor[] = [
     moduleId: null,
     stage: null,
   },
-  {
-    type: 'analysis-workbench',
-    label: 'Analysis',
-    shortLabel: 'Analysis',
-    title: 'Analysis Workbench',
-    moduleId: null,
-    stage: null,
-  },
 ];
 
 /** An Inspector mode (the `Inspect | Annotate` tabs). */

@@ -3,7 +3,7 @@ export declare const BRIDGE_MODULES: {
         readonly id: "analysis";
         readonly title: "Analysis";
         readonly version: "0.1.0";
-        readonly stage: "preview";
+        readonly stage: "experimental";
         readonly commands: readonly ["list_analyses", "start_analysis", "cancel_analysis", "get_analysis_job_status"];
     };
 };

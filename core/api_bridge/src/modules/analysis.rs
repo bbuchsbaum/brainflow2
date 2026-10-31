@@ -23,7 +23,7 @@ static DESCRIPTOR: ModuleDescriptor = ModuleDescriptor {
     id: ID,
     title: "Analysis",
     version: "0.1.0",
-    stage: ModuleStage::Preview,
+    stage: ModuleStage::Experimental,
 };
 
 /// Status message for jobs cancelled because the module was switched off.

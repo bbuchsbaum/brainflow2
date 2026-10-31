@@ -25,7 +25,7 @@ vi.mock('@/services/SurfaceLoadingService', () => ({
   getSurfaceLoadingService: () => mockSurfaceLoadingService,
 }));
 
-import { AnalysisService } from '../AnalysisService';
+import { AnalysisService } from '@/modules/analysis/services/AnalysisService';
 
 describe('AnalysisService', () => {
   beforeEach(() => {

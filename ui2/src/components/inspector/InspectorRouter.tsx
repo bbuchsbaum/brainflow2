@@ -9,7 +9,6 @@ import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { StudioInspectorPanel } from '@/components/studio/StudioInspectorPanel';
 import { LoadSheet } from './imaging/LoadSheet';
 import { BidsInspector } from './bids/BidsInspector';
-import { AnalysisInspector } from './analysis/AnalysisInspector';
 import { ImagingInspector } from './imaging/ImagingInspector';
 import { Button, TabPanel, Tabs } from '@/components/ui/bf';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
@@ -41,7 +40,6 @@ import { lazyComponent } from '@/modules/lazyComponent';
  *   - imaging modes (orthogonal / integrated / mosaic / compare) → `<ImagingInspector />`
  *   - set-studio → existing `<StudioInspectorPanel />`, unchanged
  *   - bids → `<BidsInspector />` placeholder
- *   - analysis → `<AnalysisInspector />` placeholder
  *   - a module's tool tab → the inspector body its manifest declares
  */
 /** Id base of the Inspect / Annotate tabs and their panels. */
@@ -178,8 +176,6 @@ function InspectorBody() {
       return <StudioInspectorPanel />;
     case 'bids':
       return <BidsInspector />;
-    case 'analysis':
-      return <AnalysisInspector />;
     case 'orthogonal':
     case 'integrated':
     case 'mosaic':

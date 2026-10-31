@@ -42,8 +42,8 @@ described those; they were never implemented.
 - **Types:** `AnalysisDescriptor`, `AnalysisStartRequest`, `AnalysisJobStatus`
   and related types live in `core/bridge_types/src/lib.rs` and are exported to
   TypeScript with ts-rs.
-- **UI:** the Analysis Workbench (`ui2/src/components/analysis/`,
-  `ui2/src/services/analysis/AnalysisService.ts`, `ui2/src/stores/analysisStore.ts`).
+- **UI:** the Analysis module (`ui2/src/modules/analysis/`; experimental, off
+  by default, switched on in Settings › Modules).
 
 ## Adding a plugin
 1. Create `plugins/analyses/<id>/` with an `analysis.json` and an executable.

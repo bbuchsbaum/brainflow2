@@ -2,17 +2,19 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/stores/layerStore', () => ({
+vi.mock('@/modules/api/host', () => ({
   useSelectedLayer: () => ({ id: 'layer-1', name: 'T1', type: 'volume', source: null }),
   useSelectedLayerId: () => 'layer-1',
   useLayerMetadata: () => ({ sourcePath: '/data/t1.nii.gz' }),
 }));
-vi.mock('@/services/analysis/AnalysisService', () => ({
+vi.mock('@/modules/analysis/services/AnalysisService', () => ({
   getAnalysisService: () => ({}),
 }));
 
-import { useAnalysisStore } from '@/stores/analysisStore';
-import { AnalysisWorkbenchWorkspace, parametersJsonError } from '../AnalysisWorkbenchWorkspace';
+import type { AnalysisDescriptor } from '@brainflow/api';
+import { useAnalysisStore } from '@/modules/analysis/stores/analysisStore';
+import { AnalysisWorkbenchWorkspace } from '@/modules/analysis/components/AnalysisWorkbenchWorkspace';
+import { parametersJsonError } from '@/modules/analysis/components/parameters';
 
 const DESCRIPTOR = {
   id: 'smooth',
@@ -24,7 +26,7 @@ const DESCRIPTOR = {
   params_schema: {},
   outputs: ['volume'],
   runner: { type: 'builtin' },
-} as any;
+} as unknown as AnalysisDescriptor;
 
 describe('Analysis parameters: inline JSON validation', () => {
   const startAnalysis = vi.fn(async () => 'job-1');
@@ -33,7 +35,7 @@ describe('Analysis parameters: inline JSON validation', () => {
     useAnalysisStore.setState({
       descriptors: [DESCRIPTOR],
       selectedAnalysisId: 'smooth',
-      loadStatus: 'ready' as any,
+      loadStatus: 'ready',
       jobs: [],
       paramDrafts: { smooth: '{ "fwhm_mm": 6 }' },
       startError: null,
@@ -43,7 +45,7 @@ describe('Analysis parameters: inline JSON validation', () => {
   });
 
   it('marks malformed JSON invalid under the field and disables Run Analysis', () => {
-    render(<AnalysisWorkbenchWorkspace workspaceId="ws" />);
+    render(<AnalysisWorkbenchWorkspace />);
     const run = screen.getByRole('button', { name: 'Run Analysis' });
     const area = screen.getByRole('textbox', { name: 'JSON' });
     expect(run).toBeEnabled();

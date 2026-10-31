@@ -1577,9 +1577,13 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   analysis: async () => {
     await baseVolume();
     await selectLayer(MNI_PATH);
-    const { getAnalysisWorkbenchService } = await import('@/services/analysis/AnalysisWorkbenchService');
-    const { useAnalysisStore } = await import('@/stores/analysisStore');
-    await getAnalysisWorkbenchService().openWorkspace();
+    // Analysis is an experimental module, off by default: switch it on as
+    // Settings › Modules does, then run its command (the palette entry).
+    const { useModuleSettingsStore } = await import('@/modules/settingsStore');
+    const { moduleRegistry } = await import('@/modules/registry');
+    const { useAnalysisStore } = await import('@/modules/analysis/stores/analysisStore');
+    useModuleSettingsStore.getState().setModuleEnabled('analysis', true);
+    await moduleRegistry.executeCommand('analysis.open');
     await until(() => useAnalysisStore.getState().descriptors.length > 0, 'analyses listed');
     useAnalysisStore.getState().selectAnalysis('smooth-gaussian-sidecar');
     await clickByText('button', 'Run Analysis');

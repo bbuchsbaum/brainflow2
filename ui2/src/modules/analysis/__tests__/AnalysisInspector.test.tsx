@@ -2,10 +2,10 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/services/analysis/AnalysisService', () => ({ getAnalysisService: () => ({}) }));
+vi.mock('@/modules/analysis/services/AnalysisService', () => ({ getAnalysisService: () => ({}) }));
 
-import { AnalysisInspector } from '../analysis/AnalysisInspector';
-import { useAnalysisStore } from '@/stores/analysisStore';
+import { AnalysisInspector } from '@/modules/analysis/components/AnalysisInspector';
+import { useAnalysisStore } from '@/modules/analysis/stores/analysisStore';
 
 const descriptor = {
   id: 'gaussian-smoothing',

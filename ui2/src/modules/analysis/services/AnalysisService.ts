@@ -4,36 +4,36 @@ import type {
   AnalysisJobStatus,
   AnalysisStartRequest,
 } from '@brainflow/api';
-import { getTransport } from '@/services/transport';
-import { getFileLoadingService } from '@/services/FileLoadingService';
-import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
+import { bridgeClient, openFileAsLayer, openSurfaceFile } from '@/modules/api/host';
+
+/** The analysis module's bridge commands (`module analysis` in command_list.rs). */
+const bridge = bridgeClient('analysis');
 
 export class AnalysisService {
   async listAnalyses(): Promise<AnalysisDescriptor[]> {
-    return getTransport().invoke<AnalysisDescriptor[]>('list_analyses');
+    return bridge.invoke<AnalysisDescriptor[]>('list_analyses');
   }
 
   async startAnalysis(request: AnalysisStartRequest): Promise<string> {
-    return getTransport().invoke<string>('start_analysis', { request });
+    return bridge.invoke<string>('start_analysis', { request });
   }
 
   async cancelAnalysis(jobId: string): Promise<boolean> {
-    return getTransport().invoke<boolean>('cancel_analysis', { jobId });
+    return bridge.invoke<boolean>('cancel_analysis', { jobId });
   }
 
   async getJobStatus(jobId: string): Promise<AnalysisJobStatus | null> {
-    const status = await getTransport().invoke<AnalysisJobStatus | null>('get_analysis_job_status', { jobId });
-    return status;
+    return bridge.invoke<AnalysisJobStatus | null>('get_analysis_job_status', { jobId });
   }
 
   async openArtifact(artifact: AnalysisArtifact): Promise<void> {
     switch (artifact.kind) {
       case 'volume':
       case 'file':
-        await getFileLoadingService().loadFile(artifact.path, 'programmatic', 'add-layer');
+        await openFileAsLayer(artifact.path);
         return;
       case 'surface':
-        await getSurfaceLoadingService().loadSurfaceFile({
+        await openSurfaceFile({
           path: artifact.path,
           displayName: artifact.name ?? undefined,
         });

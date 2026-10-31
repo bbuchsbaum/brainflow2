@@ -11,7 +11,6 @@ export type DisplayMode =
   | 'compare'
   | 'set-studio'
   | 'bids'
-  | 'analysis'
   /** The tool tab of a module (its Inspector body comes from the registry). */
   | 'module-tool'
   | 'unknown';
@@ -32,7 +31,6 @@ const WORKSPACE_TYPE_TO_MODE: Record<CoreWorkspaceType, DisplayMode> = {
   integrated: 'integrated',
   'set-studio': 'set-studio',
   'bids-explorer': 'bids',
-  'analysis-workbench': 'analysis',
 };
 
 const MODE_LABELS: Record<Exclude<DisplayMode, 'module-tool'>, string> = {
@@ -43,7 +41,6 @@ const MODE_LABELS: Record<Exclude<DisplayMode, 'module-tool'>, string> = {
   compare: 'Compare',
   'set-studio': 'Set studio',
   bids: 'BIDS',
-  analysis: 'Analysis',
   unknown: '—',
 };
 

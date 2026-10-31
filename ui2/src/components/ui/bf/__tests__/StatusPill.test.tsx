@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { StatusPill, JobStatusPill as BfJobStatusPill } from '../StatusPill';
-import { JobStatusPill, jobStateLabel } from '@/components/analysis/JobStatusPill';
+import { StatusPill, JobStatusPill } from '../StatusPill';
+import { jobStateLabel } from '../helpers';
 import { Chip, FilterChip } from '../Chip';
 import { Notice } from '../Notice';
 
@@ -34,8 +34,7 @@ describe('bf StatusPill', () => {
     expect((container.firstChild as HTMLElement).className).not.toContain('bg-bf-danger-soft');
   });
 
-  it('JobStatusPill is re-exported unchanged from the analysis module', () => {
-    expect(JobStatusPill).toBe(BfJobStatusPill);
+  it('JobStatusPill speaks the job-state vocabulary', () => {
     const { container } = render(<JobStatusPill state="completed" />);
     const pill = container.firstChild as HTMLElement;
     expect(pill).toHaveAttribute('data-job-state', 'completed');

@@ -25,7 +25,6 @@ import { MosaicViewPromise } from "@/components/views/MosaicViewPromise";
 import { SetStudioWorkspace } from "@/components/studio/SetStudioWorkspace";
 import { ComparisonWorkspace } from "@/components/views/ComparisonWorkspace";
 import { BidsExplorerWorkspace } from "@/components/bids/BidsExplorerWorkspace";
-import { AnalysisWorkbenchWorkspace } from "@/components/analysis/AnalysisWorkbenchWorkspace";
 import { IntegratedVolumeSurfaceWorkspace } from "@/components/views/IntegratedVolumeSurfaceWorkspace";
 import { CenterWithBottomDock } from "@/components/layout/CenterWithBottomDock";
 import { ModuleWorkspace } from "@/components/modules/ModuleWorkspace";
@@ -127,8 +126,6 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
       );
     case "bids-explorer":
       return <BidsExplorerWorkspace workspaceId={workspaceId} />;
-    case "analysis-workbench":
-      return <AnalysisWorkbenchWorkspace workspaceId={workspaceId} />;
     default:
       // A module's tool tab (or an unknown type, which ModuleWorkspace reports).
       return <ModuleWorkspace workspaceId={workspaceId} workspaceType={routeType} />;

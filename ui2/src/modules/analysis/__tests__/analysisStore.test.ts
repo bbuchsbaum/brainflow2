@@ -8,11 +8,11 @@ const mockAnalysisService = vi.hoisted(() => ({
   cancelAnalysis: vi.fn(),
 }));
 
-vi.mock('@/services/analysis/AnalysisService', () => ({
+vi.mock('@/modules/analysis/services/AnalysisService', () => ({
   getAnalysisService: () => mockAnalysisService,
 }));
 
-import { buildAnalysisStartRequest, useAnalysisStore } from '@/stores/analysisStore';
+import { buildAnalysisStartRequest, useAnalysisStore } from '@/modules/analysis/stores/analysisStore';
 
 function resetAnalysisStore() {
   useAnalysisStore.setState({

@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
-import { useAnalysisStore } from '@/stores/analysisStore';
-import { JobStatusPill } from '@/components/analysis/JobStatusPill';
-import { KeyValue, Notice, Section, type KeyValueItem } from '@/components/ui/bf';
+import { useAnalysisStore } from '@/modules/analysis/stores/analysisStore';
+import { JobStatusPill, KeyValue, Notice, Section, type KeyValueItem } from '@/components/ui/bf';
 
 /**
  * Analysis workbench Inspector. Follows the workbench selection

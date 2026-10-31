@@ -60,7 +60,6 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useAppModeStore } from '@/stores/appModeStore';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
-import { getAnalysisWorkbenchService } from '@/services/analysis/AnalysisWorkbenchService';
 import { TopAppBar } from '@/components/ui/TopAppBar';
 import {
   CommandPaletteDialog,
@@ -422,16 +421,6 @@ function AppContent() {
         group: 'Studio',
         run: async () => {
           await getSetStudioService().openRegexDiscoveryInStudio();
-        },
-      },
-      {
-        id: 'analysis.openWorkbench',
-        title: 'Open Analysis Workbench',
-        subtitle: 'Inspect available analyses and run them against the selected volume.',
-        keywords: ['analysis', 'workbench', 'jobs', 'plugin'],
-        group: 'Analysis',
-        run: async () => {
-          await getAnalysisWorkbenchService().openWorkspace();
         },
       },
       {

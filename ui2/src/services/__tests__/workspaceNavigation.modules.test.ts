@@ -94,7 +94,6 @@ describe('workspaceNavigation with modules', () => {
       'Compare view',
       'Set studio',
       'BIDS',
-      'Analysis',
       'Fixture',
     ]);
     useFeatureFlagStore.setState({ integratedWorkspaceV1: false });

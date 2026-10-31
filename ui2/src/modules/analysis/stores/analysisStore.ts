@@ -5,7 +5,7 @@ import type {
   AnalysisJobStatus,
   AnalysisStartRequest,
 } from '@brainflow/api';
-import { getAnalysisService } from '@/services/analysis/AnalysisService';
+import { getAnalysisService } from '@/modules/analysis/services/AnalysisService';
 
 type AnalysisLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -27,7 +27,19 @@ interface AnalysisStoreState {
   cancelJob: (jobId: string) => Promise<void>;
   resetStartError: () => void;
   setStartError: (message: string | null) => void;
+  /**
+   * Forget this session's analyses and jobs (the module was switched off; the
+   * bridge cancels its jobs). Responses still in flight are dropped.
+   * Parameter drafts are kept.
+   */
+  resetSession: () => void;
 }
+
+/**
+ * Bumped by `resetSession`. Every request captures it before awaiting and
+ * drops its result when it changed (AGENTS.md, async ownership).
+ */
+let sessionGeneration = 0;
 
 function upsertJob(jobs: AnalysisJobStatus[], nextJob: AnalysisJobStatus): AnalysisJobStatus[] {
   const existingIndex = jobs.findIndex((job) => job.job_id === nextJob.job_id);
@@ -80,10 +92,12 @@ export const useAnalysisStore = create<AnalysisStoreState>((set, get) => ({
   paramDrafts: {},
 
   loadAnalyses: async () => {
+    const generation = sessionGeneration;
     set({ loadStatus: 'loading', loadError: null });
 
     try {
       const descriptors = await getAnalysisService().listAnalyses();
+      if (generation !== sessionGeneration) return;
       set((state) => {
         const nextDrafts = { ...state.paramDrafts };
         descriptors.forEach((descriptor) => {
@@ -101,6 +115,7 @@ export const useAnalysisStore = create<AnalysisStoreState>((set, get) => ({
         };
       });
     } catch (error) {
+      if (generation !== sessionGeneration) return;
       set({
         loadStatus: 'error',
         loadError: error instanceof Error ? error.message : 'Failed to load analyses',
@@ -119,17 +134,20 @@ export const useAnalysisStore = create<AnalysisStoreState>((set, get) => ({
     })),
 
   startAnalysis: async (request) => {
+    const generation = sessionGeneration;
     set({ isStarting: true, startError: null });
 
     try {
       const jobId = await getAnalysisService().startAnalysis(request);
       const status = await getAnalysisService().getJobStatus(jobId);
+      if (generation !== sessionGeneration) return null;
       set((state) => ({
         isStarting: false,
         jobs: status ? upsertJob(state.jobs, status) : state.jobs,
       }));
       return jobId;
     } catch (error) {
+      if (generation !== sessionGeneration) return null;
       set({
         isStarting: false,
         startError: error instanceof Error ? error.message : 'Failed to start analysis',
@@ -139,8 +157,9 @@ export const useAnalysisStore = create<AnalysisStoreState>((set, get) => ({
   },
 
   refreshJob: async (jobId) => {
+    const generation = sessionGeneration;
     const status = await getAnalysisService().getJobStatus(jobId);
-    if (!status) {
+    if (!status || generation !== sessionGeneration) {
       return null;
     }
 
@@ -152,7 +171,8 @@ export const useAnalysisStore = create<AnalysisStoreState>((set, get) => ({
 
   pollActiveJobs: async () => {
     const activeJobIds = getActiveJobIds(get().jobs);
-    await Promise.all(activeJobIds.map((jobId) => get().refreshJob(jobId)));
+    // A failed poll (the module was just switched off) must not reject the timer.
+    await Promise.allSettled(activeJobIds.map((jobId) => get().refreshJob(jobId)));
   },
 
   cancelJob: async (jobId) => {
@@ -162,6 +182,19 @@ export const useAnalysisStore = create<AnalysisStoreState>((set, get) => ({
 
   resetStartError: () => set({ startError: null }),
   setStartError: (message) => set({ startError: message }),
+
+  resetSession: () => {
+    sessionGeneration += 1;
+    set({
+      descriptors: [],
+      selectedAnalysisId: null,
+      loadStatus: 'idle',
+      loadError: null,
+      jobs: [],
+      startError: null,
+      isStarting: false,
+    });
+  },
 }));
 
 export function buildAnalysisStartRequest(

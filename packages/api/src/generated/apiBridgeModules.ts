@@ -9,7 +9,7 @@ export const BRIDGE_MODULES = {
     id: "analysis",
     title: "Analysis",
     version: "0.1.0",
-    stage: "preview",
+    stage: "experimental",
     commands: [
       "list_analyses",
       "start_analysis",

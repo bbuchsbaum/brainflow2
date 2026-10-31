@@ -24,7 +24,6 @@ export const CORE_WORKSPACE_TYPES = [
   'integrated',
   'set-studio',
   'bids-explorer',
-  'analysis-workbench',
 ] as const;
 
 export type CoreWorkspaceType = (typeof CORE_WORKSPACE_TYPES)[number];
@@ -102,7 +101,6 @@ export const WORKSPACE_METADATA: Record<CoreWorkspaceType, WorkspaceMetadata> = 
   'integrated': { category: 'visualization', name: 'Integrated Workspace' },
   'set-studio': { category: 'tool', name: 'Set studio', singleton: true },
   'bids-explorer': { category: 'tool', name: 'BIDS Explorer', singleton: true },
-  'analysis-workbench': { category: 'tool', name: 'Analysis Workbench', singleton: true },
 };
 
 /**
@@ -120,7 +118,6 @@ export const DEFAULT_WORKSPACE_CONFIGS: Record<CoreWorkspaceType, Partial<Worksp
   'integrated': {},
   'set-studio': {},
   'bids-explorer': {},
-  'analysis-workbench': {},
 };
 
 /**
