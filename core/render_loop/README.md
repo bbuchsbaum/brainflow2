@@ -42,30 +42,27 @@ This module handles:
 
 ## Shader Pipeline
 
-### Current Implementation (wgpu 0.25)
+### Current Implementation (wgpu 0.20.1)
 
-Due to the upgrade to wgpu 0.25 for Tauri 2.5 compatibility, the shader pipeline has been updated to use runtime shader loading:
+The workspace pins wgpu `=0.20.1` in the root `Cargo.toml`. WGSL shaders are
+loaded at runtime with `create_shader_module`. The runtime masked shaders are
+authoritative, and `src/shader_contract.rs` is the single source of truth for
+group/binding indices (gate: `cargo test -p render_loop --test shader_contract_test`).
 
-```rust
-// Shaders are loaded at runtime from embedded strings
-const VOLUME_SHADER_SOURCE: &str = include_str!("../shaders/volume.wgsl");
-```
-
-**Note**: The previous build-time shader compilation with `wgsl_to_wgpu` is temporarily disabled as it doesn't support wgpu 0.25 yet. When a compatible version is released, we can re-enable build-time compilation for better type safety.
+**Note**: The `typed-shaders` feature (build-time generation with `wgsl_to_wgpu`)
+is intentionally disabled and fails fast with `compile_error!` while the
+alpha-mask pipeline is active. It stays off until generation is retargeted to
+the masked shaders; see `memory-bank/SHADER_BINDINGS_PLAN.md`.
 
 ### Shader Files
 
 Located in `shaders/` directory:
 
-- **volume.wgsl**: Main volume rendering shader
-  - Vertex shader: Full-screen quad generation
-  - Fragment shader: Multi-layer compositing with:
-    - Per-layer opacity blending
-    - Colormap application
-    - Window/level adjustment
-    - Threshold-based visualization (min/max range)
-    - Crosshair overlay
-    - View plane highlighting
+- **slice_world_space_masked.wgsl** and **slice_world_space_optimized_masked.wgsl**:
+  the active world-space slice shaders. They composite up to `MAX_TEXTURES`
+  layers with per-layer masks, colormaps, window/level, thresholds and label
+  lookup.
+- The other `.wgsl` files are debug or legacy variants.
 
 ### Shader Architecture
 
@@ -209,7 +206,7 @@ cargo test -p render_loop
 
 ## Future Enhancements
 
-- [ ] Re-enable build-time shader compilation when wgsl_to_wgpu supports wgpu 0.25
+- [ ] Re-enable typed shader generation once it targets the masked shaders (`memory-bank/SHADER_BINDINGS_PLAN.md`)
 - [ ] Add absolute value thresholding for bilateral activation maps
 - [ ] Implement advanced blending modes (MIP, average intensity)
 - [ ] Add compute shader support for gradients and filtering
@@ -220,21 +217,12 @@ cargo test -p render_loop
 
 ## Build Configuration
 
-### Temporary wgpu 0.25 Workaround
+### Typed Shaders (disabled)
 
-The `build.rs` file is currently disabled due to wgsl_to_wgpu incompatibility:
-
-```toml
-# In Cargo.toml - temporarily commented out
-# [build-dependencies]
-# wgsl_to_wgpu = "0.14.0"  # Waiting for wgpu 0.25 support
-```
-
-When updating:
-1. Find a wgsl_to_wgpu version compatible with wgpu 0.25
-2. Uncomment the build dependency
-3. Re-enable build.rs shader compilation
-4. Remove manual shader loading from lib.rs
+`wgsl_to_wgpu` is an optional build dependency enabled only by the
+`typed-shaders` feature, which currently stops the build with `compile_error!`
+in `src/lib.rs`. Default builds load the masked WGSL at runtime and do not need
+it. Re-enabling it is tracked in `memory-bank/SHADER_BINDINGS_PLAN.md`.
 
 ---
 *Last Updated: 2025-01-23 - Sprint 0 Documentation (SUB-021)*
