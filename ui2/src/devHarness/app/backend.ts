@@ -5,7 +5,7 @@
  * core/api_bridge/src/lib.rs and the generated bindings in
  * packages/api/src/generated. IDs come from counters, never clocks/RNG.
  */
-import type { ExtremumKind, StatisticInfo, StatisticKind } from '@brainflow/api';
+import { BRIDGE_MODULES, type ExtremumKind, type StatisticInfo, type StatisticKind } from '@brainflow/api';
 import {
   clusterLabelData,
   findClusters,
@@ -1243,6 +1243,36 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       return out.buffer;
     },
   };
+
+  // Bridge modules (core/api_bridge/src/modules): like the bridge, all start
+  // enabled; the app's startup set_enabled_modules switches some off, and a
+  // switched-off module's commands reject with ModuleDisabled (12001).
+  let enabledModules = new Set<string>(Object.keys(BRIDGE_MODULES));
+  const moduleInfos = () =>
+    Object.values(BRIDGE_MODULES).map(({ id, title, version, stage }) => ({
+      id,
+      title,
+      version,
+      stage,
+      enabled: enabledModules.has(id),
+    }));
+  handlers.list_modules = () => moduleInfos();
+  handlers.set_enabled_modules = ({ moduleIds }: { moduleIds: string[] }) => {
+    const unknown = moduleIds.find((id) => !(id in BRIDGE_MODULES));
+    if (unknown) throw new Error(`Unknown module id '${unknown}'`);
+    enabledModules = new Set(moduleIds);
+    return moduleInfos();
+  };
+  for (const [id, module] of Object.entries(BRIDGE_MODULES)) {
+    for (const cmd of module.commands as readonly string[]) {
+      const inner = handlers[cmd];
+      if (!inner) continue;
+      handlers[cmd] = (args, options) => {
+        if (!enabledModules.has(id)) throw new Error(`ModuleDisabled (12001): the ${id} module is off`);
+        return inner(args, options);
+      };
+    }
+  }
 
   return {
     handlers,

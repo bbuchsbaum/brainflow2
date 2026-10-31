@@ -237,16 +237,19 @@ describe('ModuleRegistry activation', () => {
     const registry = new ModuleRegistry(deps);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
     const disposed = vi.fn();
     registry.register(
       manifest({ id: 'slow', contributes: { commands: [{ id: 'slow.go', title: 'Go' }] } }, async (ctx) => {
         ctx.disposables.add(disposed);
+        started();
         await gate;
         ctx.commands.register('slow.go', () => {});
       }),
     );
     const pending = registry.ensureActive('slow');
-    await Promise.resolve();
+    await running;
     deps.set('slow', false);
     release();
     await expect(pending).rejects.toBeInstanceOf(ModuleDisabledError);
@@ -280,6 +283,42 @@ describe('ModuleRegistry activation', () => {
     expect(() => ctx.commands.register('own.other', () => {})).toThrow(/not declared/);
     await expect(ctx.workspaces.open('own.tab')).resolves.toBe('own.tab-1');
     await expect(ctx.workspaces.open('mosaic')).rejects.toThrow(/not declared/);
+  });
+
+  it('waits for the shell before activating, and skips activation switched off meanwhile', async () => {
+    const deps = fakeDeps();
+    const registry = new ModuleRegistry(deps);
+    let release!: () => void;
+    const bridgeApplied = new Promise<void>((resolve) => (release = resolve));
+    const beforeActivate = vi.fn(() => bridgeApplied);
+    registry.connectShell({ openWorkspace: async () => null, activeWorkspaceType: () => null, beforeActivate });
+    const activate = vi.fn();
+    registry.register(manifest({ id: 'br' }, activate));
+    const first = registry.ensureActive('br');
+    await Promise.resolve();
+    expect(beforeActivate).toHaveBeenCalledWith('br');
+    expect(activate).not.toHaveBeenCalled();
+    deps.set('br', false);
+    release();
+    await expect(first).rejects.toBeInstanceOf(ModuleDisabledError);
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it('records a failed activation for the shell to show', async () => {
+    const registry = new ModuleRegistry(fakeDeps());
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    registry.register(
+      manifest({ id: 'bad' }, () => {
+        throw new Error('no backend');
+      }),
+    );
+    const version = registry.getVersion();
+    await expect(registry.ensureActive('bad')).rejects.toThrow('no backend');
+    await Promise.resolve();
+    expect((registry.activationError('bad') as Error).message).toBe('no backend');
+    expect(registry.getVersion()).toBeGreaterThan(version);
+    expect(registry.isActive('bad')).toBe(false);
+    errors.mockRestore();
   });
 
   it('runs a command only where its when clause holds', async () => {

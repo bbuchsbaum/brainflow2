@@ -1,5 +1,7 @@
 import { useWorkspaceStore } from '@/stores/workspaceStore';
-import type { WorkspaceType } from '@/types/workspace';
+import { isCoreWorkspaceType } from '@/services/workspaceTypes';
+import { moduleRegistry, useModuleRegistryVersion } from '@/modules/registry';
+import type { CoreWorkspaceType, WorkspaceType } from '@/types/workspace';
 
 export type DisplayMode =
   | 'orthogonal'
@@ -10,6 +12,8 @@ export type DisplayMode =
   | 'set-studio'
   | 'bids'
   | 'analysis'
+  /** The tool tab of a module (its Inspector body comes from the registry). */
+  | 'module-tool'
   | 'unknown';
 
 export interface DisplayModeInfo {
@@ -20,7 +24,7 @@ export interface DisplayModeInfo {
   workspaceType: WorkspaceType | null;
 }
 
-const WORKSPACE_TYPE_TO_MODE: Record<WorkspaceType, DisplayMode> = {
+const WORKSPACE_TYPE_TO_MODE: Record<CoreWorkspaceType, DisplayMode> = {
   'orthogonal-locked': 'orthogonal',
   'orthogonal-flexible': 'orthogonal',
   mosaic: 'mosaic',
@@ -31,7 +35,7 @@ const WORKSPACE_TYPE_TO_MODE: Record<WorkspaceType, DisplayMode> = {
   'analysis-workbench': 'analysis',
 };
 
-const MODE_LABELS: Record<DisplayMode, string> = {
+const MODE_LABELS: Record<Exclude<DisplayMode, 'module-tool'>, string> = {
   orthogonal: 'Orthogonal',
   surface: 'Surface',
   integrated: 'Integrated',
@@ -42,6 +46,19 @@ const MODE_LABELS: Record<DisplayMode, string> = {
   analysis: 'Analysis',
   unknown: '—',
 };
+
+/** Display mode and label of a workspace type (pure; exported for tests). */
+export function displayModeOf(workspaceType: WorkspaceType | null): Omit<DisplayModeInfo, 'workspaceType'> {
+  if (!workspaceType) return { mode: 'unknown', label: MODE_LABELS.unknown };
+  if (isCoreWorkspaceType(workspaceType)) {
+    const mode = WORKSPACE_TYPE_TO_MODE[workspaceType];
+    return { mode, label: MODE_LABELS[mode as Exclude<DisplayMode, 'module-tool'>] };
+  }
+  const tool = moduleRegistry.getModuleTool(workspaceType);
+  return tool
+    ? { mode: 'module-tool', label: tool.label }
+    : { mode: 'unknown', label: MODE_LABELS.unknown };
+}
 
 /**
  * Derive the active display mode from the active workspace's type.
@@ -54,14 +71,7 @@ export function useDisplayMode(): DisplayModeInfo {
     if (!state.activeWorkspaceId) return null;
     return state.workspaces.get(state.activeWorkspaceId)?.type ?? null;
   });
+  useModuleRegistryVersion();
 
-  const mode: DisplayMode = workspaceType
-    ? WORKSPACE_TYPE_TO_MODE[workspaceType]
-    : 'unknown';
-
-  return {
-    mode,
-    label: MODE_LABELS[mode],
-    workspaceType,
-  };
+  return { ...displayModeOf(workspaceType), workspaceType };
 }

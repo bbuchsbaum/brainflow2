@@ -72,11 +72,12 @@ import { getTransport, getHostCapabilities } from '@/services/transport';
 import { DISPLAY_MODES } from '@/types/displayModes';
 import {
   LAYOUT_SHORTCUT_MODES,
-  TOOL_DESTINATIONS,
   openNewView,
   openTool,
   setCurrentTabLayout,
 } from '@/services/workspaceNavigation';
+import { moduleRegistry, useModuleCommands, useTools } from '@/modules/registry';
+import { initModuleRuntime } from '@/modules/runtime';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
@@ -146,6 +147,13 @@ function AppContent() {
   const appMode = useAppModeStore((state) => state.mode);
   const savedLayouts = useLayoutLibraryStore((s) => s.layouts);
   const loadSavedLayout = useLayoutLibraryStore((s) => s.loadLayout);
+
+  const tools = useTools();
+  const moduleCommands = useModuleCommands();
+
+  // Modules first: the bridge starts with every module on, and the startup
+  // set_enabled_modules switches off the ones the user (or the stage) keeps off.
+  useEffect(() => initModuleRuntime(), []);
 
   useStudioAppModeSync(activeWorkspaceType);
   useStudioCoordination();
@@ -517,7 +525,7 @@ function AppContent() {
           setCurrentTabLayout('orthogonal-flexible');
         },
       },
-      ...TOOL_DESTINATIONS.filter((tool) => tool.shortcutKey).map((tool) => ({
+      ...tools.filter((tool) => tool.shortcutKey).map((tool) => ({
         id: `workspace.tool.${tool.type}`,
         title: `Open ${tool.label}`,
         subtitle: 'Open the tool, or go to its tab if it is open.',
@@ -541,8 +549,28 @@ function AppContent() {
       },
     }));
 
-    return [...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths), ...navigationCommands, ...savedLayoutCommands];
-  }, [integratedWorkspaceEnabled, loadSavedLayout, savedLayouts]);
+    // Commands of enabled modules (modules/registry.ts), where their `when` holds.
+    const moduleCommandEntries: CommandPaletteCommand[] = moduleCommands
+      .filter((command) => moduleRegistry.matchesWhen(command.when))
+      .map((command) => ({
+        id: command.id,
+        title: command.title,
+        subtitle: command.subtitle,
+        keywords: command.keywords ? [...command.keywords] : undefined,
+        group: command.group ?? moduleRegistry.getModule(command.moduleId)?.title,
+        run: async () => {
+          await moduleRegistry.executeCommand(command.id);
+        },
+      }));
+
+    return [
+      ...coreCommands.filter(command => command.id !== 'command.mountDirectory' || getHostCapabilities().nativePaths),
+      ...navigationCommands,
+      ...moduleCommandEntries,
+      ...savedLayoutCommands,
+    ];
+    // activeWorkspaceType: module commands are filtered by their `when`.
+  }, [integratedWorkspaceEnabled, loadSavedLayout, savedLayouts, tools, moduleCommands, activeWorkspaceType]);
 
   // Register '?' shortcut to open the keyboard shortcuts dialog
   useEffect(() => {

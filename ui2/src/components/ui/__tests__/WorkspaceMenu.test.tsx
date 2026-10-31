@@ -168,6 +168,16 @@ describe("WorkspaceMenu", () => {
     }
   });
 
+  it("lists module tools after the core tools, labelled with a stage that is not stable", async () => {
+    const { registerFixtureModule } = await import("@/modules/__tests__/fixtureModule");
+    registerFixtureModule();
+    render(<WorkspaceMenu />);
+    const fixture = screen.getByText("Fixture");
+    expect(fixture.parentElement).toHaveTextContent("FixturePreview");
+    fireEvent.click(fixture);
+    expect(nav.openTool).toHaveBeenCalledWith("fixture.tool");
+  });
+
   it("New view opens a tab; a tool opens (or refocuses) its tab", () => {
     render(<WorkspaceMenu />);
 

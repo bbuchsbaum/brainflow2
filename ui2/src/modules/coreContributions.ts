@@ -6,6 +6,9 @@
  * treat core and module entries the same way.
  */
 
+import { DOCK_TABS } from '@/components/layout/bottomWorkbenchDock.constants';
+import type { ModuleStage } from './api';
+
 /** A tool tab type the shell knows how to open (core or module). */
 export interface ToolDescriptor {
   /** The workspace type of the tab. */
@@ -20,6 +23,8 @@ export interface ToolDescriptor {
   shortcutKey?: string;
   /** Owning module, or null for a core tool. */
   moduleId: string | null;
+  /** Stage of the owning module (lists label preview tools); null for core. */
+  stage: ModuleStage | null;
 }
 
 /** Set studio and BIDS, in menu order. ⌘5 / ⌘6 open them. */
@@ -31,6 +36,7 @@ export const CORE_TOOLS: readonly ToolDescriptor[] = [
     title: 'Set studio',
     shortcutKey: '5',
     moduleId: null,
+    stage: null,
   },
   {
     type: 'bids-explorer',
@@ -39,6 +45,7 @@ export const CORE_TOOLS: readonly ToolDescriptor[] = [
     title: 'BIDS Explorer',
     shortcutKey: '6',
     moduleId: null,
+    stage: null,
   },
   {
     type: 'analysis-workbench',
@@ -46,6 +53,7 @@ export const CORE_TOOLS: readonly ToolDescriptor[] = [
     shortLabel: 'Analysis',
     title: 'Analysis Workbench',
     moduleId: null,
+    stage: null,
   },
 ];
 
@@ -78,9 +86,8 @@ export interface DockTabDescriptor {
 }
 
 /** Activity | Plot | Clusters | Log (Design.md §11.1, P3.5). */
-export const CORE_DOCK_TABS: readonly DockTabDescriptor[] = [
-  { id: 'activity', title: 'Activity', moduleId: null },
-  { id: 'plot', title: 'Plot', moduleId: null },
-  { id: 'clusters', title: 'Clusters', moduleId: null },
-  { id: 'log', title: 'Log', moduleId: null },
-];
+export const CORE_DOCK_TABS: readonly DockTabDescriptor[] = DOCK_TABS.map(({ id, label }) => ({
+  id,
+  title: label,
+  moduleId: null,
+}));

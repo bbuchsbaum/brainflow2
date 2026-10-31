@@ -12,15 +12,17 @@
  * the other layout preferences.
  */
 
-import { useCallback, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { IconButton, Tabs, tabIds } from '@/components/ui/bf';
 import {
   DEFAULT_DOCK_TAB,
   DOCK_TAB_BAR_HEIGHT,
-  DOCK_TABS,
+  type CoreDockTabId,
   type DockTabId,
 } from './bottomWorkbenchDock.constants';
+import { moduleRegistry, useModuleRegistryVersion, type ModuleDockTab } from '@/modules/registry';
+import { lazyComponent } from '@/modules/lazyComponent';
 
 export interface BottomWorkbenchDockProps {
   /** Plot slot content. */
@@ -54,11 +56,27 @@ export interface BottomWorkbenchDockProps {
 const TAB_BAR_HEIGHT = DOCK_TAB_BAR_HEIGHT;
 
 const DOCK_ID_BASE = 'bottom-dock';
-const DOCK_TAB_ITEMS = DOCK_TABS.map(({ id, label }) => ({
-  value: id,
-  label,
-  testId: `bottom-dock-tab-${id}`,
-}));
+
+/** Core tabs, then the tabs of enabled modules (stable per registry change). */
+const tabItemsCache = new WeakMap<readonly ModuleDockTab[], Array<{ value: string; label: string; testId: string }>>();
+function dockTabItems(tabs: readonly ModuleDockTab[]) {
+  let items = tabItemsCache.get(tabs);
+  if (!items) {
+    items = tabs.map(({ id, title }) => ({ value: id, label: title, testId: `bottom-dock-tab-${id}` }));
+    tabItemsCache.set(tabs, items);
+  }
+  return items;
+}
+
+function ModuleDockTabBody({ tab }: { tab: ModuleDockTab }) {
+  if (!tab.component) return null;
+  const Body = lazyComponent(tab.component);
+  return (
+    <Suspense fallback={null}>
+      <Body />
+    </Suspense>
+  );
+}
 
 export function BottomWorkbenchDock({
   plot,
@@ -79,7 +97,11 @@ export function BottomWorkbenchDock({
   // otherwise it manages its own state from `defaultActiveTab`.
   const isControlled = controlledTab !== undefined;
   const [localTab, setLocalTab] = useState<DockTabId>(defaultActiveTab);
-  const activeTab = isControlled ? controlledTab : localTab;
+  useModuleRegistryVersion();
+  const tabs = moduleRegistry.getDockTabs();
+  const requestedTab = isControlled ? controlledTab : localTab;
+  // A remembered tab of a module that is now off falls back to the default.
+  const activeTab = tabs.some((t) => t.id === requestedTab) ? requestedTab : DEFAULT_DOCK_TAB;
 
   const handleSelect = useCallback(
     (tab: DockTabId) => {
@@ -92,7 +114,8 @@ export function BottomWorkbenchDock({
     [activeTab, isControlled, onActiveTabChange, minimized, onRestore],
   );
 
-  const slots: Record<DockTabId, ReactNode> = { activity, plot, clusters, log };
+  const slots: Record<CoreDockTabId, ReactNode> = { activity, plot, clusters, log };
+  const activeModuleTab = tabs.find((t) => t.id === activeTab && t.moduleId !== null);
 
   return (
     <div
@@ -118,7 +141,7 @@ export function BottomWorkbenchDock({
             reaches handleSelect, which restores a minimized dock. */}
         <Tabs
           idBase={DOCK_ID_BASE}
-          items={DOCK_TAB_ITEMS}
+          items={dockTabItems(tabs)}
           value={activeTab}
           onValueChange={(tab) => handleSelect(tab as DockTabId)}
           aria-label="Bottom dock"
@@ -178,7 +201,11 @@ export function BottomWorkbenchDock({
             overflow: 'hidden',
           }}
         >
-          {slots[activeTab]}
+          {activeModuleTab ? (
+            <ModuleDockTabBody tab={activeModuleTab} />
+          ) : (
+            slots[activeTab as CoreDockTabId]
+          )}
         </div>
       )}
     </div>

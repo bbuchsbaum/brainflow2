@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { getTransport } from '@/services/transport';
 import { getEventBus } from '@/events/EventBus';
 import { formatTauriError } from '@/utils/formatTauriError';
@@ -13,14 +13,21 @@ import { AnalysisInspector } from './analysis/AnalysisInspector';
 import { ImagingInspector } from './imaging/ImagingInspector';
 import { Button, TabPanel, Tabs } from '@/components/ui/bf';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
+import {
+  moduleRegistry,
+  useModuleRegistryVersion,
+  type ModuleInspectorMode,
+} from '@/modules/registry';
+import { lazyComponent } from '@/modules/lazyComponent';
 
 /**
  * Right-rail Inspector shell. Owns the chrome:
- *   - a thin context toolbar: flat `Inspect | Annotate` tabs (they switch the
- *     pane's content, so they are tabs by the V5 taxonomy, not a segmented
- *     value choice) + the `+ Load` action. Annotate is unfinished: the tabs
- *     show only with Settings › Experimental features on; otherwise the body
- *     is the Inspector alone.
+ *   - a thin context toolbar: flat mode tabs (`Inspect | Annotate`, plus any
+ *     mode an enabled module registers; they switch the pane's content, so
+ *     they are tabs by the V5 taxonomy, not a segmented value choice) + the
+ *     `+ Load` action. Annotate is unfinished and shows only with Settings ›
+ *     Experimental features on; with a single mode the tabs are hidden and
+ *     the body is the Inspector alone.
  *   - the scrollable body (Inspector or Annotate)
  *   - the footer (`N scene items` / `M selected`)
  *
@@ -35,15 +42,21 @@ import { useFeatureFlagStore } from '@/stores/featureFlagStore';
  *   - set-studio → existing `<StudioInspectorPanel />`, unchanged
  *   - bids → `<BidsInspector />` placeholder
  *   - analysis → `<AnalysisInspector />` placeholder
+ *   - a module's tool tab → the inspector body its manifest declares
  */
 /** Id base of the Inspect / Annotate tabs and their panels. */
 const MODE_TABS_ID = 'inspector-mode';
 
 export function InspectorRouter() {
-  const [topLevelMode, setTopLevelMode] = useState<'inspector' | 'annotate'>('inspector');
+  const [topLevelMode, setTopLevelMode] = useState<string>('inspector');
   const [loadOpen, setLoadOpen] = useState(false);
   const experimental = useFeatureFlagStore((s) => s.experimentalFeatures);
-  const mode = experimental ? topLevelMode : 'inspector';
+  useModuleRegistryVersion();
+  const modes = moduleRegistry
+    .getInspectorModes()
+    .filter((m) => experimental || !m.experimental);
+  const showModeTabs = modes.length > 1;
+  const mode = showModeTabs && modes.some((m) => m.id === topLevelMode) ? topLevelMode : 'inspector';
 
   return (
     <section
@@ -51,7 +64,7 @@ export function InspectorRouter() {
       aria-label="Inspector"
     >
       <ContextToolbar
-        showModeTabs={experimental}
+        modes={showModeTabs ? modes : null}
         topLevelMode={mode}
         onSelectMode={setTopLevelMode}
         onOpenLoad={() => setLoadOpen((p) => !p)}
@@ -60,15 +73,12 @@ export function InspectorRouter() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {experimental ? (
-          <>
-            <TabPanel idBase={MODE_TABS_ID} value="inspector" selected={mode} focusable={false}>
-              <InspectorBody />
+        {showModeTabs ? (
+          modes.map((m) => (
+            <TabPanel key={m.id} idBase={MODE_TABS_ID} value={m.id} selected={mode} focusable={false}>
+              <InspectorModeBody mode={m} />
             </TabPanel>
-            <TabPanel idBase={MODE_TABS_ID} value="annotate" selected={mode} focusable={false}>
-              <AnnotateBody />
-            </TabPanel>
-          </>
+          ))
         ) : (
           <InspectorBody />
         )}
@@ -79,17 +89,31 @@ export function InspectorRouter() {
   );
 }
 
+/** The body of one Inspector mode: core modes here, module modes lazily. */
+function InspectorModeBody({ mode }: { mode: ModuleInspectorMode }) {
+  if (mode.id === 'inspector') return <InspectorBody />;
+  if (mode.id === 'annotate') return <AnnotateBody />;
+  if (!mode.component) return null;
+  const Body = lazyComponent(mode.component);
+  return (
+    <Suspense fallback={null}>
+      <Body />
+    </Suspense>
+  );
+}
+
 function ContextToolbar({
-  showModeTabs,
+  modes,
   topLevelMode,
   onSelectMode,
   onOpenLoad,
   loadOpen,
   onCloseLoad,
 }: {
-  showModeTabs: boolean;
-  topLevelMode: 'inspector' | 'annotate';
-  onSelectMode: (mode: 'inspector' | 'annotate') => void;
+  /** The mode tabs, or null when there is a single mode. */
+  modes: readonly ModuleInspectorMode[] | null;
+  topLevelMode: string;
+  onSelectMode: (mode: string) => void;
   onOpenLoad: () => void;
   loadOpen: boolean;
   onCloseLoad: () => void;
@@ -103,16 +127,17 @@ function ContextToolbar({
 
   return (
     <header className="relative flex h-10 items-end justify-between gap-1.5 border-b border-border/60 bg-card/40 pl-1 pr-3">
-      {showModeTabs ? (
+      {modes ? (
         <Tabs
           aria-label="Inspector mode"
           idBase={MODE_TABS_ID}
           value={topLevelMode}
-          onValueChange={(value) => onSelectMode(value as 'inspector' | 'annotate')}
-          items={[
-            { value: 'inspector', label: 'Inspect' },
-            { value: 'annotate', label: 'Annotate', title: 'Toggle annotate mode' },
-          ]}
+          onValueChange={onSelectMode}
+          items={modes.map((m) => ({
+            value: m.id,
+            label: m.title,
+            ...(m.tabTitle ? { title: m.tabTitle } : {}),
+          }))}
         />
       ) : (
         <span aria-hidden />
@@ -146,7 +171,7 @@ function ContextToolbar({
 }
 
 function InspectorBody() {
-  const { mode } = useDisplayMode();
+  const { mode, workspaceType } = useDisplayMode();
 
   switch (mode) {
     case 'set-studio':
@@ -161,6 +186,8 @@ function InspectorBody() {
     case 'compare':
     case 'surface':
       return <ImagingInspector />;
+    case 'module-tool':
+      return <ModuleToolInspector workspaceType={workspaceType} />;
     case 'unknown':
     default:
       return (
@@ -169,6 +196,26 @@ function InspectorBody() {
         </div>
       );
   }
+}
+
+/** The Inspector body a module tool declares (lazy), or a neutral notice. */
+function ModuleToolInspector({ workspaceType }: { workspaceType: string | null }) {
+  const tool = moduleRegistry.getModuleTool(workspaceType);
+  // The module activates with its tab (ModuleWorkspace); until then, nothing.
+  if (tool && !moduleRegistry.isActive(tool.moduleId)) return null;
+  if (!tool?.inspector) {
+    return (
+      <div className="px-3 py-6 text-center text-bf-sm text-muted-foreground">
+        Nothing to inspect here.
+      </div>
+    );
+  }
+  const Body = lazyComponent(tool.inspector);
+  return (
+    <Suspense fallback={null}>
+      <Body />
+    </Suspense>
+  );
 }
 
 function AnnotateBody() {

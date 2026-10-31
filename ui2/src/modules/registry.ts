@@ -56,6 +56,7 @@ export type { ToolDescriptor, InspectorModeDescriptor, DockTabDescriptor };
 /** A tool tab contributed by a module, with its components. */
 export interface ModuleToolDescriptor extends ToolDescriptor {
   moduleId: string;
+  stage: ModuleStage;
   bottomDock: boolean;
   component: LazyComponent<WorkspaceComponentProps>;
   inspector?: LazyComponent;
@@ -88,6 +89,12 @@ export interface ModuleMenuItem {
 export interface ShellBindings {
   openWorkspace(type: string): Promise<string | null>;
   activeWorkspaceType(): string | null;
+  /**
+   * Awaited before a module activates: the runtime waits until the bridge has
+   * applied the latest `set_enabled_modules`, so a module just switched on
+   * never calls its commands while the bridge still rejects them.
+   */
+  beforeActivate?(moduleId: string): Promise<void>;
 }
 
 export interface RegistryDeps {
@@ -128,6 +135,13 @@ function keybindingScopeKey(b: KeybindingContribution): string {
   return [m.meta ? 'meta' : '', m.ctrl ? 'ctrl' : '', m.alt ? 'alt' : '', m.shift ? 'shift' : '', b.key.toLowerCase(), b.when?.workspace ?? '*'].join('|');
 }
 
+/** The label lists show beside a module that is not stable yet. */
+export function moduleStageLabel(stage: ModuleStage | null | undefined): string | null {
+  if (stage === 'experimental') return 'Experimental';
+  if (stage === 'preview') return 'Preview';
+  return null;
+}
+
 /** Default switch position for a stage: experimental modules start off. */
 export function stageDefaultEnabled(stage: ModuleStage): boolean {
   return stage !== 'experimental';
@@ -148,6 +162,8 @@ interface ModuleRecord {
   commands: Map<string, CommandContribution>;
   workspaces: Map<string, WorkspaceContribution>;
   activation: Activation;
+  /** Why the last activation failed (cleared when one succeeds or the module goes off). */
+  activationError: unknown;
   /** Bumped on every deactivation; an activation from an older epoch is stale. */
   epoch: number;
 }
@@ -191,6 +207,7 @@ export class ModuleRegistry {
       commands,
       workspaces,
       activation: { status: 'inactive' },
+      activationError: null,
       epoch: 0,
     });
     commands.forEach((_, id) => this.commandOwner.set(id, manifest.id));
@@ -332,6 +349,12 @@ export class ModuleRegistry {
     return () => this.enabledListeners.delete(listener);
   }
 
+  /** Re-render subscribers without changing contributions (activation state). */
+  private notify(): void {
+    this.version += 1;
+    this.listeners.forEach((listener) => listener());
+  }
+
   private memo<T>(key: string, compute: () => T): T {
     if (!this.cache.has(key)) this.cache.set(key, compute());
     return this.cache.get(key) as T;
@@ -355,6 +378,7 @@ export class ModuleRegistry {
       shortLabel: w.shortLabel ?? w.label,
       title: w.title,
       moduleId,
+      stage: this.records.get(moduleId)!.manifest.stage,
       bottomDock: w.bottomDock ?? false,
       component: w.component,
       inspector: w.inspector,
@@ -516,6 +540,11 @@ export class ModuleRegistry {
     return this.records.get(moduleId)?.activation.status === 'active';
   }
 
+  /** The error of the module's last failed activation, or null. */
+  activationError(moduleId: string): unknown {
+    return this.records.get(moduleId)?.activationError ?? null;
+  }
+
   /** Load the module's code and run `activate(ctx)` once. */
   ensureActive(moduleId: string): Promise<ActiveModule> {
     const record = this.records.get(moduleId);
@@ -529,6 +558,8 @@ export class ModuleRegistry {
     const active: ActiveModule = { handlers: new Map(), disposables: new DisposableSet() };
     const stale = () => record.epoch !== epoch;
     const promise = (async () => {
+      await this.shell?.beforeActivate?.(moduleId);
+      if (stale()) throw new ModuleDisabledError(moduleId);
       const loaded = await record.manifest.activate();
       if (stale()) throw new ModuleDisabledError(moduleId);
       try {
@@ -543,6 +574,8 @@ export class ModuleRegistry {
         throw new ModuleDisabledError(moduleId);
       }
       record.activation = { status: 'active', active };
+      record.activationError = null;
+      this.notify();
       return active;
     })();
     record.activation = { status: 'activating', promise };
@@ -550,7 +583,11 @@ export class ModuleRegistry {
       if (record.activation.status === 'activating' && record.activation.promise === promise) {
         record.activation = { status: 'inactive' };
       }
-      if (!(error instanceof ModuleDisabledError)) console.error(`[modules] activating ${moduleId} failed:`, error);
+      if (!(error instanceof ModuleDisabledError)) {
+        console.error(`[modules] activating ${moduleId} failed:`, error);
+        record.activationError = error;
+        this.notify();
+      }
     });
     return promise;
   }
@@ -560,9 +597,16 @@ export class ModuleRegistry {
     const record = this.records.get(moduleId);
     if (!record) return;
     record.epoch += 1;
+    record.activationError = null;
     const { activation } = record;
     record.activation = { status: 'inactive' };
     if (activation.status === 'active') activation.active.disposables.dispose();
+  }
+
+  /** What a module's context (and its keybindings) may know about it. */
+  contextHostFor(moduleId: string): ContextHost | undefined {
+    const record = this.records.get(moduleId);
+    return record ? this.contextHost(record) : undefined;
   }
 
   private contextHost(record: ModuleRecord): ContextHost {
