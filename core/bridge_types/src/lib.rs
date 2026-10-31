@@ -114,6 +114,11 @@ pub enum BridgeError {
 
     #[error("Loader error: {0}")]
     LoaderError(String),
+
+    /// A module command was called while that module is switched off
+    /// (`set_enabled_modules`). `module` is the module id, e.g. `"analysis"`.
+    #[error("Module '{module}' is disabled")]
+    ModuleDisabled { code: u16, module: String },
 }
 
 // --- From Implementations for BridgeError ---

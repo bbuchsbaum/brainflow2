@@ -7,6 +7,11 @@ export type * from './generated';
 // The generated api-bridge command list is a runtime value, so it needs a value
 // re-export (`export type *` above only carries type-level exports).
 export { apiBridgeCommands, type ApiBridgeCommand } from './generated/apiBridgeCommands.js';
+export {
+  BRIDGE_MODULES,
+  type BridgeModuleId,
+  type BridgeModuleCommand,
+} from './generated/apiBridgeModules.js';
 export * from './helpers.js';
 export * from './renderClient.js';
 

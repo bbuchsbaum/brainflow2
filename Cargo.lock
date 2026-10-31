@@ -234,6 +234,7 @@ dependencies = [
  "async-trait",
  "atlases",
  "base64 0.22.1",
+ "bf_analysis",
  "bids-rs",
  "brainflow-loaders",
  "bridge_types",
@@ -721,6 +722,19 @@ dependencies = [
  "blowfish",
  "pbkdf2 0.12.2",
  "sha2",
+]
+
+[[package]]
+name = "bf_analysis"
+version = "0.1.0"
+dependencies = [
+ "bridge_types",
+ "directories",
+ "log",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

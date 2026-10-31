@@ -1,7 +1,7 @@
-//! Analysis plugin infrastructure.
+//! Analysis module domain logic (`bf_analysis`).
 //!
-//! This module provides a lightweight host-side registry and job manager for
-//! running analyses in Brainflow. Analyses are discovered as either:
+//! A lightweight registry and job manager for running analyses in Brainflow.
+//! Analyses are discovered as either:
 //! - **Built-in runners** (compiled into the app), or
 //! - **Sidecar runners** (external executables invoked via a CLI+JSON protocol).
 //!
@@ -9,6 +9,11 @@
 //! declare inputs/params/outputs with [`bridge_types::AnalysisDescriptor`],
 //! and completed outputs are registered as normal artifacts (volumes, surfaces,
 //! tables, files) by the host.
+//!
+//! This crate is transport-neutral: it does not depend on Tauri or `api-bridge`.
+//! The bridge adapter in `core/api_bridge/src/modules/analysis.rs` owns the
+//! `#[command]`s, the module state slot and the enable gate. Inputs arrive with
+//! resolved file paths, so no bridge state (volume registry) is needed here.
 
 use bridge_types::{
     AnalysisArtifact, AnalysisArtifactKind, AnalysisDescriptor, AnalysisInput, AnalysisJobState,
@@ -292,15 +297,38 @@ impl AnalysisJobManager {
             return false;
         };
 
+        entry.cancel("Cancelled by user").await;
+        true
+    }
+
+    /// Cancel every queued or running job, leaving finished jobs untouched.
+    /// Returns the number of jobs cancelled. Used when the module is disabled.
+    pub async fn cancel_active(&mut self, message: &str) -> usize {
+        let mut cancelled = 0;
+        for entry in self.jobs.values() {
+            let active = matches!(
+                entry.status.lock().await.state,
+                AnalysisJobState::Queued | AnalysisJobState::Running
+            );
+            if active {
+                entry.cancel(message).await;
+                cancelled += 1;
+            }
+        }
+        cancelled
+    }
+}
+
+impl AnalysisJobEntry {
+    async fn cancel(&self, message: &str) {
         {
-            let mut status = entry.status.lock().await;
+            let mut status = self.status.lock().await;
             status.state = AnalysisJobState::Cancelled;
             status.finished_at_ms = Some(current_time_ms());
-            status.message = Some("Cancelled by user".to_string());
+            status.message = Some(message.to_string());
         }
 
-        entry.handle.abort();
-        true
+        self.handle.abort();
     }
 }
 
@@ -751,51 +779,6 @@ async fn run_builtin_copy_volume(
     ])
 }
 
-// --- Tauri command wrappers ---
-
-/// List all registered analyses.
-#[tauri::command]
-pub async fn list_analyses(
-    state: tauri::State<'_, crate::BridgeState>,
-) -> BridgeResult<Vec<AnalysisDescriptor>> {
-    let reg = state.analysis_registry.lock().await;
-    Ok(reg.list())
-}
-
-/// Start an analysis job. Returns a job id.
-#[tauri::command]
-pub async fn start_analysis(
-    state: tauri::State<'_, crate::BridgeState>,
-    request: AnalysisStartRequest,
-) -> BridgeResult<String> {
-    start_analysis_job(
-        Arc::clone(&state.analysis_registry),
-        Arc::clone(&state.analysis_jobs),
-        request,
-    )
-    .await
-}
-
-/// Cancel a running analysis job.
-#[tauri::command]
-pub async fn cancel_analysis(
-    state: tauri::State<'_, crate::BridgeState>,
-    job_id: String,
-) -> BridgeResult<bool> {
-    let mut jobs = state.analysis_jobs.lock().await;
-    Ok(jobs.cancel(&job_id).await)
-}
-
-/// Get a snapshot status for a job.
-#[tauri::command]
-pub async fn get_analysis_job_status(
-    state: tauri::State<'_, crate::BridgeState>,
-    job_id: String,
-) -> BridgeResult<Option<AnalysisJobStatus>> {
-    let jobs = state.analysis_jobs.lock().await;
-    Ok(jobs.get_status(&job_id).await)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -814,9 +797,70 @@ mod tests {
 
     fn repo_analysis_plugins_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../plugins/analyses")
+            .join("../../../plugins/analyses")
             .canonicalize()
             .expect("repo analysis plugin dir should resolve")
+    }
+
+    fn status_with_state(job_id: &str, state: AnalysisJobState) -> Arc<Mutex<AnalysisJobStatus>> {
+        Arc::new(Mutex::new(AnalysisJobStatus {
+            job_id: job_id.to_string(),
+            analysis_id: BUILTIN_COPY_VOLUME_ANALYSIS_ID.to_string(),
+            state,
+            started_at_ms: Some(current_time_ms()),
+            finished_at_ms: None,
+            progress: None,
+            message: None,
+            artifacts: None,
+            error: None,
+        }))
+    }
+
+    #[tokio::test]
+    async fn cancel_active_cancels_only_unfinished_jobs() {
+        let mut jobs = AnalysisJobManager::new();
+        // The job future owns `dropped_tx`; aborting the task drops it.
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel::<()>();
+        let running = tokio::spawn(async move {
+            let _owned = dropped_tx;
+            std::future::pending::<()>().await
+        });
+        jobs.insert(
+            "running".to_string(),
+            status_with_state("running", AnalysisJobState::Running),
+            running,
+        );
+        jobs.insert(
+            "queued".to_string(),
+            status_with_state("queued", AnalysisJobState::Queued),
+            tokio::spawn(std::future::pending::<()>()),
+        );
+        jobs.insert(
+            "done".to_string(),
+            status_with_state("done", AnalysisJobState::Completed),
+            tokio::spawn(async {}),
+        );
+
+        assert_eq!(jobs.cancel_active("Module disabled").await, 2);
+
+        for id in ["running", "queued"] {
+            let status = jobs.get_status(id).await.expect("status");
+            assert_eq!(status.state, AnalysisJobState::Cancelled);
+            assert_eq!(status.message.as_deref(), Some("Module disabled"));
+            assert!(status.finished_at_ms.is_some());
+        }
+        let done = jobs.get_status("done").await.expect("status");
+        assert_eq!(done.state, AnalysisJobState::Completed);
+        assert_eq!(done.message, None);
+
+        let dropped = tokio::time::timeout(Duration::from_secs(5), dropped_rx)
+            .await
+            .expect("aborted job future is dropped promptly");
+        assert!(
+            dropped.is_err(),
+            "cancelled job task is aborted, not completed"
+        );
+        assert_eq!(jobs.cancel_active("again").await, 0);
     }
 
     #[test]

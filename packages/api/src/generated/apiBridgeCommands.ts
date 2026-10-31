@@ -2,10 +2,6 @@
 // DO NOT EDIT - changes will be overwritten.
 
 export const apiBridgeCommands = [
-  "list_analyses",
-  "start_analysis",
-  "cancel_analysis",
-  "get_analysis_job_status",
   "load_file",
   "load_surface",
   "unload_surface",
@@ -125,6 +121,12 @@ export const apiBridgeCommands = [
   "compute_clusters",
   "volume_extremum",
   "volume_nonzero_bbox",
+  "list_modules",
+  "set_enabled_modules",
+  "list_analyses",
+  "start_analysis",
+  "cancel_analysis",
+  "get_analysis_job_status",
 ] as const;
 
 export type ApiBridgeCommand = (typeof apiBridgeCommands)[number];

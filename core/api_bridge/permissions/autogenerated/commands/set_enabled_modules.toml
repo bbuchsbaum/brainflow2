@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-enabled-modules"
+description = "Enables the set_enabled_modules command without any pre-configured scope."
+commands.allow = ["set_enabled_modules"]
+
+[[permission]]
+identifier = "deny-set-enabled-modules"
+description = "Denies the set_enabled_modules command without any pre-configured scope."
+commands.deny = ["set_enabled_modules"]

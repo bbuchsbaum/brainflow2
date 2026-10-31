@@ -1,0 +1,13 @@
+# Automatically generated from the `module analysis` section of src/command_list.rs by build.rs - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[set]]
+identifier = "module-analysis"
+description = "Enables every command of the analysis module."
+permissions = [
+  "allow-list-analyses",
+  "allow-start-analysis",
+  "allow-cancel-analysis",
+  "allow-get-analysis-job-status",
+]
