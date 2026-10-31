@@ -38,6 +38,7 @@ import { registerMosaicExportSource } from '@/services/export/compositeCapture';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { setMosaicAxis } from '@/utils/mosaicAxis';
+import { useCanvasPixelRatio } from '@/hooks/useCanvasPixelRatio';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { EmptyPane } from '@/components/ui/bf';
 import { openFileDialog, openFileShortcut } from '@/services/fileActions';
@@ -412,6 +413,8 @@ function MosaicViewPromiseRaw({
     );
   }, [sliceIndices, workspaceId, sliceAxis]);
   
+  // A move to a display of another ratio re-renders the tiles (HiDPI).
+  const pixelRatio = useCanvasPixelRatio();
   // Trigger renders when slice indices or layer parameters change
   useEffect(() => {
     console.log('[MosaicViewPromise] DEBUG - Render trigger effect:', {
@@ -458,7 +461,8 @@ function MosaicViewPromiseRaw({
     visibleLayers.length,
     layerRevision,
     timepointRevision,
-    layoutFitted
+    layoutFitted,
+    pixelRatio,
   ]);
   
   // Handle page navigation

@@ -155,17 +155,35 @@ export function useWindowLevel({
     const el = canvasRef.current;
     if (!el) return;
 
+    // A drag whose mouseup never arrives here (the window lost focus, the
+    // tab was hidden, the pointer was cancelled) ends too: isDragging must
+    // not stay set (it holds the render at 1×, utils/renderPixelRatio).
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') handleMouseUp();
+    };
     el.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('blur', handleMouseUp);
+    window.addEventListener('pointercancel', handleMouseUp);
+    document.addEventListener('visibilitychange', handleVisibility);
     el.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       el.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('blur', handleMouseUp);
+      window.removeEventListener('pointercancel', handleMouseUp);
+      document.removeEventListener('visibilitychange', handleVisibility);
       el.removeEventListener('contextmenu', handleContextMenu);
-      // Clean up any in-progress drag state
+      // Clean up any in-progress drag state, and end a drag that was
+      // running (isDragging would otherwise stay set: it holds the render
+      // at 1×, utils/renderPixelRatio).
+      if (dragState.current?.thresholdMet) {
+        setIsDragging(false);
+        setOverlayText(null);
+      }
       dragState.current = null;
     };
   }, [handleMouseDown, handleMouseMove, handleMouseUp, handleContextMenu, canvasRef]);

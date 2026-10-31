@@ -228,6 +228,19 @@ export function useServicesInit() {
             });
         });
 
+        // The device-pixel ratio changed (an interaction ended, the window
+        // moved to another display): redraw the orthogonal views at it.
+        // (Pane resizes drop the ratio from FlexibleSlicePanel's observer.)
+        const { subscribeRenderRatio } = await import('@/utils/renderPixelRatio');
+        subscribeRenderRatio(() => {
+          const { viewState, viewStateRevisions } = useViewStateStore.getState();
+          optimizedRenderService
+            .renderChangedViews(viewState, undefined, viewStateRevisions)
+            .catch((error) => {
+              console.error('[useServicesInit] Ratio render failed:', error);
+            });
+        });
+
         if (typeof window !== 'undefined') {
           (window as any).setRenderMultiViewEnabled = (enabled: boolean) => {
             useFeatureFlagStore.getState().setMultiViewBatchEnabled(Boolean(enabled));

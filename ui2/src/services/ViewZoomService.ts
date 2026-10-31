@@ -21,6 +21,7 @@ import {
   type ZoomPlacement,
 } from '@/utils/viewZoomGeometry';
 import { calculateImagePlacement } from '@/utils/canvasUtils';
+import { canvasPixelRatio } from '@/utils/renderPixelRatio';
 import { mirrorsView, useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 
 /** Deepest zoom-in and furthest zoom-out, relative to the fitted view. */
@@ -59,8 +60,20 @@ function visibleCanvas(viewType: ViewType): HTMLCanvasElement | null {
   return null;
 }
 
+/**
+ * The canvas size in plane (CSS) pixels: a HiDPI backing store is
+ * `css × ratio` (utils/renderPixelRatio), but planes, anchors and pans are
+ * in CSS pixels, so a zoomed plane's dim_px is the CSS canvas size.
+ */
+/** A slice view of this orientation is on screen (render-ratio upgrades skip hidden ones). */
+export function hasVisibleSliceCanvas(viewType: ViewType): boolean {
+  return visibleCanvas(viewType) !== null;
+}
+
 function canvasSize(canvas: HTMLCanvasElement): [number, number] {
-  return [canvas.width, canvas.height];
+  const ratio = canvasPixelRatio(canvas);
+  // Whole pixels: dim_px and the backend's recalculate (u32) take integers.
+  return [Math.max(1, Math.round(canvas.width / ratio)), Math.max(1, Math.round(canvas.height / ratio))];
 }
 
 /**
@@ -80,7 +93,7 @@ export function placementForPlane(
     : placement;
 }
 
-/** A client point in canvas pixels (the canvas may be CSS-scaled). */
+/** A client point in canvas CSS pixels (see {@link canvasSize}). */
 export function clientToCanvas(
   canvas: HTMLCanvasElement,
   clientX: number,
@@ -88,9 +101,10 @@ export function clientToCanvas(
 ): CanvasPoint | null {
   const rect = canvas.getBoundingClientRect();
   if (!(rect.width > 0) || !(rect.height > 0)) return null;
+  const [width, height] = canvasSize(canvas);
   return {
-    canvasX: (clientX - rect.left) * (canvas.width / rect.width),
-    canvasY: (clientY - rect.top) * (canvas.height / rect.height),
+    canvasX: (clientX - rect.left) * (width / rect.width),
+    canvasY: (clientY - rect.top) * (height / rect.height),
   };
 }
 

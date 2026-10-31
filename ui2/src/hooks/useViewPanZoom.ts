@@ -18,6 +18,11 @@ import {
   zoomView,
 } from '@/services/ViewZoomService';
 import { isPointerFocused } from '@/services/KeyboardShortcutService';
+import {
+  beginRenderInteraction,
+  endRenderInteraction,
+  pulseRenderInteraction,
+} from '@/utils/renderPixelRatio';
 
 /** Zoom factor of one wheel event, or null when the wheel steps slices. */
 export function wheelZoomFactor(
@@ -103,6 +108,7 @@ export function useViewPanZoom({ viewType, areaRef, canvas, size }: Options): {
       if (frame !== null) cancelAnimationFrame(frame);
       flushPan();
       setPanning(false);
+      endRenderInteraction(`pan:${viewType}`);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', endDrag);
     };
@@ -114,6 +120,8 @@ export function useViewPanZoom({ viewType, areaRef, canvas, size }: Options): {
       event.preventDefault();
       drag = { x: event.clientX, y: event.clientY };
       setPanning(true);
+      // 1× while panning (utils/renderPixelRatio).
+      beginRenderInteraction(`pan:${viewType}`);
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', endDrag);
     };
@@ -176,6 +184,7 @@ export function useViewPanZoom({ viewType, areaRef, canvas, size }: Options): {
         typeof gesture.clientX === 'number' && typeof gesture.clientY === 'number'
           ? { x: gesture.clientX, y: gesture.clientY }
           : undefined;
+      pulseRenderInteraction(`zoom:${viewType}`);
       zoomView(viewType, factor, client, canvasOf.current());
     };
 

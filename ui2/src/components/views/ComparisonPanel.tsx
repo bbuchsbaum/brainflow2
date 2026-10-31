@@ -34,6 +34,7 @@ import { isClickOnData, unionWorldBoxes, volumeEdgeBounds } from './clickDataBou
 import { ComparePaneHeader } from './ComparePaneHeader';
 import { comparePickerOptions, paneUnderlayId } from '@/utils/comparePanes';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
+import { useCanvasPixelRatio } from '@/hooks/useCanvasPixelRatio';
 import { crosshairOnPane, dataRectOnPane } from './viewportFrame/paneGeometry';
 import {
   OrientationLabels,
@@ -168,6 +169,8 @@ export function ComparisonPanel({
     state => state.getWorkspaceViewStateRevisions(workspaceId).state
   );
 
+  // HiDPI canvas; the pane is rendered at the same ratio (ComparisonRenderService).
+  const pixelRatio = useCanvasPixelRatio();
   useEffect(() => {
     void renderService.renderPanel({
       workspaceId,
@@ -188,6 +191,8 @@ export function ComparisonPanel({
     viewStateRevision,
     workspaceId,
     linkMode,
+    // A move to a display of another ratio re-renders the pane.
+    pixelRatio,
   ]);
 
   const renderContext = useMemo(() => ({
@@ -455,6 +460,9 @@ export function ComparisonPanel({
       current.y === next.y &&
       current.width === next.width &&
       current.height === next.height &&
+      // A new bitmap ratio or size changes the image <-> canvas mapping.
+      current.imageWidth === next.imageWidth &&
+      current.imageHeight === next.imageHeight &&
       !!current.mirrorX === !!next.mirrorX
         ? current
         : next
@@ -562,6 +570,7 @@ export function ComparisonPanel({
           className="w-full h-full"
           canvasClassName="cursor-crosshair"
           mirrorX={mirrorX}
+          pixelRatio={pixelRatio}
         />
         {/* The pane's header: letter, layer picker (its name, never
             dropped) and slice position (QA features 2026-10-31 §6). */}

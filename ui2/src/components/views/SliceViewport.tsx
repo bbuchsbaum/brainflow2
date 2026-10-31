@@ -62,6 +62,12 @@ interface SliceViewportProps {
    * the flip and the shared geometry maps through it.
    */
   mirrorX?: boolean;
+  /**
+   * Canvas backing-store pixels per CSS pixel (HiDPI). Overlays (crosshair,
+   * border, custom render) are drawn in CSS units at any ratio; click and
+   * hover map through the backing placement. Default 1.
+   */
+  pixelRatio?: number;
 }
 
 export function SliceViewport({
@@ -95,6 +101,7 @@ export function SliceViewport({
   onPathDrop,
   customRender,
   mirrorX = false,
+  pixelRatio = 1,
 }: SliceViewportProps) {
   useRenderContextRegistration(context);
 
@@ -138,6 +145,7 @@ export function SliceViewport({
           onWheel={onWheel}
           customRender={handleRender}
           mirrorX={mirrorX}
+          pixelRatio={pixelRatio}
           onCanvasReady={handleCanvasReady}
           className="w-full h-full"
           canvasClassName={canvasClassName}

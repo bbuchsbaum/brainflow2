@@ -10,6 +10,8 @@ import type { ViewType } from '@/types/coordinates';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getRenderCoordinator } from './RenderCoordinator';
 import type { RenderRequest } from './RenderCoordinator';
+import { effectiveRenderRatio, hidpiViewState, tagBitmapRatio } from '@/utils/renderPixelRatio';
+import { hasVisibleSliceCanvas } from './ViewZoomService';
 import {
   areCrosshairStatesEqual,
   areViewLayerListsEqual,
@@ -52,6 +54,11 @@ export class OptimizedRenderService {
   private lastRevisions: ViewStateRevisions | null = null;
   /** Render-layer scope revision the last render used. */
   private lastScopeRevision = getRenderLayerScopeRevision();
+  // The ratio each view was last drawn at (HiDPI). A view below the
+  // effective ratio (an interaction ended, a sharper display) is redrawn,
+  // but only if it is on screen. A drop to 1× never forces a redraw: views
+  // re-render at 1× only when they change anyway.
+  private renderedRatio = new Map<ViewType, number>();
   private metrics: RenderMetrics = {
     totalRenders: 0,
     skippedRenders: 0,
@@ -174,9 +181,16 @@ export class OptimizedRenderService {
     }
 
     // Detect which views changed
+    const ratio = effectiveRenderRatio();
     const changedViews = scopeChanged
       ? { axial: true, sagittal: true, coronal: true }
       : this.detectChangedViews(viewState, this.lastViewState, revisions);
+    for (const viewType of TRACKED_VIEW_TYPES) {
+      const drawnAt = this.renderedRatio.get(viewType);
+      if (drawnAt !== undefined && drawnAt < ratio && hasVisibleSliceCanvas(viewType)) {
+        changedViews[viewType] = true;
+      }
+    }
     this.lastScopeRevision = scopeRevision;
     const viewsToRender = Object.entries(changedViews)
       .filter(([_, changed]) => changed)
@@ -218,21 +232,24 @@ export class OptimizedRenderService {
     try {
       if (viewsToRender.length > 1) {
         renderOptDebugLog('[OptimizedRenderService] Batch rendering multiple views via RenderCoordinator');
+        // At the effective device-pixel ratio: the same planes on a finer
+        // grid (utils/renderPixelRatio); the view state keeps CSS pixels.
         const results = await renderCoordinator.requestMultiViewRender({
-          viewState,
+          viewState: hidpiViewState(viewState, viewsToRender, ratio),
           viewTypes: viewsToRender,
           reason: renderReason,
           priority: 'normal'
         });
         
         viewsToRender.forEach((viewType) => {
-          const imageBitmap = results?.[viewType] ?? null;
+          const imageBitmap = tagBitmapRatio(results?.[viewType] ?? null, ratio);
           const key = storeKeyFor(viewType);
           const duration = performance.now() - (startTimes.get(viewType) ?? startTime);
           
           setImage(key, imageBitmap);
           setRendering(key, false);
           setError(key, null);
+          this.renderedRatio.set(viewType, ratio);
           this.recordRenderTime(viewType, duration);
           
           if (imageBitmap) {
@@ -244,22 +261,26 @@ export class OptimizedRenderService {
       } else {
         const viewType = viewsToRender[0];
         const viewStartTime = startTimes.get(viewType) ?? performance.now();
-        const view = viewState.views[viewType];
-        const [width, height] = view.dim_px;
+        const renderState = hidpiViewState(viewState, [viewType], ratio);
+        const [width, height] = renderState.views[viewType].dim_px;
         
-        const imageBitmap = await renderCoordinator.requestRender({
-          viewState,
-          viewType,
-          width,
-          height,
-          reason: renderReason,
-          priority: 'normal'
-        }) as ImageBitmap | null;
+        const imageBitmap = tagBitmapRatio(
+          (await renderCoordinator.requestRender({
+            viewState: renderState,
+            viewType,
+            width,
+            height,
+            reason: renderReason,
+            priority: 'normal'
+          })) as ImageBitmap | null,
+          ratio,
+        );
         
         const key = storeKeyFor(viewType);
         setImage(key, imageBitmap);
         setRendering(key, false);
         setError(key, null);
+        this.renderedRatio.set(viewType, ratio);
         const duration = performance.now() - viewStartTime;
         this.recordRenderTime(viewType, duration);
         

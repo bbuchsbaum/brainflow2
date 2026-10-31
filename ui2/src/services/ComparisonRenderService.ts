@@ -11,6 +11,7 @@ import { linkModeOf, panelDisplayLayers } from '@/utils/compareDisplay';
 import { widenToVoxelEdges } from '@/utils/voxelEdges';
 import type { CompareLinkMode } from '@/types/comparison';
 import { getApiService } from '@/services/apiService';
+import { deviceRenderRatio, hidpiPlane, hidpiViewState, tagBitmapRatio } from '@/utils/renderPixelRatio';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { useLayerStore } from '@/stores/layerStore';
@@ -407,11 +408,18 @@ export class ComparisonRenderService {
         linkModeOf(useComparisonStore.getState(), workspaceId)
       );
 
-      const imageBitmap = await this.apiService.applyAndRenderViewState(
-        filteredState,
-        panel.viewType,
-        panelView.dim_px[0],
-        panelView.dim_px[1]
+      // At the device-pixel ratio (HiDPI): the panel plane on a finer grid;
+      // the stored panel plane stays in CSS pixels.
+      const ratio = deviceRenderRatio();
+      const renderPlane = hidpiPlane(panelView, ratio);
+      const imageBitmap = tagBitmapRatio(
+        await this.apiService.applyAndRenderViewState(
+          hidpiViewState(filteredState, [panel.viewType], ratio),
+          panel.viewType,
+          renderPlane.dim_px[0],
+          renderPlane.dim_px[1]
+        ),
+        ratio
       );
 
       if (this.activeRenders.get(tag) !== requestId) {

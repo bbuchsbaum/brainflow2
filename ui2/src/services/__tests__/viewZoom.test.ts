@@ -140,6 +140,30 @@ describe('view zoom and pan', () => {
     expect(zoomedNow()).toBe(false);
   });
 
+  it('zooms about the same point on a HiDPI (2×) canvas; the zoomed plane stays in CSS pixels', () => {
+    const retina = makeCanvas(800, 600);
+    retina.dataset.pixelRatio = '2';
+    // CSS rect 400 × 300 (backing store 800 × 600).
+    retina.getBoundingClientRect = canvas.getBoundingClientRect;
+    const before = canvasToWorldUnclamped({ canvasX: 150, canvasY: 120 }, state().views.axial, placementOf());
+    expect(zoomView('axial', 2, { x: 150, y: 120 }, retina)).toBe(true);
+    const plane = state().views.axial;
+    expect(plane.dim_px).toEqual([400, 300]);
+    const after = canvasToWorldUnclamped({ canvasX: 150, canvasY: 120 }, plane, placementForPlane('axial', plane, [400, 300]));
+    after.forEach((v, i) => expect(v).toBeCloseTo(before[i], 6));
+  });
+
+  it('a fractional CSS size rounds to whole pixels (the backend takes u32; review M4)', () => {
+    const odd = makeCanvas(801, 601);
+    odd.dataset.pixelRatio = '2';
+    odd.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 400.5, height: 300.5, right: 400.5, bottom: 300.5, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    expect(zoomView('axial', 2, { x: 100, y: 100 }, odd)).toBe(true);
+    const dims = state().views.axial.dim_px;
+    expect(dims.every(Number.isInteger)).toBe(true);
+    expect(dims).toEqual([401, 301]);
+  });
+
   it('stops at the zoom limits', () => {
     for (let i = 0; i < 30; i += 1) zoomView('axial', 4);
     const fitted = fitViewsToWorldBox(state().views, t1, crosshair, [400, 300]).axial;

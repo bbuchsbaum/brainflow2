@@ -15,6 +15,7 @@ import {
   type CrosshairStyle,
 } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
+import { canvasPixelRatio } from '@/utils/renderPixelRatio';
 
 export interface ReusableSliceViewportProps
   extends Omit<SharedReusableSliceViewportProps, 'crosshairStyle'> {
@@ -38,6 +39,21 @@ export interface CrosshairWorldBounds {
 }
 
 type Placement = Parameters<SliceViewerCustomRender>[1];
+
+/** A placement in other units (backing px -> CSS px): image size unchanged. */
+function scalePlacement(placement: Placement, k: number): Placement {
+  return {
+    ...placement,
+    x: placement.x * k,
+    y: placement.y * k,
+    width: placement.width * k,
+    height: placement.height * k,
+  };
+}
+
+function scaleRects(rects: CrosshairRect[], k: number): CrosshairRect[] {
+  return k === 1 ? rects : rects.map((r) => ({ x: r.x * k, y: r.y * k, width: r.width * k, height: r.height * k }));
+}
 
 /**
  * The part of `placement` covered by the data extent on the crosshair's slice:
@@ -102,33 +118,48 @@ export function ReusableSliceViewport({
   const centerGapEnabled = useCrosshairSettingsStore((state) => state.settings.centerGap !== false);
 
   const render = useCallback<SliceViewerCustomRender>(
-    (ctx, placement) => {
-      customRender?.(ctx, placement);
-      if (showSliceBorder) drawSliceBorder(ctx, placement, sliceBorderWidth);
-      if (!crosshair?.visible || !crosshairStyle || !viewPlane) return;
-      const point = projectWorldToCanvas(crosshair.world_mm, viewPlane, placement);
-      if (!point) return;
-      const baseStyle: CrosshairStyle =
-        crosshairStyle.centerGap === undefined
-          ? { ...crosshairStyle, centerGap: centerGapEnabled ? CROSSHAIR_CENTER_GAP_PX : 0 }
-          : crosshairStyle;
-      const style = adaptCrosshairStyleToViewport(baseStyle, width, height);
-      const clientRects = getCrosshairKnockouts?.() ?? [];
-      const knockouts =
-        clientRects.length > 0 && ctx.canvas
-          ? clientRectsToCanvas(ctx.canvas, clientRects)
-          : undefined;
-      const bounds = crosshairWorldBounds
-        ? clipPlacementToWorldBounds(placement, viewPlane, crosshair.world_mm, crosshairWorldBounds)
-        : placement;
-      drawCrosshair({
-        ctx,
-        canvasX: point.canvasX,
-        canvasY: point.canvasY,
-        bounds,
-        style,
-        knockouts,
-      });
+    (ctx, backingPlacement) => {
+      // Overlays are drawn in CSS units on a HiDPI backing store (the canvas
+      // records its ratio): line widths, dashes, halo, gaps and pixel
+      // snapping are the same in CSS px at every ratio. The image and the
+      // click mapping keep the backing placement.
+      const ratio = canvasPixelRatio(ctx.canvas);
+      const placement = ratio === 1 ? backingPlacement : scalePlacement(backingPlacement, 1 / ratio);
+      // At ratio 1 nothing changes (no transform, no save/restore).
+      if (ratio !== 1) {
+        ctx.save();
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      }
+      try {
+        customRender?.(ctx, placement);
+        if (showSliceBorder) drawSliceBorder(ctx, placement, sliceBorderWidth);
+        if (!crosshair?.visible || !crosshairStyle || !viewPlane) return;
+        const point = projectWorldToCanvas(crosshair.world_mm, viewPlane, placement);
+        if (!point) return;
+        const baseStyle: CrosshairStyle =
+          crosshairStyle.centerGap === undefined
+            ? { ...crosshairStyle, centerGap: centerGapEnabled ? CROSSHAIR_CENTER_GAP_PX : 0 }
+            : crosshairStyle;
+        const style = adaptCrosshairStyleToViewport(baseStyle, width, height);
+        const clientRects = getCrosshairKnockouts?.() ?? [];
+        const knockouts =
+          clientRects.length > 0 && ctx.canvas
+            ? scaleRects(clientRectsToCanvas(ctx.canvas, clientRects), 1 / ratio)
+            : undefined;
+        const bounds = crosshairWorldBounds
+          ? clipPlacementToWorldBounds(placement, viewPlane, crosshair.world_mm, crosshairWorldBounds)
+          : placement;
+        drawCrosshair({
+          ctx,
+          canvasX: point.canvasX,
+          canvasY: point.canvasY,
+          bounds,
+          style,
+          knockouts,
+        });
+      } finally {
+        if (ratio !== 1) ctx.restore();
+      }
     },
     [
       customRender,

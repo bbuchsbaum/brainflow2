@@ -22,6 +22,8 @@ import type { ViewPlane } from '@/types/coordinates';
 import { isClickOnData, useLayerEdgeBounds } from './clickDataBounds';
 import { canvasPointToImagePoint, imagePointToCanvasPoint } from '@brainflow/visualization/slice';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
+import { canvasPixelRatio } from '@/utils/renderPixelRatio';
+import { useCanvasPixelRatio } from '@/hooks/useCanvasPixelRatio';
 
 interface MosaicCellProps {
   workspaceId: string;
@@ -76,6 +78,8 @@ function MosaicCellBody({
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
   // Radiological convention: axial/coronal tiles mirrored (display only).
   const mirrorX = useMirrorsView(axis);
+  // HiDPI canvas (the tile is rendered at the same ratio, MosaicRenderService).
+  const pixelRatio = useCanvasPixelRatio();
   // The volume's outer voxel edges: a click in the tile padding around the
   // brain (inside the bitmap) does not move the crosshair.
   const viewLayers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
@@ -186,8 +190,12 @@ function MosaicCellBody({
       return;
     }
 
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    // The placement this cell keeps is the CSS one its custom render gets
+    // (overlays are drawn in CSS units on a HiDPI canvas): map the click to
+    // CSS canvas px.
+    const ratio = canvasPixelRatio(canvas);
+    const scaleX = canvas.width / ratio / rect.width;
+    const scaleY = canvas.height / ratio / rect.height;
     const canvasX = (event.clientX - rect.left) * scaleX;
     const canvasY = (event.clientY - rect.top) * scaleY;
 
@@ -227,6 +235,7 @@ function MosaicCellBody({
       onCanvasReady={handleCanvasReady}
       onMouseDown={handleMouseDown}
       mirrorX={mirrorX}
+      pixelRatio={pixelRatio}
       className="cursor-crosshair"
       canvasClassName="mosaic-cell-canvas"
     />

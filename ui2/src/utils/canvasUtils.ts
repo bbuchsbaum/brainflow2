@@ -1,6 +1,7 @@
 /**
  * Canvas utility functions for image rendering
  */
+import { bitmapPixelRatio } from '@/utils/renderPixelRatio';
 
 export interface ImagePlacement {
   x: number;
@@ -77,13 +78,18 @@ export function drawScaledImage(
   // Don't clear the canvas - draw new image directly over old one to prevent flickering
   // The new image will completely cover the old one
   
-  // Calculate placement
-  const placement = calculateImagePlacement(
+  // Calculate placement. A bitmap rendered at a device-pixel ratio
+  // (utils/renderPixelRatio) reports its image size in plane (CSS) pixels,
+  // so every image <-> plane mapping is independent of the render ratio.
+  const drawn = calculateImagePlacement(
     image.width,
     image.height,
     canvasWidth,
     canvasHeight
   );
+  const ratio = bitmapPixelRatio(image);
+  const placement: ImagePlacement =
+    ratio === 1 ? drawn : { ...drawn, imageWidth: image.width / ratio, imageHeight: image.height / ratio };
   
   // Radiological display: the same rectangle, mirrored left-right. The
   // placement carries the flip, so the shared geometry (crosshair, clicks,

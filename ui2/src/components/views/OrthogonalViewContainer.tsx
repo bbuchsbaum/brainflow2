@@ -8,6 +8,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Lock, Unlock } from 'lucide-react';
 import { IconButton } from '@/components/ui/bf';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
+import { LAYOUT_BUTTON_RESERVE } from './constants';
 import { ResizableOrthoGrid } from './ResizableOrthoGrid';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
 import { getFileLoadingService } from '@/services/FileLoadingService';
@@ -158,7 +159,8 @@ export function OrthogonalViewContainer({
       <div className="h-full w-full p-1">
         <ResizableOrthoGrid
           arrangement="grid"
-          axial={<FlexibleSlicePanel viewId="axial" title="Axial" />}
+          // The lock button sits over the axial pane's top-right corner.
+          axial={<FlexibleSlicePanel viewId="axial" title="Axial" topRightReserve={LAYOUT_BUTTON_RESERVE} />}
           sagittal={<FlexibleSlicePanel viewId="sagittal" title="Sagittal" />}
           coronal={<FlexibleSlicePanel viewId="coronal" title="Coronal" />}
         />

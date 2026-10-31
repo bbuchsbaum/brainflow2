@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useWindowLevel } from '../useWindowLevel';
 
@@ -7,9 +7,10 @@ function setup(currentWindow: [number, number] | null) {
   Object.defineProperty(el, 'clientWidth', { value: 500 });
   document.body.appendChild(el);
   const onUpdate = vi.fn();
-  renderHook(() =>
+  const canvasRef = { current: el };
+  const hook = renderHook(() =>
     useWindowLevel({
-      canvasRef: { current: el },
+      canvasRef,
       layerId: 'z',
       dataRange: { min: -5, max: 6 },
       currentWindow,
@@ -20,7 +21,7 @@ function setup(currentWindow: [number, number] | null) {
   const move = (x: number, y: number) => window.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y }));
   const up = () => window.dispatchEvent(new MouseEvent('mouseup', { button: 2 }));
   const menu = () => el.dispatchEvent(new MouseEvent('contextmenu', { button: 2, bubbles: true, cancelable: true }));
-  return { onUpdate, down, move, up, menu };
+  return { onUpdate, down, move, up, menu, hook };
 }
 
 describe('useWindowLevel (native v6: the window changed by itself)', () => {
@@ -40,5 +41,25 @@ describe('useWindowLevel (native v6: the window changed by itself)', () => {
     const [lo, hi] = onUpdate.mock.calls.at(-1)![0];
     expect((lo + hi) / 2).toBeCloseTo(0, 6);
     expect(hi - lo).toBeCloseTo(12 + 5 * (11 / 500), 6);
+  });
+
+  it.each([
+    ['a window blur', () => window.dispatchEvent(new Event('blur'))],
+    ['a pointercancel', () => window.dispatchEvent(new Event('pointercancel'))],
+    [
+      'the tab going hidden',
+      () => {
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      },
+    ],
+  ])('a drag ends on %s without a mouseup (HiDPI review M3)', (_name, lose) => {
+    const { down, move, hook } = setup([-6, 6]);
+    down();
+    act(() => move(140, 100));
+    expect(hook.result.current.isDragging).toBe(true);
+    act(() => lose());
+    expect(hook.result.current.isDragging).toBe(false);
   });
 });

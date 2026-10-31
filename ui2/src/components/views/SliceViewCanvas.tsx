@@ -55,6 +55,12 @@ import { pointerToWorld } from "@/utils/slicePointer";
 import { createWheelStepper } from "@/utils/wheelSteps";
 import { imagePointToCanvasPoint } from "@brainflow/visualization/slice";
 import { useMirrorsView } from "@/stores/viewDisplaySettingsStore";
+import { useCanvasPixelRatio } from "@/hooks/useCanvasPixelRatio";
+import {
+  beginRenderInteraction,
+  endRenderInteraction,
+  pulseRenderInteraction,
+} from "@/utils/renderPixelRatio";
 import { useViewPanZoom, wheelZoomFactor } from "@/hooks/useViewPanZoom";
 import { fitActiveView, fitView, useIsViewZoomed, zoomView } from "@/services/ViewZoomService";
 import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
@@ -70,8 +76,6 @@ import {
   useOverlayColorbar,
 } from "./viewportFrame";
 
-/** Top-right space kept for the workspace layout button (OrthogonalViewContainer). */
-const LAYOUT_BUTTON_RESERVE = 48;
 /** Pane width below which the Temporal selector shows its menu only. */
 const TEMPORAL_CAPTION_MIN_WIDTH = 480;
 
@@ -90,6 +94,12 @@ interface SliceViewCanvasProps {
   width: number;
   height: number;
   className?: string;
+  /**
+   * Top-right space a container control covers (the orthogonal workspace's
+   * lock button, LAYOUT_BUTTON_RESERVE): the colorbar keeps below it. 0 where
+   * there is none (Orthogonal Panels, the Studio Deck), review L4.
+   */
+  topRightReserve?: number;
 }
 
 function SliceViewCanvasRaw({
@@ -97,6 +107,7 @@ function SliceViewCanvasRaw({
   width,
   height,
   className = "",
+  topRightReserve = 0,
 }: SliceViewCanvasProps) {
   const model = useSliceViewModel(viewId, { width, height });
   // The early return lives here, and every other hook in the body component,
@@ -120,6 +131,7 @@ function SliceViewCanvasRaw({
       height={height}
       className={className}
       model={model}
+      topRightReserve={topRightReserve}
     />
   );
 }
@@ -132,6 +144,7 @@ function SliceViewCanvasBody({
   height,
   className,
   model,
+  topRightReserve = 0,
 }: SliceViewCanvasProps & { className: string; model: SliceViewModel }) {
   const {
     crosshair,
@@ -377,6 +390,8 @@ function SliceViewCanvasBody({
   // Radiological convention: axial and coronal panes are drawn mirrored (a
   // display transform; the placement carries it to every mapping).
   const mirrorX = useMirrorsView(viewId);
+  // HiDPI backing store (docs/plans/hidpi-slice-rendering-2026-10-31.md).
+  const pixelRatio = useCanvasPixelRatio();
   const orientationLabelKey = buildOrientationLabelKey(
     viewPlane,
     showMarkers && hasLayers,
@@ -465,6 +480,13 @@ function SliceViewCanvasBody({
   useEffect(() => {
     isDraggingRef.current = isDragging;
   }, [isDragging]);
+  // 1× while a window/level drag runs (utils/renderPixelRatio).
+  useEffect(() => {
+    if (!isDragging) return;
+    const source = `window-level:${viewId}`;
+    beginRenderInteraction(source);
+    return () => endRenderInteraction(source);
+  }, [isDragging, viewId]);
 
   // Clicks off the image data (letterbox / margin around the volume inside
   // the bitmap) do not move the crosshair.
@@ -538,7 +560,10 @@ function SliceViewCanvasBody({
       zoomFrame = null;
       const factor = zoomFactor;
       zoomFactor = 1;
-      if (factor !== 1) zoomView(viewId, factor, zoomAt, canvasRef.current);
+      if (factor !== 1) {
+        pulseRenderInteraction(`zoom:${viewId}`);
+        zoomView(viewId, factor, zoomAt, canvasRef.current);
+      }
     };
     const fn = (event: WheelEvent) => {
       event.preventDefault();
@@ -730,6 +755,7 @@ function SliceViewCanvasBody({
           showLoadingVolume={isLoadingAnyLayer}
           className="w-full h-full"
           mirrorX={mirrorX}
+          pixelRatio={pixelRatio}
           canvasClassName={panning ? "cursor-grabbing" : panReady ? "cursor-grab" : ""}
         />
 
@@ -745,6 +771,7 @@ function SliceViewCanvasBody({
             viewPlane={viewPlane}
             placement={placementState}
             voxelToWorld={heatmapAffine}
+            pixelRatio={pixelRatio}
             opacity={heatmapOpacity}
           />
         )}
@@ -779,7 +806,7 @@ function SliceViewCanvasBody({
             imageRect={frameGeometry?.imageRect ?? null}
             avoidPoint={frameGeometry?.crosshairPoint ?? null}
             dataRect={colorbarDataRect}
-            topReserve={LAYOUT_BUTTON_RESERVE}
+            topReserve={topRightReserve}
             value={colorbarReading?.value ?? null}
           />
         )}

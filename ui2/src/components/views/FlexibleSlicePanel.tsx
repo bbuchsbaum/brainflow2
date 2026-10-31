@@ -11,16 +11,20 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayoutDragStore } from '@/stores/layoutDragStore';
 import { debounce, throttle } from 'lodash';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
+import { pulseRenderInteraction } from '@/utils/renderPixelRatio';
 
 interface FlexibleSlicePanelProps {
   viewId?: ViewType;
   title?: string;
+  /** Top-right space a container control covers (SliceViewCanvas). */
+  topRightReserve?: number;
 }
 
 // Memoize the component to prevent unnecessary re-renders
 export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({ 
   viewId = 'axial', 
-  title
+  title,
+  topRightReserve = 0,
 }: FlexibleSlicePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 512, height: 512 });
@@ -94,10 +98,18 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
   useEffect(() => {
     if (!containerRef.current) return;
     
+    // The pane's last observed size: a change is a resize in progress
+    // (splitter, GoldenLayout, the window), rendered at 1× until it settles
+    // (utils/renderPixelRatio). The first observation is not a resize.
+    let observed: { width: number; height: number } | null = null;
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
         const { width, height } = entry.contentRect;
+        if (observed && (observed.width !== width || observed.height !== height)) {
+          pulseRenderInteraction('layout-resize');
+        }
+        observed = { width, height };
         const schedule = () => {
           const [clampedWidth, clampedHeight] = clampDimensions(width, height);
           setDimensions(prev => {
@@ -143,6 +155,7 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
         viewId={viewId}
         width={dimensions.width}
         height={dimensions.height}
+        topRightReserve={topRightReserve}
       />
     </div>
   );

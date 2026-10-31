@@ -28,6 +28,11 @@ interface TemporalHeatmapOverlayProps {
   placement: HeatmapPlacement | null;
   /** The volume's voxel-to-world affine (column-major 4×4). */
   voxelToWorld: readonly number[] | null | undefined;
+  /**
+   * The slice canvas's backing-store ratio (HiDPI): this canvas matches it,
+   * so the transform, in the slice placement's backing pixels, lines up.
+   */
+  pixelRatio?: number;
   opacity?: number;
   className?: string;
 }
@@ -57,6 +62,7 @@ export function TemporalHeatmapOverlay({
   viewPlane,
   placement,
   voxelToWorld,
+  pixelRatio = 1,
   opacity = 0.6,
   className = '',
 }: TemporalHeatmapOverlayProps) {
@@ -90,10 +96,10 @@ export function TemporalHeatmapOverlay({
     if (!canvas || width <= 0 || height <= 0) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = Math.max(1, Math.round(width * pixelRatio));
+    canvas.height = Math.max(1, Math.round(height * pixelRatio));
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!result || !transform) return;
 
     const { data, width: dataW, height: dataH } = result;
@@ -131,15 +137,15 @@ export function TemporalHeatmapOverlay({
     ctx.drawImage(offscreen, 0, 0);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `transform` is keyed by value
-  }, [result, transformKey, width, height]);
+  }, [result, transformKey, width, height, pixelRatio]);
 
   return (
     <>
       <canvas
         ref={canvasRef}
-        width={width}
-        height={height}
-        style={{ opacity, imageRendering: 'pixelated' }}
+        width={Math.max(1, Math.round(width * pixelRatio))}
+        height={Math.max(1, Math.round(height * pixelRatio))}
+        style={{ opacity, imageRendering: 'pixelated', width, height }}
         className={`absolute inset-0 pointer-events-none ${className}`}
         data-testid="temporal-heatmap"
         hidden={!transform}
