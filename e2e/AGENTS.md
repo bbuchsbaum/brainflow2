@@ -254,3 +254,11 @@ design direction x state (mock data, no Tauri) and writes
 `SEG_DESIGN_BROWSER` to an installed Chromium headless shell;
 `SEG_DESIGN_DIRECTIONS` / `SEG_DESIGN_STATES` restrict the run. These are
 design specimens for critique, not a regression gate.
+
+Design parity: `SEG_DESIGN_PARITY=1` renders direction h's states and
+compares each with `docs/design/segmentation/reference/` (pixels whose
+largest channel difference exceeds `SEG_DESIGN_PARITY_THRESHOLD`, default
+24; a state fails above `SEG_DESIGN_PARITY_MAX` of them, default 0.005).
+Renders, `diff/<state>.png` and `parity.json` go to
+`test-results/segmentation-parity`. It is advisory and not in CI; see
+`ui2/src/modules/segmentation/AGENTS.md` ("Design parity").

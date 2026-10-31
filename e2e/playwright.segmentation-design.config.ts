@@ -8,6 +8,9 @@ import { defineConfig } from '@playwright/test';
 //   SEG_DESIGN_BROWSER=/path/to/chrome-headless-shell \
 //     node_modules/.bin/playwright test -c playwright.segmentation-design.config.ts
 //
+// SEG_DESIGN_PARITY=1 compares direction h with docs/design/segmentation/reference/
+// instead of writing a round (see the spec header).
+//
 // Mock-only: no Tauri, no bridge. Browser ownership audits belong to the
 // invoking session (see root AGENTS.md).
 const PORT = Number(process.env.SEG_DESIGN_PORT ?? 5331);

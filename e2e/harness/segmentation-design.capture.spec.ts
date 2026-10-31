@@ -7,14 +7,30 @@
  *
  *   SEG_DESIGN_ROUND=round-0 SEG_DESIGN_DIRECTIONS=a,b SEG_DESIGN_STATES=tracing \
  *     node_modules/.bin/playwright test -c playwright.segmentation-design.config.ts
+ *
+ * Design parity (SEG_DESIGN_PARITY=1): renders direction h's states and
+ * compares each against docs/design/segmentation/reference/<state>.png
+ * (SEG_DESIGN_PARITY_REF overrides the folder). A pixel differs when any
+ * channel differs by more than SEG_DESIGN_PARITY_THRESHOLD (default 24 of
+ * 255); a state fails when more than SEG_DESIGN_PARITY_MAX of its pixels
+ * differ (default 0.005, i.e. 0.5%). Writes the renders, a diff image per
+ * state and parity.json to SEG_DESIGN_OUT (default
+ * test-results/segmentation-parity). Advisory, not a CI gate.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { PNG } from 'pngjs';
 import { FREEZE_CSS, installStyleScript } from './app-harness.scenarios';
 
+const PARITY = process.env.SEG_DESIGN_PARITY === '1';
+const PARITY_REF = process.env.SEG_DESIGN_PARITY_REF ?? resolve(__dirname, '../../docs/design/segmentation/reference');
+const PARITY_THRESHOLD = Number(process.env.SEG_DESIGN_PARITY_THRESHOLD ?? 24);
+const PARITY_MAX = Number(process.env.SEG_DESIGN_PARITY_MAX ?? 0.005);
 const ROUND = process.env.SEG_DESIGN_ROUND ?? 'round-0';
-const OUT = process.env.SEG_DESIGN_OUT ?? resolve(__dirname, '../../cruft/hillclimb/segmentation', ROUND);
+const OUT =
+  process.env.SEG_DESIGN_OUT ??
+  (PARITY ? resolve(__dirname, '../test-results/segmentation-parity') : resolve(__dirname, '../../cruft/hillclimb/segmentation', ROUND));
 const pick = (v: string | undefined, all: string[]) =>
   v ? v.split(',').map((s) => s.trim()).filter((s) => all.includes(s)) : all;
 
@@ -47,7 +63,8 @@ const VARIANTS: Array<[string, number, number]> = [
   ['lesion', 1280, 800],
 ];
 
-const directions = pick(process.env.SEG_DESIGN_DIRECTIONS, Object.keys(DIRECTIONS));
+// Parity compares the final direction only: the reference holds direction h.
+const directions = PARITY ? ['h'] : pick(process.env.SEG_DESIGN_DIRECTIONS, Object.keys(DIRECTIONS));
 const allStates = [...STATES.map(([s]) => s), ...WORKFLOW.map((w) => w.id)];
 const states = pick(process.env.SEG_DESIGN_STATES, allStates);
 const supports = (direction: string, state: string) => direction === 'h' || STATES.some(([s]) => s === state);
@@ -82,6 +99,53 @@ async function capture(page: Page, direction: string, state: string, file: strin
   expect(consoleErrors, `console errors in ${direction}/${state}`).toEqual([]);
   mkdirSync(resolve(OUT, direction), { recursive: true });
   await page.screenshot({ path: resolve(OUT, direction, file), animations: 'disabled', caret: 'hide' });
+  if (PARITY) compareWithReference(resolve(OUT, direction, file), file);
+}
+
+interface ParityResult {
+  file: string;
+  size: [number, number];
+  differing: number;
+  fraction: number;
+  maxChannelDelta: number;
+  pass: boolean;
+}
+const parity: ParityResult[] = [];
+
+/**
+ * Compares a render with the reference PNG of the same name: per pixel, the
+ * largest channel difference; pixels above the threshold count as differing
+ * and are painted into a diff image (red over a dimmed reference).
+ */
+function compareWithReference(renderPath: string, file: string): void {
+  const refPath = resolve(PARITY_REF, file);
+  expect(existsSync(refPath), `no reference for ${file} in ${PARITY_REF}`).toBe(true);
+  const a = PNG.sync.read(readFileSync(refPath));
+  const b = PNG.sync.read(readFileSync(renderPath));
+  expect([b.width, b.height], `${file}: size differs from the reference`).toEqual([a.width, a.height]);
+  const diff = new PNG({ width: a.width, height: a.height });
+  let differing = 0;
+  let maxChannelDelta = 0;
+  for (let i = 0; i < a.data.length; i += 4) {
+    const d = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2]));
+    maxChannelDelta = Math.max(maxChannelDelta, d);
+    const grey = Math.round((a.data[i] + a.data[i + 1] + a.data[i + 2]) / 3 / 3);
+    if (d > PARITY_THRESHOLD) {
+      differing++;
+      diff.data.set([255, 0, 0, 255], i);
+    } else {
+      diff.data.set([grey, grey, grey, 255], i);
+    }
+  }
+  const fraction = differing / (a.width * a.height);
+  const pass = fraction <= PARITY_MAX;
+  mkdirSync(resolve(OUT, 'diff'), { recursive: true });
+  writeFileSync(resolve(OUT, 'diff', file), PNG.sync.write(diff));
+  parity.push({ file, size: [a.width, a.height], differing, fraction, maxChannelDelta, pass });
+  expect(
+    fraction,
+    `${file}: ${(fraction * 100).toFixed(3)}% of pixels differ from the reference by more than ${PARITY_THRESHOLD} (allowed ${(PARITY_MAX * 100).toFixed(3)}%); see ${resolve(OUT, 'diff', file)}`,
+  ).toBeLessThanOrEqual(PARITY_MAX);
 }
 
 for (const direction of directions) {
@@ -104,6 +168,17 @@ for (const direction of directions) {
 }
 
 test.afterAll(() => {
+  if (PARITY) {
+    const report = {
+      reference: PARITY_REF,
+      threshold: PARITY_THRESHOLD,
+      maxFraction: PARITY_MAX,
+      results: parity.sort((x, y) => x.file.localeCompare(y.file)),
+      pass: parity.every((r) => r.pass),
+    };
+    writeFileSync(resolve(OUT, 'parity.json'), JSON.stringify(report, null, 2));
+    return;
+  }
   const manifest = {
     round: ROUND,
     harness: 'ui2/segmentation-harness.html?direction=<id>&state=<state>',

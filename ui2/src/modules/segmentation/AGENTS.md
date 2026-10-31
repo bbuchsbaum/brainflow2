@@ -101,6 +101,29 @@ yet: editing is not implemented.
   counts, provenance codes, ruler and matrix marks) come from
   `shared/session.ts` only; every proposal, AI included, is accepted slice
   by slice by default; lesions are outline only by default.
+- **Design parity** (advisory, not in CI): render every direction H state
+  and compare it with the reference captures in
+  `docs/design/segmentation/reference/`:
+
+  ```sh
+  cd e2e
+  SEG_DESIGN_PARITY=1 SEG_DESIGN_BROWSER=/path/to/chrome-headless-shell \
+    node_modules/.bin/playwright test -c playwright.segmentation-design.config.ts
+  ```
+
+  A pixel differs when a channel moves by more than 24/255
+  (`SEG_DESIGN_PARITY_THRESHOLD`); a state fails when more than 0.5% of its
+  pixels differ (`SEG_DESIGN_PARITY_MAX`; set 0 for an exact match).
+  `SEG_DESIGN_STATES` restricts the run and `SEG_DESIGN_PARITY_REF` points
+  at another reference folder. Results: `e2e/test-results/segmentation-parity/`
+  (renders, `diff/<state>.png` in red over the dimmed reference,
+  `parity.json`). Baselines need the same headless shell (Chromium 1243,
+  `--font-render-hinting=none`) and fonts; another platform may need a
+  looser threshold. A failure is a question for review: either the screen
+  regressed, or the design changed on purpose and the reference is
+  re-captured in the same commit, with the reason in DESIGN.md. As screens
+  are promoted, keep the harness rendering them from a fixture session so
+  this comparison stays meaningful.
 - **Tests:** `__tests__/designContract.test.tsx` holds the design rules, one
   `describe` per DESIGN.md section (DESIGN.md, "Contract-tested rules"). It
   reaches screens through `__tests__/designSubjects.tsx`; point that at a
