@@ -18,11 +18,20 @@ vi.mock('@/services/ComparisonRenderService', () => ({
 }));
 
 vi.mock('../SliceViewport', () => ({
-  SliceViewport: ({ width, height }: { width: number; height: number }) => (
+  SliceViewport: ({
+    width,
+    height,
+    crosshairWorldBounds,
+  }: {
+    width: number;
+    height: number;
+    crosshairWorldBounds?: unknown;
+  }) => (
     <div
       data-testid="slice-viewport"
       data-width={width}
       data-height={height}
+      data-crosshair-bounds={JSON.stringify(crosshairWorldBounds ?? null)}
     />
   ),
 }));
@@ -220,6 +229,10 @@ describe('Compare status readout claim', () => {
 
   it('adds a loaded layer to the panel without dragging ("Add layer…", native v6)', async () => {
     vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() })));
+    // A wide pane: "Add layer…" sits in the header from 520 px (QA 2026-10-31 F7.3).
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) } as DOMRect);
     const { useLayerStore } = await import('@/stores/layerStore');
     const { useComparisonStore } = await import('@/stores/comparisonStore');
     useLayerStore.setState({
@@ -256,6 +269,120 @@ describe('Compare status readout claim', () => {
     fireEvent.change(select, { target: { value: 'layer-z' } });
     expect(addLayerToPanel).toHaveBeenCalledWith('comparison-workspace', 'panel-3', 'layer-z');
     useComparisonStore.setState({ addLayerToPanel: original });
+    rect.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('the header picker swaps the pane layer and keeps the name visible (QA features 2026-10-31 §6)', async () => {
+    vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() })));
+    const { useLayerStore } = await import('@/stores/layerStore');
+    const { useComparisonStore } = await import('@/stores/comparisonStore');
+    useLayerStore.setState({
+      layers: [
+        { id: 'layer-1', name: 'MNI152 T1w', volumeId: 'v1', type: 'volume', visible: true, order: 0 },
+        { id: 'layer-z', name: 'zmap_synthetic.nii', volumeId: 'vz', type: 'volume', visible: true, order: 1 },
+      ] as never,
+    });
+    const workspace = {
+      ...useViewStateStore.getState().viewState,
+      layers: [
+        { ...(useViewStateStore.getState().viewState.layers[0] ?? {}), id: 'layer-1', visible: true },
+        { ...(useViewStateStore.getState().viewState.layers[0] ?? {}), id: 'layer-z', visible: true },
+      ],
+    };
+    const originalView = useViewStateStore.getState().getWorkspaceViewState;
+    useViewStateStore.setState({ getWorkspaceViewState: (() => workspace) as never });
+    const setPanelLayer = vi.fn();
+    const original = useComparisonStore.getState().setPanelLayer;
+    useComparisonStore.setState({ setPanelLayer });
+    render(
+      <ComparisonPanel
+        workspaceId="comparison-workspace"
+        panel={{ id: 'panel-4', label: 'zmap', visibleLayerIds: new Set(['layer-z']), viewType: 'axial' }}
+        letter="B"
+        width={140}
+        height={60}
+        layerNames={new Map([['layer-1', 'MNI152 T1w'], ['layer-z', 'zmap_synthetic.nii']])}
+        onRemoveLayer={vi.fn()}
+        onRemovePanel={vi.fn()}
+        onViewTypeChange={vi.fn()}
+      />,
+    );
+    // Even a 140 × 60 pane keeps its header and name (the overlay header hid below 90 px).
+    const picker = screen.getByTestId('compare-pane-picker') as HTMLSelectElement;
+    expect(picker.value).toBe('layer-z');
+    expect(picker.title).toBe('zmap_synthetic.nii');
+    fireEvent.change(picker, { target: { value: 'layer-1' } });
+    expect(setPanelLayer).toHaveBeenCalledWith('comparison-workspace', 'panel-4', 'layer-1', 'layer-z', 'MNI152 T1w');
+    useComparisonStore.setState({ setPanelLayer: original });
+    useViewStateStore.setState({ getWorkspaceViewState: originalView });
+    vi.unstubAllGlobals();
+  });
+
+  it('header controls sit in the header in the position’s place; the name keeps its room (QA 2026-10-31 F7.3)', async () => {
+    vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() })));
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 380, bottom: 300, width: 380, height: 300, toJSON: () => ({}) } as DOMRect);
+    render(
+      <ComparisonPanel
+        workspaceId="comparison-workspace"
+        panel={{ id: 'panel-5', label: 'FreeSurfer ASEG', visibleLayerIds: new Set(['x']), viewType: 'axial' }}
+        letter="A"
+        width={380}
+        height={320}
+        layerNames={new Map([['x', 'FreeSurfer ASEG']])}
+        onRemoveLayer={vi.fn()}
+        onRemovePanel={vi.fn()}
+        onViewTypeChange={vi.fn()}
+      />,
+    );
+    const header = screen.getByTestId('compare-pane-header');
+    // The plane select and remove button are header controls, not an overlay on the name.
+    const controls = screen.getByTestId('compare-pane-controls');
+    expect(header.contains(controls)).toBe(true);
+    expect(controls.contains(screen.getByLabelText(/Panel orientation/))).toBe(true);
+    expect(controls.contains(screen.getByLabelText(/Remove panel/))).toBe(true);
+    const picker = screen.getByTestId('compare-pane-picker') as HTMLSelectElement;
+    expect(parseFloat(picker.style.maxWidth)).toBeGreaterThanOrEqual(140);
+    rect.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('clips the crosshair to the pane’s layer AND the anatomy under it (QA 2026-10-31 F7.3)', async () => {
+    vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() })));
+    const { useLayerStore } = await import('@/stores/layerStore');
+    const meta = (min: number[], max: number[]) => ({
+      worldBounds: { min, max },
+      dimensions: [11, 11, 11],
+      spacing: [1, 1, 1],
+    });
+    useLayerStore.setState({
+      layers: [
+        { id: 't1', name: 'T1', volumeId: 't1', type: 'volume', visible: true },
+        { id: 'obl', name: 'oblique', volumeId: 'obl', type: 'volume', visible: true },
+      ] as never,
+      layerMetadata: new Map([
+        ['t1', meta([-90, -120, -70], [90, 90, 100])],
+        ['obl', meta([-10, -10, -10], [0, 0, 0])],
+      ]) as never,
+    });
+    render(
+      <ComparisonPanel
+        workspaceId="w"
+        panel={{ id: 'panel-6', label: 'oblique', visibleLayerIds: new Set(['obl']), viewType: 'axial' }}
+        width={400}
+        height={300}
+        layerNames={new Map([['obl', 'oblique']])}
+        onRemoveLayer={vi.fn()}
+        onRemovePanel={vi.fn()}
+        onViewTypeChange={vi.fn()}
+      />,
+    );
+    const bounds = JSON.parse(screen.getByTestId('slice-viewport').getAttribute('data-crosshair-bounds')!);
+    // The union reaches the T1's edges, not only the small oblique map's.
+    expect(bounds.min[0]).toBeLessThanOrEqual(-90);
+    expect(bounds.max[2]).toBeGreaterThanOrEqual(100);
     vi.unstubAllGlobals();
   });
 });

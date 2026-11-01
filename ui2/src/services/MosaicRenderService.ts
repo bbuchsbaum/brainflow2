@@ -6,6 +6,22 @@
  */
 
 import { getApiService } from '@/services/apiService';
+import { deviceRenderRatio, hidpiPlane, hidpiViewState, tagBitmapRatio } from '@/utils/renderPixelRatio';
+
+/** Device pixels a whole mosaic page may render at its ratio (review L7). */
+export const MOSAIC_PIXEL_BUDGET = 8_000_000;
+
+/**
+ * The ratio a mosaic page renders at: the device ratio while the page's
+ * tiles at that ratio stay within {@link MOSAIC_PIXEL_BUDGET}, else 1× (a
+ * dense page of many tiles would read back 4× the pixels for little gain).
+ */
+export function mosaicRenderRatio(requests: ReadonlyArray<{ width: number; height: number }>): number {
+  const ratio = deviceRenderRatio();
+  if (ratio === 1) return 1;
+  const pixels = requests.reduce((sum, r) => sum + r.width * r.height, 0) * ratio * ratio;
+  return pixels <= MOSAIC_PIXEL_BUDGET ? ratio : 1;
+}
 import { widenToVoxelEdges } from '@/utils/voxelEdges';
 import { visibleFrameBox } from './layerFrameBoxes';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -235,11 +251,18 @@ export class MosaicRenderService {
         `[MosaicRenderService] Calling applyAndRenderViewState for ${cellId} WITH dimensions ${width}x${height}`,
       );
 
-      const imageBitmap = await this.apiService.applyAndRenderViewState(
-        modifiedViewState,
-        axis,
-        width, // Pass actual cell width to match canvas size
-        height, // Pass actual cell height to match canvas size
+      // At the device-pixel ratio (HiDPI): the same plane on a finer grid;
+      // the stored cell plane stays in CSS pixels.
+      const ratio = this.gridRatio;
+      const renderPlane = hidpiPlane(modifiedViewState.views[axis], ratio);
+      const imageBitmap = tagBitmapRatio(
+        await this.apiService.applyAndRenderViewState(
+          hidpiViewState(modifiedViewState, [axis], ratio),
+          axis,
+          renderPlane.dim_px[0],
+          renderPlane.dim_px[1],
+        ),
+        ratio,
       );
 
       debug(`[MosaicRenderService] Render result for ${cellId}:`, {
@@ -304,6 +327,9 @@ export class MosaicRenderService {
    * dispatches only that latest grid. The returned promise resolves once the
    * flushed dispatch completes, so callers can still await a full render.
    */
+  /** The ratio the current grid renders at (mosaicRenderRatio). */
+  private gridRatio = 1;
+
   renderMosaicGrid(requests: MosaicRenderRequest[]): Promise<void> {
     this.pendingGrid = requests;
 
@@ -328,6 +354,7 @@ export class MosaicRenderService {
    */
   private async dispatchGrid(requests: MosaicRenderRequest[]): Promise<void> {
     const generation = ++this.gridGeneration;
+    this.gridRatio = mosaicRenderRatio(requests);
 
     if (this.batchRenderEnabled) {
       try {
@@ -449,10 +476,14 @@ export class MosaicRenderService {
         this.cellViewPlanes.set(request.cellId, plane);
       }
 
-      const widthPerSlice = chunk[0].width;
-      const heightPerSlice = chunk[0].height;
+      // At the device-pixel ratio (HiDPI); cell planes stay in CSS pixels.
+      const ratio = this.gridRatio;
+      const renderStates = viewStates.map((state, i) => hidpiViewState(state, [chunk[i].axis], ratio));
+      const firstPlane = renderStates[0]?.views[chunk[0].axis];
+      const widthPerSlice = ratio === 1 || !firstPlane ? chunk[0].width : firstPlane.dim_px[0];
+      const heightPerSlice = ratio === 1 || !firstPlane ? chunk[0].height : firstPlane.dim_px[1];
       const buffer = await this.apiService.batchRenderSlices(
-        viewStates,
+        renderStates,
         widthPerSlice,
         heightPerSlice,
       );
@@ -470,7 +501,7 @@ export class MosaicRenderService {
 
       await Promise.all(
         chunk.map(async (request, index) => {
-          const bitmap = await createImageBitmap(slices[index].image);
+          const bitmap = tagBitmapRatio(await createImageBitmap(slices[index].image), ratio);
           const requestId = cellRequestIds.get(request.cellId);
           if (requestId === undefined || this.isStale(request.cellId, requestId, generation)) {
             bitmap.close();

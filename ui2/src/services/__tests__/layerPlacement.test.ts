@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  categoricalTypeFromData,
+  coversMuchSmaller,
   isSignedMap,
   looksLikeStatisticName,
   isSmallIntegerLabelMap,
@@ -9,7 +11,8 @@ import {
   placementRole,
   planLayerPlacement,
   STACKED_CONTINUOUS_OPACITY,
-  STACKED_OVERLAY_OPACITY,
+  LABEL_OVER_STATISTIC_OPACITY,
+  LABEL_OVER_IMAGE_OPACITY,
   type PlacementLayer,
   type PlacementMetadata,
 } from '../layerPlacement';
@@ -65,14 +68,26 @@ describe('planLayerPlacement / placementOrder', () => {
   });
 
   it('starts a categorical overlay over a visible overlay translucent', () => {
-    expect(planLayerPlacement([t1, z], atlas)).toEqual({ index: 2, opacity: STACKED_OVERLAY_OPACITY });
-    expect(planLayerPlacement([t1, atlas], mask)).toEqual({ index: 2, opacity: STACKED_OVERLAY_OPACITY });
+    expect(planLayerPlacement([t1, z], atlas)).toEqual({ index: 2, opacity: LABEL_OVER_STATISTIC_OPACITY });
+    expect(planLayerPlacement([t1, atlas], mask)).toEqual({ index: 2, opacity: LABEL_OVER_IMAGE_OPACITY });
   });
 
-  it('keeps full opacity for a statistic, a first overlay, or over a hidden one', () => {
+  it('keeps full opacity for a statistic, or a label layer on nothing visible', () => {
     expect(planLayerPlacement([t1, atlas], z)).toEqual({ index: 1 });
-    expect(planLayerPlacement([t1], atlas)).toEqual({ index: 1 });
-    expect(planLayerPlacement([t1, { ...z, visible: false }], atlas)).toEqual({ index: 2 });
+    expect(planLayerPlacement([], atlas)).toEqual({ index: 0 });
+    expect(planLayerPlacement([{ ...t1, visible: false }], atlas)).toEqual({ index: 1 });
+  });
+
+  it('a label layer over visible images alone opens as a translucent fill (QA 2026-10-31 N11)', () => {
+    expect(planLayerPlacement([t1], atlas)).toEqual({ index: 1, opacity: LABEL_OVER_IMAGE_OPACITY });
+    // A hidden statistic does not count: still over the T1 alone.
+    expect(planLayerPlacement([t1, { ...z, visible: false }], atlas)).toEqual({
+      index: 2,
+      opacity: LABEL_OVER_IMAGE_OPACITY,
+    });
+    // A brain-sized binary mask over a T1, whatever its name.
+    const lesion: PlacementLayer = { id: 'lesion', type: 'label', source: 'file' };
+    expect(planLayerPlacement([t1], lesion)).toEqual({ index: 1, opacity: LABEL_OVER_IMAGE_OPACITY });
   });
 });
 
@@ -209,19 +224,27 @@ describe('opacity of a new layer', () => {
     expect(planLayerPlacement([t1, z, atlas], t2)).toEqual({ index: 1, opacity: STACKED_CONTINUOUS_OPACITY });
   });
 
-  it('opens at full opacity on another band, a hidden layer, or nothing', () => {
-    expect(planLayerPlacement([t1], bold, metaOf)).toEqual({ index: 1 });
+  it('a BOLD run or mean EPI on visible anatomy opens at 50 % (QA 2026-10-30 F16)', () => {
+    expect(planLayerPlacement([t1], bold, metaOf)).toEqual({ index: 1, opacity: STACKED_CONTINUOUS_OPACITY });
+    expect(planLayerPlacement([t1, z], mean, metaOf)).toEqual({ index: 1, opacity: STACKED_CONTINUOUS_OPACITY });
+    expect(planLayerPlacement([{ ...t1, visible: false }], bold, metaOf)).toEqual({ index: 1 });
+  });
+
+  it('opens at full opacity under its band, on a hidden layer, or on nothing', () => {
     expect(planLayerPlacement([bold], t1, metaOf)).toEqual({ index: 0 });
     expect(planLayerPlacement([{ ...t1, visible: false }], t2)).toEqual({ index: 1 });
     expect(planLayerPlacement([z, atlas], t1)).toEqual({ index: 0 });
     expect(planLayerPlacement([], t1)).toEqual({ index: 0 });
   });
 
-  it('keeps the 60 % label-over-overlay rule and full-opacity statistics', () => {
-    expect(planLayerPlacement([t1, atlas], { ...atlas, id: 'atlas2' })).toEqual({ index: 2, opacity: STACKED_OVERLAY_OPACITY });
+  it('never opens a label more opaque over a statistic than over anatomy (review M4)', () => {
+    expect(LABEL_OVER_STATISTIC_OPACITY).toBeLessThanOrEqual(LABEL_OVER_IMAGE_OPACITY);
+    expect(planLayerPlacement([t1, z], atlas).opacity).toBeLessThanOrEqual(planLayerPlacement([t1], atlas).opacity!);
+    // Over another label (no statistic): the over-image fill.
+    expect(planLayerPlacement([t1, atlas], { ...atlas, id: 'atlas2' })).toEqual({ index: 2, opacity: LABEL_OVER_IMAGE_OPACITY });
     expect(planLayerPlacement([t1, z], { id: 'z2', statistic: { kind: 'z' } })).toEqual({ index: 2 });
-    // A label over anatomy only: full opacity.
-    expect(planLayerPlacement([t1, t2], atlas)).toEqual({ index: 2 });
+    // A label over anatomy only: the translucent fill (N11).
+    expect(planLayerPlacement([t1, t2], atlas)).toEqual({ index: 2, opacity: LABEL_OVER_IMAGE_OPACITY });
   });
 });
 
@@ -240,7 +263,7 @@ describe('review W2: masks and label maps by their data, not their name', () => 
   it('a binary lesion opened over a z map goes above it at the label opacity', () => {
     const lesion = file('lesion');
     const metadataOf = (id: string) => (id === 'lesion' ? { isBinaryLike: true } : undefined);
-    expect(planLayerPlacement([t1, z], lesion, metadataOf)).toEqual({ index: 2, opacity: STACKED_OVERLAY_OPACITY });
+    expect(planLayerPlacement([t1, z], lesion, metadataOf)).toEqual({ index: 2, opacity: LABEL_OVER_STATISTIC_OPACITY });
   });
 
   it('an integer image with a few small ids is a label map; integer anatomy is not', () => {
@@ -275,5 +298,85 @@ describe('review W3: signed functional and 4D images stay continuous', () => {
   it('a signed BOLD run opened over a T1 and a z map goes under the z map', () => {
     const dm: PlacementLayer = { id: 'dm', type: 'functional', volumeType: 'TimeSeries4D' };
     expect(placementOrder([t1, z, dm], 'dm', (id) => (id === 'dm' ? signed : undefined))).toEqual(['t1', 'dm', 'z']);
+  });
+});
+
+describe('field of view within an image band (QA 2026-10-30 F38)', () => {
+  const box = (min: number[], max: number[]) => ({ worldBounds: { min, max } });
+  const oblique: PlacementLayer = { id: 'oblique', type: 'anatomical', source: 'file' };
+  const head: PlacementLayer = { id: 'head', type: 'anatomical', source: 'file' };
+  const head2: PlacementLayer = { id: 'head2', type: 'anatomical', source: 'file' };
+  const boxes: Record<string, PlacementMetadata> = {
+    oblique: box([-20, -20, -10], [20, 20, 10]),
+    head: box([-90, -126, -72], [91, 91, 109]),
+    head2: box([-90, -126, -72], [91, 91, 109]),
+    far: box([200, 200, 200], [400, 400, 400]),
+  };
+  const boxOf = (id: string) => boxes[id];
+
+  it('a whole-head image opened after a small slab goes under it, at full opacity', () => {
+    expect(planLayerPlacement([oblique], head, boxOf)).toEqual({ index: 0 });
+    expect(placementOrder([oblique, head], 'head', boxOf)).toEqual(['head', 'oblique']);
+  });
+
+  it('a second whole-head image still lands on the first, under the slab', () => {
+    expect(planLayerPlacement([head, oblique], head2, boxOf)).toEqual({
+      index: 1,
+      opacity: STACKED_CONTINUOUS_OPACITY,
+    });
+  });
+
+  it('a slab opened over a head, or images of similar size, keep newest on top', () => {
+    expect(planLayerPlacement([head], oblique, boxOf)).toEqual({ index: 1, opacity: STACKED_CONTINUOUS_OPACITY });
+    expect(planLayerPlacement([head], head2, boxOf)).toEqual({ index: 1, opacity: STACKED_CONTINUOUS_OPACITY });
+  });
+
+  it('never passes a layer the user moved, or one of another band', () => {
+    expect(planLayerPlacement([{ ...oblique, userMoved: true }, t1], head, boxOf).index).toBe(2);
+    const slabBold: PlacementLayer = { id: 'oblique', type: 'functional' };
+    expect(planLayerPlacement([slabBold], head, boxOf)).toEqual({ index: 0 });
+    expect(planLayerPlacement([head, slabBold], head2, boxOf).index).toBe(1);
+  });
+
+  it('covers means a much larger box around the smaller one', () => {
+    expect(coversMuchSmaller(boxes.head.worldBounds, boxes.oblique.worldBounds)).toBe(true);
+    expect(coversMuchSmaller(boxes.oblique.worldBounds, boxes.head.worldBounds)).toBe(false);
+    expect(coversMuchSmaller(boxes.head.worldBounds, boxes.head2.worldBounds)).toBe(false);
+    expect(coversMuchSmaller(boxes.far.worldBounds, boxes.oblique.worldBounds)).toBe(false);
+    expect(coversMuchSmaller(undefined, boxes.oblique.worldBounds)).toBe(false);
+  });
+});
+
+describe('categoricalTypeFromData (QA 2026-10-30 F17)', () => {
+  const lesion = { type: 'anatomical' as const, source: 'file' };
+  it('a binary anatomical file becomes labels, whatever its name', () => {
+    expect(categoricalTypeFromData(lesion, { isBinaryLike: true })).toBe('label');
+  });
+
+  it('a small-integer file is not retyped: it may be a count map (review)', () => {
+    expect(categoricalTypeFromData(lesion, { nativeDtype: 'u8', dataRange: { min: 0, max: 3 } })).toBeNull();
+    expect(categoricalTypeFromData(lesion, { nativeDtype: 'u8', dataRange: { min: 0, max: 20 } })).toBeNull();
+  });
+
+  it('an unnamed small-integer map goes in the statistic band, a named one in the label band', () => {
+    const counts = { nativeDtype: 'u8', dataRange: { min: 0, max: 20 } };
+    const overlap: PlacementLayer = { id: 'ov', type: 'anatomical', source: 'file', name: 'lesion_overlap_n20', sourcePath: '/d/lesion_overlap_n20.nii' };
+    expect(placementBand(overlap, counts)).toBe(PlacementBand.Statistic);
+    // Over a T1 and a z map: above the T1, at full opacity (not the label 60 %).
+    const z1: PlacementLayer = { id: 'z1', type: 'anatomical', statistic: { kind: 'z' } };
+    const atlas1: PlacementLayer = { id: 'a1', type: 'label', source: 'atlas' };
+    expect(planLayerPlacement([t1, z1, atlas1], overlap, (id) => (id === 'ov' ? counts : undefined))).toEqual({ index: 2 });
+    const roi3: PlacementLayer = { ...overlap, id: 'roi', name: 'roi_3', sourcePath: '/d/roi_3.nii' };
+    expect(placementBand(roi3, { nativeDtype: 'u8', dataRange: { min: 0, max: 3 } })).toBe(PlacementBand.Label);
+  });
+  it('anatomy, templates, masks, 4D and float maps keep their type', () => {
+    expect(categoricalTypeFromData(lesion, { nativeDtype: 'u8', dataRange: { min: 0, max: 255 } })).toBeNull();
+    expect(categoricalTypeFromData(lesion, { nativeDtype: 'float32', dataRange: { min: 0, max: 3 } })).toBeNull();
+    expect(categoricalTypeFromData({ ...lesion, source: 'template' }, { isBinaryLike: true })).toBeNull();
+    // A non-binary file mask (a probability map named "mask") stays a mask.
+    expect(categoricalTypeFromData({ type: 'mask', source: 'file' }, { isBinaryLike: false })).toBeNull();
+    // A binary one named "mask" is a label map (p4_brain_mask.nii, N11).
+    expect(categoricalTypeFromData({ type: 'mask', source: 'file' }, { isBinaryLike: true })).toBe('label');
+    expect(categoricalTypeFromData({ ...lesion, volumeType: 'TimeSeries4D' }, { isBinaryLike: true })).toBeNull();
   });
 });

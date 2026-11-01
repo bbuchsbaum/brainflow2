@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { anatomicalLabels } from '@/utils/anatomicalLabels';
+import { displayedLabels } from '@/utils/anatomicalLabels';
 import type { CrosshairRect } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
 
@@ -71,10 +71,12 @@ export function useOrientationLabelKnockouts(enabledKey: string) {
 export function orientationLabelKey(
   viewPlane: ViewPlane | null | undefined,
   show: boolean,
+  mirrorX = false,
 ): string {
   if (!show || !viewPlane) return '';
-  return JSON.stringify(anatomicalLabels(viewPlane) ?? null);
+  return JSON.stringify(displayedLabels(viewPlane, mirrorX) ?? null);
 }
+
 
 interface OrientationLabelsProps {
   viewPlane: ViewPlane;
@@ -83,6 +85,8 @@ interface OrientationLabelsProps {
   bottomInset?: number;
   /** Extra distance of the top letter from the top (a header row it must clear). */
   topInset?: number;
+  /** The slice is displayed mirrored left-right (radiological). */
+  mirrorX?: boolean;
 }
 
 /** Anatomical letters at the four edge midpoints, derived from the signed view basis. */
@@ -91,6 +95,7 @@ export function OrientationLabels({
   refs,
   bottomInset = 0,
   topInset = 0,
+  mirrorX = false,
 }: OrientationLabelsProps) {
   // Stable ref callbacks: new ones each render make React detach the letters
   // (null) and re-attach them in tree order, AFTER the canvas (an earlier
@@ -103,7 +108,7 @@ export function OrientationLabels({
       }),
     [refs],
   );
-  const labels = anatomicalLabels(viewPlane);
+  const labels = displayedLabels(viewPlane, mirrorX);
   if (!labels) return null;
   const set = (i: number) => setters[i];
   return (

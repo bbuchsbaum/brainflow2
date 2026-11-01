@@ -16,6 +16,8 @@ const LENS_OPTIONS: LensOption[] = [
 ];
 
 interface StudioLensSwitcherProps {
+  /** Render inline in a shared toolbar row: no frame of its own, no wrap. */
+  bare?: boolean;
   activeLens: StudioLensType;
   populationOnly?: boolean;
   onSelectLens: (lens: StudioLensType) => void;
@@ -25,6 +27,7 @@ interface StudioLensSwitcherProps {
 }
 
 export function StudioLensSwitcher({
+  bare = false,
   activeLens,
   populationOnly = false,
   onSelectLens,
@@ -33,7 +36,13 @@ export function StudioLensSwitcher({
   onSelectCompareCohort,
 }: StudioLensSwitcherProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-sm border border-border bg-card px-3 py-1.5">
+    <div
+      className={
+        bare
+          ? 'flex shrink-0 flex-nowrap items-center gap-2'
+          : 'flex flex-wrap items-center gap-3 rounded-sm border border-border bg-card px-3 py-1.5'
+      }
+    >
       <span className="text-bf-xs font-medium text-muted-foreground">
         Lens
       </span>
@@ -67,12 +76,12 @@ export function StudioLensSwitcher({
       {activeLens === 'compare' ? (
         <>
           <span className="h-4 w-px bg-border" aria-hidden />
-          <label className="flex items-center gap-2 text-bf-sm text-muted-foreground">
-            <span className="text-bf-xs font-medium">
+          <label className="flex min-w-0 items-center gap-2 text-bf-sm text-muted-foreground">
+            <span className={`text-bf-xs font-medium ${bare ? 'sr-only' : ''}`}>
               Compare mode
             </span>
             <Select
-              className="w-auto"
+              className="w-auto max-w-[16rem]"
               value={compareCohort?.id ?? ''}
               onValueChange={(value) => onSelectCompareCohort(value || null)}
             >

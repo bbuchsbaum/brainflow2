@@ -23,7 +23,7 @@ import type {
 } from '@brainflow/api';
 import { getTransport, type BackendTransport } from './transport';
 import { getEventBus } from '@/events/EventBus';
-import { useClusterStore, type ClusterConnectivity } from '@/stores/clusterStore';
+import { useClusterStore, type ClusterConnectivity, type ClusterResult } from '@/stores/clusterStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { formatRegionLabel, resolveAtlasRegionAtWorld } from './atlasRegionLookup';
@@ -51,6 +51,11 @@ export interface ComputeClustersInput {
    * finite non-zero voxels.
    */
   searchMask?: string | null;
+  /**
+   * |threshold| of the negative tail when it differs from `threshold` (an
+   * asymmetric display threshold, sign "both"); null/absent: symmetric.
+   */
+  negativeThreshold?: number | null;
 }
 
 /** `compute_clusters` rejected because a newer request superseded it. */
@@ -88,6 +93,7 @@ export class ClusterService {
       layerId: input.layerId,
       volumeId: layer?.volumeId ?? input.layerId,
       threshold: input.threshold,
+      ...(input.negativeThreshold != null ? { negativeThreshold: input.negativeThreshold } : {}),
       sign: input.sign,
       connectivity: input.connectivity,
       minVoxels: input.minVoxels,
@@ -146,6 +152,83 @@ export class ClusterService {
       }
       return null;
     }
+  }
+
+  /**
+   * Clusters computed without the toolbar (clusters on load, QA features
+   * 2026-10-31 §8): the same command and region lookups as {@link compute},
+   * but outside its request order and status, so it never cancels or hides
+   * a table the user asked for. The caller publishes the result. Null when
+   * `isCurrent()` turns false meanwhile, the layer is gone, or a newer
+   * request for the same volume superseded it (4077); other errors throw.
+   */
+  async computeQuiet(input: ComputeClustersInput, isCurrent: () => boolean): Promise<ClusterResult | null> {
+    const layer = useLayerStore.getState().layers.find((l) => l.id === input.layerId);
+    if (!layer) return null;
+    const body: ComputeClustersRequest = {
+      layerId: input.layerId,
+      volumeId: layer.volumeId ?? input.layerId,
+      threshold: input.threshold,
+      ...(input.negativeThreshold != null ? { negativeThreshold: input.negativeThreshold } : {}),
+      sign: input.sign,
+      connectivity: input.connectivity,
+      minVoxels: input.minVoxels,
+      // Never a label volume: it would replace (and free) the one of the
+      // table shown, and cost a full volume per threshold drag (review H2).
+      // A published automatic table is made a region by Compute again.
+      emitLabelVolume: false,
+      // Its own supersede order in the backend: it never cancels a Compute
+      // (review H1).
+      quiet: true,
+      ...(input.extent
+        ? {
+            extent: {
+              method: 'rft-extent' as const,
+              fwhmMm: input.extent.fwhmMm,
+              ...(input.extent.statistic ? { statistic: input.extent.statistic } : {}),
+            },
+          }
+        : {}),
+      ...(input.searchMask ? { searchMask: input.searchMask } : {}),
+    };
+    let table: ClusterTable;
+    try {
+      table = await this.bridge().invoke<ClusterTable>('compute_clusters', { request: body });
+    } catch (error) {
+      if (tauriErrorCode(error) === CLUSTERS_CANCELLED_CODE) return null;
+      throw error;
+    }
+    if (!isCurrent()) return null;
+    const { regions, subPeakRegions } = await this.regionsAtPeaks(table);
+    if (!isCurrent()) return null;
+    const live = useLayerStore.getState().layers;
+    if (!live.some((l) => l.id === input.layerId)) return null;
+    const maskLayer = input.searchMask ? live.find((l) => l.volumeId === input.searchMask) : undefined;
+    return {
+      layerId: input.layerId,
+      layerName: layer.name ?? input.layerId,
+      maskName: maskLayer?.name ?? null,
+      table,
+      regions,
+      subPeakRegions,
+      computedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Move the crosshair to a layer's strongest peak at its display threshold
+   * (the Inspector's "Peak z … at (…)"), exactly, like a table row. When the
+   * table shown is that layer's, its row is selected.
+   */
+  async goToPeak(layerId: string): Promise<void> {
+    const peak = useClusterStore.getState().peaks[layerId];
+    if (!peak?.mm) return;
+    const { result, select } = useClusterStore.getState();
+    if (result?.layerId === layerId) {
+      const hit = result.table.clusters.find((c) => c.peakMm.every((v, i) => v === peak.mm![i]));
+      if (hit) select(hit.id);
+    }
+    await useViewStateStore.getState().setCrosshair([...peak.mm], true, false, undefined, { snap: false });
   }
 
   /**
@@ -329,8 +412,14 @@ export function clusterMethodsSentence(
     table.discardedClusters > 0 ? `, ${table.discardedClusters} smaller dropped` : '';
   const df = symbol && symbol !== variable ? ` (${symbol})` : '';
   const t = formatLayerValueAscii(table.threshold);
+  const tn =
+    table.sign === 'both' && table.negativeThreshold != null && table.negativeThreshold !== table.threshold
+      ? formatLayerValueAscii(table.negativeThreshold)
+      : null;
   const test =
-    table.sign === 'both'
+    table.sign === 'both' && tn !== null
+      ? `${variable} > ${t} or ${variable} < \u2212${tn}${df}, two-tailed`
+      : table.sign === 'both'
       ? `|${variable}| > ${t}${df}, two-tailed`
       : table.sign === 'positive'
         ? `${variable} > ${t}${df}, one-tailed (positive)`
@@ -546,6 +635,86 @@ export function displayThresholdMagnitude(
   return Number.isFinite(t) && t > 0 ? t : null;
 }
 
+/**
+ * A threshold at the precision it is displayed ("3.93" for an f32 3.92923,
+ * "3.1" for 3.0999999): the value the Inspector shows is the one clusters
+ * use (QA 2026-10-31 N6).
+ */
+export function atDisplayPrecision(value: number): number {
+  return Number(formatLayerValueAscii(value).replace(/,/g, ''));
+}
+
+/**
+ * Per-tail |threshold| of a display threshold (hidden band [lo, hi]), at
+ * display precision; null for a tail the band does not threshold.
+ */
+export interface ThresholdBounds {
+  /** Positive voxels need v > positive; null: the positive tail is not thresholded. */
+  positive: number | null;
+  /** Negative voxels need v < −negative; null: the negative tail is not thresholded. */
+  negative: number | null;
+}
+
+/**
+ * The tails of a layer's display threshold: −3.1 ≤ z ≤ 3.93 hidden is
+ * z > 3.93 and z < −3.1 (QA 2026-10-31 N6). A one-sided band thresholds one
+ * tail only: [0, 3.93] (every negative value shown), [−3.1, 0], or [2, 5]
+ * (everything below 2 shown) leave the other tail null, never a 0 threshold
+ * that would make the whole half-brain one cluster (review of N6, H2).
+ * Null for no threshold ([0, 0]).
+ */
+export function displayThresholdBounds(
+  threshold: readonly [number, number] | undefined,
+): ThresholdBounds | null {
+  if (displayThresholdMagnitude(threshold) === null || !threshold) return null;
+  const tail = (v: number) => {
+    const t = v > 0 ? atDisplayPrecision(v) : 0;
+    return t > 0 ? t : null;
+  };
+  const bounds = { positive: tail(threshold[1]), negative: tail(-threshold[0]) };
+  return bounds.positive === null && bounds.negative === null ? null : bounds;
+}
+
+/**
+ * The request for a sign over the thresholded tails: both tails (with
+ * `negativeThreshold` only when they differ), or the one tail searched or
+ * thresholded ("negative" uses the negative tail's own value). Null when the
+ * sign asks only for a tail that is not thresholded.
+ */
+export function clusterThresholds(
+  bounds: ThresholdBounds,
+  sign: ClusterSign,
+): { threshold: number; negativeThreshold: number | null; sign: ClusterSign } | null {
+  const positive = sign !== 'negative' ? bounds.positive : null;
+  const negative = sign !== 'positive' ? bounds.negative : null;
+  if (positive !== null && negative !== null) {
+    return { threshold: positive, negativeThreshold: negative === positive ? null : negative, sign: 'both' };
+  }
+  if (positive !== null) return { threshold: positive, negativeThreshold: null, sign: 'positive' };
+  if (negative !== null) return { threshold: negative, negativeThreshold: null, sign: 'negative' };
+  return null;
+}
+
+/**
+ * The cluster-forming test of a table as text: "|z| > 3.1", "z > 3.1",
+ * "z < −3.1", or for two thresholds "z > 3.93 or z < −3.1". `ascii` uses
+ * "-" (CSV).
+ */
+export function clusterTestText(
+  table: Pick<ClusterTable, 'threshold' | 'sign'> & { negativeThreshold?: number | null },
+  variable: string,
+  ascii = false,
+): string {
+  const fmt = ascii ? formatLayerValueAscii : formatLayerValue;
+  const minus = ascii ? '-' : '\u2212';
+  const t = fmt(table.threshold);
+  if (table.sign === 'positive') return `${variable} > ${t}`;
+  if (table.sign === 'negative') return `${variable} < ${minus}${t}`;
+  const n = table.negativeThreshold;
+  if (n === undefined || n === null || n === table.threshold) return `|${variable}| > ${t}`;
+  return `${variable} > ${t} or ${variable} < ${minus}${fmt(n)}`;
+}
+
 let instance: ClusterService | null = null;
 
 export const getClusterService = (): ClusterService => {
@@ -562,6 +731,7 @@ export const getClusterService = (): ClusterService => {
  */
 export function clearResultForRemovedLayer(layerId: string): void {
   const state = useClusterStore.getState();
+  state.setPeak(layerId, null);
   if (state.result?.layerId !== layerId) return;
   useClusterStore.setState({ status: 'idle', result: null, error: null, selectedId: null });
 }

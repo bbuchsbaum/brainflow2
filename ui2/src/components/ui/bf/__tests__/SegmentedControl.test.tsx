@@ -37,6 +37,32 @@ describe('bf SegmentedControl', () => {
     expect(screen.getByRole('radio', { name: 'Dashed' })).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('after a pointer press, arrows are left to the view; after Tab they select again (QA F24)', () => {
+    const onWindowKey = vi.fn((e: KeyboardEvent) => e.defaultPrevented);
+    window.addEventListener('keydown', onWindowKey);
+    render(
+      <>
+        <button type="button">Before</button>
+        <Harness />
+      </>,
+    );
+    const solid = screen.getByRole('radio', { name: 'Solid' });
+    fireEvent.pointerDown(solid);
+    solid.focus();
+    fireEvent.click(solid);
+    fireEvent.keyDown(solid, { key: 'ArrowUp' });
+    // Not consumed: the slice shortcut sees it, and the selection stays.
+    expect(onWindowKey).toHaveLastReturnedWith(false);
+    expect(solid).toHaveAttribute('aria-checked', 'true');
+    // Leaving and coming back by keyboard restores the radio arrows.
+    screen.getByRole('button', { name: 'Before' }).focus();
+    solid.focus();
+    fireEvent.keyDown(solid, { key: 'ArrowRight' });
+    expect(screen.getByRole('radio', { name: 'Dashed' })).toHaveAttribute('aria-checked', 'true');
+    expect(onWindowKey).toHaveLastReturnedWith(true);
+    window.removeEventListener('keydown', onWindowKey);
+  });
+
   it('renders nothing for a single option unless asked', () => {
     const { container, rerender } = render(
       <SegmentedControl aria-label="Line" options={[OPTIONS[0]]} value="solid" onValueChange={() => {}} />,
@@ -215,5 +241,17 @@ describe('bf SegmentedControl per-option hooks', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Dashed' }));
     expect(onReselect).toHaveBeenCalledWith('dashed');
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('bf SegmentedControl disabled', () => {
+  // QA 2026-10-30 F47: the layout pills in a tool tab are disabled but still
+  // lit up under the pointer.
+  it('has no hover fill or hover text while disabled', () => {
+    render(<SegmentedControl aria-label="Line" options={OPTIONS} value="" disabled onValueChange={() => {}} />);
+    const cls = screen.getByRole('radio', { name: 'Dashed' }).className.split(/\s+/);
+    expect(cls.filter((c) => c.startsWith('hover:'))).toEqual([]);
+    expect(cls).toContain('enabled:hover:bg-accent');
+    expect(cls).toContain('enabled:hover:text-foreground');
   });
 });

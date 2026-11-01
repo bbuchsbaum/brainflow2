@@ -15,8 +15,10 @@ import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { useLayoutStateStore } from "@/stores/layoutStateStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
 import type { ViewType } from "@/types/coordinates";
-import { isViewerKeyTarget } from "@/utils/viewerKeyTarget";
-import { selectAllInFocusedField } from "@/utils/editSelectAll";
+import { isViewerKeyTarget, navigationKeyTarget } from "@/utils/viewerKeyTarget";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { mosaicAxisOf } from "@/utils/mosaicAxis";
+import { isTextEditingElement, selectAllInFocusedField } from "@/utils/editSelectAll";
 import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
 
 const CATEGORY = "Time Navigation";
@@ -29,7 +31,11 @@ const SLICE_VIEWS: ReadonlySet<ViewType> = new Set([
   "coronal",
 ]);
 
-function resolveActiveSliceView(): ViewType {
+export function resolveActiveSliceView(): ViewType {
+  // A Mosaic tab in front: its own slicing axis (QA 2026-10-31).
+  const workspaces = useWorkspaceStore.getState();
+  const front = workspaces.activeWorkspaceId ? workspaces.getWorkspace(workspaces.activeWorkspaceId) : null;
+  if (front?.type === "mosaic") return mosaicAxisOf(front.id) ?? "axial";
   const activeRenderable = useActiveRenderContextStore.getState().activeId;
   if (activeRenderable && SLICE_VIEWS.has(activeRenderable as ViewType)) {
     return activeRenderable as ViewType;
@@ -41,6 +47,11 @@ function resolveActiveSliceView(): ViewType {
   }
 
   return useLayoutStateStore.getState().layoutState.activeView;
+}
+
+/** Scene undo / redo (loaded on first use: the history pulls in the layer services). */
+function editCommand(action: "undo" | "redo", from: "key" | "menu"): void {
+  void import("@/services/SceneHistoryService").then(({ runEditCommand }) => runEditCommand(action, from));
 }
 
 function nudgeSlice(stepMultiplier: number): void {
@@ -58,7 +69,9 @@ export function useKeyboardShortcuts() {
     let disposed = false;
     let unlisten: Unlisten | undefined;
     void safeListen<{ action?: string }>("edit-action", (event) => {
-      if (event.payload?.action === "select-all") selectAllInFocusedField();
+      const action = event.payload?.action;
+      if (action === "select-all") selectAllInFocusedField();
+      else if (action === "undo" || action === "redo") editCommand(action, "menu");
     }).then((fn) => {
       if (disposed) void safeUnlisten(fn);
       else unlisten = fn;
@@ -188,7 +201,7 @@ export function useKeyboardShortcuts() {
           category: SLICE_SHORTCUT_CATEGORY,
           description,
           priority: 10,
-          when: () => isViewerKeyTarget(document.activeElement),
+          when: () => isViewerKeyTarget(navigationKeyTarget()),
           handler: () => {
             nudgeSlice(steps);
           },
@@ -208,6 +221,23 @@ export function useKeyboardShortcuts() {
             window.getSelection()?.removeAllRanges();
           },
         }),
+      ),
+      // ⌘Z / ⇧⌘Z (Ctrl on other platforms): the scene history. Sliders,
+      // switches and selects count as the scene; text fields keep their own
+      // undo (no match there, so the key reaches the field).
+      ...(["meta", "ctrl"] as const).flatMap((modifier) =>
+        (["undo", "redo"] as const).map((action) =>
+          service.register({
+            id: `edit.${action}.${modifier}`,
+            key: "z",
+            modifiers: action === "redo" ? { [modifier]: true, shift: true } : { [modifier]: true },
+            category: "General",
+            description: action === "undo" ? "Undo scene edit" : "Redo scene edit",
+            allowInInputs: true,
+            when: () => !isTextEditingElement(document.activeElement),
+            handler: () => editCommand(action, "key"),
+          }),
+        ),
       ),
       service.register({
         id: "plot.toggleDock",
@@ -229,7 +259,8 @@ export function useKeyboardShortcuts() {
         id: "time.playPause",
         key: " ",
         category: CATEGORY,
-        description: "Play/pause time animation",
+        // Over a slice view Space acts on release (held, it pans; useViewPanZoom).
+        description: "Play/pause time animation (over a view: on release; hold to pan)",
         handler: () => {
           getEventBus().emit("playback.toggle", {});
         },

@@ -16,9 +16,11 @@ export class FileLoadingService {
   async loadFile(
     path: string,
     ingress: DisplayLoadIngress = 'programmatic',
-    intent: DisplayOpenIntent = 'default'
+    intent: DisplayOpenIntent = 'default',
+    /** The workspace the load belongs to, captured before any I/O (default: the active one at load time). */
+    workspaceId?: string,
   ): Promise<void> {
-    await getDisplayLifecycleOrchestrator().loadFile({ path, ingress, intent });
+    await getDisplayLifecycleOrchestrator().loadFile({ path, ingress, intent, workspaceId });
   }
 
   async loadDroppedFile(file: File, intent: DisplayOpenIntent = 'add-layer'): Promise<void> {

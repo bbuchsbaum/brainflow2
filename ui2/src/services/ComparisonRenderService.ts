@@ -11,6 +11,7 @@ import { linkModeOf, panelDisplayLayers } from '@/utils/compareDisplay';
 import { widenToVoxelEdges } from '@/utils/voxelEdges';
 import type { CompareLinkMode } from '@/types/comparison';
 import { getApiService } from '@/services/apiService';
+import { deviceRenderRatio, hidpiPlane, hidpiViewState, tagBitmapRatio } from '@/utils/renderPixelRatio';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { useLayerStore } from '@/stores/layerStore';
@@ -77,11 +78,84 @@ export function resolvePanelUnderlayId(
   return base.id;
 }
 
+/**
+ * The layers each pane frames: its first visible layer and the underlay
+ * composed under an overlay-only pane.
+ */
+export function comparisonPaneLayerIds(
+  viewState: Pick<ViewState, 'layers'>,
+  panels: ReadonlyArray<Pick<ComparisonPanelConfig, 'visibleLayerIds'>>,
+): string[] {
+  const { layers } = useLayerStore.getState();
+  const ids = new Set<string>();
+  for (const panel of panels) {
+    const primary = viewState.layers.find((layer) => panel.visibleLayerIds.has(layer.id) && layer.visible);
+    if (primary) ids.add(primary.id);
+    const underlay = resolvePanelUnderlayId(panel, layers);
+    if (underlay) ids.add(underlay);
+  }
+  return [...ids];
+}
+
+function boxesOverlap(a: VolumeBounds, b: VolumeBounds): boolean {
+  return [0, 1, 2].every((axis) => a.min[axis] <= b.max[axis] && b.min[axis] <= a.max[axis]);
+}
+
+/**
+ * The world box a pane frames so that the panes share one scale (QA
+ * 2026-10-30 F7): the union of its own box and every other pane's box that
+ * overlaps it. A box in another space (native vs MNI, no overlap) is left
+ * out, so it does not shrink the image to a corner of a combined frame.
+ */
+export function sharedComparisonFrame(own: VolumeBounds, others: ReadonlyArray<VolumeBounds>): VolumeBounds {
+  return unionBounds([own, ...others.filter((box) => boxesOverlap(own, box))]);
+}
+
+function unionBounds(boxes: ReadonlyArray<VolumeBounds>): VolumeBounds {
+  const axes = [0, 1, 2] as const;
+  return {
+    min: axes.map((a) => Math.min(...boxes.map((b) => b.min[a]))) as [number, number, number],
+    max: axes.map((a) => Math.max(...boxes.map((b) => b.max[a]))) as [number, number, number],
+  };
+}
+
 export class ComparisonRenderService {
   private apiService = getApiService();
   private static readonly MAX_CONCURRENT = 4;
   private activeRenders = new Map<string, number>();
   private nextRequestId = 1;
+  // Bounds fetched from the backend for layers whose metadata has none, by
+  // volume id: every pane's frame sees them, not only the pane that fetched.
+  private fetchedBounds = new Map<string, Promise<VolumeBounds | null>>();
+
+  /** World bounds of a volume: its layer metadata, else the backend (once). */
+  private volumeBounds(layerId: string, volumeId: string): Promise<VolumeBounds | null> {
+    const recorded = useLayerStore.getState().getLayerMetadata(layerId)?.worldBounds as VolumeBounds | undefined;
+    if (recorded) return Promise.resolve(recorded);
+    let pending = this.fetchedBounds.get(volumeId);
+    if (!pending) {
+      pending = this.apiService.getVolumeBounds(volumeId).then(
+        (bounds) => bounds as VolumeBounds,
+        () => {
+          this.fetchedBounds.delete(volumeId);
+          return null;
+        },
+      );
+      this.fetchedBounds.set(volumeId, pending);
+    }
+    return pending;
+  }
+
+  /** The voxel-edge box of a layer, or null when its bounds are unknown. */
+  private async layerEdgeBox(globalViewState: ViewState, layerId: string): Promise<VolumeBounds | null> {
+    const volumeId = globalViewState.layers.find((layer) => layer.id === layerId)?.volumeId;
+    if (!volumeId) return null;
+    const bounds = await this.volumeBounds(layerId, volumeId);
+    if (!bounds) return null;
+    const dims =
+      useLayerStore.getState().getLayerMetadata(layerId)?.dimensions ?? (bounds as { dims?: number[] }).dims;
+    return widenToVoxelEdges(bounds, dims);
+  }
 
   /**
    * Build a ViewState with layer visibility filtered to a panel's subset.
@@ -170,7 +244,8 @@ export class ComparisonRenderService {
     globalViewState: ViewState,
     panel: ComparisonPanelConfig,
     width: number,
-    height: number
+    height: number,
+    workspaceId?: string
   ): Promise<ViewPlane | { viewPlane: ViewPlane; crosshair: WorldCoordinates }> {
     const fallbackView = resizeViewPlanePreservingFieldOfView(
       globalViewState.views[panel.viewType],
@@ -186,18 +261,12 @@ export class ComparisonRenderService {
     }
 
     const metadata = useLayerStore.getState().getLayerMetadata(primaryLayer.id);
-    let bounds = metadata?.worldBounds as VolumeBounds | undefined;
-    let boundsSource: 'layer-metadata' | 'api' | 'missing' = bounds ? 'layer-metadata' : 'missing';
+    const boundsSource: 'layer-metadata' | 'api' = metadata?.worldBounds ? 'layer-metadata' : 'api';
+    const bounds = (await this.volumeBounds(primaryLayer.id, primaryLayer.volumeId)) ?? undefined;
     if (!bounds) {
-      try {
-        bounds = await this.apiService.getVolumeBounds(primaryLayer.volumeId);
-        boundsSource = 'api';
-      } catch (error) {
-        console.warn(
-          `[ComparisonRenderService] Failed to fetch bounds for panel ${panel.id}; falling back to backend fit`,
-          error
-        );
-      }
+      console.warn(
+        `[ComparisonRenderService] No bounds for panel ${panel.id}; falling back to backend fit`
+      );
     }
 
     const globalCrosshair = globalViewState.crosshair.world_mm;
@@ -223,7 +292,17 @@ export class ComparisonRenderService {
 
       // Frame the outer voxel edges, not the outer voxel centres (native N1).
       const dims = metadata?.dimensions ?? (bounds as { dims?: number[] }).dims;
-      const viewPlane = this.createBoundsFittedViewPlane(panel, widenToVoxelEdges(bounds, dims), crosshair, width, height);
+      // Every pane frames the same world box, so the panes share one scale
+      // (QA 2026-10-30 F7: a small oblique image filled its pane while the
+      // T1 pane showed the whole head).
+      const own = widenToVoxelEdges(bounds, dims);
+      let frame = own;
+      if (workspaceId) {
+        const ids = comparisonPaneLayerIds(globalViewState, useComparisonStore.getState().getPanels(workspaceId));
+        const others = await Promise.all(ids.map((id) => this.layerEdgeBox(globalViewState, id)));
+        frame = sharedComparisonFrame(own, others.filter((box): box is VolumeBounds => !!box));
+      }
+      const viewPlane = this.createBoundsFittedViewPlane(panel, frame, crosshair, width, height);
       return { viewPlane, crosshair };
     }
 
@@ -293,7 +372,7 @@ export class ComparisonRenderService {
     this.activeRenders.set(tag, requestId);
 
     try {
-      const resolvedPanelView = await this.resolvePanelViewPlane(globalViewState, panel, width, height);
+      const resolvedPanelView = await this.resolvePanelViewPlane(globalViewState, panel, width, height, workspaceId);
       const panelView = 'viewPlane' in resolvedPanelView
         ? resolvedPanelView.viewPlane
         : resolvedPanelView;
@@ -329,11 +408,18 @@ export class ComparisonRenderService {
         linkModeOf(useComparisonStore.getState(), workspaceId)
       );
 
-      const imageBitmap = await this.apiService.applyAndRenderViewState(
-        filteredState,
-        panel.viewType,
-        panelView.dim_px[0],
-        panelView.dim_px[1]
+      // At the device-pixel ratio (HiDPI): the panel plane on a finer grid;
+      // the stored panel plane stays in CSS pixels.
+      const ratio = deviceRenderRatio();
+      const renderPlane = hidpiPlane(panelView, ratio);
+      const imageBitmap = tagBitmapRatio(
+        await this.apiService.applyAndRenderViewState(
+          hidpiViewState(filteredState, [panel.viewType], ratio),
+          panel.viewType,
+          renderPlane.dim_px[0],
+          renderPlane.dim_px[1]
+        ),
+        ratio
       );
 
       if (this.activeRenders.get(tag) !== requestId) {

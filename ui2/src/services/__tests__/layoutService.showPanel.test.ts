@@ -21,6 +21,7 @@ interface FakeItem {
   contentItems: FakeItem[];
   parent: FakeItem | null;
   addChild?: ReturnType<typeof vi.fn>;
+  addItem?: ReturnType<typeof vi.fn>;
   setActiveComponentItem?: ReturnType<typeof vi.fn>;
 }
 
@@ -46,6 +47,13 @@ function stack(children: FakeItem[]): FakeItem {
     child.parent = item;
     item.contentItems.push(child);
   });
+  // Stack.addItem: build the component from its config, add it, return its index.
+  item.addItem = vi.fn(
+    (config: { componentType: string; componentState?: Record<string, unknown> }) => {
+      item.addChild!(component(config.componentType, config.componentState ?? {}));
+      return item.contentItems.length - 1;
+    },
+  );
   children.forEach((child) => item.addChild!(child));
   item.addChild.mockClear();
   return item;
@@ -118,7 +126,7 @@ describe('layoutService.showPanel', () => {
     const service = getLayoutService();
     service.showPanel('FileBrowser');
     service.showPanel('FileBrowser');
-    expect(fixture.layout.newItem).toHaveBeenCalledTimes(1);
+    expect(fixture.left.addItem).toHaveBeenCalledTimes(1);
     expect(fixture.left.addChild).toHaveBeenCalledTimes(1);
     expect(findComponentItemsByType(fixture.layout.rootItem as never, 'FileBrowser')).toHaveLength(1);
   });

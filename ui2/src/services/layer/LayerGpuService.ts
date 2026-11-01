@@ -13,6 +13,9 @@ interface RawAtlasStats {
   is_3d: boolean;
   last_allocation_ms?: number;
   last_release_ms?: number;
+  /** Absent from backends built before 2026-10-31. */
+  volume_texture_slots?: number;
+  render_layer_capacity?: number;
 }
 
 export class LayerGpuService {
@@ -88,6 +91,8 @@ export class LayerGpuService {
       is3D: raw.is_3d,
       lastAllocationMs: raw.last_allocation_ms,
       lastReleaseMs: raw.last_release_ms,
+      volumeTextureSlots: raw.volume_texture_slots,
+      renderLayerCapacity: raw.render_layer_capacity,
     };
   }
 }

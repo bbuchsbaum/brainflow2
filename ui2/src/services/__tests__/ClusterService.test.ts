@@ -10,6 +10,10 @@ vi.mock('../atlasRegionLookup', () => ({
 }));
 
 import {
+  atDisplayPrecision,
+  clusterTestText,
+  clusterThresholds,
+  displayThresholdBounds,
   formatClusterP,
   isMaskLike,
   ClusterService,
@@ -104,6 +108,100 @@ describe('ClusterService', () => {
     expect(t.invoke).toHaveBeenCalledWith('volume_extremum', { request: { layerId: 'z', volumeId: 'vol-z', kind: 'max' } });
     expect(setCrosshair).toHaveBeenCalledWith([-39.5, -19.5, 50.5], true, false, undefined, { snap: false });
     setCrosshair.mockRestore();
+  });
+});
+
+describe('ClusterService · clusters on load (QA features §8)', () => {
+  beforeEach(() => {
+    useClusterStore.getState().reset();
+    useLayerStore.setState({
+      layers: [{ id: 'z', name: 'zmap_synthetic.nii.gz', volumeId: 'vol-z', type: 'volume', visible: true, order: 0 } as never],
+    });
+  });
+
+  it('computeQuiet returns the result without touching the panel status or table', async () => {
+    const t = transport(TABLE);
+    const result = await new ClusterService(t).computeQuiet(
+      { layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 },
+      () => true,
+    );
+    // Its own backend order (never cancels a Compute) and no label volume (review H1, H2).
+    expect(t.invoke).toHaveBeenCalledWith('compute_clusters', {
+      request: { layerId: 'z', volumeId: 'vol-z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1, emitLabelVolume: false, quiet: true },
+    });
+    expect(result?.regions).toEqual(['L_sensorimotor', null]);
+    expect(useClusterStore.getState()).toMatchObject({ status: 'idle', result: null });
+  });
+
+  it('computeQuiet drops a stale or superseded result', async () => {
+    const service = new ClusterService(transport(TABLE));
+    const input = { layerId: 'z', threshold: 3.1, sign: 'both' as const, connectivity: 26 as const, minVoxels: 1 };
+    await expect(service.computeQuiet(input, () => false)).resolves.toBeNull();
+    const cancelled = { invoke: vi.fn(async () => Promise.reject({ InputError: { code: 4077, details: 'superseded' } })) };
+    await expect(new ClusterService(cancelled as unknown as BackendTransport).computeQuiet(input, () => true)).resolves.toBeNull();
+  });
+
+  it('goToPeak moves the crosshair exactly and selects the row of a shown table', async () => {
+    const service = new ClusterService(transport(TABLE));
+    await service.compute({ layerId: 'z', threshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
+    useClusterStore.getState().setPeak('z', { threshold: 3.1, sign: 'both', value: 5.965, mm: [-39.5, -19.5, 50.5], clusters: 2 });
+    const setCrosshair = vi.spyOn(useViewStateStore.getState(), 'setCrosshair').mockResolvedValue();
+    await service.goToPeak('z');
+    expect(setCrosshair).toHaveBeenCalledWith([-39.5, -19.5, 50.5], true, false, undefined, { snap: false });
+    expect(useClusterStore.getState().selectedId).toBe(1);
+    setCrosshair.mockRestore();
+  });
+});
+
+describe('asymmetric display thresholds (QA 2026-10-31 N6)', () => {
+  it('splits the hidden band into per-tail thresholds at display precision', () => {
+    expect(atDisplayPrecision(Math.fround(3.92923))).toBe(3.93);
+    expect(atDisplayPrecision(Math.fround(3.1))).toBe(3.1);
+    expect(displayThresholdBounds([-3.1, Math.fround(3.92923)])).toEqual({ positive: 3.93, negative: 3.1 });
+    expect(displayThresholdBounds([0, 0])).toBeNull();
+  });
+
+  it('carries both tails only for sign "both" and only when they differ', () => {
+    const b = { positive: 3.93, negative: 3.1 };
+    expect(clusterThresholds(b, 'both')).toEqual({ threshold: 3.93, negativeThreshold: 3.1, sign: 'both' });
+    expect(clusterThresholds(b, 'positive')).toEqual({ threshold: 3.93, negativeThreshold: null, sign: 'positive' });
+    // The negative tail's own threshold.
+    expect(clusterThresholds(b, 'negative')).toEqual({ threshold: 3.1, negativeThreshold: null, sign: 'negative' });
+    expect(clusterThresholds({ positive: 3.1, negative: 3.1 }, 'both')).toEqual({ threshold: 3.1, negativeThreshold: null, sign: 'both' });
+  });
+
+  it('a one-sided band thresholds one tail, never a 0 on the other (review H2)', () => {
+    // [0, t]: every negative value is shown, so only the positive tail is thresholded.
+    expect(displayThresholdBounds([0, 3.93])).toEqual({ positive: 3.93, negative: null });
+    expect(displayThresholdBounds([-3.1, 0])).toEqual({ positive: null, negative: 3.1 });
+    // [2, 5]: everything below 2 is shown (negatives too).
+    expect(displayThresholdBounds([2, 5])).toEqual({ positive: 5, negative: null });
+    expect(displayThresholdBounds([-5, -2])).toEqual({ positive: null, negative: 5 });
+    // Sign "both" over a one-sided band searches the thresholded sign only.
+    expect(clusterThresholds({ positive: 3.93, negative: null }, 'both')).toEqual({ threshold: 3.93, negativeThreshold: null, sign: 'positive' });
+    expect(clusterThresholds({ positive: null, negative: 3.1 }, 'both')).toEqual({ threshold: 3.1, negativeThreshold: null, sign: 'negative' });
+    // Asking only for the unthresholded tail: nothing to search.
+    expect(clusterThresholds({ positive: 3.93, negative: null }, 'negative')).toBeNull();
+  });
+
+  it('says the test the table was formed with', () => {
+    expect(clusterTestText({ threshold: 3.93, negativeThreshold: 3.1, sign: 'both' }, 'z')).toBe('z > 3.93 or z < \u22123.1');
+    expect(clusterTestText({ threshold: 3.1, sign: 'both' }, 'z')).toBe('|z| > 3.1');
+    expect(clusterTestText({ threshold: 3.1, sign: 'negative' }, 'z')).toBe('z < \u22123.1');
+    expect(clusterMethodsSentence({ ...TABLE, threshold: 3.93, negativeThreshold: 3.1 }, 'z')).toMatch(
+      /^26-connected clusters of z > 3\.93 or z < \u22123\.1, two-tailed, uncorrected/,
+    );
+  });
+
+  it('sends the negative tail to compute_clusters', async () => {
+    useLayerStore.setState({
+      layers: [{ id: 'z', name: 'z', volumeId: 'vol-z', type: 'volume', visible: true, order: 0 } as never],
+    });
+    const t = transport(TABLE);
+    await new ClusterService(t).compute({ layerId: 'z', threshold: 3.93, negativeThreshold: 3.1, sign: 'both', connectivity: 26, minVoxels: 1 });
+    expect(t.invoke).toHaveBeenCalledWith('compute_clusters', {
+      request: expect.objectContaining({ threshold: 3.93, negativeThreshold: 3.1 }),
+    });
   });
 });
 

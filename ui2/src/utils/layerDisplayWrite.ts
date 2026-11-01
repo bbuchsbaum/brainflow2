@@ -8,6 +8,7 @@
  */
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { getSceneHistory } from '@/services/SceneHistoryService';
 import { compareEditTarget, isFieldLinked } from '@/utils/compareDisplay';
 import type { LayerRenderOverride, PanelOverrideField } from '@/types/comparison';
 
@@ -18,17 +19,21 @@ export function writeLayerDisplayField<F extends PanelOverrideField>(
 ): void {
   // The active comparison workspace's edit target (null outside Compare).
   const compare = compareEditTarget();
-  if (compare && !isFieldLinked(compare.mode, field)) {
-    const store = useComparisonStore.getState();
-    if (compare.scope === 'panel') {
-      store.setPanelOverride(compare.workspaceId, compare.panel.id, layerId, field, value as never);
-      return;
+  // A user's edit: undoable (a panel's own override too), a drag being one step.
+  const key = `${field}:${layerId}${compare?.scope === 'panel' ? `@${compare.panel.id}` : ''}`;
+  getSceneHistory().record(key, field, () => {
+    if (compare && !isFieldLinked(compare.mode, field)) {
+      const store = useComparisonStore.getState();
+      if (compare.scope === 'panel') {
+        store.setPanelOverride(compare.workspaceId, compare.panel.id, layerId, field, value as never);
+        return;
+      }
+      // "Both": the shared value, and no panel keeps its own.
+      store.clearPanelOverride(compare.workspaceId, null, layerId, field);
     }
-    // "Both": the shared value, and no panel keeps its own.
-    store.clearPanelOverride(compare.workspaceId, null, layerId, field);
-  }
-  useViewStateStore.getState().setViewState((state) => {
-    const layer = state.layers.find((l) => l.id === layerId);
-    if (layer) (layer as unknown as Record<string, unknown>)[field] = value;
+    useViewStateStore.getState().setViewState((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer) (layer as unknown as Record<string, unknown>)[field] = value;
+    });
   });
 }

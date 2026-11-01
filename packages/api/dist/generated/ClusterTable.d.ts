@@ -5,7 +5,15 @@ import type { ExtentWithheld } from "./ExtentWithheld";
 import type { SearchVolume } from "./SearchVolume";
 export type ClusterTable = {
     clusters: Array<ClusterSummary>;
+    /**
+     * Positive-tail threshold (and the negative one unless `negativeThreshold`).
+     */
     threshold: number;
+    /**
+     * Negative-tail threshold when it differs from `threshold` (sign "both"
+     * or "negative"); absent for a symmetric search.
+     */
+    negativeThreshold?: number;
     sign: ClusterSign;
     connectivity: number;
     minVoxels: number;

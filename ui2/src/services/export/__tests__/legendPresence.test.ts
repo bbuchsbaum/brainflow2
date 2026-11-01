@@ -231,3 +231,36 @@ describe('legendInPanes (QA 2026-10-29 §13)', () => {
     ).rejects.toThrow('superseded');
   });
 });
+
+describe('opaque black probe background (QA 2026-10-30 F18)', () => {
+  // render_view clears to opaque black, not transparent: label 0 reads back
+  // as (0, 0, 0, 255).
+  const black: [number, number, number, number] = [0, 0, 0, 255];
+
+  it('lists no region when the slice holds only background', () => {
+    const pixels = new Uint8Array(Array.from({ length: 16 }, () => black).flat());
+    expect(presentLegendEntries(legend, [pixels])).toEqual([]);
+  });
+
+  it('keeps the drawn regions on an opaque black background', () => {
+    const pixels = new Uint8Array([...black, 0, 118, 14, 255, ...black, 236, 13, 176, 255]);
+    expect(presentLegendEntries(legend, [pixels])).toEqual([thalamus, putamen]);
+  });
+
+  it('still answers null for unreadable colours on the background', () => {
+    const pixels = new Uint8Array([...black, 90, 90, 90, 255]);
+    expect(presentLegendEntries(legend, [pixels])).toBeNull();
+  });
+
+  it('keeps a background-coloured entry next to the regions found', () => {
+    const ink = entry(99, 'Ink', [0, 0, 0]);
+    const pixels = new Uint8Array([...black, 0, 118, 14, 255]);
+    expect(presentLegendEntries([...legend, ink], [pixels])).toEqual([thalamus, ink]);
+  });
+
+  it('a background-coloured entry does not make an unreadable LUT look readable', () => {
+    const ink = entry(99, 'Ink', [1, 0, 1]);
+    const unreadable = new Uint8Array([...black, 90, 90, 90, 255]);
+    expect(presentLegendEntries([...legend, ink], [unreadable])).toBeNull();
+  });
+});

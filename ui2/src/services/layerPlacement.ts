@@ -15,13 +15,22 @@
  *   one moved just above a T1 stays above that T1 and any anatomy opened
  *   later. Only when every layer has been moved by hand do their bands
  *   decide.
+ * - **Field of view, within an image band:** a new image that covers a
+ *   much smaller one of its band (a whole-head T1 opened after an oblique
+ *   slab) goes under it rather than hiding it (QA 2026-10-30 F38). It is
+ *   then not "on" that image and keeps full opacity.
  * - **Opacity:** a continuous image (band 1 or 2) that lands on a visible
- *   layer of its band opens at {@link STACKED_CONTINUOUS_OPACITY}. A
+ *   continuous layer of its band, or a band-2 image (BOLD, a mean EPI) that
+ *   lands on visible anatomy, opens at {@link STACKED_CONTINUOUS_OPACITY}:
+ *   an opaque EPI hides the anatomy it is shown on (QA 2026-10-30 F16). A
  *   categorical overlay (labels, atlas, mask) opened over a visible
- *   statistic or categorical layer starts at {@link STACKED_OVERLAY_OPACITY},
- *   so the layer under it stays readable. Statistics keep full opacity:
- *   their sub-threshold voxels are already transparent.
+ *   statistic starts at {@link LABEL_OVER_STATISTIC_OPACITY}, so the blobs
+ *   stay visible; over visible images or other labels it starts at
+ *   {@link LABEL_OVER_IMAGE_OPACITY}. Statistics keep full
+ *   opacity: their sub-threshold voxels are already transparent.
  */
+
+import { looksLikeSegmentation } from '@/utils/labelTable';
 
 /** The fields of a layer (and its metadata) the rule reads. */
 export interface PlacementLayer {
@@ -40,6 +49,8 @@ export interface PlacementLayer {
 
 export interface PlacementMetadata {
   isBinaryLike?: boolean;
+  /** Axis-aligned world box of the image (mm), for the field-of-view rule. */
+  worldBounds?: { min: readonly number[]; max: readonly number[] };
   dataRange?: { min: number; max: number };
   /** On-disk voxel type of the source ('u8', 'i16', 'float32', …). */
   nativeDtype?: string;
@@ -47,8 +58,20 @@ export interface PlacementMetadata {
 
 export type PlacementRole = 'underlay' | 'overlay';
 
-/** Start opacity of a categorical overlay opened over another overlay. */
-export const STACKED_OVERLAY_OPACITY = 0.6;
+/**
+ * Start opacity of a label, atlas or mask layer opened over a visible
+ * statistic map: the lowest, so the blobs stay visible (review M4: it was
+ * 0.6, above the 0.35 over anatomy). Such a layer opens as an outline
+ * (LabelTableService), whose alpha has a floor (utils/labelDisplay.ts).
+ */
+export const LABEL_OVER_STATISTIC_OPACITY = 0.25;
+
+/**
+ * Start opacity of a label, atlas or mask layer opened over visible images
+ * with no statistic or label layer under it (one rule for every path: ⌘K,
+ * the Atlases menu, a file).
+ */
+export const LABEL_OVER_IMAGE_OPACITY = 0.35;
 
 /** Start opacity of a continuous image opened on one of its own band. */
 export const STACKED_CONTINUOUS_OPACITY = 0.5;
@@ -79,6 +102,22 @@ export function isSmallIntegerLabelMap(meta?: PlacementMetadata): boolean {
   return range.min >= 0 && range.max >= 1 && range.max <= SMALL_LABEL_MAX && Number.isInteger(range.max);
 }
 
+/** The file or layer name reads as a segmentation (dseg, aseg, roi, atlas…). */
+function namedLikeSegmentation(layer: Pick<PlacementLayer, 'name' | 'sourcePath'>): boolean {
+  const file = layer.sourcePath?.split(/[\\/]/).pop() ?? '';
+  return looksLikeSegmentation(file.toLowerCase()) || looksLikeSegmentation((layer.name ?? '').toLowerCase());
+}
+
+/**
+ * A small-integer image that is evidently a label map: its name says so
+ * (roi_3, sub-01_dseg). Without that, the same range is as likely a count
+ * or ordinal map (lesion overlap n = 20, subject counts, node degree), which
+ * is drawn as values, not categories (review of QA 2026-10-30 F17).
+ */
+function isNamedSmallLabelMap(layer: PlacementLayer, meta?: PlacementMetadata): boolean {
+  return isSmallIntegerLabelMap(meta) && namedLikeSegmentation(layer);
+}
+
 function isCategorical(layer: PlacementLayer, meta?: PlacementMetadata): boolean {
   if (layer.type === 'label' || layer.isLabelMap === true || layer.source === 'atlas') return true;
   // A binary image is a mask whatever its name or source (lesion.nii.gz,
@@ -89,7 +128,27 @@ function isCategorical(layer: PlacementLayer, meta?: PlacementMetadata): boolean
     // (non-binary) are images.
     return layer.source !== 'template';
   }
-  return layer.source !== 'template' && isSmallIntegerLabelMap(meta);
+  return layer.source !== 'template' && isNamedSmallLabelMap(layer, meta);
+}
+
+/**
+ * The layer type an image opened as plain anatomy takes once its data is
+ * known: a true {0, 1} image is drawn as a label map whatever its name (QA
+ * 2026-10-30 F17: a uint8 0/1 lesion opened as a grey volume over the
+ * head). Other small-integer images are not retyped: a segmentation-named
+ * one was typed 'label' at load (inferLayerTypeFromName), and an unnamed one
+ * may be a count map. Null when the type stands.
+ */
+export function categoricalTypeFromData(
+  layer: Pick<PlacementLayer, 'type' | 'source' | 'volumeType'>,
+  meta?: PlacementMetadata,
+): 'label' | null {
+  // A file named like a mask (p4_brain_mask.nii) is typed 'mask' at load and
+  // drew as a white wash; a true {0, 1} one is a label map too (QA
+  // 2026-10-31 N11). Template masks stay masks.
+  if ((layer.type !== 'anatomical' && layer.type !== 'mask') || layer.volumeType === 'TimeSeries4D') return null;
+  if (layer.source === 'template' || layer.source === 'atlas' || layer.source === 'parcel-table') return null;
+  return meta?.isBinaryLike === true ? 'label' : null;
 }
 
 /** The stack band a layer is placed in at load. */
@@ -100,6 +159,10 @@ export function placementBand(layer: PlacementLayer, meta?: PlacementMetadata): 
   // (−2.5…6.1) is not "signed" but is still a statistic. `statistic` carries
   // the NIfTI intent / SPM descrip (backend) and zstat/tstat names.
   if (layer.statistic || looksLikeStatisticName(layer)) return PlacementBand.Statistic;
+  // An unnamed small-integer map (lesion overlap, subject counts) is a
+  // derived value map shown over the images, like a statistic, and under
+  // labels and atlases.
+  if (layer.source !== 'template' && isSmallIntegerLabelMap(meta)) return PlacementBand.Statistic;
   // A functional or 4D image is continuous even when signed (demeaned or
   // z-scored BOLD): only a declared or named statistic, above, moves it.
   if (layer.type === 'functional' || layer.volumeType === 'TimeSeries4D') return PlacementBand.Continuous;
@@ -147,19 +210,51 @@ export function planLayerPlacement(
   const placed = others.filter((layer) => !layer.userMoved);
   const reference = placed.length > 0 ? placed : others;
   const anchor = [...reference].reverse().find((layer) => bandOf(layer) <= band);
-  const index = anchor ? others.indexOf(anchor) + 1 : 0;
+  let index = anchor ? others.indexOf(anchor) + 1 : 0;
 
   const visible = (layer: PlacementLayer) => layer.visible !== false;
   if (band <= PlacementBand.Continuous) {
-    const onOwnBand = others.slice(0, index).some((layer) => visible(layer) && bandOf(layer) === band);
-    return onOwnBand ? { index, opacity: STACKED_CONTINUOUS_OPACITY } : { index };
+    const box = metadataOf(added.id)?.worldBounds;
+    while (index > 0) {
+      const below = others[index - 1];
+      if (below.userMoved || bandOf(below) !== band || !coversMuchSmaller(box, metadataOf(below.id)?.worldBounds)) break;
+      index -= 1;
+    }
+    const onContinuous = others
+      .slice(0, index)
+      .some((layer) => visible(layer) && bandOf(layer) <= band);
+    return onContinuous ? { index, opacity: STACKED_CONTINUOUS_OPACITY } : { index };
   }
-  const overVisibleOverlay = others.some(
-    (layer) => visible(layer) && bandOf(layer) >= PlacementBand.Statistic,
-  );
-  return overVisibleOverlay && band === PlacementBand.Label
-    ? { index, opacity: STACKED_OVERLAY_OPACITY }
-    : { index };
+  if (band !== PlacementBand.Label) return { index };
+  const overStatistic = others.some((layer) => visible(layer) && bandOf(layer) === PlacementBand.Statistic);
+  if (overStatistic) return { index, opacity: LABEL_OVER_STATISTIC_OPACITY };
+  // Labels, atlases and masks over visible images or other labels: a
+  // translucent fill (QA 2026-10-31 N11: a brain-sized mask opened as an
+  // opaque green brain).
+  const overVisible = others.some((layer) => visible(layer));
+  return overVisible ? { index, opacity: LABEL_OVER_IMAGE_OPACITY } : { index };
+}
+
+/** A box at least this many times the volume of another "covers" it. */
+const COVER_VOLUME_RATIO = 4;
+
+/**
+ * `outer` has at least {@link COVER_VOLUME_RATIO} times the volume of
+ * `inner` and contains its centre: a whole-head image over a slab or patch.
+ */
+export function coversMuchSmaller(
+  outer: PlacementMetadata['worldBounds'],
+  inner: PlacementMetadata['worldBounds'],
+): boolean {
+  if (!outer || !inner) return false;
+  const volume = (b: NonNullable<PlacementMetadata['worldBounds']>) =>
+    [0, 1, 2].reduce((v, axis) => v * Math.max(0, b.max[axis] - b.min[axis]), 1);
+  const small = volume(inner);
+  if (!(small > 0) || !(volume(outer) >= COVER_VOLUME_RATIO * small)) return false;
+  return [0, 1, 2].every((axis) => {
+    const centre = (inner.min[axis] + inner.max[axis]) / 2;
+    return centre >= outer.min[axis] && centre <= outer.max[axis];
+  });
 }
 
 /**

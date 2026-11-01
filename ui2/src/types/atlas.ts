@@ -187,6 +187,16 @@ export interface AtlasStats {
   is3D: boolean;
   lastAllocationMs?: number;
   lastReleaseMs?: number;
+  /**
+   * The render loop's volume texture slots: how many layers can hold a GPU
+   * texture at once. Undefined from an older backend.
+   */
+  volumeTextureSlots?: number;
+  /**
+   * Layers the render state takes at once ("Maximum layer count N reached",
+   * code 1885 past it). Undefined from an older backend.
+   */
+  renderLayerCapacity?: number;
 }
 
 // Default filter for initializing the UI

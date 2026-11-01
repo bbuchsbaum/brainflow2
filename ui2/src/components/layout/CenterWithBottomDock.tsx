@@ -28,10 +28,12 @@ import React from 'react';
 
 import { BottomWorkbenchDock } from '@/components/layout/BottomWorkbenchDock';
 import {
+  DOCK_HEIGHT_DEFAULTS,
+  dockHeightMin,
+  type DockHeightKey,
   DEFAULT_DOCK_TAB,
   DOCK_HEIGHT_MAX,
   DOCK_HEIGHT_MIN,
-  DOCK_HEIGHT_PREFERRED,
   DOCK_TAB_BAR_HEIGHT,
 } from '@/components/layout/bottomWorkbenchDock.constants';
 import { ActivityPanel } from '@/components/panels/ActivityPanel';
@@ -45,12 +47,22 @@ const RESIZER_PX = 6;
 
 export interface CenterWithBottomDockProps {
   children: React.ReactNode;
+  /**
+   * Which tool's dock height this tab uses and remembers (N13): imaging views
+   * share one, Set studio, BIDS and Analysis keep their own.
+   */
+  heightKey?: DockHeightKey;
 }
 
-export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ children }) => {
+export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
+  children,
+  heightKey = 'imaging',
+}) => {
   const open = useLayoutSettingsStore((s) => s.bottomDockOpen);
-  const storedHeight = useLayoutSettingsStore((s) => s.bottomDockHeight);
+  const storedHeight =
+    useLayoutSettingsStore((s) => s.bottomDockHeights[heightKey]) ?? DOCK_HEIGHT_DEFAULTS[heightKey];
   const setBottomDockHeight = useLayoutSettingsStore((s) => s.setBottomDockHeight);
+  const minDockHeight = dockHeightMin(heightKey);
   const setBottomDockOpen = useLayoutSettingsStore((s) => s.setBottomDockOpen);
   const minimized = useLayoutSettingsStore((s) => s.bottomDockMinimized);
   const setBottomDockMinimized = useLayoutSettingsStore((s) => s.setBottomDockMinimized);
@@ -81,7 +93,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ chil
     rootHeight > 0
       ? Math.min(DOCK_HEIGHT_MAX, Math.max(DOCK_HEIGHT_MIN, rootHeight * DOCK_MAX_FRACTION))
       : DOCK_HEIGHT_MAX;
-  const dockHeight = Math.min(dragHeight ?? storedHeight ?? DOCK_HEIGHT_PREFERRED, maxDockHeight);
+  const dockHeight = Math.min(dragHeight ?? storedHeight, maxDockHeight);
 
   // When minimized, the dock collapses to just its tab bar and is not resizable.
   const effectiveDockHeight = minimized ? DOCK_TAB_BAR_HEIGHT : dockHeight;
@@ -105,19 +117,19 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ chil
       const onMove = (ev: PointerEvent) => {
         // Dock occupies the bottom; its top edge follows the pointer.
         const fromBottom = rootRect.bottom - ev.clientY - RESIZER_PX / 2;
-        latest = Math.round(Math.max(DOCK_HEIGHT_MIN, Math.min(maxPx, fromBottom)));
+        latest = Math.round(Math.max(minDockHeight, Math.min(maxPx, fromBottom)));
         setDragHeight(latest);
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
-        setBottomDockHeight(latest);
+        setBottomDockHeight(latest, heightKey);
         setDragHeight(null);
       };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
-    [dockHeight, setBottomDockHeight],
+    [dockHeight, heightKey, minDockHeight, setBottomDockHeight],
   );
 
   return (
@@ -126,14 +138,22 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ chil
       data-testid="center-with-bottom-dock"
       style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
     >
-      {/* View pane — definite height via absolute insets (bottom = reserve). */}
+      {/* View pane — definite height via absolute insets (bottom = reserve).
+          It clips and stacks below the dock: a view whose content outgrows
+          the pane (Integrated's split panes and surface canvas in a short
+          column) drew over the dock, which then looked gone (QA 2026-10-31
+          N3). */}
       <div
+        data-testid="center-view-pane"
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
           bottom: bottomReserve,
+          overflow: 'hidden',
+          isolation: 'isolate',
+          zIndex: 0,
         }}
       >
         {children}
@@ -161,12 +181,14 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ chil
             />
           )}
           <div
+            data-testid="center-dock-pane"
             style={{
               position: 'absolute',
               left: 0,
               right: 0,
               bottom: 0,
               height: `${effectiveDockHeight}px`,
+              zIndex: 3,
             }}
           >
             <BottomWorkbenchDock

@@ -195,9 +195,56 @@ describe('DisplayLifecycleOrchestrator', () => {
     expect(failure.cause).toBe(backendError);
     expect(mockEventBus.emit).toHaveBeenCalledWith('file.error', { path: '/cache/remote.nii.gz', error: failure });
     expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
-      type: 'error', message: 'Failed to load remote.nii.gz: GPU upload failed: fixture reason',
+      type: 'error', message: 'Failed to load remote.nii.gz: GPU upload failed: fixture reason', logSource: 'volume',
     });
     expect(mockQueueState.markComplete).not.toHaveBeenCalled();
+  });
+
+  describe('an open never ends silently (QA 2026-10-30 F29)', () => {
+    it('logs an open that was interrupted, not cancelled by the user', async () => {
+      mockApiService.loadFile.mockResolvedValue({ id: 'vol-1', name: 'a.nii', dims: [2, 2, 2], dtype: 'f32' });
+      mockVolumeLoadingService.loadVolume.mockRejectedValueOnce(new Error('Image selection cancelled'));
+      const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+      await DisplayLifecycleOrchestrator.getInstance().loadFile({ path: '/d/a.nii', ingress: 'file-browser' });
+      expect(mockQueueState.cancel).toHaveBeenCalledWith('queue-1');
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
+        type: 'warning',
+        message: 'Did not open a.nii: the load was interrupted',
+        logSource: 'volume',
+      });
+    });
+
+    it('a closed tab is reported as a closed view, not a user cancel (review 7)', async () => {
+      const state = mockViewStateStoreState as unknown as { activeWorkspaceKey?: string; workspaceViewStates?: Map<string, unknown> };
+      state.activeWorkspaceKey = 'ws-closed';
+      state.workspaceViewStates = new Map();
+      // Closing the tab also dropped the queue item.
+      mockQueueState.startLoading.mockImplementationOnce(() => {});
+      try {
+        const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+        await DisplayLifecycleOrchestrator.getInstance().loadFile({ path: '/d/b.nii', ingress: 'file-browser' });
+        expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
+          type: 'warning',
+          message: 'Did not open b.nii: the view it was opened in was closed',
+          logSource: 'volume',
+        });
+      } finally {
+        delete state.activeWorkspaceKey;
+        delete state.workspaceViewStates;
+      }
+    });
+
+    it('logs a second open of a file that is still opening', async () => {
+      mockQueueState.isLoading.mockReturnValue(true);
+      const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+      await DisplayLifecycleOrchestrator.getInstance().loadFile({ path: '/d/a.nii', ingress: 'file-browser' });
+      expect(mockQueueState.enqueue).not.toHaveBeenCalled();
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
+        type: 'warning',
+        message: 'Already opening a.nii',
+        logSource: 'volume',
+      });
+    });
   });
 
   it('keeps the file name and the label type for label maps (BIDS dseg, intent 1002)', async () => {

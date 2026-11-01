@@ -90,6 +90,25 @@ describe('ConfirmationDialogHost', () => {
     await expect(pending!).resolves.toBe('Renamed Layout');
   });
 
+  // QA 2026-10-31 N5: the Save Layout name field showed a capitalisation bubble.
+  it('the prompt field has no autocorrect, autocapitalise or spellcheck', async () => {
+    render(<ConfirmationDialogHost />);
+    await waitFor(() => {
+      expect(useConfirmationDialogStore.getState().hostMounted).toBe(true);
+    });
+    await act(async () => {
+      void getConfirmationService().promptLayoutSaveName('qa-run4');
+    });
+    const input = await screen.findByDisplayValue('qa-run4');
+    expect(input).toHaveAttribute('autocorrect', 'off');
+    expect(input).toHaveAttribute('autocapitalize', 'off');
+    expect(input).toHaveAttribute('autocomplete', 'off');
+    expect(input).toHaveAttribute('spellcheck', 'false');
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Escape' });
+    });
+  });
+
   it('dismisses confirm requests with Escape', async () => {
     render(<ConfirmationDialogHost />);
     await waitFor(() => {

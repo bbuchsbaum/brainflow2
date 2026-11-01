@@ -2,6 +2,8 @@ import React from 'react';
 import { Button } from '@/components/ui/Button';
 import type { StudioSupportKind } from '@/types/studio';
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
+import { FlexibleSlicePanel } from '@/components/views/FlexibleSlicePanel';
+import type { ViewType } from '@/types/coordinates';
 import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanelLazy';
 import { useStudioMemberRenderScope } from '@/hooks/useStudioMemberRenderScope';
 
@@ -18,6 +20,11 @@ interface StudioRenderAdapterProps {
    * only that member's layer, never the workspace scene.
    */
   memberSourcePath?: string | null;
+  /**
+   * With `hideChrome`, show this one plane as a single large view instead of
+   * the three orthogonal views (the Deck and Compare pane A; QA N13 b/c).
+   */
+  plane?: ViewType;
 }
 
 export function StudioRenderAdapter({
@@ -28,12 +35,19 @@ export function StudioRenderAdapter({
   actions,
   hideChrome,
   memberSourcePath,
+  plane,
 }: StudioRenderAdapterProps) {
   useStudioMemberRenderScope(memberSourcePath, supportKind === 'volume');
 
   if (hideChrome) {
     if (supportKind === 'volume') {
-      return <OrthogonalViewContainer className="h-full w-full" />;
+      return plane ? (
+        <div className="h-full w-full" data-studio-plane={plane}>
+          <FlexibleSlicePanel key={plane} viewId={plane} />
+        </div>
+      ) : (
+        <OrthogonalViewContainer className="h-full w-full" />
+      );
     }
     if (supportKind === 'surface') {
       return <SurfaceViewPanel />;

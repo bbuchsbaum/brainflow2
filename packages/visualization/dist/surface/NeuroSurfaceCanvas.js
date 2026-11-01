@@ -346,9 +346,12 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     }, [isInitialized, onExporterChange]);
     useEffect(() => {
         return () => {
-            if (viewerRef.current) {
-                viewerRef.current.dispose();
+            const viewer = viewerRef.current;
+            if (viewer) {
+                // Clear the ref first: dispose() releases the WebGL context, and the
+                // context-lost listener must not report that teardown as a loss.
                 viewerRef.current = null;
+                viewer.dispose();
             }
             renderedSurfacesRef.current.clear();
             renderedSurfaceInputsRef.current.clear();
@@ -405,9 +408,15 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 if (viewer.renderer?.domElement) {
                     const canvas = viewer.renderer.domElement;
                     canvas.addEventListener('webglcontextlost', () => {
+                        // A disposed viewer (unmount, layout rebuild) loses its context on
+                        // purpose; only a live one losing it is worth a warning.
+                        if (viewerRef.current !== viewer)
+                            return;
                         warn('WebGL context lost; the surface view stops drawing until it is restored');
                     });
                     canvas.addEventListener('webglcontextrestored', () => {
+                        if (viewerRef.current !== viewer)
+                            return;
                         warn('WebGL context restored');
                         viewerRef.current?.requestRender();
                     });

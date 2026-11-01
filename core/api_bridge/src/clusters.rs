@@ -122,9 +122,17 @@ pub struct ComputeClustersRequest {
     #[ts(optional = nullable)]
     pub layer_id: Option<String>,
     /// Absolute threshold (>= 0): positive voxels need `v > threshold`,
-    /// negative voxels `v < -threshold`. Also the cluster-forming threshold
-    /// for `extentP`.
+    /// negative voxels `v < -threshold` (unless `negativeThreshold` is set).
+    /// Also the cluster-forming threshold for `extentP`.
     pub threshold: f32,
+    /// Absolute threshold (>= 0) of the negative tail when it differs from
+    /// `threshold` (an asymmetric display threshold, e.g. −3.1 ≤ z ≤ 3.93
+    /// hidden): negative voxels need `v < -negativeThreshold`. Default
+    /// `threshold`. Cluster p needs one forming threshold for both tails, so
+    /// `extent` with two different thresholds and sign "both" is refused.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub negative_threshold: Option<f32>,
     /// Default "both".
     #[serde(default)]
     #[ts(optional = nullable)]
@@ -172,6 +180,13 @@ pub struct ComputeClustersRequest {
     #[serde(default)]
     #[ts(optional = nullable)]
     pub search_mask: Option<String>,
+    /// A background request (the UI's clusters on load, default false): it is
+    /// superseded only by newer background requests for the volume, never
+    /// cancels a user's Compute and is never cancelled by one, and it never
+    /// emits a label volume (that would replace the one of the table shown).
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub quiet: Option<bool>,
 }
 
 /// Which voxels were searched.
@@ -303,7 +318,13 @@ pub struct ClusterExtentInference {
 #[serde(rename_all = "camelCase")]
 pub struct ClusterTable {
     pub clusters: Vec<ClusterSummary>,
+    /// Positive-tail threshold (and the negative one unless `negativeThreshold`).
     pub threshold: f32,
+    /// Negative-tail threshold when it differs from `threshold` (sign "both"
+    /// or "negative"); absent for a symmetric search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub negative_threshold: Option<f32>,
     pub sign: ClusterSign,
     pub connectivity: u8,
     pub min_voxels: u32,
@@ -354,6 +375,8 @@ pub struct ExtentWithheld {
 
 pub(crate) struct ClusterParams {
     pub threshold: f32,
+    /// Negative-tail threshold when it differs from `threshold`.
+    pub negative_threshold: Option<f32>,
     pub sign: ClusterSign,
     pub connectivity: u8,
     pub min_voxels: u32,
@@ -388,15 +411,26 @@ pub(crate) fn has_generation(volume_id: &str) -> bool {
         .contains_key(volume_id)
 }
 
+/// Supersede order of a request: user requests per volume, background
+/// (`quiet`) requests in their own order, so neither cancels the other.
+pub(crate) fn generation_key(volume_id: &str, quiet: bool) -> String {
+    if quiet {
+        format!("auto:{volume_id}")
+    } else {
+        volume_id.to_string()
+    }
+}
+
 /// Drop the generation counter of an unloaded volume (unload path), so the
 /// map does not grow with every volume ever clustered. A computation still
 /// running for it keeps its own `Arc` and finishes or is refused at
 /// registration.
 pub(crate) fn forget_generation(volume_id: &str) {
-    generations()
+    let mut map = generations()
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .remove(volume_id);
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.remove(volume_id);
+    map.remove(&generation_key(volume_id, true));
 }
 
 #[derive(Clone)]
@@ -691,6 +725,7 @@ pub(crate) fn find_clusters(
         });
     }
     let threshold = params.threshold;
+    let negative_threshold = params.negative_threshold.unwrap_or(threshold);
     // Voxels outside an explicit search mask never pass.
     let polarity_of = |index: usize| -> Option<ClusterPolarity> {
         let v = frame.values[index];
@@ -698,7 +733,7 @@ pub(crate) fn find_clusters(
             None
         } else if v > threshold && params.sign != ClusterSign::Negative {
             Some(ClusterPolarity::Positive)
-        } else if v < -threshold && params.sign != ClusterSign::Positive {
+        } else if v < -negative_threshold && params.sign != ClusterSign::Positive {
             Some(ClusterPolarity::Negative)
         } else {
             None
@@ -812,6 +847,7 @@ pub(crate) fn find_clusters(
     let table = ClusterTable {
         clusters,
         threshold,
+        negative_threshold: params.negative_threshold,
         sign: params.sign,
         connectivity: params.connectivity,
         min_voxels: params.min_voxels,
@@ -1057,18 +1093,44 @@ pub(crate) async fn compute_clusters_impl(
     state: &BridgeState,
 ) -> BridgeResult<ClusterTable> {
     let connectivity = request.connectivity.unwrap_or(DEFAULT_CONNECTIVITY);
-    let max_clusters = validate_params(request.threshold, connectivity, request.max_clusters)?;
+    let quiet = request.quiet.unwrap_or(false);
+    let sign = request.sign.unwrap_or_default();
+    if let Some(t) = request.negative_threshold {
+        if !t.is_finite() || t < 0.0 {
+            return Err(BridgeError::Input {
+                code: 4075,
+                details: "Negative cluster threshold must be a finite absolute value >= 0".into(),
+            });
+        }
+    }
+    // One forming threshold per searched tail, normalised here so the table,
+    // the pre-threshold check and cluster p all read `threshold`: a negative
+    // search uses the negative tail's own value, a positive search ignores it,
+    // and the same value twice is the symmetric search.
+    let (threshold, negative_threshold) = match (sign, request.negative_threshold) {
+        (ClusterSign::Negative, Some(t)) => (t, None),
+        (ClusterSign::Positive, _) => (request.threshold, None),
+        (ClusterSign::Both, Some(t)) if t != request.threshold => (request.threshold, Some(t)),
+        _ => (request.threshold, None),
+    };
+    let max_clusters = validate_params(threshold, connectivity, request.max_clusters)?;
     let (max_peaks, min_peak_distance_mm) =
         validate_peak_params(request.max_peaks_per_cluster, request.min_peak_distance_mm)?;
+    if negative_threshold.is_some() && request.extent.is_some() {
+        return Err(extent_error(
+            "Cluster p needs one cluster-forming threshold for both tails: make the threshold symmetric, or search one sign.",
+        ));
+    }
     let params = ClusterParams {
-        threshold: request.threshold,
-        sign: request.sign.unwrap_or_default(),
+        threshold,
+        negative_threshold,
+        sign,
         connectivity,
         min_voxels: request.min_voxels.unwrap_or(1),
         max_clusters,
         max_peaks,
         min_peak_distance_mm,
-        emit_labels: request.emit_label_volume.unwrap_or(false),
+        emit_labels: !quiet && request.emit_label_volume.unwrap_or(false),
     };
     let ResolvedVolume {
         id,
@@ -1082,7 +1144,7 @@ pub(crate) async fn compute_clusters_impl(
         request.timepoint,
     )
     .await?;
-    let generation = Generation::begin(&id);
+    let generation = Generation::begin(&generation_key(&id, quiet));
     let extent = match &request.extent {
         Some(ClusterExtentMethodRequest::RftExtent(rft)) => {
             let header = crate::stat_metadata::read_volume_intent(path.into()).await;
@@ -1230,6 +1292,7 @@ mod tests {
     fn params(sign: ClusterSign, connectivity: u8, min_voxels: u32) -> ClusterParams {
         ClusterParams {
             threshold: 2.0,
+            negative_threshold: None,
             sign,
             connectivity,
             min_voxels,
@@ -1402,6 +1465,7 @@ mod tests {
     fn peak_params(threshold: f32, max_peaks: u32, min_distance: f32) -> ClusterParams {
         ClusterParams {
             threshold,
+            negative_threshold: None,
             sign: ClusterSign::Both,
             connectivity: 26,
             min_voxels: 1,
@@ -1518,6 +1582,68 @@ mod tests {
         assert!(first.is_superseded());
         assert!(!second.is_superseded());
         assert!(!other.is_superseded());
+    }
+
+    /// QA 2026-10-31 N6: an asymmetric display threshold (−3.1 ≤ z ≤ 3.93
+    /// hidden) gives each tail its own threshold.
+    #[test]
+    fn asymmetric_thresholds_apply_per_tail() {
+        let frame = fixture();
+        let mut p = params(ClusterSign::Both, 26, 1);
+        // Positive tail at 4.2: only A's peak (5.0), B's 4.5 and the 9.0 speck.
+        // Negative tail at 2.0: C (-6/-7) and E (-2.5).
+        p.threshold = 4.2;
+        p.negative_threshold = Some(2.0);
+        let table = find_clusters(&frame, &p);
+        let neg: Vec<u64> = table
+            .clusters
+            .iter()
+            .filter(|c| c.sign == ClusterPolarity::Negative)
+            .map(|c| c.voxel_count)
+            .collect();
+        let pos: u64 = table
+            .clusters
+            .iter()
+            .filter(|c| c.sign == ClusterPolarity::Positive)
+            .map(|c| c.voxel_count)
+            .sum();
+        assert_eq!(neg.iter().sum::<u64>(), 4 + 1);
+        assert_eq!(pos, 1 + 1 + 1);
+        assert_eq!(table.negative_threshold, Some(2.0));
+        // The symmetric search at 4.2 drops E and keeps C only.
+        p.negative_threshold = None;
+        let symmetric = find_clusters(&frame, &p);
+        assert_eq!(
+            symmetric
+                .clusters
+                .iter()
+                .filter(|c| c.sign == ClusterPolarity::Negative)
+                .map(|c| c.voxel_count)
+                .sum::<u64>(),
+            4
+        );
+        assert_eq!(symmetric.negative_threshold, None);
+    }
+
+    #[test]
+    fn background_requests_have_their_own_supersede_order() {
+        let volume = format!("vol-{}", uuid::Uuid::new_v4());
+        let user = Generation::begin(&generation_key(&volume, false));
+        let auto = Generation::begin(&generation_key(&volume, true));
+        // A background run starting after the user's Compute leaves it running…
+        assert!(!user.is_superseded());
+        // …and a user Compute does not cancel the background run.
+        let user2 = Generation::begin(&generation_key(&volume, false));
+        assert!(user.is_superseded());
+        assert!(!auto.is_superseded());
+        // Only a newer background run supersedes a background run.
+        let auto2 = Generation::begin(&generation_key(&volume, true));
+        assert!(auto.is_superseded());
+        assert!(!user2.is_superseded());
+        assert!(!auto2.is_superseded());
+        forget_generation(&volume);
+        assert!(!has_generation(&volume));
+        assert!(!has_generation(&generation_key(&volume, true)));
     }
 
     #[test]
@@ -1829,6 +1955,66 @@ mod tests {
         );
     }
 
+    /// Clusters on load (QA features 2026-10-31 §8): the request the UI sends
+    /// for a z map at its default threshold (|z| > 3.1, both signs, 26-connected,
+    /// ≥ 1 voxel, default peaks) against the p4 fixture truth
+    /// (`~/Documents/brainflow-p4-native/fixtures/truth.json`). The fixture
+    /// lives outside the repository, so the test is ignored by default and
+    /// fails (does not skip) when run without it:
+    /// `cargo test -p api-bridge --lib p4_zmap_clusters_match_fixture_truth -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs ~/Documents/brainflow-p4-native/fixtures (run with --ignored)"]
+    async fn p4_zmap_clusters_match_fixture_truth() {
+        let home = std::env::var_os("HOME").expect("HOME");
+        let path = std::path::Path::new(&home)
+            .join("Documents/brainflow-p4-native/fixtures/zmap/p4_zmap.nii");
+        assert!(path.exists(), "fixture missing: {}", path.display());
+        let (volume, _affine) = nifti_loader::load_nifti_volume_auto(&path).unwrap();
+        let state = BridgeState::default().unwrap();
+        state.volume_registry.lock().await.insert(
+            "p4".into(),
+            volume,
+            crate::VolumeMetadataInfo {
+                name: "p4_zmap".into(),
+                path: path.display().to_string(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+        let request: ComputeClustersRequest = serde_json::from_str(
+            r#"{"volumeId":"p4","threshold":3.1,"sign":"both","connectivity":26,"minVoxels":1}"#,
+        )
+        .unwrap();
+        let table = compute_clusters_impl(request, &state).await.unwrap();
+        // (voxels, peak value, peak mm, peak ijk) per truth.json b_zmap_clusters.
+        let truth: [(u64, f32, [f32; 3], [u32; 3]); 3] = [
+            (165, 6.4052, [-40.0, -20.0, 50.0], [28, 56, 64]),
+            (31, 4.9027, [42.0, -60.0, -10.0], [69, 36, 34]),
+            (26, -4.75, [0.0, 40.0, 10.0], [48, 86, 44]),
+        ];
+        assert_eq!(table.clusters.len(), 3);
+        for (cluster, (voxels, peak, mm, ijk)) in table.clusters.iter().zip(truth) {
+            assert_eq!(cluster.voxel_count, voxels);
+            assert!(
+                (cluster.peak_value - peak).abs() < 1e-3,
+                "{} vs {peak}",
+                cluster.peak_value
+            );
+            for axis in 0..3 {
+                assert!(
+                    (cluster.peak_mm[axis] - mm[axis]).abs() < 1e-3,
+                    "{:?} vs {mm:?}",
+                    cluster.peak_mm
+                );
+            }
+            assert_eq!(cluster.peak_ijk, ijk);
+        }
+        // Cluster 1's sub-peaks (max 3, ≥ 8 mm apart).
+        let sub: Vec<[f32; 3]> = table.clusters[0].sub_peaks.iter().map(|p| p.mm).collect();
+        assert_eq!(sub, vec![[-28.0, -20.0, 50.0], [-16.0, -20.0, 50.0]]);
+    }
+
     #[tokio::test]
     async fn compute_clusters_command_reports_extent_and_sub_peaks() {
         use crate::volume_queries::test_support::volume_3d;
@@ -1868,6 +2054,149 @@ mod tests {
             }
             other => panic!("expected extent error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn negative_threshold_request_is_validated_and_refused_with_two_tailed_p() {
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        state.volume_registry.lock().await.insert(
+            "stat-asym".into(),
+            volume_3d(DIMS, [2.0; 3], [-10.0; 3], fixture().values.to_vec()),
+            crate::VolumeMetadataInfo {
+                name: "stat".into(),
+                path: "<memory>".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+        let run = |json: &str| {
+            let request: ComputeClustersRequest = serde_json::from_str(json).unwrap();
+            compute_clusters_impl(request, &state)
+        };
+        let table = run(r#"{"volumeId":"stat-asym","threshold":4.2,"negativeThreshold":2.0}"#)
+            .await
+            .unwrap();
+        assert_eq!(table.negative_threshold, Some(2.0));
+        // The same value, or a positive-only search: the symmetric table.
+        let same = run(r#"{"volumeId":"stat-asym","threshold":4.2,"negativeThreshold":4.2}"#)
+            .await
+            .unwrap();
+        assert_eq!(same.negative_threshold, None);
+        let positive = run(
+            r#"{"volumeId":"stat-asym","threshold":4.2,"negativeThreshold":2.0,"sign":"positive"}"#,
+        )
+        .await
+        .unwrap();
+        assert_eq!(positive.negative_threshold, None);
+        match run(r#"{"volumeId":"stat-asym","threshold":4.2,"negativeThreshold":-1}"#).await {
+            Err(BridgeError::Input { code, .. }) => assert_eq!(code, 4075),
+            other => panic!("expected 4075, got {other:?}"),
+        }
+        match run(
+            r#"{"volumeId":"stat-asym","threshold":4.2,"negativeThreshold":2.0,
+               "extent":{"method":"rft-extent","fwhmMm":4,"statistic":"z"}}"#,
+        )
+        .await
+        {
+            Err(BridgeError::Input { code, details }) => {
+                assert_eq!(code, 4080);
+                assert!(details.contains("both tails"), "{details}");
+            }
+            other => panic!("expected 4080, got {other:?}"),
+        }
+    }
+
+    /// Review of N6 (H1): a negative-only search with its own threshold forms,
+    /// labels and infers at that threshold, not the positive one.
+    #[tokio::test]
+    async fn negative_search_uses_its_own_threshold_for_cluster_p() {
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        let negated: Vec<f32> = extent_frame().values.iter().map(|v| -v).collect();
+        let metadata = |name: &str| crate::VolumeMetadataInfo {
+            name: name.into(),
+            path: "<memory>".into(),
+            dtype: "f32".into(),
+            volume_type: bridge_types::VolumeType::Volume3D,
+            time_series_info: None,
+        };
+        let mut registry = state.volume_registry.lock().await;
+        registry.insert(
+            "neg".into(),
+            volume_3d([20, 20, 20], [2.0; 3], [0.0; 3], negated.clone()),
+            metadata("neg"),
+        );
+        drop(registry);
+        let run = |json: &'static str| {
+            let request: ComputeClustersRequest = serde_json::from_str(json).unwrap();
+            compute_clusters_impl(request, &state)
+        };
+        // Positive value 9 (no voxel reaches it), negative tail 3.1.
+        let own = run(
+            r#"{"volumeId":"neg","threshold":9,"negativeThreshold":3.1,"sign":"negative",
+               "extent":{"method":"rft-extent","fwhmMm":4,"statistic":"z"}}"#,
+        )
+        .await
+        .unwrap();
+        // The same search stated with one threshold.
+        let plain = run(r#"{"volumeId":"neg","threshold":3.1,"sign":"negative",
+               "extent":{"method":"rft-extent","fwhmMm":4,"statistic":"z"}}"#)
+        .await
+        .unwrap();
+        assert!((own.threshold - 3.1).abs() < 1e-6);
+        assert_eq!(own.negative_threshold, None);
+        assert_eq!(own.clusters.len(), 2);
+        let inference = own.extent_inference.as_ref().expect("cluster p");
+        assert!((inference.cluster_forming_threshold - 3.1).abs() < 1e-6);
+        let p_own: Vec<_> = own.clusters.iter().map(|c| c.p_fwe_extent).collect();
+        let p_plain: Vec<_> = plain.clusters.iter().map(|c| c.p_fwe_extent).collect();
+        assert_eq!(p_own, p_plain);
+        // A positive search ignores the negative tail's value.
+        let positive =
+            run(r#"{"volumeId":"neg","threshold":0.1,"negativeThreshold":3.1,"sign":"positive"}"#)
+                .await
+                .unwrap();
+        assert!((positive.threshold - 0.1).abs() < 1e-6);
+        assert_eq!(positive.negative_threshold, None);
+    }
+
+    /// Review H2: a background run never emits labels, so the label volume of
+    /// the table the user is looking at stays registered.
+    #[tokio::test]
+    async fn quiet_request_keeps_the_user_label_volume() {
+        use crate::volume_queries::test_support::volume_3d;
+        let state = BridgeState::default().unwrap();
+        state.volume_registry.lock().await.insert(
+            "stat-quiet".into(),
+            volume_3d(DIMS, [2.0; 3], [-10.0; 3], fixture().values.to_vec()),
+            crate::VolumeMetadataInfo {
+                name: "stat".into(),
+                path: "<memory>".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+        let user: ComputeClustersRequest = serde_json::from_str(
+            r#"{"volumeId":"stat-quiet","threshold":2.0,"minVoxels":2,"emitLabelVolume":true}"#,
+        )
+        .unwrap();
+        let shown = compute_clusters_impl(user, &state).await.unwrap();
+        let label_id = shown.label_volume_id.clone().expect("label volume");
+        let quiet: ComputeClustersRequest = serde_json::from_str(
+            r#"{"volumeId":"stat-quiet","threshold":3.0,"minVoxels":2,"emitLabelVolume":true,"quiet":true}"#,
+        )
+        .unwrap();
+        let background = compute_clusters_impl(quiet, &state).await.unwrap();
+        assert!(background.label_volume_id.is_none());
+        assert!(state
+            .volume_registry
+            .lock()
+            .await
+            .get_entry(&label_id)
+            .is_some());
     }
 
     #[tokio::test]

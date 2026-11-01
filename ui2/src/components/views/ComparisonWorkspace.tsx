@@ -23,12 +23,13 @@ import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import type { ComparisonPanelConfig } from '@/types/comparison';
-import { Button, EmptyPane, focusFallback, SegmentedControl } from '@/components/ui/bf';
+import { EmptyPane, focusFallback, SegmentedControl } from '@/components/ui/bf';
 import { openFileDialog } from '@/services/fileActions';
 import { panelLetter, type CompareLinkMode } from '@/types/comparison';
 import { linkModeOf, resolveActivePanel } from '@/utils/compareDisplay';
 import { CompareSharedColorbar } from './CompareSharedColorbar';
 import { panelLayerIdOf } from '@/utils/compareDisplay';
+import { COMPARE_PANE_COUNTS, DEFAULT_COMPARE_PANES, comparePaneCandidates } from '@/utils/comparePanes';
 
 const PLANE_OPTIONS = [
   { value: 'axial', label: 'Axial', title: 'Set all panels to axial' },
@@ -56,6 +57,12 @@ export function resolveCommonViewType(
   const first = panels[0].viewType;
   return panels.every(p => p.viewType === first) ? first : null;
 }
+
+const PANE_COUNT_OPTIONS = COMPARE_PANE_COUNTS.map((n) => ({
+  value: String(n),
+  label: String(n),
+  title: `Show ${n} panes`,
+}));
 
 const LINK_OPTIONS = [
   { value: 'all', label: 'All', title: 'Every panel shares window, threshold and colormap' },
@@ -109,7 +116,8 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
   const setPanelViewType = useComparisonStore(state => state.setPanelViewType);
   const setGlobalViewType = useComparisonStore(state => state.setGlobalViewType);
   const setLayout = useComparisonStore(state => state.setLayout);
-  const initFromLayers = useComparisonStore(state => state.initFromLayers);
+  const initPanes = useComparisonStore(state => state.initPanes);
+  const setPaneCount = useComparisonStore(state => state.setPaneCount);
   const activateWorkspace = useWorkspaceStore(state => state.activateWorkspace);
 
   // Build layer name lookup
@@ -126,12 +134,28 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
     [layers]
   );
 
-  // Auto-init: if workspace has no panels yet, create one per visible layer
+  // The layers new panes take: the maps over the anatomy, then the anatomy.
+  const paneCandidates = useMemo(
+    () => comparePaneCandidates(visibleLayerIds, allLayers),
+    [visibleLayerIds, allLayers]
+  );
+
+  // Panes that show nothing (empty, or ids of layers since replaced) while
+  // there is something to compare take the candidates, the anatomy alone
+  // in pane A (QA 2026-10-31: ⌘4 opened two empty "Choose a layer…" panes).
+  const fillEmptyPanes = useComparisonStore(state => state.fillEmptyPanes);
+  useEffect(() => {
+    if (panels.length === 0 || paneCandidates.length === 0) return;
+    fillEmptyPanes(workspaceId, paneCandidates, new Set(layers.map(layer => layer.id)), layerNames);
+  }, [fillEmptyPanes, layerNames, layers, paneCandidates, panels, workspaceId]);
+
+  // Auto-init: a new Compare tab opens with two panes, not one per layer
+  // (QA features 2026-10-31 §6); each picks its layer in its header.
   useEffect(() => {
     if (panels.length > 0) return;
     if (visibleLayerIds.length === 0) return;
-    initFromLayers(workspaceId, visibleLayerIds, layerNames);
-  }, [initFromLayers, layerNames, panels.length, visibleLayerIds, workspaceId]);
+    initPanes(workspaceId, paneCandidates, layerNames);
+  }, [initPanes, layerNames, panels.length, paneCandidates, visibleLayerIds.length, workspaceId]);
 
   // Track container size with ResizeObserver
   useEffect(() => {
@@ -233,9 +257,10 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
     }
   }, [addPanel, loadDroppedVolumeAsLayer, workspaceId]);
 
+  // The empty state opens the default two panes, each with its picker.
   const handleAddEmptyPanel = useCallback(() => {
-    addPanel(workspaceId, []);
-  }, [workspaceId, addPanel]);
+    setPaneCount(workspaceId, DEFAULT_COMPARE_PANES, []);
+  }, [workspaceId, setPaneCount]);
 
   const { handleDragOver: handleWorkspaceDragOver, handleDrop: handleWorkspaceDrop } = useViewportDropTarget({
     onLayerDrop: handleNewPanelDrop,
@@ -257,11 +282,11 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
           title="Add a panel to compare"
           hint="Each panel shows its own layers side by side; drop a volume on a placeholder."
           primary={{
-            label: '+ Panel',
+            label: 'Open 2 panes',
             onClick: () => {
               handleAddEmptyPanel();
-              // The empty state goes away: focus the toolbar's "+ Panel".
-              focusFallback(['[data-testid="compare-add-panel"]']);
+              // The empty state goes away: focus the toolbar's pane count.
+              focusFallback(['[data-testid="compare-add-panel"] [role="radio"]']);
             },
             testId: 'compare-empty-add',
           }}
@@ -325,16 +350,17 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
           data-testid="compare-link-mode"
         />
 
-        {/* Add panel */}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleAddEmptyPanel}
-          title="Add empty panel"
+        {/* Pane count: 2, 3 or 4 (new panes take the next unshown layer). */}
+        <span className="text-bf-xs text-bf-text-secondary" id={`compare-panes-${workspaceId}`}>
+          Panes
+        </span>
+        <SegmentedControl
+          aria-labelledby={`compare-panes-${workspaceId}`}
+          options={PANE_COUNT_OPTIONS}
+          value={(COMPARE_PANE_COUNTS as readonly number[]).includes(panels.length) ? String(panels.length) : ''}
+          onValueChange={(n) => setPaneCount(workspaceId, Number(n), paneCandidates, layerNames)}
           data-testid="compare-add-panel"
-        >
-          + Panel
-        </Button>
+        />
       </div>
 
 

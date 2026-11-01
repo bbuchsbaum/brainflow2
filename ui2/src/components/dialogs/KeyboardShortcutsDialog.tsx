@@ -8,29 +8,11 @@ import React, { useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import type { ShortcutRegistration } from '@/services/KeyboardShortcutService';
+import { platformShortcuts, shortcutLabel } from './shortcutLabels';
+import { VIEW_GESTURES } from './viewGestures';
 
 interface KeyboardShortcutsDialogProps {
   onClose: () => void;
-}
-
-function formatShortcut(reg: ShortcutRegistration): string {
-  const parts: string[] = [];
-  const mods = reg.modifiers ?? {};
-  if (mods.ctrl) parts.push('Ctrl');
-  if (mods.meta) parts.push('Cmd');
-  if (mods.alt) parts.push('Alt');
-  if (mods.shift) parts.push('Shift');
-
-  let key = reg.key;
-  if (key === ' ') key = 'Space';
-  else if (key === 'ArrowLeft') key = '←';
-  else if (key === 'ArrowRight') key = '→';
-  else if (key === 'ArrowUp') key = '↑';
-  else if (key === 'ArrowDown') key = '↓';
-  else if (key.length === 1) key = key.toUpperCase();
-  parts.push(key);
-
-  return parts.join('+');
 }
 
 export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProps) {
@@ -68,7 +50,7 @@ export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProp
                 {category}
               </h3>
               <div className="space-y-1">
-                {grouped[category].map(reg => (
+                {platformShortcuts(grouped[category]).map(reg => (
                   <div
                     key={reg.id}
                     className="grid grid-cols-[120px_1fr] items-center gap-3 py-1"
@@ -81,7 +63,7 @@ export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProp
                         border: '1px solid var(--bf-border)',
                       }}
                     >
-                      {formatShortcut(reg)}
+                      {shortcutLabel(reg)}
                     </kbd>
                     <span className="text-sm" style={{ color: 'var(--bf-text-primary)' }}>
                       {reg.description}
@@ -91,6 +73,31 @@ export function KeyboardShortcutsDialog({ onClose }: KeyboardShortcutsDialogProp
               </div>
             </section>
           ))}
+          {/* Zoom, pan and the other pointer gestures of the slice views. */}
+          <section>
+            <h3 className="m-0 mb-3 border-0 p-0 text-bf-sm font-semibold text-foreground">
+              Mouse and trackpad
+            </h3>
+            <div className="space-y-1">
+              {VIEW_GESTURES.map(item => (
+                <div key={item.id} className="grid grid-cols-[120px_1fr] items-center gap-3 py-1">
+                  <kbd
+                    className="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-mono font-medium"
+                    style={{
+                      backgroundColor: 'var(--bf-bg-panel)',
+                      color: 'var(--bf-text-secondary)',
+                      border: '1px solid var(--bf-border)',
+                    }}
+                  >
+                    {item.gesture}
+                  </kbd>
+                  <span className="text-sm" style={{ color: 'var(--bf-text-primary)' }}>
+                    {item.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
 
         {/* Footer hint */}

@@ -117,6 +117,18 @@ export function shouldSyncStoreFromTab(
 export const programmaticTabRemoval = new ProgrammaticTabChange();
 
 /**
+ * Tab adds and focus changes the app makes itself, shared by the layout root
+ * (deferred adds) and layoutService (re-adding every tab after Reset layout or
+ * a saved layout). While active, `activeContentItemChanged` must not move the
+ * store: each re-added tab comes to the front, and the store would end on the
+ * last one instead of the tab that was active.
+ */
+export const programmaticTabChange = new ProgrammaticTabChange();
+
+/** Workspace tabs whose container is being destroyed right now. */
+const tabsBeingDestroyed = new Set<string>();
+
+/**
  * A workspace tab's container was destroyed. The tab is always forgotten (so
  * a later add is not skipped as "already added"); when the user closed it
  * with the tab's ×, its workspace is closed in the store too, so a tool can
@@ -131,6 +143,31 @@ export function handleWorkspaceTabDestroyed(
 ): 'closed' | 'forgotten' {
   forget(workspaceId);
   if (guard.active) return 'forgotten';
-  closeWorkspace(workspaceId);
+  tabsBeingDestroyed.add(workspaceId);
+  try {
+    closeWorkspace(workspaceId);
+  } finally {
+    tabsBeingDestroyed.delete(workspaceId);
+  }
   return 'closed';
+}
+
+/**
+ * The store closed `workspaceId`: remove its tab. Skipped while GoldenLayout
+ * is destroying that tab (the user closed it, or the stack around it, and
+ * its destroy handler is closing the workspace): removing it again from
+ * inside that destroy walk corrupted the stack's child list, so some tabs'
+ * workspaces stayed open after the stack went (QA 2026-10-30 F1). Any other
+ * close (⌘W, File › Close Tab) removes the tab, also one re-added by a
+ * layout reload.
+ */
+export function removeClosedWorkspaceTab(
+  stack: Pick<Stack, 'contentItems'> | null,
+  workspaceId: string,
+): boolean {
+  if (!stack || tabsBeingDestroyed.has(workspaceId)) return false;
+  const item = findWorkspaceTab(stack, workspaceId);
+  if (!item) return false;
+  programmaticTabRemoval.run(() => item.remove());
+  return true;
 }

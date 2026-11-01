@@ -35,6 +35,10 @@ import { useActiveLayer } from '@/utils/activeLayer';
 import { useLayerStore } from '@/stores/layerStore';
 import { shortLayerLabel } from './viewportFrame/frameFormat';
 import { registerMosaicExportSource } from '@/services/export/compositeCapture';
+import { useActiveRenderable } from '@/hooks/useActiveRenderable';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
+import { setMosaicAxis } from '@/utils/mosaicAxis';
+import { useCanvasPixelRatio } from '@/hooks/useCanvasPixelRatio';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { EmptyPane } from '@/components/ui/bf';
 import { openFileDialog, openFileShortcut } from '@/services/fileActions';
@@ -86,6 +90,10 @@ function MosaicViewPromiseRaw({
   );
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
+  // Radiological convention: the tiles are mirrored; one badge per mosaic.
+  const mirrored = useMirrorsView(sliceAxis);
+  // ↑/↓ step this mosaic's axis while its tab is in front.
+  useEffect(() => setMosaicAxis(workspaceId, sliceAxis), [workspaceId, sliceAxis]);
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
   const [colorbarColumnPx, setColorbarColumnPx] = useState(MOSAIC_COLORBAR_COLUMN_PX);
   const gridSizeRef = useRef(gridSize);
@@ -405,6 +413,8 @@ function MosaicViewPromiseRaw({
     );
   }, [sliceIndices, workspaceId, sliceAxis]);
   
+  // A move to a display of another ratio re-renders the tiles (HiDPI).
+  const pixelRatio = useCanvasPixelRatio();
   // Trigger renders when slice indices or layer parameters change
   useEffect(() => {
     console.log('[MosaicViewPromise] DEBUG - Render trigger effect:', {
@@ -451,7 +461,8 @@ function MosaicViewPromiseRaw({
     visibleLayers.length,
     layerRevision,
     timepointRevision,
-    layoutFitted
+    layoutFitted,
+    pixelRatio,
   ]);
   
   // Handle page navigation
@@ -506,6 +517,8 @@ function MosaicViewPromiseRaw({
     }
   }, [currentPage, gridSize, totalSlices, currentSlice]);
   
+  const markMosaicActive = useActiveRenderable(`mosaic:${workspaceId}`);
+
   // Export (P3.8): the visible tiles in grid order, read when the dialog composes.
   const exportTilesRef = useRef<() => ReturnType<Parameters<typeof registerMosaicExportSource>[1]>>(() => null);
   exportTilesRef.current = () => {
@@ -678,6 +691,15 @@ function MosaicViewPromiseRaw({
             {AXIS_LETTER[sliceAxis]} {formatWorldMm(slicePositionAtIndex(range, sliceIndices[0]))}–
             {formatWorldMm(slicePositionAtIndex(range, sliceIndices[sliceIndices.length - 1]))} mm
           </span>
+          {mirrored ? (
+            <span
+              className="ml-auto font-mono text-bf-text-muted"
+              data-testid="radiological-badge"
+              title="Radiological convention: the patient's right is on the left"
+            >
+              R | L
+            </span>
+          ) : null}
         </div>
       ) : null}
       {/* The measured area; the brain-shaped grid and its colorbar sit
@@ -685,6 +707,9 @@ function MosaicViewPromiseRaw({
       <div
         ref={gridRef}
         className="mosaic-grid relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto p-2"
+        // A click on the tiles makes the mosaic the focused view, so Export
+        // View exports it (QA features 2026-10-31 §3).
+        onPointerDownCapture={markMosaicActive}
       >
         <div className="flex">
         <div

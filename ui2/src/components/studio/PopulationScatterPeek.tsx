@@ -1,3 +1,4 @@
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 /**
  * The floating slice peek over the relationship scatter (W1 UI).
  *
@@ -128,6 +129,7 @@ export function PopulationScatterPeek({
   // The label describes the image shown: the raster's slice when it is in the
   // view's plane, with the requested slice while a new one loads.
   const shown = raster && raster.orientation === view.orientation ? raster : null;
+  const mirrorX = useMirrorsView(view.orientation);
   const shownMm = (shown ?? view).crosshairMm[axis.index];
   const wantedMm = view.crosshairMm[axis.index];
   const readout =
@@ -225,6 +227,7 @@ export function PopulationScatterPeek({
           renderSurface={(props) => (
             <SliceViewerImageSurface
               {...props}
+              mirrorX={mirrorX}
               image={image?.bitmap ?? null}
               emptyFallback={
                 <p className="absolute inset-0 grid place-items-center px-2 text-center text-bf-xs text-bf-text-muted">
@@ -240,10 +243,10 @@ export function PopulationScatterPeek({
             aria-hidden
           >
             <span className="absolute left-1 top-1/2">
-              {populationAxisLabel(raster.plane.u_mm.map((v) => -v))}
+              {populationAxisLabel(mirrorX ? raster.plane.u_mm : raster.plane.u_mm.map((v) => -v))}
             </span>
             <span className="absolute right-1 top-1/2">
-              {populationAxisLabel(raster.plane.u_mm)}
+              {populationAxisLabel(mirrorX ? raster.plane.u_mm.map((v) => -v) : raster.plane.u_mm)}
             </span>
             <span className="absolute left-1/2 top-1">
               {populationAxisLabel(raster.plane.v_mm.map((v) => -v))}

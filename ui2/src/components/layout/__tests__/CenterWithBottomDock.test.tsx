@@ -91,6 +91,55 @@ describe("CenterWithBottomDock", () => {
     expect(screen.getByTestId("bottom-dock-resizer")).toBeInTheDocument();
   });
 
+  // QA 2026-10-31 N3: Integrated's content outgrew its pane and covered the
+  // dock. The view pane clips and stacks under the dock.
+  it("keeps an oversized view from covering the dock", () => {
+    render(
+      <CenterWithBottomDock>
+        <div data-testid="routed-view" style={{ height: 5000 }}>view</div>
+      </CenterWithBottomDock>,
+    );
+    const pane = screen.getByTestId("center-view-pane");
+    const dock = screen.getByTestId("center-dock-pane");
+    expect(pane.style.overflow).toBe("hidden");
+    expect(Number(dock.style.zIndex)).toBeGreaterThan(Number(pane.style.zIndex || 0));
+    expect(dock).toContainElement(screen.getByTestId("bottom-dock-stub"));
+  });
+
+  // N13: each tool's dock keeps its own height; Studio starts at 120 px.
+  it("uses and remembers the dock height of its tool", () => {
+    const dockHeight = () => screen.getByTestId("center-dock-pane").style.height;
+    const { unmount } = render(
+      <CenterWithBottomDock heightKey="set-studio">
+        <div>studio</div>
+      </CenterWithBottomDock>,
+    );
+    expect(dockHeight()).toBe("120px");
+
+    // A drag in Studio writes Studio's height only (jsdom: the drag clamps to
+    // Studio's minimum, its 120 px default).
+    act(() => {
+      useLayoutSettingsStore.getState().setBottomDockHeight(150, "set-studio");
+    });
+    expect(dockHeight()).toBe("150px");
+    fireEvent.pointerDown(screen.getByTestId("bottom-dock-resizer"));
+    // jsdom's PointerEvent has no clientY: send the move as a MouseEvent.
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientY: 10 }));
+      window.dispatchEvent(new MouseEvent("pointerup"));
+    });
+    expect(useLayoutSettingsStore.getState().bottomDockHeights).toEqual({ "set-studio": 120 });
+    unmount();
+
+    // The imaging views keep theirs (the 220 px default here).
+    render(
+      <CenterWithBottomDock>
+        <div>view</div>
+      </CenterWithBottomDock>,
+    );
+    expect(dockHeight()).toBe("220px");
+  });
+
   it("hides the dock + resizer when bottomDockOpen is false", () => {
     useLayoutSettingsStore.getState().setBottomDockOpen(false);
     render(

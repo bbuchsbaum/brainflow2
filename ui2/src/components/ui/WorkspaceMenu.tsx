@@ -48,6 +48,7 @@ import { moduleStageLabel, useTools } from "@/modules/registry";
 import { DISPLAY_MODES } from "@/types/displayModes";
 import { cn } from "@/utils/cn";
 import { Button } from "./Button";
+import { formatShortcut } from "@/components/dialogs/commandPaletteMatch";
 
 const SHORTCUT_CATEGORY = "Views and tools";
 
@@ -174,7 +175,8 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
       <span>{label}</span>
       {shortcut ? (
         <span className="shrink-0 text-bf-2xs text-muted-foreground">
-          {shortcut}
+          {/* ⌘T on macOS, Ctrl+T elsewhere (QA 2026-10-30 F41). */}
+          {formatShortcut(shortcut)}
         </span>
       ) : null}
     </div>

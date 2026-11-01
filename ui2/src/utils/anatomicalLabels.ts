@@ -17,3 +17,13 @@ export function anatomicalLabels(view: Pick<ViewPlane, 'u_mm' | 'v_mm'>) {
     bottom: direction(view.v_mm, 1),
   };
 }
+
+/**
+ * The letters at the edges as displayed: a mirrored (radiological) display
+ * swaps left and right (QA features 2026-10-31 §2).
+ */
+export function displayedLabels(view: Pick<ViewPlane, 'u_mm' | 'v_mm'>, mirrorX = false) {
+  const labels = anatomicalLabels(view);
+  if (!labels || !mirrorX) return labels;
+  return { ...labels, left: labels.right, right: labels.left };
+}

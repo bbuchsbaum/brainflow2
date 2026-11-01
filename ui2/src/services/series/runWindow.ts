@@ -66,7 +66,39 @@ export function pooledWindow(
   const p2 = percentile(bins, total, 2);
   const p98 = percentile(bins, total, 98);
   const low = p2 - lo < 0.01 * span ? lo : p2;
-  return p98 - low >= 0.05 * span && p98 > low ? [low, p98] : [lo, hi];
+  if (!(p98 - low >= 0.05 * span && p98 > low)) return [lo, hi];
+  return [low, unsaturatedTop(bins, low, p98, span) ?? p98];
+}
+
+/**
+ * A window top that keeps the brain mid grey when p98 does not (QA
+ * 2026-10-30 F16): in a series whose tissue is nearly uniform (a synthetic
+ * or bias-flattened run, in-brain ≈ 100 on a zero background) p98 is the
+ * tissue value itself, and the run opens as a flat white slab. When at least
+ * a quarter of the non-background voxels sit in the top 5 % of the window,
+ * the top moves to twice the tissue median above the floor. Real EPI, whose
+ * tissue spreads over the window, is unchanged.
+ */
+function unsaturatedTop(
+  bins: readonly { x0: number; x1: number; count: number }[],
+  low: number,
+  top: number,
+  span: number,
+): number | null {
+  const tissue = bins.filter((b) => b.x0 >= low + 0.05 * span);
+  const count = tissue.reduce((n, b) => n + b.count, 0);
+  if (!(count > 0)) return null;
+  const nearTop = tissue.filter((b) => b.x1 > low + 0.95 * (top - low)).reduce((n, b) => n + b.count, 0);
+  if (nearTop < 0.25 * count) return null;
+  let seen = 0;
+  for (const b of tissue) {
+    seen += b.count;
+    if (seen >= count / 2) {
+      const median = (b.x0 + b.x1) / 2;
+      return median > low ? Math.max(top, low + 2 * (median - low)) : null;
+    }
+  }
+  return null;
 }
 
 /** The run group of a layer (the layer alone when it has none). */

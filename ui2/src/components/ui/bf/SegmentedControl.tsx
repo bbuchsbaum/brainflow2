@@ -2,7 +2,7 @@ import React, { forwardRef, useEffect, useRef } from 'react';
 import { cva } from 'class-variance-authority';
 import { cn } from '@/utils/cn';
 import { NON_LABELABLE } from './helpers';
-import { DISABLED, EDGE_ACCENT, FOCUS_GAP, FOCUS_RING, HOVER_FILL, SEGMENT_ACTIVE, SELECTED_FILL } from './states';
+import { DISABLED, EDGE_ACCENT, FOCUS_GAP, FOCUS_RING, SEGMENT_ACTIVE, SELECTED_FILL } from './states';
 
 /**
  * Joined segmented group (V5 navigation kind 2): switches a view's MODE.
@@ -98,10 +98,11 @@ const itemVariants = cva(
     variants: {
       checked: {
         true: 'font-medium',
-        false: cn(
-          'bg-transparent text-muted-foreground hover:text-foreground data-[force-hover]:text-foreground',
-          HOVER_FILL,
-        ),
+        // HOVER_FILL, but only while enabled: a disabled segment (the layout
+        // pills in a tool tab) must not light up under the pointer (QA
+        // 2026-10-30 F47). Literal classes so Tailwind generates them.
+        false:
+          'bg-transparent text-muted-foreground enabled:hover:text-foreground enabled:hover:bg-accent data-[force-hover]:text-foreground data-[force-hover]:bg-accent',
       },
       edge: { neutral: '', accent: '' },
       fullWidth: { true: 'flex-1', false: '' },
@@ -136,6 +137,10 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
     ref,
   ) {
     const refs = useRef(new Map<string, HTMLButtonElement>());
+    // Focus that came from a pointer press: the arrow keys are then the
+    // view's (slice stepping), not the group's (QA F24). Reaching the group
+    // with Tab restores the APG arrow-key selection.
+    const pointerFocus = useRef(false);
     const named = Boolean(rest['aria-label'] || rest['aria-labelledby']);
     useEffect(() => {
       if (import.meta.env.DEV && !named) {
@@ -178,6 +183,7 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
 
     const onKeyDown = (current: string) => (e: React.KeyboardEvent<HTMLButtonElement>) => {
       if (enabled.length === 0) return;
+      if (pointerFocus.current && e.key.startsWith('Arrow')) return;
       const i = enabled.findIndex((o) => o.value === current);
       let next: string | null = null;
       switch (e.key) {
@@ -215,6 +221,14 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
           className,
         )}
         {...rest}
+        onPointerDown={(e) => {
+          pointerFocus.current = true;
+          rest.onPointerDown?.(e);
+        }}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) pointerFocus.current = false;
+          rest.onBlur?.(e);
+        }}
       >
         {options.map((option) => {
           const checked = option.value === value;

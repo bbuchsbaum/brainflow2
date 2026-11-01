@@ -286,3 +286,44 @@ describe('Mosaic tile clicks', () => {
     expect(event.preventDefault).toHaveBeenCalled();
   });
 });
+
+describe('Mosaic tile clicks on a HiDPI (2×) canvas', () => {
+  it('map the same pixel to the same world point as at 1×', async () => {
+    const { MosaicCell } = await import('../MosaicCell');
+    const service = {
+      getViewPlaneForTag: () => AXIAL,
+      getSlicePositionForTag: () => 4,
+      calculateCrosshairForCell: () => ({ screenCoord: null, isActive: false }),
+    };
+    const onCrosshairClick = vi.fn();
+    render(
+      <MosaicCell
+        workspaceId="mosaic-click-2x"
+        renderService={service as never}
+        width={100}
+        height={100}
+        tag="mosaic-click-2x-axial-4"
+        sliceIndex={4}
+        axis="axial"
+        onCrosshairClick={onCrosshairClick}
+      />,
+    );
+    const props = viewport.props!;
+    // Backing store 200 × 200 for a 100 × 100 CSS tile; the custom render
+    // gets the CSS placement (ui2's viewport divides by the ratio).
+    const canvas = {
+      width: 200,
+      height: 200,
+      dataset: { pixelRatio: '2' },
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+    };
+    act(() => {
+      props.onCanvasReady!(canvas);
+      props.customRender!({}, { x: 0, y: 0, width: 100, height: 100, imageWidth: 100, imageHeight: 100 });
+    });
+    const event = { button: 0, clientX: 60, clientY: 70, preventDefault: vi.fn() };
+    act(() => props.onMouseDown!(event));
+    expect(onCrosshairClick.mock.calls[0][0]).toEqual([10, -20, 4]);
+  });
+});
+

@@ -3,6 +3,9 @@ import type { SpatialFieldSetSummary, StudioFeatureSummary } from '@/types/studi
 import { Button, Chip, Pager } from '@/components/ui/bf';
 import { setImportReadiness } from '@/services/studio/importContract';
 import { StudioRenderAdapter } from './StudioRenderAdapter';
+import { StudioToolbarPortal } from './StudioToolbarSlot';
+import { StudioPlaneToggle } from './StudioPlaneToggle';
+import { useSetStudioStore } from '@/stores/setStudioStore';
 
 interface DeckLensProps {
   activeSet: SpatialFieldSetSummary | null;
@@ -35,6 +38,8 @@ export function DeckLens({
   onOpenCurrentSource,
   visibleMemberIds,
 }: DeckLensProps) {
+  // One large view of the session's plane (QA N13 b).
+  const plane = useSetStudioStore((state) => state.studioPlane);
   const memberIds = visibleMemberIds ?? activeSet?.memberIds ?? [];
   const memberIndex = activeMemberId ? memberIds.indexOf(activeMemberId) : -1;
 
@@ -54,27 +59,39 @@ export function DeckLens({
     return `${activeMemberId} · ${activeSet.supportLabel} · ${supportState}`;
   }, [activeMemberId, activeSet]);
 
+  const subtitle = `${activeFeature?.label ?? 'No feature'} on ${activeSet?.supportLabel ?? 'unknown support'}`;
+  const chips = [
+    searchLabel ? `Search ${searchLabel}` : null,
+    sortLabel ? `Sort ${sortLabel}` : null,
+    ...(filterLabels ?? []),
+  ].filter((chip): chip is string => !!chip);
+
   return (
-    <div className="flex h-full flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border bg-card px-3 py-2">
-        <div>
-          <div className="text-bf-md font-medium text-foreground">Deck</div>
-          <div className="mt-1 text-bf-md text-muted-foreground">Browse members one at a time.</div>
-          {searchLabel || sortLabel || (filterLabels?.length ?? 0) > 0 ? (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {searchLabel ? <Chip>Search {searchLabel}</Chip> : null}
-              {sortLabel ? <Chip>Sort {sortLabel}</Chip> : null}
-              {filterLabels?.map((label) => <Chip key={label}>{label}</Chip>)}
-            </div>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="flex h-full flex-col">
+      {/* The member line and pager join the Studio toolbar row (QA N13). */}
+      <StudioToolbarPortal>
+        <div className="flex min-w-0 flex-nowrap items-center gap-2" aria-label="Deck">
+          <StudioPlaneToggle />
+          <div className="min-w-0 truncate text-bf-sm" title={`${footer}${chips.length ? ` · ${chips.join(' · ')}` : ''}`}>
+            <span className="font-medium text-foreground">{activeMemberId ?? 'No active member'}</span>{' '}
+            <span className="text-muted-foreground">{subtitle}</span>
+          </div>
+          {chips.length > 0 ? <Chip>{chips.length === 1 ? chips[0] : `${chips.length} filters`}</Chip> : null}
           {scopeLabel && onClearScope ? (
             <Button variant="ghost" size="sm" onClick={onClearScope}>
               Clear scope
             </Button>
           ) : null}
+          <Button variant="link" className="min-h-6 shrink-0" size="sm" onClick={onInspectCurrent}>
+            Inspect
+          </Button>
+          {activeMemberSourcePath ? (
+            <Button variant="link" className="min-h-6 shrink-0" size="sm" onClick={onOpenCurrentSource}>
+              Open source
+            </Button>
+          ) : null}
           {memberIndex >= 0 ? (
+            <div className="shrink-0 whitespace-nowrap">
             <Pager
               noun="member"
               page={memberIndex + 1}
@@ -84,23 +101,21 @@ export function DeckLens({
                 if (memberId) onSelectMember(memberId);
               }}
             />
+            </div>
           ) : (
-            <span className="text-bf-sm text-muted-foreground">No member selected</span>
+            <span className="shrink-0 text-bf-sm text-muted-foreground">No member selected</span>
           )}
         </div>
-      </div>
+      </StudioToolbarPortal>
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-hidden rounded-sm border border-border bg-bf-bg-canvas">
         <StudioRenderAdapter
           supportKind={activeSet?.supportKind}
           title={activeMemberId ?? 'No active member'}
-          subtitle={`${activeFeature?.label ?? 'No feature'} on ${activeSet?.supportLabel ?? 'unknown support'}`}
-          footer={footer}
+          subtitle={subtitle}
+          hideChrome
+          plane={plane}
           memberSourcePath={activeMemberSourcePath ?? null}
-          actions={[
-            { label: 'Inspect', onClick: onInspectCurrent },
-            ...(activeMemberSourcePath ? [{ label: 'Open source', onClick: onOpenCurrentSource }] : []),
-          ]}
         />
       </div>
     </div>

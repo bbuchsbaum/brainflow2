@@ -362,14 +362,21 @@ impl LayerStateManager {
         }
     }
 
-    /// Add a layer to the active set
-    pub fn add_layer(&mut self, layer: LayerInfo) -> Result<usize, &'static str> {
+    /// Add a layer to the active set. The error names the cap
+    /// ("Maximum layer count 8 reached") so the UI can say how many slots
+    /// there are (QA 2026-10-31 N2).
+    pub fn add_layer(&mut self, layer: LayerInfo) -> Result<usize, String> {
         if self.active_layers.len() >= self.max_layers {
-            return Err("Maximum layer count exceeded");
+            return Err(format!("Maximum layer count {} reached", self.max_layers));
         }
 
         self.active_layers.push(layer);
         Ok(self.active_layers.len() - 1)
+    }
+
+    /// The most layers the render state holds at once.
+    pub fn max_layers(&self) -> usize {
+        self.max_layers
     }
 
     /// Remove a layer by index
@@ -404,6 +411,15 @@ impl LayerStateManager {
     /// Get all active layers
     pub fn layers(&self) -> &[LayerInfo] {
         &self.active_layers
+    }
+
+    /// Slot of the active render layer that samples atlas texture `atlas_index`,
+    /// if the current frame draws it. Render-layer slots are rebuilt from each
+    /// ViewState and are not atlas indices.
+    pub fn index_for_atlas(&self, atlas_index: u32) -> Option<usize> {
+        self.active_layers
+            .iter()
+            .position(|layer| layer.atlas_index == atlas_index)
     }
 
     /// Set the alpha-mask state for the layer with the given atlas index.
@@ -513,9 +529,32 @@ mod tests {
         assert_eq!(idx, 0);
         assert_eq!(manager.layer_count(), 1);
 
+        // Slots are positions in the frame's layer list, found by atlas index.
+        let other = LayerInfo {
+            atlas_index: 5,
+            ..layer1.clone()
+        };
+        assert_eq!(manager.add_layer(other).unwrap(), 1);
+        assert_eq!(manager.index_for_atlas(5), Some(1));
+        assert_eq!(manager.index_for_atlas(0), Some(0));
+        assert_eq!(manager.index_for_atlas(3), None);
+        manager.remove_layer(1);
+
         // Remove layer
         let removed = manager.remove_layer(0).unwrap();
         assert_eq!(removed.atlas_index, layer1.atlas_index);
         assert_eq!(manager.layer_count(), 0);
+    }
+
+    /// QA 2026-10-31 N2: past the cap the error names it, so the UI can say
+    /// "slots full (all N in use)" instead of the raw internal error.
+    #[test]
+    fn layer_cap_error_names_the_cap() {
+        let mut manager = LayerStateManager::new(2);
+        assert_eq!(manager.max_layers(), 2);
+        manager.add_layer(LayerInfo::default()).unwrap();
+        manager.add_layer(LayerInfo::default()).unwrap();
+        let err = manager.add_layer(LayerInfo::default()).unwrap_err();
+        assert_eq!(err, "Maximum layer count 2 reached");
     }
 }

@@ -16,6 +16,8 @@ import { neighbourAfterRemoval, removeLayerFromScene, selectedVolumeLayerId } fr
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { useLogStore } from '@/stores/logStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import { getSceneHistory } from '@/services/SceneHistoryService';
 
 const layer = (id: string): LayerInfo =>
   ({ id, name: id, volumeId: id, type: 'anatomical', visible: true, order: 0 }) as LayerInfo;
@@ -103,5 +105,40 @@ describe('removeLayerFromScene', () => {
     expect(useInspectorSelectionStore.getState()).toMatchObject({ activeItemId: 's1', activeItemKind: 'surface-geometry' });
     expect(useLayerStore.getState().selectedLayerId).toBe('c');
   });
-});
 
+  it('offers Undo for a file layer in the active view (QA F28)', async () => {
+    useLayerStore.getState().addLayer({
+      ...layer('vol-9'),
+      name: 'zmap',
+      source: 'file',
+      sourcePath: '/data/p4_zmap.nii',
+    } as LayerInfo);
+    useViewStateStore.getState().setViewState((d) => {
+      d.layers.push({
+        id: 'vol-9', name: 'zmap', volumeId: 'vol-9', visible: true, opacity: 0.7,
+        colormap: 'fmri', intensity: [-6, 6], threshold: [-3.1, 3.1],
+      });
+    });
+    mockRemoveLayer.mockImplementation(async (id: string) => useLayerStore.getState().removeLayer(id));
+    await removeLayerFromScene('vol-9');
+    expect(mockEmit).toHaveBeenCalledWith(
+      'ui.notification',
+      expect.objectContaining({
+        message: 'Removed p4_zmap.nii',
+        action: expect.objectContaining({ label: 'Undo' }),
+      }),
+    );
+    const step = getSceneHistory().steps().undo.at(-1);
+    expect(step).toMatchObject({
+      kind: 'removal',
+      removed: { sourcePath: '/data/p4_zmap.nii', display: { opacity: 0.7, threshold: [-3.1, 3.1] } },
+    });
+  });
+
+  it('offers no Undo for an atlas', async () => {
+    useLayerStore.getState().addLayer({ ...layer('atl'), source: 'atlas', sourcePath: 'atlas:x' } as LayerInfo);
+    mockRemoveLayer.mockImplementation(async (id: string) => useLayerStore.getState().removeLayer(id));
+    await removeLayerFromScene('atl');
+    expect(mockEmit).not.toHaveBeenCalledWith('ui.notification', expect.objectContaining({ action: expect.anything() }));
+  });
+});

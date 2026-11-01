@@ -11,7 +11,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
 import { layerFrameBoxes } from './layerFrameBoxes';
-import { edgeBoxFromAffine, type WorldBox } from '@/utils/worldFrame';
+import { edgeBoxFromAffine, type VoxelGrid, type WorldBox } from '@/utils/worldFrame';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { colormapNameToId } from '@/components/ui/colormapOptions';
@@ -33,7 +33,9 @@ import { useInspectorSelectionStore, focusVolumeLayer } from '@/stores/inspector
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useSeriesStore } from '@/stores/seriesStore';
-import { planLayerPlacement, placementOrder } from './layerPlacement';
+import { categoricalTypeFromData, planLayerPlacement, placementOrder } from './layerPlacement';
+import { releaseVolumeCaches } from './volumeCacheRelease';
+import { forgetPreservedDisplay, isLayerDisplayPreserved } from './restoredDisplay';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -112,6 +114,10 @@ export class LayerApiImpl implements LayerApi {
       return true;
     };
 
+    // Free a texture slot first: the render loop refuses an upload once all
+    // are taken, so evicting afterwards is too late.
+    await layerEvictionService.makeRoomForUpload(id);
+    if (removed()) return;
     const gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
     if (await discardIfRemoved()) return;
 
@@ -279,14 +285,19 @@ export class LayerApiImpl implements LayerApi {
     let placement: { index: number; opacity?: number } | undefined;
     // Exact voxel-edge world box, for framing the union of visible layers.
     let frameBox: WorldBox | null = null;
+    let frameGrid: VoxelGrid | null = null;
 
     try {
+      // A visible layer takes a texture slot: free one before the upload
+      // (the render loop refuses it once every slot is taken).
+      if (!metadataOnly) await layerEvictionService.makeRoomForUpload(newLayer.id);
       const gpuInfo = await this.apiService.requestLayerGpuResources(
         newLayer.id,
         newLayer.volumeId,
         metadataOnly,
       );
       frameBox = edgeBoxFromAffine(gpuInfo.voxel_to_world, gpuInfo.dim);
+      if (frameBox) frameGrid = { voxelToWorld: gpuInfo.voxel_to_world, dims: gpuInfo.dim };
       const gpuElapsed = performance.now() - gpuStartTime;
       layerDebugLog(
         `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`,
@@ -312,6 +323,16 @@ export class LayerApiImpl implements LayerApi {
 
       const earlyMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
       if (!context?.replaceLayerId) {
+        // A binary or small-integer image is drawn as labels (F17).
+        const categorical = categoricalTypeFromData(
+          { ...newLayer, source: (earlyMetadata as { source?: string }).source },
+          {
+            isBinaryLike: gpuInfo.is_binary_like,
+            dataRange: gpuInfo.data_range ?? undefined,
+            nativeDtype: (earlyMetadata as { nativeDtype?: string }).nativeDtype,
+          },
+        );
+        if (categorical) newLayer.type = categorical;
         placement = planLayerPlacement(
           useLayerStore.getState().layers,
           newLayer,
@@ -414,7 +435,7 @@ export class LayerApiImpl implements LayerApi {
     layerDebugLog(`  - layerStore: ${stateBefore} layers`);
     layerDebugLog(`  - viewStateStore: ${viewStateBefore} layers`);
 
-    if (frameBox) layerFrameBoxes.record(newLayer.id, frameBox);
+    if (frameBox) layerFrameBoxes.record(newLayer.id, frameBox, frameGrid ?? undefined);
     // Add to layer store first.
     if (context?.replaceLayerId) {
       this.publishReplacement(context.replaceLayerId, newLayer, context);
@@ -547,12 +568,12 @@ export class LayerApiImpl implements LayerApi {
     };
     const initial = target()?.layers.find((item) => item.id === layer.id);
     if (!initial) return;
-    // Only a change to the window, threshold or colour map means the user (or
+    // Only a change to the window, threshold, colour map or interpolation means the user (or
     // another refinement) took over; visibility toggles do not (native R2-1: a
     // run hidden by the Series view while its histogram ran kept its first-paint
     // window and never joined the pooled EPI window).
     const renderKey = (item: typeof initial | undefined) =>
-      item ? JSON.stringify([item.intensity, item.threshold, item.colormap]) : '';
+      item ? JSON.stringify([item.intensity, item.threshold, item.colormap, item.interpolation]) : '';
     const initialRender = renderKey(initial);
     // Guard both immutable store edits and external mutation of render arrays.
     let histogram;
@@ -574,6 +595,7 @@ export class LayerApiImpl implements LayerApi {
 
     // The layer may have been removed while the histogram was computing.
     const store = useLayerStore.getState();
+    if (isLayerDisplayPreserved(layer.id)) return;
     if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
       return;
     }
@@ -596,6 +618,7 @@ export class LayerApiImpl implements LayerApi {
     if (!statisticRefined && rangeResult.suggestedColormap === 'gray' && isFourDIntensityLayer(layer)) {
       const ids = runGroupIds(layer.id);
       const epi = await this.epiWindow(ids);
+      if (isLayerDisplayPreserved(layer.id)) return;
       if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
       if (epi) {
         intensity = shareRunWindow(
@@ -748,6 +771,7 @@ export class LayerApiImpl implements LayerApi {
 
       queueStore.updateProgress(queueId, 85);
       VolumeHandleStore.clearVolumeHandle(volumeId);
+      releaseVolumeCaches(volumeId);
 
       // Remove from both stores explicitly, then forget per-layer UI state.
       useLayerStore.getState().removeLayer(id);
@@ -779,6 +803,7 @@ export class LayerApiImpl implements LayerApi {
   /** Per-layer state outside the layer and view stores. */
   private forgetLayer(id: string): void {
     statisticFirstPaint.delete(id);
+    forgetPreservedDisplay(id);
     this.visibilitySeq.delete(id);
     useComparisonStore.getState().forgetLayer(id);
     useDisplayOptionsStore.getState().clearOptions(id);

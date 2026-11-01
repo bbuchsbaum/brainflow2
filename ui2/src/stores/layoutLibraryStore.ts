@@ -1,10 +1,34 @@
 import { create } from 'zustand';
 import type { LayoutConfig } from 'golden-layout';
 import { getLayoutService } from '@/services/layoutService';
+import { currentTabTakesLayout, setCurrentTabLayout } from '@/services/workspaceNavigation';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { addLogEntry } from '@/stores/logStore';
+import { DOCK_TABS, type DockTabId } from '@/components/layout/bottomWorkbenchDock.constants';
+import { isViewWorkspaceType } from '@/components/ui/displayModeSelector.helpers';
+import type { WorkspaceType } from '@/types/workspace';
 import { cloneLayoutConfig } from '@/utils/layoutConfigUtils';
 
 const STORAGE_KEY = 'brainflow2-layout-library';
 const LAYOUT_LIBRARY_SCHEMA_VERSION = 1;
+
+/**
+ * What a saved layout restores besides the panel arrangement: the layout of
+ * the tab in front (applied to the current tab, like a pill) and the bottom
+ * dock. Without it, restoring "qa-run3" after switching to Mosaic and the Plot
+ * tab looked like nothing happened (QA 2026-10-30 F2).
+ */
+export interface SavedViewState {
+  /** The front view tab's layout when saved; null when a tool was in front. */
+  workspaceType: WorkspaceType | null;
+  dock: {
+    open: boolean;
+    minimized: boolean;
+    activeTab: DockTabId | null;
+    height: number | null;
+  };
+}
 
 export interface NamedLayout {
   id: string;
@@ -13,6 +37,8 @@ export interface NamedLayout {
   createdAt: number;
   updatedAt: number;
   layoutConfig: LayoutConfig;
+  /** Absent in layouts saved before 2026-10-30. */
+  view?: SavedViewState;
 }
 
 interface LayoutLibraryPayload {
@@ -49,6 +75,57 @@ function isLayoutConfig(value: unknown): value is LayoutConfig {
   return Boolean(maybeRoot && typeof maybeRoot === 'object');
 }
 
+const DOCK_TAB_IDS: ReadonlySet<string> = new Set(DOCK_TABS.map((tab) => tab.id));
+
+function parseViewState(value: unknown): SavedViewState | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as { workspaceType?: unknown; dock?: Record<string, unknown> };
+  const workspaceType =
+    typeof raw.workspaceType === 'string' && isViewWorkspaceType(raw.workspaceType as WorkspaceType)
+      ? (raw.workspaceType as WorkspaceType)
+      : null;
+  const dock = raw.dock && typeof raw.dock === 'object' ? raw.dock : {};
+  return {
+    workspaceType,
+    dock: {
+      open: dock.open !== false,
+      minimized: dock.minimized === true,
+      activeTab:
+        typeof dock.activeTab === 'string' && DOCK_TAB_IDS.has(dock.activeTab)
+          ? (dock.activeTab as DockTabId)
+          : null,
+      height: typeof dock.height === 'number' && Number.isFinite(dock.height) ? dock.height : null,
+    },
+  };
+}
+
+function captureViewState(): SavedViewState {
+  const { activeWorkspaceId, workspaces } = useWorkspaceStore.getState();
+  const active = activeWorkspaceId ? workspaces.get(activeWorkspaceId) : undefined;
+  const settings = useLayoutSettingsStore.getState();
+  return {
+    workspaceType: active && currentTabTakesLayout() ? active.type : null,
+    dock: {
+      open: settings.bottomDockOpen,
+      minimized: settings.bottomDockMinimized,
+      activeTab: settings.bottomDockActiveTab,
+      height: settings.bottomDockHeights.imaging ?? null,
+    },
+  };
+}
+
+function applyViewState(view: SavedViewState): void {
+  // Like a pill: the current tab takes the layout; a tool in front keeps its own.
+  if (view.workspaceType && currentTabTakesLayout()) {
+    setCurrentTabLayout(view.workspaceType);
+  }
+  const settings = useLayoutSettingsStore.getState();
+  settings.setBottomDockOpen(view.dock.open);
+  settings.setBottomDockMinimized(view.dock.minimized);
+  if (view.dock.activeTab) settings.setBottomDockActiveTab(view.dock.activeTab);
+  if (view.dock.height !== null) settings.setBottomDockHeight(view.dock.height);
+}
+
 function parsePayload(raw: string | null): LayoutLibraryPayload {
   if (!raw) {
     return makeDefaultPayload();
@@ -78,10 +155,16 @@ function parsePayload(raw: string | null): LayoutLibraryPayload {
           isLayoutConfig(entry.layoutConfig)
         );
       })
-      .map((entry) => ({
-        ...entry,
-        layoutConfig: cloneLayoutConfig(entry.layoutConfig),
-      }));
+      .map((entry) => {
+        const layout: NamedLayout = {
+          ...entry,
+          layoutConfig: cloneLayoutConfig(entry.layoutConfig),
+        };
+        const view = parseViewState(entry.view);
+        if (view) layout.view = view;
+        else delete layout.view;
+        return layout;
+      });
 
     return {
       schemaVersion: LAYOUT_LIBRARY_SCHEMA_VERSION,
@@ -132,6 +215,7 @@ export const useLayoutLibraryStore = create<LayoutLibraryStore>((set, get) => ({
       return false;
     }
 
+    const view = captureViewState();
     const now = Date.now();
     const existing = get().layouts.find(
       (layout) => layout.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase()
@@ -148,6 +232,7 @@ export const useLayoutLibraryStore = create<LayoutLibraryStore>((set, get) => ({
               name: trimmed,
               updatedAt: now,
               layoutConfig: cloneLayoutConfig(layoutConfig),
+              view,
             }
           : layout
       );
@@ -160,6 +245,7 @@ export const useLayoutLibraryStore = create<LayoutLibraryStore>((set, get) => ({
         createdAt: now,
         updatedAt: now,
         layoutConfig: cloneLayoutConfig(layoutConfig),
+        view,
       };
       nextLayouts = [...get().layouts, newLayout];
       activeLayoutId = newLayout.id;
@@ -183,16 +269,19 @@ export const useLayoutLibraryStore = create<LayoutLibraryStore>((set, get) => ({
       return false;
     }
 
-    const didLoad = getLayoutService().applyLayout(layout.layoutConfig);
-    if (!didLoad) {
-      const recovered = getLayoutService().resetToDefaultLayout();
-      set({
-        lastError: recovered
-          ? `Layout '${layout.name}' could not be restored. Recovered with default layout.`
-          : `Layout '${layout.name}' could not be restored.`,
-      });
+    // applyLayout falls back to the default shell itself ('reset'); the
+    // message says which of the two is on screen.
+    const result = getLayoutService().applyLayout(layout.layoutConfig);
+    if (result !== 'applied') {
+      const message =
+        result === 'reset'
+          ? `Layout '${layout.name}' could not be restored, so the panels were reset to the default arrangement.`
+          : `Layout '${layout.name}' could not be restored.`;
+      addLogEntry({ level: 'error', source: 'layout', message });
+      set({ lastError: message });
       return false;
     }
+    if (layout.view) applyViewState(layout.view);
 
     const payload: LayoutLibraryPayload = {
       schemaVersion: LAYOUT_LIBRARY_SCHEMA_VERSION,

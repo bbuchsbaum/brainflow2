@@ -11,7 +11,8 @@ import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import type { VolumeHandle } from './apiService';
 import type { LayerInfo } from '@/stores/layerStore';
 import { getEventBus, type EventBus } from '@/events/EventBus';
-import { toError } from '@/utils/formatTauriError';
+import { loadFailureMessage, toError } from '@/utils/formatTauriError';
+import { addLogEntry } from '@/stores/logStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 
@@ -43,6 +44,15 @@ interface TemplateLoadResult {
       acquisition_time: number | null;
     };
   };
+}
+
+export interface TemplateLoadOptions {
+  /**
+   * No toast, success or failure: the load was not the user's request (the
+   * first screen's MNI T1, qa-features-2026-10-31 §7). The Log still records
+   * it through the file.loaded / file.error events.
+   */
+  quiet?: boolean;
 }
 
 export class TemplateService {
@@ -102,8 +112,8 @@ export class TemplateService {
   /**
    * Load a template by its menu ID (e.g., "MNI152NLin2009cAsym_T1w_1mm")
    */
-  async loadTemplateById(templateId: string): Promise<void> {
-    await this.loadTemplate(templateId);
+  async loadTemplateById(templateId: string, options: TemplateLoadOptions = {}): Promise<void> {
+    await this.loadTemplate(templateId, options);
   }
 
   async loadTemplateBySourcePath(sourcePath: string): Promise<void> {
@@ -118,7 +128,7 @@ export class TemplateService {
     await this.loadTemplate(templateId);
   }
 
-  private async loadTemplate(templateId: string): Promise<void> {
+  private async loadTemplate(templateId: string, options: TemplateLoadOptions = {}): Promise<void> {
     const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
     const startTime = performance.now();
     console.log(`[TemplateService ${startTime.toFixed(0)}ms] Loading template: ${templateId}`);
@@ -138,7 +148,8 @@ export class TemplateService {
     const queueId = useLoadingQueueStore.getState().enqueue({
       type: 'template',
       path: templatePath,
-      displayName: templateId
+      displayName: templateId,
+      workspaceId: useViewStateStore.getState().activeWorkspaceKey,
     });
 
     try {
@@ -205,10 +216,12 @@ export class TemplateService {
         volumeId: volumeHandle.id 
       });
       
-      this.eventBus.emit('ui.notification', {
-        type: 'info',
-        message: `Loaded template: ${templateResult.template_metadata.name}`
-      });
+      if (!options.quiet) {
+        this.eventBus.emit('ui.notification', {
+          type: 'info',
+          message: `Loaded template: ${templateResult.template_metadata.name}`
+        });
+      }
 
       console.log(`[TemplateService ${performance.now() - startTime}ms] Template load complete`);
 
@@ -226,10 +239,20 @@ export class TemplateService {
         error 
       });
       
-      this.eventBus.emit('ui.notification', {
-        type: 'error',
-        message: `Failed to load template ${templateId}: ${error.message}`
-      });
+      if (!options.quiet) {
+        this.eventBus.emit('ui.notification', {
+          type: 'error',
+          message: loadFailureMessage(`template ${templateId}`, rawError),
+          logSource: 'template',
+        });
+      } else {
+        // No toast, but the Log keeps the failure.
+        addLogEntry({
+          level: 'error',
+          source: 'template',
+          message: loadFailureMessage(`template ${templateId}`, rawError),
+        });
+      }
     }
   }
 

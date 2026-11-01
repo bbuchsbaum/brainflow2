@@ -14,6 +14,8 @@ import { formatTauriError } from '@/utils/formatTauriError';
 import { areServicesInitialized } from './useServicesInit';
 import type { MountSource } from '@/types/filesystem';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import { isSupportedDisplayPath, SUPPORTED_DISPLAY_EXTENSIONS } from '@/utils/displayFileTypes';
 
 interface MountEvent {
   path: string;
@@ -23,6 +25,8 @@ interface MountEvent {
 
 interface OpenFileEvent {
   path: string;
+  /** Every file picked (a multi-select Open dialog); `path` is the first. */
+  paths?: string[];
   intent?: DisplayOpenIntent;
 }
 
@@ -131,13 +135,39 @@ export function useMountListener() {
         });
 
         openFileUnlisten = await safeListen<OpenFileEvent>('open-file-event', async (event) => {
-          const path = event.payload.path;
           const intent = event.payload.intent ?? 'default';
-          console.log('Open file event received:', path);
-          if (!path || !path.trim()) {
-            return;
+          const paths = (event.payload.paths ?? [event.payload.path]).filter(
+            (p: unknown): p is string => typeof p === 'string' && p.trim().length > 0,
+          );
+          console.log('Open file event received:', paths);
+          // The tab the dialog was opened from owns every file, captured
+          // before any I/O: a tab switch mid-way must not send the rest
+          // elsewhere (async ownership, AGENTS.md).
+          const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
+          let toLoad = paths;
+          if (paths.length > 1) {
+            // One message for every unsupported file, not one per file.
+            const unsupported = paths.filter((p: string) => !isSupportedDisplayPath(p));
+            toLoad = paths.filter(isSupportedDisplayPath);
+            if (unsupported.length > 0) {
+              const names = unsupported.map((p: string) => p.split(/[\\/]/).pop() || p);
+              getEventBus().emit('ui.notification', {
+                type: 'warning',
+                message: `Not opened (${names.length}): ${names.join(', ')}. Supported types: ${SUPPORTED_DISPLAY_EXTENSIONS.join(', ')}`,
+              });
+            }
           }
-          await getFileLoadingService().loadFile(path, 'file-dialog', intent);
+          // One after another: loads started together drop all but the first
+          // ones (QA 2026-10-30 F29); a failed file does not stop the rest.
+          for (const path of toLoad) {
+            // The owning tab was closed: the remaining files have nowhere to go.
+            if (!useViewStateStore.getState().workspaceViewStates.has(workspaceId)) break;
+            try {
+              await getFileLoadingService().loadFile(path, 'file-dialog', intent, workspaceId);
+            } catch (error) {
+              console.error('Open file failed:', path, error);
+            }
+          }
         });
 
         remoteMountUnlisten = await safeListen<RemoteMountEvent>(

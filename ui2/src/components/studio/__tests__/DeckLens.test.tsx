@@ -15,6 +15,9 @@ import { DeckLens } from '../DeckLens';
 vi.mock('@/components/views/OrthogonalViewContainer', () => ({
   OrthogonalViewContainer: () => <div data-testid="ortho" />,
 }));
+vi.mock('@/components/views/FlexibleSlicePanel', () => ({
+  FlexibleSlicePanel: ({ viewId }: { viewId: string }) => <div data-testid="single-view" data-view={viewId} />,
+}));
 vi.mock('@/components/views/SurfaceViewPanelLazy', () => ({
   SurfaceViewPanel: () => <div data-testid="surface" />,
 }));
@@ -114,5 +117,43 @@ describe('DeckLens render scope', () => {
     expect(hasRenderLayerScope()).toBe(false);
     act(() => useAppModeStore.setState({ mode: 'studio' }));
     expect(drawnLayerIds()).toEqual(['member']);
+  });
+});
+
+describe('Deck as one large view (QA N13 b)', () => {
+  it('shows one view of the session plane, switched by the toolbar toggle and reset by a new study', async () => {
+    const { useSetStudioStore } = await import('@/stores/setStudioStore');
+    const { StudioToolbarSlotContext } = await import('../StudioToolbarSlot');
+    const { fireEvent, screen } = await import('@testing-library/react');
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    const slot = document.createElement('div');
+    document.body.appendChild(slot);
+    render(
+      <StudioToolbarSlotContext.Provider value={slot}>
+        <DeckLens
+          activeSet={volumeSet}
+          activeFeature={null}
+          activeMemberId="s01_faces_l2"
+          activeMemberSourcePath={MEMBER_PATH}
+          onSelectMember={vi.fn()}
+          onInspectCurrent={vi.fn()}
+          onOpenCurrentSource={vi.fn()}
+        />
+      </StudioToolbarSlotContext.Provider>,
+    );
+    // Axial by default, as one view (no three thumbnails).
+    expect(screen.getByTestId('single-view').dataset.view).toBe('axial');
+    expect(screen.queryByTestId('ortho')).toBeNull();
+    // The toggle lives in the toolbar slot.
+    const coronal = Array.from(slot.querySelectorAll('[role="radio"]')).find(
+      (radio) => radio.textContent === 'Coronal',
+    )!;
+    fireEvent.click(coronal);
+    expect(useSetStudioStore.getState().studioPlane).toBe('coronal');
+    expect(screen.getByTestId('single-view').dataset.view).toBe('coronal');
+    // A new study starts on axial again.
+    act(() => useSetStudioStore.getState().loadDemoSession());
+    expect(useSetStudioStore.getState().studioPlane).toBe('axial');
+    slot.remove();
   });
 });

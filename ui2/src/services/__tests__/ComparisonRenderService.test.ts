@@ -4,10 +4,12 @@ import {
   comparisonTag,
   padComparisonBounds,
   resolvePanelUnderlayId,
+  sharedComparisonFrame,
 } from '@/services/ComparisonRenderService';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
+import { useComparisonStore } from '@/stores/comparisonStore';
 import type { ViewState } from '@/types/viewState';
 import type { ViewPlane } from '@/types/coordinates';
 
@@ -142,6 +144,73 @@ describe('ComparisonRenderService', () => {
     );
     expect(renderState.lastImage).toBe(renderedImage);
     expect(renderState.isRendering).toBe(false);
+  });
+
+  it('panes of a small and a large image share one world scale (QA 2026-10-30 F7)', async () => {
+    applyAndRenderViewState.mockResolvedValue({ width: 256, height: 256 } as ImageBitmap);
+    const small = { min: [-10, -10, -10] as [number, number, number], max: [10, 10, 10] as [number, number, number] };
+    const large = { min: [-90, -126, -72] as [number, number, number], max: [90, 90, 108] as [number, number, number] };
+    useViewStateStore.getState().setViewState(() => {
+      const state = createViewState();
+      state.layers = [
+        { ...state.layers[0], id: 'oblique', volumeId: 'vol-o' },
+        { ...state.layers[0], id: 't1', volumeId: 'vol-t1' },
+      ];
+      return state;
+    });
+    for (const [id, bounds] of [['oblique', small], ['t1', large]] as const) {
+      useLayerStore.getState().addLayer({ id, name: id, volumeId: `vol-${id}`, type: 'anatomical', visible: true, order: 0 });
+      useLayerStore.getState().setLayerMetadata(id, { worldBounds: bounds, centerWorld: [0, 0, 0] });
+    }
+    useComparisonStore.getState().initFromLayers('comparison-default', ['oblique', 't1']);
+    const panels = useComparisonStore.getState().getPanels('comparison-default');
+
+    const service = new ComparisonRenderService();
+    await service.renderPanels(panels.map((panel) => ({ workspaceId: 'comparison-default', panel, width: 256, height: 256 })));
+
+    const planes = panels.map((panel) => useComparisonStore.getState().getPanelViewPlane(panel.id)!);
+    expect(planes[0].u_mm).toEqual(planes[1].u_mm);
+    expect(planes[0].origin_mm.slice(0, 2)).toEqual(planes[1].origin_mm.slice(0, 2));
+    // The frame is the large image's.
+    const padded = padComparisonBounds(large);
+    expect(planes[0].u_mm[0]).toBeCloseTo((padded.max[1] - padded.min[1]) / 256, 6);
+  });
+
+  it('a pane whose bounds come from the backend still sets the shared frame (review 4)', async () => {
+    applyAndRenderViewState.mockResolvedValue({ width: 256, height: 256 } as ImageBitmap);
+    const small = { min: [-10, -10, -10] as [number, number, number], max: [10, 10, 10] as [number, number, number] };
+    const large = { min: [-90, -126, -72] as [number, number, number], max: [90, 90, 108] as [number, number, number] };
+    useViewStateStore.getState().setViewState(() => {
+      const state = createViewState();
+      state.layers = [
+        { ...state.layers[0], id: 'oblique', volumeId: 'vol-oblique' },
+        { ...state.layers[0], id: 't1', volumeId: 'vol-t1' },
+      ];
+      return state;
+    });
+    useLayerStore.getState().addLayer({ id: 'oblique', name: 'oblique', volumeId: 'vol-oblique', type: 'anatomical', visible: true, order: 0 });
+    useLayerStore.getState().setLayerMetadata('oblique', { worldBounds: small, centerWorld: [0, 0, 0] });
+    // The T1 has no recorded bounds: only the backend knows them.
+    useLayerStore.getState().addLayer({ id: 't1', name: 't1', volumeId: 'vol-t1', type: 'anatomical', visible: true, order: 1 });
+    getVolumeBounds.mockImplementation(async (volumeId: string) => (volumeId === 'vol-t1' ? large : small));
+    useComparisonStore.getState().initFromLayers('comparison-api', ['oblique', 't1']);
+    const panels = useComparisonStore.getState().getPanels('comparison-api');
+
+    const service = new ComparisonRenderService();
+    // The oblique pane alone, as ComparisonPanel renders it.
+    await service.renderPanel({ workspaceId: 'comparison-api', panel: panels[0], width: 256, height: 256 });
+    const plane = useComparisonStore.getState().getPanelViewPlane(panels[0].id)!;
+    const padded = padComparisonBounds(large);
+    expect(plane.u_mm[0]).toBeCloseTo((padded.max[1] - padded.min[1]) / 256, 6);
+    expect(getVolumeBounds).toHaveBeenCalledTimes(1);
+  });
+
+  it('boxes in different spaces (no overlap) are not combined', () => {
+    const own = { min: [-10, -10, -10] as [number, number, number], max: [10, 10, 10] as [number, number, number] };
+    const far = { min: [100, 100, 100] as [number, number, number], max: [200, 200, 200] as [number, number, number] };
+    const near = { min: [-50, -50, -50] as [number, number, number], max: [50, 50, 50] as [number, number, number] };
+    expect(sharedComparisonFrame(own, [far])).toEqual(own);
+    expect(sharedComparisonFrame(own, [far, near])).toEqual(near);
   });
 
   it('computes a fresh volume-aware panel fit even when the layer contains the crosshair', async () => {

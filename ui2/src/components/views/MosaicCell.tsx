@@ -20,6 +20,10 @@ import { CoordinateTransform } from '@/utils/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
 import { isClickOnData, useLayerEdgeBounds } from './clickDataBounds';
+import { canvasPointToImagePoint, imagePointToCanvasPoint } from '@brainflow/visualization/slice';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
+import { canvasPixelRatio } from '@/utils/renderPixelRatio';
+import { useCanvasPixelRatio } from '@/hooks/useCanvasPixelRatio';
 
 interface MosaicCellProps {
   workspaceId: string;
@@ -72,6 +76,10 @@ function MosaicCellBody({
   const axisViewPlane = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).views[axis]);
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
+  // Radiological convention: axial/coronal tiles mirrored (display only).
+  const mirrorX = useMirrorsView(axis);
+  // HiDPI canvas (the tile is rendered at the same ratio, MosaicRenderService).
+  const pixelRatio = useCanvasPixelRatio();
   // The volume's outer voxel edges: a click in the tile padding around the
   // brain (inside the bitmap) does not move the crosshair.
   const viewLayers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
@@ -86,7 +94,7 @@ function MosaicCellBody({
   // Custom render function to draw crosshairs
   const customRender = useCallback((
     ctx: CanvasRenderingContext2D,
-    placement: { x: number; y: number; width: number; height: number; imageWidth: number; imageHeight: number }
+    placement: { x: number; y: number; width: number; height: number; imageWidth: number; imageHeight: number; mirrorX?: boolean }
   ) => {
     placementRef.current = placement;
     const currentViewPlane = mosaicRenderService.getViewPlaneForTag(tag) ?? axisViewPlane;
@@ -135,12 +143,9 @@ function MosaicCellBody({
       const [screenX, screenY] = crosshairInfo.screenCoord;
       
       
-      // Transform screen coordinates to canvas coordinates
-      const scaleX = placement.width / placement.imageWidth;
-      const scaleY = placement.height / placement.imageHeight;
-      
-      const canvasX = placement.x + screenX * scaleX;
-      const canvasY = placement.y + screenY * scaleY;
+      // Transform screen coordinates to canvas coordinates (through the
+      // placement, which carries a radiological mirror).
+      const { canvasX, canvasY } = imagePointToCanvasPoint([screenX, screenY], placement);
       
       
       // Choose style based on whether this is the active slice
@@ -185,22 +190,18 @@ function MosaicCellBody({
       return;
     }
 
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    // The placement this cell keeps is the CSS one its custom render gets
+    // (overlays are drawn in CSS units on a HiDPI canvas): map the click to
+    // CSS canvas px.
+    const ratio = canvasPixelRatio(canvas);
+    const scaleX = canvas.width / ratio / rect.width;
+    const scaleY = canvas.height / ratio / rect.height;
     const canvasX = (event.clientX - rect.left) * scaleX;
     const canvasY = (event.clientY - rect.top) * scaleY;
 
-    if (
-      canvasX < placement.x ||
-      canvasX > placement.x + placement.width ||
-      canvasY < placement.y ||
-      canvasY > placement.y + placement.height
-    ) {
-      return;
-    }
-
-    const imageX = ((canvasX - placement.x) / placement.width) * placement.imageWidth;
-    const imageY = ((canvasY - placement.y) / placement.height) * placement.imageHeight;
+    const imagePoint = canvasPointToImagePoint({ canvasX, canvasY }, placement);
+    if (!imagePoint) return;
+    const [imageX, imageY] = imagePoint;
     const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, currentViewPlane);
 
     // Update the world coordinate based on the slice position
@@ -233,6 +234,8 @@ function MosaicCellBody({
       customRender={customRender}
       onCanvasReady={handleCanvasReady}
       onMouseDown={handleMouseDown}
+      mirrorX={mirrorX}
+      pixelRatio={pixelRatio}
       className="cursor-crosshair"
       canvasClassName="mosaic-cell-canvas"
     />

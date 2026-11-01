@@ -16,6 +16,8 @@ export interface SliceViewportPlacement {
   height: number;
   imageWidth: number;
   imageHeight: number;
+  /** The image is drawn mirrored left-right (see `mirrorX` below). */
+  mirrorX?: boolean;
 }
 
 interface SliceViewportProps {
@@ -53,6 +55,19 @@ interface SliceViewportProps {
   onFileDrop?: (file: File, intent: DisplayOpenIntent) => void | Promise<void>;
   onPathDrop?: (path: string, intent: DisplayOpenIntent) => void;
   customRender?: SliceRendererProps['customRender'];
+  /**
+   * Display the slice mirrored left-right (the radiological convention).
+   * A display transform only: the plane, the crosshair's world position and
+   * click/hover mapping are unchanged, because the image placement carries
+   * the flip and the shared geometry maps through it.
+   */
+  mirrorX?: boolean;
+  /**
+   * Canvas backing-store pixels per CSS pixel (HiDPI). Overlays (crosshair,
+   * border, custom render) are drawn in CSS units at any ratio; click and
+   * hover map through the backing placement. Default 1.
+   */
+  pixelRatio?: number;
 }
 
 export function SliceViewport({
@@ -85,6 +100,8 @@ export function SliceViewport({
   onFileDrop,
   onPathDrop,
   customRender,
+  mirrorX = false,
+  pixelRatio = 1,
 }: SliceViewportProps) {
   useRenderContextRegistration(context);
 
@@ -127,6 +144,8 @@ export function SliceViewport({
           onMouseLeave={onMouseLeave}
           onWheel={onWheel}
           customRender={handleRender}
+          mirrorX={mirrorX}
+          pixelRatio={pixelRatio}
           onCanvasReady={handleCanvasReady}
           className="w-full h-full"
           canvasClassName={canvasClassName}

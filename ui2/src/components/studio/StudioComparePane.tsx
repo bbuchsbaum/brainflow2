@@ -5,6 +5,7 @@ import type {
   SpatialFieldSetSummary,
   StudioComparePaneSpec,
 } from '@/types/studio';
+import { paneReasonText } from './paneReasonText';
 
 export type ComparePaneLetter = 'A' | 'B' | 'C' | 'D';
 export type ComparePaneAccent = 'sky' | 'emerald' | 'amber' | 'violet';
@@ -15,7 +16,6 @@ interface StudioComparePaneProps {
   pane: StudioComparePaneSpec | undefined;
   fallbackTitle: string;
   fallbackSubtitle: string;
-  unitsLabel: string;
   selected: boolean;
   isRefreshing: boolean;
   isAnyLoading: boolean;
@@ -60,7 +60,6 @@ export function StudioComparePane({
   pane,
   fallbackTitle,
   fallbackSubtitle,
-  unitsLabel,
   selected,
   isRefreshing,
   isAnyLoading,
@@ -91,6 +90,15 @@ export function StudioComparePane({
   const normalization = parseRecipeField(pane?.recipe ?? null, 'norm');
   const threshold = parseRecipeField(pane?.recipe ?? null, 'threshold');
   const supportLabel = activeSet?.supportLabel ?? null;
+  const provenanceTitle = [
+    memberCountText,
+    reducer ? `Reducer ${reducer}` : null,
+    normalization ? `Norm ${normalization}` : null,
+    threshold ? `Threshold ${threshold}` : null,
+    supportLabel ? `Support ${supportLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <article
@@ -100,7 +108,8 @@ export function StudioComparePane({
       }`}
     >
       {/* Header */}
-      <header className="flex items-center justify-between gap-3 border-b border-border bg-card/80 px-3 py-2">
+      {/* One line, so four panes fit a 1372×887 window (QA N13 c). */}
+      <header className="flex items-center justify-between gap-2 border-b border-border bg-card/80 px-2 py-1">
         <div className="flex min-w-0 items-center gap-2">
           <span
             aria-hidden
@@ -108,9 +117,9 @@ export function StudioComparePane({
           >
             {letter}
           </span>
-          <div className="min-w-0">
-            <div className={`truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</div>
-            <div className="truncate text-bf-xs text-muted-foreground">{subtitle}</div>
+          <div className="flex min-w-0 items-baseline gap-2 overflow-hidden" title={`${title} · ${subtitle}`}>
+            <span className={`min-w-0 max-w-full truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</span>
+            <span className="min-w-0 truncate text-bf-xs text-muted-foreground">{subtitle}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -128,12 +137,17 @@ export function StudioComparePane({
 
       {/* Body — host area for the renderer canvas (or skeleton/empty state) */}
       <div className="relative min-h-0 flex-1 bg-bf-bg-canvas">
+        {/* The live body draws its own colorbar (a static chip sat on the
+            viewer's lock button and showed no real scale; QA F44). */}
         {children ?? <PaneSkeleton status={status} reason={pane?.reason ?? null} />}
-        <ColorbarChip label={unitsLabel} />
       </div>
 
       {/* Footer provenance chips */}
-      <footer className="flex flex-wrap items-center gap-1.5 border-t border-border bg-card/80 px-3 py-2 text-bf-xs text-muted-foreground">
+      <footer
+        className="flex flex-nowrap items-center gap-1.5 overflow-hidden border-t border-border bg-card/80 px-2 py-1 text-bf-xs text-muted-foreground"
+        // The chips clip in a narrow pane: the full provenance is here.
+        title={provenanceTitle}
+      >
         {letter !== 'A' && cohortId && onDrillToCohort ? (
           <Button
             variant="secondary"
@@ -152,15 +166,16 @@ export function StudioComparePane({
         {reducer ? <FactChip label="Reducer" value={reducer} /> : null}
         {normalization ? <FactChip label="Norm" value={normalization} /> : null}
         {threshold ? <FactChip label="Threshold" value={threshold} /> : null}
-        {supportLabel ? <FactChip label="Support" value={supportLabel} /> : null}
+        {supportLabel ? <FactChip label="Support" value={supportLabel} shrink /> : null}
       </footer>
     </article>
   );
 }
 
-function FactChip({ label, value }: { label: string; value: string }) {
+function FactChip({ label, value, shrink = false }: { label: string; value: string; shrink?: boolean }) {
+  // The last chip (Support) truncates rather than clip at the pane edge.
   return (
-    <Chip title={`${label} ${value}`}>
+    <Chip title={`${label} ${value}`} className={shrink ? 'min-w-0 shrink truncate' : 'shrink-0'}>
       <span className="text-muted-foreground">{label}</span>{' '}
       <span className="text-foreground">{value}</span>
     </Chip>
@@ -326,18 +341,6 @@ function DrillIcon() {
   );
 }
 
-function ColorbarChip({ label }: { label: string }) {
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-sm border border-border bg-background/80 px-2 py-0.5 text-bf-2xs text-muted-foreground"
-    >
-      <span className="h-2 w-3 rounded-sm bg-gradient-to-r from-sky-600 via-slate-200 to-rose-500" />
-      <span className="font-mono">{label}</span>
-    </div>
-  );
-}
-
 function PaneSkeleton({
   status,
   reason,
@@ -353,8 +356,10 @@ function PaneSkeleton({
         : status === 'stale'
           ? 'Stale — recompute to refresh.'
           : status === 'failed'
-            ? reason ?? 'Materialization failed.'
-            : reason ?? 'No binding yet.';
+            ? paneReasonText(reason) ?? 'Materialization failed.'
+            : status === 'ready'
+              ? 'Map ready.'
+              : paneReasonText(reason) ?? 'No binding yet.';
   return (
     <div className="flex h-full items-center justify-center px-4 text-center text-bf-xs text-muted-foreground">
       {message}

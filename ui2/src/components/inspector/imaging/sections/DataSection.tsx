@@ -1,8 +1,9 @@
-import { formatDataRange, formatDims, formatVoxelSize } from "@/utils/valueFormat";
+import { formatDataRange, formatDims, formatLayerValue, formatVoxelSize, formatWorldMm } from "@/utils/valueFormat";
+import { useClusterStore } from "@/stores/clusterStore";
 import { asciiCopyHandler } from "@/utils/numericInput";
 import { describeStatistic, isInferredStatistic, statisticPhrase } from "@/utils/statistic";
 import { StatSymbol } from "@/components/ui/StatSymbol";
-import { getClusterService } from "@/services/ClusterService";
+import { clusterTestText, getClusterService } from "@/services/ClusterService";
 import { getEventBus } from "@/events/EventBus";
 import { formatTauriError } from "@/utils/formatTauriError";
 import React from "react";
@@ -154,10 +155,78 @@ function VolumeFacts({ item }: { item: SceneItem }) {
     // Copying a fact puts ASCII minus on the clipboard.
     <div className="contents" onCopy={asciiCopyHandler}>
       <KeyValue boxed items={facts} />
+      {phrase && layerId ? <PeakLine layerId={layerId} variable={phrase.variable} /> : null}
       {phrase && layerId ? <ExtremumLinks layerId={layerId} /> : null}
     </div>
   ) : (
     <EmptyFacts />
+  );
+}
+
+/** "−40" for a whole millimetre, "−39.5" otherwise. */
+const peakMm = (v: number) => formatWorldMm(v).replace(/\.0$/, "");
+
+/**
+ * Statistic layers: the strongest cluster peak at the display threshold,
+ * computed on load and after threshold changes (services/autoClusters.ts).
+ * Clicking it moves the crosshair there, exactly.
+ */
+function PeakLine({ layerId, variable }: { layerId: string; variable: string }) {
+  const peak = useClusterStore((s) => s.peaks[layerId]);
+  if (!peak) return null;
+  // The test the clusters were formed with: |z| > t, z > t or z < −t.
+  const t = formatLayerValue(peak.threshold);
+  const symbol = <StatSymbol label={variable} />;
+  // Two tails at different thresholds (−3.1 ≤ z ≤ 3.93 hidden; QA N6).
+  const n =
+    peak.sign === "both" && peak.negativeThreshold != null && peak.negativeThreshold !== peak.threshold
+      ? formatLayerValue(peak.negativeThreshold)
+      : null;
+  const test =
+    n !== null ? (
+      <>
+        {symbol} &gt; {t} or {symbol} &lt; {"\u2212"}
+        {n}
+      </>
+    ) : peak.sign === "both" ? (
+      <>|{symbol}| &gt; {t}</>
+    ) : peak.sign === "positive" ? (
+      <>{symbol} &gt; {t}</>
+    ) : (
+      <>{symbol} &lt; {"\u2212"}{t}</>
+    );
+  const testText = clusterTestText(peak, variable);
+  if (peak.value === null || !peak.mm) {
+    return (
+      <p className="mt-1 text-bf-xs text-bf-text-muted" data-testid="layer-peak">
+        No voxels with {test}
+      </p>
+    );
+  }
+  const mm = peak.mm;
+  const where = `(${mm.map(peakMm).join(", ")})`;
+  return (
+    <div className="mt-1 text-bf-xs" data-testid="layer-peak">
+      <Button
+        variant="link"
+        size="sm"
+        title={`Move the crosshair to the peak (${peak.clusters} cluster${peak.clusters === 1 ? "" : "s"} at ${testText})`}
+        onClick={() => {
+          void getClusterService()
+            .goToPeak(layerId)
+            .catch((err) =>
+              getEventBus().emit("ui.notification", {
+                type: "error",
+                message: `Could not move to the peak: ${formatTauriError(err)}`,
+              }),
+            );
+        }}
+      >
+        <span className="font-mono tabular-nums">
+          Peak <StatSymbol label={variable} /> {formatLayerValue(peak.value)} at {where}
+        </span>
+      </Button>
+    </div>
   );
 }
 

@@ -68,11 +68,41 @@ export function tauriErrorCode(error: unknown, depth = 0): number | null {
 const LOAD_FAILURE_PREFIX = /^\s*failed to load\b[^:\n]*:\s*/i;
 
 /**
+ * The render loop's errors when its layer slots are all taken: the texture
+ * slots ("Maximum texture limit N reached", multi_texture_manager) or the
+ * render state's layer cap ("Maximum layer count N reached", code 1885; older
+ * builds said "Maximum layer count exceeded" without the number).
+ */
+const SLOTS_FULL = /maximum (?:texture limit|layer count)(?: (\d+))? (?:reached|exceeded)/i;
+
+/**
+ * Whether `error` says the GPU's layer slots are all in use, and the slot
+ * count when it names one (else 0): null when it is another error.
+ */
+export function gpuTextureSlotsFullLimit(error: unknown): number | null {
+  const match = SLOTS_FULL.exec(formatTauriError(error));
+  if (!match) return null;
+  return match[1] ? Number(match[1]) : 0;
+}
+
+/** What a load that ran out of GPU slots tells the user (`limit` 0: unknown). */
+export function gpuTextureSlotsFullMessage(limit: number): string {
+  const count = limit > 0 ? ` (all ${limit} in use)` : '';
+  return `GPU texture slots full${count}. Hide or remove a layer, then load again.`;
+}
+
+/**
  * "Failed to load <subject>: <detail>", without repeating the prefix when the
  * detail already carries one (the bridge reports "Failed to load file /path:
  * …", which read as "Failed to load X: Failed to load file /path: …").
  */
 export function loadFailureMessage(subject: string, error: unknown): string {
+  // Any layer load can hit the GPU's slot budget: name the cause and the way
+  // out instead of the render loop's internal wording.
+  const slotLimit = gpuTextureSlotsFullLimit(error);
+  if (slotLimit !== null) {
+    return `Failed to load ${subject}: ${gpuTextureSlotsFullMessage(slotLimit)}`;
+  }
   let detail = formatTauriError(error).trim();
   while (LOAD_FAILURE_PREFIX.test(detail)) {
     const stripped = detail.replace(LOAD_FAILURE_PREFIX, '');

@@ -164,6 +164,52 @@ describe('applyLabelDisplayDefault', () => {
   });
 });
 
+describe('applyLabelDisplayDefault outline style', () => {
+  const view = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, name: id, volumeId: id, visible: true, opacity: 1, colormap: 'gray', intensity: [0, 1], threshold: [0, 0],
+    layerMode: 'label', ...extra,
+  });
+  const legend = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: i + 1, displayName: `R${i + 1}`, color: [1, 1, 1] }));
+  const seed = (regions: number, extra: Record<string, unknown> = {}) => {
+    useViewStateStore.getState().resetToDefaults();
+    useLayerStore.setState({
+      layers: [
+        { id: 'atlas', name: 'atlas', volumeId: 'atlas', type: 'label', visible: true, order: 0, atlasPaletteLegend: legend(regions) },
+      ] as never,
+    });
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [view('atlas', extra)] as never;
+    });
+  };
+
+  it('gives a dense atlas a neutral 1 px outline and a small one region colours', async () => {
+    const { applyLabelDisplayDefault } = await import('../LabelTableService');
+    seed(360);
+    applyLabelDisplayDefault('atlas');
+    expect(useViewStateStore.getState().viewState.layers[0].outline).toMatchObject({
+      enabled: false, colorMode: 'uniform', thicknessPx: 1, haloPx: 0,
+    });
+    // Seeding the style leaves the display (fill) alone.
+    expect(useViewStateStore.getState().viewState.layers[0].labelDisplay).toBeUndefined();
+
+    seed(40);
+    applyLabelDisplayDefault('atlas');
+    expect(useViewStateStore.getState().viewState.layers[0].outline).toMatchObject({
+      enabled: false, colorMode: 'lut', thicknessPx: 2, haloPx: 1,
+    });
+  });
+
+  it("never replaces the user's outline settings", async () => {
+    const { applyLabelDisplayDefault } = await import('../LabelTableService');
+    const mine = { enabled: true, selectedLabelId: 7, color: [1, 0, 0, 1], thicknessPx: 3, colorMode: 'lut', haloPx: 2 };
+    seed(360, { outline: mine, labelDisplay: 'both' });
+    applyLabelDisplayDefault('atlas');
+    expect(useViewStateStore.getState().viewState.layers[0].outline).toEqual(mine);
+    expect(useViewStateStore.getState().viewState.layers[0].labelDisplay).toBe('both');
+  });
+});
+
 describe('LabelColormapPool (review D2: slots are reused and released)', () => {
   it('shares a key between layers of the same table and recycles it after the last one goes', async () => {
     const { LabelColormapPool } = await import('../LabelTableService');

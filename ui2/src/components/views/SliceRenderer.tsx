@@ -64,7 +64,14 @@ export interface SliceRendererProps {
   onRedrawReady?: (redrawFn: () => void) => void;
   
   // Custom rendering
-  customRender?: (ctx: CanvasRenderingContext2D, placement: { x: number, y: number, width: number, height: number, imageWidth: number, imageHeight: number }) => void;
+  customRender?: (ctx: CanvasRenderingContext2D, placement: { x: number, y: number, width: number, height: number, imageWidth: number, imageHeight: number, mirrorX?: boolean }) => void;
+  /** Draw the image mirrored left-right (radiological display). */
+  mirrorX?: boolean;
+  /**
+   * Canvas backing-store pixels per CSS pixel (HiDPI, utils/renderPixelRatio).
+   * The CSS size stays `width` × `height`; default 1.
+   */
+  pixelRatio?: number;
   
   // Styling
   className?: string;
@@ -99,6 +106,8 @@ export function SliceRenderer({
   onCanvasReady,
   onRedrawReady,
   customRender,
+  mirrorX = false,
+  pixelRatio = 1,
   className = '',
   canvasClassName = ''
 }: SliceRendererProps) {
@@ -114,7 +123,8 @@ export function SliceRenderer({
     tag,      // Legacy: Still support tag
     viewType, // Legacy: Still support viewType
     onImageReceived, 
-    customRender 
+    customRender,
+    mirrorX,
   });
   
   // Drag and drop state
@@ -140,7 +150,7 @@ export function SliceRenderer({
     if (!canvasRef.current || !lastImage) return;
 
     redrawCanvas();
-  }, [width, height, lastImage, redrawCanvas]);
+  }, [width, height, pixelRatio, lastImage, redrawCanvas]);
   
   // Drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -196,8 +206,11 @@ export function SliceRenderer({
       <div className="w-full h-full flex items-center justify-center">
         <canvas
           ref={canvasRef}
-          width={width}
-          height={height}
+          // Backing store at device pixels; the CSS size is unchanged.
+          width={Math.max(1, Math.round(width * pixelRatio))}
+          height={Math.max(1, Math.round(height * pixelRatio))}
+          style={pixelRatio === 1 ? undefined : { width, height }}
+          data-pixel-ratio={pixelRatio}
           className={`block ${canvasClassName}`}
         />
       </div>

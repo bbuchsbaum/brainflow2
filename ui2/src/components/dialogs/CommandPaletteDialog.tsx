@@ -54,9 +54,34 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
     setRunningCommandId(null);
 
     requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
+      const input = inputRef.current;
+      input?.focus();
+      // Caret at the end: never select (and so replace) keys typed meanwhile.
+      input?.setSelectionRange(input.value.length, input.value.length);
     });
+  }, [open]);
+
+  // Keys typed while the palette opens (before its field has focus) belong
+  // to the query, never to the app's single-key shortcuts: typing
+  // "radiological" fast after ⌘K ran O (go to origin) and L (hide the
+  // orientation letters) (QA 2026-10-31 N14).
+  useEffect(() => {
+    if (!open) return;
+    // On window, capture: ahead of every document listener (the slice
+    // views' Space-to-pan among them), which then never sees the key.
+    const capture = (event: KeyboardEvent) => {
+      const input = inputRef.current;
+      if (!input || event.target === input) return;
+      // An input method composing a character delivers it to the field.
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setQuery((current) => current + event.key);
+      input.focus();
+    };
+    window.addEventListener('keydown', capture, true);
+    return () => window.removeEventListener('keydown', capture, true);
   }, [open]);
 
   useEffect(() => {

@@ -54,12 +54,55 @@ describe('workspaceNavigation (qa-design-decisions-2026-10-30 §1)', () => {
       expect(setCurrentTabLayout('orthogonal')).toBe('unchanged');
       expect(store().workspaces.get(id)?.type).toBe('orthogonal-flexible');
 
+      // Panels, ⌘3, ⌘1: back to Panels, the tab's last variant (QA 2026-10-30 F13).
       setCurrentTabLayout('mosaic');
+      setCurrentTabLayout('orthogonal');
+      expect(store().workspaces.get(id)?.type).toBe('orthogonal-flexible');
+
+      // The locked grid is remembered the same way.
+      expect(setCurrentTabLayout('orthogonal-locked')).toBe('applied');
+      setCurrentTabLayout('compare');
       setCurrentTabLayout('orthogonal');
       expect(store().workspaces.get(id)?.type).toBe('orthogonal-locked');
 
       expect(setCurrentTabLayout('orthogonal-flexible')).toBe('applied');
       expect(store().workspaces.get(id)?.type).toBe('orthogonal-flexible');
+    });
+
+    it('a tab that was never orthogonal opens the locked grid, whatever other tabs use', async () => {
+      const panels = await store().createWorkspace('orthogonal-flexible');
+      const id = await store().createWorkspace('mosaic');
+      setCurrentTabLayout('orthogonal');
+      expect(store().workspaces.get(id)?.type).toBe('orthogonal-locked');
+      expect(store().workspaces.get(panels)?.type).toBe('orthogonal-flexible');
+    });
+
+    it("one tab's layout change never renames another tab (QA 2026-10-30 F27)", async () => {
+      const older = await store().createWorkspace('mosaic');
+      const orthogonal = await store().createWorkspace('orthogonal-locked');
+      const label = (id: string) => store().workspaces.get(id)?.tabLabel;
+      expect(label(older)).toBe('Mosaic');
+      expect(label(orthogonal)).toBe('Orthogonal');
+
+      // The older tab joins Orthogonal: it takes the number, the other keeps its name.
+      store().activateWorkspace(older);
+      setCurrentTabLayout('orthogonal');
+      expect(label(orthogonal)).toBe('Orthogonal');
+      expect(label(older)).toBe('Orthogonal 2');
+
+      // And switching it away leaves the other tab alone too.
+      setCurrentTabLayout('compare');
+      expect(label(older)).toBe('Compare');
+      expect(label(orthogonal)).toBe('Orthogonal');
+
+      // A tab keeps its number when the tab it was numbered against closes.
+      store().activateWorkspace(orthogonal);
+      const third = await store().createWorkspace('orthogonal-locked');
+      expect(label(third)).toBe('Orthogonal 2');
+      store().closeWorkspace(orthogonal);
+      store().activateWorkspace(older);
+      setCurrentTabLayout('mosaic');
+      expect(label(third)).toBe('Orthogonal 2');
     });
 
     it('does nothing in a tool tab or while the surface tab is in front', async () => {
@@ -74,6 +117,10 @@ describe('workspaceNavigation (qa-design-decisions-2026-10-30 §1)', () => {
       useCenterTabStore.getState().setFrontComponentType('surfaceView');
       expect(setCurrentTabLayout('compare')).toBe('unavailable');
       expect(store().workspaces.get(view)?.type).toBe('mosaic');
+      // A surface placeholder from the last session too (QA 2026-10-31).
+      useCenterTabStore.getState().setFrontComponentType('surfacePlaceholder');
+      expect(setCurrentTabLayout('compare')).toBe('unavailable');
+      expect(store().workspaces.get(view)?.type).toBe('mosaic');
     });
 
     it('does nothing for Integrated while its feature flag is off', async () => {
@@ -81,6 +128,17 @@ describe('workspaceNavigation (qa-design-decisions-2026-10-30 §1)', () => {
       useFeatureFlagStore.setState({ integratedWorkspaceV1: false });
       expect(setCurrentTabLayout('integrated')).toBe('unavailable');
       expect(store().workspaces.get(id)?.type).toBe('mosaic');
+    });
+
+    // QA 2026-10-31 N4: the app's default view is marked until the user
+    // makes it theirs (a layout change); a view the user asked for is not.
+    it('marks the default view as the app\'s own until its layout changes', async () => {
+      const id = (await ensureDefaultView())!;
+      expect(store().workspaces.get(id)?.defaultView).toBe(true);
+      setCurrentTabLayout('mosaic');
+      expect(store().workspaces.get(id)?.defaultView).toBeUndefined();
+      const asked = await openNewView();
+      expect(store().workspaces.get(asked)?.defaultView).toBeUndefined();
     });
 
     it('creates the first view only when no tab is open at all', async () => {

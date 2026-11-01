@@ -349,6 +349,14 @@ export class MockTransport implements BackendTransport {
       case 'get_volume_timepoint':
         return 0;
 
+      // No template cache and no downloads here: the first screen stays
+      // empty, without a warning (firstScreenService).
+      case 'get_template_entry':
+        return null;
+
+      case 'cache_template':
+        return false;
+
       case 'get_atlas_stats': {
         const now = Date.now();
         return {
@@ -362,6 +370,8 @@ export class MockTransport implements BackendTransport {
           is_3d: false,
           last_allocation_ms: now,
           last_release_ms: now,
+          volume_texture_slots: 16,
+          render_layer_capacity: 8,
         };
       }
 

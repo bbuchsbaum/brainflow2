@@ -1,12 +1,26 @@
+import { useStudioMapSliceKeys } from '@/hooks/useStudioMapSliceKeys';
+import { useStudioInFront, useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
+import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
 import { Button, Notice, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
 import { inferenceChannelNames, inferenceChannel } from '@/services/studio/inferenceCatalog';
 import { PopulationInferenceControls } from './PopulationInferenceControls';
 import { selectInferenceChannel } from '@/services/studio/populationInference';
 import {
   populationAnatomyStatus,
+  populationCountsSummary,
   populationDiverging,
+  populationHiddenBand,
   populationSharesEffectScale,
 } from '@/services/studio/PopulationSliceService';
+import { PopulationColorbar } from './PopulationColorbar';
+import {
+  STUDIO_MIN_VIEW_PX,
+  StudioToolbarMore,
+  StudioToolbarPortal,
+  StudioToolbarSlotContext,
+  StudioViewportHeightContext,
+} from './StudioToolbarSlot';
+import { populationLensMemory } from './populationLensMemory';
 import { PopulationRelationshipPanel } from './PopulationRelationshipPanel';
 import { populationRelationshipService } from '@/services/studio/PopulationRelationshipService';
 import { PopulationGroupViews } from './PopulationGroupViews';
@@ -20,7 +34,15 @@ import {
   populationBindingKey,
   populationOrderSourceStatus,
 } from '@/services/studio/populationWitnesses';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ReusableSliceViewport,
   SliceViewerImageSurface,
@@ -67,14 +89,21 @@ const names: Record<PopulationSummary, string> = {
 /** Both panes use Brainflow's shared viewport geometry and image surface. The
  * service supplies visible-support bitmaps, so no global GPU layer is registered. */
 const noProbeSubscription = () => () => {};
+/** The section's padding and border plus a pane's label row (px). */
+const POPULATION_MAP_CHROME_PX = 60;
 const noProbeSnapshot = () => null;
 export function PopulationLens({
   service: supplied,
   probeController,
 }: { service?: PopulationSliceService; probeController?: PopulationProbeController } = {}) {
   const studio = useSetStudioStore();
-  const workspaceId = useViewStateStore((state) => state.activeWorkspaceKey);
-  const crosshair = useViewStateStore((state) => state.viewState.crosshair);
+  // Bound to the Studio's own workspace: a lens left mounted behind another
+  // tab must not request, jump to a peak, or move that tab's crosshair (F44).
+  const workspaceId = useStudioWorkspaceKey();
+  const inFront = useStudioInFront();
+  const crosshair = useViewStateStore(
+    (state) => state.getWorkspaceViewState(workspaceId).crosshair,
+  );
   const [service] = useState(() => supplied ?? new PopulationSliceService());
   const snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot);
   const relationshipSnapshot = useSyncExternalStore(
@@ -106,9 +135,17 @@ export function PopulationLens({
     probeSnapshot?.displayed?.frame.rows.some(
       (row) => typeof row.value === 'number' && Number.isFinite(row.value),
     ) ?? false;
-  const [orientation, setOrientation] = useState<PopulationOrientation>('axial');
-  const [summary, setSummary] = useState<PopulationSummary>('mean');
-  const [zoom, setZoom] = useState(1);
+  // Reopening the lens in the same session keeps its view (QA F44: the
+  // Summary fell back from Median to Mean); a new session or restore resets it.
+  const remembered = populationLensMemory.recall(
+    studio.population.sessionRevision,
+    studio.population.restoredView,
+  );
+  const [orientation, setOrientation] = useState<PopulationOrientation>(
+    remembered?.orientation ?? 'axial',
+  );
+  const [summary, setSummary] = useState<PopulationSummary>(remembered?.summary ?? 'mean');
+  const [zoom, setZoom] = useState(remembered?.zoom ?? 1);
   // Hold-to-preview lives in the store as presentation state, so the values
   // table (another React root) shows the same preview.
   const withoutFocused = studio.populationPreview.holding;
@@ -118,6 +155,7 @@ export function PopulationLens({
   const [groupPage, setGroupPage] = useState(0);
   useEffect(() => {
     const restored = studio.population.restoredView;
+    if (populationLensMemory.recall(studio.population.sessionRevision, restored)) return;
     setOrientation(restored?.orientation ?? 'axial');
     setSummary(restored?.summary ?? 'mean');
     setZoom(restored?.zoom ?? 1);
@@ -125,6 +163,15 @@ export function PopulationLens({
     setCutoutPage(0);
     setGroupPage(0);
   }, [studio.population.sessionRevision, studio.population.restoredView]);
+  useEffect(() => {
+    populationLensMemory.remember({
+      session: studio.population.sessionRevision,
+      restored: studio.population.restoredView,
+      orientation,
+      summary,
+      zoom,
+    });
+  }, [studio.population.sessionRevision, studio.population.restoredView, orientation, summary, zoom]);
 
   const population = useMemo(() => resolvePopulation(studio), [studio]);
   const participants = useMemo(
@@ -264,7 +311,29 @@ export function PopulationLens({
   const host = useRef<HTMLDivElement>(null);
   const compact = width < 600;
   const paneWidth = Math.max(100, Math.floor(compact ? width : (width - 12) / 2));
-  const paneHeight = compact ? 220 : 320;
+  // The maps fill the column's visible height under the toolbar (QA N13),
+  // never below the minimum view height; stacked panes share it.
+  const viewportHeight = useContext(StudioViewportHeightContext);
+  const available = viewportHeight === null ? null : viewportHeight - POPULATION_MAP_CHROME_PX;
+  const paneHeight =
+    available === null
+      ? compact
+        ? 220
+        : 320
+      : Math.max(STUDIO_MIN_VIEW_PX, Math.floor(compact ? (available - 36) / 2 : available));
+  const slot = useContext(StudioToolbarSlotContext);
+  const [slotWidth, setSlotWidth] = useState<number | null>(null);
+  useEffect(() => {
+    if (!slot || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const next = Math.floor(entries[0]?.contentRect.width ?? 0);
+      setSlotWidth((previous) => (previous === next ? previous : next));
+    });
+    observer.observe(slot);
+    return () => observer.disconnect();
+  }, [slot]);
+  // Summary, plane, arrangement, Save calculation and More need about 520 px.
+  const toolbarRoom = slotWidth === null || slotWidth >= 520;
   // Bound evaluation independent of display/device pixel ratio. The shared
   // canvas fits the returned raster uniformly, preserving anatomical aspect.
   const rasterWidth = Math.min(256, paneWidth);
@@ -318,8 +387,9 @@ export function PopulationLens({
     return () => service.stop();
   }, [service]);
   useEffect(() => {
+    if (!inFront) return;
     service.request(definition.query ? { ...definition.query, focusOrder: navigationIds } : null);
-  }, [service, definition.query, navigationIds]);
+  }, [service, definition.query, navigationIds, inFront]);
   useLayoutEffect(() => snapshot.displayed?.images.retain(), [snapshot.displayed?.images]);
   useEffect(() => {
     if (!host.current || typeof ResizeObserver === 'undefined') return;
@@ -350,11 +420,26 @@ export function PopulationLens({
         )
       : 'unknown';
   const current = !!result && result.query.key === definition.query?.key;
+  // Radiological convention: axial and coronal panes drawn mirrored; the
+  // shared placement keeps clicks, hover and the crosshair on the same world
+  // points (sagittal never mirrors).
+  const mirrorX = useMirrorsView(result?.query.request.orientation ?? orientation);
   const issue = definition.issue ?? snapshot.error;
   const moveSlice = (direction: number) => {
     if (result && current)
       populationSliceActions.step(workspaceId, result.data.plane, crosshair.world_mm, direction);
   };
+  // ↑/↓ over (or with focus in) the maps step the population slice (N9).
+  // Repeated keys step on from the crosshair while the next image is still
+  // evaluating (the shown plane fixes the axis), so ↑ ↑ moves two slices.
+  useStudioMapSliceKeys(
+    host,
+    (direction) => {
+      if (result && result.query.request.orientation === orientation)
+        populationSliceActions.step(workspaceId, result.data.plane, crosshair.world_mm, direction);
+    },
+    inFront,
+  );
   const fitOrder = (mode: 'all' | 'witnesses') => {
     const response = probeSnapshot?.displayed;
     if (!response || !probeController?.arrange(mode)) return;
@@ -389,27 +474,53 @@ export function PopulationLens({
       },
     });
   };
+  // The arrangement control (Inspect / Montage / Groups) stays on the
+  // toolbar while it has room, else it moves under More: the row never
+  // wraps (QA N13).
+  const arr = (
+<div className="flex shrink-0 items-center" aria-label="Population arrangement">
+          <SegmentedControl
+            aria-label="Population view"
+            hideWhenSingle={false}
+            options={(
+              [
+                'inspect',
+                'montage',
+                ...(studio.population.partition ? (['groups'] as const) : []),
+              ] as const
+            ).map((value) => ({
+              value,
+              label: value === 'inspect' ? 'Inspect' : value === 'groups' ? 'Groups' : 'Montage',
+            }))}
+            value={presentation.arrangement}
+            onValueChange={(value) =>
+              studio.setPopulationPresentation({
+                ...presentation,
+                arrangement: value as typeof presentation.arrangement,
+                contributorsGroupId: undefined,
+              })
+            }
+          />
+            </div>
+  );
   return (
     <section
       aria-label="Population brain views"
       className="flex min-h-0 flex-col gap-2 rounded-sm border border-border bg-card p-3"
     >
-      <details className="text-bf-sm">
-        <summary className="w-fit cursor-pointer rounded-sm border border-border px-2 py-1 text-muted-foreground hover:bg-accent">
-          Save calculation
-        </summary>
-        <div className="pt-2">
-          <PopulationExportControls display={result} current={current && !snapshot.pending} />
-        </div>
-      </details>
-      <p className="text-bf-md font-medium">
-        Population ·{' '}
-        {studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="text-bf-sm">
-          {activeTest ? 'Channel' : 'Summary'}{' '}
-          <Select className="w-auto max-w-full"
+      {/* One toolbar row with the lens switcher (QA N13): the controls used
+          while reading the maps stay out; the rest is under Save calculation
+          and More. */}
+      <StudioToolbarPortal>
+        <div
+          // One line in the Studio toolbar; on its own (harnesses) it may wrap.
+          className={`flex min-w-0 items-center gap-2 text-bf-sm ${slot ? 'flex-nowrap' : 'flex-wrap'}`}
+          aria-label="Population controls"
+          title={`Population · ${studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}`}
+        >
+        <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-bf-xs text-muted-foreground">
+          <span className="sr-only">{activeTest ? 'Channel' : 'Summary'}</span>
+          <Select className="w-auto max-w-[7.5rem]"
             aria-label={activeTest ? 'Displayed test channel' : 'Summary'}
             disabled={comparing || grouped}
             value={activeTest?.channel ?? (comparing || grouped ? 'mean' : summary)}
@@ -428,8 +539,8 @@ export function PopulationLens({
             )}
           </Select>
         </label>
-        <label className="text-bf-sm">
-          Plane{' '}
+        <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-bf-xs text-muted-foreground">
+          <span className="sr-only">Plane</span>
           <Select className="w-auto max-w-full"
             aria-label="Plane"
             value={orientation}
@@ -440,7 +551,13 @@ export function PopulationLens({
             <option value="sagittal">Sagittal</option>
           </Select>
         </label>
-        <label className="text-bf-sm">
+          {toolbarRoom ? arr : null}
+          <StudioToolbarMore label="Save calculation" icon={false}>
+            <PopulationExportControls display={result} current={current && !snapshot.pending} />
+          </StudioToolbarMore>
+          <StudioToolbarMore>
+            <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1 whitespace-nowrap text-bf-sm">
           Zoom{' '}
           <Select className="w-auto max-w-full"
             aria-label="Zoom"
@@ -484,8 +601,9 @@ export function PopulationLens({
         >
           Refresh images
         </Button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2 text-bf-sm">
+            </div>
+            {toolbarRoom ? null : arr}
+            <div className="flex flex-wrap items-center gap-2" aria-label="Preview exclusion">
         {(participants.identity ||
           studio.population.partition ||
           studio.sets[studio.selection.activeSetId ?? '']?.savedCohortIds.length) && (
@@ -547,74 +665,8 @@ export function PopulationLens({
         >
           Hold to preview without {previewLabel}
         </Button>
-        {withoutFocused && (
-          <span role="status">
-            Temporary preview without{' '}
-            {previewSet
-              ? previewLabel
-              : previewParticipant
-                ? `participant ${participants.identity?.get(studio.selection.activeMemberId ?? '')}`
-                : `observation ${studio.selection.activeMemberId}`}
-            ; selection retained.
-          </span>
-        )}
-      </div>
-      {issue && (
-        <Notice role="alert" severity="danger">
-          {issue}
-        </Notice>
-      )}
-      <PopulationInferenceControls />
-      <PopulationRelationshipPanel summaryKind={summary} sliceService={service} />
-      <PopulationNavigation
-        ids={navigationIds}
-        focusedId={studio.selection.activeMemberId}
-        ready={current && !snapshot.pending}
-        failed={!!issue}
-        scope={`${workspaceId}:${studio.population.sessionRevision}:${studio.selection.activeFeatureId}`}
-        onFocus={populationProbeActions.focus}
-        label={
-          savedOrderLabel ??
-          (arrangement ? populationArrangementLabel(arrangement) : 'Source order')
-        }
-      />
-      <PopulationSelectionRange
-        ids={navigationIds}
-        origin={
-          savedOrder || arrangement
-            ? 'map-derived'
-            : contributors
-              ? (studio.population.partition?.origin ?? 'metadata')
-              : 'manual'
-        }
-        scope={`${workspaceId}:${studio.population.sessionRevision}`}
-      />
-      <div
-        className="flex flex-wrap items-center gap-2 text-bf-sm"
-        aria-label="Population arrangement"
-      >
-        <SegmentedControl
-          aria-label="Population view"
-          hideWhenSingle={false}
-          options={(
-            [
-              'inspect',
-              'montage',
-              ...(studio.population.partition ? (['groups'] as const) : []),
-            ] as const
-          ).map((value) => ({
-            value,
-            label: value === 'inspect' ? 'Inspect' : value === 'groups' ? 'Groups' : 'Montage',
-          }))}
-          value={presentation.arrangement}
-          onValueChange={(value) =>
-            studio.setPopulationPresentation({
-              ...presentation,
-              arrangement: value as typeof presentation.arrangement,
-              contributorsGroupId: undefined,
-            })
-          }
-        />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" disabled={!canArrange} onClick={() => fitOrder('all')}>
           Order observations by pinned response
         </Button>
@@ -628,7 +680,26 @@ export function PopulationLens({
             Restore source order
           </Button>
         )}
-      </div>
+            </div>
+          </StudioToolbarMore>
+        </div>
+      </StudioToolbarPortal>
+      {withoutFocused && (
+          <span role="status" className="text-bf-sm">
+            Temporary preview without{' '}
+            {previewSet
+              ? previewLabel
+              : previewParticipant
+                ? `participant ${participants.identity?.get(studio.selection.activeMemberId ?? '')}`
+                : `observation ${studio.selection.activeMemberId}`}
+            ; selection retained.
+          </span>
+      )}
+      {issue && (
+        <Notice role="alert" severity="danger">
+          {issue}
+        </Notice>
+      )}
       {comparing && (
         <div
           className="flex flex-wrap items-center gap-2 text-bf-sm"
@@ -757,6 +828,7 @@ export function PopulationLens({
                   renderSurface={(props) => (
                     <SliceViewerImageSurface
                       {...props}
+                      mirrorX={mirrorX}
                       image={result?.images[pane] ?? null}
                       emptyFallback={
                         <p className="absolute inset-0 grid place-items-center text-bf-sm text-muted-foreground">
@@ -767,15 +839,31 @@ export function PopulationLens({
                   )}
                 />
                 {result && (
+                  <PopulationColorbar
+                    limit={pane === 'summary' ? result.summaryLimit : result.effectLimit}
+                    band={
+                      pane === 'summary'
+                        ? populationHiddenBand(
+                            result.summaryLimit,
+                            populationCountsSummary(result.query.request),
+                          )
+                        : populationHiddenBand(result.effectLimit)
+                    }
+                    diverging={pane !== 'summary' || populationDiverging(result.query.request)}
+                    paneHeight={paneHeight}
+                    label={pane === 'summary' ? names[result.query.request.summary] : pane === 'reference' ? 'B mean' : 'Actual observation'}
+                  />
+                )}
+                {result && (
                   <div
                     className="pointer-events-none absolute inset-0 text-bf-sm text-white/80"
                     aria-hidden
                   >
                     <span className="absolute left-1 top-1/2">
-                      {populationAxisLabel(result.data.plane.u_mm.map((v) => -v))}
+                      {populationAxisLabel(mirrorX ? result.data.plane.u_mm : result.data.plane.u_mm.map((v) => -v))}
                     </span>
                     <span className="absolute right-1 top-1/2">
-                      {populationAxisLabel(result.data.plane.u_mm)}
+                      {populationAxisLabel(mirrorX ? result.data.plane.u_mm.map((v) => -v) : result.data.plane.u_mm)}
                     </span>
                     <span className="absolute left-1/2 top-1">
                       {populationAxisLabel(result.data.plane.v_mm.map((v) => -v))}
@@ -830,6 +918,33 @@ export function PopulationLens({
           Fit scale to visible context
         </Button>
       </div>
+      {/* Analysis panels sit below the maps, so the maps keep their height
+          when the dock is open (QA F45). */}
+      <PopulationInferenceControls />
+      <PopulationRelationshipPanel summaryKind={summary} sliceService={service} />
+      <PopulationNavigation
+        ids={navigationIds}
+        focusedId={studio.selection.activeMemberId}
+        ready={current && !snapshot.pending}
+        failed={!!issue}
+        scope={`${workspaceId}:${studio.population.sessionRevision}:${studio.selection.activeFeatureId}`}
+        onFocus={populationProbeActions.focus}
+        label={
+          savedOrderLabel ??
+          (arrangement ? populationArrangementLabel(arrangement) : 'Source order')
+        }
+      />
+      <PopulationSelectionRange
+        ids={navigationIds}
+        origin={
+          savedOrder || arrangement
+            ? 'map-derived'
+            : contributors
+              ? (studio.population.partition?.origin ?? 'metadata')
+              : 'manual'
+        }
+        scope={`${workspaceId}:${studio.population.sessionRevision}`}
+      />
       <div className="flex flex-wrap items-center gap-2 text-bf-sm">
         <Button variant="secondary" size="sm"
           hidden={montage}
@@ -1021,9 +1136,9 @@ export function PopulationLens({
         </details>
       )}
       <p className="text-bf-sm text-muted-foreground">
-        Click either image to pin a location. Mean and individual share the blue–white–red effect
-        scale; magnitude, spread, cancellation and coverage use a separate gold scale. Scales stay
-        fixed while browsing.
+        Click either image to pin a location. Mean, median and individual share the blue–white–red
+        effect scale; magnitude, spread, cancellation and coverage use a separate translucent gold
+        scale. Scales stay fixed while browsing.
       </p>
     </section>
   );

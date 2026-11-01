@@ -24,6 +24,10 @@ import { useLayerStore } from "@/stores/layerStore";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
 import { removeLayerFromScene } from "@/services/layerRemoval";
+import { setLayerVisibleByUser } from "@/services/SceneHistoryService";
+import { useLoadingQueueStore } from "@/stores/loadingQueueStore";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import { getEventBus } from "@/events/EventBus";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import type { SceneItem } from "@/types/sceneItem";
 import {
@@ -55,6 +59,21 @@ import { useIjkSuffix, useReadoutGrid } from "@/hooks/useReadoutGrid";
  * is volume-first; if there are zero volumes the user is on a brand-new
  * canvas and the empty placeholder serves as the obvious next-action).
  */
+const VOLUME_OPENS = new Set(["volume-load", "template", "atlas"]);
+
+/**
+ * A volume, template or atlas is opening into `workspaceId`: its layer has
+ * no row yet, so a Delete then may mean "stop that" and must not remove the
+ * selected row, whenever the row was selected (QA 2026-10-31 N7). Loads into
+ * another workspace and Studio population loads do not count.
+ */
+function openPendingInWorkspace(workspaceId: string): boolean {
+  const { queue, activeLoads } = useLoadingQueueStore.getState();
+  return [...queue, ...activeLoads.values()].some(
+    (item) => VOLUME_OPENS.has(item.type) && item.workspaceId === workspaceId,
+  );
+}
+
 export function SceneStack() {
   const { volumes, surfaces, mappings } = useSceneStack();
   const activeItemId = useInspectorSelectionStore(
@@ -95,7 +114,7 @@ export function SceneStack() {
         {
           id: "layer.toggleVisible",
           label: visible ? "Hide layer" : "Show layer",
-          onClick: () => getLayerService().toggleVisibility(layerId, !visible),
+          onClick: () => setLayerVisibleByUser(layerId, !visible),
         },
         { id: "layer.sep", label: "", separator: true },
         {
@@ -288,6 +307,17 @@ function VolumeSceneGroup({
     if (!item || item.ref.type !== "volume") return;
     event.preventDefault();
     event.stopPropagation();
+    // While an image opens into this workspace Delete is refused, in a toast
+    // (and the Log); Remove layer in the row menu still works (F35, N7).
+    const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
+    if (openPendingInWorkspace(workspaceId)) {
+      getEventBus().emit("ui.notification", {
+        type: "warning",
+        message: `Did not remove ${item.name}: an image is still opening. Use Remove layer in the row menu.`,
+        logSource: "layer",
+      });
+      return;
+    }
     void removeLayerFromScene(item.ref.layerId);
   };
   const titleId = `scene-group-${useId().replace(/:/g, "")}`;

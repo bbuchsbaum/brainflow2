@@ -1,5 +1,6 @@
 import type { PopulationState } from '@/types/population';
 import { create } from 'zustand';
+import { DISTANCE_TO_MEAN_SORT } from '@/services/studio/meanDistanceSort';
 import type {
   StudioArtifactSummary,
   SpatialFieldSetSummary,
@@ -71,6 +72,12 @@ interface SetStudioStoreState
   designSearch: string;
   sortColumn: string | null;
   sortDirection: 'asc' | 'desc';
+  /**
+   * The plane the Deck's view and the Compare panes show (QA N13 b/c), for
+   * the session: a new study starts on axial.
+   */
+  studioPlane: 'axial' | 'coronal' | 'sagittal';
+  setStudioPlane: (plane: 'axial' | 'coronal' | 'sagittal') => void;
   activeDesignFilters: StudioDesignFilter[];
   activeArtifact: StudioArtifactSummary | null;
   artifactHistory: StudioArtifactSummary[];
@@ -345,10 +352,15 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   designSearch: '',
   sortColumn: null,
   sortDirection: 'asc',
+  studioPlane: 'axial',
   activeDesignFilters: [],
   activeArtifact: null,
   artifactHistory: [],
   savedRecipes: [],
+
+  setStudioPlane: (plane) => {
+    if (get().studioPlane !== plane) set({ studioPlane: plane });
+  },
 
   bootstrapStudio: (payload) => {
     const features = toRecord(payload.features);
@@ -419,6 +431,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       designSearch: '',
       sortColumn: null,
       sortDirection: 'asc',
+      studioPlane: 'axial',
       activeDesignFilters: [],
       activeArtifact: null,
       artifactHistory: [],
@@ -615,7 +628,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     if (get().sortColumn === value) {
       return;
     }
-    set({ sortColumn: value });
+    // Distance to the group mean opens on the observation least like the
+    // mean (QA features 2026-10-31 §5).
+    set(value === DISTANCE_TO_MEAN_SORT ? { sortColumn: value, sortDirection: 'desc' } : { sortColumn: value });
   },
 
   toggleSortDirection: () => {

@@ -52,8 +52,8 @@ export function SetStudioWorkspace() {
                 ? 'Demo data'
                 : 'Imported'
           }
+          audit={<StudioAuditBanner inline activeSet={activeSet} readiness={workspaceReadiness} />}
         />
-        <StudioAuditBanner activeSet={activeSet} readiness={workspaceReadiness} />
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
           <StudioCenterPane />

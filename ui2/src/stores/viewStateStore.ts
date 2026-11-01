@@ -41,6 +41,7 @@ import {
 } from "@/utils/viewStateTracking";
 import { useWorkspaceStore } from "./workspaceStore";
 import { useCrosshairSettingsStore } from "./crosshairSettingsStore";
+import { useViewZoomStore, zoomedViews } from "./viewZoomStore";
 import { currentVoxelGridReference, snapWorldToVoxelCentre } from "@/utils/voxelSnap";
 
 enablePatches();
@@ -127,6 +128,11 @@ function pruneLayerFrameBoxes(states: ReadonlyMap<string, ViewState>): void {
     for (const layer of state.layers ?? []) ids.push(layer.id);
   }
   layerFrameBoxes.retainOnly(ids);
+  // Zoom marks of closed workspaces go too.
+  const zoom = useViewZoomStore.getState();
+  for (const key of Object.keys(zoom.zoomed)) {
+    if (!states.has(key)) zoom.clearZoomed(key);
+  }
 }
 
 function toWorkspaceKey(workspaceId?: string | null): string {
@@ -212,6 +218,7 @@ const createViewStateStore = () =>
               currentState.workspaceViewStateRevisions.get(workspaceKey) ??
               currentState.viewStateRevisions;
 
+            let staleZoom: ViewType[] = [];
             const [nextViewState, patches] = produceWithPatches(
               currentViewState,
               (draft) => {
@@ -219,10 +226,20 @@ const createViewStateStore = () =>
                 if (updated) {
                   return updated;
                 }
-                // Frame the union of the visible layers whoever changed them.
-                reframeForLayerChange(currentViewState, draft);
+                // Frame the union of the visible layers whoever changed them
+                // (views the user zoomed keep their frame while it still
+                // shows an image).
+                staleZoom = reframeForLayerChange(currentViewState, draft, zoomedViews(workspaceKey));
               },
             );
+            if (staleZoom.length > 0) useViewZoomStore.getState().clearZoomed(workspaceKey, staleZoom);
+            // Nothing shown any more: the next image opens fitted (review L7).
+            if (
+              nextViewState.layers.every((layer) => !layer.visible) &&
+              useViewZoomStore.getState().zoomed[workspaceKey]
+            ) {
+              useViewZoomStore.getState().clearZoomed(workspaceKey);
+            }
 
             if (patches.length === 0) {
               return currentViewState;
@@ -417,6 +434,12 @@ const createViewStateStore = () =>
 
               const currentState = get();
               const workspaceKey = currentState.activeWorkspaceKey;
+              // A view the user zoomed or panned keeps its frame; its canvas
+              // keeps the plane sized (ViewZoomService.syncZoomedViewSize).
+              // Before the request bookkeeping, so it never cancels a fitted
+              // view's pending resize in the locked layout (review L4).
+              const zoomed = zoomedViews(workspaceKey);
+              if (zoomed.has(viewType)) return;
               const resizeKey = `${workspaceKey}:${useViewLayoutStore.getState().isLocked() ? 'all' : viewType}`;
               const request = ++nextRequest;
               for (const [key, pending] of resizeRequests) {
@@ -531,6 +554,7 @@ const createViewStateStore = () =>
                     applyResizeUpdate((state) => {
                       (["axial", "sagittal", "coronal"] as ViewType[]).forEach(
                         (vt) => {
+                          if (zoomed.has(vt)) return;
                           state.views[vt] = fitPlaneToWorldBox(
                             vt,
                             frameBox,
@@ -563,6 +587,7 @@ const createViewStateStore = () =>
                   applyResizeUpdate((state) => {
                     (["axial", "sagittal", "coronal"] as ViewType[]).forEach(
                       (vt) => {
+                        if (zoomed.has(vt)) return;
                         const backendView = backendViews[vt];
                         if (backendView) {
                           state.views[vt] = backendView;
@@ -769,6 +794,7 @@ const createViewStateStore = () =>
               }
 
               applyViewStateUpdate(() => defaultState);
+              useViewZoomStore.getState().clearZoomed(workspaceKey);
               pruneLayerFrameBoxes(get().workspaceViewStates);
             },
 

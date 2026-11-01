@@ -11,6 +11,7 @@
 import { useLayerStore, type LayerInfo } from "@/stores/layerStore";
 import { sampleLayerAtWorld } from "./SamplingService";
 import type { AtlasPaletteLegendEntry } from "@/types/atlasPalette";
+import { sourceLabel } from "@/utils/logLabels";
 
 export interface AtlasRegionHit {
   layerId: string;
@@ -61,27 +62,43 @@ export async function resolveAtlasRegionAtWorld(
   world: [number, number, number],
   preferredLayerId?: string | null,
 ): Promise<AtlasRegionHit | null> {
-  const layer = findActiveAtlasLayer(preferredLayerId);
-  const legend = layer?.atlasPaletteLegend;
-  if (!layer || !legend || legend.length === 0) {
-    return null;
+  const layers = useLayerStore.getState().layers;
+  const preferred = preferredLayerId ? layers.find((l) => l.id === preferredLayerId) : undefined;
+  // The reported layer is itself an atlas: its region only, never another
+  // atlas's beside its Value.
+  if (preferred && isRegionSource(preferred)) return regionInLayer(preferred, world);
+  // Otherwise the first atlas with a region there (QA 2026-10-31: with
+  // Glasser and ASEG loaded, Glasser has no label in the basal ganglia and
+  // Region read "–" although ASEG names it).
+  // One atlas failing to sample (evicted, being removed) does not end the
+  // lookup: the next one may still name the region (review L7).
+  const sources = layers.filter(isRegionSource);
+  const failures: unknown[] = [];
+  for (const layer of sources) {
+    try {
+      const hit = await regionInLayer(layer, world);
+      if (hit) return hit;
+    } catch (error) {
+      failures.push(error);
+    }
   }
+  // Every atlas failed: report it, as a single-atlas lookup does.
+  if (sources.length > 0 && failures.length === sources.length) throw failures[0];
+  return null;
+}
 
+async function regionInLayer(
+  layer: LayerInfo,
+  world: [number, number, number],
+): Promise<AtlasRegionHit | null> {
+  const legend = layer.atlasPaletteLegend;
+  if (!legend || legend.length === 0) return null;
   const sample = await sampleLayerAtWorld({ layerId: layer.id, world });
-  if (sample.value === null || !Number.isFinite(sample.value)) {
-    return null;
-  }
-
+  if (sample.value === null || !Number.isFinite(sample.value)) return null;
   const labelId = Math.round(sample.value);
-  if (labelId <= 0) {
-    return null; // background / outside any parcel
-  }
-
+  if (labelId <= 0) return null; // background / outside any parcel
   const entry = legend.find((e) => e.label_id === labelId);
-  if (!entry) {
-    return null;
-  }
-  return { layerId: layer.id, labelId, entry };
+  return entry ? { layerId: layer.id, labelId, entry } : null;
 }
 
 /**
@@ -100,4 +117,17 @@ export function formatRegionLabel(entry: AtlasPaletteLegendEntry): string {
         : "";
   const name = entry.roi.replace(/_/g, " ");
   return [hemi, name].filter(Boolean).join(" ");
+}
+
+/**
+ * The status bar's Region text. When the region comes from an atlas other
+ * than the reported layer (a z map is selected, so the first atlas answers),
+ * the atlas is named: "LH Pallidum · aseg.nii.gz" (QA 2026-10-30 F49).
+ */
+export function regionReadoutText(hit: AtlasRegionHit, reportedLayerId?: string | null): string {
+  const label = formatRegionLabel(hit.entry);
+  if (!reportedLayerId || hit.layerId === reportedLayerId) return label;
+  const atlas = useLayerStore.getState().layers.find((layer) => layer.id === hit.layerId);
+  const name = atlas ? sourceLabel(atlas.sourcePath, atlas.name, atlas.id) : "";
+  return name ? `${label} · ${name}` : label;
 }

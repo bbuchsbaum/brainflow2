@@ -377,6 +377,73 @@ describe('useHoverInfo', () => {
     });
   });
 
+  describe('the slice moves under a still pointer (QA 2026-10-30 F5)', () => {
+    it('re-reads the pointer at the same screen position on the new slice', async () => {
+      let sliceZ = 21;
+      const canvasToWorld = vi.fn((x: number, y: number) => [x, y, sliceZ] as [number, number, number]);
+      const { result, rerender } = renderHook(
+        (props: UseHoverInfoOptions) => useHoverInfo(props),
+        { initialProps: { ...defaultOptions, canvasToWorld, viewKey: 'z21' } },
+      );
+
+      await act(async () => {
+        result.current.handleMouseMove(createMockMouseEvent(4, 0));
+        await new Promise((r) => setTimeout(r, 100));
+      });
+      expect(useMouseCoordinateStore.getState().worldCoordinates).toEqual([4, 0, 21]);
+
+      // ↑ steps the slice; the mouse does not move.
+      sliceZ = 25;
+      await act(async () => {
+        rerender({ ...defaultOptions, canvasToWorld, viewKey: 'z25' });
+        await new Promise((r) => setTimeout(r, 100));
+      });
+      expect(useMouseCoordinateStore.getState().worldCoordinates).toEqual([4, 0, 25]);
+    });
+
+    it('measures the view again on replay (it may have been resized)', async () => {
+      const canvasToWorld = vi.fn((x: number, y: number) => [x, y, 0] as [number, number, number]);
+      let rect = { left: 0, top: 0, width: 512, height: 512 };
+      const event = {
+        clientX: 100,
+        clientY: 100,
+        currentTarget: { getBoundingClientRect: () => rect } as unknown as HTMLElement,
+      } as React.MouseEvent;
+      const { result, rerender } = renderHook(
+        (props: UseHoverInfoOptions) => useHoverInfo(props),
+        { initialProps: { ...defaultOptions, canvasToWorld, viewKey: 'a' } },
+      );
+      await act(async () => {
+        result.current.handleMouseMove(event);
+        await new Promise((r) => setTimeout(r, 100));
+      });
+      rect = { left: 40, top: 10, width: 400, height: 400 };
+      await act(async () => {
+        rerender({ ...defaultOptions, canvasToWorld, viewKey: 'b' });
+        await new Promise((r) => setTimeout(r, 100));
+      });
+      expect(canvasToWorld).toHaveBeenLastCalledWith(60, 90, 100, 100);
+    });
+
+    it('does not bring back a pointer that has left the view', async () => {
+      const { result, rerender } = renderHook(
+        (props: UseHoverInfoOptions) => useHoverInfo(props),
+        { initialProps: { ...defaultOptions, viewKey: 'a' } },
+      );
+      await act(async () => {
+        result.current.handleMouseMove(createMockMouseEvent(4, 0));
+        await new Promise((r) => setTimeout(r, 100));
+      });
+      act(() => result.current.handleMouseLeave());
+
+      await act(async () => {
+        rerender({ ...defaultOptions, viewKey: 'b' });
+        await new Promise((r) => setTimeout(r, 100));
+      });
+      expect(useMouseCoordinateStore.getState().worldCoordinates).toBeNull();
+    });
+  });
+
   describe('error handling', () => {
     it('handles errors in canvasToWorld gracefully', async () => {
       const canvasToWorld = vi.fn(() => {

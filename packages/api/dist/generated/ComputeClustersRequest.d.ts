@@ -5,10 +5,18 @@ export type ComputeClustersRequest = {
     layerId?: string | null;
     /**
      * Absolute threshold (>= 0): positive voxels need `v > threshold`,
-     * negative voxels `v < -threshold`. Also the cluster-forming threshold
-     * for `extentP`.
+     * negative voxels `v < -threshold` (unless `negativeThreshold` is set).
+     * Also the cluster-forming threshold for `extentP`.
      */
     threshold: number;
+    /**
+     * Absolute threshold (>= 0) of the negative tail when it differs from
+     * `threshold` (an asymmetric display threshold, e.g. −3.1 ≤ z ≤ 3.93
+     * hidden): negative voxels need `v < -negativeThreshold`. Default
+     * `threshold`. Cluster p needs one forming threshold for both tails, so
+     * `extent` with two different thresholds and sign "both" is refused.
+     */
+    negativeThreshold?: number | null;
     /**
      * Default "both".
      */
@@ -54,4 +62,11 @@ export type ComputeClustersRequest = {
      * finite non-zero voxels.
      */
     searchMask?: string | null;
+    /**
+     * A background request (the UI's clusters on load, default false): it is
+     * superseded only by newer background requests for the volume, never
+     * cancels a user's Compute and is never cancelled by one, and it never
+     * emits a label volume (that would replace the one of the table shown).
+     */
+    quiet?: boolean | null;
 };

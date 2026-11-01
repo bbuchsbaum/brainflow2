@@ -10,6 +10,7 @@ import { createDefaultLayoutConfig } from '@/services/layoutService';
 import { initializeViewRegistry } from '@/services/ViewRegistry';
 import { ensureDefaultView, openTool } from '@/services/workspaceNavigation';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { ensureCentreStack } from '../centreStack';
 import {
   handleWorkspaceTabDestroyed,
   programmaticTabRemoval,
@@ -41,7 +42,8 @@ function mountLayout(): Stack {
     });
   });
   layout.loadLayout(createDefaultLayoutConfig());
-  return layout.rootItem!.contentItems[1] as Stack;
+  // As GoldenLayoutRoot does: the centre stack's last-tab × (centreStack.ts).
+  return ensureCentreStack(layout)!;
 }
 
 function addTab(centre: Stack, workspaceId: string) {

@@ -67,9 +67,20 @@ impl ShaderWatcher {
 
                                         // Extract shader name from filename
                                         if let Some(name) = path.file_stem() {
+                                            let name = name.to_string_lossy().to_string();
+                                            // An @include fragment is not a shader on
+                                            // its own (no entry points) and is embedded
+                                            // at build time; reloading it would hand
+                                            // wgpu invalid WGSL.
+                                            if crate::shaders::is_include_fragment(&name) {
+                                                log::info!(
+                                                    "Shader fragment {name} changed; rebuild to apply it"
+                                                );
+                                                continue;
+                                            }
                                             let _ = sender.send(ShaderWatchEvent::Modified {
                                                 path: path.clone(),
-                                                name: name.to_string_lossy().to_string(),
+                                                name,
                                             });
                                         }
                                     }

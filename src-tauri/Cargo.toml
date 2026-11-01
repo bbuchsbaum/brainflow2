@@ -58,6 +58,8 @@ render_loop = { path = "../core/render_loop" } # Added back
 api-bridge = { path = "../core/api_bridge", package = "api-bridge" } # Added back
 atlases = { path = "../core/atlases" } # Atlas system
 templates = { path = "../core/templates" } # Template system
+png = "0.17"
+arboard = { version = "3", default-features = false, features = ["image-data"] }
 
 [build-dependencies]
 tauri-build = { workspace = true } # Added back build dependency

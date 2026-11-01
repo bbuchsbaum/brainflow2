@@ -453,6 +453,7 @@ export class AtlasService {
           type: "atlas",
           path: queuePath,
           displayName: AtlasService.getAtlasLoadDisplayName(config),
+          workspaceId: useViewStateStore.getState().activeWorkspaceKey,
         })
       : null;
 

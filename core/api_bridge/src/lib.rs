@@ -452,6 +452,13 @@ pub struct AtlasStats {
     pub is_3d: bool,
     pub last_allocation_ms: Option<u64>,
     pub last_release_ms: Option<u64>,
+    /// Volume texture slots of the render loop (its runtime texture capacity):
+    /// the layer budget the UI's eviction counts against. Past it, a GPU
+    /// upload fails with "Maximum texture limit N reached".
+    pub volume_texture_slots: u32,
+    /// Layers the render state takes at once (code 1885 past it). The UI's
+    /// layer budget is the smaller of this and `volume_texture_slots`.
+    pub render_layer_capacity: u32,
 }
 
 // Helper alias for Result
@@ -4940,6 +4947,8 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         })?;
     let service = service_arc.lock().await;
     let metrics = service.atlas_metrics();
+    let volume_texture_slots = service.runtime_texture_capacity();
+    let render_layer_capacity = service.render_layer_capacity();
 
     let last_allocation_ms = metrics
         .last_allocation
@@ -4961,6 +4970,8 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         is_3d: metrics.is_3d,
         last_allocation_ms,
         last_release_ms,
+        volume_texture_slots,
+        render_layer_capacity,
     })
 }
 
@@ -5969,13 +5980,36 @@ async fn patch_layer(
                     .to_string(),
         })?;
     let mut service = service_arc.lock().await;
+    apply_layer_patch(&mut service, &layer_id, atlas_layer_idx, &patch)
+}
+
+/// Apply a `patch_layer` request to the imperative render-layer state.
+fn apply_layer_patch(
+    service: &mut RenderLoopService,
+    layer_id: &str,
+    atlas_layer_idx: u32,
+    patch: &LayerPatch,
+) -> BridgeResult<()> {
+    // The render-layer state is rebuilt from each ViewState render and holds
+    // only the layers that frame draws, in their own slots: it is indexed by
+    // slot, not by atlas texture index. A layer the last frame did not draw
+    // (hidden, or outside a Set studio render scope) has no state to patch;
+    // the next ViewState render applies its display. Patching by atlas index
+    // failed ("Layer N not found") or edited another layer (QA F10).
+    let Some(render_slot) = service.render_layer_index_for_atlas(atlas_layer_idx) else {
+        debug!(
+            "patch_layer: layer {} (atlas {}) is not drawn in the current frame; nothing to patch",
+            layer_id, atlas_layer_idx
+        );
+        return Ok(());
+    };
 
     // Update opacity if provided
     if let Some(opacity) = patch.opacity {
         // For now, we'll use colormap 0 (grayscale) as default
         // In a full implementation, we'd track the current colormap
         service
-            .update_layer(atlas_layer_idx as usize, opacity, 0)
+            .update_layer(render_slot, opacity, 0)
             .map_err(|e| BridgeError::GpuError {
                 code: 5007,
                 details: format!("Failed to update layer opacity: {:?}", e),
@@ -5987,8 +6021,8 @@ async fn patch_layer(
     }
 
     // Update colormap if provided
-    if let Some(colormap) = patch.colormap {
-        let colormap_id = match colormap_by_name(&colormap) {
+    if let Some(colormap) = patch.colormap.as_deref() {
+        let colormap_id = match colormap_by_name(colormap) {
             Some(id) => id.id() as u32,
             None => {
                 error!("Unknown colormap '{}', defaulting to grayscale", colormap);
@@ -5996,7 +6030,7 @@ async fn patch_layer(
             }
         };
         service
-            .set_layer_colormap(atlas_layer_idx as usize, colormap_id)
+            .set_layer_colormap(render_slot, colormap_id)
             .map_err(|e| BridgeError::GpuError {
                 code: 5008,
                 details: format!("Failed to update layer colormap: {:?}", e),
@@ -6021,7 +6055,7 @@ async fn patch_layer(
 
     if let Some((intensity_min, intensity_max)) = intensity_update {
         service
-            .update_layer_intensity(atlas_layer_idx as usize, intensity_min, intensity_max)
+            .update_layer_intensity(render_slot, intensity_min, intensity_max)
             .map_err(|e| BridgeError::GpuError {
                 code: 5009,
                 details: format!("Failed to update layer intensity window: {:?}", e),
@@ -6035,7 +6069,7 @@ async fn patch_layer(
     // Update threshold range if provided
     if let (Some(low), Some(high)) = (patch.threshold_low, patch.threshold_high) {
         service
-            .update_layer_threshold(atlas_layer_idx as usize, low, high)
+            .update_layer_threshold(render_slot, low, high)
             .map_err(|e| BridgeError::GpuError {
                 code: 5010,
                 details: format!("Failed to update layer threshold: {:?}", e),
@@ -10308,6 +10342,37 @@ async fn load_template<R: Runtime>(
     Ok(result)
 }
 
+/// The first screen's background fetch gives up sooner than a requested load
+/// (the HTTP client's 5 minutes): the 2 mm T1 is about 2 MB.
+const BACKGROUND_TEMPLATE_DOWNLOAD_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(60);
+
+/// Put a template in the cache, downloading it when missing, without loading
+/// it. The first screen fetches the MNI T1 in the background this way
+/// (qa-features-2026-10-31 §7) and loads it only if the user is still on the
+/// empty default view. Returns true once the file is cached; hosts that cannot
+/// download (the dev harness) answer false.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.cache_template")]
+async fn cache_template(template_id: String, state: State<'_, BridgeState>) -> BridgeResult<bool> {
+    info!(
+        "Bridge: cache_template called for template: {}",
+        template_id
+    );
+    // Clone and release the lock before the network: a background fetch must
+    // not make every other template command wait for it. The clone shares the
+    // catalog, so the download is recorded there.
+    let template_service = state.template_service.lock().await.clone();
+    template_service
+        .cache_template(&template_id, Some(BACKGROUND_TEMPLATE_DOWNLOAD_TIMEOUT))
+        .await
+        .map_err(|e| BridgeError::Internal {
+            code: 7014,
+            details: format!("Failed to cache template {}: {}", template_id, e),
+        })?;
+    Ok(true)
+}
+
 /// Load a template by its menu ID (e.g., "MNI152NLin2009cAsym_T1w_1mm")
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_template_by_id")]
@@ -12803,6 +12868,21 @@ async fn fit_population_relationship(
     population_slice::relationship::evaluate(request, state.inner(), cancellation).await
 }
 
+/// Distance of each observation to the group mean on their common finite support.
+#[command]
+async fn population_mean_distance(
+    request: population_slice::mean_distance::Request,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::mean_distance::Result> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::mean_distance::evaluate(request, state.inner(), cancellation).await
+}
+
 /// Save a full native-grid summary, coverage and frozen calculation provenance.
 #[command]
 async fn export_population_summary(
@@ -13870,6 +13950,55 @@ mod tests {
                 "{route}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn patch_layer_targets_the_render_slot_of_its_atlas_texture() {
+        // QA F10: the render-layer state holds only the layers the last
+        // ViewState drew, in their own slots. Patching by atlas index failed
+        // for a layer outside the frame (a hidden Studio member) and could
+        // edit another layer.
+        let source = make_4d_volume_sendable_with_timeseries();
+        let mut service = RenderLoopService::new().await.expect("render-loop service");
+        let mut upload = |t: usize| match extract_3d_volume_at_timepoint(&source, t)
+            .expect("extract member")
+        {
+            VolumeSendable::VolF32(ref vol, _) => service.upload_volume_3d(vol).expect("upload").0,
+            other => panic!("expected extracted f32 volume, got {other:?}"),
+        };
+        let hidden = upload(0);
+        let drawn = upload(1);
+        assert_ne!(hidden, drawn);
+        service
+            .add_layer_3d(drawn, nalgebra::Matrix4::identity(), (4, 4, 4), 1.0, 0, 1)
+            .expect("add the drawn layer");
+        assert_eq!(service.render_layer_index_for_atlas(drawn), Some(0));
+
+        let opacity = |value: f32| LayerPatch {
+            opacity: Some(value),
+            colormap: None,
+            window_center: None,
+            window_width: None,
+            intensity_min: None,
+            intensity_max: None,
+            threshold_low: None,
+            threshold_high: None,
+            threshold_mode: None,
+            blend_mode: None,
+        };
+        // A layer the frame does not draw: nothing to patch, and no error.
+        apply_layer_patch(&mut service, "hidden", hidden, &opacity(0.0))
+            .expect("patching an undrawn layer is a no-op");
+        assert_eq!(
+            service.layer_state_manager.get_layer(0).unwrap().opacity,
+            1.0
+        );
+        // The drawn layer is found by its atlas texture, whatever its slot.
+        apply_layer_patch(&mut service, "drawn", drawn, &opacity(0.25)).expect("patch drawn layer");
+        assert_eq!(
+            service.layer_state_manager.get_layer(0).unwrap().opacity,
+            0.25
+        );
     }
 
     #[tokio::test]

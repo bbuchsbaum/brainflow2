@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { getSceneHistory } from "@/services/SceneHistoryService";
 import { noteUserVisibility } from "@/services/series/visibilityIntent";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import { statisticUnits, statisticVariable } from "@/utils/statistic";
@@ -180,7 +181,18 @@ function VolumeRenderRows({
   const interpolation = viewLayer.interpolation ?? "linear";
   const outline = viewLayer.outline ?? DEFAULT_OUTLINE;
 
+  // A user's edit, undoable as one step per drag: the shared value or the
+  // Compare panel's own override (review M4).
   const setLayerField = <K extends keyof typeof viewLayer>(
+    field: K,
+    value: (typeof viewLayer)[K],
+  ) => {
+    const panelKey = compare?.scope === "panel" ? `@${compare.panel.id}` : "";
+    getSceneHistory().record(`${String(field)}:${layerId}${panelKey}`, String(field), () =>
+      applyLayerField(field, value),
+    );
+  };
+  const applyLayerField = <K extends keyof typeof viewLayer>(
     field: K,
     value: (typeof viewLayer)[K],
   ) => {
@@ -241,13 +253,15 @@ function VolumeRenderRows({
             // opacity survives hide/show. The `updateLayer` call keeps the
             // layer registry in sync for any surface that still reads it.
             noteUserVisibility(layerId);
-            setViewState((draft) => {
-              const target = draft.layers.find((l) => l.id === layerId);
-              if (!target) return;
-              target.visible = v;
-              if (v && !(target.opacity > 0)) target.opacity = 1.0;
+            getSceneHistory().record(`visible:${layerId}`, "visible", () => {
+              setViewState((draft) => {
+                const target = draft.layers.find((l) => l.id === layerId);
+                if (!target) return;
+                target.visible = v;
+                if (v && !(target.opacity > 0)) target.opacity = 1.0;
+              });
+              updateLayer(layerId, { visible: v });
             });
-            updateLayer(layerId, { visible: v });
           }}
         />
       </FieldRow>
@@ -428,12 +442,14 @@ function VolumeRenderRows({
           layerId={layerId}
           onChange={(next) => setLayerField("outline", next)}
           onDisplayChange={(next) => {
-            setViewState((draft) => {
-              const target = draft.layers.find((l) => l.id === layerId);
-              if (!target) return;
-              target.labelDisplay = next;
-              target.outline = { ...(target.outline ?? DEFAULT_LABEL_OUTLINE), enabled: next !== "fill" };
-            });
+            getSceneHistory().record(`labelDisplay:${layerId}`, "labelDisplay", () =>
+              setViewState((draft) => {
+                const target = draft.layers.find((l) => l.id === layerId);
+                if (!target) return;
+                target.labelDisplay = next;
+                target.outline = { ...(target.outline ?? DEFAULT_LABEL_OUTLINE), enabled: next !== "fill" };
+              }),
+            );
           }}
         />
       ) : null}

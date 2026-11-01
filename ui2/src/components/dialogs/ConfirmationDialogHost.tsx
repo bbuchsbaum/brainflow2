@@ -197,6 +197,12 @@ export function ConfirmationDialogHost() {
           {activeRequest.kind === 'prompt' && (
             <input
               ref={promptInputRef}
+              // Prompts take names and ids ("qa-run4"): no macOS autocorrect or
+              // capitalisation bubble (QA 2026-10-31 N5, as for Go-to in run 3).
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="w-full rounded-sm border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               value={promptValue}
               onChange={(event) => setPromptValue(event.target.value)}

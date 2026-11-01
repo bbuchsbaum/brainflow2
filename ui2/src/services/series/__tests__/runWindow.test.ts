@@ -46,6 +46,19 @@ describe('pooled EPI window (native R3-2)', () => {
     expect(maxOfRuns - nearestRank(all, 98)).toBeGreaterThan(binWidth);
   }, 30_000); // 3.6 M voxel-frames sorted for the reference percentile
 
+  it('keeps a uniform-tissue run mid grey instead of a white slab (QA 2026-10-30 F16)', () => {
+    // raw4d_bold.nii: 60 % zero background, the brain exactly 100, a few
+    // responses up to 120.
+    const values = new Float32Array(10000);
+    for (let i = 6000; i < 9950; i += 1) values[i] = 100;
+    for (let i = 9950; i < 10000; i += 1) values[i] = 120;
+    const [low, top] = pooledWindow([histogram(values, 0, 120, 1024)], percentile)!;
+    expect(low).toBe(0);
+    // The brain sits near mid grey, not at the top of the window.
+    expect((100 - low) / (top - low)).toBeGreaterThan(0.4);
+    expect((100 - low) / (top - low)).toBeLessThan(0.6);
+  });
+
   it('runs refined one at a time end on one window; a user window is left alone', () => {
     const view = new Map<string, [number, number]>();
     const current = (id: string) => view.get(id);

@@ -5,6 +5,9 @@
  * and is persisted by its store; Done closes.
  *   - Status bar › Pointer readout (`hoverSettingsStore.showInStatusBar`, the
  *     same setting as the view menu's pointer-readout toggle).
+ *   - Start › MNI anatomy on the first screen
+ *     (`layoutSettingsStore.firstScreenTemplate`, on by default;
+ *     qa-features-2026-10-31 §7).
  *   - Modules: one switch per module this host supports, with its stage
  *     ("Experimental", "Preview") and a one-line description
  *     (`modules/settingsStore.ts`; unset switches follow the stage default).
@@ -31,6 +34,7 @@ import {
 } from '@/components/ui/bf';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 import {
   moduleRegistry,
   moduleStageLabel,
@@ -55,6 +59,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const setShowPointer = useHoverSettingsStore((s) => s.setShowInStatusBar);
   const experimental = useFeatureFlagStore((s) => s.experimentalFeatures);
   const setExperimental = useFeatureFlagStore((s) => s.setExperimentalFeatures);
+  const firstScreen = useLayoutSettingsStore((s) => s.firstScreenTemplate);
+  const setFirstScreen = useLayoutSettingsStore((s) => s.setFirstScreenTemplate);
 
   return (
     <Modal
@@ -71,10 +77,22 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
         <Section variant="static" title="Status bar" divider={false}>
           <FieldRow
             label="Pointer readout"
+            labelWidth="wide"
             controlId="settings-pointer-readout"
             hint="Position, value and region under the pointer, beside the crosshair's."
           >
             <Switch ref={firstSwitchRef} checked={showPointer} onCheckedChange={setShowPointer} />
+          </FieldRow>
+        </Section>
+
+        <Section variant="static" title="Start">
+          <FieldRow
+            label="MNI anatomy at start"
+            labelWidth="wide"
+            controlId="settings-first-screen"
+            hint="With nothing restored, open on the MNI152 T1 with the crosshair at the origin."
+          >
+            <Switch checked={firstScreen} onCheckedChange={setFirstScreen} />
           </FieldRow>
         </Section>
 
@@ -83,7 +101,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
         <Section variant="static" title="Experimental features">
           <FieldRow
-            label="Show unfinished features"
+            // Wide column, short label: "Show unfinished features" was cut
+            // to "Show unfinishe…" (QA 2026-10-30 F47).
+            label="Unfinished features"
+            labelWidth="wide"
             controlId="settings-experimental"
             hint="The Inspector's Annotate tab and Advanced section. They do not work yet."
           >

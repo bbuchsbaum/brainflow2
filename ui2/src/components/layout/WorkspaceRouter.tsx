@@ -27,6 +27,7 @@ import { ComparisonWorkspace } from "@/components/views/ComparisonWorkspace";
 import { BidsExplorerWorkspace } from "@/components/bids/BidsExplorerWorkspace";
 import { IntegratedVolumeSurfaceWorkspace } from "@/components/views/IntegratedVolumeSurfaceWorkspace";
 import { CenterWithBottomDock } from "@/components/layout/CenterWithBottomDock";
+import { FirstScreenHint } from "@/components/layout/FirstScreenHint";
 import { ModuleWorkspace } from "@/components/modules/ModuleWorkspace";
 
 export interface WorkspaceRouterProps {
@@ -74,12 +75,15 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
       return (
         <CenterWithBottomDock>
           <OrthogonalViewContainer />
+          <FirstScreenHint workspaceId={workspaceId} />
         </CenterWithBottomDock>
       );
     case "orthogonal-flexible":
       return (
         <CenterWithBottomDock>
           <OrthogonalPanelsWorkspace />
+          {/* The first screen opens in the default (orthogonal) view. */}
+          <FirstScreenHint workspaceId={workspaceId} />
         </CenterWithBottomDock>
       );
     case "mosaic":
@@ -120,12 +124,18 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
     // › Plot Panel work there too (NeuroTabs workspace shape: bottom Plot dock).
     case "set-studio":
       return (
-        <CenterWithBottomDock>
+        <CenterWithBottomDock heightKey="set-studio">
           <SetStudioWorkspace />
         </CenterWithBottomDock>
       );
+    // The tools have the dock too: ⌘P, View › Panels › Plot Panel and the Log
+    // must not depend on which tab is in front (QA 2026-10-30 F31).
     case "bids-explorer":
-      return <BidsExplorerWorkspace workspaceId={workspaceId} />;
+      return (
+        <CenterWithBottomDock heightKey="bids-explorer">
+          <BidsExplorerWorkspace workspaceId={workspaceId} />
+        </CenterWithBottomDock>
+      );
     default:
       // A module's tool tab (or an unknown type, which ModuleWorkspace reports).
       return <ModuleWorkspace workspaceId={workspaceId} workspaceType={routeType} />;
