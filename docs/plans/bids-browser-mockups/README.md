@@ -1,7 +1,7 @@
 # BIDS browser mockups
 
 These are the design mockups behind [bids-browser-design.md](../bids-browser-design.md).
-Round 3 (`src/r3.html`) is the approved design. Rounds 1 and 2 are kept to show
+Round 4 (`src/r4.html`) is the approved design. Rounds 1 to 3 are kept to show
 how the decisions were reached.
 
 The pages are standalone HTML drawn with the live `--bf-*` token values and IBM
@@ -12,11 +12,13 @@ rebuild these views as React components on the real store and primitives.
 
 | Path | What it is |
 | --- | --- |
-| `screenshots/r3-*.png` | The approved round 3 states: coverage with a lens, images, ⌘K with Files sync, exclude and undo, 400 participants while scanning |
+| `screenshots/r4-*.png` | The approved round 4 states: coverage with a lens and hover, images, ⌘K with Files sync, exclude and undo, 400 participants while scanning |
+| `screenshots/r3-*.png` | Round 3, for comparison |
 | `src/data.js` | The synthetic example dataset and the single derived model (`M`, `QC3`, `runQC`). Every count on screen comes from here. |
 | `src/r1.html` | Round 1: three directions (Matrix, Dossier, Query) |
 | `src/r2.html` | Round 2: the first converged design |
-| `src/r3.html` | Round 3: the approved design and its states |
+| `src/r3.html` | Round 3: the first design all four original critics approved |
+| `src/r4.html` | Round 4: the approved design. It adds the per-run trace model (`TRACES`, `envelope()`, `drawCarpets()`) after the injected data. |
 | `src/base.css` | Shared shell styles; the tokens are copied from `ui2/src/styles/theme.css` |
 | `tools/make_assets.py` | Renders brain thumbnails from the MNI template (numpy and Pillow; nibabel is not needed) |
 | `tools/build.py` | Inlines CSS, data and thumbnails into one page per round |
@@ -31,12 +33,12 @@ mkdir -p cruft/bids-design
 python3 -I docs/plans/bids-browser-mockups/tools/make_assets.py \
   test-data/unit/tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii \
   cruft/bids-design/assets.json
-python3 -I docs/plans/bids-browser-mockups/tools/build.py r3
-node docs/plans/bids-browser-mockups/tools/shot.cjs cruft/bids-design/r3.html \
-  cruft/bids-design/r3 state-coverage,state-images,state-palette,state-exclude,state-scale
+python3 -I docs/plans/bids-browser-mockups/tools/build.py r4
+node docs/plans/bids-browser-mockups/tools/shot.cjs cruft/bids-design/r4.html \
+  cruft/bids-design/r4 state-coverage,state-images,state-palette,state-exclude,state-scale
 ```
 
-Open `cruft/bids-design/r3.html` in a browser. The tabs switch between states:
+Open `cruft/bids-design/r4.html` in a browser. The tabs switch between states:
 
 - `#state-coverage`
 - `#state-images`
@@ -62,7 +64,7 @@ each, because the thumbnails are inlined.
 
 | Mockup | Implementation target |
 | --- | --- |
-| `M`, `QC3`, `runQC`, `sesMeanFD` in `data.js` | One derived model in `ui2/src/stores/bidsStore.ts`, built from the bridge payload. Views select from it and never total their own counts. |
+| `M`, `runQC` in `data.js`; `TRACES`, `QC4`, `sesMeanFDx` in `r4.html` | One derived model in `ui2/src/stores/bidsStore.ts`, built from the bridge payload. Views select from it and never total their own counts. |
 | `summary()` | Summary component. Its claims set the lens, and the FD threshold is edited inline. |
 | `coverage()` and `legend()` | Rewrite of `ui2/src/components/bids/BidsCoverageMatrix.tsx` with one column per run. The cell marks are listed in the design doc. |
 | `renderImages()` | New contact-sheet view, with slices requested on demand and cached |

@@ -138,21 +138,29 @@ const volsOf = (s, c) => (s.n===7 && c.ses==='02' && c.key==='nback' && c.run===
 const TRACES = {};
 subjects.forEach(s => FUNC_COLS.forEach(c => {
   const q = runQC(s.n, c.i); if (!q) return;
+  // Realistic level for TR 0.8 s multiband: low-motion runs sit near 0.1 mm; deliberate outliers keep their level.
+  if (q.fd < FD_THR) q.fd = +(q.fd * 0.62).toFixed(3);
   const r = mulberry(s.n*7919 + c.i*104729), n = volsOf(s, c);
+  // Frames cluster near the run's level with a spike tail; the mean is calibrated to the run's target.
   const p = q.fd > FD_THR ? 0.07 : 0.005, base = Math.max(0.03, q.fd - p*0.95);
   const a = new Float32Array(n);
-  for (let i = 0; i < n; i++) { let v = base*(0.45 + r()*1.1); if (r() < p) v += 0.45 + r()*0.95; a[i] = v; }
+  for (let i = 0; i < n; i++) { const u = r(); let v = base*(0.75 + 0.5*u); if (r() < p) v += 0.45 + r()*0.95; a[i] = v; }
   TRACES[`${s.n}:${c.i}`] = a;
-  let sum = 0, mx = 0, over = 0, imax = 0;
-  for (let i = 0; i < n; i++) { sum += a[i]; if (a[i] > mx) { mx = a[i]; imax = i; } if (a[i] > FD_CENSOR) over++; }
-  Object.assign(q, {fd: +(sum/n).toFixed(2), max: mx, imax, over, vols: n, tr: trOf(CELLS[s.n-1][c.i])});
+  let sum = 0, mx = 0, over = 0, over02 = 0, imax = 0;
+  for (let i = 0; i < n; i++) { sum += a[i]; if (a[i] > mx) { mx = a[i]; imax = i; } if (a[i] > FD_CENSOR) over++; if (a[i] > 0.2) over02++; }
+  Object.assign(q, {fd: +(sum/n).toFixed(2), max: mx, imax, over, over02, vols: n, tr: trOf(CELLS[s.n-1][c.i])});
 }));
 const traceOf = (n, ci) => TRACES[`${n}:${ci}`];
+// Exclusion rule, default = Parkes et al. 2018 stringent; every threshold is editable and recorded in exclusions.json.
+const RULE = {meanFD: 0.25, frameFD: 0.2, frac: 0.20, anyFD: 5.0};
+// One meaning for full ink, the Quality findings and the exclusion default: the run fails the motion rule.
+const failsMotion = q => q.fd > RULE.meanFD || q.over02 / q.vols > RULE.frac || q.max > RULE.anyFD;
+
 // Quality findings recomputed from the traces (same rules as round 3).
 const QC4 = [];
 subjects.forEach(s => ['01','02'].forEach(ses => {
   const runs = FUNC_COLS.filter(c=>c.ses===ses).map(c=>({c, q:runQC(s.n,c.i)})).filter(x=>x.q);
-  const over = runs.filter(x => x.q.fd > FD_THR);
+  const over = runs.filter(x => failsMotion(x.q));
   if (over.length) QC4.push({kind:'FD', sub:s.n, ses, n:over.length, of:runs.length, max:Math.max(...over.map(x=>x.q.fd))});
   const low = runs.filter(x => x.q.tsnr < 40);
   if (low.length) QC4.push({kind:'tSNR', sub:s.n, ses, n:low.length, of:runs.length, min:Math.min(...low.map(x=>x.q.tsnr))});
@@ -174,6 +182,9 @@ function envelope(trace, w, h, dmax = FD_DMAX) {
   }
   return {points: up + lo, caps: caps.map(b => (b + 0.5) * w / bins)};
 }
+
+// Session means are summaries of included runs only.
+const sesMeanFDx = (n, ses, excluded) => { const v = FUNC_COLS.filter(c=>c.ses===ses && !excluded.includes(`${n}:${c.i}`)).map(c=>runQC(n,c.i)).filter(Boolean).map(q=>q.fd); return v.length ? +(v.reduce((a,b)=>a+b,0)/v.length).toFixed(2) : null; };
 const EXCL_KEYS = [`7:${COLS.findIndex(c=>c.ses==='02'&&c.key==='nback'&&c.run===2)}`];
 const subOf = n => subjects.find(s => s.n === n);
 const sid = n => 'sub-' + String(n).padStart(2,'0');
@@ -194,7 +205,10 @@ const DECISIONS = [
   ['Bostock', 'Axis labels have leading zeros, the domain end is marked, and values past it get a cap. Trial onsets are ticks inside each block. The contact-sheet label is decoded, and variants there are a letter, not a second kind of frame.'],
   ['Albers', 'Columns are grouped: the two runs of a task sit together with a gap between tasks. Column totals sit in the header. Scroll areas fade instead of cutting a row in half. Numeric headers align right. Metadata keys have a 14 px gutter.'],
   ['Bayer', 'Claims in the summary are set in weight 500 with no underline (underlined on hover). Findings titles are weight 500, with mono 10 px sub-lines.'],
-  ['Jobs, Poldrack', 'Exclusion: the struck cell and the status count update from the same model. ↵ means open in viewer everywhere. The criterion records the censoring fraction too. SourceDatasets uses the DOI.'],
+  ['Jobs, Poldrack', 'Exclusion: the struck cell and the status count update from the same model. ↵ means open in viewer everywhere. SourceDatasets uses the DOI.'],
+  ['Round 4.1: Jobs, Tufte, Linear, Albers, Bostock', 'Full ink now means one thing: the run fails the motion rule (Parkes 2018 stringent, editable: mean FD, fraction of frames over 0.2 mm, or any frame over 5 mm). Runs that pass are drawn at the faintest ink, and their clip ticks are mid-grey, so a 1 mm spike is never hidden but never outweighs a finding. Quality findings and the summary use the same rule.'],
+  ['Round 4.1: Linear, Albers, Poldrack', 'Excluded runs are neutral grey and struck, with a thin edge if a problem remains; session means omit them. The default rule is Parkes 2018 stringent, named and editable, and the exclusion records each threshold.'],
+  ['Round 4.1: Albers, Bayer', 'QC outliers in the 400 view are a narrow white tick, so they never outweigh an error. Session gap widened to 20 px; header dead space removed; crowded axis end labels dropped, with the domain given in the title.'],
 ];
 document.getElementById('decisions').innerHTML = DECISIONS.map(([w,t]) => `<div><b>${w}</b><span>${t}</span></div>`).join('');
 
@@ -207,7 +221,7 @@ function shell({center, left, right, cols, overlay='', status=null, excluded=EXC
 }
 function summary(active) {
   const c = (key, text, cls='') => `<span class="claim ${cls}${active===key?' on':''}">${text}</span>`;
-  return `<div class="sum"><p><b style="color:var(--bf-text-primary);font-weight:600">${DS.name}.</b> ${c('all', N + ' participants')} (${M.ctrl} control, ${M.pat} patient; age ${M.ageMin}–${M.ageMax}, median ${M.ageMed}) scanned in 2 sessions on a ${DS.scanner}. ${c('nos2', M.noS2 + ' have no second session')}. ${c('B', vSubs('bold','B').length + ' second sessions used a different protocol')} after a scanner upgrade. ${c('err', M.errors.length + ' files fail validation', 'err')} and ${c('warn', M.warnings.length + ' runs have content problems', 'warn')}. ${c('qc', M.qcSubs4.size + ' participants have runs over mean FD')} <span class="edit">${FD_THR} mm</span>. ${c('new', 'Since 28 Oct: ' + M.newSubs.length + ' new participants')}, not yet processed by fMRIPrep.</p></div>`;
+  return `<div class="sum"><p><b style="color:var(--bf-text-primary);font-weight:600">${DS.name}.</b> ${c('all', N + ' participants')} (${M.ctrl} control, ${M.pat} patient; age ${M.ageMin}–${M.ageMax}, median ${M.ageMed}) scanned in 2 sessions on a ${DS.scanner}. ${c('nos2', M.noS2 + ' have no second session')}. ${c('B', vSubs('bold','B').length + ' second sessions used a different protocol')} after a scanner upgrade. ${c('err', M.errors.length + ' files fail validation', 'err')} and ${c('warn', M.warnings.length + ' runs have content problems', 'warn')}. ${c('qc', M.qcSubs4.size + ' participants have runs failing the motion rule')} (mean FD &gt; <span class="edit">${RULE.meanFD} mm</span>, Parkes stringent). ${c('new', 'Since 28 Oct: ' + M.newSubs.length + ' new participants')}, not yet processed by fMRIPrep.</p></div>`;
 }
 function vbar(active, lens) {
   const t = (k, l) => `<span class="${active===k?'on':''}">${l}</span>`;
@@ -219,11 +233,11 @@ const keyHints = `<span><span class="kbd">J</span> <span class="kbd">K</span> <s
 function findingsPanel(selKey, {excludedNew=false}={}) {
   const row = (g, title, ent, key) => `<div class="fr${selKey===key?' sel':''}"><i class="glyph ${g}"></i><span>${title}<span class="e">${ent}</span></span></div>`;
   const grp = (t, n) => `<div class="fg"><span>${t}</span><span class="mono">${n}</span></div>`;
-  let h = grp('Saved lenses', 2) + row('g-saved','Flagged second sessions','variant B ∪ quality, ses-02') + row('g-saved','Ready for group analysis','not excluded, FD ≤ 0.25, fmriprep current');
+  let h = grp('Saved lenses', 2) + row('g-saved','Flagged second sessions','variant B ∪ quality, ses-02') + row('g-saved','Ready for group analysis','not excluded, passes motion rule, fmriprep current');
   h += grp('Errors', M.errors.length) + M.errors.map(i => row('g-err', i.title, `${sid(i.sub)} ses-${i.ses}`)).join('');
   h += grp('Content problems', M.warnings.length) + M.warnings.map(i => row('g-warn', i.title, `${sid(i.sub)} ses-${i.ses}`)).join('');
   h += grp('Acquisition variants', M.variants.length) + M.variants.map(v => row('g-var', `${v.name}: ${v.diff.split(' (')[0]}`, `${vSubs(v.series, v.id).length} participant${vSubs(v.series, v.id).length===1?'':'s'} · ${vRuns(v.series, v.id)} run${vRuns(v.series, v.id)===1?'':'s'}`, v.id)).join('');
-  h += grp('Quality', QC4.length) + QC4.map(q => row('g-qc', q.kind==='FD' ? `Mean FD over ${FD_THR} mm in ${q.n} of ${q.of} runs, max ${q.max.toFixed(2)}` : q.kind==='tSNR' ? `tSNR below 40 in ${q.n} of ${q.of} runs, min ${q.min}` : `Ghost ratio ${q.max} in ${q.n} of ${q.of} runs`, `${sid(q.sub)} ses-${q.ses}`)).join('');
+  h += grp('Quality', QC4.length) + QC4.map(q => row('g-qc', q.kind==='FD' ? `Fails motion rule in ${q.n} of ${q.of} runs, max mean FD ${q.max.toFixed(2)}` : q.kind==='tSNR' ? `tSNR below 40 in ${q.n} of ${q.of} runs, min ${q.min}` : `Ghost ratio ${q.max} in ${q.n} of ${q.of} runs`, `${sid(q.sub)} ses-${q.ses}`)).join('');
   h += grp('Notes', M.infos.length) + M.infos.map(i => row('g-info', i.title, i.sub ? sid(i.sub) : 'dataset')).join('');
   const ex = [...EXCLUSIONS]; if (excludedNew) ex.unshift({entity:'sub-33 ses-02 task-nback run-1', reason:`Mean FD ${runQC(SEL.sub,SEL.ci).fd.toFixed(2)} mm`, by:'B. Buchsbaum', date:'2026-11-01'});
   h += grp('Excluded', ex.length) + ex.map(e => `<div class="fr"><i class="glyph" style="border:1px solid var(--bf-text-faint)"></i><span><span style="text-decoration:line-through;text-decoration-color:var(--bf-text-faint)">${e.entity.replace('task-','')}</span><span class="e">${e.reason} · ${e.by}, ${e.date}</span><span class="e" style="color:var(--bf-text-muted)">Review · Revert</span></span></div>`).join('');
@@ -242,7 +256,7 @@ function filesPanel() {
 }
 
 function coverage({lensB=true, hover=true, excluded=EXCL_KEYS}={}) {
-  const RH = 16, CW = 26, LX = 104, TOP = 70, GH = 18, KG = 6, SG = 16;
+  const RH = 16, CW = 26, LX = 104, TOP = 64, GH = 18, KG = 6, SG = 20;
   const XS = []; let xx = LX;
   COLS.forEach((c,i) => { if (i>0) { const p = COLS[i-1]; xx += p.ses!==c.ses ? SG : p.key!==c.key ? KG : 0; } XS.push(xx); xx += CW; });
   const XEND = xx, colX = c => XS[c.i];
@@ -266,11 +280,11 @@ function coverage({lensB=true, hover=true, excluded=EXCL_KEYS}={}) {
   o += T(6, 56, 10, 'var(--bf-text-faint)', `runs present, of ${N}`) + `<line x1="6" x2="${XEND}" y1="62" y2="62" stroke="var(--bf-border)"/>`;
   o += T(DX, 29, 11, 'var(--bf-text-muted)', 'deriv.');
   ['fp','qc','fs'].forEach((d,k) => o += T(DX+k*18+6, 41, 10, 'var(--bf-text-faint)', d, 'text-anchor="middle" font-family="IBM Plex Mono"'));
-  o += T(FX, 11, 10, 'var(--bf-text-faint)', 'session mean of run FD, mm');
+  o += T(FX, 11, 10, 'var(--bf-text-faint)', 'mean FD of included runs, 0–0.8 mm');
   ['01','02'].forEach((ses,k) => {
     const x0 = FX + k*(FW+16);
     o += T(x0, 29, 11, 'var(--bf-text-muted)', `ses-${ses}`);
-    [[0,'0','start'],[0.25,'0.25','middle'],[0.5,'0.50','middle'],[fmax,'0.8','end']].forEach(([v,l,a]) => o += T(fx(k,v), 41, 9, v===FD_THR?'var(--bf-text-secondary)':'var(--bf-text-faint)', l, `text-anchor="${a}" font-family="IBM Plex Mono"`));
+    [[0,'0','start'],[0.25,'0.25','middle'],[0.5,'0.50','middle']].forEach(([v,l,a]) => o += T(fx(k,v), 41, 9, v===FD_THR?'var(--bf-text-secondary)':'var(--bf-text-faint)', l, `text-anchor="${a}" font-family="IBM Plex Mono"`));
     o += `<line x1="${fx(k,0)}" x2="${fx(k,fmax)}" y1="${TOP-6}" y2="${TOP-6}" stroke="var(--bf-border)"/><line x1="${fx(k,fmax)}" x2="${fx(k,fmax)}" y1="${TOP-9}" y2="${TOP-3}" stroke="var(--bf-border-strong)"/>`;
     o += `<line x1="${fx(k,FD_THR)}" x2="${fx(k,FD_THR)}" y1="${TOP-6}" y2="${H-4}" stroke="var(--bf-text-faint)" stroke-dasharray="2 3"/>`;
   });
@@ -290,15 +304,17 @@ function coverage({lensB=true, hover=true, excluded=EXCL_KEYS}={}) {
       if (isSel) o += `<rect x="${x+1}" y="${y+1}" width="${CW-2}" height="${RH-2}" fill="rgba(233,234,236,.22)"/>`;
       if (isHov) o += `<rect x="${x+1}" y="${y+1}" width="${CW-2}" height="${RH-2}" fill="rgba(233,234,236,.12)"/>`;
       if (cell.state === 'missing') { o += `<line x1="${cx-3}" x2="${cx+3}" y1="${cy}" y2="${cy}" stroke="var(--bf-text-faint)" stroke-opacity=".5"/>`; continue; }
-      const op = isEx ? ' opacity=".35"' : '';
+      if (isEx) { o += `<rect x="${x+4}" y="${y+3}" width="${CW-8}" height="${RH-6}" fill="#45474d"/>`;
+        if (cell.state==='warning' || cell.state==='error') o += `<rect x="${x+4}" y="${y+RH-4}" width="${CW-8}" height="1.5" fill="var(--bf-${cell.state==='error'?'danger':'warning'})"/>`;
+        o += `<line x1="${x+2}" x2="${x+CW-2}" y1="${y+RH-3}" y2="${y+3}" stroke="var(--bf-text-secondary)" stroke-width="1"/>`; continue; }
+      const op = '';
       if (cell.state === 'error') o += `<g${op}><rect x="${x+4}" y="${y+3}" width="${CW-8}" height="${RH-6}" fill="var(--bf-danger)"/><path d="M${cx-3} ${cy-3}l6 6M${cx+3} ${cy-3}l-6 6" stroke="#16171a" stroke-width="1.6"/></g>`;
       else if (cell.state === 'warning') o += `<rect x="${x+4}" y="${y+3}" width="${CW-8}" height="${RH-6}" fill="var(--bf-warning)"${op}/>`;
       else if (SERIES[c.key].dt === 'func') {
-        const q = runQC(s.n, c.i), hot = q.fd > FD_THR, w = CW-8, h = RH-5, e = envelope(traceOf(s.n, c.i), w, h);
-        o += `<g transform="translate(${x+4},${y+2.5})"${op}><line x1="0" x2="${w}" y1="${h - FD_CENSOR/FD_DMAX*h}" y2="${h - FD_CENSOR/FD_DMAX*h}" stroke="rgba(255,255,255,.10)"/><polygon points="${e.points}" fill="${hot?'var(--bf-text-primary)':'var(--bf-text-faint)'}" fill-opacity="${hot?.95:.5}"/>${e.caps.map(cx2 => `<rect x="${(cx2-0.5).toFixed(1)}" y="-1.5" width="1" height="1.2" fill="var(--bf-text-primary)"/>`).join('')}</g>`;
+        const q = runQC(s.n, c.i), hot = failsMotion(q), w = CW-8, h = RH-5, e = envelope(traceOf(s.n, c.i), w, h);
+        o += `<g transform="translate(${x+4},${y+2.5})"${op}><line x1="0" x2="${w}" y1="${h - FD_CENSOR/FD_DMAX*h}" y2="${h - FD_CENSOR/FD_DMAX*h}" stroke="rgba(255,255,255,.10)"/><polygon points="${e.points}" fill="${hot?'var(--bf-text-primary)':'var(--bf-text-faint)'}" fill-opacity="${hot?.95:.32}"/>${e.caps.map(cx2 => `<rect x="${(cx2-0.5).toFixed(1)}" y="-1.5" width="1" height="1.2" fill="${hot?'var(--bf-text-primary)':'var(--bf-text-muted)'}"/>`).join('')}</g>`;
       } else o += `<line x1="${x+6}" x2="${x+CW-6}" y1="${cy}" y2="${cy}" stroke="var(--bf-text-faint)"${op}/>`;
       if (cell.state === 'variant') o += `<rect x="${x+2.5}" y="${y+1}" width="${CW-5}" height="${RH-2}" fill="none" stroke="rgba(255,255,255,.26)" stroke-width="0.75"/>`;
-      if (isEx) o += `<line x1="${x+2}" x2="${x+CW-2}" y1="${y+RH-3}" y2="${y+3}" stroke="var(--bf-text-secondary)" stroke-width="1"/>`;
       if (cell.extra) o += `<text x="${x+CW-1}" y="${cy+3}" font-size="9" fill="var(--bf-text-secondary)" text-anchor="end" font-family="IBM Plex Mono">+1</text>`;
       if (isHov) {
         const q = runQC(s.n, c.i), tr = traceOf(s.n, c.i), tw = 196, th = 34, e = envelope(tr, tw, th), bx = x + CW + 6, by = y - 34;
@@ -312,7 +328,7 @@ function coverage({lensB=true, hover=true, excluded=EXCL_KEYS}={}) {
     ['fmriprep','mriqc','freesurfer'].forEach((k,i) => { const st = d[k], x = DX+i*18+6;
       if (st==='partial') o += `<path d="M${x} ${cy-3}a3 3 0 0 1 0 6z" fill="var(--bf-text-primary)"/><circle cx="${x}" cy="${cy}" r="3" fill="none" stroke="var(--bf-text-primary)"/>`;
       if (st==='missing') o += `<circle cx="${x}" cy="${cy}" r="3" fill="none" stroke="var(--bf-text-muted)" stroke-dasharray="1.5 1.5"/>`; });
-    ['01','02'].forEach((ses,k) => { const v = sesMeanFD(s.n, ses); if (v == null) return;
+    ['01','02'].forEach((ses,k) => { const v = sesMeanFDx(s.n, ses, excluded); if (v == null) return;
       const hot = v > FD_THR, b = ses==='02' && s.upgraded, X = fx(k,v);
       o += `<circle cx="${X}" cy="${cy}" r="${hot?3:2.3}" fill="${b?'none':hot?'var(--bf-text-primary)':'var(--bf-text-muted)'}" stroke="${b?(hot?'var(--bf-text-primary)':'var(--bf-text-muted)'):'none'}" fill-opacity="${hot?1:.7}"/>`;
       if (v > fmax) o += `<line x1="${X+4}" x2="${X+4}" y1="${cy-4}" y2="${cy+4}" stroke="var(--bf-text-primary)"/>`;
@@ -324,12 +340,12 @@ function coverage({lensB=true, hover=true, excluded=EXCL_KEYS}={}) {
 function legend() {
   const it = (svg, t) => `<span style="display:inline-flex;align-items:center;gap:6px">${svg}${t}</span>`;
   return `<div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11px;color:var(--bf-text-muted);padding:8px 10px 0 6px;max-width:820px">
-   ${it('<svg width="26" height="12"><line x1="0" x2="26" y1="6" y2="6" stroke="rgba(255,255,255,.18)"/><polygon points="0,10 4,9 8,10 12,8 16,10 20,9 26,10 26,11 20,11 16,11 12,11 8,11 4,11 0,11" fill="#76797f"/></svg>','bold run: FD per volume, min–max per pixel, 0–1 mm; faint line = 0.5 mm censor')}
-   ${it('<svg width="26" height="12"><rect x="12" y="0" width="1" height="1.2" fill="#e9eaec"/><polygon points="0,10 4,9 8,10 12,1 16,10 20,4 26,10 26,11 0,11" fill="#e9eaec"/></svg>','run mean FD over threshold; tick above = clipped at 1 mm')}
+   ${it('<svg width="26" height="12"><line x1="0" x2="26" y1="6" y2="6" stroke="rgba(255,255,255,.18)"/><polygon points="0,10 4,9 8,10 12,8 16,10 20,9 26,10 26,11 20,11 16,11 12,11 8,11 4,11 0,11" fill="#76797f"/></svg>','bold run passing the motion rule: FD per volume, min–max per pixel, 0–1 mm, faintest ink; grey tick = clipped at 1 mm')}
+   ${it('<svg width="26" height="12"><rect x="12" y="0" width="1" height="1.2" fill="#e9eaec"/><polygon points="0,10 4,9 8,10 12,1 16,10 20,4 26,10 26,11 0,11" fill="#e9eaec"/></svg>','run fails the motion rule (Parkes stringent, editable): full ink, white clip ticks')}
    ${it('<svg width="26" height="14"><rect x=".5" y=".5" width="25" height="13" fill="none" stroke="rgba(255,255,255,.26)" stroke-width=".75"/></svg>','acquisition variant')}
    ${it('<svg width="18" height="10"><rect width="18" height="10" fill="#f28a5a"/></svg>','content problem')}
    ${it('<svg width="18" height="10"><rect width="18" height="10" fill="#e5484d"/><path d="M6 2l6 6M12 2l-6 6" stroke="#16171a" stroke-width="1.6"/></svg>','validation error')}
-   ${it('<svg width="18" height="12"><rect x="2" y="2" width="14" height="8" fill="#f28a5a" opacity=".35"/><line x1="0" x2="18" y1="11" y2="1" stroke="#bdbfc4"/></svg>','excluded')}
+   ${it('<svg width="18" height="12"><rect x="2" y="2" width="14" height="8" fill="#45474d"/><rect x="2" y="9" width="14" height="1.5" fill="#f28a5a"/><line x1="0" x2="18" y1="11" y2="1" stroke="#bdbfc4"/></svg>','excluded: neutral, struck; edge keeps the problem visible; session means omit it')}
    ${it('<svg width="12" height="10"><line x1="3" x2="9" y1="5" y2="5" stroke="#76797f"/></svg>','missing')}
    ${it('<svg width="12" height="10"><circle cx="6" cy="5" r="2.6" fill="none" stroke="#a4a7ad"/></svg>','hollow dot: TR 1.0 s / MB 4 group, compare within group')}
    ${it('<svg width="12" height="10"><circle cx="6" cy="5" r="3" fill="none" stroke="#a4a7ad" stroke-dasharray="1.5 1.5"/></svg>','derivative not run')}
@@ -391,7 +407,7 @@ function eventsSvg(task, w, h, o={}) {
 function dockRuns() {
   const runs = []; for (const s of subjects) for (const c of nbB) { const cell = CELLS[s.n-1][c.i]; if (cell.state!=='missing' && cell.variant==='B') runs.push({s,c}); }
   runs.sort((a,b)=>runQC(b.s.n,b.c.i).fd-runQC(a.s.n,a.c.i).fd);
-  const rows = runs.map(({s,c}) => { const q = runQC(s.n,c.i), hot = q.fd > FD_THR, sel = s.n===SEL.sub && c.i===SEL.ci;
+  const rows = runs.map(({s,c}) => { const q = runQC(s.n,c.i), hot = failsMotion(q), sel = s.n===SEL.sub && c.i===SEL.ci;
     return `<tr${sel?' class="sel"':''}><td><span class="ent"><span class="e">sub-</span><span class="v">${s.id}</span> <span class="e">ses-</span><span class="v">${c.ses}</span> <span class="e">nback run-</span><span class="v">${c.run}</span></span></td><td class="mono r">${q.tr.toFixed(1)}</td><td class="mono r">${q.vols}</td><td class="mono r" style="${hot?'color:var(--bf-text-primary);font-weight:500':''}">${q.fd.toFixed(2)}</td><td><span class="bar" style="width:${Math.round(Math.min(q.fd,0.8)/0.8*60)}px;${hot?'background:var(--bf-text-primary)':''}"></span></td><td class="mono r">${Math.round(q.over/q.vols*100)}%</td><td class="mono r">${q.tsnr}</td></tr>`; }).join('');
   return `<div class="dock" style="height:214px;flex:none"><div class="dockh"><b>Runs in lens</b><span>${bNback} of ${vRuns('bold','B')} variant B runs · task nback ▾</span><span style="margin-left:auto">sorted by FD ▾</span></div>
    <div class="scroll fade"><table class="t c24"><thead><tr><th>run</th><th class="r">TR, s</th><th class="r">vols</th><th class="r">FD, mm</th><th></th><th class="r">&gt; 0.5 mm</th><th class="r">tSNR</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
@@ -451,7 +467,7 @@ function renderPalette() {
    <div class="pal-r on"><span class="mono">sub-33 ses-02 nback run-1</span><span class="chip qc">FD ${runQC(SEL.sub,SEL.ci).fd.toFixed(2)}</span><span class="k2">↵ open in viewer · ⇥ select</span></div>
    <div class="pal-r"><span class="mono">sub-33 ses-02 nback run-2</span><span class="k2"></span></div>
    <div class="pal-g">Participants</div><div class="pal-r"><span class="mono">sub-33</span><span class="muted">patient · F 45 · 2 sessions</span><span class="k2">lens: sub-33</span></div>
-   <div class="pal-g">Findings</div><div class="pal-r"><i class="glyph g-qc"></i>Mean FD over ${FD_THR} mm in 5 of 5 runs<span class="k2">sub-33 ses-01</span></div><div class="pal-r"><i class="glyph g-qc"></i>Mean FD over ${FD_THR} mm in 5 of 5 runs<span class="k2">sub-33 ses-02</span></div>
+   <div class="pal-g">Findings</div><div class="pal-r"><i class="glyph g-qc"></i>Fails motion rule in 5 of 5 runs<span class="k2">sub-33 ses-01</span></div><div class="pal-r"><i class="glyph g-qc"></i>Fails motion rule in 5 of 5 runs<span class="k2">sub-33 ses-02</span></div>
    <div class="pal-g">Saved lenses and commands</div><div class="pal-r"><i class="glyph g-saved"></i>Flagged second sessions<span class="k2">lens</span></div><div class="pal-r">Exclude sub-33 ses-02…<span class="k2">X</span></div><div class="pal-r">Go to Images<span class="k2">2</span></div>
    <div style="height:8px"></div></div></div>`;
   return shell({left: filesPanel(), center: coverageCenter({dock:false}), right: inspector(), cols: COLS3, overlay: pal});
@@ -459,18 +475,20 @@ function renderPalette() {
 
 function renderExclude() {
   const q = runQC(SEL.sub, SEL.ci), pct = Math.round(q.over/q.vols*100);
-  const reason = `Mean FD ${q.fd.toFixed(2)} mm (threshold ${FD_THR}); ${pct}% of frames over ${FD_CENSOR} mm`;
+  const pct02 = Math.round(q.over02/q.vols*100);
+  const reason = `Mean FD ${q.fd.toFixed(2)} mm > ${RULE.meanFD}; ${pct02}% of frames over ${RULE.frameFD} mm > ${RULE.frac*100}%`;
   const dlg = `<div class="overlay"><div class="dlg" role="dialog" aria-label="Exclude run" style="width:620px"><div style="padding:14px 16px 12px;display:flex;flex-direction:column;gap:12px">
    <h3>Exclude sub-33 ses-02 task-nback run-1</h3>
    <div class="radio"><span class="on">This run</span><span>All 5 runs in ses-02</span><span>sub-33, both sessions</span></div>
+   <div class="field">Rule <span style="color:var(--bf-text-secondary)">Parkes et al. 2018 stringent (default): mean FD &gt; <span class="edit">${RULE.meanFD}</span> mm, or more than <span class="edit">${RULE.frac*100}%</span> of frames over <span class="edit">${RULE.frameFD}</span> mm, or any frame over <span class="edit">${RULE.anyFD}</span> mm. Editing a value makes it a custom rule, named as such.</span></div>
    <div class="field"><label for="ex-reason">Reason</label><div class="box focus" id="ex-reason">${reason}</div></div>
    <div class="field">Row written to <span class="mono">derivatives/brainflow/exclusions.tsv</span>
 <pre class="file wrap">entity        sub-33_ses-02_task-nback_run-1_bold
 reason        ${reason}
-criterion     fd_mean &gt; ${FD_THR} OR frac(fd &gt; ${FD_CENSOR}) &gt; 0.20
-value         fd_mean=${q.fd.toFixed(2)}; frac=${(q.over/q.vols).toFixed(2)}
+rule          parkes2018_stringent: fd_mean &gt; ${RULE.meanFD} | frac(fd &gt; ${RULE.frameFD}) &gt; ${RULE.frac} | max(fd) &gt; ${RULE.anyFD}
+value         fd_mean=${q.fd.toFixed(2)}; frac=${(q.over02/q.vols).toFixed(2)}; max=${q.max.toFixed(2)}
 author, date  B. Buchsbaum, 2026-11-01
-source        fmriprep 24.1.1 confounds, framewise_displacement (Power)</pre><span class="faint" style="font-size:10px">Shown one field per line; the file is a tab-separated row. exclusions.json describes every column, the FD definition and the thresholds.</span></div>
+source        fmriprep 24.1.1 confounds, framewise_displacement (Power)</pre><span class="faint" style="font-size:10px">Shown one field per line; the file is a tab-separated row. exclusions.json records every column, the FD definition and each threshold value.</span></div>
    <div class="field">First exclusion also creates <span class="mono">derivatives/brainflow/dataset_description.json</span>
 <pre class="file wrap">{ "Name": "Brainflow exclusions", "BIDSVersion": "1.9.0",
   "DatasetType": "derivative",
@@ -501,8 +519,8 @@ function renderScale() {
   let o = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="IBM Plex Sans">`;
   sessions.forEach((ses, si) => { o += `<text x="${colX(si,0)}" y="12" font-size="11" fill="var(--bf-text-secondary)" font-family="IBM Plex Mono">ses-${ses}</text><line x1="${colX(si,0)}" x2="${colX(si,series.length)-2}" y1="17" y2="17" stroke="var(--bf-border)"/>`;
     series.forEach(([code],k) => o += `<text x="${colX(si,k)+CW/2}" y="32" font-size="10" fill="var(--bf-text-faint)" text-anchor="middle" font-family="IBM Plex Mono">${code}</text>`); });
-  o += `<text x="${FX}" y="12" font-size="10" fill="var(--bf-text-faint)">participant mean FD, mm</text>`;
-  [[0,'0','start'],[0.25,'0.25','middle'],[0.5,'0.50','middle'],[fmax,'0.8','end']].forEach(([v,l,a]) => o += `<text x="${fx(v)}" y="32" font-size="9" fill="var(--bf-text-faint)" text-anchor="${a}" font-family="IBM Plex Mono">${l}</text>`);
+  o += `<text x="${FX}" y="12" font-size="10" fill="var(--bf-text-faint)">participant mean FD, 0–0.8 mm</text>`;
+  [[0,'0','start'],[0.25,'0.25','middle'],[0.5,'0.50','middle']].forEach(([v,l,a]) => o += `<text x="${fx(v)}" y="32" font-size="9" fill="var(--bf-text-faint)" text-anchor="${a}" font-family="IBM Plex Mono">${l}</text>`);
   o += `<line x1="${fx(FD_THR)}" x2="${fx(FD_THR)}" y1="${TOP-6}" y2="${rows[done].y}" stroke="var(--bf-text-faint)" stroke-dasharray="2 3"/>`;
   for (const r of rows) {
     const scanned = r.i < done, d = data[r.i];
@@ -517,7 +535,7 @@ function renderScale() {
         if (st === 'variant') o += `<rect x="${x+1}" y="${r.y+0.5}" width="${CW-2}" height="${r.h-1}" fill="none" stroke="rgba(255,255,255,.26)" stroke-width=".75"/>`;
         return; }
       const fill = {ok:'#2a2b2f', variant:'#45474d', qc:'var(--bf-text-primary)', warning:'var(--bf-warning)', error:'var(--bf-danger)'}[st];
-      const w = st === 'warning' ? (CW-2)*0.55 : CW - (st==='error' ? 0 : 2), xo = st === 'warning' ? x + (CW-w)/2 : x + (st==='error' ? 0 : 1);
+      const w = st === 'warning' ? (CW-2)*0.55 : st === 'qc' ? 3 : CW - (st==='error' ? 0 : 2), xo = (st === 'warning' || st === 'qc') ? x + (CW-w)/2 : x + (st==='error' ? 0 : 1);
       o += `<rect x="${xo.toFixed(1)}" y="${r.y}" width="${w.toFixed(1)}" height="${r.h}" fill="${fill}"/>`;
       if (st === 'error' && r.h >= 10) { const cx = x + CW/2, cy = r.y + r.h/2; o += `<path d="M${cx-3} ${cy-3}l6 6M${cx+3} ${cy-3}l-6 6" stroke="#16171a" stroke-width="1.5"/>`; } });
     const hot = d.fd > FD_THR;
@@ -526,7 +544,7 @@ function renderScale() {
   }
   o += '</svg>';
   const key = `<div class="src" style="padding:8px 6px 0;max-width:780px">Columns: ${series.map(([c,n])=>`<b style="color:var(--bf-text-secondary);font-weight:500">${c}</b> ${n}`).join(' · ')}.<br>
-    Rows are 2 px; the selected participant is 16 px and its neighbours 10 px (a discrete piecewise y-scale, exact and invertible). Present runs sit near the background. Errors are red, full width, with a cross at 10 px and up. Content problems are orange at half width, so the two differ by shape as well as colour. QC outliers are white and variants a lighter grey. Unread rows are empty, never estimated.</div>`;
+    Rows are 2 px; the selected participant is 16 px and its neighbours 10 px (a discrete piecewise y-scale, exact and invertible). Present runs sit near the background. Errors are red, full width, with a cross at 10 px and up. Content problems are orange at half width, so the two differ by shape as well as colour. QC outliers are a narrow white tick, so they never outweigh an error; variants are a lighter grey. Unread rows are empty, never estimated.</div>`;
   const center = `<main style="display:flex;flex-direction:column;min-width:0;min-height:0">
    <div class="sum"><p><b style="color:var(--bf-text-primary);font-weight:600">Adolescent cohort (example).</b> Reading… <span class="claim">${done} of ${NS} participants</span> so far, 3 sessions, 14 series. So far: <span class="claim">31 participants have no third session</span>, <span class="claim err">4 files fail validation</span>, <span class="claim warn">17 runs have content problems</span>, <span class="claim">119 second-session runs from sub-281 onward used a different protocol</span>. Counts update as files are read; nothing is final until the scan completes.</p></div>
    <div class="prog"><i style="width:${done/NS*100}%"></i></div>
