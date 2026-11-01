@@ -26,7 +26,9 @@ template in `test-data/unit`:
 | Linear designer | 7 | 8 | 8.5 |
 | Poldrack | 6.5 | 8 | 9 |
 
-Mockup sources (local, git-ignored): `cruft/bids-design/`.
+Mockup sources, build tools and the approved screenshots are in
+[bids-browser-mockups/](bids-browser-mockups/README.md). Start with
+`screenshots/r3-coverage.png`.
 
 ## The one job
 
