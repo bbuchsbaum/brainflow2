@@ -39,6 +39,35 @@ outstanding proposal wins 3 of 4 critics.
 | 6 | Integration and the whole model: viewer modes, HRF studio, full design, confounds | 8.00 |
 | 7 | Within and between: contrasts as questions, scope-driven second level, test matrix | 8.85 |
 | 8 | Consistency and ecosystem: one view header, stale maps, Brainflow contributions | 9.15 |
+| 8′ | Round 8 scored by the three new reviewers (Bostock 7.4, Albers 6.8, Bauhaus 7.6) | — |
+| 9 | Colour, motion, grid and neighbours (seven reviewers, 4 of 7 to adopt) | 9.11 |
+
+### Round 9: new reviewers (2026-11-01)
+
+The owner added Mike Bostock, Josef Albers and a Bauhaus panel (Herbert Bayer,
+László Moholy-Nagy, Marcel Breuer) to review function, aesthetics and flow, and
+asked that the design stay aware of how the module works alongside NeuroTabs.
+Adopted:
+
+- **Colour roles (7 of 7).** Warm and cool mean only positive and negative
+  statistics. Stimulus categories use their own hues (violet and teal, with
+  lightness for load). Contrast sides are told apart by form: solid versus
+  hatched. The selection frame is a neutral light edge, not amber, when it sits
+  next to map colour.
+- **Motion (5 of 7).** Data changes only, at most 200 ms, and off under reduced
+  motion. Changed values tween and are marked once.
+- **One column grid (5 of 7).** The side columns are 248 px and 304 px, with a
+  flexible centre, and there is one less level of nested containers.
+- **Peak labels on group slices (4 of 7).** A toggle; labels show cluster number
+  and t, not anatomical names.
+- **Linked selection.** A subject selected in Group is highlighted in Data and
+  Subject maps.
+- **Next-step bar.** Each stage ends with one forward action.
+- **NeuroTabs, both ways (7 of 7).** Send subject maps as an image collection,
+  and use a NeuroTabs cohort as a data facet, with a circularity check.
+
+Not adopted (3 of 7): full linked brushing across every view. Design ↔
+timeline brushing heads the backlog.
 
 ### Owner notes after round 5 (2026-11-01)
 
@@ -75,7 +104,7 @@ rounds.
 - **Deferred:** residual maps as a plot mode, and power estimates from pilot
   effect sizes. **Rejected:** vim keys, and hiding the recipe button.
 
-## Design at equilibrium (round 8)
+## Design at equilibrium (round 9)
 
 1. **One workspace, six stages.** A spine shows each stage with a live summary
    and carries an analysis scope selector: single subject, one group, or
@@ -121,6 +150,25 @@ rounds.
    the kept reference.
 8. **Provenance.** The recipe round-trips to BIDS Stats Models with Brainflow
    extensions. Outputs are written as a BIDS derivative.
+
+## Across modules: neighbours, not dependencies
+
+The module must work alone. Where its work overlaps with another module, the two
+cooperate through typed values that core owns, never by importing each other,
+which the module system forbids. A handoff appears only when a module that can
+take it is enabled, and it carries value role, units, space and provenance.
+
+| Exchange type | Use |
+| --- | --- |
+| ImageCollection | fMRI → NeuroTabs: subject effect maps with SE and a participant table, opened as a population. A live link marks the NeuroTabs view stale on refit. |
+| Cohort | NeuroTabs → fMRI: a working selection becomes a data facet. The module checks for circular selection (a cohort chosen using the same contrast). |
+| Region | NeuroTabs or segmentation → fMRI: an ROI for ROI-level fitting and the lens, with the circularity check. |
+| Layer | fMRI → Viewer: statmap layers with provenance and stale state. |
+
+The manifest would declare `contributes.exchange: { produces: ['ImageCollection', 'Layer'], consumes: ['Cohort', 'Region'] }`.
+Core lists matching modules, and handoff actions use one vocabulary: "Send to …"
+and "Use … from …". This needs a core `ctx.exchange` capability, which is not
+yet in the module architecture plan.
 
 ## Module mapping (proposal)
 

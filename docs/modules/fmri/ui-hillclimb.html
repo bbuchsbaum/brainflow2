@@ -57,7 +57,7 @@ h1,h2,h3{text-wrap:balance;font-weight:600;margin:0}
 .stagehint{font-size:12px;color:var(--faint);text-align:right}
 .frame-wrap{position:relative;width:100%;overflow:hidden;border:1px solid var(--line2);border-radius:3px;background:#0d0e10}
 .frame{position:absolute;top:0;left:0;width:1280px;height:800px;transform-origin:0 0}
-.critics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.critics{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
 @media (max-width:1000px){.critics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:560px){.critics{grid-template-columns:1fr}}
 .critic{background:var(--panel);border:1px solid var(--line);border-top:2px solid var(--cc);border-radius:3px;padding:12px 14px;display:grid;gap:8px;align-content:start}
@@ -297,6 +297,22 @@ details.wdet[open] summary{margin-bottom:6px}
 .isec{padding:10px 12px;border-bottom:1px solid var(--line)}
 .isec h5{margin:0 0 6px;font-size:12px;font-weight:500}
 .isec.contrib{background:var(--raised)}
+/* round 9 */
+.peak{font-family:var(--mono);font-size:7px;fill:#f4f4f5;paint-order:stroke;stroke:rgba(0,0,0,.85);stroke-width:2px}
+.nextbar{display:flex;align-items:center;gap:8px;padding:0 12px;border-top:1px solid var(--line);background:var(--panel)}
+.sheet-bg{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:6}
+.sheet{position:absolute;left:50%;top:110px;transform:translateX(-50%);width:520px;background:var(--raised);border:1px solid var(--line3);border-radius:3px;box-shadow:0 18px 40px rgba(0,0,0,.5);z-index:7}
+.chg{animation:chg .9s ease-out 1}
+@keyframes chg{from{background:rgba(233,234,236,.28)}to{background:transparent}}
+@media (prefers-reduced-motion:reduce){.chg{animation:none}}
+.r9 table.tm td.on{border-color:#e9eaec;background:transparent}
+.r9 .pn .pn.card{background:none;border:0;border-top:1px solid var(--line);border-radius:0;padding:8px 0 0}
+.r9 .vec .pos{color:var(--text)}.r9 .vec .neg{color:var(--muted)}
+.rm .sid.picked{color:var(--text);background:var(--active)}
+.r9 .rm .sid{line-height:16px}.r9 .rc{height:16px}.r9 .rc i{width:11px;height:11px}
+.pick{border-top:1px solid var(--line);padding-top:8px}
+.r9 .pn-h .sub{color:var(--faint)}
+.r9 .pn-h h5{font-weight:600}
 </style>
 </head>
 <body>
@@ -304,7 +320,7 @@ details.wdet[open] summary{margin-bottom:6px}
   <header class="top">
     <div>
       <h1>fMRI analysis module: design hill climb</h1>
-      <p class="lede">A Brainflow workspace that takes a preprocessed BIDS derivative to single-subject and group contrasts. Eight rounds of mockups, each scored by four simulated critics. Your notes after round 5 re-opened the climb. Where they disagreed we took the majority view, with Claude breaking ties. Every mockup is live: click the stages, contrast cells, HRF bases and filters.</p>
+      <p class="lede">A Brainflow workspace that takes a preprocessed BIDS derivative to single-subject and group contrasts. Nine rounds of mockups. Four simulated critics scored rounds 1–8; Mike Bostock, Josef Albers and a Bauhaus panel joined for round 9. Your notes after round 5 re-opened the climb. Where they disagreed we took the majority view, with Claude breaking ties. Every mockup is live: click the stages, contrast cells, HRF bases and filters.</p>
       <div class="meta">
         <span>Status <b id="m-status"></b></span>
         <span>Example data <b>synthetic n-back study, 28 participants, fMRIPrep derivatives</b></span>
@@ -364,11 +380,11 @@ const SUBS = [];
 })();
 
 const S = { // UI state shared by every round
-  round:8, stage:'data', tasks:new Set(['nback']), fd:0.3, groups:new Set(['control','patient']),
+  round:9, stage:'data', tasks:new Set(['nback']), fd:0.3, groups:new Set(['control','patient']),
   space:'MNI152NLin2009cAsym', hrf:'spmg1', drift:'poly', conf:'m6', ar:'ar1', robust:false,
   con:0, custom:null, run:1, recipe:false, lensExpand:false, exclude:null, subj:'sub-01',
   scope:'multi', view:'module', vmode:'inline', disp:'ortho', vdisp:'integrated', dview:'timeline', prevHrf:null,
-  preset:'24P', fam:new Set(['mot','mot18','nss']), expr:'2 > 0', exprErr:'', c7:null, c7i:0, keys:false, cell:[0,0], fitHrf:'spmg1'
+  preset:'24P', fam:new Set(['mot','mot18','nss']), expr:'2 > 0', exprErr:'', peaks:true, cohort:false, handoff:false, sent:false, c7:null, c7i:0, keys:false, cell:[0,0], fitHrf:'spmg1'
 };
 const FAMS = [
   {id:'mot', label:'trans_x … rot_z', fam:'Head motion', n:6, r:.31},
@@ -401,7 +417,7 @@ function dataSummary() {
     const st = cols.map(k => runStatus(s, k));
     const nIn = st.filter(x => x === 'in').length;
     st.forEach(x => { if (x && x !== 'in') why[x]++; });
-    let ok = nIn >= minRuns && S.groups.has(s.group) && (!single || s.id === S.subj);
+    let ok = nIn >= minRuns && S.groups.has(s.group) && (!single || s.id === S.subj) && (!(S.round >= 9 && S.cohort) || COHORT.has(s.id));
     if (!S.groups.has(s.group)) why.group++;
     else if (nIn < minRuns && nIn > 0) why.minruns++;
     if (ok) { subsIn++; runsIn += nIn; }
@@ -692,6 +708,39 @@ ROUNDS.push(
    decision:['Equilibrium reached: the mean gain was 0.3 and no proposal reached consensus','Next: your notes on rounds 6–8, then a build plan for the module']
  }
 );
+/* Round 9: new reviewers join (owner request, 2026-11-01) */
+CRITICS.push(
+  {id:'bost', name:'Mike Bostock', lens:'Data joins, linked views, motion that shows change', c:'#f0c3d6', late:true},
+  {id:'albers', name:'Josef Albers', lens:'Interaction of colour; relative colour', c:'#d9d27a', late:true},
+  {id:'bauhaus', name:'Bauhaus panel', lens:'Bayer, Moholy-Nagy, Breuer: grid, light, construction', c:'#9fb0c8', late:true}
+);
+const RESCORE8 = {bost:7.4, albers:6.8, bauhaus:7.6};
+ROUNDS.push(
+ { title:'Colour, motion, grid and neighbours', short:'Bauhaus', rebase8:true,
+   sum:'Three new reviewers scored round 8 at 7.3 on average. Colour is untangled: orange and blue now mean only positive and negative statistics. Stimulus categories get their own hues, and contrast sides are told apart by form. Data changes animate briefly, so you see what moved. Every stage sits on one column grid with fewer nested boxes. Group slices carry direct peak labels, and selecting a subject follows you across stages. The module can hand subject maps to NeuroTabs and accept cohorts back, but only through core exchange types, so it still stands alone.',
+   changes:['Orange/blue only for statistics','Contrast sides by form','Data changes animate','One column grid','Fewer nested boxes','Peak labels on slices','Selected subject follows you','Next-step bar','NeuroTabs handoff (both ways)'],
+   scores:{jobs:9.2, tufte:9.3, pold:9.3, lin:9.3, bost:8.7, albers:8.9, bauhaus:8.9},
+   notes:{
+    jobs:{q:'Each stage now ends with the one thing to do next. That is the flow I wanted: you always know where you are and what comes after.', s:['Keep motion this short and this rare']},
+    tufte:{q:'Colour now carries one meaning per hue. Contrast sides by form (solid and outlined) survive greyscale printing. Direct labels on the slices remove a legend.', s:['Keep the motion to data changes only; nothing decorative']},
+    pold:{q:'The NeuroTabs handoff carries the value role (effect, SE, t), units, space and spec hash, so a mean of t-maps cannot pass as a mean effect. Cohorts that come back keep their rule and the module that made them.', s:['Warn when a cohort from NeuroTabs was chosen using this same contrast (circular selection)']},
+    lin:{q:'One grid, one handoff vocabulary (“Send to…”, “Use … from”), one selection that follows you. Shared conventions make it feel fast.', s:['Show handoffs in ⌘K too']},
+    bost:{q:'The old screens swapped state instantly, so you saw that something changed but not what. Now changed values move and mark themselves, and the selected subject is one datum joined to every view. Brushing time in the full design should drive the timeline next.', s:['Linked brushing across all views, starting with design ↔ timeline','Animate the contributor strip when membership changes']},
+    albers:{q:'Before, the same orange meant activation, a positive weight and a face trial; it could never be read alone. Now the map keeps the warm and cool pair, stimulus categories have their own quiet hues, and the selection frame is a neutral light edge that does not fight the orange of a map.', s:['Tune the patient/control encoding against the map, not in isolation']},
+    bauhaus:{q:'Bayer: one column grid makes the six stages read as one system, and the type hierarchy is cleaner. Moholy-Nagy: the brain is now the light source; chrome recedes and labels sit on the image. Breuer: one container level less, and the construction is honest.', s:['Align labels on an 8 px baseline throughout','Show the analysis flow itself as a diagram you can act on']}
+   },
+   dis:{topic:'Proposals this round (adopted with 4 of 7)',
+     list:[
+      {p:'Recolour stimulus categories; show contrast sides by form, not hue (Albers)', v:{jobs:true, tufte:true, pold:true, lin:true, bost:true, albers:true, bauhaus:true}, o:'Adopted, 7 of 7. Warm and cool are reserved for statistical maps.'},
+      {p:'Animate data changes so objects keep their identity (Bostock, Moholy-Nagy)', v:{jobs:true, tufte:false, pold:true, lin:true, bost:true, albers:false, bauhaus:true}, o:'Adopted, 5 of 7, with Tufte’s limit: data changes only, at most 200 ms, off under reduced motion. Changed values are marked once.'},
+      {p:'One column grid for every stage (Bayer)', v:{jobs:true, tufte:true, pold:false, lin:true, bost:false, albers:true, bauhaus:true}, o:'Adopted, 5 of 7. The side columns are 248 px and 304 px. Bostock’s objection (layout should follow the data) is met by letting the centre column flex.'},
+      {p:'Direct peak labels on group slices (Moholy-Nagy, Tufte)', v:{jobs:false, tufte:true, pold:false, lin:false, bost:true, albers:true, bauhaus:true}, o:'Adopted, 4 of 7, with a toggle. Labels show cluster number and t, not anatomical names, which addresses Poldrack’s worry about false precision.'},
+      {p:'Hand subject maps to NeuroTabs and accept cohorts and regions back', v:{jobs:true, tufte:true, pold:true, lin:true, bost:true, albers:true, bauhaus:true}, o:'Adopted, 7 of 7. It goes through core exchange types only, and appears only when both modules are on.'},
+      {p:'Full linked brushing across every view (Bostock)', v:{jobs:false, tufte:true, pold:false, lin:false, bost:true, albers:false, bauhaus:true}, o:'Not adopted, 3 of 7. A selected subject joined across stages is the minimum shipped now; design ↔ timeline brushing is first in the backlog.'}
+     ]},
+   decision:['Equilibrium holds: no open proposal reaches 4 of 7, and the original four critics moved by under 0.3','Backlog: design ↔ timeline brushing; animated contributor strip; circular-cohort warning; handoffs in ⌘K','Next: your notes, then the module build plan']
+ }
+);
 /* ── small drawing helpers ──────────────────────────────────────────── */
 const CELLCOL = ['#8f5e3d','#c97c43','#f2a95a','#3f5f86','#5089c4','#86bdf2'];
 function path(xs, ys) { return xs.map((x, i) => (i ? 'L' : 'M') + x.toFixed(1) + ' ' + ys[i].toFixed(1)).join(''); }
@@ -728,13 +777,13 @@ function app() {
   const mini = r >= 8 && S.vmode === 'expand' && (S.stage === 'results' || S.stage === 'group');
   const main = r <= 2
     ? `<div class="a-body" style="grid-template-rows:40px 1fr">${stepper()}<div class="a-main">${stageView()}</div></div>`
-    : `<div class="a-body" style="grid-template-columns:${mini ? '52px' : '224px'} minmax(0,1fr)">${spine(mini)}<div class="a-main">${stageView()}</div></div>${side ? recipe() : ''}`;
-  return `<div class="app r${r}" style="position:relative">${topbar()}${main}${statusbar()}${S.palette && r >= 4 ? palette() : ''}${S.keys && r >= 8 ? keymap() : ''}</div>`;
+    : `<div class="a-body" style="grid-template-columns:${mini ? '52px' : '224px'} minmax(0,1fr)">${spine(mini)}<div class="a-main" ${r >= 9 ? 'style="grid-template-rows:minmax(0,1fr) 38px"' : ''}>${stageView()}${r >= 9 ? nextBar() : ''}</div></div>${side ? recipe() : ''}`;
+  return `<div class="app r${r}" style="position:relative">${topbar()}${main}${statusbar()}${S.palette && r >= 4 ? palette() : ''}${S.keys && r >= 8 ? keymap() : ''}${S.handoff && r >= 9 ? handoffSheet() : ''}</div>`;
 }
 function topbar() {
   const r = S.round;
   return `<div class="a-top"><span class="a-brand">Brainflow</span>
-    <span class="a-tab ${r >= 6 && S.view === 'viewer' ? 'on' : ''}" ${r >= 6 ? 'data-act="view:viewer" style="cursor:pointer"' : ''}>Viewer${r >= 6 && S.view !== 'viewer' ? ' <span class="lbl" title="crosshair linked">⌖</span>' : ''}</span><span class="a-tab">Plots</span>
+    <span class="a-tab ${r >= 6 && S.view === 'viewer' ? 'on' : ''}" ${r >= 6 ? 'data-act="view:viewer" style="cursor:pointer"' : ''}>Viewer${r >= 6 && S.view !== 'viewer' ? ' <span class="lbl" title="crosshair linked">⌖</span>' : ''}</span><span class="a-tab">Plots</span>${r >= 9 ? `<span class="a-tab">NeuroTabs${S.sent ? ' <span class="lbl" title="linked collection">⇄</span>' : ''}</span>` : ''}
     <span class="a-tab ${r >= 6 && S.view === 'viewer' ? '' : 'on'}" ${r >= 6 ? 'data-act="view:module" style="cursor:pointer"' : ''}>${r >= 3 ? 'fMRI · nback_glm' : 'fMRI analysis'}${r >= 3 ? ' <span class="a-stage-badge">experimental</span>' : ''}</span>
     <span class="a-sp"></span>
     ${r >= 8 ? `<button class="a-btn ghost" data-act="keys"><span class="kbd">?</span></button>` : ''}${r >= 4 ? `<button class="a-btn ghost" data-act="palette">Commands <span class="kbd">⌘K</span></button>
@@ -778,6 +827,7 @@ function checkList(d) {
   if (vmax > 5) out.push({k:'bad', t:`VIF ${vmax.toFixed(1)} with the ${HRFS[S.hrf].label} basis; contrasts may be unstable`});
   if (S.round >= 5) out.push({k:'warn', t:'ROI “L MFG” was drawn on 2-back > 0-back; testing it again is circular'});
   if (S.round >= 6) out.push({k:'info', t:'fMRIPrep cosine00–10 left out: they duplicate your drift model'});
+  if (S.round >= 9 && S.cohort) out.push({k:'ok', t:'Cohort from NeuroTabs was chosen on task accuracy, not on this contrast: not circular'});
   if (isStale()) out.unshift({k:'warn', t:`Subject and group maps are stale (fitted with ${HRFS[S.fitHrf].label})`});
   out.push({k:'info', t:`RT correlates r = ${rtCorr().toFixed(2)} with 2-back regressors`});
   return out;
@@ -817,6 +867,7 @@ function vData() {
     ${fg('Head motion: mean FD ≤', seg([[0.2,'0.20'],[0.3,'0.30'],[0.5,'0.50']], S.fd, 'fd') + '<span class="lbl" style="align-self:center">mm</span>')}
     ${fg('RepetitionTime (sidecar)', `<button class="chip on">2.0 s <span class="x">27</span></button><button class="chip">2.5 s <span class="x">1</span></button>`)}
     ${fg('Events', `<button class="chip on">events.tsv present</button>`)}
+    ${R9() ? fg('Cohort', `<button class="chip ${S.cohort?'':'on'}" data-act="cohort">All participants</button><button class="chip ${S.cohort?'on':''}" data-act="cohort">From NeuroTabs: accurate performers <span class="x">21</span></button>`) : ''}
     ${r >= 4 ? fg('Per subject', `<button class="chip on">≥ 2 usable runs</button>`) : ''}
     ${r >= 3 ? `<p class="lbl" style="margin:0;line-height:1.45">Facets come from BIDS entities, JSON sidecars, participants.tsv and fMRIPrep confounds. Space is a facet, so native and surface spaces can use the same flow later.</p>` : ''}
   </div>`;
@@ -829,18 +880,19 @@ function vData() {
     const reasons = [];
     st.forEach((x, i) => { if (x && x !== 'in') reasons.push(x === 'motion' ? `${d.cols[i]} FD ${s.runs[d.cols[i]].fd.toFixed(2)}` : x === 'events' ? `${d.cols[i]} no events` : 'TR 2.5 s'); });
     if (!S.groups.has(s.group)) reasons.unshift('group filtered');
+    if (R9() && S.cohort && !COHORT.has(s.id)) reasons.unshift('not in cohort');
     else if (!ok && st.some(x => x === 'in')) reasons.unshift(`< ${d.minRuns} runs`);
     const uniq = [...new Set(reasons)];
     const fd = showFD ? `<span></span><svg width="130" height="18" aria-hidden="true"><line x1="2" x2="126" y1="9" y2="9" stroke="rgba(255,255,255,.08)"/><line x1="${fdX(S.fd)}" x2="${fdX(S.fd)}" y1="2" y2="16" stroke="rgba(255,255,255,.35)" stroke-dasharray="2 2"/>${
       d.cols.map(k => { const v = s.runs[k].fd; return `<circle cx="${fdX(Math.min(v,.6))}" cy="9" r="2.4" fill="${v > S.fd ? 'var(--warn)' : '#bdbfc4'}"/>`; }).join('')}</svg>` : '';
-    return `<span class="sid ${ok?'':'out'}">${s.id}</span>${st.map(x => `<span class="rc">${x === 'in' ? '<i></i>' : `<i class="ex ${x}">${r >= 5 ? `<b style="display:block;text-align:center;line-height:10px;color:inherit">${glyph[x]}</b>` : ''}</i>`}</span>`).join('')}${fd}${showWhy ? `<span></span><span class="rh" style="text-align:left;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${uniq.join(' · ')}</span>` : ''}`;
+    return `<span class="sid ${ok?'':'out'} ${R9() && s.id === S.subj ? 'picked' : ''}">${s.id}</span>${st.map(x => `<span class="rc">${x === 'in' ? '<i></i>' : `<i class="ex ${x}">${r >= 5 ? `<b style="display:block;text-align:center;line-height:10px;color:inherit">${glyph[x]}</b>` : ''}</i>`}</span>`).join('')}${fd}${showWhy ? `<span></span><span class="rh" style="text-align:left;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${uniq.join(' · ')}</span>` : ''}`;
   }).join('');
   const legend = `<div style="display:flex;gap:14px;align-items:center;font-size:11px;color:var(--muted);margin-top:8px"><span class="rc" style="display:inline-flex;gap:5px"><i></i> included</span><span class="rc" style="display:inline-flex;gap:5px"><i class="ex motion">${r>=5?'<b style="display:block;text-align:center;line-height:10px">m</b>':''}</i> motion</span><span class="rc" style="display:inline-flex;gap:5px"><i class="ex events">${r>=5?'<b style="display:block;text-align:center;line-height:10px;color:var(--bad)">e</b>':''}</i> missing events</span><span class="rc" style="display:inline-flex;gap:5px"><i class="ex tr">${r>=5?'<b style="display:block;text-align:center;line-height:10px;color:var(--bad)">t</b>':''}</i> TR mismatch</span></div>`;
   const matrix = `<div class="rm" style="grid-template-columns:${colsTpl}">${head}${body}</div>${legend}`;
   const tok = t => `<span class="tok">${t}</span>`;
   const summary = r === 2
     ? `<div style="display:flex;gap:18px;align-items:baseline"><span class="big">${d.subsIn} subjects · ${d.runsIn} runs</span><span class="lbl">of ${SUBS.length} subjects · ${d.total} runs</span></div>`
-    : `<div style="display:grid;gap:8px"><div class="qsent">${[...S.tasks].map(t => tok('task = '+t)).join('')}${tok('space = '+S.space)}${tok('mean FD ≤ '+S.fd.toFixed(2)+' mm')}${tok('events.tsv present')}${tok('TR = 2.0 s')}${r>=4?tok('≥ 2 runs per subject'):''}<span class="arrow">→</span><span class="big" style="font-size:17px">${d.subsIn} subjects · ${d.runsIn} runs</span></div>
+    : `<div style="display:grid;gap:8px"><div class="qsent">${[...S.tasks].map(t => tok('task = '+t)).join('')}${tok('space = '+S.space)}${tok('mean FD ≤ '+S.fd.toFixed(2)+' mm')}${tok('events.tsv present')}${tok('TR = 2.0 s')}${r>=4?tok('≥ 2 runs per subject'):''}${R9() && S.cohort ? tok('cohort = accurate performers (NeuroTabs)') : ''}<span class="arrow">→</span><span class="big" style="font-size:17px">${d.subsIn} subjects · ${d.runsIn} runs</span></div>
        ${r >= 6 ? `<div class="lbl">Source: Files › nback_study (BIDS 1.9) · fMRIPrep 23.2.1 derivatives · confounds files detected for every run${S.scope === 'single' ? ` · single-subject scope: ${S.subj}` : ''}</div>` : ''}<div class="lbl">Excluded: ${d.why.motion} runs for motion · ${d.why.events} for missing events · ${d.why.tr} for TR mismatch${d.why.minruns ? ` · ${d.why.minruns} subject(s) with too few runs` : ''}${d.why.group ? ` · ${d.why.group} subjects by group` : ''}</div></div>`;
   if (r === 2) return `<div class="grid-gap" style="grid-template-columns:250px minmax(0,1fr);grid-template-rows:minmax(0,1fr);min-height:0">
     ${panel('Filters', '', facets)}${panel('Runs', 'subjects × runs', summary + '<div style="height:10px"></div>' + matrix)}</div>`;
@@ -852,7 +904,7 @@ function vData() {
   const bmax = Math.max(...bins.map(b => b.n)); const hx = scale(0, .6, 4, 196), hy = scale(0, bmax, 70, 6);
   const sample = `<div style="display:grid;gap:14px">
     <div class="kv"><dt>control</dt><dd>${inc.filter(s => s.group==='control').length}</dd><dt>patient</dt><dd>${inc.filter(s => s.group==='patient').length}</dd><dt>female</dt><dd>${inc.filter(s => s.sex==='F').length}</dd></div>
-    <div><div class="lbl">Age, one tick per subject</div><svg width="200" height="34" class="ax" aria-hidden="true"><line x1="4" x2="196" y1="16" y2="16"/>${inc.map(s => `<line x1="${ageX(s.age)}" x2="${ageX(s.age)}" y1="8" y2="22" stroke="${s.group==='patient'?'#86bdf2':'#e9eaec'}" stroke-width="1.2"/>`).join('')}<text x="4" y="32">18</text><text x="196" y="32" text-anchor="end">66</text></svg>
+    <div><div class="lbl">Age, one tick per subject</div><svg width="200" height="34" class="ax" aria-hidden="true"><line x1="4" x2="196" y1="16" y2="16"/>${inc.map(s => `<line x1="${ageX(s.age)}" x2="${ageX(s.age)}" y1="8" y2="22" stroke="${s.group==='patient'?(R9()?'#76797f':'#86bdf2'):'#e9eaec'}" stroke-width="1.2"/>`).join('')}<text x="4" y="32">18</text><text x="196" y="32" text-anchor="end">66</text></svg>
       <div class="lbl" style="font-size:10px"><span style="color:#e9eaec">|</span> control <span style="color:#86bdf2">|</span> patient</div></div>
     <div><div class="lbl">Mean FD across runs of selected tasks</div><svg width="200" height="86" class="ax" aria-hidden="true">${bins.map(b => `<rect x="${hx(b.lo)+1}" y="${hy(b.n)}" width="${hx(.05)-hx(0)-2}" height="${70-hy(b.n)}" fill="rgba(255,255,255,.18)"/><rect x="${hx(b.lo)+1}" y="${hy(b.nin)}" width="${hx(.05)-hx(0)-2}" height="${70-hy(b.nin)}" fill="#bdbfc4"/>`).join('')}
       <line x1="${hx(S.fd)}" x2="${hx(S.fd)}" y1="2" y2="72" stroke="var(--warn)" stroke-dasharray="3 2"/><text x="${hx(S.fd)+3}" y="10" style="fill:var(--warn)">${S.fd.toFixed(2)} mm</text><text x="4" y="83">0</text><text x="196" y="83" text-anchor="end">0.6 mm</text></svg></div>
@@ -866,14 +918,14 @@ function vData() {
 function timelineSVG(run, w, opts = {}) {
   const ev = EVENTS[run], X = scale(0, 360, 70, w-6), rowH = 11, h = 6*rowH + 20;
   return `<svg width="${w}" height="${h}" class="ax" aria-label="Event timeline">${CELLS.map((c, i) => `<text x="64" y="${i*rowH+9}" text-anchor="end">${c.st} ${c.ld}b</text>`).join('')}
-    ${ev.map(e => `<rect x="${X(e.onset)}" y="${e.cell*rowH+1}" width="${Math.max(1.5, X(e.onset+e.dur)-X(e.onset))}" height="${rowH-3}" fill="${CELLCOL[e.cell]}"/>`).join('')}
+    ${ev.map(e => `<rect x="${X(e.onset)}" y="${e.cell*rowH+1}" width="${Math.max(1.5, X(e.onset+e.dur)-X(e.onset))}" height="${rowH-3}" fill="${cellCol(e.cell)}"/>`).join('')}
     ${[0,60,120,180,240,300,360].map(t => `<line x1="${X(t)}" x2="${X(t)}" y1="${6*rowH}" y2="${6*rowH+4}" stroke="rgba(255,255,255,.3)"/><text x="${X(t)}" y="${6*rowH+15}" text-anchor="middle">${t}${t===360?' s':''}</text>`).join('')}</svg>`;
 }
 function regressorSVG(run, w, h) {
   const Xc = design(run).filter(c => c.term === 'task' && c.basis === 0), X = scale(0, NS-1, 70, w-6);
   let mx = 1e-9; Xc.forEach(c => c.v.forEach(v => mx = Math.max(mx, v)));
   const Y = scale(0, mx, h-4, 4); const xs = Array.from({length:NS}, (_, i) => X(i));
-  return `<svg width="${w}" height="${h}" class="ax" aria-label="Convolved regressors"><text x="64" y="${h/2+3}" text-anchor="end">convolved</text>${Xc.map(c => `<path d="${path(xs, Array.from(c.v, Y))}" fill="none" stroke="${CELLCOL[c.cell]}" stroke-width="1.1"/>`).join('')}</svg>`;
+  return `<svg width="${w}" height="${h}" class="ax" aria-label="Convolved regressors"><text x="64" y="${h/2+3}" text-anchor="end">convolved</text>${Xc.map(c => `<path d="${path(xs, Array.from(c.v, Y))}" fill="none" stroke="${cellCol(c.cell)}" stroke-width="1.1"/>`).join('')}</svg>`;
 }
 function vDesign() {
   const r = S.round;
@@ -894,7 +946,7 @@ function vDesign() {
   if (r === 2) return `<div class="grid-gap" style="grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:auto minmax(0,1fr);min-height:0">
      <div style="grid-column:1/3">${panel('Basis function', 'fmrihrf', gallery)}</div>
      ${panel('Events · run '+S.run, 'trial_type → 6 conditions', `<div style="display:grid;gap:10px">${seg([[1,'run 1'],[2,'run 2'],[3,'run 3']], S.run, 'run')}${timelineSVG(S.run, 800)}${regressorSVG(S.run, 800, 120)}
-       <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text2)">${CELLS.map((c, i) => `<span><span class="sw" style="background:${CELLCOL[i]};height:8px;width:8px;transform:none"></span> ${c.name}</span>`).join('')}<span class="lbl">+ RT modulator (checkbox in Model options)</span></div></div>`)}
+       <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text2)">${CELLS.map((c, i) => `<span><span class="sw" style="background:${cellCol(i)};height:8px;width:8px;transform:none"></span> ${c.name}</span>`).join('')}<span class="lbl">+ RT modulator (checkbox in Model options)</span></div></div>`)}
      ${panel('Design matrix', 'all runs', '<canvas id="dm-vert" width="356" height="470" style="width:356px;height:470px;display:block"></canvas>')}</div>`;
   // rounds 3+
   const H = HRFS[S.hrf], rts = EVENTS[S.run].map(e => e.rt), mrt = rts.reduce((a,b)=>a+b,0)/rts.length;
@@ -1070,7 +1122,7 @@ function ortho(kind, big) {
   return `<div class="ortho ${big ? 'big' : ''}">${V.map(([k, label, [cx, cy], o]) => { const [w, h] = IMG.dims[k];
     return `<figure class="ov"><div class="ovimg" style="aspect-ratio:${w}/${h}"><img src="${IMG['anat_'+k]}" alt="MNI template ${label}"><img src="${IMG[kind+'_'+k]}" alt="">
       <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><g stroke-linecap="butt"><line x1="0" x2="${w}" y1="${cy}" y2="${cy}" stroke="rgba(0,0,0,.7)" stroke-width="3" vector-effect="non-scaling-stroke"/><line x1="${cx}" x2="${cx}" y1="0" y2="${h}" stroke="rgba(0,0,0,.7)" stroke-width="3" vector-effect="non-scaling-stroke"/>
-      <line x1="0" x2="${w}" y1="${cy}" y2="${cy}" stroke="#5fe0a0" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="${cx}" x2="${cx}" y1="0" y2="${h}" stroke="#5fe0a0" stroke-width="1" vector-effect="non-scaling-stroke"/></g></svg>
+      <line x1="0" x2="${w}" y1="${cy}" y2="${cy}" stroke="#5fe0a0" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="${cx}" x2="${cx}" y1="0" y2="${h}" stroke="#5fe0a0" stroke-width="1" vector-effect="non-scaling-stroke"/></g>${kind === 'grp' ? peakLabels(k) : ''}</svg>
       <span class="olab" style="left:4px;top:45%">${o[0]}</span><span class="olab" style="right:4px;top:45%">${o[1]}</span><span class="olab" style="left:48%;top:2px">${o[2]}</span></div><figcaption>${label}</figcaption></figure>`; }).join('')}</div>`;
 }
 function colorbar(lo, hi) {
@@ -1089,7 +1141,7 @@ function lensPlots(w) {
     return `<path d="${path(idx.map(i => IX(+CELLS[i].ld)), idx.map(i => IY(BETA[i])))}" fill="none" stroke="${col}" stroke-width="1.4"/>${idx.map(i => `<line x1="${IX(+CELLS[i].ld)}" x2="${IX(+CELLS[i].ld)}" y1="${IY(BETA[i]-1.96*BETA_SE[i])}" y2="${IY(BETA[i]+1.96*BETA_SE[i])}" stroke="${col}"/><circle cx="${IX(+CELLS[i].ld)}" cy="${IY(BETA[i])}" r="3" fill="${col}"/>`).join('')}
       <text x="${IX(2)+8}" y="${IY(BETA[idx[2]])+3}" style="fill:${col}">${st}s</text>`; };
   const inter = `<svg width="${iw}" height="${ih}" class="ax" aria-label="Condition estimates by load and stimulus">${[0,.5,1,1.5].map(v => `<line x1="34" x2="${iw-60}" y1="${IY(v)}" y2="${IY(v)}"/><text x="30" y="${IY(v)+3}" text-anchor="end">${v}</text>`).join('')}
-    ${LOAD.map(l => `<text x="${IX(+l)}" y="${ih-4}" text-anchor="middle">${l}-back</text>`).join('')}${line('face', '#f2a95a')}${line('place', '#86bdf2')}</svg>`;
+    ${LOAD.map(l => `<text x="${IX(+l)}" y="${ih-4}" text-anchor="middle">${l}-back</text>`).join('')}${line('face', stimCol('face'))}${line('place', stimCol('place'))}</svg>`;
   return {ts, inter};
 }
 function runMultiples(w) {
@@ -1097,7 +1149,7 @@ function runMultiples(w) {
   return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${[1,2,3].map(run => { const b = BETA.map(v => v + .14*g());
     const IX = scale(-.3, 2.3, 6, pw-6), IY = scale(0, 1.8, 58, 4);
     const ln = (st, col) => { const idx = [0,1,2].map(k => STIM.indexOf(st)*3+k); return `<path d="${path(idx.map(i => IX(+CELLS[i].ld)), idx.map(i => IY(b[i])))}" fill="none" stroke="${col}" stroke-width="1.2"/>${idx.map(i => `<circle cx="${IX(+CELLS[i].ld)}" cy="${IY(b[i])}" r="2" fill="${col}"/>`).join('')}`; };
-    return `<div><svg width="${pw}" height="62" class="ax" aria-hidden="true"><line x1="6" x2="${pw-6}" y1="${IY(0)}" y2="${IY(0)}"/>${ln('face','#f2a95a')}${ln('place','#86bdf2')}</svg><div class="lbl" style="text-align:center;font-size:10px">run ${run} · 2b−0b ${(((b[2]+b[5])-(b[0]+b[3]))/2).toFixed(2)}</div></div>`; }).join('')}</div>`;
+    return `<div><svg width="${pw}" height="62" class="ax" aria-hidden="true"><line x1="6" x2="${pw-6}" y1="${IY(0)}" y2="${IY(0)}"/>${ln('face',stimCol('face'))}${ln('place',stimCol('place'))}</svg><div class="lbl" style="text-align:center;font-size:10px">run ${run} · 2b−0b ${(((b[2]+b[5])-(b[0]+b[3]))/2).toFixed(2)}</div></div>`; }).join('')}</div>`;
 }
 function vResults() {
   if (S.round >= 6) return vResults6();
@@ -1209,7 +1261,7 @@ function thumb(overlay, h) { return `<span class="thumb" style="height:${h}px;wi
 function viewHeader(title) {
   const r = S.round;
   return `<div class="vh">${seg([['ortho','Slices'],['surface','Surface']], S.disp, 'disp')}
-    ${r >= 8 ? '<span class="lbl mono">−44, 28, 32 mm · L middle frontal gyrus</span>' : ''}<span class="a-sp" style="flex:1"></span>
+    ${r >= 8 ? '<span class="lbl mono">−44, 28, 32 mm · L middle frontal gyrus</span>' : ''}${R9() && S.stage === 'group' ? `<button class="chip ${S.peaks ? 'on' : ''}" data-act="peaks">Peak labels</button>` : ''}<span class="a-sp" style="flex:1"></span>
     <span class="seg">${[['inline','Inline'],['expand','Expand']].map(([v, l]) => `<button data-act="vmode:${v}" class="${S.vmode===v?'on':''}">${l}</button>`).join('')}</span>
     ${btn('Open in Viewer ↗', 'view:viewer')}</div>`;
 }
@@ -1263,9 +1315,9 @@ function hrfView(W) {
   const h2 = 120, Y2 = scale(-m2*.45, m2, h2-26, 6), xs = Array.from({length:n}, (_, i) => Xd(i));
   const ev = EVENTS[run].filter(e => e.cell === ci && e.onset < n*TR);
   const p2 = `<svg width="${W}" height="${h2}" class="ax" aria-label="Effect on the face 2-back regressor"><line x1="34" x2="${W-8}" y1="${Y2(0)}" y2="${Y2(0)}" stroke="rgba(255,255,255,.25)"/>
-    ${ev.map(e => `<rect x="${Xd(e.onset/TR)}" y="${h2-22}" width="${Math.max(2, Xd((e.onset+e.dur)/TR)-Xd(e.onset/TR))}" height="5" fill="${CELLCOL[ci]}"/>`).join('')}
+    ${ev.map(e => `<rect x="${Xd(e.onset/TR)}" y="${h2-22}" width="${Math.max(2, Xd((e.onset+e.dur)/TR)-Xd(e.onset/TR))}" height="5" fill="${cellCol(ci)}"/>`).join('')}
     ${prevC.map(c => `<path d="${path(xs, Array.from(c.v.slice(0, n), Y2))}" fill="none" stroke="rgba(233,234,236,.4)" stroke-dasharray="4 3" stroke-width="1.1"/>`).join('')}
-    ${curC.map((c, k) => `<path d="${path(xs, Array.from(c.v.slice(0, n), Y2))}" fill="none" stroke="${k ? 'rgba(242,169,90,.55)' : '#f2a95a'}" stroke-width="${k ? 1 : 1.6}"/>`).join('')}
+    ${curC.map((c, k) => `<path d="${path(xs, Array.from(c.v.slice(0, n), Y2))}" fill="none" stroke="${k ? 'rgba(233,234,236,.5)' : (R9() ? cellCol(ci) : '#f2a95a')}" stroke-width="${k ? 1 : 1.6}"/>`).join('')}
     <text x="${W-8}" y="${h2-4}" text-anchor="end">ticks: face 2-back trials · first 120 s of run ${run}</text></svg>`;
   const nb = H.fns.length, nbp = prev ? HRFS[prev].fns.length : nb;
   const dfNow = NS - design(run, cur).length, dfPrev = prev ? NS - design(run, prev).length : dfNow;
@@ -1399,8 +1451,8 @@ function cur7() { return S.c7 || SET7[S.c7i ?? 0].c; }
 function glyph(c, w = 34, h = 16) {
   if (c.mod) return `<svg width="${w}" height="${h}" aria-hidden="true"><line x1="3" y1="${h-3}" x2="${w-3}" y2="3" stroke="#bdbfc4" stroke-width="1.4"/></svg>`;
   const g = normRow(c.rows[0]).flat(), bw = (w-8)/6, mid = h/2;
-  return `<svg width="${w}" height="${h}" aria-hidden="true"><line x1="0" x2="${w}" y1="${mid}" y2="${mid}" stroke="rgba(255,255,255,.18)"/>${g.map((v, i) => { const x = 2 + i*bw + (i >= 3 ? 4 : 0), hh = Math.abs(v)*(mid-1)*1.4;
-    return v ? `<rect x="${x}" y="${v > 0 ? mid-hh : mid}" width="${bw-1.5}" height="${hh}" fill="${v > 0 ? '#e8894a' : '#6aa6e8'}"/>` : ''; }).join('')}</svg>`;
+  return `<svg width="${w}" height="${h}" aria-hidden="true">${HATCH}<line x1="0" x2="${w}" y1="${mid}" y2="${mid}" stroke="rgba(255,255,255,.18)"/>${g.map((v, i) => { const x = 2 + i*bw + (i >= 3 ? 4 : 0), hh = Math.abs(v)*(mid-1)*1.4;
+    return v ? wBar(v, x, v > 0 ? mid-hh : mid, bw-1.5, hh) : ''; }).join('')}</svg>`;
 }
 function describeCells(w) {
   const pos = [], neg = []; w.forEach((r, i) => r.forEach((v, j) => { if (v > 0) pos.push([i, j]); if (v < 0) neg.push([i, j]); }));
@@ -1442,29 +1494,29 @@ function picture(c, w) {
   if (c.mod) { const r = rng(4), g = gaussOf(r); const pts = Array.from({length:50}, () => { const x = g()*1.2; return [x, .35*x + .5*g()]; });
     const X = scale(-3, 3, 30, w-8), Y = scale(-2, 2, h-20, 8);
     return `<svg width="${w}" height="${h}" class="ax" aria-label="RT slope"><line x1="30" x2="${w-8}" y1="${Y(0)}" y2="${Y(0)}"/><line x1="${X(0)}" x2="${X(0)}" y1="8" y2="${h-20}"/>${pts.map(([x, y]) => `<circle cx="${X(x)}" cy="${Y(y)}" r="2.2" fill="rgba(233,234,236,.6)"/>`).join('')}
-      <line x1="${X(-3)}" y1="${Y(-1.05)}" x2="${X(3)}" y2="${Y(1.05)}" stroke="#e8894a" stroke-width="1.6"/><text x="${w-8}" y="${h-6}" text-anchor="end">RT − run mean (× 100 ms)</text><text x="${X(1.6)}" y="${Y(1.05)-4}" style="fill:var(--text)">slope 0.35</text></svg>`; }
+      <line x1="${X(-3)}" y1="${Y(-1.05)}" x2="${X(3)}" y2="${Y(1.05)}" stroke="${R9() ? '#e9eaec' : '#e8894a'}" stroke-width="1.6"/><text x="${w-8}" y="${h-6}" text-anchor="end">RT − run mean (× 100 ms)</text><text x="${X(1.6)}" y="${Y(1.05)-4}" style="fill:var(--text)">slope 0.35</text></svg>`; }
   const X = i => 30 + (i%3)*((w-50)/3) + Math.floor(i/3)*((w-50)/6/2.4) + 6, bw = (w-50)/6/2.6, Y = scale(0, 1.9, h-24, 6);
   const nw = normRow(c.rows[0]).flat();
   let s = [0,.5,1,1.5].map(v => `<line x1="28" x2="${w-6}" y1="${Y(v)}" y2="${Y(v)}"/><text x="24" y="${Y(v)+3}" text-anchor="end">${v}</text>`).join('');
   s += LOAD.map((l, j) => `<text x="${X(j)+bw}" y="${h-8}" text-anchor="middle">${l}-back</text>`).join('');
   if (c.q === 'trend' || c.q === 'any') { const lm = LOAD.map((_, j) => (b[j] + b[3+j])/2), xs = LOAD.map((_, j) => X(j)+bw);
     s += lm.map((v, j) => `<line x1="${xs[j]}" x2="${xs[j]}" y1="${Y(v-.2)}" y2="${Y(v+.2)}" stroke="#bdbfc4"/><circle cx="${xs[j]}" cy="${Y(v)}" r="3.5" fill="#e9eaec"/>`).join('');
-    if (c.q === 'trend') { const sl = (lm[2]-lm[0])/2; s += `<line x1="${xs[0]}" y1="${Y(lm[1]-sl)}" x2="${xs[2]}" y2="${Y(lm[1]+sl)}" stroke="#e8894a" stroke-width="1.6"/><text x="${xs[2]-6}" y="${Y(lm[2])-10}" text-anchor="end" style="fill:var(--text)">slope ${sl.toFixed(2)} per level</text>`; }
+    if (c.q === 'trend') { const sl = (lm[2]-lm[0])/2; s += `<line x1="${xs[0]}" y1="${Y(lm[1]-sl)}" x2="${xs[2]}" y2="${Y(lm[1]+sl)}" stroke="${R9() ? '#e9eaec' : '#e8894a'}" stroke-width="1.6"/><text x="${xs[2]-6}" y="${Y(lm[2])-10}" text-anchor="end" style="fill:var(--text)">slope ${sl.toFixed(2)} per level</text>`; }
     else s += `<text x="${w-8}" y="16" text-anchor="end" style="fill:var(--text)">level means differ: F test, 2 rows</text>`;
     return `<svg width="${w}" height="${h}" class="ax" aria-label="Contrast on the cell estimates">${s}</svg><div class="lbl">Level means pooled over stimulus type, sub-01 at the crosshair</div>`; }
-  if (c.q === 'dod') { const lines = STIM.map((st, k) => { const idx = [0,1,2].map(j => k*3+j), xs = idx.map(i => X(i%3)+bw), col = k ? '#86bdf2' : '#f2a95a';
+  if (c.q === 'dod') { const lines = STIM.map((st, k) => { const idx = [0,1,2].map(j => k*3+j), xs = idx.map(i => X(i%3)+bw), col = stimCol(st);
       return `<path d="${path(xs, idx.map(i => Y(b[i])))}" fill="none" stroke="${col}" stroke-width="1.5"/>${idx.map(i => `<circle cx="${X(i%3)+bw}" cy="${Y(b[i])}" r="3" fill="${col}"/>`).join('')}<text x="${xs[2]+6}" y="${Y(b[idx[2]])+3}" style="fill:${col}">${st}s</text>`; }).join('');
     const df = b[2]-b[0], dp = b[5]-b[3];
-    return `<svg width="${w}" height="${h}" class="ax" aria-label="Difference of differences">${s}${lines}<line x1="${X(2)+bw+30}" x2="${X(2)+bw+30}" y1="${Y(b[2])}" y2="${Y(b[0])}" stroke="#f2a95a"/><line x1="${X(2)+bw+36}" x2="${X(2)+bw+36}" y1="${Y(b[5])}" y2="${Y(b[3])}" stroke="#86bdf2"/></svg>
+    return `<svg width="${w}" height="${h}" class="ax" aria-label="Difference of differences">${s}${lines}<line x1="${X(2)+bw+30}" x2="${X(2)+bw+30}" y1="${Y(b[2])}" y2="${Y(b[0])}" stroke="${stimCol('face')}"/><line x1="${X(2)+bw+36}" x2="${X(2)+bw+36}" y1="${Y(b[5])}" y2="${Y(b[3])}" stroke="${stimCol('place')}"/></svg>
       <div class="lbl" style="color:var(--text2)">${c.anyForm ? 'Do the two lines differ in shape?' : `faces 2−0 = ${df.toFixed(2)} · places 2−0 = ${dp.toFixed(2)} · <b style="color:var(--text);font-weight:500">difference ${(df-dp).toFixed(2)}</b>`}</div>`; }
   const P = [], N = []; nw.forEach((v, i) => { if (v > 0) P.push(i); if (v < 0) N.push(i); });
   const mp = P.reduce((a, i) => a + b[i]*nw[i], 0), mn = N.length ? N.reduce((a, i) => a - b[i]*nw[i], 0) : 0;
   const seD = Math.sqrt(nw.reduce((a, v, i) => a + v*v*se[i]*se[i], 0));
-  s += CELLS.map((cc, i) => { const v = nw[i], col = v > 0 ? '#e8894a' : v < 0 ? '#6aa6e8' : 'rgba(255,255,255,.12)';
-    return `<rect x="${X(i)+(i>=3?bw:0)}" y="${Y(b[i])}" width="${bw}" height="${Y(0)-Y(b[i])}" fill="${col}"/><text x="${X(i)+(i>=3?bw:0)+bw/2}" y="${Y(b[i])-3}" text-anchor="middle" style="font-size:8px">${cc.st[0]}</text>`; }).join('');
-  s += `<line x1="28" x2="${w-6}" y1="${Y(mp)}" y2="${Y(mp)}" stroke="#e8894a" stroke-dasharray="4 3"/>${N.length ? `<line x1="28" x2="${w-6}" y1="${Y(mn)}" y2="${Y(mn)}" stroke="#6aa6e8" stroke-dasharray="4 3"/>` : ''}`;
-  return `<svg width="${w}" height="${h}" class="ax" aria-label="Contrast on the cell estimates">${s}</svg>
-    <div class="lbl" style="color:var(--text2)">f = face, p = place · ${N.length ? `mean of orange ${mp.toFixed(2)} − mean of blue ${mn.toFixed(2)} = <b style="color:var(--text);font-weight:500">${(mp-mn).toFixed(2)} ± ${(1.96*seD).toFixed(2)}</b>` : `mean of orange ${mp.toFixed(2)} vs fixation`}</div>`;
+  s += CELLS.map((cc, i) => { const v = nw[i];
+    return `${wBar(v, X(i)+(i>=3?bw:0), Y(b[i]), bw, Y(0)-Y(b[i]))}<text x="${X(i)+(i>=3?bw:0)+bw/2}" y="${Y(b[i])-3}" text-anchor="middle" style="font-size:8px">${cc.st[0]}</text>`; }).join('');
+  s += `<line x1="28" x2="${w-6}" y1="${Y(mp)}" y2="${Y(mp)}" stroke="${R9() ? '#e9eaec' : '#e8894a'}" stroke-dasharray="4 3"/>${N.length ? `<line x1="28" x2="${w-6}" y1="${Y(mn)}" y2="${Y(mn)}" stroke="${R9() ? '#a4a7ad' : '#6aa6e8'}" stroke-dasharray="${R9() ? '1 3' : '4 3'}"/>` : ''}`;
+  return `<svg width="${w}" height="${h}" class="ax" aria-label="Contrast on the cell estimates">${HATCH}${s}</svg>
+    <div class="lbl" style="color:var(--text2)">f = face, p = place · ${N.length ? `mean of ${sideWord(true)} ${mp.toFixed(2)} − mean of ${sideWord(false)} ${mn.toFixed(2)} = <b style="color:var(--text);font-weight:500">${(mp-mn).toFixed(2)} ± ${(1.96*seD).toFixed(2)}</b>` : `mean of ${sideWord(true)} ${mp.toFixed(2)} vs fixation`}</div>`;
 }
 function vContrasts7() {
   const c = cur7(), live = !S.c7 || S.c7.q !== 'custom';
@@ -1479,8 +1531,8 @@ function vContrasts7() {
   const gridH = (w) => { const nw = normRow(w);
     return `<div class="cg" style="grid-template-columns:52px repeat(3, ${big ? '88px' : '58px'})"><span></span>${LOAD.map((l, j) => `<button class="h hbtn" ${c.type==='t'&&!c.mod?`data-act="hdr:ld:${j}"`:''}>${l}-back</button>`).join('')}
       ${STIM.map((st, i) => `<button class="rlab hbtn" ${c.type==='t'&&!c.mod?`data-act="hdr:st:${i}"`:''}>${st}</button>${LOAD.map((l, j) => { const v = w[i][j], a = Math.min(1, Math.abs(nw[i][j])*1.6);
-        const bg = c.mod ? 'transparent' : v > 0 ? `rgba(232,137,74,${(.18+.6*a).toFixed(2)})` : v < 0 ? `rgba(106,166,232,${(.18+.6*a).toFixed(2)})` : 'transparent';
-        return `<div class="cgc" title="weight ${fmt(nw[i][j])}" style="height:${big ? 54 : 36}px;background:${bg};${c.mod?'opacity:.3;cursor:default':''}" ${c.type==='t'&&!c.mod?`data-act="cell7:${i}:${j}"`:''}>${v>0?'+':v<0?'−':''}</div>`; }).join('')}`).join('')}</div>`; };
+        const bg = c.mod ? 'background:transparent' : wCellBg(v, a);
+        return `<div class="cgc" title="weight ${fmt(nw[i][j])}" style="height:${big ? 54 : 36}px;${bg};${c.mod?'opacity:.3;cursor:default':''}" ${c.type==='t'&&!c.mod?`data-act="cell7:${i}:${j}"`:''}>${v>0?'+':v<0?'−':''}</div>`; }).join('')}`).join('')}</div>`; };
   const pos = c.rows[0].flat().some(v => v > 0), neg = c.rows[0].flat().some(v => v < 0);
   const checks = [{k:'ok', t:'Estimable in all included runs'}];
   if (!c.mod && c.type === 't' && pos && neg) checks.push({k:'ok', t:'Balanced: each side averages its trials, so unequal cell counts don’t bias it'});
@@ -1493,7 +1545,7 @@ function vContrasts7() {
     <div class="qsentence">${qSentence(c, live)}</div>
     <div style="display:flex;gap:8px;align-items:center"><span class="kbd">/</span><input id="expr" class="expr" value="${esc(S.expr)}" spellcheck="false" autocomplete="off" aria-label="Type a contrast"><span class="lbl">${S.exprErr ? '' : '↵ add to set'}</span></div>
     ${S.exprErr ? `<div class="lbl" style="color:var(--warn)">${esc(S.exprErr)}</div>` : `<div style="display:flex;gap:4px;flex-wrap:wrap">${['load 2 > 0','face > place','face 2 > place 2','load trend','stim × load','rt'].map(e => `<button class="chip" data-act="ex:${e}">${e}</button>`).join('')}</div>`}
-    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">${c.rows.map(gridH).join('')}<div class="lbl" style="max-width:190px">${c.type === 't' && !c.mod ? 'Click a cell, a row or a column to add it to the orange side; click again for blue.' : c.mod ? 'Uses the RT modulator, not the cells.' : 'Tested jointly. Change the question to edit.'}</div></div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">${c.rows.map(gridH).join('')}<div class="lbl" style="max-width:190px">${c.type === 't' && !c.mod ? `Click a cell, a row or a column to add it to the ${sideWord(true)} side; click again for ${sideWord(false)}.` : c.mod ? 'Uses the RT modulator, not the cells.' : 'Tested jointly. Change the question to edit.'}</div></div>
     <p class="read" style="margin:0">${qRead(c)}</p>
     <div style="display:grid;gap:3px">${checks.map(x => `<div class="chk" style="padding:0">${sev(x.k)}<span>${x.t}</span></div>`).join('')}</div>
     <details class="wdet"><summary>Weights, derived · ${X.length} columns in run ${S.run}</summary>${vec.map(v => `<div class="vec">[ ${v.map((x, i) => `<span class="${x>0?'pos':x<0?'neg':'z'}" title="${esc(X[i].name)}">${x===0?'0':fmt(x)}</span>`).join(' ')} ]</div>`).join('')}</details></div>`;
@@ -1503,13 +1555,13 @@ function vContrasts7() {
   return `<div class="grid-gap" style="grid-template-columns:250px minmax(0,1fr) 300px;min-height:0">${panel('Contrast set', `${SET7.length} · within-subject`, list)}${panel('Question', '', editor, '', 'card')}${panel('Picture', '', right)}</div>`;
 }
 function qGlyph(k) {
-  const w = 30, h = 14, m = h/2; const L = (d) => `<svg width="${w}" height="${h}" aria-hidden="true">${d}</svg>`;
-  const bar = (x, v, c) => `<rect x="${x}" y="${v>0?m-v:m}" width="5" height="${Math.abs(v)}" fill="${c}"/>`;
+  const w = 30, h = 14, m = h/2; const L = (d) => `<svg width="${w}" height="${h}" aria-hidden="true">${HATCH}${d}</svg>`;
+  const bar = (x, v, c) => c === '#e8894a' || c === '#6aa6e8' ? wBar(c === '#e8894a' ? 1 : -1, x, v>0?m-v:m, 5, Math.abs(v)) : `<rect x="${x}" y="${v>0?m-v:m}" width="5" height="${Math.abs(v)}" fill="${c}"/>`;
   switch (k) {
     case 'compare': return L(bar(6, 6, '#e8894a') + bar(18, -6, '#6aa6e8'));
     case 'trend': return L(`<line x1="3" y1="${h-2}" x2="${w-3}" y2="2" stroke="#bdbfc4" stroke-width="1.5"/>`);
     case 'any': return L(bar(4, 3, '#bdbfc4') + bar(12, -5, '#bdbfc4') + bar(20, 6, '#bdbfc4'));
-    case 'dod': return L(`<line x1="3" y1="${h-3}" x2="${w-3}" y2="2" stroke="#f2a95a" stroke-width="1.4"/><line x1="3" y1="${h-4}" x2="${w-3}" y2="${h-7}" stroke="#86bdf2" stroke-width="1.4"/>`);
+    case 'dod': return L(`<line x1="3" y1="${h-3}" x2="${w-3}" y2="2" stroke="${stimCol('face')}" stroke-width="1.4"/><line x1="3" y1="${h-4}" x2="${w-3}" y2="${h-7}" stroke="${stimCol('place')}" stroke-width="1.4"/>`);
     case 'slope': return L(`${[[5,10],[9,8],[13,9],[17,5],[21,6],[25,3]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.3" fill="#bdbfc4"/>`).join('')}`);
     default: return L(bar(12, 6, '#e8894a') + `<line x1="2" x2="${w-2}" y1="${m}" y2="${m}" stroke="rgba(255,255,255,.4)" stroke-dasharray="2 2"/>`);
   }
@@ -1552,12 +1604,20 @@ function contributorsBlock(inc) {
   const strip = `<svg width="${w}" height="104" class="ax" aria-label="Subject estimates at crosshair">${[-1,0,1,2].map(v => `<line x1="${Xs(v)}" x2="${Xs(v)}" y1="10" y2="82"/><text x="${Xs(v)}" y="94" text-anchor="middle">${v}</text>`).join('')}
     ${S.scope === 'multi' ? '<text x="4" y="33">control</text><text x="4" y="67">patient</text>' : '<text x="4" y="49">all</text>'}
     <line x1="${Xs(all.m)}" x2="${Xs(all.m)}" y1="6" y2="82" stroke="#e9eaec"/>
-    ${pts.map((p, i) => `<circle data-act="excl:${p.id}" style="cursor:pointer" cx="${Xs(p.est)}" cy="${rowY[p.group]+((i*7)%11-5)}" r="${p.id===S.exclude?5:3.2}" fill="${p.id===S.exclude?'none':S.scope==='multi'&&p.group==='patient'?'#86bdf2':'#e9eaec'}" stroke="${p.id===S.exclude?'var(--warn)':'none'}" stroke-width="1.5"><title>${p.id}</title></circle>`).join('')}
+    ${pts.map((p, i) => { const pat = S.scope==='multi' && p.group==='patient', sel = R9() && p.id === S.subj, cy = rowY[p.group]+((i*7)%11-5);
+      return `<circle data-act="${R9() ? 'pick' : 'excl'}:${p.id}" style="cursor:pointer" cx="${Xs(p.est)}" cy="${cy}" r="${p.id===S.exclude?5:3.2}" fill="${p.id===S.exclude?'none':pat?(R9()?'var(--ground)':'#86bdf2'):'#e9eaec'}" stroke="${p.id===S.exclude?'var(--warn)':pat&&R9()?'#e9eaec':'none'}" stroke-width="1.3"><title>${p.id}</title></circle>${sel ? `<circle cx="${Xs(p.est)}" cy="${cy}" r="6.5" fill="none" stroke="#e9eaec" stroke-width="1"/>` : ''}`; }).join('')}
     ${pts.filter(p => p.est < 0).map(p => `<text x="${Xs(p.est)}" y="${rowY[p.group]-10}" text-anchor="middle">${p.id}</text>`).join('')}<text x="${w-8}" y="103" text-anchor="end">effect at crosshair</text></svg>`;
   return `<div style="display:grid;gap:10px">${strip}<div class="lbl">Leave-one-out t: ${tmin.toFixed(1)} to ${tmax.toFixed(1)} · most influential ${infl.id}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="pn card" style="padding:8px 10px"><div class="lbl">Reference</div><div class="big">t ${all.t.toFixed(2)}</div><div class="lbl">n = ${all.n}</div></div>
     <div class="pn card" style="padding:8px 10px">${prev ? `<div class="lbl">Preview</div><div class="big">t ${prev.t.toFixed(2)}</div><div class="lbl">without ${ex.id}</div>` : '<div class="lbl">Preview</div><div class="lbl" style="margin-top:4px">Click a subject to preview its exclusion</div>'}</div></div>
-    ${r8ecoBtn()}</div>`;
+    ${R9() ? pickCard(pts) : r8ecoBtn()}</div>`;
+}
+function pickCard(pts) {
+  const p = pts.find(x => x.id === S.subj), s = SUBS.find(x => x.id === S.subj);
+  const head = p ? `<div class="pick"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>${p.id}</b><span class="lbl mono">${s.group} · age ${s.age} · effect ${p.est.toFixed(2)}</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${btn(S.exclude === p.id ? 'Keep in' : 'Preview without', 'excl:' + p.id)}${btn('Show map', 'stage:results', 'ghost')}${btn('Open in NeuroTabs ↗', 'handoff', 'ghost')}</div>
+    <div class="lbl" style="margin-top:4px">Selected across stages: highlighted in Data, Subject maps and here.</div></div>` : '<div class="lbl">Click a subject to select it across stages.</div>';
+  return head + `<div class="lbl" style="margin-top:6px">${S.sent ? `${sev('ok')} Linked live in NeuroTabs as “nback_glm · ${esc(cur7().name)}”` : 'NeuroTabs can show this group as a population: <button class="a-btn ghost" data-act="handoff" style="height:20px;padding:0 6px">Send…</button>'}</div>`;
 }
 function r8ecoBtn() { return S.round >= 8 ? `<button class="a-btn ghost" style="justify-self:start">Open contributors in Population view ↗</button>` : ''; }
 function vGroup7() {
@@ -1584,7 +1644,7 @@ function vGroup7() {
   const matrix = `<table class="tm"><thead><tr><th></th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>${TM_ROWS.map((row, ri) => `<tr class="${ri===1?'dupe':''}"><th>${row[0]}${ri===1?'<span class="lbl"> = 1</span>':''}</th>${cols.map(([ck], ci) => { const cell = tmCell(ri, ck), on = sr === ri && sc === ci;
       return `<td class="${on?'on':''}" data-act="tm:${ri}:${ci}">${cell.ov ? thumb(cell.ov, th) : `<span class="thumb empty" style="height:${th}px;width:${Math.round(th*193/229)}px"></span>`}<span class="tmt ${cell.t==='n.s.'?'ns':''}">${cell.t}</span></td>`; }).join('')}</tr>`).join('')}</tbody></table>`;
   const sel = tmCell(sr, scol), title = `${TM_ROWS[sr][0]} · ${cols[Math.min(sc, cols.length-1)][1]}`;
-  const selView = `<div style="display:grid;gap:8px">${viewHeader(title)}${staleBanner()}<div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center" class="${isStale()?'is-stale':''}">${S.disp === 'surface' ? `<div style="grid-column:1/3">${surfacePair(false)}</div>` : `<span class="thumb" style="height:210px;width:177px">${`<img src="${IMG.anat_ax}" alt="">`}${sel.ov ? `<img src="${sel.ov}" alt="">` : ''}</span><div class="kv"><dt>test</dt><dd>${title}</dd><dt>peak</dt><dd>${sel.t}</dd><dt>slice</dt><dd>axial z = 32</dd><dt>n</dt><dd>${inc.length}</dd></div>`}</div></div>`;
+  const selView = `<div style="display:grid;gap:8px">${viewHeader(title)}${staleBanner()}<div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center" class="${isStale()?'is-stale':''}">${S.disp === 'surface' ? `<div style="grid-column:1/3">${surfacePair(false)}</div>` : `<span class="thumb" style="height:210px;width:177px">${`<img src="${IMG.anat_ax}" alt="">`}${sel.ov ? `<img src="${sel.ov}" alt="">` : ''}${R9() && S.peaks && (TM_ROWS[sr][1] === 'load' || TM_ROWS[sr][1] === 'anyload') && !['pc','age'].includes(scol) ? `<svg viewBox="0 0 193 229" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">${peakLabels('ax')}</svg>` : ''}</span><div class="kv"><dt>test</dt><dd>${title}</dd><dt>peak</dt><dd>${sel.t}</dd><dt>slice</dt><dd>axial z = 32</dd><dt>n</dt><dd>${inc.length}</dd></div>`}</div></div>`;
   if (S.vmode === 'expand') { const big = `<div style="display:grid;gap:8px">${viewHeader(title)}${staleBanner()}<div class="${isStale()?'is-stale':''}">${S.disp === 'surface' ? surfacePair() : `<div style="display:flex;gap:16px;align-items:flex-start"><span class="thumb" style="height:560px;width:472px"><img src="${IMG.anat_ax}" alt="">${sel.ov ? `<img src="${sel.ov}" alt="">` : ''}</span><div class="kv"><dt>test</dt><dd>${title}</dd><dt>peak</dt><dd>${sel.t}</dd><dt>slice</dt><dd>axial z = 32</dd><dt>n</dt><dd>${inc.length}</dd></div></div>`}</div></div>`;
     return `<div class="grid-gap" style="grid-template-columns:minmax(0,1fr) 300px;min-height:0">${panel(title, 'expanded', big, '', 'card')}${panel('Contributors', title, contributorsBlock(inc))}</div>`; }
   return `<div class="grid-gap" style="grid-template-columns:240px minmax(0,1fr) 290px;min-height:0">${panel(S.scope === 'multi' ? 'Groups' : 'Group', '', model)}
@@ -1619,8 +1679,80 @@ function keymap() {
   const k = [['1–6','Go to stage'],['⌘K','Commands'],['⌘/','Recipe'],['/','Type a contrast'],['J / K','Next / previous subject'],['E','Expand the viewer'],['V','Open in Viewer'],['R','Refit stale maps'],['?','This sheet']];
   return `<div class="palette" style="width:380px"><div class="q">Keyboard</div>${k.map(([a, b]) => `<div class="it"><span>${b}</span><span class="kbd">${a}</span></div>`).join('')}</div>`;
 }
+/* ═══ Round 9: colour roles, motion, grid, neighbours ══════════════════ */
+const R9 = () => S.round >= 9;
+const STIM9 = {face:['#6f5480','#9f7db3','#cfaee0'], place:['#3c6f69','#5c9f95','#93d1c5']};
+function cellCol(i) { return R9() ? STIM9[CELLS[i].st][+CELLS[i].ld] : CELLCOL[i]; }
+function stimCol(st) { return R9() ? STIM9[st][2] : (st === 'face' ? '#f2a95a' : '#86bdf2'); }
+const HATCH = '<defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#d8d9dc" stroke-width="1.2"/></pattern></defs>';
+function wBar(v, x, y, w, h) { // weight side by form in round 9, by hue before
+  if (!R9()) return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${v > 0 ? '#e8894a' : v < 0 ? '#6aa6e8' : 'rgba(255,255,255,.12)'}"/>`;
+  if (v > 0) return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#d8d9dc"/>`;
+  if (v < 0) return `<rect x="${x+.5}" y="${y+.5}" width="${Math.max(0, w-1)}" height="${Math.max(0, h-1)}" fill="url(#hatch)" stroke="#d8d9dc"/>`;
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="rgba(255,255,255,.1)"/>`;
+}
+function wCellBg(v, a) {
+  if (!R9()) return v > 0 ? `background:rgba(232,137,74,${(.18+.6*a).toFixed(2)})` : v < 0 ? `background:rgba(106,166,232,${(.18+.6*a).toFixed(2)})` : 'background:transparent';
+  if (v > 0) return `background:rgba(233,234,236,${(.2+.6*a).toFixed(2)});color:var(--inverse)`;
+  if (v < 0) return `background:repeating-linear-gradient(45deg, rgba(233,234,236,${(.25+.4*a).toFixed(2)}) 0 2px, transparent 2px 7px);border-color:rgba(233,234,236,.7)`;
+  return 'background:transparent';
+}
+const sideWord = (pos) => R9() ? (pos ? 'solid' : 'hatched') : (pos ? 'orange' : 'blue');
+
+/* NeuroTabs cohort (exchange type: Cohort) */
+const COHORT = new Set(SUBS.map(s => s.id).filter(id => !['sub-03','sub-06','sub-09','sub-14','sub-18','sub-22','sub-27'].includes(id)));
+
+/* peak labels for group slices */
+const PEAKS = [[1,-44,28,'8.6'],[2,46,30,'6.9'],[3,-34,-58,'9.1'],[4,36,-60,'7.4'],[5,0,-54,'−5.8']];
+function peakLabels(k) {
+  if (!R9() || !S.peaks || k !== 'ax') return '';
+  return PEAKS.map(([n, x, y, t]) => { const px = x+96, py = 228-(y+132), lx = px + (x < 0 ? -26 : x > 0 ? 8 : 9), ly = py + (y < -50 ? 14 : -8);
+    return `<text x="${lx}" y="${ly}" class="peak">${n} · ${t}</text>`; }).join('');
+}
+
+/* next-step bar: one forward action per stage */
+function nextBar() {
+  const d = dataSummary(), st = S.stage;
+  const n = {data:['Design', `${d.subsIn} subjects · ${d.runsIn} runs selected`], design:['Noise', `${design(1).filter(c => c.term==='task').length} task columns · ${HRFS[S.hrf].label}`], noise:['Contrasts', `${presetOf()} · ${AR[S.ar]} · ${NS - design(1).length} residual df`],
+    contrasts:['Subject maps', `${SET7.length} questions ready`], results:['Group', `${d.subsIn} subject maps`], group:[null, 'Group maps fitted']}[st];
+  const fit = st === 'contrasts' ? (S.fitHrf !== S.hrf ? btn(`Fit ${d.subsIn} subjects · ~3 min`, 'refit', 'pri') : btn('Fitted · see subject maps →', 'stage:results', 'pri')) : n[0] ? btn(`Next: ${n[0]} →`, 'stage:' + STAGES.find(x => x.name === n[0] || (n[0]==='Group' && x.id==='group')).id, 'pri') : btn('Export report…', '', 'pri');
+  return `<div class="nextbar"><span class="lbl">${n[1]}</span><span class="a-sp" style="flex:1"></span>${st === 'group' ? btn('Send to NeuroTabs…', 'handoff', 'ghost') : ''}${fit}</div>`;
+}
+
+/* handoff sheet: fMRI → NeuroTabs (exchange type: ImageCollection) */
+function handoffSheet() {
+  const d = dataSummary(), c = cur7();
+  return `<div class="sheet-bg"></div><div class="sheet"><div class="pn-h"><h5>Send to NeuroTabs</h5><span class="sub">as an image collection</span><span class="a-sp" style="flex:1"></span>${btn('Cancel', 'handoff', 'ghost')}</div>
+    <div style="padding:4px 14px 14px;display:grid;gap:12px">
+      <dl class="kv" style="grid-template-columns:120px 1fr;font-size:11.5px">
+        <dt>collection</dt><dd>nback_glm · ${esc(c.name)}</dd>
+        <dt>members</dt><dd>${d.subsIn} subject maps</dd>
+        <dt>value role</dt><dd>effect (% signal change) with SE; t kept for display only</dd>
+        <dt>space</dt><dd>${S.space} · 2 mm</dd>
+        <dt>participants</dt><dd>group, age, sex, usable runs, mean FD</dd>
+        <dt>provenance</dt><dd>spec a91f3c · ${HRFS[S.fitHrf].label} · ${AR[S.ar]} · fmrihrf 0.4</dd></dl>
+      <div class="field"><span class="lbl">Link</span>${seg([['live','Live: marked stale when you refit'],['snap','Snapshot']], 'live', 'link')}</div>
+      <p class="lbl" style="margin:0">NeuroTabs opens the collection with its population view: mean, spread, contributors and a subject movie. A cohort or region you build there can come back here as a data filter or an ROI.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">${btn('Cancel', 'handoff', 'ghost')}${btn(`Send ${d.subsIn} maps`, 'sent', 'pri')}</div></div></div>`;
+}
+
+/* motion: mark and tween values that changed (data changes only, ≤ 200 ms) */
+let SNAP = {key:'', vals:[]};
+const SNAP_SEL = '.sp-sum, .big, .tmt, .kv dd, .ef';
+function snapBefore() { const f = document.getElementById('frame'); if (!f) return; SNAP = {key:S.round + S.stage + S.view, vals:[...f.querySelectorAll(SNAP_SEL)].map(e => e.textContent)}; }
+function animateChanges() {
+  if (!R9() || SNAP.key !== S.round + S.stage + S.view) return;
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  [...document.getElementById('frame').querySelectorAll(SNAP_SEL)].forEach((el, i) => { const was = SNAP.vals[i], now = el.textContent; if (was === undefined || was === now) return;
+    el.classList.add('chg'); if (reduce) return;
+    const a = parseFloat(was.replace('−', '-').replace(/^[^\d-]+/, '')), b = parseFloat(now.replace('−', '-').replace(/^[^\d-]+/, ''));
+    if (!isFinite(a) || !isFinite(b) || a === b) return;
+    const m = now.match(/-?\d+(\.\d+)?/); if (!m) return; const dec = (m[1] || '').length - (m[1] ? 1 : 0), t0 = performance.now();
+    const step = t => { const k = Math.min(1, (t - t0)/200), v = a + (b - a)*(1 - Math.pow(1 - k, 3)); el.textContent = now.replace(/-?\d+(\.\d+)?/, v.toFixed(Math.max(0, dec))); if (k < 1) requestAnimationFrame(step); else el.textContent = now; };
+    requestAnimationFrame(step); });
+}
 /* ── page ───────────────────────────────────────────────────────────── */
-const mean = sc => (sc.jobs + sc.tufte + sc.pold + sc.lin)/4;
+const mean = sc => { const v = Object.values(sc); return v.reduce((a, b) => a + b, 0)/v.length; };
 function renderTrend() {
   const N = ROUNDS.length, W = 420, H = 210, X = scale(1, N, 34, W-104), Y = scale(0, 10, H-24, 10);
   let s = [2,4,6,8,10].map(v => `<line x1="34" x2="${W-104}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(255,255,255,.08)"/><text x="28" y="${Y(v)+3}" text-anchor="end">${v}</text>`).join('');
@@ -1630,13 +1762,16 @@ function renderTrend() {
   const seq = c => [...ROUNDS.slice(0, 5).map((r, i) => [X(i+1), Y(r.scores[c])]), null, [X(5), Y(RESCORE5[c])], ...ROUNDS.slice(5).map((r, i) => [X(i+6), Y(r.scores[c])])];
   const pth = pts => { let d = '', pen = false; pts.forEach(p => { if (!p) { pen = false; return; } d += (pen ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); pen = true; }); return d; };
   const ends = [];
-  CRITICS.forEach(c => { s += `<path d="${pth(seq(c.id))}" fill="none" stroke="${c.c}" stroke-width="1.3" opacity=".9"/>`; ends.push({y:Y(ROUNDS[N-1].scores[c.id]), label:c.name.split(' ').pop(), col:c.c, v:ROUNDS[N-1].scores[c.id]}); });
+  CRITICS.forEach(c => { const pts = c.late ? [[X(8), Y(RESCORE8[c.id])], [X(9), Y(ROUNDS[8].scores[c.id])]] : seq(c.id);
+    s += `<path d="${pth(pts)}" fill="none" stroke="${c.c}" stroke-width="1.3" opacity=".9" ${c.late ? 'stroke-dasharray="3 2"' : ''}/>`; if (c.late) s += `<circle cx="${X(8)}" cy="${Y(RESCORE8[c.id])}" r="2" fill="${c.c}"/>`;
+    ends.push({y:Y(ROUNDS[N-1].scores[c.id]), label:c.name.split(' ').pop().replace('panel','Bauhaus'), col:c.c, v:ROUNDS[N-1].scores[c.id]}); });
+  const x89 = (X(8)+X(9))/2; s += `<line x1="${x89}" x2="${x89}" y1="${Y(10)}" y2="${Y(0)}" stroke="var(--ring)" stroke-dasharray="2 3"/><text x="${x89}" y="${Y(1.2)}" text-anchor="middle" style="fill:var(--ring)">new reviewers</text>`;
   const mk = sc => mean(sc), mpts = [...ROUNDS.slice(0, 5).map((r, i) => [X(i+1), Y(mk(r.scores))]), null, [X(5), Y(mk(RESCORE5))], ...ROUNDS.slice(5).map((r, i) => [X(i+6), Y(mk(r.scores))])];
   s += `<path d="${pth(mpts)}" fill="none" stroke="#e9eaec" stroke-width="2.4"/>`;
   s += ROUNDS.map((r, i) => `<circle cx="${X(i+1)}" cy="${Y(mk(r.scores))}" r="${i+1===S.round?4:2.5}" fill="#e9eaec"/>`).join('');
   s += `<circle cx="${X(5)}" cy="${Y(mk(RESCORE5))}" r="3" fill="var(--ground)" stroke="#e9eaec" stroke-width="1.5"/><text x="${X(5)-6}" y="${Y(mk(RESCORE5))+14}" text-anchor="middle" style="fill:var(--text2)">R5 re-scored ${mk(RESCORE5).toFixed(1)}</text>`;
   s += `<text x="${X(1)+6}" y="${Y(mk(ROUNDS[0].scores))+16}" style="fill:var(--text)">mean ${mk(ROUNDS[0].scores).toFixed(1)}</text>`;
-  ends.sort((a, b) => a.y - b.y); let last = -99; ends.forEach(e => { e.ly = Math.max(e.y, last+11); last = e.ly; });
+  ends.sort((a, b) => a.y - b.y); let last = -99; ends.forEach(e => { e.ly = Math.max(e.y, last+10); last = e.ly; });
   s += ends.map(e => `<text x="${X(N)+8}" y="${e.ly+3}" style="fill:${e.col}">${e.label} ${e.v.toFixed(1)}</text>`).join('');
   s += `<text x="${X(N)+8}" y="${Math.min(H-26, last+16)}" style="fill:var(--text)">mean ${mk(ROUNDS[N-1].scores).toFixed(2)}</text>`;
   $('#trend').innerHTML = `<g class="ax">${s}</g>`;
@@ -1649,26 +1784,28 @@ function renderRound() {
   $('#r-title').textContent = `Round ${S.round}: ${R.title}`;
   $('#r-sum').textContent = R.sum;
   $('#r-changes').innerHTML = R.changes.map(c => `<li>${esc(c)}</li>`).join('');
-  $('#r-notes').innerHTML = R.rebase ? `<div class="box" style="border-left:2px solid var(--ring)"><h3>Your notes (1 Nov) re-opened the climb</h3><ul>${OWNER_NOTES.map(n => `<li>${esc(n)}</li>`).join('')}</ul><p>Round 5 re-scored against these: ${CRITICS.map(c => `${c.name.split(' ').pop()} ${RESCORE5[c.id].toFixed(1)}`).join(' · ')} (mean ${mean(RESCORE5).toFixed(2)}).</p></div>` : '';
-  $('#critics').innerHTML = CRITICS.map(c => { const n = R.notes[c.id], v = R.scores[c.id], dv = P ? v - P.scores[c.id] : null;
-    const dv2 = R.rebase ? v - RESCORE5[c.id] : dv;
-    return `<article class="critic" style="--cc:${c.c}"><header><div><h3>${c.name}</h3><div class="lens">${c.lens}</div></div><div style="text-align:right"><div class="score">${v.toFixed(1)}</div>${dv2 !== null ? `<div class="delta">${dv2 >= 0 ? '+' : '−'}${Math.abs(dv2).toFixed(1)}${R.rebase ? ' vs re-scored R5' : ''}</div>` : ''}</div></header>
+  $('#r-notes').innerHTML = R.rebase8 ? `<div class="box" style="border-left:2px solid var(--ring)"><h3>New reviewers joined for round 9</h3><p>You asked for Mike Bostock, Josef Albers and a Bauhaus panel (Herbert Bayer, László Moholy-Nagy, Marcel Breuer) to review function, aesthetics and flow, with an eye on how the module works alongside NeuroTabs. They scored round 8: ${CRITICS.filter(c => c.late).map(c => `${c.name} ${RESCORE8[c.id].toFixed(1)}`).join(' · ')}. Adoption now needs 4 of 7 votes.</p></div>` : R.rebase ? `<div class="box" style="border-left:2px solid var(--ring)"><h3>Your notes (1 Nov) re-opened the climb</h3><ul>${OWNER_NOTES.map(n => `<li>${esc(n)}</li>`).join('')}</ul><p>Round 5 re-scored against these: ${CRITICS.map(c => `${c.name.split(' ').pop()} ${RESCORE5[c.id].toFixed(1)}`).join(' · ')} (mean ${mean(RESCORE5).toFixed(2)}).</p></div>` : '';
+  $('#critics').innerHTML = CRITICS.map(c => { const n = R.notes[c.id], v = R.scores[c.id], dv = P && P.scores[c.id] !== undefined ? v - P.scores[c.id] : null;
+    if (v === undefined) return '';
+    const dv2 = c.late ? v - RESCORE8[c.id] : R.rebase ? v - RESCORE5[c.id] : dv;
+    return `<article class="critic" style="--cc:${c.c}"><header><div><h3>${c.name}</h3><div class="lens">${c.lens}</div></div><div style="text-align:right"><div class="score">${v.toFixed(1)}</div>${dv2 !== null ? `<div class="delta">${dv2 >= 0 ? '+' : '−'}${Math.abs(dv2).toFixed(1)}${c.late ? ' vs their R8 score' : R.rebase ? ' vs re-scored R5' : ''}</div>` : ''}</div></header>
       <blockquote>${esc(n.q)}</blockquote><ul>${n.s.map(x => `<li>${esc(x)}</li>`).join('')}</ul></article>`; }).join('');
-  const vt = v => CRITICS.map(c => `<span class="vote ${v[c.id]?'y':'n'}">${c.name.split(' ').pop()}</span>`).join('');
+  const vt = v => CRITICS.filter(c => c.id in v).map(c => `<span class="vote ${v[c.id]?'y':'n'}">${c.name.split(' ').pop()}</span>`).join('');
   let dis = '';
   if (!R.dis) dis = `<div class="box"><h3>Disagreements</h3><p>None. All four critics rejected the wizard for different reasons, so the next round takes the union of their first suggestions.</p></div>`;
   else if (R.dis.list) dis = `<div class="box"><h3>${esc(R.dis.topic)}</h3>${R.dis.list.map(x => `<div style="margin-top:8px"><p style="color:var(--text);margin:0">${esc(x.p)}</p><div class="votes">${vt(x.v)}</div><p style="margin:0">${esc(x.o)}</p></div>`).join('')}</div>`;
   else dis = `<div class="box"><h3>Disagreement: ${esc(R.dis.topic)}</h3><p>${esc(R.dis.sides)}</p><div class="votes">${vt(R.dis.votes)}</div><p class="tb">${esc(R.dis.outcome)}</p></div>`;
   $('#decide').innerHTML = dis + `<div class="box"><h3>${S.round < ROUNDS.length && S.round !== 5 ? `Carried into round ${S.round+1}` : 'Outcome'}</h3><ul>${R.decision.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
 }
-function renderMock() { $('#frame').innerHTML = app().replace(/<svg width="([\d.]+)" height="([\d.]+)"/g, (m, w, h) => `<svg viewBox="0 0 ${w} ${h}" style="width:100%;max-width:${w}px;height:auto;display:block"`); drawDesign(); }
+function renderMock() { snapBefore(); let html = app(); if (S.round >= 9 && S.view !== 'viewer') html = html.replace(/grid-template-columns:\d+px minmax\(0,1fr\) \d+px;min-height/g, 'grid-template-columns:248px minmax(0,1fr) 304px;min-height').replace(/grid-template-columns:\d+px minmax\(0,1fr\);min-height/g, 'grid-template-columns:248px minmax(0,1fr);min-height').replace(/grid-template-columns:minmax\(0,1fr\) \d+px;/g, 'grid-template-columns:minmax(0,1fr) 304px;');
+  $('#frame').innerHTML = html.replace(/<svg width="([\d.]+)" height="([\d.]+)"/g, (m, w, h) => `<svg viewBox="0 0 ${w} ${h}" style="width:100%;max-width:${w}px;height:auto;display:block"`); drawDesign(); animateChanges(); }
 function render() { renderTrend(); renderRoundsNav(); renderRound(); renderMock(); fit(); }
 function fit() { const w = $('#frame-wrap').clientWidth, k = Math.min(1, w/1280); $('#frame').style.transform = `scale(${k})`; $('#frame-wrap').style.height = (800*k) + 'px'; }
 
 function renderStatic() {
-  $('#m-status').textContent = 'equilibrium again after round 8 · round 5 was re-scored after your notes';
+  $('#m-status').textContent = 'round 9 with seven reviewers · equilibrium holds';
   $('#critics-key').innerHTML = CRITICS.map(c => `<div><span class="sw" style="background:${c.c}"></span><span><b style="color:var(--text);font-weight:500">${c.name}</b>: ${c.lens.toLowerCase()}</span></div>`).join('') + `<div style="grid-column:1/3;color:var(--faint)">The critics are simulated personas that apply each person’s published lens. Scores and remarks are Claude’s judgement, not the views of the real people.</div>`;
-  $('#spec').innerHTML = `<h2>The design at equilibrium (round 8)</h2>
+  $('#spec').innerHTML = `<h2>The design at equilibrium (round 9)</h2>
   <div class="spec-grid">
    <div class="box"><h3>Principles</h3><ol>
     <li><b>One workspace, six stages.</b> A spine shows Data, Design, Noise, Contrasts, Subject maps and Group, each with a live one-line summary. A single Checks list collects every warning, with severity shown by shape and colour.</li>
@@ -1711,7 +1848,29 @@ function renderStatic() {
     <tr><td>fmrireg</td><td><span class="mono">fmri_lm</span> with <span class="mono">noise_spec("ar1" | "arp")</span>, voxelwise AR, <span class="mono">robust_spec("huber")</span>; <span class="mono">fmri_meta</span> (fe, pm, dl, reml) for the group stage</td></tr>
     <tr><td>contrasts</td><td>Each question type compiles to one fmridesign contrast inside the engine. The names stay in the engine and the recipe, never in the interface</td></tr>
    </tbody></table></div>
-  </div>`;
+  </div>
+  <div class="box"><h3>Across modules: neighbours, not dependencies</h3>
+   <p style="max-width:86ch">The module must work alone: with NeuroTabs, segmentation or any other module switched off, nothing in it breaks or hides an essential step. Where their work overlaps, they cooperate through typed values that core owns, never by importing each other (the module system’s import rule). A handoff appears only when a module that can take it is enabled, and it carries its value role, units, space and provenance, so meaning survives the trip.</p>
+   ${moduleDiagram()}
+   <table class="map" style="margin-top:10px"><tbody>
+    <tr><td>ImageCollection</td><td>Co-registered maps with a participant table. fMRI → NeuroTabs: subject effect maps with SE (value role kept) open as a population, with mean, spread, contributors and movie. A live link marks the NeuroTabs view stale when you refit.</td></tr>
+    <tr><td>Cohort</td><td>Participant ids plus the rule that made them. NeuroTabs → fMRI: a working selection becomes a data facet. The fMRI module checks whether that cohort was chosen using the same contrast (circular selection).</td></tr>
+    <tr><td>Region</td><td>A mask or probe in a named space. NeuroTabs or segmentation → fMRI: an ROI for ROI-level fitting and the lens, with the circularity check.</td></tr>
+    <tr><td>Layer</td><td>fMRI → Viewer: statmap layers with provenance and stale state (rounds 6–8).</td></tr>
+    <tr><td>Manifest</td><td><span class="mono">contributes.exchange: { produces: ['ImageCollection', 'Layer'], consumes: ['Cohort', 'Region'] }</span>. Core lists matching modules; handoff actions use one vocabulary: “Send to …” and “Use … from …”.</td></tr>
+   </tbody></table></div>`;
+}
+function moduleDiagram() {
+  const box = (x, y, w, h, t, sub, strong) => `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${strong ? 'var(--raised)' : 'var(--panel)'}" stroke="${strong ? 'var(--line3)' : 'var(--line2)'}"/><text x="${x+w/2}" y="${y+20}" text-anchor="middle" style="fill:var(--text);font-size:12px;font-weight:500">${t}</text><text x="${x+w/2}" y="${y+36}" text-anchor="middle" style="fill:var(--muted);font-size:10.5px">${sub}</text></g>`;
+  const arrow = (x1, y1, x2, y2, label, ly) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--text2)" marker-end="url(#ah)"/><text x="${(x1+x2)/2}" y="${ly ?? (y1+y2)/2 - 5}" text-anchor="middle" style="fill:var(--text2);font-size:10.5px;font-family:var(--mono)">${label}</text>`;
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 880 250" style="width:100%;min-width:640px;height:auto;display:block" role="img" aria-label="Modules exchange typed values through core">
+    <defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8Z" fill="var(--text2)"/></marker></defs>
+    <rect x="290" y="20" width="300" height="210" rx="2" fill="none" stroke="var(--line2)" stroke-dasharray="4 3"/><text x="440" y="40" text-anchor="middle" style="fill:var(--muted);font-size:11px">core exchange (owned by core, typed, versioned)</text>
+    ${['ImageCollection','Cohort','Region','Layer'].map((t, i) => `<rect x="335" y="${54+i*42}" width="210" height="30" rx="2" fill="var(--sunken)" stroke="var(--line2)"/><text x="440" y="${74+i*42}" text-anchor="middle" style="fill:var(--text);font-size:11.5px;font-family:var(--mono)">${t}</text>`).join('')}
+    ${box(30, 90, 200, 70, 'fMRI analysis', 'module · works alone', true)}${box(650, 40, 200, 56, 'NeuroTabs', 'population exploration')}${box(650, 110, 200, 56, 'Segmentation', 'ROIs, labels')}${box(650, 180, 200, 50, 'Viewer', 'core workspace')}
+    ${arrow(230, 112, 333, 69, 'produces')}${arrow(333, 111, 230, 128, 'consumes', 113)}${arrow(333, 153, 230, 142, '', 0)}${arrow(230, 150, 333, 195, 'produces', 184)}
+    ${arrow(547, 69, 648, 66, 'opens')}${arrow(648, 82, 547, 111, 'cohort', 104)}${arrow(648, 136, 547, 153, 'region', 152)}${arrow(547, 195, 648, 203, 'layers', 196)}
+  </svg></div>`;
 }
 
 document.addEventListener('click', e => {
@@ -1730,6 +1889,12 @@ document.addEventListener('click', e => {
     case 'preset': S.fam = new Set(PRESETS[b]); break;
     case 'fam': S.fam.has(b) ? S.fam.delete(b) : S.fam.add(b); break;
     case 'refit': S.fitHrf = S.hrf; break;
+    case 'peaks': S.peaks = !S.peaks; break;
+    case 'cohort': S.cohort = !S.cohort; S.exclude = null; break;
+    case 'pick': S.subj = b; break;
+    case 'handoff': S.handoff = !S.handoff; break;
+    case 'sent': S.handoff = false; S.sent = true; break;
+    case 'link': break;
     case 'keys': S.keys = !S.keys; break;
     case 'tm': S.cell = [+b, +c]; break;
     case 'c7': S.c7i = +b; S.c7 = null; S.exprErr = ''; S.expr = exprOf(SET7[+b].c); break;
@@ -1766,13 +1931,13 @@ document.addEventListener('keydown', e => {
   if (S.round >= 7 && e.key === '/' && !e.metaKey && !e.ctrlKey && S.stage === 'contrasts') { const el = document.getElementById('expr'); if (el) { e.preventDefault(); el.focus(); el.select(); } return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); S.palette = !S.palette; renderMock(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === '/') { e.preventDefault(); S.recipe = !S.recipe; renderMock(); return; }
-  if (e.key === 'Escape' && (S.palette || S.keys)) { S.palette = false; S.keys = false; renderMock(); return; }
+  if (e.key === 'Escape' && (S.palette || S.keys || S.handoff)) { S.palette = false; S.keys = false; S.handoff = false; renderMock(); return; }
   if (!e.metaKey && !e.ctrlKey && !e.altKey && /^[1-6]$/.test(e.key)) { S.stage = STAGES[+e.key-1].id; renderMock(); }
 });
 function setHash() { try { history.replaceState(null, '', '#r' + S.round + '-' + S.stage); } catch (e) { /* sandboxed frame: keep state in the page */ } }
 function applyExpr(text) { S.expr = text; const p = parseExpr(text); if (p.err) { S.exprErr = p.err; return; } S.exprErr = ''; const i = SET7.findIndex(x => x.c === p); if (i >= 0) { S.c7i = i; S.c7 = null; } else S.c7 = p; }
 document.addEventListener('input', e => { if (e.target.id !== 'expr') return; applyExpr(e.target.value); renderMock(); const el = document.getElementById('expr'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
-function fromHash() { const m = /^#r([1-8])(?:-(data|design|noise|contrasts|results|group))?$/.exec(location.hash);
+function fromHash() { const m = /^#r([1-9])(?:-(data|design|noise|contrasts|results|group))?$/.exec(location.hash);
   if (m) { S.round = +m[1]; if (m[2]) S.stage = m[2]; } S.recipe = S.round === 4; }
 window.addEventListener('hashchange', () => { fromHash(); render(); });
 new ResizeObserver(fit).observe(document.getElementById('frame-wrap'));
