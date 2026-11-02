@@ -139,8 +139,10 @@ jobs:
           # --benches limits the run to the criterion [[bench]] targets; the lib
           # targets' libtest harness rejects criterion's --output-format flag.
           # Only render_loop and render_loop_benches define [[bench]] targets.
+          # --bench '*' builds just those; --benches also built render_loop's
+          # lib-test harness, which raced the bench units ("can't find crate").
           set -o pipefail
-          cargo bench -p render_loop -p render_loop_benches --benches -- --output-format bencher | tee output.txt
+          cargo bench -p render_loop -p render_loop_benches --bench '*' -- --output-format bencher | tee output.txt
           
       - name: Check Performance Regression
         run: |

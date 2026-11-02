@@ -135,7 +135,9 @@ jobs:
     name: Performance Regression Check
     runs-on: ubuntu-latest
     needs: differential-tests
-    if: github.event_name == 'pull_request'
+    # Off while the performance_comparison bench is retired (audit #6): nothing
+    # produces the benchmark-results artifact this job compares.
+    if: false # was: github.event_name == 'pull_request'
 
     steps:
     - uses: actions/checkout@v4

@@ -400,7 +400,9 @@ fn automatic_member_updates_promote_in_place_and_keep_registration_current() {
     pollster::block_on(async {
         let mut service = RenderLoopService::new().await.unwrap();
         service.load_shaders().unwrap();
-        let initial = DenseVolume3::from_data(space(), vec![0.5f32; 512]);
+        // 0.25 rather than 0.5: 0.5 x 255 = 127.5 is a rounding tie that Metal
+        // resolves to 128 and lavapipe to 127.
+        let initial = DenseVolume3::from_data(space(), vec![0.25f32; 512]);
         let large = DenseVolume3::from_data(space(), vec![70_000f32; 512]);
         let (slot, _) = service.upload_volume_3d(&initial).unwrap();
         service
@@ -440,7 +442,7 @@ fn automatic_member_updates_promote_in_place_and_keep_registration_current() {
         );
         assert_eq!(
             levels(&frame(&mut service, "v", 1.).await),
-            BTreeSet::from([128])
+            BTreeSet::from([64])
         );
     });
 }
