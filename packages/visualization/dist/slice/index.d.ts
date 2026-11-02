@@ -8,4 +8,6 @@ export { canvasPointToImagePoint, clientPointToCanvasPoint, clientPointToWorld, 
 export { calculateImagePlacement, drawScaledImage, } from './canvasUtils.js';
 export { drawSliceBorder, drawSliceViewerCrosshair, resolveSliceBorderColor, } from './drawing.js';
 export type { SliceViewerCrosshair, SliceViewerCrosshairStyle, SliceViewerCustomRender, SliceViewerImagePoint, SliceViewerPlacement, SliceViewerPlane, SliceViewerSurfaceProps, SliceViewerWorldCoord, } from './types.js';
+export { ViewportPointerController } from './pointerTools.js';
+export type { ViewportTool, ViewportPointerSample, PointerCancelReason } from './pointerTools.js';
 //# sourceMappingURL=index.d.ts.map

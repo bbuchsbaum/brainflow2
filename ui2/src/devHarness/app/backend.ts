@@ -1419,6 +1419,15 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       stage,
       enabled: enabledModules.has(id),
     }));
+  // This renderer draws scalar fixture slices only. Native editable-label
+  // commands must fail explicitly; scenarios may inject a qualified fixture
+  // handler, but the generic harness must never report an edit it did not make.
+  for (const command of BRIDGE_MODULES.segmentation.commands) {
+    handlers[command] = () => { throw new Error('Segmentation editing requires the native host'); };
+  }
+  handlers.dispose_module_workspace = () => null;
+  handlers.get_volume_native_plane = () => { throw new Error('Native reference planes require the native host'); };
+  handlers.get_render_capabilities = () => ({ features: [] });
   handlers.list_modules = () => moduleInfos();
   // src-tauri host command: the native menu's module items (no menu here).
   handlers.set_module_menu_items = () => null;

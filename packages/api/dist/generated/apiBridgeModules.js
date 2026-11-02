@@ -14,4 +14,19 @@ export const BRIDGE_MODULES = {
             "get_analysis_job_status",
         ],
     },
+    segmentation: {
+        id: "segmentation",
+        title: "Segmentation",
+        version: "0.1.0",
+        stage: "experimental",
+        commands: [
+            "segmentation_create_session",
+            "segmentation_get_session",
+            "segmentation_preview_stroke",
+            "segmentation_commit_stroke",
+            "segmentation_undo",
+            "segmentation_set_label_state",
+            "segmentation_get_slice",
+        ],
+    },
 };

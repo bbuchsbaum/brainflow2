@@ -1,3 +1,4 @@
+import type { ViewportTool } from './pointerTools.js';
 import type { MouseEvent, ReactNode } from 'react';
 import { useSliceViewerController } from './useSliceViewerController.js';
 import type {
@@ -24,6 +25,7 @@ export interface ReusableSliceViewportProps {
   onWorldClick?: (worldCoord: SliceViewerWorldCoord, event: MouseEvent<HTMLDivElement>) => void;
   onMouseDown?: (event: MouseEvent<HTMLDivElement>) => void;
   customRender?: SliceViewerCustomRender;
+  tool?: ViewportTool | null;
   renderSurface: (props: SliceViewerSurfaceProps) => ReactNode;
 }
 
@@ -41,9 +43,10 @@ export function ReusableSliceViewport({
   onWorldClick,
   onMouseDown,
   customRender,
+  tool,
   renderSurface,
 }: ReusableSliceViewportProps) {
-  const { handleCanvasReady, handleMouseDown, handleRender } = useSliceViewerController({
+  const { handleCanvasReady, handleMouseDown, handleRender, pointerHandlers } = useSliceViewerController({
     viewPlane,
     crosshair,
     crosshairStyle,
@@ -54,10 +57,11 @@ export function ReusableSliceViewport({
     onWorldClick,
     onMouseDown,
     customRender,
+    tool,
   });
 
   return (
-    <div className={`relative h-full w-full ${className}`} onMouseDown={handleMouseDown}>
+    <div className={`relative h-full w-full ${className}`} style={tool ? { touchAction: 'none' } : undefined} {...pointerHandlers} onMouseDown={handleMouseDown}>
       {renderSurface({
         width,
         height,

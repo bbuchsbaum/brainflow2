@@ -447,6 +447,13 @@ store, sub-region upload, zoom and pan) is core work that overlaps Phase B. BIDS
 explorer and Set studio can move onto the registry after the Analysis workbench,
 when convenient.
 
+**Segmentation foundation checkpoint (2026-11-02).** The selected A.2 view modes,
+viewport tools and workspace state, and B2 layer kinds and capability gates are
+implemented with segmentation as their first live consumer. This is a subset of
+A.2/B2: settings schemas, typed events, startup aliases and BIDS/Studio migration
+remain planned. R1–R3 and segmentation M1–M2 are implemented; native interaction
+qualification remains open. See [scope, evidence and limits](../modules/segmentation/acceptance.md).
+
 ## Remaining phases in detail (planned 2026-10-31)
 
 The phases below finish the architecture. Each lists what ships, where the code

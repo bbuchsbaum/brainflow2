@@ -21,6 +21,9 @@ pub struct VolumeMetadataInfo {
 
 /// Owns decoded data until a repository publishes it or the operation is dropped.
 pub struct PreparedVolume {
+    /// Exact NIfTI-1 header bytes captured during acquisition, before source
+    /// paths can change. Keeps qform and sform without a format-crate dependency.
+    pub source_nifti_header: Option<Vec<u8>>,
     pub data: VolumeSendable,
     pub metadata: VolumeMetadataInfo,
     pub handle: VolumeHandleInfo,

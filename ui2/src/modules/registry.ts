@@ -22,7 +22,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { BRIDGE_MODULES } from '@brainflow/api';
+import { BRIDGE_MODULES, type RenderCapabilities } from '@brainflow/api';
 import { CORE_WORKSPACE_TYPES } from '@/types/workspace';
 import type {
   CommandContribution,
@@ -37,6 +37,9 @@ import type {
   WhenClause,
   WorkspaceComponentProps,
   WorkspaceContribution,
+  ViewModeContribution,
+  ViewportTool,
+  LayerKindContribution,
 } from './api';
 import {
   CORE_DOCK_TABS,
@@ -47,6 +50,7 @@ import {
   type ToolDescriptor,
 } from './coreContributions';
 import { createModuleContext, DisposableSet, keybindingProblems, type ContextHost } from './context';
+import type { WorkspaceStateHost } from './workspaceState';
 import { currentHostCapabilities, currentModuleHost } from './hostInfo';
 import { FIRST_PARTY_MODULES } from './index';
 import { useModuleSettingsStore } from './settingsStore';
@@ -70,6 +74,12 @@ export interface ModuleDockTab extends DockTabDescriptor {
   component?: LazyComponent;
 }
 
+export interface RegisteredViewMode extends ViewModeContribution {
+  moduleId: string;
+}
+
+export interface RegisteredLayerKind extends LayerKindContribution { moduleId: string; }
+
 export interface RegisteredCommand extends CommandContribution {
   moduleId: string;
 }
@@ -89,6 +99,11 @@ export interface ModuleMenuItem {
 export interface ShellBindings {
   openWorkspace(type: string): Promise<string | null>;
   activeWorkspaceType(): string | null;
+  workspaceState?: WorkspaceStateHost;
+  activeViewMode?(): string | null;
+  /** Captures a view identity and navigation epoch before asynchronous activation. */
+  captureView?(): { workspaceId: string; isCurrent(): boolean } | null;
+  enterViewMode?(workspaceId: string, modeId: string): boolean;
   /**
    * Awaited before a module activates: the runtime waits until the bridge has
    * applied the latest `set_enabled_modules`, so a module just switched on
@@ -142,7 +157,7 @@ const namespaced = (moduleId: string, id: string) =>
 /** The scope key of a keybinding: chord plus `when.workspace`. */
 function keybindingScopeKey(b: KeybindingContribution): string {
   const m = b.modifiers ?? {};
-  return [m.meta ? 'meta' : '', m.ctrl ? 'ctrl' : '', m.alt ? 'alt' : '', m.shift ? 'shift' : '', b.key.toLowerCase(), b.when?.workspace ?? '*'].join('|');
+  return [m.meta ? 'meta' : '', m.ctrl ? 'ctrl' : '', m.alt ? 'alt' : '', m.shift ? 'shift' : '', b.key.toLowerCase(), b.when?.workspace ?? '*', b.when?.viewMode ?? '*'].join('|');
 }
 
 /** The label lists show beside a module that is not stable yet. */
@@ -159,6 +174,7 @@ export function stageDefaultEnabled(stage: ModuleStage): boolean {
 
 interface ActiveModule {
   handlers: Map<string, CommandHandler>;
+  tools: Map<string, ViewportTool>;
   disposables: DisposableSet;
 }
 
@@ -180,9 +196,13 @@ interface ModuleRecord {
 
 export class ModuleRegistry {
   private readonly deps: RegistryDeps;
+  private renderFeatures: ReadonlySet<string> = new Set();
   private readonly records = new Map<string, ModuleRecord>();
   private readonly commandOwner = new Map<string, string>();
   private readonly workspaceOwner = new Map<string, string>();
+  private readonly layerKindOwner = new Map<string, string>();
+  private readonly toolOwner = new Map<string, string>();
+  private readonly viewModeOwner = new Map<string, string>();
   private readonly inspectorModeIds = new Set<string>(CORE_INSPECTOR_MODES.map((m) => m.id));
   private readonly dockTabIds = new Set<string>(CORE_DOCK_TABS.map((t) => t.id));
   private readonly keybindingScopes = new Map<string, string>();
@@ -224,6 +244,9 @@ export class ModuleRegistry {
     });
     commands.forEach((_, id) => this.commandOwner.set(id, manifest.id));
     workspaces.forEach((_, id) => this.workspaceOwner.set(id, manifest.id));
+    manifest.contributes.layerKinds?.forEach((kind) => this.layerKindOwner.set(kind.id, manifest.id));
+    manifest.contributes.viewportTools?.forEach((t) => this.toolOwner.set(t.id, manifest.id));
+    manifest.contributes.viewModes?.forEach((m) => this.viewModeOwner.set(m.id, manifest.id));
     manifest.contributes.inspectorModes?.forEach((m) => this.inspectorModeIds.add(m.id));
     manifest.contributes.dockTabs?.forEach((t) => this.dockTabIds.add(t.id));
     manifest.contributes.keybindings?.forEach((b) =>
@@ -279,6 +302,36 @@ export class ModuleRegistry {
     for (const mode of c.inspectorModes ?? []) {
       checkId('inspector mode', mode.id, (id) => this.inspectorModeIds.has(id));
     }
+    for (const kind of c.layerKinds ?? []) {
+      checkId('layer kind', kind.id, (id) => this.layerKindOwner.has(id));
+      if (!kind.title) problems.push(`layer kind "${kind.id}" needs a title`);
+      if (!['scalar', 'label', 'mask'].includes(kind.baseRenderMode)) problems.push(`layer kind "${kind.id}" needs a core render mode`);
+      if (![1, 2, 3, 4].includes(kind.stackingBand)) problems.push(`layer kind "${kind.id}" has an invalid stacking band`);
+      if (!['volume', 'labels', 'mask'].includes(kind.icon)) problems.push(`layer kind "${kind.id}" has an invalid icon`);
+      for (const cap of ['thresholdable', 'colormappable', 'editable', 'outline'] as const) {
+        if (typeof kind.capabilities?.[cap] !== 'boolean') problems.push(`layer kind "${kind.id}" must declare ${cap}`);
+      }
+      if (kind.capabilities?.outline && kind.baseRenderMode !== 'label') problems.push(`layer kind "${kind.id}": outlines require the label render mode`);
+      for (const section of kind.inspectorSections ?? []) {
+        checkId('layer Inspector section', section.id, () => false);
+        if (!section.title || typeof section.component !== 'function') problems.push(`layer Inspector section "${section.id}" needs a title and lazy component`);
+      }
+    }
+    for (const tool of c.viewportTools ?? []) {
+      checkId('viewport tool', tool.id, (id) => this.toolOwner.has(id));
+      if (!tool.title) problems.push(`viewport tool "${tool.id}" needs a title`);
+    }
+    for (const mode of c.viewModes ?? []) {
+      for (const id of mode.viewportTools ?? []) {
+        if (!(c.viewportTools ?? []).some((tool) => tool.id === id)) problems.push(`view mode "${mode.id}" refers to undeclared viewport tool "${id}"`);
+      }
+      checkId('view mode', mode.id, (id) => this.viewModeOwner.has(id));
+      if (!mode.title || typeof mode.component !== 'function') problems.push(`view mode "${mode.id}" needs a title and lazy layout component`);
+      if (!namespaced(m.id, mode.layoutPreset)) problems.push(`view mode "${mode.id}" needs a namespaced layout preset`);
+      if (mode.inspectorMode && !(c.inspectorModes ?? []).some((i) => i.id === mode.inspectorMode)) {
+        problems.push(`view mode "${mode.id}" refers to undeclared Inspector mode "${mode.inspectorMode}"`);
+      }
+    }
     for (const tab of c.dockTabs ?? []) {
       checkId('dock tab', tab.id, (id) => this.dockTabIds.has(id));
     }
@@ -319,12 +372,31 @@ export class ModuleRegistry {
 
   /** Whether the module can run in this host (`hosts`, `requires`). */
   isSupported(moduleId: string): boolean {
+    return this.unavailableReasons(moduleId).length === 0;
+  }
+
+  /** Human-readable reasons remain visible in Settings even when contributions hide. */
+  unavailableReasons(moduleId: string): string[] {
     const record = this.records.get(moduleId);
-    if (!record) return false;
+    if (!record) return ['Module is not registered.'];
     const { hosts, requires } = record.manifest;
-    if (!hosts.includes(this.deps.host())) return false;
+    const reasons: string[] = [];
+    if (!hosts.includes(this.deps.host())) reasons.push(`Unavailable on the ${this.deps.host()} host.`);
     const caps = this.deps.capabilities();
-    return (requires?.hostCapabilities ?? []).every((cap) => caps[cap] !== false);
+    for (const cap of requires?.hostCapabilities ?? []) {
+      if (caps[cap] !== true) reasons.push(`Requires host capability: ${cap}.`);
+    }
+    for (const feature of requires?.renderFeatures ?? []) {
+      if (!this.renderFeatures.has(feature)) reasons.push(`Requires renderer feature: ${feature}.`);
+    }
+    return reasons;
+  }
+
+  /** Replace, never accumulate: a new backend may support fewer features. */
+  setRenderCapabilities(capabilities: RenderCapabilities | null): void {
+    const values = capabilities?.features;
+    this.renderFeatures = new Set(Array.isArray(values) ? values.filter((value) => typeof value === 'string') : []);
+    this.refresh(true);
   }
 
   /** The user's switch, or the stage default; ignores host support. */
@@ -455,6 +527,45 @@ export class ModuleRegistry {
     return Boolean(tool && (tool.moduleId === null || this.isEnabled(tool.moduleId)));
   }
 
+  getLayerKinds(): readonly RegisteredLayerKind[] {
+    return this.memo('layerKinds', () => [...this.records.values()]
+      .filter((record) => this.isEnabled(record.manifest.id))
+      .flatMap((record) => (record.manifest.contributes.layerKinds ?? [])
+        .map((kind) => ({ ...kind, moduleId: record.manifest.id }))));
+  }
+
+  getLayerKind(id: string | undefined): RegisteredLayerKind | undefined {
+    return id ? this.getLayerKinds().find((kind) => kind.id === id) : undefined;
+  }
+
+  getViewModes(): readonly RegisteredViewMode[] {
+    return this.memo('viewModes', () => [...this.records.values()]
+      .filter((r) => this.isEnabled(r.manifest.id))
+      .flatMap((r) => (r.manifest.contributes.viewModes ?? []).map((mode) => ({ ...mode, moduleId: r.manifest.id }))));
+  }
+
+  getViewMode(id: string | undefined): RegisteredViewMode | undefined {
+    return id ? this.getViewModes().find((mode) => mode.id === id) : undefined;
+  }
+
+  /** Runtime handler of an enabled, activated module; undefined means use the crosshair. */
+  getViewportTool(id: string): ViewportTool | undefined {
+    const owner = this.toolOwner.get(id);
+    if (!owner || !this.isEnabled(owner)) return undefined;
+    const activation = this.records.get(owner)?.activation;
+    return activation?.status === 'active' ? activation.active.tools.get(id) : undefined;
+  }
+
+  async enterViewMode(id: string): Promise<boolean> {
+    const mode = this.getViewMode(id);
+    const shell = this.shell;
+    const target = shell?.captureView?.();
+    if (!mode || !target) return false;
+    await this.ensureActive(mode.moduleId);
+    if (this.shell !== shell || !target.isCurrent() || !this.isEnabled(mode.moduleId)) return false;
+    return shell?.enterViewMode?.(target.workspaceId, id) ?? false;
+  }
+
   getCommands(): readonly RegisteredCommand[] {
     return this.memo('commands', () => {
       const commands: RegisteredCommand[] = [];
@@ -545,8 +656,9 @@ export class ModuleRegistry {
   }
 
   matchesWhen(when: WhenClause | undefined): boolean {
-    if (!when?.workspace) return true;
-    return this.shell?.activeWorkspaceType() === when.workspace;
+    if (when?.workspace && this.shell?.activeWorkspaceType() !== when.workspace) return false;
+    if (when?.viewMode && this.shell?.activeViewMode?.() !== when.viewMode) return false;
+    return true;
   }
 
   /**
@@ -559,7 +671,9 @@ export class ModuleRegistry {
     if (!this.isEnabled(moduleId)) return false;
     const record = this.records.get(moduleId)!;
     if (!this.matchesWhen(record.commands.get(commandId)?.when)) return false;
+    const target = this.shell?.captureView?.();
     const active = await this.ensureActive(moduleId);
+    if (!this.isEnabled(moduleId) || !this.matchesWhen(record.commands.get(commandId)?.when) || (target && !target.isCurrent())) return false;
     const handler = active.handlers.get(commandId);
     if (!handler) throw new Error(`[modules] ${moduleId} registered no handler for "${commandId}"`);
     await handler();
@@ -585,7 +699,7 @@ export class ModuleRegistry {
     if (activation.status === 'activating') return activation.promise;
 
     const epoch = record.epoch;
-    const active: ActiveModule = { handlers: new Map(), disposables: new DisposableSet() };
+    const active: ActiveModule = { handlers: new Map(), tools: new Map(), disposables: new DisposableSet() };
     const stale = () => record.epoch !== epoch;
     const promise = (async () => {
       await this.shell?.beforeActivate?.(moduleId);
@@ -593,7 +707,7 @@ export class ModuleRegistry {
       const loaded = await record.manifest.activate();
       if (stale()) throw new ModuleDisabledError(moduleId);
       try {
-        await loaded.activate(createModuleContext(this.contextHost(record), active.disposables, active.handlers));
+        await loaded.activate(createModuleContext(this.contextHost(record), active.disposables, active.handlers, active.tools));
       } catch (error) {
         active.disposables.dispose();
         throw error;
@@ -656,6 +770,18 @@ export class ModuleRegistry {
       matchesWhen: (when) => this.matchesWhen(when),
       executeCommand: (id) => this.executeCommand(id),
       openWorkspace: (type) => this.shell?.openWorkspace(type) ?? Promise.resolve(null),
+      workspaceState: this.shell?.workspaceState,
+      viewportTools: new Set((manifest.contributes.viewportTools ?? []).map((t) => t.id)),
+      viewModes: new Set((manifest.contributes.viewModes ?? []).map((m) => m.id)),
+      // The context already belongs to an activation that passed the bridge
+      // gate. Do not await ensureActive here: activate(ctx) may itself enter a
+      // mode, which would otherwise wait on its own promise indefinitely.
+      enterViewMode: async (id) => {
+        const mode = this.getViewMode(id);
+        const target = this.shell?.captureView?.();
+        return Boolean(mode?.moduleId === manifest.id && target?.isCurrent() &&
+          this.shell?.enterViewMode?.(target.workspaceId, id));
+      },
     };
   }
 }

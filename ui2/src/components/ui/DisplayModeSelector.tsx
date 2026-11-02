@@ -30,6 +30,7 @@ import { isSurfaceTabComponent, useCenterTabStore } from "@/stores/centerTabStor
 import type { DisplayMode, DisplayModeMetadata } from "@/types/displayModes";
 import { SegmentedControl } from "@/components/ui/bf";
 import { setCurrentTabLayout } from "@/services/workspaceNavigation";
+import { reportCommandFailure } from "@/modules/context";
 import { moduleRegistry, useModuleRegistryVersion } from "@/modules/registry";
 
 import {
@@ -52,6 +53,7 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
     const id = state.activeWorkspaceId;
     return id ? (state.workspaces.get(id)?.type ?? null) : null;
   });
+  const viewModeId = useWorkspaceStore((s) => s.activeWorkspaceId ? s.workspaces.get(s.activeWorkspaceId)?.viewMode : undefined);
   const setIntegratedDefaultDisplayMode = useLayoutSettingsStore(
     (state) => state.setIntegratedDefaultDisplayMode,
   );
@@ -64,7 +66,8 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
   const surfaceTabActive = useCenterTabStore(
     (state) => isSurfaceTabComponent(state.frontComponentType),
   );
-  const activeMode = surfaceTabActive ? null : resolveActiveDisplayMode(activeWorkspaceType);
+  const activeModuleMode = moduleRegistry.getViewMode(viewModeId);
+  const activeMode = surfaceTabActive ? null : (activeModuleMode?.id ?? resolveActiveDisplayMode(activeWorkspaceType));
 
   const isFlagDisabled = useCallback(
     (mode: DisplayModeMetadata) =>
@@ -99,13 +102,22 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
     surfaceTabActive ||
     Boolean(activeWorkspaceType && !isViewWorkspaceType(activeWorkspaceType));
 
+  // Experimental/preview modes are reached through their commands. Only
+  // stable modules may add a top-bar pill (module architecture stage gates).
+  const moduleModes = moduleRegistry.getViewModes().filter((m) => moduleRegistry.getModule(m.moduleId)?.stage === 'stable');
   const options = visibleModes.map((mode) => ({
-    value: mode.id,
+    value: mode.id as string,
     label: mode.label,
     title: mode.description,
     testId: `display-mode-${mode.id}`,
     data: { "data-active": mode.id === activeMode ? "true" : "false" },
-  }));
+  })).concat(moduleModes.map((mode) => ({
+    value: mode.id as string,
+    label: mode.title,
+    title: mode.title,
+    testId: `display-mode-${mode.id}`,
+    data: { "data-active": mode.id === activeMode ? "true" : "false" },
+  })));
 
   // bf SegmentedControl (V5 joined group, radio semantics) with the amber
   // edge reserved for this switcher. Manual activation: a mode switch mounts
@@ -141,8 +153,14 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
       onValueChange={(id) => {
         const mode = visibleModes.find((m) => m.id === (id as DisplayMode));
         if (mode) handleClick(mode);
+        else if (moduleModes.some((m) => m.id === id)) {
+          void moduleRegistry.enterViewMode(id).catch((error) => reportCommandFailure(id, error));
+        }
       }}
     />
+    {activeModuleMode && !moduleModes.some((m) => m.id === activeModuleMode.id) ? (
+      <span className="text-bf-sm text-muted-foreground" role="status">{activeModuleMode.title}</span>
+    ) : null}
     {toolLabel ? (
       <span
         className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-bf-border-strong bg-bf-bg-selected px-2 text-bf-xs text-bf-text-primary"

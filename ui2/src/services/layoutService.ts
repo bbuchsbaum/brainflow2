@@ -14,6 +14,7 @@ import {
 import { nanoid } from 'nanoid';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
+import { requestWorkspaceClose } from '@/services/workspaceDocuments';
 
 type SurfaceStoreState = ReturnType<typeof useSurfaceStore.getState>;
 import { workspaceTabLabels } from '@/components/ui/displayModeSelector.helpers';
@@ -837,6 +838,11 @@ class LayoutServiceImpl implements LayoutService {
     const centerStack = this.getCenterStack();
     const front = centerStack?.getActiveComponentItem?.() ?? centerStack?.contentItems[0];
     if (!front || !isComponentItem(front)) return false;
+    const workspaceId = getComponentState(front).workspaceId;
+    if (typeof workspaceId === 'string') {
+      void requestWorkspaceClose(workspaceId);
+      return true;
+    }
     try {
       // Outside the programmatic guards, like the ×: a workspace tab's destroy
       // handler closes its workspace (workspaceTabSync).

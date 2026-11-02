@@ -2,6 +2,8 @@
 // DO NOT EDIT - changes will be overwritten.
 
 export const apiBridgeCommands = [
+  "dispose_module_workspace",
+  "get_render_capabilities",
   "load_file",
   "load_surface",
   "unload_surface",
@@ -14,6 +16,7 @@ export const apiBridgeCommands = [
   "set_volume_timepoint",
   "get_volume_timepoint",
   "get_volume_info",
+  "get_volume_native_plane",
   "get_nifti_header_info",
   "peek_volume_metadata",
   "get_initial_views",
@@ -139,6 +142,13 @@ export const apiBridgeCommands = [
   "start_analysis",
   "cancel_analysis",
   "get_analysis_job_status",
+  "segmentation_create_session",
+  "segmentation_get_session",
+  "segmentation_preview_stroke",
+  "segmentation_commit_stroke",
+  "segmentation_undo",
+  "segmentation_set_label_state",
+  "segmentation_get_slice",
 ] as const;
 
 export type ApiBridgeCommand = (typeof apiBridgeCommands)[number];

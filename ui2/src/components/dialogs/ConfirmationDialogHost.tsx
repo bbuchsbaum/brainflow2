@@ -20,6 +20,7 @@ export function ConfirmationDialogHost() {
   // A new prompt's suggested value is still to be selected.
   const selectPromptPendingRef = useRef(false);
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusedElementRef = useRef<HTMLElement | null>(null);
   const previousBodyOverflowRef = useRef<string>('');
   const wasOpenRef = useRef(false);
@@ -145,7 +146,9 @@ export function ConfirmationDialogHost() {
     const focusTarget =
       activeRequest.kind === 'prompt'
         ? promptInputRef.current
-        : confirmButtonRef.current ?? getFocusableElements(dialogRef.current)[0] ?? dialogRef.current;
+        : activeRequest.tone === 'destructive'
+          ? cancelButtonRef.current ?? confirmButtonRef.current
+          : confirmButtonRef.current ?? getFocusableElements(dialogRef.current)[0] ?? dialogRef.current;
 
     focusTarget?.focus();
   }, [activeRequest, requestId]);
@@ -236,7 +239,7 @@ export function ConfirmationDialogHost() {
 
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           {activeRequest.kind !== 'alert' && (
-            <Button type="button" variant="secondary" size="sm" onClick={handleCancel}>
+            <Button ref={cancelButtonRef} type="button" variant="secondary" size="sm" onClick={handleCancel}>
               {activeRequest.cancelLabel ?? 'Cancel'}
             </Button>
           )}

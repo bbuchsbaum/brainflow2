@@ -4,6 +4,8 @@
 //! resources stay in `render_loop`; this crate owns only serializable request,
 //! response, and display-state contracts.
 
+pub mod capabilities;
 pub mod view_state;
+pub use capabilities::*;
 
 pub use view_state::*;

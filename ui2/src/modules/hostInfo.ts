@@ -6,6 +6,7 @@
  */
 
 import { getConfiguredTransport, getHostCapabilities } from '@/services/transport';
+import { desktopCapabilities } from '@/services/hostCapabilities';
 import type { HostCapability, ModuleHostKind } from './api';
 
 export function currentModuleHost(): ModuleHostKind {
@@ -20,6 +21,6 @@ export function currentHostCapabilities(): Partial<Record<HostCapability, boolea
   try {
     return getHostCapabilities();
   } catch {
-    return { nativePaths: true, remoteMounts: true, externalProcesses: true };
+    return currentModuleHost() === 'desktop' ? desktopCapabilities : {};
   }
 }

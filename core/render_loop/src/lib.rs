@@ -80,6 +80,7 @@ pub use facade::{
     RendererLimits, RendererPowerPreference, RendererVolumeFormat, RendererVolumeHandle,
     WgpuSliceRenderer, WgpuSliceRendererConfig,
 };
+pub use multi_texture_manager::{EditableTextureHandle, LabelRegionUpdate};
 // Re-export optimized renderer
 use layer_uniforms::LayerUniformManager;
 use multi_texture_manager::MultiTextureManager;
@@ -2106,6 +2107,7 @@ impl RenderLoopService {
             data_range.1
         );
 
+        self.bind_editable_volume_id(&volume_id, texture_index)?;
         // Also update volume_metadata with the correct data range
         self.volume_metadata.insert(texture_index, metadata.clone());
 
@@ -2139,6 +2141,7 @@ impl RenderLoopService {
             })?
             .clone();
 
+        self.bind_editable_volume_id(&volume_id, texture_index)?;
         // Register in volumes map
         self.volumes.insert(
             volume_id.clone(),
@@ -2150,6 +2153,19 @@ impl RenderLoopService {
         );
         self.invalidate_prepared_layer_state_cache();
 
+        Ok(())
+    }
+
+    fn bind_editable_volume_id(
+        &mut self,
+        volume_id: &str,
+        texture_index: u32,
+    ) -> Result<(), RenderLoopError> {
+        if let Some(manager) = self.multi_texture_manager.as_mut() {
+            if let Some(handle) = manager.editable_handle(texture_index) {
+                manager.bind_editable_volume(handle, volume_id)?;
+            }
+        }
         Ok(())
     }
 
@@ -2200,6 +2216,70 @@ impl RenderLoopService {
             }
         }
         self.invalidate_prepared_layer_state_cache();
+    }
+
+    /// Upload mutable categorical IDs into exact storage. The returned handle
+    /// belongs to this residency only; re-uploading after eviction gets a new one.
+    pub fn upload_editable_labels(
+        &mut self,
+        volume: &DenseVolume3<u16>,
+        revision: u64,
+    ) -> Result<EditableTextureHandle, RenderLoopError> {
+        let (index, _) =
+            self.upload_volume_3d_with_format(volume, wgpu::TextureFormat::R32Float)?;
+        match self
+            .multi_texture_manager
+            .as_mut()
+            .ok_or_else(|| RenderLoopError::Internal {
+                code: 7013,
+                details: "Multi-texture manager not initialized".into(),
+            })?
+            .claim_editable(index, revision)
+        {
+            Ok(handle) => Ok(handle),
+            Err(error) => {
+                let _ = self.release_volume(index);
+                Err(error)
+            }
+        }
+    }
+
+    pub fn editable_volume_handle(&self, volume_id: &str) -> Option<EditableTextureHandle> {
+        let index = self.volumes.get(volume_id)?.atlas_index;
+        self.multi_texture_manager
+            .as_ref()?
+            .editable_handle_for_volume(volume_id, index)
+    }
+
+    /// Apply a revisioned label region without replacing its texture or binding.
+    pub fn update_volume_region(
+        &mut self,
+        handle: EditableTextureHandle,
+        update: &LabelRegionUpdate<'_>,
+    ) -> Result<(), RenderLoopError> {
+        self.multi_texture_manager
+            .as_mut()
+            .ok_or_else(|| RenderLoopError::Internal {
+                code: 7013,
+                details: "Multi-texture manager not initialized".into(),
+            })?
+            .update_label_region(&self.queue, handle, update)?;
+        let range = (
+            f32::from(update.data_range.0),
+            f32::from(update.data_range.1),
+        );
+        if let Some(metadata) = self.volume_metadata.get_mut(&handle.texture_index()) {
+            metadata.data_range = range;
+        }
+        for volume in self
+            .volumes
+            .values_mut()
+            .filter(|v| v.atlas_index == handle.texture_index())
+        {
+            volume.metadata.data_range = range;
+        }
+        self.invalidate_prepared_layer_state_cache();
+        Ok(())
     }
 
     /// Replace an existing atlas texture with a new 3D volume (world-space rendering only).

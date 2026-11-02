@@ -105,8 +105,14 @@ use projection_geometry::build_volume3d_from_projection;
 // Core module-management commands, in crate-root scope for `command_list.rs`.
 // Module commands are listed by section and resolved as `modules::<id>::<cmd>`.
 use error_helpers::*;
-use modules::{list_modules, set_enabled_modules};
-pub use modules::{module_descriptors, ModuleDescriptor, ModuleInfo, ModuleStage};
+pub use modules::segmentation::{
+    SegmentationAccess, SegmentationCommit, SegmentationSessionInfo, SegmentationSlice,
+};
+mod editable_labels;
+use modules::{dispose_module_workspace, list_modules, set_enabled_modules};
+pub use modules::{
+    module_descriptors, ModuleDescriptor, ModuleInfo, ModuleStage, WorkspaceIdentity,
+};
 // Phase 3 command modules (export, clusters, voxel queries), re-exported so
 // `command_list.rs` and the TS exporter see them at the crate root.
 use bids_commands::{
@@ -985,6 +991,12 @@ pub struct VolumeEntry {
     pub current_timepoint: Option<usize>,
     /// Metadata about the volume
     pub metadata: VolumeMetadataInfo,
+    /// Mutable core label data; absent for immutable loaded images.
+    pub editable_revision: Option<u64>,
+    /// An open editing document retains CPU data independently of display layers.
+    pub document_references: usize,
+    /// Header captured at acquisition; editing must not re-read a changed path.
+    pub source_nifti_header: Option<Arc<[u8]>>,
 }
 
 pub use volume_service::VolumeMetadataInfo;
@@ -1081,6 +1093,9 @@ impl VolumeRegistry {
                 data: Arc::new(data),
                 current_timepoint,
                 metadata,
+                editable_revision: None,
+                document_references: 0,
+                source_nifti_header: None,
             },
         );
     }
@@ -1155,6 +1170,13 @@ impl VolumeRegistry {
 
     /// Remove a volume from the registry
     pub fn remove(&mut self, id: &str) -> Option<VolumeEntry> {
+        if self
+            .volumes
+            .get(id)
+            .is_some_and(|entry| entry.document_references > 0)
+        {
+            return None;
+        }
         self.parcel_dictionaries.remove(id);
         self.parcel_overlays.remove(id);
         self.volumes.remove(id)
@@ -3992,6 +4014,10 @@ async fn request_layer_gpu_resources_with_upload_hook(
                 .map(|e| e.metadata.path.starts_with("atlas:"))
                 .unwrap_or(false);
 
+            let editable_revision = volume_registry_guard
+                .get_entry(&source_volume_id)
+                .and_then(|entry| entry.editable_revision);
+
             // Capture the current 4D timepoint before releasing the registry lock so
             // neither the off-reactor upload nor the post-upload bookkeeping needs the
             // registry. `timepoint` is the unwrapped index used during upload;
@@ -4061,6 +4087,11 @@ async fn request_layer_gpu_resources_with_upload_hook(
                             VolumeSendable::VolI8(vol, _) => render_service
                                 .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            VolumeSendable::VolU16(vol, _) if editable_revision.is_some() => {
+                                let handle = render_service.upload_editable_labels(vol, editable_revision.expect("editable revision"))
+                                    .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?;
+                                (handle.texture_index(), vol.space().world_to_voxel())
+                            }
                             VolumeSendable::VolU16(vol, _) => render_service
                                 .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
@@ -15762,4 +15793,55 @@ async fn get_atlas_roi_locations(
     tokio::task::spawn_blocking(move || atlas_roi::locations(&dictionary, &volume))
         .await
         .map_err(|e| parcel_overlay::input(e.to_string()))?
+}
+
+/// A native reference-grid plane for setup and other module consumers. Grid
+/// geometry comes from the loaded volume; display flips remain explicit.
+#[command]
+async fn get_volume_native_plane(
+    volume_id: String,
+    normal_axis: u8,
+    slice_index: u32,
+    dimensions: [u32; 2],
+    flips: [bool; 2],
+    state: State<'_, BridgeState>,
+) -> BridgeResult<neuro_types::ViewRectMm> {
+    let registry = state.volume_registry.lock().await;
+    let volume = registry.get(&volume_id).ok_or_else(|| BridgeError::Input {
+        code: 12100,
+        details: "Reference image is no longer loaded".into(),
+    })?;
+    let dims = get_spatial_dims_from_volume(volume);
+    neuro_types::native_slice_geometry(
+        &neuro_types::VolumeMetadata {
+            dimensions: [dims[0], dims[1], dims[2]],
+            voxel_to_world: get_affine_from_volume(volume)?.to_homogeneous(),
+        },
+        normal_axis,
+        slice_index,
+        dimensions,
+        flips,
+    )
+    .map(|plane| neuro_types::ViewRectMm::from(&plane))
+    .map_err(|error| BridgeError::Input {
+        code: 12100,
+        details: error.to_string(),
+    })
+}
+
+/// Core renderer features available to module consumers. Unsupported features
+/// are absent, so a newer UI cannot accidentally enable a module on an older core.
+#[command]
+fn get_render_capabilities() -> render_contracts::RenderCapabilities {
+    use render_contracts::RenderFeature::*;
+    render_contracts::RenderCapabilities {
+        features: vec![
+            EditableLabels,
+            SubRegionUpload,
+            MultiOutline,
+            ZoomPan,
+            NativePlanes,
+            ObliquePlanes,
+        ],
+    }
 }

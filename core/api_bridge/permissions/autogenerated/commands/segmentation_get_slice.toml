@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-segmentation-get-slice"
+description = "Enables the segmentation_get_slice command without any pre-configured scope."
+commands.allow = ["segmentation_get_slice"]
+
+[[permission]]
+identifier = "deny-segmentation-get-slice"
+description = "Denies the segmentation_get_slice command without any pre-configured scope."
+commands.deny = ["segmentation_get_slice"]

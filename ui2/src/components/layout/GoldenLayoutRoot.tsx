@@ -57,7 +57,7 @@ import {
   handleWorkspaceTabDestroyed,
   programmaticTabChange,
   programmaticTabRemoval,
-  removeClosedWorkspaceTab,
+  removeClosedWorkspaceTabAnywhere,
   shouldSyncStoreFromTab,
 } from './workspaceTabSync';
 import { ensureCentreStack, getCentreStack } from './centreStack';
@@ -85,6 +85,8 @@ import {
 } from '@/services/firstScreenService';
 // Right-rail Inspector — single tab; mode-aware via InspectorRouter.
 import { InspectorRouter } from '@/components/inspector/InspectorRouter';
+import { installWorkspaceCloseCapture } from './workspaceCloseCapture';
+import { requestWorkspaceClose } from '@/services/workspaceDocuments';
 
 // GoldenLayout styles are imported in index.css to ensure proper cascade order
 
@@ -287,8 +289,8 @@ export function GoldenLayoutRoot() {
 
     // A tab GoldenLayout is destroying (the user closed it, or its stack)
     // is left to GoldenLayout; see removeClosedWorkspaceTab.
-    const removed = removeClosedWorkspaceTab(
-      getCenterWorkspaceStack(layoutRef.current),
+    const removed = removeClosedWorkspaceTabAnywhere(
+      layoutRef.current.rootItem,
       workspaceId,
     );
     addedWorkspacesRef.current.delete(workspaceId);
@@ -304,6 +306,13 @@ export function GoldenLayoutRoot() {
 
     const goldenLayout = new GoldenLayout(containerRef.current);
     layoutRef.current = goldenLayout;
+    // This must precede loadLayout (and centreStack's own capture workaround):
+    // GoldenLayout destroy events cannot cancel a close once they fire.
+    const removeCloseCapture = installWorkspaceCloseCapture(
+      goldenLayout,
+      containerRef.current,
+      requestWorkspaceClose,
+    );
 
     // Set the layout reference in the layout service for external access
     getLayoutService().setLayoutRef(goldenLayout);
@@ -643,6 +652,7 @@ export function GoldenLayoutRoot() {
 
     return () => {
       offSurfaces();
+      removeCloseCapture();
       // Remove panel event listener
       window.removeEventListener('golden-layout-add-panel', handlePanelAdd as EventListener);
 
@@ -983,10 +993,10 @@ export function GoldenLayoutRoot() {
                 break;
 
               case 'close-workspace': {
-                const { activeWorkspaceId: closingId, closeWorkspace } =
+                const { activeWorkspaceId: closingId } =
                   useWorkspaceStore.getState();
                 if (closingId) {
-                  closeWorkspace(closingId);
+                  void requestWorkspaceClose(closingId);
                 }
                 break;
               }

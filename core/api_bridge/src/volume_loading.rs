@@ -1,6 +1,84 @@
 //! Desktop I/O and registry adapter for the portable volume lifecycle service.
 use crate::*;
+use std::{
+    fs::Metadata,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 use volume_service::{LoadScope, PreparedVolume, VolumeRepository, VolumeSource};
+
+/// Filesystem identity observed for one native acquisition. This is an
+/// optimistic consistency check over the source reads; it is not an immutable
+/// snapshot against metadata-invisible changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AcquisitionFileStamp {
+    length: u64,
+    modified: SystemTime,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+
+impl AcquisitionFileStamp {
+    fn read(metadata: Metadata) -> BridgeResult<Self> {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+
+        Ok(Self {
+            length: metadata.len(),
+            modified: metadata.modified()?,
+            #[cfg(unix)]
+            identity: (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+            ),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AcquisitionSourceStamp {
+    canonical_path: PathBuf,
+    file: AcquisitionFileStamp,
+}
+
+impl AcquisitionSourceStamp {
+    fn capture(path: &Path) -> BridgeResult<Self> {
+        let canonical_path = path.canonicalize()?;
+        Ok(Self {
+            file: AcquisitionFileStamp::read(canonical_path.metadata()?)?,
+            canonical_path,
+        })
+    }
+
+    fn validate(&self, original_path: &Path) -> BridgeResult<()> {
+        match Self::capture(original_path) {
+            Ok(observed) if observed == *self => Ok(()),
+            Ok(_) | Err(_) => Err(BridgeError::Input {
+                code: 1005,
+                details: "Source changed while loading file; retry the load.".into(),
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
+type AfterRawHeaderHook = Box<dyn FnOnce() + Send + 'static>;
+#[cfg(test)]
+fn after_raw_header_hooks(
+) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, AfterRawHeaderHook>> {
+    static HOOKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, AfterRawHeaderHook>>,
+    > = std::sync::OnceLock::new();
+    HOOKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+#[cfg(test)]
+fn run_after_raw_header_hook(path: &Path) {
+    if let Some(hook) = after_raw_header_hooks().lock().unwrap().remove(path) {
+        hook();
+    }
+}
 
 pub(crate) struct NativeVolumeSource<'a> {
     pub path: String,
@@ -33,16 +111,27 @@ impl VolumeSource for NativeVolumeSource<'_> {
             });
         }
 
+        // Capture one identity after remote materialization and keep its resolved
+        // path for every source read in this acquisition. A final re-resolution
+        // prevents publishing a header, decoded data, and metadata from different
+        // same-sized source revisions.
+        let source_stamp = AcquisitionSourceStamp::capture(&file_path)?;
+
         // Load the volume data.
         // [perf] The decode (gzip inflate + full f32 materialization) is CPU-bound
         // and ~100ms+ on a real volume. Run it on a blocking thread so it does not
         // stall the async runtime (and every other in-flight command) for that span.
         let decode_start = Instant::now();
-        let decode_path = file_path.clone();
+        let decode_path = source_stamp.canonical_path.clone();
         // Dispatches on the header: multi-frame files load every frame as a
         // TimeSeries4D (the 3D-only loader would keep frame 0).
-        let volume_sendable = tokio::task::spawn_blocking(move || {
-            nifti_loader::load_nifti_auto_dimension(&decode_path)
+        let (volume_sendable, source_nifti_header) = tokio::task::spawn_blocking(move || {
+            nifti_loader::check_nifti_file(&decode_path)?;
+            let header = nifti_loader::read_source_header_bytes(&decode_path)?;
+            #[cfg(test)]
+            run_after_raw_header_hook(&decode_path);
+            let volume = nifti_loader::load_nifti_auto_dimension(&decode_path)?;
+            Ok::<_, nifti_loader::NiftiError>((volume, header))
         })
         .await
         .map_err(|e| BridgeError::Internal {
@@ -66,7 +155,7 @@ impl VolumeSource for NativeVolumeSource<'_> {
         // this closure so only 4D loads pay for it; the 3D arms never call it. `tr`
         // is normalized to seconds.
         let make_time_series_info = |num_timepoints: usize| {
-            let temporal_meta = nifti_loader::read_temporal_metadata(&file_path);
+            let temporal_meta = nifti_loader::read_temporal_metadata(&source_stamp.canonical_path);
             bridge_types::TimeSeriesInfo {
                 num_timepoints,
                 tr: temporal_meta.tr_seconds,
@@ -211,7 +300,7 @@ impl VolumeSource for NativeVolumeSource<'_> {
         };
 
         // Statistic/label intent from one header read, off the async runtime.
-        let intent = stat_metadata::read_volume_intent(file_path.clone()).await;
+        let intent = stat_metadata::read_volume_intent(source_stamp.canonical_path.clone()).await;
 
         // Return the handle
         let handle = VolumeHandleInfo {
@@ -228,7 +317,12 @@ impl VolumeSource for NativeVolumeSource<'_> {
             is_label_map: intent.is_label_map,
         };
         scope.check()?;
+        // The temporal and intent reads above must belong to the same source as
+        // the header and decoded volume. Re-resolve the original pathname at the
+        // final publication boundary so a replacement cannot reach the registry.
+        source_stamp.validate(&file_path)?;
         Ok(PreparedVolume {
+            source_nifti_header: Some(source_nifti_header),
             data: volume_sendable,
             metadata,
             handle,
@@ -324,7 +418,13 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
         let _operation = self.0.volume_operations.lock().await;
         let mut registry = self.0.volume_registry.lock().await;
         scope.commit(|| {
-            registry.insert(volume.handle.id.clone(), volume.data, volume.metadata);
+            let id = volume.handle.id.clone();
+            registry.insert(id.clone(), volume.data, volume.metadata);
+            registry
+                .volumes
+                .get_mut(&id)
+                .expect("published volume")
+                .source_nifti_header = volume.source_nifti_header.map(Arc::from);
             Ok(volume.handle)
         })
     }
@@ -367,6 +467,13 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
                 details: volume_id.into(),
             });
         }
+        if registry
+            .get_entry(volume_id)
+            .is_some_and(|entry| entry.document_references > 0)
+        {
+            // Releasing the last display reference must not discard an open document.
+            return Ok(());
+        }
         release_volume(
             renderer.as_deref_mut(),
             &mut samplers,
@@ -401,6 +508,7 @@ pub(crate) fn release_volume(
 ) {
     if let Some(renderer) = renderer {
         renderer.remove_custom_colormap(&format!("parcel:{}", volume_id));
+        renderer.remove_custom_colormap(&format!("editable-label:{}", volume_id));
     }
     samplers.retain(|_, entry| entry.template_volume_id != volume_id);
     registry.remove(volume_id);
@@ -421,6 +529,7 @@ mod tests {
 
     fn prepared() -> PreparedVolume {
         PreparedVolume {
+            source_nifti_header: None,
             data: volume(),
             metadata: VolumeMetadataInfo {
                 name: "brain".into(),
@@ -491,6 +600,123 @@ mod tests {
         assert!(state.layer_to_volume_map.lock().await.is_empty());
         assert!(state.layer_to_timepoint_map.lock().await.is_empty());
         assert!(state.layer_leases.lock().await.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn native_acquisition_rejects_same_size_same_mtime_replacement_after_header() {
+        let path = std::env::temp_dir().join(format!(
+            "brainflow-source-replacement-{}.nii",
+            uuid::Uuid::new_v4()
+        ));
+        let replacement = path.with_extension("replacement.nii");
+        struct Cleanup(Vec<PathBuf>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                for path in &self.0 {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+        let _cleanup = Cleanup(vec![path.clone(), replacement.clone()]);
+
+        write_fixture_style_nifti(&path, [3, 2, 2, 1], 1.0);
+        let original_metadata = std::fs::metadata(&path).unwrap();
+        let original_len = original_metadata.len();
+        let original_mtime = original_metadata.modified().unwrap();
+
+        // Same layout and byte count, but a different world transform and payload.
+        write_fixture_style_nifti(&replacement, [3, 2, 2, 1], 1.0);
+        let mut replacement_bytes = std::fs::read(&replacement).unwrap();
+        replacement_bytes[280..284].copy_from_slice(&9.0f32.to_le_bytes());
+        replacement_bytes[352..356].copy_from_slice(&9.0f32.to_le_bytes());
+        std::fs::write(&replacement, replacement_bytes).unwrap();
+        std::fs::File::open(&replacement)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(original_mtime))
+            .unwrap();
+        assert_eq!(std::fs::metadata(&replacement).unwrap().len(), original_len);
+        assert_eq!(
+            std::fs::metadata(&replacement).unwrap().modified().unwrap(),
+            original_mtime
+        );
+
+        let hook_path = path.canonicalize().unwrap();
+        after_raw_header_hooks().lock().unwrap().insert(
+            hook_path,
+            Box::new({
+                let path = path.clone();
+                let replacement = replacement.clone();
+                move || {
+                    std::fs::rename(&replacement, &path).unwrap();
+                    let observed = std::fs::metadata(&path).unwrap();
+                    assert_eq!(observed.len(), original_len);
+                    assert_eq!(observed.modified().unwrap(), original_mtime);
+                }
+            }),
+        );
+
+        let state = BridgeState::default().unwrap();
+        let error = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, BridgeError::Input { code: 1005, .. }));
+        assert!(state.volume_registry.lock().await.volumes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn native_acquisition_retains_original_header_after_source_changes() {
+        let path = std::env::temp_dir().join(format!(
+            "brainflow-reference-header-{}.nii",
+            uuid::Uuid::new_v4()
+        ));
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(path.clone());
+        write_fixture_style_nifti(&path, [3, 2, 2, 1], 1.0);
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[40..42].copy_from_slice(&3i16.to_le_bytes());
+        bytes[252..254].copy_from_slice(&1i16.to_le_bytes());
+        bytes[268..272].copy_from_slice(&7.0f32.to_le_bytes());
+        std::fs::write(&path, &bytes).unwrap();
+        let expected = bytes[..348].to_vec();
+        let state = BridgeState::default().unwrap();
+        let handle = VolumeLoadingService::load(
+            &NativeVolumeSource {
+                path: path.to_string_lossy().into(),
+                state: &state,
+            },
+            &DesktopVolumeRepository(&state),
+            &LoadScope::default(),
+        )
+        .await
+        .unwrap();
+        bytes[268..272].copy_from_slice(&9000.0f32.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        let registry = state.volume_registry.lock().await;
+        let captured = registry
+            .get_entry(&handle.id)
+            .unwrap()
+            .source_nifti_header
+            .as_ref()
+            .unwrap();
+        assert_eq!(captured.as_ref(), expected);
+        let header = nifti::NiftiHeader::from_reader(captured.as_ref()).unwrap();
+        assert_eq!(
+            (header.qform_code, header.sform_code, header.quatern_x),
+            (1, 4, 7.0)
+        );
     }
 
     #[tokio::test]

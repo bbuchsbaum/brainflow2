@@ -638,6 +638,17 @@ impl<T: neuroim::Numeric + Serialize + PartialEq> CompatibleVolume<T> {
         Some((min, max))
     }
 
+    /// Compatibility pass-through to neuroim's existing checked voxel mutator.
+    pub fn set_at(
+        &mut self,
+        coords: [usize; 3],
+        value: T,
+    ) -> std::result::Result<(), VolumeMathError> {
+        self.inner
+            .set_at(coords[0], coords[1], coords[2], value)
+            .map_err(Into::into)
+    }
+
     pub fn data_slice(&self, axis: usize, index: usize) -> Vec<T> {
         // Extract slice along the specified axis at the given index
         let dims = &self.inner.space().dim;

@@ -4,7 +4,9 @@
 //! renderer without depending on Brainflow app state or public WGPU resources.
 
 use crate::multi_texture_manager;
-use crate::{AtlasMetrics, RenderLoopError, RenderLoopService};
+use crate::{
+    AtlasMetrics, EditableTextureHandle, LabelRegionUpdate, RenderLoopError, RenderLoopService,
+};
 use render_contracts::{FrameRequestOptions, FrameResult, ViewId, ViewState};
 use serde::Serialize;
 use volmath::{DataRange, DenseVolume3, VoxelData};
@@ -93,6 +95,38 @@ impl WgpuSliceRenderer {
             volume_id: id.to_owned(),
             texture_index,
         })
+    }
+
+    /// Register editable u16 labels with a residency identity and initial revision.
+    pub fn register_editable_labels(
+        &mut self,
+        id: &str,
+        volume: &DenseVolume3<u16>,
+        revision: u64,
+    ) -> Result<EditableTextureHandle, RenderLoopError> {
+        if self.service.volumes.contains_key(id) {
+            return Err(RenderLoopError::Internal {
+                code: 1703,
+                details: format!("Volume '{id}' is already registered"),
+            });
+        }
+        let handle = self.service.upload_editable_labels(volume, revision)?;
+        if let Err(error) = self
+            .service
+            .register_volume(id.to_owned(), handle.texture_index())
+        {
+            let _ = self.service.release_volume(handle.texture_index());
+            return Err(error);
+        }
+        Ok(handle)
+    }
+
+    pub fn update_volume_region(
+        &mut self,
+        handle: EditableTextureHandle,
+        update: &LabelRegionUpdate<'_>,
+    ) -> Result<(), RenderLoopError> {
+        self.service.update_volume_region(handle, update)
     }
 
     /// The caller owns the key and releases it after its last referring layer.

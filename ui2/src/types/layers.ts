@@ -10,6 +10,8 @@ export interface Layer {
   id: string;
   name: string;
   volumeId: string;
+  /** Namespaced module layer descriptor; the core type remains a fallback. */
+  layerKind?: string;
   type: "anatomical" | "functional" | "mask" | "label";
   visible: boolean;
   order: number;

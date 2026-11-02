@@ -37,6 +37,7 @@ import { preserveLayerDisplay } from './restoredDisplay';
 import type { LayerRenderOverride } from '@/types/comparison';
 import { removeLayerFromScene } from './layerRemoval';
 import { isTextEditingElement } from '@/utils/editSelectAll';
+import { runWorkspaceEditCommand } from './workspaceEditHistory';
 
 export { isTextEditingElement };
 
@@ -754,6 +755,7 @@ export function runEditCommand(action: 'undo' | 'redo', from: 'key' | 'menu'): v
     if (from === 'menu') document.execCommand(action);
     return;
   }
+  if (runWorkspaceEditCommand(action)) return;
   const history = getSceneHistory();
   const restoring = history.restoringName();
   if (restoring !== null) {

@@ -33,3 +33,6 @@ export type {
   SliceViewerSurfaceProps,
   SliceViewerWorldCoord,
 } from './types.js';
+
+export { ViewportPointerController } from './pointerTools.js';
+export type { ViewportTool, ViewportPointerSample, PointerCancelReason } from './pointerTools.js';

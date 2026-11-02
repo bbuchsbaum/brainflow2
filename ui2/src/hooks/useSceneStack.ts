@@ -1,3 +1,4 @@
+import { moduleRegistry, useModuleRegistryVersion, type RegisteredLayerKind } from '@/modules/registry';
 import { useMemo } from 'react';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useSurfaceStore, type LoadedSurface, type SurfaceDataLayer } from '@/stores/surfaceStore';
@@ -19,6 +20,8 @@ import { isAtlasLikeLayer } from '@/utils/sceneItemKind';
  * `SurfaceDataLayer.volumeId`.
  */
 export function useSceneStack(): SceneStackGroups {
+  useModuleRegistryVersion();
+  const layerKinds = moduleRegistry.getLayerKinds();
   const volumeLayers = useLayerStore((state) => state.layers);
   const imageSets = useImageSetStore((state) => state.sets);
   const surfaces = useSurfaceStore((state) => state.surfaces);
@@ -27,8 +30,8 @@ export function useSceneStack(): SceneStackGroups {
   );
 
   return useMemo(
-    () => buildSceneStack(volumeLayers, surfaces, viewStateLayers, imageSets),
-    [volumeLayers, surfaces, viewStateLayers, imageSets]
+    () => buildSceneStack(volumeLayers, surfaces, viewStateLayers, imageSets, layerKinds),
+    [volumeLayers, surfaces, viewStateLayers, imageSets, layerKinds]
   );
 }
 
@@ -40,6 +43,7 @@ export function buildSceneStack(
   surfaces: Map<string, LoadedSurface>,
   viewStateLayers: ReadonlyArray<{ id: string; render?: { opacity?: number } }> | null,
   imageSets: Record<string, ImageSelectionSet> = {},
+  layerKinds: readonly RegisteredLayerKind[] = moduleRegistry.getLayerKinds(),
 ): SceneStackGroups {
   const opacityById = new Map<string, number>();
   if (viewStateLayers) {
@@ -64,11 +68,12 @@ export function buildSceneStack(
     const imageSet = layer.imageSetId ? imageSets[layer.imageSetId] : undefined;
     // A user-loaded label map (NIfTI label intent or a label-table sidecar)
     // gets the same categorical treatment as a catalogue atlas.
-    const isAtlas = isAtlasLikeLayer(layer);
+    const declared = layerKinds.find((kind) => kind.id === layer.layerKind);
+    const isAtlas = declared ? declared.baseRenderMode === 'label' : isAtlasLikeLayer(layer);
     let kind: SceneItem['kind'];
     if (isAtlas) {
       kind = 'volume-overlay-atlas';
-    } else if (!baseClaimed) {
+    } else if (!baseClaimed && (!declared || declared.stackingBand <= 2)) {
       kind = 'volume-base';
       baseClaimed = true;
     } else {
@@ -78,6 +83,7 @@ export function buildSceneStack(
       id: layer.id,
       kind,
       group: 'volume',
+      layerKind: layer.layerKind,
       name: layer.name,
       subtitle: imageSet ? `image set · ${imageSet.activeIndex + 1}/${imageSet.members.length} · ${imageSet.members[imageSet.activeIndex]?.name ?? ''}` : buildVolumeSubtitle(
         layer,

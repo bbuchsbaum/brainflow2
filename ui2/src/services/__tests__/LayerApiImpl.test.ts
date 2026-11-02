@@ -1,3 +1,4 @@
+import { moduleRegistry, type RegisteredLayerKind } from '@/modules/registry';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
 import { expectLandingFrame, forgetLandingFrame } from '@/services/landingFrames';
@@ -7,6 +8,10 @@ import { fitViewsToWorldBox, worldBoxFromViews } from '@/utils/worldFrame';
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useSeriesStore } from '@/stores/seriesStore';
+
+const mockDocumentRemovalReason = vi.hoisted(() => vi.fn((): string | null => null));
+const mockRemovalAdmission = vi.hoisted(() => ({ reserve: vi.fn(), release: vi.fn() }));
+vi.mock('@/services/workspaceDocuments', () => ({ volumeDocumentRemovalReason: mockDocumentRemovalReason, reserveDocumentVolumeRemoval: mockRemovalAdmission.reserve }));
 
 const {
   mockApiService,
@@ -117,7 +122,34 @@ interface Internals {
 }
 
 describe('LayerApiImpl', () => {
+  it('holds source-removal admission through deferred GPU release and unload', async () => {
+    let finish!: () => void;
+    mockApiService.releaseLayerGpuResources.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    mockLayerStoreState.getLayer.mockReturnValue({ id: 'removing-layer', volumeId: 'removing-volume', name: 'Reference' });
+    const pending = new LayerApiImpl().removeLayer('removing-layer');
+    expect(mockRemovalAdmission.reserve).toHaveBeenCalledWith('removing-volume');
+    expect(mockRemovalAdmission.release).not.toHaveBeenCalled();
+    expect(mockApiService.unloadVolume).not.toHaveBeenCalled();
+    finish(); await pending;
+    expect(mockApiService.unloadVolume).toHaveBeenCalledWith('removing-volume');
+    expect(mockRemovalAdmission.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a retained source before GPU release, unload or queue/store mutation', async () => {
+    mockLayerStoreState.getLayer.mockReturnValue({ id: 'reference-layer', volumeId: 'reference-volume', name: 'Reference' });
+    mockDocumentRemovalReason.mockReturnValue('Close the session before removing this image.');
+    const api = new LayerApiImpl();
+    await expect(api.removeLayer('reference-layer')).rejects.toThrow('Close the session');
+    expect(mockDocumentRemovalReason).toHaveBeenCalledWith('reference-volume');
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    expect(mockApiService.unloadVolume).not.toHaveBeenCalled();
+    expect(mockLayerStoreState.removeLayer).not.toHaveBeenCalled();
+    expect(mockQueueState.enqueue).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
+    mockDocumentRemovalReason.mockReturnValue(null);
+    mockRemovalAdmission.reserve.mockImplementation(() => mockRemovalAdmission.release);
     vi.clearAllMocks();
     mockQueueState.isLoading.mockReturnValue(false);
     mockQueueState.enqueue.mockReturnValue('queue-1');
@@ -166,6 +198,28 @@ describe('LayerApiImpl', () => {
     mockViewStateStoreState.setViewState.mockImplementation((updater: any) => {
       updater(mockViewStateStoreState.viewState);
     });
+  });
+
+  it('uses a declared label mode and preserves it as the saved core fallback', async () => {
+    const descriptor: RegisteredLayerKind = { id: 'probe.labels', moduleId: 'probe', title: 'Labels', baseRenderMode: 'label', stackingBand: 4, icon: 'labels', capabilities: { thresholdable: false, colormappable: false, editable: true, outline: true } };
+    const lookup = vi.spyOn(moduleRegistry, 'getLayerKind').mockImplementation((id) => id === descriptor.id ? descriptor : undefined);
+    try {
+      const layer = await new LayerApiImpl().addLayer({ name: 'ROI', volumeId: 'roi', layerKind: descriptor.id, visible: true, type: 'anatomical', order: 0 }, { workspaceId: 'test' });
+      expect(layer.type).toBe('label');
+      expect(mockViewStateStoreState.viewState.layers[0]).toMatchObject({ layerMode: 'label', interpolation: 'nearest', threshold: [0, 0] });
+    } finally { lookup.mockRestore(); }
+  });
+
+  it('reclaims a provisional upload if its module kind becomes unavailable before publication', async () => {
+    const descriptor: RegisteredLayerKind = { id: 'probe.labels', moduleId: 'probe', title: 'Labels', baseRenderMode: 'label', stackingBand: 4, icon: 'labels', capabilities: { thresholdable: false, colormappable: false, editable: true, outline: true } };
+    let enabled = true;
+    const lookup = vi.spyOn(moduleRegistry, 'getLayerKind').mockImplementation(() => enabled ? descriptor : undefined);
+    mockApiService.waitForLayerReady.mockImplementationOnce(async () => { enabled = false; return true; });
+    try {
+      await expect(new LayerApiImpl().addLayer({ name: 'Late ROI', volumeId: 'late-roi', layerKind: descriptor.id, visible: true, type: 'anatomical', order: 0 }, { workspaceId: 'test' })).rejects.toThrow(/unavailable/);
+      expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('late-roi');
+      expect(mockLayerStoreState.addLayer).not.toHaveBeenCalled();
+    } finally { lookup.mockRestore(); }
   });
 
   it('releases a completed GPU allocation when its destination closes while uploading', async () => {

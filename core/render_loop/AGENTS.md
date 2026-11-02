@@ -132,3 +132,16 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
 - The Y-flip remains in `unpack_gpu_buffer_to_image` at readback. Gate:
   `cargo test -p render_loop --test async_readback_test --test batch_readback_test`
   plus `cargo test -p render_loop --lib readback` (all require a GPU).
+
+## Editable label uploads
+
+- `upload_editable_labels` uses R32Float so every u16 label stays exact as edits
+  introduce larger ids. A handle belongs to one renderer, manager and residency;
+  never substitute a bare reused texture index for it.
+- `update_volume_region` accepts tightly packed x-fastest labels with expected
+  and next revisions. Partial writes advance one revision; full-grid resyncs may
+  catch up. Validation precedes GPU writes. Supply the authoritative global data
+  range from the label store. Ordinary scalar updates reject editable slots.
+- Gate: `cargo test -p render_loop --test label_region_update_test` requires a
+  real GPU and compares partial/full uploads, undo, stale handles and native
+  oblique geometry. It must not soft-skip.

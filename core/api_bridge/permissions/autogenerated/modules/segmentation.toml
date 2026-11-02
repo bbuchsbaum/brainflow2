@@ -1,0 +1,16 @@
+# Automatically generated from the `module segmentation` section of src/command_list.rs by build.rs - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[set]]
+identifier = "module-segmentation"
+description = "Enables every command of the segmentation module."
+permissions = [
+  "allow-segmentation-create-session",
+  "allow-segmentation-get-session",
+  "allow-segmentation-preview-stroke",
+  "allow-segmentation-commit-stroke",
+  "allow-segmentation-undo",
+  "allow-segmentation-set-label-state",
+  "allow-segmentation-get-slice",
+]

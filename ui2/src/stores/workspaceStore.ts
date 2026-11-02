@@ -35,6 +35,7 @@ import {
 } from "./workspaceRestorePolicy";
 import { setActiveDockKeyResolver } from "./layoutSettingsStore";
 import { dockHeightKeyFor } from "@/components/layout/bottomWorkbenchDock.constants";
+import { workspaceCloseIsGuarded } from "@/services/workspaceCloseGuards";
 import {
   isKnownWorkspaceType,
   isWorkspaceTypeAvailable,
@@ -42,6 +43,8 @@ import {
   workspaceBaseName,
   workspaceTypeModule,
 } from "@/services/workspaceTypes";
+
+import type { ModuleWorkspaceState } from "@/modules/api";
 
 interface CreateWorkspaceOptions {
   title?: string;
@@ -84,12 +87,17 @@ interface WorkspaceStore {
    * non-view types, or an unchanged type. Does NOT change which tab is active.
    */
   setActiveWorkspaceType: (type: WorkspaceType) => void;
-  closeWorkspace: (id: string) => void;
+  setWorkspaceViewMode: (id: string, modeId: string) => boolean;
+  /** Returns false while a retained document owns the close decision. */
+  closeWorkspace: (id: string) => boolean;
   /** Close a module's tabs and remember them (the module was switched off). */
   parkModuleWorkspaces: (moduleId: string) => void;
   /** Bring back a module's remembered tabs (the module was switched on). */
   unparkModuleWorkspaces: (moduleId: string) => void;
   updateWorkspaceLayout: (id: string, layoutConfig: LayoutConfig) => void;
+
+  /** Atomically persist module data only on the workspace incarnation that owns it. */
+  updateModuleState: (id: string, timestamp: number, moduleId: string, name: string, value: ModuleWorkspaceState) => boolean;
 
   // Panel management
   updatePanelState: (
@@ -396,7 +404,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // Already in this display mode → no-op. Resolve via display mode (not
         // exact type) so re-clicking "Orthogonal" keeps an orthogonal-flexible
         // workspace flexible instead of snapping it to orthogonal-locked.
-        if (resolveActiveDisplayMode(workspace.type) === mode) return;
+        if (resolveActiveDisplayMode(workspace.type) === mode && !workspace.viewMode) return;
 
         // Back to Orthogonal: the variant this tab last used (QA 2026-10-30
         // F13: Panels, ⌘2, ⌘1 came back as the locked grid).
@@ -418,7 +426,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         const workspace = currentState.workspaces.get(id);
         // Tool tabs have no slice layout; never reconfigure them.
         if (!workspace || !resolveActiveDisplayMode(workspace.type)) return;
-        if (workspace.type === nextType) return;
+        if (workspace.type === nextType && !workspace.viewMode) return;
 
         // A layout change in place drops any preset origin the tab had.
         const isOrthogonal = (type: WorkspaceType) =>
@@ -427,6 +435,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         nextWorkspaces.set(id, {
           ...workspace,
           type: nextType,
+          viewMode: undefined,
           presetId: null,
           // Changing its layout makes the default view the user's own.
           defaultView: undefined,
@@ -443,9 +452,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         );
       },
 
+      setWorkspaceViewMode: (id, modeId) => {
+        const { activeWorkspaceId, workspaces } = get();
+        const workspace = workspaces.get(id);
+        if (activeWorkspaceId !== id || !workspace || !resolveActiveDisplayMode(workspace.type)) return false;
+        if (workspace.viewMode === modeId) return true;
+        const next = new Map(workspaces);
+        next.set(id, { ...workspace, viewMode: modeId, defaultView: undefined });
+        set({ workspaces: next });
+        return true;
+      },
+
       closeWorkspace: (id) => {
         const currentState = get();
-        if (!currentState.workspaces.has(id)) return;
+        if (!currentState.workspaces.has(id) || workspaceCloseIsGuarded(id)) return false;
 
         const nextWorkspaces = new Map(currentState.workspaces);
         nextWorkspaces.delete(id);
@@ -468,6 +488,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         });
 
         console.log(`[WorkspaceStore] Closed workspace: ${id}`);
+        return true;
       },
 
       parkModuleWorkspaces: (moduleId) => {
@@ -532,6 +553,24 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         nextWorkspaces.set(id, { ...workspace, layoutConfig });
         set({ workspaces: nextWorkspaces });
         console.log(`[WorkspaceStore] Updated layout for workspace: ${id}`);
+      },
+
+      updateModuleState: (id, timestamp, moduleId, name, value) => {
+        const { workspaces, parkedWorkspaces } = get();
+        const parked = !workspaces.has(id);
+        const source = parked ? parkedWorkspaces : workspaces;
+        const workspace = source.get(id);
+        if (!workspace || workspace.timestamp !== timestamp) return false;
+        const next = new Map(source);
+        next.set(id, {
+          ...workspace,
+          moduleState: {
+            ...workspace.moduleState,
+            [moduleId]: { ...workspace.moduleState?.[moduleId], [name]: value },
+          },
+        });
+        set(parked ? { parkedWorkspaces: next } : { workspaces: next });
+        return true;
       },
 
       updatePanelState: (workspaceId, panelId, updates) => {
