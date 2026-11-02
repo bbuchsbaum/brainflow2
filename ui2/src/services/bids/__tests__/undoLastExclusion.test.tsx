@@ -18,7 +18,13 @@ describe('a failed undo', () => {
     undoExclusion.mockReset().mockRejectedValue(new Error('disk full'));
     notified.mockClear();
     stop = getEventBus().on('ui.notification', notified);
-    useBidsStore.setState({ undoExclusion, undoStack: [entry] });
+    // The strip shows only the current undo notice (6183c99f).
+    useBidsStore.setState({
+      undoExclusion,
+      undoStack: [entry],
+      undoNoticeId: 1,
+      undoNoticeExpiresAt: null,
+    });
   });
 
   afterEach(() => {

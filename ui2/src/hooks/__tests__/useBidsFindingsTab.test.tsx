@@ -29,7 +29,8 @@ describe('useBidsFindingsTab', () => {
     expect(scoped).not.toHaveBeenCalled();
     rerender(<Host type="bids-explorer" />);
     expect(scoped).toHaveBeenLastCalledWith('BidsFindingsPanel');
-    expect(title).toHaveBeenLastCalledWith('BidsFindingsPanel', 'Findings 18');
+    // 18 dataset findings plus the synthetic "tSNR not evaluated" note (6183c99f).
+    expect(title).toHaveBeenLastCalledWith('BidsFindingsPanel', 'Findings 19');
     rerender(<Host type="orthogonal" />);
     expect(scoped).toHaveBeenLastCalledWith(null);
   });
