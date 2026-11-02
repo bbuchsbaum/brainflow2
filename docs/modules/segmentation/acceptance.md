@@ -76,8 +76,13 @@ paint latency have not been qualified. The M1/M2 native interaction acceptance
 gates remain open. Keep the module experimental and off by default.
 
 Sessions are in memory and have no recovery after process exit. Reference and
-secondary inputs must be single 3D volumes. Label storage/export supports u16;
-the current categorical renderer accepts label ids 1–2047. Per-label slice-count
+secondary inputs must be single 3D volumes. Label storage, export and display
+cover every u16 label id (1–65535): the categorical LUT tiles each palette over
+32 rows of 2048 texels (`COLORMAP_LUT_ROWS`), id k at texel (k mod 2048,
+k / 2048), with continuous colormaps on row 0. This costs about 20 MiB of GPU
+memory for the shared LUT array (80 layers × 256 KiB); a 1024² label-plus-outline
+frame showed no measurable time change against the 2048-entry LUT. The browser
+host still accepts palettes and label ids up to 2047. Per-label slice-count
 metadata is bounded to two million entries. Source acquisition uses an optimistic
 file-identity/metadata stamp; it does not provide a filesystem snapshot against
 changes invisible to that stamp. A GPU failure retains accepted CPU edits and

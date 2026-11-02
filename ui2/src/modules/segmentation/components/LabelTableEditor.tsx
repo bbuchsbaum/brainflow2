@@ -15,8 +15,8 @@ export function LabelTableEditor({ value, onChange }: { value: string; onChange(
   const add = () => {
     try {
       const rows = parseSegmentationLabels(value), ids = new Set(rows.map((label) => label.id));
-      let id = 1; while (ids.has(id) && id <= 2047) id++;
-      if (id > 2047 || !selected || !name.trim() || !abbreviation.trim()) return;
+      let id = 1; while (ids.has(id) && id <= 65535) id++;
+      if (id > 65535 || !selected || !name.trim() || !abbreviation.trim()) return;
       const color = selected.color.match(/[\d.]+/g)!.map(Number) as [number, number, number];
       onChange(JSON.stringify([...rows, { id, name: name.trim(), abbreviation: abbreviation.trim(), color, parent: null }], null, 2)); setName(''); setAbbreviation(''); setChosen(''); setError(null);
     } catch (caught) { setError(String(caught)); }

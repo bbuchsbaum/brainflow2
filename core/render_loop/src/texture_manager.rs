@@ -4,17 +4,25 @@ use colormap::{BuiltinColormap, BUILTIN_COLORMAPS};
 use std::collections::HashMap;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler, Texture, TextureView};
 
-/// Width (in texels) for each 1D colormap LUT row.
+/// Width (in texels) of each colormap LUT row.
 ///
 /// Notes:
 /// - Builtin colormaps are 256 entries; we upsample by repetition.
 /// - Atlas/label palettes often need >256 entries (e.g. Schaefer 400), so this must be larger.
 // NOTE: Must not exceed the device's max 2D texture dimension.
 // On some platforms / limit configurations this can be as low as 2048.
-//
-// If we need >2048 label entries in the future, we should switch to a tiled LUT
-// layout (e.g. width 2048, height N) and update shaders to index into rows.
 pub const COLORMAP_LUT_WIDTH: u32 = 2048; // 256 * 8
+
+/// Rows per colormap layer. Continuous colormaps use row 0 only (sampled at
+/// its texel centre); categorical palettes are tiled row-major, so label id
+/// `k` lives at texel `(k % WIDTH, k / WIDTH)` and every u16 id has a texel.
+pub const COLORMAP_LUT_ROWS: u32 = 32;
+
+/// Number of categorical ids a label palette can colour (0..=65535).
+pub const LABEL_LUT_CAPACITY: u32 = COLORMAP_LUT_WIDTH * COLORMAP_LUT_ROWS;
+
+/// Bytes in one RGBA LUT row.
+pub const COLORMAP_ROW_BYTES: usize = COLORMAP_LUT_WIDTH as usize * 4;
 
 /// Number of custom (runtime) colormap slots in the LUT array.
 pub const CUSTOM_COLORMAP_SLOTS: u32 = 64;
@@ -97,11 +105,12 @@ impl TextureManager {
 
     /// Initialize colormap texture array
     pub fn init_colormaps(&mut self, device: &Device, queue: &Queue) {
-        // Create colormap texture array (COLORMAP_LUT_WIDTH x 1 x N for N colormaps)
+        // Create colormap texture array (WIDTH x ROWS x N for N colormaps).
+        // Rows beyond row 0 start zeroed (transparent), as wgpu initializes textures.
         let num_colormaps = total_colormap_layers();
         let colormap_size = wgpu::Extent3d {
             width: COLORMAP_LUT_WIDTH,
-            height: 1,
+            height: COLORMAP_LUT_ROWS,
             depth_or_array_layers: num_colormaps,
         };
 
@@ -181,7 +190,9 @@ impl TextureManager {
         self.colormap_view = Some(colormap_view);
     }
 
-    /// Upload a colormap to a specific layer
+    /// Upload a colormap to a specific layer. `data` holds 1..=`COLORMAP_LUT_ROWS`
+    /// whole RGBA rows; rows it omits are cleared, so a shorter palette never
+    /// inherits colours from the slot's previous contents.
     pub fn upload_colormap(
         &self,
         queue: &Queue,
@@ -192,9 +203,21 @@ impl TextureManager {
             return Err("Colormap ID exceeds maximum");
         }
 
-        if data.len() != (COLORMAP_LUT_WIDTH as usize) * 4 {
-            return Err("Colormap data must be COLORMAP_LUT_WIDTH RGBA values");
+        let rows = data.len() / COLORMAP_ROW_BYTES;
+        if data.is_empty()
+            || !data.len().is_multiple_of(COLORMAP_ROW_BYTES)
+            || rows > COLORMAP_LUT_ROWS as usize
+        {
+            return Err("Colormap data must be 1 to COLORMAP_LUT_ROWS rows of COLORMAP_LUT_WIDTH RGBA values");
         }
+        let mut padded;
+        let data = if rows == COLORMAP_LUT_ROWS as usize {
+            data
+        } else {
+            padded = vec![0u8; COLORMAP_ROW_BYTES * COLORMAP_LUT_ROWS as usize];
+            padded[..data.len()].copy_from_slice(data);
+            &padded[..]
+        };
 
         if let Some(texture) = &self.colormap_texture {
             queue.write_texture(
@@ -212,11 +235,11 @@ impl TextureManager {
                 wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(COLORMAP_LUT_WIDTH * 4),
-                    rows_per_image: Some(1),
+                    rows_per_image: Some(COLORMAP_LUT_ROWS),
                 },
                 wgpu::Extent3d {
                     width: COLORMAP_LUT_WIDTH,
-                    height: 1,
+                    height: COLORMAP_LUT_ROWS,
                     depth_or_array_layers: 1,
                 },
             );

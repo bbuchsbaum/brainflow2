@@ -141,8 +141,17 @@ async fn info(
         },
     );
     let snapshot = record.session.snapshot();
+    // Tiled categorical palette: id k at texel (k % WIDTH, k / WIDTH). Only the
+    // rows up to the largest declared id are sent; the rest are cleared.
+    let row_bytes = render_loop::texture_manager::COLORMAP_ROW_BYTES;
     let width = render_loop::texture_manager::COLORMAP_LUT_WIDTH as usize;
-    let mut row = vec![0u8; width * 4];
+    let largest = snapshot
+        .labels
+        .iter()
+        .map(|label| usize::from(label.definition.id))
+        .max()
+        .unwrap_or(0);
+    let mut row = vec![0u8; (largest / width + 1) * row_bytes];
     for label in &snapshot.labels {
         let at = usize::from(label.definition.id) * 4;
         row[at..at + 3].copy_from_slice(&label.definition.color);
@@ -193,13 +202,8 @@ async fn create(
     let source_volume_ids: Vec<_> = std::iter::once(request.reference_volume_id.clone())
         .chain(request.secondary_volume_id.iter().cloned())
         .collect();
-    if request.labels.iter().any(|label| {
-        usize::from(label.id) >= render_loop::texture_manager::COLORMAP_LUT_WIDTH as usize
-    }) {
-        return Err(invalid(
-            "This renderer supports categorical label ids from 1 to 2047",
-        ));
-    }
+    // Every u16 id has a palette texel; the domain rejects id 0.
+    const _: () = assert!(render_loop::texture_manager::LABEL_LUT_CAPACITY > u16::MAX as u32);
     let (source, header) = {
         let registry = state.volume_registry.lock().await;
         let entry = registry
@@ -1173,5 +1177,26 @@ mod tests {
             Err(BridgeError::ModuleDisabled { .. })
         ));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn label_ids_across_the_u16_range_are_accepted_and_painted() {
+        let state = tokio::task::spawn_blocking(state).await.unwrap();
+        let mut request = setup();
+        request.labels[0].id = u16::MAX;
+        let created = create(&state, request).await.unwrap();
+        let mut paint = stroke(&created);
+        paint.label_id = u16::MAX;
+        let painted = commit(&state, paint).await.unwrap().session;
+        assert_eq!(painted.snapshot.labels[0].voxels, 5.0);
+        let registry = state.volume_registry.lock().await;
+        let VolumeSendable::VolU16(labels, _) = registry.get(&painted.label_volume_id).unwrap()
+        else {
+            panic!("editable labels are u16")
+        };
+        assert_eq!(
+            labels.values().iter().filter(|&&v| v == u16::MAX).count(),
+            5
+        );
     }
 }

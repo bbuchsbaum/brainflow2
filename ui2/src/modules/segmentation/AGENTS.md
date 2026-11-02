@@ -36,8 +36,8 @@ Label tracing on a fixed reference grid. The native domain is
   autosave are M5.
 - **Current limits:** sessions are in memory; saved-session recovery, proposals,
   AI and later milestones M3–M8 are not implemented. Reference and secondary
-  images must be single 3D volumes. Storage/export supports u16, but this
-  categorical LUT supports label ids 1–2047; reject higher ids explicitly.
+  images must be single 3D volumes. Storage, export and display support every
+  u16 label id (1–65535); the palette is the tiled categorical LUT.
   Per-label native-slice count metadata is capped at two million counts; large
   label tables and slice matrices are paged in the Inspector. Native slice indices
   are zero based in transport and one based in the UI.

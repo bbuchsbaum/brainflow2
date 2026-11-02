@@ -806,6 +806,10 @@ impl RenderLoopService {
 
     /// Upload (or overwrite) a custom colormap into the shared colormap LUT texture array.
     ///
+    /// `rgba_lut_rows` is 1..=`COLORMAP_LUT_ROWS` whole rows of
+    /// `COLORMAP_LUT_WIDTH` RGBA texels. A continuous colormap is one row; a
+    /// categorical palette tiles label id `k` at texel `(k % WIDTH, k / WIDTH)`.
+    ///
     /// Returns a stable `colormap_id` for the provided `key` for the lifetime of this
     /// RenderLoopService instance.
     pub fn upsert_custom_colormap(
@@ -813,16 +817,22 @@ impl RenderLoopService {
         key: String,
         rgba_lut_row: &[u8],
     ) -> Result<u32, RenderLoopError> {
-        use crate::texture_manager::{COLORMAP_LUT_WIDTH, CUSTOM_COLORMAP_SLOTS};
+        use crate::texture_manager::{
+            COLORMAP_LUT_ROWS, COLORMAP_ROW_BYTES, CUSTOM_COLORMAP_SLOTS,
+        };
 
-        let expected_len = (COLORMAP_LUT_WIDTH as usize) * 4;
-        if rgba_lut_row.len() != expected_len {
+        let rows = rgba_lut_row.len() / COLORMAP_ROW_BYTES;
+        if rgba_lut_row.is_empty()
+            || !rgba_lut_row.len().is_multiple_of(COLORMAP_ROW_BYTES)
+            || rows > COLORMAP_LUT_ROWS as usize
+        {
             return Err(RenderLoopError::Internal {
                 code: 6401,
                 details: format!(
-                    "Invalid colormap row length: got {}, expected {}",
+                    "Invalid colormap length: got {} bytes, expected 1 to {} rows of {} bytes",
                     rgba_lut_row.len(),
-                    expected_len
+                    COLORMAP_LUT_ROWS,
+                    COLORMAP_ROW_BYTES
                 ),
             });
         }
