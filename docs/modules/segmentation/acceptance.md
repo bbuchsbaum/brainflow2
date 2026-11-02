@@ -24,10 +24,26 @@ architecture plan or qualify segmentation for preview/stable use.
   reference/secondary images stay retained and cannot be removed or evicted while
   their document remains open, including while the module is disabled.
 
+- Save labels as NIfTI (Inspector, Session section): `segmentation_save_labels`
+  copies the accepted revision the tab displays (a stale owner or revision is
+  refused and the tab adopts the current document), then opens the native save
+  dialog with a BIDS-style name (`sub-…_ses-…_desc-<rater>_dseg.nii.gz`). It
+  writes the label volume (NIfTI-1, intent 1002, u8 or u16, source sform/qform
+  kept, `descrip` records the revision) and its `dseg.tsv` (index, name,
+  abbreviation, colour, parent index). Both are staged to temporary siblings and
+  synced before either is renamed into place; appending `.nii.gz` never replaces
+  an existing file, and a table is never replaced without its label volume.
+  Painting waits while the dialog is open; a closing (frozen) workspace refuses
+  the save; a GPU display failure does not block saving the accepted CPU labels.
+  The Inspector reports the saved files and whether the labels changed since.
+
 Later architecture work includes settings schemas, typed module events,
 startup aliases, BIDS/Studio migration, loader/provider registries and scaffolding.
 Segmentation M3–M8, saved-session recovery, proposals and AI remain later work.
-The NIfTI writer is a core prerequisite; this milestone has no Save workflow.
+M5 save features are not implemented: ⌘S quiet save to a remembered path, the
+provenance JSON sidecar and provenance volume, "Save as / export…" dialects,
+autosave and resume. Saving does not mark the in-memory document clean, so
+closing or quitting still asks before discarding the session.
 
 ## Evidence
 

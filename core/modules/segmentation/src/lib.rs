@@ -6,7 +6,12 @@ use nifti::NiftiHeader;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use ts_rs::TS;
+mod export;
 mod raster;
+pub use export::{
+    dseg_tsv, resolve_destination, suggested_file_name, table_path, write_export, LabelExport,
+    SavedLabels,
+};
 pub use raster::{rasterize, RasterRequest, Tool};
 
 #[derive(Debug, thiserror::Error)]

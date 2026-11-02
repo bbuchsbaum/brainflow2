@@ -12,3 +12,6 @@ nifti = { version = "0.16.0", features = ["nalgebra_affine"] }
 serde = { workspace = true }
 ts-rs = { workspace = true }
 thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3"

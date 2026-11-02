@@ -5,11 +5,15 @@ use super::{
 };
 use crate::{BridgeState, VolumeMetadataInfo};
 use async_trait::async_trait;
-use bf_segmentation::{Operation, Session, SessionSetup, Snapshot, Stroke};
+use bf_segmentation::{
+    LabelExport, Operation, SavedLabels, Session, SessionSetup, Snapshot, Stroke,
+};
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::State;
+use std::path::PathBuf;
+use tauri::{AppHandle, Runtime, State};
+use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 use ts_rs::TS;
 use volmath::{DenseVolume3, NeuroSpace, NeuroSpaceExt};
@@ -581,6 +585,37 @@ async fn slice(
     })
 }
 
+/// Copy the accepted revision the caller displayed. The module gate and the
+/// document locks are released before any dialog is shown.
+async fn export_labels(state: &BridgeState, owner: Operation) -> BridgeResult<LabelExport> {
+    let module = state
+        .modules
+        .enter_workspace::<SegmentationState>(ID, &workspace(&owner))
+        .await?;
+    let _operation = state.volume_operations.lock().await;
+    let sessions = module.sessions.lock().await;
+    let record = sessions
+        .get(&owner.session_id)
+        .filter(|record| record.workspace == workspace(&owner))
+        .ok_or_else(|| invalid("Segmentation session was closed"))?;
+    record.session.export(&owner).map_err(domain)
+}
+/// Write a copied revision to the path picked in the save dialog.
+async fn save_labels_to(export: LabelExport, picked: PathBuf) -> BridgeResult<SavedLabels> {
+    tokio::task::spawn_blocking(move || {
+        let target = bf_segmentation::resolve_destination(&picked).map_err(domain)?;
+        bf_segmentation::write_export(&export, &target).map_err(|error| BridgeError::Io {
+            code: 12101,
+            details: format!("Could not save labels to {}: {error}", target.display()),
+        })
+    })
+    .await
+    .map_err(|error| BridgeError::Internal {
+        code: 12102,
+        details: format!("Label save task failed: {error}"),
+    })?
+}
+
 #[tauri::command]
 pub(crate) async fn segmentation_create_session(
     request: SessionSetup,
@@ -636,6 +671,38 @@ pub(crate) async fn segmentation_get_slice(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<SegmentationSlice> {
     slice(state.inner(), owner, slice_index, dimensions, flips).await
+}
+
+/// Save the accepted label document (the caller's displayed revision) as
+/// NIfTI plus its dseg.tsv, to a destination chosen in a native save dialog.
+/// Returns `null` when the dialog is cancelled. There is deliberately no path
+/// argument: writes always go through the dialog.
+#[tauri::command]
+pub(crate) async fn segmentation_save_labels<R: Runtime>(
+    owner: Operation,
+    app: AppHandle<R>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Option<SavedLabels>> {
+    let export = export_labels(state.inner(), owner).await?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Save labels as NIfTI")
+        .set_file_name(export.suggested_name.clone())
+        .save_file(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let picked = rx.await.map_err(|_| BridgeError::Internal {
+        code: 12103,
+        details: "Save dialog closed without a response".into(),
+    })?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let picked = picked
+        .into_path()
+        .map_err(|error| invalid(format!("Unsupported save location: {error}")))?;
+    save_labels_to(export, picked).await.map(Some)
 }
 
 #[cfg(test)]
@@ -1059,5 +1126,52 @@ mod tests {
             get(&state, access(&current)).await.unwrap().snapshot.labels[0].voxels,
             5.0
         );
+    }
+
+    #[tokio::test]
+    async fn save_writes_the_displayed_revision_and_refuses_stale_or_disabled_owners() {
+        use nifti::{NiftiObject, RandomAccessNiftiVolume};
+        let state = tokio::task::spawn_blocking(state).await.unwrap();
+        let created = create(&state, setup()).await.unwrap();
+        let painted = commit(&state, stroke(&created)).await.unwrap().session;
+        assert!(
+            export_labels(&state, operation(&created)).await.is_err(),
+            "a stale revision is never saved as if it were current"
+        );
+        let mut foreign = operation(&painted);
+        foreign.workspace_instance = "opaque-test-b".into();
+        assert!(export_labels(&state, foreign).await.is_err());
+        let export = export_labels(&state, operation(&painted)).await.unwrap();
+        assert_eq!(
+            export.suggested_name,
+            "sub-synthetic01_ses-01_desc-ratera_dseg.nii.gz"
+        );
+        let dir = std::env::temp_dir().join(format!("bf-seg-save-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let saved = save_labels_to(export, dir.join("labels")).await.unwrap();
+        assert_eq!(saved.revision, painted.snapshot.revision);
+        assert_eq!(saved.session_id, painted.snapshot.session_id);
+        let object = nifti::ReaderOptions::new()
+            .read_file(&saved.label_path)
+            .unwrap();
+        assert_eq!(object.header().intent_code, 1002);
+        let mut labelled = 0;
+        for z in 0..7u16 {
+            for y in 0..3u16 {
+                for x in 0..5u16 {
+                    labelled += u32::from(object.volume().get_u16(&[x, y, z]).unwrap() == 1);
+                }
+            }
+        }
+        assert_eq!(labelled, 5);
+        assert!(std::fs::read_to_string(&saved.table_path)
+            .unwrap()
+            .contains("1\tROI A\tA\t#c8641e\tn/a"));
+        state.modules.set_enabled(&[]).await.unwrap();
+        assert!(matches!(
+            export_labels(&state, operation(&painted)).await,
+            Err(BridgeError::ModuleDisabled { .. })
+        ));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

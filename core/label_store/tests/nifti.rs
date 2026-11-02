@@ -117,3 +117,57 @@ fn refused_export_keeps_existing_file_and_cleans_temporary_files() {
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     assert!(write_label_nifti(&v, &reference(), &directory.path().join("labels.img")).is_err());
 }
+
+#[test]
+fn companions_are_staged_before_any_destination_is_replaced() {
+    use label_store::{write_label_export, Companion};
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("sub-01_dseg.nii.gz");
+    let table = directory.path().join("sub-01_dseg.tsv");
+    std::fs::write(&table, b"old table").unwrap();
+    let mut values = vec![0u16; 24];
+    values[5] = 3;
+    let companion = |bytes: &[u8]| Companion {
+        path: table.clone(),
+        bytes: bytes.to_vec(),
+    };
+    // A refused export (dimension mismatch) replaces neither file.
+    assert!(write_label_export(
+        [3, 2, 3],
+        &values[..18],
+        &reference(),
+        &path,
+        &[companion(b"new table")]
+    )
+    .is_err());
+    assert!(!path.exists());
+    assert_eq!(std::fs::read(&table).unwrap(), b"old table");
+    write_label_export(
+        [3, 2, 4],
+        &values,
+        &reference(),
+        &path,
+        &[companion(b"index\tname\n3\tC\n")],
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(&table).unwrap(), b"index\tname\n3\tC\n");
+    let obj = ReaderOptions::new().read_file(&path).unwrap();
+    assert_eq!(obj.volume().get_u16(&[2, 1, 0]).unwrap(), 3);
+    // A companion may not alias the label volume itself.
+    assert!(write_label_export(
+        [3, 2, 4],
+        &values,
+        &reference(),
+        &path,
+        &[Companion {
+            path: path.clone(),
+            bytes: vec![]
+        }]
+    )
+    .is_err());
+    let names: Vec<_> = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|p| p.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 2, "no temporary files remain: {names:?}");
+}

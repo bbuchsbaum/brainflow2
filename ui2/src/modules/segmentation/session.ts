@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { SegmentationCommit, SegmentationOperation, SegmentationPaintOver, SegmentationPreview, SegmentationSessionInfo, SegmentationSessionSetup, SegmentationSlice, SegmentationStroke, SegmentationTool } from '@brainflow/api';
+import type { SegmentationCommit, SegmentationOperation, SegmentationPaintOver, SegmentationPreview, SegmentationSavedLabels, SegmentationSessionInfo, SegmentationSessionSetup, SegmentationSlice, SegmentationStroke, SegmentationTool } from '@brainflow/api';
 import { bridgeClient, captureActiveWorkspace, formatModuleError, isLiveDocument, isDocumentEditingFrozen, type ActiveWorkspaceLease, type WorkspaceDocumentIdentity } from '@/modules/api/host';
 
 type StrokeInput = Omit<SegmentationStroke, 'owner'>;
@@ -17,6 +17,8 @@ export interface SegmentationPresentation {
   fill: boolean;
   busy: boolean;
   error: string | null;
+  /** The last file this tab saved; compared with the live revision for the save state. */
+  lastSave: SegmentationSavedLabels | null;
 }
 export interface SegmentationRecord {
   document: WorkspaceDocumentIdentity;
@@ -94,6 +96,13 @@ export class SegmentationSessionController {
   undo(redo = false) { return this.mutate('segmentation_undo', (owner) => ({ owner, redo })); }
   setLabelState(labelId: number, locked: boolean, complete: boolean) { return this.mutate('segmentation_set_label_state', (owner) => ({ owner, labelId, locked, complete })); }
   cancelPreview() { ++this.previews; }
+  /** Saves the displayed accepted revision; `null` means the dialog was cancelled. */
+  async save(): Promise<SegmentationSavedLabels | null> {
+    if (isDocumentEditingFrozen(this.document.workspaceId)) throw new Error('Labels cannot be saved while this workspace is closing. Cancel closing to save.');
+    const lease = this.lease(), owner = this.operation();
+    if (!lease || !owner) throw new Error('Labels can be saved only from the active segmentation session.');
+    return client.invoke<SegmentationSavedLabels | null>('segmentation_save_labels', { owner });
+  }
 }
 
 export function getSegmentationSession(workspaceId: string): SegmentationRecord | null { return records.get(workspaceId) ?? null; }
@@ -107,7 +116,7 @@ export function ensureSegmentationSession(_lease: ActiveWorkspaceLease, document
   const existing = records.get(document.workspaceId);
   if (existing?.document.workspaceInstance === document.workspaceInstance) return existing;
   const record: SegmentationRecord = { document, controller: new SegmentationSessionController(document), snapshot: {
-    info: null, document, activeLabelId: 1, hiddenLabelIds: [], sliceIndex: 0, tool: 'navigate', radiusMm: 2, paintOver: 'unlocked', fill: false, busy: false, error: null,
+    info: null, document, activeLabelId: 1, hiddenLabelIds: [], sliceIndex: 0, tool: 'navigate', radiusMm: 2, paintOver: 'unlocked', fill: false, busy: false, error: null, lastSave: null,
   }};
   records.set(document.workspaceId, record); update(record, {}); return record;
 }
@@ -155,6 +164,23 @@ export function commitSegmentationStroke(workspaceId: string, stroke: StrokeInpu
 }
 export function travelSegmentationHistory(workspaceId: string, redo = false) {
   const record = records.get(workspaceId); return record ? run(record, () => record.controller.undo(redo)) : Promise.resolve(null);
+}
+/** Save the accepted document through the native dialog. Edits wait while it is open. */
+export async function saveSegmentationLabels(workspaceId: string): Promise<SegmentationSavedLabels | null> {
+  const record = records.get(workspaceId);
+  if (!record || record.snapshot.busy) return null;
+  update(record, { busy: true, error: null });
+  try {
+    const saved = await record.controller.save();
+    if (saved) update(record, { lastSave: saved });
+    return saved;
+  } catch (error) {
+    // A refused save (for example a late accepted edit moved the revision)
+    // shows the current native document so the user saves what they see.
+    const info = await record.controller.refresh().catch(() => null);
+    if (info) adopt(record, info, message(error)); else update(record, { error: message(error) });
+    return null;
+  } finally { update(record, { busy: false }); }
 }
 export function setSegmentationPresentation(workspaceId: string, patch: Partial<Omit<SegmentationPresentation, 'info' | 'document'>>) {
   const record = records.get(workspaceId); if (record) update(record, patch);

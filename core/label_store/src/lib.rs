@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 mod writer;
-pub use writer::write_label_nifti;
+pub use writer::{write_label_export, write_label_nifti, Companion};
 
 const EDGE: u32 = 16;
 const BRICK_LEN: usize = 16 * 16 * 16;

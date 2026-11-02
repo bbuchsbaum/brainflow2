@@ -357,3 +357,74 @@ fn empty_or_oversized_label_slice_metadata_is_rejected_before_snapshot_allocatio
     grid.dim[2] = 3072;
     assert!(Session::create("bounded".into(), input, affine(), grid).is_err());
 }
+
+#[test]
+fn export_copies_the_accepted_revision_with_a_bids_table_and_refuses_stale_owners() {
+    let mut s = session();
+    let mut input = setup();
+    input.labels[1].parent = Some(1);
+    input.labels[1].name = "ROI\tB\n".into();
+    let mut s2 = Session::create("session-b".into(), input, affine(), header()).unwrap();
+    let request = stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.41, Tool::Brush);
+    let stale = owner(&s);
+    s.stroke(&request).unwrap();
+    assert!(
+        s.export(&stale).is_err(),
+        "an export must match the displayed revision"
+    );
+    let export = s.export(&owner(&s)).unwrap();
+    assert_eq!(export.revision, 1);
+    assert_eq!(export.labels, s.volume().dense().unwrap());
+    assert_eq!(
+        export.suggested_name,
+        "sub-synthetic01_ses-01_desc-ratera_dseg.nii.gz"
+    );
+    assert!(String::from_utf8_lossy(&export.header.descrip)
+        .starts_with("Brainflow segmentation labels, revision 1"));
+    assert_eq!(
+        export.table,
+        "index\tname\tabbreviation\tcolor\tparent\n1\tROI A\tA\t#c86414\tn/a\n2\tROI B\tB\t#1464c8\tn/a\n"
+    );
+    let export2 = s2.export(&owner(&s2)).unwrap();
+    assert!(
+        export2.table.ends_with("2\tROI B\tB\t#1464c8\t1\n"),
+        "controls in names are sanitized and the parent index is kept: {}",
+        export2.table
+    );
+    s2.stroke(&stroke(&s2, 2, &[[2.0, 1.0, 3.0]], 0.41, Tool::Brush))
+        .unwrap();
+
+    let directory = tempfile::tempdir().unwrap();
+    let picked = directory.path().join("labels");
+    let target = resolve_destination(&picked).unwrap();
+    assert_eq!(target, directory.path().join("labels.nii.gz"));
+    let saved = write_export(&export, &target).unwrap();
+    assert_eq!(saved.revision, 1);
+    assert_eq!(
+        saved.table_path,
+        directory.path().join("labels.tsv").to_string_lossy()
+    );
+    assert_eq!(
+        std::fs::read_to_string(&saved.table_path).unwrap(),
+        export.table
+    );
+    let object = nifti::ReaderOptions::new().read_file(&target).unwrap();
+    use nifti::{NiftiObject, RandomAccessNiftiVolume};
+    assert_eq!(object.header().intent_code, 1002);
+    assert_eq!(object.volume().get_u16(&[2, 1, 3]).unwrap(), 1);
+    assert_eq!(object.volume().get_u16(&[0, 0, 0]).unwrap(), 0);
+    // Appending the extension never silently replaces an existing file.
+    assert!(resolve_destination(&picked).is_err());
+    // A confirmed path may be replaced; its table travels with it.
+    assert_eq!(resolve_destination(&target).unwrap(), target);
+    // A table without its label volume belongs to something else.
+    std::fs::write(directory.path().join("other.tsv"), "keep").unwrap();
+    assert!(resolve_destination(&directory.path().join("other.nii.gz")).is_err());
+    for bad in ["labels.img", "labels.NII.GZ", "labels.nii.bak", "labels.gz"] {
+        assert!(
+            resolve_destination(&directory.path().join(bad)).is_err(),
+            "{bad}"
+        );
+    }
+    assert!(resolve_destination(std::path::Path::new("relative.nii.gz")).is_err());
+}

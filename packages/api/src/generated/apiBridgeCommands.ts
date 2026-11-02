@@ -149,6 +149,7 @@ export const apiBridgeCommands = [
   "segmentation_undo",
   "segmentation_set_label_state",
   "segmentation_get_slice",
+  "segmentation_save_labels",
 ] as const;
 
 export type ApiBridgeCommand = (typeof apiBridgeCommands)[number];
