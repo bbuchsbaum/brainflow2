@@ -1,8 +1,8 @@
 /**
  * DataSection "Open in dock" affordance.
  *
- * Clicking the link reveals the shared bottom dock
- * (`layoutSettingsStore.bottomDockOpen`), switches it to the Plot tab, and
+ * Clicking the link reveals the front tab's bottom dock
+ * (`layoutSettingsStore.bottomDockOpenByKey`, per tool), switches it to the Plot tab, and
  * targets the inspected layer (`layerStore.selectLayer`) so the dock plots it.
  */
 
@@ -42,7 +42,7 @@ describe("DataSection · Open in dock", () => {
     render(<DataSection item={volumeItem("layer-42")} />);
     fireEvent.click(screen.getByTestId("open-in-dock"));
 
-    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(true);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen()).toBe(true);
     expect(useLayoutSettingsStore.getState().bottomDockActiveTab).toBe("plot");
     expect(useLayerStore.getState().selectedLayerId).toBe("layer-42");
   });

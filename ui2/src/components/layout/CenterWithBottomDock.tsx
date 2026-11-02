@@ -41,7 +41,7 @@ import { ActivityPanel } from '@/components/panels/ActivityPanel';
 import { LogPanel } from '@/components/panels/LogPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
 import { useDefaultPlotModeForActiveLayer } from '@/components/plots/plotMode.helpers';
-import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
+import { bottomDockOpenFor, useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 
 const DOCK_MAX_FRACTION = 0.7; // dock never exceeds 70% of the column
 const RESIZER_PX = 6;
@@ -49,8 +49,8 @@ const RESIZER_PX = 6;
 export interface CenterWithBottomDockProps {
   children: React.ReactNode;
   /**
-   * Which tool's dock height this tab uses and remembers (N13): imaging views
-   * share one, Set studio, BIDS and Analysis keep their own.
+   * Which tool's dock height and visibility this tab uses and remembers (N13,
+   * N24): imaging views share one, Set studio, BIDS and Analysis keep their own.
    */
   heightKey?: DockHeightKey;
   /** Tabs only this workspace's dock has. Pass a stable array. */
@@ -67,7 +67,8 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
   footer,
   footerHeight = 0,
 }) => {
-  const open = useLayoutSettingsStore((s) => s.bottomDockOpen);
+  // Shown or hidden per tool, like the height (QA 2026-10-31 N24).
+  const open = useLayoutSettingsStore((s) => bottomDockOpenFor(s, heightKey));
   const storedHeight =
     useLayoutSettingsStore((s) => s.bottomDockHeights[heightKey]) ?? DOCK_HEIGHT_DEFAULTS[heightKey];
   const setBottomDockHeight = useLayoutSettingsStore((s) => s.setBottomDockHeight);
@@ -210,7 +211,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
               extraTabs={extraTabs}
               activeTab={activeTab ?? DEFAULT_DOCK_TAB}
               onActiveTabChange={setActiveTab}
-              onClose={() => setBottomDockOpen(false)}
+              onClose={() => setBottomDockOpen(false, heightKey)}
               minimized={minimized}
               onMinimize={() => setBottomDockMinimized(true)}
               onRestore={() => setBottomDockMinimized(false)}

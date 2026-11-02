@@ -121,9 +121,9 @@ describe('ReusableSliceViewport', () => {
   it('clears the centre gap and clips the stroke around knockout boxes', async () => {
     const ctx = mockContext();
     (ctx as unknown as { canvas: unknown }).canvas = {
-      width: 200,
-      height: 100,
-      getBoundingClientRect: () => ({ left: 100, top: 50, width: 200, height: 100 }),
+      width: 400,
+      height: 300,
+      getBoundingClientRect: () => ({ left: 100, top: 50, width: 400, height: 300 }),
     };
     render(
       <ReusableSliceViewport
@@ -138,15 +138,54 @@ describe('ReusableSliceViewport', () => {
         renderSurface={(surfaceProps) => <TestSurface {...surfaceProps} ctx={ctx} />}
       />
     );
-    // Horizontal line y=40 from 10..210 with a gap of 6 around x=60.
+    // Horizontal line y=40 across the canvas with a gap of 6 around x=60.
     await waitFor(() => expect(ctx.lineTo).toHaveBeenCalledWith(54, 40));
     expect(ctx.moveTo).toHaveBeenCalledWith(66, 40);
     // Vertical line x=60: the knockout (pad 3) cuts y 19..33 and the centre
     // gap 34..46; the 1px crumb left between them is not drawn.
     expect(ctx.moveTo).not.toHaveBeenCalledWith(60, 33);
     expect(ctx.moveTo).toHaveBeenCalledWith(60, 46);
-    expect(ctx.lineTo).toHaveBeenCalledWith(60, 120);
+    expect(ctx.lineTo).toHaveBeenCalledWith(60, 300);
     expect(ctx.moveTo).not.toHaveBeenCalledWith(60, 20);
+  });
+
+  it('spans the crosshair across the whole canvas, not just a letterboxed bitmap (N28)', async () => {
+    const ctx = mockContext();
+    (ctx as unknown as { canvas: unknown }).canvas = { width: 400, height: 300 };
+    render(
+      <ReusableSliceViewport
+        width={400}
+        height={300}
+        viewPlane={plane}
+        crosshair={{ visible: true, world_mm: [60, 0, 30] }}
+        crosshairStyle={{ color: '#fff', lineWidth: 2, lineDash: [], centerGap: 0 }}
+        renderSurface={(surfaceProps) => <TestSurface {...surfaceProps} ctx={ctx} />}
+      />
+    );
+    // The bitmap covers x 10..210, y 20..120; the lines reach the canvas edges.
+    await waitFor(() => expect(ctx.moveTo).toHaveBeenCalledWith(0, 40));
+    expect(ctx.lineTo).toHaveBeenCalledWith(400, 40);
+    expect(ctx.moveTo).toHaveBeenCalledWith(60, 0);
+    expect(ctx.lineTo).toHaveBeenCalledWith(60, 300);
+  });
+
+  it('keeps a data extent clip when one is given (Compare panels)', async () => {
+    const ctx = mockContext();
+    (ctx as unknown as { canvas: unknown }).canvas = { width: 400, height: 300 };
+    render(
+      <ReusableSliceViewport
+        width={400}
+        height={300}
+        viewPlane={plane}
+        crosshair={{ visible: true, world_mm: [60, 0, 30] }}
+        crosshairStyle={{ color: '#fff', lineWidth: 2, lineDash: [], centerGap: 0 }}
+        crosshairWorldBounds={{ min: [-1000, -1000, -1000], max: [1000, 1000, 1000] }}
+        renderSurface={(surfaceProps) => <TestSurface {...surfaceProps} ctx={ctx} />}
+      />
+    );
+    await waitFor(() => expect(ctx.moveTo).toHaveBeenCalledWith(10, 40));
+    expect(ctx.lineTo).toHaveBeenCalledWith(210, 40);
+    expect(ctx.moveTo).not.toHaveBeenCalledWith(0, 40);
   });
 
   it('maps primary-button clicks inside the placement to world coordinates', async () => {

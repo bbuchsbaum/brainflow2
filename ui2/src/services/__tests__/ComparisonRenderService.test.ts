@@ -4,6 +4,8 @@ import {
   comparisonTag,
   padComparisonBounds,
   resolvePanelUnderlayId,
+  frameAtSharedScale,
+  sharedComparisonFitSize,
   sharedComparisonFrame,
 } from '@/services/ComparisonRenderService';
 import { useRenderStateStore } from '@/stores/renderStateStore';
@@ -174,6 +176,70 @@ describe('ComparisonRenderService', () => {
     // The frame is the large image's.
     const padded = padComparisonBounds(large);
     expect(planes[0].u_mm[0]).toBeCloseTo((padded.max[1] - padded.min[1]) / 256, 6);
+  });
+
+  it('panes of different widths share one mm-per-pixel scale (QA 2026-10-31 N23)', async () => {
+    // Run 5: p4_zmap (2 mm) in A with its colorbar column, the 1 mm T1 in B.
+    // A's canvas was 128 px narrower, so fitted alone its brain came out smaller.
+    applyAndRenderViewState.mockResolvedValue({ width: 256, height: 256 } as ImageBitmap);
+    const zmap = { min: [-96, -132, -78] as [number, number, number], max: [96, 96, 114] as [number, number, number] };
+    const t1 = { min: [-96, -132, -78] as [number, number, number], max: [96, 96, 114] as [number, number, number] };
+    useViewStateStore.getState().setViewState(() => {
+      const state = createViewState();
+      state.layers = [
+        { ...state.layers[0], id: 'zmap', volumeId: 'vol-zmap' },
+        { ...state.layers[0], id: 't1', volumeId: 'vol-t1' },
+      ];
+      return state;
+    });
+    for (const [id, bounds] of [['zmap', zmap], ['t1', t1]] as const) {
+      useLayerStore.getState().addLayer({ id, name: id, volumeId: `vol-${id}`, type: 'anatomical', visible: true, order: 0 });
+      useLayerStore.getState().setLayerMetadata(id, { worldBounds: bounds, centerWorld: [0, 0, 0] });
+    }
+    useComparisonStore.getState().initFromLayers('comparison-n23', ['zmap', 't1']);
+    const [a, b] = useComparisonStore.getState().getPanels('comparison-n23');
+    // The panes' canvases, as ComparisonPanel publishes them: A gives up 128 px.
+    const sizeA = { width: 272, height: 480 };
+    const sizeB = { width: 400, height: 480 };
+    useComparisonStore.getState().setPanelCanvasSize(a.id, sizeA);
+    useComparisonStore.getState().setPanelCanvasSize(b.id, sizeB);
+
+    const service = new ComparisonRenderService();
+    await service.renderPanel({ workspaceId: 'comparison-n23', panel: a, ...sizeA });
+    await service.renderPanel({ workspaceId: 'comparison-n23', panel: b, ...sizeB });
+
+    const planeA = useComparisonStore.getState().getPanelViewPlane(a.id)!;
+    const planeB = useComparisonStore.getState().getPanelViewPlane(b.id)!;
+    expect(planeA.dim_px).toEqual([272, 480]);
+    expect(planeB.dim_px).toEqual([400, 480]);
+    // One scale: the frame fitted to the narrower pane.
+    expect(planeB.u_mm[0]).toBeCloseTo(planeA.u_mm[0], 9);
+    // Square pixels at that scale in both panes (v runs down: -y).
+    expect(planeA.v_mm[1]).toBeCloseTo(-planeA.u_mm[0], 9);
+    expect(planeB.v_mm[1]).toBeCloseTo(planeA.v_mm[1], 9);
+    // ...and the same vertical centre.
+    const centreY = (plane: ViewPlane) => plane.origin_mm[1] + (plane.v_mm[1] * plane.dim_px[1]) / 2;
+    expect(centreY(planeA)).toBeCloseTo(centreY(planeB), 6);
+    const padded = padComparisonBounds(t1);
+    expect(planeA.u_mm[0]).toBeCloseTo((padded.max[0] - padded.min[0]) / 272, 6);
+    // Both centred on the same world point: the frame centre at each canvas centre.
+    const centreX = (plane: ViewPlane) => plane.origin_mm[0] + (plane.u_mm[0] * plane.dim_px[0]) / 2;
+    expect(centreX(planeA)).toBeCloseTo(centreX(planeB), 6);
+  });
+
+  it('shared fit size: the smallest width and height among the panes', () => {
+    expect(sharedComparisonFitSize([400, 480], [{ width: 272, height: 500 }, undefined, { width: 0, height: 10 }])).toEqual([
+      272, 480,
+    ]);
+    const frame = { min: [-100, -120, -5] as [number, number, number], max: [100, 120, 5] as [number, number, number] };
+    // Fitted to 200x480 the scale is 1 mm/px; a 400x480 pane gets a 400 mm wide frame at that scale.
+    const wide = frameAtSharedScale(frame, 'axial', [400, 480], [200, 480]);
+    expect(wide.min[0]).toBeCloseTo(-200);
+    expect(wide.max[0]).toBeCloseTo(200);
+    expect(wide.min[1]).toBeCloseTo(-240);
+    expect(wide.min[2]).toBe(-5);
+    // Its own size: unchanged.
+    expect(frameAtSharedScale(frame, 'axial', [200, 240], [200, 240])).toEqual(frame);
   });
 
   it('a pane whose bounds come from the backend still sets the shared frame (review 4)', async () => {

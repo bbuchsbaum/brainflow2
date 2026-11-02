@@ -21,6 +21,7 @@ import { X } from 'lucide-react';
 import { useEvent } from '@/events/EventBus';
 import { IconButton } from './IconButton';
 import { focusFallback } from './bf/focusFallback';
+import { statusLineMessage } from '@/utils/formatTauriError';
 
 interface Notification {
   id: string;
@@ -139,7 +140,8 @@ export function NotificationToast() {
   const current = notifications[notifications.length - 1] ?? null;
   const earlier = notifications.length - 1;
   const textRef = useRef<HTMLSpanElement>(null);
-  const shown = useMiddleFit(current?.message ?? '', textRef);
+  // The bar shows a short form of a long known cause; the list has it in full.
+  const shown = useMiddleFit(statusLineMessage(current?.message ?? ''), textRef);
   const [open, setOpenState] = useState(false);
   const setOpen = (next: boolean) => {
     openRef.current = next;
@@ -186,6 +188,7 @@ export function NotificationToast() {
                 aria-label={`${current.type === 'error' ? 'Error' : 'Message'}: ${current.message}. Show ${
                   earlier > 0 ? `all ${earlier + 1} messages` : 'in full'
                 }`}
+                title={current.message}
                 data-testid="status-notification-open"
               >
                 <span

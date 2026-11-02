@@ -51,6 +51,24 @@ describe('NotificationToast (status-bar messages)', () => {
     expect(screen.getByTestId('status-notification-list')).toHaveTextContent(reason);
   });
 
+  // QA 2026-10-31 N18 note: the slots-full toast read "Failed t…, then load
+  // again." in the bar. The bar says "GPU slots full"; the list has it all.
+  it('shortens the slots-full cause in the bar and keeps it whole in the list', () => {
+    render(<NotificationToast />);
+    const full =
+      'Failed to load oblique.nii.gz: GPU texture slots full (all 8 in use). Hide or remove a layer, then load again.';
+    act(() => {
+      getEventBus().emit('ui.notification', { type: 'error', message: full });
+    });
+    expect(screen.getByTestId('status-notification-text')).toHaveTextContent(
+      'Failed to load oblique.nii.gz: GPU slots full',
+    );
+    const open = screen.getByTestId('status-notification-open');
+    expect(open).toHaveAttribute('title', full);
+    fireEvent.click(open);
+    expect(screen.getByTestId('status-notification-list')).toHaveTextContent(full);
+  });
+
   it('dismissing the last message does not drop focus to <body>', async () => {
     render(
       <>

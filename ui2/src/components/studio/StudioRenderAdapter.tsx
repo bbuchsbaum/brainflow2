@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId, useMemo } from 'react';
 import { Button } from '@/components/ui/Button';
 import type { StudioSupportKind } from '@/types/studio';
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
@@ -6,6 +6,9 @@ import { FlexibleSlicePanel } from '@/components/views/FlexibleSlicePanel';
 import type { ViewType } from '@/types/coordinates';
 import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanelLazy';
 import { useStudioMemberRenderScope } from '@/hooks/useStudioMemberRenderScope';
+import { ColorbarGroupContext } from '@/components/views/viewportFrame/viewportFrameStore';
+import { findLayerIdForSourcePath } from '@/services/studio/StudioDisplayService';
+import { useLayerStore } from '@/stores/layerStore';
 
 interface StudioRenderAdapterProps {
   supportKind: StudioSupportKind | null | undefined;
@@ -25,6 +28,12 @@ interface StudioRenderAdapterProps {
    * the three orthogonal views (the Deck and Compare pane A; QA N13 b/c).
    */
   plane?: ViewType;
+  /**
+   * The colorbar describes the member's layer, even when it is the base and
+   * whatever else the workspace stacks (Compare pane A: its one colorbar,
+   * placed by the shared rule; QA N16).
+   */
+  describeBase?: boolean;
 }
 
 export function StudioRenderAdapter({
@@ -36,17 +45,32 @@ export function StudioRenderAdapter({
   hideChrome,
   memberSourcePath,
   plane,
+  describeBase = false,
 }: StudioRenderAdapterProps) {
   useStudioMemberRenderScope(memberSourcePath, supportKind === 'volume');
+  // Studio views host their own colorbar, apart from the main views' (one
+  // group per adapter instance).
+  const group = useId();
+  const memberLayerId = useLayerStore((state) =>
+    describeBase && memberSourcePath ? findLayerIdForSourcePath(state, memberSourcePath) : null,
+  );
+  const colorbarGroup = useMemo(
+    () => ({ group: `studio${group}`, describeLayerId: memberLayerId ?? null }),
+    [group, memberLayerId],
+  );
 
   if (hideChrome) {
     if (supportKind === 'volume') {
-      return plane ? (
-        <div className="h-full w-full" data-studio-plane={plane}>
-          <FlexibleSlicePanel key={plane} viewId={plane} />
-        </div>
-      ) : (
-        <OrthogonalViewContainer className="h-full w-full" />
+      return (
+        <ColorbarGroupContext.Provider value={colorbarGroup}>
+          {plane ? (
+            <div className="h-full w-full" data-studio-plane={plane}>
+              <FlexibleSlicePanel key={plane} viewId={plane} />
+            </div>
+          ) : (
+            <OrthogonalViewContainer className="h-full w-full" />
+          )}
+        </ColorbarGroupContext.Provider>
       );
     }
     if (supportKind === 'surface') {
@@ -85,7 +109,9 @@ export function StudioRenderAdapter({
       <div className="flex h-full min-h-[320px] flex-col overflow-hidden rounded-sm border border-border bg-bf-bg-canvas">
         {header}
         <div className="min-h-0 flex-1">
-          <OrthogonalViewContainer className="h-full w-full" />
+          <ColorbarGroupContext.Provider value={colorbarGroup}>
+            <OrthogonalViewContainer className="h-full w-full" />
+          </ColorbarGroupContext.Provider>
         </div>
       </div>
     );

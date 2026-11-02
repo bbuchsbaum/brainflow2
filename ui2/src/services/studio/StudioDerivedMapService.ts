@@ -18,7 +18,7 @@ import { getApiService } from '@/services/apiService';
 import { getTransport } from '@/services/transport';
 import type { WorldBox } from '@/utils/worldFrame';
 import { edgeBoxFromAffine } from '@/utils/worldFrame';
-import { formatTauriError, tauriErrorCode } from '@/utils/formatTauriError';
+import { formatTauriError, GpuSlotsFullError, tauriErrorCode } from '@/utils/formatTauriError';
 
 export interface StudioDerivedMap {
   /** Backend layer id (its GPU lease); never a layer-store id. */
@@ -67,6 +67,7 @@ const VOLUME_IN_USE = 4048;
 
 /** The GPU's volume texture slots are all taken (multi_texture_manager.rs). */
 export function isGpuTextureSlotsFull(error: unknown): boolean {
+  if (error instanceof GpuSlotsFullError) return true;
   return /maximum texture limit \d+ reached/i.test(formatTauriError(error));
 }
 
@@ -77,7 +78,10 @@ export class StudioDerivedMapService {
   private nextId = 1;
 
   private readonly backend: () => Backend;
-  /** Frees GPU room before a map takes a texture slot (LRU layer eviction). */
+  /**
+   * Frees GPU room before a map takes a texture slot (LRU layer eviction);
+   * rejects with GpuSlotsFullError when no slot can be freed.
+   */
   private readonly makeRoom: () => Promise<void>;
 
   constructor(
@@ -164,8 +168,12 @@ export class StudioDerivedMapService {
     let info: GpuInfo;
     try {
       // This map is already counted (liveCount): evict a hidden layer if the
-      // budget is over.
-      await this.makeRoom().catch(() => undefined);
+      // budget is over, and refuse when none can go, as a layer's show is
+      // refused (QA 2026-10-31 N18 review). An eviction that fails otherwise
+      // still lets the backend decide.
+      await this.makeRoom().catch((error: unknown) => {
+        if (error instanceof GpuSlotsFullError) throw error;
+      });
       info = await backend.requestLayerGpuResources(layerId, handle.id, false);
     } catch (error) {
       await this.unload({ layerId, volumeId: handle.id }).catch(() => undefined);
@@ -231,7 +239,13 @@ export function getStudioDerivedMapService(): StudioDerivedMapService {
   if (!instance)
     instance = new StudioDerivedMapService(
       defaultBackend,
-      () => import('@/services/LayerEvictionService').then((m) => m.layerEvictionService.makeRoomForUpload()),
+      () =>
+        import('@/services/LayerEvictionService').then(async (m) => {
+          const eviction = m.layerEvictionService;
+          if (!(await eviction.makeRoomForUpload(undefined, { counted: true }))) {
+            throw new GpuSlotsFullError(await eviction.gpuTextureSlots());
+          }
+        }),
     );
   return instance;
 }

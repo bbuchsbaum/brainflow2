@@ -2,7 +2,7 @@
  * CenterWithBottomDock — wrapper behavior.
  *
  * The wrapper (1) always renders the routed view (its children); (2) mounts the
- * dock + resizer when `layoutSettingsStore.bottomDockOpen` is true (the
+ * dock + resizer when its tool's dock is shown (`bottomDockOpenByKey`, the
  * default); (3) routes PlotPanel / ActivityPanel / LogPanel into the dock slots
  * and resolves the Plot tab's default mode from the active layer; (4) closes
  * the dock via the dock's onClose.
@@ -140,7 +140,7 @@ describe("CenterWithBottomDock", () => {
     expect(dockHeight()).toBe("220px");
   });
 
-  it("hides the dock + resizer when bottomDockOpen is false", () => {
+  it("hides the dock + resizer when its tool's dock is hidden", () => {
     useLayoutSettingsStore.getState().setBottomDockOpen(false);
     render(
       <CenterWithBottomDock>
@@ -169,6 +169,31 @@ describe("CenterWithBottomDock", () => {
     );
   });
 
+  // QA 2026-10-31 N24: closing the dock in Set studio left Orthogonal's
+  // closed too. Visibility is per tool, like the height.
+  it("closes only its own tool's dock", () => {
+    render(
+      <>
+        <div data-testid="studio">
+          <CenterWithBottomDock heightKey="set-studio">
+            <div>studio</div>
+          </CenterWithBottomDock>
+        </div>
+        <div data-testid="ortho">
+          <CenterWithBottomDock>
+            <div>view</div>
+          </CenterWithBottomDock>
+        </div>
+      </>,
+    );
+    expect(screen.getAllByTestId("bottom-dock-stub")).toHaveLength(2);
+    fireEvent.click(screen.getByTestId("studio").querySelector('[data-testid="dock-close"]')!);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen("set-studio")).toBe(false);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen("imaging")).toBe(true);
+    expect(screen.getByTestId("studio").querySelector('[data-testid="bottom-dock-stub"]')).toBeNull();
+    expect(screen.getByTestId("ortho").querySelector('[data-testid="bottom-dock-stub"]')).not.toBeNull();
+  });
+
   it("closes the dock when the dock requests it (onClose)", () => {
     render(
       <CenterWithBottomDock>
@@ -176,7 +201,7 @@ describe("CenterWithBottomDock", () => {
       </CenterWithBottomDock>,
     );
     fireEvent.click(screen.getByTestId("dock-close"));
-    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(false);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen()).toBe(false);
     expect(screen.queryByTestId("bottom-dock-stub")).toBeNull();
   });
 

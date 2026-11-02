@@ -201,39 +201,44 @@ pub(crate) fn orientation_for_view_type(view_type: &str) -> SliceOrientation {
     }
 }
 
-pub(crate) fn slice_features_from_frontend_layers(layers: &[LayerState]) -> SliceFeatureUbo {
-    let mut visible_layer_index = 0u32;
+/// Outline settings for every outlined label layer among the renderable
+/// `layers`, assuming each one is drawn.
+#[cfg(test)]
+pub(crate) fn slice_features_from_frontend_layers(layers: &[LayerState]) -> Vec<SliceFeatureUbo> {
+    slice_features_for_drawn_layers(layers.iter().filter(|layer| is_renderable_layer(layer)))
+}
 
-    for layer in layers {
-        if !is_renderable_layer(layer) {
-            continue;
-        }
-
-        if let Some(outline) = &layer.outline {
+/// Outline settings for every outlined label layer in `drawn`, the layers the
+/// backend draws in `layer_data` order; each entry is routed to its position.
+pub(crate) fn slice_features_for_drawn_layers<'a>(
+    drawn: impl IntoIterator<Item = &'a LayerState>,
+) -> Vec<SliceFeatureUbo> {
+    drawn
+        .into_iter()
+        .enumerate()
+        .filter_map(|(visible_layer_index, layer)| {
+            let outline = layer.outline.as_ref()?;
             // Outline is active whenever enabled on a label layer. With a specific
             // label selected we outline that parcel (mode 0); otherwise we outline
             // every parcel boundary (mode 1) so the toggle alone is meaningful.
-            if outline.enabled && layer.layer_mode == LayerMode::Label {
-                let outline_mode = if outline.selected_label_id > 0 { 0 } else { 1 };
-                return SliceFeatureUbo {
-                    outline_enabled: 1,
-                    outline_layer_index: visible_layer_index,
-                    selected_label_id: outline.selected_label_id,
-                    outline_mode,
-                    outline_color: outline.color,
-                    outline_thickness_px: outline.thickness_px.max(1.0),
-                    outline_color_mode: outline.color_mode.shader_value(),
-                    halo_thickness_px: outline.halo_px.max(0.0),
-                    halo_color: outline.halo_color,
-                    ..SliceFeatureUbo::default()
-                };
+            if !outline.enabled || layer.layer_mode != LayerMode::Label {
+                return None;
             }
-        }
-
-        visible_layer_index += 1;
-    }
-
-    SliceFeatureUbo::default()
+            let outline_mode = if outline.selected_label_id > 0 { 0 } else { 1 };
+            Some(SliceFeatureUbo {
+                outline_enabled: 1,
+                outline_layer_index: visible_layer_index as u32,
+                selected_label_id: outline.selected_label_id,
+                outline_mode,
+                outline_color: outline.color,
+                outline_thickness_px: outline.thickness_px.max(1.0),
+                outline_color_mode: outline.color_mode.shader_value(),
+                halo_thickness_px: outline.halo_px.max(0.0),
+                halo_color: outline.halo_color,
+                ..SliceFeatureUbo::default()
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn encode_raw_rgba_frame(width: u32, height: u32, rgba_data: Vec<u8>) -> Vec<u8> {
@@ -600,6 +605,8 @@ mod tests {
         let frontend = parse_frontend_view_state(FRONTEND_FIXTURE).expect("fixture parses");
 
         let features = slice_features_from_frontend_layers(&frontend.layers);
+        assert_eq!(features.len(), 1);
+        let features = features[0];
 
         assert_eq!(features.outline_enabled, 1);
         assert_eq!(features.outline_layer_index, 0);
@@ -620,7 +627,7 @@ mod tests {
         );
         let frontend = parse_frontend_view_state(&fixture).expect("fixture parses");
 
-        let features = slice_features_from_frontend_layers(&frontend.layers);
+        let features = slice_features_from_frontend_layers(&frontend.layers)[0];
 
         assert_eq!(features.outline_color_mode, 1);
         assert_eq!(features.halo_thickness_px, 1.5);
@@ -629,9 +636,48 @@ mod tests {
         let negative_halo = fixture.replace(r#""haloPx": 1.5"#, r#""haloPx": -2.0"#);
         let frontend = parse_frontend_view_state(&negative_halo).expect("fixture parses");
         assert_eq!(
-            slice_features_from_frontend_layers(&frontend.layers).halo_thickness_px,
+            slice_features_from_frontend_layers(&frontend.layers)[0].halo_thickness_px,
             0.0
         );
+    }
+
+    #[test]
+    fn slice_feature_conversion_keeps_every_outlined_label_layer() {
+        // N20: two atlases in Outline mode must each keep their own outline
+        // settings, not only the first.
+        let mut frontend = parse_frontend_view_state(FRONTEND_FIXTURE).expect("fixture parses");
+        let mut second = frontend.layers[1].clone();
+        second.id = "second-atlas".to_string();
+        let outline = second.outline.as_mut().expect("fixture outline");
+        outline.selected_label_id = 0;
+        outline.thickness_px = 1.0;
+        frontend.layers.push(second);
+
+        let features = slice_features_from_frontend_layers(&frontend.layers);
+
+        assert_eq!(features.len(), 2);
+        // The hidden first layer is skipped, so the atlases are visible layers 0, 1.
+        assert_eq!(features[0].outline_layer_index, 0);
+        assert_eq!(features[0].outline_mode, 0);
+        assert_eq!(features[0].outline_thickness_px, 2.5);
+        assert_eq!(features[1].outline_layer_index, 1);
+        assert_eq!(features[1].outline_mode, 1);
+        assert_eq!(features[1].outline_thickness_px, 1.0);
+
+        // Hiding the first atlas renumbers the second to visible layer 0.
+        frontend.layers[1].visible = false;
+        let features = slice_features_from_frontend_layers(&frontend.layers);
+        assert_eq!(features.len(), 1);
+        assert_eq!(features[0].outline_layer_index, 0);
+        assert_eq!(features[0].outline_thickness_px, 1.0);
+
+        // A layer the backend leaves out of the frame (over budget, no GPU
+        // slot) does not shift the next layer's outline onto the wrong slot.
+        frontend.layers[1].visible = true;
+        let features = slice_features_for_drawn_layers([&frontend.layers[2]]);
+        assert_eq!(features.len(), 1);
+        assert_eq!(features[0].outline_layer_index, 0);
+        assert_eq!(features[0].outline_thickness_px, 1.0);
     }
 
     #[test]

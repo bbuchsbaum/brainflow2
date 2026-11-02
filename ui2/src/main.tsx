@@ -13,6 +13,7 @@ import '@fontsource/ibm-plex-mono/500.css';
 import './index.css';
 import { selectApplicationHost } from './services/applicationHost';
 import { installNumericInputGuard } from './utils/numericInput';
+import { installNativeContextMenuGuard } from './utils/nativeContextMenuGuard';
 
 console.log('[main.tsx] React app starting...');
 
@@ -55,6 +56,8 @@ console.log('[main.tsx] ReactDOM:', typeof ReactDOM);
 // Displayed numbers use U+2212; normalise it (and other dashes) in every
 // numeric field so a pasted negative never loses its sign.
 installNumericInputGuard(document);
+// No WebKit context menu on app chrome; text fields and selections keep it.
+installNativeContextMenuGuard(document);
 
 const root = ReactDOM.createRoot(rootElement);
 

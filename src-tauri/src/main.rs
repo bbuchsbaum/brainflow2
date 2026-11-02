@@ -399,6 +399,41 @@ fn flush_startup_actions(
     Ok(pending_count)
 }
 
+/// The app's one window (`tauri.conf.json` gives it no label: "main").
+const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Whether closing `label` (⇧⌘W or the red close button) only hides it. On
+/// macOS the app keeps running with its window closed, as Mac apps do (QA
+/// 2026-10-31 N27: ⇧⌘W ended the process); the Dock icon shows it again and
+/// ⌘Q quits. Elsewhere closing the window ends the app, as before.
+fn close_hides_window(label: &str) -> bool {
+    cfg!(target_os = "macos") && label == MAIN_WINDOW_LABEL
+}
+
+/// Set once the app is exiting, so a close that arrives then is not turned
+/// into a hide.
+static APP_EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Show the main window, restored and focused: the Dock icon or a menu
+/// command after ⇧⌘W hid it (N27). A no-op for a window already in front.
+fn reveal_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        if !window.is_visible().unwrap_or(true) || window.is_minimized().unwrap_or(false) {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }
+}
+
+/// Hide `window` instead of closing it. The UI's stores persist on every
+/// change, so the session is already saved; nothing is torn down.
+fn hide_window(window: &tauri::Window) {
+    if let Err(e) = window.hide() {
+        eprintln!("Failed to hide the window: {}", e);
+    }
+}
+
 fn main() {
     // Initialize state components BEFORE the builder
     let program_name = std::env::args()
@@ -949,6 +984,11 @@ fn main() {
             app.on_menu_event(move |app, event| {
                 println!("Menu event received: {:?}", event.id());
                 let event_id = event.id().as_ref();
+                // A menu command while ⇧⌘W has hidden the window acts in it,
+                // so it comes back first (N27); Close Window itself does not.
+                if event_id != "close_window" {
+                    reveal_main_window(app);
+                }
 
                 match event_id {
                     "mount_directory" => {
@@ -1091,15 +1131,22 @@ fn main() {
                     }
                     "close_window" => {
                         // The UI's stores persist on every change, so the
-                        // session is already saved when the window goes.
+                        // session is already saved when the window goes. On
+                        // macOS the main window is hidden, not closed, like
+                        // its red button (close_hides_window).
                         let windows = app.webview_windows();
                         let target = windows
                             .values()
                             .find(|w| w.is_focused().unwrap_or(false))
-                            .or_else(|| windows.get("main"))
+                            .or_else(|| windows.get(MAIN_WINDOW_LABEL))
                             .or_else(|| windows.values().next());
                         if let Some(window) = target {
-                            if let Err(e) = window.close() {
+                            let result = if close_hides_window(window.label()) {
+                                window.hide()
+                            } else {
+                                window.close()
+                            };
+                            if let Err(e) = result {
                                 eprintln!("Failed to close the window: {}", e);
                             }
                         }
@@ -1211,6 +1258,18 @@ fn main() {
             }
             Ok(())
         })
+        // The red close button does what ⇧⌘W does: on macOS the main window
+        // hides and the app keeps running (N27).
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if close_hides_window(window.label())
+                    && !APP_EXITING.load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    api.prevent_close();
+                    hide_window(window);
+                }
+            }
+        })
         .plugin(log_plugin) // Add logging plugin
         .plugin(tauri_plugin_dialog::init())
         //.plugin(tauri_plugin_window_state::init())
@@ -1228,8 +1287,23 @@ fn main() {
             flush_startup_actions,
             copy_png_to_clipboard
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(handle_run_event);
+}
+
+/// App lifecycle: note the exit (closes then really close), and on macOS
+/// bring back the window ⇧⌘W hid when the Dock icon is clicked (N27).
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn handle_run_event(app: &AppHandle, event: tauri::RunEvent) {
+    match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            APP_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => reveal_main_window(app),
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -1306,5 +1380,47 @@ mod clipboard_tests {
         assert!(err.contains("4×4"));
         assert_eq!(png_to_rgba(&png, 64).unwrap().2.len(), 64);
         assert_eq!(CLIPBOARD_MAX_RGBA_BYTES, 256 * 1024 * 1024);
+    }
+}
+
+#[cfg(test)]
+mod close_window_tests {
+    use super::{close_hides_window, MAIN_WINDOW_LABEL};
+
+    /// QA 2026-10-31 N27: on macOS ⇧⌘W and the red button hide the main
+    /// window and the app keeps running; elsewhere they close it.
+    #[test]
+    fn only_the_main_window_hides_and_only_on_macos() {
+        assert_eq!(
+            close_hides_window(MAIN_WINDOW_LABEL),
+            cfg!(target_os = "macos")
+        );
+        assert!(!close_hides_window("mount-dialog"));
+    }
+
+    /// The source after `marker`, up to `lines` lines: no byte offsets, so
+    /// a multi-byte character never splits a slice.
+    fn after(source: &'static str, marker: &str, lines: usize) -> String {
+        let (_, rest) = source
+            .split_once(marker)
+            .unwrap_or_else(|| panic!("`{marker}` not found"));
+        rest.lines().take(lines).collect::<Vec<_>>().join("\n")
+    }
+
+    /// Both ways of closing go through the same rule, the Dock icon (Reopen)
+    /// shows the hidden window again, and so does any other menu command.
+    #[test]
+    fn close_window_and_close_button_share_the_rule_and_reopen_shows() {
+        let main_rs = include_str!("main.rs");
+        let handler = after(main_rs, "\"close_window\" => {", 25);
+        assert!(handler.contains("close_hides_window(window.label())"));
+        assert!(handler.contains("window.hide()"));
+        let on_close = after(main_rs, "WindowEvent::CloseRequested { api, .. }", 8);
+        assert!(on_close.contains("api.prevent_close()"));
+        let reopen = after(main_rs, "tauri::RunEvent::Reopen {", 2);
+        assert!(reopen.contains("reveal_main_window(app)"));
+        let menu = after(main_rs, "app.on_menu_event(move |app, event| {", 10);
+        assert!(menu.contains("if event_id != \"close_window\""));
+        assert!(menu.contains("reveal_main_window(app);"));
     }
 }

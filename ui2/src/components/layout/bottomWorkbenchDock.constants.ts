@@ -66,6 +66,18 @@ export const DOCK_HEIGHT_DEFAULTS: Readonly<Record<DockHeightKey, number>> = {
   'analysis-workbench': DOCK_HEIGHT_PREFERRED,
 };
 
+/**
+ * Whether each tool's dock starts shown (QA 2026-10-31 N24: visibility is
+ * per tool too, so closing it in Set studio leaves Orthogonal's). Every tool
+ * starts with it shown; Set studio's opens short (DOCK_HEIGHT_DEFAULTS).
+ */
+export const DOCK_OPEN_DEFAULTS: Readonly<Record<DockHeightKey, boolean>> = {
+  imaging: true,
+  'set-studio': true,
+  'bids-explorer': true,
+  'analysis-workbench': true,
+};
+
 /** The smallest height a drag gives: never above the tool's own default. */
 export function dockHeightMin(key: DockHeightKey): number {
   return Math.min(DOCK_HEIGHT_MIN, DOCK_HEIGHT_DEFAULTS[key]);

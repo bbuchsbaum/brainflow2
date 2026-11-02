@@ -37,6 +37,7 @@ import { useSeriesStore } from '@/stores/seriesStore';
 import { categoricalTypeFromData, layersOfView, planLayerPlacement, placementOrder } from './layerPlacement';
 import { releaseVolumeCaches } from './volumeCacheRelease';
 import { forgetPreservedDisplay, isLayerDisplayPreserved } from './restoredDisplay';
+import { GpuSlotsFullError } from '@/utils/formatTauriError';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -131,48 +132,60 @@ export class LayerApiImpl implements LayerApi {
     };
 
     // Free a texture slot first: the render loop refuses an upload once all
-    // are taken, so evicting afterwards is too late.
-    await layerEvictionService.makeRoomForUpload(id);
-    if (removed()) return;
-    const gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
-    if (await discardIfRemoved()) return;
-
+    // are taken, so evicting afterwards is too late. With every slot holding
+    // a layer shown somewhere, refuse here: the texture slots can outnumber
+    // the render state's layer cap, so the backend may accept the upload and
+    // then fail every frame with one layer too many (QA 2026-10-31 N18).
+    // The slot is reserved until the layer is resident (or fails), so shows
+    // made together (Show all) do not all see the same free slot.
+    const room = await layerEvictionService.makeRoomForUpload(id, { reserve: true });
     try {
-      const isReady = await this.apiService.waitForLayerReady(id, 500, 20);
-      if (!isReady) {
-        console.warn(`[LayerApiImpl] Backend readiness timed out for promoted layer ${id}`);
+      if (removed()) return;
+      if (room === false) {
+        throw new GpuSlotsFullError(await layerEvictionService.gpuTextureSlots());
       }
-    } catch (readinessError) {
-      console.warn(
-        `[LayerApiImpl] Readiness probe unavailable for promoted layer ${id}`,
-        readinessError,
-      );
-    }
-    if (await discardIfRemoved()) return;
+      const gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
+      if (await discardIfRemoved()) return;
 
-    const currentMetadata = useLayerStore.getState().getLayerMetadata(id) ?? existingMetadata;
-    const nextMetadata = this.buildLayerMetadata(
-      currentMetadata ?? {},
-      gpuInfo,
-      currentMetadata?.renderProps,
-      true,
-    );
-    useLayerStore.getState().setLayerMetadata(id, nextMetadata);
-    getEventBus().emit('layer.gpu.ready', { layerId: id });
-    // Loaded hidden, so it was never windowed: it must not be shown on the
-    // legacy fallback for the rest of its life.
-    const deferred = this.unrefined.get(id);
-    if (deferred) {
-      this.unrefined.delete(id);
-      // A window set while it was hidden is the user's: it stands.
-      const untouched =
-        deferred.render === undefined ||
-        renderKeyOf(viewLayerIn(deferred.workspaceId, id)) === deferred.render;
-      if (untouched) {
-        this.refineIntensityFromHistogram(layer as Layer, deferred.options, deferred.workspaceId).catch((err) =>
-          console.warn(`[LayerApiImpl] Deferred intensity refinement failed for ${id}:`, err),
+      try {
+        const isReady = await this.apiService.waitForLayerReady(id, 500, 20);
+        if (!isReady) {
+          console.warn(`[LayerApiImpl] Backend readiness timed out for promoted layer ${id}`);
+        }
+      } catch (readinessError) {
+        console.warn(
+          `[LayerApiImpl] Readiness probe unavailable for promoted layer ${id}`,
+          readinessError,
         );
       }
+      if (await discardIfRemoved()) return;
+
+      const currentMetadata = useLayerStore.getState().getLayerMetadata(id) ?? existingMetadata;
+      const nextMetadata = this.buildLayerMetadata(
+        currentMetadata ?? {},
+        gpuInfo,
+        currentMetadata?.renderProps,
+        true,
+      );
+      useLayerStore.getState().setLayerMetadata(id, nextMetadata);
+      getEventBus().emit('layer.gpu.ready', { layerId: id });
+      // Loaded hidden, so it was never windowed: it must not be shown on the
+      // legacy fallback for the rest of its life.
+      const deferred = this.unrefined.get(id);
+      if (deferred) {
+        this.unrefined.delete(id);
+        // A window set while it was hidden is the user's: it stands.
+        const untouched =
+          deferred.render === undefined ||
+          renderKeyOf(viewLayerIn(deferred.workspaceId, id)) === deferred.render;
+        if (untouched) {
+          this.refineIntensityFromHistogram(layer as Layer, deferred.options, deferred.workspaceId).catch((err) =>
+            console.warn(`[LayerApiImpl] Deferred intensity refinement failed for ${id}:`, err),
+          );
+        }
+      }
+    } finally {
+      layerEvictionService.releaseReservation(id);
     }
   }
 
@@ -259,7 +272,7 @@ export class LayerApiImpl implements LayerApi {
     layerFrameBoxes.delete(id);
   }
 
-  private setViewLayerVisibility(id: string, visible: boolean): void {
+  private setViewLayerVisibility(id: string, visible: boolean, workspaceId?: string): void {
     useViewStateStore.getState().setViewState((state) => {
       const layer = state.layers.find((item) => item.id === id);
       if (!layer) {
@@ -269,7 +282,7 @@ export class LayerApiImpl implements LayerApi {
       // A layer hidden by older builds (or a session saved by them) had
       // its opacity zeroed; showing it must draw it.
       if (visible && !(layer.opacity > 0)) layer.opacity = 1.0;
-    });
+    }, workspaceId);
   }
 
   private reorderViewLayers(layerIds: string[], workspaceId?: string): void {
@@ -912,7 +925,11 @@ export class LayerApiImpl implements LayerApi {
   /** Latest visibility request per layer (updateLayer ordering). */
   private readonly visibilitySeq = new Map<string, number>();
 
-  async updateLayer(id: string, updates: Partial<Layer>): Promise<Layer> {
+  async updateLayer(
+    id: string,
+    updates: Partial<Layer>,
+    options: { workspaceId?: string } = {},
+  ): Promise<Layer> {
     // For now, layer metadata is managed on frontend only
     // Backend only cares about render properties
 
@@ -936,7 +953,8 @@ export class LayerApiImpl implements LayerApi {
         opacity: updates.visible ? (viewOpacity ?? 1.0) : 0.0,
       });
       if (!current()) return { id, ...updates } as Layer;
-      this.setViewLayerVisibility(id, updates.visible ?? true);
+      // In the workspace toggled, though another tab may be in front by now.
+      this.setViewLayerVisibility(id, updates.visible ?? true, options.workspaceId);
       if (updates.visible) {
         await this.reconcileGpuResidency(id);
       }

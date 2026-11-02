@@ -1,13 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { StudioScaleBar } from './StudioScaleBar';
 import { StudioPlaneToggle } from './StudioPlaneToggle';
 import { StudioToolbarPortal } from './StudioToolbarSlot';
 import { useSetStudioStore } from '@/stores/setStudioStore';
-import { useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { populationUnderlaySource } from '@/services/studio/PopulationSliceService';
-import { findLayerIdForSourcePath } from '@/services/studio/StudioDisplayService';
-import { useLayerStore } from '@/stores/layerStore';
-import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type {
   SpatialFieldSetSummary,
@@ -243,40 +237,11 @@ function CurrentPaneCanvas({
   memberSourcePath: string | null;
   plane: 'axial' | 'coronal' | 'sagittal';
 }) {
-  // The member's own display, for its colourbar (the shared views draw none
-  // for a lone base layer; QA N10).
-  const layerId = useLayerStore((state) => findLayerIdForSourcePath(state, memberSourcePath));
-  // The Studio workspace's own layer display, never the tab in front (F44).
-  const workspaceId = useStudioWorkspaceKey();
-  const display = useViewStateStore((state) =>
-    layerId
-      ? (state.getWorkspaceViewState(workspaceId).layers.find((layer) => layer.id === layerId) ?? null)
-      : null,
-  );
-  const host = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState(0);
-  useEffect(() => {
-    const node = host.current;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver((entries) => {
-      const next = Math.floor(entries[0]?.contentRect.height ?? 0);
-      setHeight((previous) => (previous === next ? previous : next));
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+  // One colourbar: the shared view's, describing the member even when it
+  // is the base layer, placed off the data by the shared rule (QA N16; a
+  // second compact bar here sat beside it, the full one over the blob).
   return (
-    <div ref={host} className="absolute inset-0">
-      {display && memberLabel ? (
-        <StudioScaleBar
-          min={display.intensity[0]}
-          max={display.intensity[1]}
-          hidden={display.threshold}
-          colormap={display.colormap}
-          label={memberLabel}
-          paneHeight={height}
-        />
-      ) : null}
+    <div className="absolute inset-0">
       <StudioRenderAdapter
         supportKind={activeSet?.supportKind}
         title=""
@@ -284,6 +249,7 @@ function CurrentPaneCanvas({
         hideChrome
         plane={plane}
         memberSourcePath={memberSourcePath}
+        describeBase
       />
       {memberLabel ? (
         <div

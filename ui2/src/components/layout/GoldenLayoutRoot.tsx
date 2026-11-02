@@ -72,12 +72,16 @@ import {
 import { SurfacePlaceholderPanel } from '@/components/views/SurfacePlaceholderPanel';
 import { useSurfaceTabRestoreStore, type SavedSurfaceTab } from '@/stores/surfaceTabRestoreStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
+import { useLayerStore } from '@/stores/layerStore';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { useCenterTabStore } from '@/stores/centerTabStore';
 import { ensureDefaultView } from '@/services/workspaceNavigation';
 import {
   defaultFirstScreenBackend,
   firstScreenAppliesAtLaunch,
+  restoredLaunchFirstScreenTarget,
   runFirstScreen,
+  sceneHasContent,
 } from '@/services/firstScreenService';
 // Right-rail Inspector — single tab; mode-aware via InspectorRouter.
 import { InspectorRouter } from '@/components/inspector/InspectorRouter';
@@ -154,6 +158,9 @@ export function GoldenLayoutRoot() {
   const programmaticTabChangeRef = useRef(programmaticTabChange);
   // True for a cold start with nothing restored (see the default-view effect).
   const coldStartRef = useRef<boolean | null>(null);
+  // A restored launch whose views came back empty, until the first screen
+  // has run in a volume view (or something was loaded); QA 2026-10-31 N21.
+  const restoredFirstScreenPendingRef = useRef(false);
   // Surface placeholders were restored at startup (a restored session).
   const restoredSurfaceTabsRef = useRef(false);
   // The strip order saved last session, until the restored tabs are in it.
@@ -746,6 +753,9 @@ export function GoldenLayoutRoot() {
         restoredWorkspaces: workspaces.values(),
         restoredSurfaceTabs: restoredSurfaceTabsRef.current,
       });
+      // The user's tabs came back, but layers never do: the restored views
+      // are empty, so they get the first screen too (the effect below).
+      restoredFirstScreenPendingRef.current = coldStartRef.current === false && workspaces.size > 0;
     }
 
     // Only the app's own empty default view came back: the first screen runs
@@ -783,6 +793,46 @@ export function GoldenLayoutRoot() {
     }
     // Don't add existing workspaces here - the subscription will handle it
   }, [isLayoutReady, workspaces]);
+
+  // A restored launch: the first screen runs in the front tab if it is a
+  // volume view with nothing loaded (restoredLaunchFirstScreenTarget), or in
+  // the first tab the user switches to. That first switch decides: a tool tab
+  // disarms it, and so does any load meanwhile, so the anatomy never turns
+  // up unasked later in the session.
+  const restoredLaunchFrontRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!isLayoutReady || !restoredFirstScreenPendingRef.current) return;
+    if (sceneHasContent()) {
+      restoredFirstScreenPendingRef.current = false;
+      return;
+    }
+    const front = activeWorkspaceId ? workspaces.get(activeWorkspaceId) : undefined;
+    const workspaceId = restoredLaunchFirstScreenTarget(front);
+    if (workspaceId) {
+      restoredFirstScreenPendingRef.current = false;
+      void defaultFirstScreenBackend().then((backend) => runFirstScreen(workspaceId, backend));
+      return;
+    }
+    if (restoredLaunchFrontRef.current === undefined) {
+      restoredLaunchFrontRef.current = activeWorkspaceId;
+    } else if (restoredLaunchFrontRef.current !== activeWorkspaceId) {
+      restoredFirstScreenPendingRef.current = false;
+    }
+  }, [isLayoutReady, activeWorkspaceId, workspaces]);
+  useEffect(() => {
+    if (!isLayoutReady) return;
+    const disarmOnLoad = () => {
+      if (restoredFirstScreenPendingRef.current && sceneHasContent()) {
+        restoredFirstScreenPendingRef.current = false;
+      }
+    };
+    const offs = [
+      useLayerStore.subscribe(disarmOnLoad),
+      useSurfaceStore.subscribe(disarmOnLoad),
+      useLoadingQueueStore.subscribe(disarmOnLoad),
+    ];
+    return () => offs.forEach((off) => off());
+  }, [isLayoutReady]);
 
   // Reconcile workspaces that already existed before the GoldenLayout
   // subscription was attached. This matters now that workspace persistence

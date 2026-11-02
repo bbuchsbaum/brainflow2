@@ -13,6 +13,7 @@ import React, {
   useMemo,
   useEffect,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { SliceViewport, type SliceViewportPlacement } from "./SliceViewport";
 import { SliceSlider } from "@/components/ui/SliceSlider";
@@ -56,12 +57,16 @@ import {
   beginRenderInteraction,
   endRenderInteraction,
   pulseRenderInteraction,
+  renderInteractionActive,
+  subscribeRenderRatio,
 } from "@/utils/renderPixelRatio";
 import { useViewPanZoom, wheelZoomFactor } from "@/hooks/useViewPanZoom";
 import { fitActiveView, fitView, useIsViewZoomed, zoomView } from "@/services/ViewZoomService";
 import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
-import { useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
-import { dataRectOnPane } from "./viewportFrame/paneGeometry";
+import { useColorbarGroup, useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
+import { ColorbarFit, placeColorbarBlock } from "./viewportFrame/colorbarPlacement";
+import { measureColorbar } from "./viewportFrame/colorbarMeasure";
+import { dataRectOnPane, paneRectFromKey, paneRectKey } from "./viewportFrame/paneGeometry";
 import {
   OrientationLabels,
   ViewportColorbar,
@@ -401,49 +406,36 @@ function SliceViewCanvasBody({
   const [placementState, setPlacementState] =
     useState<SliceViewportPlacement | null>(null);
   // Image rectangle and crosshair centre in canvas-area CSS px, from the
-  // placement the shared viewport computed (read-only; no new fit math).
-  const frameGeometry = useMemo(() => {
+  // placement the shared viewport computed (read-only; no new fit math). The
+  // image rectangle is keyed on whole px, apart from the crosshair, so the
+  // colorbar placement does not rerun on every crosshair move (review W4).
+  const imageRectKey = useMemo(() => {
     const canvas = canvasRef.current;
     const p = placementState;
-    if (!canvas || !p || canvas.width === 0) return null;
+    if (!canvas || !p || canvas.width === 0) return "";
     const rect = canvas.getBoundingClientRect();
     const k = rect.width > 0 ? rect.width / canvas.width : 1;
-    const imageRect = {
+    return paneRectKey({
       left: p.x * k,
       top: p.y * k,
       right: (p.x + p.width) * k,
       bottom: (p.y + p.height) * k,
-    };
-    let crosshairPoint: { x: number; y: number } | null = null;
-    if (crosshair.visible && p.imageWidth > 0 && p.imageHeight > 0) {
-      const [ix, iy] = CoordinateTransform.worldToScreenUnchecked(
-        crosshair.world_mm,
-        viewPlane,
-      );
-      // Through the placement, so a mirrored display is followed.
-      const point = imagePointToCanvasPoint([ix, iy], p);
-      crosshairPoint = { x: point.canvasX * k, y: point.canvasY * k };
-    }
-    return { imageRect, crosshairPoint };
-  }, [placementState, crosshair, viewPlane, width, canvasHeight]);
-
-  // Publish this view's area and right-margin room for the colorbar host choice.
-  const imageRight = frameGeometry?.imageRect.right ?? null;
-  useEffect(() => {
-    const setSlot = useViewportFrameStore.getState().setSlot;
-    if (!hasLayers || imageRight === null) {
-      setSlot(viewId, null);
-      return;
-    }
-    setSlot(viewId, {
-      area: Math.round(width * canvasHeight),
-      room: Math.max(0, Math.floor(width - imageRight - 24)),
     });
-  }, [viewId, hasLayers, width, canvasHeight, imageRight]);
-  useEffect(
-    () => () => useViewportFrameStore.getState().setSlot(viewId, null),
-    [viewId],
-  );
+    // width / canvasHeight: the canvas is re-measured after a resize.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placementState, width, canvasHeight]);
+  const frameImageRect = useMemo(() => paneRectFromKey(imageRectKey), [imageRectKey]);
+  const crosshairPoint = useMemo(() => {
+    const p = placementState;
+    if (!frameImageRect || !p || !crosshair.visible || !(p.imageWidth > 0) || !(p.imageHeight > 0)) {
+      return null;
+    }
+    const k = (frameImageRect.right - frameImageRect.left) / p.width;
+    const [ix, iy] = CoordinateTransform.worldToScreenUnchecked(crosshair.world_mm, viewPlane);
+    // Through the placement, so a mirrored display is followed.
+    const point = imagePointToCanvasPoint([ix, iy], p);
+    return { x: point.canvasX * k, y: point.canvasY * k };
+  }, [placementState, frameImageRect, crosshair.visible, crosshair.world_mm, viewPlane]);
 
   // Handle mouse clicks to update crosshair — skip if window/level drag is active
   const isDraggingRef = useRef(isDragging);
@@ -463,14 +455,79 @@ function SliceViewCanvasBody({
   const dataLayerIds = useMemo(() => layers.map((l) => l.id), [layers]);
   const dataEdgeBounds = useLayerEdgeBounds(dataLayerIds);
   // Where the data is drawn: the colorbar keeps off it (QA 2026-10-31 N16).
-  // The CSS scale comes from the measured image rectangle (frameGeometry),
-  // never a layout read per crosshair move (review L4a).
-  const frameImageRect = frameGeometry?.imageRect ?? null;
-  const colorbarDataRect = useMemo(() => {
-    if (!frameImageRect || !placementState || !(placementState.width > 0)) return null;
+  // The CSS scale comes from the measured image rectangle, never a layout
+  // read per crosshair move (review L4a); keyed on whole px like it.
+  const colorbarDataKey = useMemo(() => {
+    if (!frameImageRect || !placementState || !(placementState.width > 0)) return "";
     const k = (frameImageRect.right - frameImageRect.left) / placementState.width;
-    return dataRectOnPane(dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, k);
+    return paneRectKey(dataRectOnPane(dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, k));
   }, [dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, frameImageRect]);
+  const colorbarDataRect = useMemo(() => paneRectFromKey(colorbarDataKey), [colorbarDataKey]);
+
+  // How well this view holds the colorbar, by the same placement rule the
+  // colorbar uses (the volume's on-screen bounds vs the pane): one view per
+  // colorbar group hosts it, chosen with hysteresis (viewportFrameStore).
+  // The side letters are centred on the whole panel, slider included.
+  const { group: colorbarGroup } = useColorbarGroup();
+  const sideLetterY = (canvasHeight + SLIDER_HEIGHT) / 2;
+  // The block's forms, measured once per layer (review W4) and with the same
+  // inputs in every view: only the host samples a caret value, so measuring
+  // with it would let a long value (−1.2e−3) downgrade the host's fit, move
+  // the bar, and the previous host's fit recover: the bar would alternate
+  // between views. The value column reserves its usual width regardless.
+  const colorbarForms = useMemo(
+    () => (colorbarLayer ? measureColorbar(colorbarLayer).forms : null),
+    [colorbarLayer],
+  );
+  const colorbarFit = useMemo(() => {
+    if (!hasLayers || !colorbarForms || !frameImageRect) return null;
+    // The same inputs the colorbar itself places with (review S5).
+    const placed = placeColorbarBlock(
+      {
+        width,
+        height: canvasHeight,
+        imageRect: frameImageRect,
+        dataRect: colorbarDataRect,
+        avoidPoint: crosshairPoint,
+        topReserve: topRightReserve,
+        sideLetterY,
+      },
+      colorbarForms,
+    );
+    if (!placed) return { fit: ColorbarFit.None, room: 0 };
+    return { fit: placed.fit, room: placed.fit === ColorbarFit.Corner ? 0 : Math.round(placed.room) };
+  }, [
+    hasLayers,
+    colorbarForms,
+    frameImageRect,
+    colorbarDataRect,
+    crosshairPoint,
+    width,
+    canvasHeight,
+    topRightReserve,
+    sideLetterY,
+  ]);
+  // While a resize or zoom runs (a splitter drag) the colorbar holds its
+  // slot and its view; it chooses again once quiet (the image and the pane
+  // disagree mid-drag, and re-choosing flickered the bar across the brain).
+  const colorbarHold = useSyncExternalStore(subscribeRenderRatio, renderInteractionActive);
+  useEffect(() => {
+    if (colorbarHold) return;
+    const setSlot = useViewportFrameStore.getState().setSlot;
+    if (!colorbarFit) {
+      setSlot(colorbarGroup, viewId, null);
+      return;
+    }
+    setSlot(colorbarGroup, viewId, {
+      area: Math.round(width * canvasHeight),
+      fit: colorbarFit.fit,
+      room: colorbarFit.room,
+    });
+  }, [colorbarGroup, viewId, width, canvasHeight, colorbarFit, colorbarHold]);
+  useEffect(
+    () => () => useViewportFrameStore.getState().setSlot(colorbarGroup, viewId, null),
+    [colorbarGroup, viewId],
+  );
 
   const handleWorldClick = useCallback(
     (
@@ -771,10 +828,12 @@ function SliceViewCanvasBody({
             layer={colorbarLayer}
             width={width}
             height={canvasHeight}
-            imageRect={frameGeometry?.imageRect ?? null}
-            avoidPoint={frameGeometry?.crosshairPoint ?? null}
+            imageRect={frameImageRect}
+            avoidPoint={crosshairPoint}
             dataRect={colorbarDataRect}
             topReserve={topRightReserve}
+            sideLetterY={sideLetterY}
+            hold={colorbarHold}
             value={colorbarReading?.value ?? null}
           />
         )}

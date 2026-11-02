@@ -242,6 +242,129 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     expect(bar.getAttribute('aria-label')).toMatch(/−2 to 2, −0\.2 to 0\.2 hidden/);
   });
 
+  it('back in the Studio, keeps the last bitmap until the anatomy returns instead of the map over black (N29)', async () => {
+    let templates = 0;
+    transport.invoke.mockImplementation(async () => ({ volume_handle_info: { id: `template-${++templates}` } }));
+    render(
+      <StudioDerivedPaneCanvas
+        paneId="cohort-mean"
+        sourcePath="/c/mean-return.nii.gz"
+        label="All members"
+        workspaceId={STUDIO}
+        underlayPath="template:n29-return"
+      />,
+    );
+    const drawnVolumes = () =>
+      api.applyAndRenderViewState.mock.calls.map(([state]) =>
+        state.layers.map((l: { volumeId: string }) => l.volumeId),
+      );
+    await waitFor(() => expect(drawnVolumes().at(-1)?.[0]).toBe('template-1'));
+    inFront('ortho', 'imaging');
+    await waitFor(() => expect(api.unloadVolume).toHaveBeenCalledWith('template-1'));
+
+    // The anatomy is slow to come back; the map is not.
+    let finishTemplate!: () => void;
+    transport.invoke.mockImplementationOnce(
+      () => new Promise((resolve) => (finishTemplate = () => resolve({ volume_handle_info: { id: 'template-2' } }))),
+    );
+    api.applyAndRenderViewState.mockClear();
+    inFront(STUDIO, 'studio');
+    // The cached bitmap shows at once, and no map-only frame replaces it.
+    expect(screen.getByTestId('pane-viewport')).toBeInTheDocument();
+    await waitFor(() => expect(api.loadFile).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(api.applyAndRenderViewState).not.toHaveBeenCalled();
+
+    finishTemplate();
+    await waitFor(() => expect(drawnVolumes().at(-1)?.[0]).toBe('template-2'));
+    expect(drawnVolumes().every((volumes) => volumes[0] === 'template-2')).toBe(true);
+  });
+
+  /** A pane drawn over its anatomy, then the Studio left (both unloaded). */
+  async function drawnThenLeft(name: string) {
+    let templates = 0;
+    transport.invoke.mockImplementation(async () => ({ volume_handle_info: { id: `${name}-${++templates}` } }));
+    render(
+      <StudioDerivedPaneCanvas
+        paneId="cohort-mean"
+        sourcePath={`/c/${name}.nii.gz`}
+        label="All members"
+        workspaceId={STUDIO}
+        underlayPath={`template:${name}`}
+      />,
+    );
+    await waitFor(() =>
+      expect(api.applyAndRenderViewState.mock.calls.at(-1)?.[0].layers[0].volumeId).toBe(`${name}-1`),
+    );
+    inFront('ortho', 'imaging');
+    await waitFor(() => expect(api.unloadVolume).toHaveBeenCalledWith(`${name}-1`));
+    // The anatomy never comes back unless the test settles it.
+    transport.invoke.mockImplementation(() => new Promise(() => {}));
+    api.applyAndRenderViewState.mockClear();
+  }
+
+  it('back in the Studio, a failed re-acquire shows its reason, never the cached bitmap (review 1)', async () => {
+    await drawnThenLeft('n29-gpu');
+    api.requestLayerGpuResources.mockRejectedValueOnce({
+      GpuError: { code: 5000, details: 'Maximum texture limit 13 reached' },
+    });
+    inFront(STUDIO, 'studio');
+    expect(await screen.findByText(/GPU texture slots full/)).toBeInTheDocument();
+    expect(screen.queryByTestId('pane-viewport')).toBeNull();
+  });
+
+  it('back in the Studio, a moved crosshair draws the map at once instead of the cached slice (review 2)', async () => {
+    await drawnThenLeft('n29-moved');
+    inFront(STUDIO, 'studio');
+    await waitFor(() => expect(api.loadFile).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(api.applyAndRenderViewState).not.toHaveBeenCalled();
+    act(() =>
+      useViewStateStore.getState().setViewState((draft) => {
+        draft.crosshair.world_mm = [1, 1, 1];
+      }, STUDIO),
+    );
+    await waitFor(() => expect(api.applyAndRenderViewState).toHaveBeenCalled());
+    // Map only: the anatomy is still loading.
+    expect(api.applyAndRenderViewState.mock.calls.at(-1)?.[0].layers).toHaveLength(1);
+  });
+
+  it('back in the Studio, an anatomy that never settles stops holding the pane after a while (review 2)', async () => {
+    await drawnThenLeft('n29-stuck');
+    inFront(STUDIO, 'studio');
+    await waitFor(() => expect(api.loadFile).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(api.applyAndRenderViewState).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.applyAndRenderViewState).toHaveBeenCalled(), { timeout: 3000 });
+    expect(api.applyAndRenderViewState.mock.calls.at(-1)?.[0].layers).toHaveLength(1);
+  });
+
+  it('back in the Studio, a pane whose anatomy fails still draws its map', async () => {
+    let templates = 0;
+    transport.invoke.mockImplementation(async () => ({ volume_handle_info: { id: `template-f${++templates}` } }));
+    render(
+      <StudioDerivedPaneCanvas
+        paneId="zscore"
+        sourcePath="/c/z-return.nii.gz"
+        label="Z"
+        workspaceId={STUDIO}
+        underlayPath="template:n29-failed"
+      />,
+    );
+    await waitFor(() => expect(api.applyAndRenderViewState).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(api.applyAndRenderViewState.mock.calls.at(-1)?.[0].layers).toHaveLength(2),
+    );
+    inFront('ortho', 'imaging');
+    await waitFor(() => expect(api.unloadVolume).toHaveBeenCalledWith('template-f1'));
+    transport.invoke.mockRejectedValueOnce(new Error('template missing'));
+    api.applyAndRenderViewState.mockClear();
+    inFront(STUDIO, 'studio');
+    await waitFor(() =>
+      expect(api.applyAndRenderViewState.mock.calls.at(-1)?.[0].layers).toHaveLength(1),
+    );
+  });
+
   it('after a plane switch, clicks wait for the new plane instead of using the old one (review of 456128a2)', async () => {
     const setCrosshair = vi.spyOn(useViewStateStore.getState(), 'setCrosshair').mockResolvedValue();
     const pane = (plane: 'axial' | 'coronal') => (

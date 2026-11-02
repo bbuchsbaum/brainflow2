@@ -10,7 +10,7 @@ vi.mock('@/components/panels/ActivityPanel', () => ({ ActivityPanel: () => null 
 vi.mock('@/components/panels/LogPanel', () => ({ LogPanel: () => null }));
 
 beforeEach(() => {
-  useLayoutSettingsStore.setState({ bottomDockOpen: true, bottomDockMinimized: false });
+  useLayoutSettingsStore.setState({ bottomDockOpenByKey: {}, bottomDockMinimized: false });
 });
 
 describe('CenterWithBottomDock footer', () => {
@@ -27,7 +27,7 @@ describe('CenterWithBottomDock footer', () => {
   });
 
   it('stays when the dock is closed', () => {
-    useLayoutSettingsStore.setState({ bottomDockOpen: false });
+    useLayoutSettingsStore.getState().setBottomDockOpen(false, 'imaging');
     render(
       <CenterWithBottomDock footer={<span>hints</span>} footerHeight={26}>
         <div />

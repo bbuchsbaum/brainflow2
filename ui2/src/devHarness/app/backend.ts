@@ -561,7 +561,6 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const toSliceLayers = (payloadLayers: any[]): SliceLayer[] => {
-    let outlineTaken = 0;
     return (payloadLayers ?? [])
       .filter((l) => l && l.visible !== false && (l.opacity ?? 1) > 0)
       .flatMap((l) => {
@@ -603,10 +602,10 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
             nearest: l.interpolation === 'nearest' || mode !== 'scalar',
             blend,
             labelLut,
-            // The renderer draws one outline: the first visible label layer with
-            // it enabled (render_bridge_adapter slice_features).
+            // Every drawn label layer with its outline enabled draws its own
+            // (render_bridge_adapter slice_features, one entry per layer).
             outline:
-              mode === 'label' && l.outline?.enabled && !outlineTaken++
+              mode === 'label' && l.outline?.enabled
                 ? {
                     color: l.outline.color,
                     thicknessPx: Number(l.outline.thicknessPx ?? 1),

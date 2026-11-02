@@ -68,6 +68,7 @@ describe('LayerEvictionService', () => {
     // Render loop not up yet: the fallback budget applies.
     mockApiService.getAtlasStats.mockRejectedValue(new Error('not initialised'));
     layerEvictionService.resetGpuTextureSlotsForTests();
+    layerEvictionService.resetReservationsForTests();
   });
 
   function residentLayers(count: number, hidden: number[] = []) {
@@ -291,5 +292,60 @@ describe('LayerEvictionService', () => {
       gpuResident: false,
       evicted: false,
     });
+  });
+
+  // QA 2026-10-31 N18: re-showing a released layer with all 8 slots taken.
+  // It reacquires a slot by evicting a layer hidden everywhere; with every
+  // slot holding a visible layer it is told there is no room.
+  it('says whether a released layer re-shown can have a slot', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 13, renderLayerCapacity: 8 });
+    // 8 resident layers, layer-2 hidden; `released` is the layer re-shown.
+    residentLayers(8, [2]);
+    const released = { id: 'released', name: 'toy_t1w', volumeId: 'released', visible: true };
+    mockLayerStoreState.layers = [...mockLayerStoreState.layers, released] as never;
+    mockLayerStoreState.layerMetadata.set('released', { gpuResident: false, evicted: true });
+
+    await expect(layerEvictionService.makeRoomForUpload('released')).resolves.toBe(true);
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-2');
+
+    // All 8 resident layers visible now: nothing may go.
+    residentLayers(8);
+    mockLayerStoreState.layers = [...mockLayerStoreState.layers, released] as never;
+    mockLayerStoreState.layerMetadata.set('released', { gpuResident: false, evicted: true });
+    mockApiService.releaseLayerGpuResources.mockClear();
+    await expect(layerEvictionService.makeRoomForUpload('released')).resolves.toBe(false);
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    expect(layerEvictionService.slotsInUse('released')).toBe(8);
+  });
+
+  // N18 review: Show all promotes several released layers at once. Each
+  // reserves its slot, so with one slot free only one is let through.
+  it('lets one of two uploads made together take the last free slot', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 8 });
+    residentLayers(7);
+    const a = { id: 'a', name: 'a', volumeId: 'a', visible: true };
+    const b = { id: 'b', name: 'b', volumeId: 'b', visible: true };
+    mockLayerStoreState.layers = [...mockLayerStoreState.layers, a, b] as never;
+    mockLayerStoreState.layerMetadata.set('a', { gpuResident: false });
+    mockLayerStoreState.layerMetadata.set('b', { gpuResident: false });
+
+    const results = await Promise.all([
+      layerEvictionService.makeRoomForUpload('a', { reserve: true }),
+      layerEvictionService.makeRoomForUpload('b', { reserve: true }),
+    ]);
+    expect(results).toEqual([true, false]);
+    expect(layerEvictionService.slotsInUse()).toBe(8);
+    layerEvictionService.releaseReservation('a');
+    expect(layerEvictionService.slotsInUse()).toBe(7);
+  });
+
+  // A Set studio map is counted from its acquire: it may meet the budget.
+  it('lets an upload already counted fill the budget exactly', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 8 });
+    residentLayers(7);
+    derived.live = 1;
+    await expect(layerEvictionService.makeRoomForUpload(undefined, { counted: true })).resolves.toBe(true);
+    derived.live = 2;
+    await expect(layerEvictionService.makeRoomForUpload(undefined, { counted: true })).resolves.toBe(false);
   });
 });

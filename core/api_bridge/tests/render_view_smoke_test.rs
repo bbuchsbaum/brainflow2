@@ -1474,3 +1474,203 @@ async fn shared_timepoint_is_clamped_to_each_4d_layers_last_frame() {
         "{greys:?}"
     );
 }
+
+/// QA 2026-10-31 N18: one layer the GPU cannot hold must not blank the frame.
+/// A released layer shown again is re-allocated, and visible layers past the
+/// render state's layer cap are left out; the rest still draws.
+#[tokio::test]
+async fn render_view_survives_layers_the_gpu_cannot_hold() {
+    let bridge_state = BridgeState::default().expect("bridge state");
+    if !install_render_service_or_skip(&bridge_state).await {
+        return;
+    }
+
+    let test_file = get_test_data_path().join("toy_t1w.nii.gz");
+    let (volume_sendable, _affine) =
+        nifti_loader::load_nifti_volume_auto(&test_file).expect("load nifti volume");
+    let volume_id = "n18-volume".to_string();
+    {
+        let mut registry = bridge_state.volume_registry.lock().await;
+        registry.insert(
+            volume_id.clone(),
+            volume_sendable,
+            VolumeMetadataInfo {
+                name: volume_id.clone(),
+                path: test_file.to_string_lossy().into_owned(),
+                dtype: "f32".into(),
+                volume_type: VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+    }
+    let cap = {
+        let service = bridge_state.render_loop_service.lock().await;
+        let service = service.as_ref().unwrap().lock().await;
+        service.render_layer_capacity() as usize
+    };
+
+    let layer = |id: String, volume: &str| {
+        json!({
+            "id": id,
+            "volumeId": volume,
+            "visible": true,
+            "opacity": 1.0,
+            "colormap": "gray",
+            "intensity": [0.0, 1000.0],
+            "threshold": [0.0, 0.0],
+            "blendMode": "alpha",
+            "interpolation": "linear"
+        })
+    };
+    let render = |layers: Vec<serde_json::Value>| {
+        let (origin_3d, u_3d, origin, u, v) = view_vectors("axial");
+        let (sagittal_3d, sagittal_u, _, _, _) = view_vectors("sagittal");
+        let (coronal_3d, coronal_u, _, _, _) = view_vectors("coronal");
+        json!({
+            "views": {
+                "axial": { "origin_mm": origin_3d, "u_mm": u_3d, "v_mm": [0.0, 10.0, 0.0] },
+                "sagittal": { "origin_mm": sagittal_3d, "u_mm": sagittal_u, "v_mm": [0.0, 0.0, 10.0] },
+                "coronal": { "origin_mm": coronal_3d, "u_mm": coronal_u, "v_mm": [0.0, 0.0, 10.0] }
+            },
+            "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
+            "layers": layers,
+            "requestedView": {
+                "type": "axial", "origin_mm": origin, "u_mm": u, "v_mm": v,
+                "width": 64, "height": 64
+            }
+        })
+        .to_string()
+    };
+
+    // A visible layer whose GPU resources were released (evicted while
+    // hidden, then shown again) is drawn again, not a failed frame.
+    let pair = || {
+        render(vec![
+            layer("n18-main".into(), &volume_id),
+            layer("n18-released".into(), &volume_id),
+        ])
+    };
+    render_view_for_testing(pair(), &bridge_state, Some("rgba"))
+        .await
+        .expect("first frame");
+    release_layer_gpu_resources_for_testing("n18-released".into(), &bridge_state)
+        .await
+        .expect("release the second layer");
+    let frame = render_view_for_testing(pair(), &bridge_state, Some("rgba"))
+        .await
+        .expect("a visible layer without GPU resources must not fail the frame");
+    let (w, h, rgba) = decode_raw_rgba_frame(&frame);
+    assert_has_visible_content(rgba, w, h);
+
+    // One more visible layer than the render state takes.
+    let layers = (0..=cap)
+        .map(|i| layer(format!("n18-layer-{i}"), &volume_id))
+        .collect();
+    let frame = render_view_for_testing(render(layers), &bridge_state, Some("rgba"))
+        .await
+        .expect("a layer past the render-layer cap must not fail the frame");
+    let (w, h, rgba) = decode_raw_rgba_frame(&frame);
+    assert_has_visible_content(rgba, w, h);
+}
+
+/// QA 2026-10-31 N18 review: with every texture slot holding a layer, one
+/// more visible layer cannot be allocated. It is left out of the frame (and
+/// not given a slot); the layers that are resident still draw.
+#[tokio::test]
+async fn render_view_skips_a_layer_when_the_texture_slots_are_full() {
+    let bridge_state = BridgeState::default().expect("bridge state");
+    if !install_render_service_or_skip(&bridge_state).await {
+        return;
+    }
+    let (capacity, cap) = {
+        let service = bridge_state.render_loop_service.lock().await;
+        let service = service.as_ref().unwrap().lock().await;
+        (
+            service.runtime_texture_capacity() as usize,
+            service.render_layer_capacity() as usize,
+        )
+    };
+
+    let test_file = get_test_data_path().join("toy_t1w.nii.gz");
+    // One distinct volume per slot, plus the one that will not fit.
+    for i in 0..=capacity {
+        let (volume_sendable, _affine) =
+            nifti_loader::load_nifti_volume_auto(&test_file).expect("load nifti volume");
+        let volume_id = format!("slots-volume-{i}");
+        let mut registry = bridge_state.volume_registry.lock().await;
+        registry.insert(
+            volume_id.clone(),
+            volume_sendable,
+            VolumeMetadataInfo {
+                name: volume_id,
+                path: test_file.to_string_lossy().into_owned(),
+                dtype: "f32".into(),
+                volume_type: VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+    }
+
+    let layer = |i: usize| {
+        json!({
+            "id": format!("slots-layer-{i}"),
+            "volumeId": format!("slots-volume-{i}"),
+            "visible": true,
+            "opacity": 1.0,
+            "colormap": "gray",
+            "intensity": [0.0, 1000.0],
+            "threshold": [0.0, 0.0],
+            "blendMode": "alpha",
+            "interpolation": "linear"
+        })
+    };
+    let render = |indices: Vec<usize>| {
+        let (origin_3d, u_3d, origin, u, v) = view_vectors("axial");
+        let (sagittal_3d, sagittal_u, _, _, _) = view_vectors("sagittal");
+        let (coronal_3d, coronal_u, _, _, _) = view_vectors("coronal");
+        json!({
+            "views": {
+                "axial": { "origin_mm": origin_3d, "u_mm": u_3d, "v_mm": [0.0, 10.0, 0.0] },
+                "sagittal": { "origin_mm": sagittal_3d, "u_mm": sagittal_u, "v_mm": [0.0, 0.0, 10.0] },
+                "coronal": { "origin_mm": coronal_3d, "u_mm": coronal_u, "v_mm": [0.0, 0.0, 10.0] }
+            },
+            "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
+            "layers": indices.into_iter().map(layer).collect::<Vec<_>>(),
+            "requestedView": {
+                "type": "axial", "origin_mm": origin, "u_mm": u, "v_mm": v,
+                "width": 64, "height": 64
+            }
+        })
+        .to_string()
+    };
+
+    // Fill every texture slot, a render-layer cap's worth of layers per frame.
+    let filled: Vec<usize> = (0..capacity).collect();
+    for chunk in filled.chunks(cap) {
+        render_view_for_testing(render(chunk.to_vec()), &bridge_state, Some("rgba"))
+            .await
+            .expect("frames that fill the slots");
+    }
+    assert_eq!(
+        bridge_state.layer_to_atlas_map.lock().await.len(),
+        capacity,
+        "every slot holds a layer"
+    );
+
+    // A resident layer and the one that does not fit: drawn, not failed.
+    for _ in 0..2 {
+        let frame = render_view_for_testing(render(vec![0, capacity]), &bridge_state, Some("rgba"))
+            .await
+            .expect("a layer the slots cannot hold must not fail the frame");
+        let (w, h, rgba) = decode_raw_rgba_frame(&frame);
+        assert_has_visible_content(rgba, w, h);
+    }
+    assert!(
+        !bridge_state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .contains_key(&format!("slots-layer-{capacity}")),
+        "the layer that did not fit holds no slot"
+    );
+}
