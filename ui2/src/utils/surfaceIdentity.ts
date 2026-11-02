@@ -34,6 +34,35 @@ export function normalizeLateralHemisphere(value?: string | null): LateralHemisp
   return null;
 }
 
+/** The hemisphere-bearing fields of a loaded surface. */
+export interface SurfaceHemisphereSource {
+  visible?: boolean;
+  metadata?: { hemisphere?: string | null };
+  geometry?: { hemisphere?: string | null };
+}
+
+/** A loaded surface's left / right hemisphere (metadata first, then geometry), else null. */
+export function surfaceLateralHemisphere(surface: SurfaceHemisphereSource): LateralHemisphere | null {
+  return normalizeLateralHemisphere(surface.metadata?.hemisphere ?? surface.geometry?.hemisphere);
+}
+
+/**
+ * The hemisphere the Medial preset shows when the drawn scene holds a left
+ * and a right mesh (the surface viewer hides the other, which would cover the
+ * medial wall): the active surface's, else left. Null when the scene holds at
+ * most one hemisphere, so nothing is hidden.
+ */
+export function medialShownHemisphere(
+  active: SurfaceHemisphereSource | null | undefined,
+  drawn: ReadonlyArray<SurfaceHemisphereSource> | undefined,
+): LateralHemisphere | null {
+  const hemispheres = new Set(
+    (drawn ?? []).filter((surface) => surface.visible !== false).map(surfaceLateralHemisphere),
+  );
+  if (!hemispheres.has('left') || !hemispheres.has('right')) return null;
+  return (active ? surfaceLateralHemisphere(active) : null) ?? 'left';
+}
+
 export function resolveTemplateflowSurfaceIdentity(args: {
   path?: string | null;
   geometryHemisphere?: string | null;

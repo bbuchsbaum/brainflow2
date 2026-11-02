@@ -136,7 +136,14 @@ export interface SurfaceReconciliationPlan {
 
 /** A camera pose for a figure capture (D3). */
 /** An anatomical figure view, or 'current': the camera as the user left it. */
-export type SurfaceExportView = 'current' | 'lateral' | 'medial' | 'dorsal' | 'ventral' | 'anterior' | 'posterior';
+export type SurfaceExportView =
+  | 'current'
+  | 'lateral'
+  | 'medial'
+  | 'dorsal'
+  | 'ventral'
+  | 'anterior'
+  | 'posterior';
 
 export interface SurfaceExportPose {
   view: SurfaceExportView;
@@ -204,6 +211,14 @@ export interface NeuroSurfaceCanvasProps {
   width: number;
   height: number;
   viewpoint?: string;
+  /**
+   * The hemisphere a preset is aimed at (presets are hemisphere-relative:
+   * lateral is -x for left, +x for right). With a left and a right mesh both
+   * drawn, `medial` shows this hemisphere and hides the other, which would
+   * otherwise cover the medial wall. Default: left when both are drawn, else
+   * the one drawn hemisphere.
+   */
+  viewHemisphere?: 'left' | 'right';
   /** Applied once after the initial mesh fit; subsequent preset controls remain active. */
   initialCameraState?: SurfaceCameraState | null;
   onCameraStateChange?: (state: SurfaceCameraState) => void;
@@ -236,7 +251,10 @@ export interface NeuroSurfaceCanvasProps {
    * hemisphere doesn't snap to a misleading spot). No limit when undefined.
    */
   markerMaxSnapDistanceMm?: number;
-  /** Optional subset eligible for cursor snapping; picking remains available on every mesh. */
+  /**
+   * Optional subset eligible for cursor snapping; picking remains available on
+   * every shown mesh. A mesh hidden by the medial preset never takes the cursor.
+   */
   markerSurfaceHandles?: readonly string[];
   /** Marker sphere color (hex). Defaults to a bright green. */
   markerColor?: string;
@@ -266,7 +284,10 @@ export interface NeuroSurfaceCanvasProps {
    * the picked location in the surface's own vertex frame (world [x, y, z]).
    * Used to drive a reverse linked cursor (surface click → volume crosshair).
    */
-  onSurfacePick?: (world: [number, number, number], picked?: { handle: string; vertex: number }) => void;
+  onSurfacePick?: (
+    world: [number, number, number],
+    picked?: { handle: string; vertex: number },
+  ) => void;
 }
 
 export type NeurosurfaceLayerConfig =

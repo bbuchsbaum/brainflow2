@@ -64,6 +64,38 @@ describe('SurfaceFrame (P3.10)', () => {
     expect(screen.getByTestId('surface-frame-header')).toHaveTextContent('Surface · both · inflated');
   });
 
+  it('under Medial with lh and rh drawn, names the hemisphere shown (the other is hidden)', () => {
+    const left = surface(false);
+    const right = {
+      ...left,
+      handle: 's2',
+      metadata: { ...left.metadata, hemisphere: 'right' },
+    } as LoadedSurface;
+    useSurfaceStore.getState().setViewpoint('medial', 'tab-medial');
+    const view = render(
+      <SurfaceFrame surface={left} renderSurfaces={[left, right]} surfaceViewId="tab-medial" width={600} height={400} />,
+    );
+    const header = () => screen.getByTestId('surface-frame-header');
+    expect(header()).toHaveTextContent('Surface · left · inflated');
+
+    // The active surface decides which hemisphere Medial shows.
+    view.rerender(
+      <SurfaceFrame surface={right} renderSurfaces={[left, right]} surfaceViewId="tab-medial" width={600} height={400} />,
+    );
+    expect(header()).toHaveTextContent('Surface · right · inflated');
+
+    // Any other preset draws both again.
+    fireEvent.click(screen.getByRole('radio', { name: 'Lateral' }));
+    expect(header()).toHaveTextContent('Surface · both · inflated');
+  });
+
+  it('under Medial with one hemisphere drawn, names that hemisphere as before', () => {
+    const left = surface(false);
+    useSurfaceStore.getState().setViewpoint('medial', 'tab-medial-one');
+    render(<SurfaceFrame surface={left} renderSurfaces={[left]} surfaceViewId="tab-medial-one" width={600} height={400} />);
+    expect(screen.getByTestId('surface-frame-header')).toHaveTextContent('Surface · left · inflated');
+  });
+
   it('describes the visible scalar overlay in the colorbar, none without one', () => {
     expect(surfaceColorbarLayer(surface(true))).toMatchObject({ colormap: 'viridis', intensity: [0, 2] });
     expect(surfaceColorbarLayer(surface(false))).toBeNull();

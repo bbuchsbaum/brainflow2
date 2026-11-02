@@ -24,6 +24,7 @@ import { surfaceColorbarLayer } from './surfaceColorbar';
 import { shortLayerLabel } from '../viewportFrame/frameFormat';
 import { OrientationGizmo } from './OrientationGizmo';
 import { useSurfaceCameraStore } from '@/stores/surfaceCameraStore';
+import { medialShownHemisphere } from '@/utils/surfaceIdentity';
 
 // Full words where they fit ("L" means left elsewhere in the app); in a
 // narrow pane single letters, the full word in the tooltip and accessible
@@ -55,20 +56,17 @@ export interface SurfaceFrameProps {
   renderSurfaces?: LoadedSurface[];
 }
 
-function lateralHemisphereOf(surface: LoadedSurface): 'left' | 'right' | null {
-  const token = String(surface.metadata.hemisphere ?? surface.geometry.hemisphere ?? '').toLowerCase();
-  if (token === 'left' || token === 'lh' || token === 'l') return 'left';
-  if (token === 'right' || token === 'rh' || token === 'r') return 'right';
-  return null;
-}
-
-/** Header hemisphere: "both" when the drawn scene holds a left and a right mesh. */
+/**
+ * Header hemisphere: "both" when the drawn scene holds a left and a right
+ * mesh, except under Medial, which hides one of them: then the one shown.
+ */
 function sceneHemisphereLabel(
   surface: LoadedSurface,
-  renderSurfaces?: LoadedSurface[],
+  renderSurfaces: LoadedSurface[] | undefined,
+  viewpoint: string,
 ): string | undefined {
-  const drawn = new Set((renderSurfaces ?? []).map(lateralHemisphereOf));
-  if (drawn.has('left') && drawn.has('right')) return 'both';
+  const shown = medialShownHemisphere(surface, renderSurfaces);
+  if (shown) return viewpoint === 'medial' ? shown : 'both';
   return surface.metadata.hemisphere;
 }
 
@@ -119,7 +117,7 @@ export function SurfaceFrame({
   const bottomBand = Math.max(120, Math.round(height * 0.3));
   const colorbar = useMemo(() => surfaceColorbarLayer(surface), [surface]);
   const overlayName = colorbar?.name ?? null;
-  const parts = ['Surface', sceneHemisphereLabel(surface, renderSurfaces), surface.metadata.surfaceType].filter(
+  const parts = ['Surface', sceneHemisphereLabel(surface, renderSurfaces, viewpoint), surface.metadata.surfaceType].filter(
     Boolean,
   ) as string[];
 

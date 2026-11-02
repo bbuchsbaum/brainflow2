@@ -13,11 +13,15 @@ const VIEW_FIT_PADDING = 0.08;
  * visible meshes to the pane along the preset's direction (centerCamera's own
  * distance is loose, so meshes otherwise load small). Returns false when
  * there were no visible mesh bounds to fit.
+ *
+ * The preset is keyed by `hemisphere` when one is known ("left_medial"):
+ * surfview otherwise prefixes the bare name with the first-added surface's
+ * hemisphere, so lh + rh loaded in the other order aimed at the wrong side.
  */
-function setCenteredViewpoint(viewer, viewpoint) {
+function setCenteredViewpoint(viewer, viewpoint, hemisphere) {
     viewer.centerCamera();
     const center = viewer.getCameraState?.().target;
-    viewer.setViewpoint(viewpoint);
+    viewer.setViewpoint(hemisphere && !viewpoint.includes('_') ? `${hemisphere}_${viewpoint}` : viewpoint);
     const pose = viewer.getCameraState?.();
     if (center && pose && viewer.setCameraState) {
         viewer.setCameraState({
@@ -90,6 +94,32 @@ function hemisphereOf(item) {
         return 'right';
     return null;
 }
+/**
+ * The hemisphere presets aim at: the requested one when a left and a right
+ * mesh are both drawn (left when none is requested), else the one drawn
+ * hemisphere, else null (no drawn mesh names one).
+ */
+function resolvePresetHemisphere(drawn, requested) {
+    if (drawn.has('left') && drawn.has('right'))
+        return requested ?? 'left';
+    if (drawn.has('left'))
+        return 'left';
+    if (drawn.has('right'))
+        return 'right';
+    return null;
+}
+/**
+ * Medial with both hemispheres drawn hides the contralateral mesh, which
+ * otherwise covers the medial wall; every other preset shows all meshes.
+ * Visibility only: geometry, transforms and vertices stay untouched.
+ */
+function applyPresetVisibility(rendered, inputs, hidden) {
+    for (const [handle, surface] of rendered) {
+        const mesh = surface?.mesh;
+        if (mesh)
+            mesh.visible = hidden === null || hemisphereOf(inputs.get(handle)) !== hidden;
+    }
+}
 /** The camera's screen basis in world coordinates. */
 function cameraBasis(camera) {
     if (!camera?.matrixWorld?.elements)
@@ -144,7 +174,7 @@ function captureCamera(viewer) {
     const state = pose ? { ...pose, up: viewer?.camera?.up?.toArray(), zoom: viewer?.camera?.zoom ?? 1 } : null;
     return isSurfaceCameraState(state) ? state : null;
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerSurfaceHandles, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onWarning, onSurfacePick, }) => {
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', viewHemisphere, showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerSurfaceHandles, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onWarning, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -175,6 +205,21 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         }
         return Array.from(unique.values());
     }, [surfaces]);
+    // Presets are hemisphere-relative; with lh and rh both drawn, Medial shows
+    // one hemisphere and hides the other.
+    const drawnHemispheres = useMemo(() => new Set(surfacesToRender
+        .filter((item) => item.visible !== false && hasRenderableGeometry(item))
+        .map(hemisphereOf)), [surfacesToRender]);
+    const presetHemisphere = resolvePresetHemisphere(drawnHemispheres, viewHemisphere);
+    const hiddenHemisphere = viewpoint === 'medial' && drawnHemispheres.has('left') && drawnHemispheres.has('right')
+        ? presetHemisphere === 'left'
+            ? 'right'
+            : 'left'
+        : null;
+    const presetHemisphereRef = useRef(presetHemisphere);
+    presetHemisphereRef.current = presetHemisphere;
+    const hiddenHemisphereRef = useRef(hiddenHemisphere);
+    hiddenHemisphereRef.current = hiddenHemisphere;
     const renderHandlesKey = useMemo(() => surfacesToRender
         .map((item) => item.handle)
         .sort()
@@ -212,8 +257,13 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             const handles = [...renderedSurfacesRef.current.keys()];
             const inputs = renderedSurfaceInputsRef.current;
             const shown = handles.filter((h) => inputs.get(h)?.visible !== false);
+            // The current camera is captured as drawn: a mesh the Medial preset
+            // hides stays hidden (the anatomical poses frame each hemisphere).
+            const presetHidden = pose.view === 'current' ? hiddenHemisphereRef.current : null;
             const targets = shown.filter((h) => {
                 const hemi = hemisphereOf(inputs.get(h));
+                if (presetHidden && hemi === presetHidden)
+                    return false;
                 return !pose.hemisphere || pose.hemisphere === 'both' || hemi === pose.hemisphere;
             });
             if (targets.length === 0)
@@ -562,10 +612,14 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 renderedSurfaceInputsRef.current.set(item.handle, item);
             }
             lastUseGPUProjectionRef.current = useGPUCompositing;
+            // A remounted mesh starts visible; re-apply the preset's hidden side.
+            if (structuralChange) {
+                applyPresetVisibility(renderedSurfacesRef.current, renderedSurfaceInputsRef.current, hiddenHemisphereRef.current);
+            }
             if (structuralChange && !hasCenteredCamera.current) {
                 const controls = viewer.controls;
                 const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
-                if (!setCenteredViewpoint(viewer, viewpointRef.current)) {
+                if (!setCenteredViewpoint(viewer, viewpointRef.current, presetHemisphereRef.current)) {
                     warn(`First fit found no visible mesh bounds (${readySurfaces.length} surface(s) ready); the view may be empty`);
                 }
                 if (controls && controls.autoRotate !== undefined) {
@@ -610,13 +664,17 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             onError?.(error);
         }
     }, [isInitialized, surfacesToRender, projectionSettings.useGPUProjection]);
+    // A preset, or the shown hemisphere of Medial changing (another surface
+    // made active, a hemisphere loaded or removed), re-aims and refits. The
+    // fit runs after the hide so it frames only the hemisphere shown.
     useEffect(() => {
         if (viewerRef.current && renderedSurfacesRef.current.size > 0) {
-            if (!setCenteredViewpoint(viewerRef.current, viewpoint)) {
+            applyPresetVisibility(renderedSurfacesRef.current, renderedSurfaceInputsRef.current, hiddenHemisphereRef.current);
+            if (!setCenteredViewpoint(viewerRef.current, viewpoint, presetHemisphereRef.current)) {
                 warn(`Preset "${viewpoint}" found no visible mesh bounds to fit`);
             }
         }
-    }, [viewpoint, viewpointNonce, warn]);
+    }, [viewpoint, viewpointNonce, hiddenHemisphere, warn]);
     // D2: the underlay toggle.
     useEffect(() => {
         if (!viewerRef.current)
@@ -707,7 +765,13 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             if (markerSnapToSurface) {
                 const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
                 const nearest = findLinkedVertex(markerSurfaceHandles ? snapSurfaces.filter((surface) => markerSurfaceHandles.includes(surface.handle)) : snapSurfaces, markerWorldPosition, cursorAnatomy);
+                // A crosshair nearest the hemisphere Medial hides has no marker: it
+                // would draw through the shown mesh (depthTest is off on purpose).
+                const onHiddenMesh = nearest != null &&
+                    hiddenHemisphere !== null &&
+                    hemisphereOf(snapSurfaces.find((item) => item.handle === nearest.handle)) === hiddenHemisphere;
                 if (nearest &&
+                    !onHiddenMesh &&
                     (markerMaxSnapDistanceMm == null || nearest.distanceMm <= markerMaxSnapDistanceMm)) {
                     const rendered = renderedSurfacesRef.current.get(nearest.handle);
                     const mesh = rendered?.mesh;
@@ -799,6 +863,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         surfacesToRender,
         cursorAnatomy,
         displaySettings.smoothing,
+        hiddenHemisphere,
     ]);
     // Dispose the reusable marker mesh on unmount only (it is kept alive across
     // updates above). Guarded because the viewer-dispose effect may run first.
