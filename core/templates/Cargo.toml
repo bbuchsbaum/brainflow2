@@ -16,7 +16,7 @@ chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 url = "2.5"
 uuid = { version = "1.0", features = ["v4"] }
-templateflow = { git = "https://github.com/bbuchsbaum/templateflow-rs", rev = "1e974c157bdfed134a23a61dba346716d89108e6" }
+templateflow = { git = "https://github.com/bbuchsbaum/templateflow-rs", rev = "967cb7c0fe46204512e896a0a8f2521dd775e474" }
 
 # Volume loading dependencies
 bridge_types = { path = "../bridge_types" }
