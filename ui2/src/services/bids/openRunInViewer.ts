@@ -3,7 +3,8 @@
  * run under review: opening another replaces it there, in place, so triage
  * neither grows the tab strip nor leaks the last run into the next one. Lands
  * on the run's FD peak, shows its time series and publishes its events as a
- * track. Reads the run's own record, so it never waits for a scan.
+ * track. Reads the run's own record, so it never waits for a scan. A user who
+ * leaves during the load finds all of that done when they come back.
  *
  * Layers are global and a new tab starts as a copy of the view in front
  * (viewStateStore), so the tab is emptied here, not assumed empty. Opens run
@@ -49,6 +50,8 @@ interface ParkedTab {
   inspector: { activeItemId: string; activeItemKind: SceneItemKind } | null;
 }
 let parked: ParkedTab | null = null;
+/** The run in the tab, committed while the user was away: it lands when they return. */
+let unlanded: { run: OpenableRun; layerId: string } | null = null;
 /** Ends the watch on the tab. */
 let unwatchTab: (() => void) | null = null;
 
@@ -61,6 +64,7 @@ export function resetRunViewer(): void {
   viewerId = null;
   shown = null;
   parked = null;
+  unlanded = null;
 }
 
 const viewOf = (workspaceId: string) => useViewStateStore.getState().workspaceViewStates.get(workspaceId);
@@ -110,13 +114,26 @@ function tabClosed(workspaceId: string): void {
   viewerId = null;
   shown = null;
   parked = null;
+  unlanded = null;
   if (run) void release(run.layerId, workspaceId);
 }
 
+/** The tab is back in front: the landing its run could not have, unless that run has gone. */
+function landOnReturn(workspaceId: string): void {
+  const waiting = unlanded;
+  unlanded = null;
+  if (!waiting || shown?.layerId !== waiting.layerId) return;
+  if (viewOf(workspaceId)?.layers.some((layer) => layer.id === waiting.layerId)) {
+    land(waiting.run, waiting.layerId);
+  }
+}
+
+// After the view store's own subscription, so a landing writes to this tab's view.
 function watchTab(workspaceId: string): void {
   unwatchTab?.();
   unwatchTab = useWorkspaceStore.subscribe((state) => {
     if (!state.workspaces.has(workspaceId)) tabClosed(workspaceId);
+    else if (unlanded && state.activeWorkspaceId === workspaceId) landOnReturn(workspaceId);
   });
 }
 
@@ -134,6 +151,7 @@ async function runViewerTab(): Promise<string> {
   viewerId = id;
   shown = null;
   parked = null;
+  unlanded = null;
   watchTab(id);
   useViewStateStore.getState().setViewState((state) => {
     state.layers = state.layers.filter((layer) => isTemplate(layer.id));
@@ -228,7 +246,7 @@ async function publishEvents(
   run: OpenableRun,
   layerId: string,
   datasetPath: string | null,
-  isCurrent: () => boolean,
+  wanted: () => boolean,
 ): Promise<void> {
   const nonSteady = nonSteadyVolumes(run);
   let events: BidsEventRow[] = [];
@@ -236,7 +254,7 @@ async function publishEvents(
     try {
       events = await useBidsStore.getState().loadRunEvents(run.id, datasetPath);
     } catch (error) {
-      if (isCurrent()) {
+      if (wanted()) {
         getEventBus().emit('ui.notification', {
           type: 'error',
           message: `Events not loaded: ${error instanceof Error ? error.message : String(error)}`,
@@ -244,7 +262,7 @@ async function publishEvents(
       }
     }
   }
-  if (!isCurrent() || (!events.length && !nonSteady.length)) return;
+  if (!wanted() || (!events.length && !nonSteady.length)) return;
   useTimeEventsStore.getState().publish({
     layerId,
     label: run.id ?? run.path,
@@ -278,11 +296,17 @@ async function open(run: OpenableRun, request: number, datasetPath: string | nul
   if (!latest()) return;
   const workspaceId = await runViewerTab();
   const tabOpen = () => useWorkspaceStore.getState().workspaces.has(workspaceId);
-  // A newer open, or a user who has moved on, keeps its own timepoint and track.
+  // Selection, time and dock speak about the tab in front; a track belongs to its layer.
   const isCurrent = () => latest() && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
 
   if (shown?.path === run.path && viewOf(workspaceId)?.layers.some((layer) => layer.id === shown?.layerId)) {
-    land(run, shown.layerId);
+    const { layerId } = shown;
+    unlanded = null;
+    land(run, layerId);
+    // A read that failed or was cut short the first time gets another go.
+    if (!useTimeEventsStore.getState().tracks[layerId]) {
+      await publishEvents(run, layerId, datasetPath, latest);
+    }
     return;
   }
 
@@ -305,7 +329,9 @@ async function open(run: OpenableRun, request: number, datasetPath: string | nul
   }
   if (!latest() || !tabOpen()) {
     // Passed over while it loaded, or its tab closed after it was committed:
-    // nothing may keep it alive (async ownership).
+    // nothing may keep it alive (async ownership). The tab gets back what this
+    // load parked, or the next one would park the tab without its run.
+    restoreParked(workspaceId);
     await release(layerId, workspaceId);
     return;
   }
@@ -313,12 +339,14 @@ async function open(run: OpenableRun, request: number, datasetPath: string | nul
   const previous = shown;
   shown = { layerId, path: run.path };
   parked = null;
+  unlanded = null;
   // By tab, not by what is in front: a template must not stay under raw EPI
   // for a user who left during the load and comes back.
   if (inNativeSpace(run)) await showAlone(layerId, workspaceId);
   if (isCurrent()) land(run, layerId);
+  else if (latest()) unlanded = { run, layerId };
   if (previous) await release(previous.layerId, workspaceId);
-  if (isCurrent()) await publishEvents(run, layerId, datasetPath, isCurrent);
+  if (latest()) await publishEvents(run, layerId, datasetPath, latest);
 }
 
 export function openRunInViewer(run: OpenableRun): Promise<void> {

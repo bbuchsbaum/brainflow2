@@ -416,12 +416,25 @@ describe('browser scan', () => {
       });
     }
 
+    it('refuses a write for another dataset than the one showing, and writes nothing', async () => {
+      fakeBridge([]);
+      await useBidsStore.getState().scanDataset(PATH);
+      const write = vi.fn();
+      getMockTransport().setMockResponse('write_bids_exclusions', write);
+      await expect(
+        useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, '/data/other'),
+      ).rejects.toThrow(/other/);
+      expect(write).not.toHaveBeenCalled();
+      expect(useBidsStore.getState().exclusions).toEqual([]);
+      expect(useBidsStore.getState().undoStack).toEqual([]);
+    });
+
     it('undo removes what the write added, and the model follows', async () => {
       fakeBridge([]);
       await useBidsStore.getState().scanDataset(PATH);
       const before = selectBidsModel(useBidsStore.getState()).findings.total;
       const id = 'sub-07_ses-02_task-nback_run-2_bold';
-      await useBidsStore.getState().writeExclusions([row(id, 'fd')], context);
+      await useBidsStore.getState().writeExclusions([row(id, 'fd')], context, PATH);
       expect(useBidsStore.getState().undoStack).toHaveLength(1);
       expect(selectBidsModel(useBidsStore.getState()).findings.total).toBe(before - 1);
       await useBidsStore.getState().undoExclusion();
@@ -434,7 +447,7 @@ describe('browser scan', () => {
       const existing = row('sub-01', 'fd');
       fakeBridge([existing]);
       await useBidsStore.getState().scanDataset(PATH);
-      await useBidsStore.getState().writeExclusions([existing], context);
+      await useBidsStore.getState().writeExclusions([existing], context, PATH);
       expect(useBidsStore.getState().undoStack).toEqual([]);
     });
 
@@ -442,7 +455,7 @@ describe('browser scan', () => {
       const older = row('sub-01', 'manual');
       fakeBridge([older]);
       await useBidsStore.getState().scanDataset(PATH);
-      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       await useBidsStore.getState().undoExclusion();
       expect(useBidsStore.getState().exclusions).toEqual([older]);
     });
@@ -461,7 +474,7 @@ describe('browser scan', () => {
       getMockTransport().setMockResponse('read_bids_exclusions', () => read.promise);
       getMockTransport().setMockResponse('scan_bids_browser', () => scan.promise);
       void useBidsStore.getState().scanDataset(PATH);
-      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       read.resolve([]);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(useBidsStore.getState().exclusions.map((item) => item.entity)).toEqual(['sub-01']);
@@ -483,7 +496,7 @@ describe('browser scan', () => {
       });
       const rescan = useBidsStore.getState().scanDataset(PATH);
       await new Promise((resolve) => setTimeout(resolve, 0));
-      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       release.resolve();
       await rescan;
       expect(useBidsStore.getState().exclusions.map((item) => item.entity)).toContain('sub-01');
@@ -494,7 +507,7 @@ describe('browser scan', () => {
       await useBidsStore.getState().scanDataset(PATH);
       const write = deferred<BidsExclusionWrite>();
       getMockTransport().setMockResponse('write_bids_exclusions', () => write.promise);
-      const pending = useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      const pending = useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       await useBidsStore.getState().scanDataset(PATH);
       const added = [row('sub-01', 'fd')];
       write.resolve({ all: added, added });
@@ -508,7 +521,7 @@ describe('browser scan', () => {
       await useBidsStore.getState().scanDataset(PATH);
       const write = deferred<BidsExclusionWrite>();
       getMockTransport().setMockResponse('write_bids_exclusions', () => write.promise);
-      const pending = useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      const pending = useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       await useBidsStore.getState().scanDataset('/data/other');
       const added = [row('sub-01', 'fd')];
       write.resolve({ all: added, added });
@@ -524,7 +537,7 @@ describe('browser scan', () => {
       void useBidsStore.getState().scanDataset(PATH);
       await vi.waitFor(() => expect(useBidsStore.getState().exclusionsLoaded).toBe(true));
       expect(useBidsStore.getState().exclusions).toEqual([older]);
-      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       expect(useBidsStore.getState().undoStack[0].added.map((item) => item.entity)).toEqual(['sub-01']);
       await useBidsStore.getState().undoExclusion();
       expect(useBidsStore.getState().exclusions).toEqual([older]);
@@ -534,14 +547,14 @@ describe('browser scan', () => {
       useBidsStore.setState({ datasetPath: PATH, exclusionsLoaded: false, selectedRunId: 'r' });
       useBidsStore.getState().requestAction('exclude');
       expect(useBidsStore.getState().actionRequest).toBeNull();
-      await expect(useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context)).rejects.toThrow();
+      await expect(useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH)).rejects.toThrow();
     });
 
     it('reverting one criterion keeps the entity\'s other row and its undo', async () => {
       const older = row('sub-01', 'manual');
       fakeBridge([older]);
       await useBidsStore.getState().scanDataset(PATH);
-      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       await useBidsStore.getState().revertExclusions([{ entity: 'sub-01', criterion: 'manual' }]);
       expect(useBidsStore.getState().exclusions.map((item) => item.criterion)).toEqual(['fd']);
       expect(useBidsStore.getState().undoStack).toHaveLength(1);
@@ -550,7 +563,7 @@ describe('browser scan', () => {
     it('a revert from Findings drops the undo entries it covers', async () => {
       fakeBridge([]);
       await useBidsStore.getState().scanDataset(PATH);
-      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context);
+      await useBidsStore.getState().writeExclusions([row('sub-01', 'fd')], context, PATH);
       await useBidsStore.getState().revertExclusions([{ entity: 'sub-01', criterion: 'fd' }]);
       expect(useBidsStore.getState().undoStack).toEqual([]);
       expect(useBidsStore.getState().exclusions).toEqual([]);

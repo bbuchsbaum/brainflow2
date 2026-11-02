@@ -1,8 +1,9 @@
 import { useWorkspaceStore } from '@/stores/workspaceStore';
-import { act, render, renderHook } from '@testing-library/react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBidsBrowserDataset } from '@/devHarness/app/bidsBrowserData';
+import { BIDS_FINDINGS_PANEL, getLayoutService } from '@/services/layoutService';
 import { selectBidsModel, useBidsStore } from '@/stores/bidsStore';
 import { useStatusBarStore } from '@/stores/statusBarStore';
 import { bidsStatusParts, formatBytes, useBidsScanOwnership, useBidsStatusBridge } from '../useBidsStatusBridge';
@@ -61,6 +62,18 @@ describe('useBidsStatusBridge', () => {
   it('never writes outside the BIDS browser', () => {
     render(<Host type="orthogonal" />);
     expect(useStatusBarStore.getState().values.workspaceStatus).toBeUndefined();
+  });
+
+  it('the Findings count opens the Findings tab', () => {
+    const showPanel = vi.spyOn(getLayoutService(), 'showPanel').mockReturnValue(true);
+    const host = render(<Host type="bids-explorer" />);
+    const status = render(<>{useStatusBarStore.getState().values.workspaceStatus}</>);
+    const { findings } = selectBidsModel(useBidsStore.getState()).status as { findings: number };
+    fireEvent.click(status.getByRole('button', { name: new RegExp(`^Findings ${findings}`) }));
+    expect(showPanel).toHaveBeenCalledWith(BIDS_FINDINGS_PANEL);
+    status.unmount();
+    host.unmount();
+    showPanel.mockRestore();
   });
 
   it('says so far while the scan is partial', () => {

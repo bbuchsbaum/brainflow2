@@ -487,18 +487,6 @@
           "markdownDescription": "Denies the compute_region_stats command without any pre-configured scope."
         },
         {
-          "description": "Enables the compute_temporal_metric command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-compute-temporal-metric",
-          "markdownDescription": "Enables the compute_temporal_metric command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the compute_temporal_metric command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-compute-temporal-metric",
-          "markdownDescription": "Denies the compute_temporal_metric command without any pre-configured scope."
-        },
-        {
           "description": "Enables the compute_temporal_metric_plane command without any pre-configured scope.",
           "type": "string",
           "const": "allow-compute-temporal-metric-plane",

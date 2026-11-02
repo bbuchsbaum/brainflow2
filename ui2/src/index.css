@@ -382,6 +382,35 @@ button {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23e9eaec' stroke-width='1.25'%3E%3Crect x='2' y='5' width='8' height='8' rx='1'/%3E%3Cpath d='M6 5V3.5a.5.5 0 01.5-.5h6a.5.5 0 01.5.5v6a.5.5 0 01-.5.5H11'/%3E%3C/svg%3E") !important;
 }
 
+/* Tab overflow caret. It shows only when a stack cannot fit its tabs: GoldenLayout
+ * hides it with an inline display:none, which the !important rule above would beat. */
+.lm_header .lm_controls > .lm_tabdropdown[style*='none'] {
+  display: none !important;
+}
+.lm_header .lm_controls .lm_tabdropdown:before {
+  color: var(--bf-text-muted);
+}
+.lm_header .lm_controls .lm_tabdropdown:hover:before {
+  color: var(--bf-text-primary);
+}
+.lm_header .lm_tabdropdown_list {
+  top: 100%;
+  right: 8px;
+  z-index: 42; /* over the splitter and the panel below */
+  min-width: 120px;
+  background: var(--bf-bg-panel-raised);
+  border: 1px solid var(--bf-border);
+  border-radius: 2px;
+  box-shadow: var(--bf-shadow-panel);
+}
+.lm_header .lm_tabdropdown_list .lm_tab {
+  padding: 0 12px !important;
+}
+.lm_header .lm_tabdropdown_list .lm_tab .lm_title {
+  width: auto;
+  white-space: nowrap;
+}
+
 /* Tab close button - refined hairline style */
 .lm_header .lm_tab .lm_close_tab {
   width: 24px !important;

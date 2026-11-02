@@ -561,32 +561,6 @@ Denies the compute_region_stats command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-compute-temporal-metric`
-
-</td>
-<td>
-
-Enables the compute_temporal_metric command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-compute-temporal-metric`
-
-</td>
-<td>
-
-Denies the compute_temporal_metric command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-compute-temporal-metric-plane`
 
 </td>

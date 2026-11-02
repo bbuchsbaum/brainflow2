@@ -95,6 +95,26 @@ describe('exclude dialog', () => {
     await waitFor(() => expect(model().excluded.runs).toBe(expected));
   });
 
+  it('closes when the dataset changes under it, and writes nothing into the new one', async () => {
+    const invoke = backend();
+    openDialog();
+    const form = screen.getByTestId('bids-exclude-dialog');
+    act(() => {
+      useBidsStore.setState({ datasetPath: '/other/dataset' });
+      fireEvent.submit(form);
+    });
+    await waitFor(() => expect(screen.queryByTestId('bids-exclude-dialog')).toBeNull());
+    expect(invoke).not.toHaveBeenCalledWith('write_bids_exclusions', expect.anything());
+    expect(useBidsStore.getState().exclusions).toEqual(model().index?.exclusions ?? []);
+  });
+
+  it('stays open through a rescan of the same dataset', () => {
+    backend();
+    openDialog();
+    act(() => useBidsStore.setState({ scanStatus: 'scanning' }));
+    expect(screen.getByTestId('bids-exclude-dialog')).toBeInTheDocument();
+  });
+
   it('offers the censoring fraction beside mean FD and says what excluded runs do', () => {
     backend();
     openDialog();

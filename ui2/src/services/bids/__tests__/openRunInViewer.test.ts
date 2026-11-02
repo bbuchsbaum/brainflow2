@@ -3,6 +3,8 @@ import { getEventBus } from '@/events/EventBus';
 import { setTransport } from '@/services/transport';
 import { useBidsStore } from '@/stores/bidsStore';
 import { useLayerStore } from '@/stores/layerStore';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
+import { usePlotModeStore } from '@/stores/plotModeStore';
 import { useTimeEventsStore } from '@/stores/timeEventsStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
@@ -270,6 +272,50 @@ describe('openRunInViewer', () => {
       expect(useLayerStore.getState().selectedLayerId).toBe('elsewhere');
     });
 
+    it('a passed-over load leaves the tab whole for a next load that fails', async () => {
+      removesLayer();
+      loadsLayer();
+      useLayerStore.setState({ layers: [{ id: 'template', source: 'template' }] as never });
+      await openRunInViewer(run);
+      setLayers([viewLayer('layer-1'), viewLayer('template', false)], 'viewer');
+      const load = heldLoad();
+      loadFile.mockRejectedValueOnce(new Error('read failed'));
+      const passedOver = openRunInViewer(next);
+      await started(2);
+      const failing = openRunInViewer({ path: '/d/gone.nii.gz', fd: null } as never);
+      load.finish();
+      await passedOver;
+      await expect(failing).rejects.toThrow('read failed');
+      expect(view().layers.map((layer) => [layer.id, layer.visible])).toEqual([
+        ['layer-1', true],
+        ['template', false],
+      ]);
+      expect(useLayerStore.getState().selectedLayerId).toBe('layer-1');
+      expect(useLayerStore.getState().layers.map((layer) => layer.id).sort()).toEqual(['layer-1', 'template']);
+      expect(removeLayer.mock.calls).toEqual([['layer-2']]);
+      // The tab still knows its run: asking for it again reloads nothing.
+      await openRunInViewer(run);
+      expect(loadFile).toHaveBeenCalledTimes(3);
+      expect(layerIds()).toContain('layer-1');
+    });
+
+    it('A, B, A keeps the first A: not reloaded, its display untouched', async () => {
+      removesLayer();
+      loadsLayer();
+      await openRunInViewer(run);
+      setLayers([{ ...viewLayer('layer-1'), intensity: [10, 20] }], 'viewer');
+      const load = heldLoad();
+      const passedOver = openRunInViewer(next);
+      await started(2);
+      const again = openRunInViewer(run);
+      load.finish();
+      await Promise.all([passedOver, again]);
+      expect(loadFile).toHaveBeenCalledTimes(2);
+      expect(view().layers).toEqual([expect.objectContaining({ id: 'layer-1', visible: true, intensity: [10, 20] })]);
+      expect(removeLayer.mock.calls).toEqual([['layer-2']]);
+      expect(useLayerStore.getState().selectedLayerId).toBe('layer-1');
+    });
+
     it('frees a run whose tab closed after it was committed, and the one before it', async () => {
       removesLayer();
       loadsLayer();
@@ -483,7 +529,7 @@ describe('openRunInViewer', () => {
       expect(useTimeEventsStore.getState().tracks).toEqual({});
     });
 
-    it('drops events that arrive after the user moved on', async () => {
+    it('keeps events that arrive after the user moved on: the track is the layer\'s', async () => {
       openWithLayer();
       let finish: (rows: typeof events) => void = () => undefined;
       invoke.mockReturnValue(new Promise((resolve) => (finish = resolve)));
@@ -492,7 +538,99 @@ describe('openRunInViewer', () => {
       switchTo('another');
       finish(events);
       await open;
+      expect(useTimeEventsStore.getState().tracks['layer-1'].events).toEqual(events);
+      expect(useWorkspaceStore.getState().activeWorkspaceId).toBe('another');
+    });
+
+    it('drops events of a run a newer open has replaced', async () => {
+      openWithLayer();
+      let finish: (rows: typeof events) => void = () => undefined;
+      invoke.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+      const open = openRunInViewer(task);
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalled());
+      const newer = openRunInViewer({ path: '/d/b.nii.gz', fd: null } as never);
+      finish(events);
+      await Promise.all([open, newer]);
       expect(useTimeEventsStore.getState().tracks).toEqual({});
+    });
+
+    describe('when the user leaves the run tab during the load', () => {
+      const fourD = (id: string) =>
+        useLayerStore.setState((state) => ({
+          layers: state.layers.map((layer) =>
+            layer.id === id ? ({ ...layer, timeSeriesInfo: { num_timepoints: 200 } } as never) : layer,
+          ),
+        }));
+      const leavesDuringLoad = () =>
+        loadsLayer(() => {
+          fourD(`layer-${nextLayer}`);
+          switchTo('another');
+        });
+
+      beforeEach(() => {
+        usePlotModeStore.getState().setActivePlotMode(null as never);
+        useLayoutSettingsStore.setState({ bottomDockActiveTab: null });
+      });
+
+      it('the tab landed on return: selected, at its frame, Plot dock on it, events shown', async () => {
+        nextLayer = 0;
+        leavesDuringLoad();
+        await openRunInViewer(task);
+        expect(setTimepoint).not.toHaveBeenCalled();
+        expect(useLayerStore.getState().selectedLayerId).not.toBe('layer-1');
+        useWorkspaceStore.getState().activateWorkspace('viewer');
+        expect(setTimepoint.mock.calls).toEqual([[3]]);
+        expect(useLayerStore.getState().selectedLayerId).toBe('layer-1');
+        expect(useInspectorSelectionStore.getState().activeItemId).toBe('layer-1');
+        expect(usePlotModeStore.getState().activePlotModeId).toBe('crosshair-time-series');
+        expect(useLayoutSettingsStore.getState().bottomDockActiveTab).toBe('plot');
+        expect(useTimeEventsStore.getState().tracks['layer-1'].events).toEqual(events);
+      });
+
+      it('lands once, not on every return', async () => {
+        nextLayer = 0;
+        leavesDuringLoad();
+        await openRunInViewer(task);
+        switchTo('viewer');
+        switchTo('another');
+        switchTo('viewer');
+        expect(setTimepoint).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not land a run the user removed before coming back', async () => {
+        nextLayer = 0;
+        leavesDuringLoad();
+        await openRunInViewer(task);
+        // Not an empty list: the view store seeds an empty tab from the one in front.
+        setLayers([viewLayer('mine')], 'viewer');
+        switchTo('viewer');
+        expect(setTimepoint).not.toHaveBeenCalled();
+      });
+
+      it('does not land a run replaced by a newer open', async () => {
+        nextLayer = 0;
+        leavesDuringLoad();
+        await openRunInViewer(task);
+        loadsLayer();
+        await openRunInViewer({ path: '/d/b.nii.gz', fd: { peak_volume: 7 } } as never);
+        expect(setTimepoint.mock.calls.at(-1)).toEqual([7]);
+        expect(useLayerStore.getState().selectedLayerId).toBe('layer-2');
+        switchTo('another');
+        switchTo('viewer');
+        expect(useLayerStore.getState().selectedLayerId).toBe('layer-2');
+      });
+
+      it('opening the run again repairs a track that was not published', async () => {
+        nextLayer = 0;
+        invoke.mockRejectedValueOnce(new Error('gone'));
+        leavesDuringLoad();
+        await openRunInViewer(task);
+        expect(useTimeEventsStore.getState().tracks).toEqual({});
+        await openRunInViewer(task);
+        expect(loadFile).toHaveBeenCalledTimes(1);
+        expect(useTimeEventsStore.getState().tracks['layer-1'].events).toEqual(events);
+        expect(useLayerStore.getState().selectedLayerId).toBe('layer-1');
+      });
     });
 
     it('reads the events of the dataset the run was opened from, after a switch mid-load', async () => {

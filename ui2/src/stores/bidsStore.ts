@@ -126,7 +126,12 @@ interface BidsActions {
   saveLens: (name?: string) => void;
   deleteSavedLens: (id: string) => void;
   loadRunDetail: (runId: string) => Promise<BidsRunDetail | null>;
-  writeExclusions: (rows: BidsExclusion[], context: BidsExclusionContext) => Promise<void>;
+  /** `expectedDatasetPath` is the dataset the rows were made from: a write to any other throws. */
+  writeExclusions: (
+    rows: BidsExclusion[],
+    context: BidsExclusionContext,
+    expectedDatasetPath: string | null,
+  ) => Promise<void>;
   revertExclusions: (keys: BidsExclusionKey[]) => Promise<void>;
   /**
    * The events table of a run, inherited or its own. `datasetPath` pins it to
@@ -529,8 +534,11 @@ export const useBidsStore = create<BidsStore>()(
         return request;
       },
 
-      writeExclusions: async (rows, context) => {
+      writeExclusions: async (rows, context, expectedDatasetPath) => {
         const { datasetPath, exclusionsLoaded } = get();
+        if (datasetPath !== expectedDatasetPath) {
+          throw new Error(`the dataset changed; these rows belong to ${expectedDatasetPath}.`);
+        }
         if (!datasetPath) return;
         if (!exclusionsLoaded) throw new Error('Existing exclusions have not been read yet.');
         exclusionRevision += 1;

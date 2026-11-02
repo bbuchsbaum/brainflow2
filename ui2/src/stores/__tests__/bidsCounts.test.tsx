@@ -87,7 +87,11 @@ describe('count consistency', () => {
     expect(start.excludedRuns).toBe(0);
 
     await act(() =>
-      useBidsStore.getState().writeExclusions([{ ...row, entity: RUN, scope: 'run' }], context),
+      useBidsStore.getState().writeExclusions(
+        [{ ...row, entity: RUN, scope: 'run' }],
+        context,
+        useBidsStore.getState().datasetPath,
+      ),
     );
     const one = snapshot();
     expectAgreement(one);
@@ -97,7 +101,7 @@ describe('count consistency', () => {
     await act(() => useBidsStore.getState().undoExclusion());
     expect(snapshot()).toEqual(start);
 
-    await act(() => useBidsStore.getState().writeExclusions([row], context));
+    await act(() => useBidsStore.getState().writeExclusions([row], context, useBidsStore.getState().datasetPath));
     const participant = snapshot();
     expectAgreement(participant);
     expect(participant.excludedRows).toBe(1);

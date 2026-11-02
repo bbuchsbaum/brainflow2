@@ -56,12 +56,20 @@ export function BidsExcludeDialog({ runId, onClose }: { runId: string; onClose: 
       censor: state.censor,
       written: state.exclusionsWritten,
       exclusions: state.exclusions,
+      // The path the store writes to; the index holds the canonical one, which may differ.
+      datasetPath: state.datasetPath,
     };
   });
-  const { model, censor, written, exclusions } = opened;
+  const { model, censor, written, exclusions, datasetPath } = opened;
   const facts = model.runsById.get(runId);
   const index = model.index;
   const writeExclusions = useBidsStore((state) => state.writeExclusions);
+  const datasetLeft = useBidsStore((state) => state.datasetPath !== datasetPath);
+
+  // Everything here reads the dataset it opened on.
+  useEffect(() => {
+    if (datasetLeft) onClose();
+  }, [datasetLeft, onClose]);
 
   const criteria = useMemo(
     () => (facts ? exclusionCriteria(facts, model, censor) : []),
@@ -104,7 +112,7 @@ export function BidsExcludeDialog({ runId, onClose }: { runId: string; onClose: 
     setBusy(true);
     setError(null);
     rememberAuthor(row.author);
-    writeExclusions([row], context).then(onClose, (failure: unknown) => {
+    writeExclusions([row], context, datasetPath).then(onClose, (failure: unknown) => {
       setBusy(false);
       setError(failure instanceof Error ? failure.message : String(failure));
     });

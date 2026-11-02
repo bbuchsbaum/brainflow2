@@ -67,6 +67,9 @@ const getComponentState = (item: ComponentItem): LayoutComponentState => {
 
 const isComponentItem = (item: ContentItem): item is ComponentItem => item.type === 'component';
 
+/** Tooltip of the caret that opens the tabs a stack has no room for. */
+const TAB_DROPDOWN_LABEL = 'More tabs';
+
 /**
  * A layout `loadLayout` accepts. `saveLayout()` returns a *resolved* config
  * (numeric sizes, `resolved: true`, …) that `loadLayout` rejects ("value.trimStart
@@ -86,13 +89,14 @@ export function toLoadableLayoutConfig(
  * The default app shell: Files/Subjects on the left, the workspace tab stack in
  * the centre, the Inspector on the right. GoldenLayoutRoot boots from it and
  * Reset layout restores it. Header controls keep maximise + close and drop the
- * pop-out (separate-window, brittle in a desktop app) and the tab-dropdown caret.
+ * pop-out (separate-window, brittle in a desktop app). The tab-dropdown caret
+ * stays: it shows only when tabs overflow, and is then their only way in.
  */
 export function createDefaultLayoutConfig(): LayoutConfig {
   return {
     header: {
       popout: false,
-      tabDropdown: false,
+      tabDropdown: TAB_DROPDOWN_LABEL,
     },
     root: {
       type: 'row',
@@ -369,6 +373,8 @@ class LayoutServiceImpl implements LayoutService {
     // stack) or come back dead (its surface closed since it was saved).
     // The row's three columns stay in place (the centre must stay second).
     root.content.forEach((item) => stripSurfaceViews(item as SavedItem));
+    // Layouts saved before 2026-11-01 turned the caret off, and hid tabs with it.
+    cloned.header = { ...cloned.header, tabDropdown: TAB_DROPDOWN_LABEL };
 
     return cloned;
   }

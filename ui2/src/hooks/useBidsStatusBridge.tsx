@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { BIDS_FINDINGS_PANEL, getLayoutService } from '@/services/layoutService';
 import { selectBidsModel, useBidsStore } from '@/stores/bidsStore';
 import type { BidsModel } from '@/stores/bidsModel';
 import { useStatusBarStore } from '@/stores/statusBarStore';
@@ -37,6 +38,8 @@ export function formatBytes(bytes: number): string {
 /** The status line, from the model's one status record. */
 export function bidsStatusParts(model: BidsModel): {
   left: string[];
+  /** The entry of `left` that opens the Findings tab. */
+  findings: string;
   validator: Array<{ text: string; tone: 'error' | 'warning' | null }>;
   read: string;
 } {
@@ -44,10 +47,11 @@ export function bidsStatusParts(model: BidsModel): {
   const soFar = status.soFar ? ' so far' : '';
   const head = status.bidsVersion ? `BIDS ${status.bidsVersion}` : 'BIDS';
   const versions = status.datasetVersion ? `${head} · dataset v${status.datasetVersion}` : head;
+  const findings = `Findings ${count.format(status.findings)}${soFar}`;
   const left = [
     versions,
     `${plural(status.participants, 'participant')} · ${plural(status.filesRead, 'file')} · ${formatBytes(status.sizeBytes)}${soFar}`,
-    `Findings ${count.format(status.findings)}${soFar}`,
+    findings,
     `Excluded ${plural(status.excludedRuns, 'run')}`,
   ];
   // Rule 7: the validator's count is never mixed with Brainflow's checks.
@@ -66,18 +70,29 @@ export function bidsStatusParts(model: BidsModel): {
     counted(checkWarnings, 'warning'),
   ];
   const read = `read ${count.format(status.filesRead)} of ${count.format(status.filesTotal)} files`;
-  return { left, validator, read };
+  return { left, findings, validator, read };
 }
 
 function statusNodes(model: BidsModel): [React.ReactNode, React.ReactNode] {
-  const { left, validator, read } = bidsStatusParts(model);
+  const { left, findings, validator, read } = bidsStatusParts(model);
   return [
     <span key="left" className="inline-flex min-w-0 gap-4 truncate text-bf-xs text-bf-text-muted">
-      {left.map((part) => (
-        <span key={part} className="whitespace-nowrap">
-          {part}
-        </span>
-      ))}
+      {left.map((part) =>
+        part === findings ? (
+          <button
+            key={part}
+            type="button"
+            onClick={() => getLayoutService().showPanel(BIDS_FINDINGS_PANEL)}
+            className="cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-bf-xs text-inherit hover:text-bf-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {part}
+          </button>
+        ) : (
+          <span key={part} className="whitespace-nowrap">
+            {part}
+          </span>
+        ),
+      )}
     </span>,
     <span key="right" className="whitespace-nowrap text-bf-xs text-bf-text-muted">
       {validator.map((part, i) => (
