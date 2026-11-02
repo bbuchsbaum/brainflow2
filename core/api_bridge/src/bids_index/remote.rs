@@ -22,6 +22,12 @@ const BATCH: usize = 32;
 const SKIPPED_NAMES: [&str; 3] = [".git", ".datalad", "sourcedata"];
 const DERIVATIVE_IMAGE_ENDINGS: [&str; 4] = [".nii", ".nii.gz", ".gii", ".mgz"];
 
+/// True for a name that stays in its directory. The transport drops `.` and
+/// `..`, but a name comes from the server and is joined into a server path.
+fn is_single_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RemoteKind {
     File,
@@ -92,7 +98,7 @@ impl Listing {
     }
 
     fn add(&mut self, directory: &str, entry: RemoteEntry, next: &mut Vec<String>) {
-        if SKIPPED_NAMES.contains(&entry.name.as_str()) {
+        if !is_single_name(&entry.name) || SKIPPED_NAMES.contains(&entry.name.as_str()) {
             return;
         }
         let rel = match directory {
@@ -414,5 +420,70 @@ impl ScanFiles {
                 .map(|rel| files.root.join(rel))
                 .collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod entry_name_tests {
+    use super::*;
+
+    /// A server that answers every root listing with the same names. It answers
+    /// a bounded number of listings, so a name that leads back to the root
+    /// fails the assertion instead of looping forever.
+    struct Names(Vec<&'static str>, std::sync::atomic::AtomicUsize);
+
+    const MAX_LISTINGS: usize = 64;
+
+    impl RemoteDataset for Names {
+        fn list(&self, rel_dirs: &[String]) -> Vec<Result<Vec<RemoteEntry>, String>> {
+            rel_dirs
+                .iter()
+                .map(|rel| {
+                    let answered = self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if !rel.is_empty() || answered >= MAX_LISTINGS {
+                        return Ok(Vec::new());
+                    }
+                    Ok(self
+                        .0
+                        .iter()
+                        .map(|name| RemoteEntry {
+                            name: (*name).to_string(),
+                            kind: RemoteKind::Directory,
+                            size: 0,
+                            modified: None,
+                            symlink: false,
+                        })
+                        .collect())
+                })
+                .collect()
+        }
+
+        fn fetch(&self, _: &[String], _: u64) -> Vec<Result<Vec<u8>, String>> {
+            Vec::new()
+        }
+
+        fn headers(&self, _: &[String]) -> Vec<Result<nifti_loader::HeaderSummary, String>> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn a_listing_never_leaves_the_dataset_on_a_servers_names() {
+        let server = Names(
+            vec![
+                ".",
+                "..",
+                "",
+                "../sibling",
+                "a/b",
+                "a\\b",
+                "..\\sibling",
+                "sub-01",
+            ],
+            Default::default(),
+        );
+        let listing = walk(&server, &|| false).unwrap();
+        let directories: Vec<_> = listing.directories.iter().map(String::as_str).collect();
+        assert_eq!(directories, ["sub-01"]);
     }
 }
