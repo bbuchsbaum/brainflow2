@@ -37,9 +37,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install matching wasm-bindgen CLI
         run: |
-          curl --fail --location --retry 3 https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.100/wasm-bindgen-0.2.100-x86_64-unknown-linux-musl.tar.gz -o /tmp/wasm-bindgen.tar.gz
+          curl --fail --location --retry 3 https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.130/wasm-bindgen-0.2.130-x86_64-unknown-linux-musl.tar.gz -o /tmp/wasm-bindgen.tar.gz
           tar -xzf /tmp/wasm-bindgen.tar.gz -C /tmp
-          echo "/tmp/wasm-bindgen-0.2.100-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+          echo "/tmp/wasm-bindgen-0.2.130-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
       - name: Build WASM and production PWA
         run: pnpm --filter temp-ui build:browser
       - name: Browser lifecycle unit tests

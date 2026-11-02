@@ -9,12 +9,12 @@ format, slice viewport, controls and theme are reused.
 
 Use the repository's Node/pnpm setup and at least 20 GB free build space.
 Install `wasm32-unknown-unknown` with rustup and a `wasm-bindgen` CLI matching
-the lockfile (currently 0.2.100). `WASM_BINDGEN` can name an existing executable.
+the lockfile (currently 0.2.130). `WASM_BINDGEN` can name an existing executable.
 No development server or build cache needs to remain running between sessions.
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.100 --locked
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
 pnpm --filter temp-ui build:browser
 pnpm --filter temp-ui exec vite preview --config vite.browser.config.ts
 ```
