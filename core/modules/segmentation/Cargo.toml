@@ -2,6 +2,7 @@
 name = "bf_segmentation"
 version = "0.1.0"
 edition = "2021"
+publish = false
 description = "Reference-grid segmentation sessions and manual rasterization. No Tauri or GPU."
 
 [dependencies]
