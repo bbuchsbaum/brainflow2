@@ -167,6 +167,8 @@ function basename(path: string): string {
 
 interface FileBrowserActions {
   // Mount operations
+  /** The last explicit mount or Recents click, already mounted or not. */
+  lastMount: { path: string; nonce: number; remote: boolean } | null;
   mountDirectory: (
     path: string,
     options?: { displayName?: string; mountSource?: MountSource },
@@ -378,6 +380,7 @@ const createFileBrowserStore = () => {
         currentPath: "",
         rootPath: "",
         entries: [],
+        lastMount: null,
         errorPath: null,
         searchIndexing: false,
         searchTruncated: false,
@@ -400,6 +403,10 @@ const createFileBrowserStore = () => {
         mountDirectory: async (path, options) => {
           // Extract directory name from path
           const dirName = options?.displayName || path.split("/").pop() || path;
+          const remote = options?.mountSource?.kind === "remote";
+          set((state) => {
+            state.lastMount = { path, nonce: (state.lastMount?.nonce ?? 0) + 1, remote };
+          });
 
           // Create a root node for the mounted directory
           const mountedNode: FileTreeNode = {

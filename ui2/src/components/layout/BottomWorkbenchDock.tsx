@@ -12,13 +12,14 @@
  * the other layout preferences.
  */
 
-import { Suspense, useCallback, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useMemo, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { IconButton, Tabs, tabIds } from '@/components/ui/bf';
 import {
   DEFAULT_DOCK_TAB,
   DOCK_TAB_BAR_HEIGHT,
   type CoreDockTabId,
+  type DockExtraTab,
   type DockTabId,
 } from './bottomWorkbenchDock.constants';
 import { moduleRegistry, useModuleRegistryVersion, type ModuleDockTab } from '@/modules/registry';
@@ -34,6 +35,8 @@ export interface BottomWorkbenchDockProps {
   log: ReactNode;
   /** Clusters slot content (P3.5 cluster table). */
   clusters?: ReactNode;
+  /** Tabs this workspace adds after the core and module tabs. */
+  extraTabs?: readonly DockExtraTab[];
   /** Controlled active tab. When provided, the dock reflects it (and external
    *  changes, e.g. the inspector's "Open in dock") rather than only its own
    *  local state. */
@@ -57,10 +60,13 @@ export interface BottomWorkbenchDockProps {
 const TAB_BAR_HEIGHT = DOCK_TAB_BAR_HEIGHT;
 
 const DOCK_ID_BASE = 'bottom-dock';
+const NO_EXTRA_TABS: readonly DockExtraTab[] = [];
+
+type DockTabLabel = Pick<ModuleDockTab, 'id' | 'title'>;
 
 /** Core tabs, then the tabs of enabled modules (stable per registry change). */
-const tabItemsCache = new WeakMap<readonly ModuleDockTab[], Array<{ value: string; label: string; testId: string }>>();
-function dockTabItems(tabs: readonly ModuleDockTab[]) {
+const tabItemsCache = new WeakMap<readonly DockTabLabel[], Array<{ value: string; label: string; testId: string }>>();
+function dockTabItems(tabs: readonly DockTabLabel[]) {
   let items = tabItemsCache.get(tabs);
   if (!items) {
     items = tabs.map(({ id, title }) => ({ value: id, label: title, testId: `bottom-dock-tab-${id}` }));
@@ -86,6 +92,7 @@ export function BottomWorkbenchDock({
   activity,
   log,
   clusters = null,
+  extraTabs = NO_EXTRA_TABS,
   activeTab: controlledTab,
   defaultActiveTab = DEFAULT_DOCK_TAB,
   onActiveTabChange,
@@ -102,9 +109,14 @@ export function BottomWorkbenchDock({
   const [localTab, setLocalTab] = useState<DockTabId>(defaultActiveTab);
   useModuleRegistryVersion();
   const tabs = moduleRegistry.getDockTabs();
+  const allTabs = useMemo<readonly DockTabLabel[]>(
+    () => (extraTabs.length > 0 ? [...tabs, ...extraTabs] : tabs),
+    [tabs, extraTabs],
+  );
   const requestedTab = isControlled ? controlledTab : localTab;
-  // A remembered tab of a module that is now off falls back to the default.
-  const activeTab = tabs.some((t) => t.id === requestedTab) ? requestedTab : DEFAULT_DOCK_TAB;
+  // A remembered tab of a module that is now off, or of a workspace this dock
+  // does not belong to, falls back to the default.
+  const activeTab = allTabs.some((t) => t.id === requestedTab) ? requestedTab : DEFAULT_DOCK_TAB;
 
   const handleSelect = useCallback(
     (tab: DockTabId) => {
@@ -119,6 +131,7 @@ export function BottomWorkbenchDock({
 
   const slots: Record<CoreDockTabId, ReactNode> = { activity, plot, clusters, log };
   const activeModuleTab = tabs.find((t) => t.id === activeTab && t.moduleId !== null);
+  const activeExtraTab = extraTabs.find((t) => t.id === activeTab);
 
   return (
     <div
@@ -144,7 +157,7 @@ export function BottomWorkbenchDock({
             reaches handleSelect, which restores a minimized dock. */}
         <Tabs
           idBase={DOCK_ID_BASE}
-          items={dockTabItems(tabs)}
+          items={dockTabItems(allTabs)}
           value={activeTab}
           onValueChange={(tab) => handleSelect(tab as DockTabId)}
           aria-label="Bottom dock"
@@ -204,7 +217,9 @@ export function BottomWorkbenchDock({
             overflow: 'hidden',
           }}
         >
-          {activeModuleTab ? (
+          {activeExtraTab ? (
+            activeExtraTab.content
+          ) : activeModuleTab ? (
             <ModuleDockTabBody tab={activeModuleTab} />
           ) : (
             slots[activeTab as CoreDockTabId]

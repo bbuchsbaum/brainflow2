@@ -30,6 +30,7 @@ import { BottomWorkbenchDock } from '@/components/layout/BottomWorkbenchDock';
 import {
   DOCK_HEIGHT_DEFAULTS,
   dockHeightMin,
+  type DockExtraTab,
   type DockHeightKey,
   DEFAULT_DOCK_TAB,
   DOCK_HEIGHT_MAX,
@@ -52,11 +53,19 @@ export interface CenterWithBottomDockProps {
    * share one, Set studio, BIDS and Analysis keep their own.
    */
   heightKey?: DockHeightKey;
+  /** Tabs only this workspace's dock has. Pass a stable array. */
+  extraTabs?: readonly DockExtraTab[];
+  /** A strip below the dock, across the whole column (`footerHeight` px tall). */
+  footer?: React.ReactNode;
+  footerHeight?: number;
 }
 
 export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
   children,
   heightKey = 'imaging',
+  extraTabs,
+  footer,
+  footerHeight = 0,
 }) => {
   const open = useLayoutSettingsStore((s) => s.bottomDockOpen);
   const storedHeight =
@@ -100,7 +109,8 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
   const showResizer = open && !minimized;
 
   // Reserve space for the dock (+ its resizer when resizable) below the view pane.
-  const bottomReserve = open ? effectiveDockHeight + (showResizer ? RESIZER_PX : 0) : 0;
+  const footerPx = footer ? footerHeight : 0;
+  const bottomReserve = (open ? effectiveDockHeight + (showResizer ? RESIZER_PX : 0) : 0) + footerPx;
 
   const handleResizeStart = React.useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -108,6 +118,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
       const root = rootRef.current;
       if (!root) return;
       const rootRect = root.getBoundingClientRect();
+      const footerOffset = footer ? footerHeight : 0;
       const maxPx = Math.min(
         DOCK_HEIGHT_MAX,
         Math.max(DOCK_HEIGHT_MIN, rootRect.height * DOCK_MAX_FRACTION),
@@ -116,7 +127,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
 
       const onMove = (ev: PointerEvent) => {
         // Dock occupies the bottom; its top edge follows the pointer.
-        const fromBottom = rootRect.bottom - ev.clientY - RESIZER_PX / 2;
+        const fromBottom = rootRect.bottom - footerOffset - ev.clientY - RESIZER_PX / 2;
         latest = Math.round(Math.max(minDockHeight, Math.min(maxPx, fromBottom)));
         setDragHeight(latest);
       };
@@ -129,7 +140,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
-    [dockHeight, heightKey, minDockHeight, setBottomDockHeight],
+    [dockHeight, footer, footerHeight, heightKey, minDockHeight, setBottomDockHeight],
   );
 
   return (
@@ -172,7 +183,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
                 position: 'absolute',
                 left: 0,
                 right: 0,
-                bottom: effectiveDockHeight,
+                bottom: effectiveDockHeight + footerPx,
                 height: `${RESIZER_PX}px`,
                 cursor: 'ns-resize',
                 background: 'var(--app-border-subtle)',
@@ -186,7 +197,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
               position: 'absolute',
               left: 0,
               right: 0,
-              bottom: 0,
+              bottom: footerPx,
               height: `${effectiveDockHeight}px`,
               zIndex: 3,
             }}
@@ -196,6 +207,7 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
               activity={<ActivityPanel />}
               log={<LogPanel />}
               clusters={<ClusterPanel />}
+              extraTabs={extraTabs}
               activeTab={activeTab ?? DEFAULT_DOCK_TAB}
               onActiveTabChange={setActiveTab}
               onClose={() => setBottomDockOpen(false)}
@@ -206,6 +218,15 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
           </div>
         </>
       )}
+
+      {footer ? (
+        <div
+          data-testid="center-dock-footer"
+          style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${footerPx}px`, zIndex: 3 }}
+        >
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 };

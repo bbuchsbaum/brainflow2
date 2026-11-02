@@ -3,6 +3,16 @@ import { HARNESS_EPOCH_MS } from './determinism';
 
 export const BIDS_ROOT = '/harness/ds-motor';
 
+export {
+  BIDS_BROWSER_ROOT,
+  bidsCarpetRgba,
+  bidsPhantomRgba,
+  bidsStreamPlan,
+  createBidsBrowserDataset,
+  installHarnessEventBus,
+  streamBidsScan,
+} from './bidsBrowserData';
+
 export const ANALYSIS_DESCRIPTORS = [
   {
     id: 'builtin-copy-volume',

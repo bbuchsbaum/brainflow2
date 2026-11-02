@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { invokeBackend, MockTransport, setTransport } from '../transport';
-import { TemporalHeatmapService } from '../TemporalHeatmapService';
+import { TemporalHeatmapService, type TemporalPlaneGrid } from '../TemporalHeatmapService';
 import { BrowserTransport } from '../browser/transport';
 import { adaptWgpu20Descriptor } from '../browser/webgpuCompatibility';
 
@@ -11,6 +11,8 @@ class FakeWorker {
   postMessage = vi.fn();
   terminate = vi.fn();
 }
+
+const GRID = { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], width: 1, height: 1 } as TemporalPlaneGrid;
 
 describe('browser host ownership and service boundaries', () => {
   it('routes source verification through its worker and cancels pending verification', async () => {
@@ -33,11 +35,10 @@ describe('browser host ownership and service boundaries', () => {
   it('routes domain helpers through the selected host and retains injected service ownership', async () => {
     const a = new MockTransport();
     const b = new MockTransport();
-    const result = { width: 1, height: 1, data: [3] };
-    a.setMockResponse('plugin:api-bridge|compute_temporal_metric', result);
+    a.setMockResponse('plugin:api-bridge|compute_temporal_metric_plane', { width: 1, height: 1, data: [3] });
     const service = new TemporalHeatmapService(a);
     setTransport(b);
-    expect(await service.getMetricMap('v', 'mean', 'axial', 0)).toEqual(result);
+    expect(await service.getPlaneMap('v', 'mean', GRID)).toEqual({ width: 1, height: 1, data: Float32Array.of(3) });
     expect(b.getCallLog()).toEqual([]);
     b.setMockResponse('plugin:api-bridge|get_template_catalog', ['native']);
     expect(await invokeBackend('plugin:api-bridge|get_template_catalog')).toEqual(['native']);
@@ -51,7 +52,7 @@ describe('browser host ownership and service boundaries', () => {
       code: 'UNSUPPORTED_BROWSER_CAPABILITY',
     });
     await expect(
-      new TemporalHeatmapService(transport).getMetricMap('v', 'mean', 'axial', 0),
+      new TemporalHeatmapService(transport).getPlaneMap('v', 'mean', GRID),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_BROWSER_CAPABILITY' });
     expect(worker.postMessage).not.toHaveBeenCalled();
     transport.dispose();

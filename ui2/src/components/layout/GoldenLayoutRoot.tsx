@@ -26,7 +26,7 @@ import { getEventBus } from '@/events/EventBus';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
-import { createDefaultLayoutConfig, getLayoutService } from '@/services/layoutService';
+import { BIDS_FINDINGS_PANEL, createDefaultLayoutConfig, getLayoutService } from '@/services/layoutService';
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary';
 import {
   ensureFocusedStack,
@@ -45,6 +45,8 @@ import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanelLazy';
 import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
 
 // Import side panel components
+import { BidsFindingsPanel } from '@/components/bids/BidsFindingsPanel';
+import { useBidsFindingsTab } from '@/hooks/useBidsFindingsTab';
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
 import { ClusterPanelMoved } from '@/components/panels/ClusterPanelMoved';
@@ -159,6 +161,9 @@ export function GoldenLayoutRoot() {
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceType = useWorkspaceStore((state) =>
+    state.activeWorkspaceId ? (state.workspaces.get(state.activeWorkspaceId)?.type ?? null) : null,
+  );
   const appMode = useAppModeStore((state) => state.mode);
   const store = useWorkspaceStore();
 
@@ -396,6 +401,7 @@ export function GoldenLayoutRoot() {
 
     registerSidePanelComponent('FileBrowser', FileBrowserPanel);
     registerSidePanelComponent('StudioDesignPanel', StudioDesignPanel);
+    registerSidePanelComponent(BIDS_FINDINGS_PANEL, BidsFindingsPanel);
     registerSidePanelComponent('PlotPanel', PlotPanel);
     // Clusters live in the bottom dock (P3.5). A saved layout that still holds
     // a ClusterPanel tab gets a pointer there instead of a second table.
@@ -671,6 +677,8 @@ export function GoldenLayoutRoot() {
       rightStack.setActiveComponentItem(rightTarget, true);
     }
   }, [appMode, isLayoutReady]);
+
+  useBidsFindingsTab(activeWorkspaceType, isLayoutReady);
 
   useEffect(() => {
     if (!layoutRef.current || !isLayoutReady || !activeWorkspaceId) {

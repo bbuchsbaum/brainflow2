@@ -48,6 +48,8 @@ const axisFontFamily = 'var(--app-font-mono, monospace)';
 const proseFontFamily = 'var(--bf-font-sans, sans-serif)';
 
 const MARGIN = { top: 8, right: 10, bottom: 22, left: 36 } as const;
+/** Beside the tick labels, not on them: "40,000" reaches the whole of `MARGIN.left`. */
+const Y_TITLE_ROOM = 22;
 
 /** Below these inner sizes the axes are too cramped to label. */
 const MIN_AXIS_WIDTH = 60;
@@ -184,6 +186,13 @@ interface AxisOptions {
    * concatenated series, E5b): a dashed hairline at `x`, its label at the top.
    */
   readonly xRules?: readonly { readonly x: number; readonly label: string; readonly line?: boolean }[];
+  /** Labelled bands behind the marks (events on a time axis), in x units. */
+  readonly xBands?: readonly {
+    readonly x0: number;
+    readonly x1: number;
+    readonly label: string;
+    readonly color: string;
+  }[];
 }
 
 interface CartesianMarkProps {
@@ -252,6 +261,28 @@ function CartesianMark({
             strokeWidth={1}
           />
         ) : null}
+        {xScale && 'ticks' in xScale
+          ? (axes?.xBands ?? []).map((band, index) => {
+              const left = Math.max(0, (xScale as LinearScale)(band.x0) ?? 0);
+              const right = Math.min(innerWidth, (xScale as LinearScale)(band.x1) ?? 0);
+              if (!(right > 0 && left < innerWidth)) return null;
+              return (
+                <rect
+                  key={`${index}-${band.x0}`}
+                  data-testid="plot-x-band"
+                  x={left}
+                  y={0}
+                  width={Math.max(1, right - left)}
+                  height={innerHeight}
+                  fill={band.color}
+                  fillOpacity={0.2}
+                  pointerEvents="none"
+                >
+                  <title>{band.label}</title>
+                </rect>
+              );
+            })
+          : null}
         {showAxes && xScale && 'ticks' in xScale
           ? (axes?.xRules ?? []).map((rule) => {
               const x = (xScale as LinearScale)(rule.x) ?? 0;
@@ -289,7 +320,7 @@ function CartesianMark({
         {showAxes && axes?.yTitle ? (
           <text
             data-testid="plot-y-title"
-            transform={`translate(${-margin.left + 10}, ${innerHeight / 2}) rotate(-90)`}
+            transform={`translate(${-margin.left + 9}, ${innerHeight / 2}) rotate(-90)`}
             textAnchor="middle"
             fill={axisLabelColor}
             style={{ fontSize: axisLabelSize, fontFamily: proseFontFamily }}
@@ -458,6 +489,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     xIntegerTicks: spec.params.xIntegerTicks === true,
     zeroLine: spec.params.zeroLine === true,
     xRules: Array.isArray(spec.params.xRules) ? (spec.params.xRules as AxisOptions['xRules']) : undefined,
+    xBands: Array.isArray(spec.params.xBands) ? (spec.params.xBands as AxisOptions['xBands']) : undefined,
   };
   // A strip above the plot area for in-frame legends and rule labels.
   const topInset = typeof spec.params.topInset === 'number' ? spec.params.topInset : axes.xRules?.length ? 12 : 0;
@@ -465,7 +497,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     ...MARGIN,
     top: MARGIN.top + topInset,
     bottom: MARGIN.bottom + (axes.xTitle ? 14 : 0),
-    left: MARGIN.left + (axes.yTitle ? 14 : 0),
+    left: MARGIN.left + (axes.yTitle ? Y_TITLE_ROOM : 0),
   };
   const innerWidth = Math.max(0, width - margin.left - margin.right);
   const innerHeight = Math.max(0, height - margin.top - margin.bottom);

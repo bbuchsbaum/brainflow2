@@ -8,8 +8,15 @@
 
 export type Unlisten = () => Promise<void> | void;
 
+/** The dev harness's stand-in for Tauri events; see `devHarness/app/bidsBrowserData.ts`. */
+interface HarnessEvents {
+  listen(event: string, handler: (event: unknown) => void): Unlisten;
+}
+
 // Sentinel used to tag no-op unlisten functions returned in non-Tauri envs
 const NOOP_TAG = Symbol('noop-unlisten');
+// Unlisten functions from the dev harness event bus, which works without Tauri.
+const harnessUnlisteners = new WeakSet<object>();
 
 function taggedNoop(): void {
   // intentional no-op
@@ -48,6 +55,13 @@ export async function safeListen<T = any>(
   handler: (event: any) => void
 ): Promise<Unlisten> {
   if (!isTauriEnv()) {
+    // The dev harness simulates backend events through a local bus.
+    const bus = (window as unknown as { __harnessEvents?: HarnessEvents }).__harnessEvents;
+    if (bus) {
+      const stop = bus.listen(event, handler);
+      harnessUnlisteners.add(stop);
+      return stop;
+    }
     // Non-Tauri: return tagged no-op unlisten
     return noopUnlisten();
   }
@@ -66,6 +80,7 @@ export async function safeUnlisten(unlisten?: Promise<Unlisten> | Unlisten | nul
   try {
     const fn = typeof unlisten === 'function' ? unlisten : await unlisten;
     if (typeof fn !== 'function') return;
+    if (harnessUnlisteners.has(fn)) return void fn();
     // Skip if this is a tagged no-op or if Tauri event internals are missing
     if (isNoopUnlisten(fn) || !hasTauriEventInternals()) return;
     const p = fn();

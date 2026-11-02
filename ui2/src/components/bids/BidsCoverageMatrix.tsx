@@ -196,7 +196,7 @@ function CoverageTooltip({ data }: { data: TooltipData }) {
       {cell.present ? (
         <>
           <div style={{ marginTop: 2 }}>
-            {cell.run_count} file{cell.run_count !== 1 ? 's' : ''} &middot; {formatBytes(cell.size_bytes)}
+            {cell.run_count} file{cell.run_count !== 1 ? 's' : ''} &middot; {formatBytes(Number(cell.size_bytes))}
           </div>
           {cell.file_paths.length > 0 && (
             <div
@@ -255,7 +255,7 @@ function CellActionBar({
       style={{ height: 36, fontSize: 'var(--app-text-xs)' }}
     >
       <span className="bf-role-mono text-foreground/80" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {label} &mdash; {cell.run_count} file{cell.run_count !== 1 ? 's' : ''}, {formatBytes(cell.size_bytes)}
+        {label} &mdash; {cell.run_count} file{cell.run_count !== 1 ? 's' : ''}, {formatBytes(Number(cell.size_bytes))}
       </span>
 
       <div className="relative" ref={dropdownRef}>

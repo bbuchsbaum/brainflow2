@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
+import { expectLandingFrame, forgetLandingFrame } from '@/services/landingFrames';
 import { layerFrameBoxes } from '@/services/layerFrameBoxes';
 import { fitViewsToWorldBox, worldBoxFromViews } from '@/utils/worldFrame';
 import { useComparisonStore } from '@/stores/comparisonStore';
@@ -22,6 +23,7 @@ const {
     unloadVolume: vi.fn(),
     releaseLayerGpuResources: vi.fn(),
     patchLayer: vi.fn(),
+    setVolumeTimepoint: vi.fn(),
   },
   mockQueueState: {
     isLoading: vi.fn(() => false),
@@ -352,6 +354,27 @@ describe('LayerApiImpl', () => {
       'Layer not found: missing-layer'
     );
   });
+  it('a window the user set on a hidden layer stands when it is first shown', async () => {
+    const api = new LayerApiImpl() as unknown as { unrefined: Map<string, unknown>; ensureGpuResidentForLayer(id: string): Promise<void> };
+    const layer = { id: 'hidden', name: 'T1', volumeId: 'hidden', visible: false, type: 'anatomical' };
+    mockLayerStoreState.getLayer.mockReturnValue(layer);
+    mockLayerStoreState.getLayerMetadata.mockReturnValue({ gpuResident: false });
+    const view: Record<string, unknown> = { id: 'hidden', visible: true, opacity: 1, intensity: [20, 80], threshold: [0, 0], colormap: 'gray' };
+    const state = { layers: [view] };
+    mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
+    api.unrefined.set('hidden', {
+      options: { layerType: 'anatomical', dataRange: { min: 0, max: 100 } },
+      render: JSON.stringify([[20, 80], [0, 0], 'gray', undefined]),
+    });
+    view.intensity = [31, 47];
+    await api.ensureGpuResidentForLayer('hidden');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(view.intensity).toEqual([31, 47]);
+    expect(mockHistogramService.computeHistogram).not.toHaveBeenCalled();
+    expect(api.unrefined.has('hidden')).toBe(false);
+  });
+
   it(' late histogram keeps a user-edited intensity window', async () => {
     let finish!: (value: unknown) => void;
     mockHistogramService.computeHistogram.mockReturnValue(new Promise(r => { finish = r; }));
@@ -376,6 +399,167 @@ describe('LayerApiImpl', () => {
     api.upsertViewLayer(stale);
     // Hidden is `visible: false` alone; the opacity is kept for the next show.
     expect(state.layers[0]).toMatchObject({ id: 'run-2', visible: false, opacity: 1 });
+  });
+
+  describe('a long 4D run (ds001734: 106 x 106 x 64 x 453, signal 4,500-7,700, one outlier at 40,758)', () => {
+    const dataRange = { min: 0, max: 40758 };
+    const bin = 40758 / 256;
+    // Background at the bottom, signal in 4,500-7,700, a few outlier voxels.
+    const hist = (scale: number) => {
+      const counts = new Array(256).fill(0);
+      for (let i = 0; i < 2; i += 1) counts[i] = 200 * scale;
+      for (let i = Math.floor(4500 / bin); i < Math.floor(7700 / bin); i += 1) counts[i] = 1000 * scale;
+      counts[255] = 1;
+      const bins = counts.map((count, i) => ({ x0: i * bin, x1: (i + 1) * bin, count }));
+      return { bins, totalCount: counts.reduce((a, b) => a + b, 0), mean: 6000, minValue: 0, maxValue: 40758 };
+    };
+    const setup = () => {
+      const api = new LayerApiImpl() as unknown as Internals;
+      const layer = {
+        id: 'run', name: 'sub-008_task-MGT_run-01_bold', volumeId: 'run', visible: true, type: 'functional',
+        sourcePath: '/d/sub-008_task-MGT_run-01_bold.nii.gz', volumeType: 'TimeSeries4D', timeSeriesInfo: { num_timepoints: 453 },
+      };
+      mockLayerStoreState.getLayer.mockReturnValue(layer);
+      // The first paint is the legacy fallback: 20-80% of the outlier maximum.
+      const view: Record<string, unknown> = { id: 'run', visible: true, opacity: 1, intensity: [8151.6, 32606.4], threshold: [0, 0], colormap: 'gray', interpolation: 'linear' };
+      const state = { layers: [view] };
+      mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
+      mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
+      return { api, layer, view };
+    };
+    const expectSane = (view: Record<string, unknown>) => {
+      const [low, high] = view.intensity as [number, number];
+      expect(low).toBeLessThan(4500);
+      expect(high).toBeGreaterThan(6500);
+      // Up to twice the tissue median, the mid-grey rule for flat tissue (runWindow).
+      expect(high).toBeLessThan(13000);
+    };
+    type Req = { allFrames?: boolean };
+
+    it('shows the displayed frame window while the all-frame scan runs', async () => {
+      const { api, layer, view } = setup();
+      let finish!: (value: unknown) => void;
+      const scan = new Promise((r) => { finish = r; });
+      mockHistogramService.computeHistogram.mockImplementation((request: Req) =>
+        request.allFrames ? scan : Promise.resolve(hist(1)),
+      );
+      const pending = api.refineIntensityFromHistogram(layer, { layerType: 'functional', dataRange });
+      await vi.waitFor(() => expect(view.intensity).not.toEqual([8151.6, 32606.4]));
+      expectSane(view);
+      finish(hist(453));
+      await pending;
+      expectSane(view);
+    });
+
+    describe('on a run that lands on a later frame, with a bright first volume', () => {
+      const landing = (shown: () => number) => {
+        const { api, layer, view } = setup();
+        layer.sourcePath = '/d/landing.nii.gz';
+        expectLandingFrame(layer.sourcePath, 149);
+        let frame = 0;
+        const log: string[] = [];
+        mockApiService.setVolumeTimepoint.mockImplementation(async (_id: string, next: number) => {
+          frame = next;
+          log.push(`frame ${next}`);
+        });
+        mockLayerStoreState.getLayer.mockReturnValue({ ...layer, currentTimepoint: shown() });
+        const bright = () => {
+          const counts = new Array(256).fill(0);
+          for (let i = 0; i < 2; i += 1) counts[i] = 200;
+          for (let i = 150; i < 200; i += 1) counts[i] = 1000;
+          const bins = counts.map((count, i) => ({ x0: i * bin, x1: (i + 1) * bin, count }));
+          return { bins, totalCount: counts.reduce((a, b) => a + b, 0), mean: 28000, minValue: 0, maxValue: 40758 };
+        };
+        let finish!: (value: unknown) => void;
+        const scan = new Promise((r) => { finish = r; });
+        mockHistogramService.computeHistogram.mockImplementation((request: Req) => {
+          if (request.allFrames) return scan;
+          log.push(`histogram of ${frame}`);
+          return Promise.resolve(frame === 0 ? bright() : hist(1));
+        });
+        return { api, layer, view, log, done: () => finish(hist(453)) };
+      };
+
+      it('windows the peak from the peak, so it does not look dim', async () => {
+        const { api, layer, view, log, done } = landing(() => 149);
+        const pending = api.refineIntensityFromHistogram(layer, { layerType: 'functional', dataRange });
+        await vi.waitFor(() => expect(view.intensity).not.toEqual([8151.6, 32606.4]));
+        expectSane(view);
+        expect(log).toEqual(['frame 149', 'histogram of 149']);
+        forgetLandingFrame(layer.sourcePath);
+        done();
+        await pending;
+      });
+
+      it('puts the volume back on the frame on screen when the landing did not happen', async () => {
+        const { api, layer, view, log, done } = landing(() => 0);
+        const pending = api.refineIntensityFromHistogram(layer, { layerType: 'functional', dataRange });
+        await vi.waitFor(() => expect(view.intensity).not.toEqual([8151.6, 32606.4]));
+        await vi.waitFor(() => expect(log).toEqual(['frame 149', 'histogram of 149', 'frame 0']));
+        forgetLandingFrame(layer.sourcePath);
+        done();
+        await pending;
+      });
+
+      it('without a landing frame, touches no frame', async () => {
+        const { api, layer, view, done } = landing(() => 0);
+        forgetLandingFrame(layer.sourcePath);
+        const pending = api.refineIntensityFromHistogram(layer, { layerType: 'functional', dataRange });
+        await vi.waitFor(() => expect(view.intensity).not.toEqual([8151.6, 32606.4]));
+        expect(mockApiService.setVolumeTimepoint).not.toHaveBeenCalled();
+        done();
+        await pending;
+      });
+    });
+
+    it('keeps that window when the all-frame scan fails', async () => {
+      const { api, layer, view } = setup();
+      mockHistogramService.computeHistogram.mockImplementation((request: Req) =>
+        request.allFrames ? Promise.reject(new Error('gone')) : Promise.resolve(hist(1)),
+      );
+      await api.refineIntensityFromHistogram(layer, { layerType: 'functional', dataRange });
+      expectSane(view);
+    });
+
+    it('still finishes when the frame histogram fails', async () => {
+      const { api, layer, view } = setup();
+      mockHistogramService.computeHistogram.mockImplementation((request: Req) =>
+        request.allFrames ? Promise.resolve(hist(453)) : Promise.reject(new Error('no frame')),
+      );
+      await api.refineIntensityFromHistogram(layer, { layerType: 'functional', dataRange });
+      expectSane(view);
+    });
+
+    it('a window the user set during the all-frame scan stands', async () => {
+      const { api, layer, view } = setup();
+      let finish!: (value: unknown) => void;
+      mockHistogramService.computeHistogram.mockImplementation((request: Req) =>
+        request.allFrames ? new Promise((r) => { finish = r; }) : Promise.resolve(hist(1)),
+      );
+      const pending = api.refineIntensityFromHistogram(layer, { layerType: 'functional', dataRange });
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      view.intensity = [1000, 2000];
+      finish(hist(453));
+      await pending;
+      expect(view.intensity).toEqual([1000, 2000]);
+    });
+  });
+
+  it('a layer loaded hidden is windowed when it is first shown, not left on the fallback', async () => {
+    const api = new LayerApiImpl() as unknown as { unrefined: Map<string, unknown>; ensureGpuResidentForLayer(id: string): Promise<void> };
+    const layer = { id: 'hidden', name: 'T1', volumeId: 'hidden', visible: false, type: 'anatomical' };
+    mockLayerStoreState.getLayer.mockReturnValue(layer);
+    mockLayerStoreState.getLayerMetadata.mockReturnValue({ gpuResident: false });
+    const view: Record<string, unknown> = { id: 'hidden', visible: true, opacity: 1, intensity: [20, 80], threshold: [0, 0], colormap: 'gray' };
+    const state = { layers: [view] };
+    mockViewStateStoreState.viewState = state as unknown as typeof mockViewStateStoreState.viewState;
+    mockViewStateStoreState.setViewState.mockImplementation((update: (s: unknown) => void) => update(state));
+    mockHistogramService.computeHistogram.mockResolvedValue({ bins: [{ x0: 0, x1: 30, count: 100 }, { x0: 30, x1: 40, count: 100 }], totalCount: 200, mean: 20, minValue: 0, maxValue: 100 });
+    api.unrefined.set('hidden', { options: { layerType: 'anatomical', dataRange: { min: 0, max: 100 } } });
+    await api.ensureGpuResidentForLayer('hidden');
+    await vi.waitFor(() => expect(view.intensity).not.toEqual([20, 80]));
+    expect((view.intensity as number[])[1]).toBeLessThanOrEqual(40);
+    expect(api.unrefined.has('hidden')).toBe(false);
   });
 
   it('a late histogram still refines a layer whose visibility changed meanwhile (native R2-1)', async () => {

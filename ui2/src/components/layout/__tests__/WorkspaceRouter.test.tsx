@@ -70,6 +70,7 @@ vi.mock("@/components/studio/SetStudioWorkspace", () => ({
     <div data-testid="route-set-studio">set-studio</div>
   ),
 }));
+vi.mock("@/components/bids/BidsRunsDock", () => ({ BidsRunsDock: () => null }));
 vi.mock("@/components/bids/BidsExplorerWorkspace", () => ({
   BidsExplorerWorkspace: ({ workspaceId }: { workspaceId: string }) => (
     <div data-testid="route-bids-explorer" data-workspace-id={workspaceId}>

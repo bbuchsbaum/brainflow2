@@ -196,6 +196,21 @@ export function isSignedMap(range: { min: number; max: number } | undefined): bo
 }
 
 /**
+ * The layers a new layer lands on in one view. The layer store is global:
+ * a layer shown in another tab is not under it, and must not make a run
+ * opened alone in its own tab translucent (BIDS browser native test, blocker
+ * 2). Visibility is the view's. No view known: every layer.
+ */
+export function layersOfView<T extends { id: string; visible?: boolean }>(
+  layers: readonly T[],
+  view: { layers: ReadonlyArray<{ id: string; visible?: boolean }> } | undefined,
+): readonly T[] {
+  if (!view) return layers;
+  const shown = new Map(view.layers.map((layer) => [layer.id, layer.visible]));
+  return layers.filter((layer) => shown.has(layer.id)).map((layer) => ({ ...layer, visible: shown.get(layer.id) }));
+}
+
+/**
  * Index (into `existing`, bottom first) at which `added` is inserted, and
  * the opacity it starts with when it differs from 1.
  */

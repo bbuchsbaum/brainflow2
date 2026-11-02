@@ -1,3 +1,4 @@
+import { useBidsMountDetection } from '@/hooks/useBidsMountDetection';
 import React, {
   useState,
   useEffect,
@@ -101,6 +102,8 @@ const FileBrowserPanelContent: React.FC = () => {
     // 2026-10-30 F46: the header kept naming the first root).
     return entries[entries.length - 1];
   }, [entries, selectedRootMount]);
+
+  useBidsMountDetection();
 
   const selectedFileNode = useMemo<FileTreeNode | null>(() => {
     if (!selectedPath) return null;

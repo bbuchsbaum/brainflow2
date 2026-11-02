@@ -25,6 +25,10 @@ import { MosaicViewPromise } from "@/components/views/MosaicViewPromise";
 import { SetStudioWorkspace } from "@/components/studio/SetStudioWorkspace";
 import { ComparisonWorkspace } from "@/components/views/ComparisonWorkspace";
 import { BidsExplorerWorkspace } from "@/components/bids/BidsExplorerWorkspace";
+import { BidsRunsDock } from "@/components/bids/BidsRunsDock";
+import { BIDS_RUNS_TAB } from "@/components/bids/bidsDock";
+import { BIDS_KEY_HINTS_PX, BidsKeyHints } from "@/components/bids/BidsKeyHints";
+import { useBidsStore } from "@/stores/bidsStore";
 import { IntegratedVolumeSurfaceWorkspace } from "@/components/views/IntegratedVolumeSurfaceWorkspace";
 import { CenterWithBottomDock } from "@/components/layout/CenterWithBottomDock";
 import { FirstScreenHint } from "@/components/layout/FirstScreenHint";
@@ -33,6 +37,23 @@ import { ModuleWorkspace } from "@/components/modules/ModuleWorkspace";
 export interface WorkspaceRouterProps {
   workspaceId: string;
   workspaceType: WorkspaceType;
+}
+
+const BIDS_DOCK_TABS = [{ id: BIDS_RUNS_TAB, title: "Runs", content: <BidsRunsDock /> }];
+
+/** The dock and, once there are rows to move through, the key hints below it. */
+function BidsCentre({ workspaceId }: { workspaceId: string }) {
+  const hasRows = useBidsStore((state) => (state.index?.runs.length ?? 0) > 0);
+  return (
+    <CenterWithBottomDock
+      heightKey="bids-explorer"
+      extraTabs={BIDS_DOCK_TABS}
+      footer={hasRows ? <BidsKeyHints /> : undefined}
+      footerHeight={BIDS_KEY_HINTS_PX}
+    >
+      <BidsExplorerWorkspace workspaceId={workspaceId} />
+    </CenterWithBottomDock>
+  );
 }
 
 export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
@@ -131,11 +152,7 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
     // The tools have the dock too: ⌘P, View › Panels › Plot Panel and the Log
     // must not depend on which tab is in front (QA 2026-10-30 F31).
     case "bids-explorer":
-      return (
-        <CenterWithBottomDock heightKey="bids-explorer">
-          <BidsExplorerWorkspace workspaceId={workspaceId} />
-        </CenterWithBottomDock>
-      );
+      return <BidsCentre workspaceId={workspaceId} />;
     default:
       // A module's tool tab (or an unknown type, which ModuleWorkspace reports).
       return <ModuleWorkspace workspaceId={workspaceId} workspaceType={routeType} />;

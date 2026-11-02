@@ -89,13 +89,14 @@ describe('volume cache release on unload', () => {
     await getNonzeroBbox('vol_a', 2.3);
     await getNonzeroBbox('vol_ab');
     const heat = getTemporalHeatmapService();
-    await heat.getMetricMap('vol_a', 'std' as never, 'axial' as never, 3);
+    const grid = { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], width: 2, height: 2 } as const;
+    await heat.getPlaneMap('vol_a', 'mean', grid);
     expect(nonzeroBboxCacheSize()).toBe(3);
 
     releaseVolumeCaches('vol_a');
     expect(nonzeroBboxCacheSize()).toBe(1);
     transportInvoke.mockClear();
-    await heat.getMetricMap('vol_a', 'std' as never, 'axial' as never, 3);
+    await heat.getPlaneMap('vol_a', 'mean', grid);
     expect(transportInvoke).toHaveBeenCalledTimes(1);
   });
 });

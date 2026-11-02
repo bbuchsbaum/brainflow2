@@ -44,11 +44,7 @@ import {
   TemporalMetricSelector,
   type TemporalMetricOption,
 } from "@/components/ui/TemporalMetricSelector";
-import type { SliceAxis } from "@/services/TemporalHeatmapService";
-import {
-  computeTemporalHeatmapSliceIndex,
-  isTemporalHeatmapEligible,
-} from "./temporalHeatmapState";
+import { isTemporalHeatmapEligible } from "./temporalHeatmapState";
 import { useActiveLayer } from "@/utils/activeLayer";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { pointerToWorld } from "@/utils/slicePointer";
@@ -189,36 +185,10 @@ function SliceViewCanvasBody({
     return isTemporalHeatmapEligible(primaryLayer);
   }, [primaryLayer]);
 
-  // Map viewId to SliceAxis for the heatmap service
-  const sliceAxis = useMemo((): SliceAxis => {
-    if (viewId === "sagittal") return "sagittal";
-    if (viewId === "coronal") return "coronal";
-    return "axial";
-  }, [viewId]);
-
-  // The 4D layer's affine: the heatmap is placed through it onto the image.
+  // The 4D layer's affine: the heatmap's grid follows its voxel size.
   const heatmapAffine = useLayerStore((s) =>
     primaryLayer?.id ? s.layerMetadata.get(primaryLayer.id)?.voxelToWorld ?? null : null,
   );
-
-  // Current slice index in voxel space (integer, clamped to valid range)
-  const heatmapSliceIndex = useMemo(() => {
-    if (!primaryLayer?.id) return 0;
-    const metadata = useLayerStore.getState().getLayerMetadata(primaryLayer.id);
-    try {
-      return computeTemporalHeatmapSliceIndex(
-        metadata,
-        crosshair.world_mm,
-        axisIndex,
-      );
-    } catch (error) {
-      console.warn(
-        `SliceViewCanvas ${viewId}: Failed to compute temporal heatmap slice index`,
-        error,
-      );
-      return 0;
-    }
-  }, [axisIndex, crosshair.world_mm, primaryLayer?.id, viewId]);
 
   // Container ref for window/level hook
   const containerAreaRef = useRef<HTMLDivElement>(null);
@@ -764,8 +734,6 @@ function SliceViewCanvasBody({
           <TemporalHeatmapOverlay
             volumeId={primaryLayer.volumeId}
             metric={temporalMetric}
-            axis={sliceAxis}
-            sliceIndex={heatmapSliceIndex}
             width={width}
             height={canvasHeight}
             viewPlane={viewPlane}

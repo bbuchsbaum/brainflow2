@@ -13,11 +13,14 @@ export function PlotFrameLegend({
   entries,
   band = null,
   label = 'Series legend',
+  filled = false,
 }: {
   entries: { label: string; color: string }[];
   /** "band: 95% CI", stated once. */
   band?: string | null;
   label?: string;
+  /** The entries are bands on the plot (events), not lines. */
+  filled?: boolean;
 }) {
   if (!entries.length) return null;
   return (
@@ -28,7 +31,11 @@ export function PlotFrameLegend({
     >
       {entries.map((e) => (
         <span key={e.label} className="inline-flex items-center gap-1">
-          <SeriesLegendSwatch color={e.color} band={!!band} />
+          {filled ? (
+            <span aria-hidden data-testid="series-legend-swatch" className="inline-block h-2 w-3.5 shrink-0 opacity-40" style={{ background: e.color }} />
+          ) : (
+            <SeriesLegendSwatch color={e.color} band={!!band} />
+          )}
           {e.label}
         </span>
       ))}

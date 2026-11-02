@@ -1,9 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useBidsShortcuts } from '@/hooks/useBidsShortcuts';
 import { useBidsStore } from '@/stores/bidsStore';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { DEFAULT_DOCK_TAB } from '@/components/layout/bottomWorkbenchDock.constants';
 import { BidsEmptyState } from './BidsEmptyState';
-import { BidsSummaryStrip } from './BidsSummaryStrip';
-import { BidsDetailTabs } from './BidsDetailTabs';
-import { BidsCoverageMatrix } from './BidsCoverageMatrix';
+import { BidsCoverage } from './BidsCoverage';
+import { BidsActionHost } from './BidsActionHost';
+import { BidsSummary } from './BidsSummary';
+import { BidsUndoStrip } from './BidsUndoStrip';
+import { BidsViewBar } from './BidsViewBar';
+import { BIDS_RUNS_TAB } from './bidsDock';
 import { Button, Notice } from '@/components/ui/bf';
 
 // ---------------------------------------------------------------------------
@@ -102,25 +110,91 @@ function BidsErrorState({ message, datasetPath }: BidsErrorStateProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Ready state — three-zone vertical layout
+// Ready state: summary, view bar, the view, undo strip; key hints sit below the dock
 // ---------------------------------------------------------------------------
 
-function BidsReadyLayout() {
+function BidsScanProgressBar() {
+  const fraction = useBidsStore((state) => {
+    const progress = state.scanProgress;
+    return progress && progress.subjects_total > 0 ? progress.subjects_done / progress.subjects_total : null;
+  });
+  if (fraction === null) return null;
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden">
-      {/* Summary strip — fixed height */}
-      <div className="shrink-0" style={{ height: '48px' }}>
-        <BidsSummaryStrip />
-      </div>
+    <div
+      role="progressbar"
+      aria-label="Scan progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(fraction * 100)}
+      className="h-0.5 shrink-0 bg-bf-border-subtle"
+    >
+      <div className="h-full bg-bf-text-secondary" style={{ width: `${fraction * 100}%` }} />
+    </div>
+  );
+}
 
-      {/* Coverage matrix — grows */}
-      <div className="flex-1 overflow-auto min-h-0">
-        <BidsCoverageMatrix />
-      </div>
+function BidsImagesPlaceholder() {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center"
+      data-testid="bids-images-placeholder"
+    >
+      <p className="m-0 text-bf-sm text-bf-text-secondary">The contact sheet is not built yet.</p>
+      <p className="m-0 text-bf-xs text-bf-text-faint">
+        It will show one slice per subject and session. Press 1 for Coverage.
+      </p>
+    </div>
+  );
+}
 
-      {/* Detail tabs — fixed height */}
-      <div className="shrink-0 border-t border-border" style={{ height: '280px' }}>
-        <BidsDetailTabs />
+function BidsReadyLayout() {
+  const activeView = useBidsStore((state) => state.activeView);
+  const scanError = useBidsStore((state) => state.scanError);
+  return (
+    <div className="absolute inset-0 flex flex-col overflow-hidden" data-testid="bids-ready">
+      <BidsSummary />
+      <BidsScanProgressBar />
+      <BidsViewBar />
+      {scanError && (
+        <Notice severity="danger" className="shrink-0">
+          Scan stopped: {scanError}
+        </Notice>
+      )}
+      <div className="relative min-h-0 flex-1">
+        {activeView === 'coverage' ? <BidsCoverage /> : <BidsImagesPlaceholder />}
+      </div>
+      <BidsUndoStrip />
+      <BidsActionHost />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A finished scan with nothing to show
+// ---------------------------------------------------------------------------
+
+function BidsNoRunsState() {
+  const complete = useBidsStore((state) => state.index?.complete ?? false);
+  const datasetPath = useBidsStore((state) => state.datasetPath);
+  const scanDataset = useBidsStore((state) => state.scanDataset);
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-background" role="status">
+      <div className="w-full px-8" style={{ maxWidth: '720px' }}>
+        <h2 className="bf-role-title text-foreground">
+          {complete ? 'No images in this dataset' : 'Scan paused before any participant was read'}
+        </h2>
+        <p className="mt-2 text-bf-sm text-muted-foreground">
+          {complete
+            ? 'The scan finished and found no NIfTI images in the raw tree.'
+            : 'Nothing has been read yet. Resume to continue.'}
+        </p>
+        {datasetPath && (
+          <div className="mt-5">
+            <Button variant="secondary" size="sm" onClick={() => void scanDataset(datasetPath)}>
+              {complete ? 'Scan again' : 'Resume'}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -134,15 +208,47 @@ interface BidsExplorerWorkspaceProps {
   workspaceId: string;
 }
 
-export function BidsExplorerWorkspace({ workspaceId: _workspaceId }: BidsExplorerWorkspaceProps) {
+export function BidsExplorerWorkspace({ workspaceId }: BidsExplorerWorkspaceProps) {
   const scanStatus = useBidsStore((state) => state.scanStatus);
   const scanError = useBidsStore((state) => state.scanError);
   const datasetPath = useBidsStore((state) => state.datasetPath);
+  const hasRows = useBidsStore((state) => (state.index?.runs.length ?? 0) > 0);
+  const inFront = useWorkspaceStore((state) => state.activeWorkspaceId === workspaceId);
+
+  useBidsShortcuts();
+
+  // The dock shows the runs here; the viewer gets its own tab back on leaving.
+  useEffect(() => {
+    if (!inFront || !hasRows) return;
+    const settings = useLayoutSettingsStore.getState();
+    const previous = settings.bottomDockActiveTab;
+    settings.setBottomDockActiveTab(BIDS_RUNS_TAB);
+    return () => {
+      const current = useLayoutSettingsStore.getState();
+      if (current.bottomDockActiveTab === BIDS_RUNS_TAB) {
+        current.setBottomDockActiveTab(
+          previous && previous !== BIDS_RUNS_TAB ? previous : DEFAULT_DOCK_TAB,
+        );
+      }
+    };
+  }, [inFront, hasRows]);
+
+  // Files shows the dataset here and follows the selection; it goes back on leaving.
+  useEffect(() => {
+    if (!inFront || !hasRows) return;
+    const files = useFileBrowserStore.getState();
+    const mounted = files.entries.some((entry) => entry.path === datasetPath);
+    if (!mounted || files.viewMode === 'bids') return;
+    const previous = files.viewMode;
+    files.setViewMode('bids');
+    return () => useFileBrowserStore.getState().setViewMode(previous);
+  }, [inFront, hasRows, datasetPath]);
+
+  // A scan never blocks the workspace once rows exist.
+  if (hasRows) return <BidsReadyLayout />;
+  if (scanStatus === 'ready') return <BidsNoRunsState />;
 
   switch (scanStatus) {
-    case 'idle':
-      return <BidsEmptyState />;
-
     case 'scanning':
       return <BidsScanningState />;
 
@@ -153,9 +259,6 @@ export function BidsExplorerWorkspace({ workspaceId: _workspaceId }: BidsExplore
           datasetPath={datasetPath}
         />
       );
-
-    case 'ready':
-      return <BidsReadyLayout />;
 
     default:
       return <BidsEmptyState />;

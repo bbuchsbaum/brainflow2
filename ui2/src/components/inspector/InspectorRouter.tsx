@@ -40,7 +40,7 @@ import { ActiveModuleGate } from '@/components/modules/ActiveModuleGate';
  * The body dispatches on the active workspace's display mode:
  *   - imaging modes (orthogonal / integrated / mosaic / compare) → `<ImagingInspector />`
  *   - set-studio → existing `<StudioInspectorPanel />`, unchanged
- *   - bids → `<BidsInspector />` placeholder
+ *   - bids → `<BidsInspector />`: the selected run
  *   - a module's tool tab → the inspector body its manifest declares
  */
 /** Id base of the Inspect / Annotate tabs and their panels. */
@@ -56,13 +56,17 @@ export function InspectorRouter() {
     .filter((m) => experimental || !m.experimental);
   const showModeTabs = modes.length > 1;
   const mode = showModeTabs && modes.some((m) => m.id === topLevelMode) ? topLevelMode : 'inspector';
+  // The BIDS Inspector is one run's detail: no Load, no scene to count.
+  const bids = useDisplayMode().mode === 'bids';
 
   return (
     <section
       className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
       aria-label="Inspector"
     >
+      {bids && !showModeTabs ? null : (
       <ContextToolbar
+        hideLoad={bids}
         modes={showModeTabs ? modes : null}
         topLevelMode={mode}
         onSelectMode={setTopLevelMode}
@@ -70,6 +74,7 @@ export function InspectorRouter() {
         loadOpen={loadOpen}
         onCloseLoad={() => setLoadOpen(false)}
       />
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {showModeTabs ? (
@@ -83,7 +88,7 @@ export function InspectorRouter() {
         )}
       </div>
 
-      <InspectorFooter />
+      {bids ? null : <InspectorFooter />}
     </section>
   );
 }
@@ -104,6 +109,7 @@ function InspectorModeBody({ mode }: { mode: ModuleInspectorMode }) {
 }
 
 function ContextToolbar({
+  hideLoad,
   modes,
   topLevelMode,
   onSelectMode,
@@ -111,6 +117,7 @@ function ContextToolbar({
   loadOpen,
   onCloseLoad,
 }: {
+  hideLoad?: boolean;
   /** The mode tabs, or null when there is a single mode. */
   modes: readonly ModuleInspectorMode[] | null;
   topLevelMode: string;
@@ -143,6 +150,7 @@ function ContextToolbar({
       ) : (
         <span aria-hidden />
       )}
+      {hideLoad ? null : (
       <Button
         variant="secondary"
         size="sm"
@@ -156,6 +164,7 @@ function ContextToolbar({
       >
         Load
       </Button>
+      )}
 
       <LoadSheet
         open={loadOpen}

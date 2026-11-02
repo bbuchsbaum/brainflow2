@@ -5,7 +5,16 @@
  * core/api_bridge/src/lib.rs and the generated bindings in
  * packages/api/src/generated. IDs come from counters, never clocks/RNG.
  */
-import { BRIDGE_MODULES, type ExtremumKind, type StatisticInfo, type StatisticKind } from '@brainflow/api';
+import {
+  BRIDGE_MODULES,
+  type BidsExclusion,
+  type BidsExclusionKey,
+  type BidsSliceRequest,
+  type ExtremumKind,
+  type StatisticInfo,
+  type StatisticKind,
+} from '@brainflow/api';
+import type { HarnessEventBus } from './bidsBrowserData';
 import {
   clusterLabelData,
   findClusters,
@@ -46,10 +55,17 @@ import { multirunFixture, parseMultirunPath } from './multirun';
 import { computeSurfaceSulcalDepth } from '@brainflow/visualization/surface';
 import {
   ANALYSIS_DESCRIPTORS,
+  BIDS_BROWSER_ROOT,
   BIDS_EVENTS,
   BIDS_ROOT,
   BIDS_SUMMARY,
+  bidsCarpetRgba,
+  bidsPhantomRgba,
+  bidsStreamPlan,
   completedJob,
+  createBidsBrowserDataset,
+  installHarnessEventBus,
+  streamBidsScan,
   REMOTE_MOUNT_OFFLINE_ERROR,
   REMOTE_MOUNT_PROFILES,
 } from './scenarioData';
@@ -136,6 +152,10 @@ const VIRTUAL_FS: Record<string, Array<{ name: string; isDir: boolean }>> = {
     { name: 'stats', isDir: true },
     { name: 'surf', isDir: true },
     { name: 'dataset_description.json', isDir: false },
+  ],
+  [BIDS_BROWSER_ROOT]: [
+    { name: 'dataset_description.json', isDir: false },
+    { name: 'participants.tsv', isDir: false },
   ],
   [BIDS_ROOT]: [
     { name: 'sub-01', isDir: true },
@@ -476,6 +496,8 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     // Phase 4 E5b: one subject's three BOLD runs (4 mm grid, TR 2 s).
     const run = parseMultirunPath(path);
     if (run !== null) return multirunFixture(run);
+    // A BIDS browser run opened in the viewer: any BOLD run is that same 4D fixture.
+    if (path.startsWith(`${BIDS_BROWSER_ROOT}/`) && path.endsWith('_bold.nii.gz')) return multirunFixture(1);
     if (path === TMAP_NOISY_PATH) return fixtures.tmapNoisy;
     if (path === ATLAS_PATH) return fixtures.atlas;
     return null;
@@ -646,6 +668,34 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       v_mm: axial.v_mm,
       width: 512,
       height: 512,
+    };
+  };
+
+  // `?bidsScale=<n>` swaps the 40 participants for n, for the compressed matrix.
+  const bidsScale = Number(new URLSearchParams(window.location.search).get('bidsScale'));
+  // `?bidsExclusions=none`: no exclusions yet, for the first-write preview.
+  const bidsDataset = createBidsBrowserDataset(bidsScale > 0 ? bidsScale : undefined, {
+    seedExclusion: new URLSearchParams(window.location.search).get('bidsExclusions') !== 'none',
+  });
+  const cancelledBidsScans = new Set<string>();
+  const harnessEvents = installHarnessEventBus(window as unknown as { __harnessEvents?: HarnessEventBus });
+  const requireBidsBrowserRoot = (datasetPath: string) => {
+    if (datasetPath !== BIDS_BROWSER_ROOT) throw new Error(`Not a BIDS dataset: ${datasetPath}`);
+  };
+  const bidsPng = async (rgba: Uint8ClampedArray, width: number, height: number) => {
+    const bytes = await encodeImage(new Uint8Array(rgba.buffer), width, height, 'image/png');
+    return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
+  };
+  const bidsSlice = async (request: BidsSliceRequest) => {
+    const size = Math.min(request.max_px, 256);
+    return {
+      png_base64: await bidsPng(bidsPhantomRgba(`${request.path}|${request.kind}`, size), size, size),
+      width: size,
+      height: size,
+      world_z_mm: request.world_z_mm ?? 0,
+      window_low: 0,
+      window_high: 1,
+      volumes_used: request.kind === 'mean' ? 8 : 1,
     };
   };
 
@@ -1033,12 +1083,71 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
     cancel_analysis: () => false,
 
-    check_bids_directory: ({ path }: { path: string }) => path === BIDS_SUMMARY.path,
+    check_bids_directory: ({ path }: { path: string }) =>
+      path === BIDS_SUMMARY.path || path === BIDS_BROWSER_ROOT,
     scan_bids_dataset: ({ datasetPath }: { datasetPath: string }) => {
       if (datasetPath !== BIDS_SUMMARY.path) throw new Error(`Not a BIDS dataset: ${datasetPath}`);
       return BIDS_SUMMARY;
     },
-    get_bids_events: () => BIDS_EVENTS,
+    get_bids_events: ({ datasetPath, task }: { datasetPath?: string; task?: string }) =>
+      datasetPath === BIDS_BROWSER_ROOT ? bidsDataset.events(task) : BIDS_EVENTS,
+    scan_bids_browser: async ({ datasetPath, scanId }: { datasetPath: string; scanId: string }) => {
+      requireBidsBrowserRoot(datasetPath);
+      const plan = bidsStreamPlan(window.location.search);
+      if (!plan) return bidsDataset.index(scanId);
+      return streamBidsScan(
+        bidsDataset,
+        scanId,
+        plan,
+        (progress) => harnessEvents.emit('bids-scan-progress', progress),
+        () => cancelledBidsScans.has(scanId),
+      );
+    },
+    cancel_bids_scan: ({ scanId }: { scanId: string }) => {
+      cancelledBidsScans.add(scanId);
+      return true;
+    },
+    get_bids_run_detail: ({ datasetPath, runId }: { datasetPath: string; runId: string }) => {
+      requireBidsBrowserRoot(datasetPath);
+      return bidsDataset.detail(runId);
+    },
+    get_bids_slice: ({ request }: { request: BidsSliceRequest }) => bidsSlice(request),
+    get_bids_median_slice: async ({ paths, request }: { paths: string[]; request: BidsSliceRequest }) => ({
+      image: await bidsSlice({ ...request, path: 'median' }),
+      runs_used: Math.min(paths.length, 15),
+      runs_skipped: 0,
+    }),
+    get_bids_carpet: async ({ path, width, height }: { path: string; width: number; height: number }) => ({
+      png_base64: await bidsPng(bidsCarpetRgba(path, width, height), width, height),
+      width,
+      height,
+      world_z_mm: null,
+      window_low: -2,
+      window_high: 2,
+      volumes_used: width,
+    }),
+    write_bids_exclusions: ({
+      datasetPath,
+      rows,
+    }: {
+      datasetPath: string;
+      rows: BidsExclusion[];
+    }) => {
+      requireBidsBrowserRoot(datasetPath);
+      return bidsDataset.writeExclusions(rows);
+    },
+    revert_bids_exclusions: ({ datasetPath, keys }: { datasetPath: string; keys: BidsExclusionKey[] }) => {
+      requireBidsBrowserRoot(datasetPath);
+      return bidsDataset.revertExclusions(keys);
+    },
+    read_bids_exclusions: ({ datasetPath }: { datasetPath: string }) => {
+      requireBidsBrowserRoot(datasetPath);
+      return bidsDataset.readExclusions();
+    },
+    get_bids_run_events: ({ datasetPath, runId }: { datasetPath: string; runId: string }) => {
+      requireBidsBrowserRoot(datasetPath);
+      return bidsDataset.events(/task-([^_]+)/.exec(runId)?.[1]);
+    },
 
     render_view: ({ stateJson, format }: { stateJson: string; format?: string }) => {
       const state = JSON.parse(stateJson);
@@ -1189,6 +1298,46 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
     population_peak_slice: () => {
       throw new Error('Population slices are unavailable in the app harness.');
+    },
+    // Variance or mean over a 4D fixture's frames on a view-plane grid, nearest
+    // voxel at each pixel centre; outside is null, as NaN crosses native JSON.
+    compute_temporal_metric_plane: ({ volumeId, metric, originMm, uMm, vMm, width, height }: {
+      volumeId: string;
+      metric: string;
+      originMm: Vec3;
+      uMm: Vec3;
+      vMm: Vec3;
+      width: number;
+      height: number;
+    }) => {
+      const entry = volumes.get(volumeId);
+      if (!entry) throw new Error(`Volume ${volumeId} not found`);
+      const frames = entry.fixture.frames;
+      if (!frames) throw new Error('compute_temporal_metric_plane requires a 4D volume');
+      if (metric !== 'variance' && metric !== 'mean') throw new Error(`Unknown metric '${metric}'`);
+      const [nx, ny, nz] = entry.fixture.dims;
+      const m = entry.worldToVoxel;
+      const data: Array<number | null> = [];
+      for (let j = 0; j < height; j += 1) {
+        for (let i = 0; i < width; i += 1) {
+          const w = [0, 1, 2].map((a) => originMm[a] + (i + 0.5) * uMm[a] + (j + 0.5) * vMm[a]);
+          const [x, y, z] = [0, 1, 2].map((r) =>
+            Math.round(m[r][0] * w[0] + m[r][1] * w[1] + m[r][2] * w[2] + m[r][3]),
+          );
+          if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) {
+            data.push(null);
+            continue;
+          }
+          const index = x + nx * (y + ny * z);
+          const mean = frames.reduce((sum, f) => sum + f[index], 0) / frames.length;
+          data.push(
+            metric === 'mean'
+              ? mean
+              : frames.reduce((sum, f) => sum + (f[index] - mean) ** 2, 0) / frames.length,
+          );
+        }
+      }
+      return { width, height, data };
     },
     // export_population_plot: raw body; x-brainflow-path / x-brainflow-format.
     export_population_plot: (body: unknown, options?: InvokeOptions) => {

@@ -17,6 +17,8 @@ import { useServicesInit } from '@/hooks/useServicesInit';
 import { useStatusBarInit } from '@/hooks/useStatusBarInit';
 import { useStudioAppModeSync } from '@/hooks/useStudioAppModeSync';
 import { useStudioCoordination } from '@/hooks/useStudioCoordination';
+import { useBidsScanOwnership, useBidsStatusBridge } from '@/hooks/useBidsStatusBridge';
+import { useBidsPaletteCommands } from '@/hooks/useBidsPaletteCommands';
 import { useStudioStatusBridge } from '@/hooks/useStudioStatusBridge';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { useAppSettingsMenuListener } from '@/hooks/useAppSettingsMenuListener';
@@ -165,6 +167,8 @@ function AppContent() {
   useStudioAppModeSync(activeWorkspaceType);
   useStudioCoordination();
   useStudioStatusBridge();
+  useBidsStatusBridge(activeWorkspaceType);
+  useBidsScanOwnership();
 
   // Initialize KeyboardShortcutService early (single global listener)
   useEffect(() => {
@@ -630,6 +634,14 @@ function AppContent() {
     // activeWorkspaceType: module commands are filtered by their `when`.
   }, [integratedWorkspaceEnabled, loadSavedLayout, savedLayouts, tools, moduleCommands, activeWorkspaceType]);
 
+  // While the BIDS browser is in front the palette also goes to its objects.
+  const bidsPaletteCommands = useBidsPaletteCommands(showCommandPalette, activeWorkspaceType);
+  const paletteCommands = useMemo(
+    () =>
+      bidsPaletteCommands ? [...bidsPaletteCommands, ...commandPaletteCommands] : commandPaletteCommands,
+    [bidsPaletteCommands, commandPaletteCommands],
+  );
+
   // Register '?' shortcut to open the keyboard shortcuts dialog
   useEffect(() => {
     const service = getKeyboardShortcutService();
@@ -932,7 +944,8 @@ function AppContent() {
 
       <CommandPaletteDialog
         open={showCommandPalette}
-        commands={commandPaletteCommands}
+        commands={paletteCommands}
+        placeholder={bidsPaletteCommands ? 'Go to runs, participants, findings, lenses…' : undefined}
         onClose={() => setShowCommandPalette(false)}
       />
 

@@ -110,6 +110,16 @@ export interface LoadingQueueState {
 
 const MAX_COMPLETED_HISTORY = 50;
 
+/** The name of what is opening in a workspace, or null; the earliest of several. */
+export function openingInWorkspace(
+  state: Pick<LoadingQueueState, 'queue' | 'activeLoads'>,
+  workspaceId: string,
+): string | null {
+  const opens = (item: LoadingQueueItem) => item.workspaceId === workspaceId;
+  const item = [...state.activeLoads.values()].find(opens) ?? state.queue.find(opens);
+  return item?.displayName ?? null;
+}
+
 export const useLoadingQueueStore = create<LoadingQueueState>()(
   subscribeWithSelector(
     immer((set, get) => ({
