@@ -1,9 +1,17 @@
 export type BidsSliceRequest = {
     path: string;
     /**
-     * `mean`, `first`, `tsnr` or `anat`.
+     * `mean`, `first`, `tsnr`, `anat` or `b0`.
      */
     kind: string;
     world_z_mm: number | null;
     max_px: number;
+    /**
+     * Fixed black/white data values. Absent uses this image's percentile window.
+     */
+    window?: [number, number];
+    /**
+     * Dataset root for resolving inherited b-values, required for `b0`.
+     */
+    dataset_root?: string;
 };

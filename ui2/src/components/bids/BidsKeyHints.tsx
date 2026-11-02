@@ -13,6 +13,7 @@ const HINTS: Array<{ keys: string[]; label: string }> = [
   { keys: ['C'], label: 'compare with modal' },
   { keys: ['X'], label: 'exclude' },
   { keys: ['⌘K'], label: 'go to' },
+  { keys: ['1', '2'], label: 'views' },
 ];
 
 /** Height of the strip under the dock. */

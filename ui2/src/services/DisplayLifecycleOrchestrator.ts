@@ -73,6 +73,7 @@ export class DisplayLifecycleOrchestrator {
 
   /** Volume paths being opened by the user (not programmatically). */
   private readonly userOpenedPaths = new Set<string>();
+  private volumeLoadSequence = 0;
 
   static getInstance(): DisplayLifecycleOrchestrator {
     if (!DisplayLifecycleOrchestrator.instance) {
@@ -357,6 +358,8 @@ export class DisplayLifecycleOrchestrator {
       });
     }
 
+    const sequence = ++this.volumeLoadSequence;
+    const scope = `volume-load:${workspaceId}`;
     const queueId = useLoadingQueueStore.getState().enqueue({
       type: 'volume-load',
       path,
@@ -422,6 +425,7 @@ export class DisplayLifecycleOrchestrator {
       });
 
       this.eventBus.emit('file.loaded', { path, volumeId: volumeHandle.id });
+      this.eventBus.emit('ui.notification.resolve', { scope, through: sequence });
       this.eventBus.emit('ui.notification', {
         type: 'info',
         message: `Loaded: ${filename}`,
@@ -467,6 +471,8 @@ export class DisplayLifecycleOrchestrator {
         type: 'error',
         message: loadFailureMessage(filename, failure),
         logSource: 'volume',
+        scope,
+        sequence,
       });
       return null;
     } finally {

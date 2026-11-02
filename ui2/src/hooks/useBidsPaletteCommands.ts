@@ -113,6 +113,7 @@ export function buildBidsPaletteCommands(
     command('compare', 'Compare with modal', () => bids().requestAction('compare'), 'C');
   }
   command('coverage', 'Go to Coverage', () => bids().setActiveView('coverage'), '1');
+  command('images', 'Go to Images', () => bids().setActiveView('images'), '2');
   command('runs', 'Go to runs in lens', () => openDockTab(BIDS_RUNS_TAB, { focus: true }));
   command('copy-summary', 'Copy summary', () => {
     void copyToClipboard(buildDataDescriptor(selectBidsModel(bids())), 'Summary');

@@ -368,6 +368,28 @@ impl ResidentRing {
         Ok(admitted)
     }
 
+    /// Remove the least-recently-used cached member, preserving the member
+    /// currently bound to the layer. Return its texture for the caller to free.
+    pub(crate) fn pop_cached_lru(&mut self, current_member: usize) -> Option<u32> {
+        // An inconsistent current binding is not safe to reclaim from.
+        if !self.member_pos.contains_key(&current_member) {
+            return None;
+        }
+        let index = self
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.member != current_member)
+            .min_by_key(|(_, slot)| slot.last_used)
+            .map(|(index, _)| index)?;
+        let removed = self.slots.swap_remove(index);
+        self.member_pos.remove(&removed.member);
+        if let Some(moved) = self.slots.get(index) {
+            self.member_pos.insert(moved.member, index);
+        }
+        Some(removed.texture_index)
+    }
+
     /// Texture indices of every resident slot (for teardown / reclaiming slots).
     pub fn resident_texture_indices(&self) -> Vec<u32> {
         self.slots.iter().map(|s| s.texture_index).collect()
@@ -776,6 +798,29 @@ mod tests {
             bytes_per_member: 1,
         };
         ResidentRing::seeded(config, 0, 0)
+    }
+
+    #[test]
+    fn cached_reclamation_preserves_current_and_updates_member_index() {
+        let mut ring = new_ring(4);
+        let mut exec = FakeExecutor {
+            next_index: 1,
+            ..Default::default()
+        };
+        for member in 1..4 {
+            ring.ensure_resident(member, &mut exec).unwrap();
+        }
+        assert_eq!(ring.pop_cached_lru(2), Some(0));
+        assert_eq!(ring.slot_of(0), None);
+        assert_eq!(ring.slot_of(2), Some(2));
+        assert_eq!(ring.slot_of(3), Some(3));
+        assert_eq!(ring.pop_cached_lru(2), Some(1));
+        assert_eq!(ring.pop_cached_lru(2), Some(3));
+        assert_eq!(ring.pop_cached_lru(2), None);
+        assert_eq!(ring.slot_of(2), Some(2));
+        // If the current member cannot be identified, do not evict anything.
+        assert_eq!(ring.pop_cached_lru(99), None);
+        assert_eq!(ring.resident_len(), 1);
     }
 
     #[test]

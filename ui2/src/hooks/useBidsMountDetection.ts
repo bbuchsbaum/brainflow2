@@ -1,7 +1,5 @@
 import { useEffect } from 'react';
-import { getEventBus } from '@/events/EventBus';
 import { getTransport } from '@/services/transport';
-import { DEFAULT_FD_THRESHOLD_MM } from '@/stores/bidsModel';
 import { useBidsStore } from '@/stores/bidsStore';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 
@@ -19,31 +17,12 @@ export function resetBidsMountDetection(): void {
 
 /**
  * An explicit mount or Recents click of a local dataset: it becomes the one
- * dataset current everywhere, at once. scanDataset resets what belonged to the
- * old one; exclusions are on disk already, so only ⌘Z ends, and that is said.
+ * dataset current everywhere, at once. scanDataset owns the switch notice and
+ * resets what belonged to the old dataset.
  */
 function switchToDataset(path: string): void {
   const bids = useBidsStore.getState();
   if (bids.datasetPath === path && bids.scanStatus !== 'idle') return;
-  if (bids.datasetPath && bids.datasetPath !== path) {
-    const name = path.split('/').filter(Boolean).pop();
-    const undo = bids.undoStack.length > 0;
-    const lens = bids.lens !== null;
-    const threshold = bids.fdThreshold !== DEFAULT_FD_THRESHOLD_MM || bids.censor !== null;
-    const dropped = [lens ? 'the lens' : '', threshold ? 'the motion thresholds' : ''].filter(Boolean).join(' and ');
-    if (undo || dropped) {
-      getEventBus().emit('ui.notification', {
-        type: 'info',
-        message: [
-          `Switched to ${name}.`,
-          undo ? 'Exclusions in the last dataset are saved; undo no longer applies.' : '',
-          dropped ? `Cleared ${dropped}.` : '',
-        ]
-          .filter(Boolean)
-          .join(' '),
-      });
-    }
-  }
   void bids.scanDataset(path);
 }
 

@@ -4062,11 +4062,16 @@ async fn request_layer_gpu_resources_with_upload_hook(
                         ui_layer_id.clone(),
                     );
                     let upload_volume = volume_arc.clone();
+                    let upload_resident_sets = Arc::clone(&state.resident_image_sets);
                     let upload_ui_layer_id = ui_layer_id.clone();
                     tokio::task::spawn_blocking(
                     move || -> BridgeResult<(u32, nalgebra::Matrix4<f32>, Option<volume_loading::ProvisionalUpload>)> {
                         let mut render_service_guard = upload_service.blocking_lock();
                         let render_service = &mut *render_service_guard;
+                        if render_service.free_volume_slot_count() == 0 {
+                            let mut sets = upload_resident_sets.blocking_lock();
+                            reclaim_cached_image_slot(&mut sets, render_service);
+                        }
                         let volume_data: &VolumeSendable = upload_volume.as_ref();
                         let ui_layer_id = upload_ui_layer_id;
                         let upload_result = match volume_data {
@@ -7529,6 +7534,33 @@ fn resident_image_set_enabled() -> bool {
     )
 }
 
+/// Reclaim one prefetched 4D member when an actual upload has no free slot.
+/// The render-service lock and resident-set lock must both be held, in that
+/// order, until the caller starts its upload. The currently displayed member of
+/// every ring is protected, including layers in other workspaces.
+fn reclaim_cached_image_slot(
+    sets: &mut HashMap<String, image_set::ResidentImageSet>,
+    service: &mut RenderLoopService,
+) -> bool {
+    while service.free_volume_slot_count() == 0 {
+        let victim = sets.iter_mut().find_map(|(layer_id, resident)| {
+            resident
+                .ring
+                .pop_cached_lru(resident.current_member)
+                .map(|slot| (layer_id.clone(), slot))
+        });
+        let Some((layer_id, slot)) = victim else {
+            return false;
+        };
+        // Remove the entry from the ring first: release_volume can report an
+        // error after freeing the texture while rebuilding the bind group.
+        if let Err(error) = service.release_volume(slot) {
+            warn!("Could not reclaim cached image slot {slot} from layer '{layer_id}': {error:?}");
+        }
+    }
+    true
+}
+
 /// Drop a layer's resident image-set ring (if any) and free every texture slot it
 /// still holds. Safe to call for layers that never had a ring. Errors from freeing
 /// an already-free slot are swallowed — teardown is best-effort.
@@ -7716,6 +7748,7 @@ async fn allocate_gpu_resources_for_layer(
             code: 4042,
             details: volume_id.to_owned(),
         })?;
+    drop(volume_registry_guard);
     let volume_data = volume_arc.as_ref();
     let uploaded_timepoint = if volume_sendable_uses_timepoint(volume_data) {
         timepoint
@@ -7748,6 +7781,12 @@ async fn allocate_gpu_resources_for_layer(
         // No timepoint specified, use volume as-is
         std::borrow::Cow::Borrowed(volume_data)
     };
+
+    // The renderer lock serializes this reclamation with swaps and uploads.
+    if render_service.free_volume_slot_count() == 0 {
+        let mut sets = state.resident_image_sets.lock().await;
+        reclaim_cached_image_slot(&mut sets, render_service);
+    }
 
     // Upload to GPU (data range is retrieved from render metadata after upload).
     let (atlas_idx, _world_to_voxel) = match volume_to_upload.as_ref() {
@@ -13740,6 +13779,207 @@ mod tests {
         vec4d.data[[1, 2, 3, 2]] = 3.5;
         vec4d.data[[1, 2, 3, 3]] = 4.5;
         VolumeSendable::Vec4DF32(vec4d)
+    }
+
+    #[tokio::test]
+    async fn incoming_layer_reclaims_cached_4d_members_without_evicting_displayed_frames() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        let spec = |id: &str| {
+            LayerSpec::Volume(VolumeLayerSpec {
+                id: id.to_string(),
+                source_resource_id: id.to_string(),
+                colormap: "gray".into(),
+                slice_axis: None,
+                slice_index: None,
+            })
+        };
+        for id in ["resident-a", "resident-b", "replacement"] {
+            state.volume_registry.lock().await.insert(
+                id.into(),
+                make_4d_volume_sendable_with_timeseries(),
+                volume_metadata_for(id, "f32", bridge_types::VolumeType::TimeSeries4D),
+            );
+        }
+        let a = request_layer_gpu_resources_for_testing(spec("resident-a"), None, &state)
+            .await
+            .expect("initial A");
+        let b = request_layer_gpu_resources_for_testing(spec("resident-b"), None, &state)
+            .await
+            .expect("initial B");
+        let service = state
+            .render_loop_service
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .clone();
+        let current_slots = {
+            let mut renderer = service.lock().await;
+            let a = try_resident_swap(
+                "resident-a",
+                "resident-a",
+                a.atlas_layer_index,
+                Some(0),
+                1,
+                &state,
+                &mut renderer,
+            )
+            .await
+            .unwrap()
+            .expect("swap A");
+            let b = try_resident_swap(
+                "resident-b",
+                "resident-b",
+                b.atlas_layer_index,
+                Some(0),
+                1,
+                &state,
+                &mut renderer,
+            )
+            .await
+            .unwrap()
+            .expect("swap B");
+            let filler =
+                extract_3d_volume_at_timepoint(&make_4d_volume_sendable_with_timeseries(), 0)
+                    .unwrap();
+            let VolumeSendable::VolF32(filler, _) = filler else {
+                panic!("expected 3D f32")
+            };
+            while renderer.free_volume_slot_count() > 0 {
+                renderer
+                    .upload_volume_3d(&filler)
+                    .expect("fill texture slots");
+            }
+            assert!(renderer.get_volume_data_range(a).is_some());
+            assert!(renderer.get_volume_data_range(b).is_some());
+            [a, b]
+        };
+        let before = {
+            let sets = state.resident_image_sets.lock().await;
+            let a = sets.get("resident-a").unwrap().snapshot();
+            let b = sets.get("resident-b").unwrap().snapshot();
+            assert!(
+                a.resident_len + b.resident_len > 2,
+                "at least one cached, non-displayed member"
+            );
+            [a, b]
+        };
+
+        // The old run and another 4D layer stay alive while the replacement is
+        // prepared. Cached neighboring frames must not block this new upload.
+        let incoming = request_layer_gpu_resources_for_testing(spec("replacement"), None, &state)
+            .await
+            .expect("replacement must reclaim a cached member");
+        assert!(!current_slots.contains(&incoming.atlas_layer_index));
+        let sets = state.resident_image_sets.lock().await;
+        let after_a = sets.get("resident-a").unwrap();
+        let after_b = sets.get("resident-b").unwrap();
+        assert_eq!(after_a.current_member, 1);
+        assert_eq!(after_b.current_member, 1);
+        assert_eq!(after_a.ring.slot_of(1), Some(current_slots[0]));
+        assert_eq!(after_b.ring.slot_of(1), Some(current_slots[1]));
+        assert_eq!(
+            after_a.ring.resident_len() + after_b.ring.resident_len(),
+            before[0].resident_len + before[1].resident_len - 1
+        );
+        drop(sets);
+        {
+            let renderer = service.lock().await;
+            assert!(renderer.get_volume_data_range(current_slots[0]).is_some());
+            assert!(renderer.get_volume_data_range(current_slots[1]).is_some());
+        }
+
+        // The render-time, on-demand allocation path needs the same behavior.
+        state.volume_registry.lock().await.insert(
+            "on-demand".into(),
+            make_4d_volume_sendable_with_timeseries(),
+            volume_metadata_for("on-demand", "f32", bridge_types::VolumeType::TimeSeries4D),
+        );
+        let mut renderer = service.lock().await;
+        assert_eq!(renderer.free_volume_slot_count(), 0);
+        let second = allocate_gpu_resources_for_layer(
+            "on-demand",
+            "on-demand",
+            &state,
+            &mut renderer,
+            Some(1),
+        )
+        .await
+        .expect("on-demand render must reclaim a cached member");
+        assert!(!current_slots.contains(&second.atlas_layer_index));
+        assert!(renderer.get_volume_data_range(current_slots[0]).is_some());
+        assert!(renderer.get_volume_data_range(current_slots[1]).is_some());
+    }
+
+    #[tokio::test]
+    async fn incoming_layer_still_fails_when_no_cached_gpu_member_can_be_reclaimed() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        let spec = |id: &str| {
+            LayerSpec::Volume(VolumeLayerSpec {
+                id: id.to_string(),
+                source_resource_id: id.to_string(),
+                colormap: "gray".into(),
+                slice_axis: None,
+                slice_index: None,
+            })
+        };
+        for id in ["displayed", "incoming"] {
+            state.volume_registry.lock().await.insert(
+                id.into(),
+                make_4d_volume_sendable_with_timeseries(),
+                volume_metadata_for(id, "f32", bridge_types::VolumeType::TimeSeries4D),
+            );
+        }
+        let shown = request_layer_gpu_resources_for_testing(spec("displayed"), None, &state)
+            .await
+            .expect("displayed layer");
+        let service = state
+            .render_loop_service
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .clone();
+        {
+            let mut renderer = service.lock().await;
+            let filler =
+                extract_3d_volume_at_timepoint(&make_4d_volume_sendable_with_timeseries(), 0)
+                    .unwrap();
+            let VolumeSendable::VolF32(filler, _) = filler else {
+                panic!("expected 3D f32")
+            };
+            while renderer.free_volume_slot_count() > 0 {
+                renderer
+                    .upload_volume_3d(&filler)
+                    .expect("fill texture slots");
+            }
+        }
+        let error = request_layer_gpu_resources_for_testing(spec("incoming"), None, &state)
+            .await
+            .expect_err("a genuinely full GPU must still reject the upload");
+        assert!(format!("{error:?}").contains("Maximum texture limit"));
+        assert_eq!(
+            state.layer_to_atlas_map.lock().await.get("displayed"),
+            Some(&shown.atlas_layer_index)
+        );
+        assert!(!state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .contains_key("incoming"));
+        assert!(service
+            .lock()
+            .await
+            .get_volume_data_range(shown.atlas_layer_index)
+            .is_some());
     }
 
     #[tokio::test]

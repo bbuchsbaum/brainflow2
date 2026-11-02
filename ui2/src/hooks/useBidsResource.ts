@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 export type BidsResource<T> =
   | { status: 'idle' | 'loading'; data: null; error: null }
@@ -45,7 +46,7 @@ export function useBidsResource<T>(
             value: {
               status: 'error',
               data: null,
-              error: error instanceof Error ? error.message : String(error),
+              error: formatTauriError(error),
             },
           });
         });

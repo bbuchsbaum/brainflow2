@@ -103,9 +103,11 @@ export interface BidsRunFacts {
   /** Mean FD of the run, from confounds or else MRIQC. */
   meanFd: number | null;
   tsnr: number | null;
+  /** Whether this file's measured tSNR could be assessed in its acquisition group. */
+  tsnrEvaluation: 'evaluated' | 'too-few' | 'zero-mad' | null;
   /**
-   * Below the cut of its acquisition group (`TSNR_RULE`); null when the group has
-   * too few runs. `group` names it: series, protocol variant and echo.
+   * Below the cut of its acquisition group (`TSNR_RULE`); null for non-outliers
+   * and unavailable evaluations. `group` names the series, protocol and echo.
    */
   tsnrOutlier: { median: number; cut: number; runs: number; group: string } | null;
   ghost: number | null;
@@ -555,6 +557,8 @@ function markTsnrOutliers(facts: readonly BidsRunFacts[], variants: readonly Bid
   for (const members of groups.values()) {
     const values = oneEachAcquisition(members).map((item) => item.tsnr as number);
     const rule = tsnrCut(values);
+    const evaluation = rule ? 'evaluated' : values.length < TSNR_MIN_SERIES_RUNS ? 'too-few' : 'zero-mad';
+    for (const item of members) item.tsnrEvaluation = evaluation;
     if (!rule) continue;
     const [first] = members;
     const protocol =
@@ -894,6 +898,7 @@ export function deriveBidsModel(
       subjectLabel: subjectLabel(run.subject),
       meanFd,
       tsnr: run.iqms?.tsnr ?? null,
+      tsnrEvaluation: null,
       tsnrOutlier: null,
       ghost: run.iqms?.gsr_y ?? null,
       tr: tr === null ? null : roundTr(tr),
@@ -1266,7 +1271,7 @@ export function deriveBidsModel(
       const echoes = draft.facts.filter(
         (item) => item.run.session === session && item.run.suffix === 'bold' && !item.excluded,
       );
-      const withTsnr = oneEachAcquisition(echoes.filter((item) => item.tsnr !== null));
+      const withTsnr = oneEachAcquisition(echoes.filter((item) => item.tsnrEvaluation === 'evaluated'));
       const lowEchoes = echoes.filter((item) => item.tsnrOutlier !== null);
       const lowTsnr = oneEachAcquisition(lowEchoes);
       if (lowTsnr.length) {
@@ -1277,12 +1282,12 @@ export function deriveBidsModel(
           'tsnr',
           lowTsnr,
           withTsnr.length,
-          `tSNR outlier in ${lowTsnr.length} of ${withTsnr.length} runs, min ${Math.round(min)}`,
+          `tSNR outlier in ${lowTsnr.length} of ${withTsnr.length} runs with evaluated tSNR, min ${Math.round(min)}`,
           { op: 'tsnrOutlier' },
           `${origin ? `${origin} · ` : ''}below ${TSNR_RULE}`,
           [...cuts.values()]
             .map((rule) => `${rule.group}: median ${Math.round(rule.median)} over ${rule.runs} runs, cut ${Math.round(rule.cut)}.`)
-            .join(' '),
+            .join(' ') + ' Runs with at least one evaluated echo are counted; other echoes may be unavailable or unevaluated.',
           Math.round(min).toString(),
           lowEchoes,
         );
@@ -1325,6 +1330,30 @@ export function deriveBidsModel(
   }
 
   const liveRuns = facts.filter((item) => !item.excluded);
+  const unevaluatedTsnr = liveRuns.filter(
+    (item) => item.tsnrEvaluation === 'too-few' || item.tsnrEvaluation === 'zero-mad',
+  );
+  if (unevaluatedTsnr.length) {
+    const runCount = oneEachAcquisition(unevaluatedTsnr).length;
+    const small = unevaluatedTsnr.filter((item) => item.tsnrEvaluation === 'too-few').length;
+    const flat = unevaluatedTsnr.filter((item) => item.tsnrEvaluation === 'zero-mad').length;
+    const ids = unevaluatedTsnr.map((item) => item.run.id);
+    noteItems.push({
+      id: 'tsnr:not-evaluated',
+      group: 'notes',
+      title: `tSNR not evaluated for all files in ${runCount} ${plural(runCount, 'run')}`,
+      entity: `${ids.length} run ${plural(ids.length, 'file')}`,
+      detail: [
+        small ? `${small} files belong to groups with fewer than ${TSNR_MIN_SERIES_RUNS} acquisitions.` : '',
+        flat ? `${flat} files belong to groups with zero MAD.` : '',
+        'A run can have other echoes that were evaluated.',
+      ].filter(Boolean).join(' '),
+      tag: 'note',
+      lens: lensOf('tsnr:not-evaluated', 'tSNR not evaluated', { op: 'runs', ids }),
+      runIds: ids,
+      source: null,
+    });
+  }
   const framedRuns = oneEachAcquisition(liveRuns).filter((item) => item.run.fd);
   const censorOffers: BidsCensorOffer[] = CENSOR_LINES_MM.map((lineMm) => ({
     lineMm,

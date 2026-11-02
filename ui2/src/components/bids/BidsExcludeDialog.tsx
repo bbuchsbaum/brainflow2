@@ -20,6 +20,7 @@ import {
   type BidsExclusionScope,
 } from '@/stores/bidsExclusions';
 import { cn } from '@/utils/cn';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 const Preview = ({ children, testId }: { children: string; testId: string }) => (
   <pre
@@ -114,7 +115,8 @@ export function BidsExcludeDialog({ runId, onClose }: { runId: string; onClose: 
     rememberAuthor(row.author);
     writeExclusions([row], context, datasetPath).then(onClose, (failure: unknown) => {
       setBusy(false);
-      setError(failure instanceof Error ? failure.message : String(failure));
+      // The notice adds its own full stop after the cause.
+      setError(formatTauriError(failure).replace(/\.+$/, ''));
     });
   };
 
@@ -207,7 +209,7 @@ export function BidsExcludeDialog({ runId, onClose }: { runId: string; onClose: 
         ) : null}
         {error ? (
           <Notice severity="danger" role="alert">
-            Nothing was written: {error}
+            Could not save exclusions: {error}. Derivative metadata may have been created. Raw files were not changed.
           </Notice>
         ) : null}
 

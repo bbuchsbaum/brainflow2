@@ -179,7 +179,7 @@ describe('DisplayLifecycleOrchestrator', () => {
     });
 
     const module = await import('../DisplayLifecycleOrchestrator');
-    (module.DisplayLifecycleOrchestrator as any).instance = null;
+    Reflect.set(module.DisplayLifecycleOrchestrator, 'instance', null);
   });
 
   it.each(['download', 'display'])('preserves a structured backend error from %s in the toast and Activity', async (stage) => {
@@ -196,8 +196,30 @@ describe('DisplayLifecycleOrchestrator', () => {
     expect(mockEventBus.emit).toHaveBeenCalledWith('file.error', { path: '/cache/remote.nii.gz', error: failure });
     expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
       type: 'error', message: 'Failed to load remote.nii.gz: GPU upload failed: fixture reason', logSource: 'volume',
+      scope: 'volume-load:undefined', sequence: 1,
     });
     expect(mockQueueState.markComplete).not.toHaveBeenCalled();
+  });
+
+  it('resolves older volume failures when a newer load succeeds in the same view', async () => {
+    const state = mockViewStateStoreState as unknown as { activeWorkspaceKey?: string; workspaceViewStates?: Map<string, unknown> };
+    state.activeWorkspaceKey = 'ws-1';
+    state.workspaceViewStates = new Map([['ws-1', {}]]);
+    try {
+      mockApiService.loadFile.mockRejectedValueOnce(new Error('failed')).mockResolvedValueOnce({ id: 'vol-2', name: 'b.nii', dims: [2, 2, 2], dtype: 'f32' });
+      mockVolumeLoadingService.loadVolume.mockResolvedValueOnce({ id: 'layer-2' });
+      const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+      const orchestrator = DisplayLifecycleOrchestrator.getInstance();
+      await orchestrator.loadFile({ path: '/d/a.nii' });
+      await orchestrator.loadFile({ path: '/d/b.nii' });
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', expect.objectContaining({
+        type: 'error', scope: 'volume-load:ws-1', sequence: 1,
+      }));
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification.resolve', { scope: 'volume-load:ws-1', through: 2 });
+    } finally {
+      delete state.activeWorkspaceKey;
+      delete state.workspaceViewStates;
+    }
   });
 
   describe('an open never ends silently (QA 2026-10-30 F29)', () => {

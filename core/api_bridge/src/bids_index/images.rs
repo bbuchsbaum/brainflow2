@@ -1,28 +1,155 @@
 //! On-demand thumbnails: slices, median slices and carpets. Each image is the
-//! same rule for every run (slice chosen by world z through the affine, window
-//! the 2nd to 98th percentile of nonzero voxels), cached on disk keyed on file
-//! size, mtime and parameters.
+//! same rule for every run (slice chosen by world z through the affine; either
+//! an explicit window or the 2nd to 98th percentile of nonzero voxels), cached
+//! on disk keyed on file size, mtime and parameters.
 //!
 //! Readers decode whole files, so callers hold a permit of a two-slot semaphore
 //! and `MAX_DECODED_BYTES` refuses what would not fit.
 
-use super::{file_stamp, sha256_hex, write_atomic};
+use super::remote::{RemoteDataset, RemoteKind};
+use super::{file_stamp, rel_text, sha256_hex, write_atomic};
 use base64::Engine;
+use bids_rs::parse_bids_filename;
 use bridge_types::bids::{BidsMedianSliceImage, BidsSliceImage, BidsSliceRequest};
 use ndarray::{Array3, Axis};
 use neuroim::NeuroSpace;
+use serde::{Deserialize, Serialize};
+use std::io::Read;
+use std::path::Component;
 use std::path::{Path, PathBuf};
 
 const MAX_DECODED_BYTES: u64 = 6 << 30;
 const MAX_MEAN_VOLUMES: usize = 8;
 const MAX_MEDIAN_RUNS: usize = 15;
-const CACHE_VERSION: &str = "1";
+const CACHE_VERSION: &str = "2";
+const MAX_BVAL_BYTES: u64 = 1 << 20;
 
 /// Voxel-to-world rows. The translation is in the *last* column of neuroim's
 /// `trans`, which is 5x5 for a 4D space.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Affine3x4 {
     pub rows: [[f64; 4]; 3],
+}
+
+/// B-values resolved using the BIDS inheritance rule. A zero is a b0 volume;
+/// low nonzero values are not silently relabelled as b0.
+#[derive(Debug, Clone)]
+pub(crate) struct B0Inputs {
+    values: Vec<f32>,
+    digest: String,
+}
+
+/// Resolve the closest applicable bval file, on disk or on a mounted server.
+/// Multiple applicable files at the same level are ambiguous and fail closed.
+pub(crate) fn resolve_b0(
+    root: &Path,
+    image: &Path,
+    remote: Option<&dyn RemoteDataset>,
+) -> Result<B0Inputs, String> {
+    let clean = |path: &Path| !path.components().any(|c| matches!(c, Component::ParentDir));
+    if !root.is_absolute() || !image.is_absolute() || !clean(root) || !clean(image) {
+        return Err("A b0 image needs absolute dataset and image paths without '..'.".into());
+    }
+    let rel = image
+        .strip_prefix(root)
+        .map_err(|_| "The image is outside the BIDS dataset.")?;
+    let target = image
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| parse_bids_filename(n).ok())
+        .filter(|n| n.suffix == "dwi")
+        .ok_or("A b0 image requires a BIDS dwi file.")?;
+    let target_entities = target.entities.as_map();
+    let parent = rel
+        .parent()
+        .ok_or("The image has no dataset-relative parent.")?;
+    for dir in parent.ancestors() {
+        let directory = rel_text(dir);
+        let names: Vec<String> = match remote {
+            Some(server) => server
+                .list(std::slice::from_ref(&directory))
+                .into_iter()
+                .next()
+                .ok_or("No directory listing for b-values.")??
+                .into_iter()
+                .filter(|entry| matches!(entry.kind, RemoteKind::File | RemoteKind::Dangling))
+                .map(|entry| entry.name)
+                .collect(),
+            None => std::fs::read_dir(root.join(dir))
+                .map_err(|e| format!("Cannot list b-value directory: {e}"))?
+                .map(|entry| entry.map(|item| item.file_name().to_string_lossy().into_owned()))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Cannot list b-value directory: {e}"))?,
+        };
+        let candidates: Vec<String> = names
+            .into_iter()
+            .filter(|name| crate::is_single_remote_name(name) && name.ends_with(".bval"))
+            .filter(|name| {
+                name == "dwi.bval"
+                    || parse_bids_filename(name).ok().is_some_and(|candidate| {
+                        candidate.suffix == "dwi"
+                            && candidate
+                                .entities
+                                .as_map()
+                                .iter()
+                                .all(|(key, value)| target_entities.get(key) == Some(value))
+                    })
+            })
+            .collect();
+        if candidates.len() > 1 {
+            return Err(format!(
+                "More than one b-value file applies in {}.",
+                root.join(dir).display()
+            ));
+        }
+        let Some(name) = candidates.first() else {
+            continue;
+        };
+        let relative = dir.join(name);
+        let bytes = match remote {
+            Some(server) => server
+                .fetch(&[rel_text(&relative)], MAX_BVAL_BYTES)
+                .into_iter()
+                .next()
+                .ok_or("No response reading b-values.")??,
+            None => {
+                let mut bytes = Vec::new();
+                std::fs::File::open(root.join(&relative))
+                    .map_err(|e| format!("Cannot read b-values: {e}"))?
+                    .take(MAX_BVAL_BYTES + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| format!("Cannot read b-values: {e}"))?;
+                bytes
+            }
+        };
+        if bytes.len() as u64 > MAX_BVAL_BYTES {
+            return Err("The b-value file is too large.".into());
+        }
+        let text = std::str::from_utf8(&bytes).map_err(|_| "The b-value file is not UTF-8.")?;
+        let values: Vec<f32> = text
+            .split_whitespace()
+            .map(|value| {
+                value
+                    .parse::<f32>()
+                    .map_err(|_| format!("Invalid b-value: {value}"))
+                    .and_then(|value| {
+                        if value.is_finite() && value >= 0.0 {
+                            Ok(value)
+                        } else {
+                            Err("B-values must be finite and nonnegative.".into())
+                        }
+                    })
+            })
+            .collect::<Result<_, _>>()?;
+        if !values.contains(&0.0) {
+            return Err("No b=0 volume is recorded in the b-value file.".into());
+        }
+        return Ok(B0Inputs {
+            values,
+            digest: sha256_hex(&[text]),
+        });
+    }
+    Err("No applicable b-value file was found for this diffusion image.".into())
 }
 
 impl Affine3x4 {
@@ -230,9 +357,30 @@ fn even_indices(len: usize, n: usize) -> Vec<usize> {
 
 /// Reduce to one 3D volume. Decoding through neuroim keeps scaled integers as
 /// floats with slope and intercept applied.
-fn reduce(path: &Path, kind: &str) -> Result<Reduced, String> {
+fn reduce(path: &Path, kind: &str, b0: Option<&B0Inputs>) -> Result<Reduced, String> {
     let header = require_decodable(path)?;
     let volumes = header.n_volumes.unwrap_or(1) as usize;
+    if kind == "tsnr" && volumes < 2 {
+        return Err("A tSNR map requires at least two timepoints.".into());
+    }
+    let b0_indices = if kind == "b0" {
+        let b0 = b0.ok_or("No b-values were resolved for this diffusion image.")?;
+        if b0.values.len() != volumes {
+            return Err(format!(
+                "The b-value file has {} values for {volumes} volumes.",
+                b0.values.len()
+            ));
+        }
+        Some(
+            b0.values
+                .iter()
+                .enumerate()
+                .filter_map(|(i, value)| (*value == 0.0).then_some(i))
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        None
+    };
     if volumes <= 1 || kind == "first" || kind == "anat" {
         let vol = neuroim::io::read_vol_f32(path, 0).map_err(io_error)?;
         return Ok(Reduced {
@@ -246,6 +394,24 @@ fn reduce(path: &Path, kind: &str) -> Result<Reduced, String> {
     let shape = vec.data.shape();
     let dim = (shape[0], shape[1], shape[2]);
     let n_t = shape[3];
+    if n_t == 0 || (kind == "tsnr" && n_t < 2) {
+        return Err("The decoded image has too few timepoints for this thumbnail.".into());
+    }
+    if let Some(indices) = b0_indices {
+        if indices.is_empty() || indices.iter().any(|&index| index >= n_t) {
+            return Err("The b-value file does not match the decoded diffusion image.".into());
+        }
+        let mut volume = Array3::<f32>::zeros(dim);
+        for &t in &indices {
+            volume += &vec.data.index_axis(Axis(3), t);
+        }
+        volume /= indices.len() as f32;
+        return Ok(Reduced {
+            volume,
+            affine,
+            volumes_used: indices.len() as u32,
+        });
+    }
     if kind == "tsnr" {
         let mean = vec.data.mean_axis(Axis(3)).ok_or("Empty series")?;
         let std = vec.data.std_axis(Axis(3), 1.0);
@@ -276,35 +442,84 @@ fn reduce(path: &Path, kind: &str) -> Result<Reduced, String> {
     })
 }
 
-pub(crate) fn render_slice(request: &BidsSliceRequest) -> Result<BidsSliceImage, String> {
-    let reduced = reduce(Path::new(&request.path), &request.kind)?;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct SliceGrid {
+    affine: Affine3x4,
+    shape: [usize; 3],
+    slice_axis: usize,
+    slice_index: usize,
+    width: usize,
+    height: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CachedSlice {
+    image: BidsSliceImage,
+    grid: SliceGrid,
+}
+
+fn window_for(request: &BidsSliceRequest, values: &[f32]) -> Result<(f32, f32), String> {
+    match request.window {
+        Some([low, high])
+            if low.is_finite() && high.is_finite() && low < high && (high - low).is_finite() =>
+        {
+            Ok((low, high))
+        }
+        Some(_) => Err("The slice window must contain finite, increasing values.".into()),
+        None => Ok(percentile_window(values)),
+    }
+}
+
+fn render_slice_with_b0(
+    request: &BidsSliceRequest,
+    b0: Option<&B0Inputs>,
+) -> Result<CachedSlice, String> {
+    if request.world_z_mm.is_some_and(|z| !z.is_finite()) {
+        return Err("The slice position must be finite.".into());
+    }
+    if request.window.is_some() {
+        window_for(request, &[])?;
+    }
+    let reduced = reduce(Path::new(&request.path), &request.kind, b0)?;
     let shape = reduced.volume.shape();
-    let plan = plan_axial(
-        &reduced.affine,
-        [shape[0], shape[1], shape[2]],
-        request.world_z_mm.map(f64::from),
-    );
+    let dims = [shape[0], shape[1], shape[2]];
+    let plan = plan_axial(&reduced.affine, dims, request.world_z_mm.map(f64::from));
     let plane = sample_plane(
         &reduced.volume,
         &reduced.affine,
         &plan,
         request.max_px.clamp(16, 1024),
     );
-    let (low, high) = percentile_window(&plane.values);
+    let (low, high) = window_for(request, &plane.values)?;
     let gray: Vec<u8> = plane
         .values
         .iter()
         .map(|&v| to_gray(v, low, high))
         .collect();
-    Ok(BidsSliceImage {
-        png_base64: gray_png(plane.width, plane.height, &gray)?,
-        width: plane.width as u32,
-        height: plane.height as u32,
-        world_z_mm: Some(plan.world_z as f32),
-        window_low: low,
-        window_high: high,
-        volumes_used: reduced.volumes_used,
+    Ok(CachedSlice {
+        image: BidsSliceImage {
+            png_base64: gray_png(plane.width, plane.height, &gray)?,
+            width: plane.width as u32,
+            height: plane.height as u32,
+            world_z_mm: Some(plan.world_z as f32),
+            window_low: low,
+            window_high: high,
+            volumes_used: reduced.volumes_used,
+        },
+        grid: SliceGrid {
+            affine: reduced.affine,
+            shape: dims,
+            slice_axis: plan.slice_axis,
+            slice_index: plan.slice_index,
+            width: plane.width,
+            height: plane.height,
+        },
     })
+}
+
+#[cfg(test)]
+pub(crate) fn render_slice(request: &BidsSliceRequest) -> Result<BidsSliceImage, String> {
+    render_slice_with_b0(request, None).map(|slice| slice.image)
 }
 
 fn cache_path(cache_root: &Path, key_parts: &[&str]) -> PathBuf {
@@ -312,11 +527,22 @@ fn cache_path(cache_root: &Path, key_parts: &[&str]) -> PathBuf {
     cache_root.join("bids-images").join(format!("{key}.json"))
 }
 
-fn slice_cache_path(cache_root: &Path, request: &BidsSliceRequest) -> Option<PathBuf> {
+fn slice_cache_path(
+    cache_root: &Path,
+    request: &BidsSliceRequest,
+    b0: Option<&B0Inputs>,
+) -> Option<PathBuf> {
+    if request.kind == "b0" && b0.is_none() {
+        return None;
+    }
     let stamp = file_stamp(Path::new(&request.path))?;
     let z = request
         .world_z_mm
-        .map_or_else(|| "mid".to_string(), |z| format!("{z:.2}"));
+        .map_or_else(|| "mid".to_string(), |z| format!("{:08x}", z.to_bits()));
+    let window = request.window.map_or_else(
+        || "auto".to_string(),
+        |[low, high]| format!("{:08x}:{:08x}", low.to_bits(), high.to_bits()),
+    );
     Some(cache_path(
         cache_root,
         &[
@@ -327,6 +553,8 @@ fn slice_cache_path(cache_root: &Path, request: &BidsSliceRequest) -> Option<Pat
             &request.kind,
             &z,
             &request.max_px.to_string(),
+            &window,
+            b0.map_or("", |input| input.digest.as_str()),
         ],
     ))
 }
@@ -345,25 +573,53 @@ fn write_cached<T: serde::Serialize>(path: &Path, value: &T) {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn cached_slice(
     cache_root: &Path,
     request: &BidsSliceRequest,
 ) -> Option<BidsSliceImage> {
-    read_cached(&slice_cache_path(cache_root, request)?)
+    cached_slice_with_b0(cache_root, request, None)
 }
 
+pub(crate) fn cached_slice_with_b0(
+    cache_root: &Path,
+    request: &BidsSliceRequest,
+    b0: Option<&B0Inputs>,
+) -> Option<BidsSliceImage> {
+    read_cached::<CachedSlice>(&slice_cache_path(cache_root, request, b0)?).map(|slice| slice.image)
+}
+
+fn get_cached_slice(
+    cache_root: &Path,
+    request: &BidsSliceRequest,
+    b0: Option<&B0Inputs>,
+) -> Result<CachedSlice, String> {
+    if let Some(path) = slice_cache_path(cache_root, request, b0) {
+        if let Some(slice) = read_cached(&path) {
+            return Ok(slice);
+        }
+    }
+    let slice = render_slice_with_b0(request, b0)?;
+    if let Some(path) = slice_cache_path(cache_root, request, b0) {
+        write_cached(&path, &slice);
+    }
+    Ok(slice)
+}
+
+pub(crate) fn get_slice_with_b0(
+    cache_root: &Path,
+    request: &BidsSliceRequest,
+    b0: Option<&B0Inputs>,
+) -> Result<BidsSliceImage, String> {
+    get_cached_slice(cache_root, request, b0).map(|slice| slice.image)
+}
+
+#[cfg(test)]
 pub(crate) fn get_slice(
     cache_root: &Path,
     request: &BidsSliceRequest,
 ) -> Result<BidsSliceImage, String> {
-    if let Some(image) = cached_slice(cache_root, request) {
-        return Ok(image);
-    }
-    let image = render_slice(request)?;
-    if let Some(path) = slice_cache_path(cache_root, request) {
-        write_cached(&path, &image);
-    }
-    Ok(image)
+    get_slice_with_b0(cache_root, request, None)
 }
 
 fn decode_gray(image: &BidsSliceImage) -> Option<Vec<u8>> {
@@ -374,22 +630,46 @@ fn decode_gray(image: &BidsSliceImage) -> Option<Vec<u8>> {
     Some(decoded.to_luma8().into_raw())
 }
 
-fn modal_grid(images: &[(BidsSliceImage, Vec<u8>)]) -> Option<(u32, u32)> {
-    let mut counts: Vec<((u32, u32), usize)> = Vec::new();
-    for (image, _) in images {
-        let grid = (image.width, image.height);
-        match counts.iter_mut().find(|(known, _)| *known == grid) {
+fn modal_grid(images: &[(CachedSlice, Vec<u8>)]) -> Option<SliceGrid> {
+    let mut counts: Vec<(SliceGrid, usize)> = Vec::new();
+    for (slice, _) in images {
+        match counts.iter_mut().find(|(known, _)| *known == slice.grid) {
             Some((_, count)) => *count += 1,
-            None => counts.push((grid, 1)),
+            None => counts.push((slice.grid.clone(), 1)),
         }
     }
-    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    counts.first().map(|(grid, _)| *grid)
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(grid, _)| grid)
 }
 
-/// The runs a median is built from: at most 15, evenly spaced through `paths`.
-pub(crate) fn median_runs(paths: &[String]) -> Vec<String> {
-    even_indices(paths.len(), MAX_MEDIAN_RUNS)
+/// At most 15 eligible runs: include the reference when it is in `paths`,
+/// then sample the other runs evenly. An ineligible reference stays out.
+pub(crate) fn median_runs(paths: &[String], reference: &str) -> Vec<String> {
+    let reference_index = paths.iter().position(|path| path == reference);
+    let indices = if paths.len() > MAX_MEDIAN_RUNS {
+        if let Some(reference_index) = reference_index {
+            let mut indices: Vec<usize> = even_indices(paths.len() - 1, MAX_MEDIAN_RUNS - 1)
+                .into_iter()
+                .map(|index| {
+                    if index >= reference_index {
+                        index + 1
+                    } else {
+                        index
+                    }
+                })
+                .collect();
+            indices.push(reference_index);
+            indices.sort_unstable();
+            indices
+        } else {
+            even_indices(paths.len(), MAX_MEDIAN_RUNS)
+        }
+    } else {
+        even_indices(paths.len(), MAX_MEDIAN_RUNS)
+    };
+    indices
         .into_iter()
         .map(|index| paths[index].clone())
         .collect()
@@ -407,8 +687,13 @@ fn median_cache_path(cache_root: &Path, chosen: &[String], request: &BidsSliceRe
         .collect();
     key.sort();
     key.push(format!(
-        "median|{}|{:?}|{}",
-        request.kind, request.world_z_mm, request.max_px
+        "{CACHE_VERSION}|median|{}|{:?}|{}|{:?}|{}|{}",
+        request.kind,
+        request.world_z_mm,
+        request.max_px,
+        request.window,
+        request.path,
+        file_stamp(Path::new(&request.path)).unwrap_or_default()
     ));
     let keys: Vec<&str> = key.iter().map(String::as_str).collect();
     cache_path(cache_root, &keys)
@@ -421,38 +706,77 @@ pub(crate) fn cached_median(
     chosen: &[String],
     request: &BidsSliceRequest,
 ) -> Option<BidsMedianSliceImage> {
+    // b-value content must be resolved against the current dataset first.
+    if request.kind == "b0" {
+        return None;
+    }
     read_cached(&median_cache_path(cache_root, chosen, request))
 }
 
-/// Pixelwise median of windowed slices on the modal grid. Each run is windowed
-/// by the same percentile rule first, so scanner gain does not weight the
-/// median. At most 15 runs, evenly spaced through `paths`.
+/// Pixelwise median of up to 15 windowed slices on a matching grid. A fixed
+/// requested window is shared; otherwise each slice uses its own percentiles.
+/// Eligible reference images are included; the remaining runs are sampled
+/// evenly through `paths`.
+#[cfg(test)]
 pub(crate) fn get_median_slice(
     cache_root: &Path,
     paths: &[String],
     request: &BidsSliceRequest,
 ) -> Result<BidsMedianSliceImage, String> {
-    let chosen = median_runs(paths);
+    get_median_slice_with_b0(
+        cache_root,
+        paths,
+        request,
+        &std::collections::HashMap::new(),
+    )
+}
+
+pub(crate) fn get_median_slice_with_b0(
+    cache_root: &Path,
+    paths: &[String],
+    request: &BidsSliceRequest,
+    b0_inputs: &std::collections::HashMap<String, B0Inputs>,
+) -> Result<BidsMedianSliceImage, String> {
+    let chosen = median_runs(paths, &request.path);
     let cached_at = median_cache_path(cache_root, &chosen, request);
-    if let Some(cached) = read_cached(&cached_at) {
-        return Ok(cached);
+    if request.kind != "b0" {
+        if let Some(cached) = read_cached(&cached_at) {
+            return Ok(cached);
+        }
     }
 
-    let mut images: Vec<(BidsSliceImage, Vec<u8>)> = Vec::new();
+    let reference_grid = if request.path.is_empty() {
+        None
+    } else {
+        Some(
+            get_cached_slice(cache_root, request, b0_inputs.get(&request.path))
+                .map_err(|e| format!("Cannot read the selected reference image: {e}"))?
+                .grid,
+        )
+    };
+    let mut images: Vec<(CachedSlice, Vec<u8>)> = Vec::new();
     for path in &chosen {
         let single = BidsSliceRequest {
             path: path.clone(),
             ..request.clone()
         };
         images.extend(
-            get_slice(cache_root, &single)
+            get_cached_slice(cache_root, &single, b0_inputs.get(path))
                 .ok()
-                .and_then(|image| decode_gray(&image).map(|gray| (image, gray))),
+                .and_then(|slice| decode_gray(&slice.image).map(|gray| (slice, gray))),
         );
     }
-    let (width, height) = modal_grid(&images).ok_or("No run could be read for a median image")?;
-    images.retain(|(image, _)| (image.width, image.height) == (width, height));
-    let n_pixels = width as usize * height as usize;
+    let grid = reference_grid
+        .or_else(|| modal_grid(&images))
+        .ok_or("No run could be read for a median image")?;
+    images.retain(|(slice, _)| slice.grid == grid);
+    if images.is_empty() {
+        return Err(
+            "No sampled run shares the selected image's voxel-to-world grid and slice.".into(),
+        );
+    }
+    let (width, height) = (grid.width, grid.height);
+    let n_pixels = width * height;
     let mut gray = vec![0u8; n_pixels];
     let mut stack = vec![0u8; images.len()];
     for (pixel, out) in gray.iter_mut().enumerate() {
@@ -465,18 +789,20 @@ pub(crate) fn get_median_slice(
     let runs_skipped = (chosen.len() - images.len()) as u32;
     let result = BidsMedianSliceImage {
         image: BidsSliceImage {
-            png_base64: gray_png(width as usize, height as usize, &gray)?,
-            width,
-            height,
-            world_z_mm: images[0].0.world_z_mm,
-            window_low: 0.0,
-            window_high: 1.0,
-            volumes_used: images[0].0.volumes_used,
+            png_base64: gray_png(width, height, &gray)?,
+            width: width as u32,
+            height: height as u32,
+            world_z_mm: images[0].0.image.world_z_mm,
+            window_low: request.window.map_or(0.0, |window| window[0]),
+            window_high: request.window.map_or(1.0, |window| window[1]),
+            volumes_used: images[0].0.image.volumes_used,
         },
         runs_used: images.len() as u32,
         runs_skipped,
     };
-    write_cached(&cached_at, &result);
+    if request.kind != "b0" {
+        write_cached(&cached_at, &result);
+    }
     Ok(result)
 }
 

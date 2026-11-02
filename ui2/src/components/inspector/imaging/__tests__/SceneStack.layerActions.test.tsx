@@ -52,6 +52,12 @@ import { SceneStack } from "../SceneStack";
 describe("SceneStack layer actions (QA §5.2: no way to remove a layer)", () => {
   beforeEach(() => {
     activeItemId = "v2";
+    stack.volumes[1].visible = true;
+    const current = useViewStateStore.getState().viewState;
+    useViewStateStore.setState({ viewState: { ...current, layers: [
+      { id: "v1", visible: true, opacity: 1 },
+      { id: "v2", visible: true, opacity: 1 },
+    ] as typeof current.layers } });
     setActiveSpy.mockClear();
     removeLayerFromScene.mockClear();
     toggleVisibility.mockClear();
@@ -75,6 +81,28 @@ describe("SceneStack layer actions (QA §5.2: no way to remove a layer)", () => 
     fireEvent.contextMenu(screen.getByText("zstat1"));
     useContextMenuStore.getState().items.find((item) => item.id === "layer.toggleVisible")?.onClick?.();
     expect(toggleVisibility).toHaveBeenCalledWith("v2", false);
+  });
+
+  it("offers to show a layer hidden in this view even when globally visible", () => {
+    stack.volumes[1].visible = false;
+    render(<SceneStack />);
+    fireEvent.contextMenu(screen.getByText("zstat1"));
+    const action = useContextMenuStore.getState().items.find((item) => item.id === "layer.toggleVisible");
+    expect(action?.label).toBe("Show layer");
+    action?.onClick?.();
+    expect(toggleVisibility).toHaveBeenCalledWith("v2", true);
+  });
+
+  it("does not offer a show action for a layer absent from this view", () => {
+    const current = useViewStateStore.getState().viewState;
+    useViewStateStore.setState({ viewState: { ...current, layers: current.layers.filter((layer) => layer.id !== "v2") } });
+    stack.volumes[1].visible = false;
+    render(<SceneStack />);
+    fireEvent.contextMenu(screen.getByText("zstat1"));
+    const action = useContextMenuStore.getState().items.find((item) => item.id === "layer.toggleVisible");
+    expect(action?.label).toBe("Not in this view");
+    expect(action?.disabled).toBe(true);
+    expect(action?.onClick).toBeUndefined();
   });
 
   it("Delete and Backspace in the list remove the selected layer", () => {

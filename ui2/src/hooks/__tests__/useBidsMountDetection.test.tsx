@@ -1,6 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getEventBus } from '@/events/EventBus';
 import { setTransport } from '@/services/transport';
 import { DEFAULT_FD_THRESHOLD_MM } from '@/stores/bidsModel';
 import { useBidsStore } from '@/stores/bidsStore';
@@ -125,40 +124,11 @@ describe('useBidsMountDetection', () => {
       await waitFor(() => expect(scanDataset).toHaveBeenCalledWith('/d'));
     });
 
-    it('replaces a dataset that is loaded, and says when undo ends', async () => {
-      useBidsStore.setState({
-        datasetPath: '/old/ds1',
-        scanStatus: 'ready',
-        index: { runs: [] } as never,
-        undoStack: [{ id: 1, added: [] }],
-      });
-      const notified = vi.fn();
-      const stop = getEventBus().on('ui.notification', notified);
+    it('replaces a dataset that is loaded', async () => {
+      useBidsStore.setState({ datasetPath: '/old/ds1', scanStatus: 'ready', index: { runs: [] } as never });
       renderHook(() => useBidsMountDetection());
       mount('/new/ds2');
       await waitFor(() => expect(scanDataset).toHaveBeenCalledWith('/new/ds2'));
-      stop();
-      expect(notified.mock.calls[0][0].message).toContain('Switched to ds2');
-    });
-
-    it('says when a lens or a threshold is dropped, and says nothing when none is', async () => {
-      const notified = vi.fn();
-      const stop = getEventBus().on('ui.notification', notified);
-      useBidsStore.setState({ datasetPath: '/a', scanStatus: 'ready', index: { runs: [] } as never });
-      renderHook(() => useBidsMountDetection());
-      mount('/b');
-      await waitFor(() => expect(scanDataset).toHaveBeenCalledWith('/b'));
-      expect(notified).not.toHaveBeenCalled();
-      useBidsStore.setState({
-        datasetPath: '/b',
-        lens: { id: 'l', label: 'L', predicate: { op: 'excluded' } } as never,
-        fdThreshold: 0.5,
-      });
-      mount('/c');
-      await waitFor(() => expect(scanDataset).toHaveBeenCalledWith('/c'));
-      stop();
-      expect(notified.mock.calls).toHaveLength(1);
-      expect(notified.mock.calls[0][0].message).toBe('Switched to c. Cleared the lens and the motion thresholds.');
     });
 
     it('works for a root already mounted, again and again (Recents, back and forth)', async () => {

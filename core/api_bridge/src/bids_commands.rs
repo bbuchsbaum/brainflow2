@@ -315,6 +315,42 @@ async fn materialize(state: &BridgeState, path: &str) -> BridgeResult<()> {
     crate::materialize_remote_file_if_needed(state, Path::new(path)).await
 }
 
+async fn b0_inputs(
+    request: &BidsSliceRequest,
+    state: &BridgeState,
+) -> BridgeResult<Option<images::B0Inputs>> {
+    if request.kind != "b0" {
+        return Ok(None);
+    }
+    let root = PathBuf::from(
+        request
+            .dataset_root
+            .as_deref()
+            .ok_or_else(|| input("A b0 slice needs the BIDS dataset root."))?,
+    );
+    let image = PathBuf::from(&request.path);
+    let mount = crate::resolve_remote_mount_for_local_path(state, &root).await;
+    if let Ok(mirrors) = crate::remote_cache_root() {
+        refuse_unmounted_mirror(&root, mount.is_some(), &mirrors)?;
+    }
+    let server = mount.map(|(mount, remote_root)| MountDataset {
+        mount,
+        remote_root,
+        runtime: tokio::runtime::Handle::current(),
+    });
+    tokio::task::spawn_blocking(move || {
+        images::resolve_b0(
+            &root,
+            &image,
+            server.as_ref().map(|s| s as &dyn RemoteDataset),
+        )
+    })
+    .await
+    .map_err(task_failure)?
+    .map(Some)
+    .map_err(input)
+}
+
 /// One thumbnail, from the disk cache or decoded under the semaphore.
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_bids_slice")]
@@ -324,15 +360,19 @@ pub(crate) async fn get_bids_slice(
 ) -> BridgeResult<BidsSliceImage> {
     require_image_path(&request.path)?;
     let cache = cache_root()?;
-    if !matches!(request.kind.as_str(), "mean" | "first" | "tsnr" | "anat") {
+    if !matches!(
+        request.kind.as_str(),
+        "mean" | "first" | "tsnr" | "anat" | "b0"
+    ) {
         return Err(input(format!("Unknown slice kind: {}", request.kind)));
     }
-    if let Some(image) = images::cached_slice(&cache, &request) {
+    let b0 = b0_inputs(&request, state.inner()).await?;
+    if let Some(image) = images::cached_slice_with_b0(&cache, &request, b0.as_ref()) {
         return Ok(image);
     }
     materialize(state.inner(), &request.path).await?;
     let _permit = DECODES.acquire().await.map_err(|e| input(e.to_string()))?;
-    tokio::task::spawn_blocking(move || images::get_slice(&cache, &request))
+    tokio::task::spawn_blocking(move || images::get_slice_with_b0(&cache, &request, b0.as_ref()))
         .await
         .map_err(task_failure)?
         .map_err(input)
@@ -352,20 +392,45 @@ pub(crate) async fn get_bids_median_slice(
     for path in &paths {
         require_image_path(path)?;
     }
+    if !request.path.is_empty() {
+        require_image_path(&request.path)?;
+    }
     // Only the runs a median uses, and none at all when it is already cached.
-    let paths = images::median_runs(&paths);
+    let paths = images::median_runs(&paths, &request.path);
     let cache = cache_root()?;
     if let Some(cached) = images::cached_median(&cache, &paths, &request) {
         return Ok(cached);
+    }
+    let mut b0 = HashMap::new();
+    if request.kind == "b0" {
+        for path in std::iter::once(&request.path).chain(paths.iter()) {
+            if path.is_empty() || b0.contains_key(path) {
+                continue;
+            }
+            let mut single = request.clone();
+            single.path = path.clone();
+            match b0_inputs(&single, state.inner()).await {
+                Ok(Some(input)) => {
+                    b0.insert(path.clone(), input);
+                }
+                Err(error) if path == &request.path => return Err(error),
+                _ => {}
+            }
+        }
+    }
+    if !request.path.is_empty() && !paths.contains(&request.path) {
+        materialize(state.inner(), &request.path).await?;
     }
     for path in &paths {
         materialize(state.inner(), path).await?;
     }
     let _permit = DECODES.acquire().await.map_err(|e| input(e.to_string()))?;
-    tokio::task::spawn_blocking(move || images::get_median_slice(&cache, &paths, &request))
-        .await
-        .map_err(task_failure)?
-        .map_err(input)
+    tokio::task::spawn_blocking(move || {
+        images::get_median_slice_with_b0(&cache, &paths, &request, &b0)
+    })
+    .await
+    .map_err(task_failure)?
+    .map_err(input)
 }
 
 /// Carpet plot of a 4D run.

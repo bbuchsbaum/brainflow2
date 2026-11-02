@@ -67,6 +67,15 @@ export function useBidsShortcuts(): void {
         handler: () => bids().setActiveView('coverage'),
       },
       {
+        id: 'bids.view.images',
+        key: '2',
+        priority: BIDS_SHORTCUT_PRIORITY,
+        category: CATEGORY,
+        description: 'Images view',
+        when: bidsInFront,
+        handler: () => bids().setActiveView('images'),
+      },
+      {
         id: 'bids.openInViewer',
         key: 'Enter',
         priority: BIDS_SHORTCUT_PRIORITY,
