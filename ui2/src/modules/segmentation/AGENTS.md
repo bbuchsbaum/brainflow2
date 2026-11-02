@@ -35,8 +35,13 @@ Label tracing on a fixed reference grid. The native domain is
   (compared by label revision). Quiet ⌘S, the provenance sidecar/volume and
   autosave are M5.
 - **Current limits:** sessions are in memory; saved-session recovery, proposals,
-  AI and later milestones M3–M8 are not implemented. Reference and secondary
-  images must be single 3D volumes. Storage, export and display support every
+  AI and later milestones M3–M8 are not implemented. A 4D reference or
+  secondary is traced on one explicit zero-based frame chosen at setup
+  (`referenceFrame`/`secondaryFrame`, default: the layer's current t); native
+  copies it into a session-owned 3D volume (`referenceDisplayVolumeId`), which
+  the viewport attaches as a hidden ordinary layer, so the shared time cursor
+  never changes the traced image. The setup preview renders one `timepoint` for
+  both images. Storage, export and display support every
   u16 label id (1–65535); the palette is the tiled categorical LUT.
   Per-label native-slice count metadata is capped at two million counts; large
   label tables and slice matrices are paged in the Inspector. Native slice indices

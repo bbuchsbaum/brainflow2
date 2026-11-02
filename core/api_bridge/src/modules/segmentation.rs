@@ -30,7 +30,10 @@ pub(crate) static MODULE: SegmentationModule = SegmentationModule;
 struct Record {
     workspace: WorkspaceIdentity,
     label_volume_id: String,
+    /// Pinned sources plus the session-owned frozen frames, released together.
     source_volume_ids: Vec<String>,
+    reference_display_volume_id: String,
+    secondary_display_volume_id: Option<String>,
     session: Session,
 }
 pub(crate) struct SegmentationState {
@@ -98,6 +101,10 @@ pub struct SegmentationAccess {
 pub struct SegmentationSessionInfo {
     pub snapshot: Snapshot,
     pub label_volume_id: String,
+    /// The 3D volume to display as the reference: the reference itself, or
+    /// a session-owned copy of the chosen frame of a 4D reference.
+    pub reference_display_volume_id: String,
+    pub secondary_display_volume_id: Option<String>,
     pub palette_id: Option<u32>,
     pub render_error: Option<String>,
 }
@@ -177,8 +184,52 @@ async fn info(
     SegmentationSessionInfo {
         snapshot,
         label_volume_id: record.label_volume_id.clone(),
+        reference_display_volume_id: record.reference_display_volume_id.clone(),
+        secondary_display_volume_id: record.secondary_display_volume_id.clone(),
         palette_id,
         render_error,
+    }
+}
+
+/// A 3D source is used as loaded. A 4D source needs an explicit frame, which
+/// is copied into a session-owned 3D volume on the 4D NeuroSpace's spatial
+/// grid, so tracing never follows the shared time cursor.
+fn frozen_frame(
+    source: &VolumeSendable,
+    metadata: &VolumeMetadataInfo,
+    frame: Option<u32>,
+    role: &str,
+) -> BridgeResult<Option<(VolumeSendable, VolumeMetadataInfo)>> {
+    use bridge_types::VolumeType;
+    match (&metadata.volume_type, frame) {
+        (VolumeType::Volume3D, None) => Ok(None),
+        (VolumeType::Volume3D, Some(_)) => Err(invalid(format!(
+            "The {role} is a single 3D volume; do not choose a frame"
+        ))),
+        (VolumeType::TimeSeries4D, None) => Err(invalid(format!(
+            "Choose which volume of the 4D {role} to use"
+        ))),
+        (VolumeType::TimeSeries4D, Some(timepoint)) => {
+            let frame = volume_service::frames::extract_frame(source, timepoint as usize)?;
+            let space =
+                NeuroSpace::from_affine_matrix4(frame.dims.to_vec(), frame.affine.to_homogeneous())
+                    .map_err(|error| invalid(error.to_string()))?;
+            let affine = frame.affine;
+            let volume = VolumeSendable::VolF32(
+                DenseVolume3::from_data(space, frame.values.into_owned()),
+                affine,
+            );
+            Ok(Some((
+                volume,
+                VolumeMetadataInfo {
+                    name: format!("{} · frame {timepoint}", metadata.name),
+                    path: "memory:segmentation-frame".into(),
+                    dtype: "f32".into(),
+                    volume_type: VolumeType::Volume3D,
+                    time_series_info: None,
+                },
+            )))
+        }
     }
 }
 
@@ -204,38 +255,62 @@ async fn create(
         .collect();
     // Every u16 id has a palette texel; the domain rejects id 0.
     const _: () = assert!(render_loop::texture_manager::LABEL_LUT_CAPACITY > u16::MAX as u32);
-    let (source, header) = {
+    if request.secondary_frame.is_some() && request.secondary_volume_id.is_none() {
+        return Err(invalid("A secondary frame needs a secondary contrast"));
+    }
+    let (source, header, reference_metadata, secondary) = {
         let registry = state.volume_registry.lock().await;
         let entry = registry
             .get_entry(&request.reference_volume_id)
             .ok_or_else(|| invalid("Reference image is no longer loaded"))?;
-        if entry.metadata.volume_type != bridge_types::VolumeType::Volume3D {
-            return Err(invalid(
-                "Select a single 3D reference image for this segmentation session",
-            ));
-        }
-        if let Some(secondary) = request.secondary_volume_id.as_ref() {
-            if secondary == &request.reference_volume_id {
+        let secondary = match request.secondary_volume_id.as_ref() {
+            Some(secondary) if secondary == &request.reference_volume_id => {
                 return Err(invalid("Select a distinct secondary contrast"));
             }
-            let secondary = registry
-                .get_entry(secondary)
-                .ok_or_else(|| invalid("Secondary contrast is no longer loaded"))?;
-            if secondary.metadata.volume_type != bridge_types::VolumeType::Volume3D {
-                return Err(invalid("Select a single 3D secondary contrast"));
+            Some(secondary) => {
+                let secondary = registry
+                    .get_entry(secondary)
+                    .ok_or_else(|| invalid("Secondary contrast is no longer loaded"))?;
+                Some((secondary.data.clone(), secondary.metadata.clone()))
             }
-        }
-        (entry.data.clone(), entry.source_nifti_header.clone())
+            None => None,
+        };
+        (
+            entry.data.clone(),
+            entry.source_nifti_header.clone(),
+            entry.metadata.clone(),
+            secondary,
+        )
+    };
+    // Volume operations are held, so these sources stay registered while the
+    // frames are copied outside the registry lock.
+    let reference_frame = frozen_frame(
+        &source,
+        &reference_metadata,
+        request.reference_frame,
+        "reference image",
+    )?;
+    let secondary_frame = match &secondary {
+        Some((data, metadata)) => frozen_frame(
+            data,
+            metadata,
+            request.secondary_frame,
+            "secondary contrast",
+        )?,
+        None => None,
     };
     let dims = crate::get_spatial_dims_from_volume(&source);
     let dimensions = [dims[0] as u32, dims[1] as u32, dims[2] as u32];
+    // For 4D sources this reads the origin from the transform's LAST column.
     let affine = crate::get_affine_from_volume(&source)?;
     let matrix = affine.to_homogeneous();
     let id = uuid::Uuid::new_v4().to_string();
     let session = if let Some(header) = header.as_ref() {
         Session::create_from_header_bytes(id.clone(), request, matrix, header).map_err(domain)?
     } else {
-        Session::create_on_derived_grid(id.clone(), request, dimensions, matrix).map_err(domain)?
+        let frames = volume_service::frames::frame_count(&source).map(|n| n as u32);
+        Session::create_on_derived_grid(id.clone(), request, dimensions, matrix, frames)
+            .map_err(domain)?
     };
     if session.volume().dimensions() != dimensions {
         return Err(invalid(
@@ -255,6 +330,18 @@ async fn create(
         .map_err(|error| invalid(error.to_string()))?;
     let volume = VolumeSendable::VolU16(DenseVolume3::from_data(space, labels), affine);
     let label_volume_id = format!("segmentation_labels_{id}");
+    let frame_id = |role: &str| format!("segmentation_frame_{id}_{role}");
+    let reference_display_volume_id = if reference_frame.is_some() {
+        frame_id("reference")
+    } else {
+        source_volume_ids[0].clone()
+    };
+    let secondary_display_volume_id = match (&secondary_frame, source_volume_ids.get(1)) {
+        (Some(_), _) => Some(frame_id("secondary")),
+        (None, Some(secondary)) => Some(secondary.clone()),
+        (None, None) => None,
+    };
+    let mut owned_volume_ids = Vec::new();
     {
         let mut registry = state.volume_registry.lock().await;
         // Validate every source and every increment before publishing the label
@@ -264,11 +351,6 @@ async fn create(
             let source = registry
                 .get_entry(source_id)
                 .ok_or_else(|| invalid("Segmentation source is no longer loaded"))?;
-            if source.metadata.volume_type != bridge_types::VolumeType::Volume3D {
-                return Err(invalid(
-                    "Segmentation sources must remain single 3D volumes",
-                ));
-            }
             source
                 .document_references
                 .checked_add(1)
@@ -309,6 +391,21 @@ async fn create(
                 full_labels: None,
             },
         );
+        // Frozen frames are owned by this document alone (one reference).
+        for (frame_volume_id, frame) in [
+            (frame_id("reference"), reference_frame),
+            (frame_id("secondary"), secondary_frame),
+        ] {
+            if let Some((data, metadata)) = frame {
+                registry.insert(frame_volume_id.clone(), data, metadata);
+                registry
+                    .volumes
+                    .get_mut(&frame_volume_id)
+                    .expect("published frame")
+                    .document_references = 1;
+                owned_volume_ids.push(frame_volume_id);
+            }
+        }
         for source_id in &source_volume_ids {
             registry
                 .volumes
@@ -320,7 +417,12 @@ async fn create(
     let record = Record {
         workspace: owner,
         label_volume_id,
-        source_volume_ids,
+        source_volume_ids: source_volume_ids
+            .into_iter()
+            .chain(owned_volume_ids)
+            .collect(),
+        reference_display_volume_id,
+        secondary_display_volume_id,
         session,
     };
     let result = info(&record, state, None, &_operation).await;
@@ -735,6 +837,8 @@ mod tests {
             }],
             secondary_volume_id: None,
             registration: None,
+            reference_frame: None,
+            secondary_frame: None,
         }
     }
     fn state() -> BridgeState {
@@ -1197,6 +1301,165 @@ mod tests {
         assert_eq!(
             labels.values().iter().filter(|&&v| v == u16::MAX).count(),
             5
+        );
+    }
+
+    #[tokio::test]
+    async fn a_4d_reference_is_traced_on_one_explicit_frozen_frame() {
+        use volmath::DenseNeuroVec;
+        let state = tokio::task::spawn_blocking(state).await.unwrap();
+        // 5x3x7 spatial grid, four frames; NeuroSpace keeps the origin in the
+        // LAST column of its 5x5 transform.
+        let space = NeuroSpace::new(
+            vec![5, 3, 7, 4],
+            Some(vec![0.4, 2.0, 0.4, 1.0]),
+            Some(vec![-10.0, 7.0, -4.0, 0.0]),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut series = DenseNeuroVec::zeros(space).unwrap();
+        for t in 0..4 {
+            series.data[[1, 2, 3, t]] = 10.0 + t as f32;
+        }
+        state.volume_registry.lock().await.insert(
+            "series".into(),
+            VolumeSendable::Vec4DF32(series),
+            VolumeMetadataInfo {
+                name: "Synthetic series".into(),
+                path: "memory:series".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::TimeSeries4D,
+                time_series_info: None,
+            },
+        );
+        let mut request = setup();
+        request.reference_volume_id = "series".into();
+        assert!(
+            create(&state, request.clone()).await.is_err(),
+            "a 4D reference needs an explicit frame"
+        );
+        request.reference_frame = Some(4);
+        assert!(create(&state, request.clone()).await.is_err());
+        assert_eq!(
+            state.volume_registry.lock().await.volumes.len(),
+            2,
+            "refused setups publish nothing"
+        );
+        let mut framed_3d = setup();
+        framed_3d.reference_frame = Some(0);
+        assert!(create(&state, framed_3d).await.is_err());
+
+        request.reference_frame = Some(2);
+        let created = create(&state, request).await.unwrap();
+        assert_eq!(created.snapshot.reference_frame, Some(2));
+        assert_eq!(created.snapshot.reference_volume_id, "series");
+        assert_eq!(created.snapshot.dimensions, [5, 3, 7]);
+        assert_eq!(
+            created.snapshot.voxel_to_world[12..15],
+            [-10.0, 7.0, -4.0],
+            "the grid origin comes from the 4D transform's last column"
+        );
+        assert_eq!(
+            created.snapshot.voxel_to_world[..11],
+            [0.4, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.4]
+        );
+        let display = created.reference_display_volume_id.clone();
+        assert_ne!(display, "series");
+        {
+            let registry = state.volume_registry.lock().await;
+            let frame = registry.get_entry(&display).unwrap();
+            assert_eq!(
+                frame.metadata.volume_type,
+                bridge_types::VolumeType::Volume3D
+            );
+            assert_eq!(frame.document_references, 1);
+            let VolumeSendable::VolF32(volume, affine) = frame.data.as_ref() else {
+                panic!("the frozen frame is a 3D f32 volume")
+            };
+            assert_eq!(volume.get_at_coords(&[1, 2, 3]), Some(12.0), "frame 2 only");
+            let world = affine.transform_point(&nalgebra::Point3::new(1.0, 2.0, 3.0));
+            assert_eq!([world.x, world.y, world.z], [-9.6, 11.0, -2.8]);
+            assert_eq!(registry.get_entry("series").unwrap().document_references, 1);
+        }
+        // Moving the shared time cursor does not change the traced frame.
+        state
+            .volume_registry
+            .lock()
+            .await
+            .set_timepoint("series", 0)
+            .unwrap();
+        let mut paint = stroke(&created);
+        paint.points_world = vec![[0.8 - 10.0, 2.0 + 7.0, 1.2 - 4.0]];
+        let painted = commit(&state, paint).await.unwrap().session;
+        assert_eq!(painted.snapshot.labels[0].voxels, 5.0);
+        let export = export_labels(&state, operation(&painted)).await.unwrap();
+        assert!(String::from_utf8_lossy(&export.header.descrip)
+            .starts_with("Brainflow segmentation r1; ref frame 2 (0-based)"));
+        assert_eq!(export.header.dim[..4], [3, 5, 3, 7]);
+
+        state
+            .modules
+            .dispose_workspace(&state, &access(&painted).workspace)
+            .await
+            .unwrap();
+        let registry = state.volume_registry.lock().await;
+        assert!(
+            !registry.contains(&display),
+            "the frozen frame is reclaimed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_4d_secondary_contrast_uses_its_chosen_frame() {
+        use volmath::DenseNeuroVec;
+        let state = tokio::task::spawn_blocking(state).await.unwrap();
+        let space = NeuroSpace::new(
+            vec![5, 3, 7, 3],
+            Some(vec![0.4, 2.0, 0.4, 1.0]),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut series = DenseNeuroVec::zeros(space).unwrap();
+        series.data[[0, 0, 0, 1]] = 5.0;
+        state.volume_registry.lock().await.insert(
+            "secondary-series".into(),
+            VolumeSendable::Vec4DF32(series),
+            VolumeMetadataInfo {
+                name: "Synthetic secondary series".into(),
+                path: "memory:secondary-series".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::TimeSeries4D,
+                time_series_info: None,
+            },
+        );
+        let mut request = setup();
+        request.secondary_volume_id = Some("secondary-series".into());
+        request.registration = Some(bf_segmentation::Registration::Aligned {
+            confirmer: "rater-a".into(),
+            confirmed_at_ms: 1.0,
+            transform_hash: "fixture".into(),
+            view: [0.0; 12],
+        });
+        assert!(create(&state, request.clone()).await.is_err());
+        request.secondary_frame = Some(1);
+        let created = create(&state, request).await.unwrap();
+        assert_eq!(created.snapshot.secondary_frame, Some(1));
+        assert_eq!(created.reference_display_volume_id, "reference");
+        let display = created.secondary_display_volume_id.unwrap();
+        let registry = state.volume_registry.lock().await;
+        let VolumeSendable::VolF32(volume, _) = registry.get(&display).unwrap() else {
+            panic!("the frozen secondary frame is 3D f32")
+        };
+        assert_eq!(volume.get_at_coords(&[0, 0, 0]), Some(5.0));
+        assert_eq!(
+            registry
+                .get_entry("secondary-series")
+                .unwrap()
+                .document_references,
+            1
         );
     }
 }

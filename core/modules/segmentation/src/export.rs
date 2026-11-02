@@ -140,12 +140,28 @@ pub fn resolve_destination(picked: &Path) -> Result<PathBuf> {
 }
 
 impl Session {
+    /// NIfTI `descrip` provenance (at most 80 bytes): the revision and, for 4D
+    /// sources, the zero-based frame of the reference and secondary images.
+    pub fn export_description(&self) -> String {
+        let mut text = format!("Brainflow segmentation r{}", self.revision);
+        if let Some(frame) = self.setup.reference_frame {
+            text.push_str(&format!("; ref frame {frame}"));
+        }
+        if let Some(frame) = self.setup.secondary_frame {
+            text.push_str(&format!("; sec frame {frame}"));
+        }
+        if self.setup.reference_frame.is_some() || self.setup.secondary_frame.is_some() {
+            text.push_str(" (0-based)");
+        }
+        text
+    }
+
     /// Copy the accepted document at `owner.base_revision`. A stale owner or
     /// revision is refused, so the file is exactly what the caller displayed.
     pub fn export(&self, owner: &Operation) -> Result<LabelExport> {
         self.check(owner)?;
         let mut header = self.header().clone();
-        let description = format!("Brainflow segmentation labels, revision {}", self.revision);
+        let description = self.export_description();
         header
             .set_description(description.as_bytes())
             .map_err(|e| Error::Invalid(e.to_string()))?;

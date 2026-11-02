@@ -10,4 +10,13 @@ export type SegmentationSessionSetup = {
     labels: Array<SegmentationLabelDefinition>;
     secondaryVolumeId: string | null;
     registration: SegmentationRegistration | null;
+    /**
+     * Zero-based volume of a 4D reference the grid is traced on; `None`
+     * for a single 3D reference. Required for a multi-frame reference.
+     */
+    referenceFrame: number | null;
+    /**
+     * Zero-based volume of a 4D secondary contrast; `None` for 3D.
+     */
+    secondaryFrame: number | null;
 };

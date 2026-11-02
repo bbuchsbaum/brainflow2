@@ -24,6 +24,7 @@ architecture plan or qualify segmentation for preview/stable use.
   reference/secondary images stay retained and cannot be removed or evicted while
   their document remains open, including while the module is disabled.
 
+- 4D reference/secondary inputs traced on one explicit frame (see limits below).
 - Save labels as NIfTI (Inspector, Session section): `segmentation_save_labels`
   copies the accepted revision the tab displays (a stale owner or revision is
   refused and the tab adopts the current document), then opens the native save
@@ -76,7 +77,16 @@ paint latency have not been qualified. The M1/M2 native interaction acceptance
 gates remain open. Keep the module experimental and off by default.
 
 Sessions are in memory and have no recovery after process exit. Reference and
-secondary inputs must be single 3D volumes. Label storage, export and display
+secondary inputs are single 3D volumes or one explicit frame of a 4D series,
+chosen at setup (zero based, defaulting to the layer's current t). The grid and
+affine come from the 4D NeuroSpace's spatial part (origin from the transform's
+last column); the chosen frame is copied into a session-owned 3D volume, so the
+shared time cursor never changes the traced image, and the copy is reclaimed
+with the document. The 4D source stays pinned like any source. The session
+snapshot, Inspector and footer show the frames, and the saved header's
+`descrip` records them (`ref frame t`, `sec frame t`, 0-based) with the export
+reduced to 3D. The setup preview renders one frame for both images; when a 4D
+reference and a 4D secondary use different frames it says which it shows. Label storage, export and display
 cover every u16 label id (1–65535): the categorical LUT tiles each palette over
 32 rows of 2048 texels (`COLORMAP_LUT_ROWS`), id k at texel (k mod 2048,
 k / 2048), with continuous colormaps on row 0. This costs about 20 MiB of GPU

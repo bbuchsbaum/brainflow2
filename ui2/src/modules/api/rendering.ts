@@ -42,11 +42,28 @@ export async function ensureModuleLabelLayer(options: {
   }, options.workspaceId);
 }
 
-/** Render a supplied world plane from this workspace's selected volume layers. */
+/** Attach an already registered image volume (for example a module-owned
+ * frozen frame of a 4D series) as an ordinary, initially hidden layer. */
+export async function ensureModuleImageLayer(options: {
+  workspaceId: string; volumeId: string; title: string; isCurrent(): boolean;
+}): Promise<void> {
+  if (!options.isCurrent()) return;
+  if (!useLayerStore.getState().getLayer(options.volumeId)) {
+    await getLayerService().addLayer({
+      volumeId: options.volumeId, name: options.title, type: 'anatomical', visible: false, order: 0,
+    }, { workspaceId: options.workspaceId, isCurrent: options.isCurrent, autoSelect: () => false });
+  }
+  if (!options.isCurrent()) return;
+  await ensureModuleVolumeResident(options.workspaceId, options.volumeId, options.isCurrent);
+}
+
+/** Render a supplied world plane from this workspace's selected volume layers.
+ * `timepoint` selects the frame of 4D layers for this render only. */
 export async function renderModulePlane(options: {
   workspaceId: string; context: RenderContext; plane: ViewPlane;
   volumeIds: readonly string[]; opacity?: Readonly<Record<string, number>>;
   layerOverrides?: Readonly<Record<string, Partial<Pick<ViewLayer, 'visible' | 'opacity' | 'outline' | 'labelDisplay'>>>>;
+  timepoint?: number;
   isCurrent(): boolean;
 }): Promise<void> {
   const view = useViewStateStore.getState().workspaceViewStates.get(options.workspaceId);
@@ -61,7 +78,7 @@ export async function renderModulePlane(options: {
   target.setRendering(options.context.id, true); target.setError(options.context.id, null);
   try {
     const bitmap = await getApiService().renderViewState({
-      ...view, views: { ...view.views, axial: options.plane },
+      ...view, views: { ...view.views, axial: options.plane }, timepoint: options.timepoint ?? view.timepoint,
       layers: layers.map((layer) => ({ ...layer, visible: true, ...options.layerOverrides?.[layer.volumeId], opacity: options.opacity?.[layer.volumeId] ?? options.layerOverrides?.[layer.volumeId]?.opacity ?? layer.opacity })),
     }, 'axial', options.plane.dim_px[0], options.plane.dim_px[1]);
     if (!options.isCurrent()) { bitmap.close(); return; }

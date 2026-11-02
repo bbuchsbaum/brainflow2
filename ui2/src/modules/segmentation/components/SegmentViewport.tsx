@@ -4,8 +4,8 @@ import type { SegmentationPreview, SegmentationSlice, SegmentationStroke } from 
 import { Button, EmptyPane, IconButton } from '@/components/ui/bf';
 import { ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
 import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
-import { ensureModuleLabelLayer, renderModulePlane, resizeZoomedPlane, setModuleCrosshair, useWorkspaceRenderState, zoomPanPlane, type RenderContext, type SliceViewportPlacement, type ViewPlane } from '@/modules/api/rendering';
-import { commitSegmentationStroke, getSegmentationSession, reconcileSegmentationSession, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
+import { ensureModuleImageLayer, ensureModuleLabelLayer, renderModulePlane, resizeZoomedPlane, setModuleCrosshair, useWorkspaceRenderState, zoomPanPlane, type RenderContext, type SliceViewportPlacement, type ViewPlane } from '@/modules/api/rendering';
+import { commitSegmentationStroke, getSegmentationSession, reconcileSegmentationSession, segmentationFrames, segmentationSaveState, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
 import { bindSegmentationViewport } from '@/modules/segmentation/toolBindings';
 import { drawTracingOverlay, nativeSliceAtWorld, tracingClearance } from '@/modules/segmentation/components/shared/TracingOverlay';
 import { ConstraintStripView } from '@/modules/segmentation/components/shared/ConstraintStripView';
@@ -38,6 +38,13 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const state = useRef(session); state.current = session;
   const active = session?.info?.snapshot;
   const labelVolumeId = session?.info?.labelVolumeId, paletteId = session?.info?.paletteId, identity = session?.document;
+  // A 4D source is displayed from its session-owned frozen frame, never the shared time cursor.
+  const referenceDisplayId = session?.info?.referenceDisplayVolumeId, secondaryDisplayId = session?.info?.secondaryDisplayVolumeId ?? null;
+  const frameLayers = useMemo(() => [
+    referenceDisplayId && active && referenceDisplayId !== active.referenceVolumeId ? { volumeId: referenceDisplayId, title: `Segmentation reference · frame ${active.referenceFrame}` } : null,
+    secondaryDisplayId && active && secondaryDisplayId !== active.secondaryVolumeId ? { volumeId: secondaryDisplayId, title: `Segmentation secondary · frame ${active.secondaryFrame}` } : null,
+  ].filter((layer): layer is { volumeId: string; title: string } => layer !== null), [referenceDisplayId, secondaryDisplayId, active]);
+  const frameLayerKey = JSON.stringify(frameLayers);
   const maxLabel = Math.max(1, ...(active?.labels.map((row) => row.definition.id) ?? []));
   const stroke = useRef<Omit<SegmentationStroke, 'owner'> | null>(null);
   const previewFrame = useRef<number | null>(null);
@@ -53,7 +60,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const stablePlane = useRef<ViewPlane | null>(null);
   if (JSON.stringify(stablePlane.current) !== JSON.stringify(candidatePlane)) stablePlane.current = candidatePlane;
   const plane = stablePlane.current;
-  const sourceId = contrast === 'secondary' && active?.registration?.status === 'aligned' ? active.secondaryVolumeId ?? active.referenceVolumeId : active?.referenceVolumeId;
+  const sourceId = contrast === 'secondary' && active?.registration?.status === 'aligned' ? secondaryDisplayId ?? referenceDisplayId : referenceDisplayId;
   const frameKey = JSON.stringify([plane, sourceId]);
   ready.current = Boolean(isFront && session && slice && slice.revision === active?.revision && layerReady && renderedFrame === frameKey && !displayError && !session.info?.renderError);
   const context = useMemo<RenderContext>(() => ({ id: `segmentation-${workspaceId}-primary`, type: 'slice', dimensions: { width: size[0], height: size[1] }, metadata: { workspaceId }, viewPlane: plane ?? undefined }), [workspaceId, size, plane]);
@@ -73,10 +80,12 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
     const lease = captureActiveWorkspace();
     const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent() && isLiveDocument(identity);
     setLayerReady(false);
-    void ensureModuleLabelLayer({ workspaceId, volumeId: labelVolumeId, kind: 'segmentation.editable-label', title: 'Segmentation labels', paletteId, maxLabel, isCurrent: current })
-      .then(() => { if (current()) setLayerReady(true); }).catch((error) => { if (current()) setDisplayError(text(error)); });
+    void (async () => {
+      for (const frame of JSON.parse(frameLayerKey) as { volumeId: string; title: string }[]) await ensureModuleImageLayer({ workspaceId, ...frame, isCurrent: current });
+      await ensureModuleLabelLayer({ workspaceId, volumeId: labelVolumeId, kind: 'segmentation.editable-label', title: 'Segmentation labels', paletteId, maxLabel, isCurrent: current });
+    })().then(() => { if (current()) setLayerReady(true); }).catch((error) => { if (current()) setDisplayError(text(error)); });
     return () => { disposed = true; };
-  }, [workspaceId, labelVolumeId, paletteId, identity, maxLabel, attempt, isFront]);
+  }, [workspaceId, labelVolumeId, paletteId, identity, maxLabel, attempt, isFront, frameLayerKey]);
   useEffect(() => {
     const record = getSegmentationSession(workspaceId);
     if (!isFront || !record || !active?.sessionId) return;
@@ -195,8 +204,8 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
       <NativeSliceRuler snapshot={active} activeId={session.activeLabelId} current={session.sliceIndex} onPick={(sliceIndex) => { if (!session.busy) patch({ sliceIndex }); }} />
-      {layerReady ? <ContextViews workspaceId={workspaceId} snapshot={active} labelVolumeId={session.info.labelVolumeId} sliceIndex={session.sliceIndex} activeLabelId={session.activeLabelId} activeHidden={session.hiddenLabelIds.includes(session.activeLabelId)} /> : null}
+      {layerReady ? <ContextViews workspaceId={workspaceId} snapshot={active} referenceVolumeId={session.info.referenceDisplayVolumeId} labelVolumeId={session.info.labelVolumeId} sliceIndex={session.sliceIndex} activeLabelId={session.activeLabelId} activeHidden={session.hiddenLabelIds.includes(session.activeLabelId)} /> : null}
     </div>
-    <footer className="border-t border-bf-border-subtle px-3 py-1 font-mono text-bf-2xs text-bf-text-muted">{active.identity.subject} · {active.identity.hemisphere} · {active.identity.rater} · revision {active.revision} · unsaved{active.sourceHeaderOriginal ? '' : ' · derived grid: no original NIfTI header'} · ⌥/pinch zoom · Space-drag pan</footer>
+    <footer className="border-t border-bf-border-subtle px-3 py-1 font-mono text-bf-2xs text-bf-text-muted">{active.identity.subject} · {active.identity.hemisphere} · {active.identity.rater} · revision {active.revision} · {segmentationSaveState(session)}{segmentationFrames(active) ? ` · ${segmentationFrames(active)}` : ''}{active.sourceHeaderOriginal ? '' : ' · derived grid: no original NIfTI header'} · ⌥/pinch zoom · Space-drag pan</footer>
   </div>;
 }

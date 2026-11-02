@@ -29,6 +29,7 @@ vi.mock('@/modules/segmentation/session', () => ({
   getSegmentationSession: () => ({ controller: { slice: state.slice, preview: state.preview, cancelPreview: vi.fn() } }),
   reconcileSegmentationSession: async () => {}, setSegmentationPresentation: vi.fn(),
   commitSegmentationStroke: (...args: unknown[]) => state.commit(...args),
+  segmentationSaveState: () => 'unsaved', segmentationFrames: () => '',
 }));
 vi.mock('@/modules/segmentation/toolBindings', () => ({ bindSegmentationViewport: (_id: string, pointer: ViewportTool) => { state.pointer = pointer; return () => pointer.cancel('unmount'); } }));
 vi.mock('@/modules/segmentation/components/ContextViews', () => ({ ContextViews: () => null }));

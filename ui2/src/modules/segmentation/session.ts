@@ -105,6 +105,16 @@ export class SegmentationSessionController {
   }
 }
 
+/** Save state of the displayed labels against this tab's last save (label revision). */
+export function segmentationSaveState(presentation: SegmentationPresentation): 'unsaved' | 'saved' | 'changed since the last save' {
+  const snapshot = presentation.info?.snapshot, saved = presentation.lastSave;
+  if (!snapshot || !saved || saved.sessionId !== snapshot.sessionId) return 'unsaved';
+  return saved.labelRevision === snapshot.labelRevision ? 'saved' : 'changed since the last save';
+}
+/** Plain-language frame provenance, e.g. "reference frame t = 3"; empty for 3D sources. */
+export function segmentationFrames(snapshot: { referenceFrame: number | null; secondaryFrame: number | null }): string {
+  return [snapshot.referenceFrame != null ? `reference frame t = ${snapshot.referenceFrame}` : '', snapshot.secondaryFrame != null ? `secondary frame t = ${snapshot.secondaryFrame}` : ''].filter(Boolean).join(' · ');
+}
 export function getSegmentationSession(workspaceId: string): SegmentationRecord | null { return records.get(workspaceId) ?? null; }
 export function useSegmentationSession(workspaceId: string): SegmentationPresentation | null {
   return useSyncExternalStore((listener) => {
