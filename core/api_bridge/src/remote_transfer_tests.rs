@@ -13,9 +13,10 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use rand_core::OsRng;
 use russh::keys::PrivateKey;
-use russh::server::{self, Auth, Config, Msg, RunningServerHandle, Server as _, Session};
+use russh::server::{
+    self, Auth, ChannelOpenHandle, Config, Msg, RunningServerHandle, Server as _, Session,
+};
 use russh::{Channel, ChannelId};
 use russh_sftp::protocol::{
     Attrs, Data, File, FileAttributes, Handle, Name, OpenFlags, Status, StatusCode,
@@ -92,11 +93,13 @@ impl server::Handler for SftpSshSession {
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
+        reply: ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<(), Self::Error> {
         self.channel_opens.fetch_add(1, Ordering::SeqCst);
         self.channels.lock().await.insert(channel.id(), channel);
-        Ok(true)
+        reply.accept().await;
+        Ok(())
     }
 
     async fn subsystem_request(
@@ -297,7 +300,7 @@ async fn spawn_sftp_server(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_transfer_real_sftp_success_cancel_stall_and_retry() {
     let server = spawn_sftp_server(
-        PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519).unwrap(),
+        PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).unwrap(),
         Arc::new(AtomicUsize::new(0)),
         Arc::new(AtomicUsize::new(0)),
     )
@@ -399,7 +402,7 @@ async fn remote_transfer_real_sftp_success_cancel_stall_and_retry() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_headers_stream_only_the_start_of_gzipped_files() {
     let server = spawn_sftp_server(
-        PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519).unwrap(),
+        PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).unwrap(),
         Arc::new(AtomicUsize::new(0)),
         Arc::new(AtomicUsize::new(0)),
     )
