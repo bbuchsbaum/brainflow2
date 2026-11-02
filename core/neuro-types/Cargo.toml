@@ -2,6 +2,7 @@
 name = "neuro-types"
 version = "0.1.0"
 edition = "2021"
+publish = false
 description = "Canonical type definitions for neuroimaging slice extraction and rendering"
 
 [dependencies]

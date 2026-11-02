@@ -2,6 +2,7 @@
 name = "brainflow-loaders"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [lib]
 path = "mod.rs" # Explicitly point to mod.rs as the library entry point

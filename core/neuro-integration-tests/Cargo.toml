@@ -2,6 +2,7 @@
 name = "neuro-integration-tests"
 version = "0.1.0"
 edition = "2021"
+publish = false
 description = "Integration tests for CPU/GPU differential testing"
 
 [dependencies]

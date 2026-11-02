@@ -34,7 +34,10 @@ if command_exists cargo; then
         # Check for security vulnerabilities
         if command_exists cargo-audit; then
             echo "🔒 Running security audit..."
-            cargo audit --deny warnings
+            # Vulnerabilities fail the check; unmaintained/unsound warnings are
+            # reported but don't, since most arrive through crates we can't
+            # replace (accepted ones are listed in .cargo/audit.toml).
+            cargo audit
             echo "✅ No security vulnerabilities found"
         else
             echo "⚠️  cargo-audit not installed, skipping security check"

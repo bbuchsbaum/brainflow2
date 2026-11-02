@@ -2,6 +2,7 @@
 name = "bf_analysis"
 version = "0.1.0"
 edition = "2021"
+publish = false
 description = "Analysis module domain logic: manifests, registry, jobs and runners. No Tauri."
 
 # Transport-neutral: this crate must not depend on `api-bridge` or Tauri. The bridge

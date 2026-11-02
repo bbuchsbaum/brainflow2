@@ -2,6 +2,7 @@
 name = "api-bridge"
 version = "0.1.0"
 edition = "2021"
+publish = false
 links = "api-bridge"
 
 [lib]

@@ -24,43 +24,37 @@ targets = [
 feature-depth = 1
 
 [advisories]
-# The path where the advisory database is cloned/fetched into
+# cargo-deny's v2 advisory schema: vulnerabilities always fail; there are no
+# per-kind lint levels. cargo audit (with .cargo/audit.toml) is the primary
+# gate; keep this ignore list in step with that file.
+version = 2
 db-path = "~/.cargo/advisory-db"
-# The url(s) of the advisory databases to use
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# The lint level for security vulnerabilities
-vulnerability = "deny"
-# The lint level for unmaintained crates
-unmaintained = "warn"
-# The lint level for crates that have been yanked from their source registry
+# Unmaintained crates fail only when a workspace member depends on them
+# directly; transitive ones are reported by cargo audit instead.
+unmaintained = "workspace"
 yanked = "warn"
-# The lint level for crates with security notices. Note that as of
-# 2019-12-17 there are no security notice advisories in
-# https://github.com/rustsec/advisory-db
-notice = "warn"
-# A list of advisory IDs to ignore. Note that ignored advisories will still
-# output a note when they are encountered.
 ignore = [
-    # Ignore specific advisories if needed
-    # "RUSTSEC-0000-0000",
+    "RUSTSEC-2023-0071", # rsa: no fix; see .cargo/audit.toml
+    "RUSTSEC-2024-0429", # glib (GTK3)
+    "RUSTSEC-2024-0370", # proc-macro-error (GTK3, build time)
+    "RUSTSEC-2025-0075", # unic-char-range
+    "RUSTSEC-2025-0080", # unic-common
+    "RUSTSEC-2025-0081", # unic-char-property
+    "RUSTSEC-2025-0098", # unic-ucd-version
+    "RUSTSEC-2025-0100", # unic-ucd-ident
+    "RUSTSEC-2025-0057", # fxhash (build time)
+    "RUSTSEC-2026-0097", # rand 0.7 (build time)
+    "RUSTSEC-2024-0436", # paste (compile time)
 ]
-# Threshold for security vulnerabilities, any vulnerability with a CVSS score
-# lower than this value will be ignored. Note that ignored advisories will still
-# output a note when they are encountered.
-# * None - CVSS Score 0.0
-# * Low - CVSS Score 0.1 - 3.9
-# * Medium - CVSS Score 4.0 - 6.9
-# * High - CVSS Score 7.0 - 8.9
-# * Critical - CVSS Score 9.0 - 10.0
-severity-threshold = "low"
 
 [licenses]
-# The confidence threshold for detecting a license from a license text.
-# The higher the value, the more closely the license text must match the
-# canonical license text of a valid SPDX license file.
-# Minimum 0.0, maximum 1.0
+# v2 schema: a license is accepted only if it is in `allow`; everything else
+# (including the GPL/AGPL/LGPL family previously listed under `deny`) fails.
+version = 2
 confidence-threshold = 0.8
-# List of explicitly allowed licenses
+# Workspace crates are unpublished (publish = false) and carry no license field.
+private = { ignore = true }
 allow = [
     "MIT",
     "Apache-2.0",
@@ -69,40 +63,14 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "bzip2-1.0.6",
     "CC0-1.0",
     "MPL-2.0",
     "Zlib",
     "Unlicense",
 ]
-# List of explicitly disallowed licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-1.0",
-    "AGPL-3.0",
-    "LGPL-2.0",
-    "LGPL-2.1",
-    "LGPL-3.0",
-    "EUPL-1.0",
-    "EUPL-1.1",
-    "EUPL-1.2",
-    "CECILL-2.0",
-    "CECILL-2.1",
-    "CECILL-B",
-    "CECILL-C",
-]
-# Lint level for when multiple versions of the same project are detected
-copyleft = "warn"
-# Confidence threshold for detecting a license from a license text.
-# The higher the value, the more closely the license text must match the
-# canonical license text of a valid SPDX license file.
-# The above confidence-threshold takes precedence over this.
-default = "deny"
-# The confidence threshold for detecting a license from a license text.
-# If the license text is not recognized with the above confidence level,
-# this one will be used instead.
-threshold = 0.8
-# List of crates to explicitly allow regardless of license
 exceptions = [
     # Allow specific crates with unclear licensing if needed
     # { allow = ["example-crate"], name = "example" },
@@ -147,7 +115,6 @@ allow = [
 deny = [
     # Deny known problematic crates
     { name = "openssl", wrappers = ["openssl-sys"] },
-    { name = "proc-macro-error" }, # Known to have issues
     { name = "stdweb" }, # Deprecated in favor of web-sys
     { name = "failure" }, # Deprecated in favor of thiserror/anyhow
 ]
@@ -164,25 +131,15 @@ skip-tree = [
 ]
 
 [sources]
-# Lint level for what to happen when a crate from a crate registry that is
-# not in the allow list is encountered
 unknown-registry = "warn"
-# Lint level for what to happen when a crate from a git repository that is not
-# in the allow list is encountered
 unknown-git = "warn"
-# Lint level for what to happen when a crate from a local path that is not in
-# the allow list is encountered
-local = "allow"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/tauri-apps/tauri",
+    "https://github.com/gfx-rs/wgpu",
+    "https://github.com/dimforge/nalgebra",
+]
 
-[sources.allow-registry]
-# List of URLs for allowed registries. Defaults to the crates.io index
-# if not specified. If it is specified but empty, no registries are allowed.
-"https://github.com/rust-lang/crates.io-index" = true
-
-[sources.allow-git]
-# List of URLs for allowed Git repositories
-"https://github.com/tauri-apps/tauri" = true
-"https://github.com/gfx-rs/wgpu" = true
-"https://github.com/dimforge/nalgebra" = true
-# Allow local neuroatlas development
-"https://github.com/bbuchsbaum/neuroatlas-rs" = true
+[sources.allow-org]
+# The project's own crates (neuroatlas-rs, neurosurf-rs, gifti-rs, remotely, ...).
+github = ["bbuchsbaum"]
