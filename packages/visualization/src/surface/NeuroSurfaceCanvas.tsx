@@ -1,5 +1,10 @@
 import { isSurfaceCameraState, type SurfaceCameraState } from './cameraState.js';
 import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
+import {
+  hasRenderableGeometry,
+  resolvePresetHemispheres,
+  surfaceHemisphere as hemisphereOf,
+} from './presetHemisphere.js';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   NeuroSurfaceViewer,
@@ -93,15 +98,6 @@ interface OriginalGeometry {
   faces: Uint32Array;
 }
 
-function hasRenderableGeometry(surface: SurfaceRenderable): boolean {
-  return Boolean(
-    surface.geometry.vertices &&
-      surface.geometry.faces &&
-      surface.geometry.vertices.length > 0 &&
-      surface.geometry.faces.length > 0,
-  );
-}
-
 function applySmoothingToRenderedSurface(
   renderedSurface: MultiLayerNeuroSurface,
   original: OriginalGeometry,
@@ -160,29 +156,6 @@ function applyCurvature(
   if (renderedSurface.getCurvatureLayer()) {
     renderedSurface.showCurvature(usable && show);
   }
-}
-
-/** Left / right from a surface's hemisphere field, else null. */
-function hemisphereOf(item: SurfaceRenderable | undefined): 'left' | 'right' | null {
-  const value = String(item?.geometry.hemisphere ?? '').trim().toLowerCase();
-  if (value === 'left' || value === 'lh' || value === 'l') return 'left';
-  if (value === 'right' || value === 'rh' || value === 'r') return 'right';
-  return null;
-}
-
-/**
- * The hemisphere presets aim at: the requested one when a left and a right
- * mesh are both drawn (left when none is requested), else the one drawn
- * hemisphere, else null (no drawn mesh names one).
- */
-function resolvePresetHemisphere(
-  drawn: ReadonlySet<'left' | 'right' | null>,
-  requested: 'left' | 'right' | undefined,
-): 'left' | 'right' | null {
-  if (drawn.has('left') && drawn.has('right')) return requested ?? 'left';
-  if (drawn.has('left')) return 'left';
-  if (drawn.has('right')) return 'right';
-  return null;
 }
 
 /**
@@ -323,23 +296,12 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
   }, [surfaces]);
 
   // Presets are hemisphere-relative; with lh and rh both drawn, Medial shows
-  // one hemisphere and hides the other.
-  const drawnHemispheres = useMemo(
-    () =>
-      new Set(
-        surfacesToRender
-          .filter((item) => item.visible !== false && hasRenderableGeometry(item))
-          .map(hemisphereOf),
-      ),
-    [surfacesToRender],
+  // one hemisphere and hides the other. Refs are written during render (as
+  // viewpointRef above) for the effects and the exporter that read them.
+  const { aim: presetHemisphere, hidden: hiddenHemisphere } = useMemo(
+    () => resolvePresetHemispheres(surfacesToRender, viewpoint, viewHemisphere),
+    [surfacesToRender, viewpoint, viewHemisphere],
   );
-  const presetHemisphere = resolvePresetHemisphere(drawnHemispheres, viewHemisphere);
-  const hiddenHemisphere: 'left' | 'right' | null =
-    viewpoint === 'medial' && drawnHemispheres.has('left') && drawnHemispheres.has('right')
-      ? presetHemisphere === 'left'
-        ? 'right'
-        : 'left'
-      : null;
   const presetHemisphereRef = useRef(presetHemisphere);
   presetHemisphereRef.current = presetHemisphere;
   const hiddenHemisphereRef = useRef(hiddenHemisphere);
@@ -402,8 +364,12 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       const inputs = renderedSurfaceInputsRef.current;
       const shown = handles.filter((h) => inputs.get(h)?.visible !== false);
       // The current camera is captured as drawn: a mesh the Medial preset
-      // hides stays hidden (the anatomical poses frame each hemisphere).
-      const presetHidden = pose.view === 'current' ? hiddenHemisphereRef.current : null;
+      // hides stays out unless the pose asks for that hemisphere by name
+      // (shown for the capture, then hidden again like every other mesh).
+      const presetHidden =
+        pose.view === 'current' && (!pose.hemisphere || pose.hemisphere === 'both')
+          ? hiddenHemisphereRef.current
+          : null;
       const targets = shown.filter((h) => {
         const hemi = hemisphereOf(inputs.get(h));
         if (presetHidden && hemi === presetHidden) return false;
@@ -866,19 +832,28 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     }
   }, [isInitialized, surfacesToRender, projectionSettings.useGPUProjection]);
 
-  // A preset, or the shown hemisphere of Medial changing (another surface
-  // made active, a hemisphere loaded or removed), re-aims and refits. The
-  // fit runs after the hide so it frames only the hemisphere shown.
+  // The preset's hide always follows the scene. The camera re-aims and refits
+  // only for a preset (or one pressed again) and for Medial switching which
+  // hemisphere it shows; a hemisphere arriving or leaving under Medial keeps
+  // the user's camera. The fit runs after the hide so it frames the shown side.
+  const appliedPresetRef = useRef<{
+    viewpoint: string;
+    nonce: number | undefined;
+    hidden: 'left' | 'right' | null;
+  } | null>(null);
   useEffect(() => {
-    if (viewerRef.current && renderedSurfacesRef.current.size > 0) {
-      applyPresetVisibility(
-        renderedSurfacesRef.current,
-        renderedSurfaceInputsRef.current,
-        hiddenHemisphereRef.current,
-      );
-      if (!setCenteredViewpoint(viewerRef.current, viewpoint, presetHemisphereRef.current)) {
-        warn(`Preset "${viewpoint}" found no visible mesh bounds to fit`);
-      }
+    const applied = appliedPresetRef.current;
+    appliedPresetRef.current = { viewpoint, nonce: viewpointNonce, hidden: hiddenHemisphere };
+    const viewer = viewerRef.current;
+    if (!viewer || renderedSurfacesRef.current.size === 0) return;
+    applyPresetVisibility(renderedSurfacesRef.current, renderedSurfaceInputsRef.current, hiddenHemisphere);
+    const refit =
+      !applied ||
+      applied.viewpoint !== viewpoint ||
+      applied.nonce !== viewpointNonce ||
+      (applied.hidden !== null && hiddenHemisphere !== null && applied.hidden !== hiddenHemisphere);
+    if (refit && !setCenteredViewpoint(viewer, viewpoint, presetHemisphereRef.current)) {
+      warn(`Preset "${viewpoint}" found no visible mesh bounds to fit`);
     }
   }, [viewpoint, viewpointNonce, hiddenHemisphere, warn]);
 
@@ -976,6 +951,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         const nearest = findLinkedVertex(markerSurfaceHandles ? snapSurfaces.filter((surface) => markerSurfaceHandles.includes(surface.handle)) : snapSurfaces, markerWorldPosition, cursorAnatomy);
         // A crosshair nearest the hemisphere Medial hides has no marker: it
         // would draw through the shown mesh (depthTest is off on purpose).
+        // Near the midline that can hide a crosshair just inside the shown
+        // hemisphere; snapping it across to the shown mesh would mislead more.
         const onHiddenMesh =
           nearest != null &&
           hiddenHemisphere !== null &&

@@ -24,7 +24,7 @@ import { surfaceColorbarLayer } from './surfaceColorbar';
 import { shortLayerLabel } from '../viewportFrame/frameFormat';
 import { OrientationGizmo } from './OrientationGizmo';
 import { useSurfaceCameraStore } from '@/stores/surfaceCameraStore';
-import { medialShownHemisphere } from '@/utils/surfaceIdentity';
+import { resolvePresetHemispheres, surfaceHemisphere } from '@brainflow/visualization/surface/hemisphere';
 
 // Full words where they fit ("L" means left elsewhere in the app); in a
 // narrow pane single letters, the full word in the tooltip and accessible
@@ -56,17 +56,31 @@ export interface SurfaceFrameProps {
   renderSurfaces?: LoadedSurface[];
 }
 
+function lateralHemisphereOf(surface: LoadedSurface): 'left' | 'right' | null {
+  const token = String(surface.metadata.hemisphere ?? surface.geometry.hemisphere ?? '').toLowerCase();
+  if (token === 'left' || token === 'lh' || token === 'l') return 'left';
+  if (token === 'right' || token === 'rh' || token === 'r') return 'right';
+  return null;
+}
+
 /**
  * Header hemisphere: "both" when the drawn scene holds a left and a right
- * mesh, except under Medial, which hides one of them: then the one shown.
+ * mesh, except while the viewer hides one of them (Medial): then the one
+ * shown, from the viewer's own resolver so the two never disagree.
  */
 function sceneHemisphereLabel(
   surface: LoadedSurface,
   renderSurfaces: LoadedSurface[] | undefined,
   viewpoint: string,
 ): string | undefined {
-  const shown = medialShownHemisphere(surface, renderSurfaces);
-  if (shown) return viewpoint === 'medial' ? shown : 'both';
+  const preset = resolvePresetHemispheres(
+    renderSurfaces ?? [surface],
+    viewpoint,
+    surfaceHemisphere(surface) ?? undefined,
+  );
+  if (preset.hidden && preset.aim) return preset.aim;
+  const drawn = new Set((renderSurfaces ?? []).map(lateralHemisphereOf));
+  if (drawn.has('left') && drawn.has('right')) return 'both';
   return surface.metadata.hemisphere;
 }
 

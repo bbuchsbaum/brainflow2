@@ -138,7 +138,7 @@ vi.mock('neurosurface', async () => {
 import { NeuroSurfaceCanvas } from '@brainflow/visualization/surface';
 
 /** A small triangle at x = `x` mm (lh negative, rh positive). */
-function hemi(handle: string, hemisphere: string, x: number): SurfaceRenderable {
+function hemi(handle: string, hemisphere: string | undefined, x: number): SurfaceRenderable {
   return {
     handle,
     geometry: {
@@ -172,6 +172,13 @@ function visibility(): Record<string, boolean> {
 function marker(): { visible: boolean } | undefined {
   return viewers.latest!.scene.getObjectByName('crosshairMarker');
 }
+
+/** The camera calls so far: preset keys asked for and fits run. */
+function cameraCalls() {
+  return { viewpoints: [...viewers.latest!.viewpointCalls], fits: viewers.latest!.fits.length };
+}
+
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
 
 describe('NeuroSurfaceCanvas Medial preset with both hemispheres', () => {
   beforeEach(() => {
@@ -240,17 +247,20 @@ describe('NeuroSurfaceCanvas Medial preset with both hemispheres', () => {
 
   it('hides the cursor marker while the crosshair is in the hidden hemisphere', async () => {
     const view = await mount({ viewpoint: 'medial', markerWorldPosition: [40, 0, 0] });
-    expect(marker()?.visible ?? false).toBe(false);
+    // Never placed: the marker is not created until it has a position.
+    expect(marker()).toBeUndefined();
 
     // Lateral shows rh: the marker sits on it.
     view.rerender(canvas({ viewpoint: 'lateral', markerWorldPosition: [40, 0, 0] }));
-    expect(marker()?.visible).toBe(true);
+    expect(marker()).toBeDefined();
+    expect(marker()!.visible).toBe(true);
 
     // Back to Medial: hidden again, and shown once the crosshair is on lh.
     view.rerender(canvas({ viewpoint: 'medial', markerWorldPosition: [40, 0, 0] }));
-    expect(marker()?.visible).toBe(false);
+    expect(marker()).toBeDefined();
+    expect(marker()!.visible).toBe(false);
     view.rerender(canvas({ viewpoint: 'medial', markerWorldPosition: [-40, 0, 0] }));
-    expect(marker()?.visible).toBe(true);
+    expect(marker()!.visible).toBe(true);
   });
 
   it('a figure capture draws both hemispheres and restores the Medial hide', async () => {
@@ -283,5 +293,92 @@ describe('NeuroSurfaceCanvas Medial preset with both hemispheres', () => {
     });
     expect(viewers.latest!.exportedVisible).toEqual(['lh']);
     expect(visibility()).toEqual({ lh: true, rh: false });
+
+    // The current camera of the hidden hemisphere by name: shown for the
+    // capture, hidden again after.
+    await act(async () => {
+      await exporter!.capturePose!({
+        pose: { view: 'current', hemisphere: 'right' },
+        width: 300,
+        height: 200,
+        transparentBackground: false,
+      });
+    });
+    expect(viewers.latest!.exportedVisible).toEqual(['rh']);
+    expect(visibility()).toEqual({ lh: true, rh: false });
+  });
+
+  it('other presets with both drawn also aim at the requested hemisphere', async () => {
+    const view = await mount({ viewpoint: 'lateral', viewHemisphere: 'right' });
+    // Not surfview's first-added surface (lh): the active one.
+    expect(viewers.latest!.viewpointCalls).toContain('right_lateral');
+    expect(viewers.latest!.viewpointCalls).not.toContain('left_lateral');
+    view.rerender(canvas({ viewpoint: 'dorsal', viewHemisphere: 'right' }));
+    expect(viewers.latest!.viewpointCalls.at(-1)).toBe('right_dorsal');
+    expect(visibility()).toEqual({ lh: true, rh: true });
+  });
+
+  it('removing the shown hemisphere under Medial shows the other one again', async () => {
+    const view = await mount({ viewpoint: 'medial' });
+    expect(visibility()).toEqual({ lh: true, rh: false });
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [RH] }));
+    expect(visibility()).toEqual({ rh: true });
+    expect(viewers.latest!.viewpointCalls.at(-1)).toBe('right_medial');
+    expect(viewers.latest!.fits.at(-1)).toEqual(['rh']);
+  });
+
+  it('removing the hidden hemisphere under Medial leaves the shown one', async () => {
+    const view = await mount({ viewpoint: 'medial' });
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [LH] }));
+    expect(visibility()).toEqual({ lh: true });
+  });
+
+  it('rh becoming drawable under Medial is hidden without moving the camera', async () => {
+    // rh is in the scene before its geometry is ready (same handles throughout).
+    const pending: SurfaceRenderable = {
+      ...RH,
+      geometry: { vertices: new Float32Array(), faces: new Uint32Array(), hemisphere: 'right' },
+    };
+    const view = await mount({ viewpoint: 'medial', surfaces: [LH, pending] });
+    expect(viewers.latest!.viewpointCalls).toContain('left_medial');
+    await nextFrame();
+    const before = cameraCalls();
+
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [LH, RH] }));
+    await nextFrame();
+    expect(visibility()).toEqual({ lh: true, rh: false });
+    expect(cameraCalls()).toEqual(before);
+
+    // rh shown again (visible flag) under Medial: still hidden, camera kept.
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [LH, { ...RH, visible: false }] }));
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [LH, RH] }));
+    await nextFrame();
+    expect(visibility()).toEqual({ lh: true, rh: false });
+    expect(cameraCalls()).toEqual(before);
+
+    // Pressing the preset again still refits.
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [LH, RH], viewpointNonce: 1 }));
+    expect(viewers.latest!.viewpointCalls.length).toBe(before.viewpoints.length + 1);
+  });
+
+  it('hides nothing when a mesh names no hemisphere', async () => {
+    const unnamed = hemi('mesh', undefined, 40);
+    const view = await mount({ viewpoint: 'medial', surfaces: [LH, unnamed] });
+    expect(visibility()).toEqual({ lh: true, mesh: true });
+    expect(viewers.latest!.viewpointCalls.at(-1)).toBe('left_medial');
+
+    // No hemisphere anywhere: the bare preset, surfview's own fallback.
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [hemi('both', 'both', 0)] }));
+    expect(visibility()).toEqual({ both: true });
+    expect(viewers.latest!.viewpointCalls.at(-1)).toBe('medial');
+  });
+
+  it('a marker limited to the hidden mesh hides; one limited to the shown mesh stays', async () => {
+    const view = await mount({ viewpoint: 'medial', markerWorldPosition: [-40, 0, 0], markerSurfaceHandles: ['rh'] });
+    expect(marker()?.visible ?? false).toBe(false);
+
+    view.rerender(canvas({ viewpoint: 'medial', markerWorldPosition: [40, 0, 0], markerSurfaceHandles: ['lh'] }));
+    expect(marker()).toBeDefined();
+    expect(marker()!.visible).toBe(true);
   });
 });

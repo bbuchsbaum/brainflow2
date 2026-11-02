@@ -148,7 +148,13 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
     const surface = makeSurface('mesh');
     surface.geometry.hemisphere = 'both';
     surface.metadata.hemisphere = undefined;
-    render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
+    const view = render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
+    expect(neuroSurfaceCanvasState.latestProps.viewHemisphere).toBeUndefined();
+
+    // The viewer reads the geometry's hemisphere; metadata alone does not aim.
+    const metadataOnly = makeSurface('mesh2', 'right');
+    metadataOnly.geometry.hemisphere = undefined;
+    view.rerender(<SurfaceViewCanvas surface={metadataOnly} surfaceViewId="view-1" width={320} height={240} />);
     expect(neuroSurfaceCanvasState.latestProps.viewHemisphere).toBeUndefined();
   });
 
