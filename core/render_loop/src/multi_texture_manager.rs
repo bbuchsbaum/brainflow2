@@ -5,6 +5,9 @@ use log::{debug, warn};
 use nalgebra::Matrix4;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static NEXT_TEXTURE_MANAGER: AtomicUsize = AtomicUsize::new(1);
 use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, VoxelData};
 use wgpu::{BindGroupLayout, Device, Queue, Texture, TextureView};
 
@@ -33,6 +36,8 @@ pub struct MultiTextureManager {
     mask_textures: HashMap<u32, MaskTextureEntry>,
     /// Next available texture index
     next_index: u32,
+    next_editable_generation: u64,
+    identity: usize,
     /// Maximum number of textures supported
     max_textures: u32,
     /// Texture bind group
@@ -57,6 +62,7 @@ struct TextureEntry {
     world_to_voxel: Matrix4<f32>,
     policy: UploadFormat,
     require_filterable: bool,
+    editable: Option<(u64, u64)>,
 }
 
 struct MaskTextureEntry {
@@ -72,6 +78,32 @@ pub(crate) enum UploadFormat {
     Explicit(wgpu::TextureFormat),
 }
 
+/// A resident editable texture's identity. Generation prevents a late edit from
+/// writing into another volume after its numeric texture slot has been reused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditableTextureHandle {
+    index: u32,
+    generation: u64,
+    manager: usize,
+}
+impl EditableTextureHandle {
+    pub fn texture_index(self) -> u32 {
+        self.index
+    }
+}
+
+/// Tightly packed, x-fastest u16 labels. A partial update must follow the last
+/// uploaded revision; a full-grid replacement may catch up across revisions.
+pub struct LabelRegionUpdate<'a> {
+    pub expected_revision: u64,
+    pub revision: u64,
+    pub origin: [u32; 3],
+    pub dimensions: [u32; 3],
+    pub labels: &'a [u16],
+    /// Global range after the edit, supplied by the authoritative label store.
+    pub data_range: (u16, u16),
+}
+
 impl MultiTextureManager {
     /// Create a new multi-texture manager
     pub fn new(device: &Device, queue: &Queue, max_textures: u32) -> Self {
@@ -79,6 +111,10 @@ impl MultiTextureManager {
             textures: HashMap::new(),
             mask_textures: HashMap::new(),
             next_index: 0,
+            next_editable_generation: 0,
+            identity: NEXT_TEXTURE_MANAGER
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
+                .expect("Texture manager identity exhausted"),
             max_textures,
             bind_group: None,
             dummy_texture: None,
@@ -289,6 +325,7 @@ impl MultiTextureManager {
                 world_to_voxel,
                 policy,
                 require_filterable,
+                editable: None,
             },
         );
 
@@ -672,6 +709,125 @@ impl MultiTextureManager {
         self.bind_group.as_ref()
     }
 
+    pub(crate) fn claim_editable(
+        &mut self,
+        index: u32,
+        revision: u64,
+    ) -> Result<EditableTextureHandle, RenderLoopError> {
+        let entry = self
+            .textures
+            .get_mut(&index)
+            .ok_or_else(|| conversion_error("Editable texture is no longer resident"))?;
+        if entry.format != wgpu::TextureFormat::R32Float {
+            return Err(conversion_error(
+                "Editable labels require exact R32Float storage",
+            ));
+        }
+        let generation = self
+            .next_editable_generation
+            .checked_add(1)
+            .ok_or_else(|| conversion_error("Editable texture generation exhausted"))?;
+        self.next_editable_generation = generation;
+        entry.editable = Some((generation, revision));
+        Ok(EditableTextureHandle {
+            index,
+            generation,
+            manager: self.identity,
+        })
+    }
+
+    pub fn editable_revision(&self, handle: EditableTextureHandle) -> Result<u64, RenderLoopError> {
+        if handle.manager != self.identity {
+            return Err(conversion_error(
+                "Editable texture belongs to another renderer",
+            ));
+        }
+        self.textures
+            .get(&handle.index)
+            .and_then(|entry| entry.editable)
+            .filter(|(generation, _)| *generation == handle.generation)
+            .map(|(_, revision)| revision)
+            .ok_or_else(|| conversion_error("Editable texture was released or replaced"))
+    }
+
+    /// Validate the entire update before enqueueing any GPU write or revision change.
+    pub fn update_label_region(
+        &mut self,
+        queue: &Queue,
+        handle: EditableTextureHandle,
+        update: &LabelRegionUpdate<'_>,
+    ) -> Result<(), RenderLoopError> {
+        let current = self.editable_revision(handle)?;
+        if current != update.expected_revision {
+            return Err(conversion_error(
+                "Label texture revision conflict; a full re-upload is required",
+            ));
+        }
+        let entry = self
+            .textures
+            .get_mut(&handle.index)
+            .expect("validated texture");
+        let full = update.origin == [0; 3] && update.dimensions == entry.dimensions;
+        if update.revision <= current || (!full && current.checked_add(1) != Some(update.revision))
+        {
+            return Err(conversion_error(
+                "Label texture update skips or repeats a revision",
+            ));
+        }
+        let mut count = 1usize;
+        for axis in 0..3 {
+            if update.dimensions[axis] == 0
+                || update.origin[axis]
+                    .checked_add(update.dimensions[axis])
+                    .is_none_or(|end| end > entry.dimensions[axis])
+            {
+                return Err(conversion_error(
+                    "Label texture region is outside the volume",
+                ));
+            }
+            count = count
+                .checked_mul(update.dimensions[axis] as usize)
+                .ok_or_else(|| conversion_error("Label texture region overflows"))?;
+        }
+        if count != update.labels.len()
+            || update.data_range.0 > update.data_range.1
+            || update
+                .labels
+                .iter()
+                .any(|&v| v < update.data_range.0 || v > update.data_range.1)
+        {
+            return Err(conversion_error(
+                "Label texture data or range does not match the region",
+            ));
+        }
+        let values: Vec<f32> = update.labels.iter().map(|&v| f32::from(v)).collect();
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &entry.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: update.origin[0],
+                    y: update.origin[1],
+                    z: update.origin[2],
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&values),
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(update.dimensions[0] * 4),
+                rows_per_image: Some(update.dimensions[1]),
+            },
+            wgpu::Extent3d {
+                width: update.dimensions[0],
+                height: update.dimensions[1],
+                depth_or_array_layers: update.dimensions[2],
+            },
+        );
+        entry.editable = Some((handle.generation, update.revision));
+        Ok(())
+    }
+
     /// Overwrite an existing texture slot with new volume data (dimensions must match).
     pub fn update_volume<T>(
         &mut self,
@@ -697,6 +853,12 @@ impl MultiTextureManager {
                 code: 6003,
                 details: format!("No texture found for index {}", index),
             })?;
+
+        if entry.editable.is_some() {
+            return Err(conversion_error(
+                "Use revisioned region updates for editable labels",
+            ));
+        }
 
         let dims = volume.space().dims();
         if dims[0] as u32 != entry.dimensions[0]
