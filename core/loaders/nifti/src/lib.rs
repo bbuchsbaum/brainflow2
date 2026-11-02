@@ -540,6 +540,69 @@ fn temporal_metadata_from_header(header: &nifti::NiftiHeader) -> TemporalMetadat
     }
 }
 
+/// Header facts the BIDS browser reports per run. `dim` and `pixdim` hold the
+/// used dimensions, without the rank entry and `qfac`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HeaderSummary {
+    pub dim: Vec<u32>,
+    pub pixdim: Vec<f32>,
+    pub qform_code: i16,
+    pub sform_code: i16,
+    pub tr_seconds: Option<f32>,
+    pub n_volumes: Option<u32>,
+}
+
+/// Header-only summary of a NIfTI file. Files this nifti version cannot parse,
+/// NIfTI-2 included, return an error so a dataset scan can carry on.
+pub fn read_header_summary(path: &Path) -> Result<HeaderSummary, NiftiError> {
+    let header = nifti::NiftiHeader::from_file(path)
+        .map_err(|e| NiftiError::ScalingError(format!("Failed to read NIfTI header: {e}")))?;
+    Ok(header_summary(&header))
+}
+
+/// Size of a NIfTI-1 header, the bytes a summary needs.
+const NIFTI1_HEADER_BYTES: usize = 348;
+
+/// Summary from the first bytes of a `.nii` or gzipped NIfTI file. `Ok(None)`
+/// means the prefix ends before the header does, so a streaming reader can stop
+/// as soon as this returns anything else. Files this nifti version cannot
+/// parse, NIfTI-2 included, return an error.
+pub fn header_summary_from_prefix(prefix: &[u8]) -> Result<Option<HeaderSummary>, NiftiError> {
+    use std::io::Read;
+    let mut bytes = [0u8; NIFTI1_HEADER_BYTES];
+    let read = if prefix.starts_with(&[0x1f, 0x8b]) {
+        flate2::read::GzDecoder::new(prefix).read_exact(&mut bytes)
+    } else {
+        { prefix }.read_exact(&mut bytes)
+    };
+    match read {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(e) => {
+            return Err(NiftiError::ScalingError(format!(
+                "Failed to inflate NIfTI header: {e}"
+            )))
+        }
+    }
+    let header = nifti::NiftiHeader::from_reader(&bytes[..])
+        .map_err(|e| NiftiError::ScalingError(format!("Failed to read NIfTI header: {e}")))?;
+    Ok(Some(header_summary(&header)))
+}
+
+fn header_summary(header: &nifti::NiftiHeader) -> HeaderSummary {
+    let rank = (header.dim[0] as usize).clamp(1, 7);
+    let dim: Vec<u32> = header.dim[1..=rank].iter().map(|&d| d as u32).collect();
+    let n_volumes = (rank >= 4).then(|| dim[3..].iter().map(|&d| d.max(1)).product());
+    HeaderSummary {
+        dim,
+        pixdim: header.pixdim[1..=rank].to_vec(),
+        qform_code: header.qform_code,
+        sform_code: header.sform_code,
+        tr_seconds: temporal_metadata_from_header(header).tr_seconds,
+        n_volumes,
+    }
+}
+
 /// Read the statistic intent (`intent_code`, `intent_p1..p3`, `intent_name`)
 /// and the `descrip` string from a NIfTI header (header only, no voxel data),
 /// mirroring [`read_temporal_metadata`]. Returns `None` when the header cannot
@@ -903,6 +966,81 @@ mod tests {
             xyzt_units,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn header_summary_reports_used_dimensions_and_volumes() {
+        let mut header = nifti::NiftiHeader::default();
+        header.dim = [4, 64, 64, 30, 200, 0, 0, 0];
+        header.pixdim = [1.0, 2.4, 2.4, 2.4, 800.0, 0.0, 0.0, 0.0];
+        header.xyzt_units = 2 | 16;
+        header.sform_code = 4;
+        let summary = header_summary(&header);
+        assert_eq!(summary.dim, [64, 64, 30, 200]);
+        assert_eq!(summary.pixdim, [2.4, 2.4, 2.4, 800.0]);
+        assert_eq!(summary.n_volumes, Some(200));
+        assert_eq!(summary.tr_seconds, Some(0.8));
+        assert_eq!(summary.sform_code, 4);
+    }
+
+    #[test]
+    fn header_summary_of_a_3d_file_has_no_volume_count() {
+        let mut header = nifti::NiftiHeader::default();
+        header.dim = [3, 208, 300, 320, 1, 1, 1, 1];
+        let summary = header_summary(&header);
+        assert_eq!(summary.dim, [208, 300, 320]);
+        assert_eq!(summary.n_volumes, None);
+    }
+
+    #[test]
+    fn read_header_summary_returns_an_error_for_an_unparsable_file() {
+        let path = std::env::temp_dir().join(format!("bf-nifti2-{}.nii", uuid::Uuid::new_v4()));
+        let mut bytes = 540i32.to_le_bytes().to_vec();
+        bytes.resize(600, 0);
+        std::fs::write(&path, bytes).unwrap();
+        assert!(read_header_summary(&path).is_err());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn header_summary_from_prefix_stops_at_the_header_of_plain_and_gzip_files() {
+        use std::io::Write;
+        let mut plain = [0u8; NIFTI1_HEADER_BYTES];
+        plain[..4].copy_from_slice(&348i32.to_le_bytes());
+        for (i, dim) in [4i16, 2, 2, 2, 2].iter().enumerate() {
+            plain[40 + 2 * i..42 + 2 * i].copy_from_slice(&dim.to_le_bytes());
+        }
+        plain[92..96].copy_from_slice(&0.8f32.to_le_bytes()); // pixdim[4]
+        plain[123] = 2 | 8; // xyzt_units: mm, seconds
+        plain[344..348].copy_from_slice(b"n+1\0");
+        // Voxel bytes that do not compress, so a prefix is a fraction of the file.
+        let mut state = 0x9e37_79b9u32;
+        let noise = (0..1u32 << 20).map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        });
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&plain).unwrap();
+        encoder.write_all(&noise.collect::<Vec<u8>>()).unwrap();
+        let gz = encoder.finish().unwrap();
+        assert!(gz.len() > 1 << 19);
+
+        let expected = header_summary_from_prefix(&plain).unwrap().unwrap();
+        assert_eq!(expected.dim, [2, 2, 2, 2]);
+        assert_eq!(expected.tr_seconds, Some(0.8));
+        assert_eq!(header_summary_from_prefix(&plain[..347]).unwrap(), None);
+        assert_eq!(
+            header_summary_from_prefix(&gz[..4096]).unwrap(),
+            Some(expected)
+        );
+        assert_eq!(header_summary_from_prefix(&gz[..16]).unwrap(), None);
+        assert_eq!(header_summary_from_prefix(&gz[..2]).unwrap(), None);
+
+        let mut nifti2 = 540i32.to_le_bytes().to_vec();
+        nifti2.resize(NIFTI1_HEADER_BYTES, 0);
+        assert!(header_summary_from_prefix(&nifti2).is_err());
     }
 
     #[test]

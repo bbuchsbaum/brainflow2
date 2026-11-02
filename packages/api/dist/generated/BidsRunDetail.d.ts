@@ -1,0 +1,18 @@
+import type { BidsCheck } from "./BidsCheck";
+export type BidsRunDetail = {
+    run_id: string;
+    /**
+     * One entry per volume; `null` where the confounds file says `n/a`.
+     */
+    fd_trace: Array<number | null>;
+    fd_source: string | null;
+    fd_definition: string | null;
+    fd_filtered: boolean;
+    /**
+     * Ascending 0-based volumes flagged by the same confounds file.
+     */
+    non_steady_volumes: Array<number>;
+    event_checks: Array<BidsCheck>;
+    events_duration: number | null;
+    derivative_checks: Array<BidsCheck>;
+};

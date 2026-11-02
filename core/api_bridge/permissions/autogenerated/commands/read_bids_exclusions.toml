@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-read-bids-exclusions"
+description = "Enables the read_bids_exclusions command without any pre-configured scope."
+commands.allow = ["read_bids_exclusions"]
+
+[[permission]]
+identifier = "deny-read-bids-exclusions"
+description = "Denies the read_bids_exclusions command without any pre-configured scope."
+commands.deny = ["read_bids_exclusions"]

@@ -102,9 +102,19 @@ Default permissions for api-bridge plugin
 - `allow-check-bids-directory`
 - `allow-scan-bids-dataset`
 - `allow-get-bids-events`
+- `allow-scan-bids-browser`
+- `allow-cancel-bids-scan`
+- `allow-get-bids-run-detail`
+- `allow-get-bids-slice`
+- `allow-get-bids-median-slice`
+- `allow-get-bids-carpet`
+- `allow-write-bids-exclusions`
+- `allow-revert-bids-exclusions`
+- `allow-read-bids-exclusions`
+- `allow-get-bids-run-events`
 - `allow-sample-voxel-timeseries`
 - `allow-sample-stack`
-- `allow-compute-temporal-metric`
+- `allow-compute-temporal-metric-plane`
 - `allow-compute-region-stats`
 - `allow-sample-set-at-world`
 - `allow-cancel-population-sample`
@@ -284,6 +294,32 @@ Enables the cancel_analysis command without any pre-configured scope.
 <td>
 
 Denies the cancel_analysis command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-cancel-bids-scan`
+
+</td>
+<td>
+
+Enables the cancel_bids_scan command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-cancel-bids-scan`
+
+</td>
+<td>
+
+Denies the cancel_bids_scan command without any pre-configured scope.
 
 </td>
 </tr>
@@ -544,6 +580,32 @@ Enables the compute_temporal_metric command without any pre-configured scope.
 <td>
 
 Denies the compute_temporal_metric command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-compute-temporal-metric-plane`
+
+</td>
+<td>
+
+Enables the compute_temporal_metric_plane command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-compute-temporal-metric-plane`
+
+</td>
+<td>
+
+Denies the compute_temporal_metric_plane command without any pre-configured scope.
 
 </td>
 </tr>
@@ -941,6 +1003,32 @@ Denies the get_atlas_subscription_count command without any pre-configured scope
 <tr>
 <td>
 
+`api-bridge:allow-get-bids-carpet`
+
+</td>
+<td>
+
+Enables the get_bids_carpet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-bids-carpet`
+
+</td>
+<td>
+
+Denies the get_bids_carpet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-bids-events`
 
 </td>
@@ -960,6 +1048,110 @@ Enables the get_bids_events command without any pre-configured scope.
 <td>
 
 Denies the get_bids_events command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-bids-median-slice`
+
+</td>
+<td>
+
+Enables the get_bids_median_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-bids-median-slice`
+
+</td>
+<td>
+
+Denies the get_bids_median_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-bids-run-detail`
+
+</td>
+<td>
+
+Enables the get_bids_run_detail command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-bids-run-detail`
+
+</td>
+<td>
+
+Denies the get_bids_run_detail command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-bids-run-events`
+
+</td>
+<td>
+
+Enables the get_bids_run_events command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-bids-run-events`
+
+</td>
+<td>
+
+Denies the get_bids_run_events command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-bids-slice`
+
+</td>
+<td>
+
+Enables the get_bids_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-bids-slice`
+
+</td>
+<td>
+
+Denies the get_bids_slice command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2111,6 +2303,32 @@ Denies the query_slice_axis_meta command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-read-bids-exclusions`
+
+</td>
+<td>
+
+Enables the read_bids_exclusions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-read-bids-exclusions`
+
+</td>
+<td>
+
+Denies the read_bids_exclusions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-recalculate-all-views`
 
 </td>
@@ -2553,6 +2771,32 @@ Denies the resize_canvas command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-revert-bids-exclusions`
+
+</td>
+<td>
+
+Enables the revert_bids_exclusions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-revert-bids-exclusions`
+
+</td>
+<td>
+
+Denies the revert_bids_exclusions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-sample-layer-value-at-world`
 
 </td>
@@ -2728,6 +2972,32 @@ Enables the save_image_bytes command without any pre-configured scope.
 <td>
 
 Denies the save_image_bytes command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-scan-bids-browser`
+
+</td>
+<td>
+
+Enables the scan_bids_browser command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-scan-bids-browser`
+
+</td>
+<td>
+
+Denies the scan_bids_browser command without any pre-configured scope.
 
 </td>
 </tr>
@@ -3430,6 +3700,32 @@ Enables the wait_for_layer_ready command without any pre-configured scope.
 <td>
 
 Denies the wait_for_layer_ready command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-write-bids-exclusions`
+
+</td>
+<td>
+
+Enables the write_bids_exclusions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-write-bids-exclusions`
+
+</td>
+<td>
+
+Denies the write_bids_exclusions command without any pre-configured scope.
 
 </td>
 </tr>

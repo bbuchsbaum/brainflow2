@@ -1,0 +1,34 @@
+/**
+ * One row of `derivatives/brainflow/exclusions.tsv`. `scope` is not a TSV
+ * column: it is derived from the entity on read. Each row carries its own
+ * threshold and FD definition, so rows made under different criteria stay
+ * truthful side by side.
+ */
+export type BidsExclusion = {
+    /**
+     * A run id, `sub-XX_ses-YY` or `sub-XX`.
+     */
+    entity: string;
+    /**
+     * `run`, `session` or `participant`.
+     */
+    scope: string;
+    reason: string;
+    criterion: string;
+    value: string;
+    author: string;
+    date: string;
+    source: string;
+    /**
+     * The threshold the criterion used, or empty.
+     */
+    threshold: string;
+    /**
+     * The FD definition behind `value`, or empty.
+     */
+    definition: string;
+    /**
+     * For a session or participant row: the run `value` was measured on.
+     */
+    triggered_by: string;
+};

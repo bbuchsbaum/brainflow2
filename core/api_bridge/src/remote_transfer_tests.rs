@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use rand_core::OsRng;
@@ -25,8 +25,36 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
+use crate::bids_index::remote::RemoteKind;
 use remotely::ssh::AuthMethod;
 use remotely::{ConnectConfig, RemoteClient};
+
+/// A gzipped NIfTI-1 file whose voxels do not compress, served for `*.nii.gz`.
+static GZ_IMAGE: LazyLock<Vec<u8>> = LazyLock::new(|| {
+    use std::io::Write;
+    let mut header = [0u8; 348];
+    header[0..4].copy_from_slice(&348i32.to_le_bytes());
+    for (i, dim) in [4i16, 8, 8, 4, 12].iter().enumerate() {
+        header[40 + 2 * i..42 + 2 * i].copy_from_slice(&dim.to_le_bytes());
+    }
+    header[70..72].copy_from_slice(&16i16.to_le_bytes());
+    header[72..74].copy_from_slice(&32i16.to_le_bytes());
+    header[344..348].copy_from_slice(b"n+1\0");
+    let mut state = 0x9e37_79b9u32;
+    let noise: Vec<u8> = (0..4u32 << 20)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        })
+        .collect();
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    encoder.write_all(&header).unwrap();
+    encoder.write_all(&noise).unwrap();
+    encoder.finish().unwrap()
+});
+static GZ_BYTES_SERVED: AtomicU64 = AtomicU64::new(0);
 
 // ---- mock SSH server that exposes a minimal SFTP subsystem ----
 
@@ -118,22 +146,39 @@ impl russh_sftp::server::Handler for SftpHandler {
     async fn open(
         &mut self,
         id: u32,
-        _path: String,
+        path: String,
         _flags: OpenFlags,
         _attrs: FileAttributes,
     ) -> Result<Handle, Self::Error> {
+        let handle = if path.ends_with(".nii.gz") {
+            "gz"
+        } else {
+            "file"
+        };
         Ok(Handle {
             id,
-            handle: "file".into(),
+            handle: handle.into(),
         })
     }
     async fn read(
         &mut self,
         id: u32,
-        _handle: String,
+        handle: String,
         offset: u64,
         len: u32,
     ) -> Result<Data, Self::Error> {
+        if handle == "gz" {
+            let start = offset as usize;
+            if start >= GZ_IMAGE.len() {
+                return Err(StatusCode::Eof);
+            }
+            let end = (start + len as usize).min(GZ_IMAGE.len());
+            GZ_BYTES_SERVED.fetch_add((end - start) as u64, Ordering::SeqCst);
+            return Ok(Data {
+                id,
+                data: GZ_IMAGE[start..end].to_vec(),
+            });
+        }
         sleep(Duration::from_millis(30)).await;
         if offset >= 1024 * 1024 {
             return Err(StatusCode::Eof);
@@ -194,6 +239,10 @@ impl russh_sftp::server::Handler for SftpHandler {
 
     async fn lstat(&mut self, id: u32, path: String) -> Result<Attrs, Self::Error> {
         self.stat(id, path).await
+    }
+
+    async fn fstat(&mut self, id: u32, _handle: String) -> Result<Attrs, Self::Error> {
+        self.stat(id, String::new()).await
     }
 }
 
@@ -345,4 +394,87 @@ async fn remote_transfer_real_sftp_success_cancel_stall_and_retry() {
     server.shutdown.shutdown("done".into());
     server.join.await.unwrap().unwrap();
     drop(cleanup);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_headers_stream_only_the_start_of_gzipped_files() {
+    let server = spawn_sftp_server(
+        PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519).unwrap(),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let config = ConnectConfig::new(server.addr.ip().to_string(), "fixture")
+        .port(server.addr.port())
+        .auth(AuthMethod::Password("ephemeral-test-only".into()))
+        .connect_timeout(Duration::from_secs(5))
+        .operation_timeout(Duration::from_secs(5))
+        .retry_count(0)
+        .skip_host_key_verification();
+    let client = Arc::new(RemoteClient::connect(config).await.unwrap());
+    let mount = crate::RemoteMountEntry {
+        mount_id: "fixture".into(),
+        local_root: std::env::temp_dir(),
+        remote_root: "/".into(),
+        display_name: "fixture".into(),
+        origin_label: "fixture".into(),
+        host: "127.0.0.1".into(),
+        port: server.addr.port(),
+        user: "fixture".into(),
+        client: client.clone(),
+        op_semaphore: Arc::new(tokio::sync::Semaphore::new(2)),
+        transfers: Arc::new(super::Control::default()),
+        progress: Arc::new(|_| {}),
+    };
+    let paths: Vec<String> = (0..6).map(|i| format!("/sub-0{i}_bold.nii.gz")).collect();
+    let summaries = super::read_headers(&mount, &paths).await;
+    assert_eq!(summaries.len(), paths.len());
+    for summary in summaries {
+        assert_eq!(summary.unwrap().dim, [8, 8, 4, 12]);
+    }
+    let served = GZ_BYTES_SERVED.load(Ordering::SeqCst);
+    assert!(GZ_IMAGE.len() > 1 << 21);
+    assert!(
+        served <= 6 * 32 * 1024,
+        "{served} bytes served for six headers"
+    );
+    assert_eq!(mount.op_semaphore.available_permits(), 2);
+    let listed = super::list_directories(&mount, &["/".to_string(), "/sub-01".to_string()]).await;
+    assert_eq!(listed.len(), 2);
+    for directory in listed {
+        let names: Vec<(String, RemoteKind, u64)> = directory
+            .unwrap()
+            .into_iter()
+            .map(|entry| (entry.name, entry.kind, entry.size))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("alpha.nii".to_string(), RemoteKind::File, 1024 * 1024),
+                ("beta.nii".to_string(), RemoteKind::File, 1024 * 1024),
+            ]
+        );
+    }
+    let fetched = super::read_files(
+        &mount,
+        &["/alpha.nii".to_string(), "/beta.nii".to_string()],
+        1024 * 1024,
+    )
+    .await;
+    assert_eq!(fetched[0].as_ref().unwrap(), &vec![42; 1024 * 1024]);
+    assert_eq!(fetched[1].as_ref().unwrap().len(), 1024 * 1024);
+    let capped = super::read_files(&mount, &["/alpha.nii".to_string()], 1024).await;
+    assert!(capped[0]
+        .as_ref()
+        .unwrap_err()
+        .to_string()
+        .contains("larger"));
+    assert_eq!(mount.op_semaphore.available_permits(), 2);
+    mount.transfers.stop();
+    assert!(super::read_headers(&mount, &paths[..1]).await[0].is_err());
+    assert!(super::list_directories(&mount, &["/".to_string()]).await[0].is_err());
+    assert!(super::read_files(&mount, &["/alpha.nii".to_string()], 1024).await[0].is_err());
+    client.close().await.unwrap();
+    server.shutdown.shutdown("done".into());
+    server.join.await.unwrap().unwrap();
 }

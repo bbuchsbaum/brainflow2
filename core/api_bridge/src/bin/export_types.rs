@@ -117,6 +117,29 @@ fn main() {
     ParcelTableRequest::export_all().expect("export parcel request");
     ParcelTablePreview::export_all().expect("export parcel preview");
     ParcelOverlayInfo::export_all().expect("export parcel overlay");
+    // BIDS browser contract (export_all pulls in nested types).
+    bridge_types::bids::BidsBrowserIndex::export_all().expect("export BidsBrowserIndex");
+    bridge_types::bids::BidsRunRecord::export_all().expect("export BidsRunRecord");
+    bridge_types::bids::BidsMetaValue::export_all().expect("export BidsMetaValue");
+    bridge_types::bids::BidsHeaderSummary::export_all().expect("export BidsHeaderSummary");
+    bridge_types::bids::BidsSeriesModal::export_all().expect("export BidsSeriesModal");
+    bridge_types::bids::BidsVariantGroup::export_all().expect("export BidsVariantGroup");
+    bridge_types::bids::BidsFinding::export_all().expect("export BidsFinding");
+    bridge_types::bids::BidsFdSummary::export_all().expect("export BidsFdSummary");
+    bridge_types::bids::BidsIqms::export_all().expect("export BidsIqms");
+    bridge_types::bids::BidsFieldmapLink::export_all().expect("export BidsFieldmapLink");
+    bridge_types::bids::BidsCheck::export_all().expect("export BidsCheck");
+    bridge_types::bids::BidsDerivativeInfo::export_all().expect("export BidsDerivativeInfo");
+    bridge_types::bids::BidsSubjectDerivative::export_all().expect("export BidsSubjectDerivative");
+    bridge_types::bids::BidsExclusion::export_all().expect("export BidsExclusion");
+    bridge_types::bids::BidsExclusionContext::export_all().expect("export BidsExclusionContext");
+    bridge_types::bids::BidsExclusionKey::export_all().expect("export BidsExclusionKey");
+    bridge_types::bids::BidsExclusionWrite::export_all().expect("export BidsExclusionWrite");
+    bridge_types::bids::BidsScanProgress::export_all().expect("export BidsScanProgress");
+    bridge_types::bids::BidsRunDetail::export_all().expect("export BidsRunDetail");
+    bridge_types::bids::BidsSliceRequest::export_all().expect("export BidsSliceRequest");
+    bridge_types::bids::BidsSliceImage::export_all().expect("export BidsSliceImage");
+    bridge_types::bids::BidsMedianSliceImage::export_all().expect("export BidsMedianSliceImage");
 
     // Export all types that implement TS trait
     // Using export_all() to include dependencies
