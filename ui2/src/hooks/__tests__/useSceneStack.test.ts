@@ -94,6 +94,22 @@ describe('buildSceneStack', () => {
     }
   });
 
+  it('reports visibility in the active view when a globally visible layer is hidden there', () => {
+    const result = buildSceneStack(
+      [makeVolume({ id: 'user', visible: true }), makeVolume({ id: 'run', visible: true })],
+      new Map(),
+      [{ id: 'user', visible: false }, { id: 'run', visible: true }],
+    );
+    expect(result.volumes.find((item) => item.id === 'user')?.visible).toBe(false);
+    expect(result.volumes.find((item) => item.id === 'run')?.visible).toBe(true);
+  });
+
+  it('treats a layer absent from the active view as hidden there', () => {
+    const layer = makeVolume({ id: 'elsewhere', visible: true });
+    expect(buildSceneStack([layer], new Map(), []).volumes[0].visible).toBe(false);
+    expect(buildSceneStack([layer], new Map(), null).volumes[0].visible).toBe(true);
+  });
+
   it('reports opacity from viewStateLayers when available', () => {
     const result = buildSceneStack(
       [makeVolume({ id: 'a', name: 'T1w' })],

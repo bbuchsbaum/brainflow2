@@ -75,6 +75,7 @@ export interface LabelRowProps {
    * a tick and a lock never say the same thing twice.
    */
   lockDisplay?: 'always' | 'departures';
+  onClick?: () => void; onToggleVisibility?: () => void; onToggleLock?: () => void;
 }
 
 export function LabelRow({
@@ -90,7 +91,7 @@ export function LabelRow({
   spark,
   readOnly = false,
   showEye = true,
-  lockDisplay = 'always',
+  lockDisplay = 'always', onClick, onToggleVisibility, onToggleLock,
 }: LabelRowProps) {
   const lockHidden = lockDisplay === 'departures' && !lockDeparts(label) && !alert;
   const compact = density === 'compact';
@@ -103,6 +104,7 @@ export function LabelRow({
       data-label-id={label.id}
       className={clsx('group/row', compact ? 'min-h-6 gap-1.5' : 'min-h-9 gap-2', muted && 'opacity-55')}
       tabIndex={active ? 0 : -1}
+      onClick={onClick}
     >
       <span role="gridcell" className="flex items-center">
         <Swatch color={label.color} size={compact ? 9 : 11} />
@@ -140,6 +142,7 @@ export function LabelRow({
             icon={label.visible ? <Eye /> : <EyeOff />}
             tabIndex={-1}
             className={compact ? 'h-5 w-5' : undefined}
+            onClick={(event) => { event.stopPropagation(); onToggleVisibility?.(); }}
           />
         ) : null}
         {readOnly ? null : (
@@ -155,6 +158,7 @@ export function LabelRow({
               alert && 'text-bf-warning shadow-[inset_0_-2px_0_var(--bf-warning)]',
               lockHidden && 'opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100',
             )}
+            onClick={(event) => { event.stopPropagation(); onToggleLock?.(); }}
           />
         )}
       </span>
@@ -176,6 +180,7 @@ export interface LabelListProps {
   readOnly?: boolean;
   showEye?: boolean;
   lockDisplay?: LabelRowProps['lockDisplay'];
+  onSelect?: (id: number) => void; onToggleVisibility?: (id: number) => void; onToggleLock?: (id: number) => void;
   'aria-label'?: string;
   className?: string;
 }
@@ -195,7 +200,7 @@ export function LabelList({
   showEye,
   lockDisplay,
   'aria-label': ariaLabel = 'Labels',
-  className,
+  className, onSelect, onToggleVisibility, onToggleLock,
 }: LabelListProps) {
   return (
     <div role="grid" aria-label={ariaLabel} className={clsx('flex flex-col', className)}>
@@ -215,6 +220,9 @@ export function LabelList({
           readOnly={readOnly}
           showEye={showEye}
           lockDisplay={lockDisplay}
+          onClick={() => onSelect?.(l.id)}
+          onToggleVisibility={() => onToggleVisibility?.(l.id)}
+          onToggleLock={() => onToggleLock?.(l.id)}
         />
       ))}
     </div>

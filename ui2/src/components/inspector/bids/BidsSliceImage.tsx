@@ -45,6 +45,7 @@ interface RunSliceProps {
   maxPx?: number;
   alt: string;
   worldZ?: number | null;
+  window?: [number, number];
   datasetPath: string | null;
   className?: string;
   onImage?: (image: SliceImage) => void;
@@ -57,6 +58,7 @@ export function RunSlice({
   maxPx = 256,
   alt,
   worldZ = null,
+  window,
   datasetPath,
   className,
   onImage,
@@ -67,6 +69,8 @@ export function RunSlice({
     kind: kind ?? sliceKind(run),
     world_z_mm: worldZ,
     max_px: maxPx,
+    ...(window ? { window } : {}),
+    ...((kind ?? sliceKind(run)) === 'b0' && datasetPath ? { dataset_root: datasetPath } : {}),
   };
   const resource = useBidsResource(
     unavailable ? null : `${datasetPath}|${JSON.stringify(request)}`,

@@ -10,7 +10,7 @@ use serde_json::{json, Map, Value};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 const COLUMNS: [&str; 10] = [
     "entity",
@@ -28,8 +28,6 @@ const COLUMNS: [&str; 10] = [
 const LEGACY_COLUMNS: usize = 7;
 const TSV_NAME: &str = "exclusions.tsv";
 const LOCK_NAME: &str = ".exclusions.lock";
-/// A lock this old belongs to a process that died mid-write.
-const STALE_LOCK: Duration = Duration::from_secs(60);
 const LOCK_TRIES: u32 = 50;
 const LOCK_WAIT: Duration = Duration::from_millis(100);
 /// The specification this derivative follows. Not the raw dataset's version:
@@ -40,35 +38,13 @@ const BIDS_VERSION: &str = "1.9.0";
 static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serialises them across processes and machines sharing a drive: `create_new`
-/// is atomic, so a second writer waits instead of losing rows. The file holds
-/// its owner's token, so a writer whose lock was taken over leaves the new one.
+/// is atomic, so a second writer waits instead of losing rows. Lock timestamps
+/// cannot establish that an owner on another machine is dead, so an abandoned
+/// lock requires manual recovery after confirming that no writer is active.
 #[derive(Debug)]
 pub(crate) struct DatasetLock {
     path: PathBuf,
     token: String,
-}
-
-fn is_stale(path: &Path) -> bool {
-    std::fs::metadata(path)
-        .and_then(|meta| meta.modified())
-        .ok()
-        .and_then(|time| SystemTime::now().duration_since(time).ok())
-        .is_some_and(|age| age > STALE_LOCK)
-}
-
-/// Claim a dead lock. The rename is atomic, so of two takers only one gets it.
-/// The other's retry can still follow a takeover that already made a new lock
-/// between its age check and its rename: a fresh file is put back, without
-/// replacing anything. A drive without hard links loses that one narrow case.
-fn clear_stale(path: &Path) {
-    let claimed = path.with_file_name(format!("{LOCK_NAME}.{}", uuid::Uuid::new_v4()));
-    if std::fs::rename(path, &claimed).is_err() {
-        return;
-    }
-    if !is_stale(&claimed) {
-        let _ = std::fs::hard_link(&claimed, path);
-    }
-    let _ = std::fs::remove_file(&claimed);
 }
 
 impl DatasetLock {
@@ -87,16 +63,15 @@ impl DatasetLock {
                     return Ok(Self { path, token });
                 }
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                    if is_stale(&path) {
-                        clear_stale(&path);
-                        continue;
-                    }
                     std::thread::sleep(LOCK_WAIT);
                 }
                 Err(e) => return Err(format!("Cannot lock {}: {e}", path.display())),
             }
         }
-        Err("Another process is writing exclusions; nothing was changed.".to_string())
+        Err(format!(
+            "Another process may be writing exclusions, or an old lock remains. This attempt did not change exclusion rows. After confirming no writer is active, remove {} and retry.",
+            path.display()
+        ))
     }
 }
 
@@ -382,9 +357,9 @@ fn pretty(value: &Value) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// Add rows; an entity already excluded under the same criterion stays as it
-/// is. Metadata goes first, so a failure leaves no row without its description.
-/// The first write creates the derivative's metadata.
+/// Add rows. Identical entity/criterion rows are idempotent; conflicting rows
+/// must be reverted explicitly before replacement. Metadata goes first, so a
+/// failure leaves no row without its description. Existing metadata is kept.
 pub(crate) fn write_exclusions(
     dataset: &Path,
     rows: &[BidsExclusion],
@@ -409,17 +384,26 @@ pub(crate) fn write_exclusions(
     let mut all = read_rows(&dir)?;
     let mut added = Vec::new();
     for row in rows {
-        let duplicate = all
+        let mut row = row.clone();
+        row.scope = scope_of(&row.entity).to_string();
+        if let Some(old) = all
             .iter()
-            .any(|old| old.entity == row.entity && old.criterion == row.criterion);
-        if !duplicate {
-            let mut row = row.clone();
-            row.scope = scope_of(&row.entity).to_string();
+            .find(|old| old.entity == row.entity && old.criterion == row.criterion)
+        {
+            if old != &row {
+                return Err(format!(
+                    "{} is already excluded under criterion {}; revert the existing exclusion before changing its details.",
+                    row.entity, row.criterion
+                ));
+            }
+        } else {
             all.push(row.clone());
             added.push(row);
         }
     }
-    write_atomic(&sidecar, &pretty(&sidecar_json())?)?;
+    if !sidecar.exists() {
+        write_atomic(&sidecar, &pretty(&sidecar_json())?)?;
+    }
     if !description.exists() {
         let raw = read_raw_description(&root);
         write_atomic(
@@ -427,7 +411,9 @@ pub(crate) fn write_exclusions(
             &pretty(&description_json(&raw, context, app_version))?,
         )?;
     }
-    write_atomic(&tsv, render_tsv(&all).as_bytes())?;
+    if !added.is_empty() {
+        write_atomic(&tsv, render_tsv(&all).as_bytes())?;
+    }
     Ok(BidsExclusionWrite { all, added })
 }
 

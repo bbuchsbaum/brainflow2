@@ -1,3 +1,4 @@
+import { volumeDocumentRemovalReason } from '@/services/workspaceDocuments';
 /**
  * LayerEvictionService - LRU eviction policy for GPU texture management
  *
@@ -221,7 +222,7 @@ class LayerEvictionService {
     // in a tab behind the front one (an Orthogonal tab while Set studio is in
     // front) stays: releasing it costs a visible re-upload on return.
     const candidates = activeGpuLayers.filter((layer) => {
-      if (layer.id === keepLayerId) return false;
+      if (layer.id === keepLayerId || volumeDocumentRemovalReason(layer.volumeId)) return false;
       const shown = shownSomewhere.get(layer.id);
       return !(shown ?? layer.visible);
     });

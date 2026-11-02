@@ -4,4 +4,5 @@ export { useSliceViewerController } from './useSliceViewerController.js';
 export { canvasPointToImagePoint, clientPointToCanvasPoint, clientPointToWorld, imagePointToCanvasPoint, isCanvasPointInPlacement, projectWorldToCanvas, sliceImagePointToWorld, worldToSliceImagePoint, } from './geometry.js';
 export { calculateImagePlacement, drawScaledImage, } from './canvasUtils.js';
 export { drawSliceBorder, drawSliceViewerCrosshair, resolveSliceBorderColor, } from './drawing.js';
+export { ViewportPointerController } from './pointerTools.js';
 //# sourceMappingURL=index.js.map

@@ -9,6 +9,7 @@ import { FIXTURE_TOOL, registerFixtureModule } from '@/modules/__tests__/fixture
 import { useModuleSettingsStore } from '@/modules/settingsStore';
 import { moduleRegistry } from '@/modules/registry';
 import { useWorkspaceStore } from '../workspaceStore';
+import { WorkspaceStateManager } from '@/modules/workspaceState';
 import { partitionByModuleAvailability } from '../workspaceRestorePolicy';
 
 registerFixtureModule();
@@ -66,6 +67,31 @@ describe('workspace store: module tabs', () => {
     expect([...state.workspaces.keys()]).toEqual([view, tool]);
     expect(state.activeWorkspaceId).toBe(view);
     expect(state.parkedWorkspaces.size).toBe(0);
+  });
+
+  it('keeps module state on the actual parked workspace and through a storage round trip', async () => {
+    const id = await useWorkspaceStore.getState().createWorkspace(FIXTURE_TOOL);
+    const host = {
+      read: (key: string) => {
+        const s = useWorkspaceStore.getState();
+        return s.workspaces.get(key) ?? s.parkedWorkspaces.get(key);
+      },
+      write: useWorkspaceStore.getState().updateModuleState,
+      subscribe: (fn: () => void) => useWorkspaceStore.subscribe(fn),
+    };
+    const manager = new WorkspaceStateManager('fixture', host);
+    const state = manager.open(id, 'session', { version: 1, initial: { selectedLabel: 1 } });
+    state.setState({ selectedLabel: 4 });
+    manager.dispose();
+    setFixture(false);
+    useWorkspaceStore.getState().parkModuleWorkspaces('fixture');
+    await useWorkspaceStore.persist.rehydrate();
+    expect(host.read(id)?.moduleState?.fixture.session.data).toEqual({ selectedLabel: 4 });
+    setFixture(true);
+    useWorkspaceStore.getState().unparkModuleWorkspaces('fixture');
+    const restored = new WorkspaceStateManager('fixture', host);
+    expect(restored.open(id, 'session', { version: 1, initial: { selectedLabel: 1 } }).getState().selectedLabel).toBe(4);
+    restored.dispose();
   });
 
   it('no-ops when a module has no tabs to park or restore', () => {

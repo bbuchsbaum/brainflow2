@@ -203,6 +203,7 @@ dependencies = [
  "atlases",
  "base64 0.22.1",
  "bf_analysis",
+ "bf_segmentation",
  "bids-rs",
  "brainflow-loaders",
  "bridge_types",
@@ -215,6 +216,7 @@ dependencies = [
  "gifti-loader",
  "image 0.25.6",
  "keyring",
+ "label-store",
  "log",
  "nalgebra 0.32.6",
  "ndarray 0.16.1",
@@ -228,6 +230,7 @@ dependencies = [
  "pollster",
  "rand 0.10.3",
  "remotely",
+ "render_contracts",
  "render_loop",
  "russh",
  "russh-sftp",
@@ -627,6 +630,19 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "bf_segmentation"
+version = "0.1.0"
+dependencies = [
+ "label-store",
+ "nalgebra 0.32.6",
+ "neuro-types",
+ "nifti 0.16.0",
+ "serde",
+ "thiserror 1.0.69",
+ "ts-rs 10.1.0",
 ]
 
 [[package]]
@@ -4109,6 +4125,17 @@ dependencies = [
  "indexmap 1.9.3",
  "matches",
  "selectors",
+]
+
+[[package]]
+name = "label-store"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "ndarray 0.15.6",
+ "nifti 0.16.0",
+ "tempfile",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

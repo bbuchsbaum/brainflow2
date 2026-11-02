@@ -175,6 +175,7 @@ impl VolumeSource for MemorySource {
             is_label_map: Some(labels),
         };
         Ok(PreparedVolume {
+            source_nifti_header: Some(bytes[..348].to_vec()),
             data,
             metadata: VolumeMetadataInfo {
                 name: self.name.clone(),

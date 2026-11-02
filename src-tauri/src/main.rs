@@ -413,6 +413,50 @@ fn close_hides_window(label: &str) -> bool {
 /// Set once the app is exiting, so a close that arrives then is not turned
 /// into a hide.
 static APP_EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static EXIT_PROMPT_PENDING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Prevent process exit until admitted document edits have drained. Keep the
+/// gate throughout the native dialog so no newly accepted edit can be lost in
+/// the interval between the document check and the confirmed exit.
+fn request_document_exit(app: &AppHandle, code: i32) {
+    use std::sync::atomic::Ordering;
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    if APP_EXITING.load(Ordering::SeqCst) || EXIT_PROMPT_PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<BridgeState>();
+        let guard = state.modules.begin_document_exit(state.inner()).await;
+        let approved = if guard.has_documents() {
+            reveal_main_window(&app);
+            let (send, receive) = tokio::sync::oneshot::channel();
+            app.dialog()
+                .message("There are unsaved workspace sessions. Discard them and quit?")
+                .title("Discard sessions and quit?")
+                .kind(MessageDialogKind::Warning)
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Discard and quit".into(),
+                    "Cancel".into(),
+                ))
+                .show(move |discard| {
+                    let _ = send.send(discard);
+                });
+            receive.await.unwrap_or(false)
+        } else {
+            true
+        };
+        if approved {
+            guard.approve();
+            APP_EXITING.store(true, Ordering::SeqCst);
+            app.exit(code);
+        } else {
+            drop(guard);
+            EXIT_PROMPT_PENDING.store(false, Ordering::SeqCst);
+        }
+    });
+}
 
 /// Show the main window, restored and focused: the Dock icon or a menu
 /// command after ⇧⌘W hid it (N27). A no-op for a window already in front.
@@ -427,7 +471,7 @@ fn reveal_main_window(app: &AppHandle) {
 }
 
 /// Hide `window` instead of closing it. The UI's stores persist on every
-/// change, so the session is already saved; nothing is torn down.
+/// change; in-memory module documents stay owned and nothing is torn down.
 fn hide_window(window: &tauri::Window) {
     if let Err(e) = window.hide() {
         eprintln!("Failed to hide the window: {}", e);
@@ -1267,6 +1311,11 @@ fn main() {
                 {
                     api.prevent_close();
                     hide_window(window);
+                } else if window.label() == MAIN_WINDOW_LABEL
+                    && !APP_EXITING.load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    api.prevent_close();
+                    request_document_exit(window.app_handle(), 0);
                 }
             }
         })
@@ -1297,7 +1346,13 @@ fn main() {
 #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
 fn handle_run_event(app: &AppHandle, event: tauri::RunEvent) {
     match event {
-        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+        tauri::RunEvent::ExitRequested { api, code, .. } => {
+            if !APP_EXITING.load(std::sync::atomic::Ordering::SeqCst) {
+                api.prevent_exit();
+                request_document_exit(app, code.unwrap_or(0));
+            }
+        }
+        tauri::RunEvent::Exit => {
             APP_EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         #[cfg(target_os = "macos")]

@@ -418,10 +418,18 @@ pub struct BidsRunDetail {
 #[ts(export)]
 pub struct BidsSliceRequest {
     pub path: String,
-    /// `mean`, `first`, `tsnr` or `anat`.
+    /// `mean`, `first`, `tsnr`, `anat` or `b0`.
     pub kind: String,
     pub world_z_mm: Option<f32>,
     pub max_px: u32,
+    /// Fixed black/white data values. Absent uses this image's percentile window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub window: Option<[f32; 2]>,
+    /// Dataset root for resolving inherited b-values, required for `b0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub dataset_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

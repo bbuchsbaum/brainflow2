@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 
 import type { Workspace, WorkspaceType } from "@/types/workspace";
 
@@ -95,6 +95,16 @@ import { WorkspaceRouter } from "../WorkspaceRouter";
 import { FIXTURE_TOOL, registerFixtureModule } from "@/modules/__tests__/fixtureModule";
 
 registerFixtureModule();
+import { moduleRegistry } from '@/modules/registry';
+import { useModuleSettingsStore } from '@/modules/settingsStore';
+moduleRegistry.register({
+  id: 'route-fixture', title: 'Route fixture', description: 'View routing witness', version: '1', stage: 'experimental', hosts: ['desktop', 'browser'],
+  contributes: { viewModes: [{
+    id: 'route-fixture.trace', title: 'Trace', layoutPreset: 'route-fixture.layout',
+    component: async () => ({ default: ({ workspaceId }: { workspaceId: string }) => <div data-testid="module-view-layout">{workspaceId}</div> }),
+  }] },
+  activate: async () => ({ activate() {} }),
+});
 
 function makeWorkspace(id: string, type: WorkspaceType): Workspace {
   return {
@@ -128,6 +138,18 @@ beforeEach(() => {
 });
 
 describe("WorkspaceRouter", () => {
+  it('renders a module layout on the same view and restores the base layout on disable', async () => {
+    seedWorkspace('mode-view', 'mosaic');
+    workspaceStoreState.workspaces.get('mode-view')!.viewMode = 'route-fixture.trace';
+    act(() => useModuleSettingsStore.getState().setModuleEnabled('route-fixture', true));
+    render(<WorkspaceRouter workspaceId="mode-view" workspaceType="mosaic" />);
+    expect(await screen.findByTestId('module-view-layout')).toHaveTextContent('mode-view');
+    expect(workspaceStoreState.workspaces.size).toBe(1);
+    expect(workspaceStoreState.workspaces.get('mode-view')!.type).toBe('mosaic');
+    act(() => useModuleSettingsStore.getState().setModuleEnabled('route-fixture', false));
+    expect(screen.queryByTestId('module-view-layout')).toBeNull();
+    expect(screen.getByTestId('route-mosaic')).toBeInTheDocument();
+  });
   it('renders a "not found" notice when the workspace id is not in the store', () => {
     render(<WorkspaceRouter workspaceId="missing" workspaceType="mosaic" />);
 

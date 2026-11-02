@@ -22,6 +22,14 @@ describe('harness backend: bridge modules', () => {
     expect(handlers.list_analyses({})).toBeTruthy();
   });
 
+  it('refuses native segmentation edits instead of returning false success', () => {
+    const { handlers } = createBackend(fixtures);
+    expect(handlers.get_render_capabilities({})).toEqual({ features: [] });
+    expect(() => handlers.segmentation_create_session({})).toThrow(/requires the native host/);
+    handlers.set_enabled_modules({ moduleIds: [] });
+    expect(() => handlers.segmentation_create_session({})).toThrow(/ModuleDisabled/);
+  });
+
   it('every bridge module command has a handler', () => {
     const { handlers } = createBackend(fixtures);
     for (const module of Object.values(BRIDGE_MODULES)) {

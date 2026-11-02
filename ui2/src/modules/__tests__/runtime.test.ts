@@ -65,6 +65,7 @@ function runtimeDeps(registry: ModuleRegistry, over: Partial<ModuleRuntimeDeps> 
   const deps: ModuleRuntimeDeps = {
     registry,
     invoke: <T,>(cmd: string, args?: unknown) => {
+      if (cmd === 'get_render_capabilities') return Promise.resolve({ features: [] } as T);
       if (cmd === 'set_module_menu_items') {
         menuCalls.push({ cmd, args });
         return Promise.resolve(undefined as T);

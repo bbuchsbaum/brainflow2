@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { WorkspaceStateManager, type WorkspaceStateHost } from './workspaceState';
 import { getEventBus } from '@/events/EventBus';
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import { formatTauriError } from '@/utils/formatTauriError';
@@ -19,6 +20,7 @@ import type {
   ModuleContext,
   ModuleStage,
   WhenClause,
+  ViewportTool,
 } from './api';
 
 /** What the registry tells a context about its module. */
@@ -34,6 +36,10 @@ export interface ContextHost {
   matchesWhen(when: WhenClause | undefined): boolean;
   executeCommand(id: string): Promise<boolean>;
   openWorkspace(type: string): Promise<string | null>;
+  workspaceState?: WorkspaceStateHost;
+  viewModes?: ReadonlySet<string>;
+  viewportTools?: ReadonlySet<string>;
+  enterViewMode?(id: string): Promise<boolean>;
 }
 
 /** Disposables of one activation, undone in reverse order. */
@@ -103,9 +109,9 @@ export function keybindingProblems(
     problems.push(`keybinding ${chord(binding)} names undeclared command "${binding.command}"`);
   }
   if (!binding.key) problems.push(`keybinding for "${binding.command}" has no key`);
-  if (host.stage !== 'stable' && !binding.when?.workspace) {
+  if (host.stage !== 'stable' && !binding.when?.workspace && !binding.when?.viewMode) {
     problems.push(
-      `keybinding ${chord(binding)} is global; a ${host.stage} module must scope it with when.workspace`,
+      `keybinding ${chord(binding)} is global; a ${host.stage} module must scope it with when.workspace or when.viewMode`,
     );
   }
   return problems;
@@ -123,7 +129,7 @@ export function registerModuleKeybinding(
 ): DisposeFn {
   const problems = keybindingProblems(host, binding);
   if (problems.length > 0) throw new Error(`[modules] ${host.moduleId}: ${problems.join('; ')}`);
-  const scope = binding.when?.workspace ?? '*';
+  const scope = `${binding.when?.workspace ?? '*'}${binding.when?.viewMode ? `:${binding.when.viewMode}` : ''}`;
   const base = `module.${host.moduleId}.${source}.${binding.command}.${chord(binding)}@${scope}`;
   const id = source === 'runtime' ? `${base}#${(runtimeBindingCount += 1)}` : base;
   return getKeyboardShortcutService().register({
@@ -131,6 +137,7 @@ export function registerModuleKeybinding(
     key: binding.key,
     modifiers: binding.modifiers,
     allowInInputs: binding.allowInInputs,
+    priority: binding.when?.viewMode ? 20 : binding.when?.workspace ? 10 : 0,
     category: host.moduleTitle,
     description: host.commands.get(binding.command) ?? binding.command,
     when: () => host.isEnabled() && host.matchesWhen(binding.when),
@@ -178,7 +185,10 @@ export function createModuleContext(
   host: ContextHost,
   disposables: DisposableSet,
   handlers: Map<string, CommandHandler>,
+  tools = new Map<string, ViewportTool>(),
 ): ModuleContext {
+  let workspaceState: WorkspaceStateManager | undefined;
+  disposables.add(() => workspaceState?.dispose());
   return {
     moduleId: host.moduleId,
     commands: {
@@ -229,8 +239,27 @@ export function createModuleContext(
         return host.openWorkspace(id);
       },
     },
+    views: {
+      registerTool(id, tool) {
+        if (!host.viewportTools?.has(id)) throw new Error(`Viewport tool "${id}" is not declared by ${host.moduleId}`);
+        if (tools.has(id)) throw new Error(`Viewport tool "${id}" is already registered`);
+        tools.set(id, tool);
+        return disposables.add(() => { if (tools.get(id) === tool) tools.delete(id); });
+      },
+      enterMode(id) {
+        if (!host.viewModes?.has(id)) return Promise.reject(new Error(`View mode "${id}" is not declared by ${host.moduleId}`));
+        if (disposables.isDisposed || !host.isEnabled()) return Promise.resolve(false);
+        return host.enterViewMode?.(id) ?? Promise.resolve(false);
+      },
+    },
     state: {
       app: (name, options) => moduleAppStore(host.moduleId, name, options),
+      workspace: (workspaceId, name, options) => {
+        if (disposables.isDisposed || !host.isEnabled()) throw new Error('The module is inactive');
+        if (!host.workspaceState) throw new Error('Workspace state is unavailable in this host');
+        workspaceState ??= new WorkspaceStateManager(host.moduleId, host.workspaceState);
+        return workspaceState.open(workspaceId, name, options);
+      },
     },
     disposables: {
       add(dispose) {

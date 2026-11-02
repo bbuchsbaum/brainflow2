@@ -3,6 +3,8 @@
 //! This crate provides the core contracts that both CPU and GPU implementations
 //! must satisfy for unified differential testing and API consistency.
 
+pub mod native_plane;
+pub use native_plane::{native_slice_geometry, oblique_slice_geometry};
 pub mod layer_spec;
 pub mod metrics;
 pub mod provider;

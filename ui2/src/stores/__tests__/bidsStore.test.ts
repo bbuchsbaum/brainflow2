@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BIDS_PROGRESS_FLUSH_MS, lastBidsDataset, selectBidsModel, useBidsStore } from '@/stores/bidsStore';
 import { getTransport } from '@/services/transport';
+import { getEventBus } from '@/events/EventBus';
 import * as eventUtils from '@/utils/eventUtils';
 import {
   createBidsBrowserDataset,
@@ -451,6 +452,26 @@ describe('browser scan', () => {
       expect(useBidsStore.getState().undoStack).toEqual([]);
     });
 
+    it('reports a no-op without presenting an earlier write as the new result', async () => {
+      fakeBridge([]);
+      await useBidsStore.getState().scanDataset(PATH);
+      const existing = row('sub-01', 'fd');
+      const notified = vi.fn();
+      const stop = getEventBus().on('ui.notification', notified);
+      try {
+        await useBidsStore.getState().writeExclusions([existing], context, PATH);
+        expect(useBidsStore.getState().undoNoticeId).not.toBeNull();
+        await useBidsStore.getState().writeExclusions([existing], context, PATH);
+        expect(useBidsStore.getState().undoNoticeId).toBeNull();
+        expect(useBidsStore.getState().undoStack).toHaveLength(1);
+        expect(notified).toHaveBeenCalledWith(expect.objectContaining({
+          type: 'info', message: 'Already excluded; no rows written.',
+        }));
+        await useBidsStore.getState().undoExclusion();
+        expect(useBidsStore.getState().exclusions).toEqual([]);
+      } finally { stop(); }
+    });
+
     it('undo keeps an older row of the same entity', async () => {
       const older = row('sub-01', 'manual');
       fakeBridge([older]);
@@ -590,18 +611,55 @@ describe('browser scan', () => {
     getMockTransport().setMockResponse('scan_bids_browser', dataset.index('x'));
     await useBidsStore.getState().scanDataset(PATH);
     useBidsStore.setState({ fdThreshold: 0.4, groupBy: 'sex', compareWithModal: true });
+    useBidsStore.getState().selectCell('01', '01', 'bold');
     const rows = useBidsStore.getState().index;
     getMockTransport().setMockResponse('scan_bids_browser', () => new Promise(() => undefined));
     void useBidsStore.getState().scanDataset(PATH);
     expect(useBidsStore.getState().index).toBe(rows);
     expect(useBidsStore.getState().fdThreshold).toBe(0.4);
+    expect(useBidsStore.getState().selection.subjectId).toBe('01');
     void useBidsStore.getState().scanDataset('/other');
     expect(useBidsStore.getState()).toMatchObject({
       index: null,
+      selection: { subjectId: null, sessionId: null, modality: null },
       fdThreshold: 0.25,
       groupBy: undefined,
       compareWithModal: false,
     });
+  });
+
+  it('notifies on a direct dataset scan when undo and settings are discarded', async () => {
+    getMockTransport().setMockResponse('scan_bids_browser', dataset.index('x'));
+    await useBidsStore.getState().scanDataset(PATH);
+    useBidsStore.setState({
+      undoStack: [{ id: 1, added: [] }],
+      lens: { id: 'l', label: 'L', predicate: { op: 'excluded' } },
+      fdThreshold: 0.5,
+    });
+    const notified = vi.fn();
+    const stop = getEventBus().on('ui.notification', notified);
+    try {
+      await useBidsStore.getState().scanDataset('/data/other');
+      expect(notified).toHaveBeenCalledTimes(1);
+      expect(notified.mock.calls[0][0].message).toContain('undo no longer applies');
+      expect(notified.mock.calls[0][0].message).toContain('the lens and the motion thresholds');
+    } finally {
+      stop();
+    }
+  });
+
+  it('does not announce a same-dataset rescan or a switch with nothing to clear', async () => {
+    getMockTransport().setMockResponse('scan_bids_browser', dataset.index('x'));
+    await useBidsStore.getState().scanDataset(PATH);
+    const notified = vi.fn();
+    const stop = getEventBus().on('ui.notification', notified);
+    try {
+      await useBidsStore.getState().scanDataset(PATH);
+      await useBidsStore.getState().scanDataset('/data/other');
+      expect(notified).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
   });
 
   it('marks a first remote scan as remote from its first event', async () => {

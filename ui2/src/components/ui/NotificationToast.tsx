@@ -6,7 +6,7 @@
  * readouts and Diagnostics, newest message first.
  *
  * Info / success / warning messages expire after 5 s (or `durationMs`); an
- * error stays until dismissed (or replaced) and is an assertive alert. Every
+ * error stays until dismissed or its operation recovers and is an assertive alert. Every
  * message is announced in a polite live region.
  *
  * The line is a button (v4 function critic: an error cut to a stub, its
@@ -29,6 +29,8 @@ interface Notification {
   message: string;
   /** "Undo" after "Removed T1w.nii.gz": runs once, then the message goes. */
   action?: { label: string; run: () => void };
+  scope?: string;
+  sequence?: number;
 }
 
 /** Unique per toast (two toasts in the same millisecond must not share an id). */
@@ -98,6 +100,8 @@ export function NotificationToast() {
   // expiries wait and apply when it closes.
   const openRef = useRef(false);
   const deferredExpiry = useRef(new Set<string>());
+  // A failure may finish after a later successful request resolved its scope.
+  const resolvedThrough = useRef(new Map<string, number>());
   const expire = (id: string) => {
     if (openRef.current) {
       deferredExpiry.current.add(id);
@@ -113,12 +117,23 @@ export function NotificationToast() {
     if (wasOpen) focusFallback(['[data-testid="status-diagnostics-trigger"]']);
   });
 
-  useEvent('ui.notification', ({ type, message, durationMs, action }) => {
+  useEvent('ui.notification.resolve', ({ scope, through }) => {
+    const resolved = Math.max(resolvedThrough.current.get(scope) ?? 0, through);
+    resolvedThrough.current.set(scope, resolved);
+    setNotifications((prev) => prev.filter((n) =>
+      n.scope !== scope || n.sequence === undefined || n.sequence > resolved));
+  });
+
+  useEvent('ui.notification', ({ type, message, durationMs, action, scope, sequence }) => {
+    if (scope !== undefined && sequence !== undefined &&
+        sequence <= (resolvedThrough.current.get(scope) ?? 0)) return;
     const notification: Notification = {
       id: `toast-${(nextNotificationId += 1)}`,
       type,
       message,
       ...(action ? { action } : {}),
+      ...(scope !== undefined ? { scope } : {}),
+      ...(sequence !== undefined ? { sequence } : {}),
     };
     // Several loads become ONE message ("Loaded: a, b, c"), not a stack.
     const item = loadedItem(notification);
@@ -156,6 +171,7 @@ export function NotificationToast() {
     if (!current && openRef.current) {
       openRef.current = false;
       setOpenState(false);
+      focusFallback(['[data-testid="status-diagnostics-trigger"]']);
     }
   }, [current]);
 

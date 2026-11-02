@@ -89,7 +89,12 @@ export interface EventMap {
     logSource?: string | false;
     /** One action on the message ("Removed T1w.nii.gz — Undo"). */
     action?: { label: string; run: () => void };
+    /** An ordered operation group whose earlier failures can be resolved. */
+    scope?: string;
+    sequence?: number;
   };
+  /** Resolve failures from this scope through the given request. */
+  'ui.notification.resolve': { scope: string; through: number };
   /** Dismiss every visible toast (e.g. transient load toasts). */
   'ui.notification.clear': Record<string, never>;
   /** Open the image header dialog (the selected layer's volume unless given). */

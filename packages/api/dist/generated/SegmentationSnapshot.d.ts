@@ -1,0 +1,21 @@
+import type { SegmentationIdentity } from "./SegmentationIdentity";
+import type { SegmentationLabelStatus } from "./SegmentationLabelStatus";
+import type { SegmentationRegistration } from "./SegmentationRegistration";
+export type SegmentationSnapshot = {
+    sessionId: string;
+    workspaceId: string;
+    workspaceInstance: string;
+    referenceVolumeId: string;
+    secondaryVolumeId: string | null;
+    revision: number;
+    labelRevision: number;
+    identity: SegmentationIdentity;
+    dimensions: [number, number, number];
+    voxelToWorld: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
+    normalAxis: number;
+    labels: Array<SegmentationLabelStatus>;
+    registration: SegmentationRegistration | null;
+    sourceHeaderOriginal: boolean;
+    undo: string | null;
+    redo: string | null;
+};

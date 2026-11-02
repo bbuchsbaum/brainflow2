@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectorRuler } from '../RenderSection';
+import { inspectorRuler } from '../inspectorRuler';
 
 describe('inspectorRuler (one ruler for Intensity, Threshold and the colormap strip)', () => {
   it('maps the window, the data range and the hidden band onto the same x', () => {

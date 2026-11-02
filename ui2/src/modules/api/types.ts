@@ -9,15 +9,18 @@
 
 import type { ComponentType } from 'react';
 import type { StoreApi, UseBoundStore } from 'zustand';
-import type { ModuleStage } from '@brainflow/api';
+import type { ViewportTool } from '@brainflow/visualization/slice';
+export type { ViewportTool, ViewportPointerSample, PointerCancelReason } from '@brainflow/visualization/slice';
+import type { ModuleStage, RenderFeature } from '@brainflow/api';
 
-export type { ModuleStage };
+export type { ModuleStage, RenderFeature };
 
 /** Where the app runs: the Tauri desktop shell or the browser viewer. */
 export type ModuleHostKind = 'desktop' | 'browser';
 
 /** Host capabilities a module may require (`getHostCapabilities()`). */
-export type HostCapability = 'nativePaths' | 'remoteMounts' | 'externalProcesses';
+import type { HostCapability } from '@/services/hostCapabilities';
+export type { HostCapability } from '@/services/hostCapabilities';
 
 /** A lazily loaded component, e.g. `() => import('./X').then((m) => ({ default: m.X }))`. */
 export type LazyComponent<P = object> = () => Promise<{ default: ComponentType<P> }>;
@@ -26,6 +29,8 @@ export type LazyComponent<P = object> = () => Promise<{ default: ComponentType<P
 export interface WhenClause {
   /** The type of the active workspace tab, e.g. `'analysis-workbench'`. */
   workspace?: string;
+  /** The module mode of the active view tab. */
+  viewMode?: string;
 }
 
 /** A command: shown in the command palette, the target of menus and keybindings. */
@@ -118,6 +123,44 @@ export interface DockTabContribution {
   component: LazyComponent;
 }
 
+/** A module layout rendered in an existing view tab. Its base layout is retained. */
+export interface ViewModeContribution {
+  id: string;
+  title: string;
+  /** Namespaced layout identity, implemented by the lazy component below. */
+  layoutPreset: string;
+  component: LazyComponent<WorkspaceComponentProps>;
+  inspectorMode?: string;
+  viewportTools?: readonly string[];
+}
+
+export interface ViewportToolContribution { id: string; title: string; }
+
+/** Core-owned shader modes. Modules describe a use of these, not a new shader. */
+export type LayerBaseRenderMode = 'scalar' | 'label' | 'mask';
+export interface LayerKindCapabilities {
+  thresholdable: boolean;
+  colormappable: boolean;
+  editable: boolean;
+  outline: boolean;
+}
+export interface LayerInspectorProps { layerId: string; }
+export interface LayerKindContribution {
+  id: string;
+  title: string;
+  baseRenderMode: LayerBaseRenderMode;
+  /** Bottom to top: anatomy, continuous, statistic, categorical. */
+  stackingBand: 1 | 2 | 3 | 4;
+  /** Core glyphs keep manifests free of eager component imports. */
+  icon: 'volume' | 'labels' | 'mask';
+  capabilities: LayerKindCapabilities;
+  inspectorSections?: readonly {
+    id: string;
+    title: string;
+    component: LazyComponent<LayerInspectorProps>;
+  }[];
+}
+
 export interface ModuleContributions {
   commands?: readonly CommandContribution[];
   keybindings?: readonly KeybindingContribution[];
@@ -125,6 +168,9 @@ export interface ModuleContributions {
   workspaces?: readonly WorkspaceContribution[];
   inspectorModes?: readonly InspectorModeContribution[];
   dockTabs?: readonly DockTabContribution[];
+  viewModes?: readonly ViewModeContribution[];
+  viewportTools?: readonly ViewportToolContribution[];
+  layerKinds?: readonly LayerKindContribution[];
 }
 
 export interface ModuleManifest {
@@ -136,7 +182,7 @@ export interface ModuleManifest {
   version: string;
   stage: ModuleStage;
   hosts: readonly ModuleHostKind[];
-  requires?: { hostCapabilities?: readonly HostCapability[] };
+  requires?: { hostCapabilities?: readonly HostCapability[]; renderFeatures?: readonly RenderFeature[] };
   contributes: ModuleContributions;
   /** Loaded on first use: `() => import('./activate')`. */
   activate: () => Promise<ModuleActivation>;
@@ -160,6 +206,12 @@ export interface AppStateOptions<T> {
 
 export type ModuleAppStore<T> = UseBoundStore<StoreApi<T>>;
 
+/** Versioned JSON data stored on the owning workspace, including while parked. */
+export interface ModuleWorkspaceState {
+  version: number;
+  data: object;
+}
+
 /**
  * Everything `activate(ctx)` may use. Registrations made through it are
  * disposed when the module is switched off.
@@ -182,12 +234,24 @@ export interface ModuleContext {
     /** Open one of the module's tool tabs, or focus it. `null` when it cannot open. */
     open(id: string): Promise<string | null>;
   };
+  readonly views: {
+    /** Enter a declared mode in the current view; false if the target changed during activation. */
+    enterMode(id: string): Promise<boolean>;
+    /** Register a stable pointer tool declared by this module; undone on disable. */
+    registerTool(id: string, tool: ViewportTool): DisposeFn;
+  };
   readonly state: {
     /**
      * A persisted app-wide store, `brainflow-module:<module>:<name>`. The data
      * stays when the module is switched off.
      */
     app<T extends object>(name: string, options: AppStateOptions<T>): ModuleAppStore<T>;
+    /**
+     * JSON data belonging to an explicit workspace (never implicitly the active
+     * tab). Closing/replacing the workspace or deactivating the module revokes
+     * the returned store. Capture request ownership separately before I/O.
+     */
+    workspace<T extends object>(workspaceId: string, name: string, options: AppStateOptions<T>): ModuleAppStore<T>;
   };
   readonly disposables: {
     /** Run on deactivate, in reverse order of registration. */

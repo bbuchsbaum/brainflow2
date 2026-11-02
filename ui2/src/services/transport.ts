@@ -6,16 +6,13 @@
 import { invoke, type InvokeOptions } from '@tauri-apps/api/core';
 import { apiBridgeCommands, BRIDGE_MODULES, configureInvoker, type ModuleInfo } from '@brainflow/api';
 
+import { desktopCapabilities, type HostCapabilities } from './hostCapabilities';
 export type { InvokeOptions };
 
 export interface BackendTransport {
   readonly host?: 'desktop' | 'browser';
   request?<T>(cmd: string, args?: unknown, signal?: AbortSignal): Promise<T>;
-  readonly capabilities?: {
-    nativePaths: boolean;
-    remoteMounts: boolean;
-    externalProcesses: boolean;
-  };
+  readonly capabilities?: Readonly<Partial<HostCapabilities>>;
   /**
    * `args` is a JSON object, or a `Uint8Array` raw body for commands that take
    * bulk bytes (`save_image_bytes`, `export_population_plot`); their string
@@ -157,6 +154,21 @@ export class MockTransport implements BackendTransport {
 
   private getDefaultResponse(cmd: string, args: any): any {
     switch (cmd) {
+      case 'get_volume_native_plane':
+      case 'segmentation_create_session':
+      case 'segmentation_get_session':
+      case 'segmentation_preview_stroke':
+      case 'segmentation_commit_stroke':
+      case 'segmentation_undo':
+      case 'segmentation_set_label_state':
+      case 'segmentation_get_slice':
+        throw { Input: { code: 12100, details: 'Segmentation editing requires the native host' } };
+      case 'dispose_module_workspace':
+        return null;
+
+      case 'get_render_capabilities':
+        return { features: [] };
+
       case 'list_modules':
         return this.moduleInfos();
 
@@ -483,14 +495,9 @@ export function setTransport(transport: BackendTransport) {
 }
 
 /** Desktop defaults preserve existing injected transports and UI harnesses. */
-export function getHostCapabilities() {
-  return (
-    globalTransport?.capabilities ?? {
-      nativePaths: true,
-      remoteMounts: true,
-      externalProcesses: true,
-    }
-  );
+export function getHostCapabilities(): Readonly<Partial<HostCapabilities>> {
+  return globalTransport?.capabilities ??
+    (globalTransport?.host === 'browser' ? {} : desktopCapabilities);
 }
 
 /** Embedded hosts may install a transport before the shared entry is imported. */

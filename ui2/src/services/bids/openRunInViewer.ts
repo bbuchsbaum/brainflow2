@@ -29,6 +29,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { SceneItemKind } from '@/types/sceneItem';
 import type { ViewLayer } from '@/types/viewState';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 /** Marks the tab across a relaunch, where only the workspace store survives. */
 export const RUN_VIEWER_PRESET = 'bids-run-viewer';
@@ -91,14 +92,14 @@ const isTemplate = (id: string) => {
   return (layerMetadata?.get?.(id)?.source ?? layer?.source) === 'template';
 };
 
-/** Frees a run's GPU lease and volume, unless a view of the user's still shows it. */
+/** Frees a run's GPU lease and volume, unless another view still owns it. */
 async function release(layerId: string, workspaceId: string): Promise<void> {
   const { workspaces } = useWorkspaceStore.getState();
   const elsewhere = [...useViewStateStore.getState().workspaceViewStates].some(
     ([id, view]) =>
       id !== workspaceId &&
       isViewWorkspaceType(workspaces.get(id)?.type) &&
-      view.layers.some((layer) => layer.id === layerId && layer.visible),
+      view.layers.some((layer) => layer.id === layerId),
   );
   if (elsewhere) return;
   await getLayerService()
@@ -257,7 +258,7 @@ async function publishEvents(
       if (wanted()) {
         getEventBus().emit('ui.notification', {
           type: 'error',
-          message: `Events not loaded: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Events not loaded: ${formatTauriError(error)}`,
         });
       }
     }
@@ -276,7 +277,7 @@ function land(run: OpenableRun, layerId: string): void {
   useLayerStore.getState().selectLayer(layerId);
   focusVolumeLayer(layerId);
   const peak = run.fd?.peak_volume;
-  if (peak !== undefined) getTimeNavigationService().setTimepoint(peak);
+  if (peak !== undefined) getTimeNavigationService().setTimepoint(peak, { layerId });
   if (isLayerFourD(layerId)) {
     usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
     openDockTab('plot');
@@ -301,6 +302,12 @@ async function open(run: OpenableRun, request: number, datasetPath: string | nul
 
   if (shown?.path === run.path && viewOf(workspaceId)?.layers.some((layer) => layer.id === shown?.layerId)) {
     const { layerId } = shown;
+    if (!viewOf(workspaceId)?.layers.find((layer) => layer.id === layerId)?.visible) {
+      useViewStateStore.getState().setViewState((state) => {
+        const layer = state.layers.find((item) => item.id === layerId);
+        if (layer) layer.visible = true;
+      }, workspaceId);
+    }
     unlanded = null;
     land(run, layerId);
     // A read that failed or was cut short the first time gets another go.
@@ -342,10 +349,13 @@ async function open(run: OpenableRun, request: number, datasetPath: string | nul
   unlanded = null;
   // By tab, not by what is in front: a template must not stay under raw EPI
   // for a user who left during the load and comes back.
-  if (inNativeSpace(run)) await showAlone(layerId, workspaceId);
-  if (isCurrent()) land(run, layerId);
-  else if (latest()) unlanded = { run, layerId };
-  if (previous) await release(previous.layerId, workspaceId);
+  try {
+    if (inNativeSpace(run)) await showAlone(layerId, workspaceId);
+    if (isCurrent()) land(run, layerId);
+    else if (latest()) unlanded = { run, layerId };
+  } finally {
+    if (previous) await release(previous.layerId, workspaceId);
+  }
   if (latest()) await publishEvents(run, layerId, datasetPath, latest);
 }
 

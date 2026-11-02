@@ -3,6 +3,9 @@
 [default]
 description = "Default permissions for api-bridge plugin"
 permissions = [
+    "module-segmentation",
+    "allow-dispose-module-workspace",
+    "allow-get-render-capabilities",
   "allow-cancel-remote-file-load",
     "allow-load-file",
     "allow-load-surface",
@@ -67,6 +70,7 @@ permissions = [
     "allow-set-volume-timepoint",
     "allow-get-volume-timepoint",
     "allow-get-volume-info",
+    "allow-get-volume-native-plane",
     "allow-get-nifti-header-info",
     "allow-peek-volume-metadata",
     "allow-render-view",

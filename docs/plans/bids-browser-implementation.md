@@ -125,10 +125,26 @@ Behaviour the UI should rely on:
 - A subject with a failed remote header, sidecar, events or confounds read reports it but is not stored, so the next scan retries it.
 - `get_bids_run_detail` and `get_bids_run_events` read the mirror, not the server: per-volume FD of a remote run appears only once its confounds are mirrored. The FD summary comes from the scan.
 - A malformed sidecar that applies to a run gives one `SIDECAR_UNREADABLE`, and only that file is skipped: the run keeps every key from its other sidecars. bids-rs resolves all or nothing, so these runs are merged per candidate in `meta.rs` with upstream's ordering. A sidecar above the subject level is named on no subject.
-- The median is taken over each run's windowed slice, so `window_low`/`window_high` of a median are 0 and 1. The single-run tile beside it uses its own 2nd to 98th percentile window: the same rule, not the same numbers.
+- An Images contact sheet anchors its world-z and fixed intensity window to the
+  first readable image in the selected series and run; every tile uses those
+  settings and its nearest slice; the user can change the world-z reference.
+  Without a fixed window, a slice uses its own 2nd to 98th percentile window. Mean EPI uses at most 8 timepoints, and b0
+  averages volumes whose inherited `.bval` value is exactly zero.
+- The thumbnail median is pixelwise over at most 15 sampled, windowed slices.
+  The selected reference is included when eligible; the remaining eligible runs
+  are sampled evenly. An ineligible reference is never added to the sample.
+  The median includes only the selected reference's exact voxel-to-world grid and
+  slice (or the modal grid if no reference was requested); unreadable and
+  different-grid images are counted as skipped. A common grid does not imply
+  anatomical registration. With a fixed window the median reports that window;
+  with automatic windows its reported display range is 0 to 1.
 - Slices are axial with +A up and +R to the right of the image (neurological), chosen by world z through the affine. `world_z_mm` is the slice drawn, which can differ from the one asked for.
 - Exclusions are refused on remote mounts: a mirror's copy would not reach the server.
-- An exclusion with the same entity and criterion as an existing row is not added again.
+- An exclusion identical to an existing entity/criterion row is not added again.
+  A conflicting row returns an error; revert the existing exclusion before
+  changing its details. Existing exclusion metadata is preserved. The writer
+  never breaks an existing lock automatically: if a writer crashed, confirm
+  none is active before manually removing the abandoned `.exclusions.lock`.
 - `SliceTiming` absence is a `SLICE_TIMING_MISSING` finding, not a variant. Every other absent key counts as a value when grouping. Numbers compare rounded to 1e-4, or to five significant digits below 0.1, so 0.00027 and 0.00031 s of echo spacing stay apart. Voxel sizes compare at 0.01 mm: reconstructed sizes wobble in the third decimal within one protocol (1.2994 to 1.3006 mm in ds000114).
 - Truncation compares a run with its own acquisition group, so a variant with fewer volumes by design is not flagged.
 - `NO_FIELDMAP` is one finding per subject-session. A dataset with no field maps gets a single `NO_FIELDMAPS_IN_DATASET` note instead.
@@ -164,7 +180,7 @@ All in `core/api_bridge`, logic in a pure module `bids_index/` with unit tests o
 | `cancel_bids_scan(scan_id)` | Stops a scan and keeps partial results (`complete: false`). |
 | `get_bids_run_detail(dataset_path, run_id)` | Lazy per-volume FD, events and derivative checks. |
 | `get_bids_slice(request)` | Contact-sheet and inspector thumbnails, cached on disk. |
-| `get_bids_median_slice(paths, request)` | Median of cached slices with modal grid, at most 15 runs. |
+| `get_bids_median_slice(paths, request)` | Median of cached slices on the selected reference grid (or modal grid without a reference), at most 15 eligible runs. |
 | `get_bids_carpet(path, width, height)` | Carpet PNG from a sampled in-brain voxel set. |
 | `write_bids_exclusions(dataset_path, rows, context)` | Appends rows. The only writer; dataset root plus fixed relative names, no client path. Creates `exclusions.json` and `dataset_description.json` on first write. |
 | `revert_bids_exclusions(dataset_path, keys)` | Removes rows by entity and criterion, in one rewrite, same guard. Returns the updated list. |

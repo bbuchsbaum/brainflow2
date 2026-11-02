@@ -1,3 +1,4 @@
+import { moduleRegistry, useModuleRegistryVersion } from '@/modules/registry';
 import React, { forwardRef, useId } from "react";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import { useSurfaceValueAtCrosshair } from "@/hooks/useSurfaceValueAtCrosshair";
@@ -157,6 +158,8 @@ const KIND_GLYPH: Record<SceneItemKind, React.ReactNode> = {
  */
 export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
   function SceneStackItem({ item, selected, onSelect, dragHandle, roving, onContextMenu }, ref) {
+    useModuleRegistryVersion();
+    const descriptor = moduleRegistry.getLayerKind(item.layerKind);
     const { ref: rovingRef, ...rovingProps } = roving ?? {};
     const uid = useId().replace(/:/g, "");
     const nameId = `scene-row-${uid}-name`;
@@ -190,7 +193,7 @@ export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
             className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
             style={{ color: "var(--bf-text-secondary)" }}
           >
-            {KIND_GLYPH[item.kind]}
+            {descriptor ? descriptor.icon === "volume" ? <VolumeGlyph /> : <AtlasGlyph /> : KIND_GLYPH[item.kind]}
           </span>
           <span className="min-w-0 flex-1">
             <span id={nameId} className="block truncate text-bf-sm text-foreground">

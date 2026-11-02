@@ -510,6 +510,8 @@ fn bids_a_dangling_annex_link_is_a_present_run_with_no_image() {
         kind: "mean".into(),
         world_z_mm: None,
         max_px: 64,
+        window: None,
+        dataset_root: None,
     };
     assert!(images::cached_slice(&ds.cache, &request).is_none());
     assert!(images::get_slice(&ds.cache, &request).is_err());
@@ -1975,7 +1977,7 @@ fn bids_exclusions_revert_and_show_in_the_next_scan() {
     )
     .unwrap();
     // Same entity and criterion is one row.
-    let rows = write_exclusions(&ds.root, &[row("sub-02", "b again")], &context(), "0").unwrap();
+    let rows = write_exclusions(&ds.root, &[row("sub-02", "b")], &context(), "0").unwrap();
     assert_eq!(rows.all.len(), 2);
     assert!(rows.added.is_empty(), "nothing new was written");
     let index = ds.scan();
@@ -2012,6 +2014,8 @@ fn slice_request(path: &Path, kind: &str, z: Option<f32>) -> BidsSliceRequest {
         kind: kind.to_string(),
         world_z_mm: z,
         max_px: 64,
+        window: None,
+        dataset_root: None,
     }
 }
 
@@ -2079,6 +2083,116 @@ fn bids_slices_draw_the_requested_world_z_and_scale_with_the_header() {
 }
 
 #[test]
+fn bids_slices_honor_a_common_window_and_distinguish_its_cache_entry() {
+    let ds = TempDataset::new();
+    ds.nifti("sub-01/func/sub-01_task-a_bold.nii", Some(3), 2.0);
+    let path = ds.path("sub-01/func/sub-01_task-a_bold.nii");
+    let mut request = slice_request(&path, "mean", Some(-27.0));
+    let automatic = images::get_slice(&ds.cache, &request).unwrap();
+    request.window = Some([100.0, 500.0]);
+    assert!(images::cached_slice(&ds.cache, &request).is_none());
+    let fixed = images::get_slice(&ds.cache, &request).unwrap();
+    assert_eq!((fixed.window_low, fixed.window_high), (100.0, 500.0));
+    assert_ne!(fixed.png_base64, automatic.png_base64);
+    request.window = Some([5.0, 5.0]);
+    assert!(images::get_slice(&ds.cache, &request).is_err());
+}
+
+#[test]
+fn bids_slice_cache_distinguishes_nearby_positions_on_opposite_sides_of_a_slice() {
+    let ds = TempDataset::new();
+    ds.nifti("sub-01/anat/sub-01_T1w.nii", None, 0.0);
+    let path = ds.path("sub-01/anat/sub-01_T1w.nii");
+    // -28.5 is the midpoint between two slices; both values formerly rounded
+    // to -28.50 in the cache key, despite selecting different slices.
+    let below = slice_request(&path, "anat", Some(-28.501));
+    let above = slice_request(&path, "anat", Some(-28.499));
+    let first = images::get_slice(&ds.cache, &below).unwrap();
+    let second = images::get_slice(&ds.cache, &above).unwrap();
+    assert_ne!(first.world_z_mm, second.world_z_mm);
+    assert!(images::render_slice(&slice_request(&path, "anat", Some(f32::NAN))).is_err());
+    let mut invalid = below;
+    invalid.window = Some([-f32::MAX, f32::MAX]);
+    assert!(images::render_slice(&invalid).is_err());
+}
+
+#[test]
+fn bids_b0_uses_inherited_bvalues_and_rejects_invalid_tables() {
+    let ds = TempDataset::new();
+    ds.nifti("sub-01/dwi/sub-01_dwi.nii", Some(3), 2.0);
+    ds.text("dwi.bval", "1000 0 0\n");
+    let path = ds.path("sub-01/dwi/sub-01_dwi.nii");
+    let mut request = slice_request(&path, "b0", Some(-27.0));
+    request.dataset_root = Some(ds.root.to_string_lossy().into_owned());
+    let b0 = images::resolve_b0(&ds.root, &path, None).unwrap();
+    let image = images::get_slice_with_b0(&ds.cache, &request, Some(&b0)).unwrap();
+    let first = images::render_slice(&slice_request(&path, "first", Some(-27.0))).unwrap();
+    assert_eq!(image.volumes_used, 2);
+    assert!((image.window_low - first.window_low - 1.5).abs() < 1e-5);
+
+    let server = FakeServer::new(&ds, false);
+    let mirror = ds.cache.join("empty-mirror");
+    let remote = images::resolve_b0(
+        &mirror,
+        &mirror.join("sub-01/dwi/sub-01_dwi.nii"),
+        Some(&server),
+    )
+    .unwrap();
+    assert!(server.fetched().contains(&"dwi.bval".to_string()));
+    assert!(images::cached_slice_with_b0(&ds.cache, &request, Some(&remote)).is_some());
+
+    ds.text("sub-01/dwi/sub-01_dwi.bval", "0 1000 1000\n");
+    let own = images::resolve_b0(&ds.root, &path, None).unwrap();
+    assert!(images::cached_slice_with_b0(&ds.cache, &request, Some(&own)).is_none());
+    assert_eq!(
+        images::get_slice_with_b0(&ds.cache, &request, Some(&own))
+            .unwrap()
+            .volumes_used,
+        1
+    );
+    ds.text("sub-01/dwi/sub-01_dwi.bval", "0 1000\n");
+    let short = images::resolve_b0(&ds.root, &path, None).unwrap();
+    assert!(images::get_slice_with_b0(&ds.cache, &request, Some(&short)).is_err());
+    ds.text("sub-01/dwi/sub-01_dwi.bval", "1000 1000 1000\n");
+    assert!(images::resolve_b0(&ds.root, &path, None).is_err());
+    ds.text("sub-01/dwi/dwi.bval", "0 1000 1000\n");
+    assert!(
+        images::resolve_b0(&ds.root, &path, None).is_err(),
+        "ambiguous same-level b-values"
+    );
+}
+
+#[test]
+fn bids_median_skips_same_sized_images_on_a_different_world_grid() {
+    let ds = TempDataset::new();
+    let a = ds.path("a.nii");
+    let b = ds.path("b.nii");
+    let displaced = ds.path("c.nii");
+    for path in [&a, &b] {
+        write_nifti(
+            path,
+            [4, 4, 4],
+            None,
+            [2.0, 2.0, 3.0],
+            [0.0, 0.0, -30.0],
+            0.0,
+        );
+    }
+    write_nifti(
+        &displaced,
+        [4, 4, 4],
+        None,
+        [2.0, 2.0, 3.0],
+        [20.0, 0.0, -30.0],
+        0.0,
+    );
+    let request = slice_request(&a, "anat", Some(-27.0));
+    let paths = [a, b, displaced].map(|path| path.to_string_lossy().into_owned());
+    let median = images::get_median_slice(&ds.cache, &paths, &request).unwrap();
+    assert_eq!((median.runs_used, median.runs_skipped), (2, 1));
+}
+
+#[test]
 fn bids_slices_keep_scaled_integers_scaled() {
     let ds = TempDataset::new();
     let path = ds.path("scaled.nii");
@@ -2103,6 +2217,7 @@ fn bids_slices_keep_scaled_integers_scaled() {
     std::fs::write(&path, bytes).unwrap();
     let image = images::render_slice(&slice_request(&path, "anat", None)).unwrap();
     assert!(image.window_low > 1000.0, "{image:?}");
+    assert!(images::render_slice(&slice_request(&path, "tsnr", None)).is_err());
 }
 
 #[test]
@@ -2198,6 +2313,40 @@ fn bids_median_uses_the_modal_grid_and_reports_skips() {
             .runs_used,
         15
     );
+}
+
+#[test]
+fn bids_median_sample_includes_the_selected_eligible_run() {
+    let ds = TempDataset::new();
+    let mut paths = Vec::new();
+    for subject in 0..20 {
+        let rel = format!("sub-{subject:02}/anat/sub-{subject:02}_T1w.nii");
+        ds.nifti(&rel, None, 0.0);
+        paths.push(ds.path(&rel).to_string_lossy().into_owned());
+    }
+    // Index 1 is omitted by the old 15-of-20 even sample. Give it a different
+    // world grid so only the selected image can contribute to its reference.
+    let selected = Path::new(&paths[1]);
+    write_nifti(
+        selected,
+        [4, 4, 4],
+        None,
+        [2.0, 2.0, 3.0],
+        [50.0, 0.0, -30.0],
+        0.0,
+    );
+    let request = slice_request(selected, "anat", Some(-27.0));
+    let median = images::get_median_slice(&ds.cache, &paths, &request)
+        .expect("the selected eligible run must be sampled");
+    assert_eq!(median.runs_used, 1);
+    assert_eq!(median.runs_skipped, 14);
+
+    // A reference outside the eligible set must not enter the comparison.
+    let ineligible = ds.path("excluded.nii").to_string_lossy().into_owned();
+    let sampled = images::median_runs(&paths, &ineligible);
+    assert_eq!(sampled.len(), 15);
+    assert!(!sampled.contains(&ineligible));
+    assert!(sampled.iter().all(|path| paths.contains(path)));
 }
 
 #[test]
@@ -2613,6 +2762,36 @@ fn bids_exclusion_write_reports_only_what_it_added() {
 }
 
 #[test]
+fn bids_exclusion_rejects_a_conflicting_duplicate_without_writing_any_rows() {
+    let ds = TempDataset::new();
+    let mut original = row("sub-01", "original");
+    original.criterion = "manual".to_string();
+    write_exclusions(&ds.root, &[original.clone()], &context(), "0").unwrap();
+    let tsv = ds.path("derivatives/brainflow/exclusions.tsv");
+    let before = std::fs::read(&tsv).unwrap();
+    let mut changed = original;
+    changed.reason = "changed reason".to_string();
+    let error =
+        write_exclusions(&ds.root, &[row("sub-02", "new"), changed], &context(), "0").unwrap_err();
+    assert!(error.contains("already excluded"), "{error}");
+    assert!(error.contains("revert"), "{error}");
+    assert_eq!(std::fs::read(tsv).unwrap(), before);
+}
+
+#[test]
+fn bids_exclusion_preserves_a_hand_edited_sidecar_on_noop_and_new_row() {
+    let ds = TempDataset::new();
+    write_exclusions(&ds.root, &[row("sub-01", "original")], &context(), "0").unwrap();
+    let sidecar = ds.path("derivatives/brainflow/exclusions.json");
+    let edited = b"{\n  \"custom\": {\"Description\": \"Researcher note\"}\n}\n";
+    std::fs::write(&sidecar, edited).unwrap();
+    write_exclusions(&ds.root, &[row("sub-01", "original")], &context(), "0").unwrap();
+    assert_eq!(std::fs::read(&sidecar).unwrap(), edited);
+    write_exclusions(&ds.root, &[row("sub-02", "new")], &context(), "0").unwrap();
+    assert_eq!(std::fs::read(sidecar).unwrap(), edited);
+}
+
+#[test]
 fn bids_exclusion_revert_removes_one_criterion_of_an_entity() {
     let ds = TempDataset::new();
     let mut manual = row("sub-01", "by hand");
@@ -2669,15 +2848,14 @@ fn bids_exclusion_metadata_is_written_before_the_row() {
 }
 
 #[test]
-fn bids_exclusion_writer_waits_for_a_live_lock_and_clears_a_dead_one() {
+fn bids_exclusion_writer_requires_manual_recovery_of_an_old_lock() {
     let ds = TempDataset::new();
     write_exclusions(&ds.root, &[row("sub-01", "a")], &context(), "0").unwrap();
     let lock = ds.path("derivatives/brainflow/.exclusions.lock");
     std::fs::write(&lock, "").unwrap();
-    assert!(
-        write_exclusions(&ds.root, &[row("sub-02", "b")], &context(), "0").is_err(),
-        "a held lock stops the write"
-    );
+    let error = write_exclusions(&ds.root, &[row("sub-02", "b")], &context(), "0")
+        .expect_err("a held lock stops the write");
+    assert!(error.contains("did not change exclusion rows"), "{error}");
     assert_eq!(read_exclusions(&ds.root).unwrap().len(), 1);
     let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
     std::fs::File::options()
@@ -2686,6 +2864,13 @@ fn bids_exclusion_writer_waits_for_a_live_lock_and_clears_a_dead_one() {
         .unwrap()
         .set_modified(old)
         .unwrap();
+    let error = write_exclusions(&ds.root, &[row("sub-02", "b")], &context(), "0").unwrap_err();
+    assert!(error.contains("confirming no writer is active"), "{error}");
+    assert!(
+        lock.exists(),
+        "an old timestamp cannot prove the owner is dead"
+    );
+    std::fs::remove_file(&lock).unwrap();
     assert_eq!(
         write_exclusions(&ds.root, &[row("sub-02", "b")], &context(), "0")
             .unwrap()
@@ -2694,6 +2879,29 @@ fn bids_exclusion_writer_waits_for_a_live_lock_and_clears_a_dead_one() {
         2
     );
     assert!(!lock.exists(), "the lock is released");
+}
+
+#[test]
+fn bids_writer_does_not_break_a_live_lock_with_an_old_mtime() {
+    let ds = TempDataset::new();
+    write_exclusions(&ds.root, &[row("sub-01", "a")], &context(), "0").unwrap();
+    let dir = ds.path("derivatives/brainflow");
+    let held = DatasetLock::take(&dir).unwrap();
+    let lock = dir.join(".exclusions.lock");
+    std::fs::File::options()
+        .write(true)
+        .open(&lock)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(600))
+        .unwrap();
+    assert!(
+        write_exclusions(&ds.root, &[row("sub-02", "b")], &context(), "0").is_err(),
+        "an old timestamp does not prove the lock owner is dead"
+    );
+    assert_eq!(read_exclusions(&ds.root).unwrap().len(), 1);
+    assert!(lock.exists());
+    drop(held);
+    assert!(!lock.exists());
 }
 
 #[test]
@@ -3017,18 +3225,18 @@ fn stale_lock(ds: &TempDataset) -> PathBuf {
 }
 
 #[test]
-fn bids_two_takers_of_a_stale_lock_never_hold_it_together() {
+fn bids_two_concurrent_writers_never_hold_the_lock_together() {
     let ds = TempDataset::new();
+    let dir = ds.path("derivatives/brainflow");
+    std::fs::create_dir_all(&dir).unwrap();
     for _ in 0..20 {
-        let lock = stale_lock(&ds);
-        let dir = lock.parent().unwrap();
         let holders = std::sync::atomic::AtomicU32::new(0);
         let start = std::sync::Barrier::new(2);
         std::thread::scope(|scope| {
             for _ in 0..2 {
                 scope.spawn(|| {
                     start.wait();
-                    let held = DatasetLock::take(dir).unwrap();
+                    let held = DatasetLock::take(&dir).unwrap();
                     assert_eq!(holders.fetch_add(1, Ordering::SeqCst), 0, "two holders");
                     std::thread::sleep(std::time::Duration::from_millis(5));
                     holders.fetch_sub(1, Ordering::SeqCst);
@@ -3036,9 +3244,26 @@ fn bids_two_takers_of_a_stale_lock_never_hold_it_together() {
                 });
             }
         });
-        let left: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().collect();
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
         assert!(left.is_empty(), "nothing is left behind: {left:?}");
     }
+}
+
+#[test]
+fn bids_two_writers_leave_an_old_lock_untouched() {
+    let ds = TempDataset::new();
+    let lock = stale_lock(&ds);
+    let dir = lock.parent().unwrap();
+    let start = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        for _ in 0..2 {
+            scope.spawn(|| {
+                start.wait();
+                assert!(DatasetLock::take(dir).is_err());
+            });
+        }
+    });
+    assert_eq!(std::fs::read_to_string(&lock).unwrap(), "dead");
 }
 
 #[test]

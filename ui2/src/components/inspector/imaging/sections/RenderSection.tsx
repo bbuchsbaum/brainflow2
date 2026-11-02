@@ -1,3 +1,5 @@
+import { inspectorRuler } from './inspectorRuler';
+import { moduleRegistry, useModuleRegistryVersion } from '@/modules/registry';
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { getSceneHistory, setLayerVisibleByUser } from "@/services/SceneHistoryService";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
@@ -94,6 +96,8 @@ function VolumeRenderRows({
   item: SceneItem;
   kind: "base" | "overlay";
 }) {
+  useModuleRegistryVersion();
+  const declaredCapabilities = moduleRegistry.getLayerKind(item.layerKind)?.capabilities;
   const layerId = item.ref.type === "volume" ? item.ref.layerId : null;
   const setViewState = useViewStateStore((s) => s.setViewState);
   const layer = useLayerStore((s) =>
@@ -273,7 +277,7 @@ function VolumeRenderRows({
         <OverrideMark compare={compare} layerId={layerId} field="intensity" label="Intensity" />
       ) : null}
 
-      {kind === "overlay" && layerMode !== "label" && !epiImage ? (
+      {kind === "overlay" && layerMode !== "label" && !epiImage && declaredCapabilities?.thresholdable !== false ? (
         <InspectorRange
           label="Threshold"
           mode="hidden"
@@ -289,6 +293,7 @@ function VolumeRenderRows({
       ) : null}
       {kind === "overlay" &&
       layerMode !== "label" &&
+      declaredCapabilities?.thresholdable !== false &&
       metadata?.statisticDefaultThreshold &&
       Math.abs(threshold[0] + metadata.statisticDefaultThreshold) < 1e-6 &&
       Math.abs(threshold[1] - metadata.statisticDefaultThreshold) < 1e-6 ? (
@@ -298,7 +303,7 @@ function VolumeRenderRows({
           Default threshold (the file sets none); the cluster table uses the same.
         </p>
       ) : null}
-      {kind === "overlay" && layerMode !== "label" && !epiImage ? (
+      {kind === "overlay" && layerMode !== "label" && !epiImage && declaredCapabilities?.thresholdable !== false ? (
         <OverrideMark compare={compare} layerId={layerId} field="threshold" label="Threshold" />
       ) : null}
 
@@ -354,15 +359,15 @@ function VolumeRenderRows({
             </>
           )}
         </FieldRow>
-      ) : (
+      ) : declaredCapabilities?.colormappable !== false ? (
         <ColormapBlock
           value={colormap}
           windowSpan={ruler.windowSpan}
           hiddenBand={kind === "overlay" ? ruler.hiddenSpan : null}
           onChange={(next) => setLayerField("colormap", next)}
         />
-      )}
-      {layerMode !== "label" ? (
+      ) : null}
+      {layerMode !== "label" && declaredCapabilities?.colormappable !== false ? (
         <OverrideMark compare={compare} layerId={layerId} field="colormap" label="Colormap" />
       ) : null}
 
@@ -422,7 +427,7 @@ function VolumeRenderRows({
         </FieldRow>
       ) : null}
 
-      {layerMode === "label" ? (
+      {layerMode === "label" && declaredCapabilities?.outline !== false ? (
         <LabelOutlineBlock
           outline={outline}
           display={labelDisplayOf(viewLayer)}
@@ -741,60 +746,6 @@ function OverrideMark({
 // ── colormap ────────────────────────────────────────────────────────────────
 
 // ── shared ruler ────────────────────────────────────────────────────────────
-
-export interface InspectorRuler {
-  min: number;
-  max: number;
-  /** Data range as fractions of the ruler. */
-  dataSpan: [number, number] | null;
-  /** Intensity window as fractions of the ruler (the strip's gradient span). */
-  windowSpan: [number, number] | null;
-  /** Threshold-hidden interval as fractions of the ruler (clipped), or null. */
-  hiddenSpan: [number, number] | null;
-}
-
-/**
- * One value→x mapping for the Inspector's Intensity track, Threshold track and
- * colormap strip: [min(data, window), max(data, window)]. Values beyond the
- * window draw in the end colours, so the strip shows its gradient over the
- * window and the clamped end colours outside it.
- */
-export function inspectorRuler(
-  data: readonly [number, number],
-  window: readonly [number, number],
-  threshold: readonly [number, number] | null | undefined,
-  /** Domain frozen for an ongoing interaction; the ruler never shrinks inside it. */
-  frozen?: readonly [number, number] | null,
-  /**
-   * Further windows the ruler must always contain (the layer's default window
-   * and the window at first selection), so the domain is stable between
-   * interactions and the original window ends stay reachable.
-   */
-  anchors?: ReadonlyArray<readonly [number, number] | null | undefined>,
-): InspectorRuler {
-  const finite = [
-    data[0],
-    data[1],
-    window[0],
-    window[1],
-    ...(frozen ? [frozen[0], frozen[1]] : []),
-    ...(anchors ?? []).flatMap((a) => (a ? [a[0], a[1]] : [])),
-  ].filter(Number.isFinite);
-  const min = finite.length ? Math.min(...finite) : 0;
-  const max = finite.length ? Math.max(...finite) : 1;
-  const span = max - min;
-  const frac = (v: number) => (span > 0 ? Math.max(0, Math.min(1, (v - min) / span)) : 0);
-  const pair = (a: number, b: number): [number, number] | null =>
-    Number.isFinite(a) && Number.isFinite(b) ? [frac(Math.min(a, b)), frac(Math.max(a, b))] : null;
-  const hidden = isThresholdActive(threshold) ? pair(threshold![0], threshold![1]) : null;
-  return {
-    min,
-    max,
-    dataSpan: span > 0 ? pair(data[0], data[1]) : null,
-    windowSpan: span > 0 ? pair(window[0], window[1]) : null,
-    hiddenSpan: hidden && hidden[1] > hidden[0] ? hidden : null,
-  };
-}
 
 /**
  * Window the Inspector first saw per layer id (module scope: survives the

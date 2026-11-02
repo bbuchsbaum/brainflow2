@@ -95,9 +95,8 @@ describe('useBidsShortcuts', () => {
   });
 
   it('overrides the viewer keys only while BIDS is in front', () => {
-    // 2 returns with the Images view.
     press('2');
-    expect(useBidsStore.getState().activeView).toBe('coverage');
+    expect(useBidsStore.getState().activeView).toBe('images');
     press('1');
     expect(useBidsStore.getState().activeView).toBe('coverage');
     expect(viewerHandlers.layer).not.toHaveBeenCalled();

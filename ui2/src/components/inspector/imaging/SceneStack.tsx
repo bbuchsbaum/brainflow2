@@ -20,7 +20,6 @@ import {
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
 import { useSceneStack } from "@/hooks/useSceneStack";
-import { useLayerStore } from "@/stores/layerStore";
 import { useInspectorSelectionStore } from "@/stores/inspectorSelectionStore";
 import { getLayerService } from "@/services/LayerService";
 import { removeLayerFromScene } from "@/services/layerRemoval";
@@ -109,12 +108,21 @@ export function SceneStack() {
       event.stopPropagation();
       setActive(item);
       const layerId = item.ref.layerId;
-      const visible = useLayerStore.getState().getLayer(layerId)?.visible !== false;
+      const visible = item.visible;
+      const view = useViewStateStore.getState();
+      const workspaceKey = view.activeWorkspaceKey;
+      const inView = view.viewState.layers.some((layer) => layer.id === layerId);
       useContextMenuStore.getState().open(event.clientX, event.clientY, [
         {
           id: "layer.toggleVisible",
-          label: visible ? "Hide layer" : "Show layer",
-          onClick: () => setLayerVisibleByUser(layerId, !visible),
+          label: inView ? (visible ? "Hide layer" : "Show layer") : "Not in this view",
+          disabled: !inView,
+          ...(inView ? { onClick: () => {
+            const current = useViewStateStore.getState();
+            if (current.activeWorkspaceKey === workspaceKey && current.viewState.layers.some((layer) => layer.id === layerId)) {
+              setLayerVisibleByUser(layerId, !visible);
+            }
+          } } : {}),
         },
         { id: "layer.sep", label: "", separator: true },
         {

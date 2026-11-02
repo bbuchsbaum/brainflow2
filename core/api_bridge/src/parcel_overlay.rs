@@ -467,6 +467,9 @@ pub fn prepare(
     column: &str,
     table_name: String,
 ) -> BridgeResult<(VolumeEntry, ParcelOverlay)> {
+    if source.document_references > 0 {
+        return Err(input("Finish or discard the editing document before replacing its displayed values with a parcel table"));
+    }
     let parsed = parse_table(dictionary, req)?;
     if let Some(error) = parsed.preview.binding_error {
         return Err(input(error));
@@ -502,6 +505,9 @@ pub fn prepare(
         revision: 0,
     };
     let entry = VolumeEntry {
+        editable_revision: None,
+        document_references: 0,
+        source_nifti_header: source.source_nifti_header.clone(),
         data: Arc::new(overlay.scalar_snapshot()?),
         metadata,
         current_timepoint: None,

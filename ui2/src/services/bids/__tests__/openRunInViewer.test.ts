@@ -109,7 +109,7 @@ describe('openRunInViewer', () => {
     await openRunInViewer(run);
     expect(createWorkspace).toHaveBeenCalledWith('orthogonal-locked', undefined, expect.objectContaining({ presetId: RUN_VIEWER_PRESET }));
     expect(loadFile).toHaveBeenCalledWith('/d/run.nii.gz', 'programmatic', 'default', 'viewer');
-    expect(setTimepoint).toHaveBeenCalledWith(149);
+    expect(setTimepoint).toHaveBeenCalledWith(149, { layerId: 'layer-1' });
   });
 
   it('replaces the last run in the same tab and releases it', async () => {
@@ -132,6 +132,16 @@ describe('openRunInViewer', () => {
     expect(layerIds()).toEqual(['layer-1']);
     expect(useWorkspaceStore.getState().activeWorkspaceId).toBe('viewer');
     expect(setTimepoint).toHaveBeenCalledTimes(2);
+  });
+
+  it('makes the existing run visible when the user reopens it', async () => {
+    loadsLayer();
+    await openRunInViewer(run);
+    setLayers([viewLayer('layer-1', false)], 'viewer');
+    switchTo('bids');
+    await openRunInViewer(run);
+    expect(view().layers.find((layer) => layer.id === 'layer-1')?.visible).toBe(true);
+    expect(loadFile).toHaveBeenCalledTimes(1);
   });
 
   it('keeps nothing from the view in front except a template, hidden under a native run', async () => {
@@ -173,6 +183,27 @@ describe('openRunInViewer', () => {
     await openRunInViewer({ path: '/d/b.nii.gz', fd: null } as never);
     expect(removeLayer).not.toHaveBeenCalled();
     expect(layerIds()).toEqual(['layer-2']);
+  });
+
+  it('keeps a run another view retains even when that copy is hidden', async () => {
+    removesLayer();
+    loadsLayer();
+    await openRunInViewer(run);
+    addWorkspace('mine');
+    switchTo('mine');
+    setLayers([viewLayer('layer-1', false)]);
+    await openRunInViewer({ path: '/d/b.nii.gz', fd: null } as never);
+    expect(removeLayer).not.toHaveBeenCalledWith('layer-1');
+    expect(view('mine').layers.map((layer) => [layer.id, layer.visible])).toEqual([['layer-1', false]]);
+  });
+
+  it('releases the previous run if layer reordering fails after the new load', async () => {
+    loadsLayer();
+    await openRunInViewer(run);
+    setLayers([viewLayer('layer-1'), viewLayer('template')], 'viewer');
+    reorderLayers.mockRejectedValueOnce(new Error('reorder failed'));
+    await expect(openRunInViewer({ path: '/d/b.nii.gz', fd: null } as never)).rejects.toThrow('reorder failed');
+    expect(removeLayer).toHaveBeenCalledWith('layer-1');
   });
 
   it('a failed load gives the tab its run back', async () => {
@@ -440,7 +471,7 @@ describe('openRunInViewer', () => {
     finishFirst();
     await Promise.all([first, skipped, last]);
     expect(loadFile.mock.calls.map((call) => call[0])).toEqual(['/d/run.nii.gz', '/d/b.nii.gz']);
-    expect(setTimepoint.mock.calls).toEqual([[7]]);
+    expect(setTimepoint.mock.calls).toEqual([[7, { layerId: 'layer-2' }]]);
     expect(removeLayer.mock.calls).toEqual([['layer-1']]);
     expect(layerIds()).toEqual(['layer-2']);
   });
@@ -475,7 +506,7 @@ describe('openRunInViewer', () => {
     it('publishes the events on the new layer after landing on the peak', async () => {
       openWithLayer();
       await openRunInViewer(task);
-      expect(setTimepoint).toHaveBeenCalledWith(3);
+      expect(setTimepoint).toHaveBeenCalledWith(3, { layerId: 'layer-1' });
       expect(invoke).toHaveBeenCalledWith('get_bids_run_events', {
         datasetPath: '/d',
         runId: 'sub-01_task-a_bold',
@@ -579,7 +610,7 @@ describe('openRunInViewer', () => {
         expect(setTimepoint).not.toHaveBeenCalled();
         expect(useLayerStore.getState().selectedLayerId).not.toBe('layer-1');
         useWorkspaceStore.getState().activateWorkspace('viewer');
-        expect(setTimepoint.mock.calls).toEqual([[3]]);
+        expect(setTimepoint.mock.calls).toEqual([[3, { layerId: 'layer-1' }]]);
         expect(useLayerStore.getState().selectedLayerId).toBe('layer-1');
         expect(useInspectorSelectionStore.getState().activeItemId).toBe('layer-1');
         expect(usePlotModeStore.getState().activePlotModeId).toBe('crosshair-time-series');
@@ -613,7 +644,7 @@ describe('openRunInViewer', () => {
         await openRunInViewer(task);
         loadsLayer();
         await openRunInViewer({ path: '/d/b.nii.gz', fd: { peak_volume: 7 } } as never);
-        expect(setTimepoint.mock.calls.at(-1)).toEqual([7]);
+        expect(setTimepoint.mock.calls.at(-1)).toEqual([7, { layerId: 'layer-2' }]);
         expect(useLayerStore.getState().selectedLayerId).toBe('layer-2');
         switchTo('another');
         switchTo('viewer');
@@ -669,7 +700,7 @@ describe('openRunInViewer', () => {
       await openRunInViewer(task);
       stop();
       expect(notified.mock.calls[0][0].message).toContain('Events not loaded: gone');
-      expect(setTimepoint).toHaveBeenCalledWith(3);
+      expect(setTimepoint).toHaveBeenCalledWith(3, { layerId: 'layer-2' });
     });
   });
 });

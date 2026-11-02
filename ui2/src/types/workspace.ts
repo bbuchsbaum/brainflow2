@@ -6,6 +6,7 @@
 import type { LayoutConfig } from 'golden-layout';
 import type { ViewType } from './coordinates';
 import type { WorkspaceOriginId } from './workspacePresets';
+import type { ModuleWorkspaceState } from '@/modules/api';
 
 /**
  * Categories for organizing workspaces: views take a slice layout; tools open
@@ -61,8 +62,12 @@ export interface Workspace {
    * N4: the first screen never came back).
    */
   defaultView?: boolean;
+  /** Optional module mode over this view; base type/layout remain available. */
+  viewMode?: string;
   isActive: boolean;            // Currently visible workspace
   layoutConfig: LayoutConfig;   // Golden Layout configuration
+  /** Module-owned versioned JSON data; preserved with parked tabs. */
+  moduleState?: Record<string, Record<string, ModuleWorkspaceState>>;
   panelStates: Map<string, PanelState>; // Track individual panel states
 }
 

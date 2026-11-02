@@ -30,12 +30,14 @@
  *   opacity: their sub-threshold voxels are already transparent.
  */
 
+import { moduleRegistry } from '@/modules/registry';
 import { looksLikeSegmentation } from '@/utils/labelTable';
 
 /** The fields of a layer (and its metadata) the rule reads. */
 export interface PlacementLayer {
   id: string;
   type?: string;
+  layerKind?: string;
   source?: string;
   statistic?: unknown;
   isLabelMap?: boolean;
@@ -140,9 +142,10 @@ function isCategorical(layer: PlacementLayer, meta?: PlacementMetadata): boolean
  * may be a count map. Null when the type stands.
  */
 export function categoricalTypeFromData(
-  layer: Pick<PlacementLayer, 'type' | 'source' | 'volumeType'>,
+  layer: Pick<PlacementLayer, 'type' | 'source' | 'volumeType' | 'layerKind'>,
   meta?: PlacementMetadata,
 ): 'label' | null {
+  if (layer.layerKind) return null;
   // A file named like a mask (p4_brain_mask.nii) is typed 'mask' at load and
   // drew as a white wash; a true {0, 1} one is a label map too (QA
   // 2026-10-31 N11). Template masks stay masks.
@@ -153,6 +156,8 @@ export function categoricalTypeFromData(
 
 /** The stack band a layer is placed in at load. */
 export function placementBand(layer: PlacementLayer, meta?: PlacementMetadata): PlacementBand {
+  const declared = moduleRegistry.getLayerKind(layer.layerKind);
+  if (declared) return declared.stackingBand;
   // A cluster mask named after its statistic (cluster_mask_zstat1) is a mask.
   if (isCategorical(layer, meta)) return PlacementBand.Label;
   // Statistic signals win over the value range: a mostly-positive z map

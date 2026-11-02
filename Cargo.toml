@@ -3,6 +3,7 @@ members = [
   "src-tauri",
   "core/render_loop",
   "core/render_contracts",
+  "core/label_store",
   "core/render_loop_benches",
   "core/filesystem",
   "core/loaders/nifti",
@@ -18,6 +19,7 @@ members = [
   "xtask", "core/colormap", "core/neuro-core", "core/neuro-cpu", "core/neuro-types", "core/neuro-integration-tests",
   "core/neuro-inference",
   "core/modules/analysis",
+  "core/modules/segmentation",
 ]
 resolver = "2"
 

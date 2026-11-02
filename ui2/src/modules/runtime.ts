@@ -19,10 +19,10 @@
  * - switching a module off parks its tabs; switching it on brings them back.
  */
 
-import type { ModuleInfo } from '@brainflow/api';
+import type { ModuleInfo, RenderCapabilities } from '@brainflow/api';
 import { getEventBus } from '@/events/EventBus';
 import { getTransport } from '@/services/transport';
-import { isModalDialogOpen, openTool } from '@/services/workspaceNavigation';
+import { currentTabTakesLayout, isModalDialogOpen, openTool } from '@/services/workspaceNavigation';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { safeListen, safeUnlisten, type Unlisten } from '@/utils/eventUtils';
@@ -30,7 +30,8 @@ import type { DisposeFn } from './api';
 import { registerModuleKeybinding, reportCommandFailure } from './context';
 import { currentModuleHost } from './hostInfo';
 import { createLatestSender } from './latestSender';
-import { moduleRegistry, type ModuleMenuItem, type ModuleRegistry } from './registry';
+import { moduleRegistry, type ModuleMenuItem, type ModuleRegistry, type ShellBindings } from './registry';
+import type { WorkspaceStateHost } from './workspaceState';
 import { useModuleSettingsStore } from './settingsStore';
 
 export interface ModuleRuntimeDeps {
@@ -40,6 +41,11 @@ export interface ModuleRuntimeDeps {
   isDesktop(): boolean;
   openWorkspace(type: string): Promise<string | null>;
   activeWorkspaceType(): string | null;
+  workspaceState?: WorkspaceStateHost;
+  activeViewMode?: ShellBindings['activeViewMode'];
+  captureView?: ShellBindings['captureView'];
+  enterViewMode?: ShellBindings['enterViewMode'];
+  disposeViewBinding?(): void;
   parkModuleWorkspaces(moduleId: string): void;
   unparkModuleWorkspaces(moduleId: string): void;
   notifyError(message: string): void;
@@ -54,6 +60,14 @@ export interface ModuleRuntimeDeps {
 export const MODULE_COMMAND_EVENT = 'module-command';
 
 function defaultDeps(): ModuleRuntimeDeps {
+  // Every navigation transition invalidates an outstanding activation, even
+  // when the user leaves and returns to the same tab before it finishes.
+  let epoch = 0;
+  const stop = useWorkspaceStore.subscribe((state, previous) => {
+    const current = state.activeWorkspaceId ? state.workspaces.get(state.activeWorkspaceId) : undefined;
+    const old = previous.activeWorkspaceId ? previous.workspaces.get(previous.activeWorkspaceId) : undefined;
+    if (state.activeWorkspaceId !== previous.activeWorkspaceId || current?.timestamp !== old?.timestamp || current?.type !== old?.type || current?.viewMode !== old?.viewMode) epoch += 1;
+  });
   return {
     registry: moduleRegistry,
     invoke: (cmd, args) => getTransport().invoke(cmd, args),
@@ -62,6 +76,24 @@ function defaultDeps(): ModuleRuntimeDeps {
     activeWorkspaceType: () => {
       const { activeWorkspaceId, workspaces } = useWorkspaceStore.getState();
       return activeWorkspaceId ? (workspaces.get(activeWorkspaceId)?.type ?? null) : null;
+    },
+    activeViewMode: () => useWorkspaceStore.getState().getActiveWorkspace()?.viewMode ?? null,
+    captureView: () => {
+      const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+      if (!workspaceId || !currentTabTakesLayout()) return null;
+      const captured = epoch;
+      return { workspaceId, isCurrent: () => captured === epoch && currentTabTakesLayout() };
+    },
+    enterViewMode: (id, modeId) => useWorkspaceStore.getState().setWorkspaceViewMode(id, modeId),
+    disposeViewBinding: stop,
+    workspaceState: {
+      read: (id) => {
+        const state = useWorkspaceStore.getState();
+        return state.workspaces.get(id) ?? state.parkedWorkspaces.get(id);
+      },
+      write: (id, timestamp, moduleId, name, value) =>
+        useWorkspaceStore.getState().updateModuleState(id, timestamp, moduleId, name, value),
+      subscribe: (listener) => useWorkspaceStore.subscribe(listener),
     },
     parkModuleWorkspaces: (id) => useWorkspaceStore.getState().parkModuleWorkspaces(id),
     unparkModuleWorkspaces: (id) => useWorkspaceStore.getState().unparkModuleWorkspaces(id),
@@ -258,9 +290,15 @@ function keybindingSync(deps: ModuleRuntimeDeps) {
 export function startModuleRuntime(deps: ModuleRuntimeDeps = defaultDeps()): ModuleRuntime {
   const { registry } = deps;
   const bridge = bridgeSync(deps);
+  let disposed = false;
+  registry.setRenderCapabilities(null);
   registry.connectShell({
     openWorkspace: deps.openWorkspace,
     activeWorkspaceType: deps.activeWorkspaceType,
+    workspaceState: deps.workspaceState,
+    activeViewMode: deps.activeViewMode,
+    captureView: deps.captureView,
+    enterViewMode: deps.enterViewMode,
     beforeActivate: (moduleId) =>
       registry.hasBridgeSection(moduleId) ? bridge.acknowledged() : Promise.resolve(),
   });
@@ -283,12 +321,24 @@ export function startModuleRuntime(deps: ModuleRuntimeDeps = defaultDeps()): Mod
     change.enabled.forEach((id) => deps.unparkModuleWorkspaces(id));
   });
 
+  const capabilities = deps.invoke<RenderCapabilities>('get_render_capabilities').then(
+    (value) => { if (!disposed) registry.setRenderCapabilities(value); },
+    (error) => {
+      if (disposed) return;
+      console.warn('[modules] Renderer capabilities unavailable:', error);
+      registry.setRenderCapabilities(null);
+    },
+  );
+
   return {
     idle: async () => {
+      await capabilities;
       await Promise.all([bridge.idle(), menus.idle()]);
     },
     dispose() {
+      disposed = true;
       offChange();
+      deps.disposeViewBinding?.();
       stopMenuCommands();
       keys.dispose();
       menus.dispose();

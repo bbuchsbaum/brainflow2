@@ -1,4 +1,5 @@
 import React from 'react';
+import { ModuleLayerSections } from '@/components/modules/ModuleLayerSections';
 import type { SceneItem } from '@/types/sceneItem';
 import { ParcelValuesSection } from './sections/ParcelValuesSection';
 import { LabelLegendSection } from './sections/LabelLegendSection';
@@ -21,6 +22,14 @@ import { ImageSetSection } from './sections/ImageSetSection';
  *   mapping              → Mapping · Advanced
  */
 export function SectionRouter({ item }: { item: SceneItem }) {
+  return <>
+    <CoreSections item={item} />
+    {item.layerKind && item.ref.type === 'volume' ?
+      <ModuleLayerSections kindId={item.layerKind} layerId={item.ref.layerId} /> : null}
+  </>;
+}
+
+function CoreSections({ item }: { item: SceneItem }) {
   switch (item.kind) {
     case 'volume-base':
       return (

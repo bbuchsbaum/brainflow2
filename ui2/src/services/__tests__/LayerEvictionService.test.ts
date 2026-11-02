@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FALLBACK_GPU_TEXTURE_SLOTS, layerEvictionService } from '@/services/LayerEvictionService';
 
+const protectedSource = vi.hoisted(() => ({ id: '' }));
+vi.mock('@/services/workspaceDocuments', () => ({ volumeDocumentRemovalReason: (id: string) => id === protectedSource.id ? 'Retained source' : null }));
+
 const {
   mockLayerStoreState,
   mockViewStateStoreState,
@@ -55,6 +58,7 @@ vi.mock('@/events/EventBus', () => ({
 describe('LayerEvictionService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    protectedSource.id = '';
     mockLayerStoreState.layers = [];
     mockLayerStoreState.layerMetadata = new Map();
     mockLayerStoreState.setLayerMetadata.mockImplementation((id: string, metadata: any) => {
@@ -85,6 +89,18 @@ describe('LayerEvictionService', () => {
     for (const layer of layers)
       mockLayerStoreState.layerMetadata.set(layer.id, { gpuResident: true, lastRenderTime: 1 });
   }
+
+  it('preserves a hidden retained contrast under slot pressure and refuses the incoming upload', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 2 });
+    residentLayers(2, [1]);
+    protectedSource.id = 'layer-1';
+    await expect(layerEvictionService.makeRoomForUpload('incoming')).resolves.toBe(false);
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
+    protectedSource.id = '';
+    await expect(layerEvictionService.makeRoomForUpload('incoming')).resolves.toBe(true);
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-1');
+  });
 
   // Feature 10 (qa-features-2026-10-31): the budget is the backend's runtime
   // texture capacity, which depends on the adapter, not a hard-coded 16.

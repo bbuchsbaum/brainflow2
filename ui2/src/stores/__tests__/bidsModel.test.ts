@@ -140,7 +140,7 @@ describe('deriveBidsModel', () => {
     expect(fd.n).toBe(fd.of);
     expect(fd.source).toBe('FD (Power) · fmriprep 24.1.1 confounds');
     const tsnr = items.find((item) => item.kind === 'tsnr' && item.entity === 'sub-14 ses-01')!;
-    expect(tsnr.title).toMatch(/^tSNR outlier in \d of \d runs, min \d+$/);
+    expect(tsnr.title).toMatch(/^tSNR outlier in \d of \d runs with evaluated tSNR, min \d+$/);
     expect(tsnr.source).toBe('mriqc 24.0.2 · below series median − 2.5 robust SD (MAD × 1.4826)');
     expect(items.some((item) => item.kind === 'ghost' && item.entity === 'sub-05 ses-01')).toBe(true);
   });
@@ -928,6 +928,52 @@ describe('an echoed run is one run', () => {
     expect(item.runIds).toEqual(['sub-01_task-me_run-4_echo-2_bold']);
     expect(item.detail).toContain('echo-2');
     expect(claim(model)).toMatchObject({ text: '1 run is a tSNR outlier for its series' });
+  });
+
+  it('counts only evaluated acquisitions and reports groups that could not be evaluated', () => {
+    const source = echoed({ run: 4, echo: 2 });
+    const base = source.runs.find((run) => run.id === 'sub-01_task-me_run-1_echo-1_bold')!;
+    const extra = [
+      ...[40, 41, 42].map((tsnr, i) => ({ task: 'short', run: i + 1, tsnr })),
+      ...Array.from({ length: 8 }, (_, i) => ({ task: 'flat', run: i + 1, tsnr: 50 })),
+    ].map(({ task, run, tsnr }) => ({
+      ...base,
+      id: `sub-01_task-${task}_run-${run}_bold`,
+      task,
+      run: String(run),
+      echo: null,
+      series: `task-${task}_bold`,
+      iqms: { source: 'mriqc', tsnr, fd_mean: null, gsr_y: null },
+    }) as BidsRunRecord);
+    source.runs.push(...extra);
+    const model = deriveBidsModel(source);
+    const [outlier] = items(model);
+    expect(outlier.of).toBe(9);
+    expect(outlier.title).toContain('1 of 9 runs with evaluated tSNR');
+    const note = group(model, 'notes').items.find((item) => item.id === 'tsnr:not-evaluated')!;
+    expect(note.title).toContain('11 runs');
+    expect(note.detail).toMatch(/fewer than 8/);
+    expect(note.detail).toMatch(/zero MAD/);
+    expect(new Set(note.runIds)).toEqual(new Set(extra.map((run) => run.id)));
+    expect(note.lens).not.toBeNull();
+
+    const excluded = deriveBidsModel(source, { exclusions: [exclusion(extra[0].id)] });
+    const filtered = group(excluded, 'notes').items.find((item) => item.id === 'tsnr:not-evaluated')!;
+    expect(filtered.runIds).not.toContain(extra[0].id);
+  });
+
+  it('reports unevaluated echoes even when the same runs have evaluated echoes', () => {
+    const source = echoed({ run: 4, echo: 2 });
+    for (let run = 5; run <= 9; run += 1) {
+      const echo = source.runs.find((item) => item.id === `sub-01_task-me_run-${run}_echo-3_bold`)!;
+      echo.iqms = { ...echo.iqms!, tsnr: null };
+    }
+    const model = deriveBidsModel(source);
+    expect(items(model)[0].of).toBe(9);
+    const note = group(model, 'notes').items.find((item) => item.id === 'tsnr:not-evaluated')!;
+    expect(note.title).toContain('4 runs');
+    expect(note.runIds).toEqual(Array.from({ length: 4 }, (_, i) => `sub-01_task-me_run-${i + 1}_echo-3_bold`));
+    expect(note.detail).toContain('other echoes that were evaluated');
   });
 
   it('counts one run however many echoes are low, and names each', () => {

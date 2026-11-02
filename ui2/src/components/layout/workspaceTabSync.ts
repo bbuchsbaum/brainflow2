@@ -18,6 +18,7 @@
  */
 
 import type { ComponentItem, ContentItem, Stack } from 'golden-layout';
+import { workspaceCloseIsGuarded } from '@/services/workspaceCloseGuards';
 
 type TabStack = Pick<Stack, 'contentItems' | 'setActiveComponentItem'> & {
   getActiveComponentItem?: () => ComponentItem | undefined;
@@ -41,6 +42,19 @@ export function findWorkspaceTab(
   if (!workspaceId) return null;
   const match = stack.contentItems.find((item) => tabWorkspaceId(item) === workspaceId);
   return match && match.type === 'component' ? (match as ComponentItem) : null;
+}
+
+/** Find a workspace component anywhere in a rearranged GoldenLayout tree. */
+export function findWorkspaceTabAnywhere(
+  root: ContentItem | null | undefined,
+  workspaceId: string,
+): ComponentItem | null {
+  if (tabWorkspaceId(root) === workspaceId) return root as ComponentItem;
+  for (const child of root?.contentItems ?? []) {
+    const found = findWorkspaceTabAnywhere(child, workspaceId);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**
@@ -143,6 +157,9 @@ export function handleWorkspaceTabDestroyed(
 ): 'closed' | 'forgotten' {
   forget(workspaceId);
   if (guard.active) return 'forgotten';
+  // GoldenLayout destroy is too late to ask. A guarded document is retained;
+  // the root's store subscription will reconcile its missing tab.
+  if (workspaceCloseIsGuarded(workspaceId)) return 'forgotten';
   tabsBeingDestroyed.add(workspaceId);
   try {
     closeWorkspace(workspaceId);
@@ -167,6 +184,18 @@ export function removeClosedWorkspaceTab(
 ): boolean {
   if (!stack || tabsBeingDestroyed.has(workspaceId)) return false;
   const item = findWorkspaceTab(stack, workspaceId);
+  if (!item) return false;
+  programmaticTabRemoval.run(() => item.remove());
+  return true;
+}
+
+/** Store-driven close after a user has moved a tab out of the centre stack. */
+export function removeClosedWorkspaceTabAnywhere(
+  root: ContentItem | null | undefined,
+  workspaceId: string,
+): boolean {
+  if (tabsBeingDestroyed.has(workspaceId)) return false;
+  const item = findWorkspaceTabAnywhere(root, workspaceId);
   if (!item) return false;
   programmaticTabRemoval.run(() => item.remove());
   return true;

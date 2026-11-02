@@ -1,3 +1,4 @@
+import type { ViewportTool } from '@brainflow/visualization/slice';
 import type { MouseEvent } from 'react';
 import { SliceRenderer } from './SliceRenderer';
 import type { SliceRendererProps } from './SliceRenderer';
@@ -55,6 +56,7 @@ interface SliceViewportProps {
   onFileDrop?: (file: File, intent: DisplayOpenIntent) => void | Promise<void>;
   onPathDrop?: (path: string, intent: DisplayOpenIntent) => void;
   customRender?: SliceRendererProps['customRender'];
+  tool?: ViewportTool | null;
   /**
    * Display the slice mirrored left-right (the radiological convention).
    * A display transform only: the plane, the crosshair's world position and
@@ -100,6 +102,7 @@ export function SliceViewport({
   onFileDrop,
   onPathDrop,
   customRender,
+  tool,
   mirrorX = false,
   pixelRatio = 1,
 }: SliceViewportProps) {
@@ -126,6 +129,7 @@ export function SliceViewport({
       onWorldClick={onWorldClick}
       onMouseDown={onMouseDown}
       customRender={customRender}
+      tool={tool}
       renderSurface={({ customRender: handleRender, onCanvasReady: handleCanvasReady }) => (
         <SliceRenderer
           width={width}

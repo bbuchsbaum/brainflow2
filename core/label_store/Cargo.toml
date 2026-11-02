@@ -1,0 +1,13 @@
+[package]
+name = "label-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0"
+nifti = { version = "0.16.0", features = ["nalgebra_affine"] }
+ndarray = "0.15"
+tempfile = "3"
+
+[dev-dependencies]
+flate2 = "1.0"

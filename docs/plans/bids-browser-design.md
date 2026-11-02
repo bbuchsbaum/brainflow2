@@ -2,10 +2,14 @@
 
 ## Status
 
-Agreed design, not yet built. It replaces the v1 BIDS Explorer layout, which
-had a summary strip, a coverage matrix and Events/Validation tabs
-(`ui2/src/components/bids/`). The v1 bridge commands stay; the design adds to
-them (see "Backend work").
+The BIDS browser's coverage workspace, findings, inspector, run viewer and
+exclusion workflow shipped in PR #24. They replace the v1 Explorer layout while
+retaining the existing bridge commands and adding the commands described below.
+The follow-up in this checkout adds the Images contact sheet, shared-window
+thumbnails and a grid-checked median comparison; those changes are not yet
+committed or merged. Large-dataset tuning and live remote and post-merge native
+verification remain open. The BIDS visual baseline has been refreshed against
+the redesigned coverage workspace in the synthetic app harness.
 
 The design came out of three review rounds with four simulated critics:
 Edward Tufte, Steve Jobs, a Linear product designer and Russ Poldrack. Each
@@ -105,13 +109,18 @@ fMRIPrep."
 
 ### Images (contact sheet)
 
-- Shows the same slice, window and series for every subject-session: mean
-  EPI, T1w, b0 or tSNR map.
+- Choose mean EPI, T1w, b0 or tSNR map and a series/run. Every
+  subject-session uses the same reference window and nearest slice to the
+  editable world-z value.
 - Sort by matrix order, tSNR or FD.
 - A white outline marks a quality outlier and a grey hairline marks an
   acquisition variant. Selection is a filled tile with an inverted label.
-- In the Inspector, the selected run sits beside the dataset median image at
-  the same slice and window.
+- With a matching Images reference, the Inspector shows the selected run beside
+  a median of up to 15 modal runs on the same voxel-to-world grid, slice and
+  fixed window. Compare with modal also opens a comparison outside Images.
+  The selected run is included in the sample when it is eligible as a modal
+  run; otherwise only eligible runs are sampled. Matching grids do not establish
+  anatomical registration; images on other grids are skipped.
 
 ### Lens
 

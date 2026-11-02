@@ -10,6 +10,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { FileTreeNode } from '@/types/filesystem';
 import { formatSessionId, formatSubjectId, truncateBidsName } from '@/utils/bids';
 import { Button, Notice, SelectableRow, useRovingFocus } from '@/components/ui/bf';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 interface BidsViewProps {
   rootNode: FileTreeNode | null;
@@ -247,7 +248,7 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
       } catch (err) {
         if (cancelled) return;
         setDetection('unknown');
-        setDetectionError(err instanceof Error ? err.message : String(err));
+        setDetectionError(formatTauriError(err));
       }
     })();
 
