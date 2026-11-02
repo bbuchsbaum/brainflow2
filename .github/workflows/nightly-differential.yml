@@ -23,7 +23,7 @@ env:
 
 jobs:
   extensive-differential-tests:
-    name: Extensive CPU/GPU Tests - ${{ matrix.test_suite }}
+    name: Extensive CPU/GPU Tests - ${{ matrix.test_suite.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -46,6 +46,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Authenticate cargo to private GitHub deps
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
 
     - name: Setup Rust nightly
       uses: dtolnay/rust-toolchain@nightly
@@ -152,6 +159,13 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+    - name: Authenticate cargo to private GitHub deps
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
 
     - name: Setup Rust nightly with profiling
       uses: dtolnay/rust-toolchain@nightly

@@ -119,14 +119,20 @@ fn accepts_workbench_version_spelling() {
     // Connectome Workbench and Caret write Version="1" rather than "1.0".
     let workbench = XML.replacen("Version=\"1.0\"", "Version=\"1\"", 1);
     assert_ne!(workbench, XML);
-    assert_eq!(read_surface(workbench.as_bytes()).unwrap().vertices_world(), EXPECTED);
+    assert_eq!(
+        read_surface(workbench.as_bytes()).unwrap().vertices_world(),
+        EXPECTED
+    );
     let unknown = XML.replacen("Version=\"1.0\"", "Version=\"2.0\"", 1);
-    assert!(read_surface(unknown.as_bytes()).unwrap_err().contains("GIfTI 1.0"));
+    assert!(read_surface(unknown.as_bytes())
+        .unwrap_err()
+        .contains("GIfTI 1.0"));
 }
 
 #[test]
 fn decodes_hcp_fs_lr_inflated_surface() {
-    let bytes = include_bytes!("../../../../test-data/surfaces/fslr32k/fs_LR.32k.L.inflated.surf.gii");
+    let bytes =
+        include_bytes!("../../../../test-data/surfaces/fslr32k/fs_LR.32k.L.inflated.surf.gii");
     let mesh = read_surface(&bytes[..]).unwrap();
     assert_eq!(mesh.vertices.len(), 32_492 * 3);
     assert_eq!(mesh.faces.len(), 64_980 * 3);

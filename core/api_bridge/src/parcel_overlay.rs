@@ -680,11 +680,11 @@ mod tests {
         assert!(overlay.sample(0.).is_nan());
         let lut = overlay.lut("gray", [-2., 2.], None).unwrap();
         assert_eq!(lut[7 * 4 + 3], 255);
-        assert_eq!(lut[1 * 4 + 3], 255); // zero is opaque
+        assert_eq!(lut[4 + 3], 255); // parcel 1 (value zero) is opaque
         assert_eq!(lut[9 * 4 + 3], 0); // missing is transparent
         assert_eq!(lut[3], 0); // background stays transparent
         let hidden = overlay.lut("gray", [-2., 2.], Some([-0.1, 0.1])).unwrap();
-        assert_eq!(hidden[1 * 4 + 3], 0);
+        assert_eq!(hidden[4 + 3], 0); // parcel 1
         assert_eq!(hidden[7 * 4 + 3], 255); // threshold is numeric, not parcel ID
         overlay.select("t").unwrap();
         assert_eq!(overlay.sample(1.), -4.);

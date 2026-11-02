@@ -2926,7 +2926,7 @@ async fn unload_surface_impl(handle: &str, state: &BridgeState) -> BridgeResult<
 
     let mut registry = state.surface_registry.lock().await;
     registry
-        .remove_surface(&handle)
+        .remove_surface(handle)
         .ok_or_else(|| BridgeError::Input {
             code: 2013,
             details: format!("Surface not found: {}", handle),

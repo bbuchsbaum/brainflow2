@@ -16,6 +16,13 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+    - name: Authenticate cargo to private GitHub deps
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -56,23 +63,23 @@ jobs:
       working-directory: core/neuro-integration-tests
     
     - name: Run basic ellipsoid tests
-      run: cargo test ellipsoid_validation::test_ellipsoid_isotropic_volumes --verbose
+      run: cargo test --test ellipsoid_validation test_ellipsoid_isotropic_volumes --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run anisotropic ellipsoid tests
-      run: cargo test ellipsoid_validation::test_ellipsoid_anisotropic_volumes --verbose
+      run: cargo test --test ellipsoid_validation test_ellipsoid_anisotropic_volumes --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run extreme aspect ratio tests
-      run: cargo test ellipsoid_validation::test_ellipsoid_extreme_aspect_ratios --verbose
+      run: cargo test --test ellipsoid_validation test_ellipsoid_extreme_aspect_ratios --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run small object tests
-      run: cargo test ellipsoid_validation::test_ellipsoid_small_objects --verbose
+      run: cargo test --test ellipsoid_validation test_ellipsoid_small_objects --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run edge case tests
-      run: cargo test ellipsoid_validation::test_ellipsoid_edge_cases --verbose
+      run: cargo test --test ellipsoid_validation test_ellipsoid_edge_cases --verbose
       working-directory: core/neuro-integration-tests
 
   performance-benchmarks:
@@ -82,6 +89,13 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+    - name: Authenticate cargo to private GitHub deps
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -106,7 +120,7 @@ jobs:
         echo "Benchmarks completed at $(date)" > benchmark-results/timestamp.txt
     
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results
         path: benchmark-results/
@@ -118,6 +132,13 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+    - name: Authenticate cargo to private GitHub deps
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -132,7 +153,7 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     
     - name: Run random property tests
-      run: cargo test ellipsoid_validation::test_ellipsoid_random_configurations --ignored --verbose
+      run: cargo test --test ellipsoid_validation test_ellipsoid_random_configurations --verbose -- --ignored
       working-directory: core/neuro-integration-tests
       env:
         RUST_BACKTRACE: 1
@@ -141,7 +162,7 @@ jobs:
       run: |
         # Run a memory-intensive test with monitoring
         echo "Testing large volume handling..."
-        cargo test ellipsoid_validation::test_ellipsoid_edge_cases --verbose
+        cargo test --test ellipsoid_validation test_ellipsoid_edge_cases --verbose
       working-directory: core/neuro-integration-tests
 
   validation-report:
@@ -154,7 +175,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Download benchmark results
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: benchmark-results
         path: benchmark-results/
@@ -179,7 +200,7 @@ jobs:
         fi
     
     - name: Upload validation report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: validation-report
         path: validation-report.md

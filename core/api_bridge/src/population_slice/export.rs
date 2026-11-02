@@ -1521,7 +1521,7 @@ mod tests {
             &state,
         )
         .await;
-        assert!((se[0] - 0.1863389981249824).abs() < 1e-6);
+        assert!((se[0] - 0.186_338_99).abs() < 1e-6);
         super::super::replay::replay(
             out.provenance_path.clone(),
             dest.0.to_string_lossy().into(),
