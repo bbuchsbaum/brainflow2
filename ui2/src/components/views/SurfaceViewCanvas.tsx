@@ -24,6 +24,7 @@ import type { CameraBasis } from '@/utils/orientationGizmo';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useViewContextMenu } from '@/hooks/useViewContextMenu';
 import { buildSurfaceViewContextId } from '@/utils/surfaceViewContext';
+import { surfaceHemisphere } from '@brainflow/visualization/surface/hemisphere';
 import {
   NeuroSurfaceCanvas,
   type SurfaceCanvasExporter,
@@ -113,6 +114,11 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
     return Array.from(unique.values()) as SurfaceRenderable[];
   }, [renderSurfaces, surface]);
 
+  // Presets aim at the active surface's hemisphere (the viewer's own reading
+  // of it, which the frame header shares); with lh and rh both drawn, Medial
+  // shows it and hides the other.
+  const viewHemisphere = surfaceHemisphere(surface) ?? undefined;
+
   const loadedSurfaces = useSurfaceStore(state => state.surfaces);
   const cursorAnatomy = useMemo(() => resolveCursorAnatomy(
     renderSurfaces ?? [surface], loadedSurfaces.values()), [renderSurfaces, surface, loadedSurfaces]);
@@ -194,6 +200,7 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
       width={width}
       height={height}
       viewpoint={viewpoint}
+      viewHemisphere={viewHemisphere}
       viewpointNonce={viewpointNonce}
       showControls={showControls}
       lightingSettings={lightingSettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.lightingSettings}

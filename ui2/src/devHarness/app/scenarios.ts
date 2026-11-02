@@ -1260,6 +1260,25 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     );
     await frames(20);
   },
+  // Medial with lh and rh in one view: the active (left) hemisphere's medial
+  // wall, the right mesh hidden so it cannot cover it, the header naming left.
+  'surface-preset-medial-bilateral': async () => {
+    await figureSurfaces(
+      [FIG_LH_PATH, FIG_LH_OVERLAY_PATH, FIG_RH_PATH, FIG_RH_OVERLAY_PATH],
+      'lh.inflated.gii',
+    );
+    await clickWhere(
+      '[data-testid="surface-camera-presets"] [role="radio"], [data-testid="surface-camera-presets"] button',
+      (el) => el.textContent?.trim() === 'Medial',
+      "surface preset 'Medial'",
+    );
+    await frames(20);
+    noteStep(`header: ${document.querySelector('[data-testid="surface-frame-header"]')?.textContent}`);
+    const { useSurfaceCameraStore } = await import('@/stores/surfaceCameraStore');
+    for (const [view, basis] of useSurfaceCameraStore.getState().bases) {
+      noteStep(`camera ${view}: forward ${basis.forward.map((v) => v.toFixed(2)).join(' ')}`);
+    }
+  },
   // v4 user critic: each camera preset must give its named view.
   'surface-preset-dorsal': async (ctx) => {
     await P3_DRIVERS['surface-frame'](ctx);

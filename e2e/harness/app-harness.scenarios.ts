@@ -68,6 +68,7 @@ export const P3_SCENARIOS = [
   // Each camera preset gives its named view (v4 user critic).
   'surface-preset-lateral',
   'surface-preset-medial',
+  'surface-preset-medial-bilateral',
   'surface-preset-dorsal',
   'surface-preset-anterior',
   // Native-like statistics with no scenario-set window (v6 native check).

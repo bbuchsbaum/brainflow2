@@ -2,5 +2,6 @@ export * from './types.js';
 export * from './surfaceReconciler.js';
 export { NeuroSurfaceCanvas } from './NeuroSurfaceCanvas.js';
 export { computeSurfaceSulcalDepth } from './surfaceCurvature.js';
+export { resolvePresetHemispheres, surfaceHemisphere, } from './presetHemisphere.js';
 export { isSurfaceCameraState } from './cameraState.js';
 //# sourceMappingURL=index.js.map

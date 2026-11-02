@@ -64,6 +64,77 @@ describe('SurfaceFrame (P3.10)', () => {
     expect(screen.getByTestId('surface-frame-header')).toHaveTextContent('Surface · both · inflated');
   });
 
+  /** A drawable mesh: geometry ready, its hemisphere on the geometry as loaded. */
+  function mesh(handle: string, hemisphere: string | undefined, metadataHemisphere = hemisphere): LoadedSurface {
+    const base = surface(false);
+    return {
+      ...base,
+      handle,
+      geometry: {
+        vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+        faces: new Uint32Array([0, 1, 2]),
+        hemisphere,
+      },
+      metadata: { ...base.metadata, hemisphere: metadataHemisphere },
+    } as LoadedSurface;
+  }
+  const header = () => screen.getByTestId('surface-frame-header');
+
+  it('under Medial with lh and rh drawn, names the hemisphere shown (the other is hidden)', () => {
+    const left = mesh('s1', 'left');
+    const right = mesh('s2', 'right');
+    useSurfaceStore.getState().setViewpoint('medial', 'tab-medial');
+    const view = render(
+      <SurfaceFrame surface={left} renderSurfaces={[left, right]} surfaceViewId="tab-medial" width={600} height={400} />,
+    );
+    expect(header()).toHaveTextContent('Surface · left · inflated');
+
+    // The active surface decides which hemisphere Medial shows.
+    view.rerender(
+      <SurfaceFrame surface={right} renderSurfaces={[left, right]} surfaceViewId="tab-medial" width={600} height={400} />,
+    );
+    expect(header()).toHaveTextContent('Surface · right · inflated');
+
+    // Any other preset draws both again.
+    fireEvent.click(screen.getByRole('radio', { name: 'Lateral' }));
+    expect(header()).toHaveTextContent('Surface · both · inflated');
+  });
+
+  it('under Medial with one hemisphere drawn, names that hemisphere as before', () => {
+    const left = mesh('s1', 'left');
+    useSurfaceStore.getState().setViewpoint('medial', 'tab-medial-one');
+    render(<SurfaceFrame surface={left} renderSurfaces={[left]} surfaceViewId="tab-medial-one" width={600} height={400} />);
+    expect(header()).toHaveTextContent('Surface · left · inflated');
+  });
+
+  it('under Medial says "both" while the viewer hides nothing', () => {
+    useSurfaceStore.getState().setViewpoint('medial', 'tab-medial-none');
+    const props = { surfaceViewId: 'tab-medial-none', width: 600, height: 400 };
+    // rh's geometry not ready yet: the viewer cannot hide it.
+    const left = mesh('s1', 'left');
+    const loading = { ...mesh('s2', 'right'), geometry: { vertices: new Float32Array(), faces: new Uint32Array(), hemisphere: 'right' } } as LoadedSurface;
+    const view = render(<SurfaceFrame surface={left} renderSurfaces={[left, loading]} {...props} />);
+    expect(header()).toHaveTextContent('Surface · both · inflated');
+
+    // Metadata names the hemispheres, the geometry does not: the viewer
+    // cannot tell them apart and hides nothing.
+    const a = mesh('s1', undefined, 'left');
+    const b = mesh('s2', undefined, 'right');
+    view.rerender(<SurfaceFrame surface={a} renderSurfaces={[a, b]} {...props} />);
+    expect(header()).toHaveTextContent('Surface · both · inflated');
+  });
+
+  it('under Medial follows the geometry when metadata disagrees with it', () => {
+    useSurfaceStore.getState().setViewpoint('medial', 'tab-medial-disagree');
+    // Active surface: metadata says left, the geometry (what the viewer reads) right.
+    const active = mesh('s1', 'right', 'left');
+    const other = mesh('s2', 'left', 'right');
+    render(
+      <SurfaceFrame surface={active} renderSurfaces={[active, other]} surfaceViewId="tab-medial-disagree" width={600} height={400} />,
+    );
+    expect(header()).toHaveTextContent('Surface · right · inflated');
+  });
+
   it('describes the visible scalar overlay in the colorbar, none without one', () => {
     expect(surfaceColorbarLayer(surface(true))).toMatchObject({ colormap: 'viridis', intensity: [0, 2] });
     expect(surfaceColorbarLayer(surface(false))).toBeNull();

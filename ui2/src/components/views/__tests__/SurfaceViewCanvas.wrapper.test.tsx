@@ -45,7 +45,7 @@ vi.mock('@/stores/viewStateStore', async (importOriginal) => {
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { SurfaceViewCanvas } from '../SurfaceViewCanvas';
 
-function makeSurface(handle: string): LoadedSurface {
+function makeSurface(handle: string, hemisphere: 'left' | 'right' = 'left'): LoadedSurface {
   return {
     handle,
     name: handle,
@@ -53,14 +53,14 @@ function makeSurface(handle: string): LoadedSurface {
     geometry: {
       vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       faces: new Uint32Array([0, 1, 2]),
-      hemisphere: 'left',
+      hemisphere,
       surfaceType: 'pial',
     },
     layers: new Map(),
     metadata: {
       vertexCount: 3,
       faceCount: 1,
-      hemisphere: 'left',
+      hemisphere,
       surfaceType: 'pial',
       path: `/tmp/${handle}.gii`,
     },
@@ -124,6 +124,38 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
     expect(neuroSurfaceCanvasState.latestProps.projectionSettings.useGPUProjection).toBe(true);
     expect(neuroSurfaceCanvasState.latestProps.materialSettings.surfaceColor).toBe('#123456');
     expect(neuroSurfaceCanvasState.latestProps.displaySettings.smoothing).toBe(0.4);
+  });
+
+  it('aims presets at the active surface hemisphere (Medial shows it when lh and rh are drawn)', () => {
+    const left = makeSurface('lh', 'left');
+    const right = makeSurface('rh', 'right');
+    const view = render(
+      <SurfaceViewCanvas surface={left} renderSurfaces={[left, right]} surfaceViewId="view-1" width={320} height={240} />,
+    );
+    expect(neuroSurfaceCanvasState.latestProps.viewHemisphere).toBe('left');
+
+    view.rerender(
+      <SurfaceViewCanvas surface={right} renderSurfaces={[left, right]} surfaceViewId="view-1" width={320} height={240} />,
+    );
+    expect(neuroSurfaceCanvasState.latestProps.viewHemisphere).toBe('right');
+    // Drawn surfaces keep their order; only the aim follows the active one.
+    expect(
+      neuroSurfaceCanvasState.latestProps.surfaces.map((item: LoadedSurface) => item.handle),
+    ).toEqual(['lh', 'rh']);
+  });
+
+  it('leaves the preset hemisphere to the viewer when the active surface names none', () => {
+    const surface = makeSurface('mesh');
+    surface.geometry.hemisphere = 'both';
+    surface.metadata.hemisphere = undefined;
+    const view = render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
+    expect(neuroSurfaceCanvasState.latestProps.viewHemisphere).toBeUndefined();
+
+    // The viewer reads the geometry's hemisphere; metadata alone does not aim.
+    const metadataOnly = makeSurface('mesh2', 'right');
+    metadataOnly.geometry.hemisphere = undefined;
+    view.rerender(<SurfaceViewCanvas surface={metadataOnly} surfaceViewId="view-1" width={320} height={240} />);
+    expect(neuroSurfaceCanvasState.latestProps.viewHemisphere).toBeUndefined();
   });
 
   it('registers reusable canvas exporters under the Brainflow surface context key', () => {

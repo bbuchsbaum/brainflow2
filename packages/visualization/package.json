@@ -22,6 +22,10 @@
       "types": "./dist/surface/cameraState.d.ts",
       "import": "./dist/surface/cameraState.js"
     },
+    "./surface/hemisphere": {
+      "types": "./dist/surface/presetHemisphere.d.ts",
+      "import": "./dist/surface/presetHemisphere.js"
+    },
     "./surface/projection": {
       "types": "./dist/surface/volumeLabels.d.ts",
       "import": "./dist/surface/volumeLabels.js"
