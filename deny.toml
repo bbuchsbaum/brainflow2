@@ -114,7 +114,7 @@ allow = [
 # List of crates to deny
 deny = [
     # Deny known problematic crates
-    { name = "openssl", wrappers = ["openssl-sys"] },
+    # openssl is allowed: native-tls (reqwest on Linux) uses the system OpenSSL.
     { name = "stdweb" }, # Deprecated in favor of web-sys
     { name = "failure" }, # Deprecated in favor of thiserror/anyhow
 ]
