@@ -30,7 +30,7 @@ jobs:
       matrix:
         test_suite:
           - name: standard_slices
-            filter: "test_basic_axial_slices or test_coronal_slices or test_sagittal_slices"
+            filter: "test_basic_axial_slices test_coronal_slices test_sagittal_slices"
           - name: oblique_slices
             filter: "test_oblique_slices"
           - name: edge_cases
@@ -66,7 +66,7 @@ jobs:
       run: |
         # Install required packages
         sudo apt-get update
-        sudo apt-get install -y mesa-utils libgl1-mesa-dri vulkan-tools
+        sudo apt-get install -y mesa-utils libgl1-mesa-dri vulkan-tools mesa-vulkan-drivers libvulkan1
         
         # Try hardware acceleration first
         if vulkaninfo &> /dev/null; then
@@ -110,13 +110,25 @@ jobs:
         cargo build --package neuro-integration-tests --all-features --release
 
     - name: Run extensive test suite
+      # matrix.test_suite.filter is a space-separated list of test-name filters.
+      # libtest takes one filter per invocation, so each runs separately, and a
+      # failing test fails the step.
       run: |
+        set -o pipefail
         export NEURO_TEST_CONFIG=test_config.toml
-        cargo test --package neuro-integration-tests --release -- \
-          --test-threads=1 \
-          --nocapture \
-          ${{ matrix.test_suite.filter }} \
-          > ${{ matrix.test_suite.name }}_results.txt 2>&1 || true
+        results=${{ matrix.test_suite.name }}_results.txt
+        : > "$results"
+        for filter in ${{ matrix.test_suite.filter }}; do
+          echo "=== filter: $filter ===" | tee -a "$results"
+          cargo test --package neuro-integration-tests --release -- \
+            --test-threads=1 \
+            --nocapture \
+            "$filter" 2>&1 | tee -a "$results"
+        done
+        # A filter that matches no test passes vacuously; make that visible.
+        if ! grep -qE '^test .* \.\.\. (ok|FAILED|ignored)' "$results"; then
+          echo "::warning::No tests matched '${{ matrix.test_suite.filter }}'; this suite ran nothing."
+        fi
 
     - name: Analyze test results
       if: always()

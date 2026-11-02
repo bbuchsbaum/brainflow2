@@ -438,10 +438,12 @@ fn automatic_member_updates_promote_in_place_and_keep_registration_current() {
                 .format,
             wgpu::TextureFormat::R32Float
         );
-        assert_eq!(
-            levels(&frame(&mut service, "v", 1.).await),
-            BTreeSet::from([128])
-        );
+        // One uniform level within 1 LSB of 0.5 x 255: Vulkan lets adapters filter
+        // with as few as 4 sub-texel bits, and lavapipe lands one below Metal.
+        let after = levels(&frame(&mut service, "v", 1.).await);
+        assert_eq!(after.len(), 1, "expected a uniform image, got {after:?}");
+        let level = *after.iter().next().unwrap();
+        assert!(level.abs_diff(128) <= 1, "expected 128 +/- 1, got {level}");
     });
 }
 

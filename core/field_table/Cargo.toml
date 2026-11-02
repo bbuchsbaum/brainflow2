@@ -15,7 +15,7 @@ nifti-loader = { path = "../loaders/nifti" }
 regex = "1.11.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-serde_yaml = "0.9.34"
+serde_norway = "0.9"
 walkdir = "2.5.0"
 
 nalgebra = "0.32"

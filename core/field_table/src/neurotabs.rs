@@ -63,7 +63,7 @@ pub fn parse_manifest_str(
         serde_json::from_str(text)
             .map_err(|error| NeuroTabsManifestError::parse(format!("JSON parse error: {error}")))?
     } else {
-        serde_yaml::from_str(text)
+        serde_norway::from_str(text)
             .map_err(|error| NeuroTabsManifestError::parse(format!("YAML parse error: {error}")))?
     };
 
