@@ -196,7 +196,9 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           files: ./cobertura.xml
-          fail_ci_if_error: true
+          # Best-effort: without a CODECOV_TOKEN secret, uploads are tokenless and
+          # get rate-limited (429). The threshold step below is the gate.
+          fail_ci_if_error: false
           
       - name: Check Coverage Threshold
         run: |

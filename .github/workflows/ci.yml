@@ -181,7 +181,10 @@ jobs:
         # windows-latest is excluded: api_bridge calls the `remotely` crate's
         # AgentClient::connect_env, which is Unix-only, so the workspace fails to
         # compile on Windows (E0599). Re-add once remotely supports Windows.
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-24.04, not ubuntu-latest: latest is now 26.04, where Playwright
+        # 1.48's install-deps asks for packages that no longer exist (libicu74,
+        # libvpx9, libx264-164). Move to latest with a Playwright upgrade.
+        os: [ubuntu-24.04, macos-latest]
 
     steps:
     - uses: actions/checkout@v4
@@ -257,27 +260,27 @@ jobs:
       run: pnpm test:unit
 
     - name: Install Playwright Browsers
-      if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
+      if: matrix.os == 'ubuntu-24.04' # Only run E2E on Linux for now
       run: pnpm -C e2e exec playwright install --with-deps
       
     - name: Run Playwright E2E Tests
-      if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
+      if: matrix.os == 'ubuntu-24.04' # Only run E2E on Linux for now
       run: pnpm test:e2e
       
     - name: Run Atlas Menu System E2E Tests
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-24.04'
       run: |
         cd e2e
         pnpm exec playwright test atlas-menu-system.spec.ts --reporter=html
         
     - name: Run Security Validation E2E Tests
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-24.04'
       run: |
         cd e2e
         pnpm exec playwright test security-validation.spec.ts --reporter=html
         
     - name: Upload E2E Test Results
-      if: failure() && matrix.os == 'ubuntu-latest'
+      if: failure() && matrix.os == 'ubuntu-24.04'
       uses: actions/upload-artifact@v4
       with:
         name: e2e-test-results
@@ -298,16 +301,16 @@ jobs:
       run: cargo build --locked --package volmath --lib --features web --target wasm32-unknown-unknown --verbose
 
     - name: Run Upload Benchmark
-      if: matrix.os == 'ubuntu-latest' # Run only where GPU likely available
+      if: matrix.os == 'ubuntu-24.04' # Run only where GPU likely available
       run: cargo bench -p render_loop --bench upload -- --save-baseline upload
 
     - name: Install jq for benchmark check
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-24.04'
       run: sudo apt-get update && sudo apt-get install -y jq
       shell: bash
 
     - name: Check Upload Throughput Gate (> 2 GB/s)
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-24.04'
       run: |
         JSON_PATH="target/criterion/Texture Upload/upload_256_R32F_write_texture/new/estimates.json"
         BYTES=67108864 # 256*256*256*4
