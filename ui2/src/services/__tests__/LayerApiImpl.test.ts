@@ -1,3 +1,4 @@
+import { moduleRegistry, type RegisteredLayerKind } from '@/modules/registry';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
 import { expectLandingFrame, forgetLandingFrame } from '@/services/landingFrames';
@@ -166,6 +167,28 @@ describe('LayerApiImpl', () => {
     mockViewStateStoreState.setViewState.mockImplementation((updater: any) => {
       updater(mockViewStateStoreState.viewState);
     });
+  });
+
+  it('uses a declared label mode and preserves it as the saved core fallback', async () => {
+    const descriptor: RegisteredLayerKind = { id: 'probe.labels', moduleId: 'probe', title: 'Labels', baseRenderMode: 'label', stackingBand: 4, icon: 'labels', capabilities: { thresholdable: false, colormappable: false, editable: true, outline: true } };
+    const lookup = vi.spyOn(moduleRegistry, 'getLayerKind').mockImplementation((id) => id === descriptor.id ? descriptor : undefined);
+    try {
+      const layer = await new LayerApiImpl().addLayer({ name: 'ROI', volumeId: 'roi', layerKind: descriptor.id, visible: true, type: 'anatomical', order: 0 }, { workspaceId: 'test' });
+      expect(layer.type).toBe('label');
+      expect(mockViewStateStoreState.viewState.layers[0]).toMatchObject({ layerMode: 'label', interpolation: 'nearest', threshold: [0, 0] });
+    } finally { lookup.mockRestore(); }
+  });
+
+  it('reclaims a provisional upload if its module kind becomes unavailable before publication', async () => {
+    const descriptor: RegisteredLayerKind = { id: 'probe.labels', moduleId: 'probe', title: 'Labels', baseRenderMode: 'label', stackingBand: 4, icon: 'labels', capabilities: { thresholdable: false, colormappable: false, editable: true, outline: true } };
+    let enabled = true;
+    const lookup = vi.spyOn(moduleRegistry, 'getLayerKind').mockImplementation(() => enabled ? descriptor : undefined);
+    mockApiService.waitForLayerReady.mockImplementationOnce(async () => { enabled = false; return true; });
+    try {
+      await expect(new LayerApiImpl().addLayer({ name: 'Late ROI', volumeId: 'late-roi', layerKind: descriptor.id, visible: true, type: 'anatomical', order: 0 }, { workspaceId: 'test' })).rejects.toThrow(/unavailable/);
+      expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('late-roi');
+      expect(mockLayerStoreState.addLayer).not.toHaveBeenCalled();
+    } finally { lookup.mockRestore(); }
   });
 
   it('releases a completed GPU allocation when its destination closes while uploading', async () => {

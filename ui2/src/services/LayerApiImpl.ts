@@ -1,3 +1,4 @@
+import { layerRenderMode, requireLayerKind } from '@/modules/layerKinds';
 /**
  * LayerApiImpl - Backend implementation of LayerApi
  * Connects LayerService to Tauri backend commands
@@ -210,7 +211,8 @@ export class LayerApiImpl implements LayerApi {
     const dataRange = layerMetadata?.dataRange;
     const defaultMin = dataRange?.min ?? 0;
     const defaultMax = dataRange?.max ?? 100;
-    const isLabelLike = layer.type === 'label' || layerMetadata?.source === 'atlas';
+    const mode = layerRenderMode(layer, layerMetadata?.source === 'atlas');
+    const isLabelLike = mode === 'label';
     const metadataRenderProps = (layerMetadata as any)?.renderProps as LayerRender | undefined;
     const intensity: [number, number] = metadataRenderProps?.intensity ?? [defaultMin, defaultMax];
     const threshold: [number, number] = metadataRenderProps?.threshold ?? [
@@ -232,8 +234,7 @@ export class LayerApiImpl implements LayerApi {
       blendMode: 'alpha',
       interpolation: metadataRenderProps?.interpolation ?? (isLabelLike ? 'nearest' : 'linear'),
       layerMode:
-        metadataRenderProps?.layerMode ??
-        (layer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar'),
+        layer.layerKind ? mode : metadataRenderProps?.layerMode ?? mode,
     };
   }
 
@@ -297,6 +298,7 @@ export class LayerApiImpl implements LayerApi {
   }
 
   async addLayer(layer: Omit<Layer, 'id'>, context?: LayerLoadContext): Promise<Layer> {
+    const declared = requireLayerKind(layer);
     const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
     context ??= workspaceId === undefined ? undefined : { workspaceId };
     const addLayerStartTime = performance.now();
@@ -309,6 +311,8 @@ export class LayerApiImpl implements LayerApi {
     const newLayer: Layer = {
       ...layer,
       id: layer.volumeId,
+      // Keep a faithful core fallback if the module is later switched off.
+      type: declared?.baseRenderMode === 'label' ? 'label' : declared?.baseRenderMode === 'mask' ? 'mask' : declared && (layer.type === 'label' || layer.type === 'mask') ? 'anatomical' : layer.type,
     };
     layerDebugLog(
       `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created layer with id=${newLayer.id}`,
@@ -392,7 +396,8 @@ export class LayerApiImpl implements LayerApi {
               : useLayerStore.getState().getLayerMetadata(id),
         );
       }
-      const isLabelLike = newLayer.type === 'label';
+      const mode = layerRenderMode(newLayer);
+      const isLabelLike = mode === 'label';
       const dataRange = gpuInfo.data_range ?? { min: 0, max: 100 };
       rangeOptions = {
         layerType: newLayer.type,
@@ -427,7 +432,7 @@ export class LayerApiImpl implements LayerApi {
         threshold: rangeResult.threshold,
         colormap: rangeResult.suggestedColormap ?? 'gray',
         interpolation: isLabelLike ? 'nearest' : 'linear',
-        layerMode: newLayer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar',
+        layerMode: mode,
       };
 
       if (earlyMetadata.source === 'parcel-table' && earlyMetadata.renderProps) {
@@ -447,6 +452,7 @@ export class LayerApiImpl implements LayerApi {
       if (context?.replaceLayerId && !useLayerStore.getState().getLayer(context.replaceLayerId)) {
         throw new Error('The image set was removed while loading');
       }
+      requireLayerKind(newLayer);
       context?.beforeCommit?.();
       const built = this.buildLayerMetadata(earlyMetadata, gpuInfo, renderProps, !metadataOnly);
       const defaultCut = statisticRange ? Math.max(Math.abs(statisticRange.threshold[0]), Math.abs(statisticRange.threshold[1])) : 0;
@@ -753,14 +759,15 @@ export class LayerApiImpl implements LayerApi {
 
   /** What a refinement leaves as it is: the user's opacity, the layer's sampling and mode. */
   private refinedRender(layer: Layer): LayerRender {
-    const isLabelLike = layer.type === 'label';
+    const mode = layerRenderMode(layer);
+    const isLabelLike = mode === 'label';
     return {
       opacity: useLayerStore.getState().getLayerMetadata(layer.id)?.renderProps?.opacity ?? 1.0,
       intensity: [0, 0],
       threshold: [0, 0],
       colormap: 'gray',
       interpolation: isLabelLike ? 'nearest' : 'linear',
-      layerMode: layer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar',
+      layerMode: mode,
     };
   }
 

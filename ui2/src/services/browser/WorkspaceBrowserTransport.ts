@@ -80,6 +80,8 @@ export class WorkspaceBrowserTransport implements BackendTransport {
     signal?: AbortSignal,
   ): Promise<unknown> {
     switch (command) {
+      case 'get_render_capabilities':
+        return { features: [] };
       case 'open_file_dialog': {
         const { useViewStateStore } = await import('../../stores/viewStateStore');
         const workspaceId = useViewStateStore.getState().activeWorkspaceKey;

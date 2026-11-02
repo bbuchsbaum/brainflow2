@@ -241,6 +241,7 @@ dependencies = [
  "pollster",
  "rand_core 0.6.4",
  "remotely",
+ "render_contracts",
  "render_loop",
  "russh",
  "russh-sftp",

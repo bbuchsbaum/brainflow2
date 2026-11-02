@@ -11,15 +11,16 @@ import type { ComponentType } from 'react';
 import type { StoreApi, UseBoundStore } from 'zustand';
 import type { ViewportTool } from '@brainflow/visualization/slice';
 export type { ViewportTool, ViewportPointerSample, PointerCancelReason } from '@brainflow/visualization/slice';
-import type { ModuleStage } from '@brainflow/api';
+import type { ModuleStage, RenderFeature } from '@brainflow/api';
 
-export type { ModuleStage };
+export type { ModuleStage, RenderFeature };
 
 /** Where the app runs: the Tauri desktop shell or the browser viewer. */
 export type ModuleHostKind = 'desktop' | 'browser';
 
 /** Host capabilities a module may require (`getHostCapabilities()`). */
-export type HostCapability = 'nativePaths' | 'remoteMounts' | 'externalProcesses';
+import type { HostCapability } from '@/services/hostCapabilities';
+export type { HostCapability } from '@/services/hostCapabilities';
 
 /** A lazily loaded component, e.g. `() => import('./X').then((m) => ({ default: m.X }))`. */
 export type LazyComponent<P = object> = () => Promise<{ default: ComponentType<P> }>;
@@ -135,6 +136,31 @@ export interface ViewModeContribution {
 
 export interface ViewportToolContribution { id: string; title: string; }
 
+/** Core-owned shader modes. Modules describe a use of these, not a new shader. */
+export type LayerBaseRenderMode = 'scalar' | 'label' | 'mask';
+export interface LayerKindCapabilities {
+  thresholdable: boolean;
+  colormappable: boolean;
+  editable: boolean;
+  outline: boolean;
+}
+export interface LayerInspectorProps { layerId: string; }
+export interface LayerKindContribution {
+  id: string;
+  title: string;
+  baseRenderMode: LayerBaseRenderMode;
+  /** Bottom to top: anatomy, continuous, statistic, categorical. */
+  stackingBand: 1 | 2 | 3 | 4;
+  /** Core glyphs keep manifests free of eager component imports. */
+  icon: 'volume' | 'labels' | 'mask';
+  capabilities: LayerKindCapabilities;
+  inspectorSections?: readonly {
+    id: string;
+    title: string;
+    component: LazyComponent<LayerInspectorProps>;
+  }[];
+}
+
 export interface ModuleContributions {
   commands?: readonly CommandContribution[];
   keybindings?: readonly KeybindingContribution[];
@@ -144,6 +170,7 @@ export interface ModuleContributions {
   dockTabs?: readonly DockTabContribution[];
   viewModes?: readonly ViewModeContribution[];
   viewportTools?: readonly ViewportToolContribution[];
+  layerKinds?: readonly LayerKindContribution[];
 }
 
 export interface ModuleManifest {
@@ -155,7 +182,7 @@ export interface ModuleManifest {
   version: string;
   stage: ModuleStage;
   hosts: readonly ModuleHostKind[];
-  requires?: { hostCapabilities?: readonly HostCapability[] };
+  requires?: { hostCapabilities?: readonly HostCapability[]; renderFeatures?: readonly RenderFeature[] };
   contributes: ModuleContributions;
   /** Loaded on first use: `() => import('./activate')`. */
   activate: () => Promise<ModuleActivation>;

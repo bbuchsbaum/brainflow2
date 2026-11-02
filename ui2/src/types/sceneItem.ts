@@ -35,6 +35,8 @@ export interface SceneItem {
   /** Stable id usable as React key and inspector-selection identifier. */
   id: string;
   kind: SceneItemKind;
+  /** Optional module descriptor, resolved by the shell without importing module code. */
+  layerKind?: string;
   group: SceneItemGroup;
   /** Display name (e.g. `MNI152 T1w`, `task-rest projected L/R`). */
   name: string;

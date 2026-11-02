@@ -22,7 +22,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { BRIDGE_MODULES } from '@brainflow/api';
+import { BRIDGE_MODULES, type RenderCapabilities } from '@brainflow/api';
 import { CORE_WORKSPACE_TYPES } from '@/types/workspace';
 import type {
   CommandContribution,
@@ -39,6 +39,7 @@ import type {
   WorkspaceContribution,
   ViewModeContribution,
   ViewportTool,
+  LayerKindContribution,
 } from './api';
 import {
   CORE_DOCK_TABS,
@@ -76,6 +77,8 @@ export interface ModuleDockTab extends DockTabDescriptor {
 export interface RegisteredViewMode extends ViewModeContribution {
   moduleId: string;
 }
+
+export interface RegisteredLayerKind extends LayerKindContribution { moduleId: string; }
 
 export interface RegisteredCommand extends CommandContribution {
   moduleId: string;
@@ -193,9 +196,11 @@ interface ModuleRecord {
 
 export class ModuleRegistry {
   private readonly deps: RegistryDeps;
+  private renderFeatures: ReadonlySet<string> = new Set();
   private readonly records = new Map<string, ModuleRecord>();
   private readonly commandOwner = new Map<string, string>();
   private readonly workspaceOwner = new Map<string, string>();
+  private readonly layerKindOwner = new Map<string, string>();
   private readonly toolOwner = new Map<string, string>();
   private readonly viewModeOwner = new Map<string, string>();
   private readonly inspectorModeIds = new Set<string>(CORE_INSPECTOR_MODES.map((m) => m.id));
@@ -239,6 +244,7 @@ export class ModuleRegistry {
     });
     commands.forEach((_, id) => this.commandOwner.set(id, manifest.id));
     workspaces.forEach((_, id) => this.workspaceOwner.set(id, manifest.id));
+    manifest.contributes.layerKinds?.forEach((kind) => this.layerKindOwner.set(kind.id, manifest.id));
     manifest.contributes.viewportTools?.forEach((t) => this.toolOwner.set(t.id, manifest.id));
     manifest.contributes.viewModes?.forEach((m) => this.viewModeOwner.set(m.id, manifest.id));
     manifest.contributes.inspectorModes?.forEach((m) => this.inspectorModeIds.add(m.id));
@@ -296,6 +302,21 @@ export class ModuleRegistry {
     for (const mode of c.inspectorModes ?? []) {
       checkId('inspector mode', mode.id, (id) => this.inspectorModeIds.has(id));
     }
+    for (const kind of c.layerKinds ?? []) {
+      checkId('layer kind', kind.id, (id) => this.layerKindOwner.has(id));
+      if (!kind.title) problems.push(`layer kind "${kind.id}" needs a title`);
+      if (!['scalar', 'label', 'mask'].includes(kind.baseRenderMode)) problems.push(`layer kind "${kind.id}" needs a core render mode`);
+      if (![1, 2, 3, 4].includes(kind.stackingBand)) problems.push(`layer kind "${kind.id}" has an invalid stacking band`);
+      if (!['volume', 'labels', 'mask'].includes(kind.icon)) problems.push(`layer kind "${kind.id}" has an invalid icon`);
+      for (const cap of ['thresholdable', 'colormappable', 'editable', 'outline'] as const) {
+        if (typeof kind.capabilities?.[cap] !== 'boolean') problems.push(`layer kind "${kind.id}" must declare ${cap}`);
+      }
+      if (kind.capabilities?.outline && kind.baseRenderMode !== 'label') problems.push(`layer kind "${kind.id}": outlines require the label render mode`);
+      for (const section of kind.inspectorSections ?? []) {
+        checkId('layer Inspector section', section.id, () => false);
+        if (!section.title || typeof section.component !== 'function') problems.push(`layer Inspector section "${section.id}" needs a title and lazy component`);
+      }
+    }
     for (const tool of c.viewportTools ?? []) {
       checkId('viewport tool', tool.id, (id) => this.toolOwner.has(id));
       if (!tool.title) problems.push(`viewport tool "${tool.id}" needs a title`);
@@ -351,12 +372,31 @@ export class ModuleRegistry {
 
   /** Whether the module can run in this host (`hosts`, `requires`). */
   isSupported(moduleId: string): boolean {
+    return this.unavailableReasons(moduleId).length === 0;
+  }
+
+  /** Human-readable reasons remain visible in Settings even when contributions hide. */
+  unavailableReasons(moduleId: string): string[] {
     const record = this.records.get(moduleId);
-    if (!record) return false;
+    if (!record) return ['Module is not registered.'];
     const { hosts, requires } = record.manifest;
-    if (!hosts.includes(this.deps.host())) return false;
+    const reasons: string[] = [];
+    if (!hosts.includes(this.deps.host())) reasons.push(`Unavailable on the ${this.deps.host()} host.`);
     const caps = this.deps.capabilities();
-    return (requires?.hostCapabilities ?? []).every((cap) => caps[cap] !== false);
+    for (const cap of requires?.hostCapabilities ?? []) {
+      if (caps[cap] !== true) reasons.push(`Requires host capability: ${cap}.`);
+    }
+    for (const feature of requires?.renderFeatures ?? []) {
+      if (!this.renderFeatures.has(feature)) reasons.push(`Requires renderer feature: ${feature}.`);
+    }
+    return reasons;
+  }
+
+  /** Replace, never accumulate: a new backend may support fewer features. */
+  setRenderCapabilities(capabilities: RenderCapabilities | null): void {
+    const values = capabilities?.features;
+    this.renderFeatures = new Set(Array.isArray(values) ? values.filter((value) => typeof value === 'string') : []);
+    this.refresh(true);
   }
 
   /** The user's switch, or the stage default; ignores host support. */
@@ -485,6 +525,17 @@ export class ModuleRegistry {
   isToolAvailable(type: string | null | undefined): boolean {
     const tool = this.getToolDescriptor(type);
     return Boolean(tool && (tool.moduleId === null || this.isEnabled(tool.moduleId)));
+  }
+
+  getLayerKinds(): readonly RegisteredLayerKind[] {
+    return this.memo('layerKinds', () => [...this.records.values()]
+      .filter((record) => this.isEnabled(record.manifest.id))
+      .flatMap((record) => (record.manifest.contributes.layerKinds ?? [])
+        .map((kind) => ({ ...kind, moduleId: record.manifest.id }))));
+  }
+
+  getLayerKind(id: string | undefined): RegisteredLayerKind | undefined {
+    return id ? this.getLayerKinds().find((kind) => kind.id === id) : undefined;
   }
 
   getViewModes(): readonly RegisteredViewMode[] {

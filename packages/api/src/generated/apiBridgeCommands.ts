@@ -2,6 +2,7 @@
 // DO NOT EDIT - changes will be overwritten.
 
 export const apiBridgeCommands = [
+  "get_render_capabilities",
   "load_file",
   "load_surface",
   "unload_surface",

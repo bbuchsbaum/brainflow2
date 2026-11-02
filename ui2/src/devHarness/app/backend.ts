@@ -1419,6 +1419,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       stage,
       enabled: enabledModules.has(id),
     }));
+  handlers.get_render_capabilities = () => ({ features: [] });
   handlers.list_modules = () => moduleInfos();
   // src-tauri host command: the native menu's module items (no menu here).
   handlers.set_module_menu_items = () => null;

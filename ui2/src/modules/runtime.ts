@@ -19,7 +19,7 @@
  * - switching a module off parks its tabs; switching it on brings them back.
  */
 
-import type { ModuleInfo } from '@brainflow/api';
+import type { ModuleInfo, RenderCapabilities } from '@brainflow/api';
 import { getEventBus } from '@/events/EventBus';
 import { getTransport } from '@/services/transport';
 import { currentTabTakesLayout, isModalDialogOpen, openTool } from '@/services/workspaceNavigation';
@@ -290,6 +290,8 @@ function keybindingSync(deps: ModuleRuntimeDeps) {
 export function startModuleRuntime(deps: ModuleRuntimeDeps = defaultDeps()): ModuleRuntime {
   const { registry } = deps;
   const bridge = bridgeSync(deps);
+  let disposed = false;
+  registry.setRenderCapabilities(null);
   registry.connectShell({
     openWorkspace: deps.openWorkspace,
     activeWorkspaceType: deps.activeWorkspaceType,
@@ -319,11 +321,22 @@ export function startModuleRuntime(deps: ModuleRuntimeDeps = defaultDeps()): Mod
     change.enabled.forEach((id) => deps.unparkModuleWorkspaces(id));
   });
 
+  const capabilities = deps.invoke<RenderCapabilities>('get_render_capabilities').then(
+    (value) => { if (!disposed) registry.setRenderCapabilities(value); },
+    (error) => {
+      if (disposed) return;
+      console.warn('[modules] Renderer capabilities unavailable:', error);
+      registry.setRenderCapabilities(null);
+    },
+  );
+
   return {
     idle: async () => {
+      await capabilities;
       await Promise.all([bridge.idle(), menus.idle()]);
     },
     dispose() {
+      disposed = true;
       offChange();
       deps.disposeViewBinding?.();
       stopMenuCommands();

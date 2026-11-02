@@ -21,19 +21,7 @@ export interface BrowserGpuCapabilities {
   float32Filterable: boolean;
 }
 
-export const browserCapabilities = Object.freeze({
-  localNifti3D: true,
-  scalarOverlays: true,
-  linkedSlices: true,
-  nativePaths: false,
-  remoteMounts: false,
-  externalProcesses: false,
-  labels: true,
-  timeSeries: true,
-  surfaces: true,
-  surfaceScalarOverlays: true,
-  surfaceLabels: true,
-});
+export { browserCapabilities } from '../hostCapabilities';
 
 export type WorkerRequest =
   | { id: number; cmd: string; args?: unknown }

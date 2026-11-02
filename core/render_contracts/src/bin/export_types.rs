@@ -10,6 +10,8 @@ fn export<T: TS + 'static>(name: &str) {
 fn main() {
     println!("Exporting TypeScript render contract types...");
 
+    export::<RenderFeature>("RenderFeature");
+    export::<RenderCapabilities>("RenderCapabilities");
     export::<AlphaModConfig>("AlphaModConfig");
     export::<AlphaModMode>("AlphaModMode");
     export::<BlendMode>("BlendMode");

@@ -95,6 +95,8 @@ export * from './RemoteMountConnectResult';
 export * from './RemoteMountInfo';
 export * from './RemoteMountOrigin';
 export * from './RemoteMountProfile';
+export * from './RenderCapabilities';
+export * from './RenderFeature';
 export * from './RftExtentRequest';
 export * from './SearchVolume';
 export * from './SearchVolumeKind';

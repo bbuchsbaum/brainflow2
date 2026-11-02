@@ -128,25 +128,27 @@ function ModulesSection() {
   // Subscribing to the switches re-renders the rows; the registry decides.
   useModuleSettingsStore((s) => s.enabled);
   const setModuleEnabled = useModuleSettingsStore((s) => s.setModuleEnabled);
-  const modules = moduleRegistry.getModules().filter((m) => moduleRegistry.isSupported(m.id));
+  const modules = moduleRegistry.getModules();
   if (modules.length === 0) return null;
 
   return (
     <Section variant="static" title="Modules">
       {modules.map((module) => {
         const stage = moduleStageLabel(module.stage);
+        const reasons = moduleRegistry.unavailableReasons(module.id);
         return (
           <FieldRow
             key={module.id}
             label={module.title}
             controlId={`settings-module-${module.id}`}
             labelable={false}
-            hint={module.description}
+            hint={[module.description, ...reasons].join(' ')}
           >
             {(control) => (
               <>
                 <Switch
                   {...control}
+                  disabled={reasons.length > 0}
                   checked={moduleRegistry.isSwitchedOn(module.id)}
                   onCheckedChange={(on) => setModuleEnabled(module.id, on)}
                 />

@@ -19,6 +19,7 @@
 // rejects anything else, including `/* */` block comments.
 bridge_commands! {
     core {
+        get_render_capabilities,
         load_file,
         load_surface,
         unload_surface,

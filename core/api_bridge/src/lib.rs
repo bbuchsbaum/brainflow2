@@ -15743,3 +15743,10 @@ async fn get_atlas_roi_locations(
         .await
         .map_err(|e| parcel_overlay::input(e.to_string()))?
 }
+
+/// Core renderer features available to module consumers. Unsupported features
+/// are absent, so a newer UI cannot accidentally enable a module on an older core.
+#[command]
+fn get_render_capabilities() -> render_contracts::RenderCapabilities {
+    render_contracts::RenderCapabilities::default()
+}

@@ -4,6 +4,7 @@ Default permissions for api-bridge plugin
 
 #### This default permission set includes the following:
 
+- `allow-get-render-capabilities`
 - `allow-cancel-remote-file-load`
 - `allow-load-file`
 - `allow-load-surface`
@@ -1282,6 +1283,32 @@ Enables the get_recent_atlases command without any pre-configured scope.
 <td>
 
 Denies the get_recent_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-render-capabilities`
+
+</td>
+<td>
+
+Enables the get_render_capabilities command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-render-capabilities`
+
+</td>
+<td>
+
+Denies the get_render_capabilities command without any pre-configured scope.
 
 </td>
 </tr>

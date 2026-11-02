@@ -38,7 +38,7 @@ export async function writePngToClipboard(
     invoke: (cmd: string, body: Uint8Array) => Promise<unknown>;
     web: (png: Blob) => Promise<void>;
   } = {
-    native: getHostCapabilities().nativePaths,
+    native: getHostCapabilities().nativePaths === true,
     invoke: (cmd, body) => getTransport().invoke(cmd, body),
     web: (blob) => navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]),
   },
