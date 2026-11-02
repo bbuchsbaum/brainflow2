@@ -61,7 +61,7 @@ neuroatlas = { workspace = true }  # For surface template loading
 nifti = { version = "0.17", features = ["ndarray_volumes"] }
 ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
 directories = "5"
-remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "48238698343033c981cec16f8a7b4ed895e8ee45" }
+remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "942fc6257a1390b8edc99b51483acc5658410e84" }
 # keyring 3 has no default store: without these features it silently uses an
 # in-memory mock. Same keychain/credential-manager/secret-service items as 2.x.
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
@@ -70,8 +70,8 @@ csv = "1.3"
 bids-rs = { workspace = true }
 
 [dev-dependencies]
-russh = { version = "0.55", features = ["aws-lc-rs"] }
+russh = { version = "0.65", features = ["aws-lc-rs"] }
 russh-sftp = "2.4"
-rand_core = "0.6"
+rand = "0.10"
 serde_json = "1.0" # For testing serialization
 pollster = "0.3"
