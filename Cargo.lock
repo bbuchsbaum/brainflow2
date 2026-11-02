@@ -641,6 +641,7 @@ dependencies = [
  "neuro-types",
  "nifti 0.16.0",
  "serde",
+ "tempfile",
  "thiserror 1.0.69",
  "ts-rs 10.1.0",
 ]

@@ -182,15 +182,16 @@ fn labelAtVoxel(layer: LayerData, voxel: vec3<i32>) -> u32 {
     return u32(max(round(raw_value), 0.0));
 }
 
-// Label LUT texel for an integer label id. Ids outside the LUT width (e.g.
-// >= 2048) are transparent: out-of-bounds textureLoad results are
+// Label LUT texel for an integer label id. Palettes tile row-major
+// (texel (id % width, id / width)), so every u16 id has a texel. Ids beyond
+// the LUT are transparent: out-of-bounds textureLoad results are
 // implementation-defined, so they are never read.
 fn labelLutTexel(colormap_id: u32, label_id: i32) -> vec4<f32> {
-    let width = i32(textureDimensions(colormapLutTexture).x);
-    if (label_id < 0 || label_id >= width) {
+    let size = vec2<i32>(textureDimensions(colormapLutTexture).xy);
+    if (label_id < 0 || label_id >= size.x * size.y) {
         return vec4<f32>(0.0);
     }
-    return textureLoad(colormapLutTexture, vec2<i32>(label_id, 0), i32(colormap_id), 0);
+    return textureLoad(colormapLutTexture, vec2<i32>(label_id % size.x, label_id / size.x), i32(colormap_id), 0);
 }
 
 // @include label_outline
@@ -379,7 +380,8 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     }
 
     // Apply colormap (continuous: window-normalized sample into the gradient).
-    let lut_coord = vec2<f32>(intensity_norm, 0.5);
+    // Continuous colormaps occupy row 0 of the LUT; sample its texel centre.
+    let lut_coord = vec2<f32>(intensity_norm, 0.5 / f32(textureDimensions(colormapLutTexture).y));
     // Single-level LUT: no implicit derivatives in non-uniform control flow.
     let rgb_color = textureSampleLevel(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id), 0.0).rgb;
 

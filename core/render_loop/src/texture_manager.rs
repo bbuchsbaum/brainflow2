@@ -4,17 +4,30 @@ use colormap::{BuiltinColormap, BUILTIN_COLORMAPS};
 use std::collections::HashMap;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler, Texture, TextureView};
 
-/// Width (in texels) for each 1D colormap LUT row.
+/// Width (in texels) of each colormap LUT row.
 ///
 /// Notes:
 /// - Builtin colormaps are 256 entries; we upsample by repetition.
 /// - Atlas/label palettes often need >256 entries (e.g. Schaefer 400), so this must be larger.
 // NOTE: Must not exceed the device's max 2D texture dimension.
 // On some platforms / limit configurations this can be as low as 2048.
-//
-// If we need >2048 label entries in the future, we should switch to a tiled LUT
-// layout (e.g. width 2048, height N) and update shaders to index into rows.
 pub const COLORMAP_LUT_WIDTH: u32 = 2048; // 256 * 8
+
+/// Most rows per colormap layer. Continuous colormaps use row 0 only (sampled
+/// at its texel centre); categorical palettes are tiled row-major, so label id
+/// `k` lives at texel `(k % WIDTH, k / WIDTH)` and every u16 id has a texel.
+///
+/// The array starts one row tall (about 0.65 MB) and grows to the next power
+/// of two rows only when a palette needs them: a power-of-two height keeps
+/// the row-0 sampling coordinate (0.5 / height) exact, so linear filtering
+/// never mixes in row 1.
+pub const COLORMAP_LUT_ROWS: u32 = 32;
+
+/// Number of categorical ids a label palette can colour (0..=65535).
+pub const LABEL_LUT_CAPACITY: u32 = COLORMAP_LUT_WIDTH * COLORMAP_LUT_ROWS;
+
+/// Bytes in one RGBA LUT row.
+pub const COLORMAP_ROW_BYTES: usize = COLORMAP_LUT_WIDTH as usize * 4;
 
 /// Number of custom (runtime) colormap slots in the LUT array.
 pub const CUSTOM_COLORMAP_SLOTS: u32 = 64;
@@ -33,6 +46,8 @@ pub struct TextureManager {
     colormap_texture: Option<Texture>,
     /// Colormap texture view
     colormap_view: Option<TextureView>,
+    /// Current height of every colormap layer (a power of two, at most `COLORMAP_LUT_ROWS`).
+    colormap_rows: u32,
     /// Texture bind groups cache
     bind_groups: HashMap<u64, BindGroup>,
     /// Next bind group ID
@@ -90,6 +105,7 @@ impl TextureManager {
             nearest_sampler,
             colormap_texture: None,
             colormap_view: None,
+            colormap_rows: 1,
             bind_groups: HashMap::new(),
             next_bind_group_id: 0,
         }
@@ -97,30 +113,10 @@ impl TextureManager {
 
     /// Initialize colormap texture array
     pub fn init_colormaps(&mut self, device: &Device, queue: &Queue) {
-        // Create colormap texture array (COLORMAP_LUT_WIDTH x 1 x N for N colormaps)
-        let num_colormaps = total_colormap_layers();
-        let colormap_size = wgpu::Extent3d {
-            width: COLORMAP_LUT_WIDTH,
-            height: 1,
-            depth_or_array_layers: num_colormaps,
-        };
-
-        let colormap_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Colormap Texture Array"),
-            size: colormap_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm, // Use linear color space for colormaps
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let colormap_view = colormap_texture.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("Colormap Array View"),
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
+        // Create colormap texture array (WIDTH x 1 x N for N colormaps); it
+        // grows taller only when a tiled label palette needs more rows.
+        self.colormap_rows = 1;
+        let (colormap_texture, colormap_view) = Self::create_colormap_texture(device, 1);
 
         // Upload all builtin colormaps (upsampled to COLORMAP_LUT_WIDTH by repetition)
         let scale = COLORMAP_LUT_WIDTH / 256;
@@ -181,7 +177,80 @@ impl TextureManager {
         self.colormap_view = Some(colormap_view);
     }
 
-    /// Upload a colormap to a specific layer
+    fn create_colormap_texture(device: &Device, rows: u32) -> (Texture, TextureView) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Colormap Texture Array"),
+            size: wgpu::Extent3d {
+                width: COLORMAP_LUT_WIDTH,
+                height: rows,
+                depth_or_array_layers: total_colormap_layers(),
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm, // Use linear color space for colormaps
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("Colormap Array View"),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        (texture, view)
+    }
+
+    /// Current height (rows) of each colormap layer.
+    pub fn colormap_rows(&self) -> u32 {
+        self.colormap_rows
+    }
+
+    /// Make every layer at least `rows` tall (rounded up to a power of two),
+    /// copying existing contents; new rows start zeroed (transparent).
+    /// Returns true when the texture was replaced: bind groups that reference
+    /// the old view must then be rebuilt by the caller.
+    pub fn ensure_colormap_rows(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        rows: u32,
+    ) -> Result<bool, &'static str> {
+        if rows == 0 || rows > COLORMAP_LUT_ROWS {
+            return Err("Colormap row count is out of range");
+        }
+        let target = rows.next_power_of_two();
+        if target <= self.colormap_rows {
+            return Ok(false);
+        }
+        let old = self
+            .colormap_texture
+            .as_ref()
+            .ok_or("Colormap texture not initialized")?;
+        let (texture, view) = Self::create_colormap_texture(device, target);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Colormap LUT growth"),
+        });
+        encoder.copy_texture_to_texture(
+            old.as_image_copy(),
+            texture.as_image_copy(),
+            wgpu::Extent3d {
+                width: COLORMAP_LUT_WIDTH,
+                height: self.colormap_rows,
+                depth_or_array_layers: total_colormap_layers(),
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        self.colormap_texture = Some(texture);
+        self.colormap_view = Some(view);
+        self.colormap_rows = target;
+        Ok(true)
+    }
+
+    /// Upload a colormap to a specific layer. `data` holds whole RGBA rows, at
+    /// most the current `colormap_rows()`; rows it omits are cleared, so a
+    /// shorter palette never inherits colours from the slot's previous contents.
     pub fn upload_colormap(
         &self,
         queue: &Queue,
@@ -192,9 +261,21 @@ impl TextureManager {
             return Err("Colormap ID exceeds maximum");
         }
 
-        if data.len() != (COLORMAP_LUT_WIDTH as usize) * 4 {
-            return Err("Colormap data must be COLORMAP_LUT_WIDTH RGBA values");
+        let rows = data.len() / COLORMAP_ROW_BYTES;
+        let height = self.colormap_rows as usize;
+        if data.is_empty() || !data.len().is_multiple_of(COLORMAP_ROW_BYTES) || rows > height {
+            return Err(
+                "Colormap data must be whole COLORMAP_LUT_WIDTH RGBA rows within the LUT height",
+            );
         }
+        let mut padded;
+        let data = if rows == height {
+            data
+        } else {
+            padded = vec![0u8; COLORMAP_ROW_BYTES * height];
+            padded[..data.len()].copy_from_slice(data);
+            &padded[..]
+        };
 
         if let Some(texture) = &self.colormap_texture {
             queue.write_texture(
@@ -212,11 +293,11 @@ impl TextureManager {
                 wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(COLORMAP_LUT_WIDTH * 4),
-                    rows_per_image: Some(1),
+                    rows_per_image: Some(self.colormap_rows),
                 },
                 wgpu::Extent3d {
                     width: COLORMAP_LUT_WIDTH,
-                    height: 1,
+                    height: self.colormap_rows,
                     depth_or_array_layers: 1,
                 },
             );
@@ -269,6 +350,11 @@ impl TextureManager {
     }
 
     /// Get bind group by ID
+    /// Drop a cached bind group that has been replaced.
+    pub fn remove_bind_group(&mut self, id: u64) {
+        self.bind_groups.remove(&id);
+    }
+
     pub fn get_bind_group(&self, id: u64) -> Option<&BindGroup> {
         self.bind_groups.get(&id)
     }

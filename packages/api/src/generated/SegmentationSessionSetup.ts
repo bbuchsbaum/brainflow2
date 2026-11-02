@@ -3,4 +3,13 @@ import type { SegmentationIdentity } from "./SegmentationIdentity";
 import type { SegmentationLabelDefinition } from "./SegmentationLabelDefinition";
 import type { SegmentationRegistration } from "./SegmentationRegistration";
 
-export type SegmentationSessionSetup = { workspaceId: string, workspaceInstance: string, referenceVolumeId: string, identity: SegmentationIdentity, normalAxis: number, labels: Array<SegmentationLabelDefinition>, secondaryVolumeId: string | null, registration: SegmentationRegistration | null, };
+export type SegmentationSessionSetup = { workspaceId: string, workspaceInstance: string, referenceVolumeId: string, identity: SegmentationIdentity, normalAxis: number, labels: Array<SegmentationLabelDefinition>, secondaryVolumeId: string | null, registration: SegmentationRegistration | null, 
+/**
+ * Zero-based volume of a 4D reference the grid is traced on; `None`
+ * for a single 3D reference. Required for a multi-frame reference.
+ */
+referenceFrame: number | null, 
+/**
+ * Zero-based volume of a 4D secondary contrast; `None` for 3D.
+ */
+secondaryFrame: number | null, };

@@ -109,6 +109,7 @@ export * from './SegmentationOperation';
 export * from './SegmentationPaintOver';
 export * from './SegmentationPreview';
 export * from './SegmentationRegistration';
+export * from './SegmentationSavedLabels';
 export * from './SegmentationSessionInfo';
 export * from './SegmentationSessionSetup';
 export * from './SegmentationSlice';

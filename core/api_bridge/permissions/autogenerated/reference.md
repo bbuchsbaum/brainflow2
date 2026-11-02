@@ -3217,6 +3217,32 @@ Denies the segmentation_preview_stroke command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-segmentation-save-labels`
+
+</td>
+<td>
+
+Enables the segmentation_save_labels command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-save-labels`
+
+</td>
+<td>
+
+Denies the segmentation_save_labels command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-segmentation-set-label-state`
 
 </td>

@@ -13,4 +13,5 @@ permissions = [
   "allow-segmentation-undo",
   "allow-segmentation-set-label-state",
   "allow-segmentation-get-slice",
+  "allow-segmentation-save-labels",
 ]

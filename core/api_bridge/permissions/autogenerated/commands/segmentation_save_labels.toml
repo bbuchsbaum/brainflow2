@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-segmentation-save-labels"
+description = "Enables the segmentation_save_labels command without any pre-configured scope."
+commands.allow = ["segmentation_save_labels"]
+
+[[permission]]
+identifier = "deny-segmentation-save-labels"
+description = "Denies the segmentation_save_labels command without any pre-configured scope."
+commands.deny = ["segmentation_save_labels"]

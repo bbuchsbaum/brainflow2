@@ -24,10 +24,35 @@ architecture plan or qualify segmentation for preview/stable use.
   reference/secondary images stay retained and cannot be removed or evicted while
   their document remains open, including while the module is disabled.
 
+- 4D reference/secondary inputs traced on one explicit frame (see limits below).
+- Save labels as NIfTI (Inspector, Session section): `segmentation_save_labels`
+  copies the accepted revision the tab displays (a stale owner or revision is
+  refused and the tab adopts the current document), then opens the native save
+  dialog with a BIDS-style name (`sub-…_ses-…_desc-<rater>_dseg.nii.gz`). It
+  writes the label volume (NIfTI-1, intent 1002, u8 or u16, source sform/qform
+  kept, `descrip` records the revision) and its `dseg.tsv` (index, name,
+  abbreviation, colour, parent index). Both are staged to temporary siblings and
+  synced before either is renamed into place, label volume first; if the table
+  rename fails, the previous files are restored (or new ones removed) and the
+  error says what, if anything, is left. A name without a NIfTI suffix gets
+  `.nii.gz` appended and never replaces an existing file; only a file the dialog
+  confirmed is replaced; others are reserved with an exclusive create before
+  any rename (which also works on exFAT, FAT and SMB volumes, where
+  exclusive renames are unsupported), and a table is never replaced without
+  its label volume. Names ending in .tsv, .json, .img, .hdr, .mgz or .mgh are
+  refused. The save sends the revision the tab
+  displays and refuses a newer accepted reply not yet displayed. Painting waits
+  while the dialog is open; a closing (frozen) workspace refuses the save; a GPU
+  display failure does not block saving the accepted CPU labels.
+  The Inspector reports the saved files and whether the labels changed since.
+
 Later architecture work includes settings schemas, typed module events,
 startup aliases, BIDS/Studio migration, loader/provider registries and scaffolding.
 Segmentation M3–M8, saved-session recovery, proposals and AI remain later work.
-The NIfTI writer is a core prerequisite; this milestone has no Save workflow.
+M5 save features are not implemented: ⌘S quiet save to a remembered path, the
+provenance JSON sidecar and provenance volume, "Save as / export…" dialects,
+autosave and resume. Saving does not mark the in-memory document clean, so
+closing or quitting still asks before discarding the session.
 
 ## Evidence
 
@@ -60,8 +85,33 @@ paint latency have not been qualified. The M1/M2 native interaction acceptance
 gates remain open. Keep the module experimental and off by default.
 
 Sessions are in memory and have no recovery after process exit. Reference and
-secondary inputs must be single 3D volumes. Label storage/export supports u16;
-the current categorical renderer accepts label ids 1–2047. Per-label slice-count
+secondary inputs are single 3D volumes or one explicit frame of a 4D series,
+chosen at setup (zero based, defaulting to the layer's current t). The grid and
+affine come from the 4D NeuroSpace's spatial part (origin from the transform's
+last column); the chosen frame is copied (on a blocking thread) into a
+session-owned 3D volume, so the shared time cursor never changes the traced
+image. The viewport attaches the copy as a hidden ordinary layer with the
+source layer's window; the open document protects it from removal, and
+discarding the document removes that layer, which unloads the copy (an
+undisplayed copy is released natively). The 4D source stays pinned like any
+source. A 4D header, including a single-frame series, is reduced to 3D for
+export (temporal dim, pixdim, units, toffset and slice timing cleared). The session
+snapshot, Inspector and footer show the frames, and the saved header's
+`descrip` records them (`ref frame t`, `sec frame t`, 0-based) with the export
+reduced to 3D. The setup preview renders one frame for both images; when a 4D
+reference and a 4D secondary use different frames it says which it shows.
+
+Label storage, export and segmentation display cover every u16 label id
+(1–65535): categorical palettes tile id k at texel (k mod 2048, k / 2048), and
+continuous colormaps stay on row 0. The shared LUT array starts one row tall
+(about 0.65 MB, as before) and grows to the next power of two rows only when a
+palette needs them, up to 32 rows (about 21 MB) for ids near 65535; it does not
+shrink. A failed bind-group rebuild after growth is retried on the next upload
+or frame, and re-initializing the LUT re-uploads retained palettes. The segmentation palette is built once per session and the renderer
+skips unchanged uploads. A 1024² label-plus-outline frame showed no measurable
+time change. Other categorical paths still cap label ids at 2047:
+`register_categorical_colormap` in `core/api_bridge/src/lib.rs` (atlases) and
+the browser host's palettes and label ids. Per-label slice-count
 metadata is bounded to two million entries. Source acquisition uses an optimistic
 file-identity/metadata stamp; it does not provide a filesystem snapshot against
 changes invisible to that stamp. A GPU failure retains accepted CPU edits and

@@ -110,6 +110,7 @@ fn main() {
 
     bf_segmentation::SessionSetup::export_all().expect("export segmentation setup");
     bf_segmentation::Stroke::export_all().expect("export segmentation stroke");
+    bf_segmentation::SavedLabels::export_all().expect("export segmentation saved labels");
     SegmentationAccess::export_all().expect("export segmentation access");
     SegmentationSessionInfo::export_all().expect("export segmentation session");
     SegmentationSlice::export_all().expect("export segmentation slice");

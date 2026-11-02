@@ -6,7 +6,7 @@ export function parseSegmentationLabels(source: string): SegmentationLabelDefini
   const labels = parsed.map((raw) => {
     if (!raw || typeof raw !== 'object') throw new Error('Each label must be an object.');
     const label = raw as Record<string, unknown>, id = label.id, color = label.color;
-    if (!Number.isInteger(id) || (id as number) < 1 || (id as number) > 2047 || ids.has(id as number)) throw new Error('Label ids must be unique integers from 1 to 2047.');
+    if (!Number.isInteger(id) || (id as number) < 1 || (id as number) > 65535 || ids.has(id as number)) throw new Error('Label ids must be unique integers from 1 to 65535.');
     if (typeof label.name !== 'string' || !label.name.trim() || typeof label.abbreviation !== 'string' || !label.abbreviation.trim()) throw new Error('Every label needs a name and abbreviation.');
     if (!Array.isArray(color) || color.length !== 3 || color.some((v) => !Number.isInteger(v) || (v as number) < 0 || (v as number) > 255)) throw new Error('Label colors must be RGB integers from 0 to 255.');
     if (label.parent != null && (!Number.isInteger(label.parent) || (label.parent as number) < 1)) throw new Error('Label parents must be a label id or null.');

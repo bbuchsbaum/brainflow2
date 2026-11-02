@@ -26,10 +26,25 @@ Label tracing on a fixed reference grid. The native domain is
   props. No shipping import may transitively load `mockData`, `scenes` or
   `__design__`. `ConstraintStrip` is a fixture adapter; production imports
   `ConstraintStripView`.
+- **Save:** `saveSegmentationLabels` (Inspector, "Save labels as NIfTI…") runs
+  `segmentation_save_labels` for the displayed revision; the native command
+  copies the document, then shows the dialog, then writes the label NIfTI and
+  its dseg.tsv (`core/modules/segmentation/src/export.rs`). The tab is busy while
+  the dialog is open; a frozen (closing) workspace refuses before IPC; a refused
+  save adopts the current native document. `lastSave` drives the save state
+  (compared by label revision). Quiet ⌘S, the provenance sidecar/volume and
+  autosave are M5.
 - **Current limits:** sessions are in memory; saved-session recovery, proposals,
-  AI and later milestones M3–M8 are not implemented. Reference and secondary
-  images must be single 3D volumes. Storage/export supports u16, but this
-  categorical LUT supports label ids 1–2047; reject higher ids explicitly.
+  AI and later milestones M3–M8 are not implemented. A 4D reference or
+  secondary is traced on one explicit zero-based frame chosen at setup
+  (`referenceFrame`/`secondaryFrame`, default: the layer's current t); native
+  copies it into a session-owned 3D volume (`referenceDisplayVolumeId`), which
+  the viewport attaches as a hidden ordinary layer, so the shared time cursor
+  never changes the traced image. `adopt` adds the frame ids to the document's
+  protected volumes; `forgetSegmentationSession` removes their layers after
+  disposal, which unloads them. The setup preview renders one `timepoint` for
+  both images. Storage, export and display support every
+  u16 label id (1–65535); the palette is the tiled categorical LUT.
   Per-label native-slice count metadata is capped at two million counts; large
   label tables and slice matrices are paged in the Inspector. Native slice indices
   are zero based in transport and one based in the UI.

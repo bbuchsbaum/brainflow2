@@ -145,7 +145,8 @@ fn sampleLayer(layer: LayerUBO, world_mm: vec3<f32>) -> vec4<f32> {
     }
     
     // Apply colormap
-    let lut_coord = vec2<f32>(intensity_norm, 0.5);
+    // Continuous colormaps occupy row 0 of the LUT; sample its texel centre.
+    let lut_coord = vec2<f32>(intensity_norm, 0.5 / f32(textureDimensions(colormapLutTexture).y));
     let rgb_color = textureSample(colormapLutTexture, cmSampler, lut_coord, i32(layer.colormap_id)).rgb;
     
     return vec4<f32>(rgb_color, alpha);

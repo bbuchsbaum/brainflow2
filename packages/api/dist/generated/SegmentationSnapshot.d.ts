@@ -7,6 +7,8 @@ export type SegmentationSnapshot = {
     workspaceInstance: string;
     referenceVolumeId: string;
     secondaryVolumeId: string | null;
+    referenceFrame: number | null;
+    secondaryFrame: number | null;
     revision: number;
     labelRevision: number;
     identity: SegmentationIdentity;

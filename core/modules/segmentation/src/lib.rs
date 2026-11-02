@@ -6,7 +6,12 @@ use nifti::NiftiHeader;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use ts_rs::TS;
+mod export;
 mod raster;
+pub use export::{
+    dseg_tsv, resolve_destination, suggested_file_name, table_path, write_export, Destination,
+    LabelExport, SavedLabels,
+};
 pub use raster::{rasterize, RasterRequest, Tool};
 
 #[derive(Debug, thiserror::Error)]
@@ -75,6 +80,11 @@ pub struct SessionSetup {
     pub labels: Vec<LabelDefinition>,
     pub secondary_volume_id: Option<String>,
     pub registration: Option<Registration>,
+    /// Zero-based volume of a 4D reference the grid is traced on; `None`
+    /// for a single 3D reference. Required for a multi-frame reference.
+    pub reference_frame: Option<u32>,
+    /// Zero-based volume of a 4D secondary contrast; `None` for 3D.
+    pub secondary_frame: Option<u32>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -125,6 +135,8 @@ pub struct Snapshot {
     pub workspace_instance: String,
     pub reference_volume_id: String,
     pub secondary_volume_id: Option<String>,
+    pub reference_frame: Option<u32>,
+    pub secondary_frame: Option<u32>,
     pub revision: u32,
     pub label_revision: u32,
     pub identity: Identity,
@@ -150,6 +162,21 @@ struct LabelMeta {
     definition: LabelDefinition,
     locked: bool,
     complete: bool,
+}
+
+/// Reduce a 4D source header to its spatial part: dim and pixdim beyond the
+/// third axis, temporal units, time offset and slice timing are cleared.
+fn spatial_header(header: &mut NiftiHeader) {
+    header.dim[0] = 3;
+    header.dim[4..].fill(1);
+    header.pixdim[4..].fill(1.0);
+    header.xyzt_units &= 0x07;
+    header.toffset = 0.0;
+    header.slice_code = 0;
+    header.slice_start = 0;
+    header.slice_end = 0;
+    header.slice_duration = 0.0;
+    header.dim_info &= 0x0f;
 }
 
 pub struct Session {
@@ -179,11 +206,13 @@ impl Session {
 
     /// A derived in-memory grid has no original NIfTI header. State that fact
     /// explicitly; record its actual affine as sform and do not invent qform.
+    /// `frames` is the source's frame count when it is 4D, else `None`.
     pub fn create_on_derived_grid(
         id: String,
         setup: SessionSetup,
         dimensions: [u32; 3],
         affine: Matrix4<f32>,
+        frames: Option<u32>,
     ) -> Result<Self> {
         if dimensions.iter().any(|&n| n == 0 || n > 32767) {
             return Err(invalid("Invalid derived reference dimensions"));
@@ -210,17 +239,67 @@ impl Session {
         header.srow_x = std::array::from_fn(|column| affine[(0, column)]);
         header.srow_y = std::array::from_fn(|column| affine[(1, column)]);
         header.srow_z = std::array::from_fn(|column| affine[(2, column)]);
-        let mut session = Self::create(id, setup, affine, header)?;
+        let mut session = Self::create_frame(id, setup, affine, header, frames)?;
         session.source_header_original = false;
         Ok(session)
     }
 
+    /// Create from the reference's original header. A 4D header needs an
+    /// explicit `reference_frame`; the label grid is its spatial 3D part and
+    /// the export header is reduced to 3D (dim[0] = 3, dim[4..] = 1).
     pub fn create(
         id: String,
         setup: SessionSetup,
         affine: Matrix4<f32>,
         header: NiftiHeader,
     ) -> Result<Self> {
+        let frames = (header.dim[0] >= 4).then(|| u32::from(header.dim[4].max(1)));
+        if header.dim[0] > 4 && header.dim[5..].iter().any(|&n| n > 1) {
+            return Err(invalid(
+                "Select a 3D image or a 4D time series; higher dimensions are not supported",
+            ));
+        }
+        Self::create_frame(id, setup, affine, header, frames)
+    }
+
+    fn create_frame(
+        id: String,
+        setup: SessionSetup,
+        affine: Matrix4<f32>,
+        mut header: NiftiHeader,
+        frames: Option<u32>,
+    ) -> Result<Self> {
+        match (setup.reference_frame, frames) {
+            (Some(frame), Some(count)) if frame < count => {}
+            (Some(_), Some(count)) => {
+                return Err(Error::Invalid(format!(
+                    "Reference frame is out of range: the image has {count} frame(s)"
+                )))
+            }
+            (Some(_), None) => {
+                return Err(invalid(
+                    "The reference is a single 3D volume; do not choose a frame",
+                ))
+            }
+            (None, Some(count)) if count > 1 => {
+                return Err(invalid(
+                    "Choose which volume of the 4D reference to trace on",
+                ))
+            }
+            (None, _) => {}
+        }
+        // A 4D source (one chosen frame, or a single-frame series) exports as
+        // a 3D label volume: drop the temporal dimension and its metadata.
+        if header.dim[0] > 3 {
+            spatial_header(&mut header);
+        }
+        if setup.secondary_frame.is_some() && setup.secondary_volume_id.is_none() {
+            return Err(invalid("A secondary frame needs a secondary contrast"));
+        }
+        // NIfTI-1 frame counts are i16, which also bounds the export descrip.
+        if setup.secondary_frame.is_some_and(|f| f > i16::MAX as u32) {
+            return Err(invalid("Secondary frame is out of range"));
+        }
         if id.trim().is_empty()
             || setup.workspace_id.is_empty()
             || setup.workspace_instance.is_empty()
@@ -234,7 +313,9 @@ impl Session {
             ));
         }
         if header.dim[0] < 3 || header.dim[0] > 7 || header.dim[4..].iter().any(|&n| n > 1) {
-            return Err(invalid("Select a single 3D reference image; a multi-frame source needs an explicit frozen-frame adapter"));
+            return Err(invalid(
+                "Select a 3D reference image or one volume of a 4D series",
+            ));
         }
         let dimensions = [
             u32::from(header.dim[1]),
@@ -381,6 +462,8 @@ impl Session {
             workspace_instance: self.setup.workspace_instance.clone(),
             reference_volume_id: self.setup.reference_volume_id.clone(),
             secondary_volume_id: self.setup.secondary_volume_id.clone(),
+            reference_frame: self.setup.reference_frame,
+            secondary_frame: self.setup.secondary_frame,
             revision: self.revision,
             label_revision: self.labels.revision() as u32,
             identity: self.setup.identity.clone(),
