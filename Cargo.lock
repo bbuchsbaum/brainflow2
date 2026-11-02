@@ -4298,6 +4298,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "label-store"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "ndarray 0.15.6",
+ "nifti 0.16.0",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
