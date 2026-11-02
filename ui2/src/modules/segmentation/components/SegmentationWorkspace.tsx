@@ -1,18 +1,6 @@
-/**
- * The Segmentation tool tab while the module is in design: it says plainly
- * that editing is not available. It does not load the design mocks.
- */
-
+/** Persisted design-era tool tabs migrate to a clear entry into view modes. */
 import React from 'react';
 import { EmptyPane } from '@/components/ui/bf';
-
-export function SegmentationWorkspace() {
-  return (
-    <div className="h-full w-full bg-bf-bg-panel">
-      <EmptyPane
-        title="Segmentation is in design"
-        hint="Label tracing, locks and proposals are being designed. Editing is not available in this build."
-      />
-    </div>
-  );
+export function SegmentationWorkspace({ workspaceId }: { workspaceId: string }) {
+  return <EmptyPane data-workspace-id={workspaceId} title="Open Segment in a view tab" hint="Select a loaded image in a view tab, then choose Open segmentation. Tracing now belongs to that view." />;
 }

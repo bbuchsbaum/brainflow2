@@ -175,7 +175,7 @@ describe('ConfirmationDialogHost', () => {
     const cancelButton = screen.getByRole('button', { name: 'Cancel' });
 
     await waitFor(() => {
-      expect(confirmButton).toHaveFocus();
+      expect(cancelButton).toHaveFocus();
     });
 
     fireEvent.keyDown(document, { key: 'Tab' });

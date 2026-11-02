@@ -2,16 +2,38 @@
 
 # Segmentation module (UI)
 
-Label tracing on a reference grid. The design is in
-`docs/plans/segmentation-module-research.md` ("Recommended design: a Segment
-mode built on six contracts"). There is no bridge section and no Rust crate
-yet: editing is not implemented.
+Label tracing on a fixed reference grid. The native domain is
+`core/modules/segmentation`; the thin bridge adapter is
+`core/api_bridge/src/modules/segmentation.rs`.
 
-- **Stage: experimental, off by default.** Switched on, it contributes the
-  palette command `segmentation.open` and the tool tab
-  `segmentation.workspace`, which only says the module is in design. No menu
-  item, pin, startup tab or shortcut. Add a bridge section (same id, stage and
-  version) before any command reaches Rust.
+- **Stage: experimental, off by default, version 0.1.0.** The `segmentation.open`
+  command enters `segmentation.segment` in a view tab. The old
+  `segmentation.workspace` tab remains a migration entry. The manifest declares
+  an Inspector mode, pointer tools and an editable categorical layer kind, gated
+  on the renderer prerequisites. Settings schemas and typed event declarations
+  in the wider module-system plan remain separate work.
+- **Live implementation:** `session.ts` retains native identity/history across
+  module switches and uses fresh navigation epochs for each request. The shell
+  close broker owns the opaque workspace incarnation before creation; core
+  teardown revokes it even while disabled. A late accepted edit is reconciled
+  through `get_session`, never blindly replayed. Published CPU labels are
+  retained independently of display/GPU leases. Native quit drains module
+  admission before asking about unsaved documents.
+- **Manual tracing:** `SegmentationMode`, `SegmentViewport`, `ContextViews` and
+  `SegmentationInspector` use actual loaded grids and native commands. Production
+  overlays reuse the shared H geometry/colour rules through the shared viewport
+  projection. LabelList, the constraint strip and native-slice bars take data
+  props. No shipping import may transitively load `mockData`, `scenes` or
+  `__design__`. `ConstraintStrip` is a fixture adapter; production imports
+  `ConstraintStripView`.
+- **Current limits:** sessions are in memory; saved-session recovery, proposals,
+  AI and later milestones M3–M8 are not implemented. Reference and secondary
+  images must be single 3D volumes. Storage/export supports u16, but this
+  categorical LUT supports label ids 1–2047; reject higher ids explicitly.
+  Native slice indices are zero based in transport and one based in the UI.
+  Locks always constrain strokes, independently of visibility; history travel
+  restores prior values/provenance exactly. A GPU/display error freezes painting
+  while retaining accepted document data.
 - **Design summary:** [DESIGN.md](DESIGN.md) has the final direction H
   layout and states, the encoding rules, the Inspector, review and
   reconciliation, the contract-tested rules, the score history and the open

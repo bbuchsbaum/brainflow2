@@ -21,14 +21,14 @@ describe('segmentation module', () => {
     expect(segmentation.stage).toBe('experimental');
     expect(segmentation.hosts).toEqual(['desktop']);
     expect(stageDefaultEnabled(segmentation.stage)).toBe(false);
-    expect(Object.keys(BRIDGE_MODULES)).not.toContain('segmentation');
-    expect(segmentation.contributes.keybindings ?? []).toEqual([]);
+    expect(BRIDGE_MODULES.segmentation.version).toBe(segmentation.version);
+    expect(segmentation.contributes.keybindings?.every((binding) => binding.when?.viewMode === 'segmentation.segment')).toBe(true);
     expect(segmentation.contributes.workspaces?.map((w) => w.id)).toEqual([SEGMENTATION_WORKSPACE]);
   });
 
-  it('its tool tab says editing is not available', () => {
+  it('its persisted design-era tool tab points to the live view mode', () => {
     render(<SegmentationWorkspace workspaceId="w1" />);
-    expect(screen.getByText('Segmentation is in design')).toBeTruthy();
+    expect(screen.getByText('Open Segment in a view tab')).toBeTruthy();
   });
 
   describe.each(Object.values(DIRECTIONS))('direction $id ($title)', (direction) => {

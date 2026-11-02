@@ -18,6 +18,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { useCenterTabStore } from '@/stores/centerTabStore';
 import { getLayoutService } from '@/services/layoutService';
+import { requestWorkspaceClose } from '@/services/workspaceDocuments';
 import type { WorkspaceType } from '@/types/workspace';
 import type { DisplayMode } from '@/types/displayModes';
 import {
@@ -148,7 +149,7 @@ export function useWorkspaceMenuListener() {
               break;
 
             case 'close-workspace':
-              if (payload.workspaceId) workspaceStore.closeWorkspace(payload.workspaceId);
+              if (payload.workspaceId) void requestWorkspaceClose(payload.workspaceId);
               break;
 
             default:

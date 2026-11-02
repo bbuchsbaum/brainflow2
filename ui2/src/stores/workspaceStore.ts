@@ -35,6 +35,7 @@ import {
 } from "./workspaceRestorePolicy";
 import { setActiveDockKeyResolver } from "./layoutSettingsStore";
 import { dockHeightKeyFor } from "@/components/layout/bottomWorkbenchDock.constants";
+import { workspaceCloseIsGuarded } from "@/services/workspaceCloseGuards";
 import {
   isKnownWorkspaceType,
   isWorkspaceTypeAvailable,
@@ -87,7 +88,8 @@ interface WorkspaceStore {
    */
   setActiveWorkspaceType: (type: WorkspaceType) => void;
   setWorkspaceViewMode: (id: string, modeId: string) => boolean;
-  closeWorkspace: (id: string) => void;
+  /** Returns false while a retained document owns the close decision. */
+  closeWorkspace: (id: string) => boolean;
   /** Close a module's tabs and remember them (the module was switched off). */
   parkModuleWorkspaces: (moduleId: string) => void;
   /** Bring back a module's remembered tabs (the module was switched on). */
@@ -463,7 +465,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
       closeWorkspace: (id) => {
         const currentState = get();
-        if (!currentState.workspaces.has(id)) return;
+        if (!currentState.workspaces.has(id) || workspaceCloseIsGuarded(id)) return false;
 
         const nextWorkspaces = new Map(currentState.workspaces);
         nextWorkspaces.delete(id);
@@ -486,6 +488,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         });
 
         console.log(`[WorkspaceStore] Closed workspace: ${id}`);
+        return true;
       },
 
       parkModuleWorkspaces: (moduleId) => {

@@ -154,6 +154,18 @@ export class MockTransport implements BackendTransport {
 
   private getDefaultResponse(cmd: string, args: any): any {
     switch (cmd) {
+      case 'get_volume_native_plane':
+      case 'segmentation_create_session':
+      case 'segmentation_get_session':
+      case 'segmentation_preview_stroke':
+      case 'segmentation_commit_stroke':
+      case 'segmentation_undo':
+      case 'segmentation_set_label_state':
+      case 'segmentation_get_slice':
+        throw { Input: { code: 12100, details: 'Segmentation editing requires the native host' } };
+      case 'dispose_module_workspace':
+        return null;
+
       case 'get_render_capabilities':
         return { features: [] };
 

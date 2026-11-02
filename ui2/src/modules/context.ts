@@ -137,6 +137,7 @@ export function registerModuleKeybinding(
     key: binding.key,
     modifiers: binding.modifiers,
     allowInInputs: binding.allowInInputs,
+    priority: binding.when?.viewMode ? 20 : binding.when?.workspace ? 10 : 0,
     category: host.moduleTitle,
     description: host.commands.get(binding.command) ?? binding.command,
     when: () => host.isEnabled() && host.matchesWhen(binding.when),
