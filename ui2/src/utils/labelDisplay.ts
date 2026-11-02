@@ -2,9 +2,9 @@
  * How a label layer is drawn (UI redesign phase 3, v1 critics): its regions
  * filled with their table colours, outlined, or both.
  *
- * The renderer draws one outline per frame (`slice_features`) for one label
- * layer: every region boundary when no label is selected, else the selected
- * region. Boundaries take each region's table colour ("lut") or one colour,
+ * The renderer draws each label layer's outline with that layer's own
+ * settings (`slice_features`, one entry per layer): every region boundary
+ * when no label is selected, else the selected region. Boundaries take each region's table colour ("lut") or one colour,
  * with an optional dark halo. "Outline" without a fill is drawn by
  * sending the layer with a near-zero fill opacity (the renderer skips layers
  * at opacity 0, and its outline pass only runs for a drawn layer); the

@@ -35,3 +35,19 @@ export function crosshairOnPane(
   const p = projectWorldToCanvas([world[0], world[1], world[2]], plane, placement, 1e6);
   return p ? { x: p.canvasX * k, y: p.canvasY * k } : null;
 }
+
+/**
+ * A rectangle as a key of whole CSS px: memoise on it so a placement input
+ * stays the same object while the rectangle is unchanged (QA N16 review W4:
+ * the colorbar placement must not rerun on every crosshair move).
+ */
+export function paneRectKey(rect: PaneRect | null | undefined): string {
+  return rect ? [rect.left, rect.top, rect.right, rect.bottom].map((v) => Math.round(v)).join(',') : '';
+}
+
+/** The rectangle a {@link paneRectKey} stands for. */
+export function paneRectFromKey(key: string): PaneRect | null {
+  if (!key) return null;
+  const [left, top, right, bottom] = key.split(',').map(Number);
+  return { left, top, right, bottom };
+}

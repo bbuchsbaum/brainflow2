@@ -56,6 +56,17 @@ function scaleRects(rects: CrosshairRect[], k: number): CrosshairRect[] {
 }
 
 /**
+ * The whole canvas in overlay (CSS) units, as a placement; the image
+ * placement when the canvas has no size (e.g. a test double).
+ */
+function canvasBounds(canvas: HTMLCanvasElement | undefined, ratio: number, placement: Placement): Placement {
+  const width = canvas ? canvas.width / ratio : 0;
+  const height = canvas ? canvas.height / ratio : 0;
+  if (!(width > 0) || !(height > 0)) return placement;
+  return { ...placement, x: 0, y: 0, width, height };
+}
+
+/**
  * The part of `placement` covered by the data extent on the crosshair's slice:
  * the in-plane corners of `bounds` projected with the viewer's own projection
  * (the slice-normal component is the crosshair's, so both corners lie on the
@@ -99,8 +110,10 @@ export function clipPlacementToWorldBounds(
  * (dark halo + pixel-snapped core, centre gap, compact weight in small views,
  * clipped around orientation letters). The shared viewer's plain crosshair
  * and border passes are disabled and redone here in the same order (border,
- * then crosshair) with the same projection and visibility test, so geometry
- * is identical: only stroke styling differs.
+ * then crosshair) with the same projection. The crosshair's position is the
+ * shared viewer's; its lines span the whole canvas rather than the image
+ * placement (QA run 5 N28), or the data extent when `crosshairWorldBounds`
+ * is given.
  */
 export function ReusableSliceViewport({
   width,
@@ -146,9 +159,13 @@ export function ReusableSliceViewport({
           clientRects.length > 0 && ctx.canvas
             ? scaleRects(clientRectsToCanvas(ctx.canvas, clientRects), 1 / ratio)
             : undefined;
+        // The lines span the whole canvas, not just the bitmap: a bitmap
+        // letterboxed in its pane (the Studio Deck / Compare pane A) must not
+        // read as a truncated crosshair (QA run 5 N28). A data extent, when
+        // given, still clips them (Compare panels).
         const bounds = crosshairWorldBounds
           ? clipPlacementToWorldBounds(placement, viewPlane, crosshair.world_mm, crosshairWorldBounds)
-          : placement;
+          : canvasBounds(ctx.canvas, ratio, placement);
         drawCrosshair({
           ctx,
           canvasX: point.canvasX,

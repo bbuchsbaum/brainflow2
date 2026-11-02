@@ -12,6 +12,7 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
 import { activeSetSeriesBinding } from './sampleSetSeries';
 import { getClusterService, clusterTableCsv } from '@/services/ClusterService';
 import { statisticUnits } from '@/utils/statistic';
+import { isRegionSource } from '@/services/atlasRegionLookup';
 
 /** The series mode's id (kept from the Phase 4c time-series mode). */
 const SERIES_MODE_ID = 'crosshair-time-series';
@@ -69,6 +70,38 @@ export function openClusterSeries(): void {
     if (id) useLayerStore.getState().selectLayer?.(id);
   }
   // Keyboard focus follows the user into the plot (round 3 S3), never <body>.
+  const from = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+  openDockTab('plot');
+  usePlotModeStore.getState().setActivePlotMode(SERIES_MODE_ID);
+  focusSeriesPlot(from);
+}
+
+/**
+ * Why a label legend region cannot be the Series region now (the Regions row
+ * menu, QA run 5 N25), or null when it can.
+ */
+export function regionSeriesUnavailable(layerId: string): string | null {
+  const layer = useLayerStore.getState().layers.find((l) => l.id === layerId);
+  if (!layer || !isRegionSource(layer)) return 'This layer has no named regions.';
+  return seriesSourceUnavailable();
+}
+
+/**
+ * "Use as series region": the legend region (`labelId` of the label layer
+ * `layerId`) becomes the Series region, shown in the Plot dock's Series mode.
+ */
+export function openRegionSeries(layerId: string, labelId: number): void {
+  if (regionSeriesUnavailable(layerId)) return;
+  const dataset = activeSetSeriesBinding(useSetStudioStore.getState()) !== null;
+  useSeriesStore.getState().update({
+    locus: 'region',
+    regionPick: { layerId, labelId },
+    source: dataset ? 'set' : 'layer',
+  });
+  if (!dataset) {
+    const id = fourDLayerId();
+    if (id) useLayerStore.getState().selectLayer?.(id);
+  }
   const from = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
   openDockTab('plot');
   usePlotModeStore.getState().setActivePlotMode(SERIES_MODE_ID);

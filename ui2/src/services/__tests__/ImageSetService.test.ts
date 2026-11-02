@@ -23,6 +23,7 @@ vi.mock('../LayerEvictionService', () => ({
     touchLayer: vi.fn(),
     checkAndEvict: vi.fn().mockResolvedValue(undefined),
     makeRoomForUpload: vi.fn().mockResolvedValue(undefined),
+    releaseReservation: vi.fn(),
   },
 }));
 vi.mock('@/stores/fileBrowserStore', () => ({

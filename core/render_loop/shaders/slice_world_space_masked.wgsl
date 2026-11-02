@@ -92,6 +92,15 @@ struct SliceFeatureUbo {
     halo_color: vec4<f32>,
 };
 
+// One SliceFeatureUbo per composited layer slot (slot i = layer_data[i]), so
+// each label layer outlines with its own settings. Keep in sync with
+// shader_contract::feature::MAX_OUTLINE_LAYERS.
+const MAX_OUTLINE_LAYERS: u32 = 16u;
+
+struct SliceFeatureBlock {
+    layers: array<SliceFeatureUbo, MAX_OUTLINE_LAYERS>,
+};
+
 const LAYER_MODE_SCALAR: u32 = 0u;
 const LAYER_MODE_LABEL: u32 = 1u;
 const LAYER_MODE_MASK: u32 = 2u;
@@ -109,7 +118,7 @@ const LAYER_MODE_MASK: u32 = 2u;
 // @include texture_bindings
 
 // --- Bind Group 3: Optional Feature Uniforms ---
-@group(3) @binding(0) var<uniform> slice_features: SliceFeatureUbo;
+@group(3) @binding(0) var<uniform> slice_features: SliceFeatureBlock;
 
 // --- Vertex Shader Output ---
 struct VsOut {
@@ -473,8 +482,8 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
         }
         final_color = composite(final_color, layer_color, layer.blend_mode);
 
-        if (slice_features.outline_enabled == 1u && i == slice_features.outline_layer_index) {
-            let outline_color = sampleLabelOutline(layer, world_mm);
+        if (i < MAX_OUTLINE_LAYERS && slice_features.layers[i].outline_enabled == 1u) {
+            let outline_color = sampleLabelOutline(layer, slice_features.layers[i], world_mm);
             final_color = composite(final_color, outline_color, 0u);
         }
     }

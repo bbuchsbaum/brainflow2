@@ -94,7 +94,11 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
   `(v+0.5)/dim`), shared with `neuro-cpu` and the bridge picker; see
   `docs/COORDINATE_SYSTEM_SPEC.md`. `neuro-integration-tests/tests/edge_domain_agreement_test.rs`
   checks GPU/CPU edge coverage.
-- Label outlines (`SliceFeatureUbo`, 64 bytes): `outline_color_mode` 1 draws each
+- Label outlines are per layer: group 3 binds `SliceFeatureBlock`, one 64-byte
+  `SliceFeatureUbo` per composited layer slot (`MAX_OUTLINE_LAYERS` = 16), routed
+  by `outline_layer_index` (the layer's index in `layer_data`). Upload all of
+  them with `update_slice_features`; never reduce outlines to one global slot
+  (QA run 5 N20). `outline_color_mode` 1 draws each
   region in its LUT colour (alpha = outline alpha x LUT alpha); `halo_thickness_px`
   adds a `halo_color` band outside a selected region, or a second inner band in
   all-boundaries mode. Screen-pixel widths use the frame UBO `target_dim`, which

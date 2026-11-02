@@ -100,6 +100,11 @@ pub mod texture {
 
 /// Bindings within [`GROUP_FEATURE`].
 pub mod feature {
-    /// `@group(3) @binding(0) var<uniform> slice_features: SliceFeatureUbo;`
+    /// `@group(3) @binding(0) var<uniform> slice_features: SliceFeatureBlock;`
     pub const SLICE_FEATURES: u32 = 0;
+
+    /// Composited layer slots with their own outline settings: the length of
+    /// `SliceFeatureBlock.layers` (WGSL `MAX_OUTLINE_LAYERS`). Layers past the
+    /// last slot render without outlines.
+    pub const MAX_OUTLINE_LAYERS: usize = 16;
 }

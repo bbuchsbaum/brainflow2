@@ -8,6 +8,9 @@
  * then draws only its boundary) and, for catalogue atlases whose ROI
  * locations the backend knows, moves the crosshair to it. Picking it again
  * clears the pick.
+ *
+ * Right-clicking a row opens the app menu (never WebKit's; QA run 5 N25):
+ * Go to region, Use as series region, Copy name.
  */
 import React, { useCallback } from 'react';
 import { useLayerStore } from '@/stores/layerStore';
@@ -21,6 +24,9 @@ import {
   useRovingFocus,
 } from '@/components/ui/bf';
 import { formatRegionLabel } from '@/services/atlasRegionLookup';
+import { getEventBus } from '@/events/EventBus';
+import { openRegionSeries, regionSeriesUnavailable } from '@/services/series/openClusterSeries';
+import { useContextMenuStore } from '@/stores/contextMenuStore';
 import { atlasRoiService } from '@/services/AtlasRoiService';
 import { DEFAULT_LABEL_OUTLINE } from '@/utils/labelDisplay';
 import type { SceneItem } from '@/types/sceneItem';
@@ -48,9 +54,9 @@ export function LabelLegendSection({ item }: { item: SceneItem }) {
   const current = typeof region === 'string' ? region : null;
 
   const pick = useCallback(
-    async (labelId: number) => {
+    async (labelId: number, toggle = true) => {
       if (!layerId) return;
-      const next = pickedId === labelId ? 0 : labelId;
+      const next = toggle && pickedId === labelId ? 0 : labelId;
       useViewStateStore.getState().setViewState((state) => {
         const layer = state.layers.find((l) => l.id === layerId);
         if (!layer) return;
@@ -65,6 +71,44 @@ export function LabelLegendSection({ item }: { item: SceneItem }) {
       }
     },
     [layerId, pickedId, isCatalogue, volumeId],
+  );
+
+  const copyName = useCallback(async (name: string) => {
+    try {
+      await navigator.clipboard.writeText(name);
+      getEventBus().emit('ui.notification', { type: 'info', message: `Copied "${name}"` });
+    } catch {
+      getEventBus().emit('ui.notification', { type: 'warning', message: 'Could not copy to the clipboard' });
+    }
+  }, []);
+
+  const openRowMenu = useCallback(
+    (entry: AtlasPaletteLegendEntry, event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!layerId) return;
+      const name = formatRegionLabel(entry);
+      const seriesBlocked = regionSeriesUnavailable(layerId);
+      useContextMenuStore.getState().open(event.clientX, event.clientY, [
+        {
+          id: 'region.goTo',
+          // Without a known ROI location the region is still selected (outlined).
+          label: isCatalogue && volumeId ? 'Go to region' : 'Select region',
+          onClick: () => void pick(entry.label_id, false),
+        },
+        {
+          id: 'region.useAsSeriesRegion',
+          label: seriesBlocked
+            ? `Use as series region (${seriesBlocked.replace(/\.$/, '')})`
+            : 'Use as series region',
+          disabled: !!seriesBlocked,
+          onClick: () => openRegionSeries(layerId, entry.label_id),
+        },
+        { id: 'region.sep', label: '', separator: true },
+        { id: 'region.copyName', label: 'Copy name', onClick: () => void copyName(name) },
+      ]);
+    },
+    [layerId, isCatalogue, volumeId, pick, copyName],
   );
 
   const ids = legend.map((e) => String(e.label_id));
@@ -100,6 +144,7 @@ export function LabelLegendSection({ item }: { item: SceneItem }) {
               aria-current={atCrosshair ? 'location' : undefined}
               title={`${name}${atCrosshair ? ' (at the crosshair)' : ''}: ${picked ? 'click to clear' : 'click to select'}`}
               onClick={() => void pick(entry.label_id)}
+              onContextMenu={(e) => openRowMenu(entry, e)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();

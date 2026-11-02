@@ -12,6 +12,8 @@ import { describe, expect, it, beforeEach } from "vitest";
 
 import {
   migrateLayoutSettings,
+  sanitizeLayoutSettings,
+  setActiveDockKeyResolver,
   useLayoutSettingsStore,
 } from "../layoutSettingsStore";
 
@@ -33,8 +35,11 @@ describe("layoutSettingsStore", () => {
     expect(state.bottomDockSizes).toBeNull();
     expect(state.bottomDockLogCollapsed).toBe(false);
     expect(state.bottomDockPlotMaximized).toBe(false);
-    // The dock is shell-level and shown by default in all imaging modes.
-    expect(state.bottomDockOpen).toBe(true);
+    // The dock is shell-level and shown by default for every tool.
+    expect(state.bottomDockOpenByKey).toEqual({});
+    expect(state.isBottomDockOpen("imaging")).toBe(true);
+    expect(state.isBottomDockOpen("set-studio")).toBe(true);
+    expect(state.isBottomDockOpen("analysis-workbench")).toBe(true);
     expect(state.bottomDockHeights).toEqual({});
     expect(state.orthoArrangement).toBe("grid");
     expect(state.integratedSplit).toBe("horizontal");
@@ -77,6 +82,7 @@ describe("layoutSettingsStore", () => {
       // …the open flag is intentionally dropped (resets to the new default: open)…
       expect(migrated.plotDockOpen).toBeUndefined();
       expect(migrated.bottomDockOpen).toBeUndefined();
+      expect(migrated.bottomDockOpenByKey).toEqual({});
       expect(migrated.plotDockHeight).toBeUndefined();
       // …unrelated keys pass through.
       expect(migrated.bottomDockActiveTab).toBe("log");
@@ -87,7 +93,7 @@ describe("layoutSettingsStore", () => {
         { bottomDockOpen: false, bottomDockHeight: 200 },
         2,
       );
-      expect(migrated.bottomDockOpen).toBe(false);
+      expect(migrated.bottomDockOpenByKey).toEqual({ imaging: false });
       expect(migrated.bottomDockHeights).toEqual({ imaging: 200 });
     });
   });
@@ -97,28 +103,102 @@ describe("layoutSettingsStore", () => {
     it("moves the single height into the imaging key", () => {
       expect(migrateLayoutSettings({ bottomDockHeight: 310 }, 2)).toEqual({
         bottomDockHeights: { imaging: 310 },
+        bottomDockOpenByKey: {},
       });
     });
 
     it("starts empty when no height was saved, and keeps v3 heights", () => {
       expect(migrateLayoutSettings({ bottomDockHeight: null }, 2).bottomDockHeights).toEqual({});
-      const v3 = { bottomDockHeights: { imaging: 250, "set-studio": 140 } };
-      expect(migrateLayoutSettings(v3, 3)).toEqual(v3);
+      const v4 = {
+        bottomDockHeights: { imaging: 250, "set-studio": 140 },
+        bottomDockOpenByKey: { "set-studio": false },
+      };
+      expect(migrateLayoutSettings(v4, 4)).toEqual(v4);
     });
+  });
+
+  // QA 2026-10-31 N24: visibility is per tool too, like the height.
+  describe("v3 → v4 migration (one open flag → per tool)", () => {
+    it("moves the shared flag into the imaging key", () => {
+      expect(
+        migrateLayoutSettings({ bottomDockOpen: false, bottomDockHeights: { imaging: 250 } }, 3),
+      ).toEqual({ bottomDockOpenByKey: { imaging: false }, bottomDockHeights: { imaging: 250 } });
+      expect(migrateLayoutSettings({ bottomDockHeights: {} }, 3).bottomDockOpenByKey).toEqual({});
+    });
+  });
+
+  it("makes null or malformed per-tool dock maps safe on load", () => {
+    expect(sanitizeLayoutSettings({ bottomDockOpenByKey: null, bottomDockHeights: "x" })).toMatchObject({
+      bottomDockOpenByKey: {},
+      bottomDockHeights: {},
+    });
+    expect(
+      sanitizeLayoutSettings({
+        bottomDockOpenByKey: { imaging: false, "set-studio": "yes" },
+        bottomDockHeights: { imaging: 250, "set-studio": null, bids: Number.NaN },
+        orthoArrangement: "row",
+      }),
+    ).toEqual({
+      bottomDockOpenByKey: { imaging: false },
+      bottomDockHeights: { imaging: 250 },
+      orthoArrangement: "row",
+    });
+    expect(sanitizeLayoutSettings(null)).toEqual({});
+  });
+
+  it("rehydrates a payload whose dock maps are null without throwing", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { bottomDockOpenByKey: null, bottomDockHeights: null }, version: 4 }),
+    );
+    await useLayoutSettingsStore.persist.rehydrate();
+    const state = useLayoutSettingsStore.getState();
+    expect(state.bottomDockOpenByKey).toEqual({});
+    expect(state.bottomDockHeights).toEqual({});
+    expect(state.isBottomDockOpen("imaging")).toBe(true);
+  });
+
+  it("keeps each tool's dock shown or hidden on its own (N24)", () => {
+    const store = useLayoutSettingsStore.getState();
+    store.setBottomDockOpen(false, "set-studio");
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen("set-studio")).toBe(false);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen("imaging")).toBe(true);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen("analysis-workbench")).toBe(true);
+    expect(readPersistedState()?.state).toMatchObject({
+      bottomDockOpenByKey: { "set-studio": false },
+    });
+    store.toggleBottomDock("imaging");
+    expect(useLayoutSettingsStore.getState().bottomDockOpenByKey).toEqual({
+      "set-studio": false,
+      imaging: false,
+    });
+  });
+
+  it("acts on the front tab's tool when no tool is named", () => {
+    setActiveDockKeyResolver(() => "set-studio");
+    try {
+      useLayoutSettingsStore.getState().setBottomDockOpen(false);
+      expect(useLayoutSettingsStore.getState().isBottomDockOpen()).toBe(false);
+      expect(useLayoutSettingsStore.getState().isBottomDockOpen("imaging")).toBe(true);
+      useLayoutSettingsStore.getState().toggleBottomDock();
+      expect(useLayoutSettingsStore.getState().isBottomDockOpen("set-studio")).toBe(true);
+    } finally {
+      setActiveDockKeyResolver(() => "imaging");
+    }
   });
 
   it("closes, toggles, and round-trips the bottom dock open flag", () => {
     useLayoutSettingsStore.getState().setBottomDockOpen(false);
-    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(false);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen()).toBe(false);
     expect(readPersistedState()?.state).toMatchObject({
-      bottomDockOpen: false,
+      bottomDockOpenByKey: { imaging: false },
     });
 
     useLayoutSettingsStore.getState().toggleBottomDock();
-    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(true);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen()).toBe(true);
 
     useLayoutSettingsStore.getState().toggleBottomDock();
-    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(false);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen()).toBe(false);
   });
 
   it("no-ops setBottomDockOpen when the value is unchanged", () => {

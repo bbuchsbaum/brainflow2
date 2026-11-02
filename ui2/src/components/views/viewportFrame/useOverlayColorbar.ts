@@ -5,7 +5,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import type { ViewLayer } from '@/types/viewState';
 import { shortLayerLabel, type FramePlane } from './frameFormat';
-import { chooseColorbarHost, useViewportFrameStore } from './viewportFrameStore';
+import { useColorbarGroup, useViewportFrameStore } from './viewportFrameStore';
 import type { VolumeMetadata } from '@/stores/layerStore';
 import type { ColorbarLayer } from './ViewportColorbar';
 import { isInferredStatistic, statisticUnits } from '@/utils/statistic';
@@ -127,9 +127,13 @@ export function useOverlayColorbar(): ColorbarLayer | null {
   const viewLayers = useViewStateStore((s) => s.viewState.layers);
   // Same active layer as the header and the status bar (utils/activeLayer).
   const activeLayerId = useActiveLayer(viewLayers)?.id ?? null;
+  // A Studio viewer names the layer itself: its member, even as the base,
+  // whatever else the workspace stacks or selects (Compare pane A then draws
+  // exactly one bar, for the member, placed by the shared rule; QA N16).
+  const { describeLayerId } = useColorbarGroup();
   const layerId = useMemo(
-    () => chooseColorbarLayerId(layers, viewLayers, activeLayerId, isRunGroupMember),
-    [layers, viewLayers, activeLayerId],
+    () => describeLayerId ?? chooseColorbarLayerId(layers, viewLayers, activeLayerId, isRunGroupMember),
+    [describeLayerId, layers, viewLayers, activeLayerId],
   );
   const isBase = !!layerId && !isOverlayLayer(layers, layerId);
   return useLayerColorbar(layerId, undefined, { allowBase: isBase });
@@ -147,7 +151,8 @@ export function currentOverlayColorbarLayerId(): string | null {
   return chooseColorbarLayerId(layers, viewLayers, activeVolumeLayerId(viewLayers), isRunGroupMember);
 }
 
-/** Which orthogonal view hosts the colorbar (see `chooseColorbarHost`). */
+/** Which view of this colorbar group hosts the colorbar (see `chooseColorbarHost`). */
 export function useColorbarHostPlane(): FramePlane | null {
-  return useViewportFrameStore((s) => chooseColorbarHost(s.slots));
+  const { group } = useColorbarGroup();
+  return useViewportFrameStore((s) => s.hosts[group]?.plane ?? null);
 }

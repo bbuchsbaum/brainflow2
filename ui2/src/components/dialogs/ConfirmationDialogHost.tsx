@@ -17,6 +17,8 @@ export function ConfirmationDialogHost() {
   const [promptValue, setPromptValue] = useState('');
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const promptInputRef = useRef<HTMLInputElement | null>(null);
+  // A new prompt's suggested value is still to be selected.
+  const selectPromptPendingRef = useRef(false);
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusedElementRef = useRef<HTMLElement | null>(null);
   const previousBodyOverflowRef = useRef<string>('');
@@ -36,7 +38,19 @@ export function ConfirmationDialogHost() {
     }
 
     setPromptValue(activeRequest.defaultValue ?? '');
+    selectPromptPendingRef.current = true;
   }, [activeRequest]);
+
+  // The suggested value starts selected, so typing replaces it (QA 2026-10-31
+  // N26: typing appended to "Layout 11/1/2026, 1:05:07 PM"). It is selected
+  // once the input shows it, on the render after the value is set.
+  useEffect(() => {
+    const input = promptInputRef.current;
+    if (!selectPromptPendingRef.current || !input || activeRequest?.kind !== 'prompt') return;
+    if (input.value !== (activeRequest.defaultValue ?? '')) return;
+    selectPromptPendingRef.current = false;
+    input.select();
+  }, [promptValue, activeRequest]);
 
   useEffect(() => {
     if (!activeRequest) {

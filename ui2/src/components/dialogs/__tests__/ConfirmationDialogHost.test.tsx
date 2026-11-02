@@ -109,6 +109,25 @@ describe('ConfirmationDialogHost', () => {
     });
   });
 
+  // QA 2026-10-31 N26: typing appended to the suggested name.
+  it('opens the prompt with its suggested value selected', async () => {
+    render(<ConfirmationDialogHost />);
+    await waitFor(() => {
+      expect(useConfirmationDialogStore.getState().hostMounted).toBe(true);
+    });
+    const suggested = 'Layout 11/1/2026, 1:05:07 PM';
+    await act(async () => {
+      void getConfirmationService().promptLayoutSaveName(suggested);
+    });
+    const input = (await screen.findByDisplayValue(suggested)) as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(suggested.length);
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Escape' });
+    });
+  });
+
   it('dismisses confirm requests with Escape', async () => {
     render(<ConfirmationDialogHost />);
     await waitFor(() => {

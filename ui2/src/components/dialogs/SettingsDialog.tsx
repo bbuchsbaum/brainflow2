@@ -90,7 +90,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             label="MNI anatomy at start"
             labelWidth="wide"
             controlId="settings-first-screen"
-            hint="With nothing restored, open on the MNI152 T1 with the crosshair at the origin."
+            hint="With nothing loaded at launch, open on the MNI152 T1 with the crosshair at the origin."
           >
             <Switch checked={firstScreen} onCheckedChange={setFirstScreen} />
           </FieldRow>

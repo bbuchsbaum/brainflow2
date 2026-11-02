@@ -764,3 +764,165 @@ async fn oblique_volume_keeps_boundaries_near_parallel_to_the_slice() {
         "the boundary should run straight along world x, got {band_rows:?}"
     );
 }
+
+/// Renders two outline-only label layers over black: "columns" (labels 1 | 2
+/// split at world x = 15.5) under "rows" (split at world y = 15.5), with
+/// `features` routed to them by `outline_layer_index` (0 = columns, 1 = rows).
+async fn render_two_label_layers(features: &[SliceFeatureUbo]) -> Vec<Vec<[u8; 4]>> {
+    let mut service = RenderLoopService::new()
+        .await
+        .expect("failed to initialize render service");
+    service.load_shaders().expect("failed to load shaders");
+    service
+        .enable_world_space_rendering()
+        .expect("failed to enable world-space rendering");
+    for (id, volume) in [
+        (
+            "columns",
+            create_two_label_volume(|x, _| if x < 16 { 1.0 } else { 2.0 }),
+        ),
+        (
+            "rows",
+            create_two_label_volume(|_, y| if y < 16 { 1.0 } else { 2.0 }),
+        ),
+    ] {
+        service
+            .register_volume_with_upload(id.to_string(), &volume, wgpu::TextureFormat::R32Float)
+            .expect("failed to register label volume");
+    }
+    service
+        .initialize_colormap()
+        .expect("failed to initialize colormap");
+    service
+        .create_world_space_bind_groups()
+        .expect("failed to create world-space bind groups");
+    service.update_slice_features(features);
+
+    let layer = |id: &str| {
+        LayerConfig::new(id.to_string())
+            .with_opacity(1e-3)
+            .with_colormap(1)
+            .with_blend_mode(BlendMode::Normal)
+            .with_intensity_window(0.0, 2.0)
+            .with_interpolation(InterpolationMode::Nearest)
+            .with_layer_mode(LayerMode::Label)
+    };
+    let state = ViewState::from_basic_params(
+        "columns".to_string(),
+        [16.0, 16.0, 2.0],
+        SliceOrientation::Axial,
+        32.0,
+        [128, 128],
+        (0.0, 2.0),
+    )
+    .with_layers(vec![layer("columns"), layer("rows")])
+    .with_crosshair(false);
+
+    let image = service
+        .request_frame(ViewId::new("two-label-layers"), state)
+        .await
+        .expect("failed to render two label layers")
+        .image_data;
+    image
+        .chunks_exact(128 * 4)
+        .map(|row| {
+            row.chunks_exact(4)
+                .map(|px| [px[0], px[1], px[2], px[3]])
+                .collect()
+        })
+        .collect()
+}
+
+/// Runs of `hit` pixels within `INNER` along `line`, as (start, end) indices.
+fn hit_runs(line: impl Fn(usize) -> [u8; 4], hit: impl Fn([u8; 4]) -> bool) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for i in INNER {
+        match (hit(line(i)), start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                out.push((s, i));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        out.push((s, INNER.end));
+    }
+    out
+}
+
+#[tokio::test]
+async fn every_label_layer_draws_its_own_outline() {
+    // N20: with two atlases in Outline mode only the first drew its outline,
+    // because one global slot held a single layer's outline settings. Each
+    // layer now keeps its own: a 1 px neutral line on the lower layer and a
+    // 2 px red line (with a blue halo) on the upper one.
+    let white = SliceFeatureUbo {
+        outline_layer_index: 0,
+        ..boundary_features(1.0, [1.0, 1.0, 1.0, 1.0])
+    };
+    let red = SliceFeatureUbo {
+        outline_layer_index: 1,
+        halo_thickness_px: 1.0,
+        halo_color: [0.0, 0.0, 1.0, 1.0],
+        ..boundary_features(2.0, [1.0, 0.0, 0.0, 1.0])
+    };
+    let is_white = |px: [u8; 4]| px[0] > 100 && px[0] == px[1] && px[1] == px[2];
+    let is_red = |px: [u8; 4]| px[0] > 250 && px[1] < 5 && px[2] < 5;
+    let is_blue = |px: [u8; 4]| px[2] > 250 && px[0] < 5 && px[1] < 5;
+
+    let image = render_two_label_layers(&[white, red]).await;
+
+    // Away from the horizontal line, each row crosses only the lower layer's
+    // vertical 1 px line, centred between columns 61 and 62.
+    for y in (16..40).chain(90..112) {
+        assert_eq!(
+            hit_runs(|x| image[y][x], is_white),
+            vec![(61, 63)],
+            "row {y}: lower layer's 1 px line, got {:?}",
+            &image[y][59..65]
+        );
+        assert!(
+            hit_runs(|x| image[y][x], |px| is_red(px) || is_blue(px)).is_empty(),
+            "row {y}: the upper layer's outline must not appear here"
+        );
+    }
+    // Away from the vertical line, each column crosses only the upper layer's
+    // horizontal 2 px red line with a 1 px blue halo on each side.
+    for x in (16..40).chain(90..112) {
+        let red_runs = hit_runs(|y| image[y][x], is_red);
+        assert_eq!(
+            red_runs.len(),
+            1,
+            "column {x}: one red band from the upper layer, got {red_runs:?}"
+        );
+        let (start, end) = red_runs[0];
+        assert_eq!(end - start, 2, "column {x}: the red line is 2 px");
+        assert!(
+            is_blue(image[start - 1][x]) && is_blue(image[end][x]),
+            "column {x}: 1 px blue halo on each side"
+        );
+        assert!(
+            hit_runs(|y| image[y][x], is_white).is_empty(),
+            "column {x}: the lower layer's outline must not appear here"
+        );
+    }
+
+    // Removing the lower layer's entry turns only its outline off.
+    let upper_only = render_two_label_layers(&[red]).await;
+    for y in (16..40).chain(90..112) {
+        assert!(
+            hit_runs(|x| upper_only[y][x], is_white).is_empty(),
+            "row {y}: the lower layer has no outline once its entry is gone"
+        );
+    }
+    for x in (16..40).chain(90..112) {
+        assert_eq!(
+            hit_runs(|y| upper_only[y][x], is_red).len(),
+            1,
+            "column {x}: the upper layer still draws its outline"
+        );
+    }
+}

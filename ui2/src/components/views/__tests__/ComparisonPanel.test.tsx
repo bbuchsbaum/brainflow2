@@ -104,6 +104,42 @@ describe('ComparisonPanel', () => {
     expect(screen.getByTestId('slice-viewport')).toHaveAttribute('data-height', '381');
   });
 
+  it('re-renders when a sibling pane changes size or layers: one scale across panes (QA N23)', async () => {
+    const { useComparisonStore } = await import('@/stores/comparisonStore');
+    act(() => useComparisonStore.getState().initFromLayers('comparison-n23', ['layer-1', 'layer-2']));
+    const [a, b] = useComparisonStore.getState().getPanels('comparison-n23');
+    act(() => useComparisonStore.getState().setPanelCanvasSize(a.id, { width: 400, height: 480 }));
+    const { unmount } = render(
+      <ComparisonPanel
+        workspaceId="comparison-n23"
+        panel={b}
+        width={400}
+        height={504}
+        layerNames={new Map([['layer-2', 'T1']])}
+        onRemoveLayer={vi.fn()}
+        onRemovePanel={vi.fn()}
+        onViewTypeChange={vi.fn()}
+      />,
+    );
+    // B publishes its own canvas size for its siblings.
+    await waitFor(() => expect(useComparisonStore.getState().panelCanvasSizes.get(b.id)).toBeDefined());
+    const calls = () => comparisonService.renderPanel.mock.calls.length;
+    const before = calls();
+    // A narrows (its colorbar column appears): B renders again at the shared scale.
+    act(() => useComparisonStore.getState().setPanelCanvasSize(a.id, { width: 272, height: 480 }));
+    await waitFor(() => expect(calls()).toBeGreaterThan(before));
+    // A no-op size write does not.
+    const settled = calls();
+    act(() => useComparisonStore.getState().setPanelCanvasSize(a.id, { width: 272, height: 480 }));
+    expect(calls()).toBe(settled);
+    // A's layer changes: the shared frame does, so B renders again.
+    act(() => useComparisonStore.getState().setPanelLayer('comparison-n23', a.id, 'layer-2', 'layer-1'));
+    await waitFor(() => expect(calls()).toBeGreaterThan(settled));
+    // Unmounting removes B's size.
+    unmount();
+    expect(useComparisonStore.getState().panelCanvasSizes.get(b.id)).toBeUndefined();
+  });
+
   it('is a frame: header with the panel layer, actions slot, rail, no card header', () => {
     const panel: ComparisonPanelConfig = {
       id: 'panel-2',

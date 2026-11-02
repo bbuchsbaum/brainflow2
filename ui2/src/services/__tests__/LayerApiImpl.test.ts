@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
+import { GpuSlotsFullError } from '@/utils/formatTauriError';
 import { layerFrameBoxes } from '@/services/layerFrameBoxes';
 import { fitViewsToWorldBox, worldBoxFromViews } from '@/utils/worldFrame';
 import { useComparisonStore } from '@/stores/comparisonStore';
@@ -62,6 +63,7 @@ const {
     touchLayer: vi.fn(),
     checkAndEvict: vi.fn().mockResolvedValue(undefined),
     makeRoomForUpload: vi.fn().mockResolvedValue(undefined),
+    releaseReservation: vi.fn(),
   },
 }));
 
@@ -284,10 +286,30 @@ describe('LayerApiImpl', () => {
     expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
     expect(mockLayerEvictionService.touchLayer).toHaveBeenCalledWith('layer-1');
     expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
-    expect(mockLayerEvictionService.makeRoomForUpload).toHaveBeenCalledWith('layer-1');
+    expect(mockLayerEvictionService.makeRoomForUpload).toHaveBeenCalledWith('layer-1', { reserve: true });
+    expect(mockLayerEvictionService.releaseReservation).toHaveBeenCalledWith('layer-1');
     expect(mockLayerEvictionService.makeRoomForUpload.mock.invocationCallOrder[0]).toBeLessThan(
       mockApiService.requestLayerGpuResources.mock.invocationCallOrder[0],
     );
+  });
+
+  // QA 2026-10-31 N18: with every slot holding a shown layer, a released
+  // layer's show is refused before the backend is asked (the texture slots
+  // outnumber the render cap, so the upload could succeed and every frame
+  // then fail).
+  it('refuses to re-show a released layer when no GPU slot can be freed', async () => {
+    const api = new LayerApiImpl();
+    mockLayerStoreState.getLayer.mockReturnValue({ id: 'layer-1', name: 'toy_t1w', volumeId: 'vol-1', visible: false, type: 'anatomical' });
+    mockLayerStoreState.layerMetadata.set('layer-1', { gpuResident: false, evicted: true });
+    mockLayerEvictionService.makeRoomForUpload.mockResolvedValueOnce(false);
+    (mockLayerEvictionService as Record<string, unknown>).gpuTextureSlots = vi.fn().mockResolvedValue(8);
+
+    const show = api.updateLayer('layer-1', { visible: true });
+    await expect(show).rejects.toBeInstanceOf(GpuSlotsFullError);
+    await expect(show).rejects.toThrow('GPU texture slots full (all 8 in use)');
+    expect(mockApiService.requestLayerGpuResources).not.toHaveBeenCalled();
+    expect(mockApiService.patchLayer).not.toHaveBeenCalled();
+    expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(false);
   });
 
   it('a show still promoting to the GPU does not undo a later hide', async () => {

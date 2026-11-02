@@ -6,11 +6,13 @@
  *     `BottomWorkbenchDock` last reported via `onSizesChange`.
  *   - `bottomDockLogCollapsed` — last log-collapse affordance state.
  *   - `bottomDockPlotMaximized` — last plot-maximize affordance state.
- *   - `bottomDockOpen` — whether the shared center-workspace bottom dock
+ *   - `bottomDockOpenByKey` — whether the center-workspace bottom dock
  *     (`BottomWorkbenchDock` — Activity | Plot | Log — mounted via
- *     `CenterWithBottomDock` for every imaging mode) is shown. Defaults open
- *     so the analysis panels are available in all modes, not just Integrated;
- *     the `p` key / dock close button hides it.
+ *     `CenterWithBottomDock` for every imaging mode and tool) is shown, per
+ *     tool (`DockHeightKey`, the same key as its height; QA 2026-10-31 N24).
+ *     A missing key uses `DOCK_OPEN_DEFAULTS` (shown); the `p` key / dock
+ *     close button hides it for the front tab's tool only. v4 moved the
+ *     single `bottomDockOpen` into the imaging key.
  *   - `bottomDockHeights` — last dragged height (px) of that dock pane, per
  *     tool (`DockHeightKey`: imaging views, Set studio, BIDS, Analysis),
  *     restored on the next open. v3 moved the single `bottomDockHeight` into
@@ -36,10 +38,11 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-import type {
-  DockHeightKey,
-  DockSizes,
-  DockTabId,
+import {
+  DOCK_OPEN_DEFAULTS,
+  type DockHeightKey,
+  type DockSizes,
+  type DockTabId,
 } from '@/components/layout/bottomWorkbenchDock.constants';
 import type { WorkspaceType } from '@/types/workspace';
 
@@ -47,7 +50,8 @@ const LAYOUT_SETTINGS_PERSIST_NAME = 'brainflow2-layout-settings';
 // v2: the plot-only dock (`plotDock*`) became the shell-wide Activity|Plot|Log
 // dock (`bottomDock*`), open by default in all imaging modes.
 // v3: `bottomDockHeight` became `bottomDockHeights`, keyed by tool (N13).
-const LAYOUT_SETTINGS_PERSIST_VERSION = 3;
+// v4: `bottomDockOpen` became `bottomDockOpenByKey`, keyed the same way (N24).
+const LAYOUT_SETTINGS_PERSIST_VERSION = 4;
 
 /**
  * Migrate persisted layout settings to the current version. v1 stored
@@ -76,7 +80,60 @@ export function migrateLayoutSettings(
     state.bottomDockHeights = typeof single === 'number' ? { imaging: single } : {};
     delete state.bottomDockHeight;
   }
+  if (version < 4) {
+    // The one flag was shared by every tab; the imaging views keep it.
+    const single = state.bottomDockOpen;
+    state.bottomDockOpenByKey = typeof single === 'boolean' ? { imaging: single } : {};
+    delete state.bottomDockOpen;
+  }
   return state;
+}
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * The persisted settings with the per-tool dock maps made safe: a map that is
+ * missing, null or not an object becomes `{}`, and entries of the wrong type
+ * are dropped (the defaults then apply).
+ */
+export function sanitizeLayoutSettings(persisted: unknown): Partial<LayoutSettingsStore> {
+  if (!isPlainObject(persisted)) return {};
+  const state: Record<string, unknown> = { ...persisted };
+  const keep = <T>(value: unknown, ok: (v: unknown) => v is T): Record<string, T> =>
+    isPlainObject(value)
+      ? Object.fromEntries(Object.entries(value).filter((entry): entry is [string, T] => ok(entry[1])))
+      : {};
+  state.bottomDockOpenByKey = keep(state.bottomDockOpenByKey, (v): v is boolean => typeof v === 'boolean');
+  state.bottomDockHeights = keep(
+    state.bottomDockHeights,
+    (v): v is number => typeof v === 'number' && Number.isFinite(v),
+  );
+  return state as Partial<LayoutSettingsStore>;
+}
+
+/**
+ * The dock key of the front tab, for the dock calls that name no tool (the
+ * `p` key, View › Panels, "Open in dock"). `workspaceStore` registers it, so
+ * this store does not import the workspace store; until then, `imaging`.
+ */
+let activeDockKeyResolver: () => DockHeightKey = () => 'imaging';
+
+export function setActiveDockKeyResolver(resolver: () => DockHeightKey): void {
+  activeDockKeyResolver = resolver;
+}
+
+/** The dock key of the front tab (see {@link setActiveDockKeyResolver}). */
+export function activeDockKey(): DockHeightKey {
+  return activeDockKeyResolver();
+}
+
+/** Whether `key`'s dock is shown, in `state` (a selector for `useLayoutSettingsStore`). */
+export function bottomDockOpenFor(
+  state: Pick<LayoutSettingsStore, 'bottomDockOpenByKey'>,
+  key: DockHeightKey,
+): boolean {
+  return state.bottomDockOpenByKey[key] ?? DOCK_OPEN_DEFAULTS[key];
 }
 
 /**
@@ -108,8 +165,8 @@ export interface LayoutSettingsStore {
   bottomDockPlotMaximized: boolean;
   /** Active tab of the tabbed bottom dock (`Activity | Plot | Log`). */
   bottomDockActiveTab: DockTabId | null;
-  /** Whether the shell bottom dock is shown (default open in all imaging modes). */
-  bottomDockOpen: boolean;
+  /** Whether each tool's bottom dock is shown; a missing key uses DOCK_OPEN_DEFAULTS. */
+  bottomDockOpenByKey: Partial<Record<DockHeightKey, boolean>>;
   /** Whether the (open) bottom dock is collapsed to just its tab bar. */
   bottomDockMinimized: boolean;
   /** Last dragged dock height per tool; a missing key uses DOCK_HEIGHT_DEFAULTS. */
@@ -121,8 +178,9 @@ export interface LayoutSettingsStore {
   goldenLayoutState: GoldenLayoutSavedState | null;
   integratedDefaultDisplayMode: WorkspaceType | null;
   /**
-   * First screen (qa-features-2026-10-31 §7): with no restored session, the
-   * default view opens on the MNI T1 with a "Drop a map here" hint. On by
+   * First screen (qa-features-2026-10-31 §7): with nothing loaded at launch
+   * (a cold start, or restored tabs, whose layers never come back; N21), the
+   * front view opens on the MNI T1 with a "Drop a map here" hint. On by
    * default; Settings › Start turns it off.
    */
   firstScreenTemplate: boolean;
@@ -131,9 +189,13 @@ export interface LayoutSettingsStore {
   setBottomDockLogCollapsed: (collapsed: boolean) => void;
   setBottomDockPlotMaximized: (maximized: boolean) => void;
   setBottomDockActiveTab: (tab: DockTabId) => void;
-  setBottomDockOpen: (open: boolean) => void;
+  /** Show or hide `key`'s dock (default: the front tab's tool). */
+  setBottomDockOpen: (open: boolean, key?: DockHeightKey) => void;
   setBottomDockMinimized: (minimized: boolean) => void;
-  toggleBottomDock: () => void;
+  /** Toggle `key`'s dock (default: the front tab's tool). */
+  toggleBottomDock: (key?: DockHeightKey) => void;
+  /** Whether `key`'s dock is shown (default: the front tab's tool). */
+  isBottomDockOpen: (key?: DockHeightKey) => boolean;
   /** Remember the dock height for `key` (default: the imaging views). */
   setBottomDockHeight: (height: number, key?: DockHeightKey) => void;
   setOrthoArrangement: (arrangement: OrthoArrangement) => void;
@@ -157,7 +219,7 @@ const INITIAL_STATE = {
   bottomDockLogCollapsed: false,
   bottomDockPlotMaximized: false,
   bottomDockActiveTab: null,
-  bottomDockOpen: true,
+  bottomDockOpenByKey: {},
   bottomDockMinimized: false,
   bottomDockHeights: {},
   orthoArrangement: 'grid',
@@ -170,7 +232,7 @@ const INITIAL_STATE = {
 const createLayoutSettingsStore = () =>
   create<LayoutSettingsStore>()(
     persist(
-      (set) => ({
+      (set, get) => ({
         ...INITIAL_STATE,
         setBottomDockSizes: (sizes) => {
           set((state) => {
@@ -200,17 +262,24 @@ const createLayoutSettingsStore = () =>
             state.bottomDockActiveTab === tab ? state : { bottomDockActiveTab: tab },
           );
         },
-        setBottomDockOpen: (open) => {
-          set((state) => (state.bottomDockOpen === open ? state : { bottomDockOpen: open }));
+        setBottomDockOpen: (open, key = activeDockKey()) => {
+          set((state) =>
+            bottomDockOpenFor(state, key) === open
+              ? state
+              : { bottomDockOpenByKey: { ...state.bottomDockOpenByKey, [key]: open } },
+          );
         },
         setBottomDockMinimized: (minimized) => {
           set((state) =>
             state.bottomDockMinimized === minimized ? state : { bottomDockMinimized: minimized },
           );
         },
-        toggleBottomDock: () => {
-          set((state) => ({ bottomDockOpen: !state.bottomDockOpen }));
+        toggleBottomDock: (key = activeDockKey()) => {
+          set((state) => ({
+            bottomDockOpenByKey: { ...state.bottomDockOpenByKey, [key]: !bottomDockOpenFor(state, key) },
+          }));
         },
+        isBottomDockOpen: (key = activeDockKey()) => bottomDockOpenFor(get(), key),
         setBottomDockHeight: (height, key = 'imaging') => {
           set((state) => {
             const next = Math.round(height);
@@ -252,12 +321,18 @@ const createLayoutSettingsStore = () =>
         migrate: (persisted, version) =>
           migrateLayoutSettings(persisted, version) as unknown as LayoutSettingsStore,
         storage: createJSONStorage(() => localStorage),
+        // A hand-edited or corrupt payload must not leave the per-tool maps
+        // null (every dock read would throw).
+        merge: (persisted, current) => ({
+          ...current,
+          ...sanitizeLayoutSettings(persisted),
+        }),
         partialize: (state) => ({
           bottomDockSizes: state.bottomDockSizes,
           bottomDockLogCollapsed: state.bottomDockLogCollapsed,
           bottomDockPlotMaximized: state.bottomDockPlotMaximized,
           bottomDockActiveTab: state.bottomDockActiveTab,
-          bottomDockOpen: state.bottomDockOpen,
+          bottomDockOpenByKey: state.bottomDockOpenByKey,
           bottomDockMinimized: state.bottomDockMinimized,
           bottomDockHeights: state.bottomDockHeights,
           orthoArrangement: state.orthoArrangement,

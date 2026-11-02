@@ -1,7 +1,8 @@
 use approx::assert_abs_diff_eq;
 use nalgebra::Matrix4;
 use render_loop::render_state::BlendMode;
-use render_loop::{LayerUboStd140, RenderLoopService, SliceFeatureUbo};
+use render_loop::shader_contract::feature::MAX_OUTLINE_LAYERS;
+use render_loop::{LayerUboStd140, RenderLoopService, SliceFeatureBlock, SliceFeatureUbo};
 
 #[tokio::test]
 async fn ubo_window_level_clamps_correctly() {
@@ -112,6 +113,56 @@ fn slice_feature_ubo_layout_and_defaults() {
     assert_eq!(features.outline_thickness_px, 1.0);
     assert_eq!(features.outline_color_mode, 0);
     assert_eq!(features.halo_thickness_px, 0.0);
+}
+
+#[test]
+fn slice_feature_block_routes_each_layer_to_its_own_slot() {
+    assert_eq!(
+        std::mem::size_of::<SliceFeatureBlock>(),
+        64 * MAX_OUTLINE_LAYERS
+    );
+
+    let empty = SliceFeatureBlock::default();
+    assert!(empty.layers.iter().all(|slot| slot.outline_enabled == 0));
+
+    // Two label layers with different widths and colour modes both keep their
+    // settings; neither replaces the other (N20).
+    let thin = SliceFeatureUbo {
+        outline_enabled: 1,
+        outline_layer_index: 1,
+        outline_mode: 1,
+        outline_thickness_px: 1.0,
+        ..SliceFeatureUbo::default()
+    };
+    let wide = SliceFeatureUbo {
+        outline_enabled: 1,
+        outline_layer_index: 2,
+        outline_mode: 1,
+        outline_thickness_px: 2.0,
+        outline_color_mode: 1,
+        halo_thickness_px: 1.0,
+        ..SliceFeatureUbo::default()
+    };
+    let past_end = SliceFeatureUbo {
+        outline_enabled: 1,
+        outline_layer_index: MAX_OUTLINE_LAYERS as u32,
+        ..SliceFeatureUbo::default()
+    };
+    let block = SliceFeatureBlock::from_layers([thin, wide, past_end]);
+    assert_eq!(block.layers[0].outline_enabled, 0);
+    assert_eq!(block.layers[1].outline_enabled, 1);
+    assert_eq!(block.layers[1].outline_thickness_px, 1.0);
+    assert_eq!(block.layers[2].outline_enabled, 1);
+    assert_eq!(block.layers[2].outline_thickness_px, 2.0);
+    assert_eq!(block.layers[2].outline_color_mode, 1);
+    assert_eq!(
+        block
+            .layers
+            .iter()
+            .filter(|slot| slot.outline_enabled == 1)
+            .count(),
+        2
+    );
 }
 
 #[test]
@@ -229,8 +280,13 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
             &expected_feature_fields,
         );
         assert!(
-            source.contains("@group(3) @binding(0) var<uniform> slice_features"),
-            "{name} should bind slice feature uniforms at group 3 binding 0"
+            source
+                .contains("@group(3) @binding(0) var<uniform> slice_features: SliceFeatureBlock;")
+                && source.contains("array<SliceFeatureUbo, MAX_OUTLINE_LAYERS>")
+                && source.contains(&format!(
+                    "const MAX_OUTLINE_LAYERS: u32 = {MAX_OUTLINE_LAYERS}u;"
+                )),
+            "{name} should bind the per-layer slice feature block at group 3 binding 0"
         );
     }
 }

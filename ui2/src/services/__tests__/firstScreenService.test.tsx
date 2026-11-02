@@ -15,9 +15,10 @@ import { FirstScreenHint } from '@/components/layout/FirstScreenHint';
 import { useLayerStore } from '@/stores/layerStore';
 import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useLogStore } from '@/stores/logStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
-import { firstScreenAppliesAtLaunch } from '../firstScreenService';
+import { firstScreenAppliesAtLaunch, restoredLaunchFirstScreenTarget } from '../firstScreenService';
 
 const WORKSPACE = 'orthogonal-flexible-1';
 
@@ -225,5 +226,65 @@ describe('first screen', () => {
     expect(applies([{ defaultView: true }, {}])).toBe(false);
     expect(applies([{}])).toBe(false);
     expect(applies([{ defaultView: true }], true)).toBe(false);
+  });
+});
+
+// QA 2026-10-31 N21: a relaunch restores the tabs but never the layers, so
+// the restored views opened empty with "MNI anatomy at start" on.
+describe('first screen after a restored launch', () => {
+  it('targets the front volume view while nothing is loaded', () => {
+    expect(restoredLaunchFirstScreenTarget({ id: WORKSPACE, type: 'orthogonal-flexible' })).toBe(
+      WORKSPACE,
+    );
+    expect(restoredLaunchFirstScreenTarget({ id: 'm', type: 'mosaic' })).toBe('m');
+  });
+
+  it('never targets a tool tab, or a launch with layers already loaded', () => {
+    expect(restoredLaunchFirstScreenTarget({ id: 's', type: 'set-studio' as never })).toBeNull();
+    expect(restoredLaunchFirstScreenTarget({ id: 'b', type: 'bids-explorer' as never })).toBeNull();
+    expect(restoredLaunchFirstScreenTarget(undefined)).toBeNull();
+    setLayers(['zstat1.nii.gz']);
+    expect(restoredLaunchFirstScreenTarget({ id: WORKSPACE, type: 'orthogonal-flexible' })).toBeNull();
+  });
+
+  it('shows the T1 in the restored Orthogonal tab', async () => {
+    const target = restoredLaunchFirstScreenTarget({ id: WORKSPACE, type: 'orthogonal-flexible' });
+    const backend = makeBackend(['MNI152NLin2009cAsym_T1w_1mm']);
+    await expect(runFirstScreen(target!, backend)).resolves.toBe('shown');
+    expect(layerIds()).toEqual(['layer-MNI152NLin2009cAsym_T1w_1mm']);
+  });
+
+  it('never targets a launch with a surface loaded', () => {
+    useSurfaceStore.setState({ surfaces: new Map([['s1', {} as never]]) });
+    try {
+      expect(restoredLaunchFirstScreenTarget({ id: WORKSPACE, type: 'orthogonal-flexible' })).toBeNull();
+    } finally {
+      useSurfaceStore.setState({ surfaces: new Map() });
+    }
+  });
+
+  it('does not load the T1 when another tab came to the front during the fetch', async () => {
+    useWorkspaceStore.setState({
+      workspaces: new Map([
+        [WORKSPACE, { id: WORKSPACE, type: 'orthogonal-flexible' } as never],
+        ['studio', { id: 'studio', type: 'set-studio' } as never],
+      ]),
+    });
+    const backend = makeBackend([]);
+    backend.cacheTemplate = vi.fn(async () => {
+      useWorkspaceStore.setState({ activeWorkspaceId: 'studio' });
+      return true;
+    });
+    await expect(runFirstScreen(WORKSPACE, backend)).resolves.toBe('superseded');
+    expect(backend.loadTemplate).not.toHaveBeenCalled();
+  });
+
+  it('stays off when the setting is off', async () => {
+    useLayoutSettingsStore.getState().setFirstScreenTemplate(false);
+    const target = restoredLaunchFirstScreenTarget({ id: WORKSPACE, type: 'orthogonal-flexible' });
+    await expect(runFirstScreen(target!, makeBackend(['MNI152NLin2009cAsym_T1w_1mm']))).resolves.toBe(
+      'skipped',
+    );
+    expect(layerIds()).toEqual([]);
   });
 });

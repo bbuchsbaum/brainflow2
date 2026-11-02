@@ -1,6 +1,5 @@
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { getSceneHistory } from "@/services/SceneHistoryService";
-import { noteUserVisibility } from "@/services/series/visibilityIntent";
+import { getSceneHistory, setLayerVisibleByUser } from "@/services/SceneHistoryService";
 import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import { statisticUnits, statisticVariable } from "@/utils/statistic";
 import { sameStatisticLayerIds } from "@/utils/compareSharedWindow";
@@ -96,7 +95,6 @@ function VolumeRenderRows({
   kind: "base" | "overlay";
 }) {
   const layerId = item.ref.type === "volume" ? item.ref.layerId : null;
-  const updateLayer = useLayerStore((s) => s.updateLayer);
   const setViewState = useViewStateStore((s) => s.setViewState);
   const layer = useLayerStore((s) =>
     layerId ? (s.layers.find((l) => l.id === layerId) ?? null) : null,
@@ -245,23 +243,12 @@ function VolumeRenderRows({
         <Switch
           checked={viewLayer.visible}
           onCheckedChange={(v) => {
-            // Visibility is owned by viewState — the renderer reads from
-            // `viewStateStore.viewState.layers`. `layerStore.updateLayer`
-            // alone writes only to the layer registry and the renderer
-            // never sees the change. Only `visible` flips: the renderer's
-            // `visible && opacity > 0` gate honours it, and the user's
-            // opacity survives hide/show. The `updateLayer` call keeps the
-            // layer registry in sync for any surface that still reads it.
-            noteUserVisibility(layerId);
-            getSceneHistory().record(`visible:${layerId}`, "visible", () => {
-              setViewState((draft) => {
-                const target = draft.layers.find((l) => l.id === layerId);
-                if (!target) return;
-                target.visible = v;
-                if (v && !(target.opacity > 0)) target.opacity = 1.0;
-              });
-              updateLayer(layerId, { visible: v });
-            });
+            // The layer service's show / hide, as one undoable step: it
+            // writes viewState (what the renderer reads) and the layer
+            // registry, and a show the GPU has no slot for is refused and
+            // undone (QA 2026-10-31 N18). Only `visible` flips; the
+            // user's opacity survives hide/show.
+            setLayerVisibleByUser(layerId, v);
           }}
         />
       </FieldRow>

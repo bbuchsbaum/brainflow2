@@ -19,7 +19,6 @@ import {
 } from '../frameFormat';
 import { colormaps } from '@/components/ui/colormapOptions';
 import { formatWorldMmAscii } from '@/utils/valueFormat';
-import { chooseColorbarHost } from '../viewportFrameStore';
 
 // Header copy changed in p2 v2 (critic finding: the compact form rounded to
 // whole mm and disagreed with the status bar): two forms only, "=" dropped,
@@ -254,31 +253,5 @@ describe('colormap source', () => {
     expect(g.label).toBe(fmri.label);
     expect(g.gradient).toBe(fmri.gradient.replace('to right', 'to top'));
     expect(colormapVerticalGradient('custom-atlas-palette')).toBeNull();
-  });
-});
-
-describe('colorbar host', () => {
-  it('prefers the largest view that has room beside the image', () => {
-    expect(
-      chooseColorbarHost({
-        axial: { area: 948 * 311, room: 300 },
-        sagittal: { area: 469 * 311, room: 20 },
-        coronal: { area: 469 * 311, room: 40 },
-      }),
-    ).toBe('axial');
-    expect(
-      chooseColorbarHost({
-        axial: { area: 948 * 311, room: 10 },
-        sagittal: { area: 469 * 311, room: 200 },
-        coronal: { area: 469 * 311, room: 40 },
-      }),
-    ).toBe('sagittal');
-  });
-
-  it('falls back to the largest view, axial on ties', () => {
-    expect(
-      chooseColorbarHost({ axial: { area: 100, room: 0 }, coronal: { area: 100, room: 0 } }),
-    ).toBe('axial');
-    expect(chooseColorbarHost({})).toBeNull();
   });
 });
