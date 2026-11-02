@@ -24,7 +24,8 @@ jobs:
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          # Pinned so new stable lints don't turn the -D warnings gate red unannounced.
+          toolchain: 1.91.1
           components: rustfmt, clippy
           
       - name: Setup Node

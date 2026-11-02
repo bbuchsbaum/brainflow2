@@ -799,7 +799,7 @@ impl Loader for NiftiLoader {
                     .map_err(|_| NiftiError::DimensionMismatch(dims_vec.len()))?;
 
                 let dims_str = if dims_vec.len() == 4 {
-                    format!("{:?} (4D with {} timepoints)", &dims_u16, dims_vec[3])
+                    format!("{:?} (4D with {} timepoints)", dims_u16, dims_vec[3])
                 } else {
                     format!("{:?}", dims_u16)
                 };
