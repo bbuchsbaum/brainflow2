@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useViewportPointerTool } from './useViewportPointerTool.js';
 import { drawSliceBorder, drawSliceViewerCrosshair } from './drawing.js';
 import { clientPointToWorld, projectWorldToCanvas } from './geometry.js';
-export function useSliceViewerController({ viewPlane, crosshair, crosshairStyle, showSliceBorder = false, sliceBorderWidth = 1, onCanvasReady, onPlacementChange, onWorldClick, onMouseDown, customRender, }) {
+export function useSliceViewerController({ viewPlane, crosshair, crosshairStyle, showSliceBorder = false, sliceBorderWidth = 1, onCanvasReady, onPlacementChange, onWorldClick, onMouseDown, customRender, tool, }) {
     const canvasRef = useRef(null);
     const placementRef = useRef(null);
     const viewPlaneRef = useRef(viewPlane ?? null);
@@ -44,7 +45,14 @@ export function useSliceViewerController({ viewPlane, crosshair, crosshairStyle,
             return;
         onWorldClick(worldCoord, event);
     }, [onMouseDown, onWorldClick]);
+    const mapPoint = useCallback((x, y) => {
+        if (!canvasRef.current || !placementRef.current || !viewPlaneRef.current)
+            return null;
+        return clientPointToWorld(x, y, canvasRef.current, placementRef.current, viewPlaneRef.current);
+    }, []);
+    const pointerHandlers = useViewportPointerTool(tool, mapPoint, handleMouseDown);
     return {
+        pointerHandlers,
         handleCanvasReady,
         handleMouseDown,
         handleRender,

@@ -1,3 +1,4 @@
+import type { ViewportTool } from './pointerTools.js';
 import type { MouseEvent, ReactNode } from 'react';
 import type { SliceViewerCrosshair, SliceViewerCrosshairStyle, SliceViewerCustomRender, SliceViewerPlacement, SliceViewerPlane, SliceViewerSurfaceProps, SliceViewerWorldCoord } from './types.js';
 export interface ReusableSliceViewportProps {
@@ -14,7 +15,8 @@ export interface ReusableSliceViewportProps {
     onWorldClick?: (worldCoord: SliceViewerWorldCoord, event: MouseEvent<HTMLDivElement>) => void;
     onMouseDown?: (event: MouseEvent<HTMLDivElement>) => void;
     customRender?: SliceViewerCustomRender;
+    tool?: ViewportTool | null;
     renderSurface: (props: SliceViewerSurfaceProps) => ReactNode;
 }
-export declare function ReusableSliceViewport({ width, height, viewPlane, crosshair, crosshairStyle, showSliceBorder, sliceBorderWidth, className, onCanvasReady, onPlacementChange, onWorldClick, onMouseDown, customRender, renderSurface, }: ReusableSliceViewportProps): import("react/jsx-runtime").JSX.Element;
+export declare function ReusableSliceViewport({ width, height, viewPlane, crosshair, crosshairStyle, showSliceBorder, sliceBorderWidth, className, onCanvasReady, onPlacementChange, onWorldClick, onMouseDown, customRender, tool, renderSurface, }: ReusableSliceViewportProps): import("react/jsx-runtime").JSX.Element;
 //# sourceMappingURL=ReusableSliceViewport.d.ts.map

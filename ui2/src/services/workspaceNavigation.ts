@@ -204,11 +204,11 @@ export function setCurrentTabLayout(target: DisplayMode | WorkspaceType): Layout
   if (!currentTabTakesLayout()) return 'unavailable';
 
   if (exactType) {
-    if (active.type === exactType) return 'unchanged';
+    if (active.type === exactType && !active.viewMode) return 'unchanged';
     store.setActiveWorkspaceType(exactType);
     return 'applied';
   }
-  if (resolveActiveDisplayMode(active.type) === mode) return 'unchanged';
+  if (resolveActiveDisplayMode(active.type) === mode && !active.viewMode) return 'unchanged';
   store.setActiveWorkspaceMode(mode);
   return 'applied';
 }

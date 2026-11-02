@@ -17,7 +17,7 @@ First-party features plug into the shell here. The design is in
 | `coreContributions.ts` | Core tools (Set studio, BIDS), Inspector modes and dock tabs, so lists treat core and module entries alike. |
 | `settingsStore.ts` | `brainflow-modules` v1: switches, pinned tools, startup tabs, applied proposals. |
 | `runtime.ts` | Started by App: `set_enabled_modules`, native menu model, `module-command` clicks, keybindings, tab parking. |
-| `context.ts` | Builds the `ModuleContext`; `state.app` stores (`brainflow-module:<id>:<name>`). |
+| `context.ts`, `workspaceState.ts` | Builds the context, app stores and versioned JSON stores on workspace records. |
 | `../components/modules/` | `ModuleWorkspace` and `ActiveModuleGate`: module UI renders only once its module is active. |
 
 ## Adding a module
@@ -44,6 +44,21 @@ First-party features plug into the shell here. The design is in
 - **workspaces** are tool tabs: opened once, then refocused; `bottomDock`
   wraps the tab in the shared dock. `pinned`/`openAtStartup` only propose
   defaults, applied once; the user's Settings › Top bar always wins.
+- **viewModes** declare a namespaced layout preset, a lazy layout component,
+  optional Inspector mode and declared viewport tools. `ctx.views.enterMode(id)`
+  changes the current view in place after activation; a changed navigation epoch
+  cancels the request. The view keeps its base type/layout and returns to it when
+  its mode is unavailable. Only stable modes get a top-bar pill.
+- **viewportTools** declare ids/titles. `ctx.views.registerTool(id, tool)` supplies
+  stable handlers to `SliceViewport` (looked up by the framework). Shared pointer
+  arbitration accepts one pointer per stroke, preserves coalesced samples and
+  cancels on tool changes, lost capture or unmount. Render overlays through the
+  same viewport and its placement; never introduce a second coordinate mapping.
+- **workspace state** uses `ctx.state.workspace(workspaceId, name, options)`;
+  workspace identity is explicit because panels have separate React roots. Values
+  are versioned JSON data stored on the workspace record and kept while parked.
+  Closing/replacing the workspace or disabling the module revokes old store
+  handles. Async operations still capture their request identity before I/O.
 - **menus** place items at `view/workspace` (after the core tools). Rust keeps
   predefined items and accelerators (`src-tauri/src/menu_builder.rs`).
 - **keybindings**, **inspectorModes**, **dockTabs**: registered while the module

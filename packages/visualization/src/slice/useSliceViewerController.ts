@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { MouseEvent } from 'react';
+import { useViewportPointerTool } from './useViewportPointerTool.js';
+import type { ViewportTool } from './pointerTools.js';
 import { drawSliceBorder, drawSliceViewerCrosshair } from './drawing.js';
 import { clientPointToWorld, projectWorldToCanvas } from './geometry.js';
 import type {
@@ -22,6 +24,7 @@ export interface UseSliceViewerControllerArgs {
   onWorldClick?: (worldCoord: SliceViewerWorldCoord, event: MouseEvent<HTMLDivElement>) => void;
   onMouseDown?: (event: MouseEvent<HTMLDivElement>) => void;
   customRender?: SliceViewerCustomRender;
+  tool?: ViewportTool | null;
 }
 
 export function useSliceViewerController({
@@ -35,6 +38,7 @@ export function useSliceViewerController({
   onWorldClick,
   onMouseDown,
   customRender,
+  tool,
 }: UseSliceViewerControllerArgs) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const placementRef = useRef<SliceViewerPlacement | null>(null);
@@ -84,7 +88,14 @@ export function useSliceViewerController({
     onWorldClick(worldCoord, event);
   }, [onMouseDown, onWorldClick]);
 
+  const mapPoint = useCallback((x: number, y: number) => {
+    if (!canvasRef.current || !placementRef.current || !viewPlaneRef.current) return null;
+    return clientPointToWorld(x, y, canvasRef.current, placementRef.current, viewPlaneRef.current);
+  }, []);
+  const pointerHandlers = useViewportPointerTool(tool, mapPoint, handleMouseDown);
+
   return {
+    pointerHandlers,
     handleCanvasReady,
     handleMouseDown,
     handleRender,

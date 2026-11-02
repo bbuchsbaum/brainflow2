@@ -14,6 +14,8 @@
  */
 
 import React from "react";
+import { moduleRegistry, useModuleRegistryVersion } from "@/modules/registry";
+import { ModuleViewMode } from "@/components/modules/ModuleViewMode";
 
 import { useFeatureFlagStore } from "@/stores/featureFlagStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -60,6 +62,7 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
   workspaceId,
   workspaceType,
 }) => {
+  useModuleRegistryVersion();
   const workspace = useWorkspaceStore((state) =>
     state.workspaces.get(workspaceId),
   );
@@ -83,6 +86,9 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
   // `workspace.type`, which re-renders this subscribed component). The prop is
   // only a defensive fallback for the very first render.
   const routeType: WorkspaceType = workspace.type ?? workspaceType;
+
+  const viewMode = moduleRegistry.getViewMode(workspace.viewMode);
+  if (viewMode) return <ModuleViewMode mode={viewMode} workspaceId={workspaceId} />;
 
   switch (routeType) {
     // Every imaging workspace shares the collapsible bottom dock

@@ -5,6 +5,7 @@ import { formatTauriError } from '@/utils/formatTauriError';
 import { AtlasPicker, ProjectionPicker } from './imaging/InspectorLoadDialogs';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
 import { useSceneStack } from '@/hooks/useSceneStack';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { StudioInspectorPanel } from '@/components/studio/StudioInspectorPanel';
 import { LoadSheet } from './imaging/LoadSheet';
@@ -47,13 +48,22 @@ import { ActiveModuleGate } from '@/components/modules/ActiveModuleGate';
 const MODE_TABS_ID = 'inspector-mode';
 
 export function InspectorRouter() {
-  const [topLevelMode, setTopLevelMode] = useState<string>('inspector');
+  const viewModeId = useWorkspaceStore((s) => s.activeWorkspaceId ? s.workspaces.get(s.activeWorkspaceId)?.viewMode : undefined);
+  const [selection, setSelection] = useState<{ viewModeId: string | undefined; mode: string }>();
+  const viewMode = moduleRegistry.getViewMode(viewModeId);
+  const topLevelMode = selection && selection.viewModeId === viewModeId ? selection.mode : (viewMode?.inspectorMode ?? 'inspector');
+  const setTopLevelMode = (mode: string) => setSelection({ viewModeId, mode });
   const [loadOpen, setLoadOpen] = useState(false);
   const experimental = useFeatureFlagStore((s) => s.experimentalFeatures);
   useModuleRegistryVersion();
   const modes = moduleRegistry
     .getInspectorModes()
-    .filter((m) => experimental || !m.experimental);
+    .filter((m) => experimental || !m.experimental)
+    .filter((m) => {
+      // An Inspector declared as part of a view mode follows that view.
+      const owners = moduleRegistry.getViewModes().filter((v) => v.inspectorMode === m.id);
+      return owners.length === 0 || owners.some((v) => v.id === viewMode?.id);
+    });
   const showModeTabs = modes.length > 1;
   const mode = showModeTabs && modes.some((m) => m.id === topLevelMode) ? topLevelMode : 'inspector';
   // The BIDS Inspector is one run's detail: no Load, no scene to count.
