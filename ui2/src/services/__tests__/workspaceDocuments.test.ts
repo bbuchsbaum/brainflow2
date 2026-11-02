@@ -8,6 +8,7 @@ import {
   requestWorkspaceClose,
   retainWorkspaceDocument,
   workspaceHasDocument,
+  volumeDocumentRemovalReason,
 } from '../workspaceDocuments';
 
 const workspace = (id: string, timestamp: number): Workspace => ({
@@ -22,6 +23,21 @@ function put(id: string, timestamp = 1) {
 }
 
 describe('workspace documents', () => {
+  it('keeps required images protected through parking, callback refresh and failed disposal', async () => {
+    put('source-guard');
+    const identity = retainWorkspaceDocument('source-guard', { moduleId: 'segmentation', protectedVolumeIds: ['reference', 'secondary'] });
+    const saved = useWorkspaceStore.getState().workspaces.get('source-guard')!;
+    useWorkspaceStore.setState({ workspaces: new Map(), parkedWorkspaces: new Map([['source-guard', saved]]) });
+    retainWorkspaceDocument('source-guard', { moduleId: 'segmentation', protectedVolumeIds: ['retry-source'] });
+    for (const id of ['reference', 'secondary', 'retry-source']) expect(volumeDocumentRemovalReason(id)).toContain('before removing');
+    transport.setMockResponse('dispose_module_workspace', () => { throw new Error('busy'); });
+    await expect(discardWorkspaceDocument(identity)).resolves.toBe(false);
+    expect(volumeDocumentRemovalReason('reference')).not.toBeNull();
+    transport.setMockResponse('dispose_module_workspace', null);
+    await expect(discardWorkspaceDocument(identity)).resolves.toBe(true);
+    expect(volumeDocumentRemovalReason('reference')).toBeNull();
+    expect(volumeDocumentRemovalReason('secondary')).toBeNull();
+  });
   it('releases the module record only after successful native disposal, once', async () => {
     put('cleanup'); const cleanup = vi.fn();
     const identity = retainWorkspaceDocument('cleanup', { moduleId: 'segmentation', onDiscarded: cleanup });

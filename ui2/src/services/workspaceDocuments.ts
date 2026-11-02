@@ -15,6 +15,8 @@ export interface WorkspaceDocumentIdentity {
 export interface RetainWorkspaceDocumentOptions {
   moduleId: string;
   label?: string;
+  /** Loaded images required by this in-memory document, including while parked. */
+  protectedVolumeIds?: readonly string[];
   freezeEditing?: () => void;
   onDiscarded?: () => void;
 }
@@ -52,7 +54,8 @@ export function retainWorkspaceDocument(
     }
     // Module parking/reactivation recreates callbacks. The shell owns identity,
     // but the current activation owns the latest freeze callback and label.
-    Object.assign(existing, options);
+    const protectedVolumeIds = [...new Set([...(existing.protectedVolumeIds ?? []), ...(options.protectedVolumeIds ?? [])])];
+    Object.assign(existing, options, { protectedVolumeIds });
     return { workspaceId: existing.workspaceId, workspaceInstance: existing.workspaceInstance };
   }
   const retained: RetainedDocument = {
@@ -64,6 +67,14 @@ export function retainWorkspaceDocument(
   documents.set(workspaceId, retained);
   installWorkspaceCloseGuard(workspaceId);
   return { workspaceId: retained.workspaceId, workspaceInstance: retained.workspaceInstance };
+}
+
+/** A document must be discarded before its required image/layer is removed. */
+export function volumeDocumentRemovalReason(volumeId: string): string | null {
+  for (const document of documents.values()) {
+    if (document.protectedVolumeIds?.includes(volumeId)) return `Close ${document.label ?? 'the workspace session'} before removing this image.`;
+  }
+  return null;
 }
 
 export const workspaceHasDocument = (workspaceId: string): boolean => documents.has(workspaceId);

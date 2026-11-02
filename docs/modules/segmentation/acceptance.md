@@ -20,7 +20,9 @@ architecture plan or qualify segmentation for preview/stable use.
   affine-projected shared H overlays, native-slice ruler and label matrix.
 - Core document ownership survives module disable and parking. Workspace close
   and application quit freeze edits and offer Cancel/Discard. Disposal rejects
-  late commands; ordinary layers can retain the accepted label snapshot.
+  late commands; ordinary layers can retain the accepted label snapshot. Required
+  reference/secondary images stay retained and cannot be removed or evicted while
+  their document remains open, including while the module is disabled.
 
 Later architecture work includes settings schemas, typed module events,
 startup aliases, BIDS/Studio migration, loader/provider registries and scaffolding.
@@ -31,7 +33,9 @@ The NIfTI writer is a core prerequisite; this milestone has no Save workflow.
 
 The source includes behavior tests for stale async replies, disable/re-enable,
 close routes, lost acknowledgements, text-field/native Edit routing, lock and
-history semantics, allocation failure and GPU-slot reuse. Independent synthetic
+history semantics, allocation failure and GPU-slot reuse. Deferred-render tests
+cover registration navigation and zoom during a held stroke; pending planes stay
+hidden and cannot commit mixed-frame samples. Independent synthetic
 anisotropic/oblique voxel answers and byte-equal history checks cover the Rust
 rasterizer. GPU tests execute Metal uploads, partial/full render parity, reslices
 and simultaneous label outlines; adapter acquisition tests reject a replaced

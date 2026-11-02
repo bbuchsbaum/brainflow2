@@ -9,6 +9,9 @@ import { useComparisonStore } from '@/stores/comparisonStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useSeriesStore } from '@/stores/seriesStore';
 
+const mockDocumentRemovalReason = vi.hoisted(() => vi.fn((): string | null => null));
+vi.mock('@/services/workspaceDocuments', () => ({ volumeDocumentRemovalReason: mockDocumentRemovalReason }));
+
 const {
   mockApiService,
   mockQueueState,
@@ -118,7 +121,20 @@ interface Internals {
 }
 
 describe('LayerApiImpl', () => {
+  it('refuses a retained source before GPU release, unload or queue/store mutation', async () => {
+    mockLayerStoreState.getLayer.mockReturnValue({ id: 'reference-layer', volumeId: 'reference-volume', name: 'Reference' });
+    mockDocumentRemovalReason.mockReturnValue('Close the session before removing this image.');
+    const api = new LayerApiImpl();
+    await expect(api.removeLayer('reference-layer')).rejects.toThrow('Close the session');
+    expect(mockDocumentRemovalReason).toHaveBeenCalledWith('reference-volume');
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    expect(mockApiService.unloadVolume).not.toHaveBeenCalled();
+    expect(mockLayerStoreState.removeLayer).not.toHaveBeenCalled();
+    expect(mockQueueState.enqueue).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
+    mockDocumentRemovalReason.mockReturnValue(null);
     vi.clearAllMocks();
     mockQueueState.isLoading.mockReturnValue(false);
     mockQueueState.enqueue.mockReturnValue('queue-1');

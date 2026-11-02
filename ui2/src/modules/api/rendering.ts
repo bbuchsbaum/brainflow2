@@ -52,7 +52,11 @@ export async function renderModulePlane(options: {
   const view = useViewStateStore.getState().workspaceViewStates.get(options.workspaceId);
   if (!view || !options.isCurrent()) return;
   const layers = view.layers.filter((layer) => options.volumeIds.includes(layer.volumeId));
-  if (!layers.length) throw new Error('The reference image is no longer in this workspace');
+  if (options.volumeIds.some((id) => !layers.some((layer) => layer.volumeId === id))) throw new Error('A required image is no longer in this workspace');
+  for (const layer of layers) {
+    await ensureModuleVolumeResident(options.workspaceId, layer.volumeId, options.isCurrent);
+    if (!options.isCurrent()) return;
+  }
   const target = useRenderStateStore.getState();
   target.setRendering(options.context.id, true); target.setError(options.context.id, null);
   try {

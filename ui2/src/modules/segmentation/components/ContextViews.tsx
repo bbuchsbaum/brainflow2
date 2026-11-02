@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { SegmentationSnapshot } from '@brainflow/api';
-import { SliceViewport, captureActiveWorkspace, formatModuleError, useModuleCrosshairStyle } from '@/modules/api/host';
+import { SliceViewport, captureActiveWorkspace, formatModuleError, useActiveWorkspaceId, useModuleCrosshairStyle } from '@/modules/api/host';
 import { edgeBoxFromAffine, fitPlaneToWorldBox, renderModulePlane, setModuleCrosshair, useWorkspaceRenderState, type RenderContext } from '@/modules/api/rendering';
 import { setSegmentationPresentation } from '@/modules/segmentation/session';
 import { nativeSliceAtWorld, voxelWorld } from './shared/TracingOverlay';
@@ -23,6 +23,8 @@ function ContextTile({ workspaceId, snapshot, labelVolumeId, sliceIndex, activeL
   const [size, setSize] = useState<[number, number]>([220, 220]);
   const [error, setError] = useState<string | null>(null);
   const state = useWorkspaceRenderState(workspaceId);
+  const isFront = useActiveWorkspaceId() === workspaceId;
+  const [renderedFrame, setRenderedFrame] = useState('');
   const box = useMemo(() => edgeBoxFromAffine(snapshot.voxelToWorld, snapshot.dimensions), [snapshot.voxelToWorld, snapshot.dimensions]);
   const world = useMemo(() => {
     if (state?.crosshair.world_mm) {
@@ -34,6 +36,7 @@ function ContextTile({ workspaceId, snapshot, labelVolumeId, sliceIndex, activeL
     return voxelWorld(snapshot.voxelToWorld, voxel);
   }, [snapshot, sliceIndex, state?.crosshair.world_mm]);
   const plane = useMemo(() => box ? fitPlaneToWorldBox(axis, box, world, size, state?.views[axis]) : null, [axis, box, world, size, state?.views]);
+  const frameKey = JSON.stringify([plane, snapshot.revision, activeLabelId, activeHidden]);
   const context = useMemo<RenderContext>(() => ({ id: `segmentation-${workspaceId}-${axis}`, type: 'slice', dimensions: { width: size[0], height: size[1] }, metadata: { workspaceId }, viewPlane: plane ?? undefined }), [workspaceId, axis, size, plane]);
   useEffect(() => {
     if (!target.current) return;
@@ -41,14 +44,15 @@ function ContextTile({ workspaceId, snapshot, labelVolumeId, sliceIndex, activeL
     observer.observe(target.current); return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!plane) return;
+    if (!isFront || !plane) return;
+    setRenderedFrame(''); setError(null);
     let disposed = false; const lease = captureActiveWorkspace();
     const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent();
-    void renderModulePlane({ workspaceId, context, plane, volumeIds: [snapshot.referenceVolumeId, labelVolumeId], layerOverrides: { [labelVolumeId]: { visible: !activeHidden, opacity: 1, labelDisplay: 'outline', outline: { enabled: true, selectedLabelId: activeLabelId, color: [1, 1, 1, 1], colorMode: 'lut', thicknessPx: 1, haloPx: .75, haloColor: [0, 0, 0, .85] } } }, isCurrent: current }).catch((failure) => { if (current()) setError(formatModuleError(failure)); });
+    void renderModulePlane({ workspaceId, context, plane, volumeIds: [snapshot.referenceVolumeId, labelVolumeId], layerOverrides: { [labelVolumeId]: { visible: !activeHidden, opacity: 1, labelDisplay: 'outline', outline: { enabled: true, selectedLabelId: activeLabelId, color: [1, 1, 1, 1], colorMode: 'lut', thicknessPx: 1, haloPx: .75, haloColor: [0, 0, 0, .85] } } }, isCurrent: current }).then(() => { if (current()) setRenderedFrame(frameKey); }).catch((failure) => { if (current()) setError(formatModuleError(failure)); });
     return () => { disposed = true; };
-  }, [workspaceId, context, plane, snapshot.referenceVolumeId, snapshot.revision, labelVolumeId, activeLabelId, activeHidden, state?.layers]);
+  }, [workspaceId, context, plane, snapshot.referenceVolumeId, snapshot.revision, labelVolumeId, activeLabelId, activeHidden, state?.layers, isFront, frameKey]);
   return <section className="flex min-h-0 flex-1 flex-col border-b border-bf-border-subtle">
     <header className="px-2 py-1 text-bf-2xs text-bf-text-muted">{axis[0].toUpperCase() + axis.slice(1)} · world-frame reslice · active label</header>
-    <div ref={target} className="relative min-h-0 flex-1 bg-bf-bg-canvas">{plane ? <SliceViewport context={context} viewPlane={plane} width={size[0]} height={size[1]} crosshair={{ visible: true, world_mm: world }} crosshairStyle={crosshairStyle} onCanvasReady={(element) => { canvas.current = element; }} getCrosshairKnockouts={() => { const r = canvas.current?.getBoundingClientRect(); return r ? [{ x: r.left + 8, y: r.top + 8, width: Math.max(0, r.width - 16), height: Math.max(0, r.height - 16) }] : []; }} onWorldClick={(position) => { setModuleCrosshair(workspaceId, position); setSegmentationPresentation(workspaceId, { sliceIndex: Math.max(0, Math.min(snapshot.dimensions[snapshot.normalAxis] - 1, Math.round(nativeSliceAtWorld(snapshot, position)))) }); }} /> : null}{error ? <p role="status" className="absolute bottom-1 left-1 text-bf-2xs text-bf-warning">{error}</p> : null}</div>
+    <div ref={target} className="relative min-h-0 flex-1 bg-bf-bg-canvas">{isFront && renderedFrame === frameKey && plane ? <SliceViewport context={context} viewPlane={plane} width={size[0]} height={size[1]} crosshair={{ visible: true, world_mm: world }} crosshairStyle={crosshairStyle} onCanvasReady={(element) => { canvas.current = element; }} getCrosshairKnockouts={() => { const r = canvas.current?.getBoundingClientRect(); return r ? [{ x: r.left + 8, y: r.top + 8, width: Math.max(0, r.width - 16), height: Math.max(0, r.height - 16) }] : []; }} onWorldClick={(position) => { setModuleCrosshair(workspaceId, position); setSegmentationPresentation(workspaceId, { sliceIndex: Math.max(0, Math.min(snapshot.dimensions[snapshot.normalAxis] - 1, Math.round(nativeSliceAtWorld(snapshot, position)))) }); }} /> : null}{error ? <p role="status" className="absolute bottom-1 left-1 text-bf-2xs text-bf-warning">{error}</p> : null}</div>
   </section>;
 }

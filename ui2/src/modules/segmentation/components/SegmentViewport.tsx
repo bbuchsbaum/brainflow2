@@ -123,8 +123,9 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
       stroke.current = { labelId: live.activeLabelId, sliceIndex: live.sliceIndex, tool: live.tool, radiusMm: live.radiusMm, paintOver: live.paintOver, pointsWorld: [] };
       append(samples); queuePreview(); return true;
     },
-    pointerMove(samples) { append(samples); queuePreview(); },
+    pointerMove(samples) { if (!ready.current) { stroke.current = null; setPreview(null); return; } append(samples); queuePreview(); },
     pointerUp(samples) {
+      if (!ready.current) { stroke.current = null; setPreview(null); getSegmentationSession(workspaceId)?.controller.cancelPreview(); return; }
       append(samples);
       const drawing = stroke.current; stroke.current = null;
       getSegmentationSession(workspaceId)?.controller.cancelPreview();
@@ -135,17 +136,17 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [workspaceId, queuePreview, report]);
   useEffect(() => bindSegmentationViewport(workspaceId, pointer), [workspaceId, pointer]);
-  useEffect(() => () => pointer.cancel('tool-changed'), [pointer, active?.revision, session?.sliceIndex, session?.tool, session?.activeLabelId, session?.radiusMm, session?.paintOver]);
+  useEffect(() => () => pointer.cancel('tool-changed'), [pointer, active?.revision, session?.sliceIndex, session?.tool, session?.activeLabelId, session?.radiusMm, session?.paintOver, frameKey, isFront]);
   useEffect(() => () => { if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current); }, []);
   useEffect(() => {
     const down = (event: KeyboardEvent) => { if (event.code === 'Space' && !(event.target instanceof HTMLElement && event.target.closest('input,textarea,select,button,[contenteditable]'))) panKey.current = true; };
     const up = () => { panKey.current = false; pan.current = null; };
-    window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', up);
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', up); };
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', up); window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', up); window.removeEventListener('mouseup', up); };
   }, []);
   const overlay = useCallback((ctx: CanvasRenderingContext2D, at: SliceViewportPlacement) => {
     const live = state.current;
-    if (live?.info && slice && plane) drawTracingOverlay(ctx, at, { snapshot: live.info.snapshot, sliceIndex: live.sliceIndex, plane, slice, activeLabelId: session?.activeLabelId ?? live.activeLabelId, hiddenLabelIds: session?.hiddenLabelIds ?? live.hiddenLabelIds, preview, fill: session?.fill ?? live.fill });
+    if (ready.current && live?.info && slice && plane) drawTracingOverlay(ctx, at, { snapshot: live.info.snapshot, sliceIndex: live.sliceIndex, plane, slice, activeLabelId: session?.activeLabelId ?? live.activeLabelId, hiddenLabelIds: session?.hiddenLabelIds ?? live.hiddenLabelIds, preview, fill: session?.fill ?? live.fill });
   }, [slice, plane, preview, session?.activeLabelId, session?.hiddenLabelIds, session?.fill]);
   if (!session?.info || !active) return <EmptyPane title="No segmentation session" />;
   const label = active.labels.find((row) => row.definition.id === session.activeLabelId);
@@ -156,7 +157,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
     if (!from || !placement.current) return;
     const fitPixelMm = slice ? Math.hypot(...slice.plane.u_mm) : Math.hypot(...from.u_mm);
     const result = zoomPanPlane({ plane: from, placement: placement.current, canvas: size, anchor, factor, pan: move, limits: { min: fitPixelMm / 40, max: fitPixelMm * 4 } });
-    if (result) setFraming({ plane: result, index: session.sliceIndex });
+    if (result) { pointer.cancel('tool-changed'); setFraming({ plane: result, index: session.sliceIndex }); }
   };
 
   const crosshairWorld = workspaceView?.crosshair.world_mm;
@@ -185,11 +186,11 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-6 overflow-auto border-b border-bf-border-subtle px-2 py-1"><ConstraintStripView label={session.activeLabelId} definition={label ? { name: label.definition.name, color: `rgb(${label.definition.color.join(' ')})` } : undefined} paintOver={session.paintOver === 'background' ? 'background only' : 'over unlocked'} diameterMm={session.radiusMm * 2} readout={preview ? `${preview.written.length} vx · one native slice` : 'one native slice'} blocked={blocked} /></div>
         <div ref={container} className="relative min-h-0 flex-1 bg-bf-bg-canvas">
-          {plane && slice && layerReady ? <SliceViewport width={size[0]} height={size[1]} context={context} viewPlane={plane} tool={session.tool === 'navigate' ? null : getModuleViewportTool(`segmentation.${session.tool}`)} customRender={overlay} crosshair={crosshairPosition ? { visible: workspaceView?.crosshair.visible ?? true, world_mm: crosshairPosition } : null} crosshairStyle={{ ...crosshairStyle, centerGap: Math.max(crosshairStyle.centerGap ?? 0, brushGap) }} getCrosshairKnockouts={getKnockouts} onWorldClick={(world) => setModuleCrosshair(workspaceId, world)} enableDragDrop={false} onCanvasReady={(element) => { canvas.current = element; }} onPlacementChange={(next) => { placement.current = next; setDisplayPlacement((old) => JSON.stringify(old) === JSON.stringify(next) ? old : next); }}
+          {ready.current && plane && slice ? <SliceViewport width={size[0]} height={size[1]} context={context} viewPlane={plane} tool={session.tool === 'navigate' ? null : getModuleViewportTool(`segmentation.${session.tool}`)} customRender={overlay} crosshair={crosshairPosition ? { visible: workspaceView?.crosshair.visible ?? true, world_mm: crosshairPosition } : null} crosshairStyle={{ ...crosshairStyle, centerGap: Math.max(crosshairStyle.centerGap ?? 0, brushGap) }} getCrosshairKnockouts={getKnockouts} onWorldClick={(world) => setModuleCrosshair(workspaceId, world)} enableDragDrop={false} onCanvasReady={(element) => { canvas.current = element; }} onPlacementChange={(next) => { placement.current = next; setDisplayPlacement((old) => JSON.stringify(old) === JSON.stringify(next) ? old : next); }}
             onWheel={(event) => { event.preventDefault(); if (event.ctrlKey || event.altKey) { const rect = event.currentTarget.getBoundingClientRect(); zoom(Math.exp(-event.deltaY * .005), { canvasX: event.clientX - rect.left, canvasY: event.clientY - rect.top }); } else if (!session.busy) step(event.deltaY > 0 ? 1 : -1); }}
             onMouseDown={(event) => { if ((event.button === 1 || panKey.current) && plane) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, plane }; } }}
             onMouseMove={(event) => { if (pan.current) { const rect = event.currentTarget.getBoundingClientRect(); zoom(1, { canvasX: pan.current.x - rect.left, canvasY: pan.current.y - rect.top }, { dx: event.clientX - pan.current.x, dy: event.clientY - pan.current.y }, pan.current.plane); } }} onMouseUp={() => { pan.current = null; }} onMouseLeave={() => { pan.current = null; }} /> : <div role="status" className="p-3 text-bf-xs text-bf-text-muted">Preparing the reference plane…</div>}
-          {cursor && (blocked || lockedRefusal) ? <div role="status" className="pointer-events-none absolute max-w-[240px] border border-bf-border-subtle bg-bf-bg-panel px-2 py-1 text-bf-xs shadow-sm" style={{ left: Math.max(4, Math.min(size[0] - 244, cursor.canvasX + 14)), top: Math.max(4, Math.min(size[1] - 64, cursor.canvasY + 14)) }}>{lockedRefusal ?? `${preview!.blocked.length} voxels protected: ${preview!.blockedLabels.map((id) => active.labels.find((row) => row.definition.id === id)?.definition.name ?? 'constraint').join(', ')}`}</div> : null}
+          {ready.current && cursor && (blocked || lockedRefusal) ? <div role="status" className="pointer-events-none absolute max-w-[240px] border border-bf-border-subtle bg-bf-bg-panel px-2 py-1 text-bf-xs shadow-sm" style={{ left: Math.max(4, Math.min(size[0] - 244, cursor.canvasX + 14)), top: Math.max(4, Math.min(size[1] - 64, cursor.canvasY + 14)) }}>{lockedRefusal ?? `${preview!.blocked.length} voxels protected: ${preview!.blockedLabels.map((id) => active.labels.find((row) => row.definition.id === id)?.definition.name ?? 'constraint').join(', ')}`}</div> : null}
           {displayError || session.error ? <div role="alert" className="absolute bottom-3 left-3 right-3 border border-bf-border-subtle bg-bf-bg-panel p-2 text-bf-xs">{displayError ?? session.error}<Button size="sm" onClick={() => { setDisplayError(null); setAttempt((n) => n + 1); void reconcileSegmentationSession(workspaceId); }}>Retry session</Button></div> : null}
         </div>
       </div>

@@ -38,7 +38,7 @@ export function SegmentationMode({ workspaceId }: { workspaceId: string }) {
         if (!lease.isCurrent()) return;
         registration = { status: 'aligned', confirmer: rater.trim(), confirmedAtMs: Date.now(), transformHash: Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(''), view: [...reviewPlane.origin_mm, ...reviewPlane.u_mm, ...reviewPlane.v_mm, ...reviewPlane.dim_px, normalAxis] };
       } else { if (!reason.trim()) throw new Error('State why no secondary contrast is registered.'); registration = { status: 'withoutSecondary', reason: reason.trim() }; }
-      const document = retainDocument(workspaceId, { moduleId: 'segmentation', label: `Segmentation on ${layer.name}`, freezeEditing: () => setSegmentationPresentation(workspaceId, { tool: 'navigate' }), onDiscarded: () => forgetSegmentationSession(document) });
+      const document = retainDocument(workspaceId, { moduleId: 'segmentation', label: `Segmentation on ${layer.name}`, protectedVolumeIds: [layer.volumeId, ...(secondaryId ? [secondaryId] : [])], freezeEditing: () => setSegmentationPresentation(workspaceId, { tool: 'navigate' }), onDiscarded: () => forgetSegmentationSession(document) });
       const record = ensureSegmentationSession(lease, document);
       await createSegmentationSession(record, { referenceVolumeId: layer.volumeId, identity: { subject: subject.trim(), session: session.trim(), hemisphere, rater: rater.trim(), blind }, normalAxis, labels: table, secondaryVolumeId: secondaryId || null, registration });
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
