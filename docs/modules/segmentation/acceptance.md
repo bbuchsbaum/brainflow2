@@ -36,8 +36,11 @@ architecture plan or qualify segmentation for preview/stable use.
   rename fails, the previous files are restored (or new ones removed) and the
   error says what, if anything, is left. A name without a NIfTI suffix gets
   `.nii.gz` appended and never replaces an existing file; only a file the dialog
-  confirmed is replaced, others are created without clobbering, and a table is
-  never replaced without its label volume. The save sends the revision the tab
+  confirmed is replaced; others are reserved with an exclusive create before
+  any rename (which also works on exFAT, FAT and SMB volumes, where
+  exclusive renames are unsupported), and a table is never replaced without
+  its label volume. Names ending in .tsv, .json, .img, .hdr, .mgz or .mgh are
+  refused. The save sends the revision the tab
   displays and refuses a newer accepted reply not yet displayed. Painting waits
   while the dialog is open; a closing (frozen) workspace refuses the save; a GPU
   display failure does not block saving the accepted CPU labels.
@@ -103,7 +106,8 @@ Label storage, export and segmentation display cover every u16 label id
 continuous colormaps stay on row 0. The shared LUT array starts one row tall
 (about 0.65 MB, as before) and grows to the next power of two rows only when a
 palette needs them, up to 32 rows (about 21 MB) for ids near 65535; it does not
-shrink. The segmentation palette is built once per session and the renderer
+shrink. A failed bind-group rebuild after growth is retried on the next upload
+or frame, and re-initializing the LUT re-uploads retained palettes. The segmentation palette is built once per session and the renderer
 skips unchanged uploads. A 1024² label-plus-outline frame showed no measurable
 time change. Other categorical paths still cap label ids at 2047:
 `register_categorical_colormap` in `core/api_bridge/src/lib.rs` (atlases) and

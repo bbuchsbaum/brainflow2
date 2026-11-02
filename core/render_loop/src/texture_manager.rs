@@ -350,6 +350,11 @@ impl TextureManager {
     }
 
     /// Get bind group by ID
+    /// Drop a cached bind group that has been replaced.
+    pub fn remove_bind_group(&mut self, id: u64) {
+        self.bind_groups.remove(&id);
+    }
+
     pub fn get_bind_group(&self, id: u64) -> Option<&BindGroup> {
         self.bind_groups.get(&id)
     }

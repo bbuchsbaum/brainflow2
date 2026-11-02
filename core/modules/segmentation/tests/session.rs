@@ -436,12 +436,20 @@ fn export_copies_the_accepted_revision_with_a_bids_table_and_refuses_stale_owner
             .label_path,
         directory.path().join("sub-01.final.nii.gz")
     );
-    assert_eq!(
-        resolve_destination(&directory.path().join("labels.img"))
-            .unwrap()
-            .label_path,
-        directory.path().join("labels.img.nii.gz")
-    );
+    // Companion and other neuroimaging suffixes are refused, not extended.
+    for name in [
+        "labels.tsv",
+        "labels.JSON",
+        "labels.img",
+        "labels.hdr",
+        "labels.mgz",
+        "labels.mgh",
+    ] {
+        assert!(
+            resolve_destination(&directory.path().join(name)).is_err(),
+            "{name}"
+        );
+    }
     // A table without its label volume belongs to something else.
     std::fs::write(directory.path().join("other.tsv"), "keep").unwrap();
     assert!(resolve_destination(&directory.path().join("other.nii.gz")).is_err());

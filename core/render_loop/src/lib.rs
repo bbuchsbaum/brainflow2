@@ -546,6 +546,16 @@ pub struct RenderLoopService {
     // --- Runtime (custom) colormaps uploaded into the colormap LUT texture ---
     custom_colormaps: HashMap<String, u32>, // key -> colormap_id
     custom_colormap_rows: HashMap<String, Vec<u8>>,
+    /// Set when the colormap LUT texture was replaced and some cached bind
+    /// group may still reference the old view; cleared only once every
+    /// rebuild succeeded, and retried on the next upsert or frame.
+    colormap_bind_groups_stale: bool,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test hook: fail the next colormap bind group rebuild once.
+    static FAIL_COLORMAP_REBIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 impl RenderLoopService {
@@ -801,6 +811,7 @@ impl RenderLoopService {
             prepared_layer_state_cache: None,
             custom_colormaps: HashMap::new(),
             custom_colormap_rows: HashMap::new(),
+            colormap_bind_groups_stale: false,
         })
     }
 
@@ -836,8 +847,6 @@ impl RenderLoopService {
                 ),
             });
         }
-        self.ensure_colormap_rows(rows as u32)?;
-
         if let Some(&existing_id) = self.custom_colormaps.get(&key) {
             if self
                 .custom_colormap_rows
@@ -846,6 +855,7 @@ impl RenderLoopService {
             {
                 return Ok(existing_id);
             }
+            self.ensure_colormap_rows(rows as u32)?;
             self.texture_manager
                 .upload_colormap(&self.queue, existing_id, rgba_lut_row)
                 .map_err(|e| RenderLoopError::Internal {
@@ -863,6 +873,9 @@ impl RenderLoopService {
                 code: 6403,
                 details: "No free custom colormap slots".to_owned(),
             })?;
+        // Grow only once the upload has a slot, so a refused upsert leaves
+        // the LUT as it was.
+        self.ensure_colormap_rows(rows as u32)?;
 
         self.texture_manager
             .upload_colormap(&self.queue, id, rgba_lut_row)
@@ -995,9 +1008,8 @@ impl RenderLoopService {
             log::info!("Shaders loaded and validated successfully.");
         }
 
-        // Initialize colormaps
-        self.texture_manager
-            .init_colormaps(&self.device, &self.queue);
+        // Initialize colormaps (retained custom colormaps are re-uploaded)
+        self.reinitialize_colormaps()?;
         log::info!("Colormaps initialized successfully.");
 
         Ok(())
@@ -1551,9 +1563,7 @@ impl RenderLoopService {
 
     /// Initialize the colormap texture
     pub fn initialize_colormap(&mut self) -> Result<(), RenderLoopError> {
-        self.texture_manager
-            .init_colormaps(&self.device, &self.queue);
-        Ok(())
+        self.reinitialize_colormaps()
     }
 
     /// Create bind groups for world-space rendering
@@ -1592,8 +1602,24 @@ impl RenderLoopService {
                 code: 6405,
                 details: details.to_owned(),
             })?;
-        if !grown {
+        self.colormap_bind_groups_stale |= grown;
+        self.rebuild_stale_colormap_bind_groups()
+    }
+
+    /// Rebuild every cached bind group that references the colormap view
+    /// after the LUT texture was replaced. The stale flag survives a failure,
+    /// so the next upsert or frame retries instead of rendering with a
+    /// texture whose height no longer matches the uploads.
+    fn rebuild_stale_colormap_bind_groups(&mut self) -> Result<(), RenderLoopError> {
+        if !self.colormap_bind_groups_stale {
             return Ok(());
+        }
+        #[cfg(test)]
+        if FAIL_COLORMAP_REBIND.with(|hook| hook.replace(false)) {
+            return Err(RenderLoopError::Internal {
+                code: 6406,
+                details: "injected bind group rebuild failure".to_owned(),
+            });
         }
         self.rebuild_texture_bind_group()?;
         if let (Some(manager), Some(layout), Some(colormap_view)) = (
@@ -1612,7 +1638,7 @@ impl RenderLoopService {
                 )?;
             }
         }
-        if let (Some(layout), Some(_)) = (
+        if let (Some(layout), Some(old)) = (
             self.texture_bind_group_layout.as_ref(),
             self.texture_bind_group_id,
         ) {
@@ -1622,7 +1648,40 @@ impl RenderLoopService {
                     layout,
                     self.volume_atlas.view(),
                 );
+                self.texture_manager.remove_bind_group(old);
                 self.texture_bind_group_id = Some(id);
+            }
+        }
+        self.colormap_bind_groups_stale = false;
+        Ok(())
+    }
+
+    /// Whether some cached bind group may still reference a replaced LUT view.
+    pub fn colormap_bind_groups_stale(&self) -> bool {
+        self.colormap_bind_groups_stale
+    }
+
+    /// Recreate the colormap LUT (builtins) and upload every retained custom
+    /// colormap again under its existing id, so palettes survive a re-init.
+    fn reinitialize_colormaps(&mut self) -> Result<(), RenderLoopError> {
+        self.texture_manager
+            .init_colormaps(&self.device, &self.queue);
+        self.colormap_bind_groups_stale = true;
+        let rows = self
+            .custom_colormap_rows
+            .values()
+            .map(|row| (row.len() / crate::texture_manager::COLORMAP_ROW_BYTES) as u32)
+            .max()
+            .unwrap_or(1);
+        self.ensure_colormap_rows(rows)?;
+        for (key, row) in &self.custom_colormap_rows {
+            if let Some(&id) = self.custom_colormaps.get(key) {
+                self.texture_manager
+                    .upload_colormap(&self.queue, id, row)
+                    .map_err(|details| RenderLoopError::Internal {
+                        code: 6407,
+                        details: format!("Failed to restore custom colormap '{key}': {details}"),
+                    })?;
             }
         }
         Ok(())
@@ -4360,6 +4419,7 @@ impl RenderLoopService {
     }
 
     fn submit_legacy_readback(&mut self) -> Result<LegacyReadback, RenderLoopError> {
+        self.rebuild_stale_colormap_bind_groups()?;
         // Ensure render target pool exists and has current dimensions
         let (width, height) = self.offscreen_dimensions;
         if width == 0 || height == 0 {
@@ -4856,6 +4916,7 @@ impl RenderLoopService {
         state: ViewState,
         options: FrameRequestOptions,
     ) -> Result<FrameSubmission, RenderLoopError> {
+        self.rebuild_stale_colormap_bind_groups()?;
         let request_start = web_time::Instant::now();
 
         // Validate state
@@ -5548,6 +5609,135 @@ impl RenderLoopService {
 }
 
 // ... existing tests module ...
+#[cfg(test)]
+mod colormap_rebind_tests {
+    use super::*;
+    use crate::texture_manager::{COLORMAP_LUT_ROWS, COLORMAP_ROW_BYTES};
+    use crate::view_state::{InterpolationMode, LayerConfig, SliceOrientation, ViewId, ViewState};
+    use volmath::{DenseVolume3, NeuroSpaceExt};
+
+    /// World-space service with an 8x8x2 volume of one label value.
+    async fn labelled_service(label: f32) -> RenderLoopService {
+        let mut service = RenderLoopService::new().await.unwrap();
+        service.load_shaders().unwrap();
+        service.enable_world_space_rendering().unwrap();
+        service.initialize_colormap().unwrap();
+        let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
+            vec![8, 8, 2],
+            nalgebra::Matrix4::identity(),
+        )
+        .unwrap();
+        service
+            .register_volume_with_upload(
+                "labels".to_string(),
+                &DenseVolume3::<f32>::from_data(space, vec![label; 128]),
+                wgpu::TextureFormat::R32Float,
+            )
+            .unwrap();
+        service.create_world_space_bind_groups().unwrap();
+        service
+    }
+
+    async fn label_colour(service: &mut RenderLoopService, colormap: u32) -> [u8; 3] {
+        let state = ViewState::from_basic_params(
+            "labels".to_string(),
+            [4.0, 4.0, 1.0],
+            SliceOrientation::Axial,
+            8.0,
+            [32, 32],
+            (0.0, 65535.0),
+        )
+        .with_layers(vec![LayerConfig::new("labels".to_string())
+            .with_opacity(1.0)
+            .with_colormap(colormap)
+            .with_blend_mode(BlendMode::Normal)
+            .with_intensity_window(0.0, 65535.0)
+            .with_interpolation(InterpolationMode::Nearest)
+            .with_layer_mode(LayerMode::Label)])
+        .with_crosshair(false);
+        let image = service
+            .request_frame(ViewId::new("labels"), state)
+            .await
+            .expect("frame")
+            .image_data;
+        let at = (16 * 32 + 16) * 4;
+        [image[at], image[at + 1], image[at + 2]]
+    }
+
+    #[tokio::test]
+    async fn a_failed_bind_group_rebuild_is_retried_before_the_next_frame() {
+        let mut service = labelled_service(65535.0).await;
+        let mut lut = vec![0u8; COLORMAP_ROW_BYTES * COLORMAP_LUT_ROWS as usize];
+        lut[65535 * 4..65535 * 4 + 4].copy_from_slice(&[10, 200, 30, 255]);
+        FAIL_COLORMAP_REBIND.with(|hook| hook.set(true));
+        assert!(
+            service.upsert_custom_colormap("tall".into(), &lut).is_err(),
+            "the injected rebuild failure is reported"
+        );
+        assert!(
+            service.colormap_bind_groups_stale(),
+            "the stale flag survives the failure"
+        );
+        assert_eq!(service.texture_manager.colormap_rows(), COLORMAP_LUT_ROWS);
+        // A later upsert (here the same palette) retries and succeeds.
+        let tall = service.upsert_custom_colormap("tall".into(), &lut).unwrap();
+        assert!(!service.colormap_bind_groups_stale());
+        assert_eq!(label_colour(&mut service, tall).await, [10, 200, 30]);
+
+        // A failure followed directly by a frame: the frame rebuilds first.
+        service.colormap_bind_groups_stale = true;
+        FAIL_COLORMAP_REBIND.with(|hook| hook.set(true));
+        assert!(service.rebuild_stale_colormap_bind_groups().is_err());
+        assert!(service.colormap_bind_groups_stale());
+        assert_eq!(label_colour(&mut service, tall).await, [10, 200, 30]);
+        assert!(!service.colormap_bind_groups_stale());
+    }
+
+    #[tokio::test]
+    async fn a_refused_upsert_does_not_grow_the_lut_and_reinit_keeps_custom_palettes() {
+        let mut service = labelled_service(4097.0).await;
+        let one_row = vec![7u8; COLORMAP_ROW_BYTES];
+        for slot in 0..crate::texture_manager::CUSTOM_COLORMAP_SLOTS {
+            service
+                .upsert_custom_colormap(format!("slot-{slot}"), &one_row)
+                .unwrap();
+        }
+        let mut tall = vec![0u8; COLORMAP_ROW_BYTES * 3];
+        tall[4097 * 4..4097 * 4 + 4].copy_from_slice(&[40, 50, 220, 255]);
+        assert!(service
+            .upsert_custom_colormap("no-slot".into(), &tall)
+            .is_err());
+        assert_eq!(
+            service.texture_manager.colormap_rows(),
+            1,
+            "a refused upsert never grows the LUT"
+        );
+        // Grow through an existing slot, then re-initialize: the slot keeps
+        // its id and contents (rows included), so its layers still render.
+        let id = service
+            .upsert_custom_colormap("slot-0".into(), &tall)
+            .unwrap();
+        assert_eq!(service.texture_manager.colormap_rows(), 4);
+        service.initialize_colormap().unwrap();
+        assert_eq!(
+            service.texture_manager.colormap_rows(),
+            4,
+            "re-init restores the rows retained palettes need"
+        );
+        assert_eq!(
+            service
+                .upsert_custom_colormap("slot-0".into(), &tall)
+                .unwrap(),
+            id
+        );
+        assert_eq!(
+            label_colour(&mut service, id).await,
+            [40, 50, 220],
+            "the palette was re-uploaded"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -42,24 +42,28 @@ export async function ensureModuleLabelLayer(options: {
   }, options.workspaceId);
 }
 
+/** Layers already styled from their source, keyed `workspace\u0000volume`. */
+const styledFromSource = new Set<string>();
+
 /** Attach an already registered image volume (for example a module-owned
  * frozen frame of a 4D series) as an ordinary, initially hidden layer. When
  * `displayLike` names a layer's volume, the new layer copies its window,
- * threshold, colormap and interpolation once. */
+ * threshold, colormap and interpolation once; the copy is retried on later
+ * calls until it has happened, even if the layer was added elsewhere. */
 export async function ensureModuleImageLayer(options: {
   workspaceId: string; volumeId: string; title: string; displayLike?: string; isCurrent(): boolean;
 }): Promise<void> {
   if (!options.isCurrent()) return;
-  const added = !useLayerStore.getState().getLayer(options.volumeId);
-  if (added) {
+  if (!useLayerStore.getState().getLayer(options.volumeId)) {
     await getLayerService().addLayer({
       volumeId: options.volumeId, name: options.title, type: 'anatomical', visible: false, order: 0,
     }, { workspaceId: options.workspaceId, isCurrent: options.isCurrent, autoSelect: () => false });
   }
   if (!options.isCurrent()) return;
   await ensureModuleVolumeResident(options.workspaceId, options.volumeId, options.isCurrent);
-  if (!added || !options.displayLike || !options.isCurrent()) return;
+  const key = `${options.workspaceId}\u0000${options.volumeId}`;
   const like = options.displayLike;
+  if (!like || styledFromSource.has(key) || !options.isCurrent()) return;
   const view = useViewStateStore.getState().workspaceViewStates.get(options.workspaceId);
   const source = view?.layers.find((item) => item.volumeId === like);
   if (!source || !view?.layers.some((item) => item.volumeId === options.volumeId)) return;
@@ -69,6 +73,7 @@ export async function ensureModuleImageLayer(options: {
     layer.intensity = [...source.intensity]; layer.threshold = [...source.threshold];
     layer.colormap = source.colormap; layer.colormapId = source.colormapId; layer.interpolation = source.interpolation;
   }, options.workspaceId);
+  styledFromSource.add(key);
 }
 
 /** Render a supplied world plane from this workspace's selected volume layers.

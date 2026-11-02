@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SegmentationPreview, SegmentationSlice, SegmentationStroke } from '@brainflow/api';
 import { Button, EmptyPane, IconButton } from '@/components/ui/bf';
 import { ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
-import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
+import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, removeModuleLayers, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
 import { ensureModuleImageLayer, ensureModuleLabelLayer, renderModulePlane, resizeZoomedPlane, setModuleCrosshair, useWorkspaceRenderState, zoomPanPlane, type RenderContext, type SliceViewportPlacement, type ViewPlane } from '@/modules/api/rendering';
 import { commitSegmentationStroke, getSegmentationSession, reconcileSegmentationSession, segmentationFrames, segmentationSaveState, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
 import { bindSegmentationViewport } from '@/modules/segmentation/toolBindings';
@@ -81,7 +81,14 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
     const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent() && isLiveDocument(identity);
     setLayerReady(false);
     void (async () => {
-      for (const frame of JSON.parse(frameLayerKey) as { volumeId: string; displayLike: string; title: string }[]) await ensureModuleImageLayer({ workspaceId, ...frame, isCurrent: current });
+      const frames = JSON.parse(frameLayerKey) as { volumeId: string; displayLike: string; title: string }[];
+      for (const frame of frames) {
+        try { await ensureModuleImageLayer({ workspaceId, ...frame, isCurrent: current }); } finally {
+          // A discard may have taken its layer list while this add was still
+          // pending; remove frame layers that outlived their document.
+          if (!isLiveDocument(identity)) await removeModuleLayers(frames.map((item) => item.volumeId));
+        }
+      }
       await ensureModuleLabelLayer({ workspaceId, volumeId: labelVolumeId, kind: 'segmentation.editable-label', title: 'Segmentation labels', paletteId, maxLabel, isCurrent: current });
     })().then(() => { if (current()) setLayerReady(true); }).catch((error) => { if (current()) setDisplayError(text(error)); });
     return () => { disposed = true; };

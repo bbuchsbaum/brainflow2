@@ -112,10 +112,11 @@ pub struct Destination {
 }
 
 /// Resolve the path picked in a save dialog. The dialog confirmed replacing
-/// `picked` only; when `.nii.gz` has to be appended (any name without a NIfTI
-/// suffix, e.g. `sub-01.final`), an existing file is refused. A table is never
-/// replaced unless its label volume is. Files that may not be replaced are
-/// created without clobbering at the moment of writing.
+/// `picked` only; when `.nii.gz` has to be appended (a name without a NIfTI
+/// suffix, e.g. `sub-01.final`), an existing file is refused. Names ending in
+/// a table or other image suffix (.tsv, .json, .img, .hdr, .mgz, .mgh) are
+/// refused rather than extended. A table is never replaced unless its label
+/// volume is. Files that may not be replaced are reserved before writing.
 pub fn resolve_destination(picked: &Path) -> Result<Destination> {
     if !picked.is_absolute() {
         return Err(invalid("Choose an absolute location for the labels"));
@@ -131,6 +132,13 @@ pub fn resolve_destination(picked: &Path) -> Result<Destination> {
     } else if lower.ends_with(".nii") || lower.ends_with(".gz") || lower.contains(".nii.") {
         return Err(invalid(
             "Label files must end in a lowercase .nii.gz or .nii",
+        ));
+    } else if [".tsv", ".json", ".img", ".hdr", ".mgz", ".mgh"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+    {
+        return Err(invalid(
+            "That name has a table or image suffix; label files must end in .nii.gz or .nii",
         ));
     } else {
         let target = picked.with_file_name(format!("{name}.nii.gz"));

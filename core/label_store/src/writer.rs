@@ -25,8 +25,10 @@ pub fn write_label_nifti(
 }
 
 /// A destination and whether an existing file there may be replaced. When
-/// `replace` is false the file is created only if nothing exists there at the
-/// moment of the rename (no check-then-overwrite race).
+/// `replace` is false the destination is reserved with an exclusive create
+/// before anything is renamed, so a file that appears later is never
+/// overwritten. (This avoids `renamex_np(RENAME_EXCL)`, which exFAT, FAT and
+/// SMB volumes reject.)
 pub struct Target {
     pub path: PathBuf,
     pub replace: bool,
@@ -42,46 +44,50 @@ pub struct Companion {
 thread_local! {
     /// Test hook: fail the rename of the n-th file (0 = the label volume).
     static FAIL_RENAME: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    /// Test hook: fail restoring previous files during rollback.
+    static FAIL_RESTORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-fn rename(
-    temporary: tempfile::NamedTempFile,
-    target: &Target,
-    _index: usize,
-) -> std::io::Result<()> {
+fn rename(temporary: tempfile::NamedTempFile, path: &Path, _index: usize) -> std::io::Result<()> {
     #[cfg(test)]
     if FAIL_RENAME.with(|hook| hook.get()) == Some(_index) {
         return Err(std::io::Error::other("injected rename failure"));
     }
-    if target.replace {
-        temporary
-            .persist(&target.path)
-            .map(drop)
-            .map_err(|e| e.error)
-    } else {
-        temporary
-            .persist_noclobber(&target.path)
-            .map(drop)
-            .map_err(|e| e.error)
-    }
+    // Plain rename: the destination is either a file the caller may replace
+    // or this export's own empty reservation.
+    temporary.persist(path).map(drop).map_err(|e| e.error)
 }
 
-/// Keep the previous file at `path` (hard link, or copy) so a failed export
-/// can put it back. Returns `None` when nothing existed there.
-fn back_up(path: &Path) -> Result<Option<PathBuf>> {
-    if path.symlink_metadata().is_err() {
-        return Ok(None);
+fn restore(backup: &Path, path: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_RESTORE.with(|hook| hook.get()) {
+        return Err(std::io::Error::other("injected restore failure"));
     }
-    let backup = parent(path).join(format!(
-        ".brainflow-backup-{}-{}",
-        std::process::id(),
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("file")
-    ));
-    let _ = std::fs::remove_file(&backup);
-    if std::fs::hard_link(path, &backup).is_err() {
-        std::fs::copy(path, &backup)?;
-    }
-    Ok(Some(backup))
+    std::fs::rename(backup, path)
+}
+
+/// Keep the previous file at `path` under a unique sibling name (hard link,
+/// or copy where links are unsupported) so a failed export can put it back.
+fn back_up(path: &Path) -> std::io::Result<PathBuf> {
+    let builder = {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(".brainflow-backup-").suffix(".tmp");
+        builder
+    };
+    let linked = builder.make_in(parent(path), |backup| std::fs::hard_link(path, backup));
+    let backup = match linked {
+        Ok(backup) => backup,
+        Err(_) => builder.make_in(parent(path), |backup| std::fs::copy(path, backup).map(drop))?,
+    };
+    backup.into_temp_path().keep().map_err(|e| e.error)
+}
+
+/// How one destination is changed, for rollback.
+enum Slot {
+    /// Nothing existed; the path holds this export's reservation or file.
+    Fresh,
+    /// An existing file is replaced; its previous version is kept here.
+    Replaced(PathBuf),
 }
 
 fn parent(destination: &Path) -> &Path {
@@ -174,76 +180,111 @@ pub fn write_label_export(
     commit(staged)
 }
 
-/// Rename every staged file into place, label volume first. Existing files
-/// that may not be replaced are refused before anything is renamed. If a
-/// later rename fails, earlier ones are rolled back (previous files restored,
-/// new ones removed) and the error says what, if anything, is left on disk.
+/// Rename every staged file into place, label volume first. Destinations
+/// that may not be replaced are reserved (exclusive create) before anything
+/// is renamed; an existing one refuses the whole export. If a later step
+/// fails, earlier ones are rolled back (previous files restored, new files and
+/// reservations removed) and the error says what, if anything, is left.
 fn commit(staged: Vec<(tempfile::NamedTempFile, &Target)>) -> Result<()> {
-    if let Some((_, target)) = staged
-        .iter()
-        .find(|(_, t)| !t.replace && t.path.symlink_metadata().is_ok())
-    {
-        return Err(Error::Export(format!(
-            "{} already exists; nothing was written",
-            target.path.display()
-        )));
-    }
-    let mut backups = Vec::with_capacity(staged.len());
-    for (_, target) in &staged {
-        match if target.replace {
-            back_up(&target.path)
+    let (temporaries, targets): (Vec<_>, Vec<_>) = staged.into_iter().unzip();
+    let mut slots: Vec<Slot> = Vec::with_capacity(targets.len());
+    let mut failure = None;
+    for target in &targets {
+        let prepared = if !target.replace {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target.path)
+                .map(|_| Slot::Fresh)
+                .map_err(|error| {
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        format!("{} already exists", target.path.display())
+                    } else {
+                        format!("Could not create {}: {error}", target.path.display())
+                    }
+                })
+        } else if target.path.symlink_metadata().is_ok() {
+            back_up(&target.path).map(Slot::Replaced).map_err(|error| {
+                format!(
+                    "Could not keep a copy of {}: {error}",
+                    target.path.display()
+                )
+            })
         } else {
-            Ok(None)
-        } {
-            Ok(backup) => backups.push(backup),
+            Ok(Slot::Fresh)
+        };
+        match prepared {
+            Ok(slot) => slots.push(slot),
             Err(error) => {
-                backups
-                    .into_iter()
-                    .flatten()
-                    .for_each(|b| drop(std::fs::remove_file(b)));
-                return Err(error);
+                failure = Some(error);
+                break;
             }
         }
     }
-    let mut done: Vec<(&Target, Option<PathBuf>)> = Vec::new();
-    let mut backups = backups.into_iter();
-    for (index, (temporary, target)) in staged.into_iter().enumerate() {
-        let backup = backups.next().flatten();
-        if let Err(error) = rename(temporary, target, index) {
-            let mut unrestored = Vec::new();
-            for (target, backup) in done.into_iter().rev() {
-                let restored = match &backup {
-                    Some(backup) => std::fs::rename(backup, &target.path),
-                    None => std::fs::remove_file(&target.path),
-                };
-                if restored.is_err() {
-                    unrestored.push(target.path.display().to_string());
-                }
+    if let Some(error) = failure {
+        // Nothing was renamed: drop the reservations and copies made so far.
+        for (target, slot) in targets.iter().zip(&slots) {
+            match slot {
+                Slot::Fresh if !target.replace => drop(std::fs::remove_file(&target.path)),
+                Slot::Fresh => {}
+                Slot::Replaced(backup) => drop(std::fs::remove_file(backup)),
             }
-            for backup in std::iter::once(backup).chain(backups).flatten() {
+        }
+        return Err(Error::Export(format!("{error}; nothing was written")));
+    }
+    let mut renamed = 0;
+    let mut failure = None;
+    for (index, temporary) in temporaries.into_iter().enumerate() {
+        if let Err(error) = rename(temporary, &targets[index].path, index) {
+            failure = Some(error);
+            break;
+        }
+        renamed += 1;
+    }
+    let Some(error) = failure else {
+        for slot in slots {
+            if let Slot::Replaced(backup) = slot {
                 let _ = std::fs::remove_file(backup);
             }
-            let left = if unrestored.is_empty() {
-                "no file was changed".to_owned()
-            } else {
-                format!(
-                    "these files are new and could not be rolled back: {}",
-                    unrestored.join(", ")
-                )
-            };
-            return Err(Error::Export(format!(
-                "Could not write {}: {error}; {left}",
-                target.path.display()
-            )));
         }
-        done.push((target, backup));
-    }
-    for (_, backup) in done {
-        if let Some(backup) = backup {
-            let _ = std::fs::remove_file(backup);
+        return Ok(());
+    };
+    // Roll back. Renamed destinations get their previous file back, or are
+    // removed when new; unrenamed reservations and copies are dropped.
+    let mut left = Vec::new();
+    for (index, (target, slot)) in targets.iter().zip(slots).enumerate().rev() {
+        let was_renamed = index < renamed;
+        match slot {
+            Slot::Replaced(backup) if was_renamed => {
+                if restore(&backup, &target.path).is_err() {
+                    left.push(format!(
+                        "{} holds the new file; its previous version is kept at {}",
+                        target.path.display(),
+                        backup.display()
+                    ));
+                }
+            }
+            Slot::Replaced(backup) => drop(std::fs::remove_file(backup)),
+            Slot::Fresh if was_renamed || !target.replace => {
+                if std::fs::remove_file(&target.path).is_err() {
+                    left.push(format!(
+                        "{} is new and could not be removed",
+                        target.path.display()
+                    ));
+                }
+            }
+            Slot::Fresh => {}
         }
     }
-    Ok(())
+    let left = if left.is_empty() {
+        "no file was changed".to_owned()
+    } else {
+        left.join("; ")
+    };
+    Err(Error::Export(format!(
+        "Could not write {}: {error}; {left}",
+        targets[renamed].path.display()
+    )))
 }
 
 #[cfg(test)]
@@ -354,5 +395,128 @@ mod tests {
         );
         assert!(!labels.exists());
         assert_eq!(std::fs::read(&table).unwrap(), b"someone else's table");
+    }
+
+    #[test]
+    fn a_failure_after_reserving_new_destinations_removes_every_reservation() {
+        let directory = tempfile::tempdir().unwrap();
+        let labels = directory.path().join("labels.nii");
+        let table = directory.path().join("labels.tsv");
+        // The label rename fails after both destinations were reserved.
+        FAIL_RENAME.with(|hook| hook.set(Some(0)));
+        let error = write_label_export(
+            [2, 2, 1],
+            &[0, 1, 2, 3],
+            &reference(),
+            &Target {
+                path: labels.clone(),
+                replace: false,
+            },
+            &[Companion {
+                target: Target {
+                    path: table.clone(),
+                    replace: false,
+                },
+                bytes: b"new".to_vec(),
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+        FAIL_RENAME.with(|hook| hook.set(None));
+        assert!(error.contains("no file was changed"), "{error}");
+        assert_eq!(
+            std::fs::read_dir(directory.path()).unwrap().count(),
+            0,
+            "reservations and staged files are gone"
+        );
+        // Without the hook the same export reserves, then fills, both files.
+        write_label_export(
+            [2, 2, 1],
+            &[0, 1, 2, 3],
+            &reference(),
+            &Target {
+                path: labels.clone(),
+                replace: false,
+            },
+            &[Companion {
+                target: Target {
+                    path: table.clone(),
+                    replace: false,
+                },
+                bytes: b"new".to_vec(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&table).unwrap(), b"new");
+        assert!(
+            std::fs::metadata(&labels).unwrap().len() > 348,
+            "the reservation was replaced by the volume"
+        );
+    }
+
+    #[test]
+    fn a_failed_restore_names_the_backup_that_holds_the_previous_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let labels = directory.path().join("labels.nii");
+        let table = directory.path().join("labels.tsv");
+        std::fs::write(&labels, b"old labels").unwrap();
+        std::fs::write(&table, b"old table").unwrap();
+        FAIL_RENAME.with(|hook| hook.set(Some(1)));
+        FAIL_RESTORE.with(|hook| hook.set(true));
+        let error = write_label_export(
+            [2, 2, 1],
+            &[0, 1, 2, 3],
+            &reference(),
+            &Target {
+                path: labels.clone(),
+                replace: true,
+            },
+            &[Companion {
+                target: Target {
+                    path: table.clone(),
+                    replace: true,
+                },
+                bytes: b"new".to_vec(),
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+        FAIL_RENAME.with(|hook| hook.set(None));
+        FAIL_RESTORE.with(|hook| hook.set(false));
+        let backup = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".brainflow-backup-")
+            })
+            .expect("the previous label volume is kept");
+        assert_eq!(std::fs::read(&backup).unwrap(), b"old labels");
+        assert!(
+            error.contains(&format!(
+                "its previous version is kept at {}",
+                backup.display()
+            )),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read(&table).unwrap(),
+            b"old table",
+            "the table was never replaced"
+        );
+    }
+
+    #[test]
+    fn backups_of_the_same_file_get_distinct_names() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("labels.nii");
+        std::fs::write(&path, b"old").unwrap();
+        let first = back_up(&path).unwrap();
+        let second = back_up(&path).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read(&first).unwrap(), b"old");
+        assert_eq!(std::fs::read(&second).unwrap(), b"old");
     }
 }
