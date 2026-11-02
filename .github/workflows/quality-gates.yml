@@ -17,7 +17,9 @@ jobs:
         # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
         # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
         # makes cargo fetch through it.
-        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+        run: |
+          git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+          git config --global --add url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "ssh://git@github.com/"
       
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -28,11 +30,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 22
           
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: npm install -g pnpm@8.15.1
         
+      - name: Install Tauri Linux system libraries
+        # Workspace-wide builds compile tauri/wry, whose -sys crates need these.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+
       - name: Install dependencies
         run: |
           cargo fetch
@@ -75,10 +83,15 @@ jobs:
       - uses: actions/checkout@v3
       
       - name: Rust Security Audit
-        uses: actions-rs/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
+        # Audits the committed Cargo.lock. (actions-rs/audit-check is archived and
+        # ran `cargo generate-lockfile`, re-resolving every dependency first.)
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+      - name: Install pnpm
+        run: npm install -g pnpm@8.15.1
+
       - name: NPM Security Audit
         run: pnpm audit --audit-level=high
 
@@ -92,12 +105,14 @@ jobs:
         # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
         # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
         # makes cargo fetch through it.
-        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+        run: |
+          git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+          git config --global --add url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "ssh://git@github.com/"
       
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y mesa-utils xvfb
+          sudo apt-get install -y mesa-utils xvfb libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
           
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -127,13 +142,21 @@ jobs:
         # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
         # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
         # makes cargo fetch through it.
-        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+        run: |
+          git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+          git config --global --add url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "ssh://git@github.com/"
       
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           
+      - name: Install Tauri Linux system libraries
+        # Workspace-wide builds compile tauri/wry, whose -sys crates need these.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+
       - name: Install tarpaulin
         run: cargo install cargo-tarpaulin
         
@@ -172,10 +195,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 22
           
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: npm install -g pnpm@8.15.1
         
       - name: Build Frontend
         run: |
@@ -208,7 +231,9 @@ jobs:
         # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
         # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
         # makes cargo fetch through it.
-        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+        run: |
+          git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+          git config --global --add url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "ssh://git@github.com/"
       
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -218,10 +243,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 22
           
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: npm install -g pnpm@8.15.1
         
       - name: Install dependency validation tools
         run: |

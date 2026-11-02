@@ -20,8 +20,10 @@ if command_exists cargo; then
     if [ -f "Cargo.lock" ]; then
         echo "✅ Cargo.lock found"
         
-        # Verify lock file is consistent with Cargo.toml
-        if cargo generate-lockfile --offline 2>/dev/null; then
+        # Verify lock file is consistent with Cargo.toml. --locked fails instead
+        # of rewriting Cargo.lock (generate-lockfile re-resolved and overwrote it,
+        # and --offline always failed on a runner with an empty registry cache).
+        if cargo metadata --locked --format-version 1 >/dev/null; then
             echo "✅ Cargo.lock is consistent with Cargo.toml"
         else
             echo "❌ Cargo.lock is inconsistent with Cargo.toml"
@@ -67,7 +69,7 @@ if command_exists pnpm; then
         echo "✅ pnpm-lock.yaml found"
         
         # Verify lock file integrity
-        pnpm install --frozen-lockfile --offline 2>/dev/null || {
+        pnpm install --frozen-lockfile || {
             echo "❌ pnpm-lock.yaml is inconsistent"
             echo "   Run 'pnpm install' to fix"
             exit 1

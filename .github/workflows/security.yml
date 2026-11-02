@@ -20,6 +20,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Authenticate cargo to private GitHub deps
+        env:
+          CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+        shell: bash
+        run: |
+          git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
+
         
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

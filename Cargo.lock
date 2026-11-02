@@ -760,7 +760,7 @@ dependencies = [
 [[package]]
 name = "bids-rs"
 version = "0.1.0"
-source = "git+ssh://git@github.com/bbuchsbaum/bids-rs.git?branch=main#3095be8728a3f049c0f63deb17d06affba2db339"
+source = "git+https://github.com/bbuchsbaum/bids-rs?rev=3095be8728a3f049c0f63deb17d06affba2db339#3095be8728a3f049c0f63deb17d06affba2db339"
 dependencies = [
  "anyhow",
  "chrono",
