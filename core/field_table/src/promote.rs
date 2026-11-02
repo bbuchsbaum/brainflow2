@@ -232,7 +232,7 @@ pub fn build_discovery_neurotabs_package(
 
     Ok(PromotedNeuroTabsPackage {
         dataset_id,
-        manifest_yaml: serde_yaml::to_string(&manifest)
+        manifest_yaml: serde_norway::to_string(&manifest)
             .map_err(|error| format!("Failed to serialize NeuroTabs manifest: {error}"))?,
         observations_csv: write_observations_csv(
             candidate,

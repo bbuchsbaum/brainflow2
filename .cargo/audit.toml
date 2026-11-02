@@ -1,0 +1,33 @@
+# cargo-audit configuration: advisories accepted permanently, each with a reason.
+#
+# Only advisories with no fix we can take belong here. Anything fixable upstream
+# (russh, zip/zstd via templateflow, quick-xml via gifti and Tauri, h2 0.3 via
+# reqwest 0.11) stays visible until the upstream bump lands; don't park it here.
+
+[advisories]
+ignore = [
+    # rsa: Marvin timing side channel in RSA decryption. No fixed release exists.
+    # Reached only through russh's SSH key handling (remote mounts), where the
+    # client signs with its own key; it never decrypts attacker-chosen input.
+    "RUSTSEC-2023-0071",
+
+    # GTK3 bindings (Linux only, via tauri -> muda -> gtk 0.18). gtk-rs 0.18 is
+    # the last GTK3 line; these clear only when Tauri moves off GTK3.
+    "RUSTSEC-2024-0429", # glib: unsound Iterator impls for VariantStrIter
+    "RUSTSEC-2024-0370", # proc-macro-error: unmaintained (glib-macros, build time)
+
+    # unic-* (via tauri -> urlpattern): unmaintained, Unicode tables only.
+    "RUSTSEC-2025-0075", # unic-char-range
+    "RUSTSEC-2025-0080", # unic-common
+    "RUSTSEC-2025-0081", # unic-char-property
+    "RUSTSEC-2025-0098", # unic-ucd-version
+    "RUSTSEC-2025-0100", # unic-ucd-ident
+
+    # Build-time only (tauri-utils -> kuchikiki -> selectors / phf_codegen):
+    # these run in Tauri's build scripts and never ship in the binary's runtime.
+    "RUSTSEC-2025-0057", # fxhash: unmaintained
+    "RUSTSEC-2026-0097", # rand 0.7: unsound only with a custom logger calling rand::rng()
+
+    # paste: unmaintained proc macro (via argmin in neurosurf-rs), compile time only.
+    "RUSTSEC-2024-0436",
+]
