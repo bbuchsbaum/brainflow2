@@ -37,14 +37,15 @@ jobs:
   differential-tests:
     name: CPU/GPU Differential Tests
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # windows-latest is excluded: neuro-integration-tests pulls in api_bridge,
+        # whose `remotely` dependency is Unix-only (see ci.yml).
+        os: [ubuntu-latest, macos-latest]
         include:
           - os: ubuntu-latest
-            gpu_available: true
-          - os: windows-latest
             gpu_available: true
           - os: macos-latest
             gpu_available: true # Metal support
@@ -80,14 +81,6 @@ jobs:
         echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
         echo "GALLIUM_DRIVER=llvmpipe" >> $GITHUB_ENV
 
-    # Windows-specific GPU setup
-    - name: Setup GPU environment (Windows)
-      if: matrix.os == 'windows-latest'
-      shell: bash
-      run: |
-        # Windows GPU setup would go here
-        echo "Windows GPU environment ready"
-
     # macOS-specific GPU setup
     - name: Setup GPU environment (macOS)
       if: matrix.os == 'macos-latest'
@@ -107,11 +100,15 @@ jobs:
         cargo test --package neuro-cpu --release
 
     - name: Run differential tests
+      # The report is this run's output. A separate serial --nocapture re-run used
+      # to produce it; its debug prints swamped the ubuntu runner and it hung
+      # macOS until the 6 h job limit.
       run: |
+        set -o pipefail
         if [ -n "${{ github.event.inputs.test_filter }}" ]; then
-          cargo test --package neuro-integration-tests --release -- "${{ github.event.inputs.test_filter }}"
+          cargo test --package neuro-integration-tests --release -- "${{ github.event.inputs.test_filter }}" 2>&1 | tee test_report.txt
         else
-          cargo test --package neuro-integration-tests --release
+          cargo test --package neuro-integration-tests --release 2>&1 | tee test_report.txt
         fi
       shell: bash
 
@@ -126,14 +123,6 @@ jobs:
       with:
         name: benchmark-results-${{ github.sha }}
         path: target/criterion/**/*.json
-
-    - name: Generate differential test report
-      if: always()
-      run: |
-        cargo test --package neuro-integration-tests --release -- --nocapture --test-threads=1 > test_report.txt 2>&1 || true
-        echo "::group::Test Report"
-        cat test_report.txt
-        echo "::endgroup::"
 
     - name: Upload test report
       if: always()

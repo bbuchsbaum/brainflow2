@@ -249,7 +249,9 @@ jobs:
       run: cargo build --all-targets --verbose
 
     - name: Run Rust Unit Tests (all crates)
-      run: cargo test --verbose
+      # Serial on Linux: lavapipe segfaulted the render_loop lib tests when
+      # several tests created wgpu devices concurrently.
+      run: cargo test --verbose ${{ runner.os == 'Linux' && '-- --test-threads=1' || '' }}
 
     - name: Run TypeScript Unit Tests
       run: pnpm test:unit
