@@ -46,9 +46,11 @@ export function drawTracingOverlay(ctx: CanvasRenderingContext2D, placement: Sli
   const halo = getComputedStyle(ctx.canvas).getPropertyValue('--bf-bg-canvas').trim() || 'black';
   ctx.save();
   ctx.beginPath(); ctx.rect(placement.x, placement.y, placement.width, placement.height); ctx.clip();
+  const groups = new Map<number, Voxel[]>();
+  for (const [x, y, id] of voxels) { const cells = groups.get(id); if (cells) cells.push([x, y]); else groups.set(id, [[x, y]]); }
   for (const label of snapshot.labels) {
     const id = label.definition.id;
-    const cells = voxelsOf(voxels, id);
+    const cells = groups.get(id) ?? [];
     if (!cells.length) continue;
     const color = `rgb(${label.definition.color.join(' ')})`;
     const active = id === activeLabelId;
@@ -102,4 +104,24 @@ export function nativeSliceAtWorld(snapshot: SegmentationSnapshot, world: readon
   const n = [a[0][1] * a[1][2] - a[0][2] * a[1][1], a[0][2] * a[1][0] - a[0][0] * a[1][2], a[0][0] * a[1][1] - a[0][1] * a[1][0]];
   const denominator = n.reduce((sum, v, r) => sum + v * m[axis * 4 + r], 0);
   return n.reduce((sum, v, r) => sum + v * (world[r] - m[12 + r]), 0) / denominator;
+}
+
+/** The crosshair avoids the visible structure and at least three brush radii. */
+export function tracingClearance(snapshot: SegmentationSnapshot, slice: SegmentationSlice, index: number, plane: SliceViewerPlane, placement: SliceViewerPlacement, cursor: [number, number, number] | null, radiusMm: number) {
+  const result: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const transform = nativeGridTransform(snapshot, index, plane, placement);
+  const cells = labelSliceVoxels(slice.labels, snapshot.normalAxis);
+  if (transform && cells.length) {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const [x, y] of cells) { x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1); }
+    const corners = [[x0, y0], [x0, y1], [x1, y0], [x1, y1]].map(([x, y]) => [transform[0] * x + transform[2] * y + transform[4], transform[1] * x + transform[3] * y + transform[5]]);
+    const left = Math.min(...corners.map((v) => v[0])) - 4, top = Math.min(...corners.map((v) => v[1])) - 4;
+    result.push({ x: left, y: top, width: Math.max(...corners.map((v) => v[0])) + 4 - left, height: Math.max(...corners.map((v) => v[1])) + 4 - top });
+  }
+  const point = cursor ? projectWorldToCanvas(cursor, plane, placement) : null;
+  if (point && radiusMm > 0) {
+    const gap = 3 * radiusMm / Math.hypot(...plane.u_mm) * placement.width / placement.imageWidth;
+    result.push({ x: point.canvasX - gap, y: point.canvasY - gap, width: 2 * gap, height: 2 * gap });
+  }
+  return result;
 }

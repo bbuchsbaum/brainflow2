@@ -1,13 +1,13 @@
 import { projectWorldToCanvas } from '@brainflow/visualization/slice';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SegmentationPreview, SegmentationSlice, SegmentationSnapshot, SegmentationStroke } from '@brainflow/api';
+import type { SegmentationPreview, SegmentationSlice, SegmentationStroke } from '@brainflow/api';
 import { Button, EmptyPane, IconButton } from '@/components/ui/bf';
 import { ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
-import { SliceViewport, captureActiveWorkspace, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
+import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
 import { ensureModuleLabelLayer, renderModulePlane, resizeZoomedPlane, setModuleCrosshair, useWorkspaceRenderState, zoomPanPlane, type RenderContext, type SliceViewportPlacement, type ViewPlane } from '@/modules/api/rendering';
 import { commitSegmentationStroke, getSegmentationSession, reconcileSegmentationSession, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
 import { bindSegmentationViewport } from '@/modules/segmentation/toolBindings';
-import { drawTracingOverlay, nativeSliceAtWorld, voxelWorld } from '@/modules/segmentation/components/shared/TracingOverlay';
+import { drawTracingOverlay, nativeSliceAtWorld, tracingClearance } from '@/modules/segmentation/components/shared/TracingOverlay';
 import { ConstraintStripView } from '@/modules/segmentation/components/shared/ConstraintStripView';
 import { TracingTools } from '@/modules/segmentation/components/shared/TracingTools';
 import { ContextViews } from './ContextViews';
@@ -17,6 +17,7 @@ const viewPlane = (slice: SegmentationSlice): ViewPlane => ({ ...slice.plane, di
 const text = formatModuleError;
 export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const session = useSegmentationSession(workspaceId);
+  const isFront = useActiveWorkspaceId() === workspaceId;
   const workspaceView = useWorkspaceRenderState(workspaceId);
   const crosshairStyle = useModuleCrosshairStyle();
   const [displayPlacement, setDisplayPlacement] = useState<SliceViewportPlacement | null>(null);
@@ -54,7 +55,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const plane = stablePlane.current;
   const sourceId = contrast === 'secondary' && active?.registration?.status === 'aligned' ? active.secondaryVolumeId ?? active.referenceVolumeId : active?.referenceVolumeId;
   const frameKey = JSON.stringify([plane, sourceId]);
-  ready.current = Boolean(session && slice && slice.revision === active?.revision && layerReady && renderedFrame === frameKey && !displayError && !session.info?.renderError);
+  ready.current = Boolean(isFront && session && slice && slice.revision === active?.revision && layerReady && renderedFrame === frameKey && !displayError && !session.info?.renderError);
   const context = useMemo<RenderContext>(() => ({ id: `segmentation-${workspaceId}-primary`, type: 'slice', dimensions: { width: size[0], height: size[1] }, metadata: { workspaceId }, viewPlane: plane ?? undefined }), [workspaceId, size, plane]);
   const report = useCallback((error: unknown) => setSegmentationPresentation(workspaceId, { error: text(error) }), [workspaceId]);
 
@@ -68,30 +69,30 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   useEffect(() => { void reconcileSegmentationSession(workspaceId); }, [workspaceId]);
   useEffect(() => {
     let disposed = false;
-    if (!labelVolumeId || paletteId == null || !identity) { setLayerReady(false); return; }
+    if (!isFront || !labelVolumeId || paletteId == null || !identity) { setLayerReady(false); return; }
     const lease = captureActiveWorkspace();
     const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent() && isLiveDocument(identity);
     setLayerReady(false);
     void ensureModuleLabelLayer({ workspaceId, volumeId: labelVolumeId, kind: 'segmentation.editable-label', title: 'Segmentation labels', paletteId, maxLabel, isCurrent: current })
       .then(() => { if (current()) setLayerReady(true); }).catch((error) => { if (current()) setDisplayError(text(error)); });
     return () => { disposed = true; };
-  }, [workspaceId, labelVolumeId, paletteId, identity, maxLabel, attempt]);
+  }, [workspaceId, labelVolumeId, paletteId, identity, maxLabel, attempt, isFront]);
   useEffect(() => {
     const record = getSegmentationSession(workspaceId);
-    if (!record || !active?.sessionId) return;
+    if (!isFront || !record || !active?.sessionId) return;
     let disposed = false;
     setSlice(null); setPreview(null);
     void record.controller.slice(session?.sliceIndex ?? 0, size).then((result) => { if (!disposed && result) setSlice(result); }).catch((error) => { if (!disposed) report(error); });
     return () => { disposed = true; record.controller.cancelPreview(); };
-  }, [workspaceId, active?.sessionId, active?.revision, session?.sliceIndex, size, report]);
+  }, [workspaceId, active?.sessionId, active?.revision, session?.sliceIndex, size, report, isFront]);
   useEffect(() => {
-    if (!plane || !sourceId || !layerReady) return;
+    if (!isFront || !plane || !sourceId || !layerReady) return;
     let disposed = false;
     const lease = captureActiveWorkspace();
     const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent();
     void renderModulePlane({ workspaceId, context, plane, volumeIds: [sourceId], isCurrent: current }).then(() => { if (current()) setRenderedFrame(frameKey); }).catch((error) => { if (current()) setDisplayError(text(error)); });
     return () => { disposed = true; };
-  }, [workspaceId, plane, context, sourceId, frameKey, workspaceView?.layers, layerReady, attempt]);
+  }, [workspaceId, plane, context, sourceId, frameKey, workspaceView?.layers, layerReady, attempt, isFront]);
 
   const queuePreview = useCallback(() => {
     if (previewFrame.current !== null) return;
@@ -153,15 +154,21 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const step = (delta: number) => patch({ sliceIndex: Math.min(count - 1, Math.max(0, session.sliceIndex + delta)) });
   const zoom = (factor: number, anchor: { canvasX: number; canvasY: number }, move?: { dx: number; dy: number }, from = plane) => {
     if (!from || !placement.current) return;
-    const result = zoomPanPlane({ plane: from, placement: placement.current, canvas: size, anchor, factor, pan: move });
+    const fitPixelMm = slice ? Math.hypot(...slice.plane.u_mm) : Math.hypot(...from.u_mm);
+    const result = zoomPanPlane({ plane: from, placement: placement.current, canvas: size, anchor, factor, pan: move, limits: { min: fitPixelMm / 40, max: fitPixelMm * 4 } });
     if (result) setFraming({ plane: result, index: session.sliceIndex });
   };
-  const bounds = structureBounds(active, slice);
+
   const crosshairWorld = workspaceView?.crosshair.world_mm;
   const crosshairPosition = crosshairWorld ? crosshairWorld.map((value, a) => value + active.voxelToWorld[4 * active.normalAxis + a] * (session.sliceIndex - nativeSliceAtWorld(active, crosshairWorld))) as [number, number, number] : null;
   const brushGap = plane && displayPlacement && session.tool !== 'navigate' ? 3 * session.radiusMm / Math.hypot(...plane.u_mm) * displayPlacement.width / displayPlacement.imageWidth : 0;
   const cursor = cursorWorld && plane && displayPlacement ? projectWorldToCanvas(cursorWorld, plane, displayPlacement) : null;
   const lockedRefusal = session.error?.toLowerCase().includes('locked') ? session.error : null;
+  const getKnockouts = () => {
+    if (!canvas.current || !slice || !plane || !displayPlacement) return [];
+    const rect = canvas.current.getBoundingClientRect();
+    return tracingClearance(active, slice, session.sliceIndex, plane, displayPlacement, session.tool === 'navigate' ? null : cursorWorld, session.radiusMm).map((box) => ({ x: rect.left + box.x * rect.width / size[0], y: rect.top + box.y * rect.height / size[1], width: box.width * rect.width / size[0], height: box.height * rect.height / size[1] }));
+  };
   const blocked = preview?.blocked.length ? { reason: 'Stroke constrained', detail: `${preview.written.length} voxels allowed · ${preview.blocked.length} protected. Locks always apply.` } : null;
   return <div className="flex h-full min-h-0 flex-col bg-bf-bg-panel" data-segmentation-session={active.sessionId}>
     <header className="flex flex-wrap items-center gap-2 border-b border-bf-border-subtle px-3 py-1 text-bf-xs">
@@ -178,7 +185,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-6 overflow-auto border-b border-bf-border-subtle px-2 py-1"><ConstraintStripView label={session.activeLabelId} definition={label ? { name: label.definition.name, color: `rgb(${label.definition.color.join(' ')})` } : undefined} paintOver={session.paintOver === 'background' ? 'background only' : 'over unlocked'} diameterMm={session.radiusMm * 2} readout={preview ? `${preview.written.length} vx · one native slice` : 'one native slice'} blocked={blocked} /></div>
         <div ref={container} className="relative min-h-0 flex-1 bg-bf-bg-canvas">
-          {plane && slice && layerReady ? <SliceViewport width={size[0]} height={size[1]} context={context} viewPlane={plane} tool={session.tool === 'navigate' ? null : getModuleViewportTool(`segmentation.${session.tool}`)} customRender={overlay} crosshair={crosshairPosition ? { visible: workspaceView?.crosshair.visible ?? true, world_mm: crosshairPosition } : null} crosshairStyle={{ ...crosshairStyle, centerGap: Math.max(crosshairStyle.centerGap ?? 0, brushGap) }} crosshairWorldBounds={bounds} onWorldClick={(world) => setModuleCrosshair(workspaceId, world)} enableDragDrop={false} onCanvasReady={(element) => { canvas.current = element; }} onPlacementChange={(next) => { placement.current = next; setDisplayPlacement((old) => JSON.stringify(old) === JSON.stringify(next) ? old : next); }}
+          {plane && slice && layerReady ? <SliceViewport width={size[0]} height={size[1]} context={context} viewPlane={plane} tool={session.tool === 'navigate' ? null : getModuleViewportTool(`segmentation.${session.tool}`)} customRender={overlay} crosshair={crosshairPosition ? { visible: workspaceView?.crosshair.visible ?? true, world_mm: crosshairPosition } : null} crosshairStyle={{ ...crosshairStyle, centerGap: Math.max(crosshairStyle.centerGap ?? 0, brushGap) }} getCrosshairKnockouts={getKnockouts} onWorldClick={(world) => setModuleCrosshair(workspaceId, world)} enableDragDrop={false} onCanvasReady={(element) => { canvas.current = element; }} onPlacementChange={(next) => { placement.current = next; setDisplayPlacement((old) => JSON.stringify(old) === JSON.stringify(next) ? old : next); }}
             onWheel={(event) => { event.preventDefault(); if (event.ctrlKey || event.altKey) { const rect = event.currentTarget.getBoundingClientRect(); zoom(Math.exp(-event.deltaY * .005), { canvasX: event.clientX - rect.left, canvasY: event.clientY - rect.top }); } else if (!session.busy) step(event.deltaY > 0 ? 1 : -1); }}
             onMouseDown={(event) => { if ((event.button === 1 || panKey.current) && plane) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, plane }; } }}
             onMouseMove={(event) => { if (pan.current) { const rect = event.currentTarget.getBoundingClientRect(); zoom(1, { canvasX: pan.current.x - rect.left, canvasY: pan.current.y - rect.top }, { dx: event.clientX - pan.current.x, dy: event.clientY - pan.current.y }, pan.current.plane); } }} onMouseUp={() => { pan.current = null; }} onMouseLeave={() => { pan.current = null; }} /> : <div role="status" className="p-3 text-bf-xs text-bf-text-muted">Preparing the reference plane…</div>}
@@ -187,17 +194,8 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
       <NativeSliceRuler snapshot={active} activeId={session.activeLabelId} current={session.sliceIndex} onPick={(sliceIndex) => { if (!session.busy) patch({ sliceIndex }); }} />
-      {layerReady ? <ContextViews workspaceId={workspaceId} snapshot={active} labelVolumeId={session.info.labelVolumeId} sliceIndex={session.sliceIndex} /> : null}
+      {layerReady ? <ContextViews workspaceId={workspaceId} snapshot={active} labelVolumeId={session.info.labelVolumeId} sliceIndex={session.sliceIndex} activeLabelId={session.activeLabelId} activeHidden={session.hiddenLabelIds.includes(session.activeLabelId)} /> : null}
     </div>
     <footer className="border-t border-bf-border-subtle px-3 py-1 font-mono text-bf-2xs text-bf-text-muted">{active.identity.subject} · {active.identity.hemisphere} · {active.identity.rater} · revision {active.revision} · unsaved{active.sourceHeaderOriginal ? '' : ' · derived grid: no original NIfTI header'} · ⌥/pinch zoom · Space-drag pan</footer>
   </div>;
-}
-function structureBounds(snapshot: SegmentationSnapshot, slice: SegmentationSlice | null) {
-  if (!slice?.labels.length) return null;
-  const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
-  for (const voxel of slice.labels) for (let c = 0; c < 8; c++) {
-    const world = voxelWorld(snapshot.voxelToWorld, [0, 1, 2].map((a) => voxel[a] + ((c >> a) & 1 ? .5 : -.5)));
-    for (let a = 0; a < 3; a++) { min[a] = Math.min(min[a], world[a]); max[a] = Math.max(max[a], world[a]); }
-  }
-  return { min, max };
 }

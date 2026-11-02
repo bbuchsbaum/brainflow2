@@ -4,6 +4,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getLayerService } from '@/services/LayerService';
 import { getApiService } from '@/services/apiService';
+import type { ViewLayer } from '@/types/viewState';
 import type { ViewPlane } from '@/types/coordinates';
 import type { RenderContext } from '@/types/renderContext';
 export { zoomPanPlane } from '@/utils/viewZoomGeometry';
@@ -28,6 +29,8 @@ export async function ensureModuleLabelLayer(options: {
     }, { workspaceId: options.workspaceId, isCurrent: options.isCurrent, autoSelect: () => false });
   }
   if (!options.isCurrent()) return;
+  await ensureModuleVolumeResident(options.workspaceId, options.volumeId, options.isCurrent);
+  if (!options.isCurrent()) return;
   useViewStateStore.getState().setViewState((view) => {
     const layer = view.layers.find((item) => item.volumeId === options.volumeId);
     if (!layer) throw new Error('The label layer is not attached to this workspace');
@@ -42,7 +45,9 @@ export async function ensureModuleLabelLayer(options: {
 /** Render a supplied world plane from this workspace's selected volume layers. */
 export async function renderModulePlane(options: {
   workspaceId: string; context: RenderContext; plane: ViewPlane;
-  volumeIds: readonly string[]; opacity?: Readonly<Record<string, number>>; isCurrent(): boolean;
+  volumeIds: readonly string[]; opacity?: Readonly<Record<string, number>>;
+  layerOverrides?: Readonly<Record<string, Partial<Pick<ViewLayer, 'visible' | 'opacity' | 'outline' | 'labelDisplay'>>>>;
+  isCurrent(): boolean;
 }): Promise<void> {
   const view = useViewStateStore.getState().workspaceViewStates.get(options.workspaceId);
   if (!view || !options.isCurrent()) return;
@@ -53,7 +58,7 @@ export async function renderModulePlane(options: {
   try {
     const bitmap = await getApiService().renderViewState({
       ...view, views: { ...view.views, axial: options.plane },
-      layers: layers.map((layer) => ({ ...layer, visible: true, opacity: options.opacity?.[layer.volumeId] ?? layer.opacity })),
+      layers: layers.map((layer) => ({ ...layer, visible: true, ...options.layerOverrides?.[layer.volumeId], opacity: options.opacity?.[layer.volumeId] ?? options.layerOverrides?.[layer.volumeId]?.opacity ?? layer.opacity })),
     }, 'axial', options.plane.dim_px[0], options.plane.dim_px[1]);
     if (!options.isCurrent()) { bitmap.close(); return; }
     target.setImage(options.context.id, bitmap);

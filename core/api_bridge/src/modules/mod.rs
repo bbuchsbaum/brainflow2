@@ -517,7 +517,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .as_slice(),
-            &[old.clone()]
+            std::slice::from_ref(&old)
         );
         host.set_enabled(&["probe".into()]).await.unwrap();
         assert!(host

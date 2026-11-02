@@ -1,13 +1,18 @@
 /** H's native-slice bars and ruler, driven by one live session snapshot. */
-import React from 'react';
+import React, { useState } from 'react';
+import { Pager } from '@/components/ui/bf';
 import type { SegmentationSnapshot } from '@brainflow/api';
 import { areaFlags } from './geometry';
 import { mutedColor } from './colour';
 export function SliceProgress({ snapshot, activeId, current, onPick }: { snapshot: SegmentationSnapshot; activeId: number; current: number; onPick(index: number): void }) {
-  const max = Math.max(1, ...snapshot.labels.flatMap((label) => label.sliceVoxels));
+  const [page, setPage] = useState(1);
+  const max = snapshot.labels.reduce((max, label) => label.sliceVoxels.reduce((max, value) => Math.max(max, value), max), 1);
+  const ordered = [...snapshot.labels].sort((a, b) => Number(b.definition.id === activeId) - Number(a.definition.id === activeId));
+  const count = Math.max(1, Math.ceil(ordered.length / 8)), currentPage = Math.min(page, count);
+  const rows = ordered.slice((currentPage - 1) * 8, currentPage * 8);
   return <div className="flex flex-col gap-1 py-2" data-testid="live-slice-matrix">
     <p className="flex items-baseline gap-2 text-bf-2xs text-bf-text-muted">Area by native slice<span className="ml-auto font-mono" data-testid="live-slice-matrix-scale">one scale · max {max} vx</span></p>
-    {snapshot.labels.map((label) => {
+    {rows.map((label) => {
       const flags = areaFlags(label.sliceVoxels, null, label.complete);
       const color = `rgb(${label.definition.color.join(' ')})`;
       const active = label.definition.id === activeId;
@@ -23,6 +28,7 @@ export function SliceProgress({ snapshot, activeId, current, onPick }: { snapsho
         })}</span>
       </div>;
     })}
+    {count > 1 ? <Pager page={currentPage} count={count} onPageChange={setPage} label="Label area rows" noun="page" /> : null}
     <p className="text-bf-2xs text-bf-text-muted">Hollow: in progress · solid: label complete. Flags show gaps or area jumps; they are checks to inspect.</p>
   </div>;
 }

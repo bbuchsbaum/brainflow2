@@ -16,6 +16,14 @@ alone. Read first, in this order:
    and `docs/plans/segmentation-module-research.md` ("Recommended design",
    "Phased roadmap").
 
+## Implementation checkpoint (2026-11-02)
+
+The selected module foundations, R1–R3 and M1–M2 are implemented. The module stays
+experimental and off by default; live native interaction acceptance remains open.
+See [scope, evidence and limits](../modules/segmentation/acceptance.md). Current
+Rust paths are `core/modules/segmentation/` and
+`core/api_bridge/src/modules/segmentation.rs`.
+
 ## The rule for UI work
 
 **Promote the design components in

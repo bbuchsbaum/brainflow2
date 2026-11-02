@@ -169,7 +169,7 @@ pub(crate) async fn synchronize_locked(
         let Some(handle) = renderer
             .multi_texture_manager
             .as_ref()
-            .and_then(|manager| manager.editable_handle(index))
+            .and_then(|manager| manager.editable_handle_for_volume(volume_id, index))
         else {
             errors.push(format!(
                 "Editable texture slot {index} is no longer resident"
@@ -497,6 +497,71 @@ mod tests {
                 .is_some(),
             "reading a document must not clear a missing resident lease failure"
         );
+        drop(operation);
+        state
+            .volume_registry
+            .lock()
+            .await
+            .insert_editable_labels("another-document".into(), volume(), metadata(), 0)
+            .unwrap();
+        request_layer_gpu_resources_for_testing(
+            LayerSpec::Volume(VolumeLayerSpec {
+                id: "another-layer".into(),
+                source_resource_id: "another-document".into(),
+                colormap: "gray".into(),
+                slice_axis: None,
+                slice_index: None,
+            }),
+            None,
+            &state,
+        )
+        .await
+        .unwrap();
+        let operation = state.volume_operations.lock().await;
+        {
+            let renderer = renderer.lock().await;
+            let other = renderer.editable_volume_handle("another-document").unwrap();
+            let manager = renderer.multi_texture_manager.as_ref().unwrap();
+            assert!(
+                manager
+                    .editable_handle_for_volume("labels", other.texture_index())
+                    .is_none(),
+                "the old logical owner cannot acquire the new slot's generation"
+            );
+        }
+        assert!(
+            publish_locked(
+                &state,
+                &operation,
+                "labels",
+                &LabelRegionUpdate {
+                    expected_revision: 1,
+                    revision: 2,
+                    origin: [0; 3],
+                    dimensions: [1; 3],
+                    labels: &[23],
+                    data_range: (0, 65535),
+                }
+            )
+            .await
+            .unwrap()
+            .is_some(),
+            "a stale layer map must remain a display error after slot reuse"
+        );
+        {
+            let renderer = renderer.lock().await;
+            let other = renderer.editable_volume_handle("another-document").unwrap();
+            assert_eq!(
+                renderer
+                    .multi_texture_manager
+                    .as_ref()
+                    .unwrap()
+                    .editable_revision(other)
+                    .unwrap(),
+                0,
+                "old document publication never writes into the new residency"
+            );
+        }
         let _ = info;
     }
     #[tokio::test]

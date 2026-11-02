@@ -30,7 +30,9 @@ Label tracing on a fixed reference grid. The native domain is
   AI and later milestones M3–M8 are not implemented. Reference and secondary
   images must be single 3D volumes. Storage/export supports u16, but this
   categorical LUT supports label ids 1–2047; reject higher ids explicitly.
-  Native slice indices are zero based in transport and one based in the UI.
+  Per-label native-slice count metadata is capped at two million counts; large
+  label tables and slice matrices are paged in the Inspector. Native slice indices
+  are zero based in transport and one based in the UI.
   Locks always constrain strokes, independently of visibility; history travel
   restores prior values/provenance exactly. A GPU/display error freezes painting
   while retaining accepted document data.

@@ -63,6 +63,7 @@ struct TextureEntry {
     policy: UploadFormat,
     require_filterable: bool,
     editable: Option<(u64, u64)>,
+    editable_volume_id: Option<String>,
 }
 
 struct MaskTextureEntry {
@@ -326,6 +327,7 @@ impl MultiTextureManager {
                 policy,
                 require_filterable,
                 editable: None,
+                editable_volume_id: None,
             },
         );
 
@@ -738,7 +740,7 @@ impl MultiTextureManager {
 
     /// The current resident handle, for hosts resolving a live volume mapping
     /// under their own operation lock. Never reconstruct a handle from an old slot.
-    pub fn editable_handle(&self, index: u32) -> Option<EditableTextureHandle> {
+    pub(crate) fn editable_handle(&self, index: u32) -> Option<EditableTextureHandle> {
         self.textures
             .get(&index)?
             .editable
@@ -747,6 +749,41 @@ impl MultiTextureManager {
                 generation,
                 manager: self.identity,
             })
+    }
+
+    /// Bind an editable residency to its logical volume. A reused numeric slot
+    /// cannot be resolved through a stale host map for a different document.
+    pub(crate) fn bind_editable_volume(
+        &mut self,
+        handle: EditableTextureHandle,
+        volume_id: &str,
+    ) -> Result<(), RenderLoopError> {
+        self.editable_revision(handle)?;
+        let entry = self
+            .textures
+            .get_mut(&handle.index)
+            .expect("validated residency");
+        if entry
+            .editable_volume_id
+            .as_deref()
+            .is_some_and(|owner| owner != volume_id)
+        {
+            return Err(conversion_error(
+                "Editable residency belongs to another volume",
+            ));
+        }
+        entry.editable_volume_id = Some(volume_id.to_owned());
+        Ok(())
+    }
+    pub fn editable_handle_for_volume(
+        &self,
+        volume_id: &str,
+        index: u32,
+    ) -> Option<EditableTextureHandle> {
+        if self.textures.get(&index)?.editable_volume_id.as_deref() != Some(volume_id) {
+            return None;
+        }
+        self.editable_handle(index)
     }
 
     pub fn editable_revision(&self, handle: EditableTextureHandle) -> Result<u64, RenderLoopError> {

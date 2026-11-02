@@ -241,6 +241,24 @@ impl Session {
             u32::from(header.dim[2]),
             u32::from(header.dim[3]),
         ];
+        let slice_count = dimensions
+            .get(usize::from(setup.normal_axis))
+            .copied()
+            .ok_or_else(|| invalid("Select a native normal axis from 0 to 2"))?
+            as usize;
+        // Bounds the dense per-label slice-count metadata returned with every
+        // snapshot, independently of sparse voxel/history storage.
+        if setup.labels.is_empty()
+            || setup
+                .labels
+                .len()
+                .checked_mul(slice_count)
+                .is_none_or(|n| n > 2_000_000)
+        {
+            return Err(invalid(
+                "Provide at least one label and at most two million label-by-slice counts",
+            ));
+        }
         let labels = LabelVolume::new(dimensions, DEFAULT_HISTORY_BYTES)?;
         neuro_types::native_slice_geometry(
             &neuro_types::VolumeMetadata {

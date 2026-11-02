@@ -82,7 +82,7 @@ fn workspace(owner: &Operation) -> WorkspaceIdentity {
 #[serde(rename_all = "camelCase")]
 pub struct SegmentationAccess {
     pub workspace: WorkspaceIdentity,
-    pub session_id: String,
+    pub session_id: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -297,10 +297,15 @@ async fn get(
         .await?;
     let _operation = state.volume_operations.lock().await;
     let sessions = module.sessions.lock().await;
-    let record = sessions
-        .get(&access.session_id)
-        .filter(|record| record.workspace == access.workspace)
-        .ok_or_else(|| invalid("Segmentation session was closed or replaced"))?;
+    let record = match access.session_id.as_deref() {
+        Some(id) => sessions
+            .get(id)
+            .filter(|record| record.workspace == access.workspace),
+        None => sessions
+            .values()
+            .find(|record| record.workspace == access.workspace),
+    }
+    .ok_or_else(|| invalid("Segmentation session was closed or replaced"))?;
     Ok(info(record, state, None, &_operation).await)
 }
 async fn preview(state: &BridgeState, stroke: Stroke) -> BridgeResult<bf_segmentation::Preview> {
@@ -655,7 +660,7 @@ mod tests {
                 workspace_id: info.snapshot.workspace_id.clone(),
                 workspace_instance: info.snapshot.workspace_instance.clone(),
             },
-            session_id: info.snapshot.session_id.clone(),
+            session_id: Some(info.snapshot.session_id.clone()),
         }
     }
     fn operation(info: &SegmentationSessionInfo) -> Operation {
@@ -682,6 +687,16 @@ mod tests {
     async fn native_document_survives_disable_and_restores_exact_undo_history() {
         let state = tokio::task::spawn_blocking(state).await.unwrap();
         let created = create(&state, setup()).await.unwrap();
+        let recovered = get(
+            &state,
+            SegmentationAccess {
+                workspace: workspace(&operation(&created)),
+                session_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(recovered.snapshot.session_id, created.snapshot.session_id, "a lost create acknowledgement can be recovered by its retained opaque workspace identity");
         let previewed = preview(&state, stroke(&created)).await.unwrap();
         assert_eq!(previewed.written.len(), 5);
         let painted = commit(&state, stroke(&created)).await.unwrap().session;
@@ -887,7 +902,7 @@ mod tests {
             &state,
             SegmentationAccess {
                 workspace: workspace(&operation(&session)),
-                session_id: session.snapshot.session_id.clone(),
+                session_id: Some(session.snapshot.session_id.clone()),
             },
         )
         .await

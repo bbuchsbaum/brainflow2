@@ -65,9 +65,9 @@ export class SegmentationSessionController {
   async refresh(): Promise<SegmentationSessionInfo | null> {
     const lease = this.lease(); if (!lease) return null;
     if (this.creating) { try { this.accept(await this.creating); } catch { return null; } }
-    const owner = this.operation(); if (!owner) return null;
+    const owner = this.operation();
     const request = ++this.serial;
-    const info = await client.invoke<SegmentationSessionInfo>('segmentation_get_session', { access: { workspace: this.document, sessionId: owner.sessionId } });
+    const info = await client.invoke<SegmentationSessionInfo>('segmentation_get_session', { access: { workspace: this.document, sessionId: owner?.sessionId ?? null } });
     this.accept(info);
     return lease.isCurrent() && request === this.serial && isLiveDocument(this.document) ? this.info : null;
   }
@@ -111,15 +111,33 @@ export function ensureSegmentationSession(_lease: ActiveWorkspaceLease, document
   }};
   records.set(document.workspaceId, record); update(record, {}); return record;
 }
-async function run(record: SegmentationRecord, action: () => Promise<SegmentationSessionInfo | null>): Promise<SegmentationSessionInfo | null> {
+function adopt(record: SegmentationRecord, info: SegmentationSessionInfo, error: string | null): void {
+  const labels = info.snapshot.labels;
+  update(record, { info, error, activeLabelId: labels.some((row) => row.definition.id === record.snapshot.activeLabelId) ? record.snapshot.activeLabelId : labels[0].definition.id,
+    sliceIndex: Math.min(record.snapshot.sliceIndex, info.snapshot.dimensions[info.snapshot.normalAxis] - 1) });
+}
+async function run(record: SegmentationRecord, action: () => Promise<SegmentationSessionInfo | null>, recover = true): Promise<SegmentationSessionInfo | null> {
   if (record.snapshot.busy) return null;
   update(record, { busy: true, error: null });
+  const restore = async () => {
+    const current = captureActiveWorkspace();
+    if (!recover || current?.workspaceId !== record.document.workspaceId || !isLiveDocument(record.document) || isDocumentEditingFrozen(record.document.workspaceId)) return null;
+    try { return await record.controller.refresh(); } catch { return null; }
+  };
   try {
-    const info = await action();
-    if (info) update(record, { info, error: info.renderError });
+    const result = await action();
+    // Returning before a late create/edit finishes must not strand the tab on
+    // old data. Reconcile from native state with a fresh navigation epoch.
+    const info = result ?? await restore();
+    if (info) adopt(record, info, info.renderError);
     return info;
-  } catch (error) { update(record, { error: message(error) }); return null; }
-  finally { update(record, { busy: false }); }
+  } catch (error) {
+    // IPC can lose an acknowledgement after native creation succeeded. Discover
+    // that document through its retained incarnation; never create a duplicate.
+    const info = await restore();
+    if (info) { adopt(record, info, info.renderError ?? message(error)); return info; }
+    update(record, { error: message(error) }); return null;
+  } finally { update(record, { busy: false }); }
 }
 export async function createSegmentationSession(record: SegmentationRecord, setup: Omit<SegmentationSessionSetup, 'workspaceId' | 'workspaceInstance'>) {
   const info = await run(record, () => record.controller.create(setup));
@@ -130,7 +148,7 @@ export function setSegmentationLabelState(workspaceId: string, labelId: number, 
   const record = records.get(workspaceId); return record ? run(record, () => record.controller.setLabelState(labelId, locked, complete)) : Promise.resolve(null);
 }
 export function reconcileSegmentationSession(workspaceId: string) {
-  const record = records.get(workspaceId); return record ? run(record, () => record.controller.refresh()) : Promise.resolve(null);
+  const record = records.get(workspaceId); return record ? run(record, () => record.controller.refresh(), false) : Promise.resolve(null);
 }
 export function commitSegmentationStroke(workspaceId: string, stroke: StrokeInput) {
   const record = records.get(workspaceId); return record ? run(record, () => record.controller.commit(stroke)) : Promise.resolve(null);

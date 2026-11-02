@@ -2107,6 +2107,7 @@ impl RenderLoopService {
             data_range.1
         );
 
+        self.bind_editable_volume_id(&volume_id, texture_index)?;
         // Also update volume_metadata with the correct data range
         self.volume_metadata.insert(texture_index, metadata.clone());
 
@@ -2140,6 +2141,7 @@ impl RenderLoopService {
             })?
             .clone();
 
+        self.bind_editable_volume_id(&volume_id, texture_index)?;
         // Register in volumes map
         self.volumes.insert(
             volume_id.clone(),
@@ -2151,6 +2153,19 @@ impl RenderLoopService {
         );
         self.invalidate_prepared_layer_state_cache();
 
+        Ok(())
+    }
+
+    fn bind_editable_volume_id(
+        &mut self,
+        volume_id: &str,
+        texture_index: u32,
+    ) -> Result<(), RenderLoopError> {
+        if let Some(manager) = self.multi_texture_manager.as_mut() {
+            if let Some(handle) = manager.editable_handle(texture_index) {
+                manager.bind_editable_volume(handle, volume_id)?;
+            }
+        }
         Ok(())
     }
 
@@ -2231,7 +2246,9 @@ impl RenderLoopService {
 
     pub fn editable_volume_handle(&self, volume_id: &str) -> Option<EditableTextureHandle> {
         let index = self.volumes.get(volume_id)?.atlas_index;
-        self.multi_texture_manager.as_ref()?.editable_handle(index)
+        self.multi_texture_manager
+            .as_ref()?
+            .editable_handle_for_volume(volume_id, index)
     }
 
     /// Apply a revisioned label region without replacing its texture or binding.

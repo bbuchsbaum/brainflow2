@@ -42,6 +42,31 @@ describe('live native segmentation session ownership', () => {
     host.invoke.mockResolvedValueOnce({ revision: 0, written: [[2, 1, 3]], blocked: [], blockedLabels: [] }); expect(await controller.preview(stroke)).not.toBeNull();
     old.resolve({ revision: 0, written: [[1, 1, 3]], blocked: [], blockedLabels: [] }); expect(await preview).toBeNull();
   });
+  it('recovers a lost create acknowledgement through the retained workspace without creating a duplicate', async () => {
+    const workspaceId = 'synthetic-lost-ack-view'; host.active = workspaceId;
+    const owner = { ...document, workspaceId, workspaceInstance: 'lost-ack-owner' };
+    const record = ensureSegmentationSession({ workspaceId, timestamp: 1, isCurrent: () => true }, owner);
+    host.invoke.mockRejectedValueOnce(new Error('reply lost')).mockResolvedValueOnce({ ...info(), snapshot: { ...info().snapshot, ...owner } });
+    expect((await createSegmentationSession(record, setup))?.snapshot.sessionId).toBe('synthetic-session');
+    expect(host.invoke.mock.calls.map(([command]) => command)).toEqual(['segmentation_create_session', 'segmentation_get_session']);
+    expect(host.invoke.mock.calls[1][1]).toEqual({ access: { workspace: owner, sessionId: null } });
+    expect(record.snapshot.info?.snapshot.sessionId).toBe('synthetic-session');
+    expect(record.snapshot.error).toContain('reply lost');
+  });
+  it('reconciles when the user returns before a pending creation completes', async () => {
+    const workspaceId = 'synthetic-pending-return-view'; host.active = workspaceId;
+    const owner = { ...document, workspaceId, workspaceInstance: 'pending-return-owner' };
+    const record = ensureSegmentationSession({ workspaceId, timestamp: 1, isCurrent: () => true }, owner);
+    const pending = deferred<ReturnType<typeof info>>();
+    host.invoke.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ ...info(1), snapshot: { ...info(1).snapshot, ...owner } });
+    const creating = createSegmentationSession(record, setup);
+    host.active = 'away'; host.epoch++; host.active = workspaceId; host.epoch++;
+    pending.resolve({ ...info(), snapshot: { ...info().snapshot, ...owner } });
+    await creating;
+    expect(record.snapshot.info?.snapshot.revision).toBe(1);
+    expect(record.snapshot.busy).toBe(false);
+    expect(host.invoke.mock.calls.map(([command]) => command)).toEqual(['segmentation_create_session', 'segmentation_get_session']);
+  });
   it('notifies a hook subscribed before setup and publishes immutable snapshots', async () => {
     const workspaceId = 'synthetic-reactive-view'; host.active = workspaceId;
     const owner = { ...document, workspaceId, workspaceInstance: 'reactive-owner' };

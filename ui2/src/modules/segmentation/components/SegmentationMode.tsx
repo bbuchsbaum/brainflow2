@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { SegmentationRegistration } from '@brainflow/api';
 import { Button, Checkbox, EmptyPane, Select, TextArea, TextField } from '@/components/ui/bf';
-import { captureActiveWorkspace, retainDocument, useLoadedVolumeLayers, useLayerMetadata, useSelectedLayer } from '@/modules/api/host';
+import { captureActiveWorkspace, useActiveWorkspaceId, retainDocument, useLoadedVolumeLayers, useLayerMetadata, useSelectedLayer } from '@/modules/api/host';
 import type { ViewPlane } from '@/modules/api/rendering';
 import { createSegmentationSession, ensureSegmentationSession, forgetSegmentationSession, reconcileSegmentationSession, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
 import { parseSegmentationLabels } from '@/modules/segmentation/labelTable';
@@ -12,12 +12,13 @@ const initialLabels = JSON.stringify([{ id: 1, name: 'Label 1', abbreviation: 'L
 export function SegmentationMode({ workspaceId }: { workspaceId: string }) {
   const layer = useSelectedLayer(), loaded = useLoadedVolumeLayers();
   const live = useSegmentationSession(workspaceId);
+  const activeWorkspaceId = useActiveWorkspaceId();
   const [subject, setSubject] = useState(''), [session, setSession] = useState(''), [hemisphere, setHemisphere] = useState('left'), [rater, setRater] = useState('');
   const [blind, setBlind] = useState(true), [normalAxis, setNormalAxis] = useState(1), [reason, setReason] = useState('No secondary contrast registered.'), [labels, setLabels] = useState(initialLabels), [error, setError] = useState<string | null>(null);
   const [secondaryId, setSecondaryId] = useState(''), [aligned, setAligned] = useState(false), [reviewPlane, setReviewPlane] = useState<ViewPlane | null>(null);
   const referenceMetadata = useLayerMetadata(layer?.id ?? ''), secondaryMetadata = useLayerMetadata(loaded.find((candidate) => candidate.volumeId === secondaryId)?.id ?? '');
   const reviewed = useCallback((plane: ViewPlane | null) => { setReviewPlane(plane); setAligned(false); }, []);
-  useEffect(() => { void reconcileSegmentationSession(workspaceId); }, [workspaceId]);
+  useEffect(() => { if (activeWorkspaceId === workspaceId) void reconcileSegmentationSession(workspaceId); }, [workspaceId, activeWorkspaceId]);
   if (live?.info) return <SegmentViewport workspaceId={workspaceId} />;
   if (!layer) return <EmptyPane title="Select a reference image" hint="Segment mode needs a loaded reference volume." />;
   const submit = async (event: React.FormEvent) => {
@@ -56,6 +57,7 @@ export function SegmentationMode({ workspaceId }: { workspaceId: string }) {
       <LabelTableEditor value={labels} onChange={setLabels} />
       <p className="text-bf-2xs text-bf-text-muted">Free tracing uses your label table. Sessions are held in memory; closing or quitting asks before discarding.</p>
       {error || live?.error ? <p role="alert" className="text-bf-warning">{error ?? live?.error}</p> : null}
+      {live && !live.info ? <Button type="button" disabled={live.busy} onClick={() => void reconcileSegmentationSession(workspaceId)}>Resume retained session</Button> : null}
       <Button type="submit" disabled={live?.busy || !reviewPlane}>{live?.busy ? 'Creating…' : 'Create segmentation'}</Button>
     </form>
     <RegistrationPreview workspaceId={workspaceId} referenceId={layer.volumeId} secondaryId={secondaryId || null} normalAxis={normalAxis} onView={reviewed} />

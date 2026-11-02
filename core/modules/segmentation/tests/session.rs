@@ -299,3 +299,23 @@ fn multi_frame_reference_is_refused_before_creating_an_ambiguous_grid() {
     header.dim[4] = 2;
     assert!(Session::create("refused".into(), setup(), affine(), header).is_err());
 }
+
+#[test]
+fn empty_or_oversized_label_slice_metadata_is_rejected_before_snapshot_allocation() {
+    let mut input = setup();
+    input.labels.clear();
+    assert!(Session::create("empty".into(), input, affine(), header()).is_err());
+    let mut input = setup();
+    let template = input.labels[0].clone();
+    input.labels = (1..=1000)
+        .map(|id| LabelDefinition {
+            id,
+            name: format!("ROI {id}"),
+            parent: None,
+            ..template.clone()
+        })
+        .collect();
+    let mut grid = header();
+    grid.dim[2] = 3072;
+    assert!(Session::create("bounded".into(), input, affine(), grid).is_err());
+}

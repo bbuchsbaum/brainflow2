@@ -207,21 +207,15 @@ export function components(voxels: readonly Voxel[]): Voxel[][] {
 
 /** Bounding box of a voxel set (display coords), grown by `marginMm` on every side. */
 export function bboxOf(voxels: readonly Voxel[], marginMm = 0): { x0: number; y0: number; x1: number; y1: number } {
-  const xs = voxels.map((v) => v[0]);
-  const ys = voxels.map((v) => v[1]);
-  return {
-    x0: Math.min(...xs) - marginMm,
-    y0: Math.min(...ys) - marginMm,
-    x1: Math.max(...xs) + 1 + marginMm,
-    y1: Math.max(...ys) + 1 + marginMm,
-  };
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of voxels) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  return { x0: x0 - marginMm, y0: y0 - marginMm, x1: x1 + 1 + marginMm, y1: y1 + 1 + marginMm };
 }
 
 /** Bounding-box centre of a voxel set (display coords). */
 export function centreOf(voxels: readonly Voxel[]): Point {
-  const xs = voxels.map((v) => v[0]);
-  const ys = voxels.map((v) => v[1]);
-  return [(Math.min(...xs) + Math.max(...xs) + 1) / 2, (Math.min(...ys) + Math.max(...ys) + 1) / 2];
+  const box = bboxOf(voxels);
+  return [(box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2];
 }
 
 // ---------------------------------------------------------------------------
