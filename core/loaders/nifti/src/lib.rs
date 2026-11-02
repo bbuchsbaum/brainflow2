@@ -970,11 +970,13 @@ mod tests {
 
     #[test]
     fn header_summary_reports_used_dimensions_and_volumes() {
-        let mut header = nifti::NiftiHeader::default();
-        header.dim = [4, 64, 64, 30, 200, 0, 0, 0];
-        header.pixdim = [1.0, 2.4, 2.4, 2.4, 800.0, 0.0, 0.0, 0.0];
-        header.xyzt_units = 2 | 16;
-        header.sform_code = 4;
+        let header = nifti::NiftiHeader {
+            dim: [4, 64, 64, 30, 200, 0, 0, 0],
+            pixdim: [1.0, 2.4, 2.4, 2.4, 800.0, 0.0, 0.0, 0.0],
+            xyzt_units: 2 | 16,
+            sform_code: 4,
+            ..Default::default()
+        };
         let summary = header_summary(&header);
         assert_eq!(summary.dim, [64, 64, 30, 200]);
         assert_eq!(summary.pixdim, [2.4, 2.4, 2.4, 800.0]);
@@ -985,8 +987,10 @@ mod tests {
 
     #[test]
     fn header_summary_of_a_3d_file_has_no_volume_count() {
-        let mut header = nifti::NiftiHeader::default();
-        header.dim = [3, 208, 300, 320, 1, 1, 1, 1];
+        let header = nifti::NiftiHeader {
+            dim: [3, 208, 300, 320, 1, 1, 1, 1],
+            ..Default::default()
+        };
         let summary = header_summary(&header);
         assert_eq!(summary.dim, [208, 300, 320]);
         assert_eq!(summary.n_volumes, None);
