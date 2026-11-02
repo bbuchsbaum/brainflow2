@@ -1709,7 +1709,7 @@ fn write_cached_password(host: &str, port: u16, user: &str, password: &str) -> B
 fn delete_cached_password(host: &str, port: u16, user: &str) {
     let account = password_credential_account_key(host, port, user);
     if let Ok(entry) = KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account) {
-        let _ = entry.delete_password();
+        let _ = entry.delete_credential();
     }
 }
 
@@ -1753,7 +1753,7 @@ fn write_cached_key_passphrase(
 fn delete_cached_key_passphrase(host: &str, port: u16, user: &str, key_path: Option<&str>) {
     let account = key_passphrase_account_key(host, port, user, key_path);
     if let Ok(entry) = KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account) {
-        let _ = entry.delete_password();
+        let _ = entry.delete_credential();
     }
 }
 

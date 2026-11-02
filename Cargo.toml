@@ -42,8 +42,8 @@ nalgebra = "=0.32.6"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.133"
 ts-rs = "=10.1.0"
-anyhow = "=1.0.93"
-tokio = { version = "=1.47.1", features = ["full"] }
+anyhow = "=1.0.104"
+tokio = { version = "=1.54.1", features = ["full"] }
 thiserror = "=1.0.69"
 futures = "=0.3.31"
 # Additional pinned dependencies for security and stability
