@@ -4,7 +4,11 @@
  */
 
 import { getEventBus } from '@/events/EventBus';
-import { toError } from '@/utils/formatTauriError';
+import {
+  gpuTextureSlotsFullLimit,
+  gpuTextureSlotsFullMessage,
+  toError,
+} from '@/utils/formatTauriError';
 import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import type { EventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
@@ -29,7 +33,11 @@ export interface LayerLoadContext {
 export interface LayerApi {
   addLayer(layer: Omit<Layer, 'id'>, context?: LayerLoadContext): Promise<Layer>;
   removeLayer(id: string): Promise<void>;
-  updateLayer(id: string, updates: Partial<Layer>): Promise<Layer>;
+  updateLayer(
+    id: string,
+    updates: Partial<Layer>,
+    options?: { workspaceId?: string },
+  ): Promise<Layer>;
   patchLayerRender(id: string, patch: Partial<LayerRender>): Promise<void>;
   reorderLayers(layerIds: string[], workspaceId?: string): Promise<void>;
   loadLayerData(id: string): Promise<void>;
@@ -174,12 +182,19 @@ export class LayerService {
   /**
    * Toggle layer visibility
    */
-  toggleVisibility(id: string, visible: boolean): void {
+  toggleVisibility(id: string, visible: boolean, workspaceId?: string): void {
     // A user toggle unless the Series view makes it (runVisibility runs inside asView).
     noteUserVisibility(id);
+    // The workspace toggled (the front one unless named): a refused show is
+    // undone there, even if another tab is in front by then.
+    const views = useViewStateStore.getState();
+    const target = workspaceId ?? views.activeWorkspaceKey;
+    const front = target === views.activeWorkspaceKey;
+    // A show made while undo / redo replays a step is not a new history step.
+    const recorded = !getSceneHistory().isReplaying();
     // Keep local stores in sync immediately for responsive UI.
     useLayerStore.getState().updateLayer(id, { visible });
-    useViewStateStore.getState().setViewState((state) => {
+    views.setViewState((state) => {
       const layer = state.layers.find((item) => item.id === id);
       if (!layer) {
         return;
@@ -188,17 +203,60 @@ export class LayerService {
       // older build is restored on show).
       layer.visible = visible;
       if (visible && !(layer.opacity > 0)) layer.opacity = 1.0;
-    });
+    }, target);
     
     // Emit event for immediate UI update
     this.eventBus.emit('layer.visibility', { layerId: id, visible });
 
-    void this.api.updateLayer(id, { visible }).then(() => {
+    const seq = (this.toggleSeq.get(id) ?? 0) + 1;
+    this.toggleSeq.set(id, seq);
+    // A tab behind the front one draws nothing now: a show there only needs
+    // the layer's GPU slot (the same guard), a hide needs nothing.
+    const request = front
+      ? this.api.updateLayer(id, { visible }, { workspaceId: target })
+      : visible
+        ? this.api.loadLayerData(id)
+        : Promise.resolve();
+    void request.then(() => {
       this.clearError(id);
     }).catch((error) => {
+      // A show the GPU cannot take is undone: a layer marked visible
+      // without GPU resources left every view black (QA 2026-10-31 N18).
+      // Not when a later toggle of the layer has superseded this one.
+      const latest = this.toggleSeq.get(id) === seq;
+      if (visible && latest) this.revertShow(id, target, recorded);
+      const slotLimit = visible ? gpuTextureSlotsFullLimit(error) : null;
+      if (slotLimit !== null) {
+        if (!latest) return;
+        const layer = useLayerStore.getState().getLayer(id);
+        this.eventBus.emit('ui.notification', {
+          type: 'error',
+          message: `Cannot show ${layer?.name ?? id}: ${gpuTextureSlotsFullMessage(slotLimit)}`,
+          logSource: 'layer',
+        });
+        return;
+      }
       this.recordError(id, toError(error));
       this.eventBus.emit('layer.error', { layerId: id, error: toError(error) });
     });
+  }
+
+  /** Latest visibility toggle per layer (a failed show reverts only if latest). */
+  private readonly toggleSeq = new Map<string, number>();
+
+  /**
+   * Hide a layer whose show failed, in the stores the toggle wrote, and drop
+   * the show from the undo history (an undo step that does nothing would be
+   * left otherwise).
+   */
+  private revertShow(id: string, workspaceId: string, recorded: boolean): void {
+    useLayerStore.getState().updateLayer(id, { visible: false });
+    useViewStateStore.getState().setViewState((state) => {
+      const layer = state.layers.find((item) => item.id === id);
+      if (layer && layer.visible) layer.visible = false;
+    }, workspaceId);
+    if (recorded) getSceneHistory().forgetShow(workspaceId, id);
+    this.eventBus.emit('layer.visibility', { layerId: id, visible: false });
   }
 
   /**

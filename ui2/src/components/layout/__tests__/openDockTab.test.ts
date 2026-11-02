@@ -18,7 +18,7 @@ describe('View › Panels dock routing', () => {
   it('reopens a closed, minimized dock on the plot tab', () => {
     openDockTab(dockTabForPanel('PlotPanel')!);
     const state = useLayoutSettingsStore.getState();
-    expect(state.bottomDockOpen).toBe(true);
+    expect(state.isBottomDockOpen()).toBe(true);
     expect(state.bottomDockMinimized).toBe(false);
     expect(state.bottomDockActiveTab).toBe('plot');
   });

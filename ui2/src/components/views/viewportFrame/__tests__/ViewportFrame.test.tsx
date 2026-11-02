@@ -117,6 +117,21 @@ describe('ViewportColorbar', () => {
     expect(bar.style.left).toBe('627px');
   });
 
+  it('holds its slot while the pane is being resized, and chooses again once quiet', () => {
+    const right = { left: 250, top: 0, right: 650, bottom: 400 };
+    const shifted = { left: 420, top: 0, right: 820, bottom: 300 };
+    const { rerender } = render(<ViewportColorbar layer={overlay} width={900} height={400} imageRect={right} />);
+    expect(screen.getByTestId('viewport-colorbar')).toHaveAttribute('data-placement', 'right');
+    // Mid-drag: the pane is shorter and the image reads off-centre.
+    rerender(<ViewportColorbar layer={overlay} width={900} height={300} imageRect={shifted} hold />);
+    expect(screen.getByTestId('viewport-colorbar')).toHaveAttribute('data-placement', 'right');
+    rerender(<ViewportColorbar layer={overlay} width={900} height={300} imageRect={shifted} hold />);
+    expect(screen.getByTestId('viewport-colorbar')).toHaveAttribute('data-placement', 'right');
+    // Quiet: the full rule runs again.
+    rerender(<ViewportColorbar layer={overlay} width={900} height={300} imageRect={shifted} />);
+    expect(screen.getByTestId('viewport-colorbar')).toHaveAttribute('data-placement', 'left');
+  });
+
   it('falls back to the corner when the image fills the width', () => {
     render(
       <ViewportColorbar layer={overlay} width={469} height={311} imageRect={{ left: 20, top: 0, right: 449, bottom: 311 }} />,
@@ -163,7 +178,8 @@ describe('ViewportColorbar', () => {
   });
 
   it('is omitted when not even the compact bar fits, or the colormap is unknown', () => {
-    const { rerender } = render(<ViewportColorbar layer={overlay} width={900} height={40} />);
+    // A 16 px bar plus padding needs ~40 px (review W1: it never vanishes above that).
+    const { rerender } = render(<ViewportColorbar layer={overlay} width={900} height={20} />);
     expect(screen.queryByTestId('viewport-colorbar')).toBeNull();
     rerender(<ViewportColorbar layer={{ ...overlay, colormap: 'nope' }} width={900} height={320} />);
     expect(screen.queryByTestId('viewport-colorbar')).toBeNull();

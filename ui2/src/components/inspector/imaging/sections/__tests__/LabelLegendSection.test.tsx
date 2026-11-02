@@ -69,4 +69,39 @@ describe('LabelLegendSection', () => {
     fireEvent.click(screen.getAllByRole('option')[1]);
     expect(useViewStateStore.getState().viewState.layers[0].outline?.selectedLabelId).toBe(0);
   });
+
+  it('right-click opens the app row menu instead of the native one (N25)', async () => {
+    const { useContextMenuStore } = await import('@/stores/contextMenuStore');
+    render(<LabelLegendSection item={item} />);
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 });
+    screen.getAllByRole('option')[0].dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    const menu = useContextMenuStore.getState();
+    expect(menu.items.filter((i) => !i.separator).map((i) => i.label)).toEqual([
+      'Select region',
+      'Use as series region (Needs a dataset with a lag or time axis, or a 4D layer)',
+      'Copy name',
+    ]);
+    expect(menu.items.find((i) => i.id === 'region.useAsSeriesRegion')?.disabled).toBe(true);
+  });
+
+  it('"Use as series region" makes the legend region the Series region', async () => {
+    const { useContextMenuStore } = await import('@/stores/contextMenuStore');
+    const { useSeriesStore } = await import('@/stores/seriesStore');
+    useLayerStore.setState((s) => ({
+      layers: [
+        ...s.layers,
+        { id: 'bold', name: 'bold.nii.gz', volumeId: 'bold', type: 'volume', visible: true, order: 1, timeSeriesInfo: { num_timepoints: 10 } } as never,
+      ],
+    }));
+    render(<LabelLegendSection item={item} />);
+    screen.getAllByRole('option')[1].dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+    );
+    const use = useContextMenuStore.getState().items.find((i) => i.id === 'region.useAsSeriesRegion');
+    expect(use?.label).toBe('Use as series region');
+    expect(use?.disabled).toBe(false);
+    use?.onClick?.();
+    expect(useSeriesStore.getState()).toMatchObject({ locus: 'region', regionPick: { layerId: 'dseg', labelId: 2 } });
+  });
 });

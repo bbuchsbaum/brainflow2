@@ -26,6 +26,7 @@ import { useComparisonStore } from '@/stores/comparisonStore';
 import { buildActiveCrosshairStyle, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { comparisonTag, getComparisonRenderService } from '@/services/ComparisonRenderService';
+import { sharedComparisonFitSize } from '@/utils/compareScale';
 import type { CompareLinkMode, ComparisonPanelConfig, PanelOverrideField } from '@/types/comparison';
 import { isFieldLinked, panelHasOverrides } from '@/utils/compareDisplay';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
@@ -91,6 +92,8 @@ interface ComparisonPanelProps {
 const PANEL_ACTIONS_RESERVE = 28;
 /** The colorbar's own column at a Compare panel's right edge (px). */
 const COMPARE_COLORBAR_COLUMN = 128;
+/** The top orientation letter sits under the header row. */
+const COMPARE_TOP_LETTER_INSET = 18;
 export function ComparisonPanel({
   workspaceId,
   panel,
@@ -169,6 +172,30 @@ export function ComparisonPanel({
     state => state.getWorkspaceViewStateRevisions(workspaceId).state
   );
 
+  // One scale across the panes (QA 2026-10-31 N23): each pane publishes its
+  // canvas size, and every pane fits the shared frame to the smallest, so it
+  // re-renders when a sibling's size changes (e.g. a colorbar column narrows
+  // it; its own size is already a dependency) or a sibling's layers change
+  // (the shared frame is the union of the panes' layer boxes).
+  useEffect(() => {
+    useComparisonStore.getState().setPanelCanvasSize(panel.id, canvasSize);
+  }, [panel.id, canvasSize]);
+  useEffect(() => () => useComparisonStore.getState().setPanelCanvasSize(panel.id, null), [panel.id]);
+  const sharedFitKey = useComparisonStore((state) =>
+    sharedComparisonFitSize(
+      [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY],
+      (state.panels.get(workspaceId) ?? [])
+        .filter((p) => p.id !== panel.id)
+        .map((p) => state.panelCanvasSizes.get(p.id)),
+    ).join('x'),
+  );
+  const siblingLayersKey = useComparisonStore((state) =>
+    (state.panels.get(workspaceId) ?? [])
+      .filter((p) => p.id !== panel.id)
+      .map((p) => `${p.id}:${Array.from(p.visibleLayerIds).join('+')}`)
+      .join('|'),
+  );
+
   // HiDPI canvas; the pane is rendered at the same ratio (ComparisonRenderService).
   const pixelRatio = useCanvasPixelRatio();
   useEffect(() => {
@@ -193,6 +220,8 @@ export function ComparisonPanel({
     linkMode,
     // A move to a display of another ratio re-renders the pane.
     pixelRatio,
+    sharedFitKey,
+    siblingLayersKey,
   ]);
 
   const renderContext = useMemo(() => ({
@@ -610,6 +639,7 @@ export function ComparisonPanel({
             avoidPoint={paneOverlay.crosshair}
             dataRect={paneOverlay.data}
             topReserve={PANEL_ACTIONS_RESERVE}
+            topLetterInset={COMPARE_TOP_LETTER_INSET}
             // Never wider than the pane (the caption wraps or drops the name).
             maxWidth={Math.max(96, canvasSize.width - 16)}
             value={colorbarReading?.value ?? null}
@@ -619,7 +649,7 @@ export function ComparisonPanel({
         {viewPlane && hasLayers && (
           // The top letter sits under the header row (the badge and the
           // value), never in it.
-          <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} topInset={18} mirrorX={mirrorX} />
+          <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} topInset={COMPARE_TOP_LETTER_INSET} mirrorX={mirrorX} />
         )}
         {/* Radiological convention: the screen's left is the patient's right. */}
         {hasLayers && mirrorX && (

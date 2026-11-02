@@ -73,6 +73,11 @@ export function pulseRenderInteraction(source: string): void {
   endRenderInteraction(source);
 }
 
+/** An interaction (resize, zoom, window/level drag) is in progress or just ended. */
+export function renderInteractionActive(): boolean {
+  return reduced;
+}
+
 /** Called when the effective ratio changes (re-render the views). */
 export function subscribeRenderRatio(listener: () => void): () => void {
   listeners.add(listener);

@@ -13,6 +13,8 @@ import { useContextMenuStore } from '@/stores/contextMenuStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
+import { createElement, type ReactNode } from 'react';
+import { ColorbarGroupContext } from '@/components/views/viewportFrame/viewportFrameStore';
 
 /** QA 2026-10-31: with an atlas selected, the stat map's colorbar had no "Hide colorbar". */
 const open = () => {
@@ -25,6 +27,30 @@ const view = (id: string, layerMode: 'scalar' | 'label' = 'scalar') => ({
 });
 
 describe('view context menu colorbar toggle', () => {
+  it('in a group that names its layer (Studio pane A), toggles that layer, not the selected overlay', () => {
+    useLayerStore.setState({
+      layers: [
+        { id: 'anat', name: 'anat', volumeId: 'anat', type: 'volume', visible: true },
+        { id: 'member', name: 'member', volumeId: 'member', type: 'volume', visible: true },
+        { id: 'other', name: 'other', volumeId: 'other', type: 'volume', visible: true },
+      ] as never,
+      selectedLayerId: 'other',
+    });
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [view('anat'), view('member'), view('other')] as never;
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(ColorbarGroupContext.Provider, { value: { group: 'studio', describeLayerId: 'member' } }, children);
+    const { result } = renderHook(() => useViewContextMenu('coronal'), { wrapper });
+    result.current({ preventDefault() {}, stopPropagation() {}, clientX: 5, clientY: 5 } as React.MouseEvent<HTMLDivElement>);
+    const toggle = useContextMenuStore.getState().items.find((item) => item.id === 'toggle-colorbar');
+    expect(toggle?.label).toBe('Hide colorbar');
+    toggle!.onClick!();
+    expect(useDisplayOptionsStore.getState().getOptions('member').showColorbar).toBe(false);
+    expect(useDisplayOptionsStore.getState().getOptions('other').showColorbar).not.toBe(false);
+    useDisplayOptionsStore.getState().setOptions('member', { showColorbar: true });
+  });
+
   it('targets the shown overlay colorbar even with an atlas selected', () => {
     useLayerStore.setState({
       layers: [

@@ -1,6 +1,8 @@
 // --- Label outlines (shared by both masked slice shaders) ---
-// The including shader defines LayerData, frame, slice_features,
+// The including shader defines LayerData, SliceFeatureUbo, frame,
 // LAYER_MODE_LABEL, labelLutTexel and labelAtVoxel(layer, voxel) -> u32.
+// Outline settings arrive per layer as `params`, so every label layer draws
+// its own outline.
 //
 // Boundaries are drawn from fractional region membership, not from a binary
 // neighbour test, so a 1 mm staircase renders as a straight anti-aliased line:
@@ -23,22 +25,22 @@ fn labelOutlineTexel(layer: LayerData, label_id: u32) -> vec4<f32> {
     return labelLutTexel(layer.colormap_id, i32(min(label_id, 0x7fffffffu)));
 }
 
-fn labelOutlineColor(layer: LayerData, label_id: u32) -> vec4<f32> {
+fn labelOutlineColor(layer: LayerData, params: SliceFeatureUbo, label_id: u32) -> vec4<f32> {
     // outline_color_mode: 0 = uniform outline_color, 1 = the region's LUT colour.
     // LUT alpha multiplies the outline alpha so hidden regions stay hidden.
-    if (slice_features.outline_color_mode == 1u) {
+    if (params.outline_color_mode == 1u) {
         let texel = labelOutlineTexel(layer, label_id);
-        return vec4<f32>(texel.rgb, slice_features.outline_color.a * texel.a);
+        return vec4<f32>(texel.rgb, params.outline_color.a * texel.a);
     }
-    return slice_features.outline_color;
+    return params.outline_color;
 }
 
-fn labelHaloColor(layer: LayerData, label_id: u32) -> vec4<f32> {
-    var alpha = slice_features.halo_color.a;
-    if (slice_features.outline_color_mode == 1u) {
+fn labelHaloColor(layer: LayerData, params: SliceFeatureUbo, label_id: u32) -> vec4<f32> {
+    var alpha = params.halo_color.a;
+    if (params.outline_color_mode == 1u) {
         alpha = alpha * labelOutlineTexel(layer, label_id).a;
     }
-    return vec4<f32>(slice_features.halo_color.rgb, alpha);
+    return vec4<f32>(params.halo_color.rgb, alpha);
 }
 
 // Per-pixel mapping between the slice and the label volume's voxel grid.
@@ -163,7 +165,12 @@ struct LabelEdge {
 
 const NO_LABEL_EDGE: u32 = 0xffffffffu;
 
-fn labelCellEdge(layer: LayerData, basis: LabelBasis, cell: LabelCell) -> LabelEdge {
+fn labelCellEdge(
+    layer: LayerData,
+    params: SliceFeatureUbo,
+    basis: LabelBasis,
+    cell: LabelCell,
+) -> LabelEdge {
     var edge: LabelEdge;
     edge.d = 1e6;
     edge.label = NO_LABEL_EDGE;
@@ -173,14 +180,14 @@ fn labelCellEdge(layer: LayerData, basis: LabelBasis, cell: LabelCell) -> LabelE
     }
 
     // outline_mode: 0 = single selected label, 1 = all parcel boundaries.
-    if (slice_features.outline_mode == 1u) {
+    if (params.outline_mode == 1u) {
         // The nearest edge of a drawn region: background and hidden regions
         // (zero outline alpha) never claim a border, so a hidden region's
         // visible neighbour still outlines it. On a shared border both regions
         // are equidistant and the lower id colours the single line.
         for (var i = 0u; i < 4u; i = i + 1u) {
             let label = labels[i];
-            if (label == 0u || labelOutlineColor(layer, label).a <= 0.0) {
+            if (label == 0u || labelOutlineColor(layer, params, label).a <= 0.0) {
                 continue;
             }
             let d = abs(labelEdgeDistancePx(basis, cell, label));
@@ -192,7 +199,7 @@ fn labelCellEdge(layer: LayerData, basis: LabelBasis, cell: LabelCell) -> LabelE
         return edge;
     }
 
-    let selected = slice_features.selected_label_id;
+    let selected = params.selected_label_id;
     if (selected != 0u && any(labels == vec4<u32>(selected))) {
         edge.d = labelEdgeDistancePx(basis, cell, selected);
         edge.label = selected;
@@ -208,14 +215,15 @@ fn labelBandCoverage(d_px: f32, half_px: f32) -> f32 {
 // Outline over halo, each weighted by its coverage (straight alpha).
 fn labelOutlineComposite(
     layer: LayerData,
+    params: SliceFeatureUbo,
     label: u32,
     line_coverage: f32,
     halo_coverage: f32,
     fade: f32,
 ) -> vec4<f32> {
-    var line = labelOutlineColor(layer, label);
+    var line = labelOutlineColor(layer, params, label);
     line.a = line.a * line_coverage * fade;
-    var halo = labelHaloColor(layer, label);
+    var halo = labelHaloColor(layer, params, label);
     halo.a = halo.a * max(halo_coverage - line_coverage, 0.0) * fade;
     let alpha = line.a + halo.a * (1.0 - line.a);
     if (alpha <= 0.0) {
@@ -227,8 +235,8 @@ fn labelOutlineComposite(
 
 const LABEL_MAX_RINGS: u32 = 4u;
 
-fn sampleLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
-    if (slice_features.outline_enabled == 0u || layer.layer_mode != LAYER_MODE_LABEL) {
+fn sampleLabelOutline(layer: LayerData, params: SliceFeatureUbo, world_mm: vec3<f32>) -> vec4<f32> {
+    if (params.outline_enabled == 0u || layer.layer_mode != LAYER_MODE_LABEL) {
         return vec4<f32>(0.0);
     }
     let basis = labelBasisAt(layer, world_mm);
@@ -241,13 +249,13 @@ fn sampleLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
     // never thinner than one pixel. Below one pixel per voxel the line fades
     // so dense parcellations do not flood.
     let band_px = max(2.0 * basis.voxel_px, 1.0);
-    let width_px = clamp(slice_features.outline_thickness_px, 1.0, band_px);
-    let halo_px = clamp(slice_features.halo_thickness_px, 0.0, max(band_px - width_px, 0.0) * 0.5);
+    let width_px = clamp(params.outline_thickness_px, 1.0, band_px);
+    let halo_px = clamp(params.halo_thickness_px, 0.0, max(band_px - width_px, 0.0) * 0.5);
     let half_px = width_px * 0.5;
     let reach_px = half_px + halo_px + 0.5;
     let fade = clamp(basis.voxel_px, 0.35, 1.0);
 
-    let own = labelCellEdge(layer, basis, labelCellAt(layer, basis, basis.p));
+    let own = labelCellEdge(layer, params, basis, labelCellAt(layer, basis, basis.p));
     var label = own.label;
     var dist = abs(own.d);
 
@@ -269,7 +277,7 @@ fn sampleLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
                 let angle = f32(j) * 0.78539816;
                 let o = vec2<f32>(cos(angle), sin(angle)) * r;
                 let q = basis.p + o.x * basis.jx + o.y * basis.jy;
-                let edge = labelCellEdge(layer, basis, labelCellAt(layer, basis, q));
+                let edge = labelCellEdge(layer, params, basis, labelCellAt(layer, basis, q));
                 if (edge.label == NO_LABEL_EDGE) {
                     continue;
                 }
@@ -287,7 +295,7 @@ fn sampleLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
 
     let line = labelBandCoverage(dist, half_px);
     var halo = select(0.0, labelBandCoverage(dist, half_px + halo_px), halo_px > 0.0);
-    if (slice_features.outline_mode != 1u) {
+    if (params.outline_mode != 1u) {
         // Single label: the halo is a band just outside the selected region.
         var inside = labelAtVoxel(layer, vec3<i32>(floor(basis.p + 0.5))) == label;
         if (own.label != NO_LABEL_EDGE) {
@@ -297,5 +305,5 @@ fn sampleLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
             halo = 0.0;
         }
     }
-    return labelOutlineComposite(layer, label, line, halo, fade);
+    return labelOutlineComposite(layer, params, label, line, halo, fade);
 }

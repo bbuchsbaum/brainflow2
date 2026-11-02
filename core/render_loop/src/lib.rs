@@ -55,8 +55,17 @@ pub mod test_fixtures;
 
 // Re-export commonly used types from ubo module
 pub use ubo::{
-    CrosshairUbo, CrosshairUboUpdated, FrameUbo, LayerUboStd140, SliceFeatureUbo, ViewPlaneUbo,
+    CrosshairUbo, CrosshairUboUpdated, FrameUbo, LayerUboStd140, SliceFeatureBlock,
+    SliceFeatureUbo, ViewPlaneUbo,
 };
+/// The most layers the render state takes at once (`LayerStateManager`; the
+/// size of the legacy uniform path's `array<LayerUBO, 8>`). See
+/// [`RenderLoopService::render_layer_capacity`].
+pub const MAX_RENDER_LAYERS: usize = 8;
+
+// Every layer the render state can hold needs its own outline slot.
+const _: () = assert!(shader_contract::feature::MAX_OUTLINE_LAYERS >= MAX_RENDER_LAYERS);
+
 // Re-export render state types for external use
 pub use render_state::{BlendMode, LayerInfo, LayerMode, ThresholdMode};
 // Re-export slice adapter for GPU-CPU differential testing
@@ -685,7 +694,7 @@ impl RenderLoopService {
             });
         log::debug!("RenderLoopService: Crosshair UBO buffer created.");
 
-        let initial_slice_feature_data = SliceFeatureUbo::default();
+        let initial_slice_feature_data = SliceFeatureBlock::default();
         let slice_feature_ubo_buffer =
             device_arc.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Slice Feature UBO Buffer"),
@@ -771,7 +780,7 @@ impl RenderLoopService {
             slice_feature_bind_group,
             render_state: RenderState::new(),
             render_pass_manager: RenderPassManager::new(),
-            layer_state_manager: LayerStateManager::new(8), // Support up to 8 layers
+            layer_state_manager: LayerStateManager::new(MAX_RENDER_LAYERS),
             layer_uniform_manager: LayerUniformManager::new(&device_arc),
             texture_manager,
             multi_texture_manager, // Initialized for world-space rendering
@@ -1108,11 +1117,20 @@ impl RenderLoopService {
         }
     }
 
+    /// Sets the outline of the single layer named by `outline_layer_index`;
+    /// every other layer's outline is turned off.
     pub fn update_slice_feature_ubo(&self, features: SliceFeatureUbo) {
+        self.update_slice_features(&[features]);
+    }
+
+    /// Sets per-layer outlines: each entry applies to the visible layer named by
+    /// its `outline_layer_index`; layers without an entry draw no outline.
+    pub fn update_slice_features(&self, features: &[SliceFeatureUbo]) {
+        let block = SliceFeatureBlock::from_layers(features.iter().copied());
         self.queue.write_buffer(
             &self.slice_feature_ubo_buffer,
             0,
-            bytemuck::bytes_of(&features),
+            bytemuck::bytes_of(&block),
         );
     }
 

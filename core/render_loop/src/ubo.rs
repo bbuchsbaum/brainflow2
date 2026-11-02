@@ -206,7 +206,7 @@ impl Default for LayerUboStd140 {
 // and update this check.
 const _: [(); 176] = [(); std::mem::size_of::<LayerUboStd140>()];
 
-/// Sidecar feature uniforms for slice rendering.
+/// Sidecar feature uniforms for one composited slice layer.
 ///
 /// This is intentionally separate from `LayerUboStd140`: optional rendering
 /// capabilities such as selected-label outlines should not grow every layer's
@@ -216,6 +216,8 @@ const _: [(); 176] = [(); std::mem::size_of::<LayerUboStd140>()];
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct SliceFeatureUbo {
     pub outline_enabled: u32,
+    /// The visible layer (index into `layer_data`) these settings apply to;
+    /// selects this entry's slot in [`SliceFeatureBlock`].
     pub outline_layer_index: u32,
     pub selected_label_id: u32,
     /// 0 = outline the single `selected_label_id`; 1 = outline all parcel boundaries.
@@ -252,6 +254,49 @@ impl Default for SliceFeatureUbo {
 }
 
 const _: [(); 64] = [(); std::mem::size_of::<SliceFeatureUbo>()];
+
+/// Group-3 slice feature uniform: one [`SliceFeatureUbo`] per composited layer
+/// slot, so every label layer draws its own outline with its own settings.
+/// Slot `i` applies to the `i`-th visible layer in `layer_data`.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct SliceFeatureBlock {
+    pub layers: [SliceFeatureUbo; crate::shader_contract::feature::MAX_OUTLINE_LAYERS],
+}
+
+impl SliceFeatureBlock {
+    /// Places each entry in the slot named by its `outline_layer_index`; a
+    /// later entry for the same slot replaces an earlier one. Entries past the
+    /// last slot are dropped (that layer renders without an outline).
+    pub fn from_layers(features: impl IntoIterator<Item = SliceFeatureUbo>) -> Self {
+        let mut block = Self::default();
+        for feature in features {
+            match block.layers.get_mut(feature.outline_layer_index as usize) {
+                Some(slot) => *slot = feature,
+                None => log::warn!(
+                    "Outline for layer {} skipped: only {} layer slots have outline settings",
+                    feature.outline_layer_index,
+                    crate::shader_contract::feature::MAX_OUTLINE_LAYERS
+                ),
+            }
+        }
+        block
+    }
+}
+
+impl Default for SliceFeatureBlock {
+    fn default() -> Self {
+        let mut layers =
+            [SliceFeatureUbo::default(); crate::shader_contract::feature::MAX_OUTLINE_LAYERS];
+        for (index, slot) in layers.iter_mut().enumerate() {
+            slot.outline_layer_index = index as u32;
+        }
+        Self { layers }
+    }
+}
+
+const _: [(); 64 * crate::shader_contract::feature::MAX_OUTLINE_LAYERS] =
+    [(); std::mem::size_of::<SliceFeatureBlock>()];
 
 // --- Optimized layer data struct for performance shader ---
 // This struct includes precomputed values to reduce per-pixel calculations

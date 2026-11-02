@@ -7,6 +7,9 @@ import { LayerService, initializeLayerService, getLayerService, type LayerApi } 
 import { getEventBus } from '@/events/EventBus';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import { GpuSlotsFullError } from '@/utils/formatTauriError';
+import { getSceneHistory, setLayerVisibleByUser } from '../SceneHistoryService';
 
 // Mock EventBus with default implementation to prevent undefined errors at module initialization
 vi.mock('@/events/EventBus', () => ({
@@ -233,6 +236,130 @@ describe('LayerService', () => {
       expect(payload.layerId).toBe('layer1');
       expect(payload.error).toBeInstanceOf(Error);
       expect(payload.error.message).toBe('Failed to update layer opacity: Layer 3 not found');
+    });
+  });
+
+  // QA 2026-10-31 N18: a show the GPU refuses is undone and explained, so
+  // no layer stays "visible" without GPU resources.
+  describe('a show refused for GPU slots', () => {
+    const seed = () => {
+      useLayerStore.setState({ layers: [{ ...mockLayer, name: 'toy_t1w', visible: false }] as never });
+      useViewStateStore.getState().setViewState((state) => {
+        state.layers = [{ id: 'layer1', visible: false, opacity: 1 } as never];
+      });
+    };
+    const shownInStores = () => ({
+      store: useLayerStore.getState().getLayer('layer1')?.visible,
+      view: useViewStateStore.getState().viewState.layers.find((l) => l.id === 'layer1')?.visible,
+    });
+
+    it('reverts the toggle and shows the slots-full message once', async () => {
+      seed();
+      mockApi.updateLayer = vi.fn().mockRejectedValue(new GpuSlotsFullError(8));
+      layerService.toggleVisibility('layer1', true);
+      expect(shownInStores()).toEqual({ store: true, view: true });
+      await vi.waitFor(() => expect(shownInStores()).toEqual({ store: false, view: false }));
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
+        type: 'error',
+        message:
+          'Cannot show toy_t1w: GPU texture slots full (all 8 in use). Hide or remove a layer, then load again.',
+        logSource: 'layer',
+      });
+      expect(mockEventBus.emit).toHaveBeenCalledWith('layer.visibility', {
+        layerId: 'layer1',
+        visible: false,
+      });
+      expect(mockEventBus.emit).not.toHaveBeenCalledWith('layer.error', expect.anything());
+    });
+
+    it('recognises the backend refusal too', async () => {
+      seed();
+      mockApi.updateLayer = vi.fn().mockRejectedValue({
+        Internal: { code: 1885, details: 'Failed to add layer: Maximum layer count 8 reached' },
+      });
+      layerService.toggleVisibility('layer1', true);
+      await vi.waitFor(() => expect(shownInStores()).toEqual({ store: false, view: false }));
+    });
+
+    it('leaves a later toggle alone', async () => {
+      seed();
+      let reject!: (error: unknown) => void;
+      mockApi.updateLayer = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise((_, r) => (reject = r)))
+        .mockResolvedValue(mockLayer);
+      layerService.toggleVisibility('layer1', true);
+      layerService.toggleVisibility('layer1', false);
+      layerService.toggleVisibility('layer1', true);
+      reject(new GpuSlotsFullError(8));
+      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
+      // Superseded: no revert and no toast for the stale request.
+      expect(mockEventBus.emit).not.toHaveBeenCalledWith('ui.notification', expect.anything());
+      expect(shownInStores()).toEqual({ store: true, view: true });
+    });
+
+    // N18 review: the refused show must not leave an undo step that does nothing.
+    it('leaves no undo step behind', async () => {
+      seed();
+      initializeLayerService(mockApi);
+      getSceneHistory().clear();
+      mockApi.updateLayer = vi.fn().mockRejectedValue(new GpuSlotsFullError(8));
+      setLayerVisibleByUser('layer1', true);
+      expect(getSceneHistory().canUndo()).toBe(true);
+      await vi.waitFor(() => expect(shownInStores()).toEqual({ store: false, view: false }));
+      expect(getSceneHistory().canUndo()).toBe(false);
+    });
+
+    it('keeps the shows of a Show all that went through', async () => {
+      useLayerStore.setState({
+        layers: [
+          { ...mockLayer, name: 'toy_t1w', visible: false },
+          { ...mockLayer, id: 'layer2', name: 'zstat1', visible: false },
+        ] as never,
+      });
+      useViewStateStore.getState().setViewState((state) => {
+        state.layers = [
+          { id: 'layer1', visible: false, opacity: 1 } as never,
+          { id: 'layer2', visible: false, opacity: 1 } as never,
+        ];
+      });
+      initializeLayerService(mockApi);
+      getSceneHistory().clear();
+      mockApi.updateLayer = vi.fn((id: string) =>
+        id === 'layer1' ? Promise.reject(new GpuSlotsFullError(8)) : Promise.resolve(mockLayer),
+      );
+      getSceneHistory().record('showAll', 'Show all layers', () => {
+        getLayerService().toggleVisibility('layer1', true);
+        getLayerService().toggleVisibility('layer2', true);
+      });
+      await vi.waitFor(() => expect(shownInStores()).toEqual({ store: false, view: false }));
+      const steps = getSceneHistory().steps().undo;
+      expect(steps).toHaveLength(1);
+      const step = steps[0] as { changes: Array<{ layerId: string }> };
+      expect(step.changes.map((c) => c.layerId)).toEqual(['layer2']);
+    });
+
+    // A show in a tab behind the front one (undo replay there) takes the
+    // same guard, and is undone in that tab.
+    it('guards and reverts a show in a tab behind the front one', async () => {
+      seed();
+      const store = useViewStateStore.getState();
+      const behindState = structuredClone(store.viewState);
+      behindState.layers = [{ id: 'layer1', visible: false, opacity: 1 } as never];
+      useViewStateStore.setState({
+        workspaceViewStates: new Map([...store.workspaceViewStates, ['ws-behind', behindState]]),
+      });
+      mockApi.loadLayerData = vi.fn().mockRejectedValue(new GpuSlotsFullError(8));
+      layerService.toggleVisibility('layer1', true, 'ws-behind');
+      const behind = () =>
+        useViewStateStore.getState().getWorkspaceViewState('ws-behind').layers.find((l) => l.id === 'layer1')
+          ?.visible;
+      expect(behind()).toBe(true);
+      expect(mockApi.updateLayer).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(behind()).toBe(false));
+      expect(mockApi.loadLayerData).toHaveBeenCalledWith('layer1');
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', expect.objectContaining({ type: 'error' }));
     });
   });
 

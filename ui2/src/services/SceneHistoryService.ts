@@ -219,6 +219,34 @@ export class SceneHistoryService {
     return new Map((state?.layers ?? []).map((l) => [l.id, pick(l)]));
   }
 
+  /** Whether a step is being applied (undo / redo): edits now are not recorded. */
+  isReplaying(): boolean {
+    return this.replaying;
+  }
+
+  /**
+   * Drop a show of `layerId` that was refused (GPU slots full; QA 2026-10-31
+   * N18) from the newest step of `workspaceId`: the toggle was undone, so an
+   * undo step that would "hide" the already hidden layer must not remain. A
+   * step left with nothing is removed (a Show all keeps its other layers).
+   */
+  forgetShow(workspaceId: string, layerId: string): void {
+    const h = this.histories.get(workspaceId);
+    const top = h?.undo[h.undo.length - 1];
+    if (!h || top?.kind !== 'display') return;
+    const change = top.changes.find((c) => c.layerId === layerId);
+    if (!change || change.after.visible !== true) return;
+    delete change.before.visible;
+    delete change.after.visible;
+    // The opacity a show restored for a zeroed layer goes with it.
+    if (Object.keys(change.after).length === 1 && 'opacity' in change.after && change.before.opacity === 0) {
+      delete change.before.opacity;
+      delete change.after.opacity;
+    }
+    top.changes = top.changes.filter((c) => Object.keys(c.after).length > 0);
+    if (top.changes.length === 0 && !top.overrides) h.undo.pop();
+  }
+
   /** The layer being restored by an undo still loading, else null. */
   restoringName(): string | null {
     return this.busy ? this.restoring : null;
@@ -538,14 +566,13 @@ export class SceneHistoryService {
       for (const change of live) {
         const values = direction === 'undo' ? change.before : change.after;
         if (values.visible === undefined) continue;
-        if (active) getLayerService().toggleVisibility(change.layerId, values.visible);
-        else {
-          views.setViewState((draft) => {
-            const target = draft.layers.find((l) => l.id === change.layerId);
-            if (target) target.visible = values.visible!;
-          }, workspaceId);
-          useLayerStore.getState().updateLayer(change.layerId, { visible: values.visible });
-        }
+        // A tab behind the front one too: a show there still needs a GPU
+        // slot, and is undone when none can be had (N18).
+        getLayerService().toggleVisibility(
+          change.layerId,
+          values.visible,
+          active ? undefined : workspaceId,
+        );
       }
     } finally {
       this.replaying = false;

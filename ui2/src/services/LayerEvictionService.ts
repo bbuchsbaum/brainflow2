@@ -118,15 +118,77 @@ class LayerEvictionService {
    * least-recently-rendered invisible layer is released first. Call it
    * before every GPU request that takes a slot (a new layer, a promoted
    * layer, a Set studio map). `uploadingLayerId` is never evicted.
+   *
+   * Resolves whether a slot is free afterwards: false when every slot holds
+   * a layer shown in some workspace (or the eviction service cannot release
+   * one), so the caller can refuse instead of overfilling the GPU.
+   *
+   * - `reserve`: hold the slot for `uploadingLayerId` until
+   *   {@link releaseReservation}, so uploads running at once (Show all) each
+   *   count the others' slots (QA 2026-10-31 N18 review).
+   * - `counted`: the upload is already in the count (a Set studio map is
+   *   counted by `liveCount` from its acquire), so the budget may be met.
+   *
+   * Calls run one at a time: two never pick the same layer to evict.
    */
-  async makeRoomForUpload(uploadingLayerId?: string): Promise<void> {
+  makeRoomForUpload(
+    uploadingLayerId?: string,
+    options: { reserve?: boolean; counted?: boolean } = {},
+  ): Promise<boolean> {
+    const run = this.roomQueue.then(() => this.makeRoomNow(uploadingLayerId, options));
+    this.roomQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private roomQueue: Promise<void> = Promise.resolve();
+  /** Layers holding a slot for an upload still in flight. */
+  private readonly reserved = new Set<string>();
+
+  private async makeRoomNow(
+    uploadingLayerId: string | undefined,
+    options: { reserve?: boolean; counted?: boolean },
+  ): Promise<boolean> {
     const budget = await this.gpuTextureSlots();
+    const full = (used: number) => (options.counted ? used > budget : used >= budget);
     // Free slots one at a time until the upload fits or nothing can go
     // (bounded: each pass evicts a different layer).
     for (let pass = 0; pass < budget + 1; pass += 1) {
-      const evicted = await this.evictOneIf((used) => used >= budget, uploadingLayerId);
-      if (!evicted) return;
+      const evicted = await this.evictOneIf(full, uploadingLayerId);
+      if (!evicted) break;
     }
+    // Checked and reserved together, after the last await.
+    const room = !full(this.slotsInUse(uploadingLayerId));
+    if (room && options.reserve && uploadingLayerId) this.reserved.add(uploadingLayerId);
+    return room;
+  }
+
+  /** The upload of `layerId` is over (resident now, or failed): its slot is no longer held. */
+  releaseReservation(layerId: string): void {
+    this.reserved.delete(layerId);
+  }
+
+  /**
+   * GPU slots held now: resident layers, reserved uploads and Set studio maps
+   * (`exceptLayerId` is not counted, the layer about to take one).
+   */
+  slotsInUse(exceptLayerId?: string): number {
+    const { layers, layerMetadata } = useLayerStore.getState();
+    const held = new Set<string>();
+    for (const l of layers) {
+      if (layerMetadata.get(l.id)?.gpuResident !== false) held.add(l.id);
+    }
+    for (const id of this.reserved) held.add(id);
+    if (exceptLayerId) held.delete(exceptLayerId);
+    return held.size + getStudioDerivedMapService().liveCount();
+  }
+
+  /** Test hook: forget reservations. */
+  resetReservationsForTests(): void {
+    this.reserved.clear();
+    this.roomQueue = Promise.resolve();
   }
 
   /**
@@ -151,8 +213,9 @@ class LayerEvictionService {
     const activeGpuLayers = layers.filter((l) => layerMetadata.get(l.id)?.gpuResident !== false);
 
     // Set studio Compare maps take texture slots too, outside the layer
-    // store (StudioDerivedMapService; QA wave 3 review W1).
-    if (!over(activeGpuLayers.length + getStudioDerivedMapService().liveCount())) return false;
+    // store (StudioDerivedMapService; QA wave 3 review W1), and so do
+    // reserved uploads (slotsInUse).
+    if (!over(this.slotsInUse())) return false;
 
     // Candidates: GPU-resident layers hidden in every workspace. A layer shown
     // in a tab behind the front one (an Orthogonal tab while Set studio is in

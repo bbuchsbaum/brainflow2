@@ -16,6 +16,7 @@ import {
   type StudioPanePlane,
 } from '@/services/studio/StudioPaneRenderService';
 import { useAppModeStore } from '@/stores/appModeStore';
+import { useRenderStateStore } from '@/stores/renderStateStore';
 import { useStudioMapSliceKeys } from '@/hooks/useStudioMapSliceKeys';
 import { populationSliceActions } from '@/services/studio/PopulationSliceService';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
@@ -24,6 +25,9 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { ViewPlane } from '@/types/coordinates';
 import { buildActiveCrosshairStyle } from '@/utils/crosshairUtils';
+
+/** How long a pane keeps its cached bitmap waiting for its anatomy on return (N29). */
+const ANATOMY_WAIT_MS = 1500;
 
 /**
  * Body of a derived Compare pane (B–D): the materialized map itself, held
@@ -88,18 +92,24 @@ export function StudioDerivedPaneCanvas({
   }, [sourcePath, studioActive]);
 
   // The anatomy is optional: a pane without it still shows its map.
+  // `anatomySettled`: its load finished (or failed), or there is none.
   const [anatomy, setAnatomy] = useState<StudioDerivedMap | null>(null);
+  const [anatomySettled, setAnatomySettled] = useState(true);
   useEffect(() => {
     setAnatomy(null);
+    setAnatomySettled(!underlayPath);
     if (!studioActive || !underlayPath) return;
     let alive = true;
     const hold = getStudioDerivedMapService().acquire(underlayPath);
     hold.map.then(
       (loaded) => {
-        if (alive) setAnatomy(loaded);
+        if (!alive) return;
+        setAnatomy(loaded);
+        setAnatomySettled(true);
       },
       (error) => {
         console.warn(`[StudioDerivedPaneCanvas] No anatomy under ${paneId}:`, error);
+        if (alive) setAnatomySettled(true);
       },
     );
     return () => {
@@ -143,16 +153,51 @@ export function StudioDerivedPaneCanvas({
   const tag = studioPaneTag(paneId, plane);
   // The plane last drawn, with the tag it was drawn for: after a plane
   // switch, clicks, the crosshair and ↑/↓ wait for the new plane's render
-  // instead of using the old one (review of 456128a2).
-  const [drawn, setDrawn] = useState<{ tag: string; plane: ViewPlane } | null>(null);
+  // instead of using the old one (review of 456128a2). `source` and
+  // `withAnatomy` say what that bitmap shows.
+  const [drawn, setDrawn] = useState<{
+    tag: string;
+    plane: ViewPlane;
+    source: string;
+    withAnatomy: boolean;
+    crosshair: readonly [number, number, number];
+    timepoint: number | undefined;
+  } | null>(null);
   const viewPlane = drawn && drawn.tag === tag ? drawn.plane : null;
+  // Back in the Studio, the maps and their anatomy are acquired again (they
+  // were given up on leaving, review M1); the map usually returns first. The
+  // pane keeps showing its last bitmap of this map over the anatomy until the
+  // anatomy is back (at most ANATOMY_WAIT_MS), instead of the map over black
+  // (QA run 5 N29). Only while that bitmap still shows this slice: a moved
+  // crosshair or frame draws the map at once.
+  const hasBitmap = useRenderStateStore((state) => !!state.states[tag]?.lastImage);
+  const cached =
+    hasBitmap &&
+    !!drawn &&
+    drawn.tag === tag &&
+    drawn.source === sourcePath &&
+    (drawn.withAnatomy || !underlayPath) &&
+    drawn.timepoint === timepoint &&
+    drawn.crosshair.every((v, i) => v === crosshairWorld[i]);
+  const holdForAnatomy = cached && !anatomySettled;
+  // An anatomy that never settles cannot freeze the pane.
+  useEffect(() => {
+    if (!holdForAnatomy) return;
+    const timer = setTimeout(() => setAnatomySettled(true), ANATOMY_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [holdForAnatomy]);
   useEffect(() => {
     if (!studioActive || !map || !layer || size.width <= 0 || size.height <= 0) return;
+    if (holdForAnatomy) return;
     let alive = true;
+    const source = sourcePath;
+    const withAnatomy = layers.length > 1;
+    const crosshair = crosshairWorld;
+    const frame = timepoint;
     scheduleStudioPaneRender(
       { tag, workspaceId, map, layers, plane, width: size.width, height: size.height },
       (plane) => {
-        if (alive) setDrawn({ tag, plane });
+        if (alive) setDrawn({ tag, plane, source, withAnatomy, crosshair, timepoint: frame });
       },
     );
     return () => {
@@ -170,6 +215,8 @@ export function StudioDerivedPaneCanvas({
     timepoint,
     tag,
     plane,
+    holdForAnatomy,
+    sourcePath,
   ]);
   // ↑/↓ over (or with focus in) the pane step its slice (N9).
   useStudioMapSliceKeys(
@@ -212,7 +259,9 @@ export function StudioDerivedPaneCanvas({
   // Radiological convention: axial/coronal drawn mirrored by the shared
   // SliceViewport; clicks and the crosshair map through its placement.
   const mirrorX = useMirrorsView(plane);
-  const ready = studioActive && !!map && size.width > 0 && size.height > 0;
+  // A failed re-acquire (e.g. GPU slots full on return) says so; a cached
+  // bitmap never hides it.
+  const ready = studioActive && !failure && (!!map || cached) && size.width > 0 && size.height > 0;
   return (
     <div ref={host} className="absolute inset-0" data-testid={`studio-derived-pane-${paneId}`}>
       {ready ? (

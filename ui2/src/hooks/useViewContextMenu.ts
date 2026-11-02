@@ -15,12 +15,16 @@ import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { currentOverlayColorbarLayerId } from '@/components/views/viewportFrame/useOverlayColorbar';
+import { useColorbarGroup } from '@/components/views/viewportFrame/viewportFrameStore';
 import { useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 import { fitView } from '@/services/ViewZoomService';
 import type { ViewType } from '@/types/coordinates';
 
 export function useViewContextMenu(contextId: string) {
   const markActive = useActiveRenderable(contextId);
+  // A view whose colorbar group names its layer (Studio Compare pane A: the
+  // member) toggles that layer's colorbar, the one it shows.
+  const { describeLayerId } = useColorbarGroup();
 
   return useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -41,8 +45,9 @@ export function useViewContextMenu(contextId: string) {
         : true;
 
       // Colorbar toggle for the colorbar the view shows: the same layer as
-      // useOverlayColorbar (active layer, topmost overlay, run-group base).
-      const colorbarLayerId = currentOverlayColorbarLayerId();
+      // useOverlayColorbar (the group's layer, else the active layer, topmost
+      // overlay, run-group base).
+      const colorbarLayerId = describeLayerId ?? currentOverlayColorbarLayerId();
       const colorbarOn = colorbarLayerId
         ? useDisplayOptionsStore.getState().getOptions(colorbarLayerId).showColorbar !== false
         : false;
@@ -98,7 +103,7 @@ export function useViewContextMenu(contextId: string) {
         }
       ]);
     },
-    [contextId, markActive]
+    [contextId, markActive, describeLayerId]
   );
 }
 

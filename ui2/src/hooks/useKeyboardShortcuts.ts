@@ -246,7 +246,7 @@ export function useKeyboardShortcuts() {
         description: "Show/hide the bottom dock",
         handler: () => {
           const settings = useLayoutSettingsStore.getState();
-          const willOpen = !settings.bottomDockOpen;
+          const willOpen = !settings.isBottomDockOpen();
           settings.toggleBottomDock();
           getEventBus().emit("ui.notification", {
             type: "info",

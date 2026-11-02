@@ -106,7 +106,8 @@ function captureViewState(): SavedViewState {
   return {
     workspaceType: active && currentTabTakesLayout() ? active.type : null,
     dock: {
-      open: settings.bottomDockOpen,
+      // A saved layout carries the imaging views' dock (its height too).
+      open: settings.isBottomDockOpen('imaging'),
       minimized: settings.bottomDockMinimized,
       activeTab: settings.bottomDockActiveTab,
       height: settings.bottomDockHeights.imaging ?? null,
@@ -120,10 +121,10 @@ function applyViewState(view: SavedViewState): void {
     setCurrentTabLayout(view.workspaceType);
   }
   const settings = useLayoutSettingsStore.getState();
-  settings.setBottomDockOpen(view.dock.open);
+  settings.setBottomDockOpen(view.dock.open, 'imaging');
   settings.setBottomDockMinimized(view.dock.minimized);
   if (view.dock.activeTab) settings.setBottomDockActiveTab(view.dock.activeTab);
-  if (view.dock.height !== null) settings.setBottomDockHeight(view.dock.height);
+  if (view.dock.height !== null) settings.setBottomDockHeight(view.dock.height, 'imaging');
 }
 
 function parsePayload(raw: string | null): LayoutLibraryPayload {

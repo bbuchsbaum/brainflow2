@@ -55,6 +55,7 @@ export function CompareSharedColorbar({
             right: -12,
             bottom: Math.min(height, VIRTUAL_IMAGE_PX),
           }}
+          paneChrome={false}
           value={reading?.value ?? null}
         />
       ) : null}

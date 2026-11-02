@@ -1412,6 +1412,36 @@ pub struct BridgeState {
     // uploaded at once so a member change is a `texture_index` swap instead of a
     // CPU extract + full GPU re-upload. Keyed by UI layer id; absent => no ring.
     pub resident_image_sets: Arc<Mutex<HashMap<String, image_set::ResidentImageSet>>>,
+    // Visible layers frames leave out (QA 2026-10-31 N18), by UI layer id:
+    // each is warned about once, and a failed on-demand allocation is not
+    // retried every frame. A request or release of the layer clears it.
+    render_skipped_layers: Arc<Mutex<HashMap<String, RenderSkip>>>,
+}
+
+/// Why a frame left a visible layer out (see `render_skipped_layers`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderSkip {
+    /// The frame already held the render state's layer cap.
+    OverCap,
+    /// Its GPU resources could not be allocated; not retried until the
+    /// layer is requested or released again.
+    AllocationFailed,
+}
+
+/// Note that a frame left `layer_id` out: a warning the first time, a debug
+/// line while it stays out for the same reason.
+async fn note_render_skip(
+    bridge_state: &BridgeState,
+    layer_id: &str,
+    reason: RenderSkip,
+    detail: &str,
+) {
+    let mut skipped = bridge_state.render_skipped_layers.lock().await;
+    if skipped.insert(layer_id.to_string(), reason) == Some(reason) {
+        debug!("Layer {} still skipped: {}", layer_id, detail);
+    } else {
+        warn!("Layer {} skipped: {}", layer_id, detail);
+    }
 }
 
 impl BridgeState {
@@ -1449,6 +1479,7 @@ impl BridgeState {
             population_slice: population_slice::PopulationSliceEngine::default(),
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
             resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
+            render_skipped_layers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -3845,6 +3876,12 @@ async fn request_layer_gpu_resources_with_upload_hook(
         LayerSpec::Volume(vol_spec) => {
             let source_volume_id = vol_spec.source_resource_id.clone();
             let ui_layer_id = vol_spec.id.clone();
+            // Its residency changes: a frame may try the layer again (N18).
+            state
+                .render_skipped_layers
+                .lock()
+                .await
+                .remove(&ui_layer_id);
             let metadata_only_flag = metadata_only.unwrap_or(false);
             if !metadata_only_flag
                 && state
@@ -4788,6 +4825,11 @@ async fn release_layer_gpu_resources_internal(
         "Bridge: release_layer_gpu_resources called for layer {}",
         layer_id
     );
+    bridge_state
+        .render_skipped_layers
+        .lock()
+        .await
+        .remove(&layer_id);
 
     // Prefer the RAII-managed lease path when available.
     if let Some(lease) = {
@@ -8252,7 +8294,30 @@ fn default_outline_thickness_px() -> f32 {
 #[derive(Debug, Clone)]
 struct PreparedFrontendLayers {
     backend_layers: Vec<render_loop::view_state::LayerConfig>,
+    /// Index in `frontend_state.layers` of each backend layer, in the same
+    /// order; skipped layers are absent, so per-layer slice features follow
+    /// the drawn layers.
+    drawn_frontend_indices: Vec<usize>,
     processing_time: std::time::Duration,
+}
+
+impl PreparedFrontendLayers {
+    /// The frontend layers drawn as `backend_layers`, in the same order.
+    fn drawn_frontend_layers<'a>(
+        &'a self,
+        frontend_state: &'a FrontendViewState,
+    ) -> impl Iterator<Item = &'a LayerState> {
+        self.drawn_frontend_indices
+            .iter()
+            .filter_map(|&index| frontend_state.layers.get(index))
+    }
+}
+
+/// A backend layer paired with the frontend layer it draws, so the two lists
+/// in [`PreparedFrontendLayers`] are split from one and cannot drift.
+struct DrawnLayer {
+    config: render_loop::view_state::LayerConfig,
+    frontend_index: usize,
 }
 
 async fn prepare_frontend_layers_for_render(
@@ -8260,7 +8325,7 @@ async fn prepare_frontend_layers_for_render(
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
 ) -> BridgeResult<PreparedFrontendLayers> {
-    let mut backend_layers = Vec::new();
+    let mut drawn: Vec<DrawnLayer> = Vec::new();
     {
         let layer_map = bridge_state.layer_to_atlas_map.lock().await;
         debug!("Current layer_to_atlas_map contents:");
@@ -8270,7 +8335,7 @@ async fn prepare_frontend_layers_for_render(
     }
 
     let layer_processing_start = std::time::Instant::now();
-    for layer in &frontend_state.layers {
+    for (frontend_index, layer) in frontend_state.layers.iter().enumerate() {
         debug!("🔍 DEBUG: render_frontend_view_with_diagnostics - Processing layer:");
         debug!("  - Layer ID: '{}'", layer.id);
         debug!("  - Volume ID: '{}'", layer.volume_id);
@@ -8288,6 +8353,16 @@ async fn prepare_frontend_layers_for_render(
                 "  Layer passes visibility check (visible={}, opacity={})",
                 layer.visible, layer.opacity
             );
+            // The render state takes at most `render_layer_capacity` layers; a
+            // frame with one more fails whole and every view goes black (QA
+            // 2026-10-31 N18). Draw the bottom ones and skip the rest.
+            let layer_cap = service.render_layer_capacity() as usize;
+            if drawn.len() >= layer_cap {
+                let detail =
+                    format!("the frame already holds the render state's {layer_cap} layers");
+                note_render_skip(bridge_state, &layer.id, RenderSkip::OverCap, &detail).await;
+                continue;
+            }
             let _atlas_idx = {
                 let (requires_timepoint, requested_render_timepoint) =
                     resolve_requested_render_timepoint(
@@ -8352,24 +8427,53 @@ async fn prepare_frontend_layers_for_render(
                                     "Re-uploading 4D layer '{}' because cached timepoint {:?} does not match requested {:?}",
                                     layer.id, cached_timepoint, requested_render_timepoint
                                 );
-                                invalidate_cached_layer_for_render(
+                                // A re-upload that fails leaves this layer out of
+                                // the frame, not the frame failed (N18).
+                                if let Err(error) = invalidate_cached_layer_for_render(
                                     &layer.id,
                                     idx,
                                     bridge_state,
                                     service,
                                     "render_timepoint_changed",
                                 )
-                                .await?;
+                                .await
+                                {
+                                    let detail = format!(
+                                        "could not release its previous timepoint: {error:?}"
+                                    );
+                                    note_render_skip(
+                                        bridge_state,
+                                        &layer.id,
+                                        RenderSkip::AllocationFailed,
+                                        &detail,
+                                    )
+                                    .await;
+                                    continue;
+                                }
 
                                 let gpu_alloc_start = std::time::Instant::now();
-                                let gpu_info = allocate_gpu_resources_for_layer(
+                                let gpu_info = match allocate_gpu_resources_for_layer(
                                     &layer.id,
                                     &layer.volume_id,
                                     bridge_state,
                                     service,
                                     requested_render_timepoint,
                                 )
-                                .await?;
+                                .await
+                                {
+                                    Ok(info) => info,
+                                    Err(error) => {
+                                        let detail = format!("could not re-upload the requested timepoint: {error:?}");
+                                        note_render_skip(
+                                            bridge_state,
+                                            &layer.id,
+                                            RenderSkip::AllocationFailed,
+                                            &detail,
+                                        )
+                                        .await;
+                                        continue;
+                                    }
+                                };
                                 let gpu_alloc_time = gpu_alloc_start.elapsed();
                                 debug!(
                                     "⏱️  GPU resource re-allocation after timepoint change took: {:?}",
@@ -8409,15 +8513,48 @@ async fn prepare_frontend_layers_for_render(
                         layer.id, layer.volume_id
                     );
 
+                    // A layer that cannot get GPU resources (slots full, volume
+                    // gone) is left out of this frame rather than failing it:
+                    // one over-budget layer must not blank the others (N18).
+                    // After one failure it is not retried every frame, only
+                    // once the layer is requested or released again.
+                    let failed_before = bridge_state
+                        .render_skipped_layers
+                        .lock()
+                        .await
+                        .get(&layer.id)
+                        .copied()
+                        == Some(RenderSkip::AllocationFailed);
+                    if failed_before {
+                        debug!(
+                            "Layer {} still skipped: its GPU allocation failed",
+                            layer.id
+                        );
+                        continue;
+                    }
                     let gpu_alloc_start = std::time::Instant::now();
-                    let gpu_info = allocate_gpu_resources_for_layer(
+                    let gpu_info = match allocate_gpu_resources_for_layer(
                         &layer.id,
                         &layer.volume_id,
                         bridge_state,
                         service,
                         requested_render_timepoint,
                     )
-                    .await?;
+                    .await
+                    {
+                        Ok(info) => info,
+                        Err(error) => {
+                            let detail = format!("could not allocate GPU resources: {error:?}");
+                            note_render_skip(
+                                bridge_state,
+                                &layer.id,
+                                RenderSkip::AllocationFailed,
+                                &detail,
+                            )
+                            .await;
+                            continue;
+                        }
+                    };
                     let gpu_alloc_time = gpu_alloc_start.elapsed();
                     debug!("⏱️  GPU resource allocation took: {:?}", gpu_alloc_time);
 
@@ -8481,7 +8618,17 @@ async fn prepare_frontend_layers_for_render(
                 backend_layer.intensity_window.1
             );
 
-            backend_layers.push(backend_layer);
+            // Drawn again: a later skip for the cap is news worth a warning.
+            {
+                let mut skipped = bridge_state.render_skipped_layers.lock().await;
+                if skipped.get(&layer.id) == Some(&RenderSkip::OverCap) {
+                    skipped.remove(&layer.id);
+                }
+            }
+            drawn.push(DrawnLayer {
+                config: backend_layer,
+                frontend_index,
+            });
         } else {
             info!(
                 "  Layer skipped: visible={}, opacity={} (requires visible=true and opacity>0)",
@@ -8490,13 +8637,15 @@ async fn prepare_frontend_layers_for_render(
         }
     }
 
-    info!(
-        "Created {} backend layers for rendering",
-        backend_layers.len()
-    );
+    info!("Created {} backend layers for rendering", drawn.len());
 
+    let (backend_layers, drawn_frontend_indices) = drawn
+        .into_iter()
+        .map(|layer| (layer.config, layer.frontend_index))
+        .unzip();
     Ok(PreparedFrontendLayers {
         backend_layers,
+        drawn_frontend_indices,
         processing_time: layer_processing_start.elapsed(),
     })
 }
@@ -8670,8 +8819,8 @@ async fn submit_frontend_view_with_diagnostics(
     info!("⏱️  Layer processing took: {:?}", layer_processing_time);
 
     let render_start = std::time::Instant::now();
-    service.update_slice_feature_ubo(render_bridge_adapter::slice_features_from_frontend_layers(
-        &frontend_state.layers,
+    service.update_slice_features(&render_bridge_adapter::slice_features_for_drawn_layers(
+        prepared_layers.drawn_frontend_layers(frontend_state),
     ));
     let frame_submission = service
         .submit_frame_with_options(
@@ -15578,6 +15727,97 @@ mod tests {
             "/data/brain.nii.gz",
             &unknown_mtime
         ));
+    }
+
+    fn sendable_f32_volume(dims: [usize; 3], value_at: impl Fn(usize) -> f32) -> VolumeSendable {
+        let space = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            dims.to_vec(),
+            vec![1.0, 1.0, 1.0],
+            vec![0.0, 0.0, 0.0],
+        )
+        .expect("neurospace");
+        let data = (0..dims.iter().product::<usize>()).map(value_at).collect();
+        VolumeSendable::VolF32(
+            DenseVolume3::<f32>::from_data(NeuroSpace3::new(space).0, data),
+            Affine3::<f32>::identity(),
+        )
+    }
+
+    #[tokio::test]
+    async fn skipped_layer_keeps_drawn_layers_and_outline_slots_aligned() {
+        // N18 skips a layer whose GPU allocation fails; N20 routes each label
+        // layer's outline to its slot among the drawn layers. A skipped middle
+        // layer must not shift the top atlas's outline onto the wrong slot.
+        let state = BridgeState::default().expect("bridge state");
+        let mut service = RenderLoopService::new().await.expect("render-loop service");
+        let too_wide = service.device.limits().max_texture_dimension_3d as usize + 1;
+        for (layer_id, volume_id, volume) in [
+            (
+                "bottom",
+                "vol-bottom",
+                sendable_f32_volume([4, 4, 4], |i| i as f32),
+            ),
+            // Wider than the device allows: its upload fails, so it is skipped.
+            (
+                "too-wide",
+                "vol-too-wide",
+                sendable_f32_volume([too_wide, 1, 1], |_| 1.0),
+            ),
+            (
+                "atlas",
+                "vol-atlas",
+                sendable_f32_volume([4, 4, 4], |i| (i % 2) as f32 + 1.0),
+            ),
+        ] {
+            register_volume_and_layer(
+                &state,
+                layer_id,
+                volume_id,
+                volume,
+                volume_metadata_for(volume_id, "f32", bridge_types::VolumeType::Volume3D),
+            )
+            .await;
+        }
+
+        let layer = |id: &str, extra: &str| {
+            format!(
+                r#"{{"id": "{id}", "volumeId": "vol-{id}", "visible": true, "opacity": 1.0,
+                    "colormap": "gray", "intensity": [0.0, 2.0], "threshold": [0.0, 0.0],
+                    "blendMode": "alpha"{extra}}}"#
+            )
+        };
+        let view =
+            r#"{"origin_mm": [0.0, 0.0, 0.0], "u_mm": [4.0, 0.0, 0.0], "v_mm": [0.0, 4.0, 0.0]}"#;
+        let json = format!(
+            r#"{{"views": {{"axial": {view}, "sagittal": {view}, "coronal": {view}}},
+                "crosshair": {{"world_mm": [0.0, 0.0, 0.0], "visible": false}},
+                "layers": [{}, {}, {}]}}"#,
+            layer("bottom", ""),
+            layer("too-wide", ""),
+            layer(
+                "atlas",
+                r#", "layerMode": "label", "outline": {"enabled": true, "selectedLabelId": 0,
+                    "color": [1.0, 1.0, 1.0, 1.0], "thicknessPx": 2.0}"#
+            ),
+        );
+        let frontend =
+            render_bridge_adapter::parse_frontend_view_state(&json).expect("frontend state");
+
+        let prepared = prepare_frontend_layers_for_render(&frontend, &state, &mut service)
+            .await
+            .expect("a failed layer is skipped, not the frame");
+
+        assert_eq!(prepared.backend_layers.len(), 2);
+        assert_eq!(prepared.drawn_frontend_indices, vec![0, 2]);
+        let features = render_bridge_adapter::slice_features_for_drawn_layers(
+            prepared.drawn_frontend_layers(&frontend),
+        );
+        assert_eq!(features.len(), 1);
+        assert_eq!(
+            features[0].outline_layer_index, 1,
+            "the atlas is the second drawn layer, not frontend layer 2"
+        );
+        assert_eq!(features[0].outline_thickness_px, 2.0);
     }
 }
 

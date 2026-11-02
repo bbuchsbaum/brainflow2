@@ -32,6 +32,8 @@ import {
   resolveActive,
   restoreWorkspaces,
 } from "./workspaceRestorePolicy";
+import { setActiveDockKeyResolver } from "./layoutSettingsStore";
+import { dockHeightKeyFor } from "@/components/layout/bottomWorkbenchDock.constants";
 import {
   isKnownWorkspaceType,
   isWorkspaceTypeAvailable,
@@ -776,3 +778,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     },
   ),
 );
+
+// The dock calls that name no tool act on the front tab's (QA 2026-10-31 N24).
+setActiveDockKeyResolver(() => {
+  const { workspaces, activeWorkspaceId } = useWorkspaceStore.getState();
+  return dockHeightKeyFor(activeWorkspaceId ? workspaces.get(activeWorkspaceId)?.type : null);
+});

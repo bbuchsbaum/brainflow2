@@ -9,6 +9,9 @@
 
 import { linkModeOf, panelDisplayLayers } from '@/utils/compareDisplay';
 import { widenToVoxelEdges } from '@/utils/voxelEdges';
+import { sharedComparisonFitSize } from '@/utils/compareScale';
+
+export { sharedComparisonFitSize };
 import type { CompareLinkMode } from '@/types/comparison';
 import { getApiService } from '@/services/apiService';
 import { deviceRenderRatio, hidpiPlane, hidpiViewState, tagBitmapRatio } from '@/utils/renderPixelRatio';
@@ -109,6 +112,42 @@ function boxesOverlap(a: VolumeBounds, b: VolumeBounds): boolean {
  */
 export function sharedComparisonFrame(own: VolumeBounds, others: ReadonlyArray<VolumeBounds>): VolumeBounds {
   return unionBounds([own, ...others.filter((box) => boxesOverlap(own, box))]);
+}
+
+/** World axes shown across and down a plane. */
+const PLANE_AXES: Record<'axial' | 'sagittal' | 'coronal', [number, number]> = {
+  axial: [0, 1],
+  sagittal: [1, 2],
+  coronal: [0, 2],
+};
+
+/**
+ * `frame` widened about its centre so that fitting it to `size` gives the
+ * scale of fitting `frame` to `fitSize` (mm per px = the larger of the two
+ * extent / size ratios). The slice axis is unchanged.
+ */
+export function frameAtSharedScale(
+  frame: VolumeBounds,
+  viewType: 'axial' | 'sagittal' | 'coronal',
+  size: readonly [number, number],
+  fitSize: readonly [number, number],
+): VolumeBounds {
+  const [a, b] = PLANE_AXES[viewType];
+  const extentA = frame.max[a] - frame.min[a];
+  const extentB = frame.max[b] - frame.min[b];
+  if (!(fitSize[0] > 0) || !(fitSize[1] > 0) || !(size[0] > 0) || !(size[1] > 0)) return frame;
+  const mmPerPx = Math.max(extentA / fitSize[0], extentB / fitSize[1]);
+  const out: VolumeBounds = { min: [...frame.min], max: [...frame.max] };
+  for (const [axis, px] of [
+    [a, size[0]],
+    [b, size[1]],
+  ] as const) {
+    const centre = (frame.min[axis] + frame.max[axis]) / 2;
+    const half = Math.max(frame.max[axis] - frame.min[axis], mmPerPx * px) / 2;
+    out.min[axis] = centre - half;
+    out.max[axis] = centre + half;
+  }
+  return out;
 }
 
 function unionBounds(boxes: ReadonlyArray<VolumeBounds>): VolumeBounds {
@@ -223,9 +262,11 @@ export class ComparisonRenderService {
     bounds: VolumeBounds,
     crosshair: WorldCoordinates,
     width: number,
-    height: number
+    height: number,
+    fitSize: readonly [number, number] = [width, height]
   ): ViewPlane {
-    const paddedBounds = padComparisonBounds(bounds);
+    // One scale for every pane: the padded frame fitted to the shared size.
+    const paddedBounds = frameAtSharedScale(padComparisonBounds(bounds), panel.viewType, [width, height], fitSize);
     const slicePosition = panel.viewType === 'sagittal'
       ? crosshair[0]
       : panel.viewType === 'coronal'
@@ -297,12 +338,21 @@ export class ComparisonRenderService {
       // T1 pane showed the whole head).
       const own = widenToVoxelEdges(bounds, dims);
       let frame = own;
+      let fitSize: [number, number] = [width, height];
       if (workspaceId) {
-        const ids = comparisonPaneLayerIds(globalViewState, useComparisonStore.getState().getPanels(workspaceId));
+        const compare = useComparisonStore.getState();
+        const panels = compare.getPanels(workspaceId);
+        const ids = comparisonPaneLayerIds(globalViewState, panels);
         const others = await Promise.all(ids.map((id) => this.layerEdgeBox(globalViewState, id)));
         frame = sharedComparisonFrame(own, others.filter((box): box is VolumeBounds => !!box));
+        // ...and one scale: every pane fits that frame to the smallest pane
+        // (QA 2026-10-31 N23: pane A's colorbar column made its brain smaller).
+        fitSize = sharedComparisonFitSize(
+          [width, height],
+          panels.filter((p) => p.id !== panel.id).map((p) => compare.panelCanvasSizes.get(p.id)),
+        );
       }
-      const viewPlane = this.createBoundsFittedViewPlane(panel, frame, crosshair, width, height);
+      const viewPlane = this.createBoundsFittedViewPlane(panel, frame, crosshair, width, height, fitSize);
       return { viewPlane, crosshair };
     }
 

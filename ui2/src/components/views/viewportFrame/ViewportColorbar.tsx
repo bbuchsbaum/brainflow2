@@ -1,39 +1,29 @@
 import { StatSymbol } from '@/components/ui/StatSymbol';
 import { statisticLongName, statisticVariable } from '@/utils/statistic';
-import type { CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { ThresholdText } from '@/components/ui/ThresholdText';
-import {
-  HIDDEN_BAND_BACKGROUND,
-  colorbarTicks,
-  spreadLabelCenters,
-  wrapNameAtBoundaries,
-  colormapVerticalGradient,
-  hiddenBand,
-  thresholdExpressionParts,
-  type ColorbarTick,
-} from './frameFormat';
-import { formatLayerValue, formatRange } from '@/utils/valueFormat';
+import { HIDDEN_BAND_BACKGROUND, spreadLabelCenters, type ColorbarTick } from './frameFormat';
+import { formatRange } from '@/utils/valueFormat';
 import { asciiCopyHandler } from '@/utils/numericInput';
-import { placeColorbar } from './colorbarPlacement';
+import { holdColorbarSlot, placeColorbarBlock, type ColorbarSlot } from './colorbarPlacement';
+import {
+  BAR_W,
+  CAP_H,
+  CAPTION_GAP,
+  CARET_W,
+  LABEL_GAP,
+  LABEL_H,
+  LINE_H,
+  MARK_W,
+  MAX_BAR_H,
+  MIN_BAR_H,
+  NAME_GAP,
+  VALUE_GAP,
+  measureColorbar,
+  type ColorbarLayer,
+} from './colorbarMeasure';
 
-export interface ColorbarLayer {
-  layerId: string;
-  name: string;
-  colormap: string;
-  intensity: readonly [number, number];
-  threshold: readonly [number, number];
-  /** Data range of the volume, for the clipping cue at the window ends. */
-  dataRange?: { min: number; max: number } | null;
-  /** Value units, when the layer declares them. */
-  units?: string | null;
-  /** The statistic was guessed from the file name: the caption says "(from name)". */
-  unitsFromName?: boolean;
-  /**
-   * Short layer name for the top caption line ("z · zmap_synthetic"); always
-   * set by `resolveColorbarLayer`.
-   */
-  nameLabel?: string | null;
-}
+export type { ColorbarLayer } from './colorbarMeasure';
 
 export interface ImageRect {
   left: number;
@@ -55,6 +45,17 @@ interface ViewportColorbarProps {
   dataRect?: ImageRect | null;
   /** Space kept clear at the top-right when the corner bar flips up (e.g. the layout button). */
   topReserve?: number;
+  /** Distance of the top orientation letter from the top (a header row above it). */
+  topLetterInset?: number;
+  /** Centre line of the side orientation letters, when not the canvas area's middle. */
+  sideLetterY?: number;
+  /** False for a column of its own with no letters, header or badge (Mosaic). */
+  paneChrome?: boolean;
+  /**
+   * The pane is being resized or zoomed: keep the slot and form placed before
+   * it started (following the image), and choose again once it is quiet.
+   */
+  hold?: boolean;
   /** The layer's value at the crosshair: drawn as a caret with its number. */
   value?: number | null;
   /** Muted note on its own line under the caption, e.g. "threshold unlinked" (Compare). */
@@ -73,31 +74,13 @@ interface ViewportColorbarProps {
 }
 
 const EDGE = 8; // px from the canvas-area edges
-const BAR_W = 8;
-const LABEL_GAP = 4;
-const MARK_W = 3;
-const CARET_W = 5; // caret column (triangle 4px + 1px gap to the bar)
-const VALUE_GAP = 2; // value label → caret
-const LINE_H = 11; // caption line
-const CAPTION_GAP = 6; // bar group bottom → caption (≥4px clear of the lowest label)
-const LABEL_H = 10; // tick label box (text-bf-2xs, leading-none)
-const CAP_H = 4; // clipped-end swatch outside the bar
-const CAP_GAP = 2;
-const MIN_BAR_H = 48;
-/** The compact form's shortest bar (a narrow or short pane). */
-const COMPACT_MIN_BAR_H = 24;
-const NAME_GAP = 6; // name caption → bar group (clears the peak value label)
-const MAX_BAR_H = 160;
 /**
- * Below this canvas-area width the colorbar takes its compact form (the bar
- * and its two window ends): the full block (a 48px bar plus labels and
- * caption, ~50×90px) would sit on the data. It never vanishes in a narrow
- * pane (QA 2026-10-31 N16).
+ * Below this canvas-area width (or height) the colorbar takes its compact
+ * form (the bar and its two window ends): the full block (a 48px bar plus
+ * labels and caption, ~50×90px) would sit on the data. It never vanishes in
+ * a narrow pane (QA 2026-10-31 N16). Equal to COLORBAR_COMPACT_BELOW.
  */
 export const COLORBAR_MIN_WIDTH = 160;
-const CHAR_W = 6.2; // Plex Mono at 10px, approx.
-const NAME_CHAR_W = 5.6; // Plex Sans at 10px, average
-const NAME_MAX_CHARS = 28;
 const COLORBAR_TEXT_HALO = '0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.5)';
 /**
  * A faint ground behind the caption and footer text only (not a box): over
@@ -105,25 +88,6 @@ const COLORBAR_TEXT_HALO = '0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.5)';
  */
 const TEXT_BACKING =
   'rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_60%,transparent)] px-0.5 -mx-0.5';
-/** Caption note for a statistic guessed from the file name. */
-const PAD_X = 8; // scrim px-1 both sides
-const PAD_Y = 8; // scrim pt-1.5 + pb-0.5
-
-/**
- * Caption lines, at most two: one line when it fits `maxW`, else the
- * expression and "hidden" (the box widens to the expression rather than
- * breaking it into a third line).
- */
-export function colorbarCaptionLines(
-  parts: [string, string] | null,
-  maxW: number,
-  charW = CHAR_W,
-): string[] {
-  if (!parts) return [];
-  const expr = parts.join(' ');
-  if (`${expr} hidden`.length * charW <= maxW) return [`${expr} hidden`];
-  return [expr, 'hidden'];
-}
 
 /**
  * On-image colorbar: the Inspector strip's gradient (colormapOptions; for
@@ -137,12 +101,12 @@ export function colorbarCaptionLines(
  * that colour; the hatch alone would hide it). The crosshair value is a caret
  * with its number (clamped to the bar).
  *
- * Placement (colorbarPlacement.ts): outside the image in the larger side
- * margin, else the bottom margin; else on the image in the corner covering
- * the least data and never the crosshair, on a scrim. The threshold caption
- * and the value caret stay in the same block. A narrow pane, or one with no
- * room for the whole block, gets the compact form: the bar and its two
- * window ends.
+ * Placement (colorbarPlacement.ts, `placeColorbarBlock`): outside the
+ * volume's on-screen bounds in the largest free margin; else on the image in
+ * the corner covering the least of it and never the crosshair, on a scrim.
+ * The threshold caption and the value caret stay in the same block. A narrow
+ * or short pane, or one whose margins only hold the bar, gets the compact
+ * form: the bar and its two window ends.
  */
 export function ViewportColorbar({
   layer,
@@ -152,130 +116,100 @@ export function ViewportColorbar({
   avoidPoint,
   dataRect = null,
   topReserve = 0,
+  topLetterInset = 0,
+  sideLetterY,
+  paneChrome = true,
+  hold = false,
   value = null,
   tag = null,
   corner = null,
   maxWidth = null,
 }: ViewportColorbarProps) {
-  // The tag has its own line: it never squeezes the layer name.
-  const tagChars = 0;
-  // "z*" already marks a guessed statistic; the tooltip spells it out.
-  const fromNameChars = 0;
-  const cmap = colormapVerticalGradient(layer.colormap);
-  const exprParts = thresholdExpressionParts(layer.threshold, statisticVariable(layer.units));
-  const [wMin, wMax] = layer.intensity;
-  const band = hiddenBand(layer.intensity, layer.threshold);
-  const capTop = !!band && band[1] >= 1 && !!layer.dataRange && layer.dataRange.max > wMax;
-  const capBottom = !!band && band[0] <= 0 && !!layer.dataRange && layer.dataRange.min < wMin;
-  const capTopH = capTop ? CAP_H + CAP_GAP : 0;
-  const capBottomH = capBottom ? CAP_H + CAP_GAP : 0;
-  const hasValue = value !== null && Number.isFinite(value);
-  const valueLabel = hasValue ? formatLayerValue(value as number) : null;
-
-  const measure = (barH: number, compactForm = false) => {
-    const allTicks = colorbarTicks(
-      layer.intensity,
-      layer.threshold,
-      Math.max(barH, 1),
-      12,
-      layer.dataRange,
-    );
-    // Compact (a narrow pane): the bar with its two window ends only.
-    const ticks = compactForm ? allTicks.filter((t) => t.kind === 'window') : allTicks;
-    const labelChars = Math.max(1, ...ticks.map((t) => t.label.length));
-    const labelW = Math.ceil(labelChars * CHAR_W);
-    if (compactForm) {
-      const boxW = BAR_W + MARK_W + LABEL_GAP + labelW + PAD_X;
-      return { ticks, labelW, valueW: -(VALUE_GAP + CARET_W), boxW, lines: [] as string[] };
-    }
-    // The value label column (left of the caret) reserves at least 5 chars
-    // ("−4.58") so the box does not resize as the crosshair moves.
-    const valueW = Math.ceil(Math.max(5, valueLabel?.length ?? 0) * CHAR_W);
-    const groupW = valueW + VALUE_GAP + CARET_W + BAR_W + MARK_W + LABEL_GAP + labelW;
-    // The footer starts at the bar's left edge (like the name caption) and
-    // may widen the box to the right, so "|z| ≤ 3.1 hidden" stays one line.
-    const barLeftW = valueW + VALUE_GAP + CARET_W;
-    const textBudget = maxWidth ? Math.max(4 * CHAR_W, maxWidth - PAD_X - barLeftW) : Infinity;
-    const lines = colorbarCaptionLines(exprParts, Math.min(NAME_MAX_CHARS * CHAR_W, textBudget));
-    // The name caption ("z · zmap_synthetic") may widen the box up to
-    // NAME_MAX_CHARS; longer names middle-truncate.
-    // The name caption starts at the bar's left edge and may widen the box
-    // to the right, up to NAME_MAX_CHARS; longer names middle-truncate.
-    const nameChars =
-      (layer.units ? layer.units.length + 3 + fromNameChars : 0) +
-      (layer.nameLabel?.length ?? 0) +
-      tagChars;
-    const barLeft = valueW + VALUE_GAP + CARET_W;
-    const nameW = Math.min(Math.ceil(Math.min(nameChars, NAME_MAX_CHARS) * NAME_CHAR_W), textBudget);
-    const captionW = Math.ceil(Math.max(0, ...lines.map((l) => l.length * CHAR_W)));
-    const boxW =
-      Math.max(groupW, lines.length ? barLeft + captionW : 0, nameChars ? barLeft + nameW : 0) + PAD_X;
-    return { ticks, labelW, valueW, boxW, lines };
-  };
-  const nominal = measure(MAX_BAR_H);
-  // The layer name, never a fragment (v6 native recheck: "z · zmap_sy…"):
-  // beside the symbol when the whole caption fits the box, else whole on up
-  // to two lines of its own (wrapped at _ - .), else left out (the symbol
-  // stays; the tooltip and accessible name carry the full name).
-  const nameRoomChars = Math.floor((nominal.boxW - PAD_X - (nominal.valueW + VALUE_GAP + CARET_W)) / NAME_CHAR_W);
-  const captionChars = (layer.units ? layer.units.length + 3 : 0) + (layer.nameLabel?.length ?? 0);
-  const nameInline = !layer.nameLabel || captionChars <= nameRoomChars;
-  const nameLines = nameInline || !layer.nameLabel ? [] : wrapNameAtBoundaries(layer.nameLabel, nameRoomChars, 2);
-  // The tag ("threshold unlinked") wraps at its words the same way.
-  const tagLines = !tag
-    ? []
-    : tag.length <= nameRoomChars
-      ? [tag]
-      : (() => {
-          const wrapped = wrapNameAtBoundaries(tag, nameRoomChars, 2);
-          return wrapped.length > 0 ? wrapped : [tag];
-        })();
-  const chromeH =
-    nameLines.length * (LINE_H + 2) +
-    capTopH +
-    capBottomH +
-    (nominal.lines.length ? CAPTION_GAP + nominal.lines.length * LINE_H : 0) +
-    PAD_Y +
-    (layer.nameLabel || layer.units ? LINE_H + NAME_GAP : 0) +
-    tagLines.length * LINE_H;
+  const {
+    cmap,
+    exprParts,
+    wMin,
+    wMax,
+    band,
+    capTop,
+    capBottom,
+    capTopH,
+    capBottomH,
+    hasValue,
+    valueLabel,
+    measure,
+    nameInline,
+    nameLines,
+    tagLines,
+    chromeH,
+    forms,
+  } = useMemo(() => measureColorbar(layer, { value, tag, maxWidth }), [layer, value, tag, maxWidth]);
+  // The slot used last time: kept while it still fits (hysteresis).
+  const previousSlot = useRef<ColorbarSlot | null>(null);
+  const previousCompact = useRef(false);
+  // The last placement made with the full rule (not while holding).
+  const settled = useRef<{ slot: ColorbarSlot; barH: number; compact: boolean } | null>(null);
 
   // ── placement (colorbarPlacement.ts) ──
-  let layout: { style: CSSProperties; barH: number; slot: string; scrim: boolean; compact: boolean } | null =
-    null;
+  let layout: {
+    style: CSSProperties;
+    barH: number;
+    slot: string;
+    scrim: boolean;
+    compact: boolean;
+  } | null = null;
   if (corner === 'top' && !imageRect) {
     // A column of its own: top right, nothing under it.
     const flipTop = Math.max(EDGE, topReserve);
     const barH = Math.min(MAX_BAR_H, Math.floor(height / 2 - 14 - flipTop - chromeH));
     if (barH >= MIN_BAR_H) {
-      layout = { style: { right: EDGE, top: flipTop }, barH, slot: 'column', scrim: false, compact: false };
+      layout = {
+        style: { right: EDGE, top: flipTop },
+        barH,
+        slot: 'column',
+        scrim: false,
+        compact: false,
+      };
     }
   } else {
-    const place = (compactForm: boolean) =>
-      placeColorbar({
-        width,
-        height,
-        imageRect,
-        dataRect,
-        avoidPoint,
-        topReserve,
-        chromeH: compactForm ? PAD_Y + capTopH + capBottomH : chromeH,
-        boxWidth: (barH) => measure(barH, compactForm).boxW,
-        minBarH: compactForm ? COMPACT_MIN_BAR_H : MIN_BAR_H,
-        maxBarH: MAX_BAR_H,
-      });
-    const full = width >= COLORBAR_MIN_WIDTH ? place(false) : null;
-    // A narrow pane, or no room for the full block: the compact form, never nothing.
-    const chosen = full ?? place(true);
+    const pane = {
+      width,
+      height,
+      imageRect,
+      dataRect,
+      avoidPoint,
+      topReserve,
+      topLetterInset,
+      sideLetterY,
+      paneChrome,
+      previousSlot: previousSlot.current,
+      previousCompact: previousCompact.current,
+    };
+    const held = hold ? settled.current : null;
+    const chosen = held
+      ? {
+          ...holdColorbarSlot({ ...pane, ...(held.compact ? forms.compact : forms.full) }, held),
+          compact: held.compact,
+        }
+      : placeColorbarBlock(pane, forms);
     if (chosen) {
       layout = {
         style: { left: chosen.left, top: chosen.top },
         barH: chosen.barH,
         slot: chosen.slot,
         scrim: chosen.scrim,
-        compact: !full,
+        compact: chosen.compact,
       };
     }
   }
+  const placedSlot = layout && layout.slot !== 'column' ? (layout.slot as ColorbarSlot) : null;
+  const placedCompact = !!layout?.compact;
+  const placedBarH = layout?.barH ?? 0;
+  useEffect(() => {
+    previousSlot.current = placedSlot;
+    previousCompact.current = placedCompact;
+    if (!hold) settled.current = placedSlot ? { slot: placedSlot, barH: placedBarH, compact: placedCompact } : null;
+  }, [placedSlot, placedCompact, placedBarH, hold]);
 
   if (!cmap || !layout) return null;
   const { barH, compact } = layout;
@@ -385,7 +319,9 @@ export function ViewportColorbar({
       // On the image (a corner) the block sits on a scrim so the labels read
       // over white matter; off the image (a margin) the halo is enough.
       className={`pointer-events-none absolute z-10 select-none px-1 pb-0.5 pt-1.5 text-bf-2xs text-bf-text-secondary${
-        layout.scrim ? ' rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_72%,transparent)]' : ''
+        layout.scrim
+          ? ' rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_72%,transparent)]'
+          : ''
       }`}
       style={{ ...layout.style, width: boxW, textShadow: COLORBAR_TEXT_HALO }}
       onCopy={asciiCopyHandler}
@@ -401,43 +337,49 @@ export function ViewportColorbar({
           title={layer.units ? `${statisticLongName(layer.units)} · ${layer.name}` : layer.name}
         >
           <span className={TEXT_BACKING}>
-          {layer.units && (
-            <StatSymbol label={layer.units} className="text-bf-text-secondary" />
-          )}
-          {layer.units && layer.nameLabel && nameInline && <span className="text-bf-text-muted"> · </span>}
-          {layer.nameLabel && nameInline && <span className="text-bf-text-muted">{layer.nameLabel}</span>}
+            {layer.units && <StatSymbol label={layer.units} className="text-bf-text-secondary" />}
+            {layer.units && layer.nameLabel && nameInline && (
+              <span className="text-bf-text-muted"> · </span>
+            )}
+            {layer.nameLabel && nameInline && (
+              <span className="text-bf-text-muted">{layer.nameLabel}</span>
+            )}
           </span>
         </div>
       )}
-      {!compact && nameLines.map((line) => (
-        <div
-          key={line}
-          className="whitespace-nowrap text-left leading-none text-bf-text-muted"
-          style={{ height: LINE_H, marginTop: -NAME_GAP + 2, marginBottom: NAME_GAP, paddingLeft: nameIndent }}
-          data-testid="viewport-colorbar-name-line"
-        >
-          <span className={TEXT_BACKING}>{line}</span>
-        </div>
-      ))}
-      {!compact && tagLines.map((line, i) => (
-        <div
-          key={line}
-          className="whitespace-nowrap text-left leading-none text-bf-text-muted"
-          style={{
-            height: LINE_H,
-            marginTop: i === 0 ? -NAME_GAP + 2 : 0,
-            marginBottom: i === tagLines.length - 1 ? NAME_GAP : 0,
-            paddingLeft: nameIndent,
-          }}
-          data-testid="viewport-colorbar-tag"
-        >
-          <span className={TEXT_BACKING}>{line}</span>
-        </div>
-      ))}
-      <div
-        className="relative font-mono tabular-nums"
-        style={{ width: groupW, height: groupH }}
-      >
+      {!compact &&
+        nameLines.map((line) => (
+          <div
+            key={line}
+            className="whitespace-nowrap text-left leading-none text-bf-text-muted"
+            style={{
+              height: LINE_H,
+              marginTop: -NAME_GAP + 2,
+              marginBottom: NAME_GAP,
+              paddingLeft: nameIndent,
+            }}
+            data-testid="viewport-colorbar-name-line"
+          >
+            <span className={TEXT_BACKING}>{line}</span>
+          </div>
+        ))}
+      {!compact &&
+        tagLines.map((line, i) => (
+          <div
+            key={line}
+            className="whitespace-nowrap text-left leading-none text-bf-text-muted"
+            style={{
+              height: LINE_H,
+              marginTop: i === 0 ? -NAME_GAP + 2 : 0,
+              marginBottom: i === tagLines.length - 1 ? NAME_GAP : 0,
+              paddingLeft: nameIndent,
+            }}
+            data-testid="viewport-colorbar-tag"
+          >
+            <span className={TEXT_BACKING}>{line}</span>
+          </div>
+        ))}
+      <div className="relative font-mono tabular-nums" style={{ width: groupW, height: groupH }}>
         {capTop && swatch('top')}
         {capBottom && swatch('bottom')}
         <div

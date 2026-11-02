@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Modal } from '@/components/ui/Modal';
 import { Button, Chip, FieldRow, Notice, SelectableRow, Tabs, TextField, tabIds, useRovingFocus } from '@/components/ui/bf';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
 import { canImportCandidate } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
+import { dialogPreviewStatus } from '@/stores/setStudio/importMachine';
 import type {
   StudioDiscoveryMemberGroup,
   StudioDiscoveryRolePattern,
@@ -22,6 +24,28 @@ const IMPORT_TABS: Array<{ mode: StudioImportMode; label: string; description: s
   { mode: 'manifest', label: 'NeuroTabs Manifest', description: 'Pre-built manifest file' },
   { mode: 'regex', label: 'Discover files', description: 'Find files by pattern' },
 ];
+
+/** Targets whose own Enter behaviour the dialog's Return shortcut leaves alone. */
+const RETURN_EXCLUDED = [
+  'button',
+  'a[href]',
+  'textarea',
+  'select',
+  'input[type="checkbox"]',
+  'input[type="radio"]',
+  'input[type="file"]',
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="switch"]',
+  '[role="menuitem"]',
+  '[role="treeitem"]',
+  '[role="row"]',
+  '[role="tab"]',
+  '[role="option"]',
+  '[role="listbox"]',
+  '[contenteditable=""]',
+  '[contenteditable="true"]',
+].join(', ');
 
 const COMMON_DISCOVERY_ROLES = new Set(['beta', 'tstat', 'se', 'pvalue', 'statmap']);
 
@@ -64,6 +88,10 @@ export function StudioImportDialog() {
   const removeDiscoveryRole = useSetStudioStore((state) => state.removeDiscoveryRole);
   const applyFolderOntologyCandidate = useSetStudioStore((state) => state.applyFolderOntologyCandidate);
 
+  // Focus starts in the request's first field, so Return imports once the
+  // preview is ready (the Close button would swallow it).
+  const firstFieldRef = useRef<HTMLInputElement>(null);
+
   const candidates = useMemo(
     () => Object.values(importCandidates).filter((candidate) => candidate.mode === mode),
     [importCandidates, mode]
@@ -94,14 +122,58 @@ export function StudioImportDialog() {
       ? 'Import NeuroTabs Manifest'
       : 'Discover files by regex';
 
-  return (
+  // The preview the Import button acts on: a loaded one (an edited request
+  // field resets it to idle until Refresh).
+  const previewStatus = dialogPreviewStatus({ isLoading, source, error });
+  const canConfirm =
+    showClassicLayout && previewStatus === 'loaded' && !!selectedCandidate && !importBlocked;
+  const canRefresh = showClassicLayout && mode !== 'table' && previewStatus === 'idle';
+
+  // Return imports when the footer's Import button would; after an edited
+  // request field (preview idle) it runs Refresh instead. Controls with their
+  // own Enter (buttons, tabs, rows, toggles, multi-line fields) keep it.
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.key !== 'Enter' ||
+      event.defaultPrevented ||
+      event.repeat ||
+      event.nativeEvent.isComposing ||
+      // WebKit reports an IME commit as keyCode 229.
+      event.nativeEvent.keyCode === 229 ||
+      event.shiftKey ||
+      event.altKey ||
+      event.metaKey ||
+      event.ctrlKey ||
+      (!canConfirm && !canRefresh)
+    ) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest(RETURN_EXCLUDED)) return;
+    event.preventDefault();
+    if (canConfirm) {
+      confirmImportCandidate();
+    } else {
+      void getSetIngestionService().openImportPreview(mode);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  // Portalled to <body>: the Studio lives inside a GoldenLayout panel, whose
+  // stacking context otherwise puts this sheet under the neighbouring panels.
+  return createPortal(
+    <div className="contents" onKeyDown={handleKeyDown}>
     <Modal
       isOpen={isOpen}
       onClose={closeImportDialog}
       title={dialogTitle}
+      initialFocusRef={firstFieldRef}
       size="full"
       bodyClassName="p-0"
-      className="max-w-4xl rounded-sm"
+      // A definite height (capped to the window by the Modal) so the preview
+      // columns scroll inside it and the footer stays pinned.
+      className="h-[85vh] max-w-4xl rounded-sm"
       // The Modal's footer slot sits outside the scrolling body, so the Import
       // action stays visible however tall the preview grows.
       footer={
@@ -112,10 +184,7 @@ export function StudioImportDialog() {
               <Button variant="secondary" onClick={closeImportDialog}>
                 Cancel
               </Button>
-              <Button
-                onClick={confirmImportCandidate}
-                disabled={!selectedCandidate || isLoading || importBlocked}
-              >
+              <Button onClick={confirmImportCandidate} disabled={!canConfirm}>
                 {importLabel}
               </Button>
             </div>
@@ -123,7 +192,7 @@ export function StudioImportDialog() {
         ) : null
       }
     >
-      <div style={{ maxHeight: 'calc(85vh - 4rem)' }} className="flex flex-col">
+      <div className="flex h-full min-h-0 flex-col">
         <Tabs
           idBase={IMPORT_TABS_ID}
           aria-label="Import source"
@@ -214,6 +283,7 @@ export function StudioImportDialog() {
                       <div className="mt-3">
                         <FieldRow layout="stacked" label="Manifest path">
                           <TextField
+                          ref={firstFieldRef}
                           value={manifestPath}
                           onChange={(event) => setManifestPath(event.target.value)}
                           placeholder="/path/to/study.neurotabs.yaml"
@@ -225,6 +295,7 @@ export function StudioImportDialog() {
                         <div>
                           <FieldRow layout="stacked" label="Discovery root">
                             <TextField
+                            ref={firstFieldRef}
                             value={discoveryRoot}
                             onChange={(event) => setDiscoveryRoot(event.target.value)}
                             placeholder="."
@@ -363,6 +434,8 @@ export function StudioImportDialog() {
         </div>
       </div>
     </Modal>
+    </div>,
+    document.body,
   );
 }
 

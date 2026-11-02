@@ -101,6 +101,28 @@ describe('layoutLibraryStore', () => {
     expect(useLayoutLibraryStore.getState().activeLayoutId).toBeNull();
   });
 
+  // N24 review: a saved layout carries the imaging views' dock, whatever tab
+  // is in front, and leaves the tools' docks alone.
+  it("saves and restores the imaging views' dock only", async () => {
+    captureLayoutMock.mockReturnValue(TEST_LAYOUT);
+    applyLayoutMock.mockReturnValue('applied');
+    const { useLayoutLibraryStore } = await loadFreshStore();
+    const { useLayoutSettingsStore } = await import('@/stores/layoutSettingsStore');
+    const settings = useLayoutSettingsStore.getState();
+    settings.resetLayoutSettings();
+    settings.setBottomDockOpen(false, 'set-studio');
+    settings.setBottomDockOpen(true, 'imaging');
+
+    expect(useLayoutLibraryStore.getState().saveCurrentLayout('Docked')).toBe(true);
+    const layoutId = useLayoutLibraryStore.getState().layouts[0].id;
+    useLayoutSettingsStore.getState().setBottomDockOpen(false, 'imaging');
+    useLayoutSettingsStore.getState().setBottomDockOpen(true, 'set-studio');
+
+    expect(useLayoutLibraryStore.getState().loadLayout(layoutId)).toBe(true);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen('imaging')).toBe(true);
+    expect(useLayoutSettingsStore.getState().isBottomDockOpen('set-studio')).toBe(true);
+  });
+
   it('says the panels were reset when loading falls back to the default shell', async () => {
     captureLayoutMock.mockReturnValue(TEST_LAYOUT);
     // applyLayout loads the default shell itself when the saved one fails.

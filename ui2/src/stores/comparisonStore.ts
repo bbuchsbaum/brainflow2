@@ -33,6 +33,11 @@ interface ComparisonState {
   globalViewTypes: Map<string, 'axial' | 'sagittal' | 'coronal'>;
   /** Resolved per-panel views used for rendering/crosshair projection */
   panelViewPlanes: Map<string, ViewPlane>;
+  /**
+   * Each panel's canvas size (CSS px): the panels fit one shared scale to
+   * the smallest of them (QA 2026-10-31 N23; `sharedComparisonFitSize`).
+   */
+  panelCanvasSizes: Map<string, { width: number; height: number }>;
   /** "Link" per workspace (P3.9). Absent = "all" (today's behaviour). */
   linkModes: Map<string, CompareLinkMode>;
   /** The panel Inspector edits go to while unlinked, per workspace. */
@@ -123,6 +128,9 @@ interface ComparisonActions {
   /** Read the resolved view plane for a panel */
   getPanelViewPlane: (panelId: string) => ViewPlane | undefined;
 
+  /** Record a panel's canvas size (null when it unmounts). */
+  setPanelCanvasSize: (panelId: string, size: { width: number; height: number } | null) => void;
+
   /** Which display properties the panels share (window, threshold, colormap). */
   setLinkMode: (workspaceId: string, mode: CompareLinkMode) => void;
 
@@ -181,6 +189,7 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
       layouts: new Map(),
       globalViewTypes: new Map(),
       panelViewPlanes: new Map(),
+      panelCanvasSizes: new Map(),
       linkModes: new Map(),
       activePanelIds: new Map(),
       editScopes: new Map(),
@@ -534,6 +543,15 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
 
       getPanelViewPlane: (panelId) => {
         return get().panelViewPlanes.get(panelId);
+      },
+
+      setPanelCanvasSize: (panelId, size) => {
+        const prev = get().panelCanvasSizes.get(panelId);
+        if (size ? prev?.width === size.width && prev?.height === size.height : !prev) return;
+        set((state) => {
+          if (size) state.panelCanvasSizes.set(panelId, { width: size.width, height: size.height });
+          else state.panelCanvasSizes.delete(panelId);
+        });
       },
 
       clearWorkspace: (workspaceId) => {

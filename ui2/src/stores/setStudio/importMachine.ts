@@ -467,19 +467,31 @@ export function toRequestState(context: ImportContext): ImportRequestState {
   };
 }
 
+/**
+ * The preview phase the flat dialog state encodes (inverse of
+ * `derivePreview`): loading, idle (no source and no error), else loaded.
+ */
+export function dialogPreviewStatus(
+  dialog: Pick<StudioImportDialogState, 'isLoading' | 'source' | 'error'>,
+): ImportPreviewPhase['status'] {
+  if (dialog.isLoading) return 'loading';
+  return dialog.source === null && dialog.error === null ? 'idle' : 'loaded';
+}
+
 export function fromDialogState(
   dialog: StudioImportDialogState,
   candidates: Record<string, StudioImportCandidate>,
   requestState: ImportRequestState,
 ): ImportContext {
   let preview: ImportPreviewPhase;
-  if (dialog.isLoading) {
+  const previewStatus = dialogPreviewStatus(dialog);
+  if (previewStatus === 'loading') {
     preview = {
       status: 'loading',
       requestId: requestState.preview?.requestId ?? -1,
       mode: requestState.preview?.mode ?? dialog.mode,
     };
-  } else if (dialog.source === null && dialog.error === null) {
+  } else if (previewStatus === 'idle') {
     preview = { status: 'idle' };
   } else {
     preview = { status: 'loaded', source: dialog.source, error: dialog.error };
@@ -1081,6 +1093,8 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
         ? (context.candidates[context.selectedCandidateId] ?? null)
         : null;
       if (
+        // A late Return or click after the dialog closed imports nothing.
+        !context.isOpen ||
         !candidate ||
         !canImportCandidate(candidate) ||
         context.preview.status !== 'loaded' ||

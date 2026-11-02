@@ -377,8 +377,8 @@ describe('StudioImportDialog', () => {
   }
 
   it('renders nothing when closed', () => {
-    const { container } = render(<StudioImportDialog />);
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    render(<StudioImportDialog />);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('renders dialog title based on mode', () => {
@@ -722,5 +722,86 @@ describe('StudioImportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import for compare' }));
     // Dialog should close after confirm
     expect(useSetStudioStore.getState().importDialog.isOpen).toBe(false);
+  });
+
+  it('portals out of the hosting panel so neighbouring panels cannot cover it (N22)', () => {
+    openDialog('manifest');
+    const panel = document.createElement('div');
+    panel.className = 'lm_content';
+    document.body.appendChild(panel);
+    try {
+      render(<StudioImportDialog />, { container: panel });
+      const dialog = screen.getByRole('dialog');
+      expect(panel.contains(dialog)).toBe(false);
+      expect(dialog.closest('.fixed')?.parentElement?.parentElement).toBe(document.body);
+    } finally {
+      panel.remove();
+    }
+  });
+
+  it('imports on Return from the manifest path field when the candidate is importable (N22)', () => {
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
+
+    fireEvent.keyDown(screen.getByPlaceholderText('/path/to/study.neurotabs.yaml'), { key: 'Enter' });
+
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(false);
+    expect(useSetStudioStore.getState().selection.activeSetId).toBe('fixture-study');
+  });
+
+  it('starts focus in the manifest path field so Return can import', () => {
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('/path/to/study.neurotabs.yaml'));
+  });
+
+  it('ignores Return from an IME commit (keyCode 229) or a held key', () => {
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
+    const field = screen.getByPlaceholderText('/path/to/study.neurotabs.yaml');
+
+    fireEvent.keyDown(field, { key: 'Enter', keyCode: 229 });
+    fireEvent.keyDown(field, { key: 'Enter', repeat: true });
+
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
+  });
+
+  it('after editing the manifest path, Return refreshes the preview instead of importing the old one', () => {
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
+    const field = screen.getByPlaceholderText('/path/to/study.neurotabs.yaml');
+
+    fireEvent.change(field, { target: { value: '/tmp/other.neurotabs.yaml' } });
+    // The preview is stale (idle): Import is off until Refresh.
+    expect(screen.getByRole('button', { name: 'Import for compare' })).toBeDisabled();
+    fireEvent.keyDown(field, { key: 'Enter' });
+
+    expect(ingestionServiceMock.openImportPreview).toHaveBeenCalledWith('manifest');
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
+    expect(useSetStudioStore.getState().selection.activeSetId).not.toBe('fixture-study');
+  });
+
+  it('leaves Return on checkboxes and role=button controls alone', () => {
+    openDialog('regex');
+    useSetStudioStore.getState().setImportPreviewResult('regex', [makeDiscoveryCandidate()], 'backend');
+    render(<StudioImportDialog />);
+
+    fireEvent.keyDown(screen.getByRole('checkbox', { name: 'Sample headers' }), { key: 'Enter' });
+
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
+  });
+
+  it('leaves Return on buttons to the button itself', () => {
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Enter' });
+
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
+  });
+
+  it('does not import on Return when the candidate is blocked', () => {
+    const candidate = makeManifestCandidate();
+    renderManifestCandidate({ ...candidate, contract: { ...candidate.contract, canImport: false } }, 'backend');
+    expect(screen.getByRole('button', { name: 'Import blocked' })).toBeDisabled();
+
+    fireEvent.keyDown(screen.getByPlaceholderText('/path/to/study.neurotabs.yaml'), { key: 'Enter' });
+
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
   });
 });

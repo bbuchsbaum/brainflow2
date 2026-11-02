@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioDerivedMapService, isGpuTextureSlotsFull } from '../StudioDerivedMapService';
+import { GpuSlotsFullError } from '@/utils/formatTauriError';
 
 const AFFINE = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, -10, -10, -10, 1];
 
@@ -128,6 +129,24 @@ describe('StudioDerivedMapService', () => {
     expect(backend.releaseLayerGpuResources.mock.invocationCallOrder[0]).toBeLessThan(
       backend.unloadVolume.mock.invocationCallOrder[0],
     );
+  });
+
+  // N18 review: with no slot to free, the map is refused before the backend
+  // is asked, like a layer's show; its volume is unloaded.
+  it('refuses a map when no GPU slot can be freed, without asking the backend', async () => {
+    const { backend, makeRoom, service } = setup();
+    makeRoom.mockRejectedValueOnce(new GpuSlotsFullError(8));
+    const error = await service.acquire('/c/full.nii.gz').map.catch((e) => e);
+    expect(isGpuTextureSlotsFull(error)).toBe(true);
+    expect(backend.requestLayerGpuResources).not.toHaveBeenCalled();
+    expect(backend.unloadVolume).toHaveBeenCalledWith('vol-1');
+  });
+
+  it('still asks the backend when the eviction fails for another reason', async () => {
+    const { backend, makeRoom, service } = setup();
+    makeRoom.mockRejectedValueOnce(new Error('stats unavailable'));
+    await expect(service.acquire('/c/m.nii.gz').map).resolves.not.toBeNull();
+    expect(backend.requestLayerGpuResources).toHaveBeenCalledTimes(1);
   });
 
   it('retries a volume still mapped (4048) once, and survives an unload failure (L1)', async () => {

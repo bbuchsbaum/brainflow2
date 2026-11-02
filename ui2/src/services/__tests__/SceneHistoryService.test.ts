@@ -204,8 +204,30 @@ describe('SceneHistoryService', () => {
     history.record('visible:z', 'Visibility', () => mockToggle('z', false));
     mockToggle.mockClear();
     await history.undo();
-    expect(mockToggle).toHaveBeenCalledWith('z', true);
+    // The front tab: no workspace named (the layer service uses the front one).
+    expect(mockToggle).toHaveBeenCalledWith('z', true, undefined);
     expect(field('ws1', 'z').visible).toBe(true);
+  });
+
+  // QA 2026-10-31 N18 review: a show the GPU refused is dropped from the
+  // newest step, and the step goes when nothing else is left in it.
+  it('forgets a refused show, keeping the rest of its step', () => {
+    seed({ ws1: [viewLayer('t1', { visible: false }), viewLayer('z', { visible: false })] }, 'ws1');
+    history.record('visible:z', 'Visibility', () => mockToggle('z', true));
+    expect(history.canUndo()).toBe(true);
+    history.forgetShow('ws1', 'z');
+    expect(history.canUndo()).toBe(false);
+
+    history.record('showAll', 'Show all layers', () => {
+      mockToggle('t1', true);
+      mockToggle('z', true);
+    });
+    history.forgetShow('ws1', 'z');
+    const [step] = history.steps('ws1').undo as Array<{ changes: Array<{ layerId: string }> }>;
+    expect(step.changes.map((c) => c.layerId)).toEqual(['t1']);
+    // Not a show of that layer at the top: nothing changes.
+    history.forgetShow('ws1', 'z');
+    expect(history.steps('ws1').undo).toHaveLength(1);
   });
 
   it('skips steps whose layers are gone', async () => {

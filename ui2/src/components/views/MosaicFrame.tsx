@@ -143,6 +143,7 @@ export function MosaicColorbar({
           width={COLORBAR_MIN_WIDTH + 48}
           height={height}
           imageRect={{ left: -COLORBAR_MIN_WIDTH, top: 0, right: -12, bottom: Math.min(height, VIRTUAL_IMAGE_PX) }}
+          paneChrome={false}
           value={reading?.value ?? null}
         />
       )}

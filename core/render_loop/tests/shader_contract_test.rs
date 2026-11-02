@@ -23,7 +23,7 @@ use std::mem::{offset_of, size_of};
 use render_loop::layer_storage::LayerMetadata;
 use render_loop::shader_contract as sc;
 use render_loop::shaders::{compose_shader_source, sources};
-use render_loop::{FrameUbo, LayerUboStd140, SliceFeatureUbo};
+use render_loop::{FrameUbo, LayerUboStd140, SliceFeatureBlock, SliceFeatureUbo};
 
 const MASKED: &str = sources::SLICE_WORLD_SPACE;
 const OPTIMIZED: &str = sources::SLICE_WORLD_SPACE_OPTIMIZED;
@@ -164,6 +164,13 @@ fn expected_feature_layout() -> StructLayout {
     }
 }
 
+fn expected_feature_block_layout() -> StructLayout {
+    StructLayout {
+        offsets: vec![offset_of!(SliceFeatureBlock, layers) as u32],
+        size: size_of::<SliceFeatureBlock>() as u32,
+    }
+}
+
 fn expected_metadata_layout() -> StructLayout {
     // Rust stores `active_count: u32` + `_padding: [u32; 7]`; WGSL declares eight
     // scalar u32 members. Expand the padding array to eight total members.
@@ -229,6 +236,7 @@ fn adaptive_shaders_validate_and_preserve_all_struct_layouts() {
                 ("FrameUbo", expected_frame_layout()),
                 ("LayerData", expected_layer_layout()),
                 ("SliceFeatureUbo", expected_feature_layout()),
+                ("SliceFeatureBlock", expected_feature_block_layout()),
                 ("LayerMetadata", expected_metadata_layout()),
             ] {
                 assert_eq!(
@@ -246,10 +254,11 @@ fn adaptive_shaders_validate_and_preserve_all_struct_layouts() {
 
 #[test]
 fn struct_layouts_match_rust_structs() {
-    let expected: [(&str, StructLayout); 4] = [
+    let expected: [(&str, StructLayout); 5] = [
         ("FrameUbo", expected_frame_layout()),
         ("LayerData", expected_layer_layout()),
         ("SliceFeatureUbo", expected_feature_layout()),
+        ("SliceFeatureBlock", expected_feature_block_layout()),
         ("LayerMetadata", expected_metadata_layout()),
     ];
 
@@ -306,7 +315,13 @@ fn shaders_agree_with_each_other() {
 
     // Identical struct layouts (offsets + size). Member *names* may differ for
     // padding fields (e.g. `_padMask1` vs `_padOpt1`), so compare layouts only.
-    for struct_name in ["FrameUbo", "LayerData", "SliceFeatureUbo", "LayerMetadata"] {
+    for struct_name in [
+        "FrameUbo",
+        "LayerData",
+        "SliceFeatureUbo",
+        "SliceFeatureBlock",
+        "LayerMetadata",
+    ] {
         assert_eq!(
             struct_layout(&masked, struct_name),
             struct_layout(&optimized, struct_name),

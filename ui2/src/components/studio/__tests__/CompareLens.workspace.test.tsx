@@ -2,7 +2,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 
 vi.mock('../StudioRenderAdapter', () => ({
-  StudioRenderAdapter: ({ plane }: { plane?: string }) => <div data-testid="pane-a" data-plane={plane} />,
+  StudioRenderAdapter: ({ plane, describeBase }: { plane?: string; describeBase?: boolean }) => (
+    <div data-testid="pane-a" data-plane={plane} data-describe-base={describeBase ? 'true' : undefined} />
+  ),
 }));
 vi.mock('../StudioDerivedPaneCanvas', () => ({
   StudioDerivedPaneCanvas: ({ paneId, plane }: { paneId: string; plane?: string }) => (
@@ -106,29 +108,10 @@ it('all four panes show one plane, the session plane shared with the Deck (QA N1
   expect(screen.getByTestId('derived-zscore').dataset.plane).toBe('axial');
 });
 
-it("pane A's colourbar shows the Studio workspace's display, not the tab in front (review L4)", () => {
-  render(
-    <CompareLens
-      activeSet={{ supportKind: 'volume', supportLabel: 'MNI152NLin2009cAsym (2mm)' } as never}
-      activeFeature={null}
-      activeArtifact={null}
-      activeMemberId="s01"
-      activeMember={{ id: 's01', sourcePath: '/m/s01.nii' } as never}
-      compareCohort={null}
-      cohorts={[]}
-      activeExpression={null}
-      paneSpecs={[]}
-      loading={false}
-      refreshingPaneIds={[]}
-      onSelectCohort={vi.fn()}
-      onDrillToCohort={vi.fn()}
-      onOpenPane={vi.fn()}
-      onInspectPane={vi.fn()}
-      onInspectCurrent={vi.fn()}
-      onOpenCurrentSource={vi.fn()}
-      onOpenCompareView={vi.fn()}
-      onRecomputePane={vi.fn()}
-    />,
-  );
-  expect(screen.getByTestId('studio-scale-bar').dataset.colormap).toBe('hot');
+it('pane A has exactly one colourbar: the shared view describes the member, no second bar (QA N16)', () => {
+  // The shared view draws the bar from the workspace in front, which is the
+  // Studio's whenever the Studio shows (useStudioInFront), so review L4 holds.
+  render(lens());
+  expect(screen.getByTestId('pane-a').dataset.describeBase).toBe('true');
+  expect(screen.queryByTestId('studio-scale-bar')).toBeNull();
 });

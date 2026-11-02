@@ -9,8 +9,9 @@
  *   with a status hint that never blocks; it is shown only if the view is
  *   still empty when it arrives.
  * - Settings › Start turns it off (`layoutSettingsStore.firstScreenTemplate`).
- * - It never runs with a restored session: GoldenLayoutRoot starts it only
- *   for the default view it created at a cold start with nothing saved.
+ * - At a cold start GoldenLayoutRoot starts it for the default view it
+ *   created. A restored launch brings the tabs back but no layers, so it
+ *   runs there too, in the front volume view (`restoredLaunchFirstScreenTarget`).
  */
 
 import { create } from 'zustand';
@@ -19,7 +20,10 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useSurfaceStore } from '@/stores/surfaceStore';
 import { addLogEntry } from '@/stores/logStore';
+import { resolveActiveDisplayMode } from '@/components/ui/displayModeSelector.helpers';
+import type { WorkspaceType } from '@/types/workspace';
 
 /** In order of preference; the last one is the one downloaded when none is cached. */
 export const FIRST_SCREEN_TEMPLATES = [
@@ -111,6 +115,32 @@ export function firstScreenAppliesAtLaunch(restored: {
   return [...restored.restoredWorkspaces].every((workspace) => workspace.defaultView === true);
 }
 
+/**
+ * Where the first screen runs after a RESTORED launch (QA 2026-10-31 N21):
+ * relaunch brings back the user's tabs but not their scene (layers are not
+ * persisted across launches; see `workspaceRestorePolicy.ts`), so the
+ * restored views open empty. With nothing loaded, the front tab gets the MNI
+ * anatomy once it is a volume view (Orthogonal, Mosaic, Compare,
+ * Integrated): now, or when the user first switches to one. A tool tab
+ * (Set studio, BIDS, a module) never does. Null: not here.
+ */
+export function restoredLaunchFirstScreenTarget(
+  front: { id: string; type: WorkspaceType } | null | undefined,
+): string | null {
+  if (!front || !resolveActiveDisplayMode(front.type)) return null;
+  if (sceneHasContent()) return null;
+  return front.id;
+}
+
+/** Anything loaded or loading: a volume layer, a surface, or a queued open. */
+export function sceneHasContent(): boolean {
+  const layers = useLayerStore.getState();
+  if (layers.layers.length > 0 || layers.loadingLayers.size > 0) return true;
+  const queue = useLoadingQueueStore.getState();
+  if (queue.activeLoads.size > 0 || queue.queue.length > 0) return true;
+  return useSurfaceStore.getState().surfaces.size > 0;
+}
+
 /** The layer `templateId` added, when it is the only new one since `before`. */
 function onlyNewTemplateLayer(before: ReadonlySet<string>, templateId: string): string | null {
   const { layers, layerMetadata } = useLayerStore.getState();
@@ -176,8 +206,12 @@ export async function runFirstScreen(
   }
 
   // The user may have loaded something while it was fetched: never add the
-  // template under (or over) their data.
-  if (!firstScreenStillApplies(workspaceId)) {
+  // template under (or over) their data. The template loads into the front
+  // tab, so that must still be this view.
+  if (
+    !firstScreenStillApplies(workspaceId) ||
+    useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
+  ) {
     useFirstScreenStore.getState().setPhase('done');
     return 'superseded';
   }

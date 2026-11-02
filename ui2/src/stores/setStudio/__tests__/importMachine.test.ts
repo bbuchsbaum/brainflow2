@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTsvCandidate,
   createInitialImportContext,
+  dialogPreviewStatus,
   importReducer,
   toDialogState,
   toRequestState,
@@ -568,6 +569,33 @@ describe('importReducer — confirm', () => {
     expect(confirmed.context).toBe(seeded.context);
     expect(confirmed.effects).toHaveLength(0);
     expect(toDialogState(confirmed.context).isOpen).toBe(true);
+  });
+
+  it('ignores a confirm that arrives after the dialog closed (a late Return)', () => {
+    const seeded = run(
+      createInitialImportContext(),
+      { type: 'OPEN_DIALOG', mode: 'manifest' },
+      {
+        type: 'PREVIEW_RESULT_APPLIED',
+        mode: 'manifest',
+        candidates: [makeCompareReadyCandidate()],
+        source: 'backend',
+        error: null,
+      },
+    );
+    const closed = { ...seeded.context, isOpen: false };
+    const confirmed = importReducer(closed, { type: 'CONFIRM_REQUESTED' });
+    expect(confirmed.context).toBe(closed);
+    expect(confirmed.effects).toHaveLength(0);
+  });
+});
+
+describe('dialogPreviewStatus', () => {
+  it('reads loading, idle and loaded back from the flat dialog state', () => {
+    expect(dialogPreviewStatus({ isLoading: true, source: null, error: null })).toBe('loading');
+    expect(dialogPreviewStatus({ isLoading: false, source: null, error: null })).toBe('idle');
+    expect(dialogPreviewStatus({ isLoading: false, source: 'backend', error: null })).toBe('loaded');
+    expect(dialogPreviewStatus({ isLoading: false, source: null, error: 'Parse failed' })).toBe('loaded');
   });
 });
 
