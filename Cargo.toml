@@ -61,7 +61,7 @@ gifti = { git = "https://github.com/bbuchsbaum/gifti-rs", rev = "00520ee8d00f8a2
 neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "43157797699c76b9cb81fb9036de74901673905c" }
 
 # --- BIDS support ---
-bids-rs = { git = "ssh://git@github.com/bbuchsbaum/bids-rs.git", rev = "c7021c55da04bb1a6a2b3e6642266381174a0faa" }
+bids-rs = { git = "https://github.com/bbuchsbaum/bids-rs", rev = "c7021c55da04bb1a6a2b3e6642266381174a0faa" }
 
 [profile.release]
 lto = true

@@ -2475,7 +2475,7 @@ mod tests {
         });
         assert_eq!(peak(&state, q.clone()).await.map(|p| p[2]), Some(1.));
         // The mask admission is released: a masked slice still evaluates.
-        assert!(finite(&evaluate(&state, q).await.summary).len() > 0);
+        assert!(!finite(&evaluate(&state, q).await.summary).is_empty());
     }
 
     #[tokio::test]

@@ -57,7 +57,9 @@ jobs:
       run: pnpm --filter @brainflow/api build
     
     - name: Check package (dry-run)
-      run: cd packages/api && pnpm publish --dry-run
+      # --no-git-checks: this validates packaging only. The git checks reject PR
+      # checkouts (detached HEAD, not main) and any tree pnpm install touched.
+      run: cd packages/api && pnpm publish --dry-run --no-git-checks
 
   ui2-build:
     # The SHIPPING app (ui2, package "temp-ui"): production build + unit tests.
@@ -132,6 +134,11 @@ jobs:
         git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
         git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
     
+    - name: Install Tauri Linux system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
       
@@ -168,6 +175,8 @@ jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}
     strategy:
+      # Let each OS report its own result instead of cancelling on the first failure.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
@@ -180,6 +189,12 @@ jobs:
       run: |
         git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
         git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
+
+    - name: Install Tauri Linux system libraries
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
