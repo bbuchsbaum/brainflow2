@@ -134,6 +134,11 @@ jobs:
           toolchain: stable
           
       - name: Run Performance Benchmarks
+        env:
+          # The bench profile inherits release's panic = "abort", so cargo built
+          # the dependencies in two panic variants that collided (two nalgebra
+          # 0.32.6 copies, E0308 on rustc 1.99). One strategy, one build.
+          CARGO_PROFILE_RELEASE_PANIC: unwind
         run: |
           # pipefail: a failing bench must fail the step, not be swallowed by tee.
           # --benches limits the run to the criterion [[bench]] targets; the lib
@@ -184,7 +189,8 @@ jobs:
         
       - name: Run Coverage
         # Serial: lavapipe segfaults when tests create wgpu devices concurrently.
-        run: cargo tarpaulin --workspace --out Xml -- --test-threads=1
+        # --timeout: the differential suite runs minutes under tarpaulin + lavapipe.
+        run: cargo tarpaulin --workspace --out Xml --timeout 900 -- --test-threads=1
         
       - name: Upload Coverage
         uses: codecov/codecov-action@v3

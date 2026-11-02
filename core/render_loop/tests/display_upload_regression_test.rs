@@ -400,9 +400,7 @@ fn automatic_member_updates_promote_in_place_and_keep_registration_current() {
     pollster::block_on(async {
         let mut service = RenderLoopService::new().await.unwrap();
         service.load_shaders().unwrap();
-        // 0.25 rather than 0.5: 0.5 x 255 = 127.5 is a rounding tie that Metal
-        // resolves to 128 and lavapipe to 127.
-        let initial = DenseVolume3::from_data(space(), vec![0.25f32; 512]);
+        let initial = DenseVolume3::from_data(space(), vec![0.5f32; 512]);
         let large = DenseVolume3::from_data(space(), vec![70_000f32; 512]);
         let (slot, _) = service.upload_volume_3d(&initial).unwrap();
         service
@@ -440,10 +438,12 @@ fn automatic_member_updates_promote_in_place_and_keep_registration_current() {
                 .format,
             wgpu::TextureFormat::R32Float
         );
-        assert_eq!(
-            levels(&frame(&mut service, "v", 1.).await),
-            BTreeSet::from([64])
-        );
+        // One uniform level within 1 LSB of 0.5 x 255: Vulkan lets adapters filter
+        // with as few as 4 sub-texel bits, and lavapipe lands one below Metal.
+        let after = levels(&frame(&mut service, "v", 1.).await);
+        assert_eq!(after.len(), 1, "expected a uniform image, got {after:?}");
+        let level = *after.iter().next().unwrap();
+        assert!(level.abs_diff(128) <= 1, "expected 128 +/- 1, got {level}");
     });
 }
 
