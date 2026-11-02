@@ -26,6 +26,7 @@ jobs:
         with:
           # Pinned so new stable lints don't turn the -D warnings gate red unannounced.
           toolchain: 1.91.1
+          override: true
           components: rustfmt, clippy
           
       - name: Setup Node
@@ -113,7 +114,8 @@ jobs:
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y mesa-utils xvfb libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+          # mesa-vulkan-drivers: lavapipe software Vulkan, so wgpu finds an adapter.
+          sudo apt-get install -y mesa-utils xvfb mesa-vulkan-drivers libvulkan1 libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
           
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -122,7 +124,11 @@ jobs:
           
       - name: Run Performance Benchmarks
         run: |
-          cargo bench --workspace -- --output-format bencher | tee output.txt
+          # pipefail: a failing bench must fail the step, not be swallowed by tee.
+          # --benches limits the run to the criterion [[bench]] targets; the lib
+          # targets' libtest harness rejects criterion's --output-format flag.
+          set -o pipefail
+          cargo bench --workspace --benches -- --output-format bencher | tee output.txt
           
       - name: Check Performance Regression
         run: |
@@ -258,15 +264,19 @@ jobs:
           chmod +x scripts/validate-dependencies.sh
           ./scripts/validate-dependencies.sh
           
+      # Informational: outdated dependencies are reported, not gated. cargo audit
+      # and cargo deny (in validate-dependencies.sh) remain the blocking checks.
       - name: Check for Outdated Dependencies
         run: |
-          cargo outdated --exit-code 1
+          cargo outdated
           
       - name: Check for Duplicate Dependencies
         run: |
           cargo tree --duplicates
           
       - name: Check NPM Dependencies
+        # Informational: pnpm outdated exits 1 whenever anything is outdated.
+        continue-on-error: true
         run: |
           pnpm outdated --recursive
 
