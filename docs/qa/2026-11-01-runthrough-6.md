@@ -4,7 +4,7 @@
 
 **Time.** About 1 hour. ★ marks the highest priority.
 
-**Build under test.** The debug bundle built on 2026-11-01 from branch `qa/fix-wave-3`:
+**Build under test.** The debug bundle built late on 2026-11-01 from `main` at `2428c14a`. That includes the run-5 fixes (#23), the CI fixes (#25, #26) and the BIDS browser (#24):
 
 ```sh
 rm -rf /Applications/Brainflow.app
@@ -56,6 +56,15 @@ Record the binary timestamp at the top of the report. Use local time (EST); run 
 4. **N8:** with a mosaic focused, ⇧⌘C then paste into Preview: the composite appears. Repeat on a slice view.
 5. **Frame rate:** drag the crosshair quickly with both atlas outlines on; note any stutter.
 6. If time allows: the oblique outline check (B3.3), ⌘4 with only a T1, Deck distance-sort "Open in Deck", and the memory measurement.
+
+## Part C: BIDS browser smoke (new on main, #24)
+
+The BIDS browser has never been run natively since #24 was merged with main. Keep this short; it is a smoke test, not a full review.
+
+1. Mount `ds000114` (or another local BIDS dataset) in Files. The coverage view, summary and runs dock fill in; Findings is reachable.
+2. Exclude a run, undo, then exclude and revert. The counts move together. `derivatives/brainflow/` is the only thing written.
+3. Open a run in the viewer: it opens on its own tab with event bands. Then go back to Orthogonal: the run-5 fixes in Part A still hold (colourbar placement, dock per tab).
+4. After Reopen, check whether Files still says "No directory mounted". This is a known limit; confirm it, don't re-file.
 
 ## Part D: known open items (confirm, don't re-file)
 
