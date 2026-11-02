@@ -4,6 +4,8 @@ Default permissions for api-bridge plugin
 
 #### This default permission set includes the following:
 
+- `module-segmentation`
+- `allow-dispose-module-workspace`
 - `allow-get-render-capabilities`
 - `allow-cancel-remote-file-load`
 - `allow-load-file`
@@ -69,6 +71,7 @@ Default permissions for api-bridge plugin
 - `allow-set-volume-timepoint`
 - `allow-get-volume-timepoint`
 - `allow-get-volume-info`
+- `allow-get-volume-native-plane`
 - `allow-get-nifti-header-info`
 - `allow-peek-volume-metadata`
 - `allow-render-view`
@@ -659,6 +662,32 @@ Enables the create_surface_sampler command without any pre-configured scope.
 <td>
 
 Denies the create_surface_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-dispose-module-workspace`
+
+</td>
+<td>
+
+Enables the dispose_module_workspace command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-dispose-module-workspace`
+
+</td>
+<td>
+
+Denies the dispose_module_workspace command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1569,6 +1598,32 @@ Enables the get_volume_info command without any pre-configured scope.
 <td>
 
 Denies the get_volume_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-volume-native-plane`
+
+</td>
+<td>
+
+Enables the get_volume_native_plane command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-volume-native-plane`
+
+</td>
+<td>
+
+Denies the get_volume_native_plane command without any pre-configured scope.
 
 </td>
 </tr>
@@ -3032,6 +3087,188 @@ Denies the scan_bids_dataset command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-segmentation-commit-stroke`
+
+</td>
+<td>
+
+Enables the segmentation_commit_stroke command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-commit-stroke`
+
+</td>
+<td>
+
+Denies the segmentation_commit_stroke command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-segmentation-create-session`
+
+</td>
+<td>
+
+Enables the segmentation_create_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-create-session`
+
+</td>
+<td>
+
+Denies the segmentation_create_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-segmentation-get-session`
+
+</td>
+<td>
+
+Enables the segmentation_get_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-get-session`
+
+</td>
+<td>
+
+Denies the segmentation_get_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-segmentation-get-slice`
+
+</td>
+<td>
+
+Enables the segmentation_get_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-get-slice`
+
+</td>
+<td>
+
+Denies the segmentation_get_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-segmentation-preview-stroke`
+
+</td>
+<td>
+
+Enables the segmentation_preview_stroke command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-preview-stroke`
+
+</td>
+<td>
+
+Denies the segmentation_preview_stroke command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-segmentation-set-label-state`
+
+</td>
+<td>
+
+Enables the segmentation_set_label_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-set-label-state`
+
+</td>
+<td>
+
+Denies the segmentation_set_label_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-segmentation-undo`
+
+</td>
+<td>
+
+Enables the segmentation_undo command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-segmentation-undo`
+
+</td>
+<td>
+
+Denies the segmentation_undo command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-select-parcel-column`
 
 </td>
@@ -3740,6 +3977,19 @@ Denies the write_bids_exclusions command without any pre-configured scope.
 <td>
 
 Enables every command of the analysis module.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:module-segmentation`
+
+</td>
+<td>
+
+Enables every command of the segmentation module.
 
 </td>
 </tr>

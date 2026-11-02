@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-segmentation-commit-stroke"
+description = "Enables the segmentation_commit_stroke command without any pre-configured scope."
+commands.allow = ["segmentation_commit_stroke"]
+
+[[permission]]
+identifier = "deny-segmentation-commit-stroke"
+description = "Denies the segmentation_commit_stroke command without any pre-configured scope."
+commands.deny = ["segmentation_commit_stroke"]

@@ -2229,6 +2229,11 @@ impl RenderLoopService {
         }
     }
 
+    pub fn editable_volume_handle(&self, volume_id: &str) -> Option<EditableTextureHandle> {
+        let index = self.volumes.get(volume_id)?.atlas_index;
+        self.multi_texture_manager.as_ref()?.editable_handle(index)
+    }
+
     /// Apply a revisioned label region without replacing its texture or binding.
     pub fn update_volume_region(
         &mut self,

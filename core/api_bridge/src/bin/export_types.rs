@@ -108,8 +108,15 @@ fn export_module_map() {
 fn main() {
     println!("Exporting TypeScript types from api_bridge...");
 
+    bf_segmentation::SessionSetup::export_all().expect("export segmentation setup");
+    bf_segmentation::Stroke::export_all().expect("export segmentation stroke");
+    SegmentationAccess::export_all().expect("export segmentation access");
+    SegmentationSessionInfo::export_all().expect("export segmentation session");
+    SegmentationSlice::export_all().expect("export segmentation slice");
+    SegmentationCommit::export_all().expect("export segmentation commit");
     export_command_list();
     export_module_map();
+    WorkspaceIdentity::export_all().expect("export workspace document identity");
     ModuleInfo::export_all().expect("export module info");
     ModuleDescriptor::export_all().expect("export module descriptor");
     AtlasRoiLocation::export_all().expect("export atlas ROI locations");

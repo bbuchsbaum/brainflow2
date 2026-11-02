@@ -114,6 +114,7 @@ pub struct LabelStatus {
     pub complete: bool,
     pub voxels: f64,
     pub mm3: f64,
+    pub slice_voxels: Vec<u32>,
 }
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -123,6 +124,7 @@ pub struct Snapshot {
     pub workspace_id: String,
     pub workspace_instance: String,
     pub reference_volume_id: String,
+    pub secondary_volume_id: Option<String>,
     pub revision: u32,
     pub label_revision: u32,
     pub identity: Identity,
@@ -131,6 +133,7 @@ pub struct Snapshot {
     pub normal_axis: u8,
     pub labels: Vec<LabelStatus>,
     pub registration: Option<Registration>,
+    pub source_header_original: bool,
     pub undo: Option<String>,
     pub redo: Option<String>,
 }
@@ -157,8 +160,61 @@ pub struct Session {
     labels: LabelVolume,
     table: BTreeMap<u16, LabelMeta>,
     revision: u32,
+    source_header_original: bool,
 }
 impl Session {
+    /// Parse the exact header captured when the reference was acquired, rather
+    /// than opening a path whose contents may have changed since loading.
+    pub fn create_from_header_bytes(
+        id: String,
+        setup: SessionSetup,
+        affine: Matrix4<f32>,
+        bytes: &[u8],
+    ) -> Result<Self> {
+        let header = NiftiHeader::from_reader(bytes).map_err(|error| {
+            Error::Invalid(format!("Invalid retained reference header: {error}"))
+        })?;
+        Self::create(id, setup, affine, header)
+    }
+
+    /// A derived in-memory grid has no original NIfTI header. State that fact
+    /// explicitly; record its actual affine as sform and do not invent qform.
+    pub fn create_on_derived_grid(
+        id: String,
+        setup: SessionSetup,
+        dimensions: [u32; 3],
+        affine: Matrix4<f32>,
+    ) -> Result<Self> {
+        if dimensions.iter().any(|&n| n == 0 || n > 32767) {
+            return Err(invalid("Invalid derived reference dimensions"));
+        }
+        let mut header = NiftiHeader {
+            dim: [
+                3,
+                dimensions[0] as u16,
+                dimensions[1] as u16,
+                dimensions[2] as u16,
+                1,
+                1,
+                1,
+                1,
+            ],
+            qform_code: 0,
+            sform_code: 2,
+            xyzt_units: 2,
+            ..Default::default()
+        };
+        for axis in 0..3 {
+            header.pixdim[axis + 1] = affine.fixed_view::<3, 1>(0, axis).norm();
+        }
+        header.srow_x = std::array::from_fn(|column| affine[(0, column)]);
+        header.srow_y = std::array::from_fn(|column| affine[(1, column)]);
+        header.srow_z = std::array::from_fn(|column| affine[(2, column)]);
+        let mut session = Self::create(id, setup, affine, header)?;
+        session.source_header_original = false;
+        Ok(session)
+    }
+
     pub fn create(
         id: String,
         setup: SessionSetup,
@@ -176,6 +232,9 @@ impl Session {
             return Err(invalid(
                 "Subject, rater, hemisphere and workspace identity are required",
             ));
+        }
+        if header.dim[0] < 3 || header.dim[0] > 7 || header.dim[4..].iter().any(|&n| n > 1) {
+            return Err(invalid("Select a single 3D reference image; a multi-frame source needs an explicit frozen-frame adapter"));
         }
         let dimensions = [
             u32::from(header.dim[1]),
@@ -261,6 +320,7 @@ impl Session {
             labels,
             table,
             revision: 0,
+            source_header_original: true,
         })
     }
     pub fn check(&self, owner: &Operation) -> Result<()> {
@@ -279,6 +339,18 @@ impl Session {
         Ok(())
     }
     pub fn snapshot(&self) -> Snapshot {
+        let axis = usize::from(self.setup.normal_axis);
+        let mut slice_counts: BTreeMap<_, Vec<u32>> = self
+            .table
+            .keys()
+            .map(|&id| (id, vec![0; self.labels.dimensions()[axis] as usize]))
+            .collect();
+        for (voxel, value) in self.labels.label_voxels() {
+            if let Some(counts) = slice_counts.get_mut(&value.label) {
+                counts[voxel[axis] as usize] += 1;
+            }
+        }
+
         let voxel_mm3 = self
             .affine
             .cast::<f64>()
@@ -290,6 +362,7 @@ impl Session {
             workspace_id: self.setup.workspace_id.clone(),
             workspace_instance: self.setup.workspace_instance.clone(),
             reference_volume_id: self.setup.reference_volume_id.clone(),
+            secondary_volume_id: self.setup.secondary_volume_id.clone(),
             revision: self.revision,
             label_revision: self.labels.revision() as u32,
             identity: self.setup.identity.clone(),
@@ -311,13 +384,55 @@ impl Session {
                         complete: row.complete,
                         voxels: count,
                         mm3: count * voxel_mm3,
+                        slice_voxels: slice_counts
+                            .remove(&row.definition.id)
+                            .expect("declared label"),
                     }
                 })
                 .collect(),
             registration: self.setup.registration.clone(),
+            source_header_original: self.source_header_original,
             undo: self.labels.undo_description().map(str::to_owned),
             redo: self.labels.redo_description().map(str::to_owned),
         }
+    }
+    pub fn native_plane(
+        &self,
+        slice_index: u32,
+        dimensions: [u32; 2],
+        flips: [bool; 2],
+    ) -> Result<neuro_types::ViewRectMm> {
+        let plane = neuro_types::native_slice_geometry(
+            &neuro_types::VolumeMetadata {
+                dimensions: self.labels.dimensions().map(|v| v as usize),
+                voxel_to_world: self.affine,
+            },
+            self.setup.normal_axis,
+            slice_index,
+            dimensions,
+            flips,
+        )
+        .map_err(|error| Error::Invalid(error.to_string()))?;
+        Ok(neuro_types::ViewRectMm::from(&plane))
+    }
+
+    /// Native voxel coordinates and ids for the SVG partition overlay. Display
+    /// projects these through the same reference affine as the rendered image.
+    pub fn slice_labels(&self, slice_index: u32) -> Result<Vec<[u32; 4]>> {
+        let axis = usize::from(self.setup.normal_axis);
+        if slice_index >= self.labels.dimensions()[axis] {
+            return Err(invalid("Slice is outside the reference grid"));
+        }
+        Ok(self
+            .labels
+            .label_voxels()
+            .filter(|(voxel, _)| voxel[axis] == slice_index)
+            .map(|(voxel, value)| [voxel[0], voxel[1], voxel[2], u32::from(value.label)])
+            .collect())
+    }
+
+    pub fn normal_axis(&self) -> u8 {
+        self.setup.normal_axis
     }
     pub fn volume(&self) -> &LabelVolume {
         &self.labels

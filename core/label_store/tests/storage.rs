@@ -210,3 +210,39 @@ fn counts_and_range_follow_overwrites_provenance_undo_and_redo() {
         .unwrap();
     assert_eq!(v.label_counts().get(&8), Some(&2));
 }
+
+#[test]
+fn sparse_iteration_keeps_native_coordinates_and_omits_background_provenance() {
+    let mut v = LabelVolume::new([33, 17, 2], DEFAULT_HISTORY_BYTES).unwrap();
+    v.commit(
+        0,
+        "Paint".into(),
+        &[
+            edit([32, 16, 1], 301, 1),
+            edit([1, 0, 0], 7, 3),
+            edit([16, 0, 1], 0, 4),
+        ],
+    )
+    .unwrap();
+    let mut actual: Vec<_> = v.label_voxels().collect();
+    actual.sort_by_key(|(voxel, _)| *voxel);
+    assert_eq!(
+        actual,
+        [
+            (
+                [1, 0, 0],
+                LabelValue {
+                    label: 7,
+                    provenance: 3
+                }
+            ),
+            (
+                [32, 16, 1],
+                LabelValue {
+                    label: 301,
+                    provenance: 1
+                }
+            )
+        ]
+    );
+}

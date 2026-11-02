@@ -12,6 +12,7 @@ fn prepared() -> PreparedVolume {
     let space = volmath::NeuroSpace::new(vec![2, 3, 4], None, None, None, None).unwrap();
     let volume = volmath::DenseVolume3::from_data(space, vec![1_f32; 24]);
     PreparedVolume {
+        source_nifti_header: None,
         data: VolumeSendable::VolF32(volume, Default::default()),
         metadata: VolumeMetadataInfo {
             name: "brain.nii".into(),

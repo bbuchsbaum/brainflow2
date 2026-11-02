@@ -134,6 +134,30 @@ impl LabelVolume {
     pub fn label_counts(&self) -> &BTreeMap<u16, u64> {
         &self.counts
     }
+    /// Non-background values in unspecified order, without materializing a
+    /// dense grid. Provenance-only background voxels are omitted.
+    pub fn label_voxels(&self) -> impl Iterator<Item = ([u32; 3], LabelValue)> + '_ {
+        self.bricks.iter().flat_map(|(&brick, data)| {
+            data.values
+                .iter()
+                .copied()
+                .enumerate()
+                .filter_map(move |(index, value)| {
+                    if value.label == 0 {
+                        return None;
+                    }
+                    let local = [
+                        (index % 16) as u32,
+                        ((index / 16) % 16) as u32,
+                        (index / 256) as u32,
+                    ];
+                    Some((
+                        std::array::from_fn(|axis| brick[axis] * EDGE + local[axis]),
+                        value,
+                    ))
+                })
+        })
+    }
     pub fn data_range(&self) -> (u16, u16) {
         let total: u64 = self.dimensions.iter().map(|&v| u64::from(v)).product();
         let min = if self.nonzero_voxels < total {
@@ -293,6 +317,16 @@ impl LabelVolume {
         self.revision = revision;
         Ok(change)
     }
+    /// Bounds of the next undo/redo entry, for hosts to reserve publication
+    /// buffers before changing document revision or history.
+    pub fn history_region(&self, redo: bool) -> Option<Region> {
+        if redo {
+            self.redo.last()
+        } else {
+            self.undo.back()
+        }
+        .map(|entry| entry.bounds)
+    }
     pub fn undo(&mut self, expected: u64) -> Result<Change> {
         self.travel(expected, false)
     }
@@ -363,22 +397,39 @@ impl LabelVolume {
     }
     /// Tightly packed x-fastest labels for texture sub-region upload or export.
     pub fn read_region(&self, region: Region) -> Result<Vec<u16>> {
-        if (0..3).any(|a| region.origin[a] >= region.end[a] || region.end[a] > self.dimensions[a]) {
-            return Err(Error::Grid("invalid region"));
-        }
+        self.check_region(region)?;
         let count = region.dimensions().iter().map(|&v| v as usize).product();
         let mut values = Vec::new();
         values
             .try_reserve_exact(count)
             .map_err(|_| Error::Allocation)?;
+        values.resize(count, 0);
+        self.read_region_into(region, &mut values)?;
+        Ok(values)
+    }
+    fn check_region(&self, region: Region) -> Result<()> {
+        if (0..3).any(|a| region.origin[a] >= region.end[a] || region.end[a] > self.dimensions[a]) {
+            return Err(Error::Grid("invalid region"));
+        }
+        Ok(())
+    }
+    /// Fill an already-reserved tightly packed buffer, without allocating.
+    pub fn read_region_into(&self, region: Region, values: &mut [u16]) -> Result<()> {
+        self.check_region(region)?;
+        let count: usize = region.dimensions().iter().map(|&v| v as usize).product();
+        if values.len() != count {
+            return Err(Error::Grid("region buffer length differs from region"));
+        }
+        let mut at = 0;
         for z in region.origin[2]..region.end[2] {
             for y in region.origin[1]..region.end[1] {
                 for x in region.origin[0]..region.end[0] {
-                    values.push(self.get([x, y, z])?.label);
+                    values[at] = self.get([x, y, z])?.label;
+                    at += 1;
                 }
             }
         }
-        Ok(values)
+        Ok(())
     }
     pub fn dense(&self) -> Result<Vec<u16>> {
         self.read_region(Region {

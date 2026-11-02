@@ -736,6 +736,19 @@ impl MultiTextureManager {
         })
     }
 
+    /// The current resident handle, for hosts resolving a live volume mapping
+    /// under their own operation lock. Never reconstruct a handle from an old slot.
+    pub fn editable_handle(&self, index: u32) -> Option<EditableTextureHandle> {
+        self.textures
+            .get(&index)?
+            .editable
+            .map(|(generation, _)| EditableTextureHandle {
+                index,
+                generation,
+                manager: self.identity,
+            })
+    }
+
     pub fn editable_revision(&self, handle: EditableTextureHandle) -> Result<u64, RenderLoopError> {
         if handle.manager != self.identity {
             return Err(conversion_error(

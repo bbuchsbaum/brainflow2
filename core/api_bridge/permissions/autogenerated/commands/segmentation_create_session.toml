@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-segmentation-create-session"
+description = "Enables the segmentation_create_session command without any pre-configured scope."
+commands.allow = ["segmentation_create_session"]
+
+[[permission]]
+identifier = "deny-segmentation-create-session"
+description = "Denies the segmentation_create_session command without any pre-configured scope."
+commands.deny = ["segmentation_create_session"]

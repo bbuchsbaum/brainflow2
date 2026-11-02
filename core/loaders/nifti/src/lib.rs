@@ -34,6 +34,23 @@ pub enum NiftiError {
     Truncated { expected: u64, actual: u64 },
 }
 
+/// Capture the exact NIfTI-1 header, retaining both independent transforms and
+/// byte order. Inflate only the header prefix for gzip files.
+pub fn read_source_header_bytes(path: &Path) -> Result<Vec<u8>, NiftiError> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path)?;
+    let mut magic = [0; 2];
+    file.read_exact(&mut magic)?;
+    file.seek(SeekFrom::Start(0))?;
+    let mut bytes = vec![0; 348];
+    if magic == [0x1f, 0x8b] {
+        flate2::read::GzDecoder::new(file).read_exact(&mut bytes)?;
+    } else {
+        file.read_exact(&mut bytes)?;
+    }
+    Ok(bytes)
+}
+
 /// True when the file starts with a NIfTI-2 `sizeof_hdr` (540, either byte order).
 fn is_nifti2(path: &Path, compressed: bool) -> bool {
     use std::io::Read;
@@ -1567,5 +1584,38 @@ mod tests {
                 "[perf] histogram: clone {clone_ms:.1} ms + values() {values_ms:.1} ms + scan {scan_ms:.1} ms (nonzero range {lo}..{hi})"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod captured_header_tests {
+    use super::*;
+    use std::io::Write;
+    #[test]
+    fn captures_only_the_exact_plain_or_gzip_header_prefix() {
+        let directory =
+            std::env::temp_dir().join(format!("brainflow-header-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(directory.clone());
+        let bytes: Vec<u8> = (0..512).map(|i| (i % 251) as u8).collect();
+        let plain = directory.join("synthetic.nii");
+        std::fs::write(&plain, &bytes).unwrap();
+        let gzip = directory.join("synthetic.nii.gz");
+        let mut encoder = flate2::write::GzEncoder::new(
+            std::fs::File::create(&gzip).unwrap(),
+            flate2::Compression::fast(),
+        );
+        encoder.write_all(&bytes).unwrap();
+        encoder.finish().unwrap();
+        assert_eq!(read_source_header_bytes(&plain).unwrap(), bytes[..348]);
+        assert_eq!(read_source_header_bytes(&gzip).unwrap(), bytes[..348]);
+        std::fs::write(&plain, [0; 100]).unwrap();
+        assert!(read_source_header_bytes(&plain).is_err());
     }
 }

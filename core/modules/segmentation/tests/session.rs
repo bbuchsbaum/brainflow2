@@ -264,3 +264,38 @@ fn generated_types_are_namespaced_and_registration_fields_match_json_wire_names(
     assert!(!registration.contains("confirmed_at_ms"), "{registration}");
     assert!(Stroke::decl().contains("baseRevision") || Operation::decl().contains("baseRevision"));
 }
+
+#[test]
+fn ruler_matrix_and_partition_overlay_read_the_same_current_document() {
+    let mut s = session();
+    let request = stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.41, Tool::Brush);
+    s.stroke(&request).unwrap();
+    assert_eq!(s.snapshot().labels[0].slice_voxels, [0, 5, 0]);
+    assert_eq!(s.slice_labels(1).unwrap().len(), 5);
+    assert!(s.slice_labels(0).unwrap().is_empty());
+    assert!(s.slice_labels(3).is_err());
+    let p = s.native_plane(1, [5, 7], [false; 2]).unwrap();
+    assert_eq!((p.width_px, p.height_px), (5, 7));
+    s.undo(&owner(&s), false).unwrap();
+    assert_eq!(s.snapshot().labels[0].slice_voxels, [0; 3]);
+    assert!(s.slice_labels(1).unwrap().is_empty());
+}
+
+#[test]
+fn derived_grids_record_the_actual_affine_without_claiming_an_original_qform() {
+    let s =
+        Session::create_on_derived_grid("derived".into(), setup(), [5, 3, 7], affine()).unwrap();
+    assert!(!s.snapshot().source_header_original);
+    assert_eq!((s.header().qform_code, s.header().sform_code), (0, 2));
+    assert_eq!(s.header().srow_x, [0.4, 0.0, 0.0, 10.0]);
+    assert_eq!(s.header().srow_y, [0.0, 1.6, -0.24, -20.0]);
+    assert!(Session::create_from_header_bytes("bad".into(), setup(), affine(), &[0; 100]).is_err());
+}
+
+#[test]
+fn multi_frame_reference_is_refused_before_creating_an_ambiguous_grid() {
+    let mut header = header();
+    header.dim[0] = 4;
+    header.dim[4] = 2;
+    assert!(Session::create("refused".into(), setup(), affine(), header).is_err());
+}

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-segmentation-undo"
+description = "Enables the segmentation_undo command without any pre-configured scope."
+commands.allow = ["segmentation_undo"]
+
+[[permission]]
+identifier = "deny-segmentation-undo"
+description = "Denies the segmentation_undo command without any pre-configured scope."
+commands.deny = ["segmentation_undo"]

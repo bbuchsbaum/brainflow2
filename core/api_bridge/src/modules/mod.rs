@@ -23,19 +23,22 @@ use crate::BridgeState;
 use async_trait::async_trait;
 use bridge_types::{BridgeError, BridgeResult};
 use log::info;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::any::{type_name, Any, TypeId};
-use std::collections::{BTreeSet, HashMap};
-use std::sync::Arc;
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use tauri::{command, State};
-use tokio::sync::{RwLock, RwLockReadGuard};
+use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ts_rs::TS;
 
 pub(crate) mod analysis;
+pub(crate) mod segmentation;
 
 /// Every compiled-in module, in registration order. Each entry needs a matching
 /// `module <id> { ... }` section in `command_list.rs` (asserted by a test).
-pub(crate) static REGISTERED_MODULES: &[&dyn BridgeModule] = &[&analysis::MODULE];
+pub(crate) static REGISTERED_MODULES: &[&dyn BridgeModule] =
+    &[&analysis::MODULE, &segmentation::MODULE];
 
 /// `BridgeError::ModuleDisabled`: a module command was called while it is off.
 pub const MODULE_DISABLED_CODE: u16 = 12001;
@@ -77,6 +80,16 @@ pub struct ModuleInfo {
     pub enabled: bool,
 }
 
+/// Runtime identity of one workspace incarnation. The frontend mints the
+/// incarnation; it is not reused from persisted timestamps or restored tabs.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct WorkspaceIdentity {
+    pub workspace_id: String,
+    pub workspace_instance: String,
+}
+
 /// Bridge side of a first-party module. Implemented by the adapter in
 /// `modules/<id>.rs`; domain logic belongs in the transport-neutral crate.
 ///
@@ -94,6 +107,16 @@ pub trait BridgeModule: Send + Sync + 'static {
     /// module owns (running jobs, GPU leases, layers, provider sessions). Runs
     /// under the gate's write guard, so it must not call module commands.
     async fn on_disable(&self, _ctx: &ModuleCtx<'_>) {}
+
+    /// Core calls this even while the module is disabled. Remove the named
+    /// workspace's documents and return only the published volumes they own.
+    async fn on_workspace_dispose(
+        &self,
+        _ctx: &ModuleCtx<'_>,
+        _workspace: &WorkspaceIdentity,
+    ) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// What a lifecycle hook may touch: the module state slots, not `BridgeState`.
@@ -152,9 +175,43 @@ pub struct ModuleHost {
     modules: &'static [&'static dyn BridgeModule],
     slots: ModuleSlots,
     enabled: RwLock<BTreeSet<&'static str>>,
+    revoked_workspaces: StdMutex<HashSet<WorkspaceIdentity>>,
+    exit_approved: AtomicBool,
+}
+
+/// Freezes and drains all module command admission while the desktop shell asks
+/// about unsaved documents. Dropping on cancellation resumes admission. Approval
+/// closes admission permanently before the write gate is released.
+pub struct DocumentExitGuard<'a> {
+    _gate: RwLockWriteGuard<'a, BTreeSet<&'static str>>,
+    approved: &'a AtomicBool,
+    has_documents: bool,
+}
+impl DocumentExitGuard<'_> {
+    pub fn has_documents(&self) -> bool {
+        self.has_documents
+    }
+    pub fn approve(self) {
+        self.approved.store(true, Ordering::Release);
+    }
 }
 
 impl ModuleHost {
+    pub async fn begin_document_exit<'a>(&'a self, state: &BridgeState) -> DocumentExitGuard<'a> {
+        let gate = self.enabled.write().await;
+        let has_documents = state
+            .volume_registry
+            .lock()
+            .await
+            .volumes
+            .values()
+            .any(|entry| entry.retained_by_document);
+        DocumentExitGuard {
+            _gate: gate,
+            approved: &self.exit_approved,
+            has_documents,
+        }
+    }
     /// Register `modules` and their state. Every module starts enabled; the UI
     /// applies the user's choice through `set_enabled_modules`.
     pub(crate) fn new(modules: &'static [&'static dyn BridgeModule]) -> Self {
@@ -169,6 +226,8 @@ impl ModuleHost {
             modules,
             slots,
             enabled: RwLock::new(ids),
+            revoked_workspaces: StdMutex::new(HashSet::new()),
+            exit_approved: AtomicBool::new(false),
         }
     }
 
@@ -179,6 +238,12 @@ impl ModuleHost {
         module_id: &'static str,
     ) -> BridgeResult<ActiveModule<'_, T>> {
         let gate = self.enabled.read().await;
+        if self.exit_approved.load(Ordering::Acquire) {
+            return Err(BridgeError::Input {
+                code: 12005,
+                details: "The app is exiting; document commands are closed".into(),
+            });
+        }
         if !gate.contains(module_id) {
             return Err(BridgeError::ModuleDisabled {
                 code: MODULE_DISABLED_CODE,
@@ -193,6 +258,62 @@ impl ModuleHost {
             ),
         })?;
         Ok(ActiveModule { state, _gate: gate })
+    }
+
+    pub(crate) async fn enter_workspace<T: Any + Send + Sync>(
+        &self,
+        module_id: &'static str,
+        workspace: &WorkspaceIdentity,
+    ) -> BridgeResult<ActiveModule<'_, T>> {
+        let active = self.enter::<T>(module_id).await?;
+        if workspace.workspace_id.is_empty()
+            || workspace.workspace_instance.is_empty()
+            || self
+                .revoked_workspaces
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains(workspace)
+        {
+            return Err(BridgeError::Input {
+                code: 12004,
+                details: "Workspace document incarnation is closed or invalid".into(),
+            });
+        }
+        Ok(active)
+    }
+
+    /// Serialize revocation with admitted edits/creation, then reclaim module
+    /// documents through the ordinary core volume lifecycle. This is idempotent.
+    async fn dispose_workspace(
+        &self,
+        state: &BridgeState,
+        workspace: &WorkspaceIdentity,
+    ) -> BridgeResult<()> {
+        if workspace.workspace_id.is_empty() || workspace.workspace_instance.is_empty() {
+            return Err(BridgeError::Input {
+                code: 12004,
+                details: "Workspace identity is required".into(),
+            });
+        }
+        let _gate = self.enabled.write().await;
+        let _operation = state.volume_operations.lock().await;
+        let fresh = self
+            .revoked_workspaces
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(workspace.clone());
+        if !fresh {
+            return Ok(());
+        }
+        let ctx = ModuleCtx { slots: &self.slots };
+        let mut volumes = Vec::new();
+        for module in self.modules {
+            volumes.extend(module.on_workspace_dispose(&ctx, workspace).await);
+        }
+        volumes.sort();
+        volumes.dedup();
+        crate::editable_labels::release_documents_locked(state, &volumes).await;
+        Ok(())
     }
 
     /// Ungated slot lookup, for tests and core teardown. Commands use [`Self::enter`].
@@ -302,6 +423,7 @@ mod tests {
 
     struct ProbeState {
         disabled: AtomicUsize,
+        disposed_workspaces: StdMutex<Vec<WorkspaceIdentity>>,
     }
 
     struct ProbeModule(&'static ModuleDescriptor);
@@ -316,8 +438,25 @@ mod tests {
             if self.0.id == "probe" {
                 slots.insert(ProbeState {
                     disabled: AtomicUsize::new(0),
+                    disposed_workspaces: StdMutex::new(Vec::new()),
                 });
             }
+        }
+
+        async fn on_workspace_dispose(
+            &self,
+            ctx: &ModuleCtx<'_>,
+            workspace: &WorkspaceIdentity,
+        ) -> Vec<String> {
+            if self.0.id == "probe" {
+                ctx.state::<ProbeState>()
+                    .unwrap()
+                    .disposed_workspaces
+                    .lock()
+                    .unwrap()
+                    .push(workspace.clone());
+            }
+            Vec::new()
         }
 
         async fn on_disable(&self, ctx: &ModuleCtx<'_>) {
@@ -358,6 +497,108 @@ mod tests {
             .filter(|info| info.enabled)
             .map(|info| info.descriptor.id)
             .collect()
+    }
+
+    #[tokio::test]
+    async fn workspace_disposal_works_while_disabled_and_revokes_only_one_incarnation() {
+        let host = ModuleHost::new(PROBE_MODULES);
+        let state = BridgeState::default().unwrap();
+        let old = WorkspaceIdentity {
+            workspace_id: "view".into(),
+            workspace_instance: "opaque-a".into(),
+        };
+        host.set_enabled(&[]).await.unwrap();
+        host.dispose_workspace(&state, &old).await.unwrap();
+        host.dispose_workspace(&state, &old).await.unwrap();
+        assert_eq!(
+            host.state::<ProbeState>()
+                .unwrap()
+                .disposed_workspaces
+                .lock()
+                .unwrap()
+                .as_slice(),
+            &[old.clone()]
+        );
+        host.set_enabled(&["probe".into()]).await.unwrap();
+        assert!(host
+            .enter_workspace::<ProbeState>("probe", &old)
+            .await
+            .is_err());
+        let next = WorkspaceIdentity {
+            workspace_instance: "opaque-b".into(),
+            ..old
+        };
+        assert!(host
+            .enter_workspace::<ProbeState>("probe", &next)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn workspace_disposal_waits_for_admitted_commands_then_rejects_late_creation() {
+        let host = ModuleHost::new(PROBE_MODULES);
+        let state = BridgeState::default().unwrap();
+        let workspace = WorkspaceIdentity {
+            workspace_id: "view".into(),
+            workspace_instance: "opaque-a".into(),
+        };
+        let active = host
+            .enter_workspace::<ProbeState>("probe", &workspace)
+            .await
+            .unwrap();
+        let mut dispose = Box::pin(host.dispose_workspace(&state, &workspace));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), dispose.as_mut())
+                .await
+                .is_err()
+        );
+        drop(active);
+        dispose.await.unwrap();
+        assert!(host
+            .enter_workspace::<ProbeState>("probe", &workspace)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn exit_freeze_drains_edits_cancellation_resumes_and_approval_rejects_queued_commands() {
+        let host = ModuleHost::new(PROBE_MODULES);
+        let state = BridgeState::default().unwrap();
+        let active = host.enter::<ProbeState>("probe").await.unwrap();
+        let mut exit = Box::pin(host.begin_document_exit(&state));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), exit.as_mut())
+                .await
+                .is_err()
+        );
+        drop(active);
+        let guard = exit.await;
+        assert!(!guard.has_documents());
+        let mut queued = Box::pin(host.enter::<ProbeState>("probe"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), queued.as_mut())
+                .await
+                .is_err()
+        );
+        drop(guard); // Cancel: no edit or document is discarded.
+        drop(queued.await.unwrap());
+        let guard = host.begin_document_exit(&state).await;
+        let mut queued = Box::pin(host.enter::<ProbeState>("probe"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), queued.as_mut())
+                .await
+                .is_err()
+        );
+        guard.approve();
+        assert!(matches!(
+            queued.await,
+            Err(BridgeError::Input { code: 12005, .. })
+        ));
+        host.set_enabled(&["probe".into()]).await.unwrap();
+        assert!(
+            host.enter::<ProbeState>("probe").await.is_err(),
+            "enable cannot reopen approved exit"
+        );
     }
 
     #[test]
@@ -508,4 +749,16 @@ mod tests {
             "`module <id>` sections in command_list.rs must match REGISTERED_MODULES (same order)"
         );
     }
+}
+
+/// Document teardown is core-owned, and remains available with modules switched off.
+#[command]
+pub(crate) async fn dispose_module_workspace(
+    workspace: WorkspaceIdentity,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    state
+        .modules
+        .dispose_workspace(state.inner(), &workspace)
+        .await
 }

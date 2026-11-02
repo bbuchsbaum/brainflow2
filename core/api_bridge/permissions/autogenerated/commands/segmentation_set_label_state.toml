@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-segmentation-set-label-state"
+description = "Enables the segmentation_set_label_state command without any pre-configured scope."
+commands.allow = ["segmentation_set_label_state"]
+
+[[permission]]
+identifier = "deny-segmentation-set-label-state"
+description = "Denies the segmentation_set_label_state command without any pre-configured scope."
+commands.deny = ["segmentation_set_label_state"]

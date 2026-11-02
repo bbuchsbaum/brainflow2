@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-dispose-module-workspace"
+description = "Enables the dispose_module_workspace command without any pre-configured scope."
+commands.allow = ["dispose_module_workspace"]
+
+[[permission]]
+identifier = "deny-dispose-module-workspace"
+description = "Denies the dispose_module_workspace command without any pre-configured scope."
+commands.deny = ["dispose_module_workspace"]
