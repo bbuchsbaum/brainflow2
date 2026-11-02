@@ -75,7 +75,7 @@ jobs:
       run: |
         # Install Mesa drivers for software rendering fallback
         sudo apt-get update
-        sudo apt-get install -y mesa-utils libgl1-mesa-dri
+        sudo apt-get install -y mesa-utils libgl1-mesa-dri mesa-vulkan-drivers libvulkan1
         # Set environment for software rendering
         echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
         echo "GALLIUM_DRIVER=llvmpipe" >> $GITHUB_ENV

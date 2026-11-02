@@ -68,30 +68,41 @@ jobs:
       run: cargo build --verbose
       working-directory: core/neuro-integration-tests
     
+    # Gated off: every test in core/neuro-integration-tests/tests/ellipsoid_validation.rs is
+    # commented out and the ellipsoid benches exist only as .bak files, so this ran nothing.
+    # Follow-up: #27 (Re-enable ellipsoid validation tests and benchmarks).
     - name: Run basic ellipsoid tests
+      if: false # ellipsoid_validation.rs is fully commented out; see the follow-up issue noted above
       run: cargo test --test ellipsoid_validation test_ellipsoid_isotropic_volumes --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run anisotropic ellipsoid tests
+      if: false # ellipsoid_validation.rs is fully commented out; see the follow-up issue noted above
       run: cargo test --test ellipsoid_validation test_ellipsoid_anisotropic_volumes --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run extreme aspect ratio tests
+      if: false # ellipsoid_validation.rs is fully commented out; see the follow-up issue noted above
       run: cargo test --test ellipsoid_validation test_ellipsoid_extreme_aspect_ratios --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run small object tests
+      if: false # ellipsoid_validation.rs is fully commented out; see the follow-up issue noted above
       run: cargo test --test ellipsoid_validation test_ellipsoid_small_objects --verbose
       working-directory: core/neuro-integration-tests
     
     - name: Run edge case tests
+      if: false # ellipsoid_validation.rs is fully commented out; see the follow-up issue noted above
       run: cargo test --test ellipsoid_validation test_ellipsoid_edge_cases --verbose
       working-directory: core/neuro-integration-tests
 
   performance-benchmarks:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Gated off: every test in core/neuro-integration-tests/tests/ellipsoid_validation.rs is
+    # commented out and the ellipsoid benches exist only as .bak files, so this ran nothing.
+    # Follow-up: #27 (Re-enable ellipsoid validation tests and benchmarks).
+    if: false # was: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
     - uses: actions/checkout@v4
@@ -134,7 +145,10 @@ jobs:
   stress-tests:
     name: Stress Tests (Large Volumes)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Gated off: every test in core/neuro-integration-tests/tests/ellipsoid_validation.rs is
+    # commented out and the ellipsoid benches exist only as .bak files, so this ran nothing.
+    # Follow-up: #27 (Re-enable ellipsoid validation tests and benchmarks).
+    if: false # was: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
     - uses: actions/checkout@v4
