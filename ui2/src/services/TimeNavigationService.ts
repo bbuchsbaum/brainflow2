@@ -41,7 +41,7 @@ class TimeNavigationService {
 
     const layersArray: LayerInfo[] = Array.isArray(candidateLayers)
       ? (candidateLayers as LayerInfo[])
-      : Array.isArray((candidateLayers as any)?.layers)
+      : Array.isArray((candidateLayers as { layers?: unknown } | null)?.layers)
         ? (candidateLayers as { layers: LayerInfo[] }).layers
         : [];
 
@@ -135,8 +135,11 @@ class TimeNavigationService {
   /**
    * Navigate to a specific timepoint
    */
-  setTimepoint(timepoint: number): void {
-    const layers = this.collectTimeSeriesLayers();
+  setTimepoint(timepoint: number, options?: { layerId?: string }): void {
+    const available = this.collectTimeSeriesLayers();
+    // A BIDS run landing belongs to that run, not every 4D layer in the app.
+    // Normal time navigation retains its existing synchronized behavior.
+    const layers = options?.layerId ? available.filter((layer) => layer.id === options.layerId) : available;
     if (layers.length === 0) {
       return;
     }

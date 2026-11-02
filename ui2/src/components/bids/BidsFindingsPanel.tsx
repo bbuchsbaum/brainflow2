@@ -16,6 +16,7 @@ import {
   type BidsFindingRule,
 } from '@/stores/bidsModel';
 import { cn } from '@/utils/cn';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 function Glyph({ group }: { group: BidsFindingGroupId }) {
   const base = 'mt-[3px] inline-block h-2.5 w-2.5 shrink-0';
@@ -228,7 +229,7 @@ function ExcludedRow({ item }: { item: BidsFindingItem }) {
       .catch((error: unknown) => {
         getEventBus().emit('ui.notification', {
           type: 'error',
-          message: `Could not revert ${entity}: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Could not revert ${entity}: ${formatTauriError(error)}`,
         });
       });
   }, [item.exclusion]);

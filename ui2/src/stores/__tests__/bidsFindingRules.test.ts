@@ -15,7 +15,9 @@ describe('finding rules keep distinct findings apart', () => {
       { ...finding, id: 'd', severity: 'info', tag: 'note', title: '12 files unread', run_ids: [] },
     ] as never;
     const model = deriveBidsModel(source);
-    const notes = group(model, 'notes').rules.map((rule) => rule.items.length);
+    const notes = group(model, 'notes').rules
+      .filter((rule) => !rule.items.some((item) => item.id === 'tsnr:not-evaluated'))
+      .map((rule) => rule.items.length);
     expect(notes).toEqual([1, 1, 2]);
     const variants = group(model, 'variants');
     expect(variants.rules).toHaveLength(variants.items.length);

@@ -16,8 +16,10 @@ import type {
   BidsScanProgress,
 } from '@brainflow/api';
 import { getTransport } from '@/services/transport';
+import { getEventBus } from '@/events/EventBus';
 import { copyToClipboard } from '@/utils/copyToClipboard';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
+import { formatTauriError } from '@/utils/formatTauriError';
 import {
   DEFAULT_FD_THRESHOLD_MM,
   buildLensExport,
@@ -52,6 +54,16 @@ export type BidsDetailTab = 'events' | 'validation';
 export type BidsActiveView = 'coverage' | 'images';
 export type BidsScanStatus = 'idle' | 'scanning' | 'ready' | 'error';
 
+/** Display parameters shared by the Images sheet and the Inspector. */
+export interface BidsImageReference {
+  datasetPath: string;
+  series: string;
+  run: string | null;
+  kind: 'mean' | 'anat' | 'b0' | 'tsnr';
+  worldZ: number | null;
+  window: [number, number];
+}
+
 export interface BidsSelection {
   subjectId: string | null;
   sessionId: string | null;
@@ -82,6 +94,7 @@ interface BidsState {
   scanProgress: BidsScanProgress | null;
   selectedRunId: string | null;
   activeView: BidsActiveView;
+  imageReference: BidsImageReference | null;
   fdThreshold: number;
   censor: BidsCensorCriterion | null;
   groupBy: string | null | undefined;
@@ -92,6 +105,9 @@ interface BidsState {
   /** `exclusions` reflects the disk. Nothing may be excluded before it does. */
   exclusionsLoaded: boolean;
   undoStack: BidsUndoEntry[];
+  /** The transient notice is separate from the persistent undo history. */
+  undoNoticeId: number | null;
+  undoNoticeExpiresAt: number | null;
   runDetails: Record<string, BidsRunDetail>;
   actionRequest: BidsActionRequest | null;
   /** The Inspector shows the selected run beside the dataset median. */
@@ -117,6 +133,7 @@ interface BidsActions {
   selectRun: (runId: string | null) => void;
   moveSelection: (direction: BidsMoveDirection) => void;
   setActiveView: (view: BidsActiveView) => void;
+  setImageReference: (reference: BidsImageReference | null) => void;
   setFdThreshold: (mm: number) => void;
   setCensor: (criterion: BidsCensorCriterion | null) => void;
   setGroupBy: (column: string | null) => void;
@@ -139,6 +156,7 @@ interface BidsActions {
    */
   loadRunEvents: (runId: string, datasetPath?: string | null) => Promise<BidsEventRow[]>;
   undoExclusion: () => Promise<void>;
+  dismissUndoNotice: (id: number) => void;
   /** Seam for the Findings, Inspector and dialog step. */
   requestAction: (kind: BidsActionRequestKind) => void;
   clearActionRequest: () => void;
@@ -163,6 +181,7 @@ const initialState: BidsState = {
   scanProgress: null,
   selectedRunId: null,
   activeView: 'coverage',
+  imageReference: null,
   fdThreshold: DEFAULT_FD_THRESHOLD_MM,
   censor: null,
   groupBy: undefined,
@@ -172,6 +191,8 @@ const initialState: BidsState = {
   exclusions: [],
   exclusionsLoaded: false,
   undoStack: [],
+  undoNoticeId: null,
+  undoNoticeExpiresAt: null,
   runDetails: {},
   actionRequest: null,
   compareWithModal: false,
@@ -313,7 +334,7 @@ export const runEventsKey = (datasetPath: string | null, runId: string) => `${da
 const keyOf = ({ entity, criterion }: BidsExclusion): BidsExclusionKey => ({ entity, criterion });
 const sameKey = (a: BidsExclusionKey, b: BidsExclusionKey) =>
   a.entity === b.entity && a.criterion === b.criterion;
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const messageOf = formatTauriError;
 
 export const useBidsStore = create<BidsStore>()(
   subscribeWithSelector(
@@ -331,6 +352,23 @@ export const useBidsStore = create<BidsStore>()(
         const scanId = `bids-scan-${Date.now()}-${++scanCounter}`;
         const sameDataset = before.datasetPath === path;
         const previous = sameDataset ? before.index : null;
+        if (before.datasetPath && !sameDataset) {
+          const name = path.split('/').filter(Boolean).pop() ?? path;
+          const undo = before.undoStack.length > 0;
+          const threshold = before.fdThreshold !== DEFAULT_FD_THRESHOLD_MM || before.censor !== null;
+          const dropped = [before.lens ? 'the lens' : '', threshold ? 'the motion thresholds' : '']
+            .filter(Boolean).join(' and ');
+          if (undo || dropped) {
+            getEventBus().emit('ui.notification', {
+              type: 'info',
+              message: [
+                `Switched to ${name}.`,
+                undo ? 'Exclusions in the last dataset are saved; undo no longer applies.' : '',
+                dropped ? `Cleared ${dropped}.` : '',
+              ].filter(Boolean).join(' '),
+            });
+          }
+        }
         detailRequests.clear();
         set({
           datasetPath: path,
@@ -345,11 +383,15 @@ export const useBidsStore = create<BidsStore>()(
             : {
                 index: null,
                 selectedRunId: null,
+                selection: { subjectId: null, sessionId: null, modality: null },
+                imageReference: null,
                 lens: null,
                 lensMode: 'highlight' as const,
                 exclusions: [],
                 exclusionsLoaded: false,
                 undoStack: [],
+                undoNoticeId: null,
+                undoNoticeExpiresAt: null,
                 actionRequest: null,
                 exclusionsWritten: false,
                 eventsCache: new Map(),
@@ -470,7 +512,18 @@ export const useBidsStore = create<BidsStore>()(
       },
 
       setActiveView: (view) => {
-        if (get().activeView !== view) set({ activeView: view });
+        if (get().activeView !== view) set({ activeView: view, imageReference: null });
+      },
+
+      setImageReference: (reference) => {
+        const state = get();
+        if (reference && (state.activeView !== 'images' || state.datasetPath !== reference.datasetPath)) return;
+        const previous = state.imageReference;
+        if (previous === reference || (previous && reference &&
+          previous.datasetPath === reference.datasetPath && previous.series === reference.series &&
+          previous.run === reference.run && previous.kind === reference.kind && previous.worldZ === reference.worldZ &&
+          previous.window[0] === reference.window[0] && previous.window[1] === reference.window[1])) return;
+        set({ imageReference: reference });
       },
 
       setFdThreshold: (mm) => {
@@ -551,13 +604,20 @@ export const useBidsStore = create<BidsStore>()(
         if (get().datasetPath !== datasetPath) return;
         exclusionRevision += 1;
         const undoStack = get().undoStack;
+        const entry = write.added.length ? { id: ++undoCounter, added: write.added } : null;
         set({
           exclusions: write.all,
           exclusionsWritten: true,
-          undoStack: write.added.length
-            ? [...undoStack, { id: ++undoCounter, added: write.added }]
-            : undoStack,
+          undoStack: entry ? [...undoStack, entry] : undoStack,
+          undoNoticeId: entry?.id ?? null,
+          undoNoticeExpiresAt: entry ? Date.now() + 5000 : null,
         });
+        if (!entry) {
+          getEventBus().emit('ui.notification', {
+            type: 'info',
+            message: 'Already excluded; no rows written.',
+          });
+        }
       },
 
       revertExclusions: async (keys) => {
@@ -570,11 +630,15 @@ export const useBidsStore = create<BidsStore>()(
         });
         if (get().datasetPath !== datasetPath) return;
         exclusionRevision += 1;
+        const undoStack = get().undoStack.filter(
+          (entry) => !entry.added.some((row) => keys.some((key) => sameKey(key, keyOf(row)))),
+        );
+        const keepNotice = undoStack.some((entry) => entry.id === get().undoNoticeId);
         set({
           exclusions: next,
-          undoStack: get().undoStack.filter(
-            (entry) => !entry.added.some((row) => keys.some((key) => sameKey(key, keyOf(row)))),
-          ),
+          undoStack,
+          undoNoticeId: keepNotice ? get().undoNoticeId : null,
+          undoNoticeExpiresAt: keepNotice ? get().undoNoticeExpiresAt : null,
         });
       },
 
@@ -593,8 +657,17 @@ export const useBidsStore = create<BidsStore>()(
         set({
           exclusions: next,
           undoStack: get().undoStack.filter((item) => item.id !== entry.id),
+          undoNoticeId: get().undoNoticeId === entry.id ? null : get().undoNoticeId,
+          undoNoticeExpiresAt: get().undoNoticeId === entry.id ? null : get().undoNoticeExpiresAt,
         });
       },
+
+      dismissUndoNotice: (id) => set((state) => {
+        if (state.undoNoticeId === id) {
+          state.undoNoticeId = null;
+          state.undoNoticeExpiresAt = null;
+        }
+      }),
 
       requestAction: (kind) => {
         if (kind === 'exclude' && !get().exclusionsLoaded) return;

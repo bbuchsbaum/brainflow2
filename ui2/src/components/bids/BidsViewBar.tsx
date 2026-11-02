@@ -113,8 +113,10 @@ function LensChip() {
   );
 }
 
-// Images joins these, with the 2 key, when the contact sheet exists.
-const VIEW_TABS = [{ value: 'coverage', label: 'Coverage', testId: 'bids-view-coverage' }];
+const VIEW_TABS = [
+  { value: 'coverage', label: 'Coverage', testId: 'bids-view-coverage' },
+  { value: 'images', label: 'Images', testId: 'bids-view-images' },
+];
 
 export function BidsViewBar() {
   const activeView = useBidsStore((state) => state.activeView);

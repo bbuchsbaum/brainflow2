@@ -169,8 +169,22 @@ describe('exclude dialog', () => {
     invoke.mockRejectedValueOnce(new Error('disk full'));
     act(() => useBidsStore.getState().requestAction('exclude'));
     fireEvent.submit(screen.getByTestId('bids-exclude-dialog'));
-    expect(await screen.findByText(/Nothing was written: disk full/)).toBeInTheDocument();
+    expect(await screen.findByText(/Could not save exclusions: disk full/)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Derivative metadata may have been created');
+    expect(screen.getByRole('alert')).toHaveTextContent('Raw files were not changed');
     expect(model().excluded.runs).toBe(0);
+  });
+
+  it('names a bridge rejection instead of [object Object]', async () => {
+    const invoke = backend();
+    const details = 'An old lock remains; remove it and retry.';
+    invoke.mockRejectedValueOnce({ Input: { code: 8224, details } });
+    openDialog();
+    fireEvent.submit(screen.getByTestId('bids-exclude-dialog'));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Could not save exclusions: An old lock remains; remove it and retry. Derivative');
+    expect(alert.textContent).not.toContain('[object Object]');
+    expect(alert.textContent).not.toContain('..');
   });
 
   it('asks for a reason when no criterion is over', () => {

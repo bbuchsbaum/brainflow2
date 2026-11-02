@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { DEFAULT_DOCK_TAB } from '@/components/layout/bottomWorkbenchDock.constants';
 import { BidsEmptyState } from './BidsEmptyState';
 import { BidsCoverage } from './BidsCoverage';
+import { BidsImages } from './BidsImages';
 import { BidsActionHost } from './BidsActionHost';
 import { BidsSummary } from './BidsSummary';
 import { BidsUndoStrip } from './BidsUndoStrip';
@@ -133,20 +134,6 @@ function BidsScanProgressBar() {
   );
 }
 
-function BidsImagesPlaceholder() {
-  return (
-    <div
-      className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center"
-      data-testid="bids-images-placeholder"
-    >
-      <p className="m-0 text-bf-sm text-bf-text-secondary">The contact sheet is not built yet.</p>
-      <p className="m-0 text-bf-xs text-bf-text-faint">
-        It will show one slice per subject and session. Press 1 for Coverage.
-      </p>
-    </div>
-  );
-}
-
 function BidsReadyLayout() {
   const activeView = useBidsStore((state) => state.activeView);
   const scanError = useBidsStore((state) => state.scanError);
@@ -161,7 +148,7 @@ function BidsReadyLayout() {
         </Notice>
       )}
       <div className="relative min-h-0 flex-1">
-        {activeView === 'coverage' ? <BidsCoverage /> : <BidsImagesPlaceholder />}
+        {activeView === 'coverage' ? <BidsCoverage /> : <BidsImages />}
       </div>
       <BidsUndoStrip />
       <BidsActionHost />

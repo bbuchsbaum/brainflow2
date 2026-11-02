@@ -111,6 +111,43 @@ describe('NotificationToast (status-bar messages)', () => {
     }
   });
 
+  it('resolves older load errors only in the recovered workspace, including late failures', () => {
+    render(<NotificationToast />);
+    act(() => {
+      getEventBus().emit('ui.notification', { type: 'error', message: 'Other error' });
+      getEventBus().emit('ui.notification', { type: 'error', message: 'Old load', scope: 'volume-load:w', sequence: 1 });
+      getEventBus().emit('ui.notification', { type: 'error', message: 'New load', scope: 'volume-load:w', sequence: 3 });
+      getEventBus().emit('ui.notification', { type: 'error', message: 'Other workspace', scope: 'volume-load:other', sequence: 1 });
+      getEventBus().emit('ui.notification.resolve', { scope: 'volume-load:w', through: 2 });
+      getEventBus().emit('ui.notification', { type: 'error', message: 'Late old failure', scope: 'volume-load:w', sequence: 2 });
+    });
+    fireEvent.click(screen.getByTestId('status-notification-open'));
+    const list = screen.getByTestId('status-notification-list');
+    expect(list).toHaveTextContent('Other error');
+    expect(list).toHaveTextContent('Other workspace');
+    expect(list).toHaveTextContent('New load');
+    expect(list).not.toHaveTextContent('Old load');
+    expect(list).not.toHaveTextContent('Late old failure');
+    act(() => getEventBus().emit('ui.notification.resolve', { scope: 'volume-load:w', through: 3 }));
+    expect(list).not.toHaveTextContent('New load');
+    expect(list).toHaveTextContent('Other workspace');
+  });
+
+  it('restores focus when recovery removes the open message list', async () => {
+    render(<><NotificationToast /><button data-testid="status-diagnostics-trigger">Diagnostics</button></>);
+    act(() => getEventBus().emit('ui.notification', {
+      type: 'error', message: 'Load failed', scope: 'volume-load:w', sequence: 1,
+    }));
+    fireEvent.click(screen.getByTestId('status-notification-open'));
+    expect(screen.getByTestId('status-notification-list')).toBeInTheDocument();
+    act(() => getEventBus().emit('ui.notification.resolve', { scope: 'volume-load:w', through: 2 }));
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))));
+    });
+    expect(screen.queryByTestId('status-notification-list')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('status-diagnostics-trigger'));
+  });
+
   it('announces an error once (its alert), not also in the polite region', () => {
     render(<NotificationToast />);
     act(() => {

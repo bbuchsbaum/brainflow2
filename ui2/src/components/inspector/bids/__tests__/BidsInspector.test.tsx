@@ -228,6 +228,45 @@ describe('BidsInspector', () => {
     expect(screen.getByTestId('bids-compare').textContent).toContain('the same rule, not the same numbers');
   });
 
+  it('names the bridge error when the median cannot be built', async () => {
+    const details = "No sampled run shares the selected image's voxel-to-world grid and slice.";
+    installTransport({
+      get_bids_median_slice: () => Promise.reject({ Input: { code: 8224, details } }),
+    });
+    render(<BidsInspector />);
+    await settle();
+    act(() => useBidsStore.setState({ compareWithModal: true }));
+    await settle();
+    await settle();
+    const alert = within(screen.getByTestId('bids-compare')).getByRole('alert');
+    expect(alert).toHaveTextContent(`Median could not be built: ${details}`);
+    expect(alert.textContent).not.toContain('[object Object]');
+  });
+
+  it('uses the Images view slice and window for the selected run and median', async () => {
+    const invoke = installTransport();
+    const selected = useBidsStore.getState().index!.runs.find((run) => run.id === RUN)!;
+    act(() => useBidsStore.setState({
+      activeView: 'images',
+      imageReference: { datasetPath: useBidsStore.getState().datasetPath!, series: selected.series,
+        run: selected.run, kind: 'mean', worldZ: 8, window: [10, 110] },
+    }));
+    render(<BidsInspector />);
+    await settle();
+    await settle();
+    const call = invoke.mock.calls.find(([cmd]) => cmd === 'get_bids_median_slice')!;
+    const request = (call[1] as { request: { world_z_mm: number; window: number[] } }).request;
+    expect(request.world_z_mm).toBe(8);
+    expect(request.window).toEqual([10, 110]);
+    const selectedSlice = invoke.mock.calls.find(([cmd, args]) => cmd === 'get_bids_slice' &&
+      (args as { request: { path: string; window?: number[] } }).request.path === selected.path &&
+      (args as { request: { window?: number[] } }).request.window?.[0] === 10);
+    expect(selectedSlice).toBeDefined();
+    expect(screen.getByTestId('bids-thumbnails').querySelectorAll('img')).toHaveLength(2);
+    expect(screen.getByTestId('bids-compare')).toHaveTextContent('same fixed intensity window');
+    expect(screen.getByTestId('bids-compare')).toHaveTextContent('does not establish anatomical registration');
+  });
+
   it('opens the run and asks for exclusion', async () => {
     installTransport();
     render(<BidsInspector />);

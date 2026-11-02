@@ -692,9 +692,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       width: size,
       height: size,
       world_z_mm: request.world_z_mm ?? 0,
-      window_low: 0,
-      window_high: 1,
-      volumes_used: request.kind === 'mean' ? 8 : 1,
+      window_low: request.window?.[0] ?? 0,
+      window_high: request.window?.[1] ?? 1,
+      volumes_used: request.kind === 'mean' ? 8 : request.kind === 'b0' ? 2 : 1,
     };
   };
 

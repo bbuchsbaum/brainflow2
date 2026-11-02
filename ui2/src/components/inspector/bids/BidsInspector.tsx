@@ -3,7 +3,7 @@ import type { BidsEventRow, BidsRunDetail, BidsSliceImage } from '@brainflow/api
 import { Button, Chip, KeyValue, Notice, Section } from '@/components/ui/bf';
 import { useBidsResource } from '@/hooks/useBidsResource';
 import { openRunInViewer } from '@/services/bids/openRunInViewer';
-import { useBidsModel, useBidsStore } from '@/stores/bidsStore';
+import { useBidsModel, useBidsStore, type BidsImageReference } from '@/stores/bidsStore';
 import { runLabel, type BidsModel, type BidsRunFacts } from '@/stores/bidsModel';
 import { BidsChecks } from './BidsChecks';
 import { BidsFdCarpet } from './BidsFdCarpet';
@@ -57,9 +57,13 @@ function Thumbnails({
 }) {
   const t1w = facts.run.suffix === 'T1w' ? null : t1wOf(model, facts);
   const compare = useBidsStore((state) => state.compareWithModal);
+  const imageReference = useBidsStore((state) => state.imageReference);
+  const reference = imageReference && imageReference.datasetPath === datasetPath &&
+    imageReference.series === facts.run.series && imageReference.run === facts.run.run
+    ? imageReference : null;
   return (
     <div className="flex flex-col gap-1" data-testid="bids-thumbnails">
-      <div className="grid grid-cols-2 gap-1.5">
+      {!reference ? <div className="grid grid-cols-2 gap-1.5">
         <RunSlice
           run={facts.run}
           datasetPath={datasetPath}
@@ -73,8 +77,8 @@ function Thumbnails({
             <SliceFrameText>No T1w for this participant.</SliceFrameText>
           </SliceFrame>
         )}
-      </div>
-      {compare ? <CompareWithModal model={model} facts={facts} datasetPath={datasetPath} /> : null}
+      </div> : null}
+      {compare || reference ? <CompareWithModal model={model} facts={facts} datasetPath={datasetPath} reference={reference} /> : null}
     </div>
   );
 }
@@ -85,14 +89,17 @@ function CompareWithModal({
   model,
   facts,
   datasetPath,
+  reference,
 }: {
   model: BidsModel;
   facts: BidsRunFacts;
   datasetPath: string | null;
+  reference: BidsImageReference | null;
 }) {
   const { run } = facts;
-  const [image, setImage] = useState<{ runId: string; image: BidsSliceImage } | null>(null);
-  const own = image?.runId === run.id ? image.image : null;
+  const imageKey = JSON.stringify([run.id, reference?.kind, reference?.worldZ, reference?.window]);
+  const [image, setImage] = useState<{ key: string; image: BidsSliceImage } | null>(null);
+  const own = image?.key === imageKey ? image.image : null;
   const unavailable = isImageUnavailable(run);
   // The modal group of the series: not a variant, not excluded, image present.
   const paths = useMemo(
@@ -101,19 +108,24 @@ function CompareWithModal({
         .filter(
           (item) =>
             item.run.series === run.series &&
+            (!reference || item.run.run === run.run) &&
             item.variantKey === null &&
             !item.excluded &&
             !isImageUnavailable(item.run),
         )
         .map((item) => item.run.path),
-    [model.runs, run.series],
+    [model.runs, run.series, run.run, reference],
   );
   const z = own?.world_z_mm ?? null;
-  const kind = sliceKind(run);
+  const kind = reference?.kind ?? sliceKind(run);
   const median = useBidsResource(
     // The paths are part of the key: an exclusion changes which runs make the median.
-    own && paths.length ? `${datasetPath}|median|${run.series}|${z}|${kind}|${paths.join('|')}` : null,
-    () => fetchMedianSlice(paths, { path: run.path, kind, world_z_mm: z, max_px: COMPARE_PX }),
+    own && paths.length ? `${datasetPath}|median|${run.series}|${z}|${kind}|${JSON.stringify(reference?.window)}|${paths.join('|')}` : null,
+    () => fetchMedianSlice(paths, {
+      path: run.path, kind, world_z_mm: z, max_px: COMPARE_PX,
+      ...(reference ? { window: reference.window } : {}),
+      ...(kind === 'b0' && datasetPath ? { dataset_root: datasetPath } : {}),
+    }),
   );
   return (
     <div className="mt-1 flex flex-col gap-1" data-testid="bids-compare">
@@ -123,7 +135,10 @@ function CompareWithModal({
           datasetPath={datasetPath}
           maxPx={COMPARE_PX}
           alt="This run"
-          onImage={(next) => setImage({ runId: run.id, image: next })}
+          kind={kind}
+          worldZ={reference?.worldZ ?? null}
+          window={reference?.window}
+          onImage={(next) => setImage({ key: imageKey, image: next })}
         />
         <SliceFrame>
           {median.status === 'ready' ? (
@@ -143,9 +158,10 @@ function CompareWithModal({
         <p className="m-0 text-bf-2xs text-bf-text-faint">
           Left: this run. Right: dataset median of {median.data.runs_used} modal{' '}
           {median.data.runs_used === 1 ? 'run' : 'runs'}
-          {median.data.runs_skipped ? `, ${median.data.runs_skipped} unreadable and skipped` : ''}, same
-          slice{own?.world_z_mm != null ? ` (${formatZ(own.world_z_mm)})` : ''}. Each image uses its own
-          2nd to 98th percentile window: the same rule, not the same numbers.
+          {median.data.runs_skipped ? `, ${median.data.runs_skipped} unavailable or on a different grid and skipped` : ''}, same
+          voxel-to-world grid and slice{own?.world_z_mm != null ? ` (${formatZ(own.world_z_mm)})` : ''}.
+          {reference ? ' The same fixed intensity window is used.' : ' Each image uses its own 2nd to 98th percentile window: the same rule, not the same numbers.'}
+          {' '}A matching grid does not establish anatomical registration. At most 15 runs are sampled.
         </p>
       ) : null}
     </div>

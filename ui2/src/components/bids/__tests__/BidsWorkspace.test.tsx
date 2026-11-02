@@ -5,6 +5,7 @@ import { createBidsBrowserDataset } from '@/devHarness/app/bidsBrowserData';
 import { getEventBus } from '@/events/EventBus';
 import { selectBidsModel, useBidsStore } from '@/stores/bidsStore';
 import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { BidsExplorerWorkspace } from '../BidsExplorerWorkspace';
 import { BidsKeyHints } from '../BidsKeyHints';
@@ -86,10 +87,10 @@ describe('BidsExplorerWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Resume scan' })).toBeInTheDocument();
   });
 
-  it('does not offer Images until it is built', () => {
+  it('offers the Images contact sheet', () => {
     render(<BidsExplorerWorkspace workspaceId="w" />);
     expect(screen.getByRole('tab', { name: 'Coverage' })).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'Images' })).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Images' })).toBeInTheDocument();
     expect(screen.getByTestId('bids-coverage')).toBeInTheDocument();
   });
 
@@ -165,11 +166,52 @@ describe('BidsExplorerWorkspace', () => {
     stop();
   });
 
+  it('keeps the undo notice while focused, then expires it without losing undo', () => {
+    vi.useFakeTimers();
+    try {
+      useBidsStore.setState({
+        undoNoticeId: 1,
+        undoNoticeExpiresAt: Date.now() + 5000,
+        undoStack: [{ id: 1, added: [{ entity: 'sub-01', scope: '', reason: '', criterion: '', value: '', author: '', date: '', source: '' }] }],
+      });
+      render(<BidsExplorerWorkspace workspaceId="w" />);
+      const button = screen.getByRole('button', { name: /Undo/ });
+      fireEvent.focus(button);
+      act(() => vi.advanceTimersByTime(6000));
+      expect(screen.getByTestId('bids-undo-strip')).toBeInTheDocument();
+      fireEvent.blur(button);
+      act(() => vi.advanceTimersByTime(5000));
+      expect(screen.queryByTestId('bids-undo-strip')).toBeNull();
+      expect(useBidsStore.getState().undoStack).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not revive an expired notice after leaving the workspace', () => {
+    vi.useFakeTimers();
+    try {
+      useBidsStore.setState({
+        undoNoticeId: 1,
+        undoNoticeExpiresAt: Date.now() + 5000,
+        undoStack: [{ id: 1, added: [{ entity: 'sub-01', scope: '', reason: '', criterion: '', value: '', author: '', date: '', source: '' }] }],
+      });
+      const first = render(<BidsExplorerWorkspace workspaceId="w" />);
+      expect(screen.getByTestId('bids-undo-strip')).toBeInTheDocument();
+      first.unmount();
+      act(() => vi.advanceTimersByTime(6000));
+      render(<BidsExplorerWorkspace workspaceId="w" />);
+      act(() => vi.advanceTimersByTime(0));
+      expect(screen.queryByTestId('bids-undo-strip')).toBeNull();
+      expect(useBidsStore.getState().undoStack).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('shows the undo strip for the last exclusion', () => {
     render(<BidsExplorerWorkspace workspaceId="w" />);
     expect(screen.queryByTestId('bids-undo-strip')).toBeNull();
     act(() =>
       useBidsStore.setState({
+        undoNoticeId: 1,
+        undoNoticeExpiresAt: Date.now() + 5000,
         undoStack: [
           {
             id: 1,
@@ -297,6 +339,7 @@ describe('BidsRunsDock', () => {
     render(<BidsExplorerWorkspace workspaceId="w" />);
     fireEvent.click(screen.getByRole('button', { name: 'Reopen ds000114' }));
     expect(scanDataset).toHaveBeenCalledWith('/Volumes/x/ds000114');
+    expect(useFileBrowserStore.getState().entries.some((entry) => entry.path === '/Volumes/x/ds000114')).toBe(true);
     localStorage.removeItem('brainflow.bids.lastDataset');
   });
 });
