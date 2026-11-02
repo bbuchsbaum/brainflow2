@@ -81,7 +81,9 @@ describe('SettingsDialog', () => {
     const modules = screen.getByRole('group', { name: 'Modules' });
     const analysis = within(modules).getByRole('switch', { name: 'Analysis' });
     expect(analysis).toHaveAttribute('aria-checked', 'false');
-    expect(within(modules).getByText('Experimental')).toBeInTheDocument();
+    // Analysis and Segmentation are both experimental.
+    expect(within(modules).getAllByText('Experimental').length).toBeGreaterThan(0);
+    expect(within(modules).getByRole('switch', { name: 'Segmentation' })).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(analysis);
     expect(moduleRegistry.isEnabled('analysis')).toBe(true);
     const pinned = within(screen.getByRole('group', { name: 'Top bar' })).getByRole('group', { name: 'Pinned tools' });

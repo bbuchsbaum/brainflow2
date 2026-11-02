@@ -815,3 +815,34 @@ A channel selector chooses which contrast is sent, because the model takes one c
 ITK-SNAP's limits come from two old architectural choices: the main image's grid is king, and editing runs on global modal state. Brainflow's renderer happens to be the opposite: it is world-space, works across grids, and resolves each layer through its own affine. The hardest problem for ITK-SNAP — oblique, multi-contrast tracing on native anisotropic grids — is therefore mostly UI and data-model work for Brainflow, not a rendering rewrite. Meanwhile, AI is becoming a commodity. nnInteractive now ships in ITK-SNAP, Slicer, MITK, napari and OHIF, so adding it creates parity, not an advantage. The lasting advantage is trust: edits that cannot silently destroy work, proposals that cannot overwrite, and a record of how every voxel got its label.
 
 The module also changes what Brainflow is for, without abandoning its vision. A traced, provenance-tagged ROI that flows straight into regional statistics and population sampling turns "inspect a brain summary" into "define, measure and compare in one place". The field's evidence vacuum is an opening as much as a risk. No one has published AI or filter accuracy on hippocampus or amygdala, or split tracing time into navigation, drawing and correction. Brainflow's local telemetry, plus a small timed study against ITK-SNAP, could produce that evidence first, making the module a scientific contribution as well as a feature.
+
+## Tracing niceties backlog (owner request, 2026-10-31)
+
+Small instruments around the same brush, contour and interpolation workflow, aimed at operator efficiency over long sessions. Most are absent or partial in ITK-SNAP. The design hill climb uses this list as a backlog; items marked ★ are in round 1 because they show in still screenshots.
+
+**Seeing across slices**
+1. ★ Neighbour outlines: faint dashed outlines of the active label on the previous and next slices.
+2. ★ Area-by-slice line per label in the label list; a gap or bulge is visible at a glance, and clicking jumps to the slice.
+3. ★ Slice ruler with status ticks (traced, interpolated-unreviewed, AI-touched, empty); keys jump to the next gap or unreviewed slice.
+
+**Drawing that respects anatomy**
+4. Push tool: drag a boundary in or out with a soft ball (standard in radiotherapy contouring).
+5. Loop to fill: a closed brush outline fills its interior on lift.
+6. Shared boundaries: painting against an adjacent traced label snaps to the shared edge, leaving no gaps or overlaps; a modifier disables it.
+7. Edge-aware brush on a held key, clipped to the strongest local edge, with an exact voxel preview.
+8. Stroke stabiliser for contours.
+
+**Getting out of the image's way**
+9. ★ Crosshair that yields: it opens a gap around the brush while drawing.
+10. Contrast memory per label (contrast, window, gamma), presettable by protocol packs.
+11. Loupe that follows the brush, showing the other contrast or 4× true voxels under the tip.
+
+**Keeping flow**
+12. ★ Review interpolation as you go: always-on ghost between keyframes; Enter accepts the current slice and steps on.
+13. Undo per label, alongside the global history.
+14. "Where was I" on reopen: slice, label, zoom and contrast restored, backed by the recovery journal.
+15. Label tags under a held key; Alt-click a voxel to pick its label.
+
+**Trust and QC**
+16. Live consistency hints (islands, holes, area jumps) as quiet ruler marks, never blocking dialogs.
+17. ★ Geometry in every panel header (voxel size, obliquity) and a brush readout in voxels in-plane and slices through-plane.

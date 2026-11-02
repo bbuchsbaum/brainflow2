@@ -7,5 +7,6 @@
 
 import type { ModuleManifest } from './api';
 import analysis from './analysis/module';
+import segmentation from './segmentation/module';
 
-export const FIRST_PARTY_MODULES: readonly ModuleManifest[] = [analysis];
+export const FIRST_PARTY_MODULES: readonly ModuleManifest[] = [analysis, segmentation];

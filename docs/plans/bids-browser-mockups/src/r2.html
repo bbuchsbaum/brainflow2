@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIDS browser round 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/*CSS*/
+/* ── Round 2 additions ── */
+.app{height:980px}
+.cons{border-collapse:collapse;font-size:12px}
+.cons td,.cons th{padding:4px 14px 4px 0;text-align:left;border-bottom:1px solid var(--bf-border-subtle);white-space:nowrap}
+.cons th{font-weight:500;color:var(--bf-text-faint);font-size:11px}
+.dec{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 32px;font-size:12px;color:var(--bf-text-secondary)}
+.dec div{display:grid;grid-template-columns:96px 1fr;gap:8px;padding:5px 0;border-bottom:1px solid var(--bf-border-subtle)}
+.dec b{font-weight:500;color:var(--bf-text-muted)}
+.sum{padding:12px 16px 10px;border-bottom:1px solid var(--bf-border-subtle);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start}
+.sum p{margin:0;font-size:13px;line-height:1.55;color:var(--bf-text-secondary);max-width:96ch}
+.claim{color:var(--bf-text-primary);text-decoration:underline;text-decoration-style:dotted;text-decoration-color:var(--bf-text-faint);text-underline-offset:3px;cursor:pointer}
+.claim.on{background:var(--bf-bg-selected);text-decoration-color:var(--bf-text-primary);outline:1px solid var(--bf-border-strong)}
+.claim.err{color:var(--bf-danger)} .claim.warn{color:var(--bf-warning)}
+.vbar{display:flex;align-items:center;gap:12px;height:32px;padding:0 12px;border-bottom:1px solid var(--bf-border-subtle);flex:none}
+.vtabs{display:flex;gap:14px;height:100%;align-items:flex-end}
+.vtabs span{padding-bottom:7px;color:var(--bf-text-muted);border-bottom:2px solid transparent}
+.vtabs span.on{color:var(--bf-text-primary);border-bottom-color:var(--bf-text-primary)}
+.vtabs .kbd{margin-left:4px}
+.find{font-size:12px}
+.fg{display:flex;align-items:center;justify-content:space-between;height:24px;padding:10px 12px 0;color:var(--bf-text-faint);font-size:11px}
+.fr{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:24px;padding:3px 12px;color:var(--bf-text-secondary)}
+.fr .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fr .e{font:11px var(--bf-font-mono);color:var(--bf-text-faint);white-space:nowrap}
+.fr.sel{background:var(--bf-bg-selected);box-shadow:inset 2px 0 0 var(--bf-accent);color:var(--bf-text-primary)}
+.glyph{width:8px;height:8px;display:inline-block}
+.g-err{background:var(--bf-danger)} .g-warn{background:var(--bf-warning)} .g-var{border:1px solid var(--bf-text-secondary)} .g-info{border:1px solid var(--bf-info);border-radius:50%} .g-qc{background:var(--bf-warning);border-radius:50%}
+.ptabs{display:flex;gap:2px;height:34px;align-items:flex-end;padding:0 8px;border-bottom:1px solid var(--bf-border-subtle);flex:none}
+.ptabs span{padding:6px 10px;color:var(--bf-text-muted);font-weight:500}
+.ptabs span.on{color:var(--bf-text-primary);box-shadow:inset 0 -2px 0 var(--bf-text-primary)}
+.chk{display:grid;grid-template-columns:14px 1fr;gap:2px 6px;font-size:11px;color:var(--bf-text-secondary)}
+.chk .ok{color:var(--bf-text-faint)}
+.src{font:10px var(--bf-font-mono);color:var(--bf-text-faint)}
+.kv4{display:grid;grid-template-columns:auto auto auto 1fr;gap:3px 10px;font-size:11px;align-items:baseline}
+.kv4 .k{color:var(--bf-text-muted);font-family:var(--bf-font-mono);font-size:10.5px}
+.kv4 .v{font-family:var(--bf-font-mono);color:var(--bf-text-primary)} .kv4 .m{font-family:var(--bf-font-mono);color:var(--bf-text-faint)}
+.kv4 .diff{color:var(--bf-warning)}
+.sheet{display:grid;grid-template-columns:repeat(11,62px);gap:10px 6px;padding:12px 16px}
+.th{display:flex;flex-direction:column;gap:2px;align-items:center}
+.th .im{width:62px;height:74px;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;outline-offset:1px}
+.th .im img{width:58px;height:70px}
+.th span{font:10px var(--bf-font-mono);color:var(--bf-text-faint)}
+.th.warn .im{outline:1.5px solid var(--bf-warning)} .th.var .im{outline:1px solid var(--bf-text-secondary)}
+.th.sel .im{outline:2px solid var(--bf-text-primary)} .th.sel span{color:var(--bf-text-primary)}
+.th.miss .im{background:transparent;border:1px dashed var(--bf-border-subtle)}
+.sheetrow{grid-column:1/-1;font-size:11px;color:var(--bf-text-faint);border-top:1px solid var(--bf-border-subtle);padding-top:6px;margin-top:2px}
+td.r{text-align:right}
+table.t.c24 td{height:24px;padding-top:0;padding-bottom:0}
+.btn.ghost{border-color:transparent}
+.qa{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+</style>
+</head>
+<body>
+<div class="page">
+  <section class="brief">
+    <div>
+      <h1>BIDS browser, round 2: one converged design</h1>
+      <p>The four critics agreed more than they disagreed. All four put A's coverage matrix at the centre with B's written summary above it and C's run preview in the Inspector. All four caught counts that disagreed between views. Every number on this page is now computed from one model of the dataset, so the summary, Findings, matrix margins and status bar cannot disagree.</p>
+      <p>The workspace has three views of the same selection: <b>Coverage</b> (default), <b>Images</b> (Tufte's contact sheet) and <b>Runs</b> (C's keyboard list). Click a claim in the summary to light up the cells it refers to.</p>
+    </div>
+    <div class="meta">Example dataset, synthetic<br>Brain images: MNI152NLin2009cAsym<br>Round 1 scores (critics are simulated)<br><table class="cons"><tr><th>critic</th><th>A</th><th>B</th><th>C</th></tr><tr><td>Tufte</td><td>7</td><td>6.5</td><td>5</td></tr><tr><td>Jobs</td><td>8</td><td>6</td><td>5</td></tr><tr><td>Linear</td><td>7</td><td>6</td><td>8</td></tr><tr><td>Poldrack</td><td>6.5</td><td>7</td><td>6</td></tr></table></div>
+  </section>
+  <section>
+    <h3 style="font-size:13px;margin:0 0 6px">Round 1 objections and what changed</h3>
+    <div class="dec" id="decisions"></div>
+  </section>
+  <nav class="switch" aria-label="Views">
+    <a href="#view-coverage" data-d="coverage">Coverage</a>
+    <a href="#view-images" data-d="images">Images</a>
+    <a href="#view-runs" data-d="runs">Runs</a>
+  </nav>
+  <div class="frame-wrap">
+    <div class="dir" id="dir-coverage"></div>
+    <div class="dir" id="dir-images"></div>
+    <div class="dir" id="dir-runs"></div>
+  </div>
+</div>
+<script>
+/*ASSETS*/
+/*DATA*/
+const subOf = n => subjects.find(s => s.n === n);
+const sid = n => 'sub-' + String(n).padStart(2,'0');
+const order = [...subjects].sort((a,b) => (a.group===b.group ? a.n-b.n : a.group==='control'?-1:1));
+const HL = new Set(vSubs('bold','B'));          // active claim: variant B
+const SEL = {sub:33, ses:'02', key:'nback', run:1};
+
+const DECISIONS = [
+  ['All', 'Counts disagreed across views. One derived model now feeds every number; variant B is 9 participants, ' + vRuns('bold','B') + ' runs.'],
+  ['Tufte', 'Normal runs drawn in the faintest ink. Each present functional cell is a sparkline of that run\'s framewise displacement; anomalies are the darkest marks.'],
+  ['Tufte', 'FD margin split by session, with labelled ticks and an axis that holds every value. Nothing is hidden behind "9 more".'],
+  ['Poldrack', 'Exclusion threshold is mean FD ' + FD_THR + ' mm and editable. 0.5 mm is described only as a per-frame censoring threshold. Each QC number names its source and version.'],
+  ['Poldrack', 'Sidecar diff shows which file in the inheritance chain supplied each value; field map pairing, events checks and derivative staleness (GeneratedBy, source version) are in the Inspector.'],
+  ['Linear', 'Selection is drawn by form (row fill, white cell frame, amber row edge only), never in an orange that competes with warnings. 16 px rows; 24 px list rows.'],
+  ['Linear', 'Files and Findings share the left stack. Files reveals the selected run; Findings is the single list of everything that needs a look.'],
+  ['Jobs', 'No column pickers or display toggles in the default view. The summary is the first ten seconds and every claim is a link.'],
+  ['Jobs + Linear', 'Exclusions are records: X asks for a reason and writes derivatives/brainflow/exclusions.tsv with author, date and metric snapshot.'],
+  ['Jobs', 'Since-last-scan: new participants are named in the summary and tagged in the matrix.'],
+];
+document.getElementById('decisions').innerHTML = DECISIONS.map(([w,t]) => `<div><b>${w}</b><span>${t}</span></div>`).join('');
+
+function shell({center, left, right, cols}) {
+  return `<div class="app">
+  <header class="top"><span class="brand">Brainflow</span>
+    <nav class="wtabs"><span class="wtab">Viewer</span><span class="wtab on">BIDS · ${DS.slug}</span><span class="wtab">Population</span></nav>
+    <span class="path">${DS.path}</span></header>
+  <div class="body" style="grid-template-columns:${cols}">${left}${center}${right}</div>
+  <footer class="status"><span><b>BIDS ${DS.bids}</b> · dataset v1.2.0</span><span>${N} participants · ${DS.files.toLocaleString()} files · ${DS.sizeGB} GB</span>
+    <span>Findings ${M.findings}</span><span>Exclusions ${EXCLUSIONS.length} · <span class="mono">derivatives/brainflow/exclusions.tsv</span></span>
+    <span style="margin-left:auto">validator <span class="sev-error">${M.errors.length} errors</span> · <span class="sev-warning">${ISSUES.filter(i=>i.sev==='warning').length} warnings</span> · scanned ${DS.scanSecs} s</span></footer></div>`;
+}
+
+function summary(active) {
+  const c = (key, text, cls='') => `<span class="claim ${cls}${active===key?' on':''}">${text}</span>`;
+  return `<div class="sum"><p><b style="color:var(--bf-text-primary);font-weight:600">${DS.name}.</b> ${c('all', N + ' participants')} (${M.ctrl} control, ${M.pat} patient; age ${M.ageMin}–${M.ageMax}, median ${M.ageMed}) scanned in 2 sessions on a ${DS.scanner}. ${c('nos2', M.noS2 + ' have no second session')}. ${c('B', vSubs('bold','B').length + ' second sessions used a different protocol')} after a scanner upgrade. ${c('err', M.errors.length + ' files fail validation', 'err')}, ${c('warn', M.warnings.length + ' runs have content problems', 'warn')} and ${c('qc', M.qcSubs.size + ' participants exceed mean FD ' + FD_THR + ' mm', 'warn')}. ${c('new', 'Since 28 Oct: ' + M.newSubs.length + ' new participants')}, not yet processed by fMRIPrep.</p>
+  <div style="display:flex;gap:6px;align-items:center;padding-top:2px"><span class="btn">Copy summary</span><span class="btn">Export CuBIDS table</span></div></div>`;
+}
+function vbar(active, extra='') {
+  const t = (k, l, key) => `<span class="${active===k?'on':''}">${l}<span class="kbd">${key}</span></span>`;
+  return `<div class="vbar"><div class="vtabs">${t('coverage','Coverage','1')}${t('images','Images','2')}${t('runs','Runs','3')}</div>${extra}</div>`;
+}
+
+function findingsPanel(selKey) {
+  const row = (g, title, ent, n, key) => `<div class="fr${selKey===key?' sel':''}"><i class="glyph ${g}"></i><span class="t">${title}</span><span class="e">${ent}${n!=null?` · ${n}`:''}</span></div>`;
+  const grp = (t, n) => `<div class="fg"><span>${t}</span><span class="mono">${n}</span></div>`;
+  let h = grp('Errors', M.errors.length) + M.errors.map(i => row('g-err', i.title, sid(i.sub))).join('');
+  h += grp('Content problems', M.warnings.length) + M.warnings.map(i => row('g-warn', i.title, sid(i.sub))).join('');
+  h += grp('Acquisition variants', M.variants.length) + M.variants.map(v => { const ser = v.series; return row('g-var', v.name + ' · ' + v.diff.split(' (')[0], vSubs(ser, v.id).length + ' sub', vRuns(ser, v.id) + ' runs', v.id); }).join('');
+  const fdq = M.qc.filter(q=>q.metric==='FD');
+  h += grp('Quality, mean FD > ' + FD_THR + ' mm', M.qc.length) + fdq.map(q => row('g-qc', `FD ${q.v.toFixed(2)} mm`, `${sid(q.sub)} ses-${q.ses}`)).join('') + M.qc.filter(q=>q.metric==='tSNR').map(q => row('g-qc', `tSNR ${q.v}`, `${sid(q.sub)} ses-${q.ses}`)).join('');
+  h += grp('Notes', M.infos.length) + M.infos.map(i => row('g-info', i.title, i.sub ? sid(i.sub) : 'dataset')).join('');
+  return `<aside class="panel l"><div class="ptabs"><span>Files</span><span class="on">Findings <span class="mono faint">${M.findings}</span></span></div>
+   <div class="scroll find">${h}
+   <div class="fg"><span>Excluded</span><span class="mono">${EXCLUSIONS.length}</span></div>${EXCLUSIONS.map(e=>`<div class="fr"><i class="glyph" style="border:1px solid var(--bf-text-faint)"></i><span class="t" style="text-decoration:line-through;text-decoration-color:var(--bf-text-faint)">${e.entity.replace('task-','').replace('run-','r')}</span><span class="e">${e.by}</span></div>`).join('')}
+   </div></aside>`;
+}
+
+function fdSpark(seed, w, h, base, hot) {
+  const spikes = hot ? [9, 10, 23] : [];
+  const a = fdTrace(seed, 28, base, spikes);
+  const max = 1.4;
+  return a.map((v,i) => `${(i/(a.length-1)*w).toFixed(1)},${(h - Math.min(v,max)/max*h).toFixed(1)}`).join(' ');
+}
+
+/* ═══════════════ Coverage ═══════════════ */
+function coverage() {
+  const RH = 16, CW = 30, GAP = 12, LX = 112, TOP = 58, GH = 18;
+  const colX = c => LX + c.i*CW + (c.ses==='02' ? GAP : 0);
+  const DX = LX + COLS.length*CW + GAP + 10;          // derivatives
+  const FX = DX + 3*20 + 14, FW = 64, fmax = 0.8;     // FD margins (two sessions)
+  const fx = (k, v) => FX + k*(FW+18) + v/fmax*FW;
+  const W = FX + 2*(FW+18) + 4;
+  let y = TOP; const rows = []; let prev = null;
+  for (const s of order) { if (prev !== s.group) { rows.push({hdr:s.group, y}); y += GH; } rows.push({s, y}); y += RH; prev = s.group; }
+  const H = y + 8;
+  let o = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Coverage matrix" font-family="IBM Plex Sans">`;
+  for (const ses of ['01','02']) { const cs = COLS.filter(c=>c.ses===ses); const x0 = colX(cs[0]), x1 = colX(cs[cs.length-1])+CW;
+    o += `<text x="${x0+3}" y="11" font-size="11" fill="var(--bf-text-secondary)" font-family="IBM Plex Mono">ses-${ses}</text><line x1="${x0+3}" x2="${x1-3}" y1="16" y2="16" stroke="var(--bf-border)"/>`; }
+  for (const c of COLS) { const x = colX(c), cnt = COLS && subjects.reduce((a,s)=>a+(CELLS[s.n-1][c.i].state!=='missing'),0);
+    const spans2 = c.run===1 && c.key!=='rest';
+    if (!c.run || c.run===1) o += `<text x="${x+(spans2?CW:CW/2)}" y="30" font-size="11" fill="var(--bf-text-muted)" text-anchor="middle">${c.key==='fmap'?'fmap':SERIES[c.key].label}</text>`;
+    if (c.run && c.key!=='rest') o += `<text x="${x+CW/2}" y="42" font-size="10" fill="var(--bf-text-faint)" text-anchor="middle" font-family="IBM Plex Mono">${c.run}</text>`;
+    o += `<text x="${x+CW/2}" y="${H-0}" font-size="10" fill="${cnt<N?'var(--bf-text-secondary)':'var(--bf-text-faint)'}" text-anchor="middle" font-family="IBM Plex Mono">${cnt}</text>`; }
+  ['fp','qc','fs'].forEach((d,k) => o += `<text x="${DX+k*20+6}" y="42" font-size="10" fill="var(--bf-text-faint)" text-anchor="middle" font-family="IBM Plex Mono">${d}</text>`);
+  o += `<text x="${DX}" y="30" font-size="11" fill="var(--bf-text-muted)">deriv.</text>`;
+  ['01','02'].forEach((ses,k) => { o += `<text x="${FX+k*(FW+18)}" y="30" font-size="11" fill="var(--bf-text-muted)">FD ses-${ses}</text>`;
+    [0,0.25,0.5,0.75].forEach(v => o += `<text x="${fx(k,v)}" y="42" font-size="10" fill="${v===FD_THR?'var(--bf-text-secondary)':'var(--bf-text-faint)'}" text-anchor="middle" font-family="IBM Plex Mono">${v===0?'0':String(v).replace('0.','.')}</text>`);
+    o += `<line x1="${fx(k,FD_THR)}" x2="${fx(k,FD_THR)}" y1="${TOP-8}" y2="${H-14}" stroke="var(--bf-text-faint)" stroke-dasharray="2 3"/>`;
+    o += `<line x1="${fx(k,0)}" x2="${fx(k,fmax)}" y1="${TOP-8}" y2="${TOP-8}" stroke="var(--bf-border-subtle)"/>`; });
+  o += `<text x="${FX}" y="11" font-size="10" fill="var(--bf-text-faint)">mean FD, mm · dashed ${FD_THR}</text>`;
+  o += `<text x="6" y="42" font-size="10" fill="var(--bf-text-faint)">participant</text><text x="62" y="42" font-size="10" fill="var(--bf-text-faint)">sex age</text>`;
+  for (const r of rows) {
+    if (r.hdr) { const n = subjects.filter(s=>s.group===r.hdr).length; o += `<text x="6" y="${r.y+13}" font-size="11" fill="var(--bf-text-muted)">${r.hdr}s <tspan fill="var(--bf-text-faint)" font-family="IBM Plex Mono">${n}</tspan></text><line x1="6" x2="${W-6}" y1="${r.y+17}" y2="${r.y+17}" stroke="var(--bf-border-subtle)"/>`; continue; }
+    const {s, y} = r; const cy = y + RH/2;
+    const isSelRow = s.n === SEL.sub, hl = HL.has(s.n);
+    if (isSelRow) o += `<rect x="0" y="${y}" width="${W}" height="${RH}" fill="var(--bf-bg-selected)"/><rect x="0" y="${y}" width="2" height="${RH}" fill="var(--bf-accent)"/>`;
+    else if (hl) o += `<rect x="${colX(COLS[9])-2}" y="${y}" width="${COLS.filter(c=>c.ses==='02').length*CW+4}" height="${RH}" fill="rgba(255,255,255,.035)"/>`;
+    o += `<text x="6" y="${cy+4}" font-size="11" fill="${isSelRow||hl?'var(--bf-text-primary)':'var(--bf-text-secondary)'}" font-family="IBM Plex Mono">${sid(s.n)}</text>`;
+    if (s.isNew) o += `<text x="92" y="${cy+4}" font-size="10" fill="var(--bf-info)">new</text>`;
+    o += `<text x="64" y="${cy+4}" font-size="10" fill="var(--bf-text-faint)" font-family="IBM Plex Mono">${s.sex} ${s.age}</text>`;
+    for (const c of COLS) {
+      const cell = CELLS[s.n-1][c.i], x = colX(c), cx = x + CW/2;
+      const isSel = isSelRow && c.ses===SEL.ses && c.key===SEL.key && c.run===SEL.run;
+      if (cell.state === 'missing') { o += `<line x1="${cx-3}" x2="${cx+3}" y1="${cy}" y2="${cy}" stroke="var(--bf-text-faint)" stroke-opacity=".5"/>`; continue; }
+      if (cell.state === 'error' || cell.state === 'warning') o += `<rect x="${x+5}" y="${y+3}" width="${CW-10}" height="${RH-6}" fill="var(--bf-${cell.state==='error'?'danger':'warning'})"/>`;
+      else if (SERIES[c.key].dt === 'func') {
+        const fd = s.fdS[c.ses] ?? s.fd, hot = fd > FD_THR;
+        o += `<polyline transform="translate(${x+5},${y+3})" fill="none" stroke="${hot?'var(--bf-text-primary)':'var(--bf-text-faint)'}" stroke-width="${hot?1.1:0.8}" points="${fdSpark(s.n*31+c.i, CW-10, RH-6, Math.min(fd,0.6)*0.9, hot)}"/>`;
+      } else o += `<line x1="${x+7}" x2="${x+CW-7}" y1="${cy}" y2="${cy}" stroke="var(--bf-text-faint)"/>`;
+      if (cell.state === 'variant') o += `<rect x="${x+3.5}" y="${y+1.5}" width="${CW-7}" height="${RH-3}" fill="none" stroke="${hl&&cell.variant==='B'?'var(--bf-text-primary)':'var(--bf-text-muted)'}" stroke-width="1"/>`;
+      if (cell.extra) o += `<text x="${x+CW-3}" y="${cy+3}" font-size="9" fill="var(--bf-info)" text-anchor="end" font-family="IBM Plex Mono">+1</text>`;
+      if (isSel) o += `<rect x="${x+1}" y="${y+0.5}" width="${CW-2}" height="${RH-1}" fill="none" stroke="var(--bf-text-primary)" stroke-width="2"/>`;
+    }
+    const d = derivOf(s);
+    ['fmriprep','mriqc','freesurfer'].forEach((k,i) => { const st = d[k], x = DX+i*20+6;
+      o += st==='ok' ? `<circle cx="${x}" cy="${cy}" r="2" fill="var(--bf-text-faint)"/>` : st==='partial' ? `<circle cx="${x}" cy="${cy}" r="2.6" fill="none" stroke="var(--bf-warning)"/>` : `<circle cx="${x}" cy="${cy}" r="2.6" fill="none" stroke="var(--bf-text-faint)" stroke-dasharray="1.5 1.5"/>`; });
+    ['01','02'].forEach((ses,k) => { const v = s.fdS[ses]; if (v == null) return;
+      const hot = v > FD_THR, variantB = ses==='02' && s.upgraded;
+      o += `<circle cx="${fx(k,v)}" cy="${cy}" r="${hot?3:2.3}" fill="${variantB?'none':hot?'var(--bf-warning)':'var(--bf-text-muted)'}" stroke="${variantB?(hot?'var(--bf-warning)':'var(--bf-text-muted)'):'none'}" fill-opacity="${hot?1:.7}"/>`;
+      if (hot) o += `<text x="${fx(k,v)+6}" y="${cy+3.5}" font-size="10" fill="var(--bf-warning)" font-family="IBM Plex Mono">${v.toFixed(2)}</text>`; });
+  }
+  return o + '</svg>';
+}
+function legend() {
+  const it = (svg, t) => `<span style="display:inline-flex;align-items:center;gap:6px">${svg}${t}</span>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11px;color:var(--bf-text-muted);padding:8px 10px 0 6px">
+   ${it('<svg width="26" height="10"><polyline points="0,8 5,7 9,8 13,6 17,8 21,7 26,8" fill="none" stroke="#76797f" stroke-width=".8"/></svg>','run present: its FD trace')}
+   ${it('<svg width="26" height="10"><polyline points="0,8 5,7 9,1 13,7 17,8 21,2 26,8" fill="none" stroke="#e9eaec" stroke-width="1.1"/></svg>','mean FD over threshold')}
+   ${it('<svg width="26" height="12"><rect x=".5" y=".5" width="25" height="11" fill="none" stroke="#a4a7ad"/></svg>','acquisition variant')}
+   ${it('<svg width="20" height="10"><rect width="20" height="10" fill="#f28a5a"/></svg>','content problem')}
+   ${it('<svg width="20" height="10"><rect width="20" height="10" fill="#f5868f"/></svg>','validation error')}
+   ${it('<svg width="14" height="10"><line x1="4" x2="10" y1="5" y2="5" stroke="#76797f"/></svg>','missing')}
+   ${it('<svg width="12" height="10"><circle cx="6" cy="5" r="2.6" fill="none" stroke="#a4a7ad"/></svg>','FD dot hollow: TR 1.0 s group, not directly comparable')}
+   ${it('<svg width="12" height="10"><circle cx="6" cy="5" r="2.6" fill="none" stroke="#76797f" stroke-dasharray="1.5 1.5"/></svg>','derivative not run')}</div>`;
+}
+
+function inspector() {
+  const s = subOf(SEL.sub);
+  const fd = fdTrace(33, 165, 0.42, [31,32,74,140]);
+  const fdsvg = `<svg width="100%" height="42" viewBox="0 0 330 42" preserveAspectRatio="none"><line x1="0" x2="330" y1="${42-0.5/1.6*38}" y2="${42-0.5/1.6*38}" stroke="var(--bf-text-faint)" stroke-dasharray="2 3"/><polyline fill="none" stroke="#7fb2e5" stroke-width="1" points="${fd.map((v,i)=>`${(i/164*330).toFixed(1)},${(42-Math.min(v,1.6)/1.6*38).toFixed(1)}`).join(' ')}"/></svg>`;
+  return `<aside class="panel r"><div class="ph"><span class="mono" style="color:var(--bf-text-primary)">${sid(s.n)} ses-02 nback run-1</span><span class="sp"></span><span class="btn primary">Open <span class="kbd" style="color:inherit;border-color:rgba(0,0,0,.25)">↵</span></span></div>
+  <div class="ins scroll">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted">${s.group} · ${s.sex} ${s.age}</span><span class="chip">variant B</span><span class="chip warn">mean FD 0.51 mm</span></div>
+    <div class="thumbs"><img src="${A.bold_ax}" alt="Mean BOLD, axial"><img src="${A.t1_ax}" alt="T1w, axial"></div>
+    <div><h4>Framewise displacement and carpet</h4><div style="margin-top:4px;background:var(--bf-bg-canvas);padding:4px;border-radius:2px">${fdsvg}<img src="${A.carpet}" alt="Carpet plot" style="width:100%;height:70px;display:block"></div>
+      <div class="src" style="margin-top:3px">FD (Power) from fmriprep 24.1.1 confounds · 6 of 330 frames above 0.5 mm censoring line · mean 0.51 mm</div></div>
+    <div><h4>Effective metadata vs modal</h4><div class="kv4" style="margin-top:6px">
+      <span class="k">RepetitionTime</span><span class="v diff">1.0</span><span class="m">0.8</span><span class="src">run</span>
+      <span class="k">MultibandAccelerationFactor</span><span class="v diff">4</span><span class="m">6</span><span class="src">run</span>
+      <span class="k">SoftwareVersions</span><span class="v diff">XA50</span><span class="m">XA30</span><span class="src">run</span>
+      <span class="k">dim[4] volumes</span><span class="v diff">330</span><span class="m">412</span><span class="src">NIfTI</span>
+      <span class="k">PhaseEncodingDirection</span><span class="v">j-</span><span class="m">=</span><span class="src">dataset</span>
+      <span class="k">EchoTime</span><span class="v">0.030</span><span class="m">=</span><span class="src">dataset</span>
+      <span class="k">SliceTiming</span><span class="v">48</span><span class="m">=</span><span class="src">run</span>
+      <span class="k">pixdim[4] vs TR</span><span class="v">1.0</span><span class="m">match</span><span class="src">NIfTI</span></div>
+      <div class="src" style="margin-top:4px">Source: run = sub-33_ses-02_task-nback_run-1_bold.json; dataset = task-nback_bold.json at the root, inherited. 21 further keys identical.</div></div>
+    <div><h4>Field map</h4><div class="chk" style="margin-top:4px"><span class="ok">✓</span><span>B0FieldIdentifier <span class="mono">pepolar_ses02</span> · fmap epi dir-AP / dir-PA</span><span class="ok">✓</span><span>Phase encoding opposed (j- / j), same TR group</span></div></div>
+    <div><h4>Events · ${TASKS.nback.trials} trials · ${TASKS.nback.dur} s</h4><div style="margin-top:6px">${eventsSvg('nback', 330, 27)}</div><div class="muted" style="font-size:10px">${evLegend('nback')}</div>
+      <div class="chk" style="margin-top:6px"><span class="ok">✓</span><span>onset and duration present; no n/a onsets</span><span class="ok">✓</span><span>trial_type levels match events.json</span><span class="ok">✓</span><span>last event ends 2 s before scan end</span><span class="sev-warning">!</span><span>response_time n/a on 9 of 64 2back trials (14%)</span></div></div>
+    <div><h4>Derivatives</h4><div class="chk" style="margin-top:4px"><span class="ok">✓</span><span>fmriprep 24.1.1 · source dataset v1.1.0 · run unchanged since</span><span class="ok">✓</span><span>mriqc 24.0.2 · IQMs and report</span></div></div>
+    <div style="display:flex;gap:6px"><span class="btn">Compare with modal <span class="kbd">C</span></span><span class="btn">Exclude… <span class="kbd">X</span></span></div>
+  </div></aside>`;
+}
+
+function eventsSvg(task, w, h) {
+  const T = TASKS[task]; const sx = t => t / T.dur * w; const lh = h / T.types.length;
+  let s = `<svg width="${w}" height="${h+12}" viewBox="0 0 ${w} ${h+12}">`;
+  T.types.forEach((ty, li) => T.events.filter(e=>e.type===ty).forEach(e => s += `<rect x="${sx(e.onset).toFixed(1)}" y="${(li*lh+1).toFixed(1)}" width="${Math.max(1.2,sx(e.dur)).toFixed(1)}" height="${(lh-2).toFixed(1)}" fill="${EVCOLOR[ty]}"/>`));
+  for (let t=0; t<=T.dur; t+=60) s += `<text x="${sx(t)}" y="${h+10}" font-size="9" fill="var(--bf-text-faint)" font-family="IBM Plex Mono" text-anchor="${t===0?'start':'middle'}">${t}${t===0?' s':''}</text>`;
+  return s + '</svg>';
+}
+function evLegend(task) { return TASKS[task].types.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px"><i style="width:8px;height:8px;background:${EVCOLOR[t]};display:inline-block"></i>${t}</span>`).join(''); }
+
+function renderCoverage() {
+  const center = `<main style="display:flex;flex-direction:column;min-width:0;min-height:0">${summary('B')}
+    ${vbar('coverage', `<span class="tok"><em>highlight</em> variant B · ${vSubs('bold','B').length} participants ×</span><span style="margin-left:auto" class="muted">mean FD threshold <span class="tok">${FD_THR} mm</span></span>`)}
+    <div class="scroll" style="flex:1;padding:10px 6px">${coverage()}${legend()}</div></main>`;
+  return shell({left: findingsPanel('B'), center, right: inspector(), cols:'244px minmax(0,1fr) 340px'});
+}
+
+/* ═══════════════ Images (contact sheet) ═══════════════ */
+function renderImages() {
+  const imgFor = (s, ses) => {
+    if (s.n===14 && ses==='01') return A.bold_drop;
+    if (s.n===5 && ses==='01') return A.bold_ghost;
+    return A.bold_ax;
+  };
+  let cells = '';
+  for (const grp of ['control','patient']) {
+    const subs = order.filter(s=>s.group===grp);
+    cells += `<div class="sheetrow">${grp}s · mean EPI, nback run-1, z = +8 mm, shared window · orange outline: flagged · grey: acquisition variant</div>`;
+    for (const s of subs) for (const ses of ['01','02']) {
+      const ci = COLS.findIndex(c=>c.ses===ses&&c.key==='nback'&&c.run===1); const cell = CELLS[s.n-1][ci];
+      if (cell.state==='missing') { cells += `<div class="th miss"><div class="im"></div><span>${s.id}·${ses.slice(1)}</span></div>`; continue; }
+      const flag = (s.n===14&&ses==='01') || (s.n===5&&ses==='01') || (s.fdS[ses] > FD_THR);
+      const cls = s.n===14&&ses==='01' ? 'sel' : flag ? 'warn' : cell.state==='variant' ? 'var' : '';
+      const tf = s.n===12 && ses==='01' ? 'transform:scaleY(1.07) translateY(3px)' : `filter:brightness(${0.9 + (s.n*7%9)/40})`;
+      cells += `<div class="th ${cls}"><div class="im"><img src="${imgFor(s,ses)}" alt="${sid(s.n)} ses-${ses}" style="${tf}"></div><span>${s.id}·${ses.slice(1)}</span></div>`;
+    }
+  }
+  const center = `<main style="display:flex;flex-direction:column;min-width:0;min-height:0">${summary(null)}
+    ${vbar('images', `<span class="seg" style="white-space:nowrap"><span class="on">Mean EPI</span><span>T1w</span><span>b0</span><span>tSNR</span></span><span class="muted" style="white-space:nowrap"><span class="sec">nback run-1</span> ▾</span><span class="muted" style="white-space:nowrap"><span class="sec">z +8 mm</span> ▾</span>`)}
+    <div class="scroll" style="flex:1"><div class="sheet">${cells}</div></div></main>`;
+  const right = `<aside class="panel r"><div class="ph"><span class="mono" style="color:var(--bf-text-primary)">sub-14 ses-01 nback run-1</span><span class="sp"></span><span class="btn primary">Open in viewer</span></div>
+   <div class="ins scroll"><div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip warn">tSNR 31</span><span class="muted">${subOf(14).group} · ${subOf(14).sex} ${subOf(14).age}</span></div>
+   <div class="thumbs"><img src="${A.bold_drop}" alt="Mean EPI with ventromedial dropout" style="height:150px"><img src="${A.bold_ax}" alt="Modal mean EPI for comparison" style="height:150px;opacity:.85"></div>
+   <div class="muted" style="font-size:11px">Left: this run. Right: dataset median image, same slice and window. Signal loss in ventromedial prefrontal cortex, consistent with susceptibility dropout. tSNR 31 against a dataset median of 58 (mriqc 24.0.2).</div>
+   <div><h4>Other runs of sub-14</h4><div class="chk" style="margin-top:4px"><span class="sev-warning">!</span><span>ses-01: all five functional runs show the same dropout</span><span class="ok">✓</span><span>ses-02: tSNR 55, no dropout</span></div></div>
+   <div><h4>tSNR, all runs</h4><div style="margin-top:4px">${strip(subjects.map(x=>({n:x.n,v:x.tsnr})),{w:320,min:20,max:80,mark:[14]})}</div><div class="src">ticks 20 … 80 · dataset median 58</div></div>
+   <div style="display:flex;gap:6px"><span class="btn">Exclude ses-01 func… <span class="kbd">X</span></span></div></div></aside>`;
+  return shell({left: findingsPanel(null), center, right, cols:'244px minmax(0,1fr) 340px'});
+}
+function strip(values, {w=200, h=18, min=0, max=1, mark=[]}) {
+  const sx = v => 4 + (v - min) / (max - min) * (w - 8);
+  let s = `<svg width="${w}" height="${h}"><line x1="4" x2="${w-4}" y1="${h/2}" y2="${h/2}" stroke="var(--bf-border-subtle)"/>`;
+  values.forEach(v => { const hi = mark.includes(v.n); s += `<circle cx="${sx(v.v).toFixed(1)}" cy="${h/2}" r="${hi?3:2}" fill="${hi?'var(--bf-warning)':'var(--bf-text-muted)'}" fill-opacity="${hi?1:.55}"/>`; });
+  return s + '</svg>';
+}
+
+/* ═══════════════ Runs ═══════════════ */
+function renderRuns() {
+  const runs = [];
+  for (const s of subjects) for (const c of COLS.filter(c=>c.key==='nback')) { const cell = CELLS[s.n-1][c.i]; if (cell.state!=='missing') runs.push({s,c,cell}); }
+  const g = {A:[],B:[],C:[]}; runs.forEach(r => (g[r.cell.variant]||g.A).push(r));
+  const row = r => { const {s,c,cell} = r; const fd = s.fdS[c.ses] ?? s.fd; const vols = cell.variant==='B'?330:(s.n===7&&c.ses==='02'&&c.run===2)?287:412;
+    const flags = [];
+    if (cell.issue && cell.issue.sev!=='info' && !['PE_REVERSED'].includes(cell.issue.code)) flags.push(`<span class="chip warn">${cell.issue.title.split(':')[0].toLowerCase()}</span>`);
+    if (s.n===14 && c.ses==='01') flags.push('<span class="chip warn">tSNR 31</span>');
+    const excl = s.n===7&&c.ses==='02'&&c.run===2;
+    const sel = s.n===SEL.sub && c.ses===SEL.ses && c.run===SEL.run;
+    return `<tr${sel?' class="sel"':''}${excl?' style="opacity:.5"':''}><td><span class="ent"><span class="e">sub-</span><span class="v">${s.id}</span> <span class="e">ses-</span><span class="v">${c.ses}</span> <span class="e">run-</span><span class="v">${c.run}</span></span>${excl?' <span class="faint">excluded</span>':''}</td>
+     <td class="mono r${cell.variant==='B'?' sev-warning':''}">${cell.variant==='B'?'1.0':'0.8'}</td><td class="mono r${vols===287?' sev-warning':''}">${vols}</td><td class="mono${cell.variant==='C'?' sev-warning':''}">${cell.variant==='C'?'j':'j-'}</td>
+     <td class="mono r${fd>FD_THR?' sev-warning':''}">${fd.toFixed(2)}</td><td><span class="bar${fd>FD_THR?' hi':''}" style="width:${Math.round(fd/0.8*64)}px"></span></td>
+     <td class="mono r${s.tsnr<40?' sev-warning':''}">${s.n===14&&c.ses==='01'?31:s.tsnrS[c.ses]??s.tsnr}</td><td>${flags.join(' ')}</td></tr>`; };
+  const head = (id, label, list) => `<tr class="grp"><td colspan="8">▾ <span class="mono">${id}</span> · ${label} <span class="muted" style="font-weight:400">· ${list.length} runs · ${new Set(list.map(r=>r.s.n)).size} participants</span></td></tr>`;
+  const body = head('B','Scanner upgrade · RepetitionTime 1.0 · MultibandAccelerationFactor 4', g.B) + g.B.map(row).join('')
+    + head('C','Reversed PhaseEncodingDirection j', g.C) + g.C.map(row).join('')
+    + head('A','Modal · RepetitionTime 0.8 · MultibandAccelerationFactor 6', g.A) + g.A.map(row).join('');
+  const center = `<main style="display:flex;flex-direction:column;min-width:0;min-height:0">${summary(null)}
+   ${vbar('runs', `<div class="in" style="display:flex;align-items:center;gap:6px;flex:1;height:24px;padding:0 6px;background:var(--bf-bg-sunken);border:1px solid var(--bf-border);border-radius:2px"><span class="faint">/</span><span class="tok"><em>task</em> nback ×</span><span class="tok"><em>suffix</em> bold ×</span><span class="faint" style="font-size:11px">filter…</span></div><span class="btn">Display: group by variant ▾</span>`)}
+   <div class="scroll" style="flex:1"><table class="t c24"><thead><tr><th>run</th><th class="r">TR, s</th><th class="r">vols</th><th>PE</th><th class="r">FD mm</th><th></th><th class="r">tSNR</th><th>flags</th></tr></thead><tbody>${body}</tbody></table></div>
+   <div style="display:flex;gap:14px;align-items:center;height:28px;padding:0 12px;border-top:1px solid var(--bf-border-subtle);font-size:11px;color:var(--bf-text-muted);flex:none"><span>${runs.length} runs</span><span><span class="kbd">J</span> <span class="kbd">K</span> move</span><span><span class="kbd">Space</span> quick look</span><span><span class="kbd">↵</span> open in viewer</span><span><span class="kbd">C</span> compare</span><span><span class="kbd">X</span> exclude with reason</span><span><span class="kbd">E</span> collapse group</span></div></main>`;
+  return shell({left: findingsPanel('B'), center, right: inspector(), cols:'244px minmax(0,1fr) 340px'});
+}
+
+document.getElementById('dir-coverage').innerHTML = renderCoverage();
+document.getElementById('dir-images').innerHTML = renderImages();
+document.getElementById('dir-runs').innerHTML = renderRuns();
+function route() {
+  const h = (location.hash || '#view-coverage').replace('#view-','');
+  const d = ['coverage','images','runs'].includes(h) ? h : 'coverage';
+  document.querySelectorAll('.dir').forEach(el => el.classList.toggle('on', el.id === 'dir-' + d));
+  document.querySelectorAll('.switch a').forEach(a => a.setAttribute('aria-current', a.dataset.d === d ? 'true' : 'false'));
+}
+addEventListener('hashchange', route); route();
+</script>
+</body>
+</html>

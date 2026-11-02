@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIDS browser round 3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/*CSS*/
+/* ── Round 3 ── */
+.app{height:1000px;position:relative}
+.cons{border-collapse:collapse;font-size:12px}
+.cons td,.cons th{padding:3px 12px 3px 0;text-align:left;border-bottom:1px solid var(--bf-border-subtle);white-space:nowrap}
+.cons th{font-weight:500;color:var(--bf-text-faint);font-size:11px}
+.dec{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px;font-size:12px;color:var(--bf-text-secondary)}
+.dec div{display:grid;grid-template-columns:84px 1fr;gap:8px;padding:5px 0;border-bottom:1px solid var(--bf-border-subtle)}
+.dec b{font-weight:500;color:var(--bf-text-muted)}
+.sum{padding:12px 16px 10px;border-bottom:1px solid var(--bf-border-subtle)}
+.sum p{margin:0;font-size:13px;line-height:1.6;color:var(--bf-text-secondary);max-width:100ch}
+.claim{color:var(--bf-text-primary);text-decoration:underline;text-decoration-style:dotted;text-decoration-color:var(--bf-text-faint);text-underline-offset:3px}
+.claim.on{background:var(--bf-bg-selected);text-decoration-color:var(--bf-text-primary);box-shadow:0 0 0 1px var(--bf-border-strong)}
+.claim.err{color:var(--bf-danger)} .claim.warn{color:var(--bf-warning)}
+.edit{font-family:var(--bf-font-mono);color:var(--bf-text-primary);border-bottom:1px solid var(--bf-text-muted);padding:0 2px;background:var(--bf-bg-sunken)}
+.vbar{display:flex;align-items:center;gap:12px;height:34px;padding:0 12px;border-bottom:1px solid var(--bf-border-subtle);flex:none}
+.vtabs{display:flex;gap:14px;height:100%;align-items:flex-end}
+.vtabs span{padding-bottom:8px;color:var(--bf-text-muted);border-bottom:2px solid transparent}
+.vtabs span.on{color:var(--bf-text-primary);border-bottom-color:var(--bf-text-primary)}
+.lens{display:inline-flex;align-items:center;gap:0;height:22px;border:1px solid var(--bf-border-strong);border-radius:2px;font-size:11px;overflow:hidden}
+.lens > span{padding:0 7px;display:flex;align-items:center;height:100%;color:var(--bf-text-primary)}
+.lens .m{color:var(--bf-text-muted);border-left:1px solid var(--bf-border)}
+.lens .m.on{background:var(--bf-bg-selected);color:var(--bf-text-primary)}
+.lens .x{color:var(--bf-text-faint);border-left:1px solid var(--bf-border)}
+.hint{display:flex;gap:14px;align-items:center;height:26px;padding:0 12px;border-top:1px solid var(--bf-border-subtle);font-size:11px;color:var(--bf-text-muted);flex:none;white-space:nowrap;overflow:hidden}
+.find{font-size:12px}
+.fg{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 3px;color:var(--bf-text-faint);font-size:11px}
+.fr{display:grid;grid-template-columns:10px minmax(0,1fr);gap:8px;align-items:start;padding:4px 12px;color:var(--bf-text-secondary);line-height:1.35}
+.fr .e{display:block;font:11px var(--bf-font-mono);color:var(--bf-text-faint)}
+.fr i{margin-top:4px}
+.fr.sel{background:var(--bf-bg-selected);box-shadow:inset 2px 0 0 var(--bf-accent);color:var(--bf-text-primary)}
+.glyph{width:8px;height:8px;display:inline-block;position:relative}
+.g-err{background:var(--bf-danger)} .g-err::after{content:'';position:absolute;inset:0;background:linear-gradient(45deg,transparent 42%,#16171a 42%,#16171a 58%,transparent 58%),linear-gradient(-45deg,transparent 42%,#16171a 42%,#16171a 58%,transparent 58%)}
+.g-warn{background:var(--bf-warning)} .g-var{border:1px solid var(--bf-text-faint)} .g-info{border:1px solid var(--bf-info);border-radius:50%} .g-qc{background:var(--bf-text-primary);border-radius:50%} .g-saved{border:1px solid var(--bf-text-muted);transform:rotate(45deg) scale(.8)}
+.ptabs{display:flex;gap:2px;height:34px;align-items:flex-end;padding:0 8px;border-bottom:1px solid var(--bf-border-subtle);flex:none}
+.ptabs span{padding:6px 10px 8px;color:var(--bf-text-muted);font-weight:500}
+.ptabs span.on{color:var(--bf-text-primary);box-shadow:inset 0 -2px 0 var(--bf-text-primary)}
+.chk{display:grid;grid-template-columns:14px 1fr;gap:3px 6px;font-size:11px;color:var(--bf-text-secondary)}
+.chk .ok{color:var(--bf-text-faint)}
+.src{font:10px/1.5 var(--bf-font-mono);color:var(--bf-text-faint)}
+.kv4{display:grid;grid-template-columns:auto auto auto 1fr;gap:3px 10px;font-size:11px;align-items:baseline}
+.kv4 .k{color:var(--bf-text-muted);font-family:var(--bf-font-mono);font-size:10.5px}
+.kv4 .v{font-family:var(--bf-font-mono);color:var(--bf-text-secondary)} .kv4 .m{font-family:var(--bf-font-mono);color:var(--bf-text-faint)}
+.kv4 .diff{color:var(--bf-text-primary);font-weight:500}
+.kv4 .src{text-align:right}
+.chip.qc{border-color:transparent;background:rgba(233,234,236,.12);color:var(--bf-text-primary)}
+.sheet{display:grid;grid-template-columns:repeat(11,62px);gap:10px 6px;padding:12px 16px}
+.th{display:flex;flex-direction:column;gap:3px;align-items:center}
+.th .im{width:62px;height:74px;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;outline-offset:1px}
+.th .im img{width:58px;height:70px}
+.th span{font:10px var(--bf-font-mono);color:var(--bf-text-faint);padding:0 4px;border-radius:2px}
+.th .v2{font-size:10px;color:var(--bf-text-muted)}
+.th.warn .im{outline:1.5px solid var(--bf-warning)} .th.qc .im{outline:1.5px solid var(--bf-text-primary)} .th.var .im{outline:1px solid var(--bf-text-faint)}
+.th.sel{background:var(--bf-bg-selected);box-shadow:inset 0 2px 0 var(--bf-accent);padding:4px 2px 3px;margin:-4px -2px -3px}
+.th.sel span{background:var(--bf-text-primary);color:var(--bf-text-inverse)}
+.th.miss .im{background:transparent;border:1px dashed var(--bf-border-subtle)}
+.sheetrow{grid-column:1/-1;font-size:11px;color:var(--bf-text-faint);border-top:1px solid var(--bf-border-subtle);padding-top:6px}
+td.r{text-align:right}
+table.t.c24 td{height:24px;padding-top:0;padding-bottom:0}
+.dockh{display:flex;align-items:center;gap:12px;height:30px;padding:0 12px;border-bottom:1px solid var(--bf-border-subtle);font-size:11px;color:var(--bf-text-muted);flex:none}
+.dockh b{color:var(--bf-text-primary);font-weight:500}
+.overlay{position:absolute;inset:40px 0 28px 0;background:rgba(10,10,12,.55);display:flex;justify-content:center;align-items:flex-start;padding-top:120px}
+.dlg{width:560px;background:var(--bf-bg-raised);border:1px solid var(--bf-border-strong);border-radius:4px;box-shadow:var(--bf-shadow-panel,0 10px 32px rgba(0,0,0,.4))}
+.dlg h3{margin:0;font-size:13px;font-weight:600}
+.pal-in{display:flex;align-items:center;gap:8px;height:44px;padding:0 14px;border-bottom:1px solid var(--bf-border);font-size:13px}
+.pal-g{padding:8px 14px 2px;font-size:11px;color:var(--bf-text-faint)}
+.pal-r{display:flex;align-items:center;gap:10px;height:30px;padding:0 14px;font-size:12px;color:var(--bf-text-secondary)}
+.pal-r .k2{margin-left:auto;color:var(--bf-text-faint);font:11px var(--bf-font-mono)}
+.pal-r.on{background:var(--bf-bg-selected);box-shadow:inset 2px 0 0 var(--bf-accent);color:var(--bf-text-primary)}
+.field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--bf-text-muted)}
+.field .box{min-height:28px;padding:5px 8px;background:var(--bf-bg-sunken);border:1px solid rgba(255,255,255,.38);border-radius:2px;color:var(--bf-text-primary);font-size:12px}
+.field .box.focus{box-shadow:0 0 0 1px var(--bf-accent);border-color:var(--bf-accent)}
+.radio{display:flex;gap:16px;font-size:12px;color:var(--bf-text-secondary)}
+.radio span::before{content:'';display:inline-block;width:10px;height:10px;border:1px solid var(--bf-text-muted);border-radius:50%;margin-right:6px;vertical-align:-1px}
+.radio span.on::before{background:var(--bf-text-primary);box-shadow:inset 0 0 0 2px var(--bf-bg-raised)}
+pre.file{margin:0;padding:8px 10px;background:var(--bf-bg-sunken);border-radius:2px;font:10.5px/1.55 var(--bf-font-mono);color:var(--bf-text-secondary);overflow:auto;white-space:pre}
+.toast{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:8px 12px;background:var(--bf-bg-raised);border:1px solid var(--bf-border-strong);border-radius:2px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.prog{height:2px;background:var(--bf-border-subtle);position:relative}.prog i{position:absolute;left:0;top:0;bottom:0;background:var(--bf-text-secondary)}
+</style>
+</head>
+<body>
+<div class="page">
+  <section class="brief">
+    <div>
+      <h1>BIDS browser, round 3</h1>
+      <p>All four critics approved round 2 with fixes. This round answers every blocking item and shows the states nobody had seen yet: the shared lens and command palette, exclusion with undo, the Files panel following the selection, and a 400-participant dataset while it is still scanning.</p>
+      <p>One disagreement needed a ruling. Jobs wanted no filter bar and no Runs tab; the Linear designer wanted one filter object, saved views and ⌘K. The answer is a single <b>lens</b>: it is set by clicking a claim, a finding or a ⌘K result, never typed into a permanent bar. It shows as one chip with <i>highlight</i> or <i>only</i>, applies to every view, and can be saved. The runs in the lens appear in the bottom dock, with the same keyboard map in every view.</p>
+    </div>
+    <div class="meta">Example dataset, synthetic<br>Critics are simulated<br><table class="cons"><tr><th>critic</th><th>r1</th><th>r2</th><th>r2 verdict</th></tr><tr><td>Tufte</td><td>7</td><td>8</td><td>approve w/ fixes</td></tr><tr><td>Jobs</td><td>8</td><td>8.5</td><td>approve w/ fixes</td></tr><tr><td>Linear</td><td>7</td><td>8</td><td>approve w/ fixes</td></tr><tr><td>Poldrack</td><td>6.5</td><td>8</td><td>approve w/ fixes</td></tr></table></div>
+  </section>
+  <section><h3 style="font-size:13px;margin:0 0 6px">Round 2 blocking items and fixes</h3><div class="dec" id="decisions"></div></section>
+  <nav class="switch" aria-label="States">
+    <a href="#state-coverage" data-d="coverage">Coverage + lens</a>
+    <a href="#state-images" data-d="images">Images</a>
+    <a href="#state-palette" data-d="palette">⌘K and Files sync</a>
+    <a href="#state-exclude" data-d="exclude">Exclude and undo</a>
+    <a href="#state-scale" data-d="scale">400 participants, scanning</a>
+  </nav>
+  <div class="frame-wrap">
+    <div class="dir" id="dir-coverage"></div><div class="dir" id="dir-images"></div><div class="dir" id="dir-palette"></div><div class="dir" id="dir-exclude"></div><div class="dir" id="dir-scale"></div>
+  </div>
+</div>
+<script>
+/*ASSETS*/
+/*DATA*/
+const subOf = n => subjects.find(s => s.n === n);
+const sid = n => 'sub-' + String(n).padStart(2,'0');
+const order = [...subjects].sort((a,b) => (a.group===b.group ? a.n-b.n : a.group==='control'?-1:1));
+const HL = new Set(vSubs('bold','B'));
+const SELCI = COLS.findIndex(c=>c.ses==='02'&&c.key==='nback'&&c.run===1);
+const SEL = {sub:33, ci:SELCI};
+const nbB = FUNC_COLS.filter(c=>c.key==='nback');
+const bNback = subjects.reduce((a,s)=>a+nbB.filter(c=>CELLS[s.n-1][c.i].variant==='B'&&CELLS[s.n-1][c.i].state!=='missing').length,0);
+
+const DECISIONS = [
+  ['Tufte, Linear', 'Selection and variant were both outlines. Variant is now a grey hairline; selection is a filled cell plus the amber row edge. No outline means "selected" anywhere.'],
+  ['Tufte, Linear, Poldrack', 'FD and tSNR were per session. They are now per run; session values in the margin are means of runs. The selected run\'s FD is the mean of its drawn trace (' + SEL_FD + ' mm; ' + SEL_OVER + ' of 330 frames above 0.5 mm).'],
+  ['Tufte', 'Errors carry a cross as well as red. QC outliers are the strongest neutral ink, not orange. Orange now means only "content problem".'],
+  ['Jobs', 'Changed metadata values are bright neutral, modal values faint. Every group count shows its denominator (' + bNback + ' of ' + vRuns('bold','B') + ' runs in nback).'],
+  ['Jobs', 'The FD threshold is edited inline in the summary sentence. No settings live in the Coverage toolbar.'],
+  ['Jobs, Linear', 'Runs is no longer a tab. The lens is one object across views; its runs fill the bottom dock. ⌘K reaches views, findings, participants and saved lenses. Key hints show in every view.'],
+  ['Jobs', 'Exclusion asks for a reason, previews the TSV row, and offers undo. Exclusions are reviewed and reverted from Findings.'],
+  ['Jobs', '400 participants: rows compress to 3 px with a 16 px focus band around the selection. The scan streams: rows fill as participants are read, counts are labelled "so far".'],
+  ['Poldrack', 'SliceTiming compared as vectors (15 vs 10 unique times). B0FieldSource on the run, TotalReadoutTime and grid checked for the pepolar pair. FD caveat for the TR 1.0 group is stated where FD is shown.'],
+  ['Poldrack', 'Findings complete: sub-05 ghosting added; quality items grouped under one header; Parkes 0.25 mm called stringent. The brainflow derivative gets its own dataset_description.json.'],
+  ['Tufte', 'Derivatives margin is blank when present and current; only missing, partial or stale marks are drawn. Sparkline scale stated in the header.'],
+  ['Linear', 'Findings titles wrap instead of truncating; "Open in viewer ↵" is the one label; column totals sit under a rule with a label.'],
+];
+document.getElementById('decisions').innerHTML = DECISIONS.map(([w,t]) => `<div><b>${w}</b><span>${t}</span></div>`).join('');
+
+function shell({center, left, right, cols, overlay='', status=null}) {
+  return `<div class="app">
+  <header class="top"><span class="brand">Brainflow</span><nav class="wtabs"><span class="wtab">Viewer</span><span class="wtab on">BIDS · ${DS.slug}</span><span class="wtab">Population</span></nav><span class="path">${DS.path}</span></header>
+  <div class="body" style="grid-template-columns:${cols}">${left}${center}${right}</div>
+  ${status ? `<footer class="status">${status}</footer>` : `<footer class="status"><span><b>BIDS ${DS.bids}</b> · dataset v1.2.0</span><span>${N} participants · ${DS.files.toLocaleString()} files · ${DS.sizeGB} GB</span><span>Findings ${M.findings3}</span><span>Excluded ${EXCLUSIONS.length} run</span>
+    <span style="margin-left:auto">validator <span class="sev-error">${M.errors.length} errors</span> · <span class="sev-warning">${ISSUES.filter(i=>i.sev==='warning').length} warnings</span> · read 1,071 of 1,071 files</span></footer>`}${overlay}</div>`;
+}
+function summary(active) {
+  const c = (key, text, cls='') => `<span class="claim ${cls}${active===key?' on':''}">${text}</span>`;
+  return `<div class="sum"><p><b style="color:var(--bf-text-primary);font-weight:600">${DS.name}.</b> ${c('all', N + ' participants')} (${M.ctrl} control, ${M.pat} patient; age ${M.ageMin}–${M.ageMax}, median ${M.ageMed}) scanned in 2 sessions on a ${DS.scanner}. ${c('nos2', M.noS2 + ' have no second session')}. ${c('B', vSubs('bold','B').length + ' second sessions used a different protocol')} after a scanner upgrade. ${c('err', M.errors.length + ' files fail validation', 'err')} and ${c('warn', M.warnings.length + ' runs have content problems', 'warn')}. ${c('qc', M.qcSubs3.size + ' participants have runs over mean FD')} <span class="edit">${FD_THR} mm</span>. ${c('new', 'Since 28 Oct: ' + M.newSubs.length + ' new participants')}, not yet processed by fMRIPrep.</p></div>`;
+}
+function vbar(active, lens) {
+  const t = (k, l) => `<span class="${active===k?'on':''}">${l}</span>`;
+  const L = lens ? `<span class="lens"><span>${lens}</span><span class="m on">highlight</span><span class="m">only</span><span class="m">save</span><span class="x">✕</span></span>` : `<span class="faint" style="font-size:11px">No lens. Click a claim or finding, or press <span class="kbd">⌘K</span></span>`;
+  return `<div class="vbar"><div class="vtabs">${t('coverage','Coverage')}${t('images','Images')}</div>${L}<span style="margin-left:auto" class="btn ghost">Copy summary</span><span class="btn ghost">Export CuBIDS table</span></div>`;
+}
+const keyHints = `<span><span class="kbd">J</span> <span class="kbd">K</span> <span class="kbd">H</span> <span class="kbd">L</span> move</span><span><span class="kbd">Space</span> quick look</span><span><span class="kbd">↵</span> open in viewer</span><span><span class="kbd">C</span> compare with modal</span><span><span class="kbd">X</span> exclude</span><span><span class="kbd">⌘K</span> go to</span><span><span class="kbd">1</span> <span class="kbd">2</span> views</span>`;
+
+function findingsPanel(selKey, {excludedNew=false}={}) {
+  const row = (g, title, ent, key) => `<div class="fr${selKey===key?' sel':''}"><i class="glyph ${g}"></i><span>${title}<span class="e">${ent}</span></span></div>`;
+  const grp = (t, n) => `<div class="fg"><span>${t}</span><span class="mono">${n}</span></div>`;
+  let h = grp('Saved lenses', 2) + row('g-saved','Flagged second sessions','variant B ∪ quality, ses-02') + row('g-saved','Ready for group analysis','not excluded, FD ≤ 0.25, fmriprep current');
+  h += grp('Errors', M.errors.length) + M.errors.map(i => row('g-err', i.title, `${sid(i.sub)} ses-${i.ses}`)).join('');
+  h += grp('Content problems', M.warnings.length) + M.warnings.map(i => row('g-warn', i.title, `${sid(i.sub)} ses-${i.ses}`)).join('');
+  h += grp('Acquisition variants', M.variants.length) + M.variants.map(v => row('g-var', `${v.name}: ${v.diff.split(' (')[0]}`, `${vSubs(v.series, v.id).length} participant${vSubs(v.series, v.id).length===1?'':'s'} · ${vRuns(v.series, v.id)} run${vRuns(v.series, v.id)===1?'':'s'}`, v.id)).join('');
+  h += grp('Quality', QC3.length) + QC3.map(q => row('g-qc', q.kind==='FD' ? `Mean FD over ${FD_THR} mm in ${q.n} of ${q.of} runs, max ${q.max.toFixed(2)}` : q.kind==='tSNR' ? `tSNR below 40 in ${q.n} of ${q.of} runs, min ${q.min}` : `Ghost ratio ${q.max} in ${q.n} of ${q.of} runs`, `${sid(q.sub)} ses-${q.ses}`)).join('');
+  h += grp('Notes', M.infos.length) + M.infos.map(i => row('g-info', i.title, i.sub ? sid(i.sub) : 'dataset')).join('');
+  const ex = [...EXCLUSIONS]; if (excludedNew) ex.unshift({entity:'sub-33 ses-02 task-nback run-1', reason:'Mean FD 0.50 mm', by:'B. Buchsbaum', date:'2026-11-01'});
+  h += grp('Excluded', ex.length) + ex.map(e => `<div class="fr"><i class="glyph" style="border:1px solid var(--bf-text-faint)"></i><span><span style="text-decoration:line-through;text-decoration-color:var(--bf-text-faint)">${e.entity.replace('task-','')}</span><span class="e">${e.reason} · ${e.by}, ${e.date}</span><span class="e" style="color:var(--bf-text-muted)">Review · Revert</span></span></div>`).join('');
+  return `<aside class="panel l"><div class="ptabs"><span>Files</span><span class="on">Findings <span class="mono faint">${M.findings3}</span></span></div><div class="scroll find">${h}</div></aside>`;
+}
+function filesPanel() {
+  const r = (d, ch, name, g='', cls='') => `<div class="tr ${cls}" style="--d:${d}"><span class="ch">${ch}</span><span class="n mono">${name}</span>${g?`<span class="g">${g}</span>`:''}</div>`;
+  let h = r(0,'▾',DS.slug,'BIDS '+DS.bids);
+  for (const s of order.filter(s=>s.group==='patient').slice(-6)) {
+    h += r(1, s.n===33?'▾':'▸', sid(s.n), s.s2?'2 ses':'1 ses');
+    if (s.n===33) { h += r(2,'▸','ses-01','11'); h += r(2,'▾','ses-02','7'); h += r(3,'▸','fmap','2'); h += r(3,'▾','func','10');
+      ['nback_run-1','nback_run-2','mid_run-1','mid_run-2','rest_run-1'].forEach(f => { h += r(4,'', `task-${f}_bold`, f==='nback_run-1'?'318 MB':'', f==='nback_run-1'?'sel':''); });
+      h += r(2,'▸','derivatives/fmriprep',''); }
+  }
+  return `<aside class="panel l"><div class="ptabs"><span class="on">Files</span><span>Findings <span class="mono faint">${M.findings3}</span></span></div><div class="ph" style="height:30px;font-weight:400"><span class="seg"><span>Tree</span><span>Flat</span><span class="on">BIDS</span></span><span class="sp"></span><span class="faint" style="font-size:11px">follows selection</span></div><div class="tree scroll">${h}</div></aside>`;
+}
+
+function spark(seed, w, h, base, hot) {
+  const a = fdTrace(seed, 28, base, hot ? [9,10,23] : []), max = 1.4;
+  return a.map((v,i) => `${(i/(a.length-1)*w).toFixed(1)},${(h - Math.min(v,max)/max*h).toFixed(1)}`).join(' ');
+}
+function coverage({lensB=true}={}) {
+  const RH = 16, CW = 30, GAP = 12, LX = 112, TOP = 60, GH = 18;
+  const colX = c => LX + c.i*CW + (c.ses==='02' ? GAP : 0);
+  const DX = LX + COLS.length*CW + GAP + 10, FX = DX + 3*20 + 14, FW = 64, fmax = 0.8;
+  const fx = (k, v) => FX + k*(FW+18) + v/fmax*FW, W = FX + 2*(FW+18) + 4;
+  let y = TOP; const rows = []; let prev = null;
+  for (const s of order) { if (prev !== s.group) { rows.push({hdr:s.group, y}); y += GH; } rows.push({s, y}); y += RH; prev = s.group; }
+  const H = y + 26;
+  let o = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Coverage matrix" font-family="IBM Plex Sans">`;
+  for (const ses of ['01','02']) { const cs = COLS.filter(c=>c.ses===ses); const x0 = colX(cs[0]), x1 = colX(cs[cs.length-1])+CW;
+    o += `<text x="${x0+3}" y="11" font-size="11" fill="var(--bf-text-secondary)" font-family="IBM Plex Mono">ses-${ses}</text><line x1="${x0+3}" x2="${x1-3}" y1="16" y2="16" stroke="var(--bf-border)"/>`; }
+  o += `<text x="${colX(COLS[2])+3}" y="${TOP-4}" font-size="9" fill="var(--bf-text-faint)">bold cells: FD per volume, 0–1.4 mm, shared scale</text>`;
+  for (const c of COLS) { const x = colX(c), cnt = subjects.reduce((a,s)=>a+(CELLS[s.n-1][c.i].state!=='missing'),0); const spans2 = c.run===1 && c.key!=='rest';
+    if (!c.run || c.run===1) o += `<text x="${x+(spans2?CW:CW/2)}" y="30" font-size="11" fill="var(--bf-text-muted)" text-anchor="middle">${c.key==='fmap'?'fmap':SERIES[c.key].label}</text>`;
+    if (c.run && c.key!=='rest') o += `<text x="${x+CW/2}" y="42" font-size="10" fill="var(--bf-text-faint)" text-anchor="middle" font-family="IBM Plex Mono">${c.run}</text>`;
+    o += `<text x="${x+CW/2}" y="${H-6}" font-size="10" fill="${cnt<N?'var(--bf-text-secondary)':'var(--bf-text-faint)'}" text-anchor="middle" font-family="IBM Plex Mono">${cnt}</text>`; }
+  o += `<line x1="6" x2="${DX-8}" y1="${H-20}" y2="${H-20}" stroke="var(--bf-border)"/><text x="6" y="${H-6}" font-size="10" fill="var(--bf-text-faint)">runs present, of ${N}</text>`;
+  o += `<text x="${DX}" y="30" font-size="11" fill="var(--bf-text-muted)">deriv.</text>`;
+  ['fp','qc','fs'].forEach((d,k) => o += `<text x="${DX+k*20+6}" y="42" font-size="10" fill="var(--bf-text-faint)" text-anchor="middle" font-family="IBM Plex Mono">${d}</text>`);
+  o += `<text x="${FX}" y="11" font-size="10" fill="var(--bf-text-faint)">session mean of run FD, mm</text>`;
+  ['01','02'].forEach((ses,k) => { o += `<text x="${FX+k*(FW+18)}" y="30" font-size="11" fill="var(--bf-text-muted)">ses-${ses}</text>`;
+    [0,0.25,0.5,0.75].forEach(v => o += `<text x="${fx(k,v)}" y="42" font-size="10" fill="${v===FD_THR?'var(--bf-text-secondary)':'var(--bf-text-faint)'}" text-anchor="middle" font-family="IBM Plex Mono">${v===0?'0':String(v).replace('0.','.')}</text>`);
+    o += `<line x1="${fx(k,FD_THR)}" x2="${fx(k,FD_THR)}" y1="${TOP-8}" y2="${H-22}" stroke="var(--bf-text-faint)" stroke-dasharray="2 3"/>`; });
+  o += `<text x="6" y="42" font-size="10" fill="var(--bf-text-faint)">participant</text><text x="62" y="42" font-size="10" fill="var(--bf-text-faint)">sex age</text>`;
+  for (const r of rows) {
+    if (r.hdr) { const n = subjects.filter(s=>s.group===r.hdr).length; o += `<text x="6" y="${r.y+13}" font-size="11" fill="var(--bf-text-muted)">${r.hdr}s <tspan fill="var(--bf-text-faint)" font-family="IBM Plex Mono">${n}</tspan></text><line x1="6" x2="${W-6}" y1="${r.y+17}" y2="${r.y+17}" stroke="var(--bf-border-subtle)"/>`; continue; }
+    const {s, y} = r; const cy = y + RH/2, isSelRow = s.n === SEL.sub, hl = lensB && HL.has(s.n);
+    if (isSelRow) o += `<rect x="0" y="${y}" width="${W}" height="${RH}" fill="var(--bf-bg-selected)"/><rect x="0" y="${y}" width="2" height="${RH}" fill="var(--bf-accent)"/>`;
+    else if (hl) o += `<rect x="${colX(COLS[9])-2}" y="${y}" width="${6*CW+4}" height="${RH}" fill="rgba(255,255,255,.04)"/>`;
+    o += `<text x="6" y="${cy+4}" font-size="11" fill="${isSelRow||hl?'var(--bf-text-primary)':'var(--bf-text-secondary)'}" font-family="IBM Plex Mono">${sid(s.n)}</text>`;
+    if (s.isNew) o += `<text x="92" y="${cy+4}" font-size="10" fill="var(--bf-info)">new</text>`;
+    o += `<text x="64" y="${cy+4}" font-size="10" fill="var(--bf-text-faint)" font-family="IBM Plex Mono">${s.sex} ${s.age}</text>`;
+    for (const c of COLS) {
+      const cell = CELLS[s.n-1][c.i], x = colX(c), cx = x + CW/2, isSel = isSelRow && c.i===SEL.ci;
+      if (isSel) o += `<rect x="${x+2}" y="${y+1}" width="${CW-4}" height="${RH-2}" fill="rgba(233,234,236,.22)"/>`;
+      if (cell.state === 'missing') { o += `<line x1="${cx-3}" x2="${cx+3}" y1="${cy}" y2="${cy}" stroke="var(--bf-text-faint)" stroke-opacity=".5"/>`; continue; }
+      if (cell.state === 'error') o += `<rect x="${x+5}" y="${y+3}" width="${CW-10}" height="${RH-6}" fill="var(--bf-danger)"/><path d="M${cx-3} ${cy-3}l6 6M${cx+3} ${cy-3}l-6 6" stroke="#16171a" stroke-width="1.6"/>`;
+      else if (cell.state === 'warning') o += `<rect x="${x+5}" y="${y+3}" width="${CW-10}" height="${RH-6}" fill="var(--bf-warning)"/>`;
+      else if (SERIES[c.key].dt === 'func') { const q = runQC(s.n, c.i), hot = q.fd > FD_THR;
+        o += `<polyline transform="translate(${x+5},${y+3})" fill="none" stroke="${hot?'var(--bf-text-primary)':'var(--bf-text-faint)'}" stroke-width="${hot?1.2:0.8}" points="${spark(s.n*31+c.i, CW-10, RH-6, Math.min(q.fd,0.6)*0.9, hot)}"/>`; }
+      else o += `<line x1="${x+7}" x2="${x+CW-7}" y1="${cy}" y2="${cy}" stroke="var(--bf-text-faint)"/>`;
+      if (cell.state === 'variant') o += `<rect x="${x+3.5}" y="${y+1.5}" width="${CW-7}" height="${RH-3}" fill="none" stroke="var(--bf-text-faint)" stroke-width="0.75"/>`;
+      if (cell.extra) o += `<text x="${x+CW-3}" y="${cy+3}" font-size="9" fill="var(--bf-info)" text-anchor="end" font-family="IBM Plex Mono">+1</text>`;
+    }
+    const d = derivOf(s);
+    ['fmriprep','mriqc','freesurfer'].forEach((k,i) => { const st = d[k], x = DX+i*20+6;
+      if (st==='partial') o += `<path d="M${x} ${cy-3}a3 3 0 0 1 0 6z" fill="var(--bf-text-primary)"/><circle cx="${x}" cy="${cy}" r="3" fill="none" stroke="var(--bf-text-primary)"/>`;
+      if (st==='missing') o += `<circle cx="${x}" cy="${cy}" r="3" fill="none" stroke="var(--bf-text-muted)" stroke-dasharray="1.5 1.5"/>`; });
+    ['01','02'].forEach((ses,k) => { const v = sesMeanFD(s.n, ses); if (v == null) return;
+      const hot = v > FD_THR, b = ses==='02' && s.upgraded;
+      o += `<circle cx="${fx(k,v)}" cy="${cy}" r="${hot?3:2.3}" fill="${b?'none':hot?'var(--bf-text-primary)':'var(--bf-text-muted)'}" stroke="${b?(hot?'var(--bf-text-primary)':'var(--bf-text-muted)'):'none'}" fill-opacity="${hot?1:.7}"/>`;
+      if (hot) o += `<text x="${fx(k,v)+6}" y="${cy+3.5}" font-size="10" fill="var(--bf-text-primary)" font-family="IBM Plex Mono">${v.toFixed(2)}</text>`; });
+  }
+  return o + '</svg>';
+}
+function legend() {
+  const it = (svg, t) => `<span style="display:inline-flex;align-items:center;gap:6px">${svg}${t}</span>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11px;color:var(--bf-text-muted);padding:8px 10px 0 6px">
+   ${it('<svg width="26" height="10"><polyline points="0,8 5,7 9,8 13,6 17,8 21,7 26,8" fill="none" stroke="#76797f" stroke-width=".8"/></svg>','bold run')}
+   ${it('<svg width="26" height="10"><polyline points="0,8 5,7 9,1 13,7 17,8 21,2 26,8" fill="none" stroke="#e9eaec" stroke-width="1.2"/></svg>','run mean FD over threshold')}
+   ${it('<svg width="26" height="12"><rect x=".5" y=".5" width="25" height="11" fill="none" stroke="#76797f" stroke-width=".75"/></svg>','acquisition variant')}
+   ${it('<svg width="20" height="10"><rect width="20" height="10" fill="#f28a5a"/></svg>','content problem')}
+   ${it('<svg width="20" height="10"><rect width="20" height="10" fill="#f5868f"/><path d="M7 2l6 6M13 2l-6 6" stroke="#16171a" stroke-width="1.6"/></svg>','validation error')}
+   ${it('<svg width="12" height="10"><circle cx="6" cy="5" r="2.6" fill="none" stroke="#a4a7ad"/></svg>','hollow FD dot: TR 1.0 s / MB 4 group; FD is unfiltered and reads lower at slower TR, so compare within group')}
+   ${it('<svg width="12" height="10"><circle cx="6" cy="5" r="3" fill="none" stroke="#a4a7ad" stroke-dasharray="1.5 1.5"/></svg>','derivative not run (blank = present and current)')}</div>`;
+}
+
+function inspector() {
+  const s = subOf(SEL.sub), tr = SEL_TRACE;
+  const fdsvg = `<svg width="100%" height="44" viewBox="0 0 330 44" preserveAspectRatio="none"><line x1="0" x2="330" y1="${44-0.5/1.6*40}" y2="${44-0.5/1.6*40}" stroke="var(--bf-text-faint)" stroke-dasharray="2 3"/><polyline fill="none" stroke="#7fb2e5" stroke-width="1" points="${tr.map((v,i)=>`${(i/329*330).toFixed(1)},${(44-Math.min(v,1.6)/1.6*40).toFixed(1)}`).join(' ')}"/></svg>`;
+  return `<aside class="panel r"><div class="ph"><span class="mono" style="color:var(--bf-text-primary);font-size:11px">sub-33 ses-02 nback run-1</span><span class="sp"></span><span class="btn primary">Open in viewer ↵</span></div>
+  <div class="ins scroll">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted">${s.group} · ${s.sex} ${s.age}</span><span class="chip">variant B</span><span class="chip qc">mean FD ${SEL_FD.toFixed(2)} mm</span></div>
+    <div class="thumbs"><img src="${A.bold_ax}" alt="Mean BOLD, axial"><img src="${A.t1_ax}" alt="T1w, axial"></div>
+    <div><h4>Framewise displacement and carpet</h4><div style="margin-top:4px;background:var(--bf-bg-canvas);padding:4px;border-radius:2px">${fdsvg}<img src="${A.carpet}" alt="Carpet plot" style="width:100%;height:64px;display:block"></div>
+      <div class="src" style="margin-top:3px">FD (Power) · fmriprep 24.1.1 confounds · mean ${SEL_FD.toFixed(2)} mm · ${SEL_OVER} of 330 frames above the 0.5 mm censoring line. Unfiltered; TR 1.0 s group.</div></div>
+    <div><h4>Effective metadata vs modal</h4><div class="kv4" style="margin-top:6px">
+      <span class="k">RepetitionTime</span><span class="v diff">1.0</span><span class="m">0.8</span><span class="src">run</span>
+      <span class="k">MultibandAccelerationFactor</span><span class="v diff">4</span><span class="m">6</span><span class="src">run</span>
+      <span class="k">SliceTiming, unique times</span><span class="v diff">15</span><span class="m">10</span><span class="src">run</span>
+      <span class="k">SoftwareVersions</span><span class="v diff">XA50</span><span class="m">XA30</span><span class="src">run</span>
+      <span class="k">dim[4] volumes</span><span class="v diff">330</span><span class="m">412</span><span class="src">NIfTI</span>
+      <span class="k">PhaseEncodingDirection</span><span class="v">j-</span><span class="m">=</span><span class="src">dataset</span>
+      <span class="k">TotalReadoutTime</span><span class="v">0.0346</span><span class="m">=</span><span class="src">dataset</span>
+      <span class="k">pixdim[4] vs TR</span><span class="v">1.0</span><span class="m">match</span><span class="src">NIfTI</span></div>
+      <div class="src" style="margin-top:4px">run = this run's _bold.json · dataset = task-nback_bold.json at the root, inherited · 20 more keys identical</div></div>
+    <div><h4>Field map</h4><div class="chk" style="margin-top:4px"><span class="ok">✓</span><span>B0FieldSource <span class="mono">pepolar_ses02</span> → fmap epi dir-AP / dir-PA</span><span class="ok">✓</span><span>PE opposed (j- / j); TotalReadoutTime matches</span><span class="ok">✓</span><span>Same grid and session as this run</span></div></div>
+    <div><h4>Events · ${TASKS.nback.trials} trials · ${TASKS.nback.dur} s</h4><div style="margin-top:6px">${eventsSvg('nback', 316, 24)}</div>
+      <div class="muted" style="font-size:10px">${evLegend('nback')}</div><div class="chk" style="margin-top:4px"><span class="ok">✓</span><span>levels match events.json; no n/a onsets; ends before scan end</span><span class="sev-warning">!</span><span>response_time n/a on 9 of 64 2back trials (14%)</span></div></div>
+    <div><h4>Derivatives</h4><div class="chk" style="margin-top:4px"><span class="ok">✓</span><span>fmriprep 24.1.1 · from dataset v1.1.0 · run unchanged since</span><span class="ok">✓</span><span>mriqc 24.0.2</span></div></div>
+    <div class="src">Open in viewer lands on volume 149 (FD peak) with events as a track.</div>
+  </div></aside>`;
+}
+function evLegend(task) { return TASKS[task].types.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px"><i style="width:8px;height:8px;background:${EVCOLOR[t]};display:inline-block"></i>${t}</span>`).join(''); }
+function eventsSvg(task, w, h) {
+  const T = TASKS[task]; const sx = t => t / T.dur * w; const lh = h / T.types.length;
+  let s = `<svg width="${w}" height="${h+12}" viewBox="0 0 ${w} ${h+12}">`;
+  T.types.forEach((ty, li) => T.events.filter(e=>e.type===ty).forEach(e => s += `<rect x="${sx(e.onset).toFixed(1)}" y="${(li*lh+1).toFixed(1)}" width="${Math.max(1.2,sx(e.dur)).toFixed(1)}" height="${(lh-2).toFixed(1)}" fill="${EVCOLOR[ty]}"/>`));
+  for (let t=0; t<=T.dur; t+=60) s += `<text x="${sx(t)}" y="${h+10}" font-size="9" fill="var(--bf-text-faint)" font-family="IBM Plex Mono" text-anchor="${t===0?'start':'middle'}">${t}${t===0?' s':''}</text>`;
+  return s + '</svg>';
+}
+function dockRuns() {
+  const runs = []; for (const s of subjects) for (const c of nbB) { const cell = CELLS[s.n-1][c.i]; if (cell.state!=='missing' && cell.variant==='B') runs.push({s,c}); }
+  runs.sort((a,b)=>runQC(b.s.n,b.c.i).fd-runQC(a.s.n,a.c.i).fd);
+  const rows = runs.map(({s,c}) => { const q = runQC(s.n,c.i), hot = q.fd > FD_THR, sel = s.n===SEL.sub && c.i===SEL.ci;
+    return `<tr${sel?' class="sel"':''}><td><span class="ent"><span class="e">sub-</span><span class="v">${s.id}</span> <span class="e">ses-</span><span class="v">${c.ses}</span> <span class="e">nback run-</span><span class="v">${c.run}</span></span></td><td class="mono r">1.0</td><td class="mono r">330</td><td class="mono r" style="${hot?'color:var(--bf-text-primary);font-weight:500':''}">${q.fd.toFixed(2)}</td><td><span class="bar" style="width:${Math.round(q.fd/0.8*60)}px;${hot?'background:var(--bf-text-primary)':''}"></span></td><td class="mono r">${q.tsnr}</td><td><span class="bar" style="width:${Math.round(q.tsnr/80*50)}px"></span></td></tr>`; }).join('');
+  return `<div class="dock" style="height:214px;flex:none"><div class="dockh"><b>Runs in lens</b><span>${bNback} of ${vRuns('bold','B')} variant B runs · task nback ▾</span><span style="margin-left:auto">sorted by FD ▾</span></div>
+   <div class="scroll"><table class="t c24"><thead><tr><th>run</th><th class="r">TR s</th><th class="r">vols</th><th class="r">FD mm</th><th></th><th class="r">tSNR</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+function coverageCenter(opts={}) {
+  return `<main style="display:flex;flex-direction:column;min-width:0;min-height:0">${summary(opts.lens===false?null:'B')}${vbar('coverage', opts.lens===false?null:`variant B · ${vSubs('bold','B').length} participants`)}
+    <div class="scroll" style="flex:1;padding:10px 6px">${coverage({lensB:opts.lens!==false})}${legend()}</div>${opts.dock===false?'':dockRuns()}<div class="hint">${keyHints}</div></main>`;
+}
+const COLS3 = '244px minmax(0,1fr) 340px';
+function renderCoverage() { return shell({left: findingsPanel('B'), center: coverageCenter(), right: inspector(), cols: COLS3}); }
+
+function renderImages() {
+  const tiles = [];
+  for (const s of subjects) for (const ses of ['01','02']) {
+    const ci = COLS.findIndex(c=>c.ses===ses&&c.key==='nback'&&c.run===1), cell = CELLS[s.n-1][ci];
+    tiles.push({s, ses, cell, q: cell.state==='missing' ? null : runQC(s.n, ci)});
+  }
+  const present = tiles.filter(t=>t.q).sort((a,b)=>a.q.tsnr-b.q.tsnr), missing = tiles.filter(t=>!t.q);
+  const imgFor = t => (t.s.n===14&&t.ses==='01') ? A.bold_drop : (t.s.n===5&&t.ses==='01') ? A.bold_ghost : A.bold_ax;
+  const tile = t => { if (!t.q) return `<div class="th miss"><div class="im"></div><span>${t.s.id}·${t.ses.slice(1)}</span><span class="v2">—</span></div>`;
+    const qc = t.q.tsnr < 40 || t.q.ghost > 0.15 || t.q.fd > FD_THR, sel = t.s.n===14 && t.ses==='01';
+    const cls = sel ? 'sel' : qc ? 'qc' : t.cell.state==='variant' ? 'var' : '';
+    const tf = t.s.n===12 && t.ses==='01' ? 'transform:scaleY(1.07) translateY(3px)' : `filter:brightness(${0.9 + (t.s.n*7%9)/40})`;
+    return `<div class="th ${cls}"><div class="im"><img src="${imgFor(t)}" alt="${sid(t.s.n)} ses-${t.ses}" style="${tf}"></div><span>${t.s.id}·${t.ses.slice(1)}</span><span class="v2 mono">${t.q.tsnr}</span></div>`; };
+  const cells = `<div class="sheetrow">Mean EPI, nback run-1, z = +8 mm, shared window · sorted by tSNR, lowest first · white outline: quality outlier · grey hairline: acquisition variant</div>` + present.map(tile).join('') + `<div class="sheetrow">No nback run-1 (${missing.length})</div>` + missing.map(tile).join('');
+  const center = `<main style="display:flex;flex-direction:column;min-width:0;min-height:0">${summary(null)}${vbar('images', null)}
+    <div style="display:flex;gap:12px;align-items:center;height:32px;padding:0 12px;border-bottom:1px solid var(--bf-border-subtle);font-size:11px;color:var(--bf-text-muted)"><span class="seg"><span class="on">Mean EPI</span><span>T1w</span><span>b0</span><span>tSNR map</span></span><span><span class="sec">nback run-1</span> ▾</span><span><span class="sec">z +8 mm</span> ▾</span><span>sort <span class="seg" style="display:inline-flex;vertical-align:middle"><span>matrix order</span><span class="on">tSNR</span><span>FD</span></span></span></div>
+    <div class="scroll" style="flex:1"><div class="sheet">${cells}</div></div><div class="hint">${keyHints}</div></main>`;
+  const s14 = subOf(14);
+  const right = `<aside class="panel r"><div class="ph"><span class="mono" style="color:var(--bf-text-primary);font-size:11px">sub-14 ses-01 nback run-1</span><span class="sp"></span><span class="btn primary">Open in viewer ↵</span></div>
+   <div class="ins scroll"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted">${s14.group} · ${s14.sex} ${s14.age}</span><span class="chip qc">tSNR ${runQC(14, COLS.findIndex(c=>c.ses==='01'&&c.key==='nback'&&c.run===1)).tsnr}</span></div>
+   <div class="thumbs"><img src="${A.bold_drop}" alt="This run, mean EPI" style="height:150px"><img src="${A.bold_ax}" alt="Dataset median mean EPI" style="height:150px;opacity:.85"></div>
+   <div class="muted" style="font-size:11px">Left: this run. Right: dataset median, same slice and window. Signal loss in ventromedial prefrontal cortex, consistent with susceptibility dropout. tSNR from mriqc 24.0.2.</div>
+   <div><h4>Other runs of sub-14</h4><div class="chk" style="margin-top:4px"><span class="sev-warning" style="color:var(--bf-text-primary)">●</span><span>ses-01: tSNR below 40 in 5 of 5 runs</span><span class="ok">✓</span><span>ses-02: no dropout, tSNR ${sesMeanFD(14,'02')!=null?'in range':''}</span></div></div>
+   <div class="src">Space toggles a full-size quick look. ↵ opens the run in the viewer at this slice.</div></div></aside>`;
+  return shell({left: findingsPanel(null), center, right, cols: COLS3});
+}
+
+function renderPalette() {
+  const pal = `<div class="overlay"><div class="dlg" role="dialog" aria-label="Go to"><div class="pal-in"><span class="faint">⌕</span><span style="color:var(--bf-text-primary)">sub-33</span><span class="faint" style="margin-left:auto;font-size:11px">esc</span></div>
+   <div class="pal-g">Runs</div>
+   <div class="pal-r on"><span class="mono">sub-33 ses-02 nback run-1</span><span class="chip qc">FD ${SEL_FD.toFixed(2)}</span><span class="k2">↵ select · ⌘↵ open in viewer</span></div>
+   <div class="pal-r"><span class="mono">sub-33 ses-02 nback run-2</span><span class="k2"></span></div>
+   <div class="pal-g">Participants</div><div class="pal-r"><span class="mono">sub-33</span><span class="muted">patient · F 45 · 2 sessions</span><span class="k2">lens: sub-33</span></div>
+   <div class="pal-g">Findings</div><div class="pal-r"><i class="glyph g-qc"></i>Mean FD over ${FD_THR} mm in 5 of 5 runs<span class="k2">sub-33 ses-01</span></div><div class="pal-r"><i class="glyph g-qc"></i>Mean FD over ${FD_THR} mm in 5 of 5 runs<span class="k2">sub-33 ses-02</span></div>
+   <div class="pal-g">Saved lenses and commands</div><div class="pal-r"><i class="glyph g-saved"></i>Flagged second sessions<span class="k2">lens</span></div><div class="pal-r">Exclude sub-33 ses-02…<span class="k2">X</span></div><div class="pal-r">Go to Images<span class="k2">2</span></div>
+   <div style="height:8px"></div></div></div>`;
+  return shell({left: filesPanel(), center: coverageCenter({dock:false}), right: inspector(), cols: COLS3, overlay: pal});
+}
+
+function renderExclude() {
+  const dlg = `<div class="overlay"><div class="dlg" role="dialog" aria-label="Exclude run"><div style="padding:14px 16px 10px;display:flex;flex-direction:column;gap:12px">
+   <h3>Exclude sub-33 ses-02 task-nback run-1</h3>
+   <div class="radio"><span class="on">This run</span><span>All 5 runs in ses-02</span><span>sub-33, both sessions</span></div>
+   <div class="field"><label for="ex-reason">Reason</label><div class="box focus" id="ex-reason">Mean FD ${SEL_FD.toFixed(2)} mm, over the ${FD_THR} mm threshold</div></div>
+   <div class="field">Row written to <span class="mono">derivatives/brainflow/exclusions.tsv</span>
+<pre class="file">entity	reason	criterion	value	author	date	source
+sub-33_ses-02_task-nback_run-1_bold	Mean FD ${SEL_FD.toFixed(2)} mm, over the ${FD_THR} mm threshold	fd_mean&gt;${FD_THR}	${SEL_FD.toFixed(2)}	B. Buchsbaum	2026-11-01	fmriprep 24.1.1 confounds</pre></div>
+   <div class="field">First exclusion also creates <span class="mono">derivatives/brainflow/dataset_description.json</span>
+<pre class="file">{ "Name": "Brainflow exclusions", "BIDSVersion": "1.9.0", "DatasetType": "derivative",
+  "GeneratedBy": [{ "Name": "Brainflow", "Version": "0.9.0" }],
+  "SourceDatasets": [{ "URL": "file:../..", "Version": "1.2.0" }] }</pre></div>
+   <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center"><span class="faint" style="font-size:11px;margin-right:auto">Nothing in the raw dataset changes. Revert any time from Findings.</span><span class="btn">Cancel</span><span class="btn primary">Exclude ↵</span></div></div></div></div>`;
+  return shell({left: findingsPanel(null), center: coverageCenter({lens:false, dock:false}), right: inspector(), cols: COLS3, overlay: dlg})
+    + `<div style="height:16px"></div>` + shell({left: findingsPanel(null, {excludedNew:true}), center: coverageCenter({lens:false, dock:false}), right: inspector(), cols: COLS3,
+      overlay: `<div class="toast"><span>Excluded sub-33 ses-02 nback run-1. 1 row written.</span><span class="btn">Undo <span class="kbd">⌘Z</span></span></div>`});
+}
+
+function renderScale() {
+  const R2 = mulberry(77), NS = 400, done = 212;
+  const series = ['T1w','T2w','FLAIR','nback 1','nback 2','mid 1','mid 2','sst 1','sst 2','rest 1','rest 2','dwi','fmap','asl'];
+  const sessions = ['01','02','03'];
+  const CW = 15, GAP = 10, LX = 70, TOP = 52, RH = 2, FOC = 16, sel = 167;
+  const colX = (si, k) => LX + si*(series.length*CW + GAP) + k*CW;
+  const W = colX(2, series.length) + 170;
+  const rows = []; let y = TOP;
+  for (let i = 0; i < NS; i++) { const d = Math.abs(i - sel); const h = d === 0 ? FOC : d <= 3 ? 10 : d <= 6 ? 5 : RH; rows.push({i, y, h}); y += h + (h > RH ? 1 : 0.6); }
+  const H = y + 10;
+  let o = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="IBM Plex Sans">`;
+  sessions.forEach((ses, si) => { o += `<text x="${colX(si,0)}" y="12" font-size="11" fill="var(--bf-text-secondary)" font-family="IBM Plex Mono">ses-${ses}</text><line x1="${colX(si,0)}" x2="${colX(si,series.length)-2}" y1="17" y2="17" stroke="var(--bf-border)"/>`;
+    series.forEach((t,k) => { if (k%2===0) o += `<text x="${colX(si,k)+CW/2}" y="${TOP-8}" font-size="9" fill="var(--bf-text-faint)" text-anchor="end" transform="rotate(-45 ${colX(si,k)+CW/2} ${TOP-8})">${t}</text>`; }); });
+  for (const r of rows) {
+    const scanned = r.i < done;
+    if (r.i === sel) o += `<rect x="0" y="${r.y}" width="${W}" height="${r.h}" fill="var(--bf-bg-selected)"/><rect x="0" y="${r.y}" width="2" height="${r.h}" fill="var(--bf-accent)"/>`;
+    if (r.h >= 10) o += `<text x="6" y="${r.y + r.h/2 + 3.5}" font-size="${r.h>=16?11:9}" fill="${r.i===sel?'var(--bf-text-primary)':'var(--bf-text-muted)'}" font-family="IBM Plex Mono">sub-${String(r.i+1).padStart(3,'0')}</text>`;
+    sessions.forEach((ses, si) => series.forEach((t,k) => {
+      const x = colX(si,k); if (!scanned) { if (r.i === done) o += `<rect x="${x+1}" y="${r.y}" width="${CW-2}" height="${r.h}" fill="var(--bf-border-subtle)"/>`; return; }
+      const u = R2(); const missing = (si===2 && (r.i%7===0 || u<0.12)) || u < 0.015 || (k===13 && si>0);
+      if (missing) return;
+      const st = u > 0.995 ? 'error' : u > 0.985 ? 'warning' : (si===1 && r.i > 280 && k>=3 && k<=10) ? 'variant' : u > 0.975 && k>=3 && k<=10 ? 'qc' : 'ok';
+      const fill = st==='error' ? 'var(--bf-danger)' : st==='warning' ? 'var(--bf-warning)' : st==='qc' ? 'var(--bf-text-primary)' : st==='variant' ? '#55585e' : '#3a3c41';
+      o += `<rect x="${x+1}" y="${r.y}" width="${CW-2}" height="${r.h}" fill="${fill}"/>`;
+    }));
+  }
+  o += `<text x="${colX(2,series.length)+12}" y="${rows[done].y+4}" font-size="10" fill="var(--bf-text-secondary)">reading sub-213…</text>`;
+  o += `<text x="${colX(2,series.length)+12}" y="${rows[sel].y+11}" font-size="10" fill="var(--bf-text-muted)">focus band follows selection</text>`;
+  const center = `<main style="display:flex;flex-direction:column;min-width:0;min-height:0">
+   <div class="sum"><p><b style="color:var(--bf-text-primary);font-weight:600">Adolescent cohort (example).</b> Reading… <span class="claim">${done} of ${NS} participants</span> so far, 3 sessions, 14 series. So far: <span class="claim">31 participants have no third session</span>, <span class="claim err">4 files fail validation</span>, <span class="claim warn">17 runs have content problems</span>, <span class="claim">119 second-session runs from sub-281 onward used a different protocol</span>. Counts update as files are read; nothing is final until the scan completes.</p></div>
+   <div class="prog"><i style="width:${done/NS*100}%"></i></div>
+   ${vbar('coverage', null).replace('Copy summary','Pause scan')}
+   <div class="scroll" style="flex:1;padding:10px 6px">${o}</svg>
+   <div class="src" style="padding:8px 6px 0">At 400 rows a cell is 2 px: one column per run, colour only for errors (red), content problems (orange), QC outliers (white); variants a lighter grey. Sparklines appear in the 16 px focus band. Rows not yet read are empty, never estimated.</div></div>
+   <div class="hint">${keyHints}</div></main>`;
+  const right = `<aside class="panel r"><div class="ph">Scan<span class="sp"></span><span class="mono faint" style="font-weight:400">41 s</span></div><div class="ins">
+   <div class="kv" style="grid-template-columns:auto 1fr"><span class="k">Read</span><span class="v">${done} of ${NS} participants</span><span class="k">Files</span><span class="v">14,860 of ~28,000</span><span class="k">Rate</span><span class="v">5.2 participants/s</span><span class="k">Source</span><span class="v">smb://lab-nas/bids · remote mount</span><span class="k">Cache</span><span class="v">sidecars and headers only; images read on open</span></div>
+   <div class="muted" style="font-size:11px">The matrix, Findings and summary are usable while reading. Opening a run does not wait for the scan.</div>
+   <div class="src">Rescans are incremental: only changed files are re-read, and the "since last scan" claim is computed from the stored index.</div></div></aside>`;
+  const g = (t, n, rows) => `<div class="fg"><span>${t}</span><span class="mono">${n}</span></div>` + rows.map(([gl, a, b]) => `<div class="fr"><i class="glyph ${gl}"></i><span>${a}<span class="e">${b}</span></span></div>`).join('');
+  const left = `<aside class="panel l"><div class="ptabs"><span>Files</span><span class="on">Findings <span class="mono faint">so far 41</span></span></div><div class="scroll find">
+    ${g('Errors', 4, [['g-err','Missing .bvec','sub-044 ses-01'],['g-err','IntendedFor points to a missing file','sub-102 ses-02'],['g-err','Invalid JSON sidecar','sub-150 ses-01'],['g-err','NIfTI header unreadable','sub-171 ses-02']])}
+    ${g('Content problems', 17, [['g-warn','Truncated runs','6 runs'],['g-warn','Events after scan end','4 runs'],['g-warn','SliceTiming missing','7 runs']])}
+    ${g('Acquisition variants', 2, [['g-var','Protocol change: TR 1.0 s · MB 4','47 participants so far · 119 runs'],['g-var','No ASL after ses-01','212 participants']])}
+    ${g('Quality', 18, [['g-qc','Mean FD over 0.25 mm','14 participant-sessions'],['g-qc','tSNR below 40','4 participant-sessions']])}
+    <div class="src" style="padding:12px">Groups grow as files are read. Order and counts settle when the scan completes.</div></div></aside>`;
+  const status = `<span><b>BIDS 1.8.0</b></span><span>reading ${done} of ${NS} participants · 14,860 files</span><span>Findings so far 41</span><span style="margin-left:auto">smb://lab-nas/bids · 41 s</span>`;
+  return shell({left, center, right, cols: COLS3, status});
+}
+
+document.getElementById('dir-coverage').innerHTML = renderCoverage();
+document.getElementById('dir-images').innerHTML = renderImages();
+document.getElementById('dir-palette').innerHTML = renderPalette();
+document.getElementById('dir-exclude').innerHTML = renderExclude();
+document.getElementById('dir-scale').innerHTML = renderScale();
+function route() {
+  const h = (location.hash || '#state-coverage').replace('#state-','');
+  const d = ['coverage','images','palette','exclude','scale'].includes(h) ? h : 'coverage';
+  document.querySelectorAll('.dir').forEach(el => el.classList.toggle('on', el.id === 'dir-' + d));
+  document.querySelectorAll('.switch a').forEach(a => a.setAttribute('aria-current', a.dataset.d === d ? 'true' : 'false'));
+}
+addEventListener('hashchange', route); route();
+</script>
+</body>
+</html>
