@@ -740,6 +740,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bf_segmentation"
+version = "0.1.0"
+dependencies = [
+ "label-store",
+ "nalgebra 0.32.6",
+ "neuro-types",
+ "nifti 0.16.0",
+ "serde",
+ "thiserror 1.0.69",
+ "ts-rs 10.1.0",
+]
+
+[[package]]
 name = "bids-rs"
 version = "0.1.0"
 source = "git+https://github.com/bbuchsbaum/bids-rs?rev=c7021c55da04bb1a6a2b3e6642266381174a0faa#c7021c55da04bb1a6a2b3e6642266381174a0faa"

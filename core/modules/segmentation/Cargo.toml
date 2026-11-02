@@ -1,0 +1,14 @@
+[package]
+name = "bf_segmentation"
+version = "0.1.0"
+edition = "2021"
+description = "Reference-grid segmentation sessions and manual rasterization. No Tauri or GPU."
+
+[dependencies]
+label-store = { path = "../../label_store" }
+neuro-types = { path = "../../neuro-types" }
+nalgebra = { workspace = true }
+nifti = { version = "0.16.0", features = ["nalgebra_affine"] }
+serde = { workspace = true }
+ts-rs = { workspace = true }
+thiserror = "1.0"
