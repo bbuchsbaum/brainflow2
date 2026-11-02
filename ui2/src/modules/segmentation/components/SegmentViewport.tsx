@@ -41,9 +41,9 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   // A 4D source is displayed from its session-owned frozen frame, never the shared time cursor.
   const referenceDisplayId = session?.info?.referenceDisplayVolumeId, secondaryDisplayId = session?.info?.secondaryDisplayVolumeId ?? null;
   const frameLayers = useMemo(() => [
-    referenceDisplayId && active && referenceDisplayId !== active.referenceVolumeId ? { volumeId: referenceDisplayId, title: `Segmentation reference · frame ${active.referenceFrame}` } : null,
-    secondaryDisplayId && active && secondaryDisplayId !== active.secondaryVolumeId ? { volumeId: secondaryDisplayId, title: `Segmentation secondary · frame ${active.secondaryFrame}` } : null,
-  ].filter((layer): layer is { volumeId: string; title: string } => layer !== null), [referenceDisplayId, secondaryDisplayId, active]);
+    referenceDisplayId && active && referenceDisplayId !== active.referenceVolumeId ? { volumeId: referenceDisplayId, displayLike: active.referenceVolumeId, title: `Segmentation reference · frame ${active.referenceFrame}` } : null,
+    secondaryDisplayId && active?.secondaryVolumeId && secondaryDisplayId !== active.secondaryVolumeId ? { volumeId: secondaryDisplayId, displayLike: active.secondaryVolumeId, title: `Segmentation secondary · frame ${active.secondaryFrame}` } : null,
+  ].filter((layer): layer is { volumeId: string; displayLike: string; title: string } => layer !== null), [referenceDisplayId, secondaryDisplayId, active]);
   const frameLayerKey = JSON.stringify(frameLayers);
   const maxLabel = Math.max(1, ...(active?.labels.map((row) => row.definition.id) ?? []));
   const stroke = useRef<Omit<SegmentationStroke, 'owner'> | null>(null);
@@ -81,7 +81,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
     const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent() && isLiveDocument(identity);
     setLayerReady(false);
     void (async () => {
-      for (const frame of JSON.parse(frameLayerKey) as { volumeId: string; title: string }[]) await ensureModuleImageLayer({ workspaceId, ...frame, isCurrent: current });
+      for (const frame of JSON.parse(frameLayerKey) as { volumeId: string; displayLike: string; title: string }[]) await ensureModuleImageLayer({ workspaceId, ...frame, isCurrent: current });
       await ensureModuleLabelLayer({ workspaceId, volumeId: labelVolumeId, kind: 'segmentation.editable-label', title: 'Segmentation labels', paletteId, maxLabel, isCurrent: current });
     })().then(() => { if (current()) setLayerReady(true); }).catch((error) => { if (current()) setDisplayError(text(error)); });
     return () => { disposed = true; };

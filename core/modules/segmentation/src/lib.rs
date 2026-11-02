@@ -9,8 +9,8 @@ use ts_rs::TS;
 mod export;
 mod raster;
 pub use export::{
-    dseg_tsv, resolve_destination, suggested_file_name, table_path, write_export, LabelExport,
-    SavedLabels,
+    dseg_tsv, resolve_destination, suggested_file_name, table_path, write_export, Destination,
+    LabelExport, SavedLabels,
 };
 pub use raster::{rasterize, RasterRequest, Tool};
 
@@ -164,6 +164,21 @@ struct LabelMeta {
     complete: bool,
 }
 
+/// Reduce a 4D source header to its spatial part: dim and pixdim beyond the
+/// third axis, temporal units, time offset and slice timing are cleared.
+fn spatial_header(header: &mut NiftiHeader) {
+    header.dim[0] = 3;
+    header.dim[4..].fill(1);
+    header.pixdim[4..].fill(1.0);
+    header.xyzt_units &= 0x07;
+    header.toffset = 0.0;
+    header.slice_code = 0;
+    header.slice_start = 0;
+    header.slice_end = 0;
+    header.slice_duration = 0.0;
+    header.dim_info &= 0x0f;
+}
+
 pub struct Session {
     id: String,
     setup: SessionSetup,
@@ -255,10 +270,7 @@ impl Session {
         frames: Option<u32>,
     ) -> Result<Self> {
         match (setup.reference_frame, frames) {
-            (Some(frame), Some(count)) if frame < count => {
-                header.dim[0] = 3;
-                header.dim[4..].fill(1);
-            }
+            (Some(frame), Some(count)) if frame < count => {}
             (Some(_), Some(count)) => {
                 return Err(Error::Invalid(format!(
                     "Reference frame is out of range: the image has {count} frame(s)"
@@ -275,6 +287,11 @@ impl Session {
                 ))
             }
             (None, _) => {}
+        }
+        // A 4D source (one chosen frame, or a single-frame series) exports as
+        // a 3D label volume: drop the temporal dimension and its metadata.
+        if header.dim[0] > 3 {
+            spatial_header(&mut header);
         }
         if setup.secondary_frame.is_some() && setup.secondary_volume_id.is_none() {
             return Err(invalid("A secondary frame needs a secondary contrast"));

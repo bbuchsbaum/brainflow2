@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 mod writer;
-pub use writer::{write_label_export, write_label_nifti, Companion};
+pub use writer::{write_label_export, write_label_nifti, Companion, Target};
 
 const EDGE: u32 = 16;
 const BRICK_LEN: usize = 16 * 16 * 16;
@@ -28,6 +28,8 @@ pub enum Error {
     Nifti(#[from] nifti::error::NiftiError),
     #[error("{0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Export(String),
 }
 pub type Result<T> = std::result::Result<T, Error>;
 

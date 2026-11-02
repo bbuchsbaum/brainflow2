@@ -19,14 +19,17 @@ export function SegmentationMode({ workspaceId }: { workspaceId: string }) {
   const referenceMetadata = useLayerMetadata(layer?.id ?? ''), secondaryMetadata = useLayerMetadata(loaded.find((candidate) => candidate.volumeId === secondaryId)?.id ?? '');
   const reviewed = useCallback((plane: ViewPlane | null) => { setReviewPlane(plane); setAligned(false); }, []);
   // A 4D image is traced on one explicit frame (zero based, as the time slider shows t).
-  const [frameChoice, setFrameChoice] = useState<Record<string, number>>({});
+  const [frameChoice, setFrameChoice] = useState<Record<string, string>>({});
   const frameInfo = (volumeId: string) => {
     const candidate = loaded.find((item) => item.volumeId === volumeId);
     const count = candidate?.volumeType === 'TimeSeries4D' ? candidate.timeSeriesInfo?.num_timepoints ?? 0 : 0;
-    return count > 0 ? { count, frame: Math.min(count - 1, frameChoice[volumeId] ?? candidate?.currentTimepoint ?? 0) } : null;
+    if (count <= 0) return null;
+    const raw = frameChoice[volumeId] ?? String(Math.min(count - 1, candidate?.currentTimepoint ?? 0));
+    const n = raw.trim() === '' ? NaN : Number(raw);
+    return { count, raw, frame: Number.isInteger(n) && n >= 0 && n < count ? n : null };
   };
   const referenceFrames = layer ? frameInfo(layer.volumeId) : null, secondaryFrames = secondaryId ? frameInfo(secondaryId) : null;
-  const chooseFrame = (volumeId: string, value: string) => { const n = Number(value); if (Number.isInteger(n) && n >= 0) { setFrameChoice((old) => ({ ...old, [volumeId]: n })); setAligned(false); } };
+  const chooseFrame = (volumeId: string, value: string) => { setFrameChoice((old) => ({ ...old, [volumeId]: value })); setAligned(false); };
   const previewFrame = referenceFrames?.frame ?? secondaryFrames?.frame ?? null;
   const previewMismatch = referenceFrames && secondaryFrames && referenceFrames.frame !== secondaryFrames.frame;
   useEffect(() => { if (activeWorkspaceId === workspaceId) void reconcileSegmentationSession(workspaceId); }, [workspaceId, activeWorkspaceId]);
@@ -40,6 +43,9 @@ export function SegmentationMode({ workspaceId }: { workspaceId: string }) {
       const table = parseSegmentationLabels(labels);
       if (!subject.trim() || !session.trim() || !rater.trim()) throw new Error('Subject, session and rater are required.');
       if (!reviewPlane) throw new Error('Wait for the reference preview before creating the session.');
+      for (const [role, frames] of [['reference', referenceFrames], ['secondary', secondaryFrames]] as const) {
+        if (frames && frames.frame === null) throw new Error(`Enter a ${role} frame from 0 to ${frames.count - 1}.`);
+      }
       let registration: SegmentationRegistration;
       if (secondaryId) {
         if (!aligned) throw new Error('Review both contrasts, then explicitly confirm their alignment.');
@@ -63,9 +69,9 @@ export function SegmentationMode({ workspaceId }: { workspaceId: string }) {
       </div>
       <Checkbox checked={blind} onCheckedChange={setBlind}>Blind rater</Checkbox>
       <label>Native normal axis<Select value={normalAxis} onValueChange={(value) => setNormalAxis(Number(value))} options={[{ value: '0', label: 'i (voxel axis 0)' }, { value: '1', label: 'j (voxel axis 1)' }, { value: '2', label: 'k (voxel axis 2)' }]} /></label>
-      {referenceFrames ? <label>Reference frame (t, 0–{referenceFrames.count - 1})<TextField type="number" mono required min={0} max={referenceFrames.count - 1} step={1} value={referenceFrames.frame} onChange={(e) => chooseFrame(layer.volumeId, e.target.value)} /></label> : null}
+      {referenceFrames ? <label>Reference frame (t, 0–{referenceFrames.count - 1})<TextField type="number" mono required min={0} max={referenceFrames.count - 1} step={1} value={referenceFrames.raw} invalid={referenceFrames.frame === null} onChange={(e) => chooseFrame(layer.volumeId, e.target.value)} /></label> : null}
       <label>Secondary contrast<Select value={secondaryId} onValueChange={(value) => { setSecondaryId(value); setAligned(false); }} options={[{ value: '', label: 'Continue without a secondary contrast' }, ...loaded.filter((candidate) => candidate.volumeId !== layer.volumeId && candidate.type !== 'label').map((candidate) => ({ value: candidate.volumeId, label: candidate.name }))]} /></label>
-      {secondaryFrames ? <label>Secondary frame (t, 0–{secondaryFrames.count - 1})<TextField type="number" mono required min={0} max={secondaryFrames.count - 1} step={1} value={secondaryFrames.frame} onChange={(e) => chooseFrame(secondaryId, e.target.value)} /></label> : null}
+      {secondaryFrames ? <label>Secondary frame (t, 0–{secondaryFrames.count - 1})<TextField type="number" mono required min={0} max={secondaryFrames.count - 1} step={1} value={secondaryFrames.raw} invalid={secondaryFrames.frame === null} onChange={(e) => chooseFrame(secondaryId, e.target.value)} /></label> : null}
       {referenceFrames || secondaryFrames ? <p className="text-bf-2xs text-bf-text-muted">A 4D image is traced on the chosen frame only. The session keeps a copy of that frame and records it in the saved label header.{previewMismatch ? ` The preview shows frame ${previewFrame} of both images.` : ''}</p> : null}
       {secondaryId ? <Checkbox checked={aligned} disabled={!reviewPlane} onCheckedChange={setAligned}>I reviewed the overlaid contrasts and confirm they align.</Checkbox> : <label>Continue without secondary because<TextArea required value={reason} onChange={(e) => setReason(e.target.value)} rows={2} /></label>}
       <LabelTableEditor value={labels} onChange={setLabels} />

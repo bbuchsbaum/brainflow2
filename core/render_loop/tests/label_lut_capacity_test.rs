@@ -81,6 +81,17 @@ async fn render_row(
     service
         .create_world_space_bind_groups()
         .expect("failed to create world-space bind groups");
+    render_row_with_current_bind_groups(service, id, colormap, mode, window).await
+}
+
+/// As `render_row`, without recreating bind groups (proves cached ones are current).
+async fn render_row_with_current_bind_groups(
+    service: &mut RenderLoopService,
+    id: &str,
+    colormap: u32,
+    mode: LayerMode,
+    window: (f32, f32),
+) -> Vec<[u8; 4]> {
     service.update_slice_feature_ubo(SliceFeatureUbo::default());
     let layer = LayerConfig::new(id.to_string())
         .with_opacity(1.0)
@@ -224,4 +235,140 @@ async fn malformed_palette_lengths_are_rejected() {
             "{bytes} bytes"
         );
     }
+}
+
+#[tokio::test]
+async fn the_lut_stays_one_row_until_a_palette_needs_more_and_grows_by_powers_of_two() {
+    let mut service = service().await;
+    assert_eq!(
+        service.texture_manager.colormap_rows(),
+        1,
+        "default LUT is one row"
+    );
+    let one_row: Vec<u8> = (0..COLORMAP_LUT_WIDTH)
+        .flat_map(|_| [9, 9, 9, 255])
+        .collect();
+    let small = service
+        .upsert_custom_colormap("small".to_string(), &one_row)
+        .unwrap();
+    assert_eq!(service.texture_manager.colormap_rows(), 1);
+    service
+        .register_volume_with_upload(
+            "u16-labels".to_string(),
+            &volume(|i| BANDS[i / 4]),
+            wgpu::TextureFormat::R32Float,
+        )
+        .expect("failed to register label volume");
+    let before = render_row(
+        &mut service,
+        "u16-labels",
+        small,
+        LayerMode::Label,
+        (0.0, 65535.0),
+    )
+    .await;
+    assert_eq!(before[8][..3], [9, 9, 9]);
+    // Label 4097 needs three rows: the LUT grows to four, keeping earlier slots.
+    let mut three_rows = vec![0u8; COLORMAP_ROW_BYTES * 3];
+    three_rows[4097 * 4..4097 * 4 + 4].copy_from_slice(&[0, 0, 255, 255]);
+    service
+        .upsert_custom_colormap("medium".to_string(), &three_rows)
+        .unwrap();
+    assert_eq!(service.texture_manager.colormap_rows(), 4);
+    service
+        .upsert_custom_colormap("large".to_string(), &tiled_palette())
+        .unwrap();
+    assert_eq!(service.texture_manager.colormap_rows(), COLORMAP_LUT_ROWS);
+
+    // The bind groups made before growth were rebuilt on the new view: the
+    // large palette renders through them, and "small" kept its colours.
+    let large = service
+        .upsert_custom_colormap("large".to_string(), &tiled_palette())
+        .unwrap();
+    let row = render_row_with_current_bind_groups(
+        &mut service,
+        "u16-labels",
+        large,
+        LayerMode::Label,
+        (0.0, 65535.0),
+    )
+    .await;
+    assert_eq!(
+        row[16 * 7 + 8][..3],
+        [255, 128, 0],
+        "label 65535 through rebuilt bind groups"
+    );
+    let row = render_row_with_current_bind_groups(
+        &mut service,
+        "u16-labels",
+        small,
+        LayerMode::Label,
+        (0.0, 65535.0),
+    )
+    .await;
+    assert_eq!(
+        row[8][..3],
+        [9, 9, 9],
+        "a slot uploaded before growth keeps its colour"
+    );
+    assert_eq!(
+        row[16 * 4 + 8][..3],
+        [0, 0, 0],
+        "id 4097 is beyond the one-row palette"
+    );
+}
+
+#[tokio::test]
+async fn continuous_lookups_sample_row_zero_exactly_beside_a_contrasting_row() {
+    let mut service = service().await;
+    // Row 0 is a red ramp; row 1 is solid blue. Linear filtering that leaked
+    // across rows would add blue or lose red.
+    let mut lut = vec![0u8; COLORMAP_ROW_BYTES * 2];
+    for x in 0..COLORMAP_LUT_WIDTH as usize {
+        lut[x * 4..x * 4 + 4].copy_from_slice(&[(x / 8) as u8, 0, 0, 255]);
+        let at = COLORMAP_ROW_BYTES + x * 4;
+        lut[at..at + 4].copy_from_slice(&[0, 0, 255, 255]);
+    }
+    let two_rows = service
+        .upsert_custom_colormap("two-rows".to_string(), &lut)
+        .unwrap();
+    assert_eq!(service.texture_manager.colormap_rows(), 2);
+    let red: Vec<u8> = (0..COLORMAP_LUT_WIDTH)
+        .flat_map(|x| [(x / 8) as u8, 0, 0, 255])
+        .collect();
+    let one_row = service
+        .upsert_custom_colormap("one-row".to_string(), &red)
+        .unwrap();
+    service
+        .register_volume_with_upload(
+            "ramp".to_string(),
+            &volume(|i| i as f32),
+            wgpu::TextureFormat::R32Float,
+        )
+        .expect("failed to register scalar volume");
+    let tall = render_row(
+        &mut service,
+        "ramp",
+        two_rows,
+        LayerMode::Scalar,
+        (0.0, 31.0),
+    )
+    .await;
+    let flat = render_row(
+        &mut service,
+        "ramp",
+        one_row,
+        LayerMode::Scalar,
+        (0.0, 31.0),
+    )
+    .await;
+    for x in (4..128).step_by(8) {
+        assert_eq!(tall[x][2], 0, "column {x}: no blue from row 1");
+        assert_eq!(
+            tall[x][..3],
+            flat[x][..3],
+            "column {x}: identical to a padded one-row palette"
+        );
+    }
+    assert!(tall[124][0] > 200, "the ramp reaches the top of row 0");
 }

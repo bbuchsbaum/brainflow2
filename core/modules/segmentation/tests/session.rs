@@ -400,7 +400,8 @@ fn export_copies_the_accepted_revision_with_a_bids_table_and_refuses_stale_owner
     let directory = tempfile::tempdir().unwrap();
     let picked = directory.path().join("labels");
     let target = resolve_destination(&picked).unwrap();
-    assert_eq!(target, directory.path().join("labels.nii.gz"));
+    assert_eq!(target.label_path, directory.path().join("labels.nii.gz"));
+    assert!(!target.replace_label && !target.replace_table);
     let saved = write_export(&export, &target).unwrap();
     assert_eq!(saved.revision, 1);
     assert_eq!(
@@ -411,7 +412,9 @@ fn export_copies_the_accepted_revision_with_a_bids_table_and_refuses_stale_owner
         std::fs::read_to_string(&saved.table_path).unwrap(),
         export.table
     );
-    let object = nifti::ReaderOptions::new().read_file(&target).unwrap();
+    let object = nifti::ReaderOptions::new()
+        .read_file(&target.label_path)
+        .unwrap();
     use nifti::{NiftiObject, RandomAccessNiftiVolume};
     assert_eq!(object.header().intent_code, 1002);
     assert_eq!(object.volume().get_u16(&[2, 1, 3]).unwrap(), 1);
@@ -419,11 +422,30 @@ fn export_copies_the_accepted_revision_with_a_bids_table_and_refuses_stale_owner
     // Appending the extension never silently replaces an existing file.
     assert!(resolve_destination(&picked).is_err());
     // A confirmed path may be replaced; its table travels with it.
-    assert_eq!(resolve_destination(&target).unwrap(), target);
+    let confirmed = resolve_destination(&target.label_path).unwrap();
+    assert!(confirmed.replace_label && confirmed.replace_table);
+    write_export(&export2, &confirmed).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&saved.table_path).unwrap(),
+        export2.table
+    );
+    // A name without a NIfTI suffix gets .nii.gz appended.
+    assert_eq!(
+        resolve_destination(&directory.path().join("sub-01.final"))
+            .unwrap()
+            .label_path,
+        directory.path().join("sub-01.final.nii.gz")
+    );
+    assert_eq!(
+        resolve_destination(&directory.path().join("labels.img"))
+            .unwrap()
+            .label_path,
+        directory.path().join("labels.img.nii.gz")
+    );
     // A table without its label volume belongs to something else.
     std::fs::write(directory.path().join("other.tsv"), "keep").unwrap();
     assert!(resolve_destination(&directory.path().join("other.nii.gz")).is_err());
-    for bad in ["labels.img", "labels.NII.GZ", "labels.nii.bak", "labels.gz"] {
+    for bad in ["labels.NII.GZ", "labels.nii.bak", "labels.gz", "labels.Nii"] {
         assert!(
             resolve_destination(&directory.path().join(bad)).is_err(),
             "{bad}"
@@ -437,6 +459,12 @@ fn a_chosen_frame_of_a_4d_reference_is_explicit_in_the_session_and_export_header
     let mut header = header();
     header.dim = [4, 5, 3, 7, 6, 1, 1, 1];
     header.pixdim = [1.0, 0.4, 1.6, 0.4, 2.5, 1.0, 1.0, 1.0];
+    header.xyzt_units = 2 | 8; // mm, seconds
+    header.toffset = 1.5;
+    header.slice_code = 1;
+    header.slice_end = 6;
+    header.slice_duration = 0.4;
+    header.dim_info = 0b11_10_01;
     header.sform_code = 2;
     header.srow_x = [0.4, 0.0, 0.0, 10.0];
     let mut input = setup();
@@ -467,6 +495,19 @@ fn a_chosen_frame_of_a_4d_reference_is_explicit_in_the_session_and_export_header
         [3, 5, 3, 7, 1, 1, 1, 1],
         "the export grid is the 3D frame"
     );
+    assert_eq!(s.header().pixdim, [1.0, 0.4, 1.6, 0.4, 1.0, 1.0, 1.0, 1.0]);
+    assert_eq!(
+        s.header().xyzt_units,
+        2,
+        "spatial units kept, temporal units cleared"
+    );
+    assert_eq!((s.header().toffset, s.header().slice_duration), (0.0, 0.0));
+    assert_eq!((s.header().slice_code, s.header().slice_end), (0, 0));
+    assert_eq!(
+        s.header().dim_info,
+        0b10_01,
+        "frequency/phase kept, slice axis cleared"
+    );
     assert_eq!(s.header().srow_x, [0.4, 0.0, 0.0, 10.0]);
     s.stroke(&stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.41, Tool::Brush))
         .unwrap();
@@ -477,7 +518,8 @@ fn a_chosen_frame_of_a_4d_reference_is_explicit_in_the_session_and_export_header
         "Brainflow segmentation r1; ref frame 3; sec frame 1 (0-based)"
     );
     let directory = tempfile::tempdir().unwrap();
-    let saved = write_export(&export, &directory.path().join("framed_dseg.nii.gz")).unwrap();
+    let destination = resolve_destination(&directory.path().join("framed_dseg.nii.gz")).unwrap();
+    let saved = write_export(&export, &destination).unwrap();
     use nifti::NiftiObject;
     let written = nifti::ReaderOptions::new()
         .read_file(&saved.label_path)
@@ -509,5 +551,23 @@ fn a_chosen_frame_of_a_4d_reference_is_explicit_in_the_session_and_export_header
     .is_ok());
     assert!(
         Session::create_on_derived_grid("d".into(), framed3d, [5, 3, 7], affine(), None).is_err()
+    );
+}
+
+#[test]
+fn a_single_frame_4d_header_exports_as_3d_without_choosing_a_frame() {
+    let mut header = header();
+    header.dim = [4, 5, 3, 7, 1, 1, 1, 1];
+    header.pixdim[4] = 2.0;
+    header.xyzt_units = 2 | 8;
+    let mut s = Session::create("single".into(), setup(), affine(), header).unwrap();
+    assert_eq!(s.snapshot().reference_frame, None);
+    s.stroke(&stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.41, Tool::Brush))
+        .unwrap();
+    let export = s.export(&owner(&s)).unwrap();
+    assert_eq!(export.header.dim, [3, 5, 3, 7, 1, 1, 1, 1]);
+    assert_eq!(
+        (export.header.pixdim[4], export.header.xyzt_units),
+        (1.0, 2)
     );
 }

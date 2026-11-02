@@ -40,7 +40,9 @@ Label tracing on a fixed reference grid. The native domain is
   (`referenceFrame`/`secondaryFrame`, default: the layer's current t); native
   copies it into a session-owned 3D volume (`referenceDisplayVolumeId`), which
   the viewport attaches as a hidden ordinary layer, so the shared time cursor
-  never changes the traced image. The setup preview renders one `timepoint` for
+  never changes the traced image. `adopt` adds the frame ids to the document's
+  protected volumes; `forgetSegmentationSession` removes their layers after
+  disposal, which unloads them. The setup preview renders one `timepoint` for
   both images. Storage, export and display support every
   u16 label id (1–65535); the palette is the tiled categorical LUT.
   Per-label native-slice count metadata is capped at two million counts; large

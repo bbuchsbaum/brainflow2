@@ -43,18 +43,32 @@ export async function ensureModuleLabelLayer(options: {
 }
 
 /** Attach an already registered image volume (for example a module-owned
- * frozen frame of a 4D series) as an ordinary, initially hidden layer. */
+ * frozen frame of a 4D series) as an ordinary, initially hidden layer. When
+ * `displayLike` names a layer's volume, the new layer copies its window,
+ * threshold, colormap and interpolation once. */
 export async function ensureModuleImageLayer(options: {
-  workspaceId: string; volumeId: string; title: string; isCurrent(): boolean;
+  workspaceId: string; volumeId: string; title: string; displayLike?: string; isCurrent(): boolean;
 }): Promise<void> {
   if (!options.isCurrent()) return;
-  if (!useLayerStore.getState().getLayer(options.volumeId)) {
+  const added = !useLayerStore.getState().getLayer(options.volumeId);
+  if (added) {
     await getLayerService().addLayer({
       volumeId: options.volumeId, name: options.title, type: 'anatomical', visible: false, order: 0,
     }, { workspaceId: options.workspaceId, isCurrent: options.isCurrent, autoSelect: () => false });
   }
   if (!options.isCurrent()) return;
   await ensureModuleVolumeResident(options.workspaceId, options.volumeId, options.isCurrent);
+  if (!added || !options.displayLike || !options.isCurrent()) return;
+  const like = options.displayLike;
+  const view = useViewStateStore.getState().workspaceViewStates.get(options.workspaceId);
+  const source = view?.layers.find((item) => item.volumeId === like);
+  if (!source || !view?.layers.some((item) => item.volumeId === options.volumeId)) return;
+  useViewStateStore.getState().setViewState((next) => {
+    const layer = next.layers.find((item) => item.volumeId === options.volumeId);
+    if (!layer) return;
+    layer.intensity = [...source.intensity]; layer.threshold = [...source.threshold];
+    layer.colormap = source.colormap; layer.colormapId = source.colormapId; layer.interpolation = source.interpolation;
+  }, options.workspaceId);
 }
 
 /** Render a supplied world plane from this workspace's selected volume layers.

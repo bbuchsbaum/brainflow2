@@ -2199,10 +2199,10 @@
           "markdownDescription": "Enables every command of the analysis module.\n#### This permission set includes:\n\n- `allow-list-analyses`\n- `allow-start-analysis`\n- `allow-cancel-analysis`\n- `allow-get-analysis-job-status`"
         },
         {
-          "description": "Enables every command of the segmentation module.\n#### This permission set includes:\n\n- `allow-segmentation-create-session`\n- `allow-segmentation-get-session`\n- `allow-segmentation-preview-stroke`\n- `allow-segmentation-commit-stroke`\n- `allow-segmentation-undo`\n- `allow-segmentation-set-label-state`\n- `allow-segmentation-get-slice`",
+          "description": "Enables every command of the segmentation module.\n#### This permission set includes:\n\n- `allow-segmentation-create-session`\n- `allow-segmentation-get-session`\n- `allow-segmentation-preview-stroke`\n- `allow-segmentation-commit-stroke`\n- `allow-segmentation-undo`\n- `allow-segmentation-set-label-state`\n- `allow-segmentation-get-slice`\n- `allow-segmentation-save-labels`",
           "type": "string",
           "const": "api-bridge:module-segmentation",
-          "markdownDescription": "Enables every command of the segmentation module.\n#### This permission set includes:\n\n- `allow-segmentation-create-session`\n- `allow-segmentation-get-session`\n- `allow-segmentation-preview-stroke`\n- `allow-segmentation-commit-stroke`\n- `allow-segmentation-undo`\n- `allow-segmentation-set-label-state`\n- `allow-segmentation-get-slice`"
+          "markdownDescription": "Enables every command of the segmentation module.\n#### This permission set includes:\n\n- `allow-segmentation-create-session`\n- `allow-segmentation-get-session`\n- `allow-segmentation-preview-stroke`\n- `allow-segmentation-commit-stroke`\n- `allow-segmentation-undo`\n- `allow-segmentation-set-label-state`\n- `allow-segmentation-get-slice`\n- `allow-segmentation-save-labels`"
         },
         {
           "description": "Enables the add_render_layer command without any pre-configured scope.",
@@ -2911,6 +2911,12 @@
           "type": "string",
           "const": "api-bridge:allow-segmentation-preview-stroke",
           "markdownDescription": "Enables the segmentation_preview_stroke command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the segmentation_save_labels command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-segmentation-save-labels",
+          "markdownDescription": "Enables the segmentation_save_labels command without any pre-configured scope."
         },
         {
           "description": "Enables the segmentation_set_label_state command without any pre-configured scope.",
@@ -3793,6 +3799,12 @@
           "type": "string",
           "const": "api-bridge:deny-segmentation-preview-stroke",
           "markdownDescription": "Denies the segmentation_preview_stroke command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the segmentation_save_labels command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-segmentation-save-labels",
+          "markdownDescription": "Denies the segmentation_save_labels command without any pre-configured scope."
         },
         {
           "description": "Denies the segmentation_set_label_state command without any pre-configured scope.",

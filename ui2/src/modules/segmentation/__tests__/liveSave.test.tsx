@@ -29,10 +29,12 @@ import {
   ensureSegmentationSession,
   forgetSegmentationSession,
   saveSegmentationLabels,
+  commitSegmentationStroke,
+  travelSegmentationHistory,
   type SegmentationRecord,
 } from '@/modules/segmentation/session';
 import { SegmentationInspector } from '@/modules/segmentation/components/SegmentationInspector';
-import { document, info, setup } from './liveFixtures';
+import { document, info, setup, stroke } from './liveFixtures';
 
 const saved = (revision: number) => ({
   sessionId: 'synthetic-session',
@@ -85,8 +87,11 @@ describe('saving live segmentation labels', () => {
     );
     const saving = saveSegmentationLabels(document.workspaceId);
     expect(record.snapshot.busy).toBe(true);
+    // A stroke, an undo and a second save are all refused while the dialog is open.
+    expect(await commitSegmentationStroke(document.workspaceId, stroke)).toBeNull();
+    expect(await travelSegmentationHistory(document.workspaceId)).toBeNull();
     expect(await saveSegmentationLabels(document.workspaceId)).toBeNull();
-    expect(host.invoke).toHaveBeenCalledTimes(1);
+    expect(host.invoke.mock.calls.map(([command]) => command)).toEqual(['segmentation_save_labels']);
     finish(null);
     expect(await saving).toBeNull();
     expect(record.snapshot).toMatchObject({ busy: false, lastSave: null, error: null });
@@ -111,6 +116,16 @@ describe('saving live segmentation labels', () => {
     expect(record.snapshot.error).toBe(
       'Labels cannot be saved while this workspace is closing. Cancel closing to save.',
     );
+    expect(record.snapshot.info?.snapshot.revision).toBe(1);
+  });
+
+  it('saves only the displayed revision, never a newer reply that was not displayed', async () => {
+    // The controller accepted revision 1; the tab still shows revision 0.
+    act(() => { record.snapshot = { ...record.snapshot, info: info(0) }; });
+    host.invoke.mockResolvedValueOnce(info(1));
+    expect(await saveSegmentationLabels(document.workspaceId)).toBeNull();
+    expect(host.invoke.mock.calls.map(([command]) => command)).toEqual(['segmentation_get_session']);
+    expect(record.snapshot.error).toBe('The labels changed since they were displayed. Review them and save again.');
     expect(record.snapshot.info?.snapshot.revision).toBe(1);
   });
 

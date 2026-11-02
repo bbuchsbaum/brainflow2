@@ -1,6 +1,6 @@
 //! Save the accepted label document as NIfTI plus its BIDS dseg.tsv table.
 use crate::{invalid, Error, LabelDefinition, Operation, Result, Session};
-use label_store::{write_label_export, Companion};
+use label_store::{write_label_export, Companion, Target};
 use nifti::NiftiHeader;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -100,10 +100,23 @@ pub fn table_path(label_path: &Path) -> Result<PathBuf> {
     Ok(label_path.with_file_name(format!("{stem}.tsv")))
 }
 
+/// Where a save writes, and which existing files it may replace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Destination {
+    pub label_path: PathBuf,
+    pub table_path: PathBuf,
+    /// The dialog confirmed replacing this existing label volume.
+    pub replace_label: bool,
+    /// An existing table beside a confirmed label volume belongs to it.
+    pub replace_table: bool,
+}
+
 /// Resolve the path picked in a save dialog. The dialog confirmed replacing
-/// `picked` only; when `.nii.gz` has to be appended, an existing file is
-/// refused. A table is never replaced unless its label volume is.
-pub fn resolve_destination(picked: &Path) -> Result<PathBuf> {
+/// `picked` only; when `.nii.gz` has to be appended (any name without a NIfTI
+/// suffix, e.g. `sub-01.final`), an existing file is refused. A table is never
+/// replaced unless its label volume is. Files that may not be replaced are
+/// created without clobbering at the moment of writing.
+pub fn resolve_destination(picked: &Path) -> Result<Destination> {
     if !picked.is_absolute() {
         return Err(invalid("Choose an absolute location for the labels"));
     }
@@ -112,31 +125,37 @@ pub fn resolve_destination(picked: &Path) -> Result<PathBuf> {
         .and_then(|n| n.to_str())
         .ok_or_else(|| invalid("Choose a file name for the labels"))?;
     let lower = name.to_ascii_lowercase();
-    let target = if lower.ends_with(".nii.gz") || lower.ends_with(".nii") {
-        if !(name.ends_with(".nii.gz") || name.ends_with(".nii")) {
-            return Err(invalid("Use a lowercase .nii.gz or .nii extension"));
-        }
-        picked.to_path_buf()
-    } else if Path::new(name).extension().is_some() {
-        return Err(invalid("Label files must end in .nii.gz or .nii"));
+    let exists = |path: &Path| path.symlink_metadata().is_ok();
+    let (label_path, replace_label) = if name.ends_with(".nii.gz") || name.ends_with(".nii") {
+        (picked.to_path_buf(), exists(picked))
+    } else if lower.ends_with(".nii") || lower.ends_with(".gz") || lower.contains(".nii.") {
+        return Err(invalid(
+            "Label files must end in a lowercase .nii.gz or .nii",
+        ));
     } else {
         let target = picked.with_file_name(format!("{name}.nii.gz"));
-        if target.symlink_metadata().is_ok() {
+        if exists(&target) {
             return Err(Error::Invalid(format!(
                 "{} already exists; choose it explicitly to replace it",
                 target.display()
             )));
         }
-        target
+        (target, false)
     };
-    let table = table_path(&target)?;
-    if table.symlink_metadata().is_ok() && target.symlink_metadata().is_err() {
+    let table_path = table_path(&label_path)?;
+    let replace_table = exists(&table_path);
+    if replace_table && !replace_label {
         return Err(Error::Invalid(format!(
             "{} already exists without its label volume; choose another name",
-            table.display()
+            table_path.display()
         )));
     }
-    Ok(target)
+    Ok(Destination {
+        label_path,
+        table_path,
+        replace_label,
+        replace_table,
+    })
 }
 
 impl Session {
@@ -190,15 +209,20 @@ impl Session {
 }
 
 /// Write a copied revision to an already resolved destination.
-pub fn write_export(export: &LabelExport, destination: &Path) -> Result<SavedLabels> {
-    let table = table_path(destination)?;
+pub fn write_export(export: &LabelExport, destination: &Destination) -> Result<SavedLabels> {
     write_label_export(
         export.dimensions,
         &export.labels,
         &export.header,
-        destination,
+        &Target {
+            path: destination.label_path.clone(),
+            replace: destination.replace_label,
+        },
         &[Companion {
-            path: table.clone(),
+            target: Target {
+                path: destination.table_path.clone(),
+                replace: destination.replace_table,
+            },
             bytes: export.table.as_bytes().to_vec(),
         }],
     )?;
@@ -206,7 +230,7 @@ pub fn write_export(export: &LabelExport, destination: &Path) -> Result<SavedLab
         session_id: export.session_id.clone(),
         revision: export.revision,
         label_revision: export.label_revision,
-        label_path: destination.to_string_lossy().into_owned(),
-        table_path: table.to_string_lossy().into_owned(),
+        label_path: destination.label_path.to_string_lossy().into_owned(),
+        table_path: destination.table_path.to_string_lossy().into_owned(),
     })
 }

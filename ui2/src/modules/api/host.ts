@@ -128,6 +128,13 @@ export async function openSurfaceFile(options: { path: string; displayName?: str
 }
 
 export const useLoadedVolumeLayers = () => useLayerStore((state) => state.layers);
+/** Remove module-created layers (for example a discarded document's frozen
+ * frames) through the ordinary layer lifecycle, which also unloads them. */
+export async function removeModuleLayers(volumeIds: readonly string[]): Promise<void> {
+  const { getLayerService } = await import('@/services/LayerService');
+  const layers = useLayerStore.getState().layers.filter((layer) => volumeIds.includes(layer.volumeId));
+  await Promise.all(layers.map((layer) => getLayerService().removeLayer(layer.id).catch((error: unknown) => console.error('Module layer cleanup failed:', error))));
+}
 export function getLoadedNativePlane(volumeId: string, normalAxis: number, sliceIndex: number, dimensions: [number, number]): Promise<ViewRectMm> {
   return getTransport().invoke('get_volume_native_plane', { volumeId, normalAxis, sliceIndex, dimensions, flips: [false, false] });
 }

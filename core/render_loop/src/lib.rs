@@ -836,6 +836,7 @@ impl RenderLoopService {
                 ),
             });
         }
+        self.ensure_colormap_rows(rows as u32)?;
 
         if let Some(&existing_id) = self.custom_colormaps.get(&key) {
             if self
@@ -1577,6 +1578,53 @@ impl RenderLoopService {
 
         self.ensure_slice_feature_bind_group();
 
+        Ok(())
+    }
+
+    /// Grow the shared colormap LUT to at least `rows` rows (only tiled label
+    /// palettes with ids above 2047 need more than one) and rebuild every
+    /// cached bind group that references the replaced view.
+    fn ensure_colormap_rows(&mut self, rows: u32) -> Result<(), RenderLoopError> {
+        let grown = self
+            .texture_manager
+            .ensure_colormap_rows(&self.device, &self.queue, rows)
+            .map_err(|details| RenderLoopError::Internal {
+                code: 6405,
+                details: details.to_owned(),
+            })?;
+        if !grown {
+            return Ok(());
+        }
+        self.rebuild_texture_bind_group()?;
+        if let (Some(manager), Some(layout), Some(colormap_view)) = (
+            self.smart_texture_manager.as_mut(),
+            self.texture_bind_group_layout.as_ref(),
+            self.texture_manager.colormap_view(),
+        ) {
+            if manager.bind_group().is_some() {
+                manager.create_bind_group(
+                    &self.device,
+                    layout,
+                    self.texture_manager.linear_sampler(),
+                    self.texture_manager.nearest_sampler(),
+                    colormap_view,
+                    self.texture_manager.colormap_sampler(),
+                )?;
+            }
+        }
+        if let (Some(layout), Some(_)) = (
+            self.texture_bind_group_layout.as_ref(),
+            self.texture_bind_group_id,
+        ) {
+            if self.multi_texture_manager.is_none() {
+                let id = self.texture_manager.create_bind_group(
+                    &self.device,
+                    layout,
+                    self.volume_atlas.view(),
+                );
+                self.texture_bind_group_id = Some(id);
+            }
+        }
         Ok(())
     }
 

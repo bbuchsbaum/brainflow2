@@ -120,7 +120,7 @@ fn refused_export_keeps_existing_file_and_cleans_temporary_files() {
 
 #[test]
 fn companions_are_staged_before_any_destination_is_replaced() {
-    use label_store::{write_label_export, Companion};
+    use label_store::{write_label_export, Companion, Target};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("sub-01_dseg.nii.gz");
     let table = directory.path().join("sub-01_dseg.tsv");
@@ -128,39 +128,68 @@ fn companions_are_staged_before_any_destination_is_replaced() {
     let mut values = vec![0u16; 24];
     values[5] = 3;
     let companion = |bytes: &[u8]| Companion {
-        path: table.clone(),
+        target: Target {
+            path: table.clone(),
+            replace: true,
+        },
         bytes: bytes.to_vec(),
     };
-    // A refused export (dimension mismatch) replaces neither file.
+    // The table is staged (written beside its destination) first; staging the
+    // label volume then fails because its folder is missing. Neither
+    // destination changes and the staged table is cleaned up.
+    let unreachable = Target {
+        path: directory.path().join("missing").join("labels.nii.gz"),
+        replace: true,
+    };
     assert!(write_label_export(
-        [3, 2, 3],
-        &values[..18],
+        [3, 2, 4],
+        &values,
         &reference(),
-        &path,
+        &unreachable,
         &[companion(b"new table")]
     )
     .is_err());
-    assert!(!path.exists());
     assert_eq!(std::fs::read(&table).unwrap(), b"old table");
+    let names: Vec<_> = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|p| p.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["sub-01_dseg.tsv"], "the staged table was removed");
+
+    let target = Target {
+        path: path.clone(),
+        replace: false,
+    };
     write_label_export(
         [3, 2, 4],
         &values,
         &reference(),
-        &path,
+        &target,
         &[companion(b"index\tname\n3\tC\n")],
     )
     .unwrap();
     assert_eq!(std::fs::read(&table).unwrap(), b"index\tname\n3\tC\n");
     let obj = ReaderOptions::new().read_file(&path).unwrap();
     assert_eq!(obj.volume().get_u16(&[2, 1, 0]).unwrap(), 3);
+    // A label volume that may not be replaced is never overwritten.
+    assert!(
+        write_label_export([3, 2, 4], &values, &reference(), &target, &[]).is_err(),
+        "no-clobber target"
+    );
     // A companion may not alias the label volume itself.
     assert!(write_label_export(
         [3, 2, 4],
         &values,
         &reference(),
-        &path,
-        &[Companion {
+        &Target {
             path: path.clone(),
+            replace: true
+        },
+        &[Companion {
+            target: Target {
+                path: path.clone(),
+                replace: true
+            },
             bytes: vec![]
         }]
     )

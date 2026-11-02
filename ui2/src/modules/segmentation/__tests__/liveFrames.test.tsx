@@ -5,6 +5,7 @@ const host = vi.hoisted(() => ({
   invoke: vi.fn(),
   render: vi.fn(),
   retain: vi.fn(),
+  remove: vi.fn(),
   layers: [] as Array<Record<string, unknown>>,
 }));
 vi.mock('@/modules/api/host', () => ({
@@ -24,6 +25,7 @@ vi.mock('@/modules/api/host', () => ({
   useLayerMetadata: () => ({
     voxelToWorld: Array.from({ length: 16 }, (_, i) => (i % 5 === 0 ? 1 : 0)),
   }),
+  removeModuleLayers: (...args: unknown[]) => host.remove(...args),
   retainDocument: (...args: unknown[]) => {
     host.retain(...args);
     return { workspaceId: 'synthetic-view', workspaceInstance: 'frames-owner' };
@@ -114,6 +116,32 @@ describe('4D sources choose one explicit frame', () => {
       }),
     });
     expect(host.retain.mock.calls[0][1]).toMatchObject({ protectedVolumeIds: ['series'] });
+    // The frozen frame the viewport will attach is protected like a source.
+    expect(host.retain.mock.calls.at(-1)?.[1]).toEqual({ moduleId: 'segmentation', protectedVolumeIds: ['segmentation_frame_x_reference'] });
+    // Discarding the document removes the frame's layer, which unloads it.
+    forgetSegmentationSession({ workspaceId: 'synthetic-view', workspaceInstance: 'frames-owner' });
+    expect(host.remove).toHaveBeenCalledWith(['segmentation_frame_x_reference']);
+  });
+
+  it('refuses an empty or out-of-range frame instead of using frame 0', async () => {
+    render(<SegmentationMode workspaceId="synthetic-view" />);
+    const frame = screen.getByLabelText('Reference frame (t, 0–5)') as HTMLInputElement;
+    await waitFor(() => expect(host.render).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'synthetic-01' } });
+    fireEvent.change(screen.getByLabelText('Session'), { target: { value: '01' } });
+    fireEvent.change(screen.getByLabelText('Rater'), { target: { value: 'rater-a' } });
+    for (const value of ['', '6', '1.5']) {
+      fireEvent.change(frame, { target: { value } });
+      expect(frame.value).toBe(value);
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Create segmentation' })).not.toBeDisabled());
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create segmentation' })); });
+      // Either the field's own constraint or setup validation stops the submit.
+      expect(frame).toHaveAttribute('aria-invalid', 'true');
+      const alert = screen.queryByRole('alert');
+      if (alert) expect(alert).toHaveTextContent('Enter a reference frame from 0 to 5.');
+      else expect(frame.checkValidity()).toBe(false);
+    }
+    expect(host.invoke).not.toHaveBeenCalled();
   });
 
   it('shows the traced frames in the Inspector', async () => {

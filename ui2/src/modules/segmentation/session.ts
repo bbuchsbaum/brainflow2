@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { SegmentationCommit, SegmentationOperation, SegmentationPaintOver, SegmentationPreview, SegmentationSavedLabels, SegmentationSessionInfo, SegmentationSessionSetup, SegmentationSlice, SegmentationStroke, SegmentationTool } from '@brainflow/api';
-import { bridgeClient, captureActiveWorkspace, formatModuleError, isLiveDocument, isDocumentEditingFrozen, type ActiveWorkspaceLease, type WorkspaceDocumentIdentity } from '@/modules/api/host';
+import { bridgeClient, captureActiveWorkspace, formatModuleError, isLiveDocument, isDocumentEditingFrozen, removeModuleLayers, retainDocument, type ActiveWorkspaceLease, type WorkspaceDocumentIdentity } from '@/modules/api/host';
 
 type StrokeInput = Omit<SegmentationStroke, 'owner'>;
 const client = bridgeClient('segmentation');
@@ -96,11 +96,15 @@ export class SegmentationSessionController {
   undo(redo = false) { return this.mutate('segmentation_undo', (owner) => ({ owner, redo })); }
   setLabelState(labelId: number, locked: boolean, complete: boolean) { return this.mutate('segmentation_set_label_state', (owner) => ({ owner, labelId, locked, complete })); }
   cancelPreview() { ++this.previews; }
-  /** Saves the displayed accepted revision; `null` means the dialog was cancelled. */
-  async save(): Promise<SegmentationSavedLabels | null> {
+  /** Saves exactly the revision the tab displays (`shown`); a newer accepted
+   * reply that has not been displayed yet is refused, not saved silently.
+   * `null` means the dialog was cancelled. */
+  async save(shown: SegmentationSessionInfo['snapshot'] | undefined): Promise<SegmentationSavedLabels | null> {
     if (isDocumentEditingFrozen(this.document.workspaceId)) throw new Error('Labels cannot be saved while this workspace is closing. Cancel closing to save.');
-    const lease = this.lease(), owner = this.operation();
-    if (!lease || !owner) throw new Error('Labels can be saved only from the active segmentation session.');
+    const lease = this.lease(), latest = this.operation();
+    if (!lease || !latest || !shown) throw new Error('Labels can be saved only from the active segmentation session.');
+    if (shown.sessionId !== latest.sessionId || shown.revision !== latest.baseRevision) throw new Error('The labels changed since they were displayed. Review them and save again.');
+    const owner: SegmentationOperation = { ...this.document, sessionId: shown.sessionId, baseRevision: shown.revision };
     return client.invoke<SegmentationSavedLabels | null>('segmentation_save_labels', { owner });
   }
 }
@@ -130,8 +134,22 @@ export function ensureSegmentationSession(_lease: ActiveWorkspaceLease, document
   }};
   records.set(document.workspaceId, record); update(record, {}); return record;
 }
+/** Session-owned frozen frames of 4D sources (display volumes that are not the sources). */
+export function segmentationFrameVolumeIds(info: SegmentationSessionInfo | null): string[] {
+  if (!info) return [];
+  return [
+    info.referenceDisplayVolumeId !== info.snapshot.referenceVolumeId ? info.referenceDisplayVolumeId : null,
+    info.secondaryDisplayVolumeId && info.secondaryDisplayVolumeId !== info.snapshot.secondaryVolumeId ? info.secondaryDisplayVolumeId : null,
+  ].filter((id): id is string => Boolean(id));
+}
 function adopt(record: SegmentationRecord, info: SegmentationSessionInfo, error: string | null): void {
   const labels = info.snapshot.labels;
+  // The viewport attaches frozen frames as layers; the document must keep
+  // them, so removing one is refused like removing a source image.
+  const frames = segmentationFrameVolumeIds(info);
+  if (frames.length && isLiveDocument(record.document)) {
+    try { retainDocument(record.document.workspaceId, { moduleId: 'segmentation', protectedVolumeIds: frames }); } catch { /* A closing workspace keeps its existing protection. */ }
+  }
   update(record, { info, error, activeLabelId: labels.some((row) => row.definition.id === record.snapshot.activeLabelId) ? record.snapshot.activeLabelId : labels[0].definition.id,
     sliceIndex: Math.min(record.snapshot.sliceIndex, info.snapshot.dimensions[info.snapshot.normalAxis] - 1) });
 }
@@ -181,7 +199,7 @@ export async function saveSegmentationLabels(workspaceId: string): Promise<Segme
   if (!record || record.snapshot.busy) return null;
   update(record, { busy: true, error: null });
   try {
-    const saved = await record.controller.save();
+    const saved = await record.controller.save(record.snapshot.info?.snapshot);
     if (saved) update(record, { lastSave: saved });
     return saved;
   } catch (error) {
@@ -200,6 +218,10 @@ export function setSegmentationPresentation(workspaceId: string, patch: Partial<
 export function forgetSegmentationSession(identity: WorkspaceDocumentIdentity): void {
   const record = records.get(identity.workspaceId);
   if (record?.document.workspaceInstance !== identity.workspaceInstance) return;
+  // Native disposal unpinned the frozen frames but keeps displayed ones
+  // loaded; removing their layers unloads them.
+  const frames = segmentationFrameVolumeIds(record.snapshot.info);
+  if (frames.length) void removeModuleLayers(frames);
   record.controller.cancelPreview(); records.delete(identity.workspaceId);
   listeners.get(identity.workspaceId)?.forEach((listener) => listener());
 }
