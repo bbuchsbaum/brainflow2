@@ -3,7 +3,7 @@
  * Ensures consistent behavior whether loading from file browser, templates, or other sources
  */
 
-import { placementOrder, planLayerPlacement, type PlacementMetadata } from './layerPlacement';
+import { layersOfView, placementOrder, planLayerPlacement, type PlacementMetadata } from './layerPlacement';
 import { toError } from '@/utils/formatTauriError';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService, type VolumeHandle } from './apiService';
@@ -575,7 +575,8 @@ export function applyStackedOverlayOpacity(layerId: string, workspaceId?: string
   const layerState = useLayerStore.getState();
   const layer = layerState.layers.find((l) => l.id === layerId);
   if (!layer) return;
-  const { opacity } = planLayerPlacement(layerState.layers, layer, (id) => layerState.getLayerMetadata(id));
+  const view = useViewStateStore.getState().workspaceViewStates?.get?.(workspaceId ?? useViewStateStore.getState().activeWorkspaceKey);
+  const { opacity } = planLayerPlacement(layersOfView(layerState.layers, view), layer, (id) => layerState.getLayerMetadata(id));
   if (opacity === undefined) return;
   let applied = false;
   useViewStateStore.getState().setViewState((state) => {

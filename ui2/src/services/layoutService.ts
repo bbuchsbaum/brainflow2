@@ -67,6 +67,9 @@ const getComponentState = (item: ComponentItem): LayoutComponentState => {
 
 const isComponentItem = (item: ContentItem): item is ComponentItem => item.type === 'component';
 
+/** Tooltip of the caret that opens the tabs a stack has no room for. */
+const TAB_DROPDOWN_LABEL = 'More tabs';
+
 /**
  * A layout `loadLayout` accepts. `saveLayout()` returns a *resolved* config
  * (numeric sizes, `resolved: true`, …) that `loadLayout` rejects ("value.trimStart
@@ -86,13 +89,14 @@ export function toLoadableLayoutConfig(
  * The default app shell: Files/Subjects on the left, the workspace tab stack in
  * the centre, the Inspector on the right. GoldenLayoutRoot boots from it and
  * Reset layout restores it. Header controls keep maximise + close and drop the
- * pop-out (separate-window, brittle in a desktop app) and the tab-dropdown caret.
+ * pop-out (separate-window, brittle in a desktop app). The tab-dropdown caret
+ * stays: it shows only when tabs overflow, and is then their only way in.
  */
 export function createDefaultLayoutConfig(): LayoutConfig {
   return {
     header: {
       popout: false,
-      tabDropdown: false,
+      tabDropdown: TAB_DROPDOWN_LABEL,
     },
     root: {
       type: 'row',
@@ -162,7 +166,12 @@ type SavedItem = {
  */
 function stripSurfaceViews(item: SavedItem): boolean {
   if (item.type === 'component') {
-    return item.componentType === 'surfaceView' || item.componentType === SURFACE_PLACEHOLDER_COMPONENT;
+    return (
+      item.componentType === 'surfaceView' ||
+      item.componentType === SURFACE_PLACEHOLDER_COMPONENT ||
+      // Workspace-scoped: the workspace adds it, a saved layout never does.
+      item.componentType === BIDS_FINDINGS_PANEL
+    );
   }
   if (!Array.isArray(item.content)) return false;
   const hadContent = item.content.length > 0;
@@ -208,9 +217,13 @@ export function findComponentItemsByType(
   return found;
 }
 
+/** Left-stack tab that exists only while the BIDS browser is in front. */
+export const BIDS_FINDINGS_PANEL = 'BidsFindingsPanel';
+
 export type SidebarPanelType =
   | 'FileBrowser'
   | 'StudioDesignPanel'
+  | typeof BIDS_FINDINGS_PANEL
   | 'Inspector'
   // Legacy aliases — preserved so existing focus calls still resolve. All
   // four redirect to the unified Inspector at the GoldenLayout registration
@@ -230,6 +243,14 @@ export interface LayoutService {
    * it to its home stack when it was closed. Never adds a duplicate.
    */
   showPanel(panelType: string): boolean;
+  /** Remove every tab of a side panel; the layout keeps the rest of its stack. */
+  removePanel(panelType: string): void;
+  setPanelTitle(panelType: string, title: string): void;
+  /**
+   * Tell the service which workspace-scoped panel belongs on screen. A layout
+   * reload drops it (it never persists), so it is added again afterwards.
+   */
+  setScopedPanel(panelType: string | null): void;
   focusSurfacePanel(): void;
   ensureSurfaceView(surfaceHandle: string, path?: string, options?: EnsureSurfaceViewOptions): void;
   closeSurfaceViewTabs(surfaceHandle: string): void;
@@ -250,6 +271,7 @@ export type LayoutApplyResult = 'applied' | 'reset' | 'failed';
 
 class LayoutServiceImpl implements LayoutService {
   private layoutRef: GoldenLayout | null = null;
+  private scopedPanel: string | null = null;
 
   private getRootRow(): ContentItem | null {
     const root = this.layoutRef?.rootItem;
@@ -291,6 +313,7 @@ class LayoutServiceImpl implements LayoutService {
     switch (panelType) {
       case 'FileBrowser':
       case 'StudioDesignPanel':
+      case BIDS_FINDINGS_PANEL:
         return this.getLeftSidebarStack();
       default:
         return this.getSidebarStack();
@@ -303,6 +326,8 @@ class LayoutServiceImpl implements LayoutService {
         return 'Files';
       case 'StudioDesignPanel':
         return 'Subjects';
+      case BIDS_FINDINGS_PANEL:
+        return 'Findings';
       case 'Inspector':
       // Legacy aliases all collapse to the single Inspector tab.
       case 'LayerPanel':
@@ -348,6 +373,8 @@ class LayoutServiceImpl implements LayoutService {
     // stack) or come back dead (its surface closed since it was saved).
     // The row's three columns stay in place (the centre must stay second).
     root.content.forEach((item) => stripSurfaceViews(item as SavedItem));
+    // Layouts saved before 2026-11-01 turned the caret off, and hid tabs with it.
+    cloned.header = { ...cloned.header, tabDropdown: TAB_DROPDOWN_LABEL };
 
     return cloned;
   }
@@ -513,6 +540,8 @@ class LayoutServiceImpl implements LayoutService {
       if (!fallback || !load(fallback)) return 'failed';
       result = 'reset';
     }
+    // Saved layouts never hold a workspace-scoped panel; the workspace still does.
+    if (this.scopedPanel) this.addScopedPanel(this.scopedPanel);
     // Every re-added tab comes to the front; none of that is the user
     // switching tabs, so the store's active workspace stays put.
     programmaticTabChange.run(() => {
@@ -691,6 +720,56 @@ class LayoutServiceImpl implements LayoutService {
 
   focusSidebarPanel(panelType: SidebarPanelType): void {
     this.showPanel(panelType);
+  }
+
+  removePanel(panelType: string): void {
+    const layout = this.layoutRef;
+    if (!layout) return;
+    for (const item of findComponentItemsByType(layout.rootItem, panelType)) {
+      try {
+        item.remove();
+      } catch (error) {
+        console.warn(`[LayoutService] Failed to remove ${panelType}:`, error);
+      }
+    }
+  }
+
+  setPanelTitle(panelType: string, title: string): void {
+    const layout = this.layoutRef;
+    if (!layout) return;
+    for (const item of findComponentItemsByType(layout.rootItem, panelType)) {
+      if (item.title !== title) item.setTitle(title);
+    }
+  }
+
+  setScopedPanel(panelType: string | null): void {
+    const previous = this.scopedPanel;
+    this.scopedPanel = panelType;
+    if (previous && previous !== panelType) this.removeScopedPanel(previous);
+    if (panelType) this.addScopedPanel(panelType);
+  }
+
+  /** Removes the tab; if it was in front, the stack returns to Files rather than its neighbour. */
+  private removeScopedPanel(panelType: string): void {
+    const layout = this.layoutRef;
+    if (!layout) return;
+    const stack = this.getStackForPanelType(panelType);
+    const front = stack?.getActiveComponentItem?.();
+    const wasFront = front ? findComponentItemsByType(layout.rootItem, panelType).includes(front) : false;
+    this.removePanel(panelType);
+    if (!wasFront) return;
+    const files = findComponentItemsByType(layout.rootItem, 'FileBrowser')[0];
+    if (stack && files) stack.setActiveComponentItem(files, true);
+  }
+
+  /** Adds the tab behind what the left stack shows: a workspace never takes Files away. */
+  private addScopedPanel(panelType: string): void {
+    const layout = this.layoutRef;
+    if (!layout || findComponentItemsByType(layout.rootItem, panelType).length > 0) return;
+    const stack = this.getStackForPanelType(panelType);
+    const front = stack?.getActiveComponentItem?.();
+    this.showPanel(panelType);
+    if (stack && front) stack.setActiveComponentItem(front, true);
   }
 
   showPanel(panelType: string): boolean {

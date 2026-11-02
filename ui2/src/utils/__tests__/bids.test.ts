@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseBidsFilename, formatBidsDisplayName } from '../bids';
+import { parseBidsFilename, formatBidsDisplayName, truncateBidsName } from '../bids';
 
 describe('parseBidsFilename', () => {
   it('parses a standard fMRI BOLD filename', () => {
@@ -86,5 +86,24 @@ describe('formatBidsDisplayName', () => {
     const parsed = parseBidsFilename('sub-01_space-MNI152NLin2009cAsym_desc-brain_mask.nii.gz')!;
     const name = formatBidsDisplayName(parsed);
     expect(name).toBe('Mask (sub-01, MNI152, brain)');
+  });
+});
+
+describe('truncateBidsName', () => {
+  it('leaves names that fit', () => {
+    expect(truncateBidsName('sub-01_T1w', 20)).toBe('sub-01_T1w');
+  });
+
+  it('shortens from the middle and keeps the run entity', () => {
+    const name = 'sub-033_ses-02_task-nback_acq-highres_run-12_bold';
+    const short = truncateBidsName(name, 24);
+    expect(short).toHaveLength(24);
+    expect(short.startsWith('sub-033')).toBe(true);
+    expect(short.endsWith('run-12_bold')).toBe(true);
+    expect(short).toContain('…');
+  });
+
+  it('keeps run- even when it does not leave room', () => {
+    expect(truncateBidsName('sub-01_task-a_run-1_bold', 8)).toBe('s…run-1_bold');
   });
 });

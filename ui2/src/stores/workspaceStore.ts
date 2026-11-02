@@ -19,6 +19,7 @@ import type {
 } from "@/types/workspace";
 import {
   getWorkspacePresetById,
+  type WorkspaceOriginId,
   type WorkspacePresetId,
 } from "@/types/workspacePresets";
 import { DISPLAY_MODES, type DisplayMode } from "@/types/displayModes";
@@ -44,7 +45,7 @@ import {
 
 interface CreateWorkspaceOptions {
   title?: string;
-  presetId?: WorkspacePresetId | null;
+  presetId?: WorkspaceOriginId | null;
   /** The app's own default view (cold start, or after the last tab closed). */
   defaultView?: boolean;
 }
@@ -66,7 +67,7 @@ interface WorkspaceStore {
     options?: CreateWorkspaceOptions,
   ) => Promise<string>;
   applyWorkspacePreset: (presetId: WorkspacePresetId) => Promise<string>;
-  getWorkspaceByPreset: (presetId: WorkspacePresetId) => Workspace | null;
+  getWorkspaceByPreset: (presetId: WorkspaceOriginId) => Workspace | null;
   activateWorkspace: (id: string) => void;
   /**
    * Reconfigure the *active* workspace's display mode in place (pills set the

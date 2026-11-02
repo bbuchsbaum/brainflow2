@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Button, Notice } from '@/components/ui/bf';
 import { getTransport } from '@/services/transport';
-import { useBidsStore } from '@/stores/bidsStore';
+import { lastBidsDataset, useBidsStore } from '@/stores/bidsStore';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { safeListen } from '@/utils/eventUtils';
 
 interface BidsDirectoryEvent {
@@ -11,7 +12,18 @@ interface BidsDirectoryEvent {
 export function BidsEmptyState() {
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
-  const scanDataset = useBidsStore((state) => state.scanDataset);
+  // The scan first, so mount detection finds the dataset already current; the
+  // mount follows, so Files shows the folder the browser is reading.
+  const openDataset = (path: string) => {
+    const scanned = useBidsStore.getState().scanDataset(path);
+    void useFileBrowserStore
+      .getState()
+      .mountDirectory(path)
+      .catch(() => undefined);
+    return scanned;
+  };
+  // A restored tab asks first: the dataset may be on a drive that is not connected.
+  const [last] = useState(lastBidsDataset);
 
   async function handleOpen() {
     if (opening) return;
@@ -26,7 +38,7 @@ export function BidsEmptyState() {
         await unlisten();
         setOpening(false);
         if (event.payload?.path) {
-          await scanDataset(event.payload.path);
+          await openDataset(event.payload.path);
         }
       });
 
@@ -67,9 +79,14 @@ export function BidsEmptyState() {
         )}
 
         {/* Primary CTA */}
-        <div style={{ marginTop: '24px' }}>
+        <div className="flex gap-2" style={{ marginTop: '24px' }}>
+          {last && (
+            <Button variant="primary" size="sm" onClick={() => void openDataset(last)}>
+              Reopen {last.split('/').filter(Boolean).pop()}
+            </Button>
+          )}
           <Button
-            variant="primary"
+            variant={last ? 'secondary' : 'primary'}
             size="sm"
             onClick={() => void handleOpen()}
             loading={opening}

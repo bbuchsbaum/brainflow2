@@ -22,6 +22,7 @@ import { getTimeNavigationService } from '@/services/TimeNavigationService';
 import { getTransport } from '@/services/transport';
 import { decodeText, isMissingFileError } from '@/services/LabelTableService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useTimeEventsStore } from '@/stores/timeEventsStore';
 import { activateRun, formRunGroup, restoreRunGroup } from '@/services/series/runVisibility';
 import { transformVoxelToWorldColumnMajor, transformWorldToVoxelColumnMajor } from '@/utils/voxelTransform';
 import { sphereVoxelCount } from '@/services/series/sphereVoxels';
@@ -60,7 +61,15 @@ import { FRAME_LEGEND_INSET, PlotFrameLegend } from './PlotFrameLegend';
 import { SeriesIssue } from './SeriesIssue';
 import { seriesIssueAction } from './seriesIssue.helpers';
 import { SeriesLocusControls } from './SeriesLocusControls';
-import { TIMESERIES_THROTTLE_MS, resolveTimeseriesVoxel } from './crosshairTimeSeriesPlot.helpers';
+import {
+  TIMESERIES_THROTTLE_MS,
+  eventBands,
+  eventLegend,
+  NON_STEADY_COLOR,
+  nonSteadyBands,
+  steadyValues,
+  resolveTimeseriesVoxel,
+} from './crosshairTimeSeriesPlot.helpers';
 import type { PlotModeContext } from './plotHost.types';
 
 /** Below this host height (the pinned time row) only the plot is drawn. */
@@ -354,6 +363,11 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
 
   // --- The plotted frame -------------------------------------------------------
   const currentTimepoint = layer?.currentTimepoint ?? 0;
+  const eventTrack = useTimeEventsStore((s) => (layerId ? (s.tracks[layerId] ?? null) : null));
+  // A startup volume far brighter than the rest flattens the whole series: it
+  // leaves the y scale and is marked instead (native test 5).
+  const nonSteady = eventTrack?.nonSteadyVolumes;
+  const eventTracks = useTimeEventsStore((s) => s.tracks);
   const plotted = useMemo(() => {
     if (!sample) return null;
     if (group) {
@@ -361,10 +375,10 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
         .map((segment, index) => ({
           segment,
           index,
-          values: (sample.values.get(segment.layerId) ?? []).slice(
-            segment.frameStart,
-            segment.frameStart + segment.frames,
-          ),
+          values: steadyValues(
+            sample.values.get(segment.layerId) ?? [],
+            eventTracks[segment.layerId]?.nonSteadyVolumes,
+          ).slice(segment.frameStart, segment.frameStart + segment.frames),
         }))
         .filter((s) => s.values.length > 0);
       if (!samples.length) return null;
@@ -385,7 +399,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       ],
       rows: values.map((v, i) => ({
         t: axis.at(i),
-        value: Number.isFinite(v) ? v : null,
+        value: Number.isFinite(v) && !nonSteady?.includes(i) ? v : null,
         [SEGMENT_FRAME_ID]: `0:${i}`,
       })),
     };
@@ -398,7 +412,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
       integer: axis.integer,
       segments: null,
     };
-  }, [sample, group, layout, layerId, axis]);
+  }, [sample, group, layout, layerId, axis, nonSteady, eventTracks]);
 
   const layerName = layer?.name;
   const member = datasetAxis?.member ?? null;
@@ -407,6 +421,25 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
     plotted?.segments && layout === 'overlaid'
       ? plotted.segments.map((s, i) => ({ label: s.label, color: segmentColor(i) }))
       : [];
+  // The run's events, on its own seconds axis (a concatenated axis is another clock).
+  const bandSeconds = plotted && !plotted.segments && axis.unit === 's';
+  const xBands = useMemo(
+    () => [
+      ...(eventTrack && bandSeconds ? eventBands(eventTrack.events) : []),
+      ...(plotted && !plotted.segments && nonSteady?.length ? nonSteadyBands(nonSteady, axis.at, axis.step ?? 1) : []),
+    ],
+    [eventTrack, bandSeconds, plotted, nonSteady, axis],
+  );
+  const bandLegend = useMemo(
+    () => [
+      ...(eventTrack && bandSeconds ? eventLegend(eventTrack.events) : []),
+      ...(plotted && !plotted.segments && nonSteady?.length
+        ? [{ label: 'non-steady-state, not in y scale', color: NON_STEADY_COLOR }]
+        : []),
+    ],
+    [eventTrack, bandSeconds, plotted, nonSteady],
+  );
+  const frameLegend = legend.length ? legend : bandLegend;
   const spec: ResolvedPlotSpec | null = plotted
     ? {
         mark: 'line',
@@ -425,7 +458,8 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
           xIntegerTicks: plotted.integer,
           xPadHalfStep: plotted.step,
           ...(plotted.rules.length ? { xRules: plotted.rules } : {}),
-          ...(legend.length ? { topInset: FRAME_LEGEND_INSET } : {}),
+          ...(xBands.length ? { xBands } : {}),
+          ...(frameLegend.length ? { topInset: FRAME_LEGEND_INSET } : {}),
           // Concatenated runs are one time sequence for the arrow keys (round 3 C2).
           ...(plotted.segments && layout === 'concatenated' ? { keysAcrossGroups: true } : {}),
           // Overlaid runs: a fixed, well-separated palette (round 3 C9).
@@ -768,7 +802,7 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: { ctx: PlotModeContext }) {
             />
           ) : null}
         </div>
-        <PlotFrameLegend entries={legend} label="Runs legend" />
+        <PlotFrameLegend entries={frameLegend} label={legend.length ? 'Runs legend' : 'Events legend'} filled={!legend.length} />
       </div>
       {full && plotted ? (
         <div className="flex shrink-0 items-start gap-2">

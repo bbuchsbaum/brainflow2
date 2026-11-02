@@ -6,6 +6,17 @@ export const formatSubjectId = (id: string): string =>
 export const formatSessionId = (id: string): string =>
   id.startsWith('ses-') ? id : `ses-${id}`;
 
+/**
+ * Shorten a BIDS name from the middle so its `run-` entity stays visible. The
+ * result can exceed `max` when the part from `run-` on is itself longer.
+ */
+export function truncateBidsName(name: string, max: number): string {
+  if (name.length <= max) return name;
+  const runAt = name.lastIndexOf('run-');
+  const tail = runAt >= 0 ? name.slice(runAt) : name.slice(-Math.ceil((max - 1) / 2));
+  return `${name.slice(0, Math.max(1, max - 1 - tail.length))}…${tail}`;
+}
+
 // ── BIDS filename parsing ───────────────────────────────────────
 
 /** Standard BIDS entity keys in display-priority order. */

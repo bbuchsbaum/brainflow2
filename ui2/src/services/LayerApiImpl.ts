@@ -7,6 +7,7 @@ import type { StatisticInfo } from '@brainflow/api';
 import type { LayerApi, LayerLoadContext } from './LayerService';
 import type { Layer, LayerRender } from '@/types/layers';
 import { getApiService } from './apiService';
+import { landingFrameOf } from './landingFrames';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
@@ -33,7 +34,7 @@ import { useInspectorSelectionStore, focusVolumeLayer } from '@/stores/inspector
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useSeriesStore } from '@/stores/seriesStore';
-import { categoricalTypeFromData, planLayerPlacement, placementOrder } from './layerPlacement';
+import { categoricalTypeFromData, layersOfView, planLayerPlacement, placementOrder } from './layerPlacement';
 import { releaseVolumeCaches } from './volumeCacheRelease';
 import { forgetPreservedDisplay, isLayerDisplayPreserved } from './restoredDisplay';
 import { GpuSlotsFullError } from '@/utils/formatTauriError';
@@ -57,8 +58,23 @@ function statisticOf(layer: object): StatisticInfo | undefined {
 /** Layers whose first paint used the statistic default (never refined). */
 const statisticFirstPaint = new Set<string>();
 
+/** What a refinement may replace: any change here means someone else took the window over. */
+const renderKeyOf = (item: ViewLayer | undefined) =>
+  item ? JSON.stringify([item.intensity, item.threshold, item.colormap, item.interpolation]) : '';
+
+function viewLayerIn(workspaceId: string | undefined, id: string): ViewLayer | undefined {
+  const state = useViewStateStore.getState();
+  const view = workspaceId === undefined ? state.viewState : state.workspaceViewStates.get(workspaceId);
+  return view?.layers.find((item) => item.id === id);
+}
+
 export class LayerApiImpl implements LayerApi {
   private apiService = getApiService();
+  /** Layers loaded hidden: refined when first made resident. */
+  private readonly unrefined = new Map<
+    string,
+    { options: IntensityRangeOptions; workspaceId?: string; render?: string }
+  >();
 
   private buildLayerMetadata(
     existingMetadata: Partial<VolumeMetadata>,
@@ -153,6 +169,21 @@ export class LayerApiImpl implements LayerApi {
       );
       useLayerStore.getState().setLayerMetadata(id, nextMetadata);
       getEventBus().emit('layer.gpu.ready', { layerId: id });
+      // Loaded hidden, so it was never windowed: it must not be shown on the
+      // legacy fallback for the rest of its life.
+      const deferred = this.unrefined.get(id);
+      if (deferred) {
+        this.unrefined.delete(id);
+        // A window set while it was hidden is the user's: it stands.
+        const untouched =
+          deferred.render === undefined ||
+          renderKeyOf(viewLayerIn(deferred.workspaceId, id)) === deferred.render;
+        if (untouched) {
+          this.refineIntensityFromHistogram(layer as Layer, deferred.options, deferred.workspaceId).catch((err) =>
+            console.warn(`[LayerApiImpl] Deferred intensity refinement failed for ${id}:`, err),
+          );
+        }
+      }
     } finally {
       layerEvictionService.releaseReservation(id);
     }
@@ -221,7 +252,9 @@ export class LayerApiImpl implements LayerApi {
         state.layers[existingIndex] = nextLayer;
         return;
       }
-      if (state.layers.length === 0 && context?.initialGeometry) {
+      // Nothing shown (an empty view, or only hidden layers): the new image
+      // sets the panes and the crosshair; none carries over.
+      if (!state.layers.some((item) => item.visible) && context?.initialGeometry) {
         state.views = context.initialGeometry.views;
         state.crosshair = context.initialGeometry.crosshair;
       }
@@ -347,7 +380,7 @@ export class LayerApiImpl implements LayerApi {
         );
         if (categorical) newLayer.type = categorical;
         placement = planLayerPlacement(
-          useLayerStore.getState().layers,
+          layersOfView(useLayerStore.getState().layers, useViewStateStore.getState().workspaceViewStates?.get?.(context?.workspaceId ?? workspaceId)),
           newLayer,
           (id) =>
             id === newLayer.id
@@ -488,12 +521,16 @@ export class LayerApiImpl implements LayerApi {
     // [perf] Refine the intensity window from the histogram in the background so
     // it never blocks the first paint. Fire-and-forget; on failure the layer
     // keeps the synchronous fallback range it was committed with.
-    if (
-      !metadataOnly &&
-      rangeOptions &&
-      !context?.memberRender?.[context.workspaceId] &&
-      !statisticFirstPaint.has(newLayer.id)
-    ) {
+    const refinable =
+      rangeOptions && !context?.memberRender?.[context.workspaceId] && !statisticFirstPaint.has(newLayer.id);
+    if (metadataOnly && refinable && rangeOptions) {
+      this.unrefined.set(newLayer.id, {
+        options: rangeOptions,
+        workspaceId: context?.workspaceId,
+        render: renderKeyOf(viewLayerIn(context?.workspaceId, newLayer.id)),
+      });
+    }
+    if (!metadataOnly && refinable && rangeOptions) {
       this.refineIntensityFromHistogram(newLayer, rangeOptions, context?.workspaceId).catch((err) =>
         console.warn(
           `[LayerApiImpl] Background intensity refinement failed for ${newLayer.id}:`,
@@ -579,15 +616,43 @@ export class LayerApiImpl implements LayerApi {
       const state = useViewStateStore.getState();
       return workspaceId === undefined ? state.viewState : state.workspaceViewStates.get(workspaceId);
     };
-    const initial = target()?.layers.find((item) => item.id === layer.id);
+    const initial = viewLayerIn(workspaceId, layer.id);
     if (!initial) return;
     // Only a change to the window, threshold, colour map or interpolation means the user (or
     // another refinement) took over; visibility toggles do not (native R2-1: a
     // run hidden by the Series view while its histogram ran kept its first-paint
     // window and never joined the pooled EPI window).
-    const renderKey = (item: typeof initial | undefined) =>
-      item ? JSON.stringify([item.intensity, item.threshold, item.colormap, item.interpolation]) : '';
-    const initialRender = renderKey(initial);
+    let initialRender = renderKeyOf(initial);
+    const fourD = isFourDIntensityLayer(layer as Parameters<typeof isFourDIntensityLayer>[0]);
+    // An all-frame scan of a long, large run (106 x 106 x 64 x 453 voxels) takes
+    // many seconds, and the first paint meanwhile is the 20–80% fallback, which
+    // an outlier maximum makes nearly black (BIDS browser native test, blocker
+    // 1). The displayed frame is cheap and close enough: show its window now,
+    // and let the all-frame window below replace it. If that scan fails, this
+    // window stays.
+    if (fourD && !statisticOf(layer)) {
+      try {
+        const frame = await this.landingFrameHistogram(layer);
+        if (isLayerDisplayPreserved(layer.id)) return;
+        if (!useLayerStore.getState().getLayer(layer.id) || renderKeyOf(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
+          return;
+        }
+        const quick = overlayDisplay(layer, computeAdaptiveIntensityRange(frame, rangeOptions), rangeOptions.dataRange, false, frame);
+        if (quick.suggestedColormap === 'gray' && quick.method !== 'fallback') {
+          this.applyViewLayerRender(layer.id, { ...this.refinedRender(layer), intensity: quick.intensity, threshold: quick.threshold, colormap: 'gray' }, workspaceId);
+          initialRender = renderKeyOf(target()?.layers.find((item) => item.id === layer.id));
+          const shown = useLayerStore.getState().getLayerMetadata(layer.id);
+          if (shown?.renderProps) {
+            useLayerStore.getState().setLayerMetadata(layer.id, {
+              ...shown,
+              renderProps: { ...shown.renderProps, intensity: quick.intensity, threshold: quick.threshold },
+            });
+          }
+        }
+      } catch (frameError) {
+        console.warn(`[LayerApiImpl] Frame histogram unavailable for ${layer.id}:`, frameError);
+      }
+    }
     // Guard both immutable store edits and external mutation of render arrays.
     let histogram;
     try {
@@ -596,7 +661,7 @@ export class LayerApiImpl implements LayerApi {
         binCount: 256,
         excludeZeros: true,
         // A 4D series is windowed over all its frames (v2 R3), not the first.
-        ...(isFourDIntensityLayer(layer as Parameters<typeof isFourDIntensityLayer>[0]) ? { allFrames: true } : {}),
+        ...(fourD ? { allFrames: true } : {}),
       });
     } catch (histError) {
       console.warn(
@@ -609,7 +674,7 @@ export class LayerApiImpl implements LayerApi {
     // The layer may have been removed while the histogram was computing.
     const store = useLayerStore.getState();
     if (isLayerDisplayPreserved(layer.id)) return;
-    if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
+    if (!store.getLayer(layer.id) || renderKeyOf(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
       return;
     }
 
@@ -623,7 +688,6 @@ export class LayerApiImpl implements LayerApi {
       !!statisticRefined,
       histogram,
     );
-    const isLabelLike = layer.type === 'label';
     // A BOLD series is windowed like an EPI viewer (round 3 C1): p2–p98 over
     // every voxel of every frame, background zeros included (the brain mid
     // grey, a response toward white), pooled across its runs.
@@ -632,7 +696,7 @@ export class LayerApiImpl implements LayerApi {
       const ids = runGroupIds(layer.id);
       const epi = await this.epiWindow(ids);
       if (isLayerDisplayPreserved(layer.id)) return;
-      if (!store.getLayer(layer.id) || renderKey(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
+      if (!store.getLayer(layer.id) || renderKeyOf(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) return;
       if (epi) {
         intensity = shareRunWindow(
           layer.id,
@@ -642,20 +706,17 @@ export class LayerApiImpl implements LayerApi {
             useViewStateStore.getState().setViewState((state) => {
               const sibling = state.layers.find((item) => item.id === id);
               if (sibling) sibling.intensity = [window[0], window[1]];
-            }),
+            }, workspaceId),
           ids,
         );
       }
     }
     const meta = store.getLayerMetadata(layer.id);
     const refined: LayerRender = {
-      // The refinement changes the window only; the opacity is the user's.
-      opacity: meta?.renderProps?.opacity ?? 1.0,
+      ...this.refinedRender(layer),
       intensity,
       threshold: rangeResult.threshold,
       colormap: rangeResult.suggestedColormap ?? 'gray',
-      interpolation: isLabelLike ? 'nearest' : 'linear',
-      layerMode: layer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar',
     };
 
     if (meta) {
@@ -666,6 +727,41 @@ export class LayerApiImpl implements LayerApi {
       `[LayerApiImpl] Refined intensity from histogram (${rangeResult.method}) for ${layer.id}:`,
       rangeResult.intensity,
     );
+  }
+
+  /**
+   * The histogram of the frame on screen. The bridge reads the volume's current
+   * frame, and a run still landing is not on it yet, so it is moved there first
+   * and back if the landing did not happen (the user left the tab).
+   */
+  private async landingFrameHistogram(layer: Layer): Promise<HistogramData> {
+    const request = { layerId: layer.id, binCount: 256, excludeZeros: true };
+    const frame = landingFrameOf((layer as { sourcePath?: string }).sourcePath);
+    if (frame === undefined) return histogramService.computeHistogram(request);
+    await this.apiService.setVolumeTimepoint(layer.volumeId, frame);
+    try {
+      return await histogramService.computeHistogram(request);
+    } finally {
+      const shown = (useLayerStore.getState().getLayer(layer.id) as { currentTimepoint?: number } | undefined)?.currentTimepoint ?? 0;
+      if (shown !== frame) {
+        await this.apiService.setVolumeTimepoint(layer.volumeId, shown).catch((error) => {
+          console.warn(`[LayerApiImpl] Could not restore the frame of ${layer.id}:`, error);
+        });
+      }
+    }
+  }
+
+  /** What a refinement leaves as it is: the user's opacity, the layer's sampling and mode. */
+  private refinedRender(layer: Layer): LayerRender {
+    const isLabelLike = layer.type === 'label';
+    return {
+      opacity: useLayerStore.getState().getLayerMetadata(layer.id)?.renderProps?.opacity ?? 1.0,
+      intensity: [0, 0],
+      threshold: [0, 0],
+      colormap: 'gray',
+      interpolation: isLabelLike ? 'nearest' : 'linear',
+      layerMode: layer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar',
+    };
   }
 
   /**
@@ -816,6 +912,7 @@ export class LayerApiImpl implements LayerApi {
   /** Per-layer state outside the layer and view stores. */
   private forgetLayer(id: string): void {
     statisticFirstPaint.delete(id);
+    this.unrefined.delete(id);
     forgetPreservedDisplay(id);
     this.visibilitySeq.delete(id);
     useComparisonStore.getState().forgetLayer(id);

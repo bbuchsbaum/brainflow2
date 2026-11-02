@@ -1,4 +1,6 @@
 pub mod atlas_roi;
+mod bids_commands;
+mod bids_index;
 mod population_mask;
 mod population_plot_export;
 mod population_sampling;
@@ -61,7 +63,7 @@ use remotely::ssh::{
     AuthMethod as RemoteAuthMethod, ConnectConfig as RemoteConnectConfig,
     ConnectOutcome as RemoteConnectOutcome, HostKeyDisposition,
 };
-use remotely::{FilesystemProbeOptions, RemoteClient};
+use remotely::{Connector, FilesystemProbeOptions, PendingAuth, PendingHostKey, RemoteClient};
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::time::{interval, MissedTickBehavior};
@@ -92,6 +94,7 @@ mod render_bridge_adapter;
 mod render_lifecycle;
 mod stat_metadata;
 mod surface_loading;
+mod temporal_metric;
 mod user_errors;
 mod volume_loading;
 mod volume_queries;
@@ -106,6 +109,11 @@ use modules::{list_modules, set_enabled_modules};
 pub use modules::{module_descriptors, ModuleDescriptor, ModuleInfo, ModuleStage};
 // Phase 3 command modules (export, clusters, voxel queries), re-exported so
 // `command_list.rs` and the TS exporter see them at the crate root.
+use bids_commands::{
+    cancel_bids_scan, get_bids_carpet, get_bids_median_slice, get_bids_run_detail,
+    get_bids_run_events, get_bids_slice, read_bids_exclusions, revert_bids_exclusions,
+    scan_bids_browser, write_bids_exclusions,
+};
 use clusters::compute_clusters;
 pub use clusters::{
     ClusterExtentInference, ClusterExtentMethodRequest, ClusterPolarity, ClusterSign,
@@ -114,6 +122,8 @@ pub use clusters::{
 };
 use image_export::save_image_bytes;
 pub use region_locus::{LabelSource, RegionLocus};
+use temporal_metric::compute_temporal_metric_plane;
+pub use temporal_metric::TemporalMetricResult;
 use volume_queries::{volume_extremum, volume_nonzero_bbox};
 pub use volume_queries::{
     ExtremumKind, VolumeExtremumRequest, VolumeNonzeroBbox, VolumeNonzeroBboxRequest, VoxelLocation,
@@ -1317,12 +1327,10 @@ struct RemoteMountRecoveryEvent {
     reason: String,
 }
 
-/// Max concurrent SFTP operations per remote mount. Each remote list/stat/
-/// download opens its own SFTP channel (`remotely` builds a fresh `RemoteFs`
-/// per op), and SSH servers cap concurrent channels (OpenSSH `MaxSessions`,
-/// commonly ~10). We bound concurrency well below that so a burst of listings
-/// — e.g. hover-prefetch plus user clicks — can never exhaust the channel
-/// limit and fail with "Failed to open channel (ConnectFailed)".
+/// Max concurrent SFTP operations per remote mount. `remotely` pipelines them
+/// over one shared SFTP session; the bound keeps a burst of listings, downloads
+/// and header reads from starving each other, and unmount drains every permit
+/// to prove no operation is still running.
 const REMOTE_MOUNT_MAX_CONCURRENT_OPS: usize = 4;
 
 #[derive(Clone)]
@@ -1393,9 +1401,11 @@ pub struct BridgeState {
     // Active remote mounts keyed by mount_id.
     pub remote_mounts: Arc<Mutex<HashMap<String, RemoteMountEntry>>>,
     // Pending host-key prompt context keyed by challenge UUID.
-    pub pending_remote_host_key: Arc<Mutex<HashMap<uuid::Uuid, PendingRemoteMountContext>>>,
+    pub pending_remote_host_key:
+        Arc<Mutex<HashMap<uuid::Uuid, (PendingHostKey, PendingRemoteMountContext)>>>,
     // Pending keyboard-interactive context keyed by conversation UUID.
-    pub pending_remote_auth: Arc<Mutex<HashMap<uuid::Uuid, PendingRemoteMountContext>>>,
+    pub pending_remote_auth:
+        Arc<Mutex<HashMap<uuid::Uuid, (PendingAuth, PendingRemoteMountContext)>>>,
     // CPU-only path-keyed cache for Set-Studio cohort sampling. Keeps member
     // NIfTIs loaded across repeated crosshair moves without ever registering
     // them into the GPU VolumeRegistry/atlas (avoids AtlasPressureMonitor thrash
@@ -1907,12 +1917,6 @@ fn map_remotely_error(err: remotely::Error, code: u16) -> BridgeError {
                 details: err.to_string(),
             };
         }
-        remotely::Error::Runtime(_) => {
-            return BridgeError::Internal {
-                code,
-                details: err.to_string(),
-            };
-        }
         _ => {}
     }
 
@@ -2184,14 +2188,17 @@ async fn upsert_remote_profile(
     save_remote_profiles(&profiles).await
 }
 
-fn host_key_challenge_to_bridge(challenge: &remotely::HostKeyChallenge) -> RemoteHostKeyChallenge {
+fn host_key_challenge_to_bridge(
+    challenge: &remotely::HostKeyChallenge,
+    challenge_id: uuid::Uuid,
+) -> RemoteHostKeyChallenge {
     let disposition = match challenge.disposition {
         HostKeyDisposition::Unknown => "unknown",
         HostKeyDisposition::Mismatch => "mismatch",
     };
 
     RemoteHostKeyChallenge {
-        challenge_id: challenge.challenge_id.to_string(),
+        challenge_id: challenge_id.to_string(),
         host: challenge.host.clone(),
         port: challenge.port,
         algorithm: challenge.algo.clone(),
@@ -2200,9 +2207,12 @@ fn host_key_challenge_to_bridge(challenge: &remotely::HostKeyChallenge) -> Remot
     }
 }
 
-fn auth_challenge_to_bridge(challenge: &remotely::AuthChallenge) -> RemoteAuthChallenge {
+fn auth_challenge_to_bridge(
+    challenge: &remotely::AuthChallenge,
+    conversation_id: uuid::Uuid,
+) -> RemoteAuthChallenge {
     RemoteAuthChallenge {
-        conversation_id: challenge.conversation_id.to_string(),
+        conversation_id: conversation_id.to_string(),
         name: challenge.name.clone(),
         instructions: challenge.instructions.clone(),
         prompts: challenge
@@ -2651,25 +2661,27 @@ async fn handle_remote_connect_outcome<R: Runtime>(
 ) -> BridgeResult<RemoteMountConnectResult> {
     match outcome {
         RemoteConnectOutcome::Connected(client) => {
-            finalize_remote_mount(state, context.request, client, app).await
+            finalize_remote_mount(state, context.request, *client, app).await
         }
-        RemoteConnectOutcome::NeedHostKeyConfirmation(challenge) => {
-            {
-                let mut pending = state.pending_remote_host_key.lock().await;
-                pending.insert(challenge.challenge_id, context);
-            }
-            Ok(RemoteMountConnectResult::NeedHostKey {
-                challenge: host_key_challenge_to_bridge(&challenge),
-            })
+        RemoteConnectOutcome::NeedHostKeyConfirmation(pending) => {
+            let id = uuid::Uuid::new_v4();
+            let challenge = host_key_challenge_to_bridge(pending.challenge(), id);
+            state
+                .pending_remote_host_key
+                .lock()
+                .await
+                .insert(id, (pending, context));
+            Ok(RemoteMountConnectResult::NeedHostKey { challenge })
         }
-        RemoteConnectOutcome::NeedKeyboardInteractive(challenge) => {
-            {
-                let mut pending = state.pending_remote_auth.lock().await;
-                pending.insert(challenge.conversation_id, context);
-            }
-            Ok(RemoteMountConnectResult::NeedAuth {
-                challenge: auth_challenge_to_bridge(&challenge),
-            })
+        RemoteConnectOutcome::NeedKeyboardInteractive(pending) => {
+            let id = uuid::Uuid::new_v4();
+            let challenge = auth_challenge_to_bridge(pending.challenge(), id);
+            state
+                .pending_remote_auth
+                .lock()
+                .await
+                .insert(id, (pending, context));
+            Ok(RemoteMountConnectResult::NeedAuth { challenge })
         }
     }
 }
@@ -5049,7 +5061,7 @@ async fn remote_mount_connect<R: Runtime>(
 
     let outcome = tokio::time::timeout(
         REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
-        RemoteClient::connect_interactive_with_probe_blocking(connect_config, probe_options),
+        Connector::new(connect_config).probe(probe_options).start(),
     )
     .await
     .map_err(|_| BridgeError::Io {
@@ -5078,7 +5090,7 @@ async fn remote_mount_respond_host_key<R: Runtime>(
         details: format!("Invalid challenge id '{challenge_id}': {e}"),
     })?;
 
-    let context = {
+    let (pending, context) = {
         let mut pending = state.pending_remote_host_key.lock().await;
         pending.remove(&challenge_uuid)
     }
@@ -5087,21 +5099,21 @@ async fn remote_mount_respond_host_key<R: Runtime>(
         details: format!("Unknown host-key challenge id: {challenge_id}"),
     })?;
 
-    let probe_options = remote_probe_options(&context.request);
+    // Declining reports the host-key error and never touches known_hosts.
+    if !trust {
+        return Err(map_remotely_error(pending.reject(), 8224));
+    }
 
-    let outcome = tokio::time::timeout(
-        REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
-        RemoteClient::respond_host_key_with_probe_blocking(challenge_uuid, trust, probe_options),
-    )
-    .await
-    .map_err(|_| BridgeError::Io {
-        code: 8224,
-        details: format!(
-            "SSH connection timed out after {}s while resuming host-key validation.",
-            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8224))?;
+    let outcome = tokio::time::timeout(REMOTE_MOUNT_HANDSHAKE_TIMEOUT, pending.trust())
+        .await
+        .map_err(|_| BridgeError::Io {
+            code: 8224,
+            details: format!(
+                "SSH connection timed out after {}s while resuming host-key validation.",
+                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+            ),
+        })?
+        .map_err(|e| map_remotely_error(e, 8224))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
         .await
@@ -5121,7 +5133,7 @@ async fn remote_mount_respond_auth<R: Runtime>(
             details: format!("Invalid conversation id '{conversation_id}': {e}"),
         })?;
 
-    let context = {
+    let (pending, context) = {
         let mut pending = state.pending_remote_auth.lock().await;
         pending.remove(&conversation_uuid)
     }
@@ -5130,21 +5142,16 @@ async fn remote_mount_respond_auth<R: Runtime>(
         details: format!("Unknown auth conversation id: {conversation_id}"),
     })?;
 
-    let probe_options = remote_probe_options(&context.request);
-
-    let outcome = tokio::time::timeout(
-        REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
-        RemoteClient::respond_auth_with_probe_blocking(conversation_uuid, responses, probe_options),
-    )
-    .await
-    .map_err(|_| BridgeError::Io {
-        code: 8227,
-        details: format!(
-            "SSH connection timed out after {}s while completing authentication.",
-            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8227))?;
+    let outcome = tokio::time::timeout(REMOTE_MOUNT_HANDSHAKE_TIMEOUT, pending.respond(responses))
+        .await
+        .map_err(|_| BridgeError::Io {
+            code: 8227,
+            details: format!(
+                "SSH connection timed out after {}s while completing authentication.",
+                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+            ),
+        })?
+        .map_err(|e| map_remotely_error(e, 8227))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
         .await
@@ -10894,24 +10901,24 @@ async fn scan_bids_dataset(
 
         // --- Dataset description fields ---
         let ds_name = project
-            .description
+            .description()
             .get("Name")
             .and_then(|v| v.as_str())
-            .unwrap_or(&project.name)
+            .unwrap_or(project.name())
             .to_string();
         let bids_version = project
-            .description
+            .description()
             .get("BIDSVersion")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
         let license = project
-            .description
+            .description()
             .get("License")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let authors: Vec<String> = project
-            .description
+            .description()
             .get("Authors")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -11568,16 +11575,6 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
     ))
 }
 
-// --- Temporal Metric Command ---
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct TemporalMetricResult {
-    pub width: u32,
-    pub height: u32,
-    pub data: Vec<f32>,
-}
-
 fn sample_voxel_timeseries_from_4d<F>(
     dims: (usize, usize, usize, usize),
     x: usize,
@@ -12098,7 +12095,7 @@ where
 /// One row of region statistics: a reduced scalar value over all voxels that
 /// fall inside a single atlas parcellation label.
 ///
-/// Serde-only (typed inline on the frontend, like `TemporalMetricResult`); the
+/// Serde-only (typed inline on the frontend); the
 /// JSON shape is `{ labelId, value, voxelCount }`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13160,254 +13157,6 @@ async fn sample_voxel_timeseries(
     let z = voxel_z as usize;
 
     sample_voxel_timeseries_from_volume(&entry.data, x, y, z)
-}
-
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.compute_temporal_metric")]
-async fn compute_temporal_metric(
-    volume_id: String,
-    metric: String,
-    axis: String,
-    slice_index: u32,
-    state: State<'_, BridgeState>,
-) -> BridgeResult<TemporalMetricResult> {
-    info!(
-        "compute_temporal_metric: volume={}, metric={}, axis={}, slice={}",
-        volume_id, metric, axis, slice_index
-    );
-    let registry = state.volume_registry.lock().await;
-    let entry = registry
-        .get_entry(&volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound {
-            code: 4041,
-            details: format!("Volume {} not found", volume_id),
-        })?;
-    if metric != "variance" && metric != "mean" {
-        return Err(BridgeError::Input {
-            code: 2010,
-            details: format!("Unknown metric '{}'. Supported: variance, mean", metric),
-        });
-    }
-    match entry.data.as_ref() {
-        VolumeSendable::Vec4DF32(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().copied().collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        VolumeSendable::Vec4DI16(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        VolumeSendable::Vec4DU8(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        VolumeSendable::Vec4DI8(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        VolumeSendable::Vec4DU16(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        VolumeSendable::Vec4DI32(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        VolumeSendable::Vec4DU32(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        VolumeSendable::Vec4DF64(vec) => {
-            let d = vec.data.dim();
-            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
-            compute_metric_slice_inner(
-                &flat,
-                d.0,
-                d.1,
-                d.2,
-                d.3,
-                &axis,
-                slice_index as usize,
-                &metric,
-            )
-        }
-        _ => Err(BridgeError::Input {
-            code: 2011,
-            details: "compute_temporal_metric requires a 4D volume".to_string(),
-        }),
-    }
-}
-
-// Numeric kernel taking volume dims + window params positionally; struct adds no clarity.
-#[allow(clippy::too_many_arguments)]
-fn compute_metric_slice_inner(
-    data: &[f32],
-    nx: usize,
-    ny: usize,
-    nz: usize,
-    nt: usize,
-    axis: &str,
-    slice_index: usize,
-    metric: &str,
-) -> BridgeResult<TemporalMetricResult> {
-    let (width, height) = match axis {
-        "axial" | "z" => {
-            if slice_index >= nz {
-                return Err(BridgeError::Input {
-                    code: 2012,
-                    details: format!("slice_index {} >= nz {}", slice_index, nz),
-                });
-            }
-            (nx as u32, ny as u32)
-        }
-        "coronal" | "y" => {
-            if slice_index >= ny {
-                return Err(BridgeError::Input {
-                    code: 2012,
-                    details: format!("slice_index {} >= ny {}", slice_index, ny),
-                });
-            }
-            (nx as u32, nz as u32)
-        }
-        "sagittal" | "x" => {
-            if slice_index >= nx {
-                return Err(BridgeError::Input {
-                    code: 2012,
-                    details: format!("slice_index {} >= nx {}", slice_index, nx),
-                });
-            }
-            (ny as u32, nz as u32)
-        }
-        _ => {
-            return Err(BridgeError::Input {
-                code: 2013,
-                details: format!("Unknown axis '{}'", axis),
-            })
-        }
-    };
-    let total = (width * height) as usize;
-    let mut result = vec![0.0f32; total];
-    let idx =
-        |x: usize, y: usize, z: usize, t: usize| x * (ny * nz * nt) + y * (nz * nt) + z * nt + t;
-    let compute_val = |vals: &[f32]| -> f32 {
-        let n = vals.len() as f32;
-        let mean = vals.iter().sum::<f32>() / n;
-        if metric == "mean" {
-            mean
-        } else {
-            vals.iter()
-                .map(|&v| {
-                    let d = v - mean;
-                    d * d
-                })
-                .sum::<f32>()
-                / n
-        }
-    };
-    match axis {
-        "axial" | "z" => {
-            let z = slice_index;
-            for x in 0..nx {
-                for y in 0..ny {
-                    let vals: Vec<f32> = (0..nt).map(|t| data[idx(x, y, z, t)]).collect();
-                    result[x * ny + y] = compute_val(&vals);
-                }
-            }
-        }
-        "coronal" | "y" => {
-            let y = slice_index;
-            for x in 0..nx {
-                for z in 0..nz {
-                    let vals: Vec<f32> = (0..nt).map(|t| data[idx(x, y, z, t)]).collect();
-                    result[x * nz + z] = compute_val(&vals);
-                }
-            }
-        }
-        _ => {
-            let x = slice_index;
-            for y in 0..ny {
-                for z in 0..nz {
-                    let vals: Vec<f32> = (0..nt).map(|t| data[idx(x, y, z, t)]).collect();
-                    result[y * nz + z] = compute_val(&vals);
-                }
-            }
-        }
-    }
-    Ok(TemporalMetricResult {
-        width,
-        height,
-        data: result,
-    })
 }
 
 // --- Command registry ---

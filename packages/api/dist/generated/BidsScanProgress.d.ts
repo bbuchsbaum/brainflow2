@@ -1,0 +1,25 @@
+import type { BidsFinding } from "./BidsFinding";
+import type { BidsRunRecord } from "./BidsRunRecord";
+export type BidsScanProgress = {
+    scan_id: string;
+    /**
+     * The dataset is read from a server, from the first event of a scan.
+     */
+    is_remote: boolean;
+    /**
+     * False until a remote walk has reached every directory.
+     */
+    listing_complete: boolean;
+    /**
+     * `listing`, `reading`, `indexing`, `subjects`, `finalizing`.
+     */
+    phase: string;
+    subjects_done: number;
+    subjects_total: number;
+    files_done: number;
+    files_total: number;
+    current: string | null;
+    subject: string | null;
+    runs: Array<BidsRunRecord>;
+    findings: Array<BidsFinding>;
+};

@@ -1,56 +1,65 @@
 /**
- * Where the temporal heatmap's voxel slice goes on the slice view's canvas.
+ * The temporal heatmap's plane grid, its placement on the slice canvas and
+ * its colour.
  *
- * The backend returns one voxel slice (axial: i × j at k; coronal: i × k at
- * j; sagittal: j × k at i), stored first-axis-major: value (a, b) at
- * `data[a * height + b]`. Each voxel is drawn as one offscreen pixel, column
- * a, row b, and the offscreen canvas is placed with a single 2D affine:
- * offscreen pixel → voxel (centre at +0.5) → world (the layer's affine) →
- * plane image pixel (the view plane) → canvas (the image placement, with its
- * radiological mirror and the zoomed plane). The heatmap therefore lands on
- * the same canvas pixels as the image it describes.
+ * The backend evaluates the metric on a grid in the view plane, so the heatmap
+ * works for any affine and any view. A grid has the plane's corner origin and
+ * covers its whole image at about voxel resolution; `u_mm` / `v_mm` are the
+ * world step of one grid pixel (ViewPlane semantics).
  *
- * Only a slice that lies in the view plane can be drawn this way (an in-plane
- * rotation is fine). When the volume's slice axes leave the plane (an
- * oblique affine or an oblique view), there is no exact 2D placement and the
- * caller hides the overlay instead of drawing an approximation.
+ * Grid pixels go to the canvas through grid → world → plane image pixel →
+ * canvas (the image placement with its radiological mirror), so the heatmap
+ * lands on the same canvas pixels as the image it describes. A map computed
+ * for an earlier plane stays in place until its replacement arrives.
  */
-import type { ViewPlane } from '@/types/coordinates';
+import { imagePointToCanvasPoint, type SliceViewerPlacement } from '@brainflow/visualization/slice';
+import type { ViewPlane, WorldCoordinates } from '@/types/coordinates';
+import type { TemporalPlaneGrid } from '@/services/TemporalHeatmapService';
 
-export type HeatmapAxis = 'axial' | 'coronal' | 'sagittal';
-
-export interface HeatmapPlacement {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  imageWidth: number;
-  imageHeight: number;
-  mirrorX?: boolean;
-}
-
-/** Voxel axes of the slice: [first in-plane, second in-plane, sliced]. */
-const SLICE_AXES: Record<HeatmapAxis, [number, number, number]> = {
-  axial: [0, 1, 2],
-  coronal: [0, 2, 1],
-  sagittal: [1, 2, 0],
-};
+export type HeatmapPlacement = SliceViewerPlacement;
 
 /** A canvas 2D transform (setTransform order a, b, c, d, e, f). */
 export type CanvasTransform = [number, number, number, number, number, number];
 
-const PLANE_TOLERANCE = 1e-3;
+/** Largest grid side requested from the backend. */
+export const MAX_GRID_SIDE = 512;
 
-/** Column-major 4×4: world of voxel (i, j, k). */
-function voxelToWorld(m: readonly number[], v: readonly number[]): [number, number, number] {
-  return [0, 1, 2].map((r) => m[r] * v[0] + m[4 + r] * v[1] + m[8 + r] * v[2] + m[12 + r]) as [
-    number,
-    number,
-    number,
-  ];
+/** Colour scale limits, in percent of the finite values. */
+const SCALE_PERCENTILES: [number, number] = [2, 98];
+
+/** The smallest voxel spacing of a column-major 4×4 affine, or null. */
+export function voxelSizeMm(affine: readonly number[] | null | undefined): number | null {
+  if (!affine || affine.length < 16) return null;
+  const sizes = [0, 1, 2].map((c) =>
+    Math.hypot(affine[4 * c], affine[4 * c + 1], affine[4 * c + 2]),
+  );
+  const size = Math.min(...sizes);
+  return size > 0 && Number.isFinite(size) ? size : null;
 }
 
-/** Plane image pixel of a world point in the plane (least squares on u, v). */
+/** Image pixels / round(voxel size / pixel size), at most MAX_GRID_SIDE. */
+function gridSide(imagePixels: number, pixelMm: number, voxelMm: number | null): number {
+  const factor = voxelMm && pixelMm > 0 ? Math.max(1, Math.round(voxelMm / pixelMm)) : 1;
+  return Math.max(1, Math.min(MAX_GRID_SIDE, Math.floor(imagePixels / factor)));
+}
+
+/** The grid covering a plane's image, downsampled to about voxel resolution. */
+export function heatmapGrid(plane: ViewPlane, voxelMm: number | null): TemporalPlaneGrid {
+  const [imageWidth, imageHeight] = plane.dim_px;
+  const width = gridSide(imageWidth, Math.hypot(...plane.u_mm), voxelMm);
+  const height = gridSide(imageHeight, Math.hypot(...plane.v_mm), voxelMm);
+  const scaled = (axis: WorldCoordinates, factor: number): WorldCoordinates =>
+    [axis[0] * factor, axis[1] * factor, axis[2] * factor];
+  return {
+    origin_mm: plane.origin_mm,
+    u_mm: scaled(plane.u_mm, imageWidth / width),
+    v_mm: scaled(plane.v_mm, imageHeight / height),
+    width,
+    height,
+  };
+}
+
+/** Plane image pixel of a world point, projected onto the plane (least squares on u, v). */
 function worldToImage(plane: ViewPlane, w: readonly number[]): [number, number] | null {
   const d = [0, 1, 2].map((a) => w[a] - plane.origin_mm[a]);
   const u = plane.u_mm;
@@ -67,47 +76,26 @@ function worldToImage(plane: ViewPlane, w: readonly number[]): [number, number] 
   return [(du * vv - dv * uv) / det, (dv * uu - du * uv) / det];
 }
 
-function imageToCanvas(p: HeatmapPlacement, ix: number, iy: number): [number, number] {
-  const x = p.mirrorX ? p.imageWidth - ix : ix;
-  return [p.x + (x * p.width) / p.imageWidth, p.y + (iy * p.height) / p.imageHeight];
-}
-
 /**
- * The transform drawing the offscreen heatmap (one pixel per voxel) onto the
- * view canvas, or null when the slice does not lie in the view plane.
+ * The transform drawing an offscreen grid (one pixel per grid pixel) onto the
+ * view canvas, or null while the view has no usable placement.
  */
 export function heatmapCanvasTransform(
-  axis: HeatmapAxis,
-  sliceIndex: number,
-  affine: readonly number[] | null | undefined,
+  grid: TemporalPlaneGrid,
   plane: ViewPlane,
   placement: HeatmapPlacement | null | undefined,
 ): CanvasTransform | null {
-  if (!affine || affine.length < 16 || !placement) return null;
-  if (!(placement.width > 0) || !(placement.height > 0) || !(placement.imageWidth > 0)) return null;
-  const [first, second, sliced] = SLICE_AXES[axis];
-  const u = plane.u_mm;
-  const v = plane.v_mm;
-  const normal = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-  const nLen = Math.hypot(normal[0], normal[1], normal[2]);
-  if (!(nLen > 0)) return null;
-  // Both in-plane voxel axes must lie in the view plane.
-  for (const axisIndex of [first, second]) {
-    const col = [affine[4 * axisIndex], affine[4 * axisIndex + 1], affine[4 * axisIndex + 2]];
-    const len = Math.hypot(col[0], col[1], col[2]);
-    if (!(len > 0)) return null;
-    const off =
-      Math.abs(col[0] * normal[0] + col[1] * normal[1] + col[2] * normal[2]) / (len * nLen);
-    if (off > PLANE_TOLERANCE) return null;
-  }
-  // Offscreen pixel (s, t) covers voxel (s − 0.5, t − 0.5) on the slice.
+  if (!placement) return null;
+  if (!(placement.width > 0) || !(placement.height > 0)) return null;
+  if (!(placement.imageWidth > 0) || !(placement.imageHeight > 0)) return null;
   const toCanvas = (s: number, t: number): [number, number] | null => {
-    const voxel = [0, 0, 0];
-    voxel[first] = s - 0.5;
-    voxel[second] = t - 0.5;
-    voxel[sliced] = sliceIndex;
-    const image = worldToImage(plane, voxelToWorld(affine, voxel));
-    return image ? imageToCanvas(placement, image[0], image[1]) : null;
+    const world = [0, 1, 2].map(
+      (a) => grid.origin_mm[a] + s * grid.u_mm[a] + t * grid.v_mm[a],
+    );
+    const image = worldToImage(plane, world);
+    if (!image) return null;
+    const point = imagePointToCanvasPoint(image, placement);
+    return [point.canvasX, point.canvasY];
   };
   const p0 = toCanvas(0, 0);
   const p1 = toCanvas(1, 0);
@@ -121,12 +109,60 @@ export function applyCanvasTransform(t: CanvasTransform, s: number, u: number): 
   return [t[0] * s + t[2] * u + t[4], t[1] * s + t[3] * u + t[5]];
 }
 
+/** The value at percentile `p` of ascending values (linear interpolation). */
+function percentile(sorted: Float32Array, p: number): number {
+  const position = (p / 100) * (sorted.length - 1);
+  const below = Math.floor(position);
+  const above = Math.min(sorted.length - 1, below + 1);
+  return sorted[below] + (sorted[above] - sorted[below]) * (position - below);
+}
+
 /**
- * Offscreen pixel index of each backend value: column a, row b for
- * `data[a * height + b]` (the backend's first-axis-major order).
+ * The colour limits of a map: its 2nd and 98th percentiles of finite values, so
+ * masked-out zeros or a few vessels do not flatten it. A map too uniform for
+ * that (more than 96% one value) falls back to its full range.
  */
-export function heatmapPixelIndex(dataIndex: number, height: number, width: number): number {
-  const a = Math.floor(dataIndex / height);
-  const b = dataIndex - a * height;
-  return b * width + a;
+export function heatmapColorScale(data: ArrayLike<number>): [number, number] | null {
+  const finite = new Float32Array(data.length);
+  let count = 0;
+  for (let i = 0; i < data.length; i += 1) {
+    if (Number.isFinite(data[i])) {
+      finite[count] = data[i];
+      count += 1;
+    }
+  }
+  if (count === 0) return null;
+  const sorted = finite.subarray(0, count).sort();
+  const low = percentile(sorted, SCALE_PERCENTILES[0]);
+  const high = percentile(sorted, SCALE_PERCENTILES[1]);
+  return high > low ? [low, high] : [sorted[0], sorted[count - 1]];
+}
+
+// Viridis approximated by a polynomial (R, G, B in 0-255).
+function viridisRgb(t: number): [number, number, number] {
+  const x = Math.max(0, Math.min(1, t));
+  const r = 255 * (0.267 + x * (-0.003 + x * (1.785 - x * 1.977)));
+  const g = 255 * (0.005 + x * (1.404 + x * (-1.384 + x * 0.747)));
+  const b = 255 * (0.329 + x * (1.498 + x * (-2.418 + x * 1.317)));
+  return [r, g, b];
+}
+
+/** Row-major RGBA of a map under its colour scale; non-finite values are transparent. */
+export function heatmapRgba(data: ArrayLike<number>): Uint8ClampedArray {
+  const pixels = new Uint8ClampedArray(data.length * 4);
+  const scale = heatmapColorScale(data);
+  if (!scale) return pixels;
+  const [low, high] = scale;
+  const range = high - low;
+  for (let i = 0; i < data.length; i += 1) {
+    const value = data[i];
+    if (!Number.isFinite(value)) continue;
+    const [r, g, b] = viridisRgb(range > 0 ? (value - low) / range : 0);
+    const p = i * 4;
+    pixels[p] = r;
+    pixels[p + 1] = g;
+    pixels[p + 2] = b;
+    pixels[p + 3] = 255; // full alpha; canvas opacity handles overall blend
+  }
+  return pixels;
 }

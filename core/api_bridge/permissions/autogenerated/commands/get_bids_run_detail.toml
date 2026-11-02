@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-bids-run-detail"
+description = "Enables the get_bids_run_detail command without any pre-configured scope."
+commands.allow = ["get_bids_run_detail"]
+
+[[permission]]
+identifier = "deny-get-bids-run-detail"
+description = "Denies the get_bids_run_detail command without any pre-configured scope."
+commands.deny = ["get_bids_run_detail"]

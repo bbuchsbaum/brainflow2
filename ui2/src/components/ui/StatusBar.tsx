@@ -676,6 +676,10 @@ export function StatusBar({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  // A workspace with its own status line (BIDS) replaces the imaging readouts;
+  // they keep updating underneath and need no restoring.
+  const workspaceStatus = useStatusBarStore((state) => state.values.workspaceStatus ?? null);
+  const workspaceStatusRight = useStatusBarStore((state) => state.values.workspaceStatusRight ?? null);
   const showTime =
     has4DVolume || barWidth === null || barWidth === 0 || barWidth >= HIDE_EMPTY_TIME_BELOW_PX;
   // "RAS" never changes: the first slot to go on a narrow bar.
@@ -690,7 +694,12 @@ export function StatusBar({
       role="contentinfo"
       aria-label="Status"
     >
-      {slots
+      {workspaceStatus ? (
+        <div className="status-group min-w-0" data-testid="workspace-status">
+          {workspaceStatus}
+        </div>
+      ) : null}
+      {(workspaceStatus ? [] : slots)
         .filter(
           (id) =>
             !(DIAGNOSTIC_SLOT_IDS as readonly string[]).includes(id) &&
@@ -710,7 +719,9 @@ export function StatusBar({
 
       {/* Time slider: disabled without a 4D volume, and hidden then on a
           narrow bar (the readouts keep their room). */}
-      {showTime ? <TimeSlider className="flex-1 max-w-sm" disabled={!has4DVolume} /> : null}
+      {showTime && !workspaceStatus ? (
+        <TimeSlider className="flex-1 max-w-sm" disabled={!has4DVolume} />
+      ) : null}
 
       {/* Messages ("Loaded …", errors) in the bar's free space: never over a panel. */}
       <NotificationToast />
@@ -719,6 +730,9 @@ export function StatusBar({
       <StatusBarProgress />
 
       <div className="status-bar__right">
+        {workspaceStatusRight ? (
+          <span data-testid="workspace-status-right">{workspaceStatusRight}</span>
+        ) : null}
         {rightContent}
         <DiagnosticsButton />
       </div>

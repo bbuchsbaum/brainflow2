@@ -3,6 +3,7 @@ import {
   categoricalTypeFromData,
   coversMuchSmaller,
   isSignedMap,
+  layersOfView,
   looksLikeStatisticName,
   isSmallIntegerLabelMap,
   PlacementBand,
@@ -378,5 +379,31 @@ describe('categoricalTypeFromData (QA 2026-10-30 F17)', () => {
     // A binary one named "mask" is a label map (p4_brain_mask.nii, N11).
     expect(categoricalTypeFromData({ type: 'mask', source: 'file' }, { isBinaryLike: true })).toBe('label');
     expect(categoricalTypeFromData({ ...lesion, volumeType: 'TimeSeries4D' }, { isBinaryLike: true })).toBeNull();
+  });
+});
+
+describe('layersOfView', () => {
+  const layers = [
+    { id: 'other-tab', type: 'functional', visible: true },
+    { id: 'template', type: 'anatomical', source: 'template', visible: true },
+  ];
+
+  it('a run alone in its tab opens opaque, whatever other tabs show', () => {
+    const run = { id: 'run', type: 'functional', volumeType: 'TimeSeries4D' };
+    expect(planLayerPlacement(layers, run).opacity).toBe(STACKED_CONTINUOUS_OPACITY);
+    expect(planLayerPlacement(layersOfView(layers, { layers: [] }), run).opacity).toBeUndefined();
+  });
+
+  it('uses the visibility of the view: a hidden template is not under the run', () => {
+    const run = { id: 'run', type: 'functional', volumeType: 'TimeSeries4D' };
+    const view = { layers: [{ id: 'template', visible: false }] };
+    expect(layersOfView(layers, view).map((layer) => layer.id)).toEqual(['template']);
+    expect(planLayerPlacement(layersOfView(layers, view), run).opacity).toBeUndefined();
+    const shown = { layers: [{ id: 'template', visible: true }] };
+    expect(planLayerPlacement(layersOfView(layers, shown), run).opacity).toBe(STACKED_CONTINUOUS_OPACITY);
+  });
+
+  it('falls back to every layer when no view is known', () => {
+    expect(layersOfView(layers, undefined)).toBe(layers);
   });
 });

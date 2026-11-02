@@ -60,6 +60,12 @@ function nudgeSlice(stepMultiplier: number): void {
   getSliceNavigationService().stepSlice(viewId, stepMultiplier);
 }
 
+/** Edit › Undo: an exclusion in the BIDS browser first, as ⌘Z does there. */
+async function menuUndo(): Promise<void> {
+  const { undoBidsExclusion } = await import("@/hooks/useBidsShortcuts");
+  if (!undoBidsExclusion()) editCommand("undo", "menu");
+}
+
 export function useKeyboardShortcuts() {
   const timeNav = useTimeNavigation();
   const service = getKeyboardShortcutService();
@@ -71,7 +77,8 @@ export function useKeyboardShortcuts() {
     void safeListen<{ action?: string }>("edit-action", (event) => {
       const action = event.payload?.action;
       if (action === "select-all") selectAllInFocusedField();
-      else if (action === "undo" || action === "redo") editCommand(action, "menu");
+      else if (action === "undo") void menuUndo();
+      else if (action === "redo") editCommand(action, "menu");
     }).then((fn) => {
       if (disposed) void safeUnlisten(fn);
       else unlisten = fn;

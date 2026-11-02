@@ -1,7 +1,9 @@
 //! Owned transfer workers. Cancellation is observed inside the blocking runtime
 //! adapter, so dropping an outer timeout never abandons a writer or its permit.
 use super::{map_remotely_error, BridgeError, BridgeResult, RemoteMountEntry};
+use crate::bids_index::remote::{RemoteEntry, RemoteKind};
 use crate::remote_transfer;
+use futures::StreamExt;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -9,6 +11,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
 
 #[derive(Clone, Debug, Serialize)]
@@ -187,6 +190,208 @@ pub(crate) async fn list_owned(
     })
     .await
     .map_err(|e| error(&e.to_string()))?
+}
+
+/// Compressed bytes read before giving up on a header. Far above any real file:
+/// a NIfTI header inflates from the first few hundred bytes of the stream.
+const MAX_HEADER_PREFIX: usize = 1 << 20;
+
+/// Stream a file's start until its NIfTI header is complete, then drop the
+/// reader, which closes the remote handle.
+async fn stream_header(
+    fs: &remotely::RemoteFs,
+    path: &str,
+) -> BridgeResult<nifti_loader::HeaderSummary> {
+    let mut reader = fs
+        .open_reader(path)
+        .await
+        .map_err(|e| map_remotely_error(e, 8218))?;
+    let mut prefix = Vec::new();
+    let mut chunk = vec![0u8; 16 * 1024];
+    while prefix.len() < MAX_HEADER_PREFIX {
+        let read = reader
+            .read(&mut chunk)
+            .await
+            .map_err(|e| error(&format!("Unable to read remote header: {e}")))?;
+        if read == 0 {
+            break;
+        }
+        prefix.extend_from_slice(&chunk[..read]);
+        match nifti_loader::header_summary_from_prefix(&prefix) {
+            Ok(Some(summary)) => return Ok(summary),
+            Ok(None) => {}
+            Err(e) => return Err(error(&e.to_string())),
+        }
+    }
+    Err(error("File has no complete NIfTI header"))
+}
+
+/// One operation under a mount permit and a deadline. Nothing here touches the
+/// cache, so the admission lock is not taken; the permit bounds these reads with
+/// every other operation, and unmount waits for them.
+async fn under_permit<T>(
+    mount: &RemoteMountEntry,
+    deadline: Duration,
+    timed_out: &str,
+    operation: impl std::future::Future<Output = BridgeResult<T>>,
+) -> BridgeResult<T> {
+    let _permit = mount
+        .op_semaphore
+        .acquire()
+        .await
+        .map_err(|_| error("Remote mount closed"))?;
+    if mount.transfers.is_stopped() {
+        return Err(error("Remote mount has been unmounted"));
+    }
+    tokio::time::timeout(deadline, operation)
+        .await
+        .map_err(|_| error(timed_out))?
+}
+
+/// Read headers without downloading files.
+pub(crate) async fn read_headers(
+    mount: &RemoteMountEntry,
+    paths: &[String],
+) -> Vec<BridgeResult<nifti_loader::HeaderSummary>> {
+    futures::stream::iter(paths)
+        .map(|path| {
+            under_permit(
+                mount,
+                crate::REMOTE_FS_OPERATION_TIMEOUT,
+                "Timed out reading the remote header",
+                stream_header(mount.client.fs(), path),
+            )
+        })
+        .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
+        .collect()
+        .await
+}
+
+/// A link's target, or `None` when it has none.
+async fn resolve_link(
+    mount: &RemoteMountEntry,
+    path: &Path,
+) -> BridgeResult<Option<remotely::fs::Metadata>> {
+    under_permit(
+        mount,
+        crate::REMOTE_FS_OPERATION_TIMEOUT,
+        "Timed out checking a remote link",
+        async {
+            match mount.client.fs().stat(path).await {
+                Ok(metadata) => Ok(Some(metadata)),
+                Err(remotely::Error::Fs(remotely::error::FsError::NotFound { .. })) => Ok(None),
+                Err(e) => Err(map_remotely_error(e, 8243)),
+            }
+        },
+    )
+    .await
+}
+
+fn remote_entry(
+    name: String,
+    symlink: bool,
+    metadata: Option<&remotely::fs::Metadata>,
+) -> RemoteEntry {
+    use remotely::fs::FileType;
+    let kind = match metadata.map(|metadata| metadata.file_type) {
+        None => RemoteKind::Dangling,
+        Some(FileType::File) => RemoteKind::File,
+        Some(FileType::Directory) => RemoteKind::Directory,
+        Some(_) => RemoteKind::Other,
+    };
+    RemoteEntry {
+        name,
+        kind,
+        size: metadata.map_or(0, |metadata| metadata.size),
+        modified: metadata.and_then(|metadata| metadata.modified),
+        symlink,
+    }
+}
+
+/// One directory, with links resolved so sizes and times describe their targets.
+async fn list_directory(mount: &RemoteMountEntry, path: &str) -> BridgeResult<Vec<RemoteEntry>> {
+    let entries = under_permit(
+        mount,
+        crate::REMOTE_FS_OPERATION_TIMEOUT,
+        "Timed out listing the remote directory",
+        async {
+            mount
+                .client
+                .fs()
+                .list(Path::new(path))
+                .await
+                .map_err(|e| map_remotely_error(e, 8216))
+        },
+    )
+    .await?;
+    futures::stream::iter(entries)
+        .map(|entry| async move {
+            if !entry.is_symlink() {
+                return Ok(remote_entry(entry.name, false, Some(&entry.metadata)));
+            }
+            let target = resolve_link(mount, &entry.path).await?;
+            Ok(remote_entry(entry.name, true, target.as_ref()))
+        })
+        .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
+        .collect::<Vec<BridgeResult<RemoteEntry>>>()
+        .await
+        .into_iter()
+        .collect()
+}
+
+/// List directories on the server, one result per path, in order.
+pub(crate) async fn list_directories(
+    mount: &RemoteMountEntry,
+    paths: &[String],
+) -> Vec<BridgeResult<Vec<RemoteEntry>>> {
+    futures::stream::iter(paths)
+        .map(|path| list_directory(mount, path))
+        .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
+        .collect()
+        .await
+}
+
+/// A table read over a slow link takes longer than a stat.
+const REMOTE_FILE_READ_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// A whole file of at most `max_bytes`. The bound holds even if the file grew
+/// since it was listed.
+async fn read_capped(fs: &remotely::RemoteFs, path: &str, max_bytes: u64) -> BridgeResult<Vec<u8>> {
+    let mut reader = fs
+        .open_reader(path)
+        .await
+        .map_err(|e| map_remotely_error(e, 8218))?;
+    let mut bytes = Vec::new();
+    (&mut reader)
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|e| error(&format!("Unable to read remote file: {e}")))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(error("Remote file is larger than the scan reads"));
+    }
+    Ok(bytes)
+}
+
+/// Fetch small files into memory, one result per path, in order. Nothing is
+/// written to the cache.
+pub(crate) async fn read_files(
+    mount: &RemoteMountEntry,
+    paths: &[String],
+    max_bytes: u64,
+) -> Vec<BridgeResult<Vec<u8>>> {
+    futures::stream::iter(paths)
+        .map(|path| {
+            under_permit(
+                mount,
+                REMOTE_FILE_READ_TIMEOUT,
+                "Timed out reading the remote file",
+                read_capped(mount.client.fs(), path, max_bytes),
+            )
+        })
+        .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
+        .collect()
+        .await
 }
 
 pub(crate) async fn download_owned(

@@ -12,6 +12,7 @@ import { AxisBottom } from '@visx/axis';
 import { Group } from '@visx/group';
 import { useTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
 import type { BidsEventRow } from '@/stores/bidsStore';
+import { colorForTrialType } from './trialTypeColor';
 
 // ---------------------------------------------------------------------------
 // Design constants — 4px grid
@@ -30,25 +31,6 @@ const labelColor = 'hsla(var(--foreground) / 0.75)';
 // Okabe-Ito palette — colorblind-safe deterministic assignment
 // ---------------------------------------------------------------------------
 
-const OKABE_ITO = [
-  '#E69F00', // orange
-  '#56B4E9', // sky blue
-  '#009E73', // green
-  '#F0E442', // yellow
-  '#0072B2', // blue
-  '#D55E00', // vermillion
-  '#CC79A7', // reddish purple
-];
-
-function colorForTrialType(trialType: string): string {
-  if (/baseline|fixation|rest|null/i.test(trialType)) return '#888888';
-  let hash = 0;
-  for (let i = 0; i < trialType.length; i++) {
-    hash = ((hash << 5) - hash + trialType.charCodeAt(i)) | 0;
-  }
-  return OKABE_ITO[Math.abs(hash) % OKABE_ITO.length];
-}
-
 // ---------------------------------------------------------------------------
 // Tooltip
 // ---------------------------------------------------------------------------
@@ -57,7 +39,7 @@ interface EventTooltipData {
   trialType: string;
   onset: number;
   duration: number;
-  additional: Record<string, string>;
+  additional: Record<string, string | undefined>;
 }
 
 const tooltipStyles: React.CSSProperties = {
@@ -77,7 +59,13 @@ const tooltipStyles: React.CSSProperties = {
 // Legend strip
 // ---------------------------------------------------------------------------
 
-function TimelineLegend({ trialTypes }: { trialTypes: string[] }) {
+export function TimelineLegend({
+  trialTypes,
+  colors,
+}: {
+  trialTypes: string[];
+  colors?: ReadonlyMap<string, string>;
+}) {
   return (
     <div
       style={{
@@ -97,12 +85,12 @@ function TimelineLegend({ trialTypes }: { trialTypes: string[] }) {
               display: 'inline-block',
               width: 10,
               height: 10,
-              background: colorForTrialType(t),
+              background: colors?.get(t) ?? colorForTrialType(t),
               borderRadius: 1,
               flexShrink: 0,
             }}
           />
-          {t}
+          {t || 'no trial_type'}
         </span>
       ))}
     </div>

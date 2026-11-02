@@ -39,17 +39,17 @@ naga = "=0.20.1"
 
 # --- Pinned core dependencies for reproducible builds ---
 nalgebra = "=0.32.6"
-serde = { version = "=1.0.215", features = ["derive"] }
+serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.133"
 ts-rs = "=10.1.0"
 anyhow = "=1.0.93"
-tokio = { version = "=1.40.0", features = ["full"] }
+tokio = { version = "=1.47.1", features = ["full"] }
 thiserror = "=1.0.69"
 futures = "=0.3.31"
 # Additional pinned dependencies for security and stability
-chrono = { version = "=0.4.38", features = ["serde"] }
+chrono = { version = "=0.4.45", features = ["serde"] }
 uuid = { version = "=1.11.0", features = ["v4", "serde"] }
-log = "=0.4.22"
+log = "=0.4.33"
 env_logger = "=0.11.5"
 
 # --- Atlas and Template dependencies ---
@@ -61,7 +61,7 @@ gifti = { git = "https://github.com/bbuchsbaum/gifti-rs", rev = "00520ee8d00f8a2
 neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "43157797699c76b9cb81fb9036de74901673905c" }
 
 # --- BIDS support ---
-bids-rs = { git = "https://github.com/bbuchsbaum/bids-rs", rev = "3095be8728a3f049c0f63deb17d06affba2db339" }
+bids-rs = { git = "https://github.com/bbuchsbaum/bids-rs", rev = "c7021c55da04bb1a6a2b3e6642266381174a0faa" }
 
 [profile.release]
 lto = true
@@ -89,6 +89,9 @@ opt-level = 2
 opt-level = 2
 
 [profile.dev.package.volmath]
+opt-level = 2
+
+[profile.dev.package.volume_service]
 opt-level = 2
 
 # Atlas ROI palette generation is pure CPU number-crunching (slice-conflict graph

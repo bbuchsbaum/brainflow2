@@ -3,6 +3,8 @@
  * (persistence layer, integrated workspace composition).
  */
 
+import type { ReactNode } from 'react';
+
 export type DockSizes = readonly [number, number, number];
 
 export const DEFAULT_DOCK_SIZES: DockSizes = [50, 30, 20] as const;
@@ -28,6 +30,13 @@ export const DOCK_TABS: ReadonlyArray<{ id: CoreDockTabId; label: string }> = [
   { id: 'clusters', label: 'Clusters' },
   { id: 'log', label: 'Log' },
 ] as const;
+
+/** A tab a workspace adds to its own dock, with its body (see `CenterWithBottomDock`). */
+export interface DockExtraTab {
+  id: string;
+  title: string;
+  content: ReactNode;
+}
 
 /** Default active tab — Plot is first-class (Design.md §1.5) and the user's focus. */
 export const DEFAULT_DOCK_TAB: CoreDockTabId = 'plot';

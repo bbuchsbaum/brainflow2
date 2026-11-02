@@ -1,0 +1,18 @@
+export type BidsSliceImage = {
+    png_base64: string;
+    width: number;
+    height: number;
+    /**
+     * World z of the slice actually drawn; `None` for a carpet.
+     */
+    world_z_mm: number | null;
+    /**
+     * Data values at black and white (2nd and 98th percentile of nonzero voxels).
+     */
+    window_low: number;
+    window_high: number;
+    /**
+     * Volumes averaged into the image.
+     */
+    volumes_used: number;
+};

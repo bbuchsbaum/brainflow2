@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-bids-slice"
+description = "Enables the get_bids_slice command without any pre-configured scope."
+commands.allow = ["get_bids_slice"]
+
+[[permission]]
+identifier = "deny-get-bids-slice"
+description = "Denies the get_bids_slice command without any pre-configured scope."
+commands.deny = ["get_bids_slice"]

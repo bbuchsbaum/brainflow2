@@ -7,6 +7,7 @@
 import { EmptyPane } from '@/components/ui/bf';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
+import { openingInWorkspace, useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import {
   openFileDialog,
   openFileShortcut,
@@ -17,10 +18,21 @@ import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 
 export function EmptyStackOverlay() {
   const hasVolume = useViewStateStore((s) => s.viewState.layers.some((l) => !!l.volumeId));
+  const showsVolume = useViewStateStore((s) => s.viewState.layers.some((l) => !!l.volumeId && l.visible));
+  const workspaceId = useViewStateStore((s) => s.activeWorkspaceKey);
+  // The queue knows from the first moment; a 25 s read is not an empty view.
+  const opening = useLoadingQueueStore((s) => openingInWorkspace(s, workspaceId));
   const loading = useLayerStore((s) => s.loadingLayers.size > 0);
   // The hint names what the user can do now: nothing is in Files until a
   // directory is mounted (v5 function critic).
   const mounted = useFileBrowserStore((s) => s.rootPath.trim().length > 0 || s.entries.length > 0);
+  if (opening && !showsVolume) {
+    return (
+      <div className="pointer-events-none absolute inset-0 z-[5] bg-bf-bg-canvas" data-testid="orthogonal-opening">
+        <EmptyPane title={`Opening ${opening}`} />
+      </div>
+    );
+  }
   if (hasVolume || loading) return null;
   return (
     <div

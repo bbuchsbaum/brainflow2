@@ -61,7 +61,7 @@ neuroatlas = { workspace = true }  # For surface template loading
 nifti = { version = "0.17", features = ["ndarray_volumes"] }
 ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
 directories = "5"
-remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "ea3732a2c12153e2c2c6256f149c67ccc5fc398d" }
+remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "48238698343033c981cec16f8a7b4ed895e8ee45" }
 keyring = "2.3"
 sha2 = "0.10"
 csv = "1.3"
@@ -69,7 +69,7 @@ bids-rs = { workspace = true }
 
 [dev-dependencies]
 russh = { version = "0.55", features = ["aws-lc-rs"] }
-russh-sftp = "2.1"
+russh-sftp = "2.4"
 rand_core = "0.6"
 serde_json = "1.0" # For testing serialization
 pollster = "0.3"

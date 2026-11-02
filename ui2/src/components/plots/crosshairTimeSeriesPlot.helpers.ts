@@ -1,3 +1,4 @@
+import { trialTypeColors } from '@/components/bids/trialTypeColor';
 /**
  * Pure helpers for the crosshair time-series plot — extracted from the body
  * component so the body file can carry the react-refresh single-export
@@ -68,4 +69,47 @@ export function isLayerFourD(layerId: string | undefined): boolean {
   const ts = (layer as typeof layer & { timeSeriesInfo?: { num_timepoints: number } })
     .timeSeriesInfo;
   return Boolean(ts && ts.num_timepoints >= 2);
+}
+
+const eventColors = (events: readonly TimeEvent[]) =>
+  trialTypeColors(events.map((event) => event.trial_type));
+
+interface TimeEvent {
+  onset: number;
+  duration: number;
+  trial_type: string;
+}
+
+/** Events as bands in seconds; a zero-length event keeps a visible width. */
+export function eventBands(events: readonly TimeEvent[]) {
+  const colors = eventColors(events);
+  return events.map((event) => ({
+    x0: event.onset,
+    x1: event.onset + Math.max(event.duration, 0.2),
+    label: `${event.trial_type || 'Event'}, ${event.onset} s`,
+    color: colors.get(event.trial_type) as string,
+  }));
+}
+
+/** Marks volumes fMRIPrep flagged as non-steady-state, one step wide. */
+/** A layer's series with its flagged volumes out of the y scale; volumes count from the file's start. */
+export function steadyValues(values: readonly number[], flagged?: readonly number[]): readonly number[] {
+  if (!flagged?.length) return values;
+  const out = new Set(flagged);
+  return values.map((value, volume) => (out.has(volume) ? Number.NaN : value));
+}
+
+export function nonSteadyBands(volumes: readonly number[], at: (index: number) => number, step: number) {
+  return volumes.map((volume) => ({
+    x0: at(volume) - step / 2,
+    x1: at(volume) + step / 2,
+    label: `Non-steady-state volume ${volume + 1}, not in the y scale`,
+    color: NON_STEADY_COLOR,
+  }));
+}
+
+export const NON_STEADY_COLOR = 'var(--bf-text-faint)';
+
+export function eventLegend(events: readonly TimeEvent[]) {
+  return [...eventColors(events)].map(([label, color]) => ({ label: label || 'Events', color }));
 }

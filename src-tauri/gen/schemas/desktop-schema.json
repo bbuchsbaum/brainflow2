@@ -2187,10 +2187,10 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`",
+          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-scan-bids-browser`\n- `allow-cancel-bids-scan`\n- `allow-get-bids-run-detail`\n- `allow-get-bids-slice`\n- `allow-get-bids-median-slice`\n- `allow-get-bids-carpet`\n- `allow-write-bids-exclusions`\n- `allow-revert-bids-exclusions`\n- `allow-read-bids-exclusions`\n- `allow-get-bids-run-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric-plane`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`",
           "type": "string",
           "const": "api-bridge:default",
-          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`"
+          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-scan-bids-browser`\n- `allow-cancel-bids-scan`\n- `allow-get-bids-run-detail`\n- `allow-get-bids-slice`\n- `allow-get-bids-median-slice`\n- `allow-get-bids-carpet`\n- `allow-write-bids-exclusions`\n- `allow-revert-bids-exclusions`\n- `allow-read-bids-exclusions`\n- `allow-get-bids-run-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric-plane`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`"
         },
         {
           "description": "Enables every command of the analysis module.\n#### This permission set includes:\n\n- `allow-list-analyses`\n- `allow-start-analysis`\n- `allow-cancel-analysis`\n- `allow-get-analysis-job-status`",
@@ -2233,6 +2233,12 @@
           "type": "string",
           "const": "api-bridge:allow-cancel-analysis",
           "markdownDescription": "Enables the cancel_analysis command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cancel_bids_scan command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-cancel-bids-scan",
+          "markdownDescription": "Enables the cancel_bids_scan command without any pre-configured scope."
         },
         {
           "description": "Enables the cancel_population_sample command without any pre-configured scope.",
@@ -2289,10 +2295,10 @@
           "markdownDescription": "Enables the compute_region_stats command without any pre-configured scope."
         },
         {
-          "description": "Enables the compute_temporal_metric command without any pre-configured scope.",
+          "description": "Enables the compute_temporal_metric_plane command without any pre-configured scope.",
           "type": "string",
-          "const": "api-bridge:allow-compute-temporal-metric",
-          "markdownDescription": "Enables the compute_temporal_metric command without any pre-configured scope."
+          "const": "api-bridge:allow-compute-temporal-metric-plane",
+          "markdownDescription": "Enables the compute_temporal_metric_plane command without any pre-configured scope."
         },
         {
           "description": "Enables the create_offscreen_render_target command without any pre-configured scope.",
@@ -2385,10 +2391,40 @@
           "markdownDescription": "Enables the get_atlas_subscription_count command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_bids_carpet command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-bids-carpet",
+          "markdownDescription": "Enables the get_bids_carpet command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_bids_events command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-get-bids-events",
           "markdownDescription": "Enables the get_bids_events command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_bids_median_slice command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-bids-median-slice",
+          "markdownDescription": "Enables the get_bids_median_slice command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_bids_run_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-bids-run-detail",
+          "markdownDescription": "Enables the get_bids_run_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_bids_run_events command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-bids-run-events",
+          "markdownDescription": "Enables the get_bids_run_events command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_bids_slice command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-bids-slice",
+          "markdownDescription": "Enables the get_bids_slice command without any pre-configured scope."
         },
         {
           "description": "Enables the get_favorite_atlases command without any pre-configured scope.",
@@ -2655,6 +2691,12 @@
           "markdownDescription": "Enables the query_slice_axis_meta command without any pre-configured scope."
         },
         {
+          "description": "Enables the read_bids_exclusions command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-read-bids-exclusions",
+          "markdownDescription": "Enables the read_bids_exclusions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the recalculate_all_views command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-recalculate-all-views",
@@ -2757,6 +2799,12 @@
           "markdownDescription": "Enables the resize_canvas command without any pre-configured scope."
         },
         {
+          "description": "Enables the revert_bids_exclusions command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-revert-bids-exclusions",
+          "markdownDescription": "Enables the revert_bids_exclusions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the sample_layer_value_at_world command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-sample-layer-value-at-world",
@@ -2797,6 +2845,12 @@
           "type": "string",
           "const": "api-bridge:allow-save-image-bytes",
           "markdownDescription": "Enables the save_image_bytes command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the scan_bids_browser command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-scan-bids-browser",
+          "markdownDescription": "Enables the scan_bids_browser command without any pre-configured scope."
         },
         {
           "description": "Enables the scan_bids_dataset command without any pre-configured scope.",
@@ -2961,6 +3015,12 @@
           "markdownDescription": "Enables the wait_for_layer_ready command without any pre-configured scope."
         },
         {
+          "description": "Enables the write_bids_exclusions command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-write-bids-exclusions",
+          "markdownDescription": "Enables the write_bids_exclusions command without any pre-configured scope."
+        },
+        {
           "description": "Denies the add_render_layer command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-add-render-layer",
@@ -2995,6 +3055,12 @@
           "type": "string",
           "const": "api-bridge:deny-cancel-analysis",
           "markdownDescription": "Denies the cancel_analysis command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_bids_scan command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-cancel-bids-scan",
+          "markdownDescription": "Denies the cancel_bids_scan command without any pre-configured scope."
         },
         {
           "description": "Denies the cancel_population_sample command without any pre-configured scope.",
@@ -3051,10 +3117,10 @@
           "markdownDescription": "Denies the compute_region_stats command without any pre-configured scope."
         },
         {
-          "description": "Denies the compute_temporal_metric command without any pre-configured scope.",
+          "description": "Denies the compute_temporal_metric_plane command without any pre-configured scope.",
           "type": "string",
-          "const": "api-bridge:deny-compute-temporal-metric",
-          "markdownDescription": "Denies the compute_temporal_metric command without any pre-configured scope."
+          "const": "api-bridge:deny-compute-temporal-metric-plane",
+          "markdownDescription": "Denies the compute_temporal_metric_plane command without any pre-configured scope."
         },
         {
           "description": "Denies the create_offscreen_render_target command without any pre-configured scope.",
@@ -3147,10 +3213,40 @@
           "markdownDescription": "Denies the get_atlas_subscription_count command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_bids_carpet command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-bids-carpet",
+          "markdownDescription": "Denies the get_bids_carpet command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_bids_events command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-get-bids-events",
           "markdownDescription": "Denies the get_bids_events command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_bids_median_slice command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-bids-median-slice",
+          "markdownDescription": "Denies the get_bids_median_slice command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_bids_run_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-bids-run-detail",
+          "markdownDescription": "Denies the get_bids_run_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_bids_run_events command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-bids-run-events",
+          "markdownDescription": "Denies the get_bids_run_events command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_bids_slice command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-bids-slice",
+          "markdownDescription": "Denies the get_bids_slice command without any pre-configured scope."
         },
         {
           "description": "Denies the get_favorite_atlases command without any pre-configured scope.",
@@ -3417,6 +3513,12 @@
           "markdownDescription": "Denies the query_slice_axis_meta command without any pre-configured scope."
         },
         {
+          "description": "Denies the read_bids_exclusions command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-read-bids-exclusions",
+          "markdownDescription": "Denies the read_bids_exclusions command without any pre-configured scope."
+        },
+        {
           "description": "Denies the recalculate_all_views command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-recalculate-all-views",
@@ -3519,6 +3621,12 @@
           "markdownDescription": "Denies the resize_canvas command without any pre-configured scope."
         },
         {
+          "description": "Denies the revert_bids_exclusions command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-revert-bids-exclusions",
+          "markdownDescription": "Denies the revert_bids_exclusions command without any pre-configured scope."
+        },
+        {
           "description": "Denies the sample_layer_value_at_world command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-sample-layer-value-at-world",
@@ -3559,6 +3667,12 @@
           "type": "string",
           "const": "api-bridge:deny-save-image-bytes",
           "markdownDescription": "Denies the save_image_bytes command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the scan_bids_browser command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-scan-bids-browser",
+          "markdownDescription": "Denies the scan_bids_browser command without any pre-configured scope."
         },
         {
           "description": "Denies the scan_bids_dataset command without any pre-configured scope.",
@@ -3721,6 +3835,12 @@
           "type": "string",
           "const": "api-bridge:deny-wait-for-layer-ready",
           "markdownDescription": "Denies the wait_for_layer_ready command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the write_bids_exclusions command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-write-bids-exclusions",
+          "markdownDescription": "Denies the write_bids_exclusions command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

@@ -138,7 +138,7 @@ export function BidsSummaryStrip() {
       </MetricGroup>
 
       <MetricGroup label="Size">
-        {formatBytes(summary.total_size_bytes)}
+        {formatBytes(Number(summary.total_size_bytes))}
       </MetricGroup>
 
       <MetricGroup label="Validation">

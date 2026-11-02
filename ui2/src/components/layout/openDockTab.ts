@@ -1,4 +1,5 @@
 import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
+import { BIDS_RUNS_TAB } from '@/components/bids/bidsDock';
 import type { DockTabId } from './bottomWorkbenchDock.constants';
 
 /**
@@ -23,6 +24,7 @@ export function dockTabForPanel(panelType: string): DockTabId | null {
 /** First control to focus in a tab when a command opens it. */
 const FOCUS_TARGET: Partial<Record<DockTabId, string>> = {
   clusters: '[data-testid="cluster-panel"] #cluster-threshold:not([disabled]), [data-testid="cluster-panel"] button:not([disabled])',
+  [BIDS_RUNS_TAB]: '[data-testid="bids-runs-list"]',
 };
 
 /**

@@ -185,6 +185,6 @@ describe('layoutService.resetToDefaultLayout', () => {
       '"componentType":"StudioDesignPanel"',
       '"componentType":"Inspector"',
     ]);
-    expect(config.header).toEqual({ popout: false, tabDropdown: false });
+    expect(config.header).toEqual({ popout: false, tabDropdown: 'More tabs' });
   });
 });

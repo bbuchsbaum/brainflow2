@@ -9,6 +9,9 @@ import type { WorkspaceConfig, WorkspaceType } from '@/types/workspace';
  */
 export type WorkspacePresetId = 'studio' | 'bids';
 
+/** Named launches, plus marks a service puts on a tab it owns. */
+export type WorkspaceOriginId = WorkspacePresetId | 'bids-run-viewer';
+
 export interface WorkspacePreset {
   id: WorkspacePresetId;
   label: string;

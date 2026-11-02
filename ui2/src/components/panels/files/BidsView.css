@@ -78,3 +78,7 @@
   font-size: var(--app-text-xs);
   color: var(--bf-text-muted);
 }
+
+.fb-bids-follows {
+  color: var(--bf-text-faint);
+}

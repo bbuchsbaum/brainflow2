@@ -4,7 +4,7 @@
  * `noteFallback` so reviewers can see where the harness departs from the app.
  */
 import type { HarnessBackend } from './backend';
-import { BIDS_ROOT, REMOTE_MOUNT_DEMO } from './scenarioData';
+import { BIDS_BROWSER_ROOT, REMOTE_MOUNT_DEMO } from './scenarioData';
 import {
   ATLAS_PATH,
   FIG_LH_MID_PATH,
@@ -1592,12 +1592,14 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   },
   bids: async () => {
     await servicesReady();
-    await mountStudy([], BIDS_ROOT, 'ds-motor');
+    await mountStudy([], BIDS_BROWSER_ROOT, 'wm-reward');
     const { useWorkspaceStore } = await import('@/stores/workspaceStore');
     const { useBidsStore } = await import('@/stores/bidsStore');
     // Same pair of calls as the Files rail's "Open in workspace" action.
     await useWorkspaceStore.getState().createWorkspace('bids-explorer');
-    await useBidsStore.getState().scanDataset(BIDS_ROOT);
+    // `?bidsStream=hold-<n>` only ends on a cancel, so it is not awaited.
+    const scan = useBidsStore.getState().scanDataset(BIDS_BROWSER_ROOT);
+    if (!new URLSearchParams(window.location.search).has('bidsStream')) await scan;
     noteStep('BIDS explorer opened and dataset scanned');
   },
   studio: async () => {

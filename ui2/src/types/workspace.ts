@@ -5,7 +5,7 @@
 
 import type { LayoutConfig } from 'golden-layout';
 import type { ViewType } from './coordinates';
-import type { WorkspacePresetId } from './workspacePresets';
+import type { WorkspaceOriginId } from './workspacePresets';
 
 /**
  * Categories for organizing workspaces: views take a slice layout; tools open
@@ -42,7 +42,7 @@ export interface Workspace {
   id: string;                    // Unique workspace ID (e.g., 'mosaic-1234567890')
   type: WorkspaceType;          // Type of view configuration
   title: string;                // Display name for tab
-  presetId?: WorkspacePresetId | null; // Optional preset origin for reusable workflows
+  presetId?: WorkspaceOriginId | null; // Optional preset origin for reusable workflows
   timestamp: number;            // Creation timestamp
   /**
    * The label the tab last showed ("Orthogonal 2"). Kept so a tab's name
