@@ -22,12 +22,6 @@ const BATCH: usize = 32;
 const SKIPPED_NAMES: [&str; 3] = [".git", ".datalad", "sourcedata"];
 const DERIVATIVE_IMAGE_ENDINGS: [&str; 4] = [".nii", ".nii.gz", ".gii", ".mgz"];
 
-/// True for a name that stays in its directory. The transport drops `.` and
-/// `..`, but a name comes from the server and is joined into a server path.
-fn is_single_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RemoteKind {
     File,
@@ -98,7 +92,9 @@ impl Listing {
     }
 
     fn add(&mut self, directory: &str, entry: RemoteEntry, next: &mut Vec<String>) {
-        if !is_single_name(&entry.name) || SKIPPED_NAMES.contains(&entry.name.as_str()) {
+        if !crate::is_single_remote_name(&entry.name)
+            || SKIPPED_NAMES.contains(&entry.name.as_str())
+        {
             return;
         }
         let rel = match directory {
