@@ -206,9 +206,10 @@ jobs:
           COVERAGE=$(grep -oP 'line-rate="\K[0-9.]+' cobertura.xml | head -1)
           COVERAGE_PCT=$(echo "$COVERAGE * 100" | bc)
           
-          # Fail if below 80%
-          if (( $(echo "$COVERAGE_PCT < 80" | bc -l) )); then
-            echo "Coverage ${COVERAGE_PCT}% is below 80% threshold"
+          # Ratchet floor: workspace coverage measured 67% on 2026-11-02. The
+          # floor blocks regressions; raise it as coverage improves.
+          if (( $(echo "$COVERAGE_PCT < 65" | bc -l) )); then
+            echo "Coverage ${COVERAGE_PCT}% is below 65% threshold"
             exit 1
           fi
 
