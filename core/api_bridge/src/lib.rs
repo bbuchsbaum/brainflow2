@@ -5293,6 +5293,13 @@ async fn list_remote_directory(
         })
 }
 
+/// True for a directory entry name that stays in its directory. The SFTP
+/// transport drops `.` and `..`, but every other name comes from the server
+/// and is joined into a server path, so check it before following it.
+pub(crate) fn is_single_remote_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
+}
+
 fn join_remote_child(parent: &str, child: &str) -> String {
     if parent == "/" {
         format!("/{child}")
@@ -5334,6 +5341,9 @@ async fn list_remote_discovery_inventory_files(
             if visited > max_inventory_files.saturating_mul(32).max(1024) {
                 truncated = true;
                 break 'scan;
+            }
+            if !is_single_remote_name(&entry.name) {
+                continue;
             }
             let child_relative = if relative_dir.as_os_str().is_empty() {
                 PathBuf::from(&entry.name)
@@ -13197,6 +13207,16 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use volmath::{DenseNeuroVec, DenseVolume3, NeuroSpace, NeuroSpace3};
+
+    #[test]
+    fn a_remote_entry_name_must_stay_in_its_directory() {
+        for name in ["sub-01", "T1w.nii.gz", ".bidsignore", "..hidden", "a..b"] {
+            assert!(is_single_remote_name(name), "{name:?} should be accepted");
+        }
+        for name in ["", ".", "..", "../x", "a/b", "/abs", "a\\b", "..\\x"] {
+            assert!(!is_single_remote_name(name), "{name:?} should be rejected");
+        }
+    }
 
     fn get_test_data_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
