@@ -26,6 +26,7 @@ pub(crate) static MODULE: SegmentationModule = SegmentationModule;
 struct Record {
     workspace: WorkspaceIdentity,
     label_volume_id: String,
+    source_volume_ids: Vec<String>,
     session: Session,
 }
 pub(crate) struct SegmentationState {
@@ -58,7 +59,11 @@ impl BridgeModule for SegmentationModule {
             .map(|(id, _)| id.clone())
             .collect();
         ids.into_iter()
-            .filter_map(|id| sessions.remove(&id).map(|record| record.label_volume_id))
+            .flat_map(|id| {
+                sessions.remove(&id).into_iter().flat_map(|record| {
+                    std::iter::once(record.label_volume_id).chain(record.source_volume_ids)
+                })
+            })
             .collect()
     }
 }
@@ -181,6 +186,9 @@ async fn create(
     if sessions.values().any(|record| record.workspace == owner) {
         return Err(invalid("This workspace already has a segmentation session"));
     }
+    let source_volume_ids: Vec<_> = std::iter::once(request.reference_volume_id.clone())
+        .chain(request.secondary_volume_id.iter().cloned())
+        .collect();
     if request.labels.iter().any(|label| {
         usize::from(label.id) >= render_loop::texture_manager::COLORMAP_LUT_WIDTH as usize
     }) {
@@ -241,6 +249,23 @@ async fn create(
     let label_volume_id = format!("segmentation_labels_{id}");
     {
         let mut registry = state.volume_registry.lock().await;
+        // Validate every source and every increment before publishing the label
+        // document. Under volume_operations these entries remain stable through
+        // session installation, so no fallible path leaves a partial pin behind.
+        for source_id in &source_volume_ids {
+            let source = registry
+                .get_entry(source_id)
+                .ok_or_else(|| invalid("Segmentation source is no longer loaded"))?;
+            if source.metadata.volume_type != bridge_types::VolumeType::Volume3D {
+                return Err(invalid(
+                    "Segmentation sources must remain single 3D volumes",
+                ));
+            }
+            source
+                .document_references
+                .checked_add(1)
+                .ok_or_else(|| invalid("Segmentation source reference count is exhausted"))?;
+        }
         registry.insert_editable_labels(
             label_volume_id.clone(),
             volume,
@@ -276,10 +301,18 @@ async fn create(
                 full_labels: None,
             },
         );
+        for source_id in &source_volume_ids {
+            registry
+                .volumes
+                .get_mut(source_id)
+                .expect("validated segmentation source")
+                .document_references += 1;
+        }
     }
     let record = Record {
         workspace: owner,
         label_volume_id,
+        source_volume_ids,
         session,
     };
     let result = info(&record, state, None, &_operation).await;
@@ -327,7 +360,7 @@ async fn admit_edit(state: &BridgeState, record: &Record) -> BridgeResult<()> {
     let entry = registry
         .get_entry(&record.label_volume_id)
         .ok_or_else(|| invalid("Editable labels are no longer published"))?;
-    if !entry.retained_by_document
+    if entry.document_references == 0
         || entry.editable_revision != Some(record.session.volume().revision())
         || !matches!(entry.data.as_ref(), VolumeSendable::VolU16(_, _))
         || crate::get_spatial_dims_from_volume(&entry.data)[..3]
@@ -768,9 +801,100 @@ mod tests {
         state.modules.set_enabled(&[ID.into()]).await.unwrap();
         assert!(create(&state, setup()).await.is_err());
         assert!(get(&state, access(&created)).await.is_err());
+        // The last document release also frees its source pin. A fresh
+        // workspace must use a freshly loaded source, never resurrect one.
+        let source = DenseVolume3::from_data(
+            NeuroSpace::from_dims_spacing_origin(vec![5, 3, 7], vec![0.4, 2.0, 0.4], vec![0.0; 3])
+                .unwrap(),
+            vec![1f32; 105],
+        );
+        let affine = nalgebra::Affine3::from_matrix_unchecked(source.space().voxel_to_world());
+        state.volume_registry.lock().await.insert(
+            "reference".into(),
+            VolumeSendable::VolF32(source, affine),
+            VolumeMetadataInfo {
+                name: "Reloaded reference".into(),
+                path: "memory:reference-reloaded".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
         let mut next = setup();
         next.workspace_instance = "opaque-test-b".into();
         assert!(create(&state, next).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn shared_source_pins_survive_disabled_unload_until_the_last_workspace_disposes() {
+        use volume_service::VolumeRepository;
+
+        let state = tokio::task::spawn_blocking(state).await.unwrap();
+        {
+            let mut registry = state.volume_registry.lock().await;
+            let (data, metadata) = {
+                let reference = registry.get_entry("reference").unwrap();
+                (reference.data.as_ref().clone(), reference.metadata.clone())
+            };
+            registry.insert("secondary".into(), data, metadata);
+        }
+        let mut first_request = setup();
+        first_request.secondary_volume_id = Some("secondary".into());
+        first_request.registration = Some(bf_segmentation::Registration::Aligned {
+            confirmer: "rater-a".into(),
+            confirmed_at_ms: 1.0,
+            transform_hash: "shared-source-fixture".into(),
+            view: [0.0; 12],
+        });
+        let first = create(&state, first_request.clone()).await.unwrap();
+        let mut second_request = first_request;
+        second_request.workspace_instance = "opaque-test-b".into();
+        let second = create(&state, second_request).await.unwrap();
+        let painted_second = commit(&state, stroke(&second)).await.unwrap().session;
+
+        state.modules.set_enabled(&[]).await.unwrap();
+        crate::volume_loading::DesktopVolumeRepository(&state)
+            .remove("reference")
+            .await
+            .unwrap();
+        crate::volume_loading::DesktopVolumeRepository(&state)
+            .remove("secondary")
+            .await
+            .unwrap();
+        {
+            let registry = state.volume_registry.lock().await;
+            for id in ["reference", "secondary"] {
+                assert!(registry.contains(id), "disabled unload retained {id}");
+                assert_eq!(registry.get_entry(id).unwrap().document_references, 2);
+            }
+        }
+
+        state
+            .modules
+            .dispose_workspace(&state, &access(&first).workspace)
+            .await
+            .unwrap();
+        {
+            let registry = state.volume_registry.lock().await;
+            for id in ["reference", "secondary"] {
+                assert!(registry.contains(id), "other document still pins {id}");
+                assert_eq!(registry.get_entry(id).unwrap().document_references, 1);
+            }
+        }
+        state.modules.set_enabled(&[ID.into()]).await.unwrap();
+        let restored = get(&state, access(&painted_second)).await.unwrap();
+        assert_eq!(restored.snapshot.undo, painted_second.snapshot.undo);
+        assert_eq!(restored.snapshot.labels[0].voxels, 5.0);
+
+        state.modules.set_enabled(&[]).await.unwrap();
+        state
+            .modules
+            .dispose_workspace(&state, &access(&painted_second).workspace)
+            .await
+            .unwrap();
+        let registry = state.volume_registry.lock().await;
+        assert!(!registry.contains("reference"));
+        assert!(!registry.contains("secondary"));
     }
 
     #[tokio::test]

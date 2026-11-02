@@ -205,7 +205,7 @@ impl ModuleHost {
             .await
             .volumes
             .values()
-            .any(|entry| entry.retained_by_document);
+            .any(|entry| entry.document_references > 0);
         DocumentExitGuard {
             _gate: gate,
             approved: &self.exit_approved,
@@ -310,8 +310,8 @@ impl ModuleHost {
         for module in self.modules {
             volumes.extend(module.on_workspace_dispose(&ctx, workspace).await);
         }
-        volumes.sort();
-        volumes.dedup();
+        // Keep one entry per document reference. Sources can be shared by
+        // sessions, so deduplicating here would leak a retained reference.
         crate::editable_labels::release_documents_locked(state, &volumes).await;
         Ok(())
     }

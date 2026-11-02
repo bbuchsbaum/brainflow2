@@ -29,7 +29,7 @@ impl VolumeRegistry {
         self.insert(id.clone(), data, metadata);
         let entry = self.volumes.get_mut(&id).expect("inserted volume");
         entry.editable_revision = Some(revision);
-        entry.retained_by_document = true;
+        entry.document_references = 1;
         Ok(())
     }
 
@@ -235,19 +235,33 @@ pub(crate) async fn release_documents_locked(state: &crate::BridgeState, volume_
     };
     let mut samplers = state.surface_samplers.lock().await;
     let mut registry = state.volume_registry.lock().await;
+    let mut decremented = Vec::with_capacity(volume_ids.len());
     for id in volume_ids {
         let Some(entry) = registry.volumes.get_mut(id) else {
             continue;
         };
-        entry.retained_by_document = false;
-        if !displayed.contains(id) {
-            crate::volume_loading::release_volume(
-                renderer.as_deref_mut(),
-                &mut samplers,
-                &mut registry,
-                id,
-            );
+        if entry.document_references == 0 {
+            continue;
         }
+        entry.document_references -= 1;
+        decremented.push(id.clone());
+    }
+    let releasable: std::collections::HashSet<_> = decremented
+        .into_iter()
+        .filter(|id| {
+            !displayed.contains(id)
+                && registry
+                    .get_entry(id)
+                    .is_some_and(|entry| entry.document_references == 0)
+        })
+        .collect();
+    for id in releasable {
+        crate::volume_loading::release_volume(
+            renderer.as_deref_mut(),
+            &mut samplers,
+            &mut registry,
+            &id,
+        );
     }
 }
 
@@ -601,7 +615,8 @@ mod tests {
                 .await
                 .get_entry("labels")
                 .unwrap()
-                .retained_by_document
+                .document_references
+                > 0
         );
         state.layer_to_volume_map.lock().await.clear();
         crate::volume_loading::DesktopVolumeRepository(&state)

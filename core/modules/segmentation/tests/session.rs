@@ -167,6 +167,44 @@ fn all_tools_protect_locks_and_background_only_reports_the_blocked_label() {
 }
 
 #[test]
+fn eraser_is_active_label_local_for_every_paint_policy_and_undoes_exactly() {
+    for paint_over in [PaintOver::Background, PaintOver::Unlocked, PaintOver::All] {
+        let mut s = session();
+        let seed = stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.41, Tool::Brush);
+        s.stroke(&seed).unwrap();
+        let mut other = stroke(&s, 2, &[[2.0, 1.0, 3.0]], 0.15, Tool::Brush);
+        other.paint_over = PaintOver::All;
+        s.stroke(&other).unwrap();
+        s.set_label_state(&owner(&s), 2, true, false).unwrap();
+        let before = s.volume().dense().unwrap();
+
+        let mut erase = stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.41, Tool::Eraser);
+        erase.paint_over = paint_over;
+        let preview = s.preview(&erase).unwrap();
+        assert_eq!(preview.written.len(), 4, "{paint_over:?}");
+        assert!(preview.blocked.is_empty(), "{paint_over:?}");
+        assert_eq!(s.volume().get([2, 1, 3]).unwrap().label, 2);
+
+        let (committed, change) = s.stroke(&erase).unwrap();
+        assert_eq!(committed.written, preview.written, "{paint_over:?}");
+        assert_eq!(
+            change.changed_voxels,
+            preview.written.len(),
+            "{paint_over:?}"
+        );
+        assert_eq!(s.volume().get([2, 1, 3]).unwrap().label, 2);
+        s.undo(&owner(&s), false).unwrap();
+        assert_eq!(s.volume().dense().unwrap(), before, "{paint_over:?}");
+    }
+
+    let mut s = session();
+    s.set_label_state(&owner(&s), 1, true, false).unwrap();
+    assert!(s
+        .preview(&stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.15, Tool::Eraser))
+        .is_err());
+}
+
+#[test]
 fn workspace_instance_session_and_revision_are_checked_before_mutation() {
     let mut s = session();
     let request = stroke(&s, 1, &[[2.0, 1.0, 3.0]], 0.15, Tool::Brush);

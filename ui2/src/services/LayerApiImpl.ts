@@ -1,4 +1,4 @@
-import { volumeDocumentRemovalReason } from '@/services/workspaceDocuments';
+import { volumeDocumentRemovalReason, reserveDocumentVolumeRemoval } from '@/services/workspaceDocuments';
 import { layerRenderMode, requireLayerKind } from '@/modules/layerKinds';
 /**
  * LayerApiImpl - Backend implementation of LayerApi
@@ -839,8 +839,11 @@ export class LayerApiImpl implements LayerApi {
     if (blocked) return Promise.reject(new Error(blocked));
     const inFlight = this.removals.get(id);
     if (inFlight) return inFlight;
+    let release: () => void;
+    try { release = reserveDocumentVolumeRemoval(volumeId); } catch (error) { return Promise.reject(error); }
     this.removalSeq.set(id, (this.removalSeq.get(id) ?? 0) + 1);
     const removal = this.removeLayerOnce(id).finally(() => {
+      release();
       if (this.removals.get(id) === removal) this.removals.delete(id);
     });
     this.removals.set(id, removal);

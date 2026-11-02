@@ -10,7 +10,8 @@ import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useSeriesStore } from '@/stores/seriesStore';
 
 const mockDocumentRemovalReason = vi.hoisted(() => vi.fn((): string | null => null));
-vi.mock('@/services/workspaceDocuments', () => ({ volumeDocumentRemovalReason: mockDocumentRemovalReason }));
+const mockRemovalAdmission = vi.hoisted(() => ({ reserve: vi.fn(), release: vi.fn() }));
+vi.mock('@/services/workspaceDocuments', () => ({ volumeDocumentRemovalReason: mockDocumentRemovalReason, reserveDocumentVolumeRemoval: mockRemovalAdmission.reserve }));
 
 const {
   mockApiService,
@@ -121,6 +122,19 @@ interface Internals {
 }
 
 describe('LayerApiImpl', () => {
+  it('holds source-removal admission through deferred GPU release and unload', async () => {
+    let finish!: () => void;
+    mockApiService.releaseLayerGpuResources.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    mockLayerStoreState.getLayer.mockReturnValue({ id: 'removing-layer', volumeId: 'removing-volume', name: 'Reference' });
+    const pending = new LayerApiImpl().removeLayer('removing-layer');
+    expect(mockRemovalAdmission.reserve).toHaveBeenCalledWith('removing-volume');
+    expect(mockRemovalAdmission.release).not.toHaveBeenCalled();
+    expect(mockApiService.unloadVolume).not.toHaveBeenCalled();
+    finish(); await pending;
+    expect(mockApiService.unloadVolume).toHaveBeenCalledWith('removing-volume');
+    expect(mockRemovalAdmission.release).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a retained source before GPU release, unload or queue/store mutation', async () => {
     mockLayerStoreState.getLayer.mockReturnValue({ id: 'reference-layer', volumeId: 'reference-volume', name: 'Reference' });
     mockDocumentRemovalReason.mockReturnValue('Close the session before removing this image.');
@@ -135,6 +149,7 @@ describe('LayerApiImpl', () => {
 
   beforeEach(() => {
     mockDocumentRemovalReason.mockReturnValue(null);
+    mockRemovalAdmission.reserve.mockImplementation(() => mockRemovalAdmission.release);
     vi.clearAllMocks();
     mockQueueState.isLoading.mockReturnValue(false);
     mockQueueState.enqueue.mockReturnValue('queue-1');

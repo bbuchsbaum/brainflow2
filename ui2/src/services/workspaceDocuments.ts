@@ -27,6 +27,7 @@ type RetainedDocument = WorkspaceDocumentIdentity & RetainWorkspaceDocumentOptio
 };
 
 const documents = new Map<string, RetainedDocument>();
+const volumeRemovals = new Map<string, symbol>();
 const closeRequests = new Map<string, Promise<boolean>>();
 
 const ownedWorkspace = (workspaceId: string) => {
@@ -48,14 +49,15 @@ export function retainWorkspaceDocument(
   const workspace = ownedWorkspace(workspaceId);
   if (!workspace) throw new Error(`Cannot retain unknown workspace ${workspaceId}`);
   const existing = documents.get(workspaceId);
+  const dependencies = [...new Set([...(existing?.protectedVolumeIds ?? []), ...(options.protectedVolumeIds ?? [])])];
+  if (dependencies.some((id) => volumeRemovals.has(id))) throw new Error('A required image is being removed. Wait for removal to finish and select a loaded image.');
   if (existing) {
     if (existing.timestamp !== workspace.timestamp) {
       throw new Error(`Workspace ${workspaceId} has a stale retained document; discard its identity first`);
     }
     // Module parking/reactivation recreates callbacks. The shell owns identity,
     // but the current activation owns the latest freeze callback and label.
-    const protectedVolumeIds = [...new Set([...(existing.protectedVolumeIds ?? []), ...(options.protectedVolumeIds ?? [])])];
-    Object.assign(existing, options, { protectedVolumeIds });
+    Object.assign(existing, options, { protectedVolumeIds: dependencies });
     return { workspaceId: existing.workspaceId, workspaceInstance: existing.workspaceInstance };
   }
   const retained: RetainedDocument = {
@@ -63,6 +65,7 @@ export function retainWorkspaceDocument(
     workspaceInstance: crypto.randomUUID(),
     timestamp: workspace.timestamp,
     ...options,
+    protectedVolumeIds: dependencies,
   };
   documents.set(workspaceId, retained);
   installWorkspaceCloseGuard(workspaceId);
@@ -75,6 +78,16 @@ export function volumeDocumentRemovalReason(volumeId: string): string | null {
     if (document.protectedVolumeIds?.includes(volumeId)) return `Close ${document.label ?? 'the workspace session'} before removing this image.`;
   }
   return null;
+}
+
+/** Synchronous admission shared with retention; held through every teardown await. */
+export function reserveDocumentVolumeRemoval(volumeId: string): () => void {
+  const blocked = volumeDocumentRemovalReason(volumeId);
+  if (blocked) throw new Error(blocked);
+  if (volumeRemovals.has(volumeId)) throw new Error('This image is already being removed.');
+  const token = Symbol(volumeId);
+  volumeRemovals.set(volumeId, token);
+  return () => { if (volumeRemovals.get(volumeId) === token) volumeRemovals.delete(volumeId); };
 }
 
 export const workspaceHasDocument = (workspaceId: string): boolean => documents.has(workspaceId);

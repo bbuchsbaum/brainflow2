@@ -489,7 +489,15 @@ impl Session {
             } else {
                 stroke.label_id
             };
-            if current == next || (stroke.tool == Tool::Eraser && current != stroke.label_id) {
+            if current == next {
+                continue;
+            }
+            if stroke.tool == Tool::Eraser {
+                // Erasing is label-local: paint-over policy never allows an
+                // eraser to clear another label, locked or otherwise.
+                if current == stroke.label_id {
+                    written.push(voxel);
+                }
                 continue;
             }
             if current != 0

@@ -994,7 +994,7 @@ pub struct VolumeEntry {
     /// Mutable core label data; absent for immutable loaded images.
     pub editable_revision: Option<u64>,
     /// An open editing document retains CPU data independently of display layers.
-    pub retained_by_document: bool,
+    pub document_references: usize,
     /// Header captured at acquisition; editing must not re-read a changed path.
     pub source_nifti_header: Option<Arc<[u8]>>,
 }
@@ -1094,7 +1094,7 @@ impl VolumeRegistry {
                 current_timepoint,
                 metadata,
                 editable_revision: None,
-                retained_by_document: false,
+                document_references: 0,
                 source_nifti_header: None,
             },
         );
@@ -1173,7 +1173,7 @@ impl VolumeRegistry {
         if self
             .volumes
             .get(id)
-            .is_some_and(|entry| entry.retained_by_document)
+            .is_some_and(|entry| entry.document_references > 0)
         {
             return None;
         }

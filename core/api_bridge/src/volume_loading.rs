@@ -469,7 +469,7 @@ impl VolumeRepository for DesktopVolumeRepository<'_> {
         }
         if registry
             .get_entry(volume_id)
-            .is_some_and(|entry| entry.retained_by_document)
+            .is_some_and(|entry| entry.document_references > 0)
         {
             // Releasing the last display reference must not discard an open document.
             return Ok(());

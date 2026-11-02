@@ -9,6 +9,7 @@ import {
   retainWorkspaceDocument,
   workspaceHasDocument,
   volumeDocumentRemovalReason,
+  reserveDocumentVolumeRemoval,
 } from '../workspaceDocuments';
 
 const workspace = (id: string, timestamp: number): Workspace => ({
@@ -23,6 +24,17 @@ function put(id: string, timestamp = 1) {
 }
 
 describe('workspace documents', () => {
+  it('refuses setup retention while a required source removal is in flight', () => {
+    put('removing-source');
+    const release = reserveDocumentVolumeRemoval('removing-reference');
+    expect(() => retainWorkspaceDocument('removing-source', { moduleId: 'segmentation', protectedVolumeIds: ['removing-reference'] })).toThrow('being removed');
+    expect(workspaceHasDocument('removing-source')).toBe(false);
+    expect(transport.getCallLog()).toEqual([]);
+    release();
+    const identity = retainWorkspaceDocument('removing-source', { moduleId: 'segmentation', protectedVolumeIds: ['removing-reference'] });
+    expect(isLiveWorkspaceDocument(identity)).toBe(true);
+    expect(() => reserveDocumentVolumeRemoval('removing-reference')).toThrow('before removing');
+  });
   it('keeps required images protected through parking, callback refresh and failed disposal', async () => {
     put('source-guard');
     const identity = retainWorkspaceDocument('source-guard', { moduleId: 'segmentation', protectedVolumeIds: ['reference', 'secondary'] });
