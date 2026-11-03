@@ -1549,6 +1549,8 @@ struct LayerGpuReleasedEvent {
 struct WatchdogParts {
     leases: Arc<Mutex<HashMap<String, Arc<LayerLease>>>>,
     layer_map: Arc<Mutex<HashMap<String, u32>>>,
+    layer_volumes: Arc<Mutex<HashMap<String, String>>>,
+    volume_registry: Arc<Mutex<VolumeRegistry>>,
     render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
     last_drawn: Arc<Mutex<HashMap<String, Instant>>>,
 }
@@ -1557,9 +1559,12 @@ struct WatchdogParts {
 ///
 /// A lease is stale when its layer has no atlas mapping, or when it is older
 /// than `stale_age` and no frame drew it within `stale_age`. Never released:
-/// a layer the last frame drew, and an editable label texture (an open
+/// a layer the last frame drew, an editable label texture (an open
 /// segmentation document's slot; releasing it behind the document loses its
-/// claim, N34).
+/// claim, N34), and a layer of a volume an open document references (a
+/// segmentation session's reference, secondary or frozen frame: its native
+/// view draws it on demand, so a tab left behind for longer than the stale
+/// age must not come back to a re-upload, QA r0 2026-11-02).
 async fn layer_watchdog_sweep(parts: &WatchdogParts, stale_age: Duration) -> Vec<String> {
     let service_arc = {
         let guard = parts.render_loop_service.lock().await;
@@ -1582,6 +1587,16 @@ async fn layer_watchdog_sweep(parts: &WatchdogParts, stale_age: Duration) -> Vec
         (active, editable)
     };
     let layer_map_snapshot: HashMap<String, u32> = parts.layer_map.lock().await.clone();
+    let layer_volumes_snapshot: HashMap<String, String> = parts.layer_volumes.lock().await.clone();
+    let document_volumes: HashSet<String> = {
+        let registry = parts.volume_registry.lock().await;
+        registry
+            .volumes
+            .iter()
+            .filter(|(_, entry)| entry.document_references > 0)
+            .map(|(id, _)| id.clone())
+            .collect()
+    };
     let last_drawn_snapshot: HashMap<String, Instant> = parts.last_drawn.lock().await.clone();
     let leases_snapshot: Vec<(String, Arc<LayerLease>)> = {
         let guard = parts.leases.lock().await;
@@ -1600,6 +1615,12 @@ async fn layer_watchdog_sweep(parts: &WatchdogParts, stale_age: Duration) -> Vec
         }
         let atlas_index = lease.atlas_index();
         if active_indices.contains(&atlas_index) || editable_indices.contains(&atlas_index) {
+            continue;
+        }
+        if layer_volumes_snapshot
+            .get(&layer_id)
+            .is_some_and(|volume_id| document_volumes.contains(volume_id))
+        {
             continue;
         }
         let has_mapping = layer_map_snapshot.contains_key(&layer_id);
@@ -1782,6 +1803,8 @@ impl BridgeState {
         WatchdogParts {
             leases: Arc::clone(&self.layer_leases),
             layer_map: Arc::clone(&self.layer_to_atlas_map),
+            layer_volumes: Arc::clone(&self.layer_to_volume_map),
+            volume_registry: Arc::clone(&self.volume_registry),
             render_loop_service: Arc::clone(&self.render_loop_service),
             last_drawn: Arc::clone(&self.layer_last_drawn),
         }
@@ -14516,6 +14539,48 @@ mod tests {
         );
         drop(leases);
         assert!(service.lock().await.is_editable_volume_slot(editable_slot));
+    }
+
+    #[tokio::test]
+    async fn watchdog_spares_layers_of_volumes_an_open_document_references() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        upload_3d_for_test(&state, "stale").await;
+        upload_3d_for_test(&state, "reference").await;
+        // An open segmentation session pins its reference image.
+        state
+            .volume_registry
+            .lock()
+            .await
+            .volumes
+            .get_mut("reference")
+            .expect("reference entry")
+            .document_references = 1;
+
+        let stale_age = Duration::from_millis(40);
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        // Neither was drawn within the stale age (its tab was behind).
+        let released = layer_watchdog_sweep(&state.watchdog_parts(), stale_age).await;
+        assert_eq!(released, vec!["stale".to_string()]);
+        assert!(
+            state.layer_leases.lock().await.contains_key("reference"),
+            "a document's source keeps its slot while the document is open"
+        );
+
+        // Closed (no document references it): the next pass may reclaim it.
+        state
+            .volume_registry
+            .lock()
+            .await
+            .volumes
+            .get_mut("reference")
+            .unwrap()
+            .document_references = 0;
+        let released = layer_watchdog_sweep(&state.watchdog_parts(), stale_age).await;
+        assert_eq!(released, vec!["reference".to_string()]);
     }
 
     #[tokio::test]
