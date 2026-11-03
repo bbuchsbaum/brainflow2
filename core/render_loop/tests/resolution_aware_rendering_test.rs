@@ -139,63 +139,6 @@ mod tests {
         });
     }
 
-    /// Test resolution-aware texture format selection
-    #[test]
-    fn test_smart_format_selection() {
-        pollster::block_on(async {
-            let mut service = RenderLoopService::new()
-                .await
-                .expect("Failed to create RenderLoopService");
-
-            // Enable smart texture management with 512MB limit
-            service
-                .enable_smart_texture_management(512)
-                .expect("Failed to enable smart texture management");
-
-            // Create test volumes
-            let volumes = test_fixtures::TestVolumeSet::create_aligned();
-
-            // Upload with smart format selection
-            let (_anat_idx, _) = service
-                .upload_volume_smart(&volumes.anatomical, None)
-                .expect("Failed to upload anatomical with smart manager");
-            let (func_idx, _) = service
-                .upload_volume_smart(&volumes.functional, None)
-                .expect("Failed to upload functional with smart manager");
-            let (_detail_idx, _) = service
-                .upload_volume_smart(&volumes.detail_patch, None)
-                .expect("Failed to upload detail patch with smart manager");
-
-            // Check statistics
-            let stats = service
-                .smart_texture_stats()
-                .expect("Smart texture manager should be enabled");
-
-            assert_eq!(stats.total_allocations, 3);
-            assert_eq!(stats.current_texture_count, 3);
-            assert!(stats.peak_memory_usage > 0);
-
-            // Test texture release and pooling
-            service
-                .release_smart_texture(func_idx)
-                .expect("Failed to release functional texture");
-
-            let stats = service.smart_texture_stats().unwrap();
-            assert_eq!(stats.total_deallocations, 1);
-            assert_eq!(stats.current_texture_count, 2);
-
-            // Upload another functional volume - should reuse pooled texture
-            let (_func_idx2, _) = service
-                .upload_volume_smart(&volumes.functional, None)
-                .expect("Failed to re-upload functional");
-
-            let stats = service.smart_texture_stats().unwrap();
-            assert_eq!(stats.pool_hits, 1);
-            assert_eq!(stats.total_allocations, 4);
-            assert_eq!(stats.current_texture_count, 3);
-        });
-    }
-
     /// Test rendering with mixed resolution layers
     #[test]
     fn test_mixed_resolution_layer_rendering() {

@@ -71,8 +71,7 @@ The render_loop module implements a high-performance GPU rendering system for ne
 
 ### 4. Texture Management
 - **TextureManager** (`texture_manager.rs`): 2D texture atlas for legacy approach
-- **MultiTextureManager** (`multi_texture_manager.rs`): 3D texture management for world-space rendering
-- **SmartTextureManager** (`smart_texture_manager.rs`): Automatic format selection and memory optimization
+- **MultiTextureManager** (`multi_texture_manager.rs`): bind group for world-space rendering, over a **ResidentTextureStore** (`residency/`) that owns the volume textures, masks, slot generations and editable claims
 - Supports up to 13 simultaneous volume textures (`MAX_TEXTURES`; Metal allows 30 sampled textures per stage, leaving room for masks, samplers and LUTs). This is the residency budget; `MAX_RENDER_LAYERS` (16) is the separate per-frame draw cap
 
 ### 5. Layer System
