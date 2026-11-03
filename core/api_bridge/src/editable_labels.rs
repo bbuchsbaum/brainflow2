@@ -138,18 +138,16 @@ pub(crate) async fn synchronize_locked(
         .filter(|(_, source)| source.as_str() == volume_id)
         .map(|(id, _)| id.clone())
         .collect();
-    let slots: std::collections::HashSet<_> = {
-        let map = state.layer_to_atlas_map.lock().await;
-        layer_ids
-            .iter()
-            .filter_map(|id| map.get(id).copied())
-            .filter(|&id| id != u32::MAX)
-            .collect()
-    };
     let renderer = state.render_loop_service.lock().await.clone();
     let mut renderer = match renderer.as_ref() {
         Some(renderer) => Some(renderer.lock().await),
         None => None,
+    };
+    // The residencies the layers record; each is checked below against the
+    // document's claim on that very residency, not on its reused index.
+    let slots: std::collections::HashSet<render_loop::SlotHandle> = {
+        let map = state.layer_slots.lock().await;
+        layer_ids.iter().filter_map(|id| map.recorded(id)).collect()
     };
     let registry = state.volume_registry.lock().await;
     let entry = registry
@@ -165,14 +163,11 @@ pub(crate) async fn synchronize_locked(
         return Ok(None);
     };
     let mut errors = Vec::new();
-    for index in slots {
-        let Some(handle) = renderer
-            .multi_texture_manager
-            .as_ref()
-            .and_then(|manager| manager.editable_handle_for_volume(volume_id, index))
-        else {
+    for slot in slots {
+        let Some(handle) = crate::gpu_upload::editable_handle_at(renderer, volume_id, slot) else {
             errors.push(format!(
-                "Editable texture slot {index} is no longer resident"
+                "Editable texture slot {} is no longer resident",
+                slot.index()
             ));
             continue;
         };
@@ -241,11 +236,7 @@ pub(crate) async fn resolve_locked(
     layer_ids.sort();
     let mut errors = Vec::new();
     for layer_id in layer_ids {
-        if !state
-            .layer_to_atlas_map
-            .lock()
-            .await
-            .contains_key(&layer_id)
+        if !state.layer_slots.lock().await.contains(&layer_id)
             || crate::layer_residency_is_live(state, &layer_id, volume_id).await
         {
             continue;

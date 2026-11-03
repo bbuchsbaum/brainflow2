@@ -347,7 +347,7 @@ pub(crate) struct UploadOwner {
     operations: Arc<Mutex<()>>,
     renderer: Arc<Mutex<RenderLoopService>>,
     layer_id: String,
-    atlas: Arc<Mutex<HashMap<String, u32>>>,
+    atlas: Arc<Mutex<crate::LayerSlotMap>>,
     volumes: Arc<Mutex<HashMap<String, String>>>,
     timepoints: Arc<Mutex<HashMap<String, Option<usize>>>>,
 }
@@ -363,7 +363,7 @@ impl UploadOwner {
             operations: Arc::clone(&state.volume_operations),
             renderer,
             layer_id,
-            atlas: Arc::clone(&state.layer_to_atlas_map),
+            atlas: Arc::clone(&state.layer_slots),
             volumes: Arc::clone(&state.layer_to_volume_map),
             timepoints: Arc::clone(&state.layer_to_timepoint_map),
         }
@@ -402,13 +402,10 @@ impl Drop for ProvisionalUpload {
                 );
             }
             // The same test as a lease release: the layer's bookkeeping goes
-            // when it names this upload's index (released here, or refilled by
-            // another layer whose texture it must not draw) or an empty slot.
+            // when it names this upload's residency or one that is gone
+            // (perhaps refilled by another layer whose texture it must not draw).
             let mut atlas = owner.atlas.lock().await;
-            let ours = atlas.get(&owner.layer_id).is_some_and(|&index| {
-                index == slot.index() || renderer.slot_handle(index).is_none()
-            });
-            if ours {
+            if atlas.is_released_by(&owner.layer_id, slot, Some(&*renderer)) {
                 atlas.remove(&owner.layer_id);
                 owner.volumes.lock().await.remove(&owner.layer_id);
                 owner.timepoints.lock().await.remove(&owner.layer_id);
@@ -605,7 +602,7 @@ mod tests {
         })
         .await
         .expect("provisional upload cleanup completed");
-        assert!(state.layer_to_atlas_map.lock().await.is_empty());
+        assert!(state.layer_slots.lock().await.is_empty());
         assert!(state.layer_to_volume_map.lock().await.is_empty());
         assert!(state.layer_to_timepoint_map.lock().await.is_empty());
         assert!(state.layer_leases.lock().await.is_empty());

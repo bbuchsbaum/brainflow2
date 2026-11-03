@@ -16,7 +16,7 @@ struct LayerGpuReleasedEvent {
 /// The watchdog's view of the bridge state.
 pub(crate) struct WatchdogParts {
     leases: Arc<Mutex<HashMap<String, Arc<LayerLease>>>>,
-    layer_map: Arc<Mutex<HashMap<String, u32>>>,
+    layer_map: Arc<Mutex<LayerSlotMap>>,
     layer_volumes: Arc<Mutex<HashMap<String, String>>>,
     volume_registry: Arc<Mutex<VolumeRegistry>>,
     render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
@@ -44,9 +44,15 @@ pub(crate) async fn layer_watchdog_sweep(
     let Some(service_arc) = service_arc else {
         return Vec::new();
     };
-    let (active_indices, editable_indices): (HashSet<u32>, HashSet<u32>) = {
+    // The residencies the last frame drew and the editable ones, as handles:
+    // a lease whose index was refilled by another upload is neither.
+    let (active_slots, editable_slots): (HashSet<SlotHandle>, HashSet<SlotHandle>) = {
         let service = service_arc.lock().await;
-        let active: HashSet<u32> = service.active_atlas_indices().into_iter().collect();
+        let active = service
+            .active_atlas_indices()
+            .into_iter()
+            .filter_map(|index| service.slot_handle(index))
+            .collect();
         let editable = service
             .multi_texture_manager
             .as_ref()
@@ -54,10 +60,11 @@ pub(crate) async fn layer_watchdog_sweep(
             .unwrap_or_default()
             .into_iter()
             .filter(|index| service.is_editable_volume_slot(*index))
+            .filter_map(|index| service.slot_handle(index))
             .collect();
         (active, editable)
     };
-    let layer_map_snapshot: HashMap<String, u32> = parts.layer_map.lock().await.clone();
+    let layer_map_snapshot: LayerSlotMap = parts.layer_map.lock().await.clone();
     let layer_volumes_snapshot: HashMap<String, String> = parts.layer_volumes.lock().await.clone();
     let document_volumes: HashSet<String> = {
         let registry = parts.volume_registry.lock().await;
@@ -84,8 +91,8 @@ pub(crate) async fn layer_watchdog_sweep(
             to_remove.push(layer_id);
             continue;
         }
-        let atlas_index = lease.atlas_index();
-        if active_indices.contains(&atlas_index) || editable_indices.contains(&atlas_index) {
+        let slot = lease.slot();
+        if active_slots.contains(&slot) || editable_slots.contains(&slot) {
             continue;
         }
         if layer_volumes_snapshot
@@ -94,7 +101,7 @@ pub(crate) async fn layer_watchdog_sweep(
         {
             continue;
         }
-        let has_mapping = layer_map_snapshot.contains_key(&layer_id);
+        let has_mapping = layer_map_snapshot.contains(&layer_id);
         let drawn_recently = last_drawn_snapshot
             .get(&layer_id)
             .is_some_and(|at| at.elapsed() < stale_age);
@@ -105,7 +112,8 @@ pub(crate) async fn layer_watchdog_sweep(
             Ok(_) => {
                 info!(
                     "Layer watchdog released stale layer '{}' (atlas index {})",
-                    layer_id, atlas_index
+                    layer_id,
+                    slot.index()
                 );
                 to_remove.push(layer_id.clone());
                 released.push(layer_id);
@@ -156,7 +164,7 @@ impl BridgeState {
     pub(crate) fn watchdog_parts(&self) -> WatchdogParts {
         WatchdogParts {
             leases: Arc::clone(&self.layer_leases),
-            layer_map: Arc::clone(&self.layer_to_atlas_map),
+            layer_map: Arc::clone(&self.layer_slots),
             layer_volumes: Arc::clone(&self.layer_to_volume_map),
             volume_registry: Arc::clone(&self.volume_registry),
             render_loop_service: Arc::clone(&self.render_loop_service),

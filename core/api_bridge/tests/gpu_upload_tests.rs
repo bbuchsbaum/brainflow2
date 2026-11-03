@@ -116,36 +116,57 @@ async fn test_layer_tracking() {
     use mock_helpers::*;
 
     let state = setup_test_state().await;
+    // The map records residencies (generation-checked handles), so the slots
+    // come from real uploads.
+    let mut service = RenderLoopService::new()
+        .await
+        .expect("GPU adapter required");
+    service.enable_world_space_rendering().unwrap();
+    let mut slots = Vec::new();
+    for _ in 0..3 {
+        let (volume, _) = create_test_volume([4, 4, 4]);
+        let VolumeSendable::VolF32(volume, _) = volume else {
+            unreachable!()
+        };
+        let (index, _) = service.upload_volume_3d(&volume).expect("upload");
+        slots.push(service.slot_handle(index).expect("resident"));
+    }
 
     // Simulate adding layer mappings
     {
-        let mut layer_map = state.layer_to_atlas_map.lock().await;
-        layer_map.insert("layer1".to_string(), 0);
-        layer_map.insert("layer2".to_string(), 1);
-        layer_map.insert("layer3".to_string(), 2);
+        let mut layer_map = state.layer_slots.lock().await;
+        layer_map.insert("layer1", slots[0]);
+        layer_map.insert("layer2", slots[1]);
+        layer_map.insert("layer3", slots[2]);
     }
 
     // Verify mappings
     {
-        let layer_map = state.layer_to_atlas_map.lock().await;
-        assert_eq!(layer_map.get("layer1"), Some(&0));
-        assert_eq!(layer_map.get("layer2"), Some(&1));
-        assert_eq!(layer_map.get("layer3"), Some(&2));
+        let layer_map = state.layer_slots.lock().await;
+        assert_eq!(layer_map.recorded("layer1"), Some(slots[0]));
+        assert_eq!(layer_map.recorded("layer2"), Some(slots[1]));
+        assert_eq!(layer_map.current("layer3", &service), Some(slots[2]));
         assert_eq!(layer_map.len(), 3);
     }
 
     // Simulate removing a layer
     {
-        let mut layer_map = state.layer_to_atlas_map.lock().await;
+        let mut layer_map = state.layer_slots.lock().await;
         layer_map.remove("layer2");
     }
 
     // Verify removal
     {
-        let layer_map = state.layer_to_atlas_map.lock().await;
-        assert_eq!(layer_map.get("layer2"), None);
+        let layer_map = state.layer_slots.lock().await;
+        assert_eq!(layer_map.recorded("layer2"), None);
         assert_eq!(layer_map.len(), 2);
     }
+
+    // A freed residency is no longer the layer's to draw.
+    assert!(service.release_slot(slots[0]).unwrap());
+    let layer_map = state.layer_slots.lock().await;
+    assert_eq!(layer_map.current("layer1", &service), None);
+    assert_eq!(layer_map.recorded("layer1"), Some(slots[0]));
 }
 
 #[test]
@@ -243,9 +264,12 @@ async fn test_release_layer_cleans_render_state() {
 
     // Ensure layer registered
     {
-        let map = state.layer_to_atlas_map.lock().await;
-        assert!(map.contains_key(&layer_id));
-        assert_eq!(map.get(&layer_id), Some(&gpu_info.atlas_layer_index));
+        let map = state.layer_slots.lock().await;
+        assert!(map.contains(&layer_id));
+        assert_eq!(
+            map.recorded(&layer_id).map(|slot| slot.index()),
+            Some(gpu_info.atlas_layer_index)
+        );
     }
     {
         let volume_map = state.layer_to_volume_map.lock().await;
@@ -297,8 +321,8 @@ async fn test_release_layer_cleans_render_state() {
     assert!(release_result.freed, "the release freed the layer's slot");
 
     {
-        let map = state.layer_to_atlas_map.lock().await;
-        assert!(!map.contains_key(&layer_id));
+        let map = state.layer_slots.lock().await;
+        assert!(!map.contains(&layer_id));
     }
     {
         let volume_map = state.layer_to_volume_map.lock().await;
@@ -498,9 +522,9 @@ async fn concurrent_layer_uploads_do_not_deadlock() {
         "concurrent uploads must each get a distinct atlas layer"
     );
 
-    let map = state.layer_to_atlas_map.lock().await;
+    let map = state.layer_slots.lock().await;
     for id in ["c0", "c1", "c2", "c3"] {
-        assert!(map.contains_key(id), "layer {id} should be registered");
+        assert!(map.contains(id), "layer {id} should be registered");
     }
 }
 

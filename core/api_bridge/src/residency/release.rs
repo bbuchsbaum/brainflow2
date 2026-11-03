@@ -78,7 +78,8 @@ pub(crate) async fn release_layer_gpu_resources_held(
                     success: true,
                     message: format!(
                         "Released GPU resources for layer {} (atlas layer {})",
-                        layer_id, outcome.atlas_index
+                        layer_id,
+                        outcome.slot.index()
                     ),
                     freed: true,
                 });
@@ -96,19 +97,19 @@ pub(crate) async fn release_layer_gpu_resources_held(
         }
     }
 
-    // Look up the atlas layer index for this UI layer
-    let atlas_layer_idx = {
-        let layer_map = bridge_state.layer_to_atlas_map.lock().await;
-        match layer_map.get(&layer_id) {
-            Some(&idx) => idx,
-            None => {
-                return Ok(ReleaseResult {
-                    success: false,
-                    message: format!("Layer {} not found in GPU resources", layer_id),
-                    freed: false,
-                });
-            }
-        }
+    // Every allocation has a lease, so a mapping without one is left from a
+    // lease released elsewhere. It still names its residency by handle: only
+    // that residency can go, and only while it is current.
+    let Some(mapped) = bridge_state.layer_slots.lock().await.recorded(&layer_id) else {
+        info!(
+            "Release requested for layer '{}' without a lease or a mapped residency; nothing to free",
+            layer_id
+        );
+        return Ok(ReleaseResult {
+            success: false,
+            message: format!("Layer {} not found in GPU resources", layer_id),
+            freed: false,
+        });
     };
 
     // Get the render loop service
@@ -122,42 +123,41 @@ pub(crate) async fn release_layer_gpu_resources_held(
         })?;
     let mut render_loop_service = service_arc.lock().await;
 
-    // A mapping without a lease names a bare index. If another layer's lease
-    // or ring owns the residency there now, the index was refilled: only this
-    // layer's bookkeeping goes, never that layer's texture.
-    let owned_elsewhere = match render_loop_service.slot_handle(atlas_layer_idx) {
-        Some(current) => {
-            let by_ring = bridge_state
-                .resident_image_sets
-                .lock()
-                .await
-                .iter()
-                .any(|(id, ring)| *id != layer_id && ring.owns(current));
-            let by_lease = bridge_state
-                .layer_leases
-                .lock()
-                .await
-                .iter()
-                .any(|(id, lease)| *id != layer_id && lease.slot() == current);
-            by_ring || by_lease
-        }
-        None => false,
+    // A current residency another layer's lease or ring owns (two layers
+    // recorded on one residency) is that layer's: only this layer's
+    // bookkeeping goes.
+    let owned_elsewhere = render_loop_service.is_slot_current(mapped) && {
+        let by_ring = bridge_state
+            .resident_image_sets
+            .lock()
+            .await
+            .iter()
+            .any(|(id, ring)| *id != layer_id && ring.owns(mapped));
+        let by_lease = bridge_state
+            .layer_leases
+            .lock()
+            .await
+            .iter()
+            .any(|(id, lease)| *id != layer_id && lease.slot() == mapped);
+        by_ring || by_lease
     };
 
     // Reclaim the layer's GPU-resident image-set ring (its extra resident members
     // hold multi-texture slots not tracked by the lease) before the atlas teardown.
     release_resident_image_set(&layer_id, bridge_state, &mut render_loop_service).await;
 
-    // Release the atlas layer
-    let removed_from_render_state = if owned_elsewhere {
+    // Release the residency by its handle: a stale one (freed, its index
+    // perhaps refilled by another upload) frees nothing.
+    let released = if owned_elsewhere {
         warn!(
-            "Layer '{}' maps to atlas index {}, which another layer owns now; leaving its texture",
-            layer_id, atlas_layer_idx
+            "Layer '{}' maps to texture slot {}, which another layer owns; leaving its texture",
+            layer_id,
+            mapped.index()
         );
-        false
+        None
     } else {
         render_loop_service
-            .release_layer_resources(atlas_layer_idx)
+            .release_layer_slot(mapped)
             .map_err(|e| BridgeError::GpuError {
                 code: 5080,
                 details: format!(
@@ -166,6 +166,14 @@ pub(crate) async fn release_layer_gpu_resources_held(
                 ),
             })?
     };
+    let atlas_layer_idx = mapped.index();
+    let removed_from_render_state = released.unwrap_or(false);
+    if released.is_none() && !owned_elsewhere {
+        info!(
+            "Layer '{}' mapped to a stale residency at slot {}; nothing to free",
+            layer_id, atlas_layer_idx
+        );
+    }
 
     // Uploads add no render-state entry; only a layer the last frame drew has one.
     if !removed_from_render_state {
@@ -177,7 +185,7 @@ pub(crate) async fn release_layer_gpu_resources_held(
 
     // Remove from our tracking map
     {
-        let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
+        let mut layer_map = bridge_state.layer_slots.lock().await;
         layer_map.remove(&layer_id);
     }
     {
@@ -200,7 +208,12 @@ pub(crate) async fn release_layer_gpu_resources_held(
 
     Ok(ReleaseResult {
         success: true,
-        message: if removed_from_render_state {
+        message: if released.is_none() {
+            format!(
+                "Layer {} mapped to a residency it no longer owns (atlas layer {}); only its bookkeeping was cleared",
+                layer_id, atlas_layer_idx
+            )
+        } else if removed_from_render_state {
             format!(
                 "Released GPU resources and render state for layer {} (atlas layer {})",
                 layer_id, atlas_layer_idx
@@ -211,6 +224,7 @@ pub(crate) async fn release_layer_gpu_resources_held(
                 layer_id, atlas_layer_idx
             )
         },
-        freed: true,
+        // Only a release that freed a slot makes room for starved layers.
+        freed: released.is_some(),
     })
 }

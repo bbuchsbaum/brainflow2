@@ -121,6 +121,7 @@ use modules::{dispose_module_workspace, list_modules, set_enabled_modules};
 pub use modules::{
     module_descriptors, ModuleDescriptor, ModuleInfo, ModuleStage, WorkspaceIdentity,
 };
+pub use residency::LayerSlotMap;
 use residency::*;
 // Phase 3 command modules (export, clusters, voxel queries), re-exported so
 // `command_list.rs` and the TS exporter see them at the crate root.
@@ -1220,8 +1221,9 @@ pub struct BridgeState {
     volume_operations: Arc<Mutex<()>>,
     pub surface_registry: Arc<Mutex<SurfaceRegistry>>,
     pub render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
-    // NEW: Map UI layer ID to GPU texture atlas layer index
-    pub layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
+    // The texture residency each UI layer draws, as a generation-checked
+    // handle: a bare index may have been refilled by another upload.
+    pub layer_slots: Arc<Mutex<LayerSlotMap>>,
     // Map UI layer ID to volume handle
     pub layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
     // Map UI layer ID to the timepoint currently uploaded into the atlas slot.
@@ -1278,7 +1280,7 @@ impl BridgeState {
         volume_registry: Arc<Mutex<VolumeRegistry>>,
         surface_registry: Arc<Mutex<SurfaceRegistry>>,
         render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
-        layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
+        layer_slots: Arc<Mutex<LayerSlotMap>>,
         layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
         atlas_service: Arc<Mutex<AtlasService>>,
         template_service: Arc<Mutex<templates::TemplateService>>,
@@ -1289,7 +1291,7 @@ impl BridgeState {
             volume_operations: Arc::new(Mutex::new(())),
             surface_registry,
             render_loop_service,
-            layer_to_atlas_map,
+            layer_slots,
             layer_to_volume_map,
             layer_to_timepoint_map: Arc::new(Mutex::new(HashMap::new())),
             layer_leases: Arc::new(Mutex::new(HashMap::new())),
@@ -1328,7 +1330,7 @@ impl BridgeState {
             Arc::new(Mutex::new(VolumeRegistry::new())),
             Arc::new(Mutex::new(SurfaceRegistry::new())),
             Arc::new(Mutex::new(None)),
-            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(LayerSlotMap::new())),
             Arc::new(Mutex::new(HashMap::new())),
             Arc::new(Mutex::new(atlas_service)),
             Arc::new(Mutex::new(template_service)),
@@ -4689,20 +4691,6 @@ async fn patch_layer(
     // 2. Update GPU uniforms for the layer
     // 3. Trigger a re-render if needed
 
-    // Look up the atlas layer index for this UI layer
-    let atlas_layer_idx = {
-        let layer_map = state.layer_to_atlas_map.lock().await;
-        match layer_map.get(&layer_id) {
-            Some(&idx) => idx,
-            None => {
-                return Err(BridgeError::VolumeNotFound {
-                    code: 4043,
-                    details: format!("Layer {} not found in GPU resources", layer_id),
-                });
-            }
-        }
-    };
-
     // Get mutable access to the service
     let service_guard = state.render_loop_service.lock().await;
     let service_arc = service_guard
@@ -4714,7 +4702,16 @@ async fn patch_layer(
                     .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    apply_layer_patch(&mut service, &layer_id, atlas_layer_idx, &patch)
+
+    // The layer's own residency; a stale one (freed, its index perhaps
+    // refilled by another upload) is not the layer's to patch.
+    let Some(slot) = state.layer_slots.lock().await.current(&layer_id, &service) else {
+        return Err(BridgeError::VolumeNotFound {
+            code: 4043,
+            details: format!("Layer {} not found in GPU resources", layer_id),
+        });
+    };
+    apply_layer_patch(&mut service, &layer_id, slot.index(), &patch)
 }
 
 /// Apply a `patch_layer` request to the imperative render-layer state.
@@ -5807,14 +5804,6 @@ async fn set_layer_border(
     thickness_px: f32,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    let atlas_idx = {
-        let map = state.layer_to_atlas_map.lock().await;
-        *map.get(&layer_id).ok_or_else(|| BridgeError::Input {
-            code: 2018,
-            details: format!("Layer '{}' not mapped to an atlas index", layer_id),
-        })?
-    };
-
     let service_arc_opt = { state.render_loop_service.lock().await.clone() };
     let Some(service_arc) = service_arc_opt else {
         return Err(BridgeError::ServiceNotInitialized {
@@ -5823,6 +5812,17 @@ async fn set_layer_border(
         });
     };
     let mut service = service_arc.lock().await;
+    // A binding position, from the layer's current residency only.
+    let atlas_idx = state
+        .layer_slots
+        .lock()
+        .await
+        .current(&layer_id, &service)
+        .ok_or_else(|| BridgeError::Input {
+            code: 2018,
+            details: format!("Layer '{}' not mapped to an atlas index", layer_id),
+        })?
+        .index();
     let index = service
         .find_layer_index_by_atlas(atlas_idx)
         .ok_or_else(|| BridgeError::Internal {
@@ -6149,92 +6149,6 @@ async fn reclaim_cached_image_slots(
     reclaim_cached_image_slots_internal(count, state.inner()).await
 }
 
-/// Robust layer lookup helper that tries multiple strategies
-fn find_layer_atlas_index_robust(
-    layer_map: &HashMap<String, u32>,
-    layer_id: &str,
-    volume_id: &str,
-) -> Option<u32> {
-    // Strategy 1: Try exact match with layer_id
-    if let Some(&idx) = layer_map.get(layer_id) {
-        info!(
-            "🔍 Found layer via exact layer_id match: '{}' -> {}",
-            layer_id, idx
-        );
-        return Some(idx);
-    }
-
-    // Strategy 2: Try exact match with volume_id
-    if let Some(&idx) = layer_map.get(volume_id) {
-        info!(
-            "🔍 Found layer via exact volume_id match: '{}' -> {}",
-            volume_id, idx
-        );
-        return Some(idx);
-    }
-
-    // Strategy 3: Try case-insensitive match
-    for (key, &idx) in layer_map.iter() {
-        if key.eq_ignore_ascii_case(layer_id) {
-            warn!(
-                "🔍 Found layer via case-insensitive layer_id match: '{}' -> {} (actual key: '{}')",
-                layer_id, idx, key
-            );
-            return Some(idx);
-        }
-        if key.eq_ignore_ascii_case(volume_id) {
-            warn!(
-                "🔍 Found layer via case-insensitive volume_id match: '{}' -> {} (actual key: '{}')",
-                volume_id, idx, key
-            );
-            return Some(idx);
-        }
-    }
-
-    // Strategy 4: Try trimmed match (in case of whitespace issues)
-    let layer_id_trimmed = layer_id.trim();
-    let volume_id_trimmed = volume_id.trim();
-
-    for (key, &idx) in layer_map.iter() {
-        let key_trimmed = key.trim();
-        if key_trimmed == layer_id_trimmed {
-            warn!(
-                "🔍 Found layer via trimmed layer_id match: '{}' -> {} (key had whitespace)",
-                layer_id, idx
-            );
-            return Some(idx);
-        }
-        if key_trimmed == volume_id_trimmed {
-            warn!(
-                "🔍 Found layer via trimmed volume_id match: '{}' -> {} (key had whitespace)",
-                volume_id, idx
-            );
-            return Some(idx);
-        }
-    }
-
-    // Strategy 5: Log detailed comparison for debugging
-    error!("🔍 Layer lookup failed completely. Detailed comparison:");
-    error!(
-        "  Looking for layer_id: '{}' (len: {})",
-        layer_id,
-        layer_id.len()
-    );
-    error!(
-        "  Looking for volume_id: '{}' (len: {})",
-        volume_id,
-        volume_id.len()
-    );
-    error!("  Keys in map:");
-    for (key, idx) in layer_map.iter() {
-        error!("    Key: '{}' (len: {}) -> idx: {}", key, key.len(), idx);
-        error!("      layer_id == key: {}", layer_id == key);
-        error!("      volume_id == key: {}", volume_id == key);
-    }
-
-    None
-}
-
 fn volume_sendable_uses_timepoint(volume_data: &VolumeSendable) -> bool {
     matches!(
         volume_data,
@@ -6297,7 +6211,7 @@ async fn resolve_requested_render_timepoint(
 
 async fn invalidate_cached_layer_for_render(
     layer_id: &str,
-    atlas_index: u32,
+    slot: SlotHandle,
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
     reason: &'static str,
@@ -6317,7 +6231,7 @@ async fn invalidate_cached_layer_for_render(
     release_resident_image_set(layer_id, bridge_state, service).await;
 
     {
-        let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
+        let mut layer_map = bridge_state.layer_slots.lock().await;
         layer_map.remove(layer_id);
     }
     {
@@ -6329,9 +6243,10 @@ async fn invalidate_cached_layer_for_render(
         timepoint_map.remove(layer_id);
     }
 
+    // By handle: a residency released or refilled meanwhile is left alone.
     let removed_from_render_state =
         service
-            .release_layer_resources(atlas_index)
+            .release_layer_slot(slot)
             .map_err(|e| BridgeError::GpuError {
                 code: 5080,
                 details: format!(
@@ -6340,16 +6255,24 @@ async fn invalidate_cached_layer_for_render(
                 ),
             })?;
 
-    if !removed_from_render_state {
+    if removed_from_render_state != Some(true) {
         warn!(
-            "Timepoint invalidation for layer '{}' found atlas index {} but no render-state entry",
-            layer_id, atlas_index
+            "Timepoint invalidation for layer '{}' found atlas index {} but no render-state entry{}",
+            layer_id,
+            slot.index(),
+            if removed_from_render_state.is_none() {
+                " (its residency was already gone)"
+            } else {
+                ""
+            }
         );
     }
 
     info!(
         "Invalidated cached GPU resources for layer {} (atlas layer {}, reason: {})",
-        layer_id, atlas_index, reason
+        layer_id,
+        slot.index(),
+        reason
     );
 
     Ok(())
@@ -6603,10 +6526,15 @@ async fn prepare_frontend_layers_for_render(
 ) -> BridgeResult<PreparedFrontendLayers> {
     let mut drawn: Vec<DrawnLayer> = Vec::new();
     {
-        let layer_map = bridge_state.layer_to_atlas_map.lock().await;
-        debug!("Current layer_to_atlas_map contents:");
-        for (layer_id, atlas_idx) in layer_map.iter() {
-            debug!("  Layer ID '{}' -> atlas index {}", layer_id, atlas_idx);
+        let layer_map = bridge_state.layer_slots.lock().await;
+        debug!("Current layer_slots contents:");
+        for (layer_id, slot) in layer_map.iter() {
+            debug!(
+                "  Layer ID '{}' -> atlas index {} (generation {})",
+                layer_id,
+                slot.index(),
+                slot.generation()
+            );
         }
     }
 
@@ -6647,22 +6575,42 @@ async fn prepare_frontend_layers_for_render(
                         bridge_state,
                     )
                     .await?;
-                let layer_map = bridge_state.layer_to_atlas_map.lock().await;
+                let layer_map = bridge_state.layer_slots.lock().await;
 
                 debug!(
                     "  - Searching in layer_map with {} entries",
                     layer_map.len()
                 );
-                debug!("  - All keys in map:");
-                for key in layer_map.keys() {
-                    debug!("    Key: '{}'", key);
+
+                // The layer's residency, only while it is current: a mapping
+                // whose slot was freed (and perhaps refilled by another volume)
+                // reads as a miss and allocates again.
+                let own = layer_map.current(&layer.id, service);
+                if own.is_none() && layer_map.contains(&layer.id) {
+                    info!(
+                        "Layer '{}' maps to a stale GPU residency; allocating it again",
+                        layer.id
+                    );
                 }
+                // A layer without one may draw the current residency recorded
+                // under its volume id (a layer keyed by the volume shows it).
+                // Read-only: a member change would swap or release that
+                // layer's residency, so a 4D layer allocates its own.
+                let found = own.or_else(|| {
+                    (layer.volume_id != layer.id && !requires_timepoint)
+                        .then(|| layer_map.current(&layer.volume_id, service))
+                        .flatten()
+                        .inspect(|_| {
+                            debug!(
+                                "Layer '{}' draws the residency of volume layer '{}'",
+                                layer.id, layer.volume_id
+                            );
+                        })
+                });
 
-                let found_idx =
-                    find_layer_atlas_index_robust(&layer_map, &layer.id, &layer.volume_id);
-
-                if let Some(idx) = found_idx {
+                if let Some(slot) = found {
                     drop(layer_map);
+                    let idx = slot.index();
 
                     let cached_timepoint = {
                         let timepoint_map = bridge_state.layer_to_timepoint_map.lock().await;
@@ -6683,7 +6631,7 @@ async fn prepare_frontend_layers_for_render(
                         match try_resident_swap(
                             &layer.id,
                             &layer.volume_id,
-                            idx,
+                            slot,
                             cached_timepoint,
                             requested_member,
                             bridge_state,
@@ -6691,12 +6639,14 @@ async fn prepare_frontend_layers_for_render(
                         )
                         .await?
                         {
-                            Some(swapped_idx) => {
+                            Some(swapped) => {
                                 debug!(
                                     "Resident image-set swap: layer '{}' -> member {} at slot {} (no re-upload)",
-                                    layer.id, requested_member, swapped_idx
+                                    layer.id,
+                                    requested_member,
+                                    swapped.index()
                                 );
-                                swapped_idx
+                                swapped.index()
                             }
                             None => {
                                 info!(
@@ -6707,7 +6657,7 @@ async fn prepare_frontend_layers_for_render(
                                 // the frame, not the frame failed (N18).
                                 if let Err(error) = invalidate_cached_layer_for_render(
                                     &layer.id,
-                                    idx,
+                                    slot,
                                     bridge_state,
                                     service,
                                     "render_timepoint_changed",
@@ -6773,13 +6723,13 @@ async fn prepare_frontend_layers_for_render(
                     }
                 } else {
                     debug!(
-                        "❌ CACHE MISS: Layer '{}' not found in layer_map (tried keys: '{}' and '{}')",
-                        layer.id, layer.id, layer.volume_id
+                        "❌ CACHE MISS: Layer '{}' has no current GPU residency",
+                        layer.id
                     );
                     debug!(
                         "❌ Current layer_map contains {} entries: {:?}",
                         layer_map.len(),
-                        layer_map.keys().collect::<Vec<_>>()
+                        layer_map.iter().map(|(id, _)| id).collect::<Vec<_>>()
                     );
 
                     drop(layer_map);
@@ -11936,11 +11886,11 @@ mod tests {
     }
 
     #[test]
-    fn test_layer_to_atlas_map() {
+    fn test_layer_slots_start_empty() {
         let state = BridgeState::default().expect("bridge state");
 
         // Test that map starts empty
-        let layer_map = state.layer_to_atlas_map.try_lock().unwrap();
+        let layer_map = state.layer_slots.try_lock().unwrap();
         assert_eq!(layer_map.len(), 0);
         let timepoint_map = state.layer_to_timepoint_map.try_lock().unwrap();
         assert_eq!(timepoint_map.len(), 0);
@@ -12034,10 +11984,12 @@ mod tests {
             .clone();
         let current_slots = {
             let mut renderer = service.lock().await;
+            let shown = state.layer_slots.lock().await.recorded("resident-a");
+            assert_eq!(shown.map(SlotHandle::index), Some(a.atlas_layer_index));
             let a = try_resident_swap(
                 "resident-a",
                 "resident-a",
-                a.atlas_layer_index,
+                shown.unwrap(),
                 Some(0),
                 1,
                 &state,
@@ -12045,11 +11997,14 @@ mod tests {
             )
             .await
             .unwrap()
-            .expect("swap A");
+            .expect("swap A")
+            .index();
+            let shown = state.layer_slots.lock().await.recorded("resident-b");
+            assert_eq!(shown.map(SlotHandle::index), Some(b.atlas_layer_index));
             let b = try_resident_swap(
                 "resident-b",
                 "resident-b",
-                b.atlas_layer_index,
+                shown.unwrap(),
                 Some(0),
                 1,
                 &state,
@@ -12057,7 +12012,8 @@ mod tests {
             )
             .await
             .unwrap()
-            .expect("swap B");
+            .expect("swap B")
+            .index();
             let filler =
                 extract_3d_volume_at_timepoint(&make_4d_volume_sendable_with_timeseries(), 0)
                     .unwrap();
@@ -12182,14 +12138,10 @@ mod tests {
             .expect_err("a genuinely full GPU must still reject the upload");
         assert!(format!("{error:?}").contains("Maximum texture limit"));
         assert_eq!(
-            state.layer_to_atlas_map.lock().await.get("displayed"),
-            Some(&shown.atlas_layer_index)
+            mapped_slot(&state, "displayed").await,
+            Some(shown.atlas_layer_index)
         );
-        assert!(!state
-            .layer_to_atlas_map
-            .lock()
-            .await
-            .contains_key("incoming"));
+        assert!(!state.layer_slots.lock().await.contains("incoming"));
         assert!(service
             .lock()
             .await
@@ -12259,7 +12211,7 @@ mod tests {
             "an upload must not add a per-frame render-layer entry"
         );
         assert_eq!(renderer.resident_volume_slot_count(), uploads);
-        assert_eq!(state.layer_to_atlas_map.lock().await.len(), uploads);
+        assert_eq!(state.layer_slots.lock().await.len(), uploads);
     }
 
     #[tokio::test]
@@ -12291,7 +12243,9 @@ mod tests {
             )
             .await
             .expect("initial upload");
-            initial.push(info.atlas_layer_index);
+            let shown = mapped_handle(&state, id).await.expect("mapped");
+            assert_eq!(shown.index(), info.atlas_layer_index);
+            initial.push(shown);
         }
         let service = state
             .render_loop_service
@@ -12360,18 +12314,18 @@ mod tests {
         );
         for slot in &displayed {
             assert!(
-                renderer.get_volume_data_range(*slot).is_some(),
+                renderer.get_volume_data_range(slot.index()).is_some(),
                 "the displayed member of every ring stays resident"
             );
         }
         let sets = state.resident_image_sets.lock().await;
         assert_eq!(
             sets.get("ring-a").unwrap().ring.slot_of(1),
-            Some(displayed[0])
+            Some(displayed[0].index())
         );
         assert_eq!(
             sets.get("ring-b").unwrap().ring.slot_of(1),
-            Some(displayed[1])
+            Some(displayed[1].index())
         );
     }
 
@@ -12408,18 +12362,14 @@ mod tests {
                 .slot()
         };
         let editable_slot = editable.index();
-        state
-            .layer_to_atlas_map
-            .lock()
-            .await
-            .insert("labels".into(), editable_slot);
+        state.layer_slots.lock().await.insert("labels", editable);
         state.layer_leases.lock().await.insert(
             "labels".into(),
             Arc::new(LayerLease::new(
                 "labels".into(),
                 editable,
                 Arc::clone(&state.render_loop_service),
-                Arc::clone(&state.layer_to_atlas_map),
+                Arc::clone(&state.layer_slots),
                 Arc::clone(&state.layer_to_volume_map),
                 Arc::clone(&state.layer_to_timepoint_map),
                 Arc::clone(&state.resident_image_sets),
@@ -12619,18 +12569,12 @@ mod tests {
                 .clone();
             let slot = {
                 let mut renderer = service.lock().await;
-                try_resident_swap(
-                    "layer",
-                    "volume",
-                    initial.atlas_layer_index,
-                    Some(0),
-                    1,
-                    &state,
-                    &mut renderer,
-                )
-                .await
-                .unwrap()
-                .expect("resident swap")
+                let shown = mapped_handle(&state, "layer").await.expect("mapped");
+                assert_eq!(shown.index(), initial.atlas_layer_index);
+                try_resident_swap("layer", "volume", shown, Some(0), 1, &state, &mut renderer)
+                    .await
+                    .unwrap()
+                    .expect("resident swap")
             };
 
             // This is precisely the watchdog's snapshot-and-drop pattern.
@@ -12641,15 +12585,11 @@ mod tests {
                 .get("layer")
                 .unwrap()
                 .clone();
-            let observed = Arc::downgrade(&snapshot.inner);
+            let observed = snapshot.observe_for_test();
             drop(snapshot);
             tokio::task::yield_now().await;
-            assert!(!observed
-                .upgrade()
-                .unwrap()
-                .is_released
-                .load(Ordering::SeqCst));
-            assert!(state.layer_to_atlas_map.lock().await.contains_key("layer"));
+            assert!(!observed.upgrade().unwrap().released());
+            assert!(state.layer_slots.lock().await.contains("layer"));
             assert!(
                 service
                     .lock()
@@ -12693,7 +12633,7 @@ mod tests {
                 "fallback" => {
                     // Model pre-lease cache state without scheduling its Drop cleanup.
                     let lease = state.layer_leases.lock().await.remove("layer").unwrap();
-                    lease.inner.is_released.store(true, Ordering::SeqCst);
+                    lease.mark_released_for_test();
                     assert!(
                         release_layer_gpu_resources_internal("layer".into(), &state)
                             .await
@@ -12722,7 +12662,7 @@ mod tests {
             .await
             .unwrap_or_else(|_| panic!("{route} left resident textures"));
             assert!(state.resident_image_sets.lock().await.is_empty(), "{route}");
-            assert!(state.layer_to_atlas_map.lock().await.is_empty(), "{route}");
+            assert!(state.layer_slots.lock().await.is_empty(), "{route}");
             assert!(state.layer_to_volume_map.lock().await.is_empty(), "{route}");
             assert!(
                 state.layer_to_timepoint_map.lock().await.is_empty(),
@@ -12818,9 +12758,10 @@ mod tests {
         service
             .add_layer_3d(slot0, nalgebra::Matrix4::identity(), (4, 4, 4), 1.0, 0, 1)
             .expect("add imperative render layer");
+        let handle0 = service.slot_handle(slot0).expect("resident t0");
         {
-            let mut layer_map = state.layer_to_atlas_map.lock().await;
-            layer_map.insert("layerSwap".to_string(), slot0);
+            let mut layer_map = state.layer_slots.lock().await;
+            layer_map.insert("layerSwap", handle0);
         }
         {
             let mut timepoint_map = state.layer_to_timepoint_map.lock().await;
@@ -12830,7 +12771,7 @@ mod tests {
         let slot1 = try_resident_swap(
             "layerSwap",
             "vol4d_swap",
-            slot0,
+            handle0,
             Some(0),
             1,
             &state,
@@ -12838,7 +12779,8 @@ mod tests {
         )
         .await
         .expect("resident swap")
-        .expect("swap should use resident path");
+        .expect("swap should use resident path")
+        .index();
 
         assert_ne!(slot0, slot1);
         assert!(
@@ -14530,7 +14472,11 @@ mod tests {
     }
 
     async fn mapped_slot(state: &BridgeState, layer_id: &str) -> Option<u32> {
-        state.layer_to_atlas_map.lock().await.get(layer_id).copied()
+        mapped_handle(state, layer_id).await.map(SlotHandle::index)
+    }
+
+    async fn mapped_handle(state: &BridgeState, layer_id: &str) -> Option<SlotHandle> {
+        state.layer_slots.lock().await.recorded(layer_id)
     }
 
     #[tokio::test]
@@ -14623,7 +14569,7 @@ mod tests {
         {
             let leases = state.layer_leases.lock().await;
             for (id, slot) in ["lazy-a", "lazy-b"].iter().zip(slots) {
-                assert_eq!(leases.get(*id).expect("a lease").atlas_index(), slot);
+                assert_eq!(leases.get(*id).expect("a lease").slot().index(), slot);
             }
         }
 
@@ -14665,11 +14611,13 @@ mod tests {
             assert_eq!(again, index, "the freed index is reused");
             (old, renderer.slot_handle(again).unwrap())
         };
-        // Another layer owns the refilled index now; "owner" still names it.
-        state.layer_to_atlas_map.lock().await.extend([
-            ("new-owner".to_string(), reused.index()),
-            ("owner".to_string(), reused.index()),
-        ]);
+        // Another layer owns the refilled index now; "owner" still records
+        // the residency that was there before.
+        {
+            let mut map = state.layer_slots.lock().await;
+            map.insert("new-owner", reused);
+            map.insert("owner", old);
+        }
         state.layer_leases.lock().await.insert(
             "new-owner".into(),
             Arc::new(LayerLease::for_state(&state, "new-owner".into(), reused)),
@@ -14714,12 +14662,8 @@ mod tests {
             "the old owner no longer draws the new owner's texture"
         );
 
-        // A lease left from the old residency (a stale index after a swap).
-        state
-            .layer_to_atlas_map
-            .lock()
-            .await
-            .insert("owner".into(), reused.index());
+        // A lease left from the old residency (a stale handle after a swap).
+        state.layer_slots.lock().await.insert("owner", old);
         let lease = LayerLease::for_state(&state, "owner".into(), old);
         assert!(lease.release("manual").await.unwrap().is_some());
         assert!(service.lock().await.is_slot_current(reused));
@@ -14727,12 +14671,8 @@ mod tests {
         assert_eq!(mapped_slot(&state, "owner").await, None);
 
         // A mapping without a lease is stale, and its release leaves the
-        // texture another layer's lease owns.
-        state
-            .layer_to_atlas_map
-            .lock()
-            .await
-            .insert("owner".into(), reused.index());
+        // texture that refilled its index.
+        state.layer_slots.lock().await.insert("owner", old);
         state.volume_registry.lock().await.insert(
             "owner-volume".into(),
             sendable_f32_volume([3, 2, 2], |i| i as f32),
@@ -14749,6 +14689,127 @@ mod tests {
         assert_ne!(info.atlas_layer_index, reused.index());
         assert!(service.lock().await.is_slot_current(reused));
         assert!(layer_residency_is_live(&state, "owner", "owner-volume").await);
+    }
+
+    fn filler_volume(value: f32) -> DenseVolume3<f32> {
+        let VolumeSendable::VolF32(volume, _) = sendable_f32_volume([3, 2, 2], |_| value) else {
+            unreachable!()
+        };
+        volume
+    }
+
+    /// Free `slot` behind its owner and refill the index with another volume.
+    fn refill(renderer: &mut RenderLoopService, slot: SlotHandle, value: f32) -> SlotHandle {
+        renderer.release_volume(slot.index()).unwrap();
+        let (index, _) = renderer.upload_volume_3d(&filler_volume(value)).unwrap();
+        assert_eq!(index, slot.index(), "the freed index is reused");
+        renderer.slot_handle(index).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_frame_reallocates_a_layer_whose_slot_was_refilled() {
+        let (state, service) = gpu_state().await;
+        register_volume_and_layer(
+            &state,
+            "layer",
+            "volume",
+            sendable_f32_volume([3, 2, 2], |i| i as f32),
+            volume_metadata_for("volume", "f32", bridge_types::VolumeType::Volume3D),
+        )
+        .await;
+        let frame = label_frame("layer", "volume");
+        {
+            let mut renderer = service.lock().await;
+            prepare_frontend_layers_for_render(&frame, &state, &mut renderer)
+                .await
+                .expect("frame");
+        }
+        let first = mapped_handle(&state, "layer").await.expect("allocated");
+        let (range, other) = {
+            let mut renderer = service.lock().await;
+            let range = renderer.get_volume_data_range(first.index()).unwrap();
+            (range, refill(&mut renderer, first, 7.0))
+        };
+
+        // The cache hit sees a stale handle: a miss, so the layer gets its
+        // own texture again instead of drawing the other volume's.
+        {
+            let mut renderer = service.lock().await;
+            let prepared = prepare_frontend_layers_for_render(&frame, &state, &mut renderer)
+                .await
+                .expect("frame");
+            assert_eq!(prepared.backend_layers.len(), 1, "the layer is drawn");
+        }
+        let second = mapped_handle(&state, "layer").await.expect("reallocated");
+        assert_ne!(second, first);
+        assert_ne!(second.index(), other.index());
+        assert_eq!(lease_slot(&state, "layer").await, second);
+        let renderer = service.lock().await;
+        assert!(renderer.is_slot_current(second));
+        assert!(
+            renderer.is_slot_current(other),
+            "the volume that refilled the index keeps its texture"
+        );
+        assert_eq!(renderer.get_volume_data_range(second.index()), Some(range));
+        assert_eq!(
+            renderer.get_volume_data_range(other.index()),
+            Some((7.0, 7.0))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_release_without_a_lease_frees_only_a_residency_it_still_names() {
+        let (state, service) = gpu_state().await;
+        let upload = |value: f32| {
+            let service = Arc::clone(&service);
+            async move {
+                let mut renderer = service.lock().await;
+                let (index, _) = renderer.upload_volume_3d(&filler_volume(value)).unwrap();
+                renderer.slot_handle(index).unwrap()
+            }
+        };
+
+        // Stale: the index was refilled by an upload no lease or ring owns.
+        // Released by index, that upload's texture went with the layer.
+        let old = upload(1.0).await;
+        let refilled = refill(&mut *service.lock().await, old, 7.0);
+        state.layer_slots.lock().await.insert("layer", old);
+        let result = release_layer_gpu_resources_for_testing("layer".into(), &state)
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(!result.freed, "nothing of the layer's was left to free");
+        assert!(service.lock().await.is_slot_current(refilled));
+        assert!(!state.layer_slots.lock().await.contains("layer"));
+
+        // Current and no one else's: freed through its handle.
+        state.layer_slots.lock().await.insert("layer", refilled);
+        let result = release_layer_gpu_resources_for_testing("layer".into(), &state)
+            .await
+            .unwrap();
+        assert!(result.freed);
+        assert!(!service.lock().await.is_slot_current(refilled));
+
+        // Current but another layer's lease owns it: only bookkeeping goes.
+        let shared = upload(2.0).await;
+        state.layer_slots.lock().await.insert("layer", shared);
+        state.layer_leases.lock().await.insert(
+            "owner".into(),
+            Arc::new(LayerLease::for_state(&state, "owner".into(), shared)),
+        );
+        let result = release_layer_gpu_resources_for_testing("layer".into(), &state)
+            .await
+            .unwrap();
+        assert!(!result.freed);
+        assert!(service.lock().await.is_slot_current(shared));
+        assert!(!state.layer_slots.lock().await.contains("layer"));
+
+        // No recorded residency: nothing is released.
+        let result = release_layer_gpu_resources_for_testing("layer".into(), &state)
+            .await
+            .unwrap();
+        assert!(!result.success && !result.freed);
+        assert!(service.lock().await.is_slot_current(shared));
     }
 
     async fn lease_slot(state: &BridgeState, layer_id: &str) -> SlotHandle {
@@ -14822,19 +14883,13 @@ mod tests {
             request_layer_gpu_resources_for_testing(label_spec("layer", "volume"), None, state)
                 .await
                 .unwrap();
+        let shown = mapped_handle(state, "layer").await.expect("mapped");
+        assert_eq!(shown.index(), initial.atlas_layer_index);
         let mut renderer = service.lock().await;
-        try_resident_swap(
-            "layer",
-            "volume",
-            initial.atlas_layer_index,
-            Some(0),
-            1,
-            state,
-            &mut renderer,
-        )
-        .await
-        .unwrap()
-        .expect("resident swap");
+        try_resident_swap("layer", "volume", shown, Some(0), 1, state, &mut renderer)
+            .await
+            .unwrap()
+            .expect("resident swap");
         let ring = state.resident_image_sets.lock().await;
         assert!(ring.get("layer").unwrap().ring.resident_len() >= 2);
     }
@@ -14845,10 +14900,9 @@ mod tests {
         ringed_layer(&state, &service).await;
         let lease = state.layer_leases.lock().await.remove("layer").unwrap();
         let mut renderer = service.lock().await;
-        let slot = lease.inner.prepare_release(&mut renderer).await.unwrap();
+        let slot = lease.prepare_release_for_test(&mut renderer).await.unwrap();
         let result = lease
-            .inner
-            .release_from_service_with(&mut renderer, slot, "test", |_, _| {
+            .release_from_service_with_for_test(&mut renderer, slot, |_, _| {
                 Err(render_loop::RenderLoopError::Internal {
                     code: 1,
                     details: "injected failure".into(),
@@ -14917,11 +14971,7 @@ mod tests {
         let (index, _) = renderer.upload_volume_3d(&volume).unwrap();
         let slot = renderer.slot_handle(index).unwrap();
         assert!(state.render_loop_service.lock().await.is_none());
-        state
-            .layer_to_atlas_map
-            .lock()
-            .await
-            .insert("layer".into(), index);
+        state.layer_slots.lock().await.insert("layer", slot);
         state
             .layer_to_volume_map
             .lock()
@@ -14937,7 +14987,7 @@ mod tests {
             lease.release("manual").await,
             Err(BridgeError::ServiceNotInitialized { .. })
         ));
-        assert!(state.layer_to_atlas_map.lock().await.is_empty());
+        assert!(state.layer_slots.lock().await.is_empty());
         assert!(state.layer_to_volume_map.lock().await.is_empty());
         assert!(state.layer_to_timepoint_map.lock().await.is_empty());
     }
@@ -15003,7 +15053,8 @@ mod tests {
                 .await
                 .get("label-layer")
                 .unwrap()
-                .atlas_index(),
+                .slot()
+                .index(),
             slot
         );
 
