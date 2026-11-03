@@ -51,6 +51,7 @@ import {
   createSegmentationSession,
   ensureSegmentationSession,
   forgetSegmentationSession,
+  getSegmentationSession,
 } from '@/modules/segmentation/session';
 import { info, setup } from './liveFixtures';
 
@@ -84,16 +85,17 @@ beforeEach(() => {
 describe('4D sources choose one explicit frame', () => {
   it('defaults to the current time point, previews that frame and sends the chosen frame at setup', async () => {
     render(<SegmentationMode workspaceId="synthetic-view" />);
-    const frame = screen.getByLabelText('Reference frame (t, 0–5)') as HTMLInputElement;
-    expect(frame.value).toBe('4');
+    const frame = screen.getByLabelText('Reference frame (1–6)') as HTMLInputElement;
+    // Shown 1-based like the status-bar time slider (t = 4 is frame 5 of 6).
+    expect(frame.value).toBe('5');
     await waitFor(() => expect(host.render).toHaveBeenCalled());
     expect(host.render.mock.calls.at(-1)?.[0]).toMatchObject({
       timepoint: 4,
       volumeIds: ['series'],
     });
-    fireEvent.change(frame, { target: { value: '2' } });
+    fireEvent.change(frame, { target: { value: '3' } });
     await waitFor(() => expect(host.render.mock.calls.at(-1)?.[0]).toMatchObject({ timepoint: 2 }));
-    expect(screen.getByText(/frame t = 2/)).toBeInTheDocument();
+    expect(screen.getByText(/frame 3 of 6/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'synthetic-01' } });
     fireEvent.change(screen.getByLabelText('Session'), { target: { value: '01' } });
     fireEvent.change(screen.getByLabelText('Rater'), { target: { value: 'rater-a' } });
@@ -115,6 +117,9 @@ describe('4D sources choose one explicit frame', () => {
         secondaryFrame: null,
       }),
     });
+    // The session opens on the native slice the preview showed (the middle
+    // of three), not on the first slice.
+    expect(getSegmentationSession('synthetic-view')?.snapshot.sliceIndex).toBe(1);
     expect(host.retain.mock.calls[0][1]).toMatchObject({ protectedVolumeIds: ['series'] });
     // The frozen frame the viewport will attach is protected like a source.
     expect(host.retain.mock.calls.at(-1)?.[1]).toEqual({ moduleId: 'segmentation', protectedVolumeIds: ['segmentation_frame_x_reference'] });
@@ -125,12 +130,12 @@ describe('4D sources choose one explicit frame', () => {
 
   it('refuses an empty or out-of-range frame instead of using frame 0', async () => {
     render(<SegmentationMode workspaceId="synthetic-view" />);
-    const frame = screen.getByLabelText('Reference frame (t, 0–5)') as HTMLInputElement;
+    const frame = screen.getByLabelText('Reference frame (1–6)') as HTMLInputElement;
     await waitFor(() => expect(host.render).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'synthetic-01' } });
     fireEvent.change(screen.getByLabelText('Session'), { target: { value: '01' } });
     fireEvent.change(screen.getByLabelText('Rater'), { target: { value: 'rater-a' } });
-    for (const value of ['', '6', '1.5']) {
+    for (const value of ['', '0', '7', '1.5']) {
       fireEvent.change(frame, { target: { value } });
       expect(frame.value).toBe(value);
       await waitFor(() => expect(screen.getByRole('button', { name: 'Create segmentation' })).not.toBeDisabled());
@@ -138,7 +143,7 @@ describe('4D sources choose one explicit frame', () => {
       // Either the field's own constraint or setup validation stops the submit.
       expect(frame).toHaveAttribute('aria-invalid', 'true');
       const alert = screen.queryByRole('alert');
-      if (alert) expect(alert).toHaveTextContent('Enter a reference frame from 0 to 5.');
+      if (alert) expect(alert).toHaveTextContent('Enter a reference frame from 1 to 6.');
       else expect(frame.checkValidity()).toBe(false);
     }
     expect(host.invoke).not.toHaveBeenCalled();
@@ -152,12 +157,12 @@ describe('4D sources choose one explicit frame', () => {
     );
     host.invoke.mockResolvedValueOnce({
       ...info(),
-      snapshot: { ...info().snapshot, ...owner, referenceFrame: 2, secondaryFrame: 0 },
+      snapshot: { ...info().snapshot, ...owner, referenceVolumeId: 'series', referenceFrame: 2, secondaryFrame: 0 },
     });
     await createSegmentationSession(record, { ...setup, referenceFrame: 2 });
     render(<SegmentationInspector />);
     expect(screen.getByTestId('segmentation-frames')).toHaveTextContent(
-      'reference frame t = 2 · secondary frame t = 0 (0-based; recorded in the saved header)',
+      'reference frame 3 of 6 · secondary frame 1 (recorded in the saved header)',
     );
   });
 });

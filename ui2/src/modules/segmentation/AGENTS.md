@@ -36,8 +36,10 @@ Label tracing on a fixed reference grid. The native domain is
   autosave are M5.
 - **Current limits:** sessions are in memory; saved-session recovery, proposals,
   AI and later milestones M3–M8 are not implemented. A 4D reference or
-  secondary is traced on one explicit zero-based frame chosen at setup
-  (`referenceFrame`/`secondaryFrame`, default: the layer's current t); native
+  secondary is traced on one explicit frame chosen at setup
+  (`referenceFrame`/`secondaryFrame`, zero based in transport and the saved
+  header, typed and shown one based like the time slider; default: the layer's
+  current t); native
   copies it into a session-owned 3D volume (`referenceDisplayVolumeId`), which
   the viewport attaches as a hidden ordinary layer, so the shared time cursor
   never changes the traced image. `adopt` adds the frame ids to the document's
@@ -47,7 +49,12 @@ Label tracing on a fixed reference grid. The native domain is
   u16 label id (1–65535); the palette is the tiled categorical LUT.
   Per-label native-slice count metadata is capped at two million counts; large
   label tables and slice matrices are paged in the Inspector. Native slice indices
-  are zero based in transport and one based in the UI.
+  are zero based in transport and one based in the UI; a new session opens on
+  the native slice the setup preview showed. Native planes follow the main
+  viewer's orientation (`native_slice_geometry`: superior or anterior at the
+  top, +X right, or anterior left for sagittal-like planes); `flips` are an
+  extra explicit mirror. The save dialog opens in the document's last save
+  folder, else the reference image's folder; saved files take the umask mode.
   Locks always constrain strokes, independently of visibility; history travel
   restores prior values/provenance exactly. A GPU/display error freezes painting
   while retaining accepted document data.

@@ -18,6 +18,7 @@ import { getFileLoadingService } from '@/services/FileLoadingService';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { moduleRegistry } from '@/modules/registry';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { isViewWorkspaceType } from '@/components/ui/displayModeSelector.helpers';
 import { useLayerStore, type VolumeMetadata } from '@/stores/layerStore';
 export type { WorkspaceDocumentIdentity, RetainWorkspaceDocumentOptions } from '@/services/workspaceDocuments';
 import {
@@ -71,6 +72,22 @@ export function captureActiveWorkspace(): ActiveWorkspaceLease | null {
   }};
 }
 export const useActiveWorkspaceId = () => useWorkspaceStore((state) => state.activeWorkspaceId);
+/**
+ * Bring the most recently opened view tab to the front, for a module entry
+ * point shown in a tool tab (view modes apply to the front view). False when
+ * no view tab exists.
+ */
+export function activateViewTab(): boolean {
+  const { workspaces, activateWorkspace } = useWorkspaceStore.getState();
+  const target = [...workspaces.values()].filter((workspace) => isViewWorkspaceType(workspace.type)).sort((a, b) => b.timestamp - a.timestamp)[0];
+  if (!target) return false;
+  activateWorkspace(target.id);
+  return true;
+}
+/** Run a module command exactly as the ⌘K palette does. False when it cannot run here. */
+export function runModuleCommand(commandId: string): Promise<boolean> {
+  return moduleRegistry.executeCommand(commandId);
+}
 export { isLiveWorkspaceDocument as isLiveDocument, isWorkspaceEditingFrozen as isDocumentEditingFrozen } from '@/services/workspaceDocuments';
 
 /** Retain a module document in the shell-owned close broker, not module disposables. */

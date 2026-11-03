@@ -19,4 +19,25 @@ describe('view-mode module shortcut precedence', () => {
     mode = 'segmentation.segment'; dispose(); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', bubbles: true }));
     expect(core).toHaveBeenCalledTimes(2); expect(module).toHaveBeenCalledTimes(1);
   });
+
+  it('never switches tools while a text, number, select or editable field has focus', async () => {
+    service = getKeyboardShortcutService(); service.destroy(); service.init();
+    const module = vi.fn(async () => true);
+    const host: ContextHost = { moduleId: 'segmentation', moduleTitle: 'Segmentation', stage: 'experimental', commands: new Map([['segmentation.brush', 'Brush'], ['segmentation.eraser', 'Eraser'], ['segmentation.contour', 'Contour']]), workspaces: new Set(), isEnabled: () => true, matchesWhen: () => true, executeCommand: module, openWorkspace: async () => null };
+    const disposers = (['brush', 'eraser', 'contour'] as const).map((tool) => registerModuleKeybinding(host, { command: `segmentation.${tool}`, key: tool[0], when: { viewMode: 'segmentation.segment' } }, 'manifest'));
+    const editable = document.createElement('div'); editable.contentEditable = 'true';
+    Object.defineProperty(editable, 'isContentEditable', { value: true });
+    const number = Object.assign(document.createElement('input'), { type: 'number' });
+    const fields = [number, Object.assign(document.createElement('input'), { type: 'text' }), document.createElement('textarea'), document.createElement('select'), editable];
+    for (const field of fields) {
+      document.body.append(field);
+      for (const key of ['b', 'e', 'c']) field.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      field.remove();
+    }
+    await Promise.resolve();
+    expect(module).not.toHaveBeenCalled();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true })); await Promise.resolve();
+    expect(module).toHaveBeenCalledWith('segmentation.eraser');
+    disposers.forEach((dispose) => dispose());
+  });
 });

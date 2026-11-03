@@ -3,15 +3,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SegmentationPreview, SegmentationSlice, SegmentationStroke } from '@brainflow/api';
 import { Button, EmptyPane, IconButton } from '@/components/ui/bf';
 import { ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
-import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, removeModuleLayers, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
+import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, removeModuleLayers, useLoadedVolumeLayers, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
 import { ensureModuleImageLayer, ensureModuleLabelLayer, renderModulePlane, resizeZoomedPlane, setModuleCrosshair, useWorkspaceRenderState, zoomPanPlane, type RenderContext, type SliceViewportPlacement, type ViewPlane } from '@/modules/api/rendering';
-import { commitSegmentationStroke, getSegmentationSession, reconcileSegmentationSession, segmentationFrames, segmentationSaveState, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
+import { commitSegmentationStroke, getSegmentationSession, reconcileSegmentationSession, setSegmentationLabelState, segmentationFrameCounts, segmentationFrames, segmentationSaveState, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
 import { bindSegmentationViewport } from '@/modules/segmentation/toolBindings';
 import { drawTracingOverlay, nativeSliceAtWorld, tracingClearance } from '@/modules/segmentation/components/shared/TracingOverlay';
 import { ConstraintStripView } from '@/modules/segmentation/components/shared/ConstraintStripView';
 import { TracingTools } from '@/modules/segmentation/components/shared/TracingTools';
 import { ContextViews } from './ContextViews';
 import { NativeSliceRuler } from '@/modules/segmentation/components/shared/SliceProgress';
+import { numericEntryHandlers } from '@/modules/segmentation/components/shared/numericEntry';
 
 const viewPlane = (slice: SegmentationSlice): ViewPlane => ({ ...slice.plane, dim_px: [slice.plane.width_px, slice.plane.height_px] });
 const text = formatModuleError;
@@ -20,6 +21,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const isFront = useActiveWorkspaceId() === workspaceId;
   const workspaceView = useWorkspaceRenderState(workspaceId);
   const crosshairStyle = useModuleCrosshairStyle();
+  const loadedLayers = useLoadedVolumeLayers();
   const [displayPlacement, setDisplayPlacement] = useState<SliceViewportPlacement | null>(null);
   const container = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
@@ -33,6 +35,8 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const [attempt, setAttempt] = useState(0);
   const [contrast, setContrast] = useState<'reference' | 'secondary'>('reference');
   const [renderedFrame, setRenderedFrame] = useState('');
+  // The radius as typed: may be empty or out of range while retyping; only valid values apply.
+  const [radiusDraft, setRadiusDraft] = useState<string | null>(null);
   const ready = useRef(false);
   const placement = useRef<SliceViewportPlacement | null>(null);
   const state = useRef(session); state.current = session;
@@ -41,8 +45,8 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   // A 4D source is displayed from its session-owned frozen frame, never the shared time cursor.
   const referenceDisplayId = session?.info?.referenceDisplayVolumeId, secondaryDisplayId = session?.info?.secondaryDisplayVolumeId ?? null;
   const frameLayers = useMemo(() => [
-    referenceDisplayId && active && referenceDisplayId !== active.referenceVolumeId ? { volumeId: referenceDisplayId, displayLike: active.referenceVolumeId, title: `Segmentation reference · frame ${active.referenceFrame}` } : null,
-    secondaryDisplayId && active?.secondaryVolumeId && secondaryDisplayId !== active.secondaryVolumeId ? { volumeId: secondaryDisplayId, displayLike: active.secondaryVolumeId, title: `Segmentation secondary · frame ${active.secondaryFrame}` } : null,
+    referenceDisplayId && active && referenceDisplayId !== active.referenceVolumeId ? { volumeId: referenceDisplayId, displayLike: active.referenceVolumeId, title: `Segmentation reference · frame ${(active.referenceFrame ?? 0) + 1}` } : null,
+    secondaryDisplayId && active?.secondaryVolumeId && secondaryDisplayId !== active.secondaryVolumeId ? { volumeId: secondaryDisplayId, displayLike: active.secondaryVolumeId, title: `Segmentation secondary · frame ${(active.secondaryFrame ?? 0) + 1}` } : null,
   ].filter((layer): layer is { volumeId: string; displayLike: string; title: string } => layer !== null), [referenceDisplayId, secondaryDisplayId, active]);
   const frameLayerKey = JSON.stringify(frameLayers);
   const maxLabel = Math.max(1, ...(active?.labels.map((row) => row.definition.id) ?? []));
@@ -187,12 +191,13 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
     return tracingClearance(active, slice, session.sliceIndex, plane, displayPlacement, session.tool === 'navigate' ? null : cursorWorld, session.radiusMm).map((box) => ({ x: rect.left + box.x * rect.width / size[0], y: rect.top + box.y * rect.height / size[1], width: box.width * rect.width / size[0], height: box.height * rect.height / size[1] }));
   };
   const blocked = preview?.blocked.length ? { reason: 'Stroke constrained', detail: `${preview.written.length} voxels allowed · ${preview.blocked.length} protected. Locks always apply.` } : null;
+  const frames = segmentationFrames(active, segmentationFrameCounts(active, loadedLayers));
   return <div className="flex h-full min-h-0 flex-col bg-bf-bg-panel" data-segmentation-session={active.sessionId}>
     <header className="flex flex-wrap items-center gap-2 border-b border-bf-border-subtle px-3 py-1 text-bf-xs">
       <span className="font-medium">Native slice {session.sliceIndex + 1} / {count}</span>
       <IconButton aria-label="Previous native slice" icon={<ChevronLeft />} disabled={session.sliceIndex === 0 || session.busy} onClick={() => step(-1)} />
       <IconButton aria-label="Next native slice" icon={<ChevronRight />} disabled={session.sliceIndex + 1 === count || session.busy} onClick={() => step(1)} />
-      <label>Radius <input className="w-14 bg-bf-bg-input font-mono" type="number" min="0.1" max="30" step="0.1" value={session.radiusMm} onChange={(event) => { const n = Number(event.target.value); if (n >= .1 && n <= 30) patch({ radiusMm: n }); }} /> mm</label>
+      <label>Radius <input className="w-14 bg-bf-bg-input font-mono" type="number" inputMode="decimal" min="0.1" max="30" step="0.1" value={radiusDraft ?? session.radiusMm} {...numericEntryHandlers} onBlur={(event) => { numericEntryHandlers.onBlur?.(event); setRadiusDraft(null); }} onChange={(event) => { const raw = event.target.value, n = Number(raw); setRadiusDraft(raw); if (raw.trim() !== '' && n >= .1 && n <= 30) patch({ radiusMm: n }); }} /> mm</label>
       <label>Paint <select className="bg-bf-bg-input" value={session.paintOver} onChange={(event) => patch({ paintOver: event.target.value as typeof session.paintOver })}><option value="background">Background only</option><option value="unlocked">Unlocked labels</option><option value="all">All unlocked labels</option></select></label>
       {active.secondaryVolumeId && active.registration?.status === 'aligned' ? <Button size="sm" onClick={() => setContrast(contrast === 'reference' ? 'secondary' : 'reference')}>{contrast === 'reference' ? 'Show secondary' : 'Show reference'}</Button> : null}
       <Button size="sm" onClick={() => patch({ fill: !session.fill })}>{session.fill ? 'Outline only' : 'Show fills'}</Button>
@@ -207,12 +212,12 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
             onMouseDown={(event) => { if ((event.button === 1 || panKey.current) && plane) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, plane }; } }}
             onMouseMove={(event) => { if (pan.current) { const rect = event.currentTarget.getBoundingClientRect(); zoom(1, { canvasX: pan.current.x - rect.left, canvasY: pan.current.y - rect.top }, { dx: event.clientX - pan.current.x, dy: event.clientY - pan.current.y }, pan.current.plane); } }} onMouseUp={() => { pan.current = null; }} onMouseLeave={() => { pan.current = null; }} /> : <div role="status" className="p-3 text-bf-xs text-bf-text-muted">Preparing the reference plane…</div>}
           {ready.current && cursor && (blocked || lockedRefusal) ? <div role="status" className="pointer-events-none absolute max-w-[240px] border border-bf-border-subtle bg-bf-bg-panel px-2 py-1 text-bf-xs shadow-sm" style={{ left: Math.max(4, Math.min(size[0] - 244, cursor.canvasX + 14)), top: Math.max(4, Math.min(size[1] - 64, cursor.canvasY + 14)) }}>{lockedRefusal ?? `${preview!.blocked.length} voxels protected: ${preview!.blockedLabels.map((id) => active.labels.find((row) => row.definition.id === id)?.definition.name ?? 'constraint').join(', ')}`}</div> : null}
-          {displayError || session.error ? <div role="alert" className="absolute bottom-3 left-3 right-3 border border-bf-border-subtle bg-bf-bg-panel p-2 text-bf-xs">{displayError ?? session.error}<Button size="sm" onClick={() => { setDisplayError(null); setAttempt((n) => n + 1); void reconcileSegmentationSession(workspaceId); }}>Retry session</Button></div> : null}
+          {displayError || session.error ? <div role="alert" className="absolute bottom-3 left-3 right-3 border border-bf-border-subtle bg-bf-bg-panel p-2 text-bf-xs">{displayError ?? session.error}{!displayError && lockedRefusal ? (label?.locked ? <Button size="sm" disabled={session.busy} onClick={() => void setSegmentationLabelState(workspaceId, label.definition.id, false, label.complete)}>Unlock {label.definition.name}</Button> : null) : <Button size="sm" onClick={() => { setDisplayError(null); setAttempt((n) => n + 1); void reconcileSegmentationSession(workspaceId); }}>Retry session</Button>}</div> : null}
         </div>
       </div>
       <NativeSliceRuler snapshot={active} activeId={session.activeLabelId} current={session.sliceIndex} onPick={(sliceIndex) => { if (!session.busy) patch({ sliceIndex }); }} />
       {layerReady ? <ContextViews workspaceId={workspaceId} snapshot={active} referenceVolumeId={session.info.referenceDisplayVolumeId} labelVolumeId={session.info.labelVolumeId} sliceIndex={session.sliceIndex} activeLabelId={session.activeLabelId} activeHidden={session.hiddenLabelIds.includes(session.activeLabelId)} /> : null}
     </div>
-    <footer className="border-t border-bf-border-subtle px-3 py-1 font-mono text-bf-2xs text-bf-text-muted">{active.identity.subject} · {active.identity.hemisphere} · {active.identity.rater} · revision {active.revision} · {segmentationSaveState(session)}{segmentationFrames(active) ? ` · ${segmentationFrames(active)}` : ''}{active.sourceHeaderOriginal ? '' : ' · derived grid: no original NIfTI header'} · ⌥/pinch zoom · Space-drag pan</footer>
+    <footer className="border-t border-bf-border-subtle px-3 py-1 font-mono text-bf-2xs text-bf-text-muted">{active.identity.subject} · {active.identity.hemisphere} · {active.identity.rater} · revision {active.revision} · {segmentationSaveState(session)}{frames ? ` · ${frames}` : ''}{active.sourceHeaderOriginal ? '' : ' · derived grid: no original NIfTI header'} · ⌥/pinch zoom · Space-drag pan</footer>
   </div>;
 }

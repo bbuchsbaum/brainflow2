@@ -115,9 +115,16 @@ export function segmentationSaveState(presentation: SegmentationPresentation): '
   if (!snapshot || !saved || saved.sessionId !== snapshot.sessionId) return 'unsaved';
   return saved.labelRevision === snapshot.labelRevision ? 'saved' : 'changed since the last save';
 }
-/** Plain-language frame provenance, e.g. "reference frame t = 3"; empty for 3D sources. */
-export function segmentationFrames(snapshot: { referenceFrame: number | null; secondaryFrame: number | null }): string {
-  return [snapshot.referenceFrame != null ? `reference frame t = ${snapshot.referenceFrame}` : '', snapshot.secondaryFrame != null ? `secondary frame t = ${snapshot.secondaryFrame}` : ''].filter(Boolean).join(' · ');
+/** Plain-language frame provenance shown 1-based like the time slider, e.g.
+ * "reference frame 4 of 88"; empty for 3D sources. Stored frames stay 0-based. */
+export function segmentationFrames(snapshot: { referenceFrame: number | null; secondaryFrame: number | null }, counts: { reference?: number | null; secondary?: number | null } = {}): string {
+  const shown = (role: string, frame: number | null, count?: number | null) => frame != null ? `${role} frame ${frame + 1}${count ? ` of ${count}` : ''}` : '';
+  return [shown('reference', snapshot.referenceFrame, counts.reference), shown('secondary', snapshot.secondaryFrame, counts.secondary)].filter(Boolean).join(' · ');
+}
+/** Frame counts of the loaded 4D sources, for `segmentationFrames`. */
+export function segmentationFrameCounts(snapshot: { referenceVolumeId: string; secondaryVolumeId: string | null }, layers: readonly { volumeId: string; timeSeriesInfo?: { num_timepoints: number } | null }[]): { reference: number | null; secondary: number | null } {
+  const count = (id: string | null) => (id ? layers.find((layer) => layer.volumeId === id)?.timeSeriesInfo?.num_timepoints : null) ?? null;
+  return { reference: count(snapshot.referenceVolumeId), secondary: count(snapshot.secondaryVolumeId) };
 }
 export function getSegmentationSession(workspaceId: string): SegmentationRecord | null { return records.get(workspaceId) ?? null; }
 export function useSegmentationSession(workspaceId: string): SegmentationPresentation | null {

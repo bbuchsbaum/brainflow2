@@ -23,6 +23,7 @@ vi.mock('@/modules/api/host', () => ({
   isLiveDocument: () => host.live,
   isDocumentEditingFrozen: () => host.frozen,
   useActiveWorkspaceId: () => host.active,
+  useLoadedVolumeLayers: () => [],
 }));
 import {
   createSegmentationSession,
