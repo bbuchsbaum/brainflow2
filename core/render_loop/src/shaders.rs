@@ -189,6 +189,13 @@ impl ShaderManager {
         })
     }
 
+    /// Names of the loaded shaders, sorted.
+    pub fn shader_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.shaders.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        names
+    }
+
     /// Register a shader module that was created externally (e.g. via wgsl_to_wgpu).
     pub fn insert_shader(&mut self, name: &str, module: ShaderModule) {
         self.shaders.insert(name.to_string(), module);
@@ -501,17 +508,7 @@ pub mod sources {
     #[allow(dead_code)]
     pub const TEST: &str = include_str!("../shaders/test.wgsl");
     #[allow(dead_code)]
-    pub const SLICE_DEBUG: &str = include_str!("../shaders/slice_debug.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG2: &str = include_str!("../shaders/slice_debug2.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG3: &str = include_str!("../shaders/slice_debug3.wgsl");
-    #[allow(dead_code)]
     pub const SLICE_SIMPLE: &str = include_str!("../shaders/slice_simple.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG_SAMPLING: &str = include_str!("../shaders/slice_debug_sampling.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG_TEXTURE: &str = include_str!("../shaders/slice_debug_texture.wgsl");
     #[allow(dead_code)]
     pub const SLICE_SIMPLIFIED: &str = include_str!("../shaders/slice_simplified.wgsl");
     #[allow(dead_code)]

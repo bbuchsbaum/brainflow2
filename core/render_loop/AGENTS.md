@@ -13,8 +13,8 @@ High-performance WebGPU rendering service for neuroimaging visualization. Implem
 | `src/facade.rs` | Reusable `WgpuSliceRenderer` facade with neutral config/lifecycle API over the runtime WGPU path |
 | `src/pipeline.rs` | PipelineManager for render pipeline creation and caching |
 | `src/shaders.rs` | ShaderManager for runtime WGSL loading and validation |
-| `src/multi_texture_manager.rs` | 3D texture management for world-space rendering |
-| `src/smart_texture_manager.rs` | Automatic format selection and memory optimization |
+| `src/multi_texture_manager.rs` | Bind group over the resident 3D textures (facade over `residency`) |
+| `src/residency/` | `ResidentTextureStore`: volume textures, masks, slot generations, editable claims, byte accounting |
 | `src/texture_manager.rs` | 2D texture atlas (legacy approach) |
 | `src/layer_storage.rs` | LayerStorageManager using storage buffers for dynamic layer count |
 | `src/layer_uniforms.rs` | LayerUniformManager traditional uniform buffer approach |

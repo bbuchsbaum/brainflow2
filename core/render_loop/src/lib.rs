@@ -39,13 +39,13 @@ pub mod optimized_renderer;
 pub mod pipeline;
 pub mod render_state;
 pub mod render_target_pool;
+pub mod residency;
 pub mod shader_contract;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod shader_watcher;
 pub mod shaders;
 pub mod slice_adapter;
 pub mod slice_variant;
-pub mod smart_texture_manager;
 pub mod texture_manager;
 pub mod transform_validator;
 pub mod ubo;
@@ -522,8 +522,6 @@ pub struct RenderLoopService {
     pub texture_manager: TextureManager,
     // --- Multi-texture management for world-space rendering ---
     pub multi_texture_manager: Option<MultiTextureManager>,
-    // --- Smart texture management with pooling ---
-    pub smart_texture_manager: Option<smart_texture_manager::SmartTextureManager>,
     // --- Layer storage manager for world-space rendering ---
     pub layer_storage_manager: Option<layer_storage::LayerStorageManager>,
     // --- Volume metadata tracking ---
@@ -800,7 +798,6 @@ impl RenderLoopService {
             layer_uniform_manager: LayerUniformManager::new(&device_arc),
             texture_manager,
             multi_texture_manager, // Initialized for world-space rendering
-            smart_texture_manager: None, // Will be initialized on demand
             layer_storage_manager, // Initialized for world-space rendering
             volume_metadata: HashMap::new(),
             border_overrides: HashMap::new(),
@@ -1627,22 +1624,6 @@ impl RenderLoopService {
             });
         }
         self.rebuild_texture_bind_group()?;
-        if let (Some(manager), Some(layout), Some(colormap_view)) = (
-            self.smart_texture_manager.as_mut(),
-            self.texture_bind_group_layout.as_ref(),
-            self.texture_manager.colormap_view(),
-        ) {
-            if manager.bind_group().is_some() {
-                manager.create_bind_group(
-                    &self.device,
-                    layout,
-                    self.texture_manager.linear_sampler(),
-                    self.texture_manager.nearest_sampler(),
-                    colormap_view,
-                    self.texture_manager.colormap_sampler(),
-                )?;
-            }
-        }
         if let (Some(layout), Some(old)) = (
             self.texture_bind_group_layout.as_ref(),
             self.texture_bind_group_id,
@@ -4176,8 +4157,9 @@ impl RenderLoopService {
             return Err(RenderLoopError::Internal {
                 code: 9010,
                 details: format!(
-                    "Shader '{}' not loaded. Available shaders: slice, slice_debug, slice_debug2, slice_debug3, slice_simple",
-                    shader_name
+                    "Shader '{}' not loaded. Available shaders: {}",
+                    shader_name,
+                    self.shader_manager.shader_names().join(", ")
                 ),
             });
         }
@@ -5437,108 +5419,6 @@ impl RenderLoopService {
         let width = 512;
         let height = 512;
         Ok(vec![128u8; (width * height * 4) as usize])
-    }
-
-    /// Enable smart texture management with memory limits
-    pub fn enable_smart_texture_management(
-        &mut self,
-        memory_limit_mb: u32,
-    ) -> Result<(), RenderLoopError> {
-        if self.runtime_texture_capacity != multi_texture_manager::MAX_TEXTURES as u32 {
-            return Err(RenderLoopError::Internal {
-                code: 6010,
-                details: "Smart texture management requires the fixed desktop layout".into(),
-            });
-        }
-        // Initialize smart texture manager
-        self.smart_texture_manager = Some(smart_texture_manager::SmartTextureManager::new(
-            smart_texture_manager::MAX_TEXTURES as u32,
-            memory_limit_mb,
-        ));
-
-        // Smart texture management uses a different group-2 layout than the
-        // default masked multi-texture renderer, so entering smart mode must
-        // replace the layout created during service initialization.
-        self.texture_bind_group_layout = Some(
-            smart_texture_manager::SmartTextureManager::create_bind_group_layout(
-                &self.device,
-                smart_texture_manager::MAX_TEXTURES as u32,
-            ),
-        );
-
-        Ok(())
-    }
-
-    /// Upload a volume using smart texture management
-    pub fn upload_volume_smart<T>(
-        &mut self,
-        source_volume: &DenseVolume3<T>,
-        format_hint: Option<wgpu::TextureFormat>,
-    ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
-    where
-        T: VoxelData
-            + num_traits::NumCast
-            + serde::Serialize
-            + DataRange<T>
-            + num_traits::Zero
-            + std::ops::Sub<Output = T>
-            + std::ops::Div<Output = T>
-            + std::ops::Mul<Output = T>,
-    {
-        // Ensure smart texture manager is initialized
-        if self.smart_texture_manager.is_none() {
-            return Err(RenderLoopError::Internal {
-                code: 6010,
-                details:
-                    "Smart texture manager not enabled. Call enable_smart_texture_management first."
-                        .to_string(),
-            });
-        }
-
-        let manager = self
-            .smart_texture_manager
-            .as_mut()
-            .expect("smart_texture_manager must be initialized before upload");
-
-        // Upload volume using smart format selection and pooling
-        let (texture_index, world_to_voxel) =
-            manager.upload_volume(&self.device, &self.queue, source_volume, format_hint)?;
-
-        // Update texture bind group
-        if let (Some(texture_layout), Some(colormap_view)) = (
-            self.texture_bind_group_layout.as_ref(),
-            self.texture_manager.colormap_view(),
-        ) {
-            manager.create_bind_group(
-                &self.device,
-                texture_layout,
-                self.texture_manager.linear_sampler(),
-                self.texture_manager.nearest_sampler(),
-                colormap_view,
-                self.texture_manager.colormap_sampler(),
-            )?;
-        }
-
-        Ok((texture_index, world_to_voxel))
-    }
-
-    /// Release a texture managed by smart texture manager
-    pub fn release_smart_texture(&mut self, texture_index: u32) -> Result<(), RenderLoopError> {
-        if let Some(ref mut manager) = self.smart_texture_manager {
-            manager.release_texture(texture_index)
-        } else {
-            Err(RenderLoopError::Internal {
-                code: 6011,
-                details: "Smart texture manager not enabled".to_string(),
-            })
-        }
-    }
-
-    /// Get smart texture manager statistics
-    pub fn smart_texture_stats(&self) -> Option<smart_texture_manager::TextureStats> {
-        self.smart_texture_manager
-            .as_ref()
-            .map(|m| m.stats().clone())
     }
 
     /// Set view state for slice rendering (for GPU slice adapter)

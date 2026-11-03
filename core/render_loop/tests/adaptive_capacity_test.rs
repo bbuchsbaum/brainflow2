@@ -55,12 +55,6 @@ async fn actual_sixteen_texture_device_matches_desktop_and_reclaims_slots() {
     assert!(limited
         .register_volume("overflow", &pattern, RendererVolumeFormat::R32Float)
         .is_err());
-    // The alternate legacy manager has a different fixed layout. Reject before
-    // mutating this adaptive renderer so normal rendering remains usable.
-    assert!(limited
-        .legacy_service_mut()
-        .enable_smart_texture_management(64)
-        .is_err());
     for mode in [InterpolationMode::Nearest, InterpolationMode::Linear] {
         let a = desktop
             .request_frame(ViewId::new("reference"), state(mode))
