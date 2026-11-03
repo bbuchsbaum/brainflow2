@@ -123,9 +123,10 @@ describe('4D sources choose one explicit frame', () => {
     expect(host.retain.mock.calls[0][1]).toMatchObject({ protectedVolumeIds: ['series'] });
     // The frozen frame the viewport will attach is protected like a source.
     expect(host.retain.mock.calls.at(-1)?.[1]).toEqual({ moduleId: 'segmentation', protectedVolumeIds: ['segmentation_frame_x_reference'] });
-    // Discarding the document removes the frame's layer, which unloads it.
+    // Discarding the document removes the frame's layer and the session's
+    // label layer, which unloads them and releases their GPU slots (N37).
     forgetSegmentationSession({ workspaceId: 'synthetic-view', workspaceInstance: 'frames-owner' });
-    expect(host.remove).toHaveBeenCalledWith(['segmentation_frame_x_reference']);
+    expect(host.remove).toHaveBeenCalledWith(['segmentation_frame_x_reference', 'synthetic-labels']);
   });
 
   it('refuses an empty or out-of-range frame instead of using frame 0', async () => {

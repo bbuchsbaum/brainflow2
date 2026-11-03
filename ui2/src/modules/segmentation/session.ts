@@ -225,10 +225,13 @@ export function setSegmentationPresentation(workspaceId: string, patch: Partial<
 export function forgetSegmentationSession(identity: WorkspaceDocumentIdentity): void {
   const record = records.get(identity.workspaceId);
   if (record?.document.workspaceInstance !== identity.workspaceInstance) return;
-  // Native disposal unpinned the frozen frames but keeps displayed ones
-  // loaded; removing their layers unloads them.
-  const frames = segmentationFrameVolumeIds(record.snapshot.info);
-  if (frames.length) void removeModuleLayers(frames);
+  // Native disposal unpinned the frozen frames and the label volume but keeps
+  // displayed ones loaded; removing their layers releases their GPU leases and
+  // unloads them. The "Segmentation labels" layer is the session's own: left
+  // behind it held a texture slot after a discard (N37).
+  const info = record.snapshot.info;
+  const owned = [...segmentationFrameVolumeIds(info), ...(info?.labelVolumeId ? [info.labelVolumeId] : [])];
+  if (owned.length) void removeModuleLayers(owned);
   record.controller.cancelPreview(); records.delete(identity.workspaceId);
   listeners.get(identity.workspaceId)?.forEach((listener) => listener());
 }
