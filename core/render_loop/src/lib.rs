@@ -39,6 +39,7 @@ pub mod optimized_renderer;
 pub mod pipeline;
 pub mod render_state;
 pub mod render_target_pool;
+pub mod residency;
 pub mod shader_contract;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod shader_watcher;
