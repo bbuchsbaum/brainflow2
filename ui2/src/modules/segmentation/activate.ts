@@ -11,7 +11,7 @@ export function activate(ctx: ModuleContext): void {
     if (await ctx.views.enterMode(SEGMENTATION_VIEW_MODE)) return;
     // From a tool tab (such as the Segmentation tab itself), enter Segment
     // mode in a view tab rather than refocusing the tool tab.
-    if (activateViewTab() && await ctx.views.enterMode(SEGMENTATION_VIEW_MODE)) return;
+    if (await activateViewTab() && await ctx.views.enterMode(SEGMENTATION_VIEW_MODE)) return;
     await ctx.workspaces.open(SEGMENTATION_WORKSPACE);
   });
   for (const tool of ['brush', 'eraser', 'contour'] as const) ctx.views.registerTool(`segmentation.${tool}`, segmentationPointerTool());

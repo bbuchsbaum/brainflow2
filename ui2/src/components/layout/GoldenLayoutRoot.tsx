@@ -170,6 +170,7 @@ export function GoldenLayoutRoot() {
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceFrontRequest = useCenterTabStore((state) => state.workspaceFrontRequest);
   const activeWorkspaceType = useWorkspaceStore((state) =>
     state.activeWorkspaceId ? (state.workspaces.get(state.activeWorkspaceId)?.type ?? null) : null,
   );
@@ -712,7 +713,7 @@ export function GoldenLayoutRoot() {
     } catch (error) {
       console.warn('[GoldenLayoutRoot] Failed to focus active workspace tab:', error);
     }
-  }, [activeWorkspaceId, isLayoutReady]);
+  }, [activeWorkspaceId, isLayoutReady, workspaceFrontRequest]);
 
   // Focused-stack tracking: only the focused stack's active tab carries the
   // amber edge (HYBRID rule 3, V5 amendment). See glStackFocus.ts.

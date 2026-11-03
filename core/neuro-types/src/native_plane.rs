@@ -58,6 +58,8 @@ pub fn oblique_slice_geometry(
 /// planes run right toward +X and down toward -Y (anterior at the top).
 /// Each column is assigned to whichever role it matches best and signed to
 /// point along it, so no column is ever reflected relative to the affine.
+/// Exact ties are deterministic: the lower world axis wins for the normal, and
+/// voxel order wins for the roles.
 fn display_columns(c0: Vector3<f32>, c1: Vector3<f32>) -> (Vector3<f32>, Vector3<f32>) {
     let normal = c0.cross(&c1);
     let dominant = normal.iamax();
@@ -254,6 +256,36 @@ mod tests {
         let plane = native_slice_geometry(&meta, 2, 3, [64, 64], [false; 2]).unwrap();
         assert!(world_at(&plane, 32.0, 2.0).z > world_at(&plane, 32.0, 62.0).z);
         assert!(world_at(&plane, 62.0, 32.0).y < world_at(&plane, 2.0, 32.0).y);
+    }
+    /// Exact 45° ties resolve deterministically: a plane normal halfway
+    /// between X and Y counts as sagittal-like (the lower world axis wins),
+    /// and in-plane columns that fit both roles equally keep voxel order.
+    #[test]
+    fn forty_five_degree_ties_resolve_the_same_way_every_time() {
+        let s = std::f32::consts::SQRT_2;
+        let unit = |v: [f32; 3]| Vector3::from(v).normalize();
+        // Normal (k) along the X/Y diagonal: the plane normal ties X and Y.
+        let normal_tie = VolumeMetadata {
+            dimensions: [6, 6, 6],
+            voxel_to_world: Matrix4::new(
+                0.0, s, s, 0.0, 0.0, -s, s, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ),
+        };
+        // Axial-like plane whose two in-plane columns sit at 45° to X and Y.
+        let role_tie = VolumeMetadata {
+            dimensions: [6, 6, 6],
+            voxel_to_world: Matrix4::new(
+                0.0, s, s, 0.0, 0.0, s, -s, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ),
+        };
+        for _ in 0..3 {
+            let plane = native_slice_geometry(&normal_tie, 2, 3, [32, 32], [false; 2]).unwrap();
+            assert_relative_eq!(unit(plane.u_mm), unit([1.0, -1.0, 0.0]), epsilon = 1e-6);
+            assert_relative_eq!(unit(plane.v_mm), unit([0.0, 0.0, -1.0]), epsilon = 1e-6);
+            let plane = native_slice_geometry(&role_tie, 0, 3, [32, 32], [false; 2]).unwrap();
+            assert_relative_eq!(unit(plane.u_mm), unit([1.0, 1.0, 0.0]), epsilon = 1e-6);
+            assert_relative_eq!(unit(plane.v_mm), unit([1.0, -1.0, 0.0]), epsilon = 1e-6);
+        }
     }
     #[test]
     fn sheared_affine_uses_square_pixels_and_contains_the_native_slice_edges() {

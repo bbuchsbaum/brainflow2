@@ -123,6 +123,25 @@ describe('tracing controls', () => {
     expect(state.unlock).toHaveBeenCalledWith(document.workspaceId, 1, false, false);
   });
 
+  it('offers Retry session, not Unlock, for an OS lock error while the label is unlocked', async () => {
+    state.session = { ...(state.session as object), error: 'Could not save labels: the file is locked' };
+    render(<SegmentViewport workspaceId={document.workspaceId} />);
+    expect(await screen.findByRole('button', { name: 'Retry session' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Unlock/ })).not.toBeInTheDocument();
+  });
+
+  it('shows a radius change made elsewhere instead of a stale draft', async () => {
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    const radius = screen.getByLabelText(/Radius/) as HTMLInputElement;
+    fireEvent.focus(radius);
+    fireEvent.change(radius, { target: { value: '' } });
+    expect(radius.value).toBe('');
+    // Another control (or a restored session) changes the radius meanwhile.
+    state.session = { ...(state.session as object), radiusMm: 3 };
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    expect(radius.value).toBe('3');
+  });
+
   it('still offers Retry session for other failures', async () => {
     state.session = { ...(state.session as object), error: 'Editable texture upload failed' };
     render(<SegmentViewport workspaceId={document.workspaceId} />);

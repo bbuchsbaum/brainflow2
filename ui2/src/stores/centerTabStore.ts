@@ -22,6 +22,13 @@ export function isSurfaceTabComponent(componentType: string | null | undefined):
 interface CenterTabStore {
   frontComponentType: string | null;
   setFrontComponentType: (componentType: string | null) => void;
+  /**
+   * Bumped to ask the centre stack to bring the active workspace's tab to the
+   * front again (for example over a surface tab, which leaves the active
+   * workspace unchanged). GoldenLayoutRoot refocuses the tab on each change.
+   */
+  workspaceFrontRequest: number;
+  requestWorkspaceFront: () => void;
 }
 
 export const useCenterTabStore = create<CenterTabStore>((set, get) => ({
@@ -30,4 +37,6 @@ export const useCenterTabStore = create<CenterTabStore>((set, get) => ({
     if (get().frontComponentType === componentType) return;
     set({ frontComponentType: componentType });
   },
+  workspaceFrontRequest: 0,
+  requestWorkspaceFront: () => set((state) => ({ workspaceFrontRequest: state.workspaceFrontRequest + 1 })),
 }));

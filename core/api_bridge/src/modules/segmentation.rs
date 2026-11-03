@@ -735,24 +735,34 @@ async fn export_with_folder(
     state: &BridgeState,
     owner: Operation,
 ) -> BridgeResult<(LabelExport, Option<PathBuf>)> {
-    let module = state
-        .modules
-        .enter_workspace::<SegmentationState>(ID, &workspace(&owner))
-        .await?;
-    let _operation = state.volume_operations.lock().await;
-    let sessions = module.sessions.lock().await;
-    let record = sessions
-        .get(&owner.session_id)
-        .filter(|record| record.workspace == workspace(&owner))
-        .ok_or_else(|| invalid("Segmentation session was closed"))?;
-    let export = record.session.export(&owner).map_err(domain)?;
-    let reference_path = state
-        .volume_registry
-        .lock()
-        .await
-        .get_entry(record.session.reference_volume_id())
-        .map(|entry| entry.metadata.path.clone());
-    let folder = default_save_folder(record.last_save_dir.as_deref(), reference_path.as_deref());
+    // Copy what the folder choice needs, then release the module gate and
+    // document locks before touching the filesystem: a stalled network mount
+    // must not hang every segmentation command.
+    let (export, last_save_dir, reference_path) = {
+        let module = state
+            .modules
+            .enter_workspace::<SegmentationState>(ID, &workspace(&owner))
+            .await?;
+        let _operation = state.volume_operations.lock().await;
+        let sessions = module.sessions.lock().await;
+        let record = sessions
+            .get(&owner.session_id)
+            .filter(|record| record.workspace == workspace(&owner))
+            .ok_or_else(|| invalid("Segmentation session was closed"))?;
+        let export = record.session.export(&owner).map_err(domain)?;
+        let reference_path = state
+            .volume_registry
+            .lock()
+            .await
+            .get_entry(record.session.reference_volume_id())
+            .map(|entry| entry.metadata.path.clone());
+        (export, record.last_save_dir.clone(), reference_path)
+    };
+    let folder = tokio::task::spawn_blocking(move || {
+        default_save_folder(last_save_dir.as_deref(), reference_path.as_deref())
+    })
+    .await
+    .unwrap_or(None);
     Ok((export, folder))
 }
 

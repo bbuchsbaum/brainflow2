@@ -19,6 +19,8 @@ import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { moduleRegistry } from '@/modules/registry';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { isViewWorkspaceType } from '@/components/ui/displayModeSelector.helpers';
+import { useCenterTabStore } from '@/stores/centerTabStore';
+import { currentTabTakesLayout } from '@/services/workspaceNavigation';
 import { useLayerStore, type VolumeMetadata } from '@/stores/layerStore';
 export type { WorkspaceDocumentIdentity, RetainWorkspaceDocumentOptions } from '@/services/workspaceDocuments';
 import {
@@ -73,16 +75,29 @@ export function captureActiveWorkspace(): ActiveWorkspaceLease | null {
 }
 export const useActiveWorkspaceId = () => useWorkspaceStore((state) => state.activeWorkspaceId);
 /**
- * Bring the most recently opened view tab to the front, for a module entry
- * point shown in a tool tab (view modes apply to the front view). False when
- * no view tab exists.
+ * Bring a view tab to the front for a module entry point shown outside a view
+ * (view modes apply to the front view): the active view workspace when there
+ * is one (for example behind a surface tab), else the newest view tab.
+ * Resolves true once that view is actually in front of the centre stack, or
+ * false when no view tab exists or it did not come forward within `timeoutMs`.
  */
-export function activateViewTab(): boolean {
-  const { workspaces, activateWorkspace } = useWorkspaceStore.getState();
-  const target = [...workspaces.values()].filter((workspace) => isViewWorkspaceType(workspace.type)).sort((a, b) => b.timestamp - a.timestamp)[0];
-  if (!target) return false;
-  activateWorkspace(target.id);
-  return true;
+export function activateViewTab(timeoutMs = 1000): Promise<boolean> {
+  const { workspaces, activeWorkspaceId, activateWorkspace } = useWorkspaceStore.getState();
+  const views = [...workspaces.values()].filter((workspace) => isViewWorkspaceType(workspace.type));
+  const active = views.find((workspace) => workspace.id === activeWorkspaceId);
+  const target = active ?? views.sort((a, b) => b.timestamp - a.timestamp)[0];
+  if (!target) return Promise.resolve(false);
+  if (target.id !== activeWorkspaceId) activateWorkspace(target.id);
+  useCenterTabStore.getState().requestWorkspaceFront();
+  // The centre stack reports its new front tab asynchronously.
+  return new Promise((resolve) => {
+    const settle = (value: boolean) => { clearTimeout(timer); stopWorkspace(); stopTab(); resolve(value); };
+    const check = () => { if (currentTabTakesLayout()) settle(true); };
+    const stopWorkspace = useWorkspaceStore.subscribe(check);
+    const stopTab = useCenterTabStore.subscribe(check);
+    const timer = setTimeout(() => settle(currentTabTakesLayout()), timeoutMs);
+    check();
+  });
 }
 /** Run a module command exactly as the ⌘K palette does. False when it cannot run here. */
 export function runModuleCommand(commandId: string): Promise<boolean> {

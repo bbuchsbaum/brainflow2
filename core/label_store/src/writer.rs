@@ -240,6 +240,15 @@ fn commit(staged: Vec<(tempfile::NamedTempFile, &Target)>) -> Result<()> {
         }
         return Err(Error::Export(format!("{error}; nothing was written")));
     }
+    // A replaced file keeps its mode (a group-shared 0664 or a private 0600);
+    // new files keep the umask mode from `staging_file`. Best effort: a
+    // filesystem without Unix modes (exFAT, SMB) keeps its own.
+    #[cfg(unix)]
+    for ((temporary, target), slot) in temporaries.iter().zip(&targets).zip(&slots) {
+        if let (Slot::Replaced(_), Ok(previous)) = (slot, std::fs::metadata(&target.path)) {
+            let _ = temporary.as_file().set_permissions(previous.permissions());
+        }
+    }
     let mut renamed = 0;
     let mut failure = None;
     for (index, temporary) in temporaries.into_iter().enumerate() {
@@ -343,6 +352,44 @@ mod tests {
                 assert_eq!(mode, expected, "{} has mode {mode:o}", path.display());
                 assert_ne!(mode, 0o600);
             }
+        }
+    }
+
+    /// Replacing an existing file keeps its permission bits.
+    #[cfg(unix)]
+    #[test]
+    fn a_replaced_file_keeps_its_previous_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        for previous in [0o664, 0o600] {
+            let labels = directory.path().join(format!("labels-{previous:o}.nii"));
+            let table = directory.path().join(format!("labels-{previous:o}.tsv"));
+            for path in [&labels, &table] {
+                std::fs::write(path, b"old").unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(previous)).unwrap();
+            }
+            write_label_export(
+                [2, 2, 1],
+                &[0, 1, 2, 3],
+                &reference(),
+                &Target {
+                    path: labels.clone(),
+                    replace: true,
+                },
+                &[Companion {
+                    target: Target {
+                        path: table.clone(),
+                        replace: true,
+                    },
+                    bytes: b"new".to_vec(),
+                }],
+            )
+            .unwrap();
+            for path in [&labels, &table] {
+                let mode = path.metadata().unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, previous, "{} has mode {mode:o}", path.display());
+            }
+            assert_eq!(std::fs::read(&table).unwrap(), b"new");
         }
     }
 

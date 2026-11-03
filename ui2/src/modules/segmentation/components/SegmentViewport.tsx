@@ -36,7 +36,8 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const [contrast, setContrast] = useState<'reference' | 'secondary'>('reference');
   const [renderedFrame, setRenderedFrame] = useState('');
   // The radius as typed: may be empty or out of range while retyping; only valid values apply.
-  const [radiusDraft, setRadiusDraft] = useState<string | null>(null);
+  // `base` is the store radius the draft belongs to; a change from elsewhere drops the draft.
+  const [radiusDraft, setRadiusDraft] = useState<{ text: string; base: number } | null>(null);
   const ready = useRef(false);
   const placement = useRef<SliceViewportPlacement | null>(null);
   const state = useRef(session); state.current = session;
@@ -184,7 +185,8 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const crosshairPosition = crosshairWorld ? crosshairWorld.map((value, a) => value + active.voxelToWorld[4 * active.normalAxis + a] * (session.sliceIndex - nativeSliceAtWorld(active, crosshairWorld))) as [number, number, number] : null;
   const brushGap = plane && displayPlacement && session.tool !== 'navigate' ? 3 * session.radiusMm / Math.hypot(...plane.u_mm) * displayPlacement.width / displayPlacement.imageWidth : 0;
   const cursor = cursorWorld && plane && displayPlacement ? projectWorldToCanvas(cursorWorld, plane, displayPlacement) : null;
-  const lockedRefusal = session.error?.toLowerCase().includes('locked') ? session.error : null;
+  // A refusal because the active label is locked (not, say, an OS "file is locked" error).
+  const lockedRefusal = session.error && label?.locked && /label is locked/i.test(session.error) ? session.error : null;
   const getKnockouts = () => {
     if (!canvas.current || !slice || !plane || !displayPlacement) return [];
     const rect = canvas.current.getBoundingClientRect();
@@ -197,7 +199,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
       <span className="font-medium">Native slice {session.sliceIndex + 1} / {count}</span>
       <IconButton aria-label="Previous native slice" icon={<ChevronLeft />} disabled={session.sliceIndex === 0 || session.busy} onClick={() => step(-1)} />
       <IconButton aria-label="Next native slice" icon={<ChevronRight />} disabled={session.sliceIndex + 1 === count || session.busy} onClick={() => step(1)} />
-      <label>Radius <input className="w-14 bg-bf-bg-input font-mono" type="number" inputMode="decimal" min="0.1" max="30" step="0.1" value={radiusDraft ?? session.radiusMm} {...numericEntryHandlers} onBlur={(event) => { numericEntryHandlers.onBlur?.(event); setRadiusDraft(null); }} onChange={(event) => { const raw = event.target.value, n = Number(raw); setRadiusDraft(raw); if (raw.trim() !== '' && n >= .1 && n <= 30) patch({ radiusMm: n }); }} /> mm</label>
+      <label>Radius <input className="w-14 bg-bf-bg-input font-mono" type="number" inputMode="decimal" min="0.1" max="30" step="0.1" value={radiusDraft && radiusDraft.base === session.radiusMm ? radiusDraft.text : session.radiusMm} {...numericEntryHandlers} onBlur={(event) => { numericEntryHandlers.onBlur?.(event); setRadiusDraft(null); }} onChange={(event) => { const raw = event.target.value, n = Number(raw), valid = raw.trim() !== '' && n >= .1 && n <= 30; setRadiusDraft({ text: raw, base: valid ? n : session.radiusMm }); if (valid) patch({ radiusMm: n }); }} /> mm</label>
       <label>Paint <select className="bg-bf-bg-input" value={session.paintOver} onChange={(event) => patch({ paintOver: event.target.value as typeof session.paintOver })}><option value="background">Background only</option><option value="unlocked">Unlocked labels</option><option value="all">All unlocked labels</option></select></label>
       {active.secondaryVolumeId && active.registration?.status === 'aligned' ? <Button size="sm" onClick={() => setContrast(contrast === 'reference' ? 'secondary' : 'reference')}>{contrast === 'reference' ? 'Show secondary' : 'Show reference'}</Button> : null}
       <Button size="sm" onClick={() => patch({ fill: !session.fill })}>{session.fill ? 'Outline only' : 'Show fills'}</Button>
@@ -212,7 +214,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
             onMouseDown={(event) => { if ((event.button === 1 || panKey.current) && plane) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, plane }; } }}
             onMouseMove={(event) => { if (pan.current) { const rect = event.currentTarget.getBoundingClientRect(); zoom(1, { canvasX: pan.current.x - rect.left, canvasY: pan.current.y - rect.top }, { dx: event.clientX - pan.current.x, dy: event.clientY - pan.current.y }, pan.current.plane); } }} onMouseUp={() => { pan.current = null; }} onMouseLeave={() => { pan.current = null; }} /> : <div role="status" className="p-3 text-bf-xs text-bf-text-muted">Preparing the reference plane…</div>}
           {ready.current && cursor && (blocked || lockedRefusal) ? <div role="status" className="pointer-events-none absolute max-w-[240px] border border-bf-border-subtle bg-bf-bg-panel px-2 py-1 text-bf-xs shadow-sm" style={{ left: Math.max(4, Math.min(size[0] - 244, cursor.canvasX + 14)), top: Math.max(4, Math.min(size[1] - 64, cursor.canvasY + 14)) }}>{lockedRefusal ?? `${preview!.blocked.length} voxels protected: ${preview!.blockedLabels.map((id) => active.labels.find((row) => row.definition.id === id)?.definition.name ?? 'constraint').join(', ')}`}</div> : null}
-          {displayError || session.error ? <div role="alert" className="absolute bottom-3 left-3 right-3 border border-bf-border-subtle bg-bf-bg-panel p-2 text-bf-xs">{displayError ?? session.error}{!displayError && lockedRefusal ? (label?.locked ? <Button size="sm" disabled={session.busy} onClick={() => void setSegmentationLabelState(workspaceId, label.definition.id, false, label.complete)}>Unlock {label.definition.name}</Button> : null) : <Button size="sm" onClick={() => { setDisplayError(null); setAttempt((n) => n + 1); void reconcileSegmentationSession(workspaceId); }}>Retry session</Button>}</div> : null}
+          {displayError || session.error ? <div role="alert" className="absolute bottom-3 left-3 right-3 border border-bf-border-subtle bg-bf-bg-panel p-2 text-bf-xs">{displayError ?? session.error}{!displayError && lockedRefusal && label ? <Button size="sm" disabled={session.busy} onClick={() => void setSegmentationLabelState(workspaceId, label.definition.id, false, label.complete)}>Unlock {label.definition.name}</Button> : <Button size="sm" onClick={() => { setDisplayError(null); setAttempt((n) => n + 1); void reconcileSegmentationSession(workspaceId); }}>Retry session</Button>}</div> : null}
         </div>
       </div>
       <NativeSliceRuler snapshot={active} activeId={session.activeLabelId} current={session.sliceIndex} onPick={(sliceIndex) => { if (!session.busy) patch({ sliceIndex }); }} />
