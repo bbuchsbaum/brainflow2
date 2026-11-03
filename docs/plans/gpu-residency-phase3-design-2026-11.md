@@ -140,6 +140,53 @@ There is a single `upload_for` function, which re-uploads from the CPU copy in t
    - segmentation with ⌥-scroll;
    - discard leaves no slot behind.
 
+## Revision 2026-11-02: separate residency from draw bindings
+
+The user asked whether the 13-layer limit can be lifted, and supplied an external assessment of the code. That assessment is adopted here.
+
+**Why the cap exists.** The 13-slot cap comes from coupling, not from GPU memory:
+- `MultiTextureManager` (`mtm.rs:31`) owns the resident textures and also one global bind group.
+- `create_bind_group` (`mtm.rs:616`) binds resident index N to binding N.
+- `LayerStorageManager` (`layer_storage.rs:352`) writes that same index into the shader's `texture_index`.
+- Leases, rings and the UI all reason about those indices.
+
+The *layout* limit is Brainflow's own: 27 sampled textures (13 volumes, 13 masks and 1 LUT) plus 2 samplers. The capacity resolver checks these separately (`facade.rs:441`); it is not a universal Metal ceiling.
+
+**Responsibilities after the split:**
+
+| Component | Responsibility |
+|---|---|
+| Resident texture store | Owns textures, byte accounting and generation-checked handles. |
+| Draw preparation | Maps the resident handles a draw requests onto the available binding positions, per draw. It hooks in at `submit_frame_with_options` (`core/render_loop/src/lib.rs:4945`), which already resolves `volume_id`s. |
+| Residency manager | Decides what stays resident from memory pressure, demand and pins. |
+
+**Rule:** a draw-binding position is never the handle used to edit, release or identify a volume.
+
+**Bind group caching.** Bind groups for the same set of resources are reused. They are invalidated on texture, mask or LUT replacement, and released on eviction and teardown so they never pin GPU memory. Their creation cost will be measured.
+
+**Revised increments.** These replace §7 from step 3 onwards; steps 1–2 are unchanged.
+1. **Ownership hardening.** Generation-checked handles, a lease for every allocation, and editable re-upload (N34). This is in progress as increment 2.
+2. **Per-draw binding map, with the 13-slot residency cap kept.**
+   - Shaders, masks, formats and blending are unchanged.
+   - Acceptance: identical pixels to the existing renderer, including the legacy path.
+   - This isolates mapping bugs from policy bugs.
+3. **Residency beyond 13 under an explicit byte budget.**
+   - The per-draw binding capacity stays at 13.
+   - Phase 3 admission, ring accounting, diagnostics and the UI move from "slots" to bytes, plus the per-view binding capacity.
+   - The budget is not "available unified memory": it must leave room for CPU copies, masks, rings, render targets and temporary allocations.
+4. **Then the demand model and the backend owner from §§2–6**, applied to the byte budget. Eviction order and pins are unchanged.
+
+**Deferred, each needing its own evidence:** mask packing or shared mask bindings, multipass compositing for more than 13 layers in one view, and binding arrays (`TEXTURE_BINDING_ARRAY`; elements still count against sampled-texture limits).
+
+**Acceptance tests for steps 2–3:**
+- More than 13 resident volumes spread across several views, each view within its binding capacity.
+- Identical pixels to today's renderer.
+- Rapid tab switches, concurrent readbacks, 4D swaps, label edits with undo, then unload and reload.
+- Forced memory pressure and failed uploads, with no stale release, no wrong-volume render and no leaked ownership.
+- Native Metal, plus the CI backend with a constrained binding capacity.
+
+**Decision 1 restated.** "More than 13 layers in front" becomes "more than the per-view binding capacity in one view": admit bottom-up and refuse the rest with one alert. Residency across views is no longer capped at 13.
+
 ## Decisions (user, 2026-11-02: "Accept recommendations")
 
 1. **More than 13 layers in front:** admit bottom-up in stack order, then refuse the rest with one alert.
