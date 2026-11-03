@@ -4711,23 +4711,24 @@ async fn patch_layer(
             details: format!("Layer {} not found in GPU resources", layer_id),
         });
     };
-    apply_layer_patch(&mut service, &layer_id, slot.index(), &patch)
+    apply_layer_patch(&mut service, &layer_id, slot, &patch)
 }
 
 /// Apply a `patch_layer` request to the imperative render-layer state.
 fn apply_layer_patch(
     service: &mut RenderLoopService,
     layer_id: &str,
-    atlas_layer_idx: u32,
+    slot: SlotHandle,
     patch: &LayerPatch,
 ) -> BridgeResult<()> {
+    let atlas_layer_idx = slot.index();
     // The render-layer state is rebuilt from each ViewState render and holds
     // only the layers that frame draws, in their own slots: it is indexed by
     // slot, not by atlas texture index. A layer the last frame did not draw
     // (hidden, or outside a Set studio render scope) has no state to patch;
     // the next ViewState render applies its display. Patching by atlas index
     // failed ("Layer N not found") or edited another layer (QA F10).
-    let Some(render_slot) = service.render_layer_index_for_atlas(atlas_layer_idx) else {
+    let Some(render_slot) = drawn_render_layer(service, slot) else {
         debug!(
             "patch_layer: layer {} (atlas {}) is not drawn in the current frame; nothing to patch",
             layer_id, atlas_layer_idx
@@ -5812,8 +5813,8 @@ async fn set_layer_border(
         });
     };
     let mut service = service_arc.lock().await;
-    // A binding position, from the layer's current residency only.
-    let atlas_idx = state
+    // The layer's current residency only.
+    let slot = state
         .layer_slots
         .lock()
         .await
@@ -5821,17 +5822,15 @@ async fn set_layer_border(
         .ok_or_else(|| BridgeError::Input {
             code: 2018,
             details: format!("Layer '{}' not mapped to an atlas index", layer_id),
-        })?
-        .index();
-    let index = service
-        .find_layer_index_by_atlas(atlas_idx)
-        .ok_or_else(|| BridgeError::Internal {
-            code: 8008,
-            details: format!(
-                "No active render layer found for atlas index {} (layer '{}')",
-                atlas_idx, layer_id
-            ),
         })?;
+    let atlas_idx = slot.index();
+    let index = drawn_render_layer(&service, slot).ok_or_else(|| BridgeError::Internal {
+        code: 8008,
+        details: format!(
+            "No active render layer found for atlas index {} (layer '{}')",
+            atlas_idx, layer_id
+        ),
+    })?;
     service
         .set_layer_border(index, enabled, thickness_px)
         .map_err(|e| BridgeError::GpuError {
@@ -12733,6 +12732,8 @@ mod tests {
             blend_mode: None,
         };
         // A layer the frame does not draw: nothing to patch, and no error.
+        let hidden = service.slot_handle(hidden).expect("resident");
+        let drawn = service.slot_handle(drawn).expect("resident");
         apply_layer_patch(&mut service, "hidden", hidden, &opacity(0.0))
             .expect("patching an undrawn layer is a no-op");
         assert_eq!(

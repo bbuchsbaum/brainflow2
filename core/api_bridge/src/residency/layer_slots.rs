@@ -83,6 +83,16 @@ impl LayerSlotMap {
     }
 }
 
+/// The render-layer slot that draws `slot` in the current frame, while `slot`
+/// is still that residency: an entry for its index left by another residency
+/// is not this one's.
+pub(crate) fn drawn_render_layer(service: &RenderLoopService, slot: SlotHandle) -> Option<usize> {
+    if !service.is_slot_current(slot) {
+        return None;
+    }
+    service.render_layer_index_for_atlas(slot.index())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +142,30 @@ mod tests {
         assert_eq!(map.recorded("layer"), Some(mine), "still recorded");
         assert!(map.contains("layer"));
         assert_eq!(map.current("missing", &service), None);
+    }
+
+    #[tokio::test]
+    async fn a_render_layer_is_found_only_through_a_current_handle() {
+        let mut service = renderer().await;
+        let mine = upload(&mut service, 1.0);
+        service
+            .add_layer_3d(
+                mine.index(),
+                nalgebra::Matrix4::identity(),
+                (3, 2, 2),
+                1.0,
+                0,
+                1,
+            )
+            .unwrap();
+        assert_eq!(drawn_render_layer(&service, mine), Some(0));
+        // The texture goes behind the render entry, and another volume
+        // refills its index: the entry is not the old residency's.
+        assert!(service.release_slot(mine).unwrap());
+        let other = upload(&mut service, 7.0);
+        assert_eq!(other.index(), mine.index());
+        assert_eq!(drawn_render_layer(&service, mine), None);
+        assert_eq!(drawn_render_layer(&service, other), Some(0));
     }
 
     #[tokio::test]

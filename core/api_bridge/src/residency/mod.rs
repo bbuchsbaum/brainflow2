@@ -30,6 +30,7 @@ mod ring;
 mod skips;
 mod watchdog;
 
+pub(crate) use layer_slots::drawn_render_layer;
 pub use layer_slots::LayerSlotMap;
 pub(crate) use lease::{release_superseded_lease, LayerLease};
 pub(crate) use release::{
