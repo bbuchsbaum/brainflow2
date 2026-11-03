@@ -501,17 +501,7 @@ pub mod sources {
     #[allow(dead_code)]
     pub const TEST: &str = include_str!("../shaders/test.wgsl");
     #[allow(dead_code)]
-    pub const SLICE_DEBUG: &str = include_str!("../shaders/slice_debug.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG2: &str = include_str!("../shaders/slice_debug2.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG3: &str = include_str!("../shaders/slice_debug3.wgsl");
-    #[allow(dead_code)]
     pub const SLICE_SIMPLE: &str = include_str!("../shaders/slice_simple.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG_SAMPLING: &str = include_str!("../shaders/slice_debug_sampling.wgsl");
-    #[allow(dead_code)]
-    pub const SLICE_DEBUG_TEXTURE: &str = include_str!("../shaders/slice_debug_texture.wgsl");
     #[allow(dead_code)]
     pub const SLICE_SIMPLIFIED: &str = include_str!("../shaders/slice_simplified.wgsl");
     #[allow(dead_code)]
