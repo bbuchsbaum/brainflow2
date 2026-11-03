@@ -77,6 +77,19 @@ export class LayerGpuService {
     });
   }
 
+  /**
+   * Whether the backend holds GPU resources for `layerId` now (one check, no
+   * wait). A frame can allocate a visible layer on demand, so after a tab
+   * switch a layer the UI evicted may already be resident again.
+   */
+  async isLayerGpuResident(layerId: string): Promise<boolean> {
+    return this.transport.invoke<boolean>('wait_for_layer_ready', {
+      layerId,
+      timeoutMs: 0,
+      pollIntervalMs: 5,
+    });
+  }
+
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
     return this.transport.invoke('patch_layer', { layerId, patch });
   }

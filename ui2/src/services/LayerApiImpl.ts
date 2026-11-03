@@ -39,7 +39,10 @@ import { useSeriesStore } from '@/stores/seriesStore';
 import { categoricalTypeFromData, layersOfView, planLayerPlacement, placementOrder } from './layerPlacement';
 import { releaseVolumeCaches } from './volumeCacheRelease';
 import { forgetPreservedDisplay, isLayerDisplayPreserved } from './restoredDisplay';
-import { GpuSlotsFullError } from '@/utils/formatTauriError';
+import { GpuSlotsFullError, tauriErrorCode } from '@/utils/formatTauriError';
+
+/** Bridge code: the layer already owns GPU resources (request_layer_gpu_resources). */
+const LAYER_ALREADY_RESIDENT = 1006;
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -106,6 +109,49 @@ export class LayerApiImpl implements LayerApi {
     await layerEvictionService.checkAndEvict();
   }
 
+  /**
+   * Loaded hidden, so it was never windowed: it must not be shown on the
+   * legacy fallback for the rest of its life.
+   */
+  private refineDeferredIntensity(id: string, layer: Layer): void {
+    const deferred = this.unrefined.get(id);
+    if (!deferred) return;
+    this.unrefined.delete(id);
+    // A window set while it was hidden is the user's: it stands.
+    const untouched =
+      deferred.render === undefined ||
+      renderKeyOf(viewLayerIn(deferred.workspaceId, id)) === deferred.render;
+    if (untouched) {
+      this.refineIntensityFromHistogram(layer, deferred.options, deferred.workspaceId).catch((err) =>
+        console.warn(`[LayerApiImpl] Deferred intensity refinement failed for ${id}:`, err),
+      );
+    }
+  }
+
+  /** One backend check, no wait; false when it cannot answer. */
+  private async backendHoldsLayer(id: string): Promise<boolean> {
+    try {
+      return (await this.apiService.isLayerGpuResident(id)) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The backend holds the layer already: record it as resident (its
+   * geometry metadata from the original load stands) without a new upload.
+   */
+  private adoptResidentLayer(id: string): void {
+    const metadata = useLayerStore.getState().getLayerMetadata(id);
+    if (metadata) {
+      useLayerStore.getState().setLayerMetadata(id, { ...metadata, gpuResident: true, evicted: false });
+    }
+    useLayerStore.getState().setLayerError(id, null);
+    getEventBus().emit('layer.gpu.ready', { layerId: id });
+    const layer = useLayerStore.getState().getLayer(id);
+    if (layer) this.refineDeferredIntensity(id, layer as Layer);
+  }
+
   private async ensureGpuResidentForLayer(id: string): Promise<void> {
     const layer = useLayerStore.getState().getLayer(id);
     if (!layer) {
@@ -133,6 +179,18 @@ export class LayerApiImpl implements LayerApi {
       return true;
     };
 
+    // A frame draws any visible layer, and allocates one the UI evicted on
+    // demand (a tab switch races the front-tab re-upload). Such a layer is
+    // resident already: adopt it instead of evicting for it and then failing
+    // with "already owns GPU resources", which left it marked non-resident
+    // and its slot unevictable.
+    if (await this.backendHoldsLayer(id)) {
+      if (await discardIfRemoved()) return;
+      this.adoptResidentLayer(id);
+      return;
+    }
+    if (removed()) return;
+
     // Free a texture slot first: the render loop refuses an upload once all
     // are taken, so evicting afterwards is too late. With every slot holding
     // a layer shown somewhere, refuse here: the texture slots can outnumber
@@ -146,7 +204,18 @@ export class LayerApiImpl implements LayerApi {
       if (room === false) {
         throw new GpuSlotsFullError(await layerEvictionService.gpuTextureSlots());
       }
-      const gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
+      let gpuInfo;
+      try {
+        gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
+      } catch (error) {
+        // Allocated by a frame between the check above and this request.
+        if (tauriErrorCode(error) === LAYER_ALREADY_RESIDENT && (await this.backendHoldsLayer(id))) {
+          if (await discardIfRemoved()) return;
+          this.adoptResidentLayer(id);
+          return;
+        }
+        throw error;
+      }
       if (await discardIfRemoved()) return;
 
       try {
@@ -171,21 +240,7 @@ export class LayerApiImpl implements LayerApi {
       );
       useLayerStore.getState().setLayerMetadata(id, nextMetadata);
       getEventBus().emit('layer.gpu.ready', { layerId: id });
-      // Loaded hidden, so it was never windowed: it must not be shown on the
-      // legacy fallback for the rest of its life.
-      const deferred = this.unrefined.get(id);
-      if (deferred) {
-        this.unrefined.delete(id);
-        // A window set while it was hidden is the user's: it stands.
-        const untouched =
-          deferred.render === undefined ||
-          renderKeyOf(viewLayerIn(deferred.workspaceId, id)) === deferred.render;
-        if (untouched) {
-          this.refineIntensityFromHistogram(layer as Layer, deferred.options, deferred.workspaceId).catch((err) =>
-            console.warn(`[LayerApiImpl] Deferred intensity refinement failed for ${id}:`, err),
-          );
-        }
-      }
+      this.refineDeferredIntensity(id, layer as Layer);
     } finally {
       layerEvictionService.releaseReservation(id);
     }

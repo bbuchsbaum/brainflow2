@@ -569,6 +569,10 @@ export class ApiService {
     return this.layerGpu.waitForLayerReady(layerId, timeoutMs, pollIntervalMs);
   }
 
+  async isLayerGpuResident(layerId: string): Promise<boolean> {
+    return this.layerGpu.isLayerGpuResident(layerId);
+  }
+
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
     return this.layerGpu.patchLayer(layerId, patch);
   }
