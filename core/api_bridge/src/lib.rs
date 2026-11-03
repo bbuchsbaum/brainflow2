@@ -7111,8 +7111,11 @@ async fn is_layer_ready_internal(layer_id: &str, state: &BridgeState) -> bool {
         return false;
     };
 
+    // Ready means its texture is resident. Uploads add no per-frame render
+    // entry (only a frame that draws the layer does), so the render state
+    // cannot answer this.
     let service = service_arc.lock().await;
-    service.find_layer_index_by_atlas(atlas_idx).is_some()
+    service.is_volume_slot_resident(atlas_idx)
 }
 
 #[command]
@@ -7123,7 +7126,9 @@ async fn wait_for_layer_ready(
     poll_interval_ms: Option<u64>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<bool> {
-    let timeout = timeout_ms.unwrap_or(5_000).clamp(100, 60_000);
+    // A timeout of 0 checks once: the UI asks whether the backend already
+    // holds a layer (a frame may have allocated it on demand).
+    let timeout = timeout_ms.unwrap_or(5_000).min(60_000);
     let poll_interval = poll_interval_ms.unwrap_or(25).clamp(5, 500);
     let start = Instant::now();
 
@@ -14083,6 +14088,10 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("upload {i} must succeed: {error:?}"));
         }
+        // Ready (resident) without any frame having drawn it: readiness is
+        // texture residency, not a render-state entry.
+        assert!(is_layer_ready_internal("cap-upload-0", &state).await);
+        assert!(!is_layer_ready_internal("never-uploaded", &state).await);
         let renderer = service.lock().await;
         assert_eq!(
             renderer.active_layer_count(),

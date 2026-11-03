@@ -2680,6 +2680,24 @@ impl RenderLoopService {
         }
     }
 
+    /// Whether `atlas_index` is a volume texture slot holding data now.
+    pub fn is_volume_slot_resident(&self, atlas_index: u32) -> bool {
+        self.multi_texture_manager
+            .as_ref()
+            .and_then(|manager| manager.get_texture_info(atlas_index))
+            .is_some()
+    }
+
+    /// Whether `atlas_index` holds an editable label texture (an open
+    /// segmentation document). Such a slot must not be reclaimed behind the
+    /// document's back.
+    pub fn is_editable_volume_slot(&self, atlas_index: u32) -> bool {
+        self.multi_texture_manager
+            .as_ref()
+            .and_then(|manager| manager.editable_handle(atlas_index))
+            .is_some()
+    }
+
     /// Volume texture slots currently holding data (layers and 4D resident-ring
     /// members alike).
     pub fn resident_volume_slot_count(&self) -> usize {
