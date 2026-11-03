@@ -218,6 +218,47 @@ pub(crate) async fn synchronize_locked(
     Ok((!errors.is_empty()).then(|| errors.join("; ")))
 }
 
+/// Re-resolve every display of an editable volume whose residency went stale:
+/// its slot was freed behind it, or holds labels without the document's claim.
+/// Each such layer is released and uploaded again through the shared editable
+/// path, claimed at the current revision. A reconcile (Retry, a module turned
+/// back on) runs this; an edit does not, so a failed publication stays
+/// reported until the user resyncs. Returns the layers that could not be
+/// restored.
+pub(crate) async fn resolve_locked(
+    state: &crate::BridgeState,
+    _operation: &tokio::sync::MutexGuard<'_, ()>,
+    volume_id: &str,
+) -> Option<String> {
+    let mut layer_ids: Vec<_> = state
+        .layer_to_volume_map
+        .lock()
+        .await
+        .iter()
+        .filter(|(_, source)| source.as_str() == volume_id)
+        .map(|(id, _)| id.clone())
+        .collect();
+    layer_ids.sort();
+    let mut errors = Vec::new();
+    for layer_id in layer_ids {
+        if !state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .contains_key(&layer_id)
+            || crate::layer_residency_is_live(state, &layer_id, volume_id).await
+        {
+            continue;
+        }
+        if let Err(error) = crate::reupload_layer_locked(state, &layer_id, volume_id).await {
+            errors.push(format!(
+                "Could not restore the label texture of layer {layer_id}: {error}"
+            ));
+        }
+    }
+    (!errors.is_empty()).then(|| errors.join("; "))
+}
+
 /// Called by core workspace disposal under volume_operations. A normal display
 /// layer inherits a published snapshot; unreferenced documents are fully freed.
 pub(crate) async fn release_documents_locked(state: &crate::BridgeState, volume_ids: &[String]) {

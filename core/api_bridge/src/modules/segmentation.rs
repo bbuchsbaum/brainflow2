@@ -479,7 +479,11 @@ async fn get(
             .find(|record| record.workspace == access.workspace),
     }
     .ok_or_else(|| invalid("Segmentation session was closed or replaced"))?;
-    Ok(info(record, state, None, &_operation).await)
+    // A reconcile (Retry, the module turned back on) restores a label texture
+    // that lost its slot or its editable claim, rather than repeating the lookup.
+    let restored =
+        crate::editable_labels::resolve_locked(state, &_operation, &record.label_volume_id).await;
+    Ok(info(record, state, restored, &_operation).await)
 }
 async fn preview(state: &BridgeState, stroke: Stroke) -> BridgeResult<bf_segmentation::Preview> {
     let module = state

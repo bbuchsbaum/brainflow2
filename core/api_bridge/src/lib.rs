@@ -45,6 +45,7 @@ use render_loop::{RenderLoopService, SliceFeatureUbo}; // Remove unused RenderLo
                                                        // Import async_trait attribute
                                                        // use async_trait::async_trait;
 use log::{debug, error, info, warn}; // Added error, warn, and debug
+use render_loop::SlotHandle;
 use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
                                      // For JSON parsing
 use ts_rs::TS;
@@ -269,7 +270,10 @@ struct LayerLease {
 
 struct LayerLeaseInner {
     layer_id: String,
-    atlas_index: u32,
+    /// The residency this lease owns: the layer's upload, or the ring member
+    /// it was repointed to. Released through its generation, so a slot freed
+    /// elsewhere and refilled by another layer is never released from here.
+    slot: std::sync::Mutex<SlotHandle>,
     render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
     layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
     layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
@@ -285,7 +289,7 @@ const LAYER_WATCHDOG_STALE_AGE: Duration = Duration::from_secs(5 * 60);
 impl LayerLease {
     fn new(
         layer_id: String,
-        atlas_index: u32,
+        slot: SlotHandle,
         render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
         layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
         layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
@@ -295,7 +299,7 @@ impl LayerLease {
         Self {
             inner: Arc::new(LayerLeaseInner {
                 layer_id,
-                atlas_index,
+                slot: std::sync::Mutex::new(slot),
                 render_loop_service,
                 layer_to_atlas_map,
                 layer_to_volume_map,
@@ -307,8 +311,30 @@ impl LayerLease {
         }
     }
 
+    /// A lease for an allocation the bridge just made for `layer_id`.
+    fn for_state(state: &BridgeState, layer_id: String, slot: SlotHandle) -> Self {
+        Self::new(
+            layer_id,
+            slot,
+            Arc::clone(&state.render_loop_service),
+            Arc::clone(&state.layer_to_atlas_map),
+            Arc::clone(&state.layer_to_volume_map),
+            Arc::clone(&state.layer_to_timepoint_map),
+            Arc::clone(&state.resident_image_sets),
+        )
+    }
+
     fn atlas_index(&self) -> u32 {
-        self.inner.atlas_index
+        self.slot().index()
+    }
+
+    fn slot(&self) -> SlotHandle {
+        self.inner.slot()
+    }
+
+    /// The layer now shows another residency (a resident image-set swap).
+    fn repoint(&self, slot: SlotHandle) {
+        *self.inner.slot.lock().unwrap_or_else(|e| e.into_inner()) = slot;
     }
 
     #[allow(dead_code)]
@@ -340,57 +366,73 @@ impl LayerLease {
 }
 
 impl LayerLeaseInner {
-    async fn prepare_release(&self) -> Option<u32> {
+    fn slot(&self) -> SlotHandle {
+        *self.slot.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Mark the lease released and drop the layer's bookkeeping if it is this
+    /// lease's: the layer maps to the slot this lease owns, or to a slot that
+    /// holds nothing any more. A newer allocation of the same layer keeps its
+    /// maps. `None` when the lease was already released.
+    async fn prepare_release(&self, render_service: &mut RenderLoopService) -> Option<SlotHandle> {
         if self.is_released.swap(true, Ordering::SeqCst) {
             return None;
         }
-
-        // Remove from front-end tracking maps. If the entries are already gone,
-        // fall back to the original atlas index stored on the lease.
-        let atlas_index = {
-            let mut layer_map = self.layer_to_atlas_map.lock().await;
-            layer_map.remove(&self.layer_id).unwrap_or(self.atlas_index)
-        };
-
-        {
-            let mut volume_map = self.layer_to_volume_map.lock().await;
-            volume_map.remove(&self.layer_id);
+        let slot = self.slot();
+        let mut layer_map = self.layer_to_atlas_map.lock().await;
+        let ours = layer_map.get(&self.layer_id).is_some_and(|&index| {
+            (index == slot.index() && render_service.is_slot_current(slot))
+                || render_service.slot_handle(index).is_none()
+        });
+        if ours {
+            layer_map.remove(&self.layer_id);
+            drop(layer_map);
+            self.layer_to_volume_map.lock().await.remove(&self.layer_id);
+            self.layer_to_timepoint_map
+                .lock()
+                .await
+                .remove(&self.layer_id);
         }
-
-        {
-            let mut timepoint_map = self.layer_to_timepoint_map.lock().await;
-            timepoint_map.remove(&self.layer_id);
-        }
-
-        Some(atlas_index)
+        Some(slot)
     }
 
     async fn release_from_service(
         &self,
         render_service: &mut RenderLoopService,
-        atlas_index: u32,
+        slot: SlotHandle,
         reason: &'static str,
     ) -> BridgeResult<Option<ReleaseOutcome>> {
+        // The lease's own residency first, with its render-state entry; then
+        // the rest of the layer's ring, if the ring is this residency's.
+        let removed_from_render_state =
+            render_service
+                .release_layer_slot(slot)
+                .map_err(|err| BridgeError::GpuError {
+                    code: 5080,
+                    details: format!("Failed to release layer {}: {err}", self.layer_id),
+                })?;
         release_resident_image_set_allocations(
             &self.layer_id,
+            Some(slot),
             &self.resident_image_sets,
             render_service,
         )
         .await;
-        let removed_from_render_state = render_service
-            .release_layer_resources(atlas_index)
-            .map_err(|err| BridgeError::GpuError {
-                code: 5080,
-                details: format!("Failed to release layer {}: {err}", self.layer_id),
-            })?;
         info!(
-            "LayerLease({}) released atlas index {} (reason: {})",
-            self.layer_id, atlas_index, reason
+            "LayerLease({}) released atlas index {} (reason: {}{})",
+            self.layer_id,
+            slot.index(),
+            reason,
+            if removed_from_render_state.is_none() {
+                "; its slot was already released"
+            } else {
+                ""
+            }
         );
 
         Ok(Some(ReleaseOutcome {
-            atlas_index,
-            render_state_entry_removed: removed_from_render_state,
+            atlas_index: slot.index(),
+            render_state_entry_removed: removed_from_render_state.unwrap_or(false),
         }))
     }
 
@@ -399,35 +441,40 @@ impl LayerLeaseInner {
         render_service: &mut RenderLoopService,
         reason: &'static str,
     ) -> BridgeResult<Option<ReleaseOutcome>> {
-        let Some(atlas_index) = self.prepare_release().await else {
+        let Some(slot) = self.prepare_release(render_service).await else {
             return Ok(None);
         };
 
-        self.release_from_service(render_service, atlas_index, reason)
+        self.release_from_service(render_service, slot, reason)
             .await
     }
 
     async fn release(&self, reason: &'static str) -> BridgeResult<Option<ReleaseOutcome>> {
-        let Some(atlas_index) = self.prepare_release().await else {
-            return Ok(None);
-        };
-
         let service_option = {
             let guard = self.render_loop_service.lock().await;
             guard.clone()
         };
 
-        let service_arc = service_option.ok_or_else(|| BridgeError::ServiceNotInitialized {
-            code: 5008,
-            details: format!(
-                "GPU rendering service is not initialized. Cannot release layer {}.",
-                self.layer_id
-            ),
-        })?;
+        let Some(service_arc) = service_option else {
+            // No renderer, so no texture: only the bookkeeping goes.
+            if self.is_released.swap(true, Ordering::SeqCst) {
+                return Ok(None);
+            }
+            let mut layer_map = self.layer_to_atlas_map.lock().await;
+            if layer_map.get(&self.layer_id) == Some(&self.slot().index()) {
+                layer_map.remove(&self.layer_id);
+            }
+            return Err(BridgeError::ServiceNotInitialized {
+                code: 5008,
+                details: format!(
+                    "GPU rendering service is not initialized. Cannot release layer {}.",
+                    self.layer_id
+                ),
+            });
+        };
 
         let mut render_service = service_arc.lock().await;
-        self.release_from_service(&mut render_service, atlas_index, reason)
-            .await
+        self.release_with_service(&mut render_service, reason).await
     }
 }
 
@@ -4034,10 +4081,21 @@ async fn request_layer_gpu_resources_locked(
                     .await
                     .contains_key(&ui_layer_id)
             {
-                return Err(BridgeError::Input {
-                    code: 1006,
-                    details: format!("Layer '{}' already owns GPU resources", ui_layer_id),
-                });
+                if layer_residency_is_live(state, &ui_layer_id, &source_volume_id).await {
+                    return Err(BridgeError::Input {
+                        code: 1006,
+                        details: format!("Layer '{}' already owns GPU resources", ui_layer_id),
+                    });
+                }
+                // The mapping outlived its residency: the slot was freed, or an
+                // editable document's label slot lost its claim (N34). Release
+                // it and upload afresh, so a retry recovers instead of adopting
+                // the broken slot.
+                warn!(
+                    "Layer '{}' maps to a stale GPU residency; releasing it before re-uploading",
+                    ui_layer_id
+                );
+                release_layer_gpu_resources_held(ui_layer_id.clone(), state).await?;
             }
 
             info!(
@@ -4154,28 +4212,28 @@ async fn request_layer_gpu_resources_locked(
 
             // Upload the entire volume as a 3D texture and get the world-to-voxel transform
             // Skip if metadata_only is true
-            let (atlas_layer_idx, _volume_world_to_voxel, mut provisional_upload) =
-                if metadata_only_flag {
-                    info!("Metadata-only mode: skipping GPU upload");
-                    (u32::MAX, nalgebra::Matrix4::<f32>::identity(), None) // No allocation
-                } else {
-                    debug!("About to upload volume to GPU (off the async reactor)");
-                    // Run the heavy convert + GPU write on a blocking thread so the async
-                    // reactor stays responsive, holding ONLY the render-service lock (the
-                    // registry lock was already dropped). The volume is an Arc clone.
-                    let upload_service = service_arc
-                        .clone()
-                        .expect("service arc present when not in metadata_only mode");
-                    let upload_owner = volume_loading::UploadOwner::new(
-                        state,
-                        Arc::clone(&upload_service),
-                        ui_layer_id.clone(),
-                    );
-                    let upload_volume = volume_arc.clone();
-                    let upload_resident_sets = Arc::clone(&state.resident_image_sets);
-                    let upload_ui_layer_id = ui_layer_id.clone();
-                    tokio::task::spawn_blocking(
-                    move || -> BridgeResult<(u32, nalgebra::Matrix4<f32>, Option<volume_loading::ProvisionalUpload>)> {
+            let (atlas_slot, _volume_world_to_voxel, mut provisional_upload) = if metadata_only_flag
+            {
+                info!("Metadata-only mode: skipping GPU upload");
+                (None, nalgebra::Matrix4::<f32>::identity(), None) // No allocation
+            } else {
+                debug!("About to upload volume to GPU (off the async reactor)");
+                // Run the heavy convert + GPU write on a blocking thread so the async
+                // reactor stays responsive, holding ONLY the render-service lock (the
+                // registry lock was already dropped). The volume is an Arc clone.
+                let upload_service = service_arc
+                    .clone()
+                    .expect("service arc present when not in metadata_only mode");
+                let upload_owner = volume_loading::UploadOwner::new(
+                    state,
+                    Arc::clone(&upload_service),
+                    ui_layer_id.clone(),
+                );
+                let upload_volume = volume_arc.clone();
+                let upload_resident_sets = Arc::clone(&state.resident_image_sets);
+                let upload_ui_layer_id = ui_layer_id.clone();
+                tokio::task::spawn_blocking(
+                    move || -> BridgeResult<(Option<SlotHandle>, nalgebra::Matrix4<f32>, Option<volume_loading::ProvisionalUpload>)> {
                         let mut render_service_guard = upload_service.blocking_lock();
                         let render_service = &mut *render_service_guard;
                         if render_service.free_volume_slot_count() == 0 {
@@ -4184,203 +4242,27 @@ async fn request_layer_gpu_resources_locked(
                         }
                         let volume_data: &VolumeSendable = upload_volume.as_ref();
                         let ui_layer_id = upload_ui_layer_id;
-                        let upload_result = match volume_data {
-                            VolumeSendable::VolF32(vol, _) => {
-                                debug!("Uploading F32 volume with {} voxels", vol.data().len());
-                                render_service
-                                    .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                    .map_err(|e| {
-                                        gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                    })?
-                            }
-                            VolumeSendable::VolI16(vol, _) => render_service
-                                .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            VolumeSendable::VolU8(vol, _) => render_service
-                                .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            VolumeSendable::VolI8(vol, _) => render_service
-                                .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            VolumeSendable::VolU16(vol, _) if editable_revision.is_some() => {
-                                let handle = render_service.upload_editable_labels(vol, editable_revision.expect("editable revision"))
-                                    .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?;
-                                (handle.texture_index(), vol.space().world_to_voxel())
-                            }
-                            VolumeSendable::VolU16(vol, _) => render_service
-                                .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            VolumeSendable::VolI32(vol, _) => render_service
-                                .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            VolumeSendable::VolU32(vol, _) => render_service
-                                .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            VolumeSendable::VolF64(vol, _) => render_service
-                                .upload_volume_3d_labelaware(vol, is_label_atlas)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            // 4D volumes - extract current timepoint
-                            VolumeSendable::Vec4DF32(_vec) => {
-                                // Get the current timepoint from the registry
-                                info!("Extracting timepoint {} from 4D F32 volume", timepoint);
-
-                                // Extract 3D volume at the specified timepoint
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-
-                                // Upload the extracted 3D volume
-                                match extracted {
-                                    VolumeSendable::VolF32(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            VolumeSendable::Vec4DI16(_vec) => {
-                                info!("Extracting timepoint {} from 4D I16 volume", timepoint);
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                                match extracted {
-                                    VolumeSendable::VolI16(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            VolumeSendable::Vec4DU8(_vec) => {
-                                info!("Extracting timepoint {} from 4D U8 volume", timepoint);
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                                match extracted {
-                                    VolumeSendable::VolU8(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            VolumeSendable::Vec4DI8(_vec) => {
-                                info!("Extracting timepoint {} from 4D I8 volume", timepoint);
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                                match extracted {
-                                    VolumeSendable::VolI8(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            VolumeSendable::Vec4DU16(_vec) => {
-                                info!("Extracting timepoint {} from 4D U16 volume", timepoint);
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                                match extracted {
-                                    VolumeSendable::VolU16(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            VolumeSendable::Vec4DI32(_vec) => {
-                                info!("Extracting timepoint {} from 4D I32 volume", timepoint);
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                                match extracted {
-                                    VolumeSendable::VolI32(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            VolumeSendable::Vec4DU32(_vec) => {
-                                info!("Extracting timepoint {} from 4D U32 volume", timepoint);
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                                match extracted {
-                                    VolumeSendable::VolU32(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            VolumeSendable::Vec4DF64(_vec) => {
-                                info!("Extracting timepoint {} from 4D F64 volume", timepoint);
-                                let extracted =
-                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                                match extracted {
-                                    VolumeSendable::VolF64(vol, _) => {
-                                        render_service.upload_volume_3d(&vol).map_err(|e| {
-                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
-                                        })?
-                                    }
-                                    _ => {
-                                        return Err(BridgeError::Internal {
-                                            code: 5014,
-                                            details: "Unexpected volume type after 4D extraction"
-                                                .to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                        };
+                        // A 4D layer shows its current frame; integer-label
+                        // preservation applies to whole 3D label volumes only.
+                        let extracted;
+                        let (upload_source, preserve_labels) =
+                            if volume_sendable_uses_timepoint(volume_data) {
+                                info!("Extracting timepoint {} from 4D volume", timepoint);
+                                extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                (&extracted, false)
+                            } else {
+                                (volume_data, is_label_atlas)
+                            };
+                        let upload_result = upload_layer_volume(
+                            render_service,
+                            &ui_layer_id,
+                            upload_source,
+                            preserve_labels,
+                            editable_revision,
+                        )?;
                         let guard = volume_loading::ProvisionalUpload::new(upload_result.0, upload_owner);
                         after_upload()?;
-                        Ok((upload_result.0, upload_result.1, Some(guard)))
+                        Ok((Some(upload_result.0), upload_result.1, Some(guard)))
                     },
                 )
                 .await
@@ -4388,7 +4270,8 @@ async fn request_layer_gpu_resources_locked(
                     code: 5099,
                     details: format!("GPU upload task panicked: {e}"),
                 })??
-                };
+            };
+            let atlas_layer_idx = atlas_slot.map_or(u32::MAX, SlotHandle::index);
 
             // Re-acquire the render-service lock for the light post-upload bookkeeping
             // below (data range, declarative registration, layer add). It was released
@@ -4855,7 +4738,7 @@ async fn request_layer_gpu_resources_locked(
 
                 let lease = LayerLease::new(
                     ui_layer_id.clone(),
-                    atlas_layer_idx,
+                    atlas_slot.expect("an upload has a slot"),
                     Arc::clone(&state.render_loop_service),
                     Arc::clone(&state.layer_to_atlas_map),
                     Arc::clone(&state.layer_to_volume_map),
@@ -4941,6 +4824,15 @@ async fn release_layer_gpu_resources_locked(
     bridge_state: &BridgeState,
 ) -> BridgeResult<ReleaseResult> {
     let _operation = bridge_state.volume_operations.lock().await;
+    release_layer_gpu_resources_held(layer_id, bridge_state).await
+}
+
+/// [`release_layer_gpu_resources_locked`] for a caller that already holds
+/// `volume_operations`.
+async fn release_layer_gpu_resources_held(
+    layer_id: String,
+    bridge_state: &BridgeState,
+) -> BridgeResult<ReleaseResult> {
     info!(
         "Bridge: release_layer_gpu_resources called for layer {}",
         layer_id
@@ -7652,18 +7544,13 @@ fn reclaim_cached_image_members(
     while reclaimed < max {
         let victim = sets.iter_mut().find_map(|(layer_id, resident)| {
             resident
-                .ring
-                .pop_cached_lru(resident.current_member)
+                .release_cached_lru(service)
                 .map(|slot| (layer_id.clone(), slot))
         });
         let Some((layer_id, slot)) = victim else {
             break;
         };
-        // Remove the entry from the ring first: release_volume can report an
-        // error after freeing the texture while rebuilding the bind group.
-        if let Err(error) = service.release_volume(slot) {
-            warn!("Could not reclaim cached image slot {slot} from layer '{layer_id}': {error:?}");
-        }
+        debug!("Reclaimed cached image slot {slot} from layer '{layer_id}'");
         reclaimed += 1;
     }
     reclaimed
@@ -7740,28 +7627,37 @@ async fn release_resident_image_set(
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
 ) {
-    release_resident_image_set_allocations(layer_id, &bridge_state.resident_image_sets, service)
-        .await;
+    release_resident_image_set_allocations(
+        layer_id,
+        None,
+        &bridge_state.resident_image_sets,
+        service,
+    )
+    .await;
 }
 
+/// Tear down `layer_id`'s ring and free the slots it still owns. With `owner`,
+/// only a ring that holds that residency goes: a late release of an old lease
+/// must not take the ring of the layer's newer allocation.
 async fn release_resident_image_set_allocations(
     layer_id: &str,
+    owner: Option<SlotHandle>,
     resident_image_sets: &Mutex<HashMap<String, image_set::ResidentImageSet>>,
     service: &mut RenderLoopService,
 ) {
     let resident = {
         let mut sets = resident_image_sets.lock().await;
-        sets.remove(layer_id)
-    };
-    if let Some(resident) = resident {
-        for tex_idx in resident.ring.resident_texture_indices() {
-            if let Err(e) = service.release_volume(tex_idx) {
-                debug!(
-                    "Resident image-set teardown: slot {} for layer '{}' already free: {:?}",
-                    tex_idx, layer_id, e
-                );
-            }
+        let owned = sets
+            .get(layer_id)
+            .is_some_and(|resident| owner.is_none_or(|slot| resident.owns(slot)));
+        if owned {
+            sets.remove(layer_id)
+        } else {
+            None
         }
+    };
+    if let Some(mut resident) = resident {
+        resident.release_all(service);
     }
 }
 
@@ -7812,10 +7708,14 @@ async fn try_resident_swap(
         };
 
         let seed_member = cached_member.unwrap_or(0);
+        // The ring takes over the residency the layer shows now.
+        let Some(seed_slot) = service.slot_handle(current_slot) else {
+            return Ok(None);
+        };
         let resident = image_set::ResidentImageSet::new(
             Box::new(set),
             seed_member,
-            current_slot,
+            seed_slot,
             RESIDENT_RING_MAX_SLOTS,
             RESIDENT_RING_BUDGET_BYTES,
             preserve_labels,
@@ -7842,10 +7742,8 @@ async fn try_resident_swap(
                 "Resident image-set could not repoint layer '{}' from slot {} to {}; falling back to re-upload: {:?}",
                 layer_id, current_slot, outcome.texture_index, e
             );
-            if let Some(resident) = sets.remove(layer_id) {
-                for tex_idx in resident.ring.resident_texture_indices() {
-                    let _ = service.release_volume(tex_idx);
-                }
+            if let Some(mut resident) = sets.remove(layer_id) {
+                resident.release_all(service);
             }
             return Ok(None);
         }
@@ -7866,10 +7764,8 @@ async fn try_resident_swap(
             "Resident image-set could not repoint volume '{}' to slot {}; falling back to re-upload: {:?}",
             volume_id, outcome.texture_index, e
         );
-        if let Some(resident) = sets.remove(layer_id) {
-            for tex_idx in resident.ring.resident_texture_indices() {
-                let _ = service.release_volume(tex_idx);
-            }
+        if let Some(mut resident) = sets.remove(layer_id) {
+            resident.release_all(service);
         }
         return Ok(None);
     }
@@ -7885,7 +7781,16 @@ async fn try_resident_swap(
         }
     }
 
-    // Keep the bridge's per-layer maps consistent with the swap.
+    // Keep the bridge's per-layer maps and the lease consistent with the swap:
+    // the lease now owns the residency the layer shows.
+    if let Some(shown) = sets
+        .get(layer_id)
+        .and_then(|resident| resident.handle_of(outcome.texture_index))
+    {
+        if let Some(lease) = bridge_state.layer_leases.lock().await.get(layer_id) {
+            lease.repoint(shown);
+        }
+    }
     {
         let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
         layer_map.insert(layer_id.to_string(), outcome.texture_index);
@@ -7896,6 +7801,124 @@ async fn try_resident_swap(
     }
 
     Ok(Some(outcome.texture_index))
+}
+
+/// Release `layer_id`'s stale residency and upload `volume_id` for it again
+/// through [`upload_layer_volume`], so an editable document's labels come back
+/// claimed at the registry's current revision. The caller holds
+/// `volume_operations`.
+pub(crate) async fn reupload_layer_locked(
+    state: &BridgeState,
+    layer_id: &str,
+    volume_id: &str,
+) -> BridgeResult<()> {
+    release_layer_gpu_resources_held(layer_id.to_string(), state).await?;
+    let timepoint = state.volume_registry.lock().await.get_timepoint(volume_id);
+    let service = state
+        .render_loop_service
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5002,
+            details: "GPU rendering service is not initialized.".to_string(),
+        })?;
+    let mut service = service.lock().await;
+    allocate_gpu_resources_for_layer(layer_id, volume_id, state, &mut service, timepoint).await?;
+    drop(service);
+    // Its residency changed: a frame may draw it again.
+    state.render_skipped_layers.lock().await.remove(layer_id);
+    Ok(())
+}
+
+/// Whether `layer_id`'s mapping names a residency that still serves it: its
+/// slot holds data, its lease (if any) owns that slot, and an editable
+/// document's labels are claimed there for `volume_id`.
+pub(crate) async fn layer_residency_is_live(
+    state: &BridgeState,
+    layer_id: &str,
+    volume_id: &str,
+) -> bool {
+    let Some(index) = state.layer_to_atlas_map.lock().await.get(layer_id).copied() else {
+        return false;
+    };
+    let lease_slot = state
+        .layer_leases
+        .lock()
+        .await
+        .get(layer_id)
+        .map(|lease| lease.slot());
+    let editable = state
+        .volume_registry
+        .lock()
+        .await
+        .get_entry(volume_id)
+        .is_some_and(|entry| entry.editable_revision.is_some());
+    let Some(service) = state.render_loop_service.lock().await.clone() else {
+        return true;
+    };
+    let service = service.lock().await;
+    let resident = service.slot_handle(index).is_some();
+    let leased =
+        lease_slot.is_none_or(|slot| slot.index() == index && service.is_slot_current(slot));
+    let claimed = !editable
+        || service
+            .editable_volume_handle(volume_id)
+            .is_some_and(|handle| handle.texture_index() == index);
+    resident && leased && claimed
+}
+
+/// The one way a layer's 3-D volume reaches the GPU: the explicit request, the
+/// render path's on-demand allocation and resident image-set members all come
+/// here. Labels of an open editable document (`editable_revision`) go through
+/// `upload_editable_labels`, claimed at the registry's current revision, so the
+/// residency is always editable and `editable_labels::synchronize_locked` finds
+/// its handle once the volume is registered at the slot (N34). Returns the
+/// residency it filled, taken under the same service lock as the upload.
+pub(crate) fn upload_layer_volume(
+    service: &mut RenderLoopService,
+    layer_id: &str,
+    volume: &VolumeSendable,
+    preserve_labels: bool,
+    editable_revision: Option<u64>,
+) -> BridgeResult<(SlotHandle, nalgebra::Matrix4<f32>)> {
+    let failed = |e: render_loop::RenderLoopError| gpu_allocation_error(layer_id, &e.to_string());
+    let (index, world_to_voxel) = match volume {
+        VolumeSendable::VolU16(vol, _) if editable_revision.is_some() => {
+            let handle = service
+                .upload_editable_labels(vol, editable_revision.expect("checked above"))
+                .map_err(failed)?;
+            return Ok((handle.slot(), vol.space().world_to_voxel()));
+        }
+        VolumeSendable::VolF32(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::VolI16(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::VolU8(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::VolI8(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::VolU16(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::VolI32(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::VolU32(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::VolF64(vol, _) => service.upload_volume_3d_labelaware(vol, preserve_labels),
+        VolumeSendable::Vec4DF32(_)
+        | VolumeSendable::Vec4DI16(_)
+        | VolumeSendable::Vec4DU8(_)
+        | VolumeSendable::Vec4DI8(_)
+        | VolumeSendable::Vec4DU16(_)
+        | VolumeSendable::Vec4DI32(_)
+        | VolumeSendable::Vec4DU32(_)
+        | VolumeSendable::Vec4DF64(_) => {
+            return Err(BridgeError::Internal {
+                code: 5013,
+                details:
+                    "Unexpected 4D volume in GPU allocation - should have been extracted to 3D"
+                        .to_string(),
+            });
+        }
+    }
+    .map_err(failed)?;
+    let slot = service
+        .slot_handle(index)
+        .ok_or_else(|| gpu_allocation_error(layer_id, "the upload left no resident slot"))?;
+    Ok((slot, world_to_voxel))
 }
 
 // Helper function to allocate GPU resources for a layer on-demand
@@ -7911,7 +7934,8 @@ async fn allocate_gpu_resources_for_layer(
         layer_id, volume_id, timepoint
     );
 
-    // Get the volume data from registry
+    // The volume, its label intent and its editable revision, read together:
+    // an editable document's labels and revision must match.
     let volume_registry_guard = state.volume_registry.lock().await;
     let volume_arc = volume_registry_guard
         .get_render_arc(volume_id)
@@ -7919,6 +7943,9 @@ async fn allocate_gpu_resources_for_layer(
             code: 4042,
             details: volume_id.to_owned(),
         })?;
+    let entry = volume_registry_guard.get_entry(volume_id);
+    let is_label_atlas = entry.is_some_and(|e| e.metadata.path.starts_with("atlas:"));
+    let editable_revision = entry.and_then(|e| e.editable_revision);
     drop(volume_registry_guard);
     let volume_data = volume_arc.as_ref();
     let uploaded_timepoint = if volume_sendable_uses_timepoint(volume_data) {
@@ -7960,72 +7987,16 @@ async fn allocate_gpu_resources_for_layer(
     }
 
     // Upload to GPU (data range is retrieved from render metadata after upload).
-    let (atlas_idx, _world_to_voxel) = match volume_to_upload.as_ref() {
-        VolumeSendable::VolF32(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        VolumeSendable::VolI16(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        VolumeSendable::VolU8(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        VolumeSendable::VolI8(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        VolumeSendable::VolU16(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        VolumeSendable::VolI32(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        VolumeSendable::VolU32(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        VolumeSendable::VolF64(vol, _) => {
-            let (idx, w2v) = render_service
-                .upload_volume_3d(vol)
-                .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            (idx, w2v)
-        }
-        // 4D volumes should have been extracted to 3D already
-        VolumeSendable::Vec4DF32(_)
-        | VolumeSendable::Vec4DI16(_)
-        | VolumeSendable::Vec4DU8(_)
-        | VolumeSendable::Vec4DI8(_)
-        | VolumeSendable::Vec4DU16(_)
-        | VolumeSendable::Vec4DI32(_)
-        | VolumeSendable::Vec4DU32(_)
-        | VolumeSendable::Vec4DF64(_) => {
-            return Err(BridgeError::Internal {
-                code: 5013,
-                details:
-                    "Unexpected 4D volume in GPU allocation - should have been extracted to 3D"
-                        .to_string(),
-            });
-        }
-    };
+    // A frame extracted from a 4D volume is never a whole label volume.
+    let preserve_labels = is_label_atlas && uploaded_timepoint.is_none();
+    let (slot, _world_to_voxel) = upload_layer_volume(
+        render_service,
+        layer_id,
+        volume_to_upload.as_ref(),
+        preserve_labels,
+        editable_revision,
+    )?;
+    let atlas_idx = slot.index();
 
     let (min_val, max_val) = render_service
         .get_volume_data_range(atlas_idx)
@@ -8057,6 +8028,22 @@ async fn allocate_gpu_resources_for_layer(
 
         let mut timepoint_map = state.layer_to_timepoint_map.lock().await;
         timepoint_map.insert(layer_id.to_string(), uploaded_timepoint);
+    }
+
+    // Like an explicit request, this allocation has a lease, so release paths
+    // and the watchdog see it. A lease left from an earlier allocation of the
+    // layer is released first; it never touches this residency.
+    let previous = state.layer_leases.lock().await.insert(
+        layer_id.to_string(),
+        Arc::new(LayerLease::for_state(state, layer_id.to_string(), slot)),
+    );
+    if let Some(previous) = previous {
+        if let Err(error) = previous
+            .release_with_service(render_service, "superseded")
+            .await
+        {
+            warn!("Could not release the superseded lease of layer '{layer_id}': {error:?}");
+        }
     }
 
     // Register the volume with the correct data range
@@ -8285,18 +8272,19 @@ async fn invalidate_cached_layer_for_render(
     service: &mut RenderLoopService,
     reason: &'static str,
 ) -> BridgeResult<()> {
-    // Reclaim any GPU-resident image-set ring for this layer first: its extra
-    // resident members occupy multi-texture slots the lease/atlas path does not
-    // track, so they must be freed explicitly or they leak the shared slot budget.
-    release_resident_image_set(layer_id, bridge_state, service).await;
-
+    // The lease releases the residency the layer shows (with its render-state
+    // entry), then its ring. Any ring left over still holds texture slots the
+    // shared budget needs back.
     if let Some(lease) = {
         let mut leases = bridge_state.layer_leases.lock().await;
         leases.remove(layer_id)
     } {
-        lease.release_with_service(service, reason).await?;
+        let released = lease.release_with_service(service, reason).await;
+        release_resident_image_set(layer_id, bridge_state, service).await;
+        released?;
         return Ok(());
     }
+    release_resident_image_set(layer_id, bridge_state, service).await;
 
     {
         let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
@@ -14381,7 +14369,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .clone();
-        let editable_slot = {
+        let editable = {
             let mut renderer = service.lock().await;
             let space = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
                 vec![4, 4, 4],
@@ -14393,8 +14381,9 @@ mod tests {
             renderer
                 .upload_editable_labels(&labels, 1)
                 .expect("editable upload")
-                .texture_index()
+                .slot()
         };
+        let editable_slot = editable.index();
         state
             .layer_to_atlas_map
             .lock()
@@ -14404,7 +14393,7 @@ mod tests {
             "labels".into(),
             Arc::new(LayerLease::new(
                 "labels".into(),
-                editable_slot,
+                editable,
                 Arc::clone(&state.render_loop_service),
                 Arc::clone(&state.layer_to_atlas_map),
                 Arc::clone(&state.layer_to_volume_map),
@@ -16404,6 +16393,346 @@ mod tests {
             "the atlas is the second drawn layer, not frontend layer 2"
         );
         assert_eq!(features[0].outline_thickness_px, 2.0);
+    }
+
+    // --- Slot generations, leases for every allocation, editable routing (N34) ---
+
+    fn label_volume() -> VolumeSendable {
+        let space = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            vec![3, 2, 2],
+            vec![1.0, 1.0, 1.0],
+            vec![0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        VolumeSendable::VolU16(
+            DenseVolume3::<u16>::from_data(NeuroSpace3::new(space).0, vec![0; 12]),
+            Affine3::<f32>::identity(),
+        )
+    }
+
+    async fn gpu_state() -> (BridgeState, Arc<Mutex<RenderLoopService>>) {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        let service = state.render_loop_service.lock().await.clone().unwrap();
+        (state, service)
+    }
+
+    /// An open segmentation document's labels, shown by `layer_id`.
+    async fn editable_document(state: &BridgeState, volume_id: &str, layer_id: &str) {
+        state
+            .volume_registry
+            .lock()
+            .await
+            .insert_editable_labels(
+                volume_id.into(),
+                label_volume(),
+                volume_metadata_for(volume_id, "u16", bridge_types::VolumeType::Volume3D),
+                0,
+            )
+            .unwrap();
+        state
+            .layer_to_volume_map
+            .lock()
+            .await
+            .insert(layer_id.into(), volume_id.into());
+    }
+
+    fn label_frame(layer_id: &str, volume_id: &str) -> FrontendViewState {
+        let view =
+            r#"{"origin_mm": [0.0, 0.0, 0.0], "u_mm": [3.0, 0.0, 0.0], "v_mm": [0.0, 2.0, 0.0]}"#;
+        let json = format!(
+            r#"{{"views": {{"axial": {view}, "sagittal": {view}, "coronal": {view}}},
+                "crosshair": {{"world_mm": [0.0, 0.0, 0.0], "visible": false}},
+                "layers": [{{"id": "{layer_id}", "volumeId": "{volume_id}", "visible": true,
+                    "opacity": 1.0, "colormap": "gray", "intensity": [0.0, 1.0],
+                    "threshold": [0.0, 0.0], "blendMode": "alpha", "layerMode": "label"}}]}}"#
+        );
+        render_bridge_adapter::parse_frontend_view_state(&json).expect("frontend state")
+    }
+
+    fn label_spec(layer_id: &str, volume_id: &str) -> LayerSpec {
+        LayerSpec::Volume(VolumeLayerSpec {
+            id: layer_id.into(),
+            source_resource_id: volume_id.into(),
+            colormap: "gray".into(),
+            slice_axis: None,
+            slice_index: None,
+        })
+    }
+
+    async fn mapped_slot(state: &BridgeState, layer_id: &str) -> Option<u32> {
+        state.layer_to_atlas_map.lock().await.get(layer_id).copied()
+    }
+
+    #[tokio::test]
+    async fn a_lazily_reallocated_label_layer_is_editable_and_synchronizes_n34() {
+        let (state, service) = gpu_state().await;
+        editable_document(&state, "labels", "label-layer").await;
+        request_layer_gpu_resources_for_testing(label_spec("label-layer", "labels"), None, &state)
+            .await
+            .expect("initial upload");
+
+        // The UI evicts the label layer; the next frame allocates it again on
+        // the render path. Before the fix that upload was plain, unclaimed
+        // storage: "Editable texture slot N is no longer resident".
+        release_layer_gpu_resources_for_testing("label-layer".into(), &state)
+            .await
+            .expect("release");
+        assert_eq!(mapped_slot(&state, "label-layer").await, None);
+        state
+            .layer_to_volume_map
+            .lock()
+            .await
+            .insert("label-layer".into(), "labels".into());
+        {
+            let mut renderer = service.lock().await;
+            let prepared = prepare_frontend_layers_for_render(
+                &label_frame("label-layer", "labels"),
+                &state,
+                &mut renderer,
+            )
+            .await
+            .expect("frame");
+            assert_eq!(prepared.backend_layers.len(), 1, "the label layer is drawn");
+        }
+        let slot = mapped_slot(&state, "label-layer")
+            .await
+            .expect("re-allocated");
+        {
+            let renderer = service.lock().await;
+            let handle = renderer
+                .editable_volume_handle("labels")
+                .expect("the re-upload is claimed for its document");
+            assert_eq!(handle.texture_index(), slot);
+        }
+        let operation = state.volume_operations.lock().await;
+        assert_eq!(
+            crate::editable_labels::synchronize_locked(&state, &operation, "labels", None)
+                .await
+                .unwrap(),
+            None,
+            "synchronize finds the editable handle"
+        );
+        let update = render_loop::LabelRegionUpdate {
+            expected_revision: 0,
+            revision: 1,
+            origin: [0, 0, 0],
+            dimensions: [1, 1, 1],
+            labels: &[5],
+            data_range: (0, 5),
+        };
+        assert_eq!(
+            crate::editable_labels::publish_locked(&state, &operation, "labels", &update)
+                .await
+                .unwrap(),
+            None,
+            "an edit repaints the re-allocated texture"
+        );
+    }
+
+    #[tokio::test]
+    async fn lazy_allocations_are_leased_and_released_by_every_release_path() {
+        let (state, service) = gpu_state().await;
+        for id in ["lazy-a", "lazy-b"] {
+            register_volume_and_layer(
+                &state,
+                id,
+                id,
+                sendable_f32_volume([3, 2, 2], |i| i as f32),
+                volume_metadata_for(id, "f32", bridge_types::VolumeType::Volume3D),
+            )
+            .await;
+            let mut renderer = service.lock().await;
+            prepare_frontend_layers_for_render(&label_frame(id, id), &state, &mut renderer)
+                .await
+                .expect("frame");
+        }
+        let slots = [
+            mapped_slot(&state, "lazy-a").await.unwrap(),
+            mapped_slot(&state, "lazy-b").await.unwrap(),
+        ];
+        {
+            let leases = state.layer_leases.lock().await;
+            for (id, slot) in ["lazy-a", "lazy-b"].iter().zip(slots) {
+                assert_eq!(leases.get(*id).expect("a lease").atlas_index(), slot);
+            }
+        }
+
+        // The explicit release finds it through its lease.
+        let released = release_layer_gpu_resources_for_testing("lazy-a".into(), &state)
+            .await
+            .unwrap();
+        assert!(released.freed);
+        assert!(service.lock().await.slot_handle(slots[0]).is_none());
+
+        // The watchdog sees it too: undrawn past the stale age, it goes.
+        let stale_age = Duration::from_millis(20);
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        state.layer_last_drawn.lock().await.clear();
+        // The last frame drew it; a new frame without it leaves it inactive.
+        service.lock().await.clear_render_layers();
+        let swept = layer_watchdog_sweep(&state.watchdog_parts(), stale_age).await;
+        assert_eq!(swept, vec!["lazy-b".to_string()]);
+        assert!(service.lock().await.slot_handle(slots[1]).is_none());
+        assert!(state.layer_leases.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stale_slot_handles_never_free_the_new_owner() {
+        let (state, service) = gpu_state().await;
+        let filler = || {
+            let VolumeSendable::VolF32(volume, _) = sendable_f32_volume([3, 2, 2], |i| i as f32)
+            else {
+                unreachable!()
+            };
+            volume
+        };
+        let (old, reused) = {
+            let mut renderer = service.lock().await;
+            let (index, _) = renderer.upload_volume_3d(&filler()).unwrap();
+            let old = renderer.slot_handle(index).unwrap();
+            renderer.release_volume(index).unwrap();
+            let (again, _) = renderer.upload_volume_3d(&filler()).unwrap();
+            assert_eq!(again, index, "the freed index is reused");
+            (old, renderer.slot_handle(again).unwrap())
+        };
+        state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .insert("owner".into(), reused.index());
+
+        // Provisional uploads dropped unpublished release on a spawned task,
+        // under the operation lock; this waits for them.
+        let settle = || async {
+            for _ in 0..50 {
+                tokio::task::yield_now().await;
+            }
+            drop(state.volume_operations.lock().await);
+        };
+        // Control: one holding its current residency releases it.
+        let unpublished = {
+            let mut renderer = service.lock().await;
+            let (index, _) = renderer.upload_volume_3d(&filler()).unwrap();
+            renderer.slot_handle(index).unwrap()
+        };
+        drop(volume_loading::ProvisionalUpload::new(
+            unpublished,
+            volume_loading::UploadOwner::new(&state, Arc::clone(&service), "other".into()),
+        ));
+        settle().await;
+        assert!(!service.lock().await.is_slot_current(unpublished));
+
+        // One holding the old residency leaves the reused index alone.
+        drop(volume_loading::ProvisionalUpload::new(
+            old,
+            volume_loading::UploadOwner::new(&state, Arc::clone(&service), "owner".into()),
+        ));
+        settle().await;
+        assert!(service.lock().await.is_slot_current(reused));
+        assert_eq!(
+            mapped_slot(&state, "owner").await,
+            Some(reused.index()),
+            "the new owner's bookkeeping stays"
+        );
+
+        // A lease left from the old residency (a stale index after a swap).
+        let lease = LayerLease::for_state(&state, "owner".into(), old);
+        assert!(lease.release("manual").await.unwrap().is_some());
+        assert!(service.lock().await.is_slot_current(reused));
+        assert_eq!(mapped_slot(&state, "owner").await, Some(reused.index()));
+    }
+
+    #[tokio::test]
+    async fn retry_restores_a_label_texture_that_lost_its_claim() {
+        let (state, service) = gpu_state().await;
+        editable_document(&state, "labels", "label-layer").await;
+        request_layer_gpu_resources_for_testing(label_spec("label-layer", "labels"), None, &state)
+            .await
+            .expect("initial upload");
+        // A live residency is still adopted, not uploaded twice.
+        let again = request_layer_gpu_resources_for_testing(
+            label_spec("label-layer", "labels"),
+            None,
+            &state,
+        )
+        .await;
+        assert!(matches!(again, Err(BridgeError::Input { code: 1006, .. })));
+
+        // The texture goes behind the document's back: the map and lease stay.
+        {
+            let mut renderer = service.lock().await;
+            let handle = renderer.editable_volume_handle("labels").unwrap();
+            renderer.release_volume(handle.texture_index()).unwrap();
+        }
+        {
+            let operation = state.volume_operations.lock().await;
+            assert!(
+                crate::editable_labels::synchronize_locked(&state, &operation, "labels", None)
+                    .await
+                    .unwrap()
+                    .is_some(),
+                "the lost claim is reported"
+            );
+            // Retry reconciles through get_session, which re-resolves.
+            assert_eq!(
+                crate::editable_labels::resolve_locked(&state, &operation, "labels").await,
+                None
+            );
+            assert_eq!(
+                crate::editable_labels::synchronize_locked(&state, &operation, "labels", None)
+                    .await
+                    .unwrap(),
+                None,
+                "after Retry the label texture is editable again"
+            );
+        }
+        let slot = mapped_slot(&state, "label-layer").await.unwrap();
+        assert_eq!(
+            service
+                .lock()
+                .await
+                .editable_volume_handle("labels")
+                .unwrap()
+                .texture_index(),
+            slot
+        );
+        assert_eq!(
+            state
+                .layer_leases
+                .lock()
+                .await
+                .get("label-layer")
+                .unwrap()
+                .atlas_index(),
+            slot
+        );
+
+        // Re-requesting a stale layer also recovers instead of refusing (1006).
+        {
+            let mut renderer = service.lock().await;
+            let handle = renderer.editable_volume_handle("labels").unwrap();
+            renderer.release_volume(handle.texture_index()).unwrap();
+        }
+        let info = request_layer_gpu_resources_for_testing(
+            label_spec("label-layer", "labels"),
+            None,
+            &state,
+        )
+        .await
+        .expect("a stale mapping is released and uploaded again");
+        assert_eq!(
+            service
+                .lock()
+                .await
+                .editable_volume_handle("labels")
+                .unwrap()
+                .texture_index(),
+            info.atlas_layer_index
+        );
     }
 }
 

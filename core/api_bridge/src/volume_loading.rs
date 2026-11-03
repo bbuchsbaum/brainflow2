@@ -336,7 +336,10 @@ pub(crate) struct DesktopVolumeRepository<'a>(pub &'a BridgeState);
 /// Construct inside the blocking worker so a dropped JoinHandle cannot orphan it.
 pub(crate) struct ProvisionalUpload {
     owner: Option<UploadOwner>,
-    atlas_index: u32,
+    /// The residency the upload filled. Dropped unpublished, only that
+    /// residency is released: if its index was freed and refilled meanwhile,
+    /// the new owner's texture and bookkeeping are left alone.
+    slot: render_loop::SlotHandle,
 }
 
 pub(crate) struct UploadOwner {
@@ -368,10 +371,10 @@ impl UploadOwner {
 }
 
 impl ProvisionalUpload {
-    pub(crate) fn new(atlas_index: u32, owner: UploadOwner) -> Self {
+    pub(crate) fn new(slot: render_loop::SlotHandle, owner: UploadOwner) -> Self {
         Self {
             owner: Some(owner),
-            atlas_index,
+            slot,
         }
     }
 
@@ -386,20 +389,25 @@ impl Drop for ProvisionalUpload {
         let Some(owner) = self.owner.take() else {
             return;
         };
-        let atlas_index = self.atlas_index;
+        let slot = self.slot;
         let runtime = owner.runtime.clone();
         runtime.spawn(async move {
             let _operation = owner.operations.lock().await;
             let mut renderer = owner.renderer.lock().await;
-            if let Err(error) = renderer.release_layer_resources(atlas_index) {
-                warn!(
-                    "Failed to release provisional upload {}: {}",
-                    atlas_index, error
-                );
-            }
+            let released = match renderer.release_layer_slot(slot) {
+                Ok(released) => released.is_some(),
+                Err(error) => {
+                    warn!(
+                        "Failed to release provisional upload {}: {}",
+                        slot.index(),
+                        error
+                    );
+                    false
+                }
+            };
+            // A stale residency is someone else's now, bookkeeping included.
             let mut atlas = owner.atlas.lock().await;
-            // Never remove another allocation's bookkeeping.
-            if atlas.get(&owner.layer_id) == Some(&atlas_index) {
+            if released && atlas.get(&owner.layer_id) == Some(&slot.index()) {
                 atlas.remove(&owner.layer_id);
                 owner.volumes.lock().await.remove(&owner.layer_id);
                 owner.timepoints.lock().await.remove(&owner.layer_id);

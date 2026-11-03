@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 
 use crate::extract_3d_volume_at_timepoint;
+use render_loop::SlotHandle;
 
 /// A label for one member of an image set, carrying enough to drive an axis tick
 /// or a legend entry. For raw 4-D this is just the timepoint index; ontology-aware
@@ -435,6 +436,10 @@ pub struct ResidentImageSet {
     pub current_member: usize,
     /// Whether integer labels must be preserved on GPU upload (atlas volumes).
     pub preserve_labels: bool,
+    /// The residency of every slot the ring holds, by texture index. Teardown
+    /// and reclaim release through these, so a slot the ring no longer owns
+    /// (released elsewhere, then refilled) is never freed from here.
+    handles: HashMap<u32, SlotHandle>,
 }
 
 impl ResidentImageSet {
@@ -443,7 +448,7 @@ impl ResidentImageSet {
     pub fn new(
         set: Box<dyn ImageSet>,
         seed_member: usize,
-        seed_slot: u32,
+        seed_slot: SlotHandle,
         max_slots: usize,
         budget_bytes: u64,
         preserve_labels: bool,
@@ -453,13 +458,54 @@ impl ResidentImageSet {
             budget_bytes,
             bytes_per_member: set.bytes_per_member(),
         };
-        let ring = ResidentRing::seeded(config, seed_member, seed_slot);
+        let ring = ResidentRing::seeded(config, seed_member, seed_slot.index());
         Self {
             set,
             ring,
             current_member: seed_member,
             preserve_labels,
+            handles: HashMap::from([(seed_slot.index(), seed_slot)]),
         }
+    }
+
+    /// The residency the ring holds at `texture_index`, if any.
+    pub fn handle_of(&self, texture_index: u32) -> Option<SlotHandle> {
+        self.handles.get(&texture_index).copied()
+    }
+
+    /// Whether `handle` is one of this ring's residencies.
+    pub fn owns(&self, handle: SlotHandle) -> bool {
+        self.handle_of(handle.index()) == Some(handle)
+    }
+
+    /// Free every slot the ring still owns. A slot released elsewhere is left
+    /// alone, even if another upload has since refilled its index.
+    pub fn release_all(&mut self, service: &mut render_loop::RenderLoopService) {
+        for index in self.ring.resident_texture_indices() {
+            let Some(handle) = self.handles.remove(&index) else {
+                continue;
+            };
+            if let Err(error) = service.release_slot(handle) {
+                log::debug!("Resident image-set teardown: slot {index} not released: {error:?}");
+            }
+        }
+    }
+
+    /// Drop the least recently used cached member (never the displayed one)
+    /// and free its slot. Returns the index it held.
+    pub fn release_cached_lru(
+        &mut self,
+        service: &mut render_loop::RenderLoopService,
+    ) -> Option<u32> {
+        let index = self.ring.pop_cached_lru(self.current_member)?;
+        // Leave the ring first: release can report an error after freeing the
+        // texture while rebuilding the bind group.
+        if let Some(handle) = self.handles.remove(&index) {
+            if let Err(error) = service.release_slot(handle) {
+                log::warn!("Could not reclaim cached image slot {index}: {error:?}");
+            }
+        }
+        Some(index)
     }
 
     /// Number of members in the backing set.
@@ -478,6 +524,7 @@ impl ResidentImageSet {
             service,
             set: &*self.set,
             preserve_labels: self.preserve_labels,
+            handles: &mut self.handles,
         };
         self.ring.ensure_resident(member, &mut exec)
     }
@@ -495,6 +542,7 @@ impl ResidentImageSet {
             service,
             set: &*self.set,
             preserve_labels: self.preserve_labels,
+            handles: &mut self.handles,
         };
         self.ring.prefetch(center, radius, member_count, &mut exec)
     }
@@ -535,6 +583,8 @@ pub struct RenderServiceExecutor<'a> {
     pub service: &'a mut render_loop::RenderLoopService,
     pub set: &'a dyn ImageSet,
     pub preserve_labels: bool,
+    /// The ring's slot accounts; a fresh upload records its residency here.
+    pub handles: &'a mut HashMap<u32, SlotHandle>,
 }
 
 impl RingExecutor for RenderServiceExecutor<'_> {
@@ -544,7 +594,17 @@ impl RingExecutor for RenderServiceExecutor<'_> {
 
     fn admit_new(&mut self, member: usize) -> BridgeResult<u32> {
         let volume = self.set.materialize(member)?;
-        upload_sendable_3d(self.service, &volume, self.preserve_labels)
+        // A member is never an editable document.
+        let (handle, _) = crate::upload_layer_volume(
+            self.service,
+            "resident image-set member",
+            &volume,
+            self.preserve_labels,
+            None,
+        )
+        .map_err(|e| ring_upload_error("upload", e))?;
+        self.handles.insert(handle.index(), handle);
+        Ok(handle.index())
     }
 
     fn admit_reuse(&mut self, slot: u32, member: usize) -> BridgeResult<()> {
@@ -557,36 +617,6 @@ fn ring_upload_error(kind: &str, e: impl std::fmt::Display) -> BridgeError {
     BridgeError::Internal {
         code: 5015,
         details: format!("Resident image-set {kind} failed: {e}"),
-    }
-}
-
-/// Upload a materialized 3-D `VolumeSendable` into a fresh slot, returning it.
-fn upload_sendable_3d(
-    service: &mut render_loop::RenderLoopService,
-    volume: &VolumeSendable,
-    preserve_labels: bool,
-) -> BridgeResult<u32> {
-    macro_rules! upload {
-        ($vol:expr) => {
-            service
-                .upload_volume_3d_labelaware($vol, preserve_labels)
-                .map(|(idx, _)| idx)
-                .map_err(|e| ring_upload_error("upload", e))
-        };
-    }
-    match volume {
-        VolumeSendable::VolF32(v, _) => upload!(v),
-        VolumeSendable::VolI16(v, _) => upload!(v),
-        VolumeSendable::VolU8(v, _) => upload!(v),
-        VolumeSendable::VolI8(v, _) => upload!(v),
-        VolumeSendable::VolU16(v, _) => upload!(v),
-        VolumeSendable::VolI32(v, _) => upload!(v),
-        VolumeSendable::VolU32(v, _) => upload!(v),
-        VolumeSendable::VolF64(v, _) => upload!(v),
-        _ => Err(ring_upload_error(
-            "upload",
-            "materialized member is not a 3-D volume",
-        )),
     }
 }
 
