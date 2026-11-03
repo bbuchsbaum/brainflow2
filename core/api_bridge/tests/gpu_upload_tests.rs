@@ -214,7 +214,8 @@ async fn test_release_layer_cleans_render_state() {
     let (test_volume, metadata) = create_test_volume([32, 32, 32]);
 
     // Initialize render loop service
-    let render_service = RenderLoopService::new().await.expect("render loop");
+    let mut render_service = RenderLoopService::new().await.expect("render loop");
+    render_service.load_shaders().expect("shaders");
     {
         let mut guard = state.render_loop_service.lock().await;
         *guard = Some(Arc::new(Mutex::new(render_service)));
@@ -254,7 +255,7 @@ async fn test_release_layer_cleans_render_state() {
         let guard = state.render_loop_service.lock().await;
         let service_arc = guard.as_ref().unwrap().clone();
         drop(guard);
-        let service = service_arc.lock().await;
+        let mut service = service_arc.lock().await;
         // An upload makes the texture resident without a per-frame render
         // entry: only a frame that draws the layer adds one, so uploads do
         // not count against the draw cap.
@@ -267,6 +268,25 @@ async fn test_release_layer_cleans_render_state() {
                 .resident_slot_count(),
             1
         );
+        // A frame that draws the layer gives it a render entry...
+        use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
+        let view = ViewState::from_basic_params(
+            volume_id.clone(),
+            [16.; 3],
+            SliceOrientation::Axial,
+            32.,
+            [16, 16],
+            (0., 1.),
+        )
+        .with_crosshair(false)
+        .with_layers(vec![
+            LayerConfig::new(volume_id.clone()).with_intensity_window(0., 1.)
+        ]);
+        service
+            .request_frame(ViewId::new("release"), view)
+            .await
+            .expect("frame");
+        assert_eq!(service.layer_state_manager.layer_count(), 1);
     }
 
     let release_result = release_layer_gpu_resources_for_testing(layer_id.clone(), &state)
@@ -274,6 +294,7 @@ async fn test_release_layer_cleans_render_state() {
         .expect("release command");
 
     assert!(release_result.success, "release should succeed");
+    assert!(release_result.freed, "the release freed the layer's slot");
 
     {
         let map = state.layer_to_atlas_map.lock().await;
