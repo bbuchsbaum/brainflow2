@@ -17,8 +17,13 @@ import { volumeDocumentRemovalReason } from '@/services/workspaceDocuments';
  *   2. layers hidden in every workspace, least recently rendered first;
  *   3. layers visible only in workspaces behind the front one, LRU.
  * Never evicted: the front workspace's visible layers, layers a mounted Set
- * studio pane borrows, layers a retained module document protects (its
- * source images) and editable segmentation label layers. An evicted layer
+ * studio pane borrows, layers a retained module document protects (an open
+ * segmentation session's reference, secondary and frozen frames) and
+ * editable segmentation label layers. The front workspace counts only when
+ * it is a view tab: a tool tab (Set studio, BIDS Explorer, a module tool)
+ * draws no layer scene, though the view-state store seeds it with a copy of
+ * the scene it was opened from, so while one is in front every view tab is
+ * behind it (QA r0 2026-11-02, A12). An evicted layer
  * keeps its metadata and is uploaded again when shown, or when its
  * workspace comes to the front ({@link ensureFrontWorkspaceResident}).
  */
@@ -26,6 +31,8 @@ import { volumeDocumentRemovalReason } from '@/services/workspaceDocuments';
 import { useLayerStore } from '@/stores/layerStore';
 import { getApiService } from './apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { isViewWorkspaceType } from '@/components/ui/displayModeSelector.helpers';
 import { getEventBus } from '@/events/EventBus';
 import { getStudioDerivedMapService } from '@/services/studio/StudioDerivedMapService';
 import type { AtlasStats } from '@/types/atlas';
@@ -86,6 +93,9 @@ class LayerEvictionService {
    * Called on every render.complete event.
    */
   private touchVisibleLayers(): void {
+    // A tool tab's copy of the scene is not drawn: touching it would make
+    // every layer equally recent and the LRU order meaningless.
+    if (!frontDrawsLayers()) return;
     const { layers, layerMetadata, setLayerMetadata } = useLayerStore.getState();
     const viewLayers = useViewStateStore.getState().viewState.layers;
     const now = performance.now();
@@ -330,9 +340,10 @@ class LayerEvictionService {
       if (volumeDocumentRemovalReason(layer.volumeId)) continue;
       if (layer.layerKind && PINNED_LAYER_KINDS.has(layer.layerKind)) continue;
       const seen = visibility.get(layer.id);
-      // A layer no view state lists falls back to its own flag, as shown in front.
-      const front = seen ? seen.front : layer.visible;
-      const background = seen?.background ?? false;
+      // A layer no view state lists falls back to its own flag, as shown in
+      // front (or, behind a tool tab, as shown in a view tab behind it).
+      const front = seen ? seen.front : layer.visible && visibility.frontDrawsLayers;
+      const background = seen ? seen.background : layer.visible && !visibility.frontDrawsLayers;
       if (front) continue;
       if (background) backgroundOnly.push(layer);
       else hiddenEverywhere.push(layer);
@@ -354,7 +365,7 @@ class LayerEvictionService {
 
     console.log(
       `[LayerEvictionService] Evicting layer "${lruLayer.name}" (${lruLayer.id}), ` +
-        `${tier === hiddenEverywhere ? 'hidden everywhere' : 'shown only behind the front tab'}, ` +
+        `${tier === hiddenEverywhere ? 'hidden everywhere' : 'shown only in tabs behind the front one'}, ` +
         `last rendered ${lruTime > 0 ? `${((now - lruTime) / 1000).toFixed(1)}s ago` : 'never'}`,
     );
 
@@ -386,6 +397,8 @@ class LayerEvictionService {
    * while their tab was behind): the ones to upload again now it is in front.
    */
   evictedFrontLayers(): string[] {
+    // A tool tab in front shows none of them (its view state is a copy).
+    if (!frontDrawsLayers()) return [];
     const { layers, layerMetadata } = useLayerStore.getState();
     const front = useViewStateStore.getState().viewState;
     const shown = new Set((front?.layers ?? []).filter((l) => l.visible).map((l) => l.id));
@@ -395,17 +408,40 @@ class LayerEvictionService {
   }
 }
 
-/** For each listed layer: visible in the front workspace, and in any other. */
-function layerVisibility(): Map<string, { front: boolean; background: boolean }> {
+/**
+ * Whether the front workspace draws the layer scene: a view tab (orthogonal,
+ * mosaic, comparison, integrated) does; a tool tab does not. Without a
+ * workspace store entry (harnesses, the default key) the front view does.
+ */
+function frontDrawsLayers(): boolean {
+  const { activeWorkspaceId, workspaces } = useWorkspaceStore.getState();
+  const active = activeWorkspaceId ? workspaces?.get?.(activeWorkspaceId) : undefined;
+  return !active || isViewWorkspaceType(active.type);
+}
+
+type LayerVisibility = Map<string, { front: boolean; background: boolean }> & {
+  frontDrawsLayers: boolean;
+};
+
+/**
+ * For each listed layer: visible in the front workspace, and in any other.
+ * Behind a tool tab every workspace's visible layers are background ones:
+ * nothing on screen draws them (A12).
+ */
+function layerVisibility(): LayerVisibility {
   const { viewState, workspaceViewStates, activeWorkspaceKey } = useViewStateStore.getState();
-  const result = new Map<string, { front: boolean; background: boolean }>();
+  const drawsLayers = frontDrawsLayers();
+  const result = Object.assign(new Map<string, { front: boolean; background: boolean }>(), {
+    frontDrawsLayers: drawsLayers,
+  });
   const entry = (id: string) => {
     let value = result.get(id);
     if (!value) result.set(id, (value = { front: false, background: false }));
     return value;
   };
   for (const viewLayer of viewState?.layers ?? []) {
-    entry(viewLayer.id).front ||= Boolean(viewLayer.visible);
+    if (drawsLayers) entry(viewLayer.id).front ||= Boolean(viewLayer.visible);
+    else entry(viewLayer.id).background ||= Boolean(viewLayer.visible);
   }
   for (const [key, state] of workspaceViewStates?.entries() ?? []) {
     if (state === viewState || key === activeWorkspaceKey) continue;
