@@ -11,6 +11,7 @@ import { useCrosshairSettingsStore } from "@/stores/crosshairSettingsStore";
 import { Popover, PopoverContent, PopoverTrigger } from "./shadcn/popover";
 import { StatusBarProgress } from "./StatusBarProgress";
 import { NotificationToast } from "./NotificationToast";
+import { RefusalAlert } from "./RefusalAlert";
 import { TimeSlider } from "./TimeSlider";
 import { useViewStateStore } from "@/stores/viewStateStore";
 import { resolveStatusLayer } from "@/utils/activeLayer";
@@ -725,6 +726,8 @@ export function StatusBar({
 
       {/* Messages ("Loaded …", errors) in the bar's free space: never over a panel. */}
       <NotificationToast />
+      {/* Refusals (no GPU slot, draw cap) float above the bar in full (N31). */}
+      <RefusalAlert />
 
       {/* Progress indicator */}
       <StatusBarProgress />

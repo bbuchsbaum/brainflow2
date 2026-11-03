@@ -16,7 +16,7 @@ import { trackSingleLoad } from './loadSelection';
 import { getTransport } from './transport';
 import type { WorkspaceBrowserTransport } from './browser/WorkspaceBrowserTransport';
 import { matchingOverlayTarget } from './surfaceOverlayIdentity';
-import { formatTauriError, toError, loadFailureMessage } from '@/utils/formatTauriError';
+import { formatTauriError, gpuTextureSlotsFullLimit, toError, loadFailureMessage } from '@/utils/formatTauriError';
 import { SUPPORTED_DISPLAY_EXTENSIONS, isSupportedDisplayPath } from '@/utils/displayFileTypes';
 import { fileLoadScheduler } from './LoadScheduler';
 import { getEventBus, type EventBus } from '@/events/EventBus';
@@ -470,6 +470,9 @@ export class DisplayLifecycleOrchestrator {
       this.eventBus.emit('ui.notification', {
         type: 'error',
         message: loadFailureMessage(filename, failure),
+        subject: filename,
+        // No free GPU slot is a refusal: float its full sentence (N31).
+        ...(gpuTextureSlotsFullLimit(failure) !== null ? { alert: true } : {}),
         logSource: 'volume',
         scope,
         sequence,

@@ -11,7 +11,10 @@
  *
  * The line is a button (v4 function critic: an error cut to a stub, its
  * reason only in a hover title): it opens every current message in full.
- * A long line is shortened in the MIDDLE, so the cause at its end stays.
+ * A long line is shortened in the MIDDLE, so the cause at its end stays; a
+ * message that names its `subject` (a file name) shortens only the subject
+ * (N31: "Cannot…ts full" lost both the action and the cause). Refusals also
+ * float above the bar in full (RefusalAlert).
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -31,6 +34,7 @@ interface Notification {
   action?: { label: string; run: () => void };
   scope?: string;
   sequence?: number;
+  subject?: string;
 }
 
 /** Unique per toast (two toasts in the same millisecond must not share an id). */
@@ -52,8 +56,16 @@ const DOT_CLASS: Record<Notification['type'], string> = {
   error: 'bg-bf-danger',
 };
 
-/** Fit `text` to `el`'s width by middle truncation (its own font, measured). */
-function useMiddleFit(text: string, el: React.RefObject<HTMLElement | null>): string {
+/**
+ * Fit `text` to `el`'s width by middle truncation (its own font, measured).
+ * With a `subject` inside `text`, only the subject is shortened; the rest of
+ * the sentence (the cause and the way out) is kept whole.
+ */
+function useMiddleFit(
+  text: string,
+  el: React.RefObject<HTMLElement | null>,
+  subject?: string,
+): string {
   const [fitted, setFitted] = useState(text);
   useLayoutEffect(() => {
     const node = el.current;
@@ -76,6 +88,20 @@ function useMiddleFit(text: string, el: React.RefObject<HTMLElement | null>): st
         setFitted(text);
         return;
       }
+      const at = subject ? text.indexOf(subject) : -1;
+      if (subject && at >= 0) {
+        const before = text.slice(0, at);
+        const after = text.slice(at + subject.length);
+        let chars = Array.from(subject).length - 1;
+        let candidate = middleTruncate(subject, chars, 8);
+        while (candidate && chars > 8 && ctx.measureText(before + candidate + after).width > width) {
+          chars -= 1;
+          candidate = middleTruncate(subject, chars, 8);
+        }
+        // Past the subject's minimum the line is cut at its end by CSS.
+        setFitted(before + (candidate ?? middleTruncate(subject, 8, 8) ?? subject) + after);
+        return;
+      }
       let chars = Array.from(text).length - 1;
       let candidate = middleTruncate(text, chars, 8);
       while (candidate && chars > 8 && ctx.measureText(candidate).width > width) {
@@ -89,7 +115,7 @@ function useMiddleFit(text: string, el: React.RefObject<HTMLElement | null>): st
     const observer = new ResizeObserver(fit);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [text, el]);
+  }, [text, el, subject]);
   return fitted;
 }
 
@@ -124,7 +150,7 @@ export function NotificationToast() {
       n.scope !== scope || n.sequence === undefined || n.sequence > resolved));
   });
 
-  useEvent('ui.notification', ({ type, message, durationMs, action, scope, sequence }) => {
+  useEvent('ui.notification', ({ type, message, durationMs, action, scope, sequence, subject }) => {
     if (scope !== undefined && sequence !== undefined &&
         sequence <= (resolvedThrough.current.get(scope) ?? 0)) return;
     const notification: Notification = {
@@ -134,6 +160,7 @@ export function NotificationToast() {
       ...(action ? { action } : {}),
       ...(scope !== undefined ? { scope } : {}),
       ...(sequence !== undefined ? { sequence } : {}),
+      ...(subject ? { subject } : {}),
     };
     // Several loads become ONE message ("Loaded: a, b, c"), not a stack.
     const item = loadedItem(notification);
@@ -156,7 +183,7 @@ export function NotificationToast() {
   const earlier = notifications.length - 1;
   const textRef = useRef<HTMLSpanElement>(null);
   // The bar shows a short form of a long known cause; the list has it in full.
-  const shown = useMiddleFit(statusLineMessage(current?.message ?? ''), textRef);
+  const shown = useMiddleFit(statusLineMessage(current?.message ?? ''), textRef, current?.subject);
   const [open, setOpenState] = useState(false);
   const setOpen = (next: boolean) => {
     openRef.current = next;
@@ -213,7 +240,7 @@ export function NotificationToast() {
                 />
                 <span
                   ref={textRef}
-                  className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap text-bf-xs ${
+                  className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-bf-xs ${
                     current.type === 'error' ? 'text-bf-text-primary' : 'text-bf-text-secondary'
                   }`}
                   data-testid="status-notification-text"
