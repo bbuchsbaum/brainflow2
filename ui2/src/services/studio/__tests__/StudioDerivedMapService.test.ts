@@ -24,6 +24,70 @@ describe('StudioDerivedMapService', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  // gpu-residency Phase 0: the template underlay reuses the workspace's own
+  // resident layer of that template instead of a second texture slot.
+  describe('template underlay borrowing', () => {
+    function withWorkspaceTemplate() {
+      const { backend, makeRoom, service } = setup();
+      let resident: { layerId: string; volumeId: string } | null = {
+        layerId: 'ws-mni',
+        volumeId: 'vol-mni',
+      };
+      const full = Object.assign(backend, {
+        loadTemplate: vi.fn(async () => ({ id: 'fresh-mni' })),
+        findResidentLayer: vi.fn((path: string) =>
+          path === 'template:MNI152NLin2009cAsym_T1w_1mm' && resident
+            ? { ...resident, voxelToWorld: AFFINE, dimensions: [10, 10, 10], dataRange: { min: 0, max: 99 } }
+            : null,
+        ),
+      });
+      return { backend: full, makeRoom, service, drop: () => (resident = null) };
+    }
+
+    it('borrows the resident workspace layer: no load, no slot, pinned, never unloaded', async () => {
+      const { backend, makeRoom, service } = withWorkspaceTemplate();
+      const hold = service.acquire('template:MNI152NLin2009cAsym_T1w_1mm');
+      const map = await hold.map;
+      expect(map).toMatchObject({ layerId: 'ws-mni', volumeId: 'vol-mni', borrowed: true });
+      expect(map?.dataRange).toEqual({ min: 0, max: 99 });
+      expect(backend.loadTemplate).not.toHaveBeenCalled();
+      expect(backend.requestLayerGpuResources).not.toHaveBeenCalled();
+      expect(makeRoom).not.toHaveBeenCalled();
+      expect(service.liveCount()).toBe(0);
+      expect([...service.pinnedLayerIds()]).toEqual(['ws-mni']);
+      hold.release();
+      await vi.runAllTimersAsync();
+      expect(backend.releaseLayerGpuResources).not.toHaveBeenCalled();
+      expect(backend.unloadVolume).not.toHaveBeenCalled();
+      expect(service.pinnedLayerIds().size).toBe(0);
+    });
+
+    it('loads its own copy once the borrowed layer is gone', async () => {
+      const { backend, service, drop } = withWorkspaceTemplate();
+      const first = service.acquire('template:MNI152NLin2009cAsym_T1w_1mm');
+      expect((await first.map)?.borrowed).toBe(true);
+      drop();
+      const second = service.acquire('template:MNI152NLin2009cAsym_T1w_1mm');
+      const map = await second.map;
+      expect(map?.borrowed).toBeFalsy();
+      expect(map?.volumeId).toBe('fresh-mni');
+      expect(backend.loadTemplate).toHaveBeenCalledTimes(1);
+      expect(service.liveCount()).toBe(1);
+      first.release();
+      second.release();
+      await vi.runAllTimersAsync();
+      expect(backend.unloadVolume).toHaveBeenCalledWith('fresh-mni');
+      expect(backend.unloadVolume).not.toHaveBeenCalledWith('vol-mni');
+    });
+
+    it('never borrows for a file path', async () => {
+      const { backend, service } = withWorkspaceTemplate();
+      const map = await service.acquire('/c/mean.nii.gz').map;
+      expect(map?.borrowed).toBeFalsy();
+      expect(backend.findResidentLayer).not.toHaveBeenCalled();
+    });
+  });
+
   it('a StrictMode remount keeps the one map: acquire, release, acquire (H1)', async () => {
     const { backend, service } = setup();
     const first = service.acquire('/c/mean.nii.gz');
