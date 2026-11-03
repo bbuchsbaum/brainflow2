@@ -3,8 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SegmentationPreview, SegmentationSlice, SegmentationStroke } from '@brainflow/api';
 import { Button, EmptyPane, IconButton } from '@/components/ui/bf';
 import { ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
-import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, removeModuleLayers, useLoadedVolumeLayers, useModuleCrosshairStyle, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
-import { ensureModuleImageLayer, ensureModuleLabelLayer, renderModulePlane, resizeZoomedPlane, setModuleCrosshair, useWorkspaceRenderState, zoomPanPlane, type RenderContext, type SliceViewportPlacement, type ViewPlane } from '@/modules/api/rendering';
+import { SliceViewport, captureActiveWorkspace, useActiveWorkspaceId, getModuleViewportTool, formatModuleError, isLiveDocument, isDocumentEditingFrozen, removeModuleLayers, useLoadedVolumeLayers, useModuleCrosshairStyle, useVolumeResidencyKey, type ViewportPointerSample, type ViewportTool } from '@/modules/api/host';
+import { ensureModuleImageLayer, ensureModuleLabelLayer, renderModulePlane, resizeZoomedPlane, setModuleCrosshair, useHasRenderedImage, useWorkspaceRenderState, zoomPanPlane, type RenderContext, type SliceViewportPlacement, type ViewPlane } from '@/modules/api/rendering';
 import { commitSegmentationStroke, getSegmentationSession, reconcileSegmentationSession, setSegmentationLabelState, segmentationFrameCounts, segmentationFrames, segmentationSaveState, setSegmentationPresentation, useSegmentationSession } from '@/modules/segmentation/session';
 import { bindSegmentationViewport } from '@/modules/segmentation/toolBindings';
 import { drawTracingOverlay, nativeSliceAtWorld, tracingClearance } from '@/modules/segmentation/components/shared/TracingOverlay';
@@ -67,8 +67,16 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const plane = stablePlane.current;
   const sourceId = contrast === 'secondary' && active?.registration?.status === 'aligned' ? secondaryDisplayId ?? referenceDisplayId : referenceDisplayId;
   const frameKey = JSON.stringify([plane, sourceId]);
-  ready.current = Boolean(isFront && session && slice && slice.revision === active?.revision && layerReady && renderedFrame === frameKey && !displayError && !session.info?.renderError);
-  const context = useMemo<RenderContext>(() => ({ id: `segmentation-${workspaceId}-primary`, type: 'slice', dimensions: { width: size[0], height: size[1] }, metadata: { workspaceId }, viewPlane: plane ?? undefined }), [workspaceId, size, plane]);
+  // Changes when the traced image is evicted or uploaded again: the frame on
+  // screen no longer reflects the GPU, so it is drawn again.
+  const sourceResidency = useVolumeResidencyKey(sourceId ? [sourceId] : []);
+  const contextId = `segmentation-${workspaceId}-primary`;
+  // The frame is drawn only while its image is still in the render store
+  // (the viewport's unmount drops it): never trace on an empty canvas.
+  const hasImage = useHasRenderedImage(contextId);
+  const [redraw, setRedraw] = useState(0);
+  ready.current = Boolean(isFront && session && slice && slice.revision === active?.revision && layerReady && renderedFrame === frameKey && hasImage && !displayError && !session.info?.renderError);
+  const context = useMemo<RenderContext>(() => ({ id: contextId, type: 'slice', dimensions: { width: size[0], height: size[1] }, metadata: { workspaceId }, viewPlane: plane ?? undefined }), [contextId, workspaceId, size, plane]);
   const report = useCallback((error: unknown) => setSegmentationPresentation(workspaceId, { error: text(error) }), [workspaceId]);
 
   useEffect(() => {
@@ -79,6 +87,15 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
     observer.observe(target); return () => observer.disconnect();
   }, []);
   useEffect(() => { void reconcileSegmentationSession(workspaceId); }, [workspaceId]);
+  // Leaving the tab unmounts the viewport, which drops its image from the
+  // render store; the frame key must go with it, or on return the viewport
+  // is declared ready on an empty (black) canvas before any frame is drawn.
+  useEffect(() => { if (!isFront) setRenderedFrame(''); }, [isFront]);
+  // A frame believed drawn whose image is gone (its viewport unmounted after
+  // the image landed) is drawn again, without user action.
+  useEffect(() => {
+    if (isFront && renderedFrame && renderedFrame === frameKey && !hasImage) { setRenderedFrame(''); setRedraw((n) => n + 1); }
+  }, [isFront, renderedFrame, frameKey, hasImage]);
   useEffect(() => {
     let disposed = false;
     if (!isFront || !labelVolumeId || paletteId == null || !identity) { setLayerReady(false); return; }
@@ -113,7 +130,7 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
     const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent();
     void renderModulePlane({ workspaceId, context, plane, volumeIds: [sourceId], isCurrent: current }).then(() => { if (current()) setRenderedFrame(frameKey); }).catch((error) => { if (current()) setDisplayError(text(error)); });
     return () => { disposed = true; };
-  }, [workspaceId, plane, context, sourceId, frameKey, workspaceView?.layers, layerReady, attempt, isFront]);
+  }, [workspaceId, plane, context, sourceId, frameKey, workspaceView?.layers, layerReady, attempt, isFront, sourceResidency, redraw]);
 
   const queuePreview = useCallback(() => {
     if (previewFrame.current !== null) return;
