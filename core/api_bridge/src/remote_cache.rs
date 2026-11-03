@@ -47,6 +47,10 @@ pub(crate) fn make_room(
     if incoming > budget {
         return Err(error("Remote file exceeds the configured cache budget"));
     }
+    // No cache yet (first download on this machine): nothing to evict.
+    if !root.exists() {
+        return Ok(());
+    }
     let mut used = directory_bytes(root)?;
     let mut candidates = Vec::new();
     for entry in std::fs::read_dir(root).map_err(|e| error(&e.to_string()))? {
@@ -95,6 +99,18 @@ pub(crate) fn make_room(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn make_room_admits_into_a_cache_that_does_not_exist_yet() {
+        let root =
+            std::env::temp_dir().join(format!("brainflow-no-cache-{}", uuid::Uuid::new_v4()));
+        assert!(!root.exists());
+        make_room(&root, &HashSet::new(), 10, 100).expect("a missing cache root is empty");
+        assert!(
+            make_room(&root, &HashSet::new(), 101, 100).is_err(),
+            "budget still applies"
+        );
+    }
+
     #[test]
     fn remote_cache_identity_is_session_independent_and_endpoint_specific() {
         assert_eq!(
