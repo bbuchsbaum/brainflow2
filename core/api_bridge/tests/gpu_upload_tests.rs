@@ -6,7 +6,7 @@ use api_bridge::{
 };
 use bridge_types::{VolumeSendable, VolumeType};
 use nalgebra::Affine3;
-use render_loop::RenderLoopService;
+use render_loop::{RenderLoopError, RenderLoopService};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use volmath::{DenseVolume3, NeuroSpaceExt};
@@ -117,10 +117,16 @@ async fn test_layer_tracking() {
 
     let state = setup_test_state().await;
     // The map records residencies (generation-checked handles), so the slots
-    // come from real uploads.
-    let mut service = RenderLoopService::new()
-        .await
-        .expect("GPU adapter required");
+    // come from real uploads: a handle cannot be fabricated without the
+    // renderer that issued it, by design.
+    let mut service = match RenderLoopService::new().await {
+        Ok(service) => service,
+        Err(RenderLoopError::AdapterRequestFailed | RenderLoopError::AdapterNotFound) => {
+            eprintln!("Skipping test_layer_tracking: no WGPU adapter available");
+            return;
+        }
+        Err(error) => panic!("initialize render loop: {error:?}"),
+    };
     service.enable_world_space_rendering().unwrap();
     let mut slots = Vec::new();
     for _ in 0..3 {
