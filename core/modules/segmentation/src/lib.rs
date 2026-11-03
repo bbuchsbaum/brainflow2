@@ -535,6 +535,9 @@ impl Session {
     pub fn normal_axis(&self) -> u8 {
         self.setup.normal_axis
     }
+    pub fn reference_volume_id(&self) -> &str {
+        &self.setup.reference_volume_id
+    }
     pub fn volume(&self) -> &LabelVolume {
         &self.labels
     }

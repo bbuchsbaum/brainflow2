@@ -38,6 +38,9 @@ struct Record {
     /// session. The renderer skips the upload when the palette is unchanged.
     palette: Vec<u8>,
     session: Session,
+    /// Folder of this document's last successful save: the next save dialog
+    /// opens there.
+    last_save_dir: Option<PathBuf>,
 }
 
 /// Id k at texel (k % WIDTH, k / WIDTH), sized to the largest declared id, so
@@ -450,6 +453,7 @@ async fn create(
         secondary_display_volume_id,
         palette,
         session,
+        last_save_dir: None,
     };
     let result = info(&record, state, None, &_operation).await;
     sessions.insert(id, record);
@@ -719,7 +723,18 @@ async fn slice(
 
 /// Copy the accepted revision the caller displayed. The module gate and the
 /// document locks are released before any dialog is shown.
+#[cfg(test)]
 async fn export_labels(state: &BridgeState, owner: Operation) -> BridgeResult<LabelExport> {
+    Ok(export_with_folder(state, owner).await?.0)
+}
+
+/// The export plus the folder the save dialog should open in: the document's
+/// last save folder, else the reference image's folder (never the app's
+/// working directory, which is a repository folder in development).
+async fn export_with_folder(
+    state: &BridgeState,
+    owner: Operation,
+) -> BridgeResult<(LabelExport, Option<PathBuf>)> {
     let module = state
         .modules
         .enter_workspace::<SegmentationState>(ID, &workspace(&owner))
@@ -730,7 +745,52 @@ async fn export_labels(state: &BridgeState, owner: Operation) -> BridgeResult<La
         .get(&owner.session_id)
         .filter(|record| record.workspace == workspace(&owner))
         .ok_or_else(|| invalid("Segmentation session was closed"))?;
-    record.session.export(&owner).map_err(domain)
+    let export = record.session.export(&owner).map_err(domain)?;
+    let reference_path = state
+        .volume_registry
+        .lock()
+        .await
+        .get_entry(record.session.reference_volume_id())
+        .map(|entry| entry.metadata.path.clone());
+    let folder = default_save_folder(record.last_save_dir.as_deref(), reference_path.as_deref());
+    Ok((export, folder))
+}
+
+/// First existing folder of: the last save folder, the reference file's folder.
+fn default_save_folder(
+    last_save_dir: Option<&std::path::Path>,
+    reference_path: Option<&str>,
+) -> Option<PathBuf> {
+    let reference_dir = reference_path
+        .map(std::path::Path::new)
+        .filter(|path| path.is_absolute())
+        .and_then(std::path::Path::parent);
+    last_save_dir
+        .into_iter()
+        .chain(reference_dir)
+        .find(|dir| dir.is_dir())
+        .map(std::path::Path::to_path_buf)
+}
+
+/// Remember where this document was saved, for its next save dialog.
+async fn remember_save_folder(state: &BridgeState, owner: &Operation, label_path: &str) {
+    let Some(folder) = std::path::Path::new(label_path).parent() else {
+        return;
+    };
+    let Ok(module) = state
+        .modules
+        .enter_workspace::<SegmentationState>(ID, &workspace(owner))
+        .await
+    else {
+        return;
+    };
+    let mut sessions = module.sessions.lock().await;
+    if let Some(record) = sessions
+        .get_mut(&owner.session_id)
+        .filter(|record| record.workspace == workspace(owner))
+    {
+        record.last_save_dir = Some(folder.to_path_buf());
+    }
 }
 /// Write a copied revision to the path picked in the save dialog.
 async fn save_labels_to(export: LabelExport, picked: PathBuf) -> BridgeResult<SavedLabels> {
@@ -818,15 +878,19 @@ pub(crate) async fn segmentation_save_labels<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Option<SavedLabels>> {
-    let export = export_labels(state.inner(), owner).await?;
+    let (export, folder) = export_with_folder(state.inner(), owner.clone()).await?;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog()
+    let mut dialog = app
+        .dialog()
         .file()
         .set_title("Save labels as NIfTI")
-        .set_file_name(export.suggested_name.clone())
-        .save_file(move |picked| {
-            let _ = tx.send(picked);
-        });
+        .set_file_name(export.suggested_name.clone());
+    if let Some(folder) = folder {
+        dialog = dialog.set_directory(folder);
+    }
+    dialog.save_file(move |picked| {
+        let _ = tx.send(picked);
+    });
     let picked = rx.await.map_err(|_| BridgeError::Internal {
         code: 12103,
         details: "Save dialog closed without a response".into(),
@@ -837,7 +901,9 @@ pub(crate) async fn segmentation_save_labels<R: Runtime>(
     let picked = picked
         .into_path()
         .map_err(|error| invalid(format!("Unsupported save location: {error}")))?;
-    save_labels_to(export, picked).await.map(Some)
+    let saved = save_labels_to(export, picked).await?;
+    remember_save_folder(state.inner(), &owner, &saved.label_path).await;
+    Ok(Some(saved))
 }
 
 #[cfg(test)]
@@ -1331,6 +1397,33 @@ mod tests {
             labels.values().iter().filter(|&&v| v == u16::MAX).count(),
             5
         );
+    }
+
+    #[test]
+    fn the_save_dialog_opens_in_the_last_save_folder_else_the_reference_folder() {
+        let root = std::env::temp_dir().join(format!("bf-seg-folder-{}", uuid::Uuid::new_v4()));
+        let (data, saved) = (root.join("data"), root.join("saved"));
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(&saved).unwrap();
+        let reference = data.join("sub-01_T1w.nii.gz");
+        let reference = reference.to_str().unwrap();
+        assert_eq!(
+            default_save_folder(None, Some(reference)),
+            Some(data.clone())
+        );
+        assert_eq!(
+            default_save_folder(Some(&saved), Some(reference)),
+            Some(saved.clone())
+        );
+        // A vanished last folder falls back to the reference folder.
+        assert_eq!(
+            default_save_folder(Some(&root.join("gone")), Some(reference)),
+            Some(data.clone())
+        );
+        // In-memory or relative sources give no folder (the dialog default).
+        assert_eq!(default_save_folder(None, Some("memory:reference")), None);
+        assert_eq!(default_save_folder(None, None), None);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     /// Paint at the top-centre pixel of the native coronal (normal j) plane and
