@@ -12586,7 +12586,10 @@ mod tests {
                 Some(slot),
                 "the frame drew the swapped member, not a re-upload"
             );
-            assert!(service.lock().await.has_render_layer_for_atlas(slot.index()));
+            assert!(service
+                .lock()
+                .await
+                .has_render_layer_for_atlas(slot.index()));
 
             // This is precisely the watchdog's snapshot-and-drop pattern.
             let snapshot = state

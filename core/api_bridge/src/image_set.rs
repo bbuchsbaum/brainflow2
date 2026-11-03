@@ -529,7 +529,9 @@ impl ResidentImageSet {
                 Ok(Some(_)) => freed += 1,
                 Ok(None) => {}
                 Err(error) => {
-                    log::debug!("Resident image-set teardown: slot {index} not released: {error:?}");
+                    log::debug!(
+                        "Resident image-set teardown: slot {index} not released: {error:?}"
+                    );
                 }
             }
         }
