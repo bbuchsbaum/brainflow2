@@ -41,4 +41,40 @@ describe('RefusalAlert (N31)', () => {
     expect(screen.getAllByTestId('refusal-alert')).toHaveLength(1);
     expect(screen.getByTestId('refusal-alert-text')).toHaveTextContent('Second refusal.');
   });
+
+  it('dismisses on Escape', () => {
+    render(<RefusalAlert />);
+    act(() => {
+      getEventBus().emit('ui.notification', { type: 'error', message: 'No slot.', alert: true });
+    });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('refusal-alert')).toBeNull();
+  });
+
+  it('clears a refusal a later success resolved, and drops a stale one', () => {
+    render(<RefusalAlert />);
+    act(() => {
+      getEventBus().emit('ui.notification', {
+        type: 'error', message: 'Failed to load a.nii.gz: no slot.', alert: true, scope: 'volume-load:v', sequence: 1,
+      });
+    });
+    expect(screen.getByTestId('refusal-alert')).toBeInTheDocument();
+    act(() => getEventBus().emit('ui.notification.resolve', { scope: 'volume-load:v', through: 2 }));
+    expect(screen.queryByTestId('refusal-alert')).toBeNull();
+    // A failure of request 2 arriving after the resolve is stale.
+    act(() => {
+      getEventBus().emit('ui.notification', {
+        type: 'error', message: 'Late failure.', alert: true, scope: 'volume-load:v', sequence: 2,
+      });
+    });
+    expect(screen.queryByTestId('refusal-alert')).toBeNull();
+    // Another scope's refusal is unaffected.
+    act(() => {
+      getEventBus().emit('ui.notification', {
+        type: 'error', message: 'Other view.', alert: true, scope: 'volume-load:w', sequence: 1,
+      });
+      getEventBus().emit('ui.notification.resolve', { scope: 'volume-load:v', through: 3 });
+    });
+    expect(screen.getByTestId('refusal-alert-text')).toHaveTextContent('Other view.');
+  });
 });
