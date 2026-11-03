@@ -163,6 +163,41 @@ pub(crate) async fn stat_owned(
     .map_err(|e| error(&e.to_string()))?
 }
 
+/// [`stat_owned`] where an absent remote file is `Ok(None)`. Transport
+/// failures, timeouts and a stopped mount are still errors.
+pub(crate) async fn stat_optional_owned(
+    mount: RemoteMountEntry,
+    path: String,
+) -> BridgeResult<Option<remotely::fs::Metadata>> {
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        runtime.block_on(async move {
+            let _permit = mount
+                .op_semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|_| error("Remote mount closed"))?;
+            if mount.transfers.is_stopped() {
+                return Err(error("Remote mount has been unmounted"));
+            }
+            match tokio::time::timeout(
+                crate::REMOTE_FS_OPERATION_TIMEOUT,
+                mount.client.fs().stat(Path::new(&path)),
+            )
+            .await
+            .map_err(|_| error("Timed out checking the remote file"))?
+            {
+                Ok(metadata) => Ok(Some(metadata)),
+                Err(remotely::Error::Fs(remotely::error::FsError::NotFound { .. })) => Ok(None),
+                Err(e) => Err(map_remotely_error(e, 8243)),
+            }
+        })
+    })
+    .await
+    .map_err(|e| error(&e.to_string()))?
+}
+
 pub(crate) async fn list_owned(
     mount: RemoteMountEntry,
     path: String,

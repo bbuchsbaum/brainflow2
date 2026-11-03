@@ -383,9 +383,12 @@ export class MockTransport implements BackendTransport {
           last_allocation_ms: now,
           last_release_ms: now,
           volume_texture_slots: 16,
-          render_layer_capacity: 8,
+          render_layer_capacity: 16,
         };
       }
+
+      case 'reclaim_cached_image_slots':
+        return { reclaimed: 0, free_texture_slots: 12 };
 
       case 'load_file':
         return {

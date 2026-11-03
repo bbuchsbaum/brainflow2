@@ -95,6 +95,29 @@ pub struct BidsValidationIssue {
     pub rule: String,
 }
 
+/// What a folder is, as far as BIDS goes. `bids`: it has
+/// `dataset_description.json` (participants.tsv is only recommended).
+/// `layout_only`: no description, but subject folders hold modality folders
+/// with BIDS-named files; the UI offers to open it by layout, never by itself.
+/// `none`: neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum BidsDirectoryStatus {
+    Bids,
+    LayoutOnly,
+    None,
+}
+
+/// The answer to `probe_bids_directory`. `missing` names the root files the
+/// spec requires or recommends that the folder lacks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BidsDirectoryProbe {
+    pub status: BidsDirectoryStatus,
+    pub missing: Vec<String>,
+}
+
 // --- BIDS browser contract (docs/plans/bids-browser-implementation.md) ---
 
 /// Everything the BIDS browser knows about a dataset. Columns and counts are
@@ -146,6 +169,11 @@ pub struct BidsBrowserIndex {
     pub exclusions: Vec<BidsExclusion>,
     /// `derivatives/brainflow/dataset_description.json` already exists.
     pub exclusions_described: bool,
+    /// The dataset has no `dataset_description.json` and was opened by its
+    /// layout at the user's request. It is not BIDS-valid, and exclusions are
+    /// not written for it.
+    #[serde(default)]
+    pub opened_by_layout: bool,
 }
 
 /// One image file of the raw dataset. Companions are not runs.

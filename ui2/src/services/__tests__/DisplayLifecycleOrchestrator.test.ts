@@ -195,7 +195,7 @@ describe('DisplayLifecycleOrchestrator', () => {
     expect(failure.cause).toBe(backendError);
     expect(mockEventBus.emit).toHaveBeenCalledWith('file.error', { path: '/cache/remote.nii.gz', error: failure });
     expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
-      type: 'error', message: 'Failed to load remote.nii.gz: GPU upload failed: fixture reason', logSource: 'volume',
+      type: 'error', message: 'Failed to load remote.nii.gz: GPU upload failed: fixture reason', subject: 'remote.nii.gz', logSource: 'volume',
       scope: 'volume-load:undefined', sequence: 1,
     });
     expect(mockQueueState.markComplete).not.toHaveBeenCalled();

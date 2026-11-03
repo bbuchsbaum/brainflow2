@@ -4,6 +4,37 @@ import { NotificationToast } from '../NotificationToast';
 import { getEventBus } from '@/events/EventBus';
 
 describe('NotificationToast (status-bar messages)', () => {
+  // N31: "Cannot…ts full" cut the cause and the way out. With a subject, a
+  // line too long for the bar shortens the file name, never the message.
+  it('shortens only the subject of a message that names one', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
+    const context = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ font: '', measureText: (text: string) => ({ width: Array.from(text).length * 5 }) } as never);
+    try {
+      const subject = 'sub-01_ses-01_task-rest_run-02_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz';
+      const cause = 'Only 16 layers can be drawn in one view. Hide a layer in this view, then show this one.';
+      render(<NotificationToast />);
+      act(() => {
+        getEventBus().emit('ui.notification', {
+          type: 'error',
+          message: `Cannot show ${subject}: ${cause}`,
+          subject,
+        });
+      });
+      const text = screen.getByTestId('status-notification-text').textContent ?? '';
+      expect(text.startsWith('Cannot show sub-01')).toBe(true);
+      expect(text).toContain('_bold.nii.gz: ');
+      expect(text.endsWith(`: ${cause}`)).toBe(true);
+      expect(text).toContain('…');
+      expect(text).not.toContain(subject);
+      expect(Array.from(text).length * 5).toBeLessThanOrEqual(600);
+    } finally {
+      width.mockRestore();
+      context.mockRestore();
+    }
+  });
+
   it('merges load messages into one line and shows errors as alerts', () => {
     render(<NotificationToast />);
     act(() => {

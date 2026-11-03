@@ -58,10 +58,15 @@ pub use ubo::{
     CrosshairUbo, CrosshairUboUpdated, FrameUbo, LayerUboStd140, SliceFeatureBlock,
     SliceFeatureUbo, ViewPlaneUbo,
 };
-/// The most layers the render state takes at once (`LayerStateManager`; the
-/// size of the legacy uniform path's `array<LayerUBO, 8>`). See
+/// The most layers one frame draws (`LayerStateManager`). The runtime masked
+/// shaders read layers from a growable storage buffer (`LayerStorageManager`)
+/// and give each drawn layer one `SliceFeatureBlock` entry, so the cap matches
+/// `MAX_OUTLINE_LAYERS`. The legacy atlas uniform path (`LayerUniformManager`,
+/// `array<LayerUBO, 8>`) clamps to its own `layer_uniforms::MAX_LAYERS`. This is
+/// a per-frame draw cap, not a residency budget: resident textures are bounded
+/// by `multi_texture_manager::MAX_TEXTURES`. See
 /// [`RenderLoopService::render_layer_capacity`].
-pub const MAX_RENDER_LAYERS: usize = 8;
+pub const MAX_RENDER_LAYERS: usize = 16;
 
 // Every layer the render state can hold needs its own outline slot.
 const _: () = assert!(shader_contract::feature::MAX_OUTLINE_LAYERS >= MAX_RENDER_LAYERS);
@@ -80,7 +85,7 @@ pub use facade::{
     RendererLimits, RendererPowerPreference, RendererVolumeFormat, RendererVolumeHandle,
     WgpuSliceRenderer, WgpuSliceRendererConfig,
 };
-pub use multi_texture_manager::{EditableTextureHandle, LabelRegionUpdate};
+pub use multi_texture_manager::{EditableTextureHandle, LabelRegionUpdate, SlotHandle};
 // Re-export optimized renderer
 use layer_uniforms::LayerUniformManager;
 use multi_texture_manager::MultiTextureManager;
@@ -2675,6 +2680,33 @@ impl RenderLoopService {
         }
     }
 
+    /// Whether `atlas_index` is a volume texture slot holding data now.
+    pub fn is_volume_slot_resident(&self, atlas_index: u32) -> bool {
+        self.multi_texture_manager
+            .as_ref()
+            .and_then(|manager| manager.get_texture_info(atlas_index))
+            .is_some()
+    }
+
+    /// Whether `atlas_index` holds an editable label texture (an open
+    /// segmentation document). Such a slot must not be reclaimed behind the
+    /// document's back.
+    pub fn is_editable_volume_slot(&self, atlas_index: u32) -> bool {
+        self.multi_texture_manager
+            .as_ref()
+            .and_then(|manager| manager.editable_handle(atlas_index))
+            .is_some()
+    }
+
+    /// Volume texture slots currently holding data (layers and 4D resident-ring
+    /// members alike).
+    pub fn resident_volume_slot_count(&self) -> usize {
+        self.multi_texture_manager
+            .as_ref()
+            .map(|manager| manager.resident_slot_count())
+            .unwrap_or(0)
+    }
+
     /// Renders a single frame to the configured surface.
     pub fn render(&mut self) -> Result<(), RenderLoopError> {
         // Begin new frame
@@ -3692,6 +3724,44 @@ impl RenderLoopService {
             self.clear_views();
         }
         Ok(removed)
+    }
+
+    /// The current residency of a volume texture slot, if it holds data. Take
+    /// it under the same service lock as the upload that filled the slot.
+    pub fn slot_handle(&self, atlas_index: u32) -> Option<SlotHandle> {
+        self.multi_texture_manager
+            .as_ref()
+            .and_then(|manager| manager.slot_handle(atlas_index))
+    }
+
+    /// Whether `handle` still names the residency in its slot.
+    pub fn is_slot_current(&self, handle: SlotHandle) -> bool {
+        self.multi_texture_manager
+            .as_ref()
+            .is_some_and(|manager| manager.is_current(handle))
+    }
+
+    /// [`Self::release_volume`] for one residency: a stale handle (already
+    /// released, or its index refilled by another upload) changes nothing and
+    /// returns `Ok(false)`.
+    pub fn release_slot(&mut self, handle: SlotHandle) -> Result<bool, RenderLoopError> {
+        if !self.is_slot_current(handle) {
+            return Ok(false);
+        }
+        self.release_volume(handle.index()).map(|()| true)
+    }
+
+    /// [`Self::release_layer_resources`] for one residency: the render-state
+    /// entry and the texture go only while `handle` is current. `Ok(None)`
+    /// for a stale handle; otherwise whether a render-state entry was removed.
+    pub fn release_layer_slot(
+        &mut self,
+        handle: SlotHandle,
+    ) -> Result<Option<bool>, RenderLoopError> {
+        if !self.is_slot_current(handle) {
+            return Ok(None);
+        }
+        self.release_layer_resources(handle.index()).map(Some)
     }
 
     /// Whether the imperative render-layer state currently references `atlas_index`.
@@ -5599,10 +5669,9 @@ impl RenderLoopService {
         self.runtime_texture_capacity
     }
 
-    /// The most layers the render state takes at once (`LayerStateManager`;
-    /// 8, the size of the legacy uniform path's `array<LayerUBO, 8>`). A
-    /// layer upload past it fails with code 1885, "Maximum layer count N
-    /// reached", even with texture slots free.
+    /// The most layers one frame draws ([`MAX_RENDER_LAYERS`]). A per-view
+    /// draw cap: uploads do not add render-layer entries, so it does not
+    /// bound residency (see [`Self::runtime_texture_capacity`]).
     pub fn render_layer_capacity(&self) -> u32 {
         self.layer_state_manager.max_layers() as u32
     }

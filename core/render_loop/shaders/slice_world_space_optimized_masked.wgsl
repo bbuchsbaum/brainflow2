@@ -447,7 +447,9 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     let pixel_size = input.pixel_size;
     
     // Composite all active layers with optimizations
-    let layer_count = min(layer_metadata.active_count, 13u); // Ensure we don't exceed texture count (13 volume textures)
+    // One frame draws at most MAX_OUTLINE_LAYERS layers (the Rust draw cap,
+    // MAX_RENDER_LAYERS). Layers are not textures: several can share one.
+    let layer_count = min(layer_metadata.active_count, MAX_OUTLINE_LAYERS);
     
     for (var i: u32 = 0u; i < layer_count; i = i + 1u) {
         let layer = layer_data[i];

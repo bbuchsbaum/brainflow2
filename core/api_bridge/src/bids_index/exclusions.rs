@@ -198,13 +198,29 @@ pub(crate) fn parse_tsv(text: &str) -> Result<Vec<BidsExclusion>, String> {
     Ok(rows)
 }
 
-/// The dataset root, checked, or an error. Only an existing BIDS root passes.
+/// The dataset root, checked, or an error. Only an existing BIDS root passes:
+/// a write creates `derivatives/brainflow/dataset_description.json`, whose
+/// `SourceDatasets` must name a raw dataset that describes itself. A dataset
+/// opened by layout has no description, so nothing is written for it.
 fn checked_root(dataset: &Path) -> Result<PathBuf, String> {
+    let root = readable_root(dataset)?;
+    if !root.join("dataset_description.json").is_file() {
+        return Err(format!(
+            "{} has no dataset_description.json, so it is not a BIDS dataset root. Exclusions are not written for a dataset opened by layout; add a dataset_description.json first.",
+            root.display()
+        ));
+    }
+    Ok(root)
+}
+
+/// The dataset root for reading. A dataset opened by layout reads its table,
+/// if one exists, and otherwise has none.
+fn readable_root(dataset: &Path) -> Result<PathBuf, String> {
     let root = dataset
         .canonicalize()
         .map_err(|e| format!("Cannot access {}: {e}", dataset.display()))?;
-    if !root.join("dataset_description.json").is_file() {
-        return Err(format!("{} is not a BIDS dataset root.", root.display()));
+    if !root.is_dir() {
+        return Err(format!("{} is not a directory.", root.display()));
     }
     Ok(root)
 }
@@ -272,7 +288,7 @@ fn read_rows(dir: &Path) -> Result<Vec<BidsExclusion>, String> {
 pub(crate) const EXCLUSIONS_REL_PATH: &str = "derivatives/brainflow/exclusions.tsv";
 
 pub(crate) fn read_exclusions(dataset: &Path) -> Result<Vec<BidsExclusion>, String> {
-    let root = checked_root(dataset)?;
+    let root = readable_root(dataset)?;
     match output_dir(&root, false)? {
         Some(dir) => read_rows(&dir),
         None => Ok(Vec::new()),

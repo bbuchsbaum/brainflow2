@@ -120,6 +120,9 @@ export function useServicesInit() {
           const layerApi = new LayerApiImpl();
           initializeLayerService(layerApi);
           serviceInitDebugLog('[useServicesInit] LayerService initialized');
+          // Layers evicted while their tab was behind come back when it is in front.
+          const { startFrontWorkspaceResidency } = await import('@/services/frontWorkspaceResidency');
+          startFrontWorkspaceResidency();
 
           // Emit specific event for LayerService
           getEventBus().emit('services.initialized', { service: 'LayerService' });

@@ -37,6 +37,7 @@ import { useAppModeStore } from '@/stores/appModeStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { getEventBus } from '@/events/EventBus';
 
 const AFFINE = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, -10, -10, -10, 1];
 const STUDIO = 'studio-ws';
@@ -170,6 +171,37 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     });
     render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/full.nii.gz" label="Z" workspaceId={STUDIO} />);
     expect(await screen.findByText(/GPU texture slots full/)).toBeInTheDocument();
+  });
+
+  // N32: a pane refused for want of a slot never retried. It asks again
+  // when slots are freed (a release or eviction anywhere).
+  it('re-requests a map refused for GPU slots once slots are freed (N32)', async () => {
+    api.requestLayerGpuResources.mockRejectedValueOnce({
+      GpuError: { code: 5000, details: 'Maximum texture limit 13 reached' },
+    });
+    render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/retry.nii.gz" label="Z" workspaceId={STUDIO} />);
+    expect(await screen.findByText(/GPU texture slots full/)).toBeInTheDocument();
+    expect(screen.queryByTestId('pane-viewport')).toBeNull();
+    const before = api.loadFile.mock.calls.length;
+    // Unrelated events do not retry.
+    act(() => getEventBus().emit('layer.visibility', { layerId: 'x', visible: false }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(api.loadFile.mock.calls.length).toBe(before);
+    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'release', layerId: 'evicted' }));
+    await waitFor(() => expect(screen.getByTestId('pane-viewport')).toBeInTheDocument());
+    expect(api.loadFile.mock.calls.length).toBe(before + 1);
+    expect(screen.queryByText(/GPU texture slots full/)).toBeNull();
+  });
+
+  it('a drawn pane does not reload on slots-freed events', async () => {
+    render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/steady.nii.gz" label="Z" workspaceId={STUDIO} />);
+    await waitFor(() => expect(screen.getByTestId('pane-viewport')).toBeInTheDocument());
+    const loads = api.loadFile.mock.calls.length;
+    const requests = api.requestLayerGpuResources.mock.calls.length;
+    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'release' }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(api.loadFile.mock.calls.length).toBe(loads);
+    expect(api.requestLayerGpuResources.mock.calls.length).toBe(requests);
   });
 
   it('renders once per frame for a burst of crosshair moves, and not for other edits (W2)', async () => {

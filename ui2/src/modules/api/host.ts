@@ -160,6 +160,23 @@ export async function openSurfaceFile(options: { path: string; displayName?: str
 }
 
 export const useLoadedVolumeLayers = () => useLayerStore((state) => state.layers);
+/**
+ * A key that changes whenever a layer of these volumes loses its GPU
+ * residency (evicted, released by the stale-lease watchdog) or gains it back
+ * (uploaded again). A module view that draws these volumes re-renders on it,
+ * so a re-upload behind its back never leaves it showing a stale or empty
+ * frame (QA r0 2026-11-02, N34).
+ */
+export function useVolumeResidencyKey(volumeIds: readonly string[]): string {
+  const wanted = volumeIds.join('\u0000');
+  return useLayerStore((state) => {
+    const ids = wanted ? wanted.split('\u0000') : [];
+    return state.layers
+      .filter((layer) => ids.includes(layer.volumeId))
+      .map((layer) => `${layer.id}:${state.layerMetadata.get(layer.id)?.gpuResident === false ? 0 : 1}`)
+      .join('|');
+  });
+}
 /** Remove module-created layers (for example a discarded document's frozen
  * frames) through the ordinary layer lifecycle, which also unloads them. */
 export async function removeModuleLayers(volumeIds: readonly string[]): Promise<void> {

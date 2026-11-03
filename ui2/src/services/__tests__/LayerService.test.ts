@@ -241,6 +241,52 @@ describe('LayerService', () => {
 
   // QA 2026-10-31 N18: a show the GPU refuses is undone and explained, so
   // no layer stays "visible" without GPU resources.
+  // gpu-residency plan, Phase 1: the draw cap (16) bounds one view, so a
+  // 17th visible layer in the same workspace is refused before any backend
+  // call, with the full sentence as a floating alert.
+  describe('a show past the per-view draw cap', () => {
+    const seed = (visible: number) => {
+      const layers = Array.from({ length: visible }, (_, i) => ({
+        ...mockLayer,
+        id: `shown-${i}`,
+        name: `shown-${i}`,
+        volumeId: `shown-${i}`,
+      }));
+      useLayerStore.setState({
+        layers: [...layers, { ...mockLayer, id: 'extra', name: 'sub-01_bold.nii.gz', visible: false }] as never,
+      });
+      useViewStateStore.getState().setViewState((state) => {
+        state.layers = [
+          ...layers.map((l) => ({ id: l.id, visible: true, opacity: 1 })),
+          { id: 'extra', visible: false, opacity: 1 },
+        ] as never;
+      });
+    };
+
+    it('refuses a 17th visible layer in one view and says why in full', () => {
+      seed(16);
+      layerService.toggleVisibility('extra', true);
+      expect(mockApi.updateLayer).not.toHaveBeenCalled();
+      expect(useLayerStore.getState().getLayer('extra')?.visible).toBe(false);
+      expect(useViewStateStore.getState().viewState.layers.find((l) => l.id === 'extra')?.visible).toBe(false);
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
+        type: 'error',
+        message:
+          'Cannot show sub-01_bold.nii.gz: Only 16 layers can be drawn in one view. Hide a layer in this view, then show this one.',
+        subject: 'sub-01_bold.nii.gz',
+        alert: true,
+        logSource: 'layer',
+      });
+    });
+
+    it('lets the 16th visible layer through', () => {
+      seed(15);
+      layerService.toggleVisibility('extra', true);
+      expect(mockApi.updateLayer).toHaveBeenCalled();
+      expect(useLayerStore.getState().getLayer('extra')?.visible).toBe(true);
+    });
+  });
+
   describe('a show refused for GPU slots', () => {
     const seed = () => {
       useLayerStore.setState({ layers: [{ ...mockLayer, name: 'toy_t1w', visible: false }] as never });
@@ -263,6 +309,8 @@ describe('LayerService', () => {
         type: 'error',
         message:
           'Cannot show toy_t1w: GPU texture slots full (all 8 in use). Hide or remove a layer, then load again.',
+        subject: 'toy_t1w',
+        alert: true,
         logSource: 'layer',
       });
       expect(mockEventBus.emit).toHaveBeenCalledWith('layer.visibility', {

@@ -126,6 +126,7 @@ fn main() {
     ParcelTablePreview::export_all().expect("export parcel preview");
     ParcelOverlayInfo::export_all().expect("export parcel overlay");
     // BIDS browser contract (export_all pulls in nested types).
+    bridge_types::bids::BidsDirectoryProbe::export_all().expect("export BidsDirectoryProbe");
     bridge_types::bids::BidsBrowserIndex::export_all().expect("export BidsBrowserIndex");
     bridge_types::bids::BidsRunRecord::export_all().expect("export BidsRunRecord");
     bridge_types::bids::BidsMetaValue::export_all().expect("export BidsMetaValue");

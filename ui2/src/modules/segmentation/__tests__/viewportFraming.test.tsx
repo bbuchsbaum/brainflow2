@@ -5,9 +5,10 @@ import type { ViewportTool } from '@/modules/api/host';
 import type { ViewPlane, SliceViewportPlacement } from '@/modules/api/rendering';
 import { SegmentViewport } from '@/modules/segmentation/components/SegmentViewport';
 import { document, info } from '@/modules/segmentation/__tests__/liveFixtures';
-const state = vi.hoisted(() => ({ unlock: vi.fn(), live: true, ensureImage: vi.fn(), removeLayers: vi.fn(), session: null as unknown, pointer: null as unknown, render: vi.fn(), slice: vi.fn(), preview: vi.fn(), commit: vi.fn(), view: { layers: [], crosshair: { world_mm: [10, -18, 6], visible: true } } }));
+const state = vi.hoisted(() => ({ front: 'synthetic-view', residency: 'reference:1', hasImage: true, unlock: vi.fn(), live: true, ensureImage: vi.fn(), removeLayers: vi.fn(), session: null as unknown, pointer: null as unknown, render: vi.fn(), slice: vi.fn(), preview: vi.fn(), commit: vi.fn(), view: { layers: [], crosshair: { world_mm: [10, -18, 6], visible: true } } }));
 vi.mock('@/modules/api/host', () => ({
-  useActiveWorkspaceId: () => 'synthetic-view',
+  useActiveWorkspaceId: () => state.front,
+  useVolumeResidencyKey: () => state.residency,
   captureActiveWorkspace: () => ({ workspaceId: 'synthetic-view', isCurrent: () => true }),
   isLiveDocument: () => state.live, isDocumentEditingFrozen: () => false,
   removeModuleLayers: (...args: unknown[]) => state.removeLayers(...args),
@@ -19,7 +20,7 @@ vi.mock('@/modules/api/host', () => ({
   },
 }));
 vi.mock('@/modules/api/rendering', () => ({
-  useWorkspaceRenderState: () => state.view, ensureModuleLabelLayer: async () => {},
+  useWorkspaceRenderState: () => state.view, useHasRenderedImage: () => state.hasImage, ensureModuleLabelLayer: async () => {},
   ensureModuleImageLayer: (...args: unknown[]) => state.ensureImage(...args),
   renderModulePlane: (...args: unknown[]) => state.render(...args),
   resizeZoomedPlane: (plane: ViewPlane) => plane,
@@ -44,6 +45,7 @@ beforeEach(() => {
   state.live = true; state.ensureImage.mockReset().mockResolvedValue(undefined); state.removeLayers.mockReset().mockResolvedValue(undefined);
   state.preview.mockReset().mockResolvedValue(null); state.commit.mockReset(); state.render.mockReset().mockResolvedValue(undefined);
   state.unlock.mockReset().mockResolvedValue(null);
+  state.front = document.workspaceId; state.residency = 'reference:1'; state.hasImage = true;
 });
 describe('tracing frame ownership', () => {
   it('cancels a held stroke and hides the old surface until the zoomed frame completes', async () => {
@@ -85,6 +87,62 @@ describe('tracing frame ownership', () => {
     await waitFor(() => expect(state.ensureImage).toHaveBeenCalled());
     await screen.findByTestId('tracing-image');
     expect(state.removeLayers).not.toHaveBeenCalled();
+  });
+});
+
+describe('native view across tab switches and re-uploads (QA r0 N34)', () => {
+  it('does not show the native view on an empty canvas when its tab comes back', async () => {
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    // Another tab (the Set studio) comes to the front: the viewport unmounts,
+    // which drops its image from the render store.
+    state.front = 'set-studio-1';
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(screen.queryByTestId('tracing-image')).not.toBeInTheDocument());
+    // Back on the view tab, the new frame takes a while.
+    let finish!: () => void;
+    state.render.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    const before = state.render.mock.calls.length;
+    state.front = document.workspaceId;
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(state.render.mock.calls.length).toBeGreaterThan(before));
+    // Not ready (no strokes, no viewport) until that frame is drawn.
+    expect(screen.queryByTestId('tracing-image')).not.toBeInTheDocument();
+    expect(screen.getByText('Preparing the reference plane…')).toBeInTheDocument();
+    await act(async () => { finish(); });
+    expect(await screen.findByTestId('tracing-image')).toBeInTheDocument();
+  });
+
+  it('draws the frame again when its image is dropped while the view believes it is drawn', async () => {
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    const before = state.render.mock.calls.length;
+    let finish!: () => void;
+    state.render.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    // The render store lost the image (a viewport of this context unmounted).
+    state.hasImage = false;
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(state.render.mock.calls.length).toBe(before + 1));
+    // No tracing on an empty canvas meanwhile.
+    expect(screen.queryByTestId('tracing-image')).not.toBeInTheDocument();
+    state.hasImage = true;
+    await act(async () => { finish(); });
+    expect(await screen.findByTestId('tracing-image')).toBeInTheDocument();
+  });
+
+  it('draws the native slice again when the traced image is evicted or uploaded again', async () => {
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    const before = state.render.mock.calls.length;
+    // The reference lost its GPU slot (eviction, watchdog) ...
+    state.residency = 'reference:0';
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(state.render.mock.calls.length).toBe(before + 1));
+    // ... and is resident again: the frame on screen is redrawn without user action.
+    state.residency = 'reference:1';
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(state.render.mock.calls.length).toBe(before + 2));
+    expect(screen.getByTestId('tracing-image')).toBeInTheDocument();
   });
 });
 

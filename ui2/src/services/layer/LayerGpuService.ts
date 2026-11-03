@@ -1,6 +1,7 @@
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
-import type { AtlasStats } from '@/types/atlas';
+import type { AtlasStats, ReclaimCachedSlotsResult } from '@/types/atlas';
+import { getEventBus } from '@/events/EventBus';
 
 interface RawAtlasStats {
   total_layers: number;
@@ -16,6 +17,10 @@ interface RawAtlasStats {
   /** Absent from backends built before 2026-10-31. */
   volume_texture_slots?: number;
   render_layer_capacity?: number;
+  /** Absent from backends built before 2026-11-02. */
+  free_texture_slots?: number;
+  resident_texture_slots?: number;
+  cached_image_slots?: number;
 }
 
 export class LayerGpuService {
@@ -47,8 +52,22 @@ export class LayerGpuService {
     return result;
   }
 
-  async releaseLayerGpuResources(layerId: string): Promise<void> {
-    return this.transport.invoke('release_layer_gpu_resources', { layerId });
+  /**
+   * Release a layer's GPU lease. `forUpload`: the slot is freed for an upload
+   * the caller requests next, so the backend does not let frames retry
+   * starved layers into it before that upload completes.
+   */
+  async releaseLayerGpuResources(layerId: string, options: { forUpload?: boolean } = {}): Promise<void> {
+    const result = await this.transport.invoke<{ success?: boolean; freed?: boolean } | null>(
+      'release_layer_gpu_resources',
+      options.forUpload ? { layerId, forUpload: true } : { layerId },
+    );
+    // Only a release that freed a slot: a failed load's cleanup (nothing
+    // held) must not wake the panes that retry on this event.
+    if (result?.freed === true) {
+      getEventBus().emit('gpu.slots.freed', { reason: 'release', layerId });
+    }
+    return result as never;
   }
 
   async waitForLayerReady(
@@ -60,6 +79,19 @@ export class LayerGpuService {
       layerId,
       timeoutMs,
       pollIntervalMs,
+    });
+  }
+
+  /**
+   * Whether the backend holds GPU resources for `layerId` now (one check, no
+   * wait). A frame can allocate a visible layer on demand, so after a tab
+   * switch a layer the UI evicted may already be resident again.
+   */
+  async isLayerGpuResident(layerId: string): Promise<boolean> {
+    return this.transport.invoke<boolean>('wait_for_layer_ready', {
+      layerId,
+      timeoutMs: 0,
+      pollIntervalMs: 5,
     });
   }
 
@@ -79,6 +111,20 @@ export class LayerGpuService {
     return this.mapAtlasStats(raw);
   }
 
+  /**
+   * Free up to `count` texture slots held by cached (not displayed) 4D
+   * resident-ring members. The displayed member of every ring is kept.
+   */
+  async reclaimCachedImageSlots(count: number): Promise<ReclaimCachedSlotsResult> {
+    const raw = await this.transport.invoke<{ reclaimed: number; free_texture_slots: number } | null>(
+      'reclaim_cached_image_slots',
+      { count },
+    );
+    const result = { reclaimed: raw?.reclaimed ?? 0, freeTextureSlots: raw?.free_texture_slots ?? 0 };
+    if (result.reclaimed > 0) getEventBus().emit('gpu.slots.freed', { reason: 'reclaim' });
+    return result;
+  }
+
   private mapAtlasStats(raw: RawAtlasStats): AtlasStats {
     return {
       totalLayers: raw.total_layers,
@@ -93,6 +139,9 @@ export class LayerGpuService {
       lastReleaseMs: raw.last_release_ms,
       volumeTextureSlots: raw.volume_texture_slots,
       renderLayerCapacity: raw.render_layer_capacity,
+      freeTextureSlots: raw.free_texture_slots,
+      residentTextureSlots: raw.resident_texture_slots,
+      cachedImageSlots: raw.cached_image_slots,
     };
   }
 }

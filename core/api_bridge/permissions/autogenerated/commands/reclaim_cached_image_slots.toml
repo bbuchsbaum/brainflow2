@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reclaim-cached-image-slots"
+description = "Enables the reclaim_cached_image_slots command without any pre-configured scope."
+commands.allow = ["reclaim_cached_image_slots"]
+
+[[permission]]
+identifier = "deny-reclaim-cached-image-slots"
+description = "Denies the reclaim_cached_image_slots command without any pre-configured scope."
+commands.deny = ["reclaim_cached_image_slots"]

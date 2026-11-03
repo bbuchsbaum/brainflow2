@@ -233,7 +233,10 @@ impl russh_sftp::server::Handler for SftpHandler {
         })
     }
 
-    async fn stat(&mut self, id: u32, _path: String) -> Result<Attrs, Self::Error> {
+    async fn stat(&mut self, id: u32, path: String) -> Result<Attrs, Self::Error> {
+        if path.contains("missing") {
+            return Err(StatusCode::NoSuchFile);
+        }
         Ok(Attrs {
             id,
             attrs: Self::file_attrs(),
@@ -480,4 +483,79 @@ async fn remote_headers_stream_only_the_start_of_gzipped_files() {
     client.close().await.unwrap();
     server.shutdown.shutdown("done".into());
     server.join.await.unwrap().unwrap();
+}
+
+/// A BIDS root file may be absent from the server (participants.tsv is only
+/// recommended; a dataset opened by layout has no description). Only that
+/// absence is tolerated: a transport failure or a stopped mount is an error,
+/// never a missing file that would send a valid dataset down the layout walk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn optional_remote_files_tolerate_only_absence() {
+    let server = spawn_sftp_server(
+        PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).unwrap(),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let config = ConnectConfig::new(server.addr.ip().to_string(), "fixture")
+        .port(server.addr.port())
+        .auth(AuthMethod::Password("ephemeral-test-only".into()))
+        .connect_timeout(Duration::from_secs(5))
+        .operation_timeout(Duration::from_secs(5))
+        .retry_count(0)
+        .skip_host_key_verification();
+    let client = Arc::new(RemoteClient::connect(config).await.unwrap());
+    let root = std::env::temp_dir().join(format!("brainflow-sftp-bids-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&root).unwrap();
+    let cleanup = super::Staging(root.clone());
+    let mount = crate::RemoteMountEntry {
+        mount_id: "fixture".into(),
+        local_root: root.clone(),
+        remote_root: "/".into(),
+        display_name: "fixture".into(),
+        origin_label: "fixture".into(),
+        host: "127.0.0.1".into(),
+        port: server.addr.port(),
+        user: "fixture".into(),
+        client: client.clone(),
+        op_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+        transfers: Arc::new(super::Control::default()),
+        progress: Arc::new(|_| {}),
+    };
+    let state = crate::BridgeState::default().unwrap();
+    state
+        .remote_mounts
+        .lock()
+        .await
+        .insert("fixture".into(), mount.clone());
+
+    let missing = root.join("missing-participants.tsv");
+    assert!(!crate::materialize_optional_remote_file(&state, &missing)
+        .await
+        .expect("an absent remote file is not an error"));
+    let description = root.join("dataset_description.json");
+    assert!(
+        crate::materialize_optional_remote_file(&state, &description)
+            .await
+            .unwrap()
+    );
+    assert!(description.exists(), "a present file is materialized");
+
+    // The connection is gone: a transport failure, not an absent file.
+    client.close().await.unwrap();
+    let error = crate::materialize_optional_remote_file(&state, &root.join("participants.tsv"))
+        .await
+        .expect_err("a transport failure propagates");
+    assert!(!error.to_string().is_empty());
+
+    // A stopped mount refuses before any transfer.
+    mount.transfers.stop();
+    let error = crate::materialize_optional_remote_file(&state, &missing)
+        .await
+        .expect_err("a stopped mount propagates, even for an absent file");
+    assert!(error.to_string().contains("unmounted"), "{error}");
+
+    server.shutdown.shutdown("done".into());
+    let _ = server.join.await;
+    drop(cleanup);
 }

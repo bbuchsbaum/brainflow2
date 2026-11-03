@@ -7,6 +7,7 @@ const host = vi.hoisted(() => ({
   live: true,
   frozen: false,
   invoke: vi.fn(),
+  remove: vi.fn(async () => undefined),
 }));
 vi.mock('@/modules/api/host', () => ({
   bridgeClient: () => ({ invoke: host.invoke }),
@@ -24,6 +25,7 @@ vi.mock('@/modules/api/host', () => ({
   isDocumentEditingFrozen: () => host.frozen,
   useActiveWorkspaceId: () => host.active,
   useLoadedVolumeLayers: () => [],
+  removeModuleLayers: (...args: unknown[]) => host.remove(...(args as [])),
 }));
 import {
   createSegmentationSession,
@@ -59,6 +61,21 @@ beforeEach(async () => {
   host.invoke.mockResolvedValueOnce(info(1));
   await createSegmentationSession(record, setup);
   host.invoke.mockReset();
+});
+
+describe('discarding a live segmentation session (N37)', () => {
+  it('removes the session\'s label layer, which releases its GPU slot', () => {
+    host.remove.mockClear();
+    forgetSegmentationSession(document);
+    // A 3D reference has no frozen frames: only the label layer is the session's.
+    expect(host.remove).toHaveBeenCalledWith(['synthetic-labels']);
+  });
+
+  it('ignores a forget for another incarnation of the workspace', () => {
+    host.remove.mockClear();
+    forgetSegmentationSession({ ...document, workspaceInstance: 'someone-else' });
+    expect(host.remove).not.toHaveBeenCalled();
+  });
 });
 
 describe('saving live segmentation labels', () => {
