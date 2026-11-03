@@ -248,7 +248,7 @@ class LayerEvictionService {
         // Nothing came back: do not ask for those members again this call.
         if (backend) backend = { ...backend, cached: 0 };
       }
-      const evicted = await this.evictOne(uploadingLayerId);
+      const evicted = await this.evictOne(uploadingLayerId, true);
       if (!evicted) break;
       backend = await this.backendSlots();
     }
@@ -316,7 +316,7 @@ class LayerEvictionService {
    * visible only behind the front workspace; least recently rendered first
    * within each tier. Pinned layers are never chosen.
    */
-  private async evictOne(keepLayerId?: string): Promise<boolean> {
+  private async evictOne(keepLayerId?: string, forUpload = false): Promise<boolean> {
     // Read the stores after any await: layers change while the backend answers.
     const { layers, layerMetadata, setLayerMetadata } = useLayerStore.getState();
     const visibility = layerVisibility();
@@ -360,7 +360,10 @@ class LayerEvictionService {
 
     // Release GPU resources but keep metadata.
     try {
-      await getApiService().releaseLayerGpuResources(lruLayer.id);
+      // For an upload: the backend keeps starved layers from taking the slot
+      // until that upload completes (review 3).
+      if (forUpload) await getApiService().releaseLayerGpuResources(lruLayer.id, { forUpload: true });
+      else await getApiService().releaseLayerGpuResources(lruLayer.id);
     } catch (err) {
       console.warn(
         `[LayerEvictionService] Failed to release GPU resources for ${lruLayer.id}:`,

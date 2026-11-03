@@ -557,8 +557,8 @@ export class ApiService {
     return this.layerGpu.requestLayerGpuResources(layerId, volumeId, metadataOnly);
   }
 
-  async releaseLayerGpuResources(layerId: string): Promise<void> {
-    return this.layerGpu.releaseLayerGpuResources(layerId);
+  async releaseLayerGpuResources(layerId: string, options?: { forUpload?: boolean }): Promise<void> {
+    return this.layerGpu.releaseLayerGpuResources(layerId, options);
   }
 
   async waitForLayerReady(

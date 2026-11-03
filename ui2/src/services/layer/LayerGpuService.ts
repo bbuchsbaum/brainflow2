@@ -52,14 +52,19 @@ export class LayerGpuService {
     return result;
   }
 
-  async releaseLayerGpuResources(layerId: string): Promise<void> {
-    const result = await this.transport.invoke<{ success?: boolean } | null>(
+  /**
+   * Release a layer's GPU lease. `forUpload`: the slot is freed for an upload
+   * the caller requests next, so the backend does not let frames retry
+   * starved layers into it before that upload completes.
+   */
+  async releaseLayerGpuResources(layerId: string, options: { forUpload?: boolean } = {}): Promise<void> {
+    const result = await this.transport.invoke<{ success?: boolean; freed?: boolean } | null>(
       'release_layer_gpu_resources',
-      { layerId },
+      options.forUpload ? { layerId, forUpload: true } : { layerId },
     );
-    // Only a release that freed something: a failed load's cleanup (nothing
+    // Only a release that freed a slot: a failed load's cleanup (nothing
     // held) must not wake the panes that retry on this event.
-    if (result?.success === true) {
+    if (result?.freed === true) {
       getEventBus().emit('gpu.slots.freed', { reason: 'release', layerId });
     }
     return result as never;

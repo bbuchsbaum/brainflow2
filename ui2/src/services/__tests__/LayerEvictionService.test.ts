@@ -102,7 +102,7 @@ describe('LayerEvictionService', () => {
     expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
     protectedSource.id = '';
     await expect(layerEvictionService.makeRoomForUpload('incoming')).resolves.toBe(true);
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-1');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-1', { forUpload: true });
   });
 
   // Feature 10 (qa-features-2026-10-31): the budget is the backend's runtime
@@ -120,7 +120,7 @@ describe('LayerEvictionService', () => {
     residentLayers(7, [0]);
     await layerEvictionService.makeRoomForUpload('incoming');
     expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledTimes(1);
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0', { forUpload: true });
     expect(mockLayerStoreState.layerMetadata.get('layer-0')).toMatchObject({ gpuResident: false });
     // Asked once, then cached.
     expect(mockApiService.getAtlasStats).toHaveBeenCalledTimes(1);
@@ -141,7 +141,7 @@ describe('LayerEvictionService', () => {
     expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
     residentLayers(13, [0]);
     await expect(layerEvictionService.makeRoomForUpload('incoming')).resolves.toBe(true);
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0', { forUpload: true });
   });
 
   it('reports the draw cap from the backend, 16 until known', async () => {
@@ -190,7 +190,7 @@ describe('LayerEvictionService', () => {
     residentLayers(10, [3]);
     await expect(layerEvictionService.makeRoomForUpload('incoming')).resolves.toBe(false);
     // It tried: the hidden layer went (the backend still reports full here).
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-3');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-3', { forUpload: true });
     expect(mockApiService.reclaimCachedImageSlots).not.toHaveBeenCalled();
   });
 
@@ -215,7 +215,7 @@ describe('LayerEvictionService', () => {
       ],
     ]);
     await layerEvictionService.makeRoomForUpload('incoming');
-    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1']]);
+    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1', { forUpload: true }]]);
 
     // With layer-1 also shown in the hidden tab, the least recently rendered
     // background-only layer goes; the front tab's layer-2 stays.
@@ -227,7 +227,7 @@ describe('LayerEvictionService', () => {
       ['orthogonal', { layers: [{ id: 'layer-0', visible: true }, { id: 'layer-1', visible: true }] }],
     ]);
     await expect(layerEvictionService.makeRoomForUpload('incoming')).resolves.toBe(true);
-    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1']]);
+    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1', { forUpload: true }]]);
 
     // The front tab's visible layers are never evicted.
     mockApiService.releaseLayerGpuResources.mockClear();
@@ -248,7 +248,7 @@ describe('LayerEvictionService', () => {
     // Unpinned, the oldest goes.
     derived.pinned = new Set();
     await expect(layerEvictionService.makeRoomForUpload('incoming')).resolves.toBe(true);
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0', { forUpload: true });
   });
 
   // Review 2: a tab switch during the release's await can bring the evicted
@@ -261,7 +261,7 @@ describe('LayerEvictionService', () => {
       mockViewStateStoreState.viewState.layers = [{ id: 'layer-0', visible: true }] as never;
     });
     await layerEvictionService.makeRoomForUpload('incoming');
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0', { forUpload: true });
     expect(mockLayerStoreState.layerMetadata.get('layer-0')).toMatchObject({ gpuResident: false });
     expect(mockEventBus.emit).toHaveBeenCalledWith('layer.gpu.evicted', { layerId: 'layer-0', reason: 'eviction' });
     expect(layerEvictionService.evictedFrontLayers()).toEqual(['layer-0']);
@@ -280,7 +280,7 @@ describe('LayerEvictionService', () => {
     await layerEvictionService.makeRoomForUpload('layer-0');
     // Three resident on three slots: one must go, and layer-0 is the one
     // being uploaded, so layer-1 goes.
-    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1']]);
+    expect(mockApiService.releaseLayerGpuResources.mock.calls).toEqual([['layer-1', { forUpload: true }]]);
 
     mockApiService.releaseLayerGpuResources.mockClear();
     residentLayers(3);
@@ -317,7 +317,7 @@ describe('LayerEvictionService', () => {
     residentLayers(3, [0]); // a layer arrived meanwhile
     answer({ volumeTextureSlots: 3 });
     await making;
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0', { forUpload: true });
   });
 
   it('counts Set studio maps against the reported capacity', async () => {
@@ -328,7 +328,7 @@ describe('LayerEvictionService', () => {
     expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
     derived.live = 2;
     await layerEvictionService.makeRoomForUpload('incoming');
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0', { forUpload: true });
   });
 
   it('counts Set studio Compare maps against the GPU budget (QA wave 3 review W1)', async () => {
@@ -434,7 +434,7 @@ describe('LayerEvictionService', () => {
     mockLayerStoreState.layerMetadata.set('released', { gpuResident: false, evicted: true });
 
     await expect(layerEvictionService.makeRoomForUpload('released')).resolves.toBe(true);
-    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-2');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-2', { forUpload: true });
 
     // All 8 resident layers visible now: nothing may go.
     residentLayers(8);

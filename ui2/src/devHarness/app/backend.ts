@@ -960,7 +960,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
     release_layer_gpu_resources: ({ layerId }: { layerId: string }) => {
       layers.delete(layerId);
-      return { success: true, message: 'released' };
+      return { success: true, message: 'released', freed: true };
     },
     add_render_layer: () => null,
     update_slice_outline: () => null,

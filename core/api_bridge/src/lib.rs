@@ -250,6 +250,10 @@ pub struct VolumeLayerSpec {
 pub struct ReleaseResult {
     pub success: bool,
     pub message: String,
+    /// Whether this call freed a GPU texture slot (a live lease or mapping
+    /// was released). False for a no-op release and for non-GPU unloads.
+    #[serde(default)]
+    pub freed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -3001,6 +3005,7 @@ async fn unload_surface_impl(handle: &str, state: &BridgeState) -> BridgeResult<
 
     Ok(ReleaseResult {
         success: true,
+        freed: false,
         message: format!(
             "Unloaded surface '{}' ({} associated overlay dataset(s) removed)",
             handle, removed_overlay_count
@@ -3140,6 +3145,7 @@ async fn unload_surface_overlay(
 
     Ok(ReleaseResult {
         success: true,
+        freed: false,
         message: format!("Unloaded surface overlay '{}'", handle),
     })
 }
@@ -3157,6 +3163,7 @@ async fn unload_volume(
     .await?;
     Ok(ReleaseResult {
         success: true,
+        freed: false,
         message: format!("Unloaded volume '{}'", volume_id),
     })
 }
@@ -3911,6 +3918,25 @@ pub async fn request_layer_gpu_resources_for_testing(
 }
 
 async fn request_layer_gpu_resources_with_upload_hook(
+    layer_spec: LayerSpec,
+    metadata_only: Option<bool>,
+    bridge_state: &BridgeState,
+    after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
+) -> BridgeResult<VolumeLayerGpuInfo> {
+    let uploads = !metadata_only.unwrap_or(false);
+    let result =
+        request_layer_gpu_resources_locked(layer_spec, metadata_only, bridge_state, after_upload)
+            .await;
+    // The UI made room for this upload without letting frames retry starved
+    // layers (`release_layer_gpu_resources_with(.., for_upload)`, reclaims):
+    // now that the upload has its slot (or failed and left it free), they may.
+    if uploads {
+        clear_allocation_failed_skips(bridge_state, None).await;
+    }
+    result
+}
+
+async fn request_layer_gpu_resources_locked(
     layer_spec: LayerSpec,
     metadata_only: Option<bool>,
     bridge_state: &BridgeState,
@@ -4819,15 +4845,42 @@ async fn release_layer_gpu_resources_internal(
     layer_id: String,
     bridge_state: &BridgeState,
 ) -> BridgeResult<ReleaseResult> {
+    release_layer_gpu_resources_with(layer_id, bridge_state, false).await
+}
+
+/// Release a layer's GPU resources. When the release frees a slot, the
+/// layers frames left out because their allocation failed may fit now, so
+/// their skip marks are cleared (N32) — unless `for_upload`: the UI evicts to
+/// make room for an upload it requests next, and a frame must not hand that
+/// slot to a starved layer first. The upload's completion clears the marks
+/// then (see `request_layer_gpu_resources_with_upload_hook`).
+async fn release_layer_gpu_resources_with(
+    layer_id: String,
+    bridge_state: &BridgeState,
+    for_upload: bool,
+) -> BridgeResult<ReleaseResult> {
+    let result = release_layer_gpu_resources_locked(layer_id.clone(), bridge_state).await;
+    // The layer's own mark goes either way: its residency changed.
+    bridge_state
+        .render_skipped_layers
+        .lock()
+        .await
+        .remove(&layer_id);
+    if matches!(&result, Ok(ReleaseResult { freed: true, .. })) && !for_upload {
+        clear_allocation_failed_skips(bridge_state, None).await;
+    }
+    result
+}
+
+async fn release_layer_gpu_resources_locked(
+    layer_id: String,
+    bridge_state: &BridgeState,
+) -> BridgeResult<ReleaseResult> {
     let _operation = bridge_state.volume_operations.lock().await;
     info!(
         "Bridge: release_layer_gpu_resources called for layer {}",
         layer_id
     );
-    // A release frees a texture slot: every layer a frame left out because
-    // its allocation failed may fit now, so let frames try them again (N32),
-    // not only the released layer.
-    clear_allocation_failed_skips(bridge_state, Some(&layer_id)).await;
 
     // Prefer the RAII-managed lease path when available.
     if let Some(lease) = {
@@ -4857,6 +4910,7 @@ async fn release_layer_gpu_resources_internal(
                         "Released GPU resources for layer {} (atlas layer {})",
                         layer_id, outcome.atlas_index
                     ),
+                    freed: true,
                 });
             }
             None => {
@@ -4866,6 +4920,7 @@ async fn release_layer_gpu_resources_internal(
                         "Layer {} was already released; no GPU resources were active",
                         layer_id
                     ),
+                    freed: false,
                 });
             }
         }
@@ -4880,6 +4935,7 @@ async fn release_layer_gpu_resources_internal(
                 return Ok(ReleaseResult {
                     success: false,
                     message: format!("Layer {} not found in GPU resources", layer_id),
+                    freed: false,
                 });
             }
         }
@@ -4955,6 +5011,7 @@ async fn release_layer_gpu_resources_internal(
                 layer_id, atlas_layer_idx
             )
         },
+        freed: true,
     })
 }
 
@@ -4962,9 +5019,10 @@ async fn release_layer_gpu_resources_internal(
 #[tracing::instrument(skip_all, err, name = "api.release_gpu")]
 async fn release_layer_gpu_resources(
     layer_id: String,
+    for_upload: Option<bool>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<ReleaseResult> {
-    release_layer_gpu_resources_internal(layer_id, state.inner()).await
+    release_layer_gpu_resources_with(layer_id, state.inner(), for_upload.unwrap_or(false)).await
 }
 
 #[doc(hidden)]
@@ -5217,6 +5275,7 @@ async fn remote_mount_unmount(
 
     Ok(ReleaseResult {
         success: true,
+        freed: false,
         message: format!("Unmounted remote folder '{}'", mount.display_name),
     })
 }
@@ -7607,9 +7666,9 @@ async fn reclaim_cached_image_slots_internal(
     };
     let free_texture_slots = service.free_volume_slot_count() as u32;
     drop(service);
-    if reclaimed > 0 {
-        clear_allocation_failed_skips(bridge_state, None).await;
-    }
+    // The UI reclaims only to make room for an upload it requests next: the
+    // starved layers' skip marks are cleared when that upload completes, so
+    // a frame cannot hand the freed slot to one of them first.
     Ok(ReclaimCachedSlotsResult {
         reclaimed: reclaimed as u32,
         free_texture_slots,
@@ -14173,9 +14232,11 @@ mod tests {
             .expect("reclaim one");
         assert_eq!(one.reclaimed, 1);
         assert_eq!(one.free_texture_slots as usize, free_before + 1);
-        assert!(
-            state.render_skipped_layers.lock().await.is_empty(),
-            "a reclaim frees a slot, so starved layers may retry"
+        // The UI reclaims to make room for its next upload: starved layers
+        // wait for that upload to complete, not take the slot first.
+        assert_eq!(
+            state.render_skipped_layers.lock().await.get("starved"),
+            Some(&RenderSkip::AllocationFailed)
         );
 
         let rest = reclaim_cached_image_slots_internal(100, &state)
@@ -14214,24 +14275,96 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn any_release_clears_every_allocation_failed_skip() {
+    async fn a_no_op_release_keeps_other_allocation_failed_skips() {
         let state = BridgeState::default().expect("bridge state");
         {
             let mut skipped = state.render_skipped_layers.lock().await;
             skipped.insert("starved-a".into(), RenderSkip::AllocationFailed);
-            skipped.insert("starved-b".into(), RenderSkip::AllocationFailed);
-            skipped.insert("over-cap".into(), RenderSkip::OverCap);
+            skipped.insert("other".into(), RenderSkip::AllocationFailed);
         }
-        // Releasing an unrelated layer (here one without GPU resources) frees
-        // a slot as far as the skip marks know: every starved layer retries.
+        // Nothing was held, so nothing was freed: starved layers keep waiting.
         let result = release_layer_gpu_resources_internal("other".into(), &state)
             .await
             .expect("release");
         assert!(!result.success);
+        assert!(!result.freed);
         let skipped = state.render_skipped_layers.lock().await;
-        assert!(!skipped.contains_key("starved-a"));
-        assert!(!skipped.contains_key("starved-b"));
-        assert_eq!(skipped.get("over-cap"), Some(&RenderSkip::OverCap));
+        assert!(!skipped.contains_key("other"), "the layer's own mark goes");
+        assert_eq!(
+            skipped.get("starved-a"),
+            Some(&RenderSkip::AllocationFailed)
+        );
+    }
+
+    async fn upload_3d_for_test(state: &BridgeState, id: &str) -> VolumeLayerGpuInfo {
+        let volume =
+            extract_3d_volume_at_timepoint(&make_4d_volume_sendable_with_timeseries(), 0).unwrap();
+        state.volume_registry.lock().await.insert(
+            id.into(),
+            volume,
+            volume_metadata_for(id, "f32", bridge_types::VolumeType::Volume3D),
+        );
+        request_layer_gpu_resources_for_testing(
+            LayerSpec::Volume(VolumeLayerSpec {
+                id: id.into(),
+                source_resource_id: id.into(),
+                colormap: "gray".into(),
+                slice_axis: None,
+                slice_index: None,
+            }),
+            None,
+            state,
+        )
+        .await
+        .expect("upload")
+    }
+
+    async fn mark_starved_for_test(state: &BridgeState) {
+        let mut skipped = state.render_skipped_layers.lock().await;
+        skipped.insert("starved".into(), RenderSkip::AllocationFailed);
+        skipped.insert("over-cap".into(), RenderSkip::OverCap);
+    }
+
+    #[tokio::test]
+    async fn a_freeing_release_clears_allocation_failed_skips_unless_for_upload() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        upload_3d_for_test(&state, "released").await;
+        upload_3d_for_test(&state, "evicted").await;
+
+        // A release that frees a slot lets starved layers retry (N32).
+        mark_starved_for_test(&state).await;
+        let result = release_layer_gpu_resources_internal("released".into(), &state)
+            .await
+            .expect("release");
+        assert!(result.success && result.freed);
+        {
+            let skipped = state.render_skipped_layers.lock().await;
+            assert!(!skipped.contains_key("starved"));
+            assert_eq!(skipped.get("over-cap"), Some(&RenderSkip::OverCap));
+        }
+
+        // An eviction for an upload keeps them waiting, so a frame cannot
+        // hand the freed slot to a starved layer before the upload takes it...
+        mark_starved_for_test(&state).await;
+        let result = release_layer_gpu_resources_with("evicted".into(), &state, true)
+            .await
+            .expect("evict for upload");
+        assert!(result.freed);
+        assert_eq!(
+            state.render_skipped_layers.lock().await.get("starved"),
+            Some(&RenderSkip::AllocationFailed)
+        );
+        // ...and the upload's completion lets them retry.
+        upload_3d_for_test(&state, "incoming").await;
+        assert!(!state
+            .render_skipped_layers
+            .lock()
+            .await
+            .contains_key("starved"));
     }
 
     #[tokio::test]
