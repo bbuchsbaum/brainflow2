@@ -1460,6 +1460,110 @@ pub struct BridgeState {
     // each is warned about once, and a failed on-demand allocation is not
     // retried every frame. A request or release of the layer clears it.
     render_skipped_layers: Arc<Mutex<HashMap<String, RenderSkip>>>,
+    // When each UI layer was last drawn by a frame. The watchdog keeps a lease
+    // drawn within its stale age, not only one the very last frame drew (a
+    // background tab, a Studio pane between renders).
+    layer_last_drawn: Arc<Mutex<HashMap<String, Instant>>>,
+}
+
+/// Payload of `layer-gpu-released` (camelCase for the UI).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LayerGpuReleasedEvent {
+    layer_id: String,
+    reason: String,
+}
+
+/// The watchdog's view of the bridge state.
+struct WatchdogParts {
+    leases: Arc<Mutex<HashMap<String, Arc<LayerLease>>>>,
+    layer_map: Arc<Mutex<HashMap<String, u32>>>,
+    render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
+    last_drawn: Arc<Mutex<HashMap<String, Instant>>>,
+}
+
+/// One watchdog pass: release leases that are stale and return their layer ids.
+///
+/// A lease is stale when its layer has no atlas mapping, or when it is older
+/// than `stale_age` and no frame drew it within `stale_age`. Never released:
+/// a layer the last frame drew, and an editable label texture (an open
+/// segmentation document's slot; releasing it behind the document loses its
+/// claim, N34).
+async fn layer_watchdog_sweep(parts: &WatchdogParts, stale_age: Duration) -> Vec<String> {
+    let service_arc = {
+        let guard = parts.render_loop_service.lock().await;
+        guard.clone()
+    };
+    let Some(service_arc) = service_arc else {
+        return Vec::new();
+    };
+    let (active_indices, editable_indices): (HashSet<u32>, HashSet<u32>) = {
+        let service = service_arc.lock().await;
+        let active: HashSet<u32> = service.active_atlas_indices().into_iter().collect();
+        let editable = service
+            .multi_texture_manager
+            .as_ref()
+            .map(|manager| manager.resident_indices())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|index| service.is_editable_volume_slot(*index))
+            .collect();
+        (active, editable)
+    };
+    let layer_map_snapshot: HashMap<String, u32> = parts.layer_map.lock().await.clone();
+    let last_drawn_snapshot: HashMap<String, Instant> = parts.last_drawn.lock().await.clone();
+    let leases_snapshot: Vec<(String, Arc<LayerLease>)> = {
+        let guard = parts.leases.lock().await;
+        guard
+            .iter()
+            .map(|(layer_id, lease)| (layer_id.clone(), lease.clone()))
+            .collect()
+    };
+
+    let mut to_remove = Vec::new();
+    let mut released = Vec::new();
+    for (layer_id, lease) in leases_snapshot {
+        if lease.is_released() {
+            to_remove.push(layer_id);
+            continue;
+        }
+        let atlas_index = lease.atlas_index();
+        if active_indices.contains(&atlas_index) || editable_indices.contains(&atlas_index) {
+            continue;
+        }
+        let has_mapping = layer_map_snapshot.contains_key(&layer_id);
+        let drawn_recently = last_drawn_snapshot
+            .get(&layer_id)
+            .is_some_and(|at| at.elapsed() < stale_age);
+        if has_mapping && (lease.age() < stale_age || drawn_recently) {
+            continue;
+        }
+        match lease.release("watchdog").await {
+            Ok(_) => {
+                info!(
+                    "Layer watchdog released stale layer '{}' (atlas index {})",
+                    layer_id, atlas_index
+                );
+                to_remove.push(layer_id.clone());
+                released.push(layer_id);
+            }
+            Err(err) => {
+                warn!(
+                    "Layer watchdog failed to release layer '{}': {:?}",
+                    layer_id, err
+                );
+            }
+        }
+    }
+    if !to_remove.is_empty() {
+        let mut guard = parts.leases.lock().await;
+        let mut last_drawn = parts.last_drawn.lock().await;
+        for id in to_remove {
+            guard.remove(&id);
+            last_drawn.remove(&id);
+        }
+    }
+    released
 }
 
 /// Why a frame left a visible layer out (see `render_skipped_layers`).
@@ -1536,6 +1640,7 @@ impl BridgeState {
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
             resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
             render_skipped_layers: Arc::new(Mutex::new(HashMap::new())),
+            layer_last_drawn: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1579,89 +1684,48 @@ impl BridgeState {
         Ok(())
     }
 
+    /// Start the stale-lease watchdog without telling anyone what it released
+    /// (tests, headless use). The app uses [`Self::start_layer_watchdog_notifying`].
     pub fn start_layer_watchdog(&self) {
-        let leases = Arc::clone(&self.layer_leases);
-        let layer_map = Arc::clone(&self.layer_to_atlas_map);
-        let render_loop_service = Arc::clone(&self.render_loop_service);
+        self.start_layer_watchdog_with(Arc::new(|_released: Vec<String>| {}));
+    }
 
+    /// Start the watchdog and emit `layer-gpu-released` for every layer it
+    /// releases, so the UI marks the layer non-resident and uploads it again
+    /// when it is shown (instead of believing it is still resident).
+    pub fn start_layer_watchdog_notifying<R: Runtime>(&self, app: tauri::AppHandle<R>) {
+        self.start_layer_watchdog_with(Arc::new(move |released: Vec<String>| {
+            for layer_id in released {
+                let payload = LayerGpuReleasedEvent {
+                    layer_id,
+                    reason: "watchdog".into(),
+                };
+                if let Err(err) = app.emit("layer-gpu-released", &payload) {
+                    warn!("Could not announce a watchdog release: {err:?}");
+                }
+            }
+        }));
+    }
+
+    fn watchdog_parts(&self) -> WatchdogParts {
+        WatchdogParts {
+            leases: Arc::clone(&self.layer_leases),
+            layer_map: Arc::clone(&self.layer_to_atlas_map),
+            render_loop_service: Arc::clone(&self.render_loop_service),
+            last_drawn: Arc::clone(&self.layer_last_drawn),
+        }
+    }
+
+    fn start_layer_watchdog_with(&self, on_release: Arc<dyn Fn(Vec<String>) + Send + Sync>) {
+        let parts = self.watchdog_parts();
         tauri::async_runtime::spawn(async move {
             let mut ticker = interval(LAYER_WATCHDOG_INTERVAL);
             ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
             loop {
                 ticker.tick().await;
-
-                let service_arc_option = {
-                    let guard = render_loop_service.lock().await;
-                    guard.clone()
-                };
-
-                let Some(service_arc) = service_arc_option else {
-                    continue;
-                };
-
-                let active_indices: HashSet<u32> = {
-                    let service_guard = service_arc.lock().await;
-                    service_guard.active_atlas_indices().into_iter().collect()
-                };
-
-                let layer_map_snapshot: HashMap<String, u32> = {
-                    let guard = layer_map.lock().await;
-                    guard.clone()
-                };
-
-                let leases_snapshot: Vec<(String, Arc<LayerLease>)> = {
-                    let guard = leases.lock().await;
-                    guard
-                        .iter()
-                        .map(|(layer_id, lease)| (layer_id.clone(), lease.clone()))
-                        .collect()
-                };
-
-                if leases_snapshot.is_empty() {
-                    continue;
-                }
-
-                let mut to_remove = Vec::new();
-
-                for (layer_id, lease) in leases_snapshot {
-                    if lease.is_released() {
-                        to_remove.push(layer_id);
-                        continue;
-                    }
-
-                    let atlas_index = lease.atlas_index();
-                    let atlas_active = active_indices.contains(&atlas_index);
-                    let has_mapping = layer_map_snapshot.contains_key(&layer_id);
-
-                    if atlas_active {
-                        continue;
-                    }
-
-                    if !has_mapping || lease.age() >= LAYER_WATCHDOG_STALE_AGE {
-                        match lease.release("watchdog").await {
-                            Ok(_) => {
-                                info!(
-                                    "Layer watchdog released stale layer '{}' (atlas index {})",
-                                    layer_id, atlas_index
-                                );
-                                to_remove.push(layer_id);
-                            }
-                            Err(err) => {
-                                warn!(
-                                    "Layer watchdog failed to release layer '{}': {:?}",
-                                    layer_id, err
-                                );
-                            }
-                        }
-                    }
-                }
-
-                if !to_remove.is_empty() {
-                    let mut guard = leases.lock().await;
-                    for id in to_remove {
-                        guard.remove(&id);
-                    }
+                let released = layer_watchdog_sweep(&parts, LAYER_WATCHDOG_STALE_AGE).await;
+                if !released.is_empty() {
+                    on_release(released);
                 }
             }
         });
@@ -8832,6 +8896,15 @@ async fn prepare_frontend_layers_for_render(
     }
 
     info!("Created {} backend layers for rendering", drawn.len());
+    {
+        let now = Instant::now();
+        let mut last_drawn = bridge_state.layer_last_drawn.lock().await;
+        for layer in &drawn {
+            if let Some(frontend) = frontend_state.layers.get(layer.frontend_index) {
+                last_drawn.insert(frontend.id.clone(), now);
+            }
+        }
+    }
 
     let (backend_layers, drawn_frontend_indices) = drawn
         .into_iter()
@@ -13368,7 +13441,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
                     .map_err(std::io::Error::other)?;
                 app.manage(bridge_state);
             }
-            app.state::<BridgeState>().start_layer_watchdog();
+            app.state::<BridgeState>()
+                .start_layer_watchdog_notifying(app.clone());
             Ok(())
         })
         .build()
@@ -14265,6 +14339,78 @@ mod tests {
             sets.get("ring-b").unwrap().ring.slot_of(1),
             Some(displayed[1])
         );
+    }
+
+    #[tokio::test]
+    async fn watchdog_spares_drawn_and_editable_layers_and_reports_releases() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        upload_3d_for_test(&state, "stale").await;
+        upload_3d_for_test(&state, "drawn").await;
+        // An editable label slot (an open segmentation document), leased like
+        // a layer.
+        let service = state
+            .render_loop_service
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .clone();
+        let editable_slot = {
+            let mut renderer = service.lock().await;
+            let space = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+                vec![4, 4, 4],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 0.0],
+            )
+            .unwrap();
+            let labels = DenseVolume3::<u16>::from_data(space, vec![0u16; 64]);
+            renderer
+                .upload_editable_labels(&labels, 1)
+                .expect("editable upload")
+                .texture_index()
+        };
+        state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .insert("labels".into(), editable_slot);
+        state.layer_leases.lock().await.insert(
+            "labels".into(),
+            Arc::new(LayerLease::new(
+                "labels".into(),
+                editable_slot,
+                Arc::clone(&state.render_loop_service),
+                Arc::clone(&state.layer_to_atlas_map),
+                Arc::clone(&state.layer_to_volume_map),
+                Arc::clone(&state.layer_to_timepoint_map),
+                Arc::clone(&state.resident_image_sets),
+            )),
+        );
+
+        let stale_age = Duration::from_millis(40);
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        // Every lease is older than the stale age now; "drawn" was just drawn.
+        state
+            .layer_last_drawn
+            .lock()
+            .await
+            .insert("drawn".into(), Instant::now());
+
+        let released = layer_watchdog_sweep(&state.watchdog_parts(), stale_age).await;
+        assert_eq!(released, vec!["stale".to_string()]);
+        let leases = state.layer_leases.lock().await;
+        assert!(!leases.contains_key("stale"));
+        assert!(leases.contains_key("drawn"), "drawn within the stale age");
+        assert!(
+            leases.contains_key("labels"),
+            "an editable slot is never reclaimed"
+        );
+        drop(leases);
+        assert!(service.lock().await.is_editable_volume_slot(editable_slot));
     }
 
     #[tokio::test]

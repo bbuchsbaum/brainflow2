@@ -13,6 +13,21 @@ import { getEventBus } from '@/events/EventBus';
 import { getLayerService } from './LayerService';
 import { layerEvictionService } from './LayerEvictionService';
 import { gpuTextureSlotsFullLimit, gpuTextureSlotsFullMessage } from '@/utils/formatTauriError';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
+
+/**
+ * The backend's stale-lease watchdog released a layer's GPU resources: mark
+ * it non-resident (so a show uploads it again and the budget does not count
+ * it) and announce it like an eviction, which restores it if it is visible
+ * in the front workspace.
+ */
+export function noteBackendRelease(layerId: string): void {
+  const store = useLayerStore.getState();
+  const meta = store.getLayerMetadata(layerId);
+  if (!meta || meta.gpuResident === false) return;
+  store.setLayerMetadata(layerId, { ...meta, gpuResident: false, evicted: true });
+  getEventBus().emit('layer.gpu.evicted', { layerId, reason: 'watchdog' });
+}
 
 /**
  * Upload one evicted layer again. Resolves false when the GPU is full (a
@@ -90,9 +105,14 @@ export function startFrontWorkspaceResidency(): () => void {
       });
     });
   });
+  const offReleased = safeListen<{ layerId?: string }>('layer-gpu-released', (event) => {
+    const layerId = event?.payload?.layerId;
+    if (typeof layerId === 'string') noteBackendRelease(layerId);
+  });
   stopWatching = () => {
     unsubscribe();
     offEvicted();
+    void safeUnlisten(offReleased);
     stopWatching = null;
   };
   return stopWatching;

@@ -11,13 +11,19 @@ vi.mock('@/services/LayerEvictionService', () => ({
 }));
 vi.mock('@/services/LayerService', () => ({ getLayerService: () => ({ loadLayerData: h.load }) }));
 vi.mock('@/events/EventBus', () => ({ getEventBus: () => ({ emit: h.emit, on: vi.fn() }) }));
+const meta = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 vi.mock('@/stores/layerStore', () => ({
   useLayerStore: {
-    getState: () => ({ setLayerError: h.setLayerError, getLayer: (id: string) => ({ id, name: `${id}.nii.gz` }) }),
+    getState: () => ({
+      setLayerError: h.setLayerError,
+      getLayer: (id: string) => ({ id, name: `${id}.nii.gz` }),
+      getLayerMetadata: (id: string) => meta.get(id),
+      setLayerMetadata: (id: string, value: Record<string, unknown>) => meta.set(id, value),
+    }),
   },
 }));
 
-import { ensureFrontWorkspaceResident, restoreIfFrontVisible } from '@/services/frontWorkspaceResidency';
+import { ensureFrontWorkspaceResident, noteBackendRelease, restoreIfFrontVisible } from '@/services/frontWorkspaceResidency';
 import { GpuSlotsFullError } from '@/utils/formatTauriError';
 
 describe('front workspace residency', () => {
@@ -62,5 +68,17 @@ describe('front workspace residency', () => {
     expect(h.load).not.toHaveBeenCalled();
     await restoreIfFrontVisible('a');
     expect(h.load).toHaveBeenCalledWith('a');
+  });
+
+  // The backend watchdog released a lease the UI believed resident.
+  it('marks a watchdog release non-resident and announces it once', () => {
+    meta.set('w', { gpuResident: true, dimensions: [4, 4, 4] });
+    noteBackendRelease('w');
+    expect(meta.get('w')).toMatchObject({ gpuResident: false, evicted: true, dimensions: [4, 4, 4] });
+    expect(h.emit).toHaveBeenCalledWith('layer.gpu.evicted', { layerId: 'w', reason: 'watchdog' });
+    h.emit.mockClear();
+    noteBackendRelease('w');
+    noteBackendRelease('unknown');
+    expect(h.emit).not.toHaveBeenCalled();
   });
 });
