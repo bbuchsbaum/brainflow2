@@ -18,6 +18,8 @@ import type {
 interface RecordingViewer {
   surfaces: Map<string, { mesh: { visible: boolean } }>;
   scene: { getObjectByName: (name: string) => { visible: boolean } | undefined };
+  camera: { position: { set: (x: number, y: number, z: number) => void; toArray: () => number[] } };
+  centerCalls: number;
   viewpointCalls: string[];
   fits: string[][];
   exportedVisible: string[];
@@ -73,7 +75,10 @@ vi.mock('neurosurface', async () => {
     setViewpoint(name: string) {
       this.viewpointCalls.push(name);
     }
-    centerCamera() {}
+    centerCalls = 0;
+    centerCamera() {
+      this.centerCalls += 1;
+    }
     getCameraState() {
       return { position: [0, 0, 100], target: [0, 0, 0], quaternion: [0, 0, 0, 1] };
     }
@@ -175,7 +180,11 @@ function marker(): { visible: boolean } | undefined {
 
 /** The camera calls so far: preset keys asked for and fits run. */
 function cameraCalls() {
-  return { viewpoints: [...viewers.latest!.viewpointCalls], fits: viewers.latest!.fits.length };
+  return {
+    viewpoints: [...viewers.latest!.viewpointCalls],
+    fits: viewers.latest!.fits.length,
+    centers: viewers.latest!.centerCalls,
+  };
 }
 
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
@@ -380,5 +389,67 @@ describe('NeuroSurfaceCanvas Medial preset with both hemispheres', () => {
     view.rerender(canvas({ viewpoint: 'medial', markerWorldPosition: [40, 0, 0], markerSurfaceHandles: ['lh'] }));
     expect(marker()).toBeDefined();
     expect(marker()!.visible).toBe(true);
+  });
+  it('hiding and showing rh under Medial keeps an orbited camera (run 6 N47)', async () => {
+    // The host drops an invisible surface from the scene (collectRenderSurfaces),
+    // so the handle set changes: [lh, rh] -> [lh] -> [lh, rh].
+    const view = await mount({ viewpoint: 'medial', surfaces: [LH, RH] });
+    await nextFrame();
+    // The user orbits.
+    viewers.latest!.camera.position.set(12, -34, 56);
+    const before = cameraCalls();
+
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [LH] }));
+    await nextFrame();
+    expect(visibility()).toEqual({ lh: true });
+    view.rerender(canvas({ viewpoint: 'medial', surfaces: [LH, RH] }));
+    await nextFrame();
+
+    expect(visibility()).toEqual({ lh: true, rh: false });
+    // No setCenteredViewpoint (centre + preset + fit) and no fitToView.
+    expect(cameraCalls()).toEqual(before);
+    expect(viewers.latest!.camera.position.toArray()).toEqual([12, -34, 56]);
+  });
+
+  it('a different surface loaded into the view still gets a first fit', async () => {
+    const view = await mount({ viewpoint: 'lateral', surfaces: [LH] });
+    await nextFrame();
+    const before = cameraCalls();
+
+    // Every drawn mesh replaced at once.
+    view.rerender(canvas({ viewpoint: 'lateral', surfaces: [hemi('other', 'left', -20)] }));
+    expect(viewers.latest!.centerCalls).toBe(before.centers + 1);
+    expect(viewers.latest!.fits.at(-1)).toEqual(['other']);
+
+    // Emptied, then loaded again.
+    await nextFrame();
+    view.rerender(canvas({ viewpoint: 'lateral', surfaces: [] }));
+    const emptied = cameraCalls();
+    view.rerender(canvas({ viewpoint: 'lateral', surfaces: [RH] }));
+    expect(viewers.latest!.centerCalls).toBe(emptied.centers + 1);
+    expect(viewers.latest!.fits.at(-1)).toEqual(['rh']);
+  });
+
+  it('the cursor marker is depth-tested and an occluded cursor reads as a dimmed ghost', async () => {
+    const THREE = await import('three');
+    await mount({ viewpoint: 'lateral', markerWorldPosition: [-40, 0, 0] });
+    const mesh = marker() as unknown as InstanceType<typeof THREE.Mesh>;
+    expect(mesh).toBeDefined();
+    const material = mesh.material as InstanceType<typeof THREE.Material>;
+    expect(material.depthTest).toBe(true);
+    expect(material.depthWrite).toBe(false);
+
+    const halo = mesh.getObjectByName('crosshairMarkerHalo') as InstanceType<typeof THREE.Mesh>;
+    expect((halo.material as InstanceType<typeof THREE.Material>).depthTest).toBe(true);
+
+    const ghost = mesh.getObjectByName('crosshairMarkerGhost') as InstanceType<typeof THREE.Mesh>;
+    expect(ghost).toBeDefined();
+    expect(ghost.geometry).toBe(mesh.geometry);
+    const ghostMaterial = ghost.material as InstanceType<typeof THREE.MeshBasicMaterial>;
+    expect(ghostMaterial.depthTest).toBe(true);
+    expect(ghostMaterial.depthFunc).toBe(THREE.GreaterDepth);
+    expect(ghostMaterial.depthWrite).toBe(false);
+    expect(ghostMaterial.transparent).toBe(true);
+    expect(ghostMaterial.opacity).toBeCloseTo(0.25);
   });
 });

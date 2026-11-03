@@ -140,6 +140,8 @@ function applySmoothingToRenderedSurface(
  */
 /** The marker halo's radius, relative to the marker (1.5 px-ish ring at typical zoom). */
 const MARKER_HALO_SCALE = 1.35;
+/** Opacity of the cursor where the mesh hides it (drawn through, dimmed). */
+const MARKER_GHOST_OPACITY = 0.25;
 
 const CURVATURE_STYLE = { brightness: 0.62, contrast: 0.5, smoothness: 0.5 } as const;
 
@@ -626,8 +628,11 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     }
   }, [width, height]);
 
+  // A changed handle set resets smoothing bookkeeping only. The camera is not
+  // re-fitted here: hiding a hemisphere drops it from the scene and showing it
+  // again must keep the user's orbit (run 6). The geometry effect fits when the
+  // scene starts from nothing or every mesh is replaced; presets refit below.
   useEffect(() => {
-    hasCenteredCamera.current = false;
     lastSmoothingValue.current = 0;
   }, [renderHandlesKey]);
 
@@ -688,6 +693,11 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       let changed = false;
       let structuralChange = false;
       const readyHandles = new Set(readySurfaces.map((item) => item.handle));
+      // A fresh scene: nothing drawn yet, or no drawn mesh survives this pass
+      // (a different surface loaded into the view). Only then is a first fit due.
+      const freshScene = !Array.from(renderedSurfacesRef.current.keys()).some((handle) =>
+        readyHandles.has(handle),
+      );
 
       for (const [handle, renderedSurface] of Array.from(renderedSurfacesRef.current.entries())) {
         if (readyHandles.has(handle)) {
@@ -775,7 +785,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         );
       }
 
-      if (structuralChange && !hasCenteredCamera.current) {
+      if (structuralChange && (freshScene || !hasCenteredCamera.current)) {
         const controls = viewer.controls;
         const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
 
@@ -840,10 +850,16 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     viewpoint: string;
     nonce: number | undefined;
     hidden: 'left' | 'right' | null;
+    aim: 'left' | 'right' | null;
   } | null>(null);
   useEffect(() => {
     const applied = appliedPresetRef.current;
-    appliedPresetRef.current = { viewpoint, nonce: viewpointNonce, hidden: hiddenHemisphere };
+    appliedPresetRef.current = {
+      viewpoint,
+      nonce: viewpointNonce,
+      hidden: hiddenHemisphere,
+      aim: presetHemisphere,
+    };
     const viewer = viewerRef.current;
     if (!viewer || renderedSurfacesRef.current.size === 0) return;
     applyPresetVisibility(renderedSurfacesRef.current, renderedSurfaceInputsRef.current, hiddenHemisphere);
@@ -851,10 +867,14 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       !applied ||
       applied.viewpoint !== viewpoint ||
       applied.nonce !== viewpointNonce ||
-      (applied.hidden !== null && hiddenHemisphere !== null && applied.hidden !== hiddenHemisphere);
+      (applied.hidden !== null && hiddenHemisphere !== null && applied.hidden !== hiddenHemisphere) ||
+      // The shown hemisphere left under Medial: aim at the one that remains.
+      (applied.hidden !== null && hiddenHemisphere === null && applied.aim !== presetHemisphere);
     if (refit && !setCenteredViewpoint(viewer, viewpoint, presetHemisphereRef.current)) {
       warn(`Preset "${viewpoint}" found no visible mesh bounds to fit`);
     }
+    // presetHemisphere changes alongside hiddenHemisphere whenever it matters here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewpoint, viewpointNonce, hiddenHemisphere, warn]);
 
   // D2: the underlay toggle.
@@ -949,8 +969,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       if (markerSnapToSurface) {
         const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
         const nearest = findLinkedVertex(markerSurfaceHandles ? snapSurfaces.filter((surface) => markerSurfaceHandles.includes(surface.handle)) : snapSurfaces, markerWorldPosition, cursorAnatomy);
-        // A crosshair nearest the hemisphere Medial hides has no marker: it
-        // would draw through the shown mesh (depthTest is off on purpose).
+        // A crosshair nearest the hemisphere Medial hides has no marker: its
+        // occluded ghost would show through the shown mesh as if on it.
         // Near the midline that can hide a crosshair just inside the shown
         // hemisphere; snapping it across to the shown mesh would mislead more.
         const onHiddenMesh =
@@ -996,22 +1016,39 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         emissiveIntensity: 0.9,
         roughness: 0.35,
         metalness: 0,
-        // Draw the cursor on top of the surface so it stays visible even when
-        // the corresponding point is on the far/medial side of the mesh.
-        depthTest: false,
+        // Depth-tested so a cursor on the far (e.g. medial) side does not draw
+        // through the mesh as though it were on the near face (run 6).
+        depthTest: true,
         depthWrite: false,
       });
       mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'crosshairMarker';
       mesh.renderOrder = 999;
       mesh.userData.radiusMm = markerRadiusMm;
+      // The occluded part of the cursor reads dimmed rather than vanishing:
+      // a ghost sharing the marker geometry draws only where the mesh is in
+      // front of it (GreaterDepth). Transparent, so it follows the surface.
+      const ghost = new THREE.Mesh(
+        geometry,
+        new THREE.MeshBasicMaterial({
+          color: markerColor,
+          transparent: true,
+          opacity: MARKER_GHOST_OPACITY,
+          depthTest: true,
+          depthWrite: false,
+          depthFunc: THREE.GreaterDepth,
+        }),
+      );
+      ghost.name = 'crosshairMarkerGhost';
+      ghost.renderOrder = 1000;
+      mesh.add(ghost);
       // A dark halo like the slice crosshair's (v1 F10): a larger back-faced
       // sphere drawn just before the marker, so the green reads on any data colour.
       // Opaque on purpose: three.js draws the transparent list after the opaque one,
       // so a transparent halo would land on top of the marker whatever its renderOrder.
       const halo = new THREE.Mesh(
         new THREE.SphereGeometry(markerRadiusMm * MARKER_HALO_SCALE, 20, 20),
-        new THREE.MeshBasicMaterial({ color: 0x0b0c0e, side: THREE.BackSide, depthTest: false, depthWrite: false }),
+        new THREE.MeshBasicMaterial({ color: 0x0b0c0e, side: THREE.BackSide, depthTest: true, depthWrite: false }),
       );
       halo.name = 'crosshairMarkerHalo';
       halo.renderOrder = 998;
@@ -1024,6 +1061,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         mesh.geometry.dispose();
         mesh.geometry = new THREE.SphereGeometry(markerRadiusMm, 20, 20);
         mesh.userData.radiusMm = markerRadiusMm;
+        const ghost = mesh.getObjectByName('crosshairMarkerGhost') as THREE.Mesh | undefined;
+        if (ghost) ghost.geometry = mesh.geometry;
         const halo = mesh.getObjectByName('crosshairMarkerHalo') as THREE.Mesh | undefined;
         if (halo) {
           halo.geometry.dispose();
@@ -1033,6 +1072,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       const material = mesh.material as any;
       material.color?.set?.(markerColor);
       material.emissive?.set?.(markerColor);
+      const ghost = mesh.getObjectByName('crosshairMarkerGhost') as THREE.Mesh | undefined;
+      (ghost?.material as THREE.MeshBasicMaterial | undefined)?.color?.set?.(markerColor);
     }
 
     mesh.position.set(position[0], position[1], position[2]);
@@ -1074,6 +1115,9 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         const halo = mesh.getObjectByName?.('crosshairMarkerHalo') as THREE.Mesh | undefined;
         halo?.geometry?.dispose?.();
         (halo?.material as any)?.dispose?.();
+        // The ghost shares the marker geometry; only its material is its own.
+        const ghost = mesh.getObjectByName?.('crosshairMarkerGhost') as THREE.Mesh | undefined;
+        (ghost?.material as any)?.dispose?.();
         mesh.geometry?.dispose?.();
         const material = mesh.material;
         if (Array.isArray(material)) {

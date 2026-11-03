@@ -1,1 +1,1 @@
-{"version":3,"file":"NeuroSurfaceCanvas.d.ts","sourceRoot":"","sources":["../../src/surface/NeuroSurfaceCanvas.tsx"],"names":[],"mappings":"AAOA,OAAO,KAA6E,MAAM,OAAO,CAAC;AAclG,OAAO,EAKL,KAAK,uBAAuB,EAI7B,MAAM,YAAY,CAAC;AAqoCpB,eAAO,MAAM,kBAAkB,qDAAsC,CAAC"}
+{"version":3,"file":"NeuroSurfaceCanvas.d.ts","sourceRoot":"","sources":["../../src/surface/NeuroSurfaceCanvas.tsx"],"names":[],"mappings":"AAOA,OAAO,KAA6E,MAAM,OAAO,CAAC;AAclG,OAAO,EAKL,KAAK,uBAAuB,EAI7B,MAAM,YAAY,CAAC;AAirCpB,eAAO,MAAM,kBAAkB,qDAAsC,CAAC"}
