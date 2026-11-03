@@ -1333,6 +1333,82 @@ mod tests {
         );
     }
 
+    /// Paint at the top-centre pixel of the native coronal (normal j) plane and
+    /// return the painted voxels: the top row must be superior (high k).
+    async fn paint_top_centre(
+        state: &BridgeState,
+        created: &SegmentationSessionInfo,
+    ) -> Vec<[u32; 4]> {
+        let (w, h) = (50, 70);
+        let plane = slice(state, operation(created), 1, [w, h], [false, false])
+            .await
+            .unwrap()
+            .plane;
+        let point: [f32; 3] = std::array::from_fn(|a| {
+            plane.origin_mm[a] + plane.u_mm[a] * (w / 2) as f32 + plane.v_mm[a] * 2.0
+        });
+        let mut paint = stroke(created);
+        paint.points_world = vec![point];
+        let painted = commit(state, paint).await.unwrap().session;
+        assert!(painted.snapshot.labels[0].voxels > 0.0);
+        let labels = slice(state, operation(&painted), 1, [w, h], [false, false])
+            .await
+            .unwrap()
+            .labels;
+        assert!(!labels.is_empty());
+        labels
+    }
+
+    #[tokio::test]
+    async fn the_top_of_a_native_coronal_slice_paints_superior_voxels() {
+        let state = tokio::task::spawn_blocking(state).await.unwrap();
+        let created = create(&state, setup()).await.unwrap();
+        let dims = created.snapshot.dimensions;
+        for voxel in paint_top_centre(&state, &created).await {
+            assert!(
+                voxel[2] * 2 > dims[2],
+                "voxel {voxel:?} painted from the top of the slice must be superior"
+            );
+            assert_eq!(voxel[1], 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_top_of_a_native_coronal_slice_of_a_4d_reference_paints_superior_voxels() {
+        use volmath::DenseNeuroVec;
+        let state = tokio::task::spawn_blocking(state).await.unwrap();
+        let space = NeuroSpace::new(
+            vec![5, 3, 7, 4],
+            Some(vec![0.4, 2.0, 0.4, 1.0]),
+            Some(vec![-10.0, 7.0, -4.0, 0.0]),
+            None,
+            None,
+        )
+        .unwrap();
+        state.volume_registry.lock().await.insert(
+            "series".into(),
+            VolumeSendable::Vec4DF32(DenseNeuroVec::zeros(space).unwrap()),
+            VolumeMetadataInfo {
+                name: "Synthetic series".into(),
+                path: "memory:series".into(),
+                dtype: "f32".into(),
+                volume_type: bridge_types::VolumeType::TimeSeries4D,
+                time_series_info: None,
+            },
+        );
+        let mut request = setup();
+        request.reference_volume_id = "series".into();
+        request.reference_frame = Some(1);
+        let created = create(&state, request).await.unwrap();
+        let dims = created.snapshot.dimensions;
+        for voxel in paint_top_centre(&state, &created).await {
+            assert!(
+                voxel[2] * 2 > dims[2],
+                "voxel {voxel:?} painted from the top of the slice must be superior"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn a_4d_reference_is_traced_on_one_explicit_frozen_frame() {
         use volmath::DenseNeuroVec;

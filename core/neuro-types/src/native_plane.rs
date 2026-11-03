@@ -51,8 +51,34 @@ pub fn oblique_slice_geometry(
     })
 }
 
-/// A plane through one native voxel slice. The in-plane axes are the two other
-/// affine columns in ascending order. Explicit flips select display orientation.
+/// Screen roles for the two in-plane affine columns. The plane's dominant world
+/// normal picks the radiological-convention-free display used by `SliceSpec`:
+/// sagittal-like planes run right toward -Y (anterior left) and down toward -Z;
+/// coronal-like planes run right toward +X and down toward -Z; axial-like
+/// planes run right toward +X and down toward -Y (anterior at the top).
+/// Each column is assigned to whichever role it matches best and signed to
+/// point along it, so no column is ever reflected relative to the affine.
+fn display_columns(c0: Vector3<f32>, c1: Vector3<f32>) -> (Vector3<f32>, Vector3<f32>) {
+    let normal = c0.cross(&c1);
+    let dominant = normal.iamax();
+    let (right, down) = match dominant {
+        0 => (-Vector3::y(), -Vector3::z()),
+        1 => (Vector3::x(), -Vector3::z()),
+        _ => (Vector3::x(), -Vector3::y()),
+    };
+    let (n0, n1) = (c0.normalize(), c1.normalize());
+    let keep = n0.dot(&right).abs() + n1.dot(&down).abs();
+    let swap = n1.dot(&right).abs() + n0.dot(&down).abs();
+    let (r, d) = if swap > keep { (c1, c0) } else { (c0, c1) };
+    let signed = |c: Vector3<f32>, target: &Vector3<f32>| if c.dot(target) < 0.0 { -c } else { c };
+    (signed(r, &right), signed(d, &down))
+}
+
+/// A plane through one native voxel slice. The two in-plane affine columns take
+/// the screen-right and screen-down roles of the matching `SliceSpec` view (see
+/// [`display_columns`]), so a native slice reads like the main viewer: superior
+/// at the top for sagittal/coronal-like planes, anterior at the top for
+/// axial-like ones. `flips` mirror right/down afterwards as an explicit extra.
 /// For a sheared affine, orthonormal display axes frame all four native slice
 /// corners, preserving physical geometry and square pixels.
 pub fn native_slice_geometry(
@@ -79,8 +105,11 @@ pub fn native_slice_geometry(
     }
     let axes: Vec<usize> = (0..3).filter(|&a| a != axis).collect();
     let sign = |flip| if flip { -1.0 } else { 1.0 };
-    let right = affine.fixed_view::<3, 1>(0, axes[0]).into_owned() * sign(flips[0]);
-    let down = affine.fixed_view::<3, 1>(0, axes[1]).into_owned() * sign(flips[1]);
+    let (right, down) = display_columns(
+        affine.fixed_view::<3, 1>(0, axes[0]).into_owned(),
+        affine.fixed_view::<3, 1>(0, axes[1]).into_owned(),
+    );
+    let (right, down) = (right * sign(flips[0]), down * sign(flips[1]));
     let (u, v) = basis(right.into(), down.into())?;
     let mut center = Vector4::new(0.0, 0.0, 0.0, 1.0);
     for a in 0..3 {
@@ -129,10 +158,13 @@ mod tests {
                     x as f32 + 0.5,
                     z as f32 + 0.5,
                 );
+                // Coronal-like plane: screen-down runs toward -Z, so the top
+                // row is the most superior native slice (k = 6).
+                let k = 6 - z;
                 let expected = [
                     10.0 + x as f32 * 0.4,
-                    -18.4 - z as f32 * 0.24,
-                    6.2 + z as f32 * 0.32,
+                    -18.4 - k as f32 * 0.24,
+                    6.2 + k as f32 * 0.32,
                 ];
                 for a in 0..3 {
                     assert_relative_eq!(actual[a], expected[a], epsilon = 3e-6);
@@ -145,6 +177,83 @@ mod tests {
         let point =
             crate::pixel_to_world_raw(flipped.origin_mm, flipped.u_mm, flipped.v_mm, 0.5, 0.5);
         assert_relative_eq!(point[0], 11.6, epsilon = 2e-6);
+    }
+    /// Pixel centre (px, py) of a native plane in world mm.
+    fn world_at(plane: &SliceGeometry, px: f32, py: f32) -> Vector3<f32> {
+        Vector3::from(crate::pixel_to_world_raw(
+            plane.origin_mm,
+            plane.u_mm,
+            plane.v_mm,
+            px,
+            py,
+        ))
+    }
+    #[test]
+    fn native_slices_read_like_the_main_viewer_for_ras_and_lpi_grids() {
+        let ras = Matrix4::new(
+            2.0, 0.0, 0.0, -20.0, 0.0, 2.0, 0.0, -30.0, 0.0, 0.0, 2.0, -10.0, 0.0, 0.0, 0.0, 1.0,
+        );
+        let lpi = Matrix4::new(
+            -2.0, 0.0, 0.0, 20.0, 0.0, -2.0, 0.0, 30.0, 0.0, 0.0, -2.0, 10.0, 0.0, 0.0, 0.0, 1.0,
+        );
+        // A permuted (e.g. sagittally acquired) grid: voxel axes (i,j,k) map to
+        // world (Y, Z, X), so normal 2 is a sagittal-like plane.
+        let permuted = Matrix4::new(
+            0.0, 0.0, 1.5, -5.0, 1.0, 0.0, 0.0, -8.0, 0.0, -1.2, 0.0, 6.0, 0.0, 0.0, 0.0, 1.0,
+        );
+        for (name, affine) in [("RAS", ras), ("LPI", lpi)] {
+            let meta = VolumeMetadata {
+                dimensions: [8, 10, 12],
+                voxel_to_world: affine,
+            };
+            for normal in 0..3u8 {
+                let plane = native_slice_geometry(&meta, normal, 2, [64, 64], [false; 2]).unwrap();
+                let top = world_at(&plane, 32.0, 2.0);
+                let bottom = world_at(&plane, 32.0, 62.0);
+                let left = world_at(&plane, 2.0, 32.0);
+                let right = world_at(&plane, 62.0, 32.0);
+                match normal {
+                    0 => {
+                        assert!(top.z > bottom.z, "{name} sagittal: superior at top");
+                        assert!(right.y < left.y, "{name} sagittal: y falls rightward");
+                    }
+                    1 => {
+                        assert!(top.z > bottom.z, "{name} coronal: superior at top");
+                        assert!(right.x > left.x, "{name} coronal: x rises rightward");
+                    }
+                    _ => {
+                        assert!(top.y > bottom.y, "{name} axial: anterior at top");
+                        assert!(right.x > left.x, "{name} axial: x rises rightward");
+                    }
+                }
+                // The plane stays on the requested native slice.
+                let inverse = affine.try_inverse().unwrap();
+                for p in [top, bottom, left, right] {
+                    let voxel = inverse * Vector4::new(p.x, p.y, p.z, 1.0);
+                    assert_relative_eq!(voxel[usize::from(normal)], 2.0, epsilon = 1e-4);
+                }
+                // Flips stay an explicit extra mirror on top of the convention.
+                let mirrored =
+                    native_slice_geometry(&meta, normal, 2, [64, 64], [true, true]).unwrap();
+                assert_relative_eq!(
+                    Vector3::from(mirrored.u_mm),
+                    -Vector3::from(plane.u_mm),
+                    epsilon = 1e-6
+                );
+                assert_relative_eq!(
+                    Vector3::from(mirrored.v_mm),
+                    -Vector3::from(plane.v_mm),
+                    epsilon = 1e-6
+                );
+            }
+        }
+        let meta = VolumeMetadata {
+            dimensions: [8, 10, 12],
+            voxel_to_world: permuted,
+        };
+        let plane = native_slice_geometry(&meta, 2, 3, [64, 64], [false; 2]).unwrap();
+        assert!(world_at(&plane, 32.0, 2.0).z > world_at(&plane, 32.0, 62.0).z);
+        assert!(world_at(&plane, 62.0, 32.0).y < world_at(&plane, 2.0, 32.0).y);
     }
     #[test]
     fn sheared_affine_uses_square_pixels_and_contains_the_native_slice_edges() {

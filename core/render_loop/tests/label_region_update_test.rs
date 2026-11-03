@@ -265,9 +265,10 @@ fn native_oblique_grid_renders_the_same_voxel_slice_as_an_axis_aligned_reference
             .unwrap()
             .image_data;
         // Independent axis-aligned plane through native y=1, outer voxel edges.
-        view.camera.frame_origin = Some([-0.2, 2.0, -0.2, 1.0]);
+        // Coronal convention: +X to the right, superior (top voxel edge) first.
+        view.camera.frame_origin = Some([-0.2, 2.0, 2.6, 1.0]);
         view.camera.frame_u_vec = Some([2.0, 0.0, 0.0, 0.0]);
-        view.camera.frame_v_vec = Some([0.0, 0.0, 2.8, 0.0]);
+        view.camera.frame_v_vec = Some([0.0, 0.0, -2.8, 0.0]);
         view.layers[0].volume_id = "axis".into();
         let expected = service
             .request_frame(ViewId::new("axis"), view)
