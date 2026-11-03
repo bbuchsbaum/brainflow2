@@ -368,6 +368,16 @@ impl ResidentRing {
         Ok(admitted)
     }
 
+    /// Cached members [`Self::pop_cached_lru`] would free for `current_member`:
+    /// every resident member but the current one, and none when the current
+    /// member is not resident (an inconsistent binding is not reclaimed from).
+    pub(crate) fn cached_len(&self, current_member: usize) -> usize {
+        if !self.member_pos.contains_key(&current_member) {
+            return 0;
+        }
+        self.slots.len() - 1
+    }
+
     /// Remove the least-recently-used cached member, preserving the member
     /// currently bound to the layer. Return its texture for the caller to free.
     pub(crate) fn pop_cached_lru(&mut self, current_member: usize) -> Option<u32> {
@@ -821,6 +831,27 @@ mod tests {
         // If the current member cannot be identified, do not evict anything.
         assert_eq!(ring.pop_cached_lru(99), None);
         assert_eq!(ring.resident_len(), 1);
+    }
+
+    #[test]
+    fn cached_len_counts_exactly_what_pop_cached_lru_frees() {
+        for current in [2, 99] {
+            let mut ring = new_ring(4);
+            let mut exec = FakeExecutor {
+                next_index: 1,
+                ..Default::default()
+            };
+            for member in 1..4 {
+                ring.ensure_resident(member, &mut exec).unwrap();
+            }
+            let counted = ring.cached_len(current);
+            let mut popped = 0;
+            while ring.pop_cached_lru(current).is_some() {
+                popped += 1;
+            }
+            assert_eq!(counted, popped, "current member {current}");
+            assert_eq!(ring.cached_len(current), 0);
+        }
     }
 
     #[test]

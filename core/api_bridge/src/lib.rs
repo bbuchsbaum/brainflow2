@@ -7609,14 +7609,7 @@ fn reclaim_cached_image_members(
 /// members other than the one each layer displays.
 fn cached_image_member_count(sets: &HashMap<String, image_set::ResidentImageSet>) -> usize {
     sets.values()
-        .map(|resident| {
-            let resident_len = resident.ring.resident_len();
-            if resident.ring.slot_of(resident.current_member).is_some() {
-                resident_len.saturating_sub(1)
-            } else {
-                0
-            }
-        })
+        .map(|resident| resident.ring.cached_len(resident.current_member))
         .sum()
 }
 
