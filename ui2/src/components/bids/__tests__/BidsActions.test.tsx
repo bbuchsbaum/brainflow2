@@ -175,6 +175,21 @@ describe('exclude dialog', () => {
     expect(model().excluded.runs).toBe(0);
   });
 
+  it('writes nothing for a dataset opened by layout', () => {
+    const invoke = backend();
+    const index = useBidsStore.getState().index!;
+    act(() => useBidsStore.setState({ index: { ...index, opened_by_layout: true } }));
+    openDialog();
+    expect(screen.getByRole('button', { name: /Exclude ↵/ })).toBeDisabled();
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'Exclusions cannot be written for a dataset opened by layout',
+    );
+    // No derivative description is promised for a dataset that has none.
+    expect(screen.queryByTestId('bids-exclude-description')).toBeNull();
+    fireEvent.submit(screen.getByTestId('bids-exclude-dialog'));
+    expect(invoke).not.toHaveBeenCalledWith('write_bids_exclusions', expect.anything());
+  });
+
   it('names a bridge rejection instead of [object Object]', async () => {
     const invoke = backend();
     const details = 'An old lock remains; remove it and retry.';

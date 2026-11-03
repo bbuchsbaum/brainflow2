@@ -117,8 +117,8 @@ pub use modules::{
 // `command_list.rs` and the TS exporter see them at the crate root.
 use bids_commands::{
     cancel_bids_scan, get_bids_carpet, get_bids_median_slice, get_bids_run_detail,
-    get_bids_run_events, get_bids_slice, read_bids_exclusions, revert_bids_exclusions,
-    scan_bids_browser, write_bids_exclusions,
+    get_bids_run_events, get_bids_slice, probe_bids_directory, read_bids_exclusions,
+    revert_bids_exclusions, scan_bids_browser, write_bids_exclusions,
 };
 use clusters::compute_clusters;
 pub use clusters::{
@@ -11110,11 +11110,11 @@ async fn cancel_set_studio_materialization(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.check_bids_directory")]
-async fn check_bids_directory(path: String) -> BridgeResult<bool> {
-    let dir = std::path::PathBuf::from(&path);
-    let has_description = dir.join("dataset_description.json").exists();
-    let has_participants = dir.join("participants.tsv").exists();
-    Ok(has_description && has_participants)
+async fn check_bids_directory(path: String, state: State<'_, BridgeState>) -> BridgeResult<bool> {
+    // A description makes a dataset; participants.tsv is only recommended.
+    // A folder BIDS only by layout is not one here: see probe_bids_directory.
+    let probe = bids_commands::probe_directory(state.inner(), Path::new(&path)).await?;
+    Ok(probe.status == bridge_types::bids::BidsDirectoryStatus::Bids)
 }
 
 #[command]
@@ -11123,30 +11123,34 @@ async fn scan_bids_dataset(
     dataset_path: String,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<bridge_types::bids::BidsDatasetSummary> {
-    use bids_rs::{BidsProject, ComplianceChecker};
+    use bids_rs::ComplianceChecker;
     use bridge_types::bids::*;
 
     info!("Bridge: scan_bids_dataset called for {}", dataset_path);
 
     let dir = PathBuf::from(&dataset_path);
 
-    // Materialize key files for remote mount support
-    let desc_path = dir.join("dataset_description.json");
-    let participants_path = dir.join("participants.tsv");
-    materialize_remote_file_if_needed(state.inner(), &desc_path).await?;
-    materialize_remote_file_if_needed(state.inner(), &participants_path).await?;
+    // Materialize key files for remote mount support. Either may be absent:
+    // participants.tsv is only recommended, and a dataset opened by layout
+    // has no description.
+    for name in ["dataset_description.json", "participants.tsv"] {
+        let path = dir.join(name);
+        if let Err(error) = materialize_remote_file_if_needed(state.inner(), &path).await {
+            info!("{} not materialized: {error:?}", path.display());
+        }
+    }
 
     // Load the BIDS project (blocking I/O on spawn_blocking)
     let dataset_path_clone = dataset_path.clone();
     let summary = tokio::task::spawn_blocking(move || -> BridgeResult<BidsDatasetSummary> {
-        let project = BidsProject::with_options(
-            &dataset_path_clone,
+        let (project, by_layout) = bids_index::layout::open_project(
+            Path::new(&dataset_path_clone),
             bids_rs::DerivativesMode::Auto,
-            false, // non-strict: allow missing participants.tsv
+            bids_rs::IndexingOptions::default(),
         )
-        .map_err(|e| BridgeError::Input {
+        .map_err(|details| BridgeError::Input {
             code: 3001,
-            details: format!("Failed to load BIDS dataset: {}", e),
+            details,
         })?;
 
         // --- Summary counts ---
@@ -11404,8 +11408,21 @@ async fn scan_bids_dataset(
                         });
                     }
 
+                    if by_layout {
+                        critical_count += 1;
+                        all_issues.insert(
+                            0,
+                            BidsValidationIssue {
+                                severity: "critical".to_string(),
+                                description: bids_index::layout::LAYOUT_ONLY_TITLE.to_string(),
+                                file: Some("dataset_description.json".to_string()),
+                                rule: bids_index::layout::LAYOUT_ONLY_CODE.to_string(),
+                            },
+                        );
+                    }
+
                     BidsValidationResult {
-                        passed: result.passed,
+                        passed: result.passed && !by_layout,
                         critical_count,
                         warning_count,
                         issues: all_issues,
@@ -11479,7 +11496,6 @@ async fn get_bids_events(
     run: Option<String>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<bridge_types::bids::BidsEventRow>> {
-    use bids_rs::BidsProject;
     use bridge_types::bids::BidsEventRow;
 
     info!(
@@ -11488,15 +11504,21 @@ async fn get_bids_events(
     );
 
     let dir = PathBuf::from(&dataset_path);
-    materialize_remote_file_if_needed(state.inner(), &dir.join("dataset_description.json")).await?;
+    let description = dir.join("dataset_description.json");
+    if let Err(error) = materialize_remote_file_if_needed(state.inner(), &description).await {
+        info!("{} not materialized: {error:?}", description.display());
+    }
 
     let rows = tokio::task::spawn_blocking(move || -> BridgeResult<Vec<BidsEventRow>> {
-        let project =
-            BidsProject::with_options(&dataset_path, bids_rs::DerivativesMode::None, false)
-                .map_err(|e| BridgeError::Input {
-                    code: 3001,
-                    details: format!("Failed to load BIDS dataset: {}", e),
-                })?;
+        let (project, _) = bids_index::layout::open_project(
+            Path::new(&dataset_path),
+            bids_rs::DerivativesMode::None,
+            bids_rs::IndexingOptions::default(),
+        )
+        .map_err(|details| BridgeError::Input {
+            code: 3001,
+            details,
+        })?;
 
         // Search for event files matching subject + task
         let mut search = project

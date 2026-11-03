@@ -105,6 +105,7 @@ export const apiBridgeCommands = [
   "get_set_studio_materialization_status",
   "cancel_set_studio_materialization",
   "check_bids_directory",
+  "probe_bids_directory",
   "scan_bids_dataset",
   "get_bids_events",
   "scan_bids_browser",

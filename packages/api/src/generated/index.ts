@@ -22,6 +22,8 @@ export * from './BidsCoverageColumn';
 export * from './BidsCoverageMatrix';
 export * from './BidsDatasetSummary';
 export * from './BidsDerivativeInfo';
+export * from './BidsDirectoryProbe';
+export * from './BidsDirectoryStatus';
 export * from './BidsEventRow';
 export * from './BidsExclusion';
 export * from './BidsExclusionContext';

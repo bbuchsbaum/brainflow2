@@ -652,6 +652,7 @@ export function createBidsBrowserDataset(
     derivative_status: derivativeStatus(subjects),
     exclusions: [...exclusions],
     exclusions_described: exclusions.length > 0,
+    opened_by_layout: false,
   });
 
   return {

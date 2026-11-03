@@ -104,7 +104,10 @@ export function BidsExcludeDialog({ runId, onClose }: { runId: string; onClose: 
   const row = buildExclusionRow({ facts, scope, reason: reasonText, criterion, author, date });
   const context = exclusionContext(model);
   const first = isFirstExclusionWrite(index, exclusions, written);
-  const blocked = index.is_remote;
+  // A dataset opened by layout has no description for the derivative's
+  // SourceDatasets to name; the backend refuses the write too.
+  const byLayout = index.opened_by_layout === true;
+  const blocked = index.is_remote || byLayout;
   const canWrite = !blocked && !busy && row.reason !== '' && row.author !== '';
 
   const submit = (event: React.FormEvent) => {
@@ -193,7 +196,7 @@ export function BidsExcludeDialog({ runId, onClose }: { runId: string; onClose: 
           </Preview>
         </div>
 
-        {first ? (
+        {first && !byLayout ? (
           <div className="text-bf-xs text-bf-text-muted">
             First exclusion also creates <span className="font-mono">{EXCLUSIONS_DESCRIPTION}</span>
             <Preview testId="bids-exclude-description">
@@ -202,9 +205,15 @@ export function BidsExcludeDialog({ runId, onClose }: { runId: string; onClose: 
           </div>
         ) : null}
 
-        {blocked ? (
+        {index.is_remote ? (
           <Notice severity="warning" role={undefined}>
             Exclusions cannot be written on a remote mount: a mirror's copy would not reach the server.
+          </Notice>
+        ) : byLayout ? (
+          <Notice severity="warning" role={undefined}>
+            Exclusions cannot be written for a dataset opened by layout: it has no{' '}
+            <span className="font-mono">dataset_description.json</span> for the derivative to name as
+            its source. Add one, then rescan.
           </Notice>
         ) : null}
         {error ? (

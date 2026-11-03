@@ -2,7 +2,7 @@
 //! owns scan identity, cancellation, remote policy and the decode semaphore.
 
 use crate::bids_index::remote::{RemoteDataset, RemoteEntry};
-use crate::bids_index::{exclusions, images, scan};
+use crate::bids_index::{exclusions, images, layout, scan};
 use crate::{remote_transfer, BridgeState};
 use bridge_types::bids::*;
 use bridge_types::{BridgeError, BridgeResult};
@@ -206,6 +206,41 @@ fn refuse_mirror_read(what: &str, mirrored: bool) -> BridgeResult<()> {
         return Err(input(format!("{what} {NOT_ON_MIRROR}.")));
     }
     Ok(())
+}
+
+/// Classify a folder for BIDS. On a remote mount the server answers: the local
+/// mirror holds only what was materialized, so its files say nothing.
+pub(crate) async fn probe_directory(
+    state: &BridgeState,
+    path: &Path,
+) -> BridgeResult<BidsDirectoryProbe> {
+    let mount = crate::resolve_remote_mount_for_local_path(state, path).await;
+    let root = path.to_path_buf();
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || match mount {
+        Some((mount, remote_root)) => {
+            let server = MountDataset {
+                mount,
+                remote_root,
+                runtime,
+            };
+            layout::probe(&|dirs: &[String]| server.list(dirs))
+        }
+        None => layout::probe(&|dirs: &[String]| layout::list_local(&root, dirs)),
+    })
+    .await
+    .map_err(task_failure)?
+    .map_err(|e| io_failure(format!("Cannot check {} for BIDS: {e}", path.display())))
+}
+
+/// What a folder is for BIDS: a dataset, one only by layout, or neither.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.probe_bids_directory")]
+pub(crate) async fn probe_bids_directory(
+    path: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<BidsDirectoryProbe> {
+    probe_directory(state.inner(), Path::new(&path)).await
 }
 
 /// Stream a dataset scan. Each subject arrives as a `bids-scan-progress` event;

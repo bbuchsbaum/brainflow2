@@ -1088,6 +1088,10 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
 
     check_bids_directory: ({ path }: { path: string }) =>
       path === BIDS_SUMMARY.path || path === BIDS_BROWSER_ROOT,
+    probe_bids_directory: ({ path }: { path: string }) =>
+      path === BIDS_SUMMARY.path || path === BIDS_BROWSER_ROOT
+        ? { status: 'bids', missing: [] }
+        : { status: 'none', missing: ['dataset_description.json'] },
     scan_bids_dataset: ({ datasetPath }: { datasetPath: string }) => {
       if (datasetPath !== BIDS_SUMMARY.path) throw new Error(`Not a BIDS dataset: ${datasetPath}`);
       return BIDS_SUMMARY;

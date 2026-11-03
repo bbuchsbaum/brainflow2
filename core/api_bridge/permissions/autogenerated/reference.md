@@ -105,6 +105,7 @@ Default permissions for api-bridge plugin
 - `allow-get-set-studio-materialization-status`
 - `allow-cancel-set-studio-materialization`
 - `allow-check-bids-directory`
+- `allow-probe-bids-directory`
 - `allow-scan-bids-dataset`
 - `allow-get-bids-events`
 - `allow-scan-bids-browser`
@@ -2275,6 +2276,32 @@ Enables the preview_surface_parcel_table command without any pre-configured scop
 <td>
 
 Denies the preview_surface_parcel_table command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-probe-bids-directory`
+
+</td>
+<td>
+
+Enables the probe_bids_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-probe-bids-directory`
+
+</td>
+<td>
+
+Denies the probe_bids_directory command without any pre-configured scope.
 
 </td>
 </tr>

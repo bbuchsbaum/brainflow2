@@ -325,6 +325,7 @@ function emptyIndex(
     derivative_status: [],
     exclusions: [],
     exclusions_described: false,
+    opened_by_layout: false,
   };
 }
 

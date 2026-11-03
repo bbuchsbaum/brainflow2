@@ -7,6 +7,7 @@ use super::events::{check_events, check_table, EventFiles};
 use super::exclusions;
 use super::fd::{self, fd_from, iqm_key, is_confounds, read_fd, run_key, FD_DEFINITION};
 use super::fieldmap::{self, meta_f64};
+use super::layout;
 use super::meta::{acquisition_values, SidecarResolver};
 use super::remote::{self, Listing, RemoteDataset, RemoteFiles, ScanFiles};
 use super::series::{self, NVOLUMES_KEY};
@@ -804,7 +805,7 @@ fn open_remote(
     control: &dyn ScanControl,
     stored: &StoredIndex,
     on_progress: &mut dyn FnMut(BidsScanProgress),
-) -> Result<(BidsProject, ScanFiles, Walked), String> {
+) -> Result<(BidsProject, ScanFiles, Walked, bool), String> {
     let root = request.dataset;
     let stop = || control.cancelled();
     on_progress(indexing(request, "listing", false));
@@ -815,10 +816,22 @@ fn open_remote(
         unreachable!("built on the line above")
     };
     fetched.fetch(server, &listing.shared_paths(), &|| false);
-    let description = root.join("dataset_description.json");
-    files
-        .text(&description)
-        .map_err(|e| format!("Failed to load BIDS dataset: {e}"))?;
+    let description = root.join(layout::DESCRIPTION);
+    // Without a description the dataset opens only by its layout; the user
+    // asked for that. The stand-in description lives in memory only.
+    let by_layout = match files.text(&description) {
+        Ok(_) => false,
+        Err(e) => {
+            let laid_out = listing
+                .files
+                .iter()
+                .any(|file| layout::is_layout_file(&rel_text(&file.relative_path)));
+            if !laid_out {
+                return Err(format!("Failed to load BIDS dataset: {e}"));
+            }
+            true
+        }
+    };
 
     let tables: Vec<String> = derivatives::pipelines_in(root, &files)
         .iter()
@@ -875,7 +888,7 @@ fn open_remote(
     let sidecars = listing.subject_sidecars(&changed);
     fetched.fetch(server, &sidecars, &stop);
 
-    let json = listing
+    let mut json: HashMap<PathBuf, SidecarContent> = listing
         .files
         .iter()
         .map(|file| file.relative_path.clone())
@@ -890,6 +903,17 @@ fn open_remote(
         })
         .collect();
     let unread = fetched.failures();
+    if by_layout {
+        let text = layout::synthesized_description(root);
+        listing.files.push(bids_rs::ManifestEntry::new(
+            layout::DESCRIPTION,
+            text.len() as u64,
+        ));
+        json.insert(
+            PathBuf::from(layout::DESCRIPTION),
+            SidecarContent::Json(text),
+        );
+    }
     let manifest = ProjectManifest {
         files: listing.files.clone(),
         sidecars: json,
@@ -897,7 +921,7 @@ fn open_remote(
     };
     let project = BidsProject::from_manifest(root, manifest)
         .map_err(|e| format!("Failed to load BIDS dataset: {e}"))?;
-    Ok((project, files, Walked { listing, unread }))
+    Ok((project, files, Walked { listing, unread }, by_layout))
 }
 
 /// Events and confounds a subject's runs read. Fetched per subject, so a large
@@ -931,18 +955,21 @@ pub(crate) fn run_scan(
     control: &dyn ScanControl,
     mut on_progress: impl FnMut(BidsScanProgress),
 ) -> Result<BidsBrowserIndex, String> {
-    let (project, files, walked, stored) = match request.remote {
+    let (project, files, walked, stored, by_layout) = match request.remote {
         Some(server) => {
             let stored = store::load(request.cache_root, request.dataset);
-            let (project, files, walked) =
+            let (project, files, walked, by_layout) =
                 open_remote(request, server, control, &stored, &mut on_progress)?;
-            (project, files, Some(walked), stored)
+            (project, files, Some(walked), stored, by_layout)
         }
         None => {
-            let project = BidsProject::with_options(request.dataset, DerivativesMode::None, false)
-                .map_err(|e| format!("Failed to load BIDS dataset: {e}"))?;
+            let (project, by_layout) = layout::open_project(
+                request.dataset,
+                DerivativesMode::None,
+                IndexingOptions::default(),
+            )?;
             let stored = store::load(request.cache_root, project.path());
-            (project, ScanFiles::Disk, None, stored)
+            (project, ScanFiles::Disk, None, stored, by_layout)
         }
     };
     let root = project.path().to_path_buf();
@@ -1160,6 +1187,19 @@ pub(crate) fn run_scan(
     if let (Some(walked), ScanFiles::Remote(fetched)) = (&walked, &files) {
         findings.push(remote_note(walked, fetched, reads));
     }
+    if by_layout {
+        findings.push(finding(FindingSpec {
+            tag: "validator",
+            severity: "error",
+            code: layout::LAYOUT_ONLY_CODE,
+            title: layout::LAYOUT_ONLY_TITLE.into(),
+            detail: layout::LAYOUT_ONLY_DETAIL.into(),
+            subject: None,
+            session: None,
+            run_ids: Vec::new(),
+            file: Some(layout::DESCRIPTION.into()),
+        }));
+    }
 
     for run in &mut runs {
         run.iqms = iqm_key(&run.id).and_then(|key| mriqc.get(&key).cloned());
@@ -1295,6 +1335,7 @@ pub(crate) fn run_scan(
         exclusions_described: root
             .join("derivatives/brainflow/dataset_description.json")
             .exists(),
+        opened_by_layout: by_layout,
     })
 }
 
@@ -1363,8 +1404,7 @@ fn subject_project(root: &Path, subject: &str) -> Result<BidsProject, String> {
             options = options.ignore_path(name);
         }
     }
-    BidsProject::with_indexing_options(root, DerivativesMode::None, false, options)
-        .map_err(|e| format!("Failed to load BIDS dataset: {e}"))
+    layout::open_project(root, DerivativesMode::None, options).map(|(project, _)| project)
 }
 
 /// Find a run's image from its id alone. Ids are validated against traversal.
