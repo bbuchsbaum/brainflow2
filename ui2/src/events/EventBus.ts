@@ -32,6 +32,12 @@ export interface EventMap {
   'layer.updated': { layerId: string; updates?: Record<string, unknown> };
   'layer.render.changed': { layerId: string; renderProps: Record<string, unknown> };
   'layer.gpu.ready': { layerId: string };
+  /**
+   * GPU texture slots were freed: a layer's lease was released (eviction,
+   * removal, unload) or cached 4D members were reclaimed. Views and Studio
+   * panes refused for want of a slot may retry.
+   */
+  'gpu.slots.freed': { reason: 'release' | 'reclaim'; layerId?: string };
 
   // Annotation events
   'annotation.added': { annotation: Annotation };
@@ -89,6 +95,16 @@ export interface EventMap {
     logSource?: string | false;
     /** One action on the message ("Removed T1w.nii.gz — Undo"). */
     action?: { label: string; run: () => void };
+    /**
+     * The message's variable subject (a file or layer name). The status bar
+     * shortens only this part when the line does not fit, never the cause.
+     */
+    subject?: string;
+    /**
+     * A refusal of something the user just asked for (no GPU slot, draw cap):
+     * also shown as a floating, dismissible alert with the full sentence.
+     */
+    alert?: boolean;
     /** An ordered operation group whose earlier failures can be resolved. */
     scope?: string;
     sequence?: number;

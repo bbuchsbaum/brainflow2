@@ -5,10 +5,12 @@
 
 import { getEventBus } from '@/events/EventBus';
 import {
+  drawCapMessage,
   gpuTextureSlotsFullLimit,
   gpuTextureSlotsFullMessage,
   toError,
 } from '@/utils/formatTauriError';
+import { layerEvictionService } from './LayerEvictionService';
 import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import type { EventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
@@ -192,6 +194,25 @@ export class LayerService {
     const front = target === views.activeWorkspaceKey;
     // A show made while undo / redo replays a step is not a new history step.
     const recorded = !getSceneHistory().isReplaying();
+    // One view draws at most the draw cap's layers. The cap is per view, not
+    // a residency budget: other tabs' layers do not count (gpu-residency plan).
+    if (visible) {
+      const viewState = views.getWorkspaceViewState?.(target) ?? views.viewState;
+      const drawn = (viewState?.layers ?? []).filter((layer) => layer.visible && layer.id !== id);
+      const alreadyShown = viewState?.layers?.some((layer) => layer.id === id && layer.visible);
+      const cap = layerEvictionService.drawLayerCap();
+      if (!alreadyShown && drawn.length >= cap) {
+        const name = useLayerStore.getState().getLayer(id)?.name ?? id;
+        this.eventBus.emit('ui.notification', {
+          type: 'error',
+          message: `Cannot show ${name}: ${drawCapMessage(cap)}`,
+          subject: name,
+          alert: true,
+          logSource: 'layer',
+        });
+        return;
+      }
+    }
     // Keep local stores in sync immediately for responsive UI.
     useLayerStore.getState().updateLayer(id, { visible });
     views.setViewState((state) => {
@@ -228,10 +249,12 @@ export class LayerService {
       const slotLimit = visible ? gpuTextureSlotsFullLimit(error) : null;
       if (slotLimit !== null) {
         if (!latest) return;
-        const layer = useLayerStore.getState().getLayer(id);
+        const name = useLayerStore.getState().getLayer(id)?.name ?? id;
         this.eventBus.emit('ui.notification', {
           type: 'error',
-          message: `Cannot show ${layer?.name ?? id}: ${gpuTextureSlotsFullMessage(slotLimit)}`,
+          message: `Cannot show ${name}: ${gpuTextureSlotsFullMessage(slotLimit)}`,
+          subject: name,
+          alert: true,
           logSource: 'layer',
         });
         return;

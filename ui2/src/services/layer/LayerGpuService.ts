@@ -1,6 +1,7 @@
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
-import type { AtlasStats } from '@/types/atlas';
+import type { AtlasStats, ReclaimCachedSlotsResult } from '@/types/atlas';
+import { getEventBus } from '@/events/EventBus';
 
 interface RawAtlasStats {
   total_layers: number;
@@ -16,6 +17,10 @@ interface RawAtlasStats {
   /** Absent from backends built before 2026-10-31. */
   volume_texture_slots?: number;
   render_layer_capacity?: number;
+  /** Absent from backends built before 2026-11-02. */
+  free_texture_slots?: number;
+  resident_texture_slots?: number;
+  cached_image_slots?: number;
 }
 
 export class LayerGpuService {
@@ -48,7 +53,16 @@ export class LayerGpuService {
   }
 
   async releaseLayerGpuResources(layerId: string): Promise<void> {
-    return this.transport.invoke('release_layer_gpu_resources', { layerId });
+    const result = await this.transport.invoke<{ success?: boolean } | null>(
+      'release_layer_gpu_resources',
+      { layerId },
+    );
+    // Only a release that freed something: a failed load's cleanup (nothing
+    // held) must not wake the panes that retry on this event.
+    if (result?.success === true) {
+      getEventBus().emit('gpu.slots.freed', { reason: 'release', layerId });
+    }
+    return result as never;
   }
 
   async waitForLayerReady(
@@ -79,6 +93,20 @@ export class LayerGpuService {
     return this.mapAtlasStats(raw);
   }
 
+  /**
+   * Free up to `count` texture slots held by cached (not displayed) 4D
+   * resident-ring members. The displayed member of every ring is kept.
+   */
+  async reclaimCachedImageSlots(count: number): Promise<ReclaimCachedSlotsResult> {
+    const raw = await this.transport.invoke<{ reclaimed: number; free_texture_slots: number } | null>(
+      'reclaim_cached_image_slots',
+      { count },
+    );
+    const result = { reclaimed: raw?.reclaimed ?? 0, freeTextureSlots: raw?.free_texture_slots ?? 0 };
+    if (result.reclaimed > 0) getEventBus().emit('gpu.slots.freed', { reason: 'reclaim' });
+    return result;
+  }
+
   private mapAtlasStats(raw: RawAtlasStats): AtlasStats {
     return {
       totalLayers: raw.total_layers,
@@ -93,6 +121,9 @@ export class LayerGpuService {
       lastReleaseMs: raw.last_release_ms,
       volumeTextureSlots: raw.volume_texture_slots,
       renderLayerCapacity: raw.render_layer_capacity,
+      freeTextureSlots: raw.free_texture_slots,
+      residentTextureSlots: raw.resident_texture_slots,
+      cachedImageSlots: raw.cached_image_slots,
     };
   }
 }

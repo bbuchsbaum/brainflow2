@@ -22,7 +22,7 @@ import {
 } from '@brainflow/api';
 import { useRenderStore } from '@/stores/renderStore';
 import { RenderSession, createRenderSession } from './RenderSession';
-import type { AtlasStats } from '@/types/atlas';
+import type { AtlasStats, ReclaimCachedSlotsResult } from '@/types/atlas';
 
 const DEBUG_API_SERVICE =
   import.meta.env.DEV &&
@@ -604,6 +604,10 @@ export class ApiService {
 
   async getAtlasStats(): Promise<AtlasStats> {
     return this.layerGpu.getAtlasStats();
+  }
+
+  async reclaimCachedImageSlots(count: number): Promise<ReclaimCachedSlotsResult> {
+    return this.layerGpu.reclaimCachedImageSlots(count);
   }
 
   // ── Batch render delegation ────────────────────────────────────────────────

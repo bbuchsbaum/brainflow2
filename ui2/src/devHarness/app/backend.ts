@@ -725,8 +725,12 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       last_allocation_ms: null,
       last_release_ms: null,
       volume_texture_slots: 16,
-      render_layer_capacity: 8,
+      render_layer_capacity: 16,
+      free_texture_slots: Math.max(0, 16 - layers.size),
+      resident_texture_slots: layers.size,
+      cached_image_slots: 0,
     }),
+    reclaim_cached_image_slots: () => ({ reclaimed: 0, free_texture_slots: Math.max(0, 16 - layers.size) }),
 
     load_file: ({ path }: { path: string }) => {
       const fixture = fixtureForPath(path);

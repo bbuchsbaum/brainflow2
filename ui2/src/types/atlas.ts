@@ -193,10 +193,22 @@ export interface AtlasStats {
    */
   volumeTextureSlots?: number;
   /**
-   * Layers the render state takes at once ("Maximum layer count N reached",
-   * code 1885 past it). Undefined from an older backend.
+   * Layers one frame draws at once: a per-view draw cap, not a residency
+   * budget (uploads do not count against it). Undefined from an older backend.
    */
   renderLayerCapacity?: number;
+  /** Texture slots free now. Undefined from a backend built before 2026-11-02. */
+  freeTextureSlots?: number;
+  /** Texture slots holding data, 4D resident-ring members included. */
+  residentTextureSlots?: number;
+  /** Resident slots held by cached (not displayed) 4D ring members. */
+  cachedImageSlots?: number;
+}
+
+/** Result of `reclaim_cached_image_slots`. */
+export interface ReclaimCachedSlotsResult {
+  reclaimed: number;
+  freeTextureSlots: number;
 }
 
 // Default filter for initializing the UI
