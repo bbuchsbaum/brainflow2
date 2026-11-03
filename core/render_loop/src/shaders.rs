@@ -189,6 +189,13 @@ impl ShaderManager {
         })
     }
 
+    /// Names of the loaded shaders, sorted.
+    pub fn shader_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.shaders.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        names
+    }
+
     /// Register a shader module that was created externally (e.g. via wgsl_to_wgpu).
     pub fn insert_shader(&mut self, name: &str, module: ShaderModule) {
         self.shaders.insert(name.to_string(), module);

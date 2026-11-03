@@ -4157,8 +4157,9 @@ impl RenderLoopService {
             return Err(RenderLoopError::Internal {
                 code: 9010,
                 details: format!(
-                    "Shader '{}' not loaded. Available shaders: slice, slice_debug, slice_debug2, slice_debug3, slice_simple",
-                    shader_name
+                    "Shader '{}' not loaded. Available shaders: {}",
+                    shader_name,
+                    self.shader_manager.shader_names().join(", ")
                 ),
             });
         }

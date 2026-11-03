@@ -414,7 +414,7 @@ where
     }
 }
 
-// Implement DataRange for individual numeric types (needed by smart_texture_manager tests)
+// Implement DataRange for individual numeric types
 impl DataRange<u8> for u8 {
     fn min_value(&self) -> u8 {
         *self

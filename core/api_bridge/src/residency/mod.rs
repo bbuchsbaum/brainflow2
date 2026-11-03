@@ -5,7 +5,9 @@
 //!
 //! Lock order (outermost first); a path may skip levels but never go back up:
 //! 1. `BridgeState::volume_operations`
-//! 2. the outer `BridgeState::render_loop_service` slot (cloned out, then dropped)
+//! 2. the outer `BridgeState::render_loop_service` slot (either cloned out and
+//!    dropped, or held across 3+ as `release_layer_gpu_resources_held` does; never
+//!    acquired while holding 3 or deeper)
 //! 3. the `RenderLoopService` itself
 //! 4. `resident_image_sets`
 //! 5. `volume_registry`
