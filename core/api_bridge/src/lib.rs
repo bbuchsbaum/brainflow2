@@ -14777,6 +14777,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_lease_release_reports_freed_only_when_a_slot_was_released() {
+        let (state, service) = gpu_state().await;
+        state.volume_registry.lock().await.insert(
+            "volume".into(),
+            sendable_f32_volume([3, 2, 2], |i| i as f32),
+            volume_metadata_for("volume", "f32", bridge_types::VolumeType::Volume3D),
+        );
+        let upload = || async {
+            request_layer_gpu_resources_for_testing(label_spec("layer", "volume"), None, &state)
+                .await
+                .expect("upload");
+            lease_slot(&state, "layer").await
+        };
+
+        // The lease's residency was freed behind it: nothing is left to free.
+        let slot = upload().await;
+        assert!(service.lock().await.release_slot(slot).unwrap());
+        let result = release_layer_gpu_resources_for_testing("layer".into(), &state)
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(!result.freed, "{}", result.message);
+
+        // Control: a live residency is freed and reported.
+        let slot = upload().await;
+        let result = release_layer_gpu_resources_for_testing("layer".into(), &state)
+            .await
+            .unwrap();
+        assert!(result.freed);
+        assert!(!service.lock().await.is_slot_current(slot));
+    }
+
+    #[tokio::test]
     async fn a_release_without_a_lease_frees_only_a_residency_it_still_names() {
         let (state, service) = gpu_state().await;
         let upload = |value: f32| {

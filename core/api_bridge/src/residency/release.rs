@@ -76,12 +76,21 @@ pub(crate) async fn release_layer_gpu_resources_held(
             Some(outcome) => {
                 return Ok(ReleaseResult {
                     success: true,
-                    message: format!(
-                        "Released GPU resources for layer {} (atlas layer {})",
-                        layer_id,
-                        outcome.slot.index()
-                    ),
-                    freed: true,
+                    message: if outcome.freed {
+                        format!(
+                            "Released GPU resources for layer {} (atlas layer {})",
+                            layer_id,
+                            outcome.slot.index()
+                        )
+                    } else {
+                        format!(
+                            "Layer {}'s residency (atlas layer {}) was already released; nothing to free",
+                            layer_id,
+                            outcome.slot.index()
+                        )
+                    },
+                    // Only a release that freed a slot makes room for starved layers.
+                    freed: outcome.freed,
                 });
             }
             None => {

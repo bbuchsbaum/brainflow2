@@ -7,6 +7,9 @@ pub(crate) struct ReleaseOutcome {
     pub(crate) slot: SlotHandle,
     #[allow(dead_code)]
     render_state_entry_removed: bool,
+    /// Whether a texture slot was really freed: the lease's own (it may have
+    /// gone already) or one of its ring's.
+    pub(crate) freed: bool,
 }
 
 pub(crate) struct LayerLease {
@@ -204,7 +207,7 @@ impl LayerLeaseInner {
         // The lease's own residency first, with its render-state entry; then
         // the rest of the layer's ring, if the ring is this residency's.
         let released = release_slot(render_service, slot);
-        release_resident_image_set_allocations(
+        let ring_freed = release_resident_image_set_allocations(
             &self.layer_id,
             Some(slot),
             &self.resident_image_sets,
@@ -230,6 +233,7 @@ impl LayerLeaseInner {
         Ok(Some(ReleaseOutcome {
             slot,
             render_state_entry_removed: removed_from_render_state.unwrap_or(false),
+            freed: removed_from_render_state.is_some() || ring_freed > 0,
         }))
     }
 
