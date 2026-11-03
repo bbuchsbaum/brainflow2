@@ -2517,6 +2517,28 @@ async fn list_local_directory(path: &Path) -> BridgeResult<TreePayload> {
     Ok(TreePayload { nodes })
 }
 
+/// Materialize a remote file the caller can do without, such as a BIDS root
+/// file that is optional or absent from a dataset opened by layout. Only an
+/// absent remote file is tolerated (`Ok(false)`): a transport failure or a
+/// stopped mount is an error, so it is never mistaken for a missing file.
+/// A local path answers whether the file exists.
+async fn materialize_optional_remote_file(state: &BridgeState, path: &Path) -> BridgeResult<bool> {
+    let Some((mount, remote_path)) = resolve_remote_mount_for_local_path(state, path).await else {
+        return Ok(path.exists());
+    };
+    if mount.transfers.is_stopped() {
+        return Err(remote_transfer::error("Remote mount has been unmounted"));
+    }
+    if remote_transfer::stat_optional_owned(mount, remote_path)
+        .await?
+        .is_none()
+    {
+        return Ok(false);
+    }
+    materialize_remote_file_if_needed(state, path).await?;
+    Ok(true)
+}
+
 async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> BridgeResult<()> {
     let Some((mount, remote_path)) = resolve_remote_mount_for_local_path(state, path).await else {
         return Ok(());
@@ -11122,10 +11144,7 @@ async fn scan_bids_dataset(
     // participants.tsv is only recommended, and a dataset opened by layout
     // has no description.
     for name in ["dataset_description.json", "participants.tsv"] {
-        let path = dir.join(name);
-        if let Err(error) = materialize_remote_file_if_needed(state.inner(), &path).await {
-            info!("{} not materialized: {error:?}", path.display());
-        }
+        materialize_optional_remote_file(state.inner(), &dir.join(name)).await?;
     }
 
     // Load the BIDS project (blocking I/O on spawn_blocking)
@@ -11492,10 +11511,7 @@ async fn get_bids_events(
     );
 
     let dir = PathBuf::from(&dataset_path);
-    let description = dir.join("dataset_description.json");
-    if let Err(error) = materialize_remote_file_if_needed(state.inner(), &description).await {
-        info!("{} not materialized: {error:?}", description.display());
-    }
+    materialize_optional_remote_file(state.inner(), &dir.join("dataset_description.json")).await?;
 
     let rows = tokio::task::spawn_blocking(move || -> BridgeResult<Vec<BidsEventRow>> {
         let (project, _) = bids_index::layout::open_project(
