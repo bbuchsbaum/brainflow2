@@ -17,7 +17,7 @@ vi.mock('@/stores/layerStore', () => ({
   },
 }));
 
-import { ensureFrontWorkspaceResident } from '@/services/frontWorkspaceResidency';
+import { ensureFrontWorkspaceResident, restoreIfFrontVisible } from '@/services/frontWorkspaceResidency';
 import { GpuSlotsFullError } from '@/utils/formatTauriError';
 
 describe('front workspace residency', () => {
@@ -54,5 +54,13 @@ describe('front workspace residency', () => {
       'ui.notification',
       expect.objectContaining({ alert: true, subject: 'a.nii.gz', type: 'warning' }),
     );
+  });
+
+  it('restores an evicted layer only when it is visible in the front tab now', async () => {
+    h.evicted = ['a'];
+    await restoreIfFrontVisible('b');
+    expect(h.load).not.toHaveBeenCalled();
+    await restoreIfFrontVisible('a');
+    expect(h.load).toHaveBeenCalledWith('a');
   });
 });

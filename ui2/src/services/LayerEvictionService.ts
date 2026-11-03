@@ -372,6 +372,9 @@ class LayerEvictionService {
     const meta = useLayerStore.getState().layerMetadata.get(lruLayer.id);
     if (!meta) return false;
     setLayerMetadata(lruLayer.id, { ...meta, evicted: true, gpuResident: false });
+    // A tab switch during the release can have brought the layer to the
+    // front; frontWorkspaceResidency re-uploads it then (review 2).
+    getEventBus().emit('layer.gpu.evicted', { layerId: lruLayer.id, reason: 'eviction' });
     return true;
   }
 

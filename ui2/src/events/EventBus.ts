@@ -38,6 +38,12 @@ export interface EventMap {
    * panes refused for want of a slot may retry.
    */
   'gpu.slots.freed': { reason: 'release' | 'reclaim'; layerId?: string };
+  /**
+   * A layer's GPU resources were dropped behind the user's back (eviction or
+   * the backend's stale-lease watchdog): it is marked non-resident, and is
+   * uploaded again at once if it is visible in the front workspace.
+   */
+  'layer.gpu.evicted': { layerId: string; reason: 'eviction' | 'watchdog' };
 
   // Annotation events
   'annotation.added': { annotation: Annotation };

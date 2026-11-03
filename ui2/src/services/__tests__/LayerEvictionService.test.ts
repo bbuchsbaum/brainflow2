@@ -251,6 +251,22 @@ describe('LayerEvictionService', () => {
     expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
   });
 
+  // Review 2: a tab switch during the release's await can bring the evicted
+  // layer to the front. The eviction is announced so it is uploaded again.
+  it('announces each eviction so a layer now in front is restored', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({ volumeTextureSlots: 3 });
+    residentLayers(3, [0]);
+    mockApiService.releaseLayerGpuResources.mockImplementationOnce(async () => {
+      // The user switches tabs: layer-0 is visible in the new front tab.
+      mockViewStateStoreState.viewState.layers = [{ id: 'layer-0', visible: true }] as never;
+    });
+    await layerEvictionService.makeRoomForUpload('incoming');
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0');
+    expect(mockLayerStoreState.layerMetadata.get('layer-0')).toMatchObject({ gpuResident: false });
+    expect(mockEventBus.emit).toHaveBeenCalledWith('layer.gpu.evicted', { layerId: 'layer-0', reason: 'eviction' });
+    expect(layerEvictionService.evictedFrontLayers()).toEqual(['layer-0']);
+  });
+
   it('lists the front tab\'s visible layers that were evicted', () => {
     residentLayers(3, [2]);
     mockLayerStoreState.layerMetadata.set('layer-1', { gpuResident: false, evicted: true });

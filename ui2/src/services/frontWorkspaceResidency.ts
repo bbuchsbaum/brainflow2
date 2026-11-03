@@ -14,30 +14,50 @@ import { getLayerService } from './LayerService';
 import { layerEvictionService } from './LayerEvictionService';
 import { gpuTextureSlotsFullLimit, gpuTextureSlotsFullMessage } from '@/utils/formatTauriError';
 
+/**
+ * Upload one evicted layer again. Resolves false when the GPU is full (a
+ * refusal alert was raised), true otherwise.
+ */
+async function restoreLayer(id: string, isCurrent: () => boolean): Promise<boolean> {
+  try {
+    await getLayerService().loadLayerData(id);
+    return true;
+  } catch (error) {
+    if (!isCurrent()) return true;
+    const limit = gpuTextureSlotsFullLimit(error);
+    if (limit === null) return true; // recorded on the layer by loadLayerData
+    // Not a failure of the layer: the slots hold other tabs' pinned layers.
+    useLayerStore.getState().setLayerError(id, null);
+    const name = useLayerStore.getState().getLayer(id)?.name ?? id;
+    getEventBus().emit('ui.notification', {
+      type: 'warning',
+      message: `Cannot draw ${name} in this tab: ${gpuTextureSlotsFullMessage(limit)}`,
+      subject: name,
+      alert: true,
+      logSource: 'layer',
+    });
+    return false;
+  }
+}
+
 /** Re-upload the front workspace's evicted visible layers, one at a time. */
 export async function ensureFrontWorkspaceResident(isCurrent: () => boolean): Promise<void> {
   for (const id of layerEvictionService.evictedFrontLayers()) {
     if (!isCurrent()) return;
-    try {
-      await getLayerService().loadLayerData(id);
-    } catch (error) {
-      if (!isCurrent()) return;
-      const limit = gpuTextureSlotsFullLimit(error);
-      if (limit === null) continue; // recorded on the layer by loadLayerData
-      // Not a failure of the layer: the slots hold other tabs' pinned layers.
-      useLayerStore.getState().setLayerError(id, null);
-      const name = useLayerStore.getState().getLayer(id)?.name ?? id;
-      getEventBus().emit('ui.notification', {
-        type: 'warning',
-        message: `Cannot draw ${name} in this tab: ${gpuTextureSlotsFullMessage(limit)}`,
-        subject: name,
-        alert: true,
-        logSource: 'layer',
-      });
-      // Every later layer would meet the same full GPU.
-      return;
-    }
+    // Every later layer would meet the same full GPU.
+    if (!(await restoreLayer(id, isCurrent))) return;
   }
+}
+
+/**
+ * A layer just lost its GPU resources (eviction, watchdog). If it is visible
+ * in the front workspace now (a tab switch raced the release), upload it
+ * again; otherwise it waits for its tab.
+ */
+export async function restoreIfFrontVisible(layerId: string): Promise<void> {
+  if (!layerEvictionService.evictedFrontLayers().includes(layerId)) return;
+  const key = useViewStateStore.getState().activeWorkspaceKey;
+  await restoreLayer(layerId, () => useViewStateStore.getState().activeWorkspaceKey === key);
 }
 
 let stopWatching: (() => void) | null = null;
@@ -62,8 +82,17 @@ export function startFrontWorkspaceResidency(): () => void {
       });
     });
   });
+  const offEvicted = getEventBus().on('layer.gpu.evicted', ({ layerId }) => {
+    // Outside the evicting call: its makeRoom queue entry finishes first.
+    queueMicrotask(() => {
+      void restoreIfFrontVisible(layerId).catch((error) => {
+        console.warn('[frontWorkspaceResidency] Could not restore an evicted layer:', error);
+      });
+    });
+  });
   stopWatching = () => {
     unsubscribe();
+    offEvicted();
     stopWatching = null;
   };
   return stopWatching;
