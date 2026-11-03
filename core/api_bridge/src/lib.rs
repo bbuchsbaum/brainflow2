@@ -6228,7 +6228,6 @@ async fn invalidate_cached_layer_for_render(
         released?;
         return Ok(());
     }
-    release_resident_image_set(layer_id, bridge_state, service).await;
 
     {
         let mut layer_map = bridge_state.layer_slots.lock().await;
@@ -6243,17 +6242,18 @@ async fn invalidate_cached_layer_for_render(
         timepoint_map.remove(layer_id);
     }
 
-    // By handle: a residency released or refilled meanwhile is left alone.
-    let removed_from_render_state =
-        service
-            .release_layer_slot(slot)
-            .map_err(|e| BridgeError::GpuError {
-                code: 5080,
-                details: format!(
-                    "Failed to remove cached layer {} from render state: {:?}",
-                    layer_id, e
-                ),
-            })?;
+    // By handle, and before the ring (which holds the shown residency after a
+    // swap and would free it without its render-state entry): a residency
+    // released or refilled meanwhile is left alone.
+    let released = service.release_layer_slot(slot);
+    release_resident_image_set(layer_id, bridge_state, service).await;
+    let removed_from_render_state = released.map_err(|e| BridgeError::GpuError {
+        code: 5080,
+        details: format!(
+            "Failed to remove cached layer {} from render state: {:?}",
+            layer_id, e
+        ),
+    })?;
 
     if removed_from_render_state != Some(true) {
         warn!(
@@ -12576,6 +12576,17 @@ mod tests {
                     .unwrap()
                     .expect("resident swap")
             };
+            // A frame draws the swapped member: the render state now holds an
+            // entry for the ring's slot, which every route must remove.
+            render_view_for_testing(label_frame_json("layer", "volume", Some(1)), &state, None)
+                .await
+                .expect("draw");
+            assert_eq!(
+                mapped_handle(&state, "layer").await,
+                Some(slot),
+                "the frame drew the swapped member, not a re-upload"
+            );
+            assert!(service.lock().await.has_render_layer_for_atlas(slot.index()));
 
             // This is precisely the watchdog's snapshot-and-drop pattern.
             let snapshot = state
@@ -12634,12 +12645,14 @@ mod tests {
                     // Model pre-lease cache state without scheduling its Drop cleanup.
                     let lease = state.layer_leases.lock().await.remove("layer").unwrap();
                     lease.mark_released_for_test();
-                    assert!(
-                        release_layer_gpu_resources_internal("layer".into(), &state)
-                            .await
-                            .unwrap()
-                            .success
-                    );
+                    let result = release_layer_gpu_resources_internal("layer".into(), &state)
+                        .await
+                        .unwrap();
+                    assert!(result.success);
+                    assert!(result.freed, "the shown slot and the ring's were freed");
+                    let renderer = service.lock().await;
+                    assert!(!renderer.has_render_layer_for_atlas(slot.index()));
+                    assert!(!renderer.is_slot_current(slot));
                 }
                 _ => unreachable!(),
             }
@@ -14449,16 +14462,22 @@ mod tests {
     }
 
     fn label_frame(layer_id: &str, volume_id: &str) -> FrontendViewState {
+        let json = label_frame_json(layer_id, volume_id, None);
+        render_bridge_adapter::parse_frontend_view_state(&json).expect("frontend state")
+    }
+
+    /// The frontend view state of [`label_frame`], at `timepoint` if given.
+    fn label_frame_json(layer_id: &str, volume_id: &str, timepoint: Option<usize>) -> String {
         let view =
             r#"{"origin_mm": [0.0, 0.0, 0.0], "u_mm": [3.0, 0.0, 0.0], "v_mm": [0.0, 2.0, 0.0]}"#;
-        let json = format!(
-            r#"{{"views": {{"axial": {view}, "sagittal": {view}, "coronal": {view}}},
+        let timepoint = timepoint.map_or(String::new(), |t| format!(r#""timepoint": {t},"#));
+        format!(
+            r#"{{"views": {{"axial": {view}, "sagittal": {view}, "coronal": {view}}}, {timepoint}
                 "crosshair": {{"world_mm": [0.0, 0.0, 0.0], "visible": false}},
                 "layers": [{{"id": "{layer_id}", "volumeId": "{volume_id}", "visible": true,
                     "opacity": 1.0, "colormap": "gray", "intensity": [0.0, 1.0],
                     "threshold": [0.0, 0.0], "blendMode": "alpha", "layerMode": "label"}}]}}"#
-        );
-        render_bridge_adapter::parse_frontend_view_state(&json).expect("frontend state")
+        )
     }
 
     fn label_spec(layer_id: &str, volume_id: &str) -> LayerSpec {

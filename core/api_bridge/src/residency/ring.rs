@@ -115,25 +115,26 @@ pub(crate) async fn release_resident_image_set(
     layer_id: &str,
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
-) {
+) -> usize {
     release_resident_image_set_allocations(
         layer_id,
         None,
         &bridge_state.resident_image_sets,
         service,
     )
-    .await;
+    .await
 }
 
 /// Tear down `layer_id`'s ring and free the slots it still owns. With `owner`,
 /// only a ring that holds that residency goes: a late release of an old lease
-/// must not take the ring of the layer's newer allocation.
+/// must not take the ring of the layer's newer allocation. Returns how many
+/// slots it freed.
 pub(crate) async fn release_resident_image_set_allocations(
     layer_id: &str,
     owner: Option<SlotHandle>,
     resident_image_sets: &Mutex<HashMap<String, image_set::ResidentImageSet>>,
     service: &mut RenderLoopService,
-) {
+) -> usize {
     let resident = {
         let mut sets = resident_image_sets.lock().await;
         let owned = sets
@@ -145,7 +146,5 @@ pub(crate) async fn release_resident_image_set_allocations(
             None
         }
     };
-    if let Some(mut resident) = resident {
-        resident.release_all(service);
-    }
+    resident.map_or(0, |mut resident| resident.release_all(service))
 }

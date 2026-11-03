@@ -515,17 +515,25 @@ impl ResidentImageSet {
         }
     }
 
-    /// Free every slot the ring still owns. A slot released elsewhere is left
-    /// alone, even if another upload has since refilled its index.
-    pub fn release_all(&mut self, service: &mut render_loop::RenderLoopService) {
+    /// Free every slot the ring still owns, with the render-state entry of any
+    /// a frame drew (the member the layer shows). A slot released elsewhere is
+    /// left alone, even if another upload has since refilled its index.
+    /// Returns how many slots it freed.
+    pub fn release_all(&mut self, service: &mut render_loop::RenderLoopService) -> usize {
+        let mut freed = 0;
         for index in self.ring.resident_texture_indices() {
             let Some(handle) = self.handles.remove(&index) else {
                 continue;
             };
-            if let Err(error) = service.release_slot(handle) {
-                log::debug!("Resident image-set teardown: slot {index} not released: {error:?}");
+            match service.release_layer_slot(handle) {
+                Ok(Some(_)) => freed += 1,
+                Ok(None) => {}
+                Err(error) => {
+                    log::debug!("Resident image-set teardown: slot {index} not released: {error:?}");
+                }
             }
         }
+        freed
     }
 
     /// Drop the least recently used cached member (never the displayed one)
