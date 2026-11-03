@@ -114,19 +114,22 @@ fn test_max_layer_limit() {
         .block_on()
         .expect("Failed to create RenderLoopService");
 
-    // Add maximum number of layers (8)
-    for i in 0..8 {
+    // Add the maximum number of layers one frame draws (MAX_RENDER_LAYERS, 16)
+    let cap = render_loop::MAX_RENDER_LAYERS;
+    assert_eq!(cap, 16);
+    assert_eq!(service.render_layer_capacity() as usize, cap);
+    for i in 0..cap {
         service
             .add_render_layer(i as u32, 1.0, (0.0, 0.0, 1.0, 1.0))
             .unwrap_or_else(|_| panic!("Failed to add layer {}", i));
     }
 
-    assert_eq!(service.active_layer_count(), 8);
+    assert_eq!(service.active_layer_count(), cap);
 
     // Try to add one more - should fail
-    let result = service.add_render_layer(9, 1.0, (0.0, 0.0, 1.0, 1.0));
+    let result = service.add_render_layer(cap as u32 + 1, 1.0, (0.0, 0.0, 1.0, 1.0));
     assert!(result.is_err());
-    assert_eq!(service.active_layer_count(), 8);
+    assert_eq!(service.active_layer_count(), cap);
 
     println!("Max layer limit test passed!");
 }

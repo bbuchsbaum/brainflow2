@@ -3277,3 +3277,182 @@ fn bids_a_lock_taken_over_is_not_removed_by_its_old_owner() {
     drop(held);
     assert_eq!(std::fs::read_to_string(&lock).unwrap(), "someone-else");
 }
+
+// --- Detection and opening by layout (N50) ---
+
+use super::layout;
+
+fn probe_local(root: &Path) -> BidsDirectoryProbe {
+    layout::probe(&|dirs: &[String]| layout::list_local(root, dirs)).unwrap()
+}
+
+/// A dataset without its description: subject and datatype folders only.
+fn layout_only() -> TempDataset {
+    let ds = TempDataset::new();
+    std::fs::remove_file(ds.path("dataset_description.json")).unwrap();
+    std::fs::remove_file(ds.path("participants.tsv")).unwrap();
+    ds.nifti("sub-01/anat/sub-01_T1w.nii.gz", None, 0.0);
+    ds.nifti(
+        "sub-02/ses-1/func/sub-02_ses-1_task-rest_bold.nii.gz",
+        Some(3),
+        2.0,
+    );
+    ds.json(
+        "sub-02/ses-1/func/sub-02_ses-1_task-rest_bold.json",
+        json!({"RepetitionTime": 2.0}),
+    );
+    ds.text("derivatives/fmriprep/README", "not described");
+    ds
+}
+
+#[test]
+fn bids_probe_needs_a_description_but_not_participants() {
+    let ds = TempDataset::new();
+    assert_eq!(
+        probe_local(&ds.root),
+        BidsDirectoryProbe {
+            status: BidsDirectoryStatus::Bids,
+            missing: vec![],
+        }
+    );
+    std::fs::remove_file(ds.path("participants.tsv")).unwrap();
+    assert_eq!(
+        probe_local(&ds.root),
+        BidsDirectoryProbe {
+            status: BidsDirectoryStatus::Bids,
+            missing: vec!["participants.tsv".into()],
+        }
+    );
+}
+
+#[test]
+fn bids_probe_finds_a_layout_without_a_description() {
+    let ds = layout_only();
+    let probe = probe_local(&ds.root);
+    assert_eq!(probe.status, BidsDirectoryStatus::LayoutOnly);
+    assert_eq!(
+        probe.missing,
+        vec![
+            "dataset_description.json".to_string(),
+            "participants.tsv".into()
+        ]
+    );
+
+    // Sessions only: the layout is one level deeper.
+    std::fs::remove_dir_all(ds.path("sub-01")).unwrap();
+    assert_eq!(
+        probe_local(&ds.root).status,
+        BidsDirectoryStatus::LayoutOnly
+    );
+}
+
+#[test]
+fn bids_probe_rejects_a_plain_folder() {
+    let ds = layout_only();
+    std::fs::remove_dir_all(ds.path("sub-01")).unwrap();
+    std::fs::remove_dir_all(ds.path("sub-02")).unwrap();
+    // Subject-like names without BIDS-named files are not a layout.
+    ds.text("sub-03/anat/T1.nii.gz", "x");
+    ds.text("sub-04/notes/sub-04_T1w.nii.gz", "x");
+    ds.text("scan.nii.gz", "x");
+    assert_eq!(probe_local(&ds.root).status, BidsDirectoryStatus::None);
+
+    assert!(layout::is_layout_file("sub-01/anat/sub-01_T1w.nii.gz"));
+    assert!(layout::is_layout_file(
+        "sub-01/ses-a/dwi/sub-01_ses-a_dwi.bval"
+    ));
+    assert!(!layout::is_layout_file("sub-01/anat/sub-02_T1w.nii.gz"));
+    assert!(!layout::is_layout_file("sub-01/anat/sub-01_T1w.txt"));
+    assert!(!layout::is_layout_file(
+        "derivatives/sub-01/anat/sub-01_T1w.nii.gz"
+    ));
+}
+
+#[test]
+fn bids_probe_of_a_remote_mount_asks_the_server_not_the_mirror() {
+    // The mirror is empty: nothing was materialized. The server has the files.
+    let ds = TempDataset::new();
+    let server = FakeServer::new(&ds, false);
+    let mirror = ds.cache.join("empty-mirror");
+    std::fs::create_dir_all(&mirror).unwrap();
+    assert_eq!(probe_local(&mirror).status, BidsDirectoryStatus::None);
+    let remote = layout::probe(&|dirs: &[String]| server.list(dirs)).unwrap();
+    assert_eq!(remote.status, BidsDirectoryStatus::Bids);
+
+    let ds = layout_only();
+    let server = FakeServer::new(&ds, false);
+    let remote = layout::probe(&|dirs: &[String]| server.list(dirs)).unwrap();
+    assert_eq!(remote.status, BidsDirectoryStatus::LayoutOnly);
+}
+
+#[test]
+fn bids_scan_opens_a_dataset_by_layout_and_says_so() {
+    let ds = layout_only();
+    let index = ds.scan();
+    assert!(index.opened_by_layout);
+    assert_eq!(index.subjects, vec!["01".to_string(), "02".into()]);
+    assert_eq!(index.runs.len(), 2);
+    assert_eq!(index.bids_version, "unknown");
+    let finding = index
+        .findings
+        .iter()
+        .find(|f| f.code == layout::LAYOUT_ONLY_CODE)
+        .expect("layout finding");
+    assert_eq!(
+        finding.title,
+        "No dataset_description.json: not BIDS-valid; opened by layout."
+    );
+    assert_eq!(finding.severity, "error");
+    // Nothing was written to the dataset.
+    assert!(!ds.path("dataset_description.json").exists());
+
+    // A described dataset carries no such finding.
+    let described = TempDataset::new();
+    described.nifti("sub-01/anat/sub-01_T1w.nii.gz", None, 0.0);
+    let index = described.scan();
+    assert!(!index.opened_by_layout);
+    assert!(index
+        .findings
+        .iter()
+        .all(|f| f.code != layout::LAYOUT_ONLY_CODE));
+}
+
+#[test]
+fn bids_remote_scan_opens_a_dataset_by_layout() {
+    let ds = layout_only();
+    let server = FakeServer::new(&ds, false);
+    let index = ds.scan_with(Some(&server), |_| {});
+    assert!(index.opened_by_layout);
+    assert_eq!(index.runs.len(), 2);
+    assert!(index
+        .findings
+        .iter()
+        .any(|f| f.code == layout::LAYOUT_ONLY_CODE));
+}
+
+#[test]
+fn bids_scan_of_a_plain_folder_still_fails() {
+    let ds = layout_only();
+    std::fs::remove_dir_all(ds.path("sub-01")).unwrap();
+    std::fs::remove_dir_all(ds.path("sub-02")).unwrap();
+    ds.text("scan.nii.gz", "x");
+    let request = ScanRequest {
+        dataset: &ds.root,
+        scan_id: "plain",
+        remote: None,
+        cache_root: &ds.cache,
+    };
+    let error = run_scan(&request, &AtomicBool::new(false), |_| {}).unwrap_err();
+    assert!(error.contains("no dataset_description.json"), "{error}");
+}
+
+#[test]
+fn bids_exclusions_are_not_written_for_a_dataset_opened_by_layout() {
+    let ds = layout_only();
+    assert_eq!(read_exclusions(&ds.root).unwrap(), Vec::new());
+    let error =
+        write_exclusions(&ds.root, &[row("sub-01", "gone")], &context(), "0.9.0").unwrap_err();
+    assert!(error.contains("no dataset_description.json"), "{error}");
+    assert!(!ds.path("derivatives/brainflow").exists());
+    assert!(!ds.path("dataset_description.json").exists());
+}

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-probe-bids-directory"
+description = "Enables the probe_bids_directory command without any pre-configured scope."
+commands.allow = ["probe_bids_directory"]
+
+[[permission]]
+identifier = "deny-probe-bids-directory"
+description = "Denies the probe_bids_directory command without any pre-configured scope."
+commands.deny = ["probe_bids_directory"]

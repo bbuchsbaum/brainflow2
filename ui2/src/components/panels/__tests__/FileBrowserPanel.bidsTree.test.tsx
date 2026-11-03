@@ -1,5 +1,5 @@
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { FileBrowserPanel } from '../FileBrowserPanel';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
@@ -90,6 +90,7 @@ describe('FileBrowserPanel BidsView subject/task tree', () => {
     setTransport({
       invoke: vi.fn().mockImplementation((cmd: string) => {
         if (cmd === 'check_bids_directory') return Promise.resolve(true);
+        if (cmd === 'probe_bids_directory') return Promise.resolve({ status: 'bids', missing: [] });
         return Promise.resolve(null);
       }),
     } as BackendTransportLike);
@@ -242,5 +243,55 @@ describe('FileBrowserPanel BidsView subject/task tree', () => {
     fireEvent.click(screen.getByRole('tab', { name: /BIDS/ }));
     await screen.findByText(/BIDS dataset detected\./);
     expect(screen.queryByText('sub-01')).toBeNull();
+  });
+
+  describe('a folder that is BIDS only by its layout', () => {
+    let scanDataset: ReturnType<typeof vi.fn>;
+    const realScan = useBidsStore.getState().scanDataset;
+    afterEach(() => useBidsStore.setState({ scanDataset: realScan }));
+    beforeEach(() => {
+      setTransport({
+        invoke: vi.fn().mockImplementation((cmd: string) => {
+          if (cmd === 'check_bids_directory') return Promise.resolve(false);
+          if (cmd === 'probe_bids_directory') {
+            return Promise.resolve({
+              status: 'layout_only',
+              missing: ['dataset_description.json', 'participants.tsv'],
+            });
+          }
+          return Promise.resolve(null);
+        }),
+      } as BackendTransportLike);
+      scanDataset = vi.fn().mockResolvedValue(undefined);
+      useBidsStore.setState({ scanDataset } as never);
+    });
+
+    it('is not opened by itself: it offers to open it as BIDS anyway', async () => {
+      resetStore();
+      render(<FileBrowserPanel />);
+      fireEvent.click(screen.getByRole('tab', { name: /BIDS/ }));
+
+      expect(await screen.findByText(/has a BIDS layout but no/)).toBeInTheDocument();
+      expect(screen.queryByText(/BIDS dataset detected\./)).toBeNull();
+      expect(scanDataset).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open as BIDS anyway' }));
+      expect(scanDataset).toHaveBeenCalledWith('/data/bids');
+    });
+
+    it('shows the tree once opened, marked as not BIDS-valid', async () => {
+      resetStore();
+      useBidsStore.setState({
+        datasetPath: '/data/bids',
+        index: { ...makeIndex(), opened_by_layout: true },
+        scanStatus: 'ready',
+      });
+      render(<FileBrowserPanel />);
+      fireEvent.click(screen.getByRole('tab', { name: /BIDS/ }));
+
+      expect(await screen.findByText('sub-01')).toBeInTheDocument();
+      expect(screen.getByText(/Opened by layout: no/)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Open as BIDS anyway' })).toBeNull();
+    });
   });
 });

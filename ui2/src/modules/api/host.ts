@@ -18,6 +18,9 @@ import { getFileLoadingService } from '@/services/FileLoadingService';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { moduleRegistry } from '@/modules/registry';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { isViewWorkspaceType } from '@/components/ui/displayModeSelector.helpers';
+import { useCenterTabStore } from '@/stores/centerTabStore';
+import { currentTabTakesLayout } from '@/services/workspaceNavigation';
 import { useLayerStore, type VolumeMetadata } from '@/stores/layerStore';
 export type { WorkspaceDocumentIdentity, RetainWorkspaceDocumentOptions } from '@/services/workspaceDocuments';
 import {
@@ -71,6 +74,35 @@ export function captureActiveWorkspace(): ActiveWorkspaceLease | null {
   }};
 }
 export const useActiveWorkspaceId = () => useWorkspaceStore((state) => state.activeWorkspaceId);
+/**
+ * Bring a view tab to the front for a module entry point shown outside a view
+ * (view modes apply to the front view): the active view workspace when there
+ * is one (for example behind a surface tab), else the newest view tab.
+ * Resolves true once that view is actually in front of the centre stack, or
+ * false when no view tab exists or it did not come forward within `timeoutMs`.
+ */
+export function activateViewTab(timeoutMs = 1000): Promise<boolean> {
+  const { workspaces, activeWorkspaceId, activateWorkspace } = useWorkspaceStore.getState();
+  const views = [...workspaces.values()].filter((workspace) => isViewWorkspaceType(workspace.type));
+  const active = views.find((workspace) => workspace.id === activeWorkspaceId);
+  const target = active ?? views.sort((a, b) => b.timestamp - a.timestamp)[0];
+  if (!target) return Promise.resolve(false);
+  if (target.id !== activeWorkspaceId) activateWorkspace(target.id);
+  useCenterTabStore.getState().requestWorkspaceFront();
+  // The centre stack reports its new front tab asynchronously.
+  return new Promise((resolve) => {
+    const settle = (value: boolean) => { clearTimeout(timer); stopWorkspace(); stopTab(); resolve(value); };
+    const check = () => { if (currentTabTakesLayout()) settle(true); };
+    const stopWorkspace = useWorkspaceStore.subscribe(check);
+    const stopTab = useCenterTabStore.subscribe(check);
+    const timer = setTimeout(() => settle(currentTabTakesLayout()), timeoutMs);
+    check();
+  });
+}
+/** Run a module command exactly as the ⌘K palette does. False when it cannot run here. */
+export function runModuleCommand(commandId: string): Promise<boolean> {
+  return moduleRegistry.executeCommand(commandId);
+}
 export { isLiveWorkspaceDocument as isLiveDocument, isWorkspaceEditingFrozen as isDocumentEditingFrozen } from '@/services/workspaceDocuments';
 
 /** Retain a module document in the shell-owned close broker, not module disposables. */
@@ -128,6 +160,23 @@ export async function openSurfaceFile(options: { path: string; displayName?: str
 }
 
 export const useLoadedVolumeLayers = () => useLayerStore((state) => state.layers);
+/**
+ * A key that changes whenever a layer of these volumes loses its GPU
+ * residency (evicted, released by the stale-lease watchdog) or gains it back
+ * (uploaded again). A module view that draws these volumes re-renders on it,
+ * so a re-upload behind its back never leaves it showing a stale or empty
+ * frame (QA r0 2026-11-02, N34).
+ */
+export function useVolumeResidencyKey(volumeIds: readonly string[]): string {
+  const wanted = volumeIds.join('\u0000');
+  return useLayerStore((state) => {
+    const ids = wanted ? wanted.split('\u0000') : [];
+    return state.layers
+      .filter((layer) => ids.includes(layer.volumeId))
+      .map((layer) => `${layer.id}:${state.layerMetadata.get(layer.id)?.gpuResident === false ? 0 : 1}`)
+      .join('|');
+  });
+}
 /** Remove module-created layers (for example a discarded document's frozen
  * frames) through the ordinary layer lifecycle, which also unloads them. */
 export async function removeModuleLayers(volumeIds: readonly string[]): Promise<void> {

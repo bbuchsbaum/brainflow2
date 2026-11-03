@@ -4,8 +4,8 @@
  * design state (the dev-harness scenarios) without throwing.
  */
 import React from 'react';
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { BRIDGE_MODULES } from '@brainflow/api';
 import { FIRST_PARTY_MODULES } from '@/modules/index';
 import { moduleRegistry, stageDefaultEnabled } from '@/modules/registry';
@@ -27,8 +27,17 @@ describe('segmentation module', () => {
   });
 
   it('its persisted design-era tool tab points to the live view mode', () => {
-    render(<SegmentationWorkspace workspaceId="w1" />);
-    expect(screen.getByText('Open Segment in a view tab')).toBeTruthy();
+    const run = vi.spyOn(moduleRegistry, 'executeCommand').mockResolvedValue(true);
+    try {
+      render(<SegmentationWorkspace workspaceId="w1" />);
+      expect(screen.getByText('Segment in a view tab')).toBeTruthy();
+      expect(screen.getByText('⌘K › Open segmentation')).toBeTruthy();
+      // The pane offers the same flow as the palette command, not just a hint.
+      fireEvent.click(screen.getByRole('button', { name: 'Open segmentation' }));
+      expect(run).toHaveBeenCalledWith('segmentation.open');
+    } finally {
+      run.mockRestore();
+    }
   });
 
   describe.each(Object.values(DIRECTIONS))('direction $id ($title)', (direction) => {

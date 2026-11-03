@@ -22,7 +22,7 @@ import {
 } from '@brainflow/api';
 import { useRenderStore } from '@/stores/renderStore';
 import { RenderSession, createRenderSession } from './RenderSession';
-import type { AtlasStats } from '@/types/atlas';
+import type { AtlasStats, ReclaimCachedSlotsResult } from '@/types/atlas';
 
 const DEBUG_API_SERVICE =
   import.meta.env.DEV &&
@@ -557,8 +557,8 @@ export class ApiService {
     return this.layerGpu.requestLayerGpuResources(layerId, volumeId, metadataOnly);
   }
 
-  async releaseLayerGpuResources(layerId: string): Promise<void> {
-    return this.layerGpu.releaseLayerGpuResources(layerId);
+  async releaseLayerGpuResources(layerId: string, options?: { forUpload?: boolean }): Promise<void> {
+    return this.layerGpu.releaseLayerGpuResources(layerId, options);
   }
 
   async waitForLayerReady(
@@ -567,6 +567,10 @@ export class ApiService {
     pollIntervalMs: number = 25,
   ): Promise<boolean> {
     return this.layerGpu.waitForLayerReady(layerId, timeoutMs, pollIntervalMs);
+  }
+
+  async isLayerGpuResident(layerId: string): Promise<boolean> {
+    return this.layerGpu.isLayerGpuResident(layerId);
   }
 
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
@@ -604,6 +608,10 @@ export class ApiService {
 
   async getAtlasStats(): Promise<AtlasStats> {
     return this.layerGpu.getAtlasStats();
+  }
+
+  async reclaimCachedImageSlots(count: number): Promise<ReclaimCachedSlotsResult> {
+    return this.layerGpu.reclaimCachedImageSlots(count);
   }
 
   // ── Batch render delegation ────────────────────────────────────────────────

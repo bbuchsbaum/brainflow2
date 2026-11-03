@@ -3,12 +3,26 @@
 export type AtlasStats = { total_layers: number, used_layers: number, free_layers: number, allocations: bigint, releases: bigint, high_watermark: number, full_events: bigint, is_3d: boolean, last_allocation_ms: bigint | null, last_release_ms: bigint | null, 
 /**
  * Volume texture slots of the render loop (its runtime texture capacity):
- * the layer budget the UI's eviction counts against. Past it, a GPU
+ * the residency budget the UI's eviction counts against. Past it, a GPU
  * upload fails with "Maximum texture limit N reached".
  */
 volume_texture_slots: number, 
 /**
- * Layers the render state takes at once (code 1885 past it). The UI's
- * layer budget is the smaller of this and `volume_texture_slots`.
+ * Layers one frame draws at once. A per-view draw cap, not a residency
+ * budget: uploads do not count against it, and a frame with more
+ * visible layers leaves the extra ones out.
  */
-render_layer_capacity: number, };
+render_layer_capacity: number, 
+/**
+ * Volume texture slots that can be allocated now without reclaiming.
+ */
+free_texture_slots: number, 
+/**
+ * Volume texture slots holding data, including 4D resident-ring members.
+ */
+resident_texture_slots: number, 
+/**
+ * Resident slots held by cached (not displayed) 4D ring members, which
+ * `reclaim_cached_image_slots` can free without evicting a layer.
+ */
+cached_image_slots: number, };

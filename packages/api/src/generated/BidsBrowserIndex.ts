@@ -49,4 +49,10 @@ subjects: Array<string>, runs: Array<BidsRunRecord>, series_modal: Array<BidsSer
 /**
  * `derivatives/brainflow/dataset_description.json` already exists.
  */
-exclusions_described: boolean, };
+exclusions_described: boolean, 
+/**
+ * The dataset has no `dataset_description.json` and was opened by its
+ * layout at the user's request. It is not BIDS-valid, and exclusions are
+ * not written for it.
+ */
+opened_by_layout: boolean, };

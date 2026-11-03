@@ -49,6 +49,37 @@ describe('BidsFindingsPanel', () => {
     expect(counted.reduce((sum, n) => sum + n, 0)).toBe(model().status.findings);
   });
 
+  it('lists the opened-by-layout finding as a dataset-wide validator error', () => {
+    const index = useBidsStore.getState().index!;
+    act(() =>
+      useBidsStore.setState({
+        index: {
+          ...index,
+          opened_by_layout: true,
+          findings: [
+            ...index.findings,
+            {
+              id: 'layout',
+              tag: 'validator',
+              severity: 'error',
+              code: 'NO_DATASET_DESCRIPTION',
+              title: 'No dataset_description.json: not BIDS-valid; opened by layout.',
+              detail: 'It was opened by its layout.',
+              subject: null,
+              session: null,
+              run_ids: [],
+              file: 'dataset_description.json',
+            },
+          ],
+        },
+      }),
+    );
+    render(<BidsFindingsPanel />);
+    expect(screen.getByRole('region', { name: 'Errors' }).textContent).toContain(
+      'No dataset_description.json: not BIDS-valid; opened by layout.',
+    );
+  });
+
   it('keeps validator and Brainflow tags apart', () => {
     render(<BidsFindingsPanel />);
     const errors = screen.getByRole('region', { name: 'Errors' }).textContent;

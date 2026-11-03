@@ -9,6 +9,7 @@ pub(crate) mod exclusions;
 pub(crate) mod fd;
 pub(crate) mod fieldmap;
 pub(crate) mod images;
+pub(crate) mod layout;
 pub(crate) mod meta;
 pub(crate) mod remote;
 pub(crate) mod scan;

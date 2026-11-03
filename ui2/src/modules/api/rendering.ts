@@ -16,6 +16,15 @@ export function useWorkspaceRenderState(workspaceId: string) {
   return useViewStateStore((state) => state.workspaceViewStates.get(workspaceId));
 }
 
+/**
+ * Whether the render store holds an image for this render context. A
+ * viewport's unmount clears its context's image, so a view that remembers
+ * "this frame is drawn" must also check that the image is still there.
+ */
+export function useHasRenderedImage(contextId: string): boolean {
+  return useRenderStateStore((state) => Boolean(state.states[contextId]?.lastImage));
+}
+
 /** Publish an already registered volume through the ordinary layer lifecycle. */
 export async function ensureModuleLabelLayer(options: {
   workspaceId: string; volumeId: string; kind: string; title: string;

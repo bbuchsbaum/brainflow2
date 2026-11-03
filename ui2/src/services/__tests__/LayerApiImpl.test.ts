@@ -26,6 +26,7 @@ const {
   mockApiService: {
     requestLayerGpuResources: vi.fn(),
     waitForLayerReady: vi.fn(),
+    isLayerGpuResident: vi.fn(),
     unloadVolume: vi.fn(),
     releaseLayerGpuResources: vi.fn(),
     patchLayer: vi.fn(),
@@ -50,6 +51,7 @@ const {
     selectLayer: vi.fn(),
     reorderLayers: vi.fn(),
     getLayerMetadata: vi.fn(() => undefined),
+    setLayerError: vi.fn(),
   },
   mockViewStateStoreState: {
     workspaceViewStates: new Map<string, any>(),
@@ -165,6 +167,7 @@ describe('LayerApiImpl', () => {
       tex_format: 'r32float',
     });
     mockApiService.waitForLayerReady.mockResolvedValue(true);
+    mockApiService.isLayerGpuResident.mockResolvedValue(false);
     mockHistogramService.computeHistogram.mockResolvedValue({
       bins: [
         { x0: 0, x1: 50, count: 1 },
@@ -309,6 +312,58 @@ describe('LayerApiImpl', () => {
     expect(mockLayerEvictionService.makeRoomForUpload.mock.invocationCallOrder[0]).toBeLessThan(
       mockApiService.requestLayerGpuResources.mock.invocationCallOrder[0],
     );
+  });
+
+  // Review 1: after a tab switch a frame can allocate an evicted visible layer
+  // on demand before the front-tab re-upload asks. The layer is adopted as
+  // resident: no eviction for it, no failed request, no layer error.
+  describe('a layer the backend already holds', () => {
+    const evictedLayer = () => {
+      mockLayerStoreState.getLayer.mockReturnValue({
+        id: 'layer-1',
+        name: 'Evicted',
+        volumeId: 'vol-1',
+        visible: true,
+        type: 'anatomical',
+      });
+      mockLayerStoreState.layerMetadata.set('layer-1', { gpuResident: false, evicted: true, dimensions: [16, 16, 16] });
+    };
+
+    it('is adopted before any eviction or request', async () => {
+      evictedLayer();
+      mockApiService.isLayerGpuResident.mockResolvedValue(true);
+      await new LayerApiImpl().loadLayerData('layer-1');
+      expect(mockLayerEvictionService.makeRoomForUpload).not.toHaveBeenCalled();
+      expect(mockApiService.requestLayerGpuResources).not.toHaveBeenCalled();
+      expect(mockLayerStoreState.layerMetadata.get('layer-1')).toMatchObject({
+        gpuResident: true,
+        evicted: false,
+        dimensions: [16, 16, 16],
+      });
+      expect(mockLayerStoreState.setLayerError).toHaveBeenCalledWith('layer-1', null);
+      expect(mockEventBus.emit).toHaveBeenCalledWith('layer.gpu.ready', { layerId: 'layer-1' });
+    });
+
+    it('treats "already owns GPU resources" (1006) as resident when the backend confirms', async () => {
+      evictedLayer();
+      // Not held at the check; a frame allocates it before the request lands.
+      mockApiService.isLayerGpuResident.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      mockApiService.requestLayerGpuResources.mockRejectedValueOnce({
+        Input: { code: 1006, details: "Layer 'layer-1' already owns GPU resources" },
+      });
+      await expect(new LayerApiImpl().loadLayerData('layer-1')).resolves.toBeUndefined();
+      expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
+      expect(mockLayerEvictionService.releaseReservation).toHaveBeenCalledWith('layer-1');
+    });
+
+    it('still fails a 1006 the backend does not confirm', async () => {
+      evictedLayer();
+      mockApiService.requestLayerGpuResources.mockRejectedValueOnce({
+        Input: { code: 1006, details: "Layer 'layer-1' already owns GPU resources" },
+      });
+      await expect(new LayerApiImpl().loadLayerData('layer-1')).rejects.toBeTruthy();
+      expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(false);
+    });
   });
 
   it('promotes a non-resident hidden layer when it becomes visible', async () => {

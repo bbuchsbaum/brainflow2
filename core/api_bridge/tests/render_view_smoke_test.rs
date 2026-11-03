@@ -1562,15 +1562,33 @@ async fn render_view_survives_layers_the_gpu_cannot_hold() {
     let (w, h, rgba) = decode_raw_rgba_frame(&frame);
     assert_has_visible_content(rgba, w, h);
 
-    // One more visible layer than the render state takes.
+    // One more visible layer than the render state takes. The draw cap (16)
+    // exceeds the texture slots, so the layers share one texture: the first
+    // is keyed by the volume id, which the others resolve to.
     let layers = (0..=cap)
-        .map(|i| layer(format!("n18-layer-{i}"), &volume_id))
+        .map(|i| {
+            let id = if i == 0 {
+                volume_id.clone()
+            } else {
+                format!("n18-layer-{i}")
+            };
+            layer(id, &volume_id)
+        })
         .collect();
     let frame = render_view_for_testing(render(layers), &bridge_state, Some("rgba"))
         .await
         .expect("a layer past the render-layer cap must not fail the frame");
     let (w, h, rgba) = decode_raw_rgba_frame(&frame);
     assert_has_visible_content(rgba, w, h);
+    // The per-view draw cap still holds: the frame drew `cap` layers and left
+    // the extra one out, although uploads no longer count against it.
+    let drawn = {
+        let service = bridge_state.render_loop_service.lock().await;
+        let service = service.as_ref().unwrap().lock().await;
+        service.active_layer_count()
+    };
+    assert_eq!(cap, 16);
+    assert_eq!(drawn, cap, "the frame draws at most the render-layer cap");
 }
 
 /// QA 2026-10-31 N18 review: with every texture slot holding a layer, one

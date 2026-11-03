@@ -58,6 +58,20 @@ fn rename(temporary: tempfile::NamedTempFile, path: &Path, _index: usize) -> std
     temporary.persist(path).map(drop).map_err(|e| e.error)
 }
 
+/// A temporary sibling that becomes a saved file. On Unix it is created with
+/// mode 0666 so the process umask decides the final mode (typically 0644),
+/// like any ordinary new file, instead of tempfile's private 0600.
+fn staging_file(directory: &Path, suffix: &str) -> std::io::Result<tempfile::NamedTempFile> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".brainflow-labels-").suffix(suffix);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o666));
+    }
+    builder.tempfile_in(directory)
+}
+
 fn restore(backup: &Path, path: &Path) -> std::io::Result<()> {
     #[cfg(test)]
     if FAIL_RESTORE.with(|hook| hook.get()) {
@@ -147,18 +161,12 @@ pub fn write_label_export(
     header.cal_max = f32::from(maximum);
     let mut staged = Vec::with_capacity(companions.len());
     for companion in companions {
-        let mut temporary = tempfile::Builder::new()
-            .prefix(".brainflow-labels-")
-            .suffix(".tmp")
-            .tempfile_in(parent(&companion.target.path))?;
+        let mut temporary = staging_file(parent(&companion.target.path), ".tmp")?;
         temporary.write_all(&companion.bytes)?;
         temporary.as_file().sync_all()?;
         staged.push((temporary, &companion.target));
     }
-    let temporary = tempfile::Builder::new()
-        .prefix(".brainflow-labels-")
-        .suffix(suffix)
-        .tempfile_in(parent(destination))?;
+    let temporary = staging_file(parent(destination), suffix)?;
     let shape = dimensions.map(|v| v as usize);
     let shape = (shape[0], shape[1], shape[2]).f();
     if maximum <= u16::from(u8::MAX) {
@@ -232,6 +240,15 @@ fn commit(staged: Vec<(tempfile::NamedTempFile, &Target)>) -> Result<()> {
         }
         return Err(Error::Export(format!("{error}; nothing was written")));
     }
+    // A replaced file keeps its mode (a group-shared 0664 or a private 0600);
+    // new files keep the umask mode from `staging_file`. Best effort: a
+    // filesystem without Unix modes (exFAT, SMB) keeps its own.
+    #[cfg(unix)]
+    for ((temporary, target), slot) in temporaries.iter().zip(&targets).zip(&slots) {
+        if let (Slot::Replaced(_), Ok(previous)) = (slot, std::fs::metadata(&target.path)) {
+            let _ = temporary.as_file().set_permissions(previous.permissions());
+        }
+    }
     let mut renamed = 0;
     let mut failure = None;
     for (index, temporary) in temporaries.into_iter().enumerate() {
@@ -295,6 +312,84 @@ mod tests {
         NiftiHeader {
             dim: [3, 2, 2, 1, 1, 1, 1, 1],
             ..NiftiHeader::default()
+        }
+    }
+
+    /// Saved files follow the umask like ordinary new files (0644 under the
+    /// usual 022), not tempfile's private 0600, whether the destination is
+    /// reserved (no replace) or replaced.
+    #[cfg(unix)]
+    #[test]
+    fn saved_files_are_created_with_the_umask_mode_not_private_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        // The mode an ordinary new file gets under this process's umask.
+        let probe = directory.path().join("probe");
+        std::fs::File::create(&probe).unwrap();
+        let expected = probe.metadata().unwrap().permissions().mode() & 0o777;
+        for replace in [false, true] {
+            let labels = directory.path().join(format!("labels-{replace}.nii.gz"));
+            let table = directory.path().join(format!("labels-{replace}.tsv"));
+            write_label_export(
+                [2, 2, 1],
+                &[0, 1, 2, 3],
+                &reference(),
+                &Target {
+                    path: labels.clone(),
+                    replace,
+                },
+                &[Companion {
+                    target: Target {
+                        path: table.clone(),
+                        replace,
+                    },
+                    bytes: b"index\tname\n".to_vec(),
+                }],
+            )
+            .unwrap();
+            for path in [&labels, &table] {
+                let mode = path.metadata().unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, expected, "{} has mode {mode:o}", path.display());
+                assert_ne!(mode, 0o600);
+            }
+        }
+    }
+
+    /// Replacing an existing file keeps its permission bits.
+    #[cfg(unix)]
+    #[test]
+    fn a_replaced_file_keeps_its_previous_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        for previous in [0o664, 0o600] {
+            let labels = directory.path().join(format!("labels-{previous:o}.nii"));
+            let table = directory.path().join(format!("labels-{previous:o}.tsv"));
+            for path in [&labels, &table] {
+                std::fs::write(path, b"old").unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(previous)).unwrap();
+            }
+            write_label_export(
+                [2, 2, 1],
+                &[0, 1, 2, 3],
+                &reference(),
+                &Target {
+                    path: labels.clone(),
+                    replace: true,
+                },
+                &[Companion {
+                    target: Target {
+                        path: table.clone(),
+                        replace: true,
+                    },
+                    bytes: b"new".to_vec(),
+                }],
+            )
+            .unwrap();
+            for path in [&labels, &table] {
+                let mode = path.metadata().unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, previous, "{} has mode {mode:o}", path.display());
+            }
+            assert_eq!(std::fs::read(&table).unwrap(), b"new");
         }
     }
 

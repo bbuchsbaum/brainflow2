@@ -25,6 +25,8 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { ViewPlane } from '@/types/coordinates';
 import { buildActiveCrosshairStyle } from '@/utils/crosshairUtils';
+import { getEventBus } from '@/events/EventBus';
+import { safeUnlisten } from '@/utils/eventUtils';
 
 /** How long a pane keeps its cached bitmap waiting for its anatomy on return (N29). */
 const ANATOMY_WAIT_MS = 1500;
@@ -64,9 +66,17 @@ export function StudioDerivedPaneCanvas({
   // re-entering acquires it again (review M1).
   const [map, setMap] = useState<StudioDerivedMap | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // A map refused for want of a GPU slot is asked for again when slots are
+  // freed (N32): bumping these re-runs the acquiring effects. Returning to
+  // the Studio tab re-acquires too (studioActive).
+  const [mapAttempt, setMapAttempt] = useState(0);
+  const [anatomyAttempt, setAnatomyAttempt] = useState(0);
+  const [waitingForSlots, setWaitingForSlots] = useState(false);
+  const [anatomyWaiting, setAnatomyWaiting] = useState(false);
   useEffect(() => {
     setMap(null);
     setFailure(null);
+    setWaitingForSlots(false);
     if (!studioActive) return;
     let alive = true;
     const hold = getStudioDerivedMapService().acquire(sourcePath);
@@ -79,9 +89,11 @@ export function StudioDerivedPaneCanvas({
       .catch((error) => {
         if (!alive) return;
         // The GPU's volume slots are a hard budget: say so, with the way out.
+        const slotsFull = isGpuTextureSlotsFull(error);
+        setWaitingForSlots(slotsFull);
         setFailure(
-          isGpuTextureSlotsFull(error)
-            ? 'GPU texture slots full: close a layer to show this map.'
+          slotsFull
+            ? 'GPU texture slots full: hide or remove a layer to show this map.'
             : 'The map could not be opened.',
         );
       });
@@ -89,7 +101,7 @@ export function StudioDerivedPaneCanvas({
       alive = false;
       hold.release();
     };
-  }, [sourcePath, studioActive]);
+  }, [sourcePath, studioActive, mapAttempt]);
 
   // The anatomy is optional: a pane without it still shows its map.
   // `anatomySettled`: its load finished (or failed), or there is none.
@@ -98,6 +110,7 @@ export function StudioDerivedPaneCanvas({
   useEffect(() => {
     setAnatomy(null);
     setAnatomySettled(!underlayPath);
+    setAnatomyWaiting(false);
     if (!studioActive || !underlayPath) return;
     let alive = true;
     const hold = getStudioDerivedMapService().acquire(underlayPath);
@@ -109,14 +122,41 @@ export function StudioDerivedPaneCanvas({
       },
       (error) => {
         console.warn(`[StudioDerivedPaneCanvas] No anatomy under ${paneId}:`, error);
-        if (alive) setAnatomySettled(true);
+        if (!alive) return;
+        setAnatomySettled(true);
+        setAnatomyWaiting(isGpuTextureSlotsFull(error));
       },
     );
     return () => {
       alive = false;
       hold.release();
     };
-  }, [underlayPath, studioActive, paneId]);
+  }, [underlayPath, studioActive, paneId, anatomyAttempt]);
+
+  // Retry what waits for a slot once one is freed.
+  useEffect(() => {
+    if (!studioActive || (!waitingForSlots && !anatomyWaiting)) return;
+    const off = getEventBus().on('gpu.slots.freed', () => {
+      if (waitingForSlots) setMapAttempt((n) => n + 1);
+      if (anatomyWaiting) setAnatomyAttempt((n) => n + 1);
+    });
+    return () => {
+      void safeUnlisten(off);
+    };
+  }, [studioActive, waitingForSlots, anatomyWaiting]);
+
+  // A borrowed workspace underlay whose layer was removed: load the template
+  // afresh (the service no longer lends the removed layer).
+  const borrowedAnatomy = anatomy?.borrowed ? anatomy.layerId : null;
+  useEffect(() => {
+    if (!studioActive || !borrowedAnatomy) return;
+    const off = getEventBus().on('layer.removed', ({ layerId }) => {
+      if (layerId === borrowedAnatomy) setAnatomyAttempt((n) => n + 1);
+    });
+    return () => {
+      void safeUnlisten(off);
+    };
+  }, [studioActive, borrowedAnatomy]);
 
   const layer = useMemo(
     () => (map ? studioDerivedDisplay(map, label, STUDIO_SIGNED_PANES.has(paneId)) : null),

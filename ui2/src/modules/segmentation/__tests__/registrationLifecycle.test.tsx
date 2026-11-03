@@ -42,7 +42,8 @@ describe('registration preview ownership', () => {
     expect(screen.queryByTestId('registration-image')).not.toBeInTheDocument();
     await act(async () => { fresh.resolve(); });
     expect(screen.getByTestId('registration-image')).toBeInTheDocument();
-    expect(onView).toHaveBeenLastCalledWith({ ...plane, dim_px: [10, 10] });
+    // The reviewed plane comes with its native slice, which the session opens on.
+    expect(onView).toHaveBeenLastCalledWith({ ...plane, dim_px: [10, 10] }, 0);
     expect(state.native).toHaveBeenCalledTimes(2);
   });
 });

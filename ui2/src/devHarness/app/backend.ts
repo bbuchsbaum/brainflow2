@@ -725,8 +725,12 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       last_allocation_ms: null,
       last_release_ms: null,
       volume_texture_slots: 16,
-      render_layer_capacity: 8,
+      render_layer_capacity: 16,
+      free_texture_slots: Math.max(0, 16 - layers.size),
+      resident_texture_slots: layers.size,
+      cached_image_slots: 0,
     }),
+    reclaim_cached_image_slots: () => ({ reclaimed: 0, free_texture_slots: Math.max(0, 16 - layers.size) }),
 
     load_file: ({ path }: { path: string }) => {
       const fixture = fixtureForPath(path);
@@ -956,7 +960,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
     release_layer_gpu_resources: ({ layerId }: { layerId: string }) => {
       layers.delete(layerId);
-      return { success: true, message: 'released' };
+      return { success: true, message: 'released', freed: true };
     },
     add_render_layer: () => null,
     update_slice_outline: () => null,
@@ -1084,6 +1088,10 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
 
     check_bids_directory: ({ path }: { path: string }) =>
       path === BIDS_SUMMARY.path || path === BIDS_BROWSER_ROOT,
+    probe_bids_directory: ({ path }: { path: string }) =>
+      path === BIDS_SUMMARY.path || path === BIDS_BROWSER_ROOT
+        ? { status: 'bids', missing: [] }
+        : { status: 'none', missing: ['dataset_description.json'] },
     scan_bids_dataset: ({ datasetPath }: { datasetPath: string }) => {
       if (datasetPath !== BIDS_SUMMARY.path) throw new Error(`Not a BIDS dataset: ${datasetPath}`);
       return BIDS_SUMMARY;

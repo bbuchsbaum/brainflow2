@@ -106,6 +106,14 @@ export class GpuSlotsFullError extends Error {
   }
 }
 
+/**
+ * What a show refused by the per-view draw cap tells the user: the frame
+ * draws at most `cap` layers, whatever the GPU holds (one view, not the app).
+ */
+export function drawCapMessage(cap: number): string {
+  return `Only ${cap} layers can be drawn in one view. Hide a layer in this view, then show this one.`;
+}
+
 const SLOTS_FULL_SENTENCE = /GPU texture slots full(?: \(all \d+ in use\))?\. Hide or remove a layer, then load again\./;
 
 /**

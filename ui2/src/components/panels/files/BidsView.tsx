@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './BidsView.css';
 import { VscChevronRight, VscChevronDown } from 'react-icons/vsc';
 import { getTransport } from '@/services/transport';
-import type { BidsRunRecord } from '@brainflow/api';
+import type { BidsDirectoryProbe, BidsRunRecord } from '@brainflow/api';
 import { openRunInViewer } from '@/services/bids/openRunInViewer';
 import { selectBidsModel, useBidsStore, type BidsBrowserIndex } from '@/stores/bidsStore';
 import { naturalCompare } from '@/stores/bidsModel';
@@ -113,7 +113,7 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
   const selectedRunId = useBidsStore((state) => state.selectedRunId);
   const inExplorer = useWorkspaceStore((state) => state.getActiveWorkspace?.()?.type === 'bids-explorer');
 
-  const [detection, setDetection] = useState<'unknown' | 'checking' | 'yes' | 'no'>('unknown');
+  const [detection, setDetection] = useState<'unknown' | 'checking' | 'yes' | 'layout' | 'no'>('unknown');
   const [detectionError, setDetectionError] = useState<string | null>(null);
   const [opened, setOpened] = useState<Set<string>>(new Set());
   // Branches open only to reveal the selection; they close when it moves on.
@@ -240,11 +240,14 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
     setDetection('checking');
     void (async () => {
       try {
-        const isBids = await getTransport().invoke<boolean>('check_bids_directory', {
+        const probe = await getTransport().invoke<BidsDirectoryProbe>('probe_bids_directory', {
           path: rootPath,
         });
         if (cancelled) return;
-        setDetection(isBids ? 'yes' : 'no');
+        // A layout without a description is never opened by itself: the user asks.
+        setDetection(
+          probe.status === 'bids' ? 'yes' : probe.status === 'layout_only' ? 'layout' : 'no',
+        );
       } catch (err) {
         if (cancelled) return;
         setDetection('unknown');
@@ -279,6 +282,13 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
     }
   }
 
+  /** Open a folder that is BIDS only by its layout; the scan says it is not valid. */
+  function openByLayout() {
+    if (!rootPath) return;
+    if (!inExplorer) void useWorkspaceStore.getState().createWorkspace('bids-explorer');
+    void useBidsStore.getState().scanDataset(rootPath);
+  }
+
   function toggleRow(id: string) {
     if (expanded.has(id)) closeRow(id);
     else setOpened((prev) => new Set(prev).add(id));
@@ -296,7 +306,9 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
     toggleRow(row.id);
   }
 
-  const showTree = detection === 'yes' && indexForRoot && subjects.length > 0;
+  const showTree =
+    (detection === 'yes' || detection === 'layout') && indexForRoot && subjects.length > 0;
+  const scanningRoot = datasetMatchesRoot && scanStatus === 'scanning';
 
   return (
     <div className="fb-bids-view" role="region" aria-label="BIDS view">
@@ -307,6 +319,34 @@ export const BidsView: React.FC<BidsViewProps> = ({ rootNode }) => {
       {detection === 'no' && (
         <Notice severity="info" className="fb-bids-status">
           This folder doesn't look like a BIDS dataset (no <code>dataset_description.json</code>).
+        </Notice>
+      )}
+
+      {detection === 'layout' && !indexForRoot && (
+        <div className="fb-bids-yes">
+          <Notice severity="info" className="fb-bids-status">
+            This folder has a BIDS layout but no <code>dataset_description.json</code>, so it is not
+            a valid BIDS dataset.
+          </Notice>
+          <p className="fb-bids-hint">
+            {scanningRoot
+              ? 'Scanning by layout. The BIDS Explorer shows participants as they are read.'
+              : 'Opening it by layout reads the subject folders as BIDS. Exclusions are not written for it.'}
+          </p>
+          {scanningRoot ? null : (
+            <div className="fb-bids-actions">
+              <Button variant="secondary" size="sm" onClick={openByLayout}>
+                Open as BIDS anyway
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {indexForRoot?.opened_by_layout && (
+        <Notice severity="warning" className="fb-bids-status">
+          Opened by layout: no <code>dataset_description.json</code>, so this dataset is not
+          BIDS-valid.
         </Notice>
       )}
 

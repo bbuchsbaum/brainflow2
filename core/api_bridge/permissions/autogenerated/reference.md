@@ -66,6 +66,7 @@ Default permissions for api-bridge plugin
 - `allow-get-atlas-palette`
 - `allow-register-categorical-colormap`
 - `allow-get-atlas-stats`
+- `allow-reclaim-cached-image-slots`
 - `allow-start-atlas-progress-monitoring`
 - `allow-get-atlas-subscription-count`
 - `allow-set-volume-timepoint`
@@ -104,6 +105,7 @@ Default permissions for api-bridge plugin
 - `allow-get-set-studio-materialization-status`
 - `allow-cancel-set-studio-materialization`
 - `allow-check-bids-directory`
+- `allow-probe-bids-directory`
 - `allow-scan-bids-dataset`
 - `allow-get-bids-events`
 - `allow-scan-bids-browser`
@@ -2281,6 +2283,32 @@ Denies the preview_surface_parcel_table command without any pre-configured scope
 <tr>
 <td>
 
+`api-bridge:allow-probe-bids-directory`
+
+</td>
+<td>
+
+Enables the probe_bids_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-probe-bids-directory`
+
+</td>
+<td>
+
+Denies the probe_bids_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-project-volume-to-surface`
 
 </td>
@@ -2430,6 +2458,32 @@ Enables the recalculate_view_for_dimensions command without any pre-configured s
 <td>
 
 Denies the recalculate_view_for_dimensions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-reclaim-cached-image-slots`
+
+</td>
+<td>
+
+Enables the reclaim_cached_image_slots command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-reclaim-cached-image-slots`
+
+</td>
+<td>
+
+Denies the reclaim_cached_image_slots command without any pre-configured scope.
 
 </td>
 </tr>

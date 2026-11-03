@@ -12,10 +12,17 @@
  * forgotten (review W3). The volume is unloaded only when nobody holds it,
  * one task after the last release, so a remount (StrictMode's double mount)
  * re-acquires the same map instead of racing its removal (review H1).
+ *
+ * A template underlay ("template:<id>") borrows the workspace's own layer of
+ * that template when one is resident, instead of loading a second copy that
+ * takes a second texture slot (gpu-residency plan, Phase 0). A borrowed layer
+ * is pinned against eviction while a pane holds it, is not unloaded here,
+ * and is not counted again against the GPU budget.
  */
 
 import { getApiService } from '@/services/apiService';
 import { getTransport } from '@/services/transport';
+import { useLayerStore } from '@/stores/layerStore';
 import type { WorldBox } from '@/utils/worldFrame';
 import { edgeBoxFromAffine } from '@/utils/worldFrame';
 import { formatTauriError, GpuSlotsFullError, tauriErrorCode } from '@/utils/formatTauriError';
@@ -27,12 +34,25 @@ export interface StudioDerivedMap {
   /** World box of the outer voxel edges. */
   bounds: WorldBox;
   dataRange: { min: number; max: number } | null;
+  /** A workspace layer's own lease, borrowed: never released or unloaded here. */
+  borrowed?: boolean;
 }
 
 interface Entry {
   holders: Set<Hold>;
   map: Promise<StudioDerivedMap | null>;
   disposeTimer: ReturnType<typeof setTimeout> | null;
+  /** Set once the load resolved to a borrowed workspace layer. */
+  borrowedLayerId?: string;
+}
+
+/** A resident workspace layer the underlay can borrow (see {@link StudioDerivedMapService}). */
+export interface BorrowableLayer {
+  layerId: string;
+  volumeId: string;
+  voxelToWorld?: number[] | null;
+  dimensions?: number[] | null;
+  dataRange?: { min: number; max: number } | null;
 }
 
 interface Hold {
@@ -60,6 +80,8 @@ interface Backend {
   requestLayerGpuResources(layerId: string, volumeId: string, metadataOnly?: boolean): Promise<GpuInfo>;
   releaseLayerGpuResources(layerId: string): Promise<void>;
   unloadVolume(volumeId: string): Promise<void>;
+  /** The workspace's resident layer loaded from `sourcePath`, if any. */
+  findResidentLayer?(sourcePath: string): BorrowableLayer | null;
 }
 
 /** Bridge code for "volume still has layer mappings" (volume_loading.rs). */
@@ -97,6 +119,12 @@ export class StudioDerivedMapService {
     const path = sourcePath.trim();
     if (!path) return { map: Promise.resolve(null), release: () => {} };
     let entry = this.entries.get(path);
+    // A borrowed workspace layer that was removed (or lost its slot) since:
+    // load the template afresh instead of handing out a dead layer.
+    if (entry?.borrowedLayerId && !this.stillBorrowable(path, entry.borrowedLayerId)) {
+      this.entries.delete(path);
+      entry = undefined;
+    }
     if (entry) {
       if (entry.disposeTimer) {
         clearTimeout(entry.disposeTimer);
@@ -109,6 +137,12 @@ export class StudioDerivedMapService {
       );
       const created: Entry = { holders: new Set(), map, disposeTimer: null };
       this.entries.set(path, created);
+      map.then(
+        (loaded) => {
+          if (loaded?.borrowed) created.borrowedLayerId = loaded.layerId;
+        },
+        () => undefined,
+      );
       // A failed or empty load is not cached: the next acquire retries, and
       // its holders' releases no longer refer to it.
       const forget = () => {
@@ -156,10 +190,46 @@ export class StudioDerivedMapService {
    * eviction policy counts them against the GPU budget (review W1).
    */
   liveCount(): number {
-    return this.entries.size + this.disposing.size;
+    let borrowed = 0;
+    for (const entry of this.entries.values()) if (entry.borrowedLayerId) borrowed += 1;
+    return this.entries.size - borrowed + this.disposing.size;
+  }
+
+  /**
+   * Workspace layers a pane holds as its underlay: the eviction policy must
+   * not release them while the pane draws them.
+   */
+  pinnedLayerIds(): ReadonlySet<string> {
+    const pinned = new Set<string>();
+    for (const entry of this.entries.values()) {
+      if (entry.borrowedLayerId) pinned.add(entry.borrowedLayerId);
+    }
+    return pinned;
+  }
+
+  private stillBorrowable(path: string, layerId: string): boolean {
+    return this.backend().findResidentLayer?.(path)?.layerId === layerId;
+  }
+
+  /** The workspace's resident layer of this template, as a map; null when there is none. */
+  private borrowTemplate(path: string): StudioDerivedMap | null {
+    if (!path.startsWith('template:')) return null;
+    const layer = this.backend().findResidentLayer?.(path);
+    if (!layer) return null;
+    const bounds = edgeBoxFromAffine(layer.voxelToWorld ?? undefined, layer.dimensions ?? undefined);
+    if (!bounds) return null;
+    return {
+      layerId: layer.layerId,
+      volumeId: layer.volumeId,
+      bounds,
+      dataRange: layer.dataRange ?? null,
+      borrowed: true,
+    };
   }
 
   private async load(path: string): Promise<StudioDerivedMap | null> {
+    const borrowed = this.borrowTemplate(path);
+    if (borrowed) return borrowed;
     const backend = this.backend();
     const handle = path.startsWith('template:')
       ? await backend.loadTemplate(path.slice('template:'.length))
@@ -194,7 +264,11 @@ export class StudioDerivedMapService {
   }
 
   /** Release the GPU lease, then the volume (which refuses while mapped). */
-  private async unload(map: Pick<StudioDerivedMap, 'layerId' | 'volumeId'>): Promise<void> {
+  private async unload(
+    map: Pick<StudioDerivedMap, 'layerId' | 'volumeId'> & { borrowed?: boolean },
+  ): Promise<void> {
+    // A borrowed workspace layer belongs to its workspace.
+    if (map.borrowed) return;
     const backend = this.backend();
     const releaseLease = () =>
       backend.releaseLayerGpuResources(map.layerId).catch((error) => {
@@ -230,6 +304,24 @@ function defaultBackend(): Backend {
       api.requestLayerGpuResources(layerId, volumeId, metadataOnly),
     releaseLayerGpuResources: (layerId) => api.releaseLayerGpuResources(layerId),
     unloadVolume: (volumeId) => api.unloadVolume(volumeId),
+    findResidentLayer: (sourcePath) => {
+      const { layers, layerMetadata } = useLayerStore.getState();
+      for (const layer of layers) {
+        if (layer.sourcePath !== sourcePath) continue;
+        const meta = layerMetadata.get(layer.id);
+        // Only a layer holding its own slot now, at the template's grid.
+        if (!meta || meta.gpuResident === false || !meta.voxelToWorld || !meta.dimensions) continue;
+        if (layer.volumeType === 'TimeSeries4D') continue;
+        return {
+          layerId: layer.id,
+          volumeId: layer.volumeId,
+          voxelToWorld: meta.voxelToWorld,
+          dimensions: meta.dimensions,
+          dataRange: meta.dataRange ?? null,
+        };
+      }
+      return null;
+    },
   };
 }
 
