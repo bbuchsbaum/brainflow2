@@ -329,3 +329,27 @@ fn shaders_agree_with_each_other() {
         );
     }
 }
+
+/// A shader that clamps its layer loop must not clamp below the per-frame
+/// draw cap: the optimized shader clamped to 13 (the texture count) while
+/// the cap is 16, so layers 14-16 of a frame were silently not drawn.
+#[test]
+fn layer_loops_cover_the_draw_cap() {
+    for (name, source) in shaders() {
+        let needle = "min(layer_metadata.active_count,";
+        for (at, _) in source.match_indices(needle) {
+            let rest = &source[at + needle.len()..];
+            let arg = rest[..rest.find(')').expect("closing paren")].trim();
+            let ok = arg == "MAX_OUTLINE_LAYERS"
+                || arg
+                    .trim_end_matches('u')
+                    .parse::<usize>()
+                    .is_ok_and(|n| n >= render_loop::MAX_RENDER_LAYERS);
+            assert!(
+                ok,
+                "{name} clamps its layer loop to {arg}, below the draw cap {}",
+                render_loop::MAX_RENDER_LAYERS
+            );
+        }
+    }
+}
