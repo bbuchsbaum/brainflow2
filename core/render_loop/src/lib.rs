@@ -85,7 +85,7 @@ pub use facade::{
     RendererLimits, RendererPowerPreference, RendererVolumeFormat, RendererVolumeHandle,
     WgpuSliceRenderer, WgpuSliceRendererConfig,
 };
-pub use multi_texture_manager::{EditableTextureHandle, LabelRegionUpdate};
+pub use multi_texture_manager::{EditableTextureHandle, LabelRegionUpdate, SlotHandle};
 // Re-export optimized renderer
 use layer_uniforms::LayerUniformManager;
 use multi_texture_manager::MultiTextureManager;
@@ -3724,6 +3724,44 @@ impl RenderLoopService {
             self.clear_views();
         }
         Ok(removed)
+    }
+
+    /// The current residency of a volume texture slot, if it holds data. Take
+    /// it under the same service lock as the upload that filled the slot.
+    pub fn slot_handle(&self, atlas_index: u32) -> Option<SlotHandle> {
+        self.multi_texture_manager
+            .as_ref()
+            .and_then(|manager| manager.slot_handle(atlas_index))
+    }
+
+    /// Whether `handle` still names the residency in its slot.
+    pub fn is_slot_current(&self, handle: SlotHandle) -> bool {
+        self.multi_texture_manager
+            .as_ref()
+            .is_some_and(|manager| manager.is_current(handle))
+    }
+
+    /// [`Self::release_volume`] for one residency: a stale handle (already
+    /// released, or its index refilled by another upload) changes nothing and
+    /// returns `Ok(false)`.
+    pub fn release_slot(&mut self, handle: SlotHandle) -> Result<bool, RenderLoopError> {
+        if !self.is_slot_current(handle) {
+            return Ok(false);
+        }
+        self.release_volume(handle.index()).map(|()| true)
+    }
+
+    /// [`Self::release_layer_resources`] for one residency: the render-state
+    /// entry and the texture go only while `handle` is current. `Ok(None)`
+    /// for a stale handle; otherwise whether a render-state entry was removed.
+    pub fn release_layer_slot(
+        &mut self,
+        handle: SlotHandle,
+    ) -> Result<Option<bool>, RenderLoopError> {
+        if !self.is_slot_current(handle) {
+            return Ok(None);
+        }
+        self.release_layer_resources(handle.index()).map(Some)
     }
 
     /// Whether the imperative render-layer state currently references `atlas_index`.

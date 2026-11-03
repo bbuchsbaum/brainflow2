@@ -36,7 +36,9 @@ pub struct MultiTextureManager {
     mask_textures: HashMap<u32, MaskTextureEntry>,
     /// Next available texture index
     next_index: u32,
-    next_editable_generation: u64,
+    /// Last generation handed out. Every upload into a slot takes the next one,
+    /// so a handle from an earlier residency of the same index never matches.
+    next_generation: u64,
     identity: usize,
     /// Maximum number of textures supported
     max_textures: u32,
@@ -62,7 +64,10 @@ struct TextureEntry {
     world_to_voxel: Matrix4<f32>,
     policy: UploadFormat,
     require_filterable: bool,
-    editable: Option<(u64, u64)>,
+    /// The upload that filled this slot; see [`SlotHandle`].
+    generation: u64,
+    /// Uploaded revision of an editable label texture.
+    editable: Option<u64>,
     editable_volume_id: Option<String>,
 }
 
@@ -79,17 +84,38 @@ pub(crate) enum UploadFormat {
     Explicit(wgpu::TextureFormat),
 }
 
-/// A resident editable texture's identity. Generation prevents a late edit from
-/// writing into another volume after its numeric texture slot has been reused.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EditableTextureHandle {
+/// One residency of a texture slot: its index and the generation of the upload
+/// that filled it. Numeric indices are reused; a generation is not, so an owner
+/// holding a handle from an earlier residency (a stale lease, a provisional
+/// upload, a ring account) can never release or write another volume's texture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SlotHandle {
     index: u32,
     generation: u64,
     manager: usize,
 }
+impl SlotHandle {
+    pub fn index(self) -> u32 {
+        self.index
+    }
+    pub fn generation(self) -> u64 {
+        self.generation
+    }
+}
+
+/// A resident editable texture's identity: its slot residency, claimed for
+/// revisioned label edits. A late edit cannot write into another volume after
+/// the numeric slot has been reused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditableTextureHandle {
+    slot: SlotHandle,
+}
 impl EditableTextureHandle {
     pub fn texture_index(self) -> u32 {
-        self.index
+        self.slot.index
+    }
+    pub fn slot(self) -> SlotHandle {
+        self.slot
     }
 }
 
@@ -112,7 +138,7 @@ impl MultiTextureManager {
             textures: HashMap::new(),
             mask_textures: HashMap::new(),
             next_index: 0,
-            next_editable_generation: 0,
+            next_generation: 0,
             identity: NEXT_TEXTURE_MANAGER
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
                 .expect("Texture manager identity exhausted"),
@@ -312,6 +338,11 @@ impl MultiTextureManager {
         // Access the inner NeuroSpaceImpl to get world_to_voxel()
         let world_to_voxel = space.world_to_voxel();
 
+        let generation = self
+            .next_generation
+            .checked_add(1)
+            .ok_or_else(|| conversion_error("Texture slot generation exhausted"))?;
+        self.next_generation = generation;
         // Store texture entry
         if self.free_indices.pop().is_none() {
             self.next_index += 1;
@@ -326,6 +357,7 @@ impl MultiTextureManager {
                 world_to_voxel,
                 policy,
                 require_filterable,
+                generation,
                 editable: None,
                 editable_volume_id: None,
             },
@@ -725,30 +757,45 @@ impl MultiTextureManager {
                 "Editable labels require exact R32Float storage",
             ));
         }
-        let generation = self
-            .next_editable_generation
-            .checked_add(1)
-            .ok_or_else(|| conversion_error("Editable texture generation exhausted"))?;
-        self.next_editable_generation = generation;
-        entry.editable = Some((generation, revision));
+        entry.editable = Some(revision);
         Ok(EditableTextureHandle {
+            slot: SlotHandle {
+                index,
+                generation: entry.generation,
+                manager: self.identity,
+            },
+        })
+    }
+
+    /// The current residency of `index`, if it holds data.
+    pub fn slot_handle(&self, index: u32) -> Option<SlotHandle> {
+        self.textures.get(&index).map(|entry| SlotHandle {
             index,
-            generation,
+            generation: entry.generation,
             manager: self.identity,
         })
+    }
+
+    /// Whether `handle` still names the residency in its slot.
+    pub fn is_current(&self, handle: SlotHandle) -> bool {
+        handle.manager == self.identity && self.slot_handle(handle.index) == Some(handle)
+    }
+
+    /// Release the slot only if `handle` is its current residency. A stale
+    /// handle (released, or the index since refilled) is a no-op: `Ok(false)`.
+    pub fn release_slot(&mut self, handle: SlotHandle) -> Result<bool, RenderLoopError> {
+        if !self.is_current(handle) {
+            return Ok(false);
+        }
+        self.release_volume(handle.index).map(|()| true)
     }
 
     /// The current resident handle, for hosts resolving a live volume mapping
     /// under their own operation lock. Never reconstruct a handle from an old slot.
     pub(crate) fn editable_handle(&self, index: u32) -> Option<EditableTextureHandle> {
-        self.textures
-            .get(&index)?
-            .editable
-            .map(|(generation, _)| EditableTextureHandle {
-                index,
-                generation,
-                manager: self.identity,
-            })
+        self.textures.get(&index)?.editable?;
+        self.slot_handle(index)
+            .map(|slot| EditableTextureHandle { slot })
     }
 
     /// Bind an editable residency to its logical volume. A reused numeric slot
@@ -761,7 +808,7 @@ impl MultiTextureManager {
         self.editable_revision(handle)?;
         let entry = self
             .textures
-            .get_mut(&handle.index)
+            .get_mut(&handle.texture_index())
             .expect("validated residency");
         if entry
             .editable_volume_id
@@ -787,16 +834,15 @@ impl MultiTextureManager {
     }
 
     pub fn editable_revision(&self, handle: EditableTextureHandle) -> Result<u64, RenderLoopError> {
-        if handle.manager != self.identity {
+        if handle.slot.manager != self.identity {
             return Err(conversion_error(
                 "Editable texture belongs to another renderer",
             ));
         }
         self.textures
-            .get(&handle.index)
+            .get(&handle.slot.index)
+            .filter(|entry| entry.generation == handle.slot.generation)
             .and_then(|entry| entry.editable)
-            .filter(|(generation, _)| *generation == handle.generation)
-            .map(|(_, revision)| revision)
             .ok_or_else(|| conversion_error("Editable texture was released or replaced"))
     }
 
@@ -815,7 +861,7 @@ impl MultiTextureManager {
         }
         let entry = self
             .textures
-            .get_mut(&handle.index)
+            .get_mut(&handle.slot.index)
             .expect("validated texture");
         let full = update.origin == [0; 3] && update.dimensions == entry.dimensions;
         if update.revision <= current || (!full && current.checked_add(1) != Some(update.revision))
@@ -874,7 +920,7 @@ impl MultiTextureManager {
                 depth_or_array_layers: update.dimensions[2],
             },
         );
-        entry.editable = Some((handle.generation, update.revision));
+        entry.editable = Some(update.revision);
         Ok(())
     }
 
@@ -1642,6 +1688,102 @@ mod tests {
             manager.clear();
             assert!(manager.mask_textures.is_empty());
             assert_eq!(manager.free_slot_count(), 2);
+        });
+    }
+
+    #[test]
+    fn every_upload_into_a_slot_takes_a_new_generation() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, 2);
+            let volume = create_test_pattern_volume();
+            let upload = |manager: &mut MultiTextureManager| {
+                let (index, _) = manager
+                    .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                    .unwrap();
+                manager.slot_handle(index).unwrap()
+            };
+            let first = upload(&mut manager);
+            let other = upload(&mut manager);
+            assert_ne!(first.index(), other.index());
+            assert!(manager.is_current(first) && manager.is_current(other));
+
+            manager.release_volume(first.index()).unwrap();
+            assert!(!manager.is_current(first));
+            assert_eq!(manager.slot_handle(first.index()), None);
+            let refilled = upload(&mut manager);
+            assert_eq!(refilled.index(), first.index(), "the index is reused");
+            assert!(refilled.generation() > first.generation());
+            assert!(refilled.generation() > other.generation());
+            assert!(!manager.is_current(first));
+            assert!(manager.is_current(refilled));
+        });
+    }
+
+    #[test]
+    fn a_stale_handle_releases_nothing() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, 2);
+            let volume = create_test_pattern_volume();
+            let (index, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            let stale = manager.slot_handle(index).unwrap();
+            assert!(manager.release_slot(stale).unwrap());
+            // Released twice: the second is a no-op, not an error.
+            assert!(!manager.release_slot(stale).unwrap());
+
+            // Another volume takes the index; the old owner cannot free it.
+            let (reused, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            assert_eq!(reused, index);
+            let free_before = manager.free_slot_count();
+            assert!(!manager.release_slot(stale).unwrap());
+            assert!(manager.get_texture_info(reused).is_some());
+            assert_eq!(manager.free_slot_count(), free_before);
+
+            // A handle from another manager is never current here.
+            let mut other = MultiTextureManager::new(&device, &queue, 2);
+            let (foreign, _) = other
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            let foreign = other.slot_handle(foreign).unwrap();
+            assert!(!manager.release_slot(foreign).unwrap());
+            assert!(manager.get_texture_info(reused).is_some());
+        });
+    }
+
+    #[test]
+    fn an_editable_handle_is_its_slot_residency() {
+        pollster::block_on(async {
+            use volmath::{NeuroSpace, NeuroSpaceExt};
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, 2);
+            let space =
+                NeuroSpace::from_dims_spacing_origin(vec![2, 2, 2], vec![1.; 3], vec![0.; 3])
+                    .unwrap();
+            let labels = DenseVolume3::from_data(space, vec![0u16; 8]);
+            let (index, _) = manager
+                .upload_volume(&device, &queue, &labels, wgpu::TextureFormat::R32Float)
+                .unwrap();
+            assert!(manager.editable_handle(index).is_none(), "not claimed yet");
+            let handle = manager.claim_editable(index, 3).unwrap();
+            assert_eq!(handle.slot(), manager.slot_handle(index).unwrap());
+            assert_eq!(manager.editable_handle(index), Some(handle));
+            assert_eq!(manager.editable_revision(handle).unwrap(), 3);
+
+            manager.release_volume(index).unwrap();
+            let (reused, _) = manager
+                .upload_volume(&device, &queue, &labels, wgpu::TextureFormat::R32Float)
+                .unwrap();
+            assert_eq!(reused, index);
+            let fresh = manager.claim_editable(reused, 0).unwrap();
+            assert_ne!(fresh, handle);
+            assert!(manager.editable_revision(handle).is_err());
+            assert!(!manager.release_slot(handle.slot()).unwrap());
+            assert_eq!(manager.editable_revision(fresh).unwrap(), 0);
         });
     }
 
