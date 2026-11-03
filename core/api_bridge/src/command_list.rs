@@ -43,6 +43,7 @@ bridge_commands! {
         release_layer_gpu_resources,
         wait_for_layer_ready,
         get_atlas_stats,
+        reclaim_cached_image_slots,
         fs_list_directory,
         remote_mount_connect,
         remote_mount_respond_host_key,

@@ -255,7 +255,18 @@ async fn test_release_layer_cleans_render_state() {
         let service_arc = guard.as_ref().unwrap().clone();
         drop(guard);
         let service = service_arc.lock().await;
-        assert_eq!(service.layer_state_manager.layer_count(), 1);
+        // An upload makes the texture resident without a per-frame render
+        // entry: only a frame that draws the layer adds one, so uploads do
+        // not count against the draw cap.
+        assert_eq!(service.layer_state_manager.layer_count(), 0);
+        assert_eq!(
+            service
+                .multi_texture_manager
+                .as_ref()
+                .unwrap()
+                .resident_slot_count(),
+            1
+        );
     }
 
     let release_result = release_layer_gpu_resources_for_testing(layer_id.clone(), &state)
@@ -340,7 +351,6 @@ async fn image_set_switches_reuse_gpu_textures() {
         let mut renderer = service.lock().await;
         renderer.queue.submit([]);
         renderer.device.poll(wgpu::Maintain::Wait);
-        assert_eq!(renderer.active_layer_count(), active_ids.len());
         let textures = renderer.multi_texture_manager.as_ref().unwrap();
         assert_eq!(
             textures.resident_slot_count(),
@@ -370,6 +380,8 @@ async fn image_set_switches_reuse_gpu_textures() {
             .request_frame(ViewId::new("switch"), view)
             .await
             .unwrap();
+        // The frame draws every active layer; uploads add no render entries.
+        assert_eq!(renderer.active_layer_count(), active_ids.len());
         let center = &frame.image_data[(8 * 16 + 8) * 4..][..4];
         assert_eq!(center[3], 255, "member {member} must remain visible");
         if let Some(previous) = previous_pixel {

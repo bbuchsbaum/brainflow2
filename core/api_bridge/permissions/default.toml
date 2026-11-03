@@ -65,6 +65,7 @@ permissions = [
     "allow-get-atlas-palette",
     "allow-register-categorical-colormap",
     "allow-get-atlas-stats",
+    "allow-reclaim-cached-image-slots",
     "allow-start-atlas-progress-monitoring",
     "allow-get-atlas-subscription-count",
     "allow-set-volume-timepoint",

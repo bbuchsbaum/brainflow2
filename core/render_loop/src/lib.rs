@@ -58,10 +58,15 @@ pub use ubo::{
     CrosshairUbo, CrosshairUboUpdated, FrameUbo, LayerUboStd140, SliceFeatureBlock,
     SliceFeatureUbo, ViewPlaneUbo,
 };
-/// The most layers the render state takes at once (`LayerStateManager`; the
-/// size of the legacy uniform path's `array<LayerUBO, 8>`). See
+/// The most layers one frame draws (`LayerStateManager`). The runtime masked
+/// shaders read layers from a growable storage buffer (`LayerStorageManager`)
+/// and give each drawn layer one `SliceFeatureBlock` entry, so the cap matches
+/// `MAX_OUTLINE_LAYERS`. The legacy atlas uniform path (`LayerUniformManager`,
+/// `array<LayerUBO, 8>`) clamps to its own `layer_uniforms::MAX_LAYERS`. This is
+/// a per-frame draw cap, not a residency budget: resident textures are bounded
+/// by `multi_texture_manager::MAX_TEXTURES`. See
 /// [`RenderLoopService::render_layer_capacity`].
-pub const MAX_RENDER_LAYERS: usize = 8;
+pub const MAX_RENDER_LAYERS: usize = 16;
 
 // Every layer the render state can hold needs its own outline slot.
 const _: () = assert!(shader_contract::feature::MAX_OUTLINE_LAYERS >= MAX_RENDER_LAYERS);
@@ -2673,6 +2678,15 @@ impl RenderLoopService {
         } else {
             0
         }
+    }
+
+    /// Volume texture slots currently holding data (layers and 4D resident-ring
+    /// members alike).
+    pub fn resident_volume_slot_count(&self) -> usize {
+        self.multi_texture_manager
+            .as_ref()
+            .map(|manager| manager.resident_slot_count())
+            .unwrap_or(0)
     }
 
     /// Renders a single frame to the configured surface.
@@ -5599,10 +5613,9 @@ impl RenderLoopService {
         self.runtime_texture_capacity
     }
 
-    /// The most layers the render state takes at once (`LayerStateManager`;
-    /// 8, the size of the legacy uniform path's `array<LayerUBO, 8>`). A
-    /// layer upload past it fails with code 1885, "Maximum layer count N
-    /// reached", even with texture slots free.
+    /// The most layers one frame draws ([`MAX_RENDER_LAYERS`]). A per-view
+    /// draw cap: uploads do not add render-layer entries, so it does not
+    /// bound residency (see [`Self::runtime_texture_capacity`]).
     pub fn render_layer_capacity(&self) -> u32 {
         self.layer_state_manager.max_layers() as u32
     }

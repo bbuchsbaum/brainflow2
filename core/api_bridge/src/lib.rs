@@ -469,12 +469,20 @@ pub struct AtlasStats {
     pub last_allocation_ms: Option<u64>,
     pub last_release_ms: Option<u64>,
     /// Volume texture slots of the render loop (its runtime texture capacity):
-    /// the layer budget the UI's eviction counts against. Past it, a GPU
+    /// the residency budget the UI's eviction counts against. Past it, a GPU
     /// upload fails with "Maximum texture limit N reached".
     pub volume_texture_slots: u32,
-    /// Layers the render state takes at once (code 1885 past it). The UI's
-    /// layer budget is the smaller of this and `volume_texture_slots`.
+    /// Layers one frame draws at once. A per-view draw cap, not a residency
+    /// budget: uploads do not count against it, and a frame with more
+    /// visible layers leaves the extra ones out.
     pub render_layer_capacity: u32,
+    /// Volume texture slots that can be allocated now without reclaiming.
+    pub free_texture_slots: u32,
+    /// Volume texture slots holding data, including 4D resident-ring members.
+    pub resident_texture_slots: u32,
+    /// Resident slots held by cached (not displayed) 4D ring members, which
+    /// `reclaim_cached_image_slots` can free without evicting a layer.
+    pub cached_image_slots: u32,
 }
 
 // Helper alias for Result
@@ -1474,6 +1482,18 @@ async fn note_render_skip(
     } else {
         warn!("Layer {} skipped: {}", layer_id, detail);
     }
+}
+
+/// Forget every `AllocationFailed` skip mark (and any mark for `layer_id`) so
+/// the next frame retries those layers. Called whenever texture slots are
+/// freed: a mark that only the released layer cleared left other views black
+/// after the pressure was gone (N32).
+async fn clear_allocation_failed_skips(bridge_state: &BridgeState, layer_id: Option<&str>) {
+    let mut skipped = bridge_state.render_skipped_layers.lock().await;
+    if let Some(layer_id) = layer_id {
+        skipped.remove(layer_id);
+    }
+    skipped.retain(|_, reason| *reason != RenderSkip::AllocationFailed);
 }
 
 impl BridgeState {
@@ -4044,7 +4064,7 @@ async fn request_layer_gpu_resources_with_upload_hook(
 
             // Upload the entire volume as a 3D texture and get the world-to-voxel transform
             // Skip if metadata_only is true
-            let (atlas_layer_idx, volume_world_to_voxel, mut provisional_upload) =
+            let (atlas_layer_idx, _volume_world_to_voxel, mut provisional_upload) =
                 if metadata_only_flag {
                     info!("Metadata-only mode: skipping GPU upload");
                     (u32::MAX, nalgebra::Matrix4::<f32>::identity(), None) // No allocation
@@ -4672,12 +4692,14 @@ async fn request_layer_gpu_resources_with_upload_hook(
                 }
             };
 
-            // Register the volume for the declarative API using the source volume ID
-            // This enables request_frame to access this volume with correct data range
-            // Skip if metadata_only mode
-            let layer_index = if metadata_only_flag {
-                info!("Metadata-only mode: skipping volume registration and layer addition");
-                0 // Dummy value
+            // Register the volume for the declarative API using the source volume ID.
+            // The ViewState renderer resolves the texture through this registry
+            // binding and rebuilds the per-frame render-layer list from the
+            // visible layers, so an upload makes the texture resident without
+            // adding an imperative render-layer entry: uploads must not count
+            // against the per-frame draw cap (`MAX_RENDER_LAYERS`).
+            if metadata_only_flag {
+                info!("Metadata-only mode: skipping volume registration");
             } else {
                 let render_service = render_loop_service
                     .as_mut()
@@ -4699,80 +4721,9 @@ async fn request_layer_gpu_resources_with_upload_hook(
                         source_volume_id, atlas_layer_idx, min_val, max_val
                     );
                 }
-
-                // Add the layer to the render state using world-space rendering
                 info!(
-                    "Adding layer to render state: texture_index={}, dims={:?}",
-                    atlas_layer_idx, vol_dims
-                );
-                // Default to linear interpolation for initial load
-                // The actual interpolation mode will be set when layers are configured
-                let interpolation_mode_u32 = 1; // Linear interpolation
-
-                let layer_idx = render_service
-                    .add_layer_3d(
-                        atlas_layer_idx,
-                        volume_world_to_voxel,
-                        (vol_dims[0], vol_dims[1], vol_dims[2]),
-                        1.0, // Initial opacity
-                        colormap_id,
-                        interpolation_mode_u32,
-                    )
-                    .map_err(|e| BridgeError::GpuError {
-                        code: 5012,
-                        details: format!("Failed to add layer to render state: {:?}", e),
-                    })?;
-                info!("Successfully added layer at index: {}", layer_idx);
-
-                // Update intensity range - for binary masks, force 0-1 range
-                // IMPORTANT: For U8 volumes using R8Unorm texture format, the GPU automatically
-                // normalizes 0-255 to 0.0-1.0 when sampling. So we must use 0-1 range in shaders!
-                let is_u8 = matches!(
-                    &volume_data,
-                    VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_)
-                );
-                let (display_min, display_max) = if is_u8 {
-                    // For U8 data, always use 0-1 range because R8Unorm normalizes to this range
-                    (0.0, 1.0)
-                } else if in_unit_range {
-                    // For float data that's already 0-1
-                    (0.0, 1.0)
-                } else {
-                    (min_val, max_val)
-                };
-
-                render_service
-                    .update_layer_intensity(layer_idx, display_min, display_max)
-                    .map_err(|e| BridgeError::GpuError {
-                        code: 5014,
-                        details: format!("Failed to set layer intensity range: {:?}", e),
-                    })?;
-
-                layer_idx
-            };
-
-            // Log the layer addition (skip detailed logging in metadata_only mode)
-            if !metadata_only_flag {
-                // Recalculate display_min/max for logging (they were in the else block scope)
-                let is_u8 = matches!(
-                    &volume_data,
-                    VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_)
-                );
-                let (display_min, display_max) = if is_u8 || in_unit_range {
-                    (0.0, 1.0)
-                } else {
-                    (min_val, max_val)
-                };
-
-                info!(
-                    "Added render layer {} with colormap {} (id {}) and intensity range ({}, {}) -> display range ({}, {})",
-                    layer_index,
-                    vol_spec.colormap,
-                    colormap_id,
-                    min_val,
-                    max_val,
-                    display_min,
-                    display_max
+                    "Uploaded layer texture {} with colormap {} (id {}) and data range ({}, {})",
+                    atlas_layer_idx, vol_spec.colormap, colormap_id, min_val, max_val
                 );
             }
             if is_binary_like {
@@ -4873,11 +4824,10 @@ async fn release_layer_gpu_resources_internal(
         "Bridge: release_layer_gpu_resources called for layer {}",
         layer_id
     );
-    bridge_state
-        .render_skipped_layers
-        .lock()
-        .await
-        .remove(&layer_id);
+    // A release frees a texture slot: every layer a frame left out because
+    // its allocation failed may fit now, so let frames try them again (N32),
+    // not only the released layer.
+    clear_allocation_failed_skips(bridge_state, Some(&layer_id)).await;
 
     // Prefer the RAII-managed lease path when available.
     if let Some(lease) = {
@@ -4961,8 +4911,9 @@ async fn release_layer_gpu_resources_internal(
             ),
         })?;
 
+    // Uploads add no render-state entry; only a layer the last frame drew has one.
     if !removed_from_render_state {
-        warn!(
+        debug!(
             "Release requested for layer '{}' but no render-state entry matched atlas index {}",
             layer_id, atlas_layer_idx
         );
@@ -5000,7 +4951,7 @@ async fn release_layer_gpu_resources_internal(
             )
         } else {
             format!(
-                "Released GPU resources for layer {} (atlas layer {}), but no render state entry was found",
+                "Released GPU resources for layer {} (atlas layer {}); the last frame did not draw it",
                 layer_id, atlas_layer_idx
             )
         },
@@ -5039,6 +4990,13 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
     let metrics = service.atlas_metrics();
     let volume_texture_slots = service.runtime_texture_capacity();
     let render_layer_capacity = service.render_layer_capacity();
+    let free_texture_slots = service.free_volume_slot_count() as u32;
+    let resident_texture_slots = service.resident_volume_slot_count() as u32;
+    let cached_image_slots = {
+        let sets = state.resident_image_sets.lock().await;
+        cached_image_member_count(&sets) as u32
+    };
+    drop(service);
 
     let last_allocation_ms = metrics
         .last_allocation
@@ -5062,6 +5020,9 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         last_release_ms,
         volume_texture_slots,
         render_layer_capacity,
+        free_texture_slots,
+        resident_texture_slots,
+        cached_image_slots,
     })
 }
 
@@ -7543,6 +7504,24 @@ fn reclaim_cached_image_slot(
     service: &mut RenderLoopService,
 ) -> bool {
     while service.free_volume_slot_count() == 0 {
+        if reclaim_cached_image_members(sets, service, 1) == 0 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Free up to `max` cached (prefetched, not displayed) 4D members across every
+/// resident ring and return how many texture slots were freed. The displayed
+/// member of each ring is never taken. Same lock order as
+/// [`reclaim_cached_image_slot`]: render service, then resident sets.
+fn reclaim_cached_image_members(
+    sets: &mut HashMap<String, image_set::ResidentImageSet>,
+    service: &mut RenderLoopService,
+    max: usize,
+) -> usize {
+    let mut reclaimed = 0;
+    while reclaimed < max {
         let victim = sets.iter_mut().find_map(|(layer_id, resident)| {
             resident
                 .ring
@@ -7550,15 +7529,86 @@ fn reclaim_cached_image_slot(
                 .map(|slot| (layer_id.clone(), slot))
         });
         let Some((layer_id, slot)) = victim else {
-            return false;
+            break;
         };
         // Remove the entry from the ring first: release_volume can report an
         // error after freeing the texture while rebuilding the bind group.
         if let Err(error) = service.release_volume(slot) {
             warn!("Could not reclaim cached image slot {slot} from layer '{layer_id}': {error:?}");
         }
+        reclaimed += 1;
     }
-    true
+    reclaimed
+}
+
+/// Cached (reclaimable) 4D members held across every resident ring: resident
+/// members other than the one each layer displays.
+fn cached_image_member_count(sets: &HashMap<String, image_set::ResidentImageSet>) -> usize {
+    sets.values()
+        .map(|resident| {
+            let resident_len = resident.ring.resident_len();
+            if resident.ring.slot_of(resident.current_member).is_some() {
+                resident_len.saturating_sub(1)
+            } else {
+                0
+            }
+        })
+        .sum()
+}
+
+/// Result of [`reclaim_cached_image_slots`].
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ReclaimCachedSlotsResult {
+    /// Texture slots freed by dropping cached 4D members.
+    pub reclaimed: u32,
+    /// Free volume texture slots after the reclaim.
+    pub free_texture_slots: u32,
+}
+
+/// Free up to `count` texture slots held by cached (prefetched, not
+/// displayed) 4D members. The UI calls this first when it needs room, before
+/// evicting any layer: a cached ring member costs only a re-upload on the
+/// next member change. The displayed member of every ring is kept.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.reclaim_cached_image_slots")]
+async fn reclaim_cached_image_slots(
+    count: u32,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ReclaimCachedSlotsResult> {
+    reclaim_cached_image_slots_internal(count, state.inner()).await
+}
+
+async fn reclaim_cached_image_slots_internal(
+    count: u32,
+    bridge_state: &BridgeState,
+) -> BridgeResult<ReclaimCachedSlotsResult> {
+    let _operation = bridge_state.volume_operations.lock().await;
+    let service_arc = {
+        let guard = bridge_state.render_loop_service.lock().await;
+        guard
+            .as_ref()
+            .ok_or_else(|| BridgeError::ServiceNotInitialized {
+                code: 5006,
+                details: "GPU rendering service is not initialized. Cannot reclaim texture slots."
+                    .to_string(),
+            })?
+            .clone()
+    };
+    let mut service = service_arc.lock().await;
+    let reclaimed = {
+        let mut sets = bridge_state.resident_image_sets.lock().await;
+        reclaim_cached_image_members(&mut sets, &mut service, count as usize)
+    };
+    let free_texture_slots = service.free_volume_slot_count() as u32;
+    drop(service);
+    if reclaimed > 0 {
+        clear_allocation_failed_skips(bridge_state, None).await;
+    }
+    Ok(ReclaimCachedSlotsResult {
+        reclaimed: reclaimed as u32,
+        free_texture_slots,
+    })
 }
 
 /// Drop a layer's resident image-set ring (if any) and free every texture slot it
@@ -13980,6 +14030,199 @@ mod tests {
             .await
             .get_volume_data_range(shown.atlas_layer_index)
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn uploads_do_not_consume_draw_cap_entries() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        let service = state
+            .render_loop_service
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .clone();
+        let (texture_slots, draw_cap) = {
+            let renderer = service.lock().await;
+            (
+                renderer.runtime_texture_capacity() as usize,
+                renderer.render_layer_capacity() as usize,
+            )
+        };
+        assert_eq!(draw_cap, render_loop::MAX_RENDER_LAYERS);
+        assert_eq!(draw_cap, 16);
+        // Twelve uploads used to stop at the old 8-layer draw cap (code 1885)
+        // although texture slots were free.
+        let uploads = 12.min(texture_slots);
+        assert!(uploads > 8, "the device must hold more than 8 textures");
+        for i in 0..uploads {
+            let id = format!("cap-upload-{i}");
+            let volume =
+                extract_3d_volume_at_timepoint(&make_4d_volume_sendable_with_timeseries(), 0)
+                    .unwrap();
+            state.volume_registry.lock().await.insert(
+                id.clone(),
+                volume,
+                volume_metadata_for(&id, "f32", bridge_types::VolumeType::Volume3D),
+            );
+            request_layer_gpu_resources_for_testing(
+                LayerSpec::Volume(VolumeLayerSpec {
+                    id: id.clone(),
+                    source_resource_id: id.clone(),
+                    colormap: "gray".into(),
+                    slice_axis: None,
+                    slice_index: None,
+                }),
+                None,
+                &state,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("upload {i} must succeed: {error:?}"));
+        }
+        let renderer = service.lock().await;
+        assert_eq!(
+            renderer.active_layer_count(),
+            0,
+            "an upload must not add a per-frame render-layer entry"
+        );
+        assert_eq!(renderer.resident_volume_slot_count(), uploads);
+        assert_eq!(state.layer_to_atlas_map.lock().await.len(), uploads);
+    }
+
+    #[tokio::test]
+    async fn reclaim_cached_image_slots_frees_only_cached_ring_members() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
+            .await
+            .expect("GPU adapter required");
+        for id in ["ring-a", "ring-b"] {
+            state.volume_registry.lock().await.insert(
+                id.into(),
+                make_4d_volume_sendable_with_timeseries(),
+                volume_metadata_for(id, "f32", bridge_types::VolumeType::TimeSeries4D),
+            );
+        }
+        let mut initial = Vec::new();
+        for id in ["ring-a", "ring-b"] {
+            let info = request_layer_gpu_resources_for_testing(
+                LayerSpec::Volume(VolumeLayerSpec {
+                    id: id.to_string(),
+                    source_resource_id: id.to_string(),
+                    colormap: "gray".into(),
+                    slice_axis: None,
+                    slice_index: None,
+                }),
+                None,
+                &state,
+            )
+            .await
+            .expect("initial upload");
+            initial.push(info.atlas_layer_index);
+        }
+        let service = state
+            .render_loop_service
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .clone();
+        let displayed = {
+            let mut renderer = service.lock().await;
+            let mut displayed = Vec::new();
+            for (id, slot) in ["ring-a", "ring-b"].iter().zip(&initial) {
+                displayed.push(
+                    try_resident_swap(id, id, *slot, Some(0), 1, &state, &mut renderer)
+                        .await
+                        .unwrap()
+                        .expect("swap"),
+                );
+            }
+            displayed
+        };
+        let cached = cached_image_member_count(&*state.resident_image_sets.lock().await);
+        assert!(cached >= 2, "prefetch must leave cached members: {cached}");
+        let (free_before, resident_before) = {
+            let renderer = service.lock().await;
+            (
+                renderer.free_volume_slot_count(),
+                renderer.resident_volume_slot_count(),
+            )
+        };
+        state
+            .render_skipped_layers
+            .lock()
+            .await
+            .insert("starved".into(), RenderSkip::AllocationFailed);
+
+        let one = reclaim_cached_image_slots_internal(1, &state)
+            .await
+            .expect("reclaim one");
+        assert_eq!(one.reclaimed, 1);
+        assert_eq!(one.free_texture_slots as usize, free_before + 1);
+        assert!(
+            state.render_skipped_layers.lock().await.is_empty(),
+            "a reclaim frees a slot, so starved layers may retry"
+        );
+
+        let rest = reclaim_cached_image_slots_internal(100, &state)
+            .await
+            .expect("reclaim the rest");
+        assert_eq!(rest.reclaimed as usize, cached - 1);
+        assert_eq!(
+            cached_image_member_count(&*state.resident_image_sets.lock().await),
+            0
+        );
+        let none = reclaim_cached_image_slots_internal(4, &state)
+            .await
+            .expect("nothing left");
+        assert_eq!(none.reclaimed, 0);
+
+        let renderer = service.lock().await;
+        assert_eq!(
+            renderer.resident_volume_slot_count(),
+            resident_before - cached
+        );
+        for slot in &displayed {
+            assert!(
+                renderer.get_volume_data_range(*slot).is_some(),
+                "the displayed member of every ring stays resident"
+            );
+        }
+        let sets = state.resident_image_sets.lock().await;
+        assert_eq!(
+            sets.get("ring-a").unwrap().ring.slot_of(1),
+            Some(displayed[0])
+        );
+        assert_eq!(
+            sets.get("ring-b").unwrap().ring.slot_of(1),
+            Some(displayed[1])
+        );
+    }
+
+    #[tokio::test]
+    async fn any_release_clears_every_allocation_failed_skip() {
+        let state = BridgeState::default().expect("bridge state");
+        {
+            let mut skipped = state.render_skipped_layers.lock().await;
+            skipped.insert("starved-a".into(), RenderSkip::AllocationFailed);
+            skipped.insert("starved-b".into(), RenderSkip::AllocationFailed);
+            skipped.insert("over-cap".into(), RenderSkip::OverCap);
+        }
+        // Releasing an unrelated layer (here one without GPU resources) frees
+        // a slot as far as the skip marks know: every starved layer retries.
+        let result = release_layer_gpu_resources_internal("other".into(), &state)
+            .await
+            .expect("release");
+        assert!(!result.success);
+        let skipped = state.render_skipped_layers.lock().await;
+        assert!(!skipped.contains_key("starved-a"));
+        assert!(!skipped.contains_key("starved-b"));
+        assert_eq!(skipped.get("over-cap"), Some(&RenderSkip::OverCap));
     }
 
     #[tokio::test]
