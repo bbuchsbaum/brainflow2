@@ -317,6 +317,13 @@ impl ResidentRing {
 
         // At local capacity, or under global texture-slot pressure: reuse the
         // least-recently-used ring slot in place.
+        if self.slots.is_empty() {
+            return Err(BridgeError::Internal {
+                code: 5015,
+                details: "Resident image-set has no slot to reuse and no free texture slot"
+                    .to_string(),
+            });
+        }
         let victim_pos = self.lru_pos();
         let victim = self.slots[victim_pos];
         exec.admit_reuse(victim.texture_index, member)?;
@@ -401,6 +408,21 @@ impl ResidentRing {
         Some(removed.texture_index)
     }
 
+    /// Forget the slot at `texture_index`: it is no longer this ring's. Returns
+    /// the member it held.
+    pub(crate) fn forget_slot(&mut self, texture_index: u32) -> Option<usize> {
+        let index = self
+            .slots
+            .iter()
+            .position(|slot| slot.texture_index == texture_index)?;
+        let removed = self.slots.swap_remove(index);
+        self.member_pos.remove(&removed.member);
+        if let Some(moved) = self.slots.get(index) {
+            self.member_pos.insert(moved.member, index);
+        }
+        Some(removed.member)
+    }
+
     /// Texture indices of every resident slot (for teardown / reclaiming slots).
     pub fn resident_texture_indices(&self) -> Vec<u32> {
         self.slots.iter().map(|s| s.texture_index).collect()
@@ -478,6 +500,21 @@ impl ResidentImageSet {
         self.handle_of(handle.index()) == Some(handle)
     }
 
+    /// Forget the slots the ring no longer owns (released elsewhere, perhaps
+    /// refilled by another layer), so it never writes into them in place.
+    fn prune_stale(&mut self, service: &render_loop::RenderLoopService) {
+        for index in self.ring.resident_texture_indices() {
+            let owned = self
+                .handles
+                .get(&index)
+                .is_some_and(|handle| service.is_slot_current(*handle));
+            if !owned {
+                self.ring.forget_slot(index);
+                self.handles.remove(&index);
+            }
+        }
+    }
+
     /// Free every slot the ring still owns. A slot released elsewhere is left
     /// alone, even if another upload has since refilled its index.
     pub fn release_all(&mut self, service: &mut render_loop::RenderLoopService) {
@@ -520,6 +557,7 @@ impl ResidentImageSet {
         member: usize,
         service: &mut render_loop::RenderLoopService,
     ) -> BridgeResult<SwapOutcome> {
+        self.prune_stale(service);
         let mut exec = RenderServiceExecutor {
             service,
             set: &*self.set,
@@ -537,6 +575,7 @@ impl ResidentImageSet {
         radius: usize,
         service: &mut render_loop::RenderLoopService,
     ) -> BridgeResult<usize> {
+        self.prune_stale(service);
         let member_count = self.set.len();
         let mut exec = RenderServiceExecutor {
             service,
@@ -608,6 +647,17 @@ impl RingExecutor for RenderServiceExecutor<'_> {
     }
 
     fn admit_reuse(&mut self, slot: u32, member: usize) -> BridgeResult<()> {
+        // In place only into a residency the ring still owns.
+        let owned = self
+            .handles
+            .get(&slot)
+            .is_some_and(|handle| self.service.is_slot_current(*handle));
+        if !owned {
+            return Err(ring_upload_error(
+                "in-place update",
+                format!("slot {slot} is no longer this ring's"),
+            ));
+        }
         let volume = self.set.materialize(member)?;
         update_sendable_3d_at(self.service, slot, &volume)
     }

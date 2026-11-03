@@ -394,20 +394,21 @@ impl Drop for ProvisionalUpload {
         runtime.spawn(async move {
             let _operation = owner.operations.lock().await;
             let mut renderer = owner.renderer.lock().await;
-            let released = match renderer.release_layer_slot(slot) {
-                Ok(released) => released.is_some(),
-                Err(error) => {
-                    warn!(
-                        "Failed to release provisional upload {}: {}",
-                        slot.index(),
-                        error
-                    );
-                    false
-                }
-            };
-            // A stale residency is someone else's now, bookkeeping included.
+            if let Err(error) = renderer.release_layer_slot(slot) {
+                warn!(
+                    "Failed to release provisional upload {}: {}",
+                    slot.index(),
+                    error
+                );
+            }
+            // The same test as a lease release: the layer's bookkeeping goes
+            // when it names this upload's index (released here, or refilled by
+            // another layer whose texture it must not draw) or an empty slot.
             let mut atlas = owner.atlas.lock().await;
-            if released && atlas.get(&owner.layer_id) == Some(&slot.index()) {
+            let ours = atlas.get(&owner.layer_id).is_some_and(|&index| {
+                index == slot.index() || renderer.slot_handle(index).is_none()
+            });
+            if ours {
                 atlas.remove(&owner.layer_id);
                 owner.volumes.lock().await.remove(&owner.layer_id);
                 owner.timepoints.lock().await.remove(&owner.layer_id);

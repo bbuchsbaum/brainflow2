@@ -371,9 +371,11 @@ impl LayerLeaseInner {
     }
 
     /// Mark the lease released and drop the layer's bookkeeping if it is this
-    /// lease's: the layer maps to the slot this lease owns, or to a slot that
-    /// holds nothing any more. A newer allocation of the same layer keeps its
-    /// maps. `None` when the lease was already released.
+    /// lease's: the layer maps to this lease's slot index (still its residency,
+    /// or freed and refilled by another layer, whose texture the layer must
+    /// not keep drawing), or to a slot that holds nothing any more. A newer
+    /// allocation of the same layer releases the old lease before it maps
+    /// itself, so it keeps its maps. `None` when the lease was already released.
     async fn prepare_release(&self, render_service: &mut RenderLoopService) -> Option<SlotHandle> {
         if self.is_released.swap(true, Ordering::SeqCst) {
             return None;
@@ -381,8 +383,7 @@ impl LayerLeaseInner {
         let slot = self.slot();
         let mut layer_map = self.layer_to_atlas_map.lock().await;
         let ours = layer_map.get(&self.layer_id).is_some_and(|&index| {
-            (index == slot.index() && render_service.is_slot_current(slot))
-                || render_service.slot_handle(index).is_none()
+            index == slot.index() || render_service.slot_handle(index).is_none()
         });
         if ours {
             layer_map.remove(&self.layer_id);
@@ -402,15 +403,28 @@ impl LayerLeaseInner {
         slot: SlotHandle,
         reason: &'static str,
     ) -> BridgeResult<Option<ReleaseOutcome>> {
+        self.release_from_service_with(render_service, slot, reason, |service, slot| {
+            service.release_layer_slot(slot)
+        })
+        .await
+    }
+
+    /// [`Self::release_from_service`] with the slot release supplied (a seam
+    /// for tests). The ring is torn down even when the slot release fails:
+    /// the lease is already marked released, so nothing would retry it.
+    async fn release_from_service_with(
+        &self,
+        render_service: &mut RenderLoopService,
+        slot: SlotHandle,
+        reason: &'static str,
+        release_slot: impl FnOnce(
+            &mut RenderLoopService,
+            SlotHandle,
+        ) -> Result<Option<bool>, render_loop::RenderLoopError>,
+    ) -> BridgeResult<Option<ReleaseOutcome>> {
         // The lease's own residency first, with its render-state entry; then
         // the rest of the layer's ring, if the ring is this residency's.
-        let removed_from_render_state =
-            render_service
-                .release_layer_slot(slot)
-                .map_err(|err| BridgeError::GpuError {
-                    code: 5080,
-                    details: format!("Failed to release layer {}: {err}", self.layer_id),
-                })?;
+        let released = release_slot(render_service, slot);
         release_resident_image_set_allocations(
             &self.layer_id,
             Some(slot),
@@ -418,6 +432,10 @@ impl LayerLeaseInner {
             render_service,
         )
         .await;
+        let removed_from_render_state = released.map_err(|err| BridgeError::GpuError {
+            code: 5080,
+            details: format!("Failed to release layer {}: {err}", self.layer_id),
+        })?;
         info!(
             "LayerLease({}) released atlas index {} (reason: {}{})",
             self.layer_id,
@@ -463,6 +481,12 @@ impl LayerLeaseInner {
             let mut layer_map = self.layer_to_atlas_map.lock().await;
             if layer_map.get(&self.layer_id) == Some(&self.slot().index()) {
                 layer_map.remove(&self.layer_id);
+                drop(layer_map);
+                self.layer_to_volume_map.lock().await.remove(&self.layer_id);
+                self.layer_to_timepoint_map
+                    .lock()
+                    .await
+                    .remove(&self.layer_id);
             }
             return Err(BridgeError::ServiceNotInitialized {
                 code: 5008,
@@ -4727,6 +4751,9 @@ async fn request_layer_gpu_resources_locked(
 
             // Store the mapping between UI layer ID and atlas index (only if GPU was allocated)
             if !metadata_only_flag {
+                if let Some(renderer) = render_loop_service.as_deref_mut() {
+                    release_superseded_lease(state, &ui_layer_id, renderer).await;
+                }
                 {
                     let mut layer_map = state.layer_to_atlas_map.lock().await;
                     debug!(
@@ -4930,20 +4957,50 @@ async fn release_layer_gpu_resources_held(
         })?;
     let mut render_loop_service = service_arc.lock().await;
 
+    // A mapping without a lease names a bare index. If another layer's lease
+    // or ring owns the residency there now, the index was refilled: only this
+    // layer's bookkeeping goes, never that layer's texture.
+    let owned_elsewhere = match render_loop_service.slot_handle(atlas_layer_idx) {
+        Some(current) => {
+            let by_ring = bridge_state
+                .resident_image_sets
+                .lock()
+                .await
+                .iter()
+                .any(|(id, ring)| *id != layer_id && ring.owns(current));
+            let by_lease = bridge_state
+                .layer_leases
+                .lock()
+                .await
+                .iter()
+                .any(|(id, lease)| *id != layer_id && lease.slot() == current);
+            by_ring || by_lease
+        }
+        None => false,
+    };
+
     // Reclaim the layer's GPU-resident image-set ring (its extra resident members
     // hold multi-texture slots not tracked by the lease) before the atlas teardown.
     release_resident_image_set(&layer_id, bridge_state, &mut render_loop_service).await;
 
     // Release the atlas layer
-    let removed_from_render_state = render_loop_service
-        .release_layer_resources(atlas_layer_idx)
-        .map_err(|e| BridgeError::GpuError {
-            code: 5080,
-            details: format!(
-                "Failed to remove layer {} from render state: {:?}",
-                layer_id, e
-            ),
-        })?;
+    let removed_from_render_state = if owned_elsewhere {
+        warn!(
+            "Layer '{}' maps to atlas index {}, which another layer owns now; leaving its texture",
+            layer_id, atlas_layer_idx
+        );
+        false
+    } else {
+        render_loop_service
+            .release_layer_resources(atlas_layer_idx)
+            .map_err(|e| BridgeError::GpuError {
+                code: 5080,
+                details: format!(
+                    "Failed to remove layer {} from render state: {:?}",
+                    layer_id, e
+                ),
+            })?
+    };
 
     // Uploads add no render-state entry; only a layer the last frame drew has one.
     if !removed_from_render_state {
@@ -7853,41 +7910,67 @@ pub(crate) async fn reupload_layer_locked(
     Ok(())
 }
 
+/// Release a lease `layer_id` still holds before a new allocation maps the
+/// layer. Never this allocation's residency: it has no lease yet.
+async fn release_superseded_lease(
+    state: &BridgeState,
+    layer_id: &str,
+    render_service: &mut RenderLoopService,
+) {
+    let previous = state.layer_leases.lock().await.remove(layer_id);
+    if let Some(previous) = previous {
+        if let Err(error) = previous
+            .release_with_service(render_service, "superseded")
+            .await
+        {
+            warn!("Could not release the superseded lease of layer '{layer_id}': {error:?}");
+        }
+    }
+}
+
 /// Whether `layer_id`'s mapping names a residency that still serves it: its
-/// slot holds data, its lease (if any) owns that slot, and an editable
-/// document's labels are claimed there for `volume_id`.
+/// slot holds data, the layer's lease owns that slot (every allocation is
+/// leased, so a mapping without one is stale), and an editable document's
+/// labels are claimed for `volume_id` in that very slot (another layer may
+/// show the same document from its own slot).
+///
+/// The service lock comes first, as the lock order requires, so a concurrent
+/// resident swap cannot move the map and the lease between the reads.
 pub(crate) async fn layer_residency_is_live(
     state: &BridgeState,
     layer_id: &str,
     volume_id: &str,
 ) -> bool {
-    let Some(index) = state.layer_to_atlas_map.lock().await.get(layer_id).copied() else {
-        return false;
+    let Some(service) = state.render_loop_service.lock().await.clone() else {
+        return state.layer_to_atlas_map.lock().await.contains_key(layer_id);
     };
-    let lease_slot = state
-        .layer_leases
-        .lock()
-        .await
-        .get(layer_id)
-        .map(|lease| lease.slot());
+    let service = service.lock().await;
     let editable = state
         .volume_registry
         .lock()
         .await
         .get_entry(volume_id)
         .is_some_and(|entry| entry.editable_revision.is_some());
-    let Some(service) = state.render_loop_service.lock().await.clone() else {
-        return true;
+    let Some(index) = state.layer_to_atlas_map.lock().await.get(layer_id).copied() else {
+        return false;
     };
-    let service = service.lock().await;
-    let resident = service.slot_handle(index).is_some();
-    let leased =
-        lease_slot.is_none_or(|slot| slot.index() == index && service.is_slot_current(slot));
+    let Some(lease_slot) = state
+        .layer_leases
+        .lock()
+        .await
+        .get(layer_id)
+        .map(|lease| lease.slot())
+    else {
+        return false;
+    };
+    let leased = lease_slot.index() == index && service.is_slot_current(lease_slot);
     let claimed = !editable
         || service
-            .editable_volume_handle(volume_id)
-            .is_some_and(|handle| handle.texture_index() == index);
-    resident && leased && claimed
+            .multi_texture_manager
+            .as_ref()
+            .and_then(|manager| manager.editable_handle_for_volume(volume_id, index))
+            .is_some();
+    leased && claimed
 }
 
 /// The one way a layer's 3-D volume reaches the GPU: the explicit request, the
@@ -8030,6 +8113,10 @@ async fn allocate_gpu_resources_for_layer(
             compute_data_range_from_volume(volume_to_upload.as_ref())
         });
 
+    // A lease left from an earlier allocation of the layer goes before this
+    // one maps itself, so its release never takes this residency's maps.
+    release_superseded_lease(state, layer_id, render_service).await;
+
     // Store the mapping
     {
         let mut layer_map = state.layer_to_atlas_map.lock().await;
@@ -8053,20 +8140,11 @@ async fn allocate_gpu_resources_for_layer(
     }
 
     // Like an explicit request, this allocation has a lease, so release paths
-    // and the watchdog see it. A lease left from an earlier allocation of the
-    // layer is released first; it never touches this residency.
-    let previous = state.layer_leases.lock().await.insert(
+    // and the watchdog see it (inserted with the maps above).
+    state.layer_leases.lock().await.insert(
         layer_id.to_string(),
         Arc::new(LayerLease::for_state(state, layer_id.to_string(), slot)),
     );
-    if let Some(previous) = previous {
-        if let Err(error) = previous
-            .release_with_service(render_service, "superseded")
-            .await
-        {
-            warn!("Could not release the superseded lease of layer '{layer_id}': {error:?}");
-        }
-    }
 
     // Register the volume with the correct data range
     if let Err(e) = render_service.register_volume_with_range(
@@ -16615,11 +16693,15 @@ mod tests {
             assert_eq!(again, index, "the freed index is reused");
             (old, renderer.slot_handle(again).unwrap())
         };
-        state
-            .layer_to_atlas_map
-            .lock()
-            .await
-            .insert("owner".into(), reused.index());
+        // Another layer owns the refilled index now; "owner" still names it.
+        state.layer_to_atlas_map.lock().await.extend([
+            ("new-owner".to_string(), reused.index()),
+            ("owner".to_string(), reused.index()),
+        ]);
+        state.layer_leases.lock().await.insert(
+            "new-owner".into(),
+            Arc::new(LayerLease::for_state(&state, "new-owner".into(), reused)),
+        );
 
         // Provisional uploads dropped unpublished release on a spawned task,
         // under the operation lock; this waits for them.
@@ -16650,16 +16732,242 @@ mod tests {
         settle().await;
         assert!(service.lock().await.is_slot_current(reused));
         assert_eq!(
-            mapped_slot(&state, "owner").await,
+            mapped_slot(&state, "new-owner").await,
             Some(reused.index()),
             "the new owner's bookkeeping stays"
         );
+        assert_eq!(
+            mapped_slot(&state, "owner").await,
+            None,
+            "the old owner no longer draws the new owner's texture"
+        );
 
         // A lease left from the old residency (a stale index after a swap).
+        state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .insert("owner".into(), reused.index());
         let lease = LayerLease::for_state(&state, "owner".into(), old);
         assert!(lease.release("manual").await.unwrap().is_some());
         assert!(service.lock().await.is_slot_current(reused));
-        assert_eq!(mapped_slot(&state, "owner").await, Some(reused.index()));
+        assert_eq!(mapped_slot(&state, "new-owner").await, Some(reused.index()));
+        assert_eq!(mapped_slot(&state, "owner").await, None);
+
+        // A mapping without a lease is stale, and its release leaves the
+        // texture another layer's lease owns.
+        state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .insert("owner".into(), reused.index());
+        state.volume_registry.lock().await.insert(
+            "owner-volume".into(),
+            sendable_f32_volume([3, 2, 2], |i| i as f32),
+            volume_metadata_for("owner-volume", "f32", bridge_types::VolumeType::Volume3D),
+        );
+        assert!(!layer_residency_is_live(&state, "owner", "owner-volume").await);
+        let info = request_layer_gpu_resources_for_testing(
+            label_spec("owner", "owner-volume"),
+            None,
+            &state,
+        )
+        .await
+        .expect("a stale mapping is uploaded again, not adopted (1006)");
+        assert_ne!(info.atlas_layer_index, reused.index());
+        assert!(service.lock().await.is_slot_current(reused));
+        assert!(layer_residency_is_live(&state, "owner", "owner-volume").await);
+    }
+
+    async fn lease_slot(state: &BridgeState, layer_id: &str) -> SlotHandle {
+        state
+            .layer_leases
+            .lock()
+            .await
+            .get(layer_id)
+            .unwrap()
+            .slot()
+    }
+
+    #[tokio::test]
+    async fn two_layers_on_one_editable_document_stay_live_without_reuploads() {
+        let (state, _service) = gpu_state().await;
+        editable_document(&state, "labels", "layer-a").await;
+        state
+            .layer_to_volume_map
+            .lock()
+            .await
+            .insert("layer-b".into(), "labels".into());
+        for layer in ["layer-a", "layer-b"] {
+            request_layer_gpu_resources_for_testing(label_spec(layer, "labels"), None, &state)
+                .await
+                .expect("upload");
+        }
+        let before = [
+            lease_slot(&state, "layer-a").await,
+            lease_slot(&state, "layer-b").await,
+        ];
+        assert_ne!(before[0].index(), before[1].index());
+        for layer in ["layer-a", "layer-b"] {
+            assert!(
+                layer_residency_is_live(&state, layer, "labels").await,
+                "{layer}"
+            );
+        }
+        // Repeated reconciles (get_session) re-upload neither layer.
+        for _ in 0..3 {
+            let operation = state.volume_operations.lock().await;
+            assert_eq!(
+                crate::editable_labels::resolve_locked(&state, &operation, "labels").await,
+                None
+            );
+        }
+        assert_eq!(lease_slot(&state, "layer-a").await, before[0]);
+        assert_eq!(lease_slot(&state, "layer-b").await, before[1]);
+
+        // Releasing one leaves the survivor live and untouched.
+        release_layer_gpu_resources_for_testing("layer-b".into(), &state)
+            .await
+            .unwrap();
+        assert!(layer_residency_is_live(&state, "layer-a", "labels").await);
+        let operation = state.volume_operations.lock().await;
+        assert_eq!(
+            crate::editable_labels::resolve_locked(&state, &operation, "labels").await,
+            None
+        );
+        drop(operation);
+        assert_eq!(lease_slot(&state, "layer-a").await, before[0]);
+    }
+
+    /// A 4D layer with a resident ring of at least two members.
+    async fn ringed_layer(state: &BridgeState, service: &Arc<Mutex<RenderLoopService>>) {
+        state.volume_registry.lock().await.insert(
+            "volume".into(),
+            make_4d_volume_sendable_with_timeseries(),
+            volume_metadata_for("volume", "f32", bridge_types::VolumeType::TimeSeries4D),
+        );
+        let initial =
+            request_layer_gpu_resources_for_testing(label_spec("layer", "volume"), None, state)
+                .await
+                .unwrap();
+        let mut renderer = service.lock().await;
+        try_resident_swap(
+            "layer",
+            "volume",
+            initial.atlas_layer_index,
+            Some(0),
+            1,
+            state,
+            &mut renderer,
+        )
+        .await
+        .unwrap()
+        .expect("resident swap");
+        let ring = state.resident_image_sets.lock().await;
+        assert!(ring.get("layer").unwrap().ring.resident_len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn a_failed_slot_release_still_tears_down_the_ring() {
+        let (state, service) = gpu_state().await;
+        ringed_layer(&state, &service).await;
+        let lease = state.layer_leases.lock().await.remove("layer").unwrap();
+        let mut renderer = service.lock().await;
+        let slot = lease.inner.prepare_release(&mut renderer).await.unwrap();
+        let result = lease
+            .inner
+            .release_from_service_with(&mut renderer, slot, "test", |_, _| {
+                Err(render_loop::RenderLoopError::Internal {
+                    code: 1,
+                    details: "injected failure".into(),
+                })
+            })
+            .await;
+        assert!(
+            matches!(result, Err(BridgeError::GpuError { code: 5080, .. })),
+            "the failure is still reported"
+        );
+        assert!(
+            state.resident_image_sets.lock().await.is_empty(),
+            "the ring is torn down anyway"
+        );
+        assert_eq!(
+            renderer.resident_volume_slot_count(),
+            0,
+            "the ring's slots, the lease's among them, are free"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_ring_never_writes_into_a_slot_it_lost() {
+        let (state, service) = gpu_state().await;
+        ringed_layer(&state, &service).await;
+        let mut renderer = service.lock().await;
+        let mut sets = state.resident_image_sets.lock().await;
+        let resident = sets.get_mut("layer").unwrap();
+        let current = resident.ring.slot_of(resident.current_member).unwrap();
+        let lost = resident
+            .ring
+            .resident_texture_indices()
+            .into_iter()
+            .find(|&index| index != current)
+            .expect("a cached member");
+        // Freed behind the ring and refilled by another volume.
+        renderer.release_volume(lost).unwrap();
+        let VolumeSendable::VolF32(filler, _) = sendable_f32_volume([4, 4, 4], |_| 7.0) else {
+            unreachable!()
+        };
+        let (refilled, _) = renderer.upload_volume_3d(&filler).unwrap();
+        assert_eq!(refilled, lost);
+        let other = renderer.slot_handle(refilled).unwrap();
+        while renderer.free_volume_slot_count() > 0 {
+            renderer.upload_volume_3d(&filler).unwrap();
+        }
+        // A miss under slot pressure reuses a ring slot in place: never `lost`.
+        let missing = (0..resident.member_count())
+            .find(|member| resident.ring.slot_of(*member) == Some(lost))
+            .expect("the member the ring kept at the lost slot");
+        let outcome = resident.ensure_member(missing, &mut renderer).unwrap();
+        assert_ne!(outcome.texture_index, lost);
+        assert!(!resident.ring.resident_texture_indices().contains(&lost));
+        assert!(renderer.is_slot_current(other));
+        assert_eq!(renderer.get_volume_data_range(lost), Some((7.0, 7.0)));
+    }
+
+    #[tokio::test]
+    async fn a_release_without_a_renderer_clears_all_of_the_layers_maps() {
+        let state = BridgeState::default().expect("bridge state");
+        let mut renderer = RenderLoopService::new().await.expect("render-loop service");
+        renderer.enable_world_space_rendering().unwrap();
+        let VolumeSendable::VolF32(volume, _) = sendable_f32_volume([3, 2, 2], |i| i as f32) else {
+            unreachable!()
+        };
+        let (index, _) = renderer.upload_volume_3d(&volume).unwrap();
+        let slot = renderer.slot_handle(index).unwrap();
+        assert!(state.render_loop_service.lock().await.is_none());
+        state
+            .layer_to_atlas_map
+            .lock()
+            .await
+            .insert("layer".into(), index);
+        state
+            .layer_to_volume_map
+            .lock()
+            .await
+            .insert("layer".into(), "volume".into());
+        state
+            .layer_to_timepoint_map
+            .lock()
+            .await
+            .insert("layer".into(), None);
+        let lease = LayerLease::for_state(&state, "layer".into(), slot);
+        assert!(matches!(
+            lease.release("manual").await,
+            Err(BridgeError::ServiceNotInitialized { .. })
+        ));
+        assert!(state.layer_to_atlas_map.lock().await.is_empty());
+        assert!(state.layer_to_volume_map.lock().await.is_empty());
+        assert!(state.layer_to_timepoint_map.lock().await.is_empty());
     }
 
     #[tokio::test]
