@@ -203,6 +203,16 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     [surfaces, anchorSurfaceId, groupKey, surfaceHandle],
   );
 
+  // Presets aim at the selected surface when the view draws it (an Inspector
+  // row click on rh flips Medial to the right wall, run 6 N35); otherwise at
+  // the anchor. The anchor itself (pairing, tab identity) does not move.
+  const presetSurface = useMemo(
+    () =>
+      (selectedSurfaceId && renderSurfaces.find((s) => s.handle === selectedSurfaceId)) ||
+      activeSurface,
+    [activeSurface, renderSurfaces, selectedSurfaceId],
+  );
+
   // A mounted canvas with nothing to draw is the black-tab signature; record it
   // once per occurrence so a tester can tell it from a GPU/context failure.
   const emptySceneKey =
@@ -254,16 +264,19 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         <div className={`absolute inset-0 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
           <SurfaceViewCanvas
             surface={activeSurface}
+            presetSurface={presetSurface ?? activeSurface}
             renderSurfaces={renderSurfaces}
             surfaceViewId={resolvedSurfaceViewId}
             surfaceContextHandle={boundSurfaceId ?? activeSurface.handle}
             onActivateSurface={() => {
+              // Keep a selected hemisphere the view draws; otherwise select the anchor.
+              const target = presetSurface ?? activeSurface;
               if (
                 !selectedSurfaceId ||
                 !selectedItemType ||
-                selectedSurfaceId !== activeSurface.handle
+                selectedSurfaceId !== target.handle
               ) {
-                setSurfaceSelectionForView(resolvedSurfaceViewId, activeSurface.handle, 'geometry');
+                setSurfaceSelectionForView(resolvedSurfaceViewId, target.handle, 'geometry');
                 return;
               }
               activateSurfaceView(resolvedSurfaceViewId);
@@ -320,6 +333,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       {activeSurface && activeSurface.metadata && (
         <SurfaceFrame
           surface={activeSurface}
+          presetSurface={presetSurface ?? activeSurface}
           surfaceViewId={resolvedSurfaceViewId}
           renderSurfaces={renderSurfaces}
           width={dimensions.width}

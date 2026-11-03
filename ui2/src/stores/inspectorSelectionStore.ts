@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { useLayerStore } from '@/stores/layerStore';
+import { useSurfaceStore } from '@/stores/surfaceStore';
+import { collectRenderSurfaces } from '@/components/views/surfaceRenderSurfaces';
 import type { SceneItem, SceneItemKind } from '@/types/sceneItem';
 import { volumeSceneItemKind } from '@/utils/sceneItemKind';
 
@@ -10,11 +12,14 @@ interface InspectorSelectionState {
   /**
    * Select a scene item from the unified Inspector. For volume-kind items
    * this also mirrors the selection into `layerStore.selectedLayerId` so any
-   * legacy code reading the per-store selection stays in sync. Surface
-   * selection bridging is intentionally NOT mirrored: the existing
-   * surfaceStore selection is per-view (keyed by surfaceViewId) and lives
-   * in a different abstraction layer; the inspector consumes
-   * `inspectorSelectionStore` directly.
+   * legacy code reading the per-store selection stays in sync.
+   *
+   * Surface items are mirrored one way into surfaceStore's per-view selection
+   * (see `mirrorSurfaceSelection`): every surface view drawing the surface
+   * selects it, so a view's camera presets aim at the hemisphere the user
+   * picked (run 6 N35: rh row under Medial). Nothing writes back from
+   * surfaceStore to this store, so the mirror cannot loop; the inspector
+   * itself still reads `inspectorSelectionStore` only.
    */
   setActive: (item: SceneItem | null) => void;
 
@@ -36,11 +41,43 @@ export const useInspectorSelectionStore = create<InspectorSelectionState>((set) 
 
     if (item.ref.type === 'volume') {
       useLayerStore.getState().selectLayer(item.ref.layerId);
+    } else if (item.ref.type === 'surface-geometry') {
+      mirrorSurfaceSelection(item.ref.surfaceId, null);
+    } else if (item.ref.type === 'surface-overlay') {
+      mirrorSurfaceSelection(item.ref.surfaceId, item.ref.surfaceLayerId);
     }
   },
 
   clear: () => set({ activeItemId: null, activeItemKind: null }),
 }));
+
+/**
+ * Select a surface (or one of its data layers) in every surface view that
+ * draws it. A view's render anchor (the tab's bound surface, which decides
+ * pairing and tab identity) is unchanged; only its selection moves. When no
+ * view draws the surface (hidden, or no surface tab), only the compatibility
+ * selection follows.
+ */
+function mirrorSurfaceSelection(surfaceId: string, surfaceLayerId: string | null): void {
+  // Guarded: some unit tests mock `surfaceStore` without a real store.
+  const store = (useSurfaceStore as { getState?: typeof useSurfaceStore.getState }).getState?.();
+  if (!store?.surfaces?.has(surfaceId)) return;
+  const itemType = surfaceLayerId ? 'dataLayer' : 'geometry';
+  const viewIds = Array.from(store.surfaceViewHandles.entries())
+    .filter(([, anchor]) =>
+      collectRenderSurfaces(store.surfaces, anchor, null, anchor).some(
+        (surface) => surface.handle === surfaceId,
+      ),
+    )
+    .map(([viewId]) => viewId);
+  if (viewIds.length === 0) {
+    store.setCompatibilitySelection(surfaceId, itemType, surfaceLayerId);
+    return;
+  }
+  for (const viewId of viewIds) {
+    useSurfaceStore.getState().setSurfaceSelectionForView(viewId, surfaceId, itemType, surfaceLayerId);
+  }
+}
 
 const VOLUME_ITEM_KINDS: ReadonlySet<SceneItemKind> = new Set([
   'volume-base',

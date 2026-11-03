@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { useLayerStore } from '@/stores/layerStore';
+import { useSurfaceStore, type LoadedSurface } from '@/stores/surfaceStore';
+import { useActivePanelStore } from '@/stores/activePanelStore';
+import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import type { SceneItem } from '@/types/sceneItem';
 
 function makeVolumeItem(id: string): SceneItem {
@@ -98,5 +101,103 @@ describe('focusVolumeLayer (shared scene classifier)', () => {
     focusVolumeLayer('t1');
     expect(useInspectorSelectionStore.getState()).toMatchObject({ activeItemId: 't1', activeItemKind: 'volume-base' });
     expect(useLayerStore.getState().selectedLayerId).toBe('t1');
+  });
+});
+
+function templateSurface(handle: string, hemisphere: 'left' | 'right'): LoadedSurface {
+  return {
+    handle,
+    name: handle,
+    visible: true,
+    geometry: {
+      vertices: new Float32Array(0),
+      faces: new Uint32Array(0),
+      hemisphere,
+      surfaceType: 'pial',
+    },
+    layers: new Map(),
+    metadata: {
+      vertexCount: 0,
+      faceCount: 0,
+      hemisphere,
+      surfaceType: 'pial',
+      path: `templateflow://fsaverage6_pial_${hemisphere}`,
+    },
+  };
+}
+
+function surfaceRow(surfaceId: string, layerId?: string): SceneItem {
+  return {
+    id: layerId ?? surfaceId,
+    kind: layerId ? 'surface-overlay' : 'surface-geometry',
+    group: 'surface',
+    name: surfaceId,
+    subtitle: 'surface',
+    visible: true,
+    opacity: 1,
+    ref: layerId
+      ? { type: 'surface-overlay', surfaceId, surfaceLayerId: layerId }
+      : { type: 'surface-geometry', surfaceId },
+  };
+}
+
+/**
+ * Run 6 N35: an Inspector row click on rh must reach the surface view's
+ * selection, which decides the hemisphere camera presets aim at.
+ */
+describe('inspectorSelectionStore surface mirroring', () => {
+  beforeEach(() => {
+    useActivePanelStore.setState({ componentType: null, componentState: null });
+    useActiveRenderContextStore.setState({ activeId: null });
+    useSurfaceStore.setState({
+      surfaces: new Map([
+        ['lh', templateSurface('lh', 'left')],
+        ['rh', templateSurface('rh', 'right')],
+        ['other', { ...templateSurface('other', 'right'), metadata: { ...templateSurface('other', 'right').metadata, path: '/elsewhere/other.gii' } }],
+      ]),
+      surfaceViewSettings: new Map(),
+      surfaceViewHandles: new Map(),
+      surfaceViewSelections: new Map(),
+      activeSurfaceId: null,
+      selectedItemType: null,
+      selectedLayerId: null,
+    });
+    // The pair's tab is bound to lh; an unrelated tab shows `other`.
+    useSurfaceStore.getState().registerSurfaceView('pair-view', 'lh');
+    useSurfaceStore.getState().registerSurfaceView('other-view', 'other');
+  });
+
+  it('selecting a surface-geometry row selects it in the views that draw it', () => {
+    useInspectorSelectionStore.getState().setActive(surfaceRow('rh'));
+    const state = useSurfaceStore.getState();
+    expect(state.surfaceViewSelections.get('pair-view')).toEqual({
+      activeSurfaceId: 'rh',
+      selectedItemType: 'geometry',
+      selectedLayerId: null,
+    });
+    // A view that does not draw rh keeps its own selection.
+    expect(state.surfaceViewSelections.get('other-view')?.activeSurfaceId).toBe('other');
+    // The tab binding (render anchor) is unchanged.
+    expect(state.surfaceViewHandles.get('pair-view')).toBe('lh');
+    expect(state.activeSurfaceId).toBe('rh');
+  });
+
+  it('a surface-overlay row selects its data layer', () => {
+    useInspectorSelectionStore.getState().setActive(surfaceRow('rh', 'overlay-1'));
+    expect(useSurfaceStore.getState().surfaceViewSelections.get('pair-view')).toEqual({
+      activeSurfaceId: 'rh',
+      selectedItemType: 'dataLayer',
+      selectedLayerId: 'overlay-1',
+    });
+  });
+
+  it('a hidden surface only moves the compatibility selection', () => {
+    const surfaces = new Map(useSurfaceStore.getState().surfaces);
+    surfaces.set('rh', { ...surfaces.get('rh')!, visible: false });
+    useSurfaceStore.setState({ surfaces });
+    useInspectorSelectionStore.getState().setActive(surfaceRow('rh'));
+    const state = useSurfaceStore.getState();
+    expect(state.surfaceViewSelections.get('pair-view')?.activeSurfaceId).toBe('lh');
+    expect(state.activeSurfaceId).toBe('rh');
   });
 });

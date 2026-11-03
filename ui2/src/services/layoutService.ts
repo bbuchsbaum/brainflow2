@@ -58,6 +58,19 @@ const surfaceViewGroupKey = (state: LayoutComponentState): string | null => {
   return typeof state.path === 'string' ? surfaceGroupKey(state.path) : null;
 };
 
+/**
+ * Tab title for a surface scene that shows both hemispheres: the group key
+ * without its hemisphere token, e.g. `templateflow://fsaverage6_pial` ->
+ * "fsaverage6 pial", `lh.pial` / `rh.pial` -> "pial" (run 6 N47).
+ */
+export const surfacePairTitle = (groupKey: string): string => {
+  if (groupKey.startsWith('templateflow://')) {
+    return groupKey.slice('templateflow://'.length).replaceAll('_', ' ');
+  }
+  const name = groupKey.slice(groupKey.replaceAll('\\', '/').lastIndexOf('/') + 1);
+  return name.replace(/^hemi-pair[.]/, '').replace(/(^|_)hemi-pair(?=_|[.])/, '').replace(/^_/, '') || name;
+};
+
 const isStateRecord = (value: unknown): value is LayoutComponentState =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -619,6 +632,15 @@ class LayoutServiceImpl implements LayoutService {
           });
 
     if (existing && isComponentItem(existing)) {
+      // The other hemisphere joined: the tab now shows the pair, so name it
+      // after the pair rather than the first hemisphere's file.
+      if (groupKey !== null && getComponentState(existing).surfaceHandle !== surfaceHandle) {
+        try {
+          existing.setTitle(surfacePairTitle(groupKey));
+        } catch (error) {
+          console.warn('[LayoutService] Failed to retitle the paired surface tab:', error);
+        }
+      }
       try {
         centerStack.setActiveComponentItem(existing, true);
       } catch (error) {

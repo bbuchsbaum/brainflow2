@@ -54,6 +54,8 @@ export interface SurfaceFrameProps {
   surfaceViewId?: string;
   /** Surfaces actually drawn in the view; the header names both hemispheres when both show. */
   renderSurfaces?: LoadedSurface[];
+  /** Surface the header names and presets aim at (the view selection); defaults to `surface`. */
+  presetSurface?: LoadedSurface;
 }
 
 function lateralHemisphereOf(surface: LoadedSurface): 'left' | 'right' | null {
@@ -72,16 +74,17 @@ function sceneHemisphereLabel(
   surface: LoadedSurface,
   renderSurfaces: LoadedSurface[] | undefined,
   viewpoint: string,
+  presetSurface: LoadedSurface,
 ): string | undefined {
   const preset = resolvePresetHemispheres(
     renderSurfaces ?? [surface],
     viewpoint,
-    surfaceHemisphere(surface) ?? undefined,
+    surfaceHemisphere(presetSurface) ?? undefined,
   );
   if (preset.hidden && preset.aim) return preset.aim;
   const drawn = new Set((renderSurfaces ?? []).map(lateralHemisphereOf));
   if (drawn.has('left') && drawn.has('right')) return 'both';
-  return surface.metadata.hemisphere;
+  return presetSurface.metadata.hemisphere;
 }
 
 export function SurfaceFrame({
@@ -91,6 +94,7 @@ export function SurfaceFrame({
   topInset = 0,
   surfaceViewId,
   renderSurfaces,
+  presetSurface = surface,
 }: SurfaceFrameProps) {
   const cameraBasis = useSurfaceCameraStore((s) => (surfaceViewId ? s.bases.get(surfaceViewId) : undefined));
   const viewpoint = useSurfaceStore((s) =>
@@ -102,7 +106,7 @@ export function SurfaceFrame({
   const narrow = width < SURFACE_FRAME_NARROW_PX;
   // The initial view needs the hemisphere (lateral is -x for left, +x for
   // right): without it no preset is shown as applied; a press still sets one.
-  const hemisphere = String(surface.metadata.hemisphere ?? surface.geometry.hemisphere ?? '').toLowerCase();
+  const hemisphere = String(presetSurface.metadata.hemisphere ?? presetSurface.geometry.hemisphere ?? '').toLowerCase();
   const knownHemisphere = ['left', 'right', 'lh', 'rh', 'l', 'r'].includes(hemisphere);
   const presetOptions = useMemo(
     () =>
@@ -131,7 +135,7 @@ export function SurfaceFrame({
   const bottomBand = Math.max(120, Math.round(height * 0.3));
   const colorbar = useMemo(() => surfaceColorbarLayer(surface), [surface]);
   const overlayName = colorbar?.name ?? null;
-  const parts = ['Surface', sceneHemisphereLabel(surface, renderSurfaces, viewpoint), surface.metadata.surfaceType].filter(
+  const parts = ['Surface', sceneHemisphereLabel(surface, renderSurfaces, viewpoint, presetSurface), presetSurface.metadata.surfaceType].filter(
     Boolean,
   ) as string[];
 
@@ -150,31 +154,31 @@ export function SurfaceFrame({
               {shortLayerLabel(overlayName)}
             </span>
           ) : (
-            <span className="min-w-0 truncate text-bf-text-muted" title={surface.name}>
-              {shortLayerLabel(surface.name)}
+            <span className="min-w-0 truncate text-bf-text-muted" title={presetSurface.name}>
+              {shortLayerLabel(presetSurface.name)}
             </span>
           )}
           <button
             type="button"
             className="pointer-events-auto shrink-0 rounded-bf-xs font-mono text-bf-2xs tabular-nums text-bf-text-muted hover:text-bf-text-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
             aria-expanded={open}
-            aria-label={`${surface.metadata.vertexCount.toLocaleString()} vertices: mesh details`}
+            aria-label={`${presetSurface.metadata.vertexCount.toLocaleString()} vertices: mesh details`}
             onClick={() => setOpen((v) => !v)}
             data-testid="surface-frame-counts"
           >
-            {surface.metadata.vertexCount.toLocaleString()} v {open ? '▴' : '▾'}
+            {presetSurface.metadata.vertexCount.toLocaleString()} v {open ? '▴' : '▾'}
           </button>
         </div>
         {open ? (
           <dl className="grid grid-cols-[auto_1fr] gap-x-2 pb-0.5 font-mono text-bf-2xs text-bf-text-muted">
             <dt className="font-sans">Mesh</dt>
-            <dd className="truncate" title={surface.metadata.path}>
-              {surface.name}
+            <dd className="truncate" title={presetSurface.metadata.path}>
+              {presetSurface.name}
             </dd>
             <dt className="font-sans">Vertices</dt>
-            <dd>{surface.metadata.vertexCount.toLocaleString()}</dd>
+            <dd>{presetSurface.metadata.vertexCount.toLocaleString()}</dd>
             <dt className="font-sans">Faces</dt>
-            <dd>{surface.metadata.faceCount.toLocaleString()}</dd>
+            <dd>{presetSurface.metadata.faceCount.toLocaleString()}</dd>
           </dl>
         ) : null}
       </div>

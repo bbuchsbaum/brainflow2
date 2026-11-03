@@ -33,6 +33,8 @@ import {
 
 interface SurfaceViewCanvasProps {
   surface: LoadedSurface;
+  /** Surface whose hemisphere presets aim at (the view's selection); defaults to `surface`. */
+  presetSurface?: LoadedSurface;
   renderSurfaces?: LoadedSurface[];
   surfaceViewId: string;
   surfaceContextHandle?: string;
@@ -43,6 +45,7 @@ interface SurfaceViewCanvasProps {
 
 const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   surface,
+  presetSurface,
   renderSurfaces,
   surfaceViewId,
   surfaceContextHandle,
@@ -114,10 +117,10 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
     return Array.from(unique.values()) as SurfaceRenderable[];
   }, [renderSurfaces, surface]);
 
-  // Presets aim at the active surface's hemisphere (the viewer's own reading
+  // Presets aim at the selected surface's hemisphere (the viewer's own reading
   // of it, which the frame header shares); with lh and rh both drawn, Medial
   // shows it and hides the other.
-  const viewHemisphere = surfaceHemisphere(surface) ?? undefined;
+  const viewHemisphere = surfaceHemisphere(presetSurface ?? surface) ?? undefined;
 
   const loadedSurfaces = useSurfaceStore(state => state.surfaces);
   const cursorAnatomy = useMemo(() => resolveCursorAnatomy(
