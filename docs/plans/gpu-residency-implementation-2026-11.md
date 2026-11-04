@@ -104,9 +104,11 @@ Each increment lists its scope, the safety net it lands with, and its exit crite
   - **CI configurations:** the binding capacity is forced low (for example 4) so mapping bugs surface.
   - **Native check:** the app's visual baselines are unchanged.
   - **Measurement:** bind-group creation per frame and cache hit rate, logged in the diagnostics view.
-- **Exit:** byte-identical renders, and performance within the explicitly approved
-  qualification tolerance in the production-profile protocol below. This replaces
-  the original unquantified "no added per-frame cost beyond noise" wording.
+- **Exit:** byte-identical renders, ownership/invalidation checks, native evidence,
+  and the recorded performance review. The 2026-11-04 user decision below accepts
+  the remaining steady-host relative-bound uncertainty for R3 only. All other
+  measured endpoints and the absolute 100 us bound pass. The earlier strict
+  conjunction remains a failed historical measurement, not a claimed pass.
 
 ### R4. Residency beyond 13 under a byte budget
 
@@ -629,3 +631,21 @@ Evidence: original checkout `cruft/r3-20261104/fixed-campaign-2/` and
 `cruft/r3-20261104/deferred-upload-checks/`; execution directory
 `/private/tmp/brainflow2-r3-fixed-20261104-2`. Independent raw-data validation of
 the revised protocol is recorded with the archived campaign artifacts.
+
+### User decision: accept the R3 tradeoff and return to capacity — 2026-11-04
+
+After reviewing the original aims, the user said “let's continue then.” This
+accepts the proposed engineering tradeoff for R3: steady host submission's observed
++5.139 us (grand-mean ratio +3.289%, added-time upper95 +9.682 us) and unresolved
+5% relative bound are accepted to advance the architecture and GPU-capacity goal.
+This is a specific exception to R3's former strict performance conjunction, not a
+statistical pass, a new performance claim, or a blanket waiver for future changes.
+The same experiment already passes properties, source switching, all completed
+rendering endpoints and every 100 us absolute bound. Correctness, ownership,
+independent review, native checks and the staged landing order remain required.
+
+Next: finish R3 review and native verification on the optimized code, prepare its
+PR with this decision visible, then land R3 before implementing R4. R4's acceptance
+is more than 13 resident volumes across views under an enforced byte budget,
+including pressure/failure/teardown checks, with each draw respecting its binding
+capacity. R5/R6 then consolidate backend ownership and delete superseded policy.
