@@ -1042,7 +1042,7 @@ fn r3_binding_prepare_timing_witness() {
         for call in 0..CALLS_PER_BATCH {
             let iteration = batch * CALLS_PER_BATCH + call;
             service
-                .update_layer(0, if iteration % 2 == 0 { 0.2 } else { 0.3 }, 0)
+                .update_layer(0, if iteration.is_multiple_of(2) { 0.2 } else { 0.3 }, 0)
                 .expect("property refresh");
             black_box(&mut service)
                 .prepare_draw_bindings()
@@ -1059,7 +1059,7 @@ fn r3_binding_prepare_timing_witness() {
     for batch in 0..BATCHES {
         let start = Instant::now();
         for call in 0..CALLS_PER_BATCH {
-            let source = if (batch * CALLS_PER_BATCH + call) % 2 == 0 {
+            let source = if (batch * CALLS_PER_BATCH + call).is_multiple_of(2) {
                 &source_b
             } else {
                 &source_a
