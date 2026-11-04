@@ -649,3 +649,21 @@ PR with this decision visible, then land R3 before implementing R4. R4's accepta
 is more than 13 resident volumes across views under an enforced byte budget,
 including pressure/failure/teardown checks, with each draw respecting its binding
 capacity. R5/R6 then consolidate backend ownership and delete superseded policy.
+
+### Final optimized native check and PR review — 2026-11-04
+
+Fresh debug bundle built successfully from optimized renderer e2db1b30 at
+`/private/tmp/brainflow2-r3/target/debug/bundle/macos/Brainflow R3 QA.app`.
+Native computer control worked without permission changes. The public MNI T1
+2 mm template rendered axially and sagittally; an opacity keyboard edit reached
+99%. A second public MNI T2 2 mm template loaded; switching panel A T1 -> T2 -> T1
+showed the corresponding distinct images and values 2912 -> 9586 -> 2912.
+Diagnostics stayed GPU Ready and advanced from 6 frames / 5 hits to 18 frames /
+15 hits, showing 0.17 texture groups/frame and 83% cache hits. These are observed
+native image/property/source-switch checks on the optimized code, supplementing
+the earlier Mosaic/4D/label-outline native checks and current GPU regressions.
+
+Independent final review approved 96b986757489419e38f5dff47b6a919281c46fdf
+against R2 85194998 with no blocking code findings. The only later code-file edit
+removes trailing whitespace from five generated TypeScript lines; no runtime or
+binding declarations change. The timing exception remains explicit in the PR.
