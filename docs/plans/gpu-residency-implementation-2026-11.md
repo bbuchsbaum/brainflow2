@@ -177,10 +177,11 @@ Each increment lists its scope, the safety net it lands with, and its exit crite
 Each increment ends with something shippable. The plan can stop after R4 with the user-visible problem solved and the code already cleaner. R5 and R6 are the structural payoff.
 
 
-## Execution checkpoint — 2026-11-04, R3 in progress
+## Execution checkpoint — 2026-11-04, R3 qualification pending
 
-- R0–R2 are merged; baseline is `origin/main` `85194998`.
-- R3 worktree: `/private/tmp/brainflow2-r3`, branch `refactor/r3-draw-bindings`.
+- Refreshed origin: R0–R2 are merged; `origin/main` remains `85194998`.
+  R3 is local at `f0a4bc20`, preceded by implementation commit `3603cef0`.
+  Worktree: `/private/tmp/brainflow2-r3`, branch `refactor/r3-draw-bindings`.
   The original shared checkout and its unrelated changes are preserved.
 - Implemented: compact per-draw mapping, bounded handle-set bind-group cache,
   store-identity/view-revision invalidation, per-layer captured source ownership,
@@ -189,31 +190,67 @@ Each increment ends with something shippable. The plan can stop after R4 with th
 - Review fixes include direct-upload prepared-state invalidation, incremental
   layer shadow/metadata appends, cache eviction on failed preparation, duplicate
   rows retaining distinct generations, and source alignment after layer removal.
-- Diagnostics: generated frame fields report created texture groups and cache
-  hits. The existing Diagnostics popover summarizes recent successful submissions;
-  it refreshes only while open. The focused StatusBar tests pass (8 tests).
-- Latest focused Metal run: 22 R3 tests passed, none ignored. Covers sparse
-  residents with four binding positions, overflow, cache bounds, scalar/label/
-  mask/outline pixel equivalence, member swaps, snapshots, resource replacement,
-  stale captures, duplicate removal, and diagnostic counters.
-- Workspace Clippy passed before the final duplicate-row fix. Full workspace
-  tests are running; final affected checks remain to run. UI production build,
-  WASM build, TS generation/API build and strict bridge permissions passed.
+  Fresh-context review approved both code commits without remaining blockers,
+  conditional on native and performance qualification.
+- Diagnostics: frame fields report created texture groups and cache hits.
+  Native testing revealed that normal image rendering does not use submitViewState.
+  The existing atlas-stat polling now carries cumulative successful declarative
+  submission counters into the Diagnostics popover, including normal image renders.
+  Upload groups outside submissions and legacy direct-path renders are excluded.
+  Focused StatusBar tests (8), service/bridge-to-store UI tests (10), and the core
+  cumulative-counter regression passed. Final native display check remains pending.
+- Focused Metal run: 22 R3 tests passed, none ignored. Covers sparse residents
+  with four binding positions, overflow, cache bounds, scalar/label/mask/outline
+  pixel equivalence, member swaps, snapshots, resource replacement, stale captures,
+  duplicate removal, and per-frame diagnostic counters.
+- Workspace regular tests: 1,482 passed, 33 ignored. The combined command then
+  failed during API bridge rustdoc with missing-crate errors while Cargo profiles
+  shared a target directory; isolated workspace doc tests subsequently passed.
+  Final affected renderer/bridge suites: 872 passed, 27 ignored. These preceded
+  the additive cumulative telemetry, which has focused regression coverage above.
+  Final workspace Clippy, Rust format check, UI production build, WASM build,
+  generated TS/API build, strict bridge permissions, and native debug bundle passed.
 - Full UI suite: 4,325 passed, one BIDS palette timing assertion failed under
-  concurrent build load, three skipped and one todo. Rerun the timing test alone
-  once builds finish. Earlier snapshot: 4,326 passed. Do not treat skips as proof.
-- Full UI lint reports exactly the same 537 findings on untouched `85194998`
-  and R3 (466 errors, 71 warnings; no added or removed findings).
-- Actual R2/R3 timing uses identical `r3_prepare_benchmark.rs` and separate saved
-  executables. Early results were too variable to establish the performance gate.
-  Repeat after final fixes with no concurrent builds/tests.
-- Native control recovered after the user restarted the desktop app. Finder and
-  the isolated QA app both returned visible controls; the earlier QA build was
-  then closed. Rebuild the final app before native image/view checks.
-  Bundle: `/Users/bbuchsbaum/code/brainflow2/target/debug/bundle/macos/Brainflow R3 QA.app`.
-- Logs and actual exit metadata: `/private/tmp/brainflow2-r3-*.log*`.
+  concurrent build load, three skipped and one todo. The unchanged timing test
+  file subsequently passed alone (7 tests). Earlier snapshot: 4,326 passed.
+  UI lint has the same 537 findings on baseline and R3 (466 errors, 71 warnings;
+  no added or removed normalized findings). Skipped tests are not qualification.
+- Native image checks on `3603cef0`: public MNI template in orthogonal and Mosaic
+  views (including page navigation); synthetic oblique4d at fixture voxel (2,3,4)
+  showed 432 then 2432 after frame selection; Compare displayed distinct volume
+  members; synthetic label 17 and sagittal outlines rendered correctly. No observed
+  wrong source, blank panel, or crash. `f0a4bc20` only adds cumulative diagnostics.
+  Its rebuilt QA bundle is at
+  `/Users/bbuchsbaum/code/brainflow2/target/debug/bundle/macos/Brainflow R3 QA.app`.
+  Final diagnostics inspection is blocked by ScreenCaptureKit error -3811, even
+  after the user restarted Codex and a fresh CUA session. A manual check is pending.
+- Performance: identical sparse four-source benchmark on R2 and final R3, 8
+  alternating AB/BA pairs, 500 frames per workload, isolated release executables.
+  Outer submission timing includes the diagnostic counter updates omitted from
+  internal preparation timing. Both builds use `CARGO_PROFILE_RELEASE_PANIC=unwind`
+  to avoid the baseline volmath rlib/cdylib test-profile collision; manifests unchanged.
+  Mean paired outer p50 changes are -3.81 us steady, -2.29 us property changes,
+  and -3.46 us alternating sources. Run-order effects remain too large to establish
+  the no-added-cost gate; do not infer equivalence from a nonsignificant difference.
+  One predeclared follow-up ran eight ABBA/BAAB four-run blocks with the same
+  executables. Outer run-p50 mean block changes (95% t intervals across blocks):
+  steady -8.79 us [-21.33, 3.75], property changes -5.94 us [-37.39, 25.52],
+  alternating sources -6.27 us [-16.45, 3.90]. Tail uncertainty remains larger.
+  This is inconclusive, not an observed consistent regression or proof of
+  negligible cost. The fixed follow-up is complete; no further repeats to chase
+  significance. Host submission timing excludes the following GPU completion
+  wait and does not qualify GPU execution, sustained throughput, or native latency.
+  Standard Criterion render benchmark ran successfully: estimated 1.8053 ms with
+  readback and 76.906 us without (10 samples, 1 s warmup, 2 s measurement).
+- Baseline hosted CI is mixed: differential, coordinate and shader-contract runs
+  passed. Other runs fail on Linux GLib/private-dependency setup or unchanged
+  dependency advisories; this branch has not been published or checked by hosted CI.
+- Raw logs and actual exit metadata are archived in the original checkout's ignored
+  `cruft/r3-20261104/`; source logs remain `/private/tmp/brainflow2-r3-*.log*`.
+  Timing data: `timing-comparison-release.json`, `timing-comparison-balanced.json`,
+  and `timing-balanced-protocol.json` in that evidence directory.
   Mote issue `bd-01M6KVR5VR61NBMHV0TFFAC58Q`, actor `codex-residency`.
   Dashboard lane `codex-5a25e2ce` in the original checkout's `.dashboard/`.
-- Next: complete checks and timing; rebuild and test native app; fresh-context
-  final review at a coherent commit. R3 is not yet qualified or landed. R4–R6
-  have not started and must wait for R3's exit criteria.
+- Next: settle the performance evidence and final native diagnostics observation,
+  then publish and qualify R3 before merging. R3 is not yet qualified or landed.
+  R4–R6 have not started and must wait for R3's exit criteria.

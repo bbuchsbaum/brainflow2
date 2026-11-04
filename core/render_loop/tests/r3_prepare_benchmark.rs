@@ -52,6 +52,7 @@ fn r3_sparse_frame_preparation_measurement() {
         }
         for workload in ["steady", "property_patch", "alternating_views"] {
             let mut samples = Vec::<f32>::new();
+            let mut submission_samples = Vec::<f64>::new();
             for index in 0..500 {
                 match workload {
                     "property_patch" => {
@@ -63,17 +64,24 @@ fn r3_sparse_frame_preparation_measurement() {
                     }
                     _ => (),
                 }
+                let submission_start = std::time::Instant::now();
                 let result = service
                     .request_frame_with_options(ViewId::new("timing"), state.clone(), options)
                     .await
                     .unwrap();
+                submission_samples.push(submission_start.elapsed().as_secs_f64() * 1000.0);
                 samples.push(result.diagnostics.prepare_ms);
                 service.device.poll(wgpu::Maintain::Wait);
             }
             samples.sort_by(f32::total_cmp);
+            submission_samples.sort_by(f64::total_cmp);
             println!(
                 "R3_TIMING workload={workload} samples=500 p50_ms={:.6} p90_ms={:.6}",
                 samples[250], samples[450]
+            );
+            println!(
+                "R3_SUBMISSION workload={workload} samples=500 p50_ms={:.6} p90_ms={:.6}",
+                submission_samples[250], submission_samples[450]
             );
         }
     });
