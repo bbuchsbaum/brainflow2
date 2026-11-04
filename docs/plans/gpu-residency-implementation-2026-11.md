@@ -582,3 +582,50 @@ uploads on an unchanged frame. Focused binding suite: 19 passed, one manual timi
 witness ignored. Independent review approved the bounded change; Clippy and normal
 production build passed. Full renderer checks and updated qualification results
 will be recorded below when complete. No qualification claim is made by this fix.
+
+### Optimized fixed-campaign result — 2026-11-04
+
+Runtime commit e2db1b30 removes the demonstrated duplicate upload. The renderer
+suite passed 287 tests, failed zero, with 18 ignored; the focused binding suite
+passed 19 with one manual timing witness ignored. All-target Clippy and the final
+production example build passed. Pre-existing serde parsing and manual modulo
+Clippy warnings remain. No unrelated shared-checkout changes were included.
+
+The same fixed schedule, runner, analysis and limits were executed against the
+new binary in a fresh campaign. All 144 sessions completed in 1,282.752 seconds
+(21.4 minutes), retaining 13,824 timed batches / 442,368 timed frames. There were
+no execution/checksum failures and no control false-effect flags. All owned
+benchmark processes exited.
+
+| Endpoint | Mean added time (us) | Added-time upper95 (us) | Mean-pair-ratio upper95 | Q upper95 (us; must be <0) | Pass |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Host, steady | +5.139 | +9.682 | +7.464% | +2.317 | No |
+| Host, properties | -2.583 | +2.635 | +3.768% | -5.931 | Yes |
+| Host, source switches | +2.100 | +6.338 | +4.827% | -2.602 | Yes |
+| Completed, steady | -10.221 | +4.774 | +0.465% | -80.274 | Yes |
+| Completed, properties | -6.480 | +2.460 | +0.235% | -81.692 | Yes |
+| Completed, source switches | -6.993 | +5.863 | +0.388% | -79.460 | Yes |
+
+Source-switch host means were R2 188.487 us and R3 190.587 us, an observed ratio
+of grand means of +1.114%. Its added mean time is 2.100 us in this campaign,
+compared with 11.330 us in the earlier campaign. This is encouraging comparative
+evidence from two campaigns, not a separate randomized estimate of the fix's
+causal speedup. Property-change submission also passes all requirements.
+
+R3 remains unqualified solely on steady host submission. Its observed ratio of
+grand means is +3.289% (156.227 us R2; 161.366 us R3), below the 5% target, but
+both relative upper bounds fail to establish compliance. The direct Q interval
+is [-7.662,+2.317] us, so exceeding the 5% true mean-time margin is not established
+either. All absolute upper bounds remain far below 100 us. Keep the exact failed
+conjunction; do not retrospectively drop a criterion or extend the sample size.
+
+No further unchanged campaign was run. Next work must identify a concrete steady
+path cost before another runtime optimization, or obtain an explicit engineering
+budget decision. Native diagnostics passed before this optimization; the new
+change has real-GPU pixel-equivalence evidence rather than a fresh native UI run.
+No push or merge occurred, and R4–R6 remain untouched.
+
+Evidence: original checkout `cruft/r3-20261104/fixed-campaign-2/` and
+`cruft/r3-20261104/deferred-upload-checks/`; execution directory
+`/private/tmp/brainflow2-r3-fixed-20261104-2`. Independent raw-data validation of
+the revised protocol is recorded with the archived campaign artifacts.
