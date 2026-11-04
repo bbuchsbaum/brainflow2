@@ -402,7 +402,158 @@ The original executed orchestrator and raw evidence are preserved under
 `cruft/r3-20261104/interleaved-control-1/` in the original checkout. Its comparison
 guard requires a passing control using the same baseline executable.
 
-Next performance step: run the unchanged reviewed assay and approved limits in a
-dedicated idle Metal-capable environment or a clean desktop session with capture
-and background processing stopped. Further repeats under unchanged conditions
-are not justified. R3 remains unqualified and unmerged; R4–R6 remain untouched.
+The earlier recommendation to require a quieter machine is superseded by the
+measurement diagnosis below. Failed four-session controls establish uncertainty
+at the approved margins; they do not establish that this machine is unsuitable.
+R3 remains unqualified and unmerged; R4–R6 remain untouched.
+
+### Measurement diagnosis after low-CPU report — 2026-11-04
+
+The user reports approximately 7% CPU utilization. Aggregate utilization does not
+identify the cause of submillisecond timing variation, and no lower-utilization
+requirement is justified by the evidence collected so far.
+
+A single exploratory R2-only production run added optional stage attribution via
+`BF_R3_STAGE_DIAGNOSTICS`. It completed all three host workloads with 1,000 timed
+calls each, exit 0. Existing public-call timers remain unchanged. The reported
+`prepare` stage includes command encoding; `submit` measures encoder finishing
+and queue submission, not GPU execution. External drain measures the following
+poll/wait, outside the host timer. These stages are diagnostic, not acceptance
+endpoints. The new output is disabled unless explicitly requested.
+
+For steady frames, 700 calls below 100 us averaged 75.16 us (59.71 us preparation,
+14.56 us submission). The 92 calls above 200 us averaged 331.67 us (280.33 us
+preparation, 47.81 us submission). Other workloads showed the same broad pattern.
+Most additional elapsed time lies in preparation/encoding, with submission also
+slower. This does not distinguish scheduling waits, active CPU work, driver
+behavior, or frequency changes. It does not establish an R3 regression: only R2
+ran. Raw trace and derived attribution are retained under
+`cruft/r3-20261104/stage-diagnosis/` in the original checkout.
+
+Independent examination of the previous interleaved control also found sustained
+batch shifts, not solely isolated stalls. Removing the largest 1% diagnostically
+still leaves one steady-session contrast near -29.46%; no samples are removed
+from qualification. The relative session-contrast standard deviations were
+17.92 percentage points (steady), 6.67 (properties), and 6.87 (source switches).
+Four independent sessions therefore provide weak precision at a 5% margin.
+Planning with that uncertain variance suggests about 111 comparison sessions
+for 90% power at zero true overhead for the noisiest endpoint, under independent,
+approximately normal session contrasts. This is not a guarantee for all endpoints
+or a claim that the observed process is stationary.
+
+The next proposed direction is one fixed larger randomized R2/R3 comparison with
+interspersed R2/R2 diagnostics, preserving the approved one-sided 95% upper bounds
+below both 5% and 100 us for every primary endpoint. Replacing the preliminary
+hard A/A pass requirement requires explicit agreement before execution. No larger
+candidate campaign has been started, and the existing runner still enforces the
+original gate. The native diagnostics display check is already complete.
+
+Proposed fixed campaign (independently reviewed; not yet authorized or run):
+
+- 24 chronological groups, each containing five fresh R2/R3 pairs and one fresh
+  R2/R2 pair: 120 comparisons and 24 controls. Randomize order using a recorded
+  seed; balance executable-to-process assignment, launch order and quartet start.
+- Preserve six endpoints, wall timers, fixture, warm-up, and both approved limits.
+  Aggregate comparison contrasts first per process pair, then across the five
+  comparison pairs in each chronological group. Infer from 24 group contrasts.
+- Freeze ordinary standard error and serial-dependence estimates at lags one and
+  two before collecting data; require the largest resulting one-sided 95% upper
+  bound to pass both limits for every endpoint. Retain all valid observations.
+- Replace preliminary A/A equivalence with an interspersed falsification check:
+  predeclare a global false-effect test controlling familywise error at 1% across
+  six endpoints, including dependence handling. A detected control effect makes
+  qualification inconclusive; a wide control interval alone does not. Never
+  subtract measured control offsets from candidate results. Exact estimator and
+  critical-value implementation must be reviewed before execution.
+- Fixed sample size, no result-driven extensions, trimming, or margin changes.
+  Save raw data, temporal diagnostics, hashes and randomized schedule. An aborted
+  or invalid run is not a pass. Estimated duration is 25–35 minutes at the pilot
+  rate, with no guarantee of decisive precision or qualification.
+
+Diagnostic change checks: normal release baseline build and real-Metal host trace
+passed; candidate example Clippy and rustfmt passed; git diff --check passed.
+Clippy retained existing ts-rs serde-attribute parsing warnings. Product runtime
+code is unchanged by this diagnostic addition.
+
+### Fixed-campaign authorization and frozen analysis — 2026-11-04
+
+The user explicitly approved execution of the revised 120-comparison / 24-control
+campaign. The original preliminary A/A equivalence gate is superseded for this
+campaign only. No approved performance allowance is relaxed.
+
+For group g, average the five comparison pairs' contrasts D=B-A, R=B/A-1, and
+Q=B-1.05*A. For each 24-element chronological series, center values and calculate
+lag covariances gamma_l=sum(z_i*z_(i-l))/24. Ordinary variance of the mean is
+gamma_0/23. Bartlett HAC variance at L=1,2 is
+(gamma_0 + 2*sum((1-l/(L+1))*gamma_l))/23. Use the largest of these three variances
+and Student-t(23) one-sided 95% critical value. Every endpoint must satisfy
+upper(D)<100000 ns, upper(R)<0.05, AND upper(Q)<0.
+
+The original mean per-pair ratio R is retained as an additional requirement.
+It can have denominator bias even with exchangeable identical timings. The added
+linear Q requirement tests the intended ratio of mean times directly; it makes
+the conjunction stricter. No previous result is reclassified using this method.
+
+Controls use antisymmetric contrasts D=B-A and S=2*(B-A)/(A+B), one per group.
+Use the same maximum variance rule and t(23) critical probability
+1-0.01/(2*12). A nonzero effect in any of these 12 two-sided Bonferroni tests
+makes the result inconclusive. No control-offset subtraction is allowed.
+The t/HAC coverage and error levels are nominal approximations under dependence,
+not protection against arbitrary long-range dependence. Raw chronological data
+and temporal diagnostics remain part of interpretation.
+
+Implementation: tools/qualify_r3_fixed_campaign.py (execution),
+tools/r3_performance_statistics.py (frozen analysis), and independent numerical
+checks in tools/test_r3_performance_statistics.py. A frozen schedule, formulas,
+critical values, source hashes and binary hashes precede all GPU measurements.
+
+### Fixed-campaign result — 2026-11-04
+
+The authorized campaign completed all 144 process pairs in 1,332.990 seconds
+(22.2 minutes), exit 0: 120 R2/R3 comparisons and 24 R2/R2 controls, arranged in
+24 chronological groups. All 13,824 timed batches / 442,368 timed frames were
+retained. The independent audit reproduced role-mapped means, the matrix-form
+HAC estimates, every bound and the verdict, and verified frozen input hashes,
+schedule completeness, raw-log agreement, completed-image checksums and recorded
+batch ordering. All owned benchmark processes exited. No additional campaign
+or post-result extension was run.
+
+**R3 does not qualify under the frozen conjunction.** All completed-rendering
+endpoints pass. All absolute upper bounds are below 100 us. Host steady and
+property changes fail only the retained mean-pair-ratio bound; their direct
+mean-time relative-margin tests pass. Source switching fails both relative
+requirements. The baseline controls detected no false effect at the predeclared
+familywise threshold; their wide intervals do not establish equivalence.
+
+| Endpoint | Mean added time (us) | Added-time upper95 (us) | Mean-pair-ratio upper95 | Q upper95 (us; must be <0) | Pass |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Host, steady | +1.521 | +6.604 | +6.633% | -2.354 | No |
+| Host, properties | +2.418 | +6.568 | +6.944% | -2.300 | No |
+| Host, source switches | +11.330 | +14.979 | +10.196% | +5.463 | No |
+| Completed, steady | -8.703 | +1.357 | +0.115% | -87.749 | Yes |
+| Completed, properties | +0.359 | +10.725 | +0.701% | -76.954 | Yes |
+| Completed, source switches | +4.137 | +10.226 | +0.591% | -79.905 | Yes |
+
+Source-switch host means were 190.937 us (R2) and 202.267 us (R3), an observed
+ratio-of-grand-means increase of 5.934%. Added host time was positive in 21/24
+groups, with a nominal one-sided 95% lower bound of +7.682 us. This is a concrete
+added-cost signal, not merely failure of a small A/A assay. However, Q's lower
+bound is -1.896 us: the direct mean-time test does not establish that the true
+increase exceeds 5%, nor does its upper bound establish compliance. Preserve
+that distinction. The biased mean-pair-ratio gate remains binding for this run;
+no favorable retrospective criterion was substituted.
+
+Next work is to profile and reduce source-switch preparation cost in R3, checking
+row refresh, residency-signature construction and draw-binding lookup against R2
+before selecting an optimization. Do not infer a precise cause from this timing
+comparison alone, request a still-quieter machine, or repeat this campaign
+unchanged. After an actual code improvement, repeat the frozen qualification
+protocol without widening the limits. R3 remains unqualified and unmerged;
+R4–R6 remain untouched. Native diagnostics verification remains complete.
+
+Execution and analysis tooling passed nine focused tests, Ruff, and the reviewed
+statistical implementation checks. The optional stage diagnostics example passed
+normal release build, targeted Clippy and rustfmt. No product runtime code changed
+in this measurement-tooling slice. Evidence is retained under
+`cruft/r3-20261104/fixed-campaign-1/` in the original checkout, with the frozen
+source/binaries, protocol, raw logs/samples, independent audit and result report.

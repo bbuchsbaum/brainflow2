@@ -15,6 +15,8 @@ const MAX_BATCH_CALLS: usize = 4096;
 struct BatchResult {
     samples_ns: Vec<u64>,
     checksum: u64,
+    // Optional diagnostic attribution, never an acceptance endpoint.
+    stages_ns: Option<Vec<[u64; 5]>>,
 }
 
 fn initial_state() -> ViewState {
@@ -106,6 +108,8 @@ async fn run_batch(
         service.device.poll(wgpu::Maintain::Wait);
     }
     let mut samples_ns = Vec::with_capacity(count);
+    let mut stages_ns =
+        std::env::var_os("BF_R3_STAGE_DIAGNOSTICS").map(|_| Vec::with_capacity(count));
     let mut checksum = 0;
     for iteration in 0..count {
         update_workload(&mut state, workload, warmup + iteration);
@@ -117,7 +121,18 @@ async fn run_batch(
         samples_ns.push(start.elapsed().as_nanos() as u64);
         // Readback/submission completion is outside the host timer. This is a
         // serial-latency assay, not a sustained-throughput measurement.
+        let drain_start = stages_ns.as_ref().map(|_| Instant::now());
         service.device.poll(wgpu::Maintain::Wait);
+        if let (Some(stages), Some(drain_start)) = (&mut stages_ns, drain_start) {
+            let d = &result.diagnostics;
+            stages.push([
+                (d.prepare_ms as f64 * 1_000_000.0) as u64,
+                (d.render_ms as f64 * 1_000_000.0) as u64,
+                (d.readback_ms as f64 * 1_000_000.0) as u64,
+                (d.total_ms as f64 * 1_000_000.0) as u64,
+                drain_start.elapsed().as_nanos() as u64,
+            ]);
+        }
         if iteration + 1 == count && mode == "completed" {
             assert_eq!(result.image_data.len(), 512 * 512 * 4);
             assert!(
@@ -135,6 +150,7 @@ async fn run_batch(
     BatchResult {
         samples_ns,
         checksum,
+        stages_ns,
     }
 }
 
@@ -153,6 +169,9 @@ fn print_batch(mode: &str, workload: &str, result: BatchResult, serve_protocol: 
         "R3_SAMPLES mode={mode} workload={workload} ns={:?}",
         result.samples_ns
     );
+    if let Some(stages) = result.stages_ns {
+        println!("R3_STAGES mode={mode} workload={workload} columns=prepare,submit,readback,total,drain ns={stages:?}");
+    }
     if serve_protocol {
         println!("DONE");
     }
