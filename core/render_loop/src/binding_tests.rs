@@ -1102,3 +1102,86 @@ fn r3_binding_prepare_timing_witness() {
         &mut source_switch,
     );
 }
+
+/// Deferred declarative patches must upload final mapped rows once, including
+/// property changes that do not alter a texture position.
+#[test]
+fn r3_declarative_patches_upload_final_rows_once() {
+    let mut service = pollster::block_on(RenderLoopService::new()).expect("real GPU");
+    service.load_shaders().unwrap();
+    for i in 0..4 {
+        service
+            .register_volume_with_upload(
+                format!("v{i}"),
+                &volume((i + 1) as f32 / 4.0),
+                wgpu::TextureFormat::R32Float,
+            )
+            .unwrap();
+    }
+    service
+        .multi_texture_manager
+        .as_mut()
+        .unwrap()
+        .binding_planner
+        .identity = false;
+    let mut state = declarative_view("v3");
+    let mut overlay = state.layers[0].clone();
+    overlay.volume_id = "v1".into();
+    overlay.opacity = 0.25;
+    state.layers.push(overlay);
+    let id = ViewId::new("deferred-patch");
+    let mut image = pollster::block_on(service.request_frame(id.clone(), state.clone()))
+        .unwrap()
+        .image_data;
+    let writes = |service: &RenderLoopService| {
+        service
+            .layer_storage_manager
+            .as_ref()
+            .unwrap()
+            .layer_upload_count()
+    };
+    // First switch also moves the unchanged overlay from compact position 0 to 1.
+    for source in ["v0", "v3", "v0"] {
+        let before = writes(&service);
+        state.layers[0].volume_id = source.into();
+        let next = pollster::block_on(service.request_frame(id.clone(), state.clone()))
+            .unwrap()
+            .image_data;
+        assert_eq!(
+            writes(&service) - before,
+            1,
+            "source switch uploads final rows once"
+        );
+        assert_ne!(image, next, "new source must reach the GPU");
+        service.invalidate_prepared_layer_state_cache();
+        let rebuilt = pollster::block_on(service.request_frame(id.clone(), state.clone()))
+            .unwrap()
+            .image_data;
+        assert_eq!(
+            next, rebuilt,
+            "patched pixels must match a full row rebuild"
+        );
+        image = next;
+    }
+    let before = writes(&service);
+    state.layers[1].opacity = 0.75;
+    let next = pollster::block_on(service.request_frame(id.clone(), state.clone()))
+        .unwrap()
+        .image_data;
+    assert_eq!(
+        writes(&service) - before,
+        1,
+        "unchanged mapping still flushes properties"
+    );
+    assert_ne!(image, next);
+    let before = writes(&service);
+    let repeated = pollster::block_on(service.request_frame(id, state))
+        .unwrap()
+        .image_data;
+    assert_eq!(
+        writes(&service),
+        before,
+        "unchanged frame does not upload rows"
+    );
+    assert_eq!(next, repeated);
+}

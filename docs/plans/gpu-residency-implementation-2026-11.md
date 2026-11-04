@@ -557,3 +557,28 @@ normal release build, targeted Clippy and rustfmt. No product runtime code chang
 in this measurement-tooling slice. Evidence is retained under
 `cruft/r3-20261104/fixed-campaign-1/` in the original checkout, with the frozen
 source/binaries, protocol, raw logs/samples, independent audit and result report.
+
+### Source-switch upload optimization — 2026-11-04
+
+Code diagnosis found a deterministic redundant upload: a declarative source patch
+writes its row using the old binding plan (falling back to the resident index for
+an absent source), then applies the new compact map and writes the complete layer
+buffer again. This is demonstrated extra work, not attribution of the entire
+measured 11.330 us to this operation.
+
+Declarative patches now stage CPU rows and defer the GPU write until the validated
+binding plan is applied. A pending flag forces a single upload even when mapped
+positions remain unchanged. Public/direct row updates remain eager. Clear and
+full refresh reset pending state; generation validation, masks and ordering still
+use the existing paths. The implementation uploads all active rows when flushing;
+declarative rendering permits 16 rows (13 limits distinct resident textures).
+Property-only patches therefore trade a single-row transfer for one full active
+row transfer. The fixed performance gate must measure this tradeoff.
+
+A real-Metal regression asserts one layer-buffer write per source switch, including
+another row changing compact position, compares pixels to forced full rebuilds,
+checks property changes reach the GPU with unchanged positions, and checks no row
+uploads on an unchanged frame. Focused binding suite: 19 passed, one manual timing
+witness ignored. Independent review approved the bounded change; Clippy and normal
+production build passed. Full renderer checks and updated qualification results
+will be recorded below when complete. No qualification claim is made by this fix.

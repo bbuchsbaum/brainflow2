@@ -69,6 +69,11 @@ pub struct LayerStorageManager {
     resident_handles: Vec<Option<crate::residency::SlotHandle>>,
     binding_plan: Option<crate::binding::BindingPlan>,
     bindings_current: bool,
+    /// A declarative row patch updated CPU state but deliberately deferred its
+    /// buffer write until the draw binding plan is known.
+    pending_layer_upload: bool,
+    #[cfg(test)]
+    layer_upload_count: u64,
     /// Active layer count
     active_count: u32,
     /// Maximum capacity of the current buffer
@@ -108,6 +113,9 @@ impl LayerStorageManager {
             resident_handles: Vec::with_capacity(capacity),
             binding_plan: None,
             bindings_current: false,
+            pending_layer_upload: false,
+            #[cfg(test)]
+            layer_upload_count: 0,
             active_count: 0,
             capacity,
         }
@@ -262,6 +270,7 @@ impl LayerStorageManager {
             .zip(self.resident_handles.iter().copied())
             .collect();
         self.bindings_current = false;
+        self.pending_layer_upload = false;
         let layer_count = layers.len();
 
         // Ensure we have capacity
@@ -410,6 +419,10 @@ impl LayerStorageManager {
                 0,
                 bytemuck::cast_slice(&self.layer_data),
             );
+            #[cfg(test)]
+            {
+                self.layer_upload_count += 1;
+            }
         }
 
         // Update metadata
@@ -435,6 +448,50 @@ impl LayerStorageManager {
         volume_dims: (u32, u32, u32),
         world_to_voxel: &Matrix4<f32>,
         display_override: (bool, f32),
+    ) -> Result<(), &'static str> {
+        self.update_layer_internal(
+            queue,
+            index,
+            layer,
+            volume_dims,
+            world_to_voxel,
+            display_override,
+            true,
+        )
+    }
+
+    /// Update a declarative row without an immediate GPU write. The next
+    /// binding-plan application uploads the complete set of rows once.
+    pub(crate) fn stage_layer_update(
+        &mut self,
+        queue: &Queue,
+        index: usize,
+        layer: &LayerInfo,
+        volume_dims: (u32, u32, u32),
+        world_to_voxel: &Matrix4<f32>,
+        display_override: (bool, f32),
+    ) -> Result<(), &'static str> {
+        self.update_layer_internal(
+            queue,
+            index,
+            layer,
+            volume_dims,
+            world_to_voxel,
+            display_override,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_layer_internal(
+        &mut self,
+        queue: &Queue,
+        index: usize,
+        layer: &LayerInfo,
+        volume_dims: (u32, u32, u32),
+        world_to_voxel: &Matrix4<f32>,
+        display_override: (bool, f32),
+        upload_now: bool,
     ) -> Result<(), &'static str> {
         // Update active_count if we're adding a new layer at the end
         if index == self.active_count as usize && index < self.capacity {
@@ -507,9 +564,17 @@ impl LayerStorageManager {
             queue.write_buffer(&self.metadata_buffer, 0, bytemuck::bytes_of(&metadata));
         }
 
-        // Upload just the updated layer
-        let offset = (index * std::mem::size_of::<LayerUboStd140>()) as u64;
-        queue.write_buffer(&self.layer_buffer, offset, bytemuck::bytes_of(&layer_data));
+        if upload_now {
+            // Upload just the updated layer for legacy/direct callers.
+            let offset = (index * std::mem::size_of::<LayerUboStd140>()) as u64;
+            queue.write_buffer(&self.layer_buffer, offset, bytemuck::bytes_of(&layer_data));
+            #[cfg(test)]
+            {
+                self.layer_upload_count += 1;
+            }
+        } else {
+            self.pending_layer_upload = true;
+        }
 
         Ok(())
     }
@@ -518,6 +583,7 @@ impl LayerStorageManager {
     pub fn clear(&mut self, queue: &Queue) {
         self.active_count = 0;
         self.bindings_current = false;
+        self.pending_layer_upload = false;
         self.layer_data.clear();
         self.resident_indices.clear();
         self.resident_handles.clear();
@@ -542,6 +608,11 @@ impl LayerStorageManager {
 
     pub(crate) fn bindings_current(&self) -> bool {
         self.bindings_current
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layer_upload_count(&self) -> u64 {
+        self.layer_upload_count
     }
 
     pub(crate) fn resident_indices(&self) -> &[u32] {
@@ -576,7 +647,7 @@ impl LayerStorageManager {
             self.binding_plan = Some(plan.clone());
         }
         self.bindings_current = true;
-        let mut changed = false;
+        let mut changed_mapping = false;
         for ((row, &resident), captured) in self
             .layer_data
             .iter_mut()
@@ -589,15 +660,22 @@ impl LayerStorageManager {
                 .expect("plan covers all active layer rows");
             if row.texture_index != position {
                 row.texture_index = position;
-                changed = true;
+                changed_mapping = true;
             }
         }
-        if changed {
-            queue.write_buffer(
-                &self.layer_buffer,
-                0,
-                bytemuck::cast_slice(&self.layer_data),
-            );
+        if changed_mapping || self.pending_layer_upload {
+            if !self.layer_data.is_empty() {
+                queue.write_buffer(
+                    &self.layer_buffer,
+                    0,
+                    bytemuck::cast_slice(&self.layer_data),
+                );
+                #[cfg(test)]
+                {
+                    self.layer_upload_count += 1;
+                }
+            }
+            self.pending_layer_upload = false;
         }
     }
 

@@ -2634,7 +2634,7 @@ impl RenderLoopService {
                     details: "Layer patching requires an initialized layer storage manager"
                         .to_string(),
                 })?
-                .update_layer(
+                .stage_layer_update(
                     &self.queue,
                     index,
                     &next.layer_infos[index],
