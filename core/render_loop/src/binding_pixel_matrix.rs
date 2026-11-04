@@ -269,5 +269,17 @@ fn r3_frame_diagnostics_report_creation_and_hits() {
         assert_eq!(third.diagnostics.texture_bind_groups_created, 0);
         assert!(third.diagnostics.texture_binding_cache_hit);
         assert_eq!(third.diagnostics.updated_layer_slots, 1);
+        let totals = s
+            .multi_texture_manager
+            .as_ref()
+            .unwrap()
+            .binding_cache_stats();
+        assert_eq!(totals.frames, 3);
+        assert_eq!(totals.frame_groups_created, 1);
+        assert_eq!(totals.frame_cache_hits, 2);
+        assert!(
+            totals.groups_created > totals.frame_groups_created,
+            "eager upload groups are excluded from frame totals"
+        );
     });
 }

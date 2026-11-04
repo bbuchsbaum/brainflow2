@@ -203,6 +203,12 @@ export interface AtlasStats {
   residentTextureSlots?: number;
   /** Resident slots held by cached (not displayed) 4D ring members. */
   cachedImageSlots?: number;
+  /** Successful declarative frames contributing texture-binding diagnostics. */
+  bindingFrames?: number;
+  /** Texture bind groups created while preparing those frames. */
+  bindingGroupsCreated?: number;
+  /** Successful declarative frames that reused a texture binding group. */
+  bindingCacheHits?: number;
 }
 
 /** Result of `reclaim_cached_image_slots`. */

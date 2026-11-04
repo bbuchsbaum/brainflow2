@@ -369,6 +369,29 @@ export class StatusBarService {
     ) => {
       atlasSeverity = severity;
       setValue("atlas", formatAtlasSummary(stats, severity));
+      const frames = stats.bindingFrames;
+      const groups = stats.bindingGroupsCreated;
+      const hits = stats.bindingCacheHits;
+      if (
+        typeof frames === "number" &&
+        Number.isFinite(frames) &&
+        frames > 0 &&
+        typeof groups === "number" &&
+        Number.isFinite(groups) &&
+        groups >= 0 &&
+        typeof hits === "number" &&
+        Number.isFinite(hits) &&
+        hits >= 0
+      ) {
+        setValue("bindingGroupsPerFrame", `${(groups / frames).toFixed(2)} (${frames} frames)`);
+        setValue("bindingCacheHits", `${((hits / frames) * 100).toFixed(0)}% (${hits}/${frames})`);
+      } else {
+        // Older/unavailable backends and zero-frame renderers must not leave
+        // a previous renderer's cumulative values visible.
+        const { removeValue } = useStatusBarStore.getState();
+        removeValue("bindingGroupsPerFrame");
+        removeValue("bindingCacheHits");
+      }
     };
 
     const unsubscribeAtlasMetrics = eventBus.on(

@@ -25,4 +25,16 @@ resident_texture_slots: number,
  * Resident slots held by cached (not displayed) 4D ring members, which
  * `reclaim_cached_image_slots` can free without evicting a layer.
  */
-cached_image_slots: number, };
+cached_image_slots: number, 
+/**
+ * Cumulative successful declarative GPU submissions for this renderer.
+ */
+binding_frames: bigint, 
+/**
+ * Texture groups created during those frames (not intervening uploads).
+ */
+binding_groups_created: bigint, 
+/**
+ * Frames that reused a current or cached texture group.
+ */
+binding_cache_hits: bigint, };

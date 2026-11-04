@@ -401,6 +401,10 @@ impl MultiTextureManager {
         self.binding_planner.clear();
     }
 
+    pub(crate) fn record_frame_bindings(&mut self, groups_created: u32, cache_hit: bool) {
+        self.binding_planner.record_frame(groups_created, cache_hit);
+    }
+
     pub fn binding_cache_stats(&self) -> BindingCacheStats {
         self.binding_planner.stats()
     }

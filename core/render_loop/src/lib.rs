@@ -5474,6 +5474,14 @@ impl RenderLoopService {
             .as_ref()
             .map(|manager| manager.binding_cache_stats())
             .unwrap_or_default();
+        let texture_bind_groups_created = binding_stats_after
+            .groups_created
+            .saturating_sub(binding_stats_before.groups_created)
+            .min(u32::MAX as u64) as u32;
+        let texture_binding_cache_hit = binding_stats_after.hits > binding_stats_before.hits;
+        if let Some(manager) = &mut self.multi_texture_manager {
+            manager.record_frame_bindings(texture_bind_groups_created, texture_binding_cache_hit);
+        }
         Ok(FrameSubmission {
             result: FrameResult {
                 image_data,
@@ -5490,12 +5498,8 @@ impl RenderLoopService {
                     visible_layers: layer_infos.len() as u32,
                     updated_layer_slots,
                     reused_layer_state,
-                    texture_bind_groups_created: binding_stats_after
-                        .groups_created
-                        .saturating_sub(binding_stats_before.groups_created)
-                        .min(u32::MAX as u64)
-                        as u32,
-                    texture_binding_cache_hit: binding_stats_after.hits > binding_stats_before.hits,
+                    texture_bind_groups_created,
+                    texture_binding_cache_hit,
                     readback_mode: options.readback_mode,
                 },
             },

@@ -32,6 +32,14 @@ export type FrameDiagnostics = {
      */
     reused_layer_state: boolean;
     /**
+     * Texture bind groups created while preparing this frame.
+     */
+    texture_bind_groups_created: number;
+    /**
+     * Whether this frame reused a cached texture binding group.
+     */
+    texture_binding_cache_hit: boolean;
+    /**
      * Whether the frame bytes were read back synchronously or skipped.
      */
     readback_mode: FrameReadbackMode;

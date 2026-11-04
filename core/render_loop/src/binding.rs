@@ -36,6 +36,11 @@ pub struct BindingCacheStats {
     pub misses: u64,
     pub groups_created: u64,
     pub cached_groups: usize,
+    /// Successful declarative GPU submissions, including normal image renders.
+    pub frames: u64,
+    /// Groups created inside those submissions (excludes uploads between frames).
+    pub frame_groups_created: u64,
+    pub frame_cache_hits: u64,
 }
 
 pub(crate) struct BindingPlanner {
@@ -128,6 +133,12 @@ impl BindingPlanner {
             self.cache.pop_front();
         }
         self.cache.push_back((plan, group));
+    }
+
+    pub(crate) fn record_frame(&mut self, groups_created: u32, cache_hit: bool) {
+        self.stats.frames += 1;
+        self.stats.frame_groups_created += u64::from(groups_created);
+        self.stats.frame_cache_hits += u64::from(cache_hit);
     }
 
     pub(crate) fn record_hit(&mut self) {
