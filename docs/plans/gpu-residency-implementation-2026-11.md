@@ -104,7 +104,9 @@ Each increment lists its scope, the safety net it lands with, and its exit crite
   - **CI configurations:** the binding capacity is forced low (for example 4) so mapping bugs surface.
   - **Native check:** the app's visual baselines are unchanged.
   - **Measurement:** bind-group creation per frame and cache hit rate, logged in the diagnostics view.
-- **Exit:** byte-identical renders, and no added per-frame cost beyond noise.
+- **Exit:** byte-identical renders, and performance within the explicitly approved
+  qualification tolerance in the production-profile protocol below. This replaces
+  the original unquantified "no added per-frame cost beyond noise" wording.
 
 ### R4. Residency beyond 13 under a byte budget
 
@@ -180,7 +182,8 @@ Each increment ends with something shippable. The plan can stop after R4 with th
 ## Execution checkpoint — 2026-11-04, R3 qualification pending
 
 - Refreshed origin: R0–R2 are merged; `origin/main` remains `85194998`.
-  R3 is local at `f0a4bc20`, preceded by implementation commit `3603cef0`.
+  R3 runtime changes are `3603cef0` and `f0a4bc20`; subsequent local commits
+  record qualification evidence and test-only measurement tooling.
   Worktree: `/private/tmp/brainflow2-r3`, branch `refactor/r3-draw-bindings`.
   The original shared checkout and its unrelated changes are preserved.
 - Implemented: compact per-draw mapping, bounded handle-set bind-group cache,
@@ -261,3 +264,76 @@ Each increment ends with something shippable. The plan can stop after R4 with th
   Dashboard lane `codex-5a25e2ce` in the original checkout's `.dashboard/`.
 - Next: settle the performance evidence, then publish and qualify R3 before merging. R3 is not yet qualified or landed.
   R4–R6 have not started and must wait for R3's exit criteria.
+
+
+### Production-profile qualification protocol — approved 2026-11-04
+
+The user explicitly accepted a bounded tolerance before this campaign: the upper
+confidence bound for added mean time must be below 5% of R2 and below 0.1 ms per
+view, separately for host submission and completed RGBA readback in steady,
+property-change and alternating-source workloads. This makes the earlier
+"beyond noise" wording measurable; it is not inferred from the observed timings.
+
+- Build the identical `core/render_loop/examples/r3_frame_qualification.rs`
+  against R2 and R3 via `cargo build --release -p render_loop --example
+  r3_frame_qualification`, preserving opt-z, LTO and panic-abort. Record hashes.
+- Each process warms each workload for 100 frames and measures 1,000 frames;
+  13 residents, sparse four-source draw, 512-square image, serial queue drain.
+  Host timing excludes the following GPU drain; completed timing includes the
+  public request's readback completion. Neither measures UI latency or throughput.
+- Primary endpoints are block mean-time differences and relative differences;
+  frame samples are not independent replication units. Retain p50/p95 as secondary
+  evidence and image checksums for matching output.
+- Run four A/A ABBA/BAAB blocks first, then at most eight R2/R3 ABBA/BAAB blocks.
+  A block comprises four separate runs per mode. Modes alternate execution order.
+  A/A two-sided 90% intervals (equivalent to directional one-sided 95% bounds)
+  must fit within +/-5% and +/-0.1 ms for all six endpoints. Otherwise stop and
+  classify the measurement environment as inadequate, without widening tolerance.
+- R2/R3 passes only when every one-sided 95% upper bound fits both approved limits,
+  with no unexplained adverse tail/order effect. Report intervals across blocks,
+  raw data, machine/context, and separate first-use versus warmed behavior.
+- A test-only batched `prepare_draw_bindings` witness diagnoses local overhead;
+  it does not replace the full-call comparison or cover residency-signature cost.
+- One fixed campaign; no extra repeats to chase acceptance. If sensitivity fails,
+  change the measurement environment before attempting qualification again.
+
+
+Production-control result: **this four-block A/A assay did not establish adequate
+host-submission repeatability at the approved tolerance; candidate comparison
+was not run**. Hardware: Apple M3 Max, Mac15,11, 14 CPU cores, macOS 27.2.
+No thermal/performance warning was reported. Before measurement, background
+media analysis, Dropbox, WindowServer and capture-service activity were present;
+this is context, not proof that any one process caused the variance. Our builds,
+GPU tests and QA app were stopped before the control. User was asked to provide
+an idle window before any new control campaign. Independent review recomputed
+all 32 logs, 96 raw sample arrays and 12 primary upper bounds and confirmed the
+negative sensitivity interpretation; no material measurement defect was found.
+The runner now refuses to overwrite a campaign or start candidate qualification
+without a passing saved control from the same baseline executable.
+
+The four A/A blocks compare the same R2 binary, not R2 against R3. Directional
+95% interval bounds on relative mean differences:
+
+| Endpoint | Lower | Upper | Fits +/-5% |
+| --- | ---: | ---: | --- |
+| Host, steady | -16.66% | +9.44% | No |
+| Host, properties | -11.67% | +16.31% | No |
+| Host, source switches | -35.38% | +36.67% | No |
+| Completed, steady | -1.56% | +3.62% | Yes |
+| Completed, properties | -2.96% | +1.61% | Yes |
+| Completed, source switches | -1.22% | +1.19% | Yes |
+
+All absolute intervals fit +/-0.1 ms. Completed-image checksums matched within
+all control blocks. This control does not establish candidate performance or
+candidate image equivalence; it prevents an unreliable R3 comparison from being
+accepted. Raw samples, binary hashes, frozen protocol, and computed verdict are
+in `cruft/r3-20261104/production-control-*` in the original checkout.
+
+The corrected local binding witness passed with actual Metal access and no
+additional bind groups for warmed repeated source sets. It uses 16 batches of
+256 calls, opaque service references, and explicit empty queue submission plus
+GPU drain outside every timed batch. Observed batch medians: unchanged preparation
+about 2 ns/call, property refresh plus preparation 8.666 us/call, source-row refresh
+plus preparation 12.308 us/call. These are test-profile diagnostic measurements,
+not incremental R3-versus-R2 overhead or production-frame qualification. The earlier
+single unflushed batch was superseded and must not support a timing claim.

@@ -934,3 +934,171 @@ fn r3_duplicate_rows_keep_distinct_generations_through_refresh_and_removal() {
         );
     }
 }
+
+/// Manual timing witness for the CPU-side per-draw binding preparation path.
+/// It intentionally excludes render-pass encoding and submission. Property and
+/// source-set refreshes are included in their own labels because they restore
+/// resident texture indices before `prepare_draw_bindings` reapplies the map.
+#[test]
+#[ignore = "manual real-GPU timing witness; run explicitly"]
+fn r3_binding_prepare_timing_witness() {
+    use std::{hint::black_box, time::Instant};
+
+    // Short batches retain enough calls to amortize the host clock while
+    // bounding queued Queue::write_buffer transfers between drains.
+    const BATCHES: usize = 16;
+    const CALLS_PER_BATCH: usize = 256;
+    const ITERATIONS: usize = BATCHES * CALLS_PER_BATCH;
+    let (mut service, slots) = resident_service();
+    let source_a = sparse_layers(&slots);
+    let source_b: Vec<_> = [slots[11], slots[8], slots[4], slots[0]]
+        .into_iter()
+        .map(|atlas_index| LayerInfo {
+            atlas_index,
+            opacity: 0.25,
+            intensity_range: (0.0, 1.0),
+            threshold_range: (0.0, 0.0),
+            ..LayerInfo::default()
+        })
+        .collect();
+    let dims = vec![(DIMS, DIMS, DIMS); source_a.len()];
+    let transforms = vec![nalgebra::Matrix4::identity(); source_a.len()];
+
+    // Use the public incremental path so `update_layer` exercises the same
+    // property-refresh flow as a legacy caller.
+    for layer in &source_a {
+        service
+            .add_layer_3d(
+                layer.atlas_index,
+                nalgebra::Matrix4::identity(),
+                (DIMS, DIMS, DIMS),
+                layer.opacity,
+                layer.colormap_id,
+                layer.interpolation_mode,
+            )
+            .expect("incremental layer");
+    }
+    service
+        .multi_texture_manager
+        .as_mut()
+        .expect("texture manager")
+        .set_binding_capacity_for_test(4);
+
+    // Warm both selected handle sets before timing. GPU queue writes from row
+    // uploads are drained before every timed section, never within one.
+    service.prepare_draw_bindings().expect("warm source A");
+    service.update_layer_uniforms_direct(&source_b, &dims, &transforms);
+    service.prepare_draw_bindings().expect("warm source B");
+    service.update_layer_uniforms_direct(&source_a, &dims, &transforms);
+    service.prepare_draw_bindings().expect("restore source A");
+    service.queue.submit(std::iter::empty());
+    service.device.poll(wgpu::Maintain::Wait);
+
+    let groups_before = service
+        .multi_texture_manager
+        .as_ref()
+        .expect("texture manager")
+        .binding_cache_stats()
+        .groups_created;
+    let hits_before = service
+        .multi_texture_manager
+        .as_ref()
+        .expect("texture manager")
+        .binding_cache_stats()
+        .hits;
+
+    let mut unchanged = Vec::with_capacity(BATCHES);
+    for _ in 0..BATCHES {
+        let start = Instant::now();
+        for _ in 0..CALLS_PER_BATCH {
+            black_box(&mut service)
+                .prepare_draw_bindings()
+                .expect("unchanged warm draw");
+        }
+        unchanged.push(start.elapsed());
+        service.queue.submit(std::iter::empty());
+        service.device.poll(wgpu::Maintain::Wait);
+    }
+    let unchanged_stats = service
+        .multi_texture_manager
+        .as_ref()
+        .expect("texture manager")
+        .binding_cache_stats();
+    assert_eq!(
+        unchanged_stats.groups_created, groups_before,
+        "repeating a warmed handle set creates no binding groups"
+    );
+    assert_eq!(
+        unchanged_stats.hits,
+        hits_before + ITERATIONS as u64,
+        "every unchanged call must exercise the warmed cache lookup"
+    );
+
+    // Measure the property-refresh plus binding preparation sequence. Rendering
+    // is excluded; the empty submission and poll occur after each timed batch.
+    let mut property = Vec::with_capacity(BATCHES);
+    for batch in 0..BATCHES {
+        let start = Instant::now();
+        for call in 0..CALLS_PER_BATCH {
+            let iteration = batch * CALLS_PER_BATCH + call;
+            service
+                .update_layer(0, if iteration % 2 == 0 { 0.2 } else { 0.3 }, 0)
+                .expect("property refresh");
+            black_box(&mut service)
+                .prepare_draw_bindings()
+                .expect("property-prepared draw");
+        }
+        property.push(start.elapsed());
+        service.queue.submit(std::iter::empty());
+        service.device.poll(wgpu::Maintain::Wait);
+    }
+
+    // Alternate two already-warmed source sets. The direct row refresh is part
+    // of this label; each iteration forces prepare_draw_bindings to remap rows.
+    let mut source_switch = Vec::with_capacity(BATCHES);
+    for batch in 0..BATCHES {
+        let start = Instant::now();
+        for call in 0..CALLS_PER_BATCH {
+            let source = if (batch * CALLS_PER_BATCH + call) % 2 == 0 {
+                &source_b
+            } else {
+                &source_a
+            };
+            service.update_layer_uniforms_direct(source, &dims, &transforms);
+            black_box(&mut service)
+                .prepare_draw_bindings()
+                .expect("source-switch draw");
+        }
+        source_switch.push(start.elapsed());
+        service.queue.submit(std::iter::empty());
+        service.device.poll(wgpu::Maintain::Wait);
+    }
+    assert_eq!(
+        service
+            .multi_texture_manager
+            .as_ref()
+            .expect("texture manager")
+            .binding_cache_stats()
+            .groups_created,
+        groups_before,
+        "warmed source-set switches create no additional binding groups"
+    );
+
+    let report = |label: &str, batches: &mut [std::time::Duration]| {
+        let per_call: Vec<_> = batches
+            .iter()
+            .map(|elapsed| elapsed.as_nanos() / CALLS_PER_BATCH as u128)
+            .collect();
+        batches.sort_unstable();
+        let median = batches[BATCHES / 2].as_nanos() / CALLS_PER_BATCH as u128;
+        eprintln!(
+            "{label}: batch ns/call={per_call:?}; median={median} ns/call ({CALLS_PER_BATCH} calls/batch, {BATCHES} batches, {ITERATIONS} calls)"
+        );
+    };
+    report("unchanged prepare_draw_bindings", &mut unchanged);
+    report("property refresh + prepare_draw_bindings", &mut property);
+    report(
+        "source-set refresh + prepare_draw_bindings",
+        &mut source_switch,
+    );
+}
