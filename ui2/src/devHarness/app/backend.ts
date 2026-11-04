@@ -1228,6 +1228,8 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
           visible_layers: visible,
           updated_layer_slots: visible,
           reused_layer_state: false,
+          texture_bind_groups_created: 0,
+          texture_binding_cache_hit: false,
           readback_mode: 'skip',
         },
       };

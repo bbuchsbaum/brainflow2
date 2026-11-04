@@ -28,6 +28,11 @@ use wgpu::util::DeviceExt; // For create_buffer_init helper trait
 
 // --- Modules ---
 pub mod benchmarks;
+pub mod binding;
+#[cfg(test)]
+mod binding_pixel_matrix;
+#[cfg(test)]
+mod binding_tests;
 pub mod facade;
 mod readback;
 pub use readback::{FrameSubmission, PendingReadback, ReadbackMetrics, ReadbackMonitor};
@@ -449,6 +454,7 @@ pub struct VolumeRegistryEntry {
 #[derive(Debug, Clone, PartialEq)]
 struct PreparedLayerStateSignature {
     layer_infos: Vec<LayerInfo>,
+    residencies: Vec<Option<SlotHandle>>,
     layer_dims: Vec<(u32, u32, u32)>,
     world_to_voxels: Vec<Matrix4<f32>>,
     display_overrides: Vec<(bool, f32)>,
@@ -2441,6 +2447,7 @@ impl RenderLoopService {
         layer_dims: &[(u32, u32, u32)],
         world_to_voxels: &[Matrix4<f32>],
     ) {
+        self.invalidate_prepared_layer_state_cache();
         // Use layer storage manager for world-space rendering
         if let Some(layer_storage) = &mut self.layer_storage_manager {
             if let Some(layout) = &self.layer_bind_group_layout {
@@ -2454,6 +2461,51 @@ impl RenderLoopService {
                 );
             }
         }
+        if let (Some(manager), Some(storage)) =
+            (&self.multi_texture_manager, &mut self.layer_storage_manager)
+        {
+            storage.reset_residencies();
+            storage.capture_missing_residencies(|index| manager.slot_handle(index));
+        }
+    }
+
+    /// Select exactly the textures referenced by the actual uploaded rows.
+    /// Legacy/direct uploads need not have a matching layer_state_manager.
+    fn prepare_draw_bindings(&mut self) -> Result<(), RenderLoopError> {
+        if !self.world_space_enabled {
+            return Ok(());
+        }
+        if let (Some(manager), Some(storage), Some(layout), Some(lut)) = (
+            self.multi_texture_manager.as_mut(),
+            self.layer_storage_manager.as_mut(),
+            self.texture_bind_group_layout.as_ref(),
+            self.texture_manager.colormap_view(),
+        ) {
+            if storage.bindings_current() && manager.reuse_current_draw_bindings() {
+                return Ok(());
+            }
+            let plan = manager.prepare_draw(
+                storage.resident_indices(),
+                storage.captured_handles(),
+                &self.device,
+                layout,
+                self.texture_manager.linear_sampler(),
+                self.texture_manager.nearest_sampler(),
+                lut,
+            )?;
+            storage.apply_binding_plan(&self.queue, &plan);
+            log::debug!(
+                "Per-draw texture cache: {:?}",
+                manager.binding_cache_stats()
+            );
+        } else {
+            return Err(RenderLoopError::Internal {
+                code: 6022,
+                details: "World-space draw requires texture store, layer storage, layout and LUT"
+                    .into(),
+            });
+        }
+        Ok(())
     }
 
     fn invalidate_prepared_layer_state_cache(&mut self) {
@@ -2534,7 +2586,8 @@ impl RenderLoopService {
         previous: &PreparedLayerStateSignature,
         next: &PreparedLayerStateSignature,
     ) -> Result<u32, RenderLoopError> {
-        if previous.layer_infos.len() != next.layer_infos.len()
+        if previous.residencies.len() != next.residencies.len()
+            || previous.layer_infos.len() != next.layer_infos.len()
             || previous.layer_dims.len() != next.layer_dims.len()
             || previous.world_to_voxels.len() != next.world_to_voxels.len()
             || previous.display_overrides.len() != next.display_overrides.len()
@@ -2555,7 +2608,8 @@ impl RenderLoopService {
 
         let mut updated_slots = 0u32;
         for index in 0..next.layer_infos.len() {
-            let layer_changed = previous.layer_infos[index] != next.layer_infos[index]
+            let layer_changed = previous.residencies[index] != next.residencies[index]
+                || previous.layer_infos[index] != next.layer_infos[index]
                 || previous.layer_dims[index] != next.layer_dims[index]
                 || previous.world_to_voxels[index] != next.world_to_voxels[index]
                 || previous.display_overrides[index] != next.display_overrides[index];
@@ -3557,6 +3611,11 @@ impl RenderLoopService {
 
         log::debug!("add_layer_3d: Added layer at index {}", layer_index);
         self.invalidate_prepared_layer_state_cache();
+        if let (Some(manager), Some(storage)) =
+            (&self.multi_texture_manager, &mut self.layer_storage_manager)
+        {
+            storage.capture_missing_residencies(|index| manager.slot_handle(index));
+        }
         Ok(layer_index)
     }
 
@@ -3648,8 +3707,18 @@ impl RenderLoopService {
             .map(|layer| layer.atlas_index);
 
         if let Some(atlas_index) = result {
-            // Clean up metadata for this layer
-            self.volume_metadata.remove(&atlas_index);
+            if let Some(storage) = &mut self.layer_storage_manager {
+                storage.remove_layer_source(index);
+            }
+            // A duplicate layer still needs this volume's geometry.
+            if !self
+                .layer_state_manager
+                .layers()
+                .iter()
+                .any(|layer| layer.atlas_index == atlas_index)
+            {
+                self.volume_metadata.remove(&atlas_index);
+            }
             // Update uniforms after layer removal
             let _ = self.update_all_layer_uniforms();
             self.invalidate_prepared_layer_state_cache();
@@ -3809,9 +3878,9 @@ impl RenderLoopService {
     /// This is the fast path that replaces a CPU extract + full GPU re-upload when
     /// a stack's member (timepoint / subject / contrast / condition) changes. The
     /// target `new_texture_index` must already hold the desired member's texture
-    /// (kept resident by the ring), so the entire change is a single storage-buffer
-    /// write of the layer's `texture_index` field: **no `write_texture`, no
-    /// bind-group rebuild** (all resident slots stay bound at group 2). Ring members
+    /// (kept resident by the ring), so no volume data is uploaded. The next draw
+    /// selects its compact binding plan, reusing a cached group when available.
+    /// Ring members
     /// are co-registered, so the layer's `dim`/`world_to_voxel`/`texture_coords`
     /// are unchanged.
     ///
@@ -4138,6 +4207,11 @@ impl RenderLoopService {
             );
         }
 
+        if let (Some(manager), Some(storage)) =
+            (&self.multi_texture_manager, &mut self.layer_storage_manager)
+        {
+            storage.capture_missing_residencies(|index| manager.slot_handle(index));
+        }
         Ok(())
     }
 
@@ -4547,6 +4621,8 @@ impl RenderLoopService {
                 });
             }
         }
+
+        self.prepare_draw_bindings()?;
 
         // Get the current pipeline name based on rendering mode
         #[cfg(feature = "typed-shaders")]
@@ -4968,6 +5044,11 @@ impl RenderLoopService {
         state: ViewState,
         options: FrameRequestOptions,
     ) -> Result<FrameSubmission, RenderLoopError> {
+        let binding_stats_before = self
+            .multi_texture_manager
+            .as_ref()
+            .map(|manager| manager.binding_cache_stats())
+            .unwrap_or_default();
         self.rebuild_stale_colormap_bind_groups()?;
         let request_start = web_time::Instant::now();
 
@@ -5147,6 +5228,10 @@ impl RenderLoopService {
 
         let previous_layer_state_signature = self.prepared_layer_state_cache.clone();
         let layer_state_signature = PreparedLayerStateSignature {
+            residencies: layer_infos
+                .iter()
+                .map(|layer| self.slot_handle(layer.atlas_index))
+                .collect(),
             layer_infos: layer_infos.clone(),
             layer_dims,
             world_to_voxels,
@@ -5195,6 +5280,8 @@ impl RenderLoopService {
                 self.prepared_layer_state_cache = Some(layer_state_signature);
             }
         }
+
+        self.prepare_draw_bindings()?;
 
         // Update view's last state
         if let Some(view_context) = self.views.get_mut(&view_id) {
@@ -5382,6 +5469,11 @@ impl RenderLoopService {
         // Calculate render time
         let render_time_ms = request_start.elapsed().as_secs_f32() * 1000.0;
 
+        let binding_stats_after = self
+            .multi_texture_manager
+            .as_ref()
+            .map(|manager| manager.binding_cache_stats())
+            .unwrap_or_default();
         Ok(FrameSubmission {
             result: FrameResult {
                 image_data,
@@ -5398,6 +5490,12 @@ impl RenderLoopService {
                     visible_layers: layer_infos.len() as u32,
                     updated_layer_slots,
                     reused_layer_state,
+                    texture_bind_groups_created: binding_stats_after
+                        .groups_created
+                        .saturating_sub(binding_stats_before.groups_created)
+                        .min(u32::MAX as u64)
+                        as u32,
+                    texture_binding_cache_hit: binding_stats_after.hits > binding_stats_before.hits,
                     readback_mode: options.readback_mode,
                 },
             },

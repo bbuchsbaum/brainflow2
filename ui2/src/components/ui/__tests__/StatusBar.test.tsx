@@ -7,6 +7,7 @@ vi.mock('../StatusBarProgress', () => ({ StatusBarProgress: () => null }));
 
 import { StatusBar, resolveStatusLayer } from '../StatusBar';
 import { useStatusBarStore } from '@/stores/statusBarStore';
+import { clearRenderDiagnostics, recordRenderDiagnostic } from '@/services/render/RenderDiagnostics';
 
 describe('resolveStatusLayer', () => {
   const view = [
@@ -40,6 +41,7 @@ describe('resolveStatusLayer', () => {
 
 describe('StatusBar diagnostics', () => {
   beforeEach(() => {
+    clearRenderDiagnostics();
     const { setValue } = useStatusBarStore.getState();
     setValue('coordSys', 'RAS');
     setValue('crosshair', '(0.0, 0.0, 0.0)');
@@ -76,6 +78,34 @@ describe('StatusBar diagnostics', () => {
     const trigger = screen.getByTestId('status-diagnostics-trigger');
     expect(trigger).toHaveAttribute('data-severity', 'warning');
     expect(trigger).toHaveAccessibleName('Diagnostics (atlas warning)');
+  });
+
+  it('summarizes successful submit_view binding diagnostics when opened', async () => {
+    recordRenderDiagnostic('api.submit_view', 1, {
+      ok: true,
+      textureBindGroupsCreated: 2,
+      textureBindingCacheHit: true,
+    });
+    recordRenderDiagnostic('api.submit_view', 1, {
+      ok: true,
+      textureBindGroupsCreated: 0,
+      textureBindingCacheHit: false,
+    });
+    recordRenderDiagnostic('api.submit_view', 1, { ok: false });
+    render(<StatusBar />);
+    fireEvent.click(screen.getByTestId('status-diagnostics-trigger'));
+    const popover = await screen.findByTestId('status-diagnostics-popover');
+    expect(popover).toHaveTextContent('Texture groups/frame');
+    expect(popover).toHaveTextContent('1.00 (2 samples)');
+    expect(popover).toHaveTextContent('Texture cache hits');
+    expect(popover).toHaveTextContent('50% (1/2)');
+  });
+
+  it('makes the absence of successful binding samples explicit', async () => {
+    render(<StatusBar />);
+    fireEvent.click(screen.getByTestId('status-diagnostics-trigger'));
+    const popover = await screen.findByTestId('status-diagnostics-popover');
+    expect(popover).toHaveTextContent('No successful submit_view samples');
   });
 });
 

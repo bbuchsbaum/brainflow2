@@ -33,6 +33,7 @@ import { transformWorldToVoxelColumnMajor } from "@/utils/voxelTransform";
 import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
 import { formatWorldMm } from "@/utils/valueFormat";
 import { StatSymbol } from "./StatSymbol";
+import { getRenderDiagnostics } from "@/services/render/RenderDiagnostics";
 import {
   formatIjkReadout,
   formatVoxelIndex,
@@ -585,13 +586,45 @@ function StatusVertexReadout({
  * pressure is still noticeable while the popover is closed.
  */
 const DiagnosticsButton = () => {
+  const [open, setOpen] = React.useState(false);
+  const [renderDiagnostics, setRenderDiagnostics] = React.useState(() => getRenderDiagnostics());
   const atlas = useStatusBarStore((state) => state.values.atlas);
   const fps = useStatusBarStore((state) => state.values.fps);
   const gpu = useStatusBarStore((state) => state.values.gpu);
+  React.useEffect(() => {
+    if (!open) return;
+    const refresh = () => setRenderDiagnostics(getRenderDiagnostics());
+    refresh();
+    const interval = window.setInterval(refresh, 1_000);
+    return () => window.clearInterval(interval);
+  }, [open]);
+
+  const bindingSamples = renderDiagnostics.flatMap((entry) => {
+    if (entry.stage !== "api.submit_view" || entry.detail?.ok !== true) return [];
+    const created = entry.detail.textureBindGroupsCreated;
+    const hit = entry.detail.textureBindingCacheHit;
+    return typeof created === "number" && Number.isFinite(created) && created >= 0 && typeof hit === "boolean"
+      ? [{ created, hit }]
+      : [];
+  });
+  const sampleCount = bindingSamples.length;
+  const groupsPerFrame = sampleCount === 0
+    ? null
+    : bindingSamples.reduce((sum, sample) => sum + sample.created, 0) / sampleCount;
+  const cacheHits = bindingSamples.filter((sample) => sample.hit).length;
+  const noBindingSamples = "No successful submit_view samples";
   const rows: Array<[string, string]> = [
     ["Atlas", atlas == null ? EMPTY_VALUE : displayStatusText(String(atlas))],
     ["FPS", fps == null ? EMPTY_VALUE : displayStatusText(String(fps))],
     ["GPU", gpu == null ? EMPTY_VALUE : displayStatusText(String(gpu))],
+    [
+      "Texture groups/frame",
+      groupsPerFrame == null ? noBindingSamples : `${groupsPerFrame.toFixed(2)} (${sampleCount} samples)`,
+    ],
+    [
+      "Texture cache hits",
+      sampleCount === 0 ? noBindingSamples : `${((cacheHits / sampleCount) * 100).toFixed(0)}% (${cacheHits}/${sampleCount})`,
+    ],
   ];
   const atlasText = atlas == null ? "" : String(atlas);
   const severity = /CRITICAL/.test(atlasText)
@@ -601,7 +634,7 @@ const DiagnosticsButton = () => {
       : null;
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"

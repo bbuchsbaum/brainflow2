@@ -332,6 +332,14 @@ pub struct FrameDiagnostics {
     #[serde(default)]
     pub reused_layer_state: bool,
 
+    /// Texture bind groups created while preparing this frame.
+    #[serde(default)]
+    pub texture_bind_groups_created: u32,
+
+    /// Whether this frame reused a cached texture binding group.
+    #[serde(default)]
+    pub texture_binding_cache_hit: bool,
+
     /// Whether the frame bytes were read back synchronously or skipped.
     #[serde(default)]
     pub readback_mode: FrameReadbackMode,
@@ -347,6 +355,8 @@ impl Default for FrameDiagnostics {
             visible_layers: 0,
             updated_layer_slots: 0,
             reused_layer_state: false,
+            texture_bind_groups_created: 0,
+            texture_binding_cache_hit: false,
             readback_mode: FrameReadbackMode::Blocking,
         }
     }

@@ -175,3 +175,45 @@ Each increment lists its scope, the safety net it lands with, and its exit crite
 | R6 | about half a day |
 
 Each increment ends with something shippable. The plan can stop after R4 with the user-visible problem solved and the code already cleaner. R5 and R6 are the structural payoff.
+
+
+## Execution checkpoint — 2026-11-04, R3 in progress
+
+- R0–R2 are merged; baseline is `origin/main` `85194998`.
+- R3 worktree: `/private/tmp/brainflow2-r3`, branch `refactor/r3-draw-bindings`.
+  The original shared checkout and its unrelated changes are preserved.
+- Implemented: compact per-draw mapping, bounded handle-set bind-group cache,
+  store-identity/view-revision invalidation, per-layer captured source ownership,
+  generation-aware prepared state, and a shortcut for unchanged rows/resources.
+  Residency remains capped at 13. No shader or blending changes.
+- Review fixes include direct-upload prepared-state invalidation, incremental
+  layer shadow/metadata appends, cache eviction on failed preparation, duplicate
+  rows retaining distinct generations, and source alignment after layer removal.
+- Diagnostics: generated frame fields report created texture groups and cache
+  hits. The existing Diagnostics popover summarizes recent successful submissions;
+  it refreshes only while open. The focused StatusBar tests pass (8 tests).
+- Latest focused Metal run: 22 R3 tests passed, none ignored. Covers sparse
+  residents with four binding positions, overflow, cache bounds, scalar/label/
+  mask/outline pixel equivalence, member swaps, snapshots, resource replacement,
+  stale captures, duplicate removal, and diagnostic counters.
+- Workspace Clippy passed before the final duplicate-row fix. Full workspace
+  tests are running; final affected checks remain to run. UI production build,
+  WASM build, TS generation/API build and strict bridge permissions passed.
+- Full UI suite: 4,325 passed, one BIDS palette timing assertion failed under
+  concurrent build load, three skipped and one todo. Rerun the timing test alone
+  once builds finish. Earlier snapshot: 4,326 passed. Do not treat skips as proof.
+- Full UI lint reports exactly the same 537 findings on untouched `85194998`
+  and R3 (466 errors, 71 warnings; no added or removed findings).
+- Actual R2/R3 timing uses identical `r3_prepare_benchmark.rs` and separate saved
+  executables. Early results were too variable to establish the performance gate.
+  Repeat after final fixes with no concurrent builds/tests.
+- Native control recovered after the user restarted the desktop app. Finder and
+  the isolated QA app both returned visible controls; the earlier QA build was
+  then closed. Rebuild the final app before native image/view checks.
+  Bundle: `/Users/bbuchsbaum/code/brainflow2/target/debug/bundle/macos/Brainflow R3 QA.app`.
+- Logs and actual exit metadata: `/private/tmp/brainflow2-r3-*.log*`.
+  Mote issue `bd-01M6KVR5VR61NBMHV0TFFAC58Q`, actor `codex-residency`.
+  Dashboard lane `codex-5a25e2ce` in the original checkout's `.dashboard/`.
+- Next: complete checks and timing; rebuild and test native app; fresh-context
+  final review at a coherent commit. R3 is not yet qualified or landed. R4–R6
+  have not started and must wait for R3's exit criteria.
