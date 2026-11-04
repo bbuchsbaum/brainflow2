@@ -11,18 +11,27 @@
 //! 3. the `RenderLoopService` itself
 //! 4. `resident_image_sets`
 //! 5. `volume_registry`
-//! 6. leaf maps: `layer_leases`, `layer_to_atlas_map`, `layer_to_volume_map`,
+//! 6. leaf maps: `layer_leases`, `layer_slots`, `layer_to_volume_map`,
 //!    `layer_to_timepoint_map`, `render_skipped_layers`, `layer_last_drawn`
 //!
 //! The Phase 3 design inserts a `residency` lock between 3 and 4. Every change
 //! of slot ownership holds the `RenderLoopService` lock.
+//!
+//! Identity (R2): outside this module and `gpu_upload`, nothing names a texture
+//! by its bare index. The layer map ([`LayerSlotMap`]), leases, rings and
+//! provisional uploads hold generation-checked `SlotHandle`s; indices flow on
+//! only as binding positions, taken from a current handle at the renderer call.
+//! `tests/bare_index_identity_check.rs` enforces this in CI.
 
+mod layer_slots;
 mod lease;
 mod release;
 mod ring;
 mod skips;
 mod watchdog;
 
+pub(crate) use layer_slots::drawn_render_layer;
+pub use layer_slots::LayerSlotMap;
 pub(crate) use lease::{release_superseded_lease, LayerLease};
 pub(crate) use release::{
     release_layer_gpu_resources_held, release_layer_gpu_resources_internal,

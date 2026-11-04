@@ -1017,11 +1017,11 @@ async fn resident_image_set_keeps_members_resident_across_member_changes() {
     assert_eq!(snap.resident_members, vec![0, 1, 2, 3]);
 
     // The layer's atlas slot maps to a resident member's slot.
-    let slot = *bridge_state
-        .layer_to_atlas_map
+    let slot = bridge_state
+        .layer_slots
         .lock()
         .await
-        .get("layer-4d-resident")
+        .recorded("layer-4d-resident")
         .expect("layer mapped to a slot");
     assert!(
         bridge_state
@@ -1030,10 +1030,8 @@ async fn resident_image_set_keeps_members_resident_across_member_changes() {
             .await
             .get("layer-4d-resident")
             .expect("ring present")
-            .ring
-            .resident_texture_indices()
-            .contains(&slot),
-        "the layer samples a slot the ring keeps resident"
+            .owns(slot),
+        "the layer samples a residency the ring keeps"
     );
 }
 
@@ -1243,10 +1241,10 @@ async fn release_layer_gpu_resources_reclaims_resident_image_set_ring() {
         "resident ring removed from bridge state"
     );
     assert!(!bridge_state
-        .layer_to_atlas_map
+        .layer_slots
         .lock()
         .await
-        .contains_key("layer-4d-resident-release"));
+        .contains("layer-4d-resident-release"));
 
     let service_arc = bridge_state
         .render_loop_service
@@ -1670,7 +1668,7 @@ async fn render_view_skips_a_layer_when_the_texture_slots_are_full() {
             .expect("frames that fill the slots");
     }
     assert_eq!(
-        bridge_state.layer_to_atlas_map.lock().await.len(),
+        bridge_state.layer_slots.lock().await.len(),
         capacity,
         "every slot holds a layer"
     );
@@ -1685,10 +1683,10 @@ async fn render_view_skips_a_layer_when_the_texture_slots_are_full() {
     }
     assert!(
         !bridge_state
-            .layer_to_atlas_map
+            .layer_slots
             .lock()
             .await
-            .contains_key(&format!("slots-layer-{capacity}")),
+            .contains(&format!("slots-layer-{capacity}")),
         "the layer that did not fit holds no slot"
     );
 }

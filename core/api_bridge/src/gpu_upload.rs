@@ -50,13 +50,7 @@ pub(crate) async fn request_layer_gpu_resources_locked(
                 .await
                 .remove(&ui_layer_id);
             let metadata_only_flag = metadata_only.unwrap_or(false);
-            if !metadata_only_flag
-                && state
-                    .layer_to_atlas_map
-                    .lock()
-                    .await
-                    .contains_key(&ui_layer_id)
-            {
+            if !metadata_only_flag && state.layer_slots.lock().await.contains(&ui_layer_id) {
                 if layer_residency_is_live(state, &ui_layer_id, &source_volume_id).await {
                     return Err(BridgeError::Input {
                         code: 1006,
@@ -685,16 +679,19 @@ pub(crate) async fn request_layer_gpu_resources_locked(
                     release_superseded_lease(state, &ui_layer_id, renderer).await;
                 }
                 {
-                    let mut layer_map = state.layer_to_atlas_map.lock().await;
+                    let mut layer_map = state.layer_slots.lock().await;
                     debug!(
                         "📌 STORING layer mapping: UI layer '{}' -> atlas index {}",
                         ui_layer_id, atlas_layer_idx
                     );
-                    layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
+                    layer_map.insert(
+                        ui_layer_id.clone(),
+                        atlas_slot.expect("an upload has a slot"),
+                    );
                     debug!(
                         "📌 Layer map now contains {} entries: {:?}",
                         layer_map.len(),
-                        layer_map.keys().collect::<Vec<_>>()
+                        layer_map.iter().map(|(id, _)| id).collect::<Vec<_>>()
                     );
                 }
 
@@ -719,7 +716,7 @@ pub(crate) async fn request_layer_gpu_resources_locked(
                     ui_layer_id.clone(),
                     atlas_slot.expect("an upload has a slot"),
                     Arc::clone(&state.render_loop_service),
-                    Arc::clone(&state.layer_to_atlas_map),
+                    Arc::clone(&state.layer_slots),
                     Arc::clone(&state.layer_to_volume_map),
                     Arc::clone(&state.layer_to_timepoint_map),
                     Arc::clone(&state.resident_image_sets),
@@ -758,13 +755,9 @@ pub(crate) async fn request_layer_gpu_resources_locked(
 }
 
 pub(crate) async fn is_layer_ready_internal(layer_id: &str, state: &BridgeState) -> bool {
-    let atlas_idx = {
-        let atlas_map = state.layer_to_atlas_map.lock().await;
-        atlas_map.get(layer_id).copied()
-    };
-    let Some(atlas_idx) = atlas_idx else {
+    if !state.layer_slots.lock().await.contains(layer_id) {
         return false;
-    };
+    }
 
     let has_volume_mapping = {
         let volume_map = state.layer_to_volume_map.lock().await;
@@ -779,18 +772,21 @@ pub(crate) async fn is_layer_ready_internal(layer_id: &str, state: &BridgeState)
         return false;
     };
 
-    // Ready means its texture is resident. Uploads add no per-frame render
-    // entry (only a frame that draws the layer does), so the render state
-    // cannot answer this.
+    // Ready means its own texture is resident: the mapped residency is
+    // current, not merely its index filled (perhaps by another upload).
+    // Uploads add no per-frame render entry (only a frame that draws the layer
+    // does), so the render state cannot answer this.
     let service = service_arc.lock().await;
-    service.is_volume_slot_resident(atlas_idx)
+    let slots = state.layer_slots.lock().await;
+    slots.current(layer_id, &service).is_some()
 }
 
 /// Try to satisfy a member change through the GPU-resident ring instead of the
 /// legacy invalidate + extract + re-upload path.
 ///
-/// Returns `Ok(Some(slot))` with the texture slot the layer now samples — a pure
-/// `texture_index` swap on a resident hit, or one in-place upload on a miss. Returns
+/// Returns `Ok(Some(slot))` with the residency the layer now samples — a pure
+/// `texture_index` swap on a resident hit, or one in-place upload on a miss.
+/// `current` is the layer's current residency (checked by the caller). Returns
 /// `Ok(None)` to fall back to the legacy path (feature disabled, not a multi-member
 /// volume, member out of range, missing volume, or the layer could not be
 /// repointed). The ring is created lazily on the first member change, seeded at the
@@ -798,12 +794,14 @@ pub(crate) async fn is_layer_ready_internal(layer_id: &str, state: &BridgeState)
 pub(crate) async fn try_resident_swap(
     layer_id: &str,
     volume_id: &str,
-    current_slot: u32,
+    current: SlotHandle,
     cached_member: Option<usize>,
     requested_member: usize,
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
-) -> BridgeResult<Option<u32>> {
+) -> BridgeResult<Option<SlotHandle>> {
+    // A binding position, taken from the caller's current handle.
+    let current_slot = current.index();
     if !resident_image_set_enabled() {
         return Ok(None);
     }
@@ -834,9 +832,10 @@ pub(crate) async fn try_resident_swap(
 
         let seed_member = cached_member.unwrap_or(0);
         // The ring takes over the residency the layer shows now.
-        let Some(seed_slot) = service.slot_handle(current_slot) else {
+        if !service.is_slot_current(current) {
             return Ok(None);
-        };
+        }
+        let seed_slot = current;
         let resident = image_set::ResidentImageSet::new(
             Box::new(set),
             seed_member,
@@ -855,6 +854,21 @@ pub(crate) async fn try_resident_swap(
             return Ok(None);
         }
         resident.ensure_member(requested_member, service)?
+    };
+    // The residency the layer will show; the ring recorded it with the upload
+    // or still holds it from before.
+    let Some(shown) = sets
+        .get(layer_id)
+        .and_then(|resident| resident.handle_of(outcome.texture_index))
+    else {
+        warn!(
+            "Resident image-set for layer '{}' holds no residency at slot {}; falling back to re-upload",
+            layer_id, outcome.texture_index
+        );
+        if let Some(mut resident) = sets.remove(layer_id) {
+            resident.release_all(service);
+        }
+        return Ok(None);
     };
 
     // Phase 2: if the imperative render-layer path owns an entry for this slot,
@@ -908,24 +922,19 @@ pub(crate) async fn try_resident_swap(
 
     // Keep the bridge's per-layer maps and the lease consistent with the swap:
     // the lease now owns the residency the layer shows.
-    if let Some(shown) = sets
-        .get(layer_id)
-        .and_then(|resident| resident.handle_of(outcome.texture_index))
-    {
-        if let Some(lease) = bridge_state.layer_leases.lock().await.get(layer_id) {
-            lease.repoint(shown);
-        }
+    if let Some(lease) = bridge_state.layer_leases.lock().await.get(layer_id) {
+        lease.repoint(shown);
     }
     {
-        let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
-        layer_map.insert(layer_id.to_string(), outcome.texture_index);
+        let mut layer_map = bridge_state.layer_slots.lock().await;
+        layer_map.insert(layer_id, shown);
     }
     {
         let mut timepoint_map = bridge_state.layer_to_timepoint_map.lock().await;
         timepoint_map.insert(layer_id.to_string(), Some(requested_member));
     }
 
-    Ok(Some(outcome.texture_index))
+    Ok(Some(shown))
 }
 
 /// Release `layer_id`'s stale residency and upload `volume_id` for it again
@@ -970,7 +979,7 @@ pub(crate) async fn layer_residency_is_live(
     volume_id: &str,
 ) -> bool {
     let Some(service) = state.render_loop_service.lock().await.clone() else {
-        return state.layer_to_atlas_map.lock().await.contains_key(layer_id);
+        return state.layer_slots.lock().await.contains(layer_id);
     };
     let service = service.lock().await;
     let editable = state
@@ -979,7 +988,7 @@ pub(crate) async fn layer_residency_is_live(
         .await
         .get_entry(volume_id)
         .is_some_and(|entry| entry.editable_revision.is_some());
-    let Some(index) = state.layer_to_atlas_map.lock().await.get(layer_id).copied() else {
+    let Some(mapped) = state.layer_slots.lock().await.current(layer_id, &service) else {
         return false;
     };
     let Some(lease_slot) = state
@@ -991,14 +1000,23 @@ pub(crate) async fn layer_residency_is_live(
     else {
         return false;
     };
-    let leased = lease_slot.index() == index && service.is_slot_current(lease_slot);
-    let claimed = !editable
-        || service
-            .multi_texture_manager
-            .as_ref()
-            .and_then(|manager| manager.editable_handle_for_volume(volume_id, index))
-            .is_some();
+    let leased = lease_slot == mapped;
+    let claimed = !editable || editable_handle_at(&service, volume_id, mapped).is_some();
     leased && claimed
+}
+
+/// The editable claim of `slot` for `volume_id`, while `slot` is still that
+/// residency: a claim on its index from a later upload is not this one.
+pub(crate) fn editable_handle_at(
+    service: &RenderLoopService,
+    volume_id: &str,
+    slot: SlotHandle,
+) -> Option<render_loop::EditableTextureHandle> {
+    service
+        .multi_texture_manager
+        .as_ref()?
+        .editable_handle_for_volume(volume_id, slot.index())
+        .filter(|handle| handle.slot() == slot)
 }
 
 /// The one way a layer's 3-D volume reaches the GPU: the explicit request, the
@@ -1147,16 +1165,16 @@ pub(crate) async fn allocate_gpu_resources_for_layer(
 
     // Store the mapping
     {
-        let mut layer_map = state.layer_to_atlas_map.lock().await;
+        let mut layer_map = state.layer_slots.lock().await;
         debug!(
             "📌 STORING in allocate_gpu_resources_for_layer: layer '{}' -> atlas index {}",
             layer_id, atlas_idx
         );
-        layer_map.insert(layer_id.to_string(), atlas_idx);
+        layer_map.insert(layer_id, slot);
         debug!(
             "📌 Layer map now contains {} entries: {:?}",
             layer_map.len(),
-            layer_map.keys().collect::<Vec<_>>()
+            layer_map.iter().map(|(id, _)| id).collect::<Vec<_>>()
         );
 
         // Also store the volume handle mapping

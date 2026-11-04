@@ -98,7 +98,7 @@ pub fn run() {
 
     // Shared state setup is deferred until after RenderLoopService initialization
     let volume_registry_arc = Arc::new(TokioMutex::new(api_bridge::VolumeRegistry::new()));
-    let layer_map_arc = Arc::new(TokioMutex::new(HashMap::<String, u32>::new()));
+    let layer_map_arc = Arc::new(TokioMutex::new(api_bridge::LayerSlotMap::new()));
 
     tauri::Builder::default()
         .setup(move |app| { // Use move to capture state variables
@@ -130,7 +130,7 @@ pub fn run() {
             // We run this in a separate async task to avoid blocking the setup thread.
             // The BridgeState with the initialized service is managed later.
             let volume_registry = volume_registry_arc.clone();
-            let layer_to_atlas_map = layer_map_arc.clone();
+            let layer_slots = layer_map_arc.clone();
 
             // Example of using tracing within setup
             tracing::debug!(app_name = %app.package_info().name, "App setup started");
@@ -169,7 +169,7 @@ pub fn run() {
                                 volume_registry.clone(),
                                 Arc::new(TokioMutex::new(SurfaceRegistry::new())),
                                 Arc::new(TokioMutex::new(Some(Arc::new(TokioMutex::new(service))))),
-                                layer_to_atlas_map.clone(),
+                                layer_slots.clone(),
                                 Arc::new(TokioMutex::new(HashMap::new())),
                                 atlas_service,
                                 template_service,
@@ -202,7 +202,7 @@ pub fn run() {
                                 volume_registry.clone(),
                                 Arc::new(TokioMutex::new(SurfaceRegistry::new())),
                                 Arc::new(TokioMutex::new(None)),
-                                layer_to_atlas_map.clone(),
+                                layer_slots.clone(),
                                 Arc::new(TokioMutex::new(HashMap::new())),
                                 atlas_service,
                                 template_service,

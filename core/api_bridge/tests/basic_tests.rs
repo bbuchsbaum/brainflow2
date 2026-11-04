@@ -19,7 +19,7 @@ mod tests {
         assert!(volume_registry.get("nonexistent").is_none());
         drop(volume_registry);
 
-        let layer_map = state.layer_to_atlas_map.try_lock().unwrap();
+        let layer_map = state.layer_slots.try_lock().unwrap();
         assert_eq!(layer_map.len(), 0);
     }
 
