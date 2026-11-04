@@ -1042,7 +1042,15 @@ fn r3_binding_prepare_timing_witness() {
         for call in 0..CALLS_PER_BATCH {
             let iteration = batch * CALLS_PER_BATCH + call;
             service
-                .update_layer(0, if iteration.is_multiple_of(2) { 0.2 } else { 0.3 }, 0)
+                .update_layer(
+                    0,
+                    if iteration.is_multiple_of(2) {
+                        0.2
+                    } else {
+                        0.3
+                    },
+                    0,
+                )
                 .expect("property refresh");
             black_box(&mut service)
                 .prepare_draw_bindings()
