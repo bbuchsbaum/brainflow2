@@ -198,7 +198,7 @@ Each increment ends with something shippable. The plan can stop after R4 with th
   submission counters into the Diagnostics popover, including normal image renders.
   Upload groups outside submissions and legacy direct-path renders are excluded.
   Focused StatusBar tests (8), service/bridge-to-store UI tests (10), and the core
-  cumulative-counter regression passed. Final native display check remains pending.
+  cumulative-counter regression passed. Final native display/update check passed.
 - Focused Metal run: 22 R3 tests passed, none ignored. Covers sparse residents
   with four binding positions, overflow, cache bounds, scalar/label/mask/outline
   pixel equivalence, member swaps, snapshots, resource replacement, stale captures,
@@ -222,8 +222,16 @@ Each increment ends with something shippable. The plan can stop after R4 with th
   wrong source, blank panel, or crash. `f0a4bc20` only adds cumulative diagnostics.
   Its rebuilt QA bundle is at
   `/Users/bbuchsbaum/code/brainflow2/target/debug/bundle/macos/Brainflow R3 QA.app`.
-  Final diagnostics inspection is blocked by ScreenCaptureKit error -3811, even
-  after the user restarted Codex and a fresh CUA session. A manual check is pending.
+  Final native diagnostics inspection passed at 14:39 local: 0.17 groups/frame
+  (6 frames), 83% hits (5/6); after axial-to-sagittal navigation, 0.14 (7 frames),
+  86% hits (6/7), GPU Ready, with a visibly rendered sagittal image.
+  Earlier capture failures were ScreenCaptureKit -3811. Investigation found
+  `TCC Allow` plus failed window-to-display lookup; the helper really restarted,
+  then later recovered in the same process without permission/configuration changes.
+  Finder selection followed by a new QA selection succeeded; exact cause of recovery
+  is not established. Local diagnostic report: `cruft/r3-20261104/computer-use-diagnosis.md`
+  in the original checkout. Native qualification is complete; capture reliability
+  remains a tooling issue, separate from the renderer.
 - Performance: identical sparse four-source benchmark on R2 and final R3, 8
   alternating AB/BA pairs, 500 frames per workload, isolated release executables.
   Outer submission timing includes the diagnostic counter updates omitted from
@@ -251,6 +259,5 @@ Each increment ends with something shippable. The plan can stop after R4 with th
   and `timing-balanced-protocol.json` in that evidence directory.
   Mote issue `bd-01M6KVR5VR61NBMHV0TFFAC58Q`, actor `codex-residency`.
   Dashboard lane `codex-5a25e2ce` in the original checkout's `.dashboard/`.
-- Next: settle the performance evidence and final native diagnostics observation,
-  then publish and qualify R3 before merging. R3 is not yet qualified or landed.
+- Next: settle the performance evidence, then publish and qualify R3 before merging. R3 is not yet qualified or landed.
   R4–R6 have not started and must wait for R3's exit criteria.
