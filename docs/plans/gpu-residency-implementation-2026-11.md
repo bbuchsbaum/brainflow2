@@ -337,3 +337,72 @@ about 2 ns/call, property refresh plus preparation 8.666 us/call, source-row ref
 plus preparation 12.308 us/call. These are test-profile diagnostic measurements,
 not incremental R3-versus-R2 overhead or production-frame qualification. The earlier
 single unflushed batch was superseded and must not support a timing claim.
+
+
+### Quiet-window control and interleaved revision — 2026-11-04
+
+The user-authorized quiet-window retry used the same production binaries and
+criteria. Its A/A host intervals again failed (steady -9.12% to +43.72%, properties
+-35.60% to +31.15%, source switches -34.65% to +4.29%); all completed intervals
+passed. No candidate run occurred. Identical-baseline steady run means ranged
+from 55.56 to 132.13 us. This does not identify a cause, but makes another identical
+whole-process campaign uninformative. Evidence is retained separately under
+`cruft/r3-20261104/quiet-control-1/` in the original checkout.
+
+Before collecting new results, independent review approved a changed assay that
+reduces A/B time separation, with the same six primary endpoints and tolerances:
+
+- Four independent process-pair sessions for A/A, then eight for R2/R3 only if
+  control passes. Both renderer contexts persist within each session, but work
+  strictly sequentially. Alternate process launch order AB/BA between sessions.
+- Rotate the six endpoints deterministically by session index. For each endpoint,
+  warm each process with 100 calls, then perform four quartets ABBA/BAAB/ABBA/BAAB.
+  Each batch has eight fixed untimed priming calls followed by 32 timed calls.
+- Keep the public-call timers, per-frame queue-drain placement, production profile,
+  fixture and image checks unchanged. A batch acknowledges only after its final
+  drain. IPC, logging and checksums are outside timers.
+- Aggregate into one A and B mean per endpoint per independent process-pair
+  session. Within-session frames/quartets do not increase inferential sample size.
+  Retain raw samples, timestamps, process IDs, launch/order data and binary hashes.
+- Same directional 95% bounds and strict 5% plus 0.1 ms limits. One fixed campaign;
+  no additional sessions, discarded slow batches or post-result tolerance changes.
+- Two simultaneously resident GPU contexts differ from a single-renderer app;
+  sequential work and A/A controls address comparability, not universal hardware
+  behavior. Priming defines warmed serial calls, excluding cold-start and sustained
+  throughput claims. A failed control remains a valid possible outcome.
+
+
+Interleaved control completed all four process-pair sessions. **Sensitivity still
+failed; candidate comparison was not run.** Session-level directional 95% bounds:
+
+| Endpoint | Relative interval | Absolute interval (us) | Pass |
+| --- | ---: | ---: | --- |
+| Host, steady | [-33.267%, +8.906%] | [-65.951, +22.073] | No |
+| Host, properties | [+0.024%, +15.722%] | [+2.035, +31.429] | No |
+| Host, source switches | [-8.051%, +8.108%] | [-22.724, +20.268] | No |
+| Completed, steady | [-5.107%, +3.078%] | [-103.898, +62.285] | No |
+| Completed, properties | [+0.968%, +2.994%] | [+17.991, +54.828] | Yes |
+| Completed, source switches | [-4.225%, -1.464%] | [-86.018, -30.977] | Yes |
+
+Independent implementation review found no blocking protocol defect: timers cover
+the full public calls, drains precede acknowledgments, both contexts execute
+sequentially, and four/eight sessions determine inferential sample size. These
+results compare R2 with itself and establish neither an R3 regression nor its
+absence. No additional sessions or retries were added after seeing the results.
+The approved margins are unchanged.
+
+Reproducible serve protocol is in `r3_frame_qualification.rs`: launch with `serve`,
+wait for `READY`, then send `batch <host|completed> <workload> <count> <warmup>`;
+read `R3_BATCH`, `R3_SAMPLES`, and `DONE`. `quit` exits. The normal production
+build is required. The portable orchestrator is `tools/qualify_r3_performance.py`. Set
+`BF_R3_QUALIFICATION_DIR` to a fresh directory containing the identically built
+executables named `production-baseline` and `production-candidate`, then run it
+with `control`, followed by `comparison` only when control passes.
+The original executed orchestrator and raw evidence are preserved under
+`cruft/r3-20261104/interleaved-control-1/` in the original checkout. Its comparison
+guard requires a passing control using the same baseline executable.
+
+Next performance step: run the unchanged reviewed assay and approved limits in a
+dedicated idle Metal-capable environment or a clean desktop session with capture
+and background processing stopped. Further repeats under unchanged conditions
+are not justified. R3 remains unqualified and unmerged; R4–R6 remain untouched.
