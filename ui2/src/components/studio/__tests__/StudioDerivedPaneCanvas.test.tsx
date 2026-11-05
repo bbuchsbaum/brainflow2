@@ -193,6 +193,32 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     expect(screen.queryByText(/GPU texture slots full/)).toBeNull();
   });
 
+  it('shows a typed byte-budget refusal and retries it after GPU capacity is freed', async () => {
+    const budget = 512 * 1024 * 1024;
+    api.requestLayerGpuResources.mockRejectedValueOnce({
+      GpuBudgetExceeded: { code: 6008, requested_bytes: 32 * 1024 * 1024, used_bytes: budget, budget_bytes: budget },
+    });
+    render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/byte-retry.nii.gz" label="Z" workspaceId={STUDIO} />);
+    expect(await screen.findByText(/GPU residency budget exceeded/)).toBeInTheDocument();
+    const before = api.loadFile.mock.calls.length;
+    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'reclaim' }));
+    await waitFor(() => expect(screen.getByTestId('pane-viewport')).toBeInTheDocument());
+    expect(api.loadFile.mock.calls.length).toBe(before + 1);
+  });
+
+  it('shows an oversized byte-budget refusal but does not retry it on slots-freed', async () => {
+    const budget = 512 * 1024 * 1024;
+    api.requestLayerGpuResources.mockRejectedValueOnce({
+      GpuBudgetExceeded: { code: 6008, requested_bytes: budget + 1, used_bytes: 0, budget_bytes: budget },
+    });
+    render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/byte-oversized.nii.gz" label="Z" workspaceId={STUDIO} />);
+    expect(await screen.findByText(/GPU residency budget exceeded/)).toBeInTheDocument();
+    const before = api.loadFile.mock.calls.length;
+    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'release' }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(api.loadFile.mock.calls.length).toBe(before);
+  });
+
   it('a drawn pane does not reload on slots-freed events', async () => {
     render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/steady.nii.gz" label="Z" workspaceId={STUDIO} />);
     await waitFor(() => expect(screen.getByTestId('pane-viewport')).toBeInTheDocument());

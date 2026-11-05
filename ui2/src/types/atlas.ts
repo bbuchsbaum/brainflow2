@@ -209,6 +209,19 @@ export interface AtlasStats {
   bindingGroupsCreated?: number;
   /** Successful declarative frames that reused a texture binding group. */
   bindingCacheHits?: number;
+  /**
+   * Residency accounting reported by newer render loops.  In `bytes` mode
+   * `volumeTextureSlots` remains a per-draw compatibility limit, not a
+   * residency budget.  Omitted by older render loops, which use slot mode.
+   */
+  residencyMode?: 'bytes' | 'slots';
+  residencyBudgetBytes?: number | null;
+  residentTextureBytes?: number;
+  freeResidencyBytes?: number | null;
+  /** Number of logical resident textures, including cached ring members. */
+  residentTextureLimit?: number | null;
+  /** Per-draw binding capacity (normally the compatibility value of 13). */
+  drawTextureCapacity?: number;
 }
 
 /** Result of `reclaim_cached_image_slots`. */

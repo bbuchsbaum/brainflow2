@@ -667,3 +667,110 @@ Independent final review approved 96b986757489419e38f5dff47b6a919281c46fdf
 against R2 85194998 with no blocking code findings. The only later code-file edit
 removes trailing whitespace from five generated TypeScript lines; no runtime or
 binding declarations change. The timing exception remains explicit in the PR.
+
+
+### R4 implementation and verification in progress — 2026-11-04
+
+R3 was merged by the user as `69a39eb6b07277892f53564a3c248a6f65c0c868`.
+R4 lives on `refactor/r4-residency-budget` in the isolated worktree
+`/private/tmp/brainflow2-r4`; the shared QA checkout remains untouched.
+
+WGPU 0.20 exposes no physical VRAM or recommended-working-set measurement.
+Instead of inferring one from unified RAM, the application explicitly selects
+512 MiB of logical resident volume-plus-mask payload. This is not total GPU
+memory: atlas/LUT/dummy textures, targets, readback/staging and driver overhead
+are outside this accounting. `BRAINFLOW_GPU_RESIDENCY_BUDGET_BYTES` selects an
+integer byte budget at renderer startup; `0` selects the fixed 13-resident fallback.
+The reusable renderer's default remains fixed-slot admission. Diagnostics report
+logical usage/budget, resident count and the separate 13-source draw capacity.
+The draw limit remains 13 distinct textures and 16 layer rows.
+
+Admission is checked after actual format selection and before GPU publication.
+Masks count toward the same budget. Refused uploads, mask replacements and R16F
+promotions preserve live ownership and bindings. Explicit and on-demand bridge
+uploads reclaim cached ring members only after typed, recoverable pressure;
+individually oversized requests do not reclaim. Optional prefetch stops at
+pressure, and a refused demanded member is skipped without aborting other layers.
+The interim UI bypasses slot-count eviction in byte mode and recovers only from
+structured budget refusals, preserving existing front/pin/document protections.
+
+Verified so far: API library check; full UI suite (4,337 passed, 3 existing skips,
+1 todo); UI production build after reusing generated files from unchanged browser
+sources; touched-file eslint has the same 13 findings as base, with no new ones.
+Native Metal renderer units: 83 passed, with the manual timing witness ignored.
+The 30-resident GPU regression passes distinct-image equivalence against a fresh
+low-ID reference in three orientations, 29 -> 0 -> 29 switching, release/reload
+of high ID 29, 13 distinct sources in 16 rows, and 14-source refusal.
+The refused-promotion bridge regression passes on Metal, preserving old bytes,
+format, generation and maps while another layer prepares.
+
+The first full renderer build and a UI build retry hit ENOSPC, not an assertion
+failure. Only this session's rebuildable caches and obsolete desktop build
+artifacts were cleared. Full renderer/bridge integration suites, regenerated
+bindings, final review and the native R4 app check remain required. Review found
+that queued UI pressure recovery needs operation-validity guards before retry or
+reclamation; that fix and its regressions are in progress. R4 is not qualified or
+published; R5/R6 have not started.
+
+
+Recovery update: after the user authorized Cargo clean, the previous R3 QA app
+was moved to `/private/tmp/brainflow2-r3-preserved/Brainflow R3 QA.app` and the owned
+Cargo target was cleaned (5.9 GiB removed). The clean rebuild disabled debug
+symbols and incremental compilation and used two jobs, but again hit ENOSPC
+while compiling `objc2-app-kit`; the target was only about 1.2 GiB when the
+filesystem reported under 200 MiB free. Further Rust builds are stopped pending
+available disk space; this is an environment blocker, not a qualified full pass.
+Before clean, all API bridge units passed: 541 passed, 9 existing external-data or
+manual tests ignored. Both explicit/on-demand tiny-byte-budget reclamation and
+oversized-no-reclamation cases passed. With the promotion validity fix, full UI
+was 4,338 passed, 3 existing skips and 1 todo. Reviewer requested the same guard
+for initial destination loads and Studio final-holder disposal; those callers
+are being completed. `cargo fmt --all --check` and strict permission inventory
+checks pass. Raw logs and metadata are retained in `/private/tmp/brainflow2-r4-*`.
+
+
+The shared root target was then inspected under the user's Cargo-clean request:
+no Cargo/rustc/Brainflow process was active, both target locks were free, and
+`git ls-files target` was empty. Cleaning that cache removed 52.1 GiB and
+restored about 40 GiB available; source files and pre-existing tracked deletions
+were preserved. Full checks resumed. Origin now includes PR #37's lockfile-only
+rust_decimal update (`7c5e278d`), to incorporate at the next build boundary.
+Independent R4 code review reports no remaining blocker after initial-load and
+Studio entry-identity validity were added. Full UI: 4,341 passed, 3 existing skips,
+1 todo; Studio's final const-only lint correction has 15 focused passes.
+
+
+### R4 software checks and remaining native gate — 2026-11-04
+
+The task branch now includes current `origin/main` `7c5e278d` (PR #37's
+lockfile-only update). All affected Rust crate suites passed on native Metal:
+1,030 passed, no failures, 28 declared external-fixture/manual ignores across
+94 test targets. No soft-skip messages occurred. Log and actual exit metadata:
+`/private/tmp/brainflow2-r4-rust-suites-current-main.log{,.meta.json}`.
+The subsequent strict workspace/all-targets Clippy run passed with `-D warnings`
+after equivalent struct-initializer and array-slice lint corrections.
+Bindings regenerate successfully; the API package builds. Unrelated stale BIDS
+test-generated bindings and diagnostic PNG outputs are archived outside the
+worktree and excluded from R4.
+
+The final Studio capacity-freed regression exposed a lost-notification race:
+the pressure DOM could commit before a conditional passive-effect subscription.
+A layout-effect listener now precedes acquisition effects and reads pressure
+refs recorded synchronously with refusal. In-flight sharing, final-holder
+identity and reacquire grace are preserved. Immediate failed-entry reacquire is
+covered using existing `forget` behavior; a redundant proposed failed flag was
+removed. Independent review approves the fix. Focused Studio tests pass twice
+with two workers; the full UI run is 4,345 passed, 3 existing skips and 1 todo.
+The final source freeze is being checked again before publication. The UI
+production build passes with regenerated API types.
+
+Native R4 app/30-volume UI qualification and hosted lavapipe evidence remain
+pending. Thirty synthetic NIfTIs are prepared in three groups under
+`/private/tmp/brainflow2-r4-native-fixtures`; the isolated bundle configuration is
+`/private/tmp/brainflow2-r4-native-config.json`. The local filesystem fell below
+500 MiB again despite the earlier clean. Removing completed owned test
+executables recovered 1,192 MiB while keeping logs, libraries and the key
+regression binaries; their manifest is
+`/private/tmp/brainflow2-r4-cleared-test-binaries.json`. No native R4 success is
+claimed. R4 must remain a draft until the remaining gates pass; R5/R6 stay out
+of scope.

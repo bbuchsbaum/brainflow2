@@ -14,6 +14,7 @@ import { useStatusReadoutStore } from '@/stores/statusReadoutStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import { useStatusBarStore } from '@/stores/statusBarStore';
 import { getEventBus } from '@/events/EventBus';
+import type { AtlasStats } from '@/types/atlas';
 
 const viewLayer = (id: string, name: string) => ({ id, name, visible: true }) as never;
 
@@ -147,7 +148,7 @@ describe('StatusBarService region slot', () => {
 });
 
 describe('StatusBarService binding diagnostics', () => {
-  const atlasStats = (binding: Partial<{ bindingFrames: number; bindingGroupsCreated: number; bindingCacheHits: number }> = {}) => ({
+  const atlasStats = (binding: Partial<AtlasStats> = {}) => ({
     totalLayers: 13,
     usedLayers: 2,
     freeLayers: 11,
@@ -199,5 +200,22 @@ describe('StatusBarService binding diagnostics', () => {
     eventBus.emit('atlas.metrics', { stats: atlasStats(), timestamp: 4 });
     expect(useStatusBarStore.getState().values.bindingGroupsPerFrame).toBeUndefined();
     expect(useStatusBarStore.getState().values.bindingCacheHits).toBeUndefined();
+  });
+
+  it('publishes byte residency and logical/draw capacities for Diagnostics', () => {
+    getStatusBarService().initialize();
+    getEventBus().emit('atlas.metrics', {
+      stats: atlasStats({
+        residentTextureBytes: 300 * 1024 * 1024,
+        residencyBudgetBytes: 512 * 1024 * 1024,
+        residentTextureSlots: 14,
+        residentTextureLimit: 20,
+        drawTextureCapacity: 13,
+      }),
+      timestamp: 1,
+    });
+    expect(useStatusBarStore.getState().values.residencyBytes).toBe('300 MiB / 512 MiB');
+    expect(useStatusBarStore.getState().values.residentTextures).toBe('14 / 20');
+    expect(useStatusBarStore.getState().values.drawTextureCapacity).toBe('13');
   });
 });

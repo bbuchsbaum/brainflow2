@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatTauriError,
+  gpuBudgetExceeded,
   gpuTextureSlotsFullLimit,
   loadFailureMessage,
   toError,
@@ -95,6 +96,33 @@ describe('GPU texture slots full', () => {
     // Older builds: no number.
     expect(loadFailureMessage('lesion.nii', 'Failed to add layer: Maximum layer count exceeded')).toBe(
       'Failed to load lesion.nii: GPU texture slots full. Hide or remove a layer, then load again.',
+    );
+  });
+});
+
+describe('GPU residency byte budget', () => {
+  const pressure = {
+    GpuBudgetExceeded: {
+      code: 6008,
+      requested_bytes: 32 * 1024 * 1024,
+      used_bytes: 500 * 1024 * 1024,
+      budget_bytes: 512 * 1024 * 1024,
+    },
+  };
+
+  it('accepts only the fully structured bridge variant and renders it for users', () => {
+    expect(gpuBudgetExceeded(pressure)).toMatchObject({ code: 6008, requestedBytes: 32 * 1024 * 1024 });
+    expect(gpuBudgetExceeded({ GpuBudgetExceeded: { code: 6008 } })).toBeNull();
+    for (const malformed of [
+      { ...pressure, GpuBudgetExceeded: { ...pressure.GpuBudgetExceeded, requested_bytes: -1 } },
+      { ...pressure, GpuBudgetExceeded: { ...pressure.GpuBudgetExceeded, used_bytes: 1.5 } },
+      { ...pressure, GpuBudgetExceeded: { ...pressure.GpuBudgetExceeded, budget_bytes: Number.MAX_SAFE_INTEGER + 1 } },
+    ]) {
+      expect(gpuBudgetExceeded(malformed)).toBeNull();
+    }
+    expect(gpuBudgetExceeded({ Input: { code: 1885, details: 'Maximum layer count 13 reached' } })).toBeNull();
+    expect(loadFailureMessage('large.nii', pressure)).toBe(
+      'Failed to load large.nii: GPU residency budget exceeded (500 MiB used of 512 MiB; requested 32 MiB).',
     );
   });
 });

@@ -231,6 +231,11 @@ describe('LayerApiImpl', () => {
     const api = new LayerApiImpl();
     const pending = api.addLayer({ name: 'Late volume', volumeId: 'late', visible: true, type: 'anatomical', order: 0 }, { workspaceId: 'test' });
     mockViewStateStoreState.workspaceViewStates.delete('test');
+    await Promise.resolve();
+    const options = mockApiService.requestLayerGpuResources.mock.calls[0]?.[3] as
+      | { isOperationValid?: () => boolean }
+      | undefined;
+    expect(options?.isOperationValid?.()).toBe(false);
     complete({ data_range: { min: 0, max: 100 }, is_binary_like: false });
     await expect(pending).rejects.toThrow('workspace');
     expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('late');
@@ -282,7 +287,8 @@ describe('LayerApiImpl', () => {
     expect(mockApiService.requestLayerGpuResources).toHaveBeenCalledWith(
       'vol-hidden',
       'vol-hidden',
-      true
+      true,
+      expect.objectContaining({ isOperationValid: expect.any(Function) }),
     );
     expect(mockApiService.waitForLayerReady).not.toHaveBeenCalled();
     expect(mockHistogramService.computeHistogram).not.toHaveBeenCalled();
@@ -391,7 +397,8 @@ describe('LayerApiImpl', () => {
     expect(mockApiService.requestLayerGpuResources).toHaveBeenCalledWith(
       'layer-1',
       'vol-1',
-      false
+      false,
+      expect.objectContaining({ isOperationValid: expect.any(Function) }),
     );
     expect(mockApiService.waitForLayerReady).toHaveBeenCalledWith('layer-1', 500, 20);
     expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
@@ -465,7 +472,8 @@ describe('LayerApiImpl', () => {
     expect(mockApiService.requestLayerGpuResources).toHaveBeenCalledWith(
       'layer-1',
       'vol-1',
-      false
+      false,
+      expect.objectContaining({ isOperationValid: expect.any(Function) }),
     );
     expect(mockApiService.waitForLayerReady).toHaveBeenCalledWith('layer-1', 500, 20);
     expect(mockLayerStoreState.layerMetadata.get('layer-1')).toMatchObject({

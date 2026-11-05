@@ -70,6 +70,11 @@ const formatAtlasSummary = (
   return [base, free, events, status].filter(Boolean).join(" · ");
 };
 
+const formatBytes = (bytes: number): string => {
+  const mib = bytes / (1024 * 1024);
+  return `${mib.toFixed(mib >= 100 ? 0 : 1)} MiB`;
+};
+
 export class StatusBarService {
   private static instance: StatusBarService;
   private unsubscribers: (() => void)[] = [];
@@ -372,6 +377,29 @@ export class StatusBarService {
       const frames = stats.bindingFrames;
       const groups = stats.bindingGroupsCreated;
       const hits = stats.bindingCacheHits;
+      if (typeof stats.residentTextureBytes === "number" && Number.isFinite(stats.residentTextureBytes)) {
+        const budget = stats.residencyBudgetBytes;
+        setValue(
+          "residencyBytes",
+          `${formatBytes(stats.residentTextureBytes)}${typeof budget === "number" ? ` / ${formatBytes(budget)}` : ""}`,
+        );
+      } else {
+        useStatusBarStore.getState().removeValue("residencyBytes");
+      }
+      if (typeof stats.residentTextureSlots === "number" && Number.isFinite(stats.residentTextureSlots)) {
+        const limit = stats.residentTextureLimit;
+        setValue(
+          "residentTextures",
+          `${stats.residentTextureSlots}${typeof limit === "number" ? ` / ${limit}` : ""}`,
+        );
+      } else {
+        useStatusBarStore.getState().removeValue("residentTextures");
+      }
+      if (typeof stats.drawTextureCapacity === "number" && Number.isFinite(stats.drawTextureCapacity)) {
+        setValue("drawTextureCapacity", String(stats.drawTextureCapacity));
+      } else {
+        useStatusBarStore.getState().removeValue("drawTextureCapacity");
+      }
       if (
         typeof frames === "number" &&
         Number.isFinite(frames) &&

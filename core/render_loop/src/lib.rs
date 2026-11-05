@@ -87,8 +87,9 @@ pub use benchmarks::{FrameTimeTracker, PerformanceComparison, RenderPassProfiler
 pub use facade::{
     RendererAdapterConfig, RendererAtlasConfig, RendererBackends, RendererCapabilities,
     RendererCapacityPolicy, RendererDeviceConfig, RendererFeaturePolicy, RendererFrameRequest,
-    RendererLimits, RendererPowerPreference, RendererVolumeFormat, RendererVolumeHandle,
-    WgpuSliceRenderer, WgpuSliceRendererConfig,
+    RendererLimits, RendererPowerPreference, RendererResidencyConfig, RendererVolumeFormat,
+    RendererVolumeHandle, WgpuSliceRenderer, WgpuSliceRendererConfig,
+    DEFAULT_RESIDENCY_BYTE_BUDGET,
 };
 pub use multi_texture_manager::{EditableTextureHandle, LabelRegionUpdate, SlotHandle};
 // Re-export optimized renderer
@@ -165,6 +166,25 @@ pub enum RenderLoopError {
         depth: u32,
         max_dimension: u32,
     },
+    #[error(
+        "GPU residency budget exceeded: requested {requested_bytes} bytes with {used_bytes} used, budget {budget_bytes}"
+    )]
+    GpuBudgetExceeded {
+        requested_bytes: u64,
+        used_bytes: u64,
+        budget_bytes: u64,
+    },
+}
+
+/// Logical resident payload accounting. This is an application admission
+/// budget; it does not claim to measure physical adapter VRAM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResidencyMetrics {
+    pub budget_bytes: Option<u64>,
+    pub used_bytes: u64,
+    pub free_bytes: Option<u64>,
+    pub resident_count: usize,
+    pub resident_limit: Option<u32>,
 }
 
 // --- Texture Atlas ---
@@ -546,6 +566,7 @@ pub struct RenderLoopService {
     // --- View management ---
     views: HashMap<ViewId, ViewContext>,
     runtime_texture_capacity: u32,
+    residency: facade::RendererResidencyConfig,
     // --- World-space rendering mode ---
     world_space_enabled: bool,
     // --- Volume registry - maps volume IDs to their metadata ---
@@ -733,10 +754,11 @@ impl RenderLoopService {
         // All builtin colormaps are now uploaded automatically
 
         // Initialize world-space rendering components
-        let multi_texture_manager = Some(MultiTextureManager::new(
+        let multi_texture_manager = Some(MultiTextureManager::new_with_residency(
             &device_arc,
             &queue_arc,
             runtime_max_textures,
+            config.residency,
         ));
         let mut layer_storage_manager = Some(layer_storage::LayerStorageManager::new(
             &device_arc,
@@ -814,6 +836,7 @@ impl RenderLoopService {
             current_pipeline: None,
             views: HashMap::new(),
             runtime_texture_capacity: runtime_max_textures,
+            residency: config.residency,
             world_space_enabled: true, // Default to world-space rendering
             volumes: HashMap::new(),
             prepared_layer_state_cache: None,
@@ -1479,10 +1502,11 @@ impl RenderLoopService {
     {
         // Initialize multi-texture manager if not already done
         if self.multi_texture_manager.is_none() {
-            self.multi_texture_manager = Some(MultiTextureManager::new(
+            self.multi_texture_manager = Some(MultiTextureManager::new_with_residency(
                 &self.device,
                 &self.queue,
                 self.runtime_texture_capacity,
+                self.residency,
             ));
         }
 
@@ -1502,10 +1526,11 @@ impl RenderLoopService {
     pub fn enable_world_space_rendering(&mut self) -> Result<(), RenderLoopError> {
         // Initialize multi-texture manager if needed
         if self.multi_texture_manager.is_none() {
-            self.multi_texture_manager = Some(MultiTextureManager::new(
+            self.multi_texture_manager = Some(MultiTextureManager::new_with_residency(
                 &self.device,
                 &self.queue,
                 self.runtime_texture_capacity,
+                self.residency,
             ));
         }
 
@@ -2702,8 +2727,8 @@ impl RenderLoopService {
         }
     }
 
-    /// Number of volume texture slots that can be freshly allocated without
-    /// evicting an existing resident texture.
+    /// Free fixed residency slots. Returns zero (not applicable) in byte
+    /// mode; use `residency_metrics` for admission budget and usage.
     pub fn free_volume_slot_count(&self) -> usize {
         if self.world_space_enabled {
             self.multi_texture_manager
@@ -2713,6 +2738,17 @@ impl RenderLoopService {
         } else {
             0
         }
+    }
+
+    /// Whether count admission has an available resident ID. In byte-budget
+    /// mode this remains true until the u32 ID space is exhausted; callers
+    /// must use [`Self::residency_metrics`] for byte admission.
+    pub fn has_free_volume_resident_id(&self) -> bool {
+        self.world_space_enabled
+            && self
+                .multi_texture_manager
+                .as_ref()
+                .is_some_and(|manager| manager.has_free_resident_id())
     }
 
     /// Whether `atlas_index` is a volume texture slot holding data now.
@@ -2740,6 +2776,20 @@ impl RenderLoopService {
             .as_ref()
             .map(|manager| manager.resident_slot_count())
             .unwrap_or(0)
+    }
+
+    /// Logical residency-admission accounting for volumes and alpha masks.
+    pub fn residency_metrics(&self) -> ResidencyMetrics {
+        self.multi_texture_manager
+            .as_ref()
+            .map(|manager| manager.residency_metrics())
+            .unwrap_or(ResidencyMetrics {
+                budget_bytes: None,
+                used_bytes: 0,
+                free_bytes: None,
+                resident_count: 0,
+                resident_limit: Some(self.runtime_texture_capacity),
+            })
     }
 
     /// Renders a single frame to the configured surface.

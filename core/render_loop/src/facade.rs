@@ -343,6 +343,8 @@ pub struct WgpuSliceRendererConfig {
     pub adapter: RendererAdapterConfig,
     pub device: RendererDeviceConfig,
     pub atlas: RendererAtlasConfig,
+    /// Resident payload admission is independent of the masked draw layout.
+    pub residency: RendererResidencyConfig,
     pub load_shaders: bool,
 }
 
@@ -352,6 +354,7 @@ impl Default for WgpuSliceRendererConfig {
             adapter: RendererAdapterConfig::default(),
             device: RendererDeviceConfig::default(),
             atlas: RendererAtlasConfig::default(),
+            residency: RendererResidencyConfig::FixedSlots,
             load_shaders: true,
         }
     }
@@ -420,6 +423,24 @@ impl Default for RendererAtlasConfig {
         }
     }
 }
+
+/// Admission policy for resident volume and alpha-mask payloads.
+///
+/// `ByteBudget` is an application-selected logical payload budget, not a
+/// report of physical adapter VRAM. It permits resident IDs beyond the masked
+/// shader's simultaneous draw capacity; draw preparation still rejects a
+/// source set that cannot fit in the shader layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RendererResidencyConfig {
+    #[default]
+    FixedSlots,
+    ByteBudget {
+        budget_bytes: u64,
+    },
+}
+
+/// Application default for explicit byte-budget residency policy.
+pub const DEFAULT_RESIDENCY_BYTE_BUDGET: u64 = 512 * 1024 * 1024;
 
 impl RendererAtlasConfig {
     pub(crate) fn validate_runtime_capacity(&self) -> Result<(), RenderLoopError> {

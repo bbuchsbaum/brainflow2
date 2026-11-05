@@ -25,7 +25,13 @@ import { getTransport } from '@/services/transport';
 import { useLayerStore } from '@/stores/layerStore';
 import type { WorldBox } from '@/utils/worldFrame';
 import { edgeBoxFromAffine } from '@/utils/worldFrame';
-import { formatTauriError, GpuSlotsFullError, tauriErrorCode } from '@/utils/formatTauriError';
+import {
+  formatTauriError,
+  gpuBudgetExceeded,
+  gpuBudgetExceededMessage,
+  GpuSlotsFullError,
+  tauriErrorCode,
+} from '@/utils/formatTauriError';
 
 export interface StudioDerivedMap {
   /** Backend layer id (its GPU lease); never a layer-store id. */
@@ -77,7 +83,12 @@ interface Backend {
   loadFile(path: string): Promise<{ id: string }>;
   /** A template anatomy ("template:<id>"), loaded as its own volume. */
   loadTemplate(templateId: string): Promise<{ id: string }>;
-  requestLayerGpuResources(layerId: string, volumeId: string, metadataOnly?: boolean): Promise<GpuInfo>;
+  requestLayerGpuResources(
+    layerId: string,
+    volumeId: string,
+    metadataOnly?: boolean,
+    options?: { isOperationValid?: () => boolean },
+  ): Promise<GpuInfo>;
   releaseLayerGpuResources(layerId: string): Promise<void>;
   unloadVolume(volumeId: string): Promise<void>;
   /** The workspace's resident layer loaded from `sourcePath`, if any. */
@@ -89,8 +100,21 @@ const VOLUME_IN_USE = 4048;
 
 /** The GPU's volume texture slots are all taken (multi_texture_manager.rs). */
 export function isGpuTextureSlotsFull(error: unknown): boolean {
+  const budget = gpuBudgetExceeded(error);
+  // A request larger than the whole budget cannot be helped by a later slot
+  // release.  It remains a friendly budget refusal, but is not retryable.
+  if (budget) return budget.requestedBytes <= budget.budgetBytes;
   if (error instanceof GpuSlotsFullError) return true;
   return /maximum texture limit \d+ reached/i.test(formatTauriError(error));
+}
+
+/** Friendly pressure detail for Studio panes; null for unrelated failures. */
+export function gpuTexturePressureMessage(error: unknown): string | null {
+  const budget = gpuBudgetExceeded(error);
+  if (budget) return gpuBudgetExceededMessage(budget);
+  return isGpuTextureSlotsFull(error)
+    ? 'GPU texture slots full: hide or remove a layer to show this map.'
+    : null;
 }
 
 export class StudioDerivedMapService {
@@ -133,7 +157,7 @@ export class StudioDerivedMapService {
     } else {
       const pending = this.disposing.get(path);
       const map = (pending ? pending.catch(() => undefined) : Promise.resolve()).then(() =>
-        this.load(path),
+        this.load(path, () => this.entries.get(path) === created),
       );
       const created: Entry = { holders: new Set(), map, disposeTimer: null };
       this.entries.set(path, created);
@@ -227,7 +251,7 @@ export class StudioDerivedMapService {
     };
   }
 
-  private async load(path: string): Promise<StudioDerivedMap | null> {
+  private async load(path: string, isOperationValid: () => boolean): Promise<StudioDerivedMap | null> {
     const borrowed = this.borrowTemplate(path);
     if (borrowed) return borrowed;
     const backend = this.backend();
@@ -244,7 +268,7 @@ export class StudioDerivedMapService {
       await this.makeRoom().catch((error: unknown) => {
         if (error instanceof GpuSlotsFullError) throw error;
       });
-      info = await backend.requestLayerGpuResources(layerId, handle.id, false);
+      info = await backend.requestLayerGpuResources(layerId, handle.id, false, { isOperationValid });
     } catch (error) {
       await this.unload({ layerId, volumeId: handle.id }).catch(() => undefined);
       throw error;
@@ -300,8 +324,8 @@ function defaultBackend(): Backend {
       );
       return { id: result.volume_handle_info.id };
     },
-    requestLayerGpuResources: (layerId, volumeId, metadataOnly) =>
-      api.requestLayerGpuResources(layerId, volumeId, metadataOnly),
+    requestLayerGpuResources: (layerId, volumeId, metadataOnly, options) =>
+      api.requestLayerGpuResources(layerId, volumeId, metadataOnly, options),
     releaseLayerGpuResources: (layerId) => api.releaseLayerGpuResources(layerId),
     unloadVolume: (volumeId) => api.unloadVolume(volumeId),
     findResidentLayer: (sourcePath) => {

@@ -106,6 +106,18 @@ pub enum BridgeError {
     #[error("GPU operation failed: {details}")]
     GpuError { code: u16, details: String }, // Map GpuUploadError, WgpuInitError, RenderLoopError here
 
+    /// Authoritative logical-residency admission refusal, not a draw limit.
+    #[error("GPU residency budget exceeded: requested {requested_bytes} bytes, used {used_bytes} bytes, budget {budget_bytes} bytes")]
+    GpuBudgetExceeded {
+        code: u16,
+        #[ts(type = "number")]
+        requested_bytes: u64,
+        #[ts(type = "number")]
+        used_bytes: u64,
+        #[ts(type = "number")]
+        budget_bytes: u64,
+    },
+
     #[error("Volume not found in registry: {details}")]
     VolumeNotFound { code: u16, details: String },
 
@@ -2158,6 +2170,26 @@ mod statistic_info_tests {
         assert_eq!(
             serde_json::to_value(info(6, [1.0, 0.0, 0.0])).unwrap()["kind"],
             "chi2"
+        );
+    }
+}
+
+#[cfg(test)]
+mod gpu_budget_error_tests {
+    use super::*;
+    #[test]
+    fn budget_refusal_preserves_authoritative_numbers_in_ipc() {
+        let error = BridgeError::GpuBudgetExceeded {
+            code: 6008,
+            requested_bytes: 4096,
+            used_bytes: 8192,
+            budget_bytes: 10000,
+        };
+        assert_eq!(
+            serde_json::to_value(error).unwrap(),
+            serde_json::json!({"GpuBudgetExceeded": {
+                "code": 6008, "requested_bytes": 4096, "used_bytes": 8192, "budget_bytes": 10000
+            }})
         );
     }
 }

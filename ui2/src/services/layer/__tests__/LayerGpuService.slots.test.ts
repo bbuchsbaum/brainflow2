@@ -60,4 +60,41 @@ describe('LayerGpuService slot events', () => {
       bindingCacheHits: 2,
     });
   });
+
+  it('maps byte-residency diagnostics without repurposing draw texture capacity', async () => {
+    invoke.mockResolvedValueOnce({
+      total_layers: 20, used_layers: 14, free_layers: 6, allocations: 14, releases: 0,
+      high_watermark: 14, full_events: 0, is_3d: false,
+      volume_texture_slots: 13,
+      residency_mode: 'bytes', residency_budget_bytes: 512 * 1024 * 1024,
+      resident_texture_bytes: 300 * 1024 * 1024, free_residency_bytes: 212 * 1024 * 1024,
+      resident_texture_limit: 20, draw_texture_capacity: 13,
+    });
+
+    await expect(service.getAtlasStats()).resolves.toMatchObject({
+      volumeTextureSlots: 13,
+      residencyMode: 'bytes',
+      residencyBudgetBytes: 512 * 1024 * 1024,
+      residentTextureBytes: 300 * 1024 * 1024,
+      residentTextureLimit: 20,
+      drawTextureCapacity: 13,
+    });
+  });
+
+  it('does not replay a typed pressure upload after its owner becomes invalid', async () => {
+    let valid = true;
+    invoke.mockRejectedValueOnce({
+      GpuBudgetExceeded: { code: 6008, requested_bytes: 1, used_bytes: 10, budget_bytes: 10 },
+    });
+
+    const pending = service.requestLayerGpuResources('stale', 'volume', false, {
+      isOperationValid: () => valid,
+    });
+    // The first transport call has already reported pressure.  Invalidate
+    // before its serialized recovery reaches the next raw upload.
+    valid = false;
+
+    await expect(pending).rejects.toMatchObject({ name: 'GpuUploadCancelledError' });
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
 });

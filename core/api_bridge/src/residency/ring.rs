@@ -33,7 +33,9 @@ pub(crate) fn reclaim_cached_image_slot(
     sets: &mut HashMap<String, image_set::ResidentImageSet>,
     service: &mut RenderLoopService,
 ) -> bool {
-    while service.free_volume_slot_count() == 0 {
+    while service.residency_metrics().resident_limit.is_some()
+        && service.free_volume_slot_count() == 0
+    {
         if reclaim_cached_image_members(sets, service, 1) == 0 {
             return false;
         }
@@ -45,7 +47,7 @@ pub(crate) fn reclaim_cached_image_slot(
 /// resident ring and return how many texture slots were freed. The displayed
 /// member of each ring is never taken. Same lock order as
 /// [`reclaim_cached_image_slot`]: render service, then resident sets.
-fn reclaim_cached_image_members(
+pub(crate) fn reclaim_cached_image_members(
     sets: &mut HashMap<String, image_set::ResidentImageSet>,
     service: &mut RenderLoopService,
     max: usize,

@@ -23,6 +23,7 @@
 //! only as binding positions, taken from a current handle at the renderer call.
 //! `tests/bare_index_identity_check.rs` enforces this in CI.
 
+mod config;
 mod layer_slots;
 mod lease;
 mod release;
@@ -30,6 +31,7 @@ mod ring;
 mod skips;
 mod watchdog;
 
+pub(crate) use config::application_residency_config;
 pub(crate) use layer_slots::drawn_render_layer;
 pub use layer_slots::LayerSlotMap;
 pub(crate) use lease::{release_superseded_lease, LayerLease};
@@ -38,9 +40,10 @@ pub(crate) use release::{
     release_layer_gpu_resources_with,
 };
 pub(crate) use ring::{
-    cached_image_member_count, reclaim_cached_image_slot, reclaim_cached_image_slots_internal,
-    release_resident_image_set, release_resident_image_set_allocations, resident_image_set_enabled,
-    RESIDENT_RING_BUDGET_BYTES, RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_PREFETCH_RADIUS,
+    cached_image_member_count, reclaim_cached_image_members, reclaim_cached_image_slot,
+    reclaim_cached_image_slots_internal, release_resident_image_set,
+    release_resident_image_set_allocations, resident_image_set_enabled, RESIDENT_RING_BUDGET_BYTES,
+    RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_PREFETCH_RADIUS,
 };
 pub(crate) use skips::{clear_allocation_failed_skips, note_render_skip, RenderSkip};
 #[cfg(test)]

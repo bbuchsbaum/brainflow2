@@ -11,6 +11,7 @@ export * from './AnalysisRunnerKind';
 export * from './AnalysisStartRequest';
 export * from './AtlasDiscoveryResult';
 export * from './AtlasRoiLocation';
+export * from './AtlasStats';
 export * from './BatchRenderRequest';
 export * from './BidsBrowserIndex';
 export * from './BidsCheck';

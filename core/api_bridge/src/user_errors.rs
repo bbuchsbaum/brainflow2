@@ -70,6 +70,18 @@ impl UserFriendly for BridgeError {
                 "There was an error processing the volume data.".to_string()
             }
 
+            BridgeError::GpuBudgetExceeded {
+                requested_bytes,
+                budget_bytes,
+                ..
+            } => {
+                if requested_bytes > budget_bytes {
+                    "This image exceeds the configured GPU residency budget.".to_string()
+                } else {
+                    "The configured GPU residency budget is full.".to_string()
+                }
+            }
+
             BridgeError::GpuError { .. } => {
                 "Graphics processing error. Your GPU may not support this operation.".to_string()
             }
@@ -158,6 +170,11 @@ impl UserFriendly for BridgeError {
             BridgeError::VolumeError { .. } => vec![
                 "Try loading the volume again".to_string(),
                 "Check if the volume data is valid".to_string(),
+            ],
+
+            BridgeError::GpuBudgetExceeded { .. } => vec![
+                "Close unused volumes to release resident memory".to_string(),
+                "Use a smaller image or adjust the configured residency budget".to_string(),
             ],
 
             BridgeError::GpuError { .. } => vec![
@@ -259,6 +276,7 @@ fn error_title(error: &BridgeError) -> String {
         BridgeError::Loader { .. } => "Loading Error".to_string(),
         BridgeError::VolumeError { .. } => "Volume Error".to_string(),
         BridgeError::GpuError { .. } => "Graphics Error".to_string(),
+        BridgeError::GpuBudgetExceeded { .. } => "GPU Residency Budget".to_string(),
         BridgeError::VolumeNotFound { .. } => "Volume Not Found".to_string(),
         BridgeError::ServiceNotInitialized { .. } => "Not Ready".to_string(),
         BridgeError::Internal { .. } => "System Error".to_string(),
@@ -277,6 +295,7 @@ fn error_code(error: &BridgeError) -> u16 {
         | BridgeError::Internal { code, .. }
         | BridgeError::VolumeError { code, .. }
         | BridgeError::GpuError { code, .. }
+        | BridgeError::GpuBudgetExceeded { code, .. }
         | BridgeError::VolumeNotFound { code, .. }
         | BridgeError::ServiceNotInitialized { code, .. }
         | BridgeError::ModuleDisabled { code, .. } => *code,
