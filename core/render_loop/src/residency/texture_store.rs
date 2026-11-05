@@ -6,7 +6,7 @@
 use super::encode::{
     conversion_error, encode_automatic_r32, encode_with_policy, fit_filterable_format, UploadFormat,
 };
-use crate::RenderLoopError;
+use crate::{RenderLoopError, ResidencyMetrics};
 use nalgebra::Matrix4;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -35,8 +35,11 @@ pub struct ResidentTextureStore {
     /// Changes when a bound texture view changes, including masks and promotion.
     binding_revision: u64,
     identity: usize,
-    /// Maximum number of textures supported
-    max_textures: u32,
+    /// Count admission ceiling. Absent for byte-budget residency, where
+    /// numeric resident IDs may grow beyond the simultaneous draw capacity.
+    resident_limit: Option<u32>,
+    /// Logical resident-payload budget, including alpha masks when present.
+    budget_bytes: Option<u64>,
     /// Freed texture indices available for reuse
     free_indices: Vec<u32>,
 }
@@ -61,6 +64,7 @@ pub(crate) struct MaskTextureEntry {
     #[allow(dead_code)]
     texture: Texture,
     pub(crate) view: TextureView,
+    dimensions: [u32; 3],
 }
 
 /// One residency of a texture slot: its index and the generation of the upload
@@ -112,6 +116,10 @@ pub struct LabelRegionUpdate<'a> {
 
 impl ResidentTextureStore {
     pub fn new(max_textures: u32) -> Self {
+        Self::with_residency(Some(max_textures), None)
+    }
+
+    pub(crate) fn with_residency(resident_limit: Option<u32>, budget_bytes: Option<u64>) -> Self {
         Self {
             textures: HashMap::new(),
             mask_textures: HashMap::new(),
@@ -121,7 +129,8 @@ impl ResidentTextureStore {
             identity: NEXT_TEXTURE_MANAGER
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
                 .expect("Texture manager identity exhausted"),
-            max_textures,
+            resident_limit,
+            budget_bytes,
             free_indices: Vec::new(),
         }
     }
@@ -171,14 +180,35 @@ impl ResidentTextureStore {
         let index = if let Some(&freed_index) = self.free_indices.last() {
             freed_index
         } else {
-            if self.next_index >= self.max_textures {
+            if self
+                .resident_limit
+                .is_some_and(|limit| self.next_index >= limit)
+            {
                 return Err(RenderLoopError::Internal {
                     code: 6001,
-                    details: format!("Maximum texture limit {} reached", self.max_textures),
+                    details: format!(
+                        "Maximum texture limit {} reached",
+                        self.resident_limit.unwrap()
+                    ),
                 });
             }
             self.next_index
         };
+        let will_grow = self.free_indices.is_empty();
+        let next_index_after = if will_grow {
+            self.next_index
+                .checked_add(1)
+                .ok_or_else(|| RenderLoopError::Internal {
+                    code: 6012,
+                    details: "Resident texture index space exhausted".to_string(),
+                })?
+        } else {
+            self.next_index
+        };
+        let generation = self
+            .next_generation
+            .checked_add(1)
+            .ok_or_else(|| conversion_error("Texture slot generation exhausted"))?;
 
         // Get dimensions from the volume's space
         let space = volume.space();
@@ -216,6 +246,13 @@ impl ResidentTextureStore {
                     .features()
                     .contains(wgpu::Features::FLOAT32_FILTERABLE),
         )?;
+        self.check_budget(
+            0,
+            texture_bytes(
+                [size.width, size.height, size.depth_or_array_layers],
+                format,
+            )?,
+        )?;
 
         // Create 3D texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -238,14 +275,12 @@ impl ResidentTextureStore {
         // Access the inner NeuroSpaceImpl to get world_to_voxel()
         let world_to_voxel = space.world_to_voxel();
 
-        let generation = self
-            .next_generation
-            .checked_add(1)
-            .ok_or_else(|| conversion_error("Texture slot generation exhausted"))?;
         self.next_generation = generation;
         // Store texture entry
-        if self.free_indices.pop().is_none() {
-            self.next_index += 1;
+        if will_grow {
+            self.next_index = next_index_after;
+        } else {
+            self.free_indices.pop();
         }
         self.textures.insert(
             index,
@@ -276,13 +311,10 @@ impl ResidentTextureStore {
         dims: [u32; 3],
         mask_data: &[u8],
     ) -> Result<(), RenderLoopError> {
-        if index >= self.max_textures {
+        if !self.textures.contains_key(&index) {
             return Err(RenderLoopError::Internal {
                 code: 8014,
-                details: format!(
-                    "Mask index {} exceeds maximum supported textures ({})",
-                    index, self.max_textures
-                ),
+                details: format!("Mask index {} does not name a resident volume", index),
             });
         }
 
@@ -305,6 +337,13 @@ impl ResidentTextureStore {
                 ),
             });
         }
+        let new_bytes = texture_bytes(dims, wgpu::TextureFormat::R8Unorm)?;
+        let old_bytes = self
+            .mask_textures
+            .get(&index)
+            .map(mask_entry_bytes)
+            .unwrap_or(0);
+        self.check_budget(old_bytes, new_bytes)?;
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(&format!("Mask Texture {}", index)),
@@ -369,8 +408,14 @@ impl ResidentTextureStore {
             size,
         );
 
-        self.mask_textures
-            .insert(index, MaskTextureEntry { texture, view });
+        self.mask_textures.insert(
+            index,
+            MaskTextureEntry {
+                texture,
+                view,
+                dimensions: dims,
+            },
+        );
         self.bump_binding_revision();
         Ok(())
     }
@@ -581,13 +626,10 @@ impl ResidentTextureStore {
             + std::ops::Div<Output = T>
             + std::ops::Mul<Output = T>,
     {
-        let entry = self
-            .textures
-            .get_mut(&index)
-            .ok_or(RenderLoopError::Internal {
-                code: 6003,
-                details: format!("No texture found for index {}", index),
-            })?;
+        let entry = self.textures.get(&index).ok_or(RenderLoopError::Internal {
+            code: 6003,
+            details: format!("No texture found for index {}", index),
+        })?;
 
         if entry.editable.is_some() {
             return Err(conversion_error(
@@ -633,6 +675,13 @@ impl ResidentTextureStore {
             height: entry.dimensions[1],
             depth_or_array_layers: entry.dimensions[2],
         };
+        let old_bytes = entry_bytes(entry);
+        let new_bytes = texture_bytes(entry.dimensions, format)?;
+        self.check_budget(old_bytes, new_bytes)?;
+        let entry = self
+            .textures
+            .get_mut(&index)
+            .expect("entry validated before admission check");
         let mut replaced = false;
         if format != entry.format {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -686,7 +735,35 @@ impl ResidentTextureStore {
     /// Excludes mask textures, the dummy slot, and the colormap LUT; this is the
     /// number a resident-set VRAM budget is measured against.
     pub fn resident_bytes(&self) -> u64 {
-        self.textures.values().map(entry_bytes).sum()
+        self.textures
+            .values()
+            .try_fold(0u64, |total, entry| total.checked_add(entry_bytes(entry)))
+            .expect("resident volume payload accounting overflow")
+    }
+
+    /// Logical resident payload including alpha masks. Kept separate from
+    /// `resident_bytes` for compatibility with its volume-only contract.
+    pub fn residency_metrics(&self) -> ResidencyMetrics {
+        let mask_bytes = self
+            .mask_textures
+            .values()
+            .try_fold(0u64, |total, entry| {
+                total.checked_add(mask_entry_bytes(entry))
+            })
+            .expect("resident mask payload accounting overflow");
+        let used_bytes = self
+            .resident_bytes()
+            .checked_add(mask_bytes)
+            .expect("resident payload accounting overflow");
+        ResidencyMetrics {
+            budget_bytes: self.budget_bytes,
+            used_bytes,
+            free_bytes: self
+                .budget_bytes
+                .map(|budget| budget.saturating_sub(used_bytes)),
+            resident_count: self.textures.len(),
+            resident_limit: self.resident_limit,
+        }
     }
 
     /// Number of volume slots currently holding data.
@@ -697,12 +774,30 @@ impl ResidentTextureStore {
     /// Number of volume slots that can still be allocated without evicting a
     /// resident texture (freed slots plus not-yet-grown capacity).
     pub fn free_slot_count(&self) -> usize {
-        self.free_indices.len() + (self.max_textures.saturating_sub(self.next_index)) as usize
+        self.resident_limit
+            .map(|limit| self.free_indices.len() + limit.saturating_sub(self.next_index) as usize)
+            // Byte-budget residency has no count-based free-slot measure.
+            .unwrap_or(0)
     }
 
-    /// Maximum number of volume slots this manager supports.
+    /// Whether a fresh resident ID can be issued without a count-cap refusal.
+    pub fn has_free_resident_id(&self) -> bool {
+        !self.free_indices.is_empty()
+            || self
+                .resident_limit
+                .map(|limit| self.next_index < limit)
+                .unwrap_or(self.next_index < u32::MAX)
+    }
+
+    /// Count ceiling for legacy callers; `0` denotes byte-budget admission
+    /// where a count capacity is intentionally not applicable.
     pub fn max_textures(&self) -> u32 {
-        self.max_textures
+        self.resident_limit.unwrap_or(0)
+    }
+
+    /// The count ceiling, if this store is using count admission.
+    pub fn resident_limit(&self) -> Option<u32> {
+        self.resident_limit
     }
 
     /// Indices of all slots currently holding volume data (unordered).
@@ -752,6 +847,34 @@ impl ResidentTextureStore {
             .expect("Texture binding revision exhausted");
     }
 
+    fn check_budget(
+        &self,
+        replaced_bytes: u64,
+        requested_bytes: u64,
+    ) -> Result<(), RenderLoopError> {
+        let Some(budget_bytes) = self.budget_bytes else {
+            return Ok(());
+        };
+        let used_bytes = self.residency_metrics().used_bytes;
+        let additional_bytes = requested_bytes.saturating_sub(replaced_bytes);
+        let resulting =
+            used_bytes
+                .checked_add(additional_bytes)
+                .ok_or(RenderLoopError::GpuBudgetExceeded {
+                    requested_bytes: additional_bytes,
+                    used_bytes,
+                    budget_bytes,
+                })?;
+        if resulting > budget_bytes {
+            return Err(RenderLoopError::GpuBudgetExceeded {
+                requested_bytes: additional_bytes,
+                used_bytes,
+                budget_bytes,
+            });
+        }
+        Ok(())
+    }
+
     /// The resident entry of `index`, for building bind groups.
     pub(crate) fn texture_entry(&self, index: u32) -> Option<&TextureEntry> {
         self.textures.get(&index)
@@ -784,8 +907,27 @@ pub fn format_bytes_per_pixel(format: wgpu::TextureFormat) -> u64 {
 
 /// Logical byte footprint of a single resident texture slot.
 fn entry_bytes(entry: &TextureEntry) -> u64 {
-    let [w, h, d] = entry.dimensions;
-    (w as u64) * (h as u64) * (d as u64) * format_bytes_per_pixel(entry.format)
+    texture_bytes(entry.dimensions, entry.format).expect("resident texture dimensions are valid")
+}
+
+fn mask_entry_bytes(entry: &MaskTextureEntry) -> u64 {
+    texture_bytes(entry.dimensions, wgpu::TextureFormat::R8Unorm)
+        .expect("resident mask dimensions are valid")
+}
+
+fn texture_bytes(
+    dimensions: [u32; 3],
+    format: wgpu::TextureFormat,
+) -> Result<u64, RenderLoopError> {
+    let [w, h, d] = dimensions;
+    (w as u64)
+        .checked_mul(h as u64)
+        .and_then(|bytes| bytes.checked_mul(d as u64))
+        .and_then(|bytes| bytes.checked_mul(format_bytes_per_pixel(format)))
+        .ok_or_else(|| RenderLoopError::Internal {
+            code: 6013,
+            details: "Resident texture byte accounting overflow".to_string(),
+        })
 }
 
 /// Information about a texture

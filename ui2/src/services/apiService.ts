@@ -553,8 +553,9 @@ export class ApiService {
     layerId: string,
     volumeId: string,
     metadataOnly?: boolean,
+    options?: { isOperationValid?: () => boolean },
   ): Promise<any> {
-    return this.layerGpu.requestLayerGpuResources(layerId, volumeId, metadataOnly);
+    return this.layerGpu.requestLayerGpuResources(layerId, volumeId, metadataOnly, options);
   }
 
   async releaseLayerGpuResources(layerId: string, options?: { forUpload?: boolean }): Promise<void> {

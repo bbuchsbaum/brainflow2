@@ -108,6 +108,7 @@ fn export_module_map() {
 fn main() {
     println!("Exporting TypeScript types from api_bridge...");
 
+    AtlasStats::export_all().expect("export residency diagnostics");
     bf_segmentation::SessionSetup::export_all().expect("export segmentation setup");
     bf_segmentation::Stroke::export_all().expect("export segmentation stroke");
     bf_segmentation::SavedLabels::export_all().expect("export segmentation saved labels");

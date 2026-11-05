@@ -24,6 +24,13 @@ interface RawAtlasStats {
   binding_frames?: number;
   binding_groups_created?: number;
   binding_cache_hits?: number;
+  /** Byte-budget residency fields, absent from older render loops. */
+  residency_mode?: 'bytes' | 'slots';
+  residency_budget_bytes?: number | null;
+  resident_texture_bytes?: number;
+  free_residency_bytes?: number | null;
+  resident_texture_limit?: number | null;
+  draw_texture_capacity?: number;
 }
 
 export class LayerGpuService {
@@ -37,11 +44,12 @@ export class LayerGpuService {
     layerId: string,
     volumeId: string,
     metadataOnly?: boolean,
+    options?: { isOperationValid?: () => boolean },
   ): Promise<any> {
     console.log(
       `LayerGpuService: Requesting GPU resources for layer ${layerId}, volume ${volumeId}, metadataOnly: ${metadataOnly}`,
     );
-    const result = await this.transport.invoke('request_layer_gpu_resources', {
+    const args = {
       layerSpec: {
         Volume: {
           id: layerId,
@@ -50,7 +58,29 @@ export class LayerGpuService {
         },
       },
       metadataOnly: metadataOnly || false,
-    });
+    };
+    const rawRequest = () => {
+      if (options?.isOperationValid && !options.isOperationValid()) {
+        const error = new Error('GPU upload operation is no longer valid');
+        error.name = 'GpuUploadCancelledError';
+        throw error;
+      }
+      return this.transport.invoke('request_layer_gpu_resources', args);
+    };
+    let result: unknown;
+    try {
+      result = await rawRequest();
+    } catch (error) {
+      // Keep LayerGpuService independent from eviction policy in the normal
+      // path.  The dynamic import also avoids the apiService -> LayerGpuService
+      // -> LayerEvictionService cycle; the callback is transport-only so the
+      // retry cannot recurse through makeRoomForUpload.
+      if (metadataOnly) throw error;
+      const { gpuBudgetExceeded } = await import('@/utils/formatTauriError');
+      if (!gpuBudgetExceeded(error)) throw error;
+      const { layerEvictionService } = await import('@/services/LayerEvictionService');
+      result = await layerEvictionService.retryBudgetUpload(rawRequest, layerId, error, options?.isOperationValid);
+    }
     console.log('LayerGpuService: GPU resources response:', result);
     return result;
   }
@@ -148,6 +178,12 @@ export class LayerGpuService {
       bindingFrames: raw.binding_frames,
       bindingGroupsCreated: raw.binding_groups_created,
       bindingCacheHits: raw.binding_cache_hits,
+      residencyMode: raw.residency_mode,
+      residencyBudgetBytes: raw.residency_budget_bytes,
+      residentTextureBytes: raw.resident_texture_bytes,
+      freeResidencyBytes: raw.free_residency_bytes,
+      residentTextureLimit: raw.resident_texture_limit,
+      drawTextureCapacity: raw.draw_texture_capacity,
     };
   }
 }

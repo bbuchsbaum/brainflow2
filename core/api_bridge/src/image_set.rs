@@ -301,18 +301,29 @@ impl ResidentRing {
         }
 
         if self.slots.len() < self.capacity() && exec.can_admit_new() {
-            let texture_index = exec.admit_new(member)?;
-            let pos = self.slots.len();
-            self.slots.push(RingSlot {
-                texture_index,
-                member,
-                last_used: self.tick,
-            });
-            self.member_pos.insert(member, pos);
-            return Ok(SwapOutcome {
-                texture_index,
-                admitted: true,
-            });
+            match exec.admit_new(member) {
+                Ok(texture_index) => {
+                    let pos = self.slots.len();
+                    self.slots.push(RingSlot {
+                        texture_index,
+                        member,
+                        last_used: self.tick,
+                    });
+                    self.member_pos.insert(member, pos);
+                    return Ok(SwapOutcome {
+                        texture_index,
+                        admitted: true,
+                    });
+                }
+                // Logical IDs are available in byte mode even when another
+                // allocation does not fit. Reuse only a residency this ring owns.
+                Err(BridgeError::GpuBudgetExceeded {
+                    requested_bytes,
+                    budget_bytes,
+                    ..
+                }) if requested_bytes <= budget_bytes && !self.slots.is_empty() => {}
+                Err(error) => return Err(error),
+            }
         }
 
         // At local capacity, or under global texture-slot pressure: reuse the
@@ -361,7 +372,12 @@ impl ResidentRing {
                 if self.slots.len() >= self.capacity() || !exec.can_admit_new() {
                     return Ok(admitted); // no free capacity left; stop.
                 }
-                let texture_index = exec.admit_new(cand)?;
+                let texture_index = match exec.admit_new(cand) {
+                    Ok(index) => index,
+                    // Prefetch is optional; pressure must not disrupt the shown member.
+                    Err(BridgeError::GpuBudgetExceeded { .. }) => return Ok(admitted),
+                    Err(error) => return Err(error),
+                };
                 self.tick += 1;
                 let pos = self.slots.len();
                 self.slots.push(RingSlot {
@@ -638,7 +654,7 @@ pub struct RenderServiceExecutor<'a> {
 
 impl RingExecutor for RenderServiceExecutor<'_> {
     fn can_admit_new(&self) -> bool {
-        self.service.free_volume_slot_count() > 0
+        self.service.has_free_volume_resident_id()
     }
 
     fn admit_new(&mut self, member: usize) -> BridgeResult<u32> {
@@ -650,8 +666,7 @@ impl RingExecutor for RenderServiceExecutor<'_> {
             &volume,
             self.preserve_labels,
             None,
-        )
-        .map_err(|e| ring_upload_error("upload", e))?;
+        )?;
         self.handles.insert(handle.index(), handle);
         Ok(handle.index())
     }
@@ -690,7 +705,7 @@ fn update_sendable_3d_at(
         ($vol:expr) => {
             service
                 .update_volume_3d_at(slot, $vol)
-                .map_err(|e| ring_upload_error("in-place update", e))
+                .map_err(|e| crate::gpu_upload::renderer_gpu_error("resident image-set member", e))
         };
     }
     match volume {
@@ -858,6 +873,7 @@ mod tests {
     struct FakeExecutor {
         next_index: u32,
         can_admit_new: bool,
+        admission_error: Option<BridgeError>,
         admit_new: Vec<usize>,
         admit_reuse: Vec<(u32, usize)>,
     }
@@ -867,6 +883,7 @@ mod tests {
             Self {
                 next_index: 0,
                 can_admit_new: true,
+                admission_error: None,
                 admit_new: Vec::new(),
                 admit_reuse: Vec::new(),
             }
@@ -879,9 +896,12 @@ mod tests {
         }
 
         fn admit_new(&mut self, member: usize) -> BridgeResult<u32> {
+            self.admit_new.push(member);
+            if let Some(error) = self.admission_error.as_ref() {
+                return Err(error.clone());
+            }
             let idx = self.next_index;
             self.next_index += 1;
-            self.admit_new.push(member);
             Ok(idx)
         }
         fn admit_reuse(&mut self, slot: u32, member: usize) -> BridgeResult<()> {
@@ -898,6 +918,52 @@ mod tests {
             bytes_per_member: 1,
         };
         ResidentRing::seeded(config, 0, 0)
+    }
+
+    #[test]
+    fn byte_pressure_reuses_owned_slot_and_stops_optional_prefetch() {
+        let mut ring = new_ring(4);
+        let mut exec = FakeExecutor {
+            admission_error: Some(BridgeError::GpuBudgetExceeded {
+                code: 6008,
+                requested_bytes: 1,
+                used_bytes: 1,
+                budget_bytes: 1,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(ring.ensure_resident(1, &mut exec).unwrap().texture_index, 0);
+        assert_eq!(exec.admit_reuse, [(0, 1)]);
+        assert!(!ring.is_resident(0));
+        assert_eq!(ring.prefetch(1, 1, 3, &mut exec).unwrap(), 0);
+        assert_eq!(ring.slot_of(1), Some(0));
+        assert_eq!(ring.resident_len(), 1);
+    }
+
+    #[test]
+    fn oversize_and_other_failures_do_not_replace_a_ring_member() {
+        for error in [
+            BridgeError::GpuBudgetExceeded {
+                code: 6008,
+                requested_bytes: 2,
+                used_bytes: 1,
+                budget_bytes: 1,
+            },
+            BridgeError::GpuError {
+                code: 6002,
+                details: "conversion failed".into(),
+            },
+        ] {
+            let mut ring = new_ring(4);
+            let mut exec = FakeExecutor {
+                admission_error: Some(error),
+                ..Default::default()
+            };
+            assert!(ring.ensure_resident(1, &mut exec).is_err());
+            assert!(exec.admit_reuse.is_empty());
+            assert_eq!(ring.slot_of(0), Some(0));
+            assert_eq!(ring.resident_len(), 1);
+        }
     }
 
     #[test]

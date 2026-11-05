@@ -206,8 +206,14 @@ export class LayerApiImpl implements LayerApi {
       }
       let gpuInfo;
       try {
-        gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
+        gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false, {
+          // This predicate belongs to the promotion operation, not to the
+          // eviction service: initial and Studio uploads may have no layer
+          // store entry yet.  It stays valid only for this removal sequence.
+          isOperationValid: () => !removed(),
+        });
       } catch (error) {
+        if (removed()) return;
         // Allocated by a frame between the check above and this request.
         if (tauriErrorCode(error) === LAYER_ALREADY_RESIDENT && (await this.backendHoldsLayer(id))) {
           if (await discardIfRemoved()) return;
@@ -370,6 +376,22 @@ export class LayerApiImpl implements LayerApi {
       // Keep a faithful core fallback if the module is later switched off.
       type: declared?.baseRenderMode === 'label' ? 'label' : declared?.baseRenderMode === 'mask' ? 'mask' : declared && (layer.type === 'label' || layer.type === 'mask') ? 'anatomical' : layer.type,
     };
+    // Capture the lifecycle witnesses before I/O.  This deliberately does
+    // not require the incoming layer to be in the store: initial loads and
+    // replacements have not been committed yet.
+    const incomingRemoval = this.removalSeq.get(newLayer.id) ?? 0;
+    const replacementRemoval = context?.replaceLayerId
+      ? this.removalSeq.get(context.replaceLayerId) ?? 0
+      : null;
+    const isInitialOperationValid = () => {
+      if (context && !useViewStateStore.getState().workspaceViewStates.has(context.workspaceId)) return false;
+      if (context?.isCurrent && !context.isCurrent()) return false;
+      if (context?.replaceLayerId) {
+        if (!useLayerStore.getState().getLayer(context.replaceLayerId)) return false;
+        if ((this.removalSeq.get(context.replaceLayerId) ?? 0) !== replacementRemoval) return false;
+      }
+      return (this.removalSeq.get(newLayer.id) ?? 0) === incomingRemoval;
+    };
     layerDebugLog(
       `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created layer with id=${newLayer.id}`,
     );
@@ -401,6 +423,7 @@ export class LayerApiImpl implements LayerApi {
         newLayer.id,
         newLayer.volumeId,
         metadataOnly,
+        { isOperationValid: isInitialOperationValid },
       );
       frameBox = edgeBoxFromAffine(gpuInfo.voxel_to_world, gpuInfo.dim);
       if (frameBox) frameGrid = { voxelToWorld: gpuInfo.voxel_to_world, dims: gpuInfo.dim };
@@ -508,6 +531,7 @@ export class LayerApiImpl implements LayerApi {
       if (context?.replaceLayerId && !useLayerStore.getState().getLayer(context.replaceLayerId)) {
         throw new Error('The image set was removed while loading');
       }
+      if (!isInitialOperationValid()) throw new Error('Image selection cancelled');
       requireLayerKind(newLayer);
       context?.beforeCommit?.();
       const built = this.buildLayerMetadata(earlyMetadata, gpuInfo, renderProps, !metadataOnly);

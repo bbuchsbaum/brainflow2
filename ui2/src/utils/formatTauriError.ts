@@ -65,6 +65,53 @@ export function tauriErrorCode(error: unknown, depth = 0): number | null {
   return null;
 }
 
+export interface GpuBudgetExceededDetails {
+  code: 6008;
+  requestedBytes: number;
+  usedBytes: number;
+  budgetBytes: number;
+}
+
+/**
+ * Accept only the named, fully shaped bridge variant.  In particular, do not
+ * infer pressure from renderer prose: a draw-binding rejection must never
+ * trigger residency eviction.
+ */
+export function gpuBudgetExceeded(error: unknown, depth = 0): GpuBudgetExceededDetails | null {
+  if (!error || typeof error !== 'object' || depth > 3) return null;
+  if (error instanceof Error) return gpuBudgetExceeded((error as Error & { cause?: unknown }).cause, depth + 1);
+  const record = error as Record<string, unknown>;
+  const value = record.GpuBudgetExceeded;
+  if (value && typeof value === 'object') {
+    const details = value as Record<string, unknown>;
+    const validByteCount = (candidate: unknown): candidate is number =>
+      typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0;
+    if (
+      details.code === 6008 &&
+      validByteCount(details.requested_bytes) &&
+      validByteCount(details.used_bytes) &&
+      validByteCount(details.budget_bytes)
+    ) {
+      return {
+        code: 6008,
+        requestedBytes: details.requested_bytes,
+        usedBytes: details.used_bytes,
+        budgetBytes: details.budget_bytes,
+      };
+    }
+  }
+  for (const child of Object.values(record)) {
+    const details = gpuBudgetExceeded(child, depth + 1);
+    if (details) return details;
+  }
+  return null;
+}
+
+export function gpuBudgetExceededMessage(details: GpuBudgetExceededDetails): string {
+  const mib = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(0)} MiB`;
+  return `GPU residency budget exceeded (${mib(details.usedBytes)} used of ${mib(details.budgetBytes)}; requested ${mib(details.requestedBytes)}).`;
+}
+
 const LOAD_FAILURE_PREFIX = /^\s*failed to load\b[^:\n]*:\s*/i;
 
 /**
@@ -131,6 +178,8 @@ export function statusLineMessage(message: string): string {
  * …", which read as "Failed to load X: Failed to load file /path: …").
  */
 export function loadFailureMessage(subject: string, error: unknown): string {
+  const budget = gpuBudgetExceeded(error);
+  if (budget) return `Failed to load ${subject}: ${gpuBudgetExceededMessage(budget)}`;
   // Any layer load can hit the GPU's slot budget: name the cause and the way
   // out instead of the render loop's internal wording.
   const slotLimit = gpuTextureSlotsFullLimit(error);

@@ -34,6 +34,13 @@ export type BridgeError = {
         details: string;
     };
 } | {
+    "GpuBudgetExceeded": {
+        code: number;
+        requested_bytes: number;
+        used_bytes: number;
+        budget_bytes: number;
+    };
+} | {
     "VolumeNotFound": {
         code: number;
         details: string;

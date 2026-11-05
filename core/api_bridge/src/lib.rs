@@ -279,15 +279,28 @@ pub struct AtlasStats {
     pub is_3d: bool,
     pub last_allocation_ms: Option<u64>,
     pub last_release_ms: Option<u64>,
-    /// Volume texture slots of the render loop (its runtime texture capacity):
-    /// the residency budget the UI's eviction counts against. Past it, a GPU
-    /// upload fails with "Maximum texture limit N reached".
+    /// Compatibility capacity for fixed-slot admission. In byte mode use
+    /// `residency_budget_bytes`; simultaneous draw sources stay bounded by
+    /// `draw_texture_capacity`.
     pub volume_texture_slots: u32,
     /// Layers one frame draws at once. A per-view draw cap, not a residency
     /// budget: uploads do not count against it, and a frame with more
     /// visible layers leaves the extra ones out.
     pub render_layer_capacity: u32,
-    /// Volume texture slots that can be allocated now without reclaiming.
+    /// Admission policy: logical bytes, or the fixed-resident-count fallback.
+    #[ts(type = "'bytes' | 'slots'")]
+    pub residency_mode: String,
+    /// Logical volume and mask payloads; not physical VRAM usage.
+    #[ts(type = "number")]
+    pub resident_texture_bytes: u64,
+    #[ts(type = "number | null")]
+    pub residency_budget_bytes: Option<u64>,
+    #[ts(type = "number | null")]
+    pub free_residency_bytes: Option<u64>,
+    pub resident_texture_limit: Option<u32>,
+    /// Distinct resident textures one draw can bind, independently of admission.
+    pub draw_texture_capacity: u32,
+    /// Free fixed slots; zero (not applicable) in byte-budget mode.
     pub free_texture_slots: u32,
     /// Volume texture slots holding data, including 4D resident-ring members.
     pub resident_texture_slots: u32,
@@ -1350,7 +1363,11 @@ impl BridgeState {
     /// contains a fully initialized renderer; failures leave it empty for retry.
     pub async fn ensure_render_loop(&self) -> BridgeResult<()> {
         render_lifecycle::initialize_once(&self.render_loop_service, || async {
-            let mut service = RenderLoopService::new()
+            let config = render_loop::WgpuSliceRendererConfig {
+                residency: application_residency_config()?,
+                ..Default::default()
+            };
+            let mut service = RenderLoopService::new_with_config(config)
                 .await
                 .context_bridge("initializing render loop service", 5005)?;
             service
@@ -3680,6 +3697,7 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
     let render_layer_capacity = service.render_layer_capacity();
     let free_texture_slots = service.free_volume_slot_count() as u32;
     let resident_texture_slots = service.resident_volume_slot_count() as u32;
+    let residency = service.residency_metrics();
     let binding_stats = service
         .multi_texture_manager
         .as_ref()
@@ -3713,6 +3731,17 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         last_release_ms,
         volume_texture_slots,
         render_layer_capacity,
+        residency_mode: if residency.budget_bytes.is_some() {
+            "bytes"
+        } else {
+            "slots"
+        }
+        .into(),
+        resident_texture_bytes: residency.used_bytes,
+        residency_budget_bytes: residency.budget_bytes,
+        free_residency_bytes: residency.free_bytes,
+        resident_texture_limit: residency.resident_limit,
+        draw_texture_capacity: volume_texture_slots,
         free_texture_slots,
         resident_texture_slots,
         cached_image_slots,
@@ -6653,9 +6682,9 @@ async fn prepare_frontend_layers_for_render(
                             bridge_state,
                             service,
                         )
-                        .await?
+                        .await
                         {
-                            Some(swapped) => {
+                            Ok(Some(swapped)) => {
                                 debug!(
                                     "Resident image-set swap: layer '{}' -> member {} at slot {} (no re-upload)",
                                     layer.id,
@@ -6664,7 +6693,21 @@ async fn prepare_frontend_layers_for_render(
                                 );
                                 swapped.index()
                             }
-                            None => {
+                            Err(error @ BridgeError::GpuBudgetExceeded { .. }) => {
+                                // Keep the previously displayed member and its
+                                // ownership intact; pressure in one layer must
+                                // not prevent unrelated layers from rendering.
+                                note_render_skip(
+                                    bridge_state,
+                                    &layer.id,
+                                    RenderSkip::AllocationFailed,
+                                    &format!("could not admit requested resident member: {error}"),
+                                )
+                                .await;
+                                continue;
+                            }
+                            Err(error) => return Err(error),
+                            Ok(None) => {
                                 info!(
                                     "Re-uploading 4D layer '{}' because cached timepoint {:?} does not match requested {:?}",
                                     layer.id, cached_timepoint, requested_render_timepoint
@@ -11964,11 +12007,21 @@ mod tests {
 
     #[tokio::test]
     async fn incoming_layer_reclaims_cached_4d_members_without_evicting_displayed_frames() {
-        let state = BridgeState::default().expect("bridge state");
-        state
-            .ensure_render_loop()
-            .await
-            .expect("GPU adapter required");
+        verify_incoming_layer_reclamation(render_loop::RendererResidencyConfig::FixedSlots).await;
+    }
+
+    #[tokio::test]
+    async fn byte_budget_incoming_layers_reclaim_cached_members_without_evicting_displayed_frames()
+    {
+        // Thirteen R16F frames fit; residency is nevertheless admitted by bytes.
+        verify_incoming_layer_reclamation(render_loop::RendererResidencyConfig::ByteBudget {
+            budget_bytes: 13 * 4 * 4 * 4 * 2,
+        })
+        .await;
+    }
+
+    async fn verify_incoming_layer_reclamation(residency: render_loop::RendererResidencyConfig) {
+        let (state, _) = gpu_state_with_residency(residency).await;
         let spec = |id: &str| {
             LayerSpec::Volume(VolumeLayerSpec {
                 id: id.to_string(),
@@ -12036,7 +12089,11 @@ mod tests {
             let VolumeSendable::VolF32(filler, _) = filler else {
                 panic!("expected 3D f32")
             };
-            while renderer.free_volume_slot_count() > 0 {
+            while renderer
+                .residency_metrics()
+                .free_bytes
+                .map_or_else(|| renderer.free_volume_slot_count() > 0, |free| free >= 128)
+            {
                 renderer
                     .upload_volume_3d(&filler)
                     .expect("fill texture slots");
@@ -12080,6 +12137,58 @@ mod tests {
             assert!(renderer.get_volume_data_range(current_slots[1]).is_some());
         }
 
+        if matches!(
+            residency,
+            render_loop::RendererResidencyConfig::ByteBudget { .. }
+        ) {
+            // An individually oversized request cannot benefit from reclamation.
+            // Neither entry point may consume cached frames, leases or IDs.
+            let cached_before = cached_image_member_count(&*state.resident_image_sets.lock().await);
+            let metrics_before = service.lock().await.residency_metrics();
+            state.volume_registry.lock().await.insert(
+                "oversized".into(),
+                sendable_f32_volume([16, 16, 16], |_| 0.5),
+                volume_metadata_for("oversized", "f32", bridge_types::VolumeType::Volume3D),
+            );
+            let refused = request_layer_gpu_resources_for_testing(spec("oversized"), None, &state)
+                .await
+                .unwrap_err();
+            assert!(matches!(
+                refused,
+                BridgeError::GpuBudgetExceeded {
+                    requested_bytes: 8192,
+                    ..
+                }
+            ));
+            let mut renderer = service.lock().await;
+            let refused = allocate_gpu_resources_for_layer(
+                "oversized-on-demand",
+                "oversized",
+                &state,
+                &mut renderer,
+                None,
+            )
+            .await
+            .unwrap_err();
+            assert!(matches!(
+                refused,
+                BridgeError::GpuBudgetExceeded {
+                    requested_bytes: 8192,
+                    ..
+                }
+            ));
+            assert_eq!(renderer.residency_metrics(), metrics_before);
+            drop(renderer);
+            assert_eq!(
+                cached_image_member_count(&*state.resident_image_sets.lock().await),
+                cached_before
+            );
+            for id in ["oversized", "oversized-on-demand"] {
+                assert!(!state.layer_leases.lock().await.contains_key(id));
+                assert!(!state.layer_slots.lock().await.contains(id));
+            }
+        }
+
         // The render-time, on-demand allocation path needs the same behavior.
         state.volume_registry.lock().await.insert(
             "on-demand".into(),
@@ -12104,11 +12213,8 @@ mod tests {
 
     #[tokio::test]
     async fn incoming_layer_still_fails_when_no_cached_gpu_member_can_be_reclaimed() {
-        let state = BridgeState::default().expect("bridge state");
-        state
-            .ensure_render_loop()
-            .await
-            .expect("GPU adapter required");
+        let (state, _) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::FixedSlots).await;
         let spec = |id: &str| {
             LayerSpec::Volume(VolumeLayerSpec {
                 id: id.to_string(),
@@ -12232,11 +12338,8 @@ mod tests {
 
     #[tokio::test]
     async fn reclaim_cached_image_slots_frees_only_cached_ring_members() {
-        let state = BridgeState::default().expect("bridge state");
-        state
-            .ensure_render_loop()
-            .await
-            .expect("GPU adapter required");
+        let (state, _) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::FixedSlots).await;
         for id in ["ring-a", "ring-b"] {
             state.volume_registry.lock().await.insert(
                 id.into(),
@@ -14462,6 +14565,109 @@ mod tests {
         (state, service)
     }
 
+    /// Explicit admission mode for pressure tests, without mutating process env.
+    async fn gpu_state_with_residency(
+        residency: render_loop::RendererResidencyConfig,
+    ) -> (BridgeState, Arc<Mutex<RenderLoopService>>) {
+        let state = BridgeState::default().expect("bridge state");
+        let config = render_loop::WgpuSliceRendererConfig {
+            residency,
+            ..Default::default()
+        };
+        let mut renderer = RenderLoopService::new_with_config(config)
+            .await
+            .expect("GPU adapter required");
+        renderer.load_shaders().expect("shaders required");
+        let service = Arc::new(Mutex::new(renderer));
+        *state.render_loop_service.lock().await = Some(service.clone());
+        (state, service)
+    }
+
+    #[tokio::test]
+    async fn byte_budget_refused_ring_promotion_preserves_ownership_and_other_layers() {
+        let (state, service) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::ByteBudget {
+                budget_bytes: 256,
+            })
+            .await;
+        let space = NeuroSpace::new(
+            vec![4, 4, 4, 2],
+            Some(vec![1.; 4]),
+            Some(vec![0.; 4]),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut series = DenseNeuroVec::zeros(space).unwrap();
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    series.data[[x, y, z, 0]] = 1.;
+                    series.data[[x, y, z, 1]] = 1_000_000.;
+                }
+            }
+        }
+        let mut metadata =
+            volume_metadata_for("series", "f32", bridge_types::VolumeType::TimeSeries4D);
+        metadata.path = "atlas:series".into(); // categorical values must remain exact
+        state.volume_registry.lock().await.insert(
+            "series".into(),
+            VolumeSendable::Vec4DF32(series),
+            metadata,
+        );
+        state.volume_registry.lock().await.insert(
+            "healthy".into(),
+            sendable_f32_volume([4, 4, 4], |_| 0.5),
+            volume_metadata_for("healthy", "f32", bridge_types::VolumeType::Volume3D),
+        );
+        for id in ["series", "healthy"] {
+            request_layer_gpu_resources_for_testing(label_spec(id, id), None, &state)
+                .await
+                .unwrap();
+        }
+        let old = mapped_handle(&state, "series").await.unwrap();
+        let healthy = mapped_handle(&state, "healthy").await.unwrap();
+        let mut frame = label_frame("series", "series");
+        frame.timepoint = Some(1);
+        frame
+            .layers
+            .push(label_frame("healthy", "healthy").layers.remove(0));
+        let mut renderer = service.lock().await;
+        assert_eq!(renderer.residency_metrics().used_bytes, 256);
+        assert_eq!(
+            renderer.get_volume_texture_format(old.index()),
+            Some(wgpu::TextureFormat::R16Float)
+        );
+        let prepared = prepare_frontend_layers_for_render(&frame, &state, &mut renderer)
+            .await
+            .expect("unaffected layer still prepares");
+        assert_eq!(prepared.drawn_frontend_indices, vec![1]);
+        assert_eq!(prepared.backend_layers.len(), 1);
+        assert!(renderer.is_slot_current(old));
+        assert!(renderer.is_slot_current(healthy));
+        assert_eq!(
+            renderer.get_volume_texture_format(old.index()),
+            Some(wgpu::TextureFormat::R16Float)
+        );
+        assert_eq!(renderer.get_volume_data_range(old.index()), Some((1., 1.)));
+        assert_eq!(renderer.residency_metrics().used_bytes, 256);
+        assert_eq!(mapped_handle(&state, "series").await, Some(old));
+        assert_eq!(
+            state.layer_to_timepoint_map.lock().await.get("series"),
+            Some(&Some(0))
+        );
+        let sets = state.resident_image_sets.lock().await;
+        let resident = sets.get("series").unwrap();
+        assert_eq!(resident.current_member, 0);
+        assert_eq!(resident.ring.slot_of(0), Some(old.index()));
+        assert_eq!(resident.ring.slot_of(1), None);
+        assert_eq!(resident.ring.resident_len(), 1);
+        assert_eq!(
+            state.render_skipped_layers.lock().await.get("series"),
+            Some(&RenderSkip::AllocationFailed)
+        );
+    }
+
     /// An open segmentation document's labels, shown by `layer_id`.
     async fn editable_document(state: &BridgeState, volume_id: &str, layer_id: &str) {
         state
@@ -14999,7 +15205,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_ring_never_writes_into_a_slot_it_lost() {
-        let (state, service) = gpu_state().await;
+        let (state, service) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::FixedSlots).await;
         ringed_layer(&state, &service).await;
         let mut renderer = service.lock().await;
         let mut sets = state.resident_image_sets.lock().await;

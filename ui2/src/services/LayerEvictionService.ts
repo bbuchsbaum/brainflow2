@@ -4,11 +4,11 @@ import { volumeDocumentRemovalReason } from '@/services/workspaceDocuments';
  *
  * Two limits, kept apart (docs/plans/gpu-residency-2026-11.md):
  *
- * - The residency budget is the render loop's volume texture slots (13 on
- *   Metal), global to the app. Every resident texture counts: layers, Set
- *   studio maps, and cached 4D resident-ring members, which the UI cannot see
- *   and reads from the backend (`get_atlas_stats`).
- * - The draw cap (16) is per view: how many layers one frame draws. It is
+ * - Desktop residency uses a backend-enforced logical byte budget for volumes
+ *   and masks; fixed-slot fallback retains the legacy count policy. Cached
+ *   4D ring members are included in backend accounting (`get_atlas_stats`).
+ *   Byte-mode recovery starts only after a typed backend budget refusal.
+ * - The draw cap (16 rows, at most 13 distinct textures) is per view. It is
  *   enforced when a layer is shown in a workspace ({@link drawLayerCap}), not
  *   against residency.
  *
@@ -36,6 +36,7 @@ import { isViewWorkspaceType } from '@/components/ui/displayModeSelector.helpers
 import { getEventBus } from '@/events/EventBus';
 import { getStudioDerivedMapService } from '@/services/studio/StudioDerivedMapService';
 import type { AtlasStats } from '@/types/atlas';
+import { gpuBudgetExceeded, type GpuBudgetExceededDetails } from '@/utils/formatTauriError';
 
 /**
  * The budget used until the backend reports its real one (render loop not
@@ -65,6 +66,8 @@ class LayerEvictionService {
   private textureSlots: number | null = null;
   /** The backend's per-frame draw cap, once known. */
   private drawCap: number | null = null;
+  /** Old backends omit this and retain the established slot policy. */
+  private residencyMode: 'bytes' | 'slots' = 'slots';
   /**
    * Whether the backend reports its free/resident/cached slot counts. Null
    * until the first answer; false for an older backend, which is then not
@@ -143,6 +146,9 @@ class LayerEvictionService {
 
   /** Cache the fixed capacities from a stats answer. */
   private remember(stats: AtlasStats | null | undefined): void {
+    if (stats?.residencyMode === 'bytes' || stats?.residencyMode === 'slots') {
+      this.residencyMode = stats.residencyMode;
+    }
     if (this.textureSlots === null) {
       this.textureSlots = positive(stats?.volumeTextureSlots)
         ? stats.volumeTextureSlots
@@ -177,6 +183,7 @@ class LayerEvictionService {
     this.textureSlots = null;
     this.drawCap = null;
     this.backendCounts = null;
+    this.residencyMode = 'slots';
   }
 
   /** The backend's current slot counts, or null when it does not report them. */
@@ -237,7 +244,11 @@ class LayerEvictionService {
     uploadingLayerId: string | undefined,
     options: { reserve?: boolean; counted?: boolean },
   ): Promise<boolean> {
+    // In byte mode the backend owns admission under its allocation lock.  A
+    // count of UI layers (or a transient reservation) has no bearing on bytes
+    // used, so it must not evict before the real request says it is pressured.
     const budget = await this.gpuTextureSlots();
+    if (this.residencyMode === 'bytes') return true;
     const full = (used: number) => (options.counted ? used > budget : used >= budget);
     let backend = await this.backendSlots();
     // Free slots one at a time until the upload fits or nothing can go
@@ -318,7 +329,131 @@ class LayerEvictionService {
    */
   async checkAndEvict(): Promise<void> {
     const budget = await this.gpuTextureSlots();
+    if (this.residencyMode === 'bytes') return;
     if (this.slotsInUse() > budget) await this.evictOne();
+  }
+
+  /**
+   * Recover a rejected byte-budget upload.  It is deliberately entered only
+   * after the backend has returned the exact structured GpuBudgetExceeded
+   * variant.  Requests run through roomQueue so concurrent pressure handlers
+   * cannot select the same cached member or victim.
+   */
+  retryBudgetUpload<T>(
+    rawRequest: () => Promise<T>,
+    uploadingLayerId?: string,
+    initialError?: unknown,
+    isOperationValid?: () => boolean,
+  ): Promise<T> {
+    const run = this.roomQueue.then(() =>
+      this.retryBudgetUploadNow(rawRequest, uploadingLayerId, initialError, isOperationValid),
+    );
+    this.roomQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async retryBudgetUploadNow<T>(
+    rawRequest: () => Promise<T>,
+    uploadingLayerId: string | undefined,
+    initialError: unknown,
+    isOperationValid: (() => boolean) | undefined,
+  ): Promise<T> {
+    this.assertOperationValid(isOperationValid);
+    let pressure = gpuBudgetExceeded(initialError);
+    if (!pressure) throw initialError;
+    this.refuseOversized(pressure);
+
+    // A release by another queued operation may have won the race.  Always
+    // make this one no-reclamation retry before touching cached data or a
+    // user's layer.
+    try {
+      this.assertOperationValid(isOperationValid);
+      return await rawRequest();
+    } catch (error) {
+      pressure = gpuBudgetExceeded(error);
+      if (!pressure) throw error;
+      this.refuseOversized(pressure);
+    }
+
+    let stats: AtlasStats | null = null;
+    this.assertOperationValid(isOperationValid);
+    try {
+      stats = await getApiService().getAtlasStats();
+      this.assertOperationValid(isOperationValid);
+      this.remember(stats);
+    } catch {
+      // The original typed refusal remains the authoritative result if the
+      // diagnostics request is temporarily unavailable.
+    }
+    const initialCached = Math.max(0, stats?.cachedImageSlots ?? 0);
+    const maxRetries = initialCached + this.eligibleEvictionCount(uploadingLayerId) + 3;
+    let retries = 1;
+    let cachedRemaining = initialCached;
+
+    while (retries < maxRetries) {
+      if (cachedRemaining > 0) {
+        this.assertOperationValid(isOperationValid);
+        const reclaimed = await getApiService()
+          .reclaimCachedImageSlots(1)
+          .then((result) => result.reclaimed)
+          .catch(() => 0);
+        cachedRemaining -= 1;
+        if (reclaimed <= 0) cachedRemaining = 0;
+      } else {
+        this.assertOperationValid(isOperationValid);
+        if (!(await this.evictOne(uploadingLayerId, true))) {
+          throw initialError;
+        }
+      }
+
+      retries += 1;
+      try {
+        this.assertOperationValid(isOperationValid);
+        return await rawRequest();
+      } catch (error) {
+        pressure = gpuBudgetExceeded(error);
+        if (!pressure) throw error;
+        this.refuseOversized(pressure);
+        initialError = error;
+      }
+    }
+    throw initialError;
+  }
+
+  private assertOperationValid(isOperationValid: (() => boolean) | undefined): void {
+    if (!isOperationValid || isOperationValid()) return;
+    const error = new Error('GPU upload operation is no longer valid');
+    error.name = 'GpuUploadCancelledError';
+    throw error;
+  }
+
+  private refuseOversized(pressure: GpuBudgetExceededDetails): void {
+    if (pressure.requestedBytes > pressure.budgetBytes) throw {
+      GpuBudgetExceeded: {
+        code: pressure.code,
+        requested_bytes: pressure.requestedBytes,
+        used_bytes: pressure.usedBytes,
+        budget_bytes: pressure.budgetBytes,
+      },
+    };
+  }
+
+  /** Current eligible layers, used solely to bound recovery retries. */
+  private eligibleEvictionCount(keepLayerId?: string): number {
+    const { layers, layerMetadata } = useLayerStore.getState();
+    const visibility = layerVisibility();
+    const pinnedByStudio = studioPinnedLayerIds();
+    return layers.filter((layer) => {
+      if (layerMetadata.get(layer.id)?.gpuResident === false) return false;
+      if (layer.id === keepLayerId || pinnedByStudio.has(layer.id)) return false;
+      if (volumeDocumentRemovalReason(layer.volumeId)) return false;
+      if (layer.layerKind && PINNED_LAYER_KINDS.has(layer.layerKind)) return false;
+      const seen = visibility.get(layer.id);
+      return !(seen ? seen.front : layer.visible && visibility.frontDrawsLayers);
+    }).length;
   }
 
   /**

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SliceViewport } from '@/components/views/SliceViewport';
 import { StudioScaleBar } from './StudioScaleBar';
 import {
   getStudioDerivedMapService,
+  gpuTexturePressureMessage,
   isGpuTextureSlotsFull,
   type StudioDerivedMap,
 } from '@/services/studio/StudioDerivedMapService';
@@ -71,12 +72,19 @@ export function StudioDerivedPaneCanvas({
   // the Studio tab re-acquires too (studioActive).
   const [mapAttempt, setMapAttempt] = useState(0);
   const [anatomyAttempt, setAnatomyAttempt] = useState(0);
-  const [waitingForSlots, setWaitingForSlots] = useState(false);
-  const [anatomyWaiting, setAnatomyWaiting] = useState(false);
+  const [, setWaitingForSlots] = useState(false);
+  const [, setAnatomyWaiting] = useState(false);
+  // Keep the slots-freed listener live from the initial layout commit.  A
+  // rejected promise can update the error DOM before a conditional passive
+  // effect has subscribed; these refs make that event retry the next acquire
+  // rather than losing the only release notification.
+  const waitingForSlotsRef = useRef(false);
+  const anatomyWaitingRef = useRef(false);
   useEffect(() => {
     setMap(null);
     setFailure(null);
     setWaitingForSlots(false);
+    waitingForSlotsRef.current = false;
     if (!studioActive) return;
     let alive = true;
     const hold = getStudioDerivedMapService().acquire(sourcePath);
@@ -90,10 +98,12 @@ export function StudioDerivedPaneCanvas({
         if (!alive) return;
         // The GPU's volume slots are a hard budget: say so, with the way out.
         const slotsFull = isGpuTextureSlotsFull(error);
+        const pressureMessage = gpuTexturePressureMessage(error);
+        waitingForSlotsRef.current = slotsFull;
         setWaitingForSlots(slotsFull);
         setFailure(
-          slotsFull
-            ? 'GPU texture slots full: hide or remove a layer to show this map.'
+          pressureMessage
+            ? pressureMessage
             : 'The map could not be opened.',
         );
       });
@@ -111,6 +121,7 @@ export function StudioDerivedPaneCanvas({
     setAnatomy(null);
     setAnatomySettled(!underlayPath);
     setAnatomyWaiting(false);
+    anatomyWaitingRef.current = false;
     if (!studioActive || !underlayPath) return;
     let alive = true;
     const hold = getStudioDerivedMapService().acquire(underlayPath);
@@ -124,7 +135,9 @@ export function StudioDerivedPaneCanvas({
         console.warn(`[StudioDerivedPaneCanvas] No anatomy under ${paneId}:`, error);
         if (!alive) return;
         setAnatomySettled(true);
-        setAnatomyWaiting(isGpuTextureSlotsFull(error));
+        const slotsFull = isGpuTextureSlotsFull(error);
+        anatomyWaitingRef.current = slotsFull;
+        setAnatomyWaiting(slotsFull);
       },
     );
     return () => {
@@ -133,17 +146,19 @@ export function StudioDerivedPaneCanvas({
     };
   }, [underlayPath, studioActive, paneId, anatomyAttempt]);
 
-  // Retry what waits for a slot once one is freed.
-  useEffect(() => {
-    if (!studioActive || (!waitingForSlots && !anatomyWaiting)) return;
+  // Subscribe before promise effects can report pressure.  The refs are set
+  // synchronously with the failure, so a capacity event immediately after
+  // the error is not lost waiting for another render's passive effect.
+  useLayoutEffect(() => {
+    if (!studioActive) return;
     const off = getEventBus().on('gpu.slots.freed', () => {
-      if (waitingForSlots) setMapAttempt((n) => n + 1);
-      if (anatomyWaiting) setAnatomyAttempt((n) => n + 1);
+      if (waitingForSlotsRef.current) setMapAttempt((n) => n + 1);
+      if (anatomyWaitingRef.current) setAnatomyAttempt((n) => n + 1);
     });
     return () => {
       void safeUnlisten(off);
     };
-  }, [studioActive, waitingForSlots, anatomyWaiting]);
+  }, [studioActive]);
 
   // A borrowed workspace underlay whose layer was removed: load the template
   // afresh (the service no longer lends the removed layer).

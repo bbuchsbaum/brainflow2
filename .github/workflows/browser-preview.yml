@@ -17,6 +17,13 @@ jobs:
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
     steps:
+      # This isolated Linux job builds WASM/JS, without these preinstalled SDKs.
+      # Preserve build-browser.mjs's 20 GB admission check after cache restore.
+      - name: Reclaim runner disk space
+        run: |
+          df -h "$GITHUB_WORKSPACE"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h "$GITHUB_WORKSPACE"
       - uses: actions/checkout@v4
       - name: Authenticate private Rust dependencies
         env:

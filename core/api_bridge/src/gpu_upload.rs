@@ -206,7 +206,8 @@ pub(crate) async fn request_layer_gpu_resources_locked(
                     move || -> BridgeResult<(Option<SlotHandle>, nalgebra::Matrix4<f32>, Option<volume_loading::ProvisionalUpload>)> {
                         let mut render_service_guard = upload_service.blocking_lock();
                         let render_service = &mut *render_service_guard;
-                        if render_service.free_volume_slot_count() == 0 {
+                        if render_service.residency_metrics().resident_limit.is_some()
+                            && render_service.free_volume_slot_count() == 0 {
                             let mut sets = upload_resident_sets.blocking_lock();
                             reclaim_cached_image_slot(&mut sets, render_service);
                         }
@@ -223,13 +224,20 @@ pub(crate) async fn request_layer_gpu_resources_locked(
                             } else {
                                 (volume_data, is_label_atlas)
                             };
-                        let upload_result = upload_layer_volume(
-                            render_service,
-                            &ui_layer_id,
-                            upload_source,
-                            preserve_labels,
-                            editable_revision,
-                        )?;
+                        let mut result = upload_layer_volume(
+                            render_service, &ui_layer_id, upload_source, preserve_labels, editable_revision,
+                        );
+                        while result.as_ref().is_err_and(retryable_budget_pressure) {
+                            let reclaimed = {
+                                let mut sets = upload_resident_sets.blocking_lock();
+                                reclaim_cached_image_members(&mut sets, render_service, 1)
+                            };
+                            if reclaimed == 0 { break; }
+                            result = upload_layer_volume(
+                                render_service, &ui_layer_id, upload_source, preserve_labels, editable_revision,
+                            );
+                        }
+                        let upload_result = result?;
                         let guard = volume_loading::ProvisionalUpload::new(upload_result.0, upload_owner);
                         after_upload()?;
                         Ok((Some(upload_result.0), upload_result.1, Some(guard)))
@@ -1033,7 +1041,7 @@ pub(crate) fn upload_layer_volume(
     preserve_labels: bool,
     editable_revision: Option<u64>,
 ) -> BridgeResult<(SlotHandle, nalgebra::Matrix4<f32>)> {
-    let failed = |e: render_loop::RenderLoopError| gpu_allocation_error(layer_id, &e.to_string());
+    let failed = |e: render_loop::RenderLoopError| renderer_gpu_error(layer_id, e);
     let (index, world_to_voxel) = match volume {
         VolumeSendable::VolU16(vol, _) if editable_revision.is_some() => {
             let handle = service
@@ -1070,6 +1078,31 @@ pub(crate) fn upload_layer_volume(
         .slot_handle(index)
         .ok_or_else(|| gpu_allocation_error(layer_id, "the upload left no resident slot"))?;
     Ok((slot, world_to_voxel))
+}
+
+/// Preserve authoritative admission pressure across IPC; other renderer errors
+/// retain their existing user-facing conversion.
+pub(crate) fn renderer_gpu_error(
+    layer_id: &str,
+    error: render_loop::RenderLoopError,
+) -> BridgeError {
+    match error {
+        render_loop::RenderLoopError::GpuBudgetExceeded {
+            requested_bytes,
+            used_bytes,
+            budget_bytes,
+        } => BridgeError::GpuBudgetExceeded {
+            code: 6008,
+            requested_bytes,
+            used_bytes,
+            budget_bytes,
+        },
+        error => gpu_allocation_error(layer_id, &error.to_string()),
+    }
+}
+
+fn retryable_budget_pressure(error: &BridgeError) -> bool {
+    matches!(error, BridgeError::GpuBudgetExceeded { requested_bytes, budget_bytes, .. } if requested_bytes <= budget_bytes)
 }
 
 // Helper function to allocate GPU resources for a layer on-demand
@@ -1132,7 +1165,9 @@ pub(crate) async fn allocate_gpu_resources_for_layer(
     };
 
     // The renderer lock serializes this reclamation with swaps and uploads.
-    if render_service.free_volume_slot_count() == 0 {
+    if render_service.residency_metrics().resident_limit.is_some()
+        && render_service.free_volume_slot_count() == 0
+    {
         let mut sets = state.resident_image_sets.lock().await;
         reclaim_cached_image_slot(&mut sets, render_service);
     }
@@ -1140,13 +1175,30 @@ pub(crate) async fn allocate_gpu_resources_for_layer(
     // Upload to GPU (data range is retrieved from render metadata after upload).
     // A frame extracted from a 4D volume is never a whole label volume.
     let preserve_labels = is_label_atlas && uploaded_timepoint.is_none();
-    let (slot, _world_to_voxel) = upload_layer_volume(
+    let mut result = upload_layer_volume(
         render_service,
         layer_id,
         volume_to_upload.as_ref(),
         preserve_labels,
         editable_revision,
-    )?;
+    );
+    while result.as_ref().is_err_and(retryable_budget_pressure) {
+        let reclaimed = {
+            let mut sets = state.resident_image_sets.lock().await;
+            reclaim_cached_image_members(&mut sets, render_service, 1)
+        };
+        if reclaimed == 0 {
+            break;
+        }
+        result = upload_layer_volume(
+            render_service,
+            layer_id,
+            volume_to_upload.as_ref(),
+            preserve_labels,
+            editable_revision,
+        );
+    }
+    let (slot, _world_to_voxel) = result?;
     let atlas_idx = slot.index();
 
     let (min_val, max_val) = render_service
@@ -1265,5 +1317,42 @@ pub(crate) fn uploaded_gpu_format(
                 "Unsupported or missing uploaded texture format at slot {slot}: {format:?}"
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod budget_error_tests {
+    use super::*;
+    #[test]
+    fn typed_budget_pressure_survives_renderer_conversion() {
+        let error = renderer_gpu_error(
+            "layer",
+            render_loop::RenderLoopError::GpuBudgetExceeded {
+                requested_bytes: 64,
+                used_bytes: 96,
+                budget_bytes: 128,
+            },
+        );
+        assert!(matches!(
+            error,
+            BridgeError::GpuBudgetExceeded {
+                code: 6008,
+                requested_bytes: 64,
+                used_bytes: 96,
+                budget_bytes: 128
+            }
+        ));
+        assert!(retryable_budget_pressure(&error));
+        let oversized = BridgeError::GpuBudgetExceeded {
+            code: 6008,
+            requested_bytes: 129,
+            used_bytes: 96,
+            budget_bytes: 128,
+        };
+        assert!(!retryable_budget_pressure(&oversized));
+        assert!(!retryable_budget_pressure(&BridgeError::GpuError {
+            code: 6021,
+            details: "draw limit".into()
+        }));
     }
 }

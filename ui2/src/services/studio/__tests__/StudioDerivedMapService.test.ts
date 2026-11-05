@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { StudioDerivedMapService, isGpuTextureSlotsFull } from '../StudioDerivedMapService';
+import {
+  StudioDerivedMapService,
+  gpuTexturePressureMessage,
+  isGpuTextureSlotsFull,
+} from '../StudioDerivedMapService';
 import { GpuSlotsFullError } from '@/utils/formatTauriError';
 
 const AFFINE = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, -10, -10, -10, 1];
@@ -23,6 +27,16 @@ function setup() {
 describe('StudioDerivedMapService', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it('classifies only budget-fit typed pressure as retryable and keeps oversized detail', () => {
+    const budget = 512 * 1024 * 1024;
+    const fit = { GpuBudgetExceeded: { code: 6008, requested_bytes: 32 * 1024 * 1024, used_bytes: budget, budget_bytes: budget } };
+    const oversized = { GpuBudgetExceeded: { code: 6008, requested_bytes: budget + 1, used_bytes: 0, budget_bytes: budget } };
+    expect(isGpuTextureSlotsFull(fit)).toBe(true);
+    expect(isGpuTextureSlotsFull(oversized)).toBe(false);
+    expect(gpuTexturePressureMessage(oversized)).toContain('GPU residency budget exceeded');
+    expect(isGpuTextureSlotsFull({ Input: { code: 1885, details: 'Maximum layer count reached' } })).toBe(false);
+  });
 
   // gpu-residency Phase 0: the template underlay reuses the workspace's own
   // resident layer of that template instead of a second texture slot.
@@ -118,6 +132,56 @@ describe('StudioDerivedMapService', () => {
     expect(backend.unloadVolume).toHaveBeenCalledWith(map!.volumeId);
   });
 
+  it('keeps a shared entry valid when one holder releases during the upload grace period', async () => {
+    const { backend } = setup();
+    let openRoom!: () => void;
+    const makeRoom = vi.fn(() => new Promise<void>((resolve) => (openRoom = resolve)));
+    const service = new StudioDerivedMapService(() => backend, makeRoom);
+    const first = service.acquire('/c/shared.nii.gz');
+    const second = service.acquire('/c/shared.nii.gz');
+    await Promise.resolve();
+    first.release();
+    await vi.advanceTimersByTimeAsync(0);
+    openRoom();
+    await second.map;
+
+    const options = backend.requestLayerGpuResources.mock.calls[0]?.[3] as
+      | { isOperationValid?: () => boolean }
+      | undefined;
+    expect(options?.isOperationValid?.()).toBe(true);
+    expect(service.refCount('/c/shared.nii.gz')).toBe(1);
+  });
+
+  it('marks the entry invalid only after final-holder disposal removes it', async () => {
+    const { backend } = setup();
+    const rawUpload = vi.fn(async () => ({ voxel_to_world: AFFINE, dim: [10, 10, 10] }));
+    backend.requestLayerGpuResources.mockImplementation(
+      (_layerId: string, _volumeId: string, _metadataOnly: boolean, options?: { isOperationValid?: () => boolean }) => {
+        if (!options?.isOperationValid?.()) {
+          const error = new Error('GPU upload operation is no longer valid');
+          error.name = 'GpuUploadCancelledError';
+          return Promise.reject(error);
+        }
+        return rawUpload();
+      },
+    );
+    let openRoom!: () => void;
+    const makeRoom = vi.fn(() => new Promise<void>((resolve) => (openRoom = resolve)));
+    const service = new StudioDerivedMapService(() => backend, makeRoom);
+    const hold = service.acquire('/c/disposed.nii.gz');
+    await Promise.resolve();
+    hold.release();
+    await vi.advanceTimersByTimeAsync(0);
+    openRoom();
+    await hold.map.catch(() => undefined);
+
+    const options = backend.requestLayerGpuResources.mock.calls[0]?.[3] as
+      | { isOperationValid?: () => boolean }
+      | undefined;
+    expect(options?.isOperationValid?.()).toBe(false);
+    expect(rawUpload).not.toHaveBeenCalled();
+  });
+
   it('a release after a failed load was forgotten never drops a later holder (W3)', async () => {
     const { backend, service } = setup();
     backend.loadFile.mockRejectedValueOnce(new Error('unreadable'));
@@ -130,6 +194,17 @@ describe('StudioDerivedMapService', () => {
     expect(service.refCount('/c/bad.nii.gz')).toBe(1);
     expect(backend.unloadVolume).not.toHaveBeenCalled();
     expect(backend.loadFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('reacquires a settled failed entry immediately, before disposal timers run', async () => {
+    const { backend, service } = setup();
+    backend.requestLayerGpuResources.mockRejectedValueOnce(new Error('budget refused'));
+    const failed = service.acquire('/c/retry-now.nii.gz');
+    await expect(failed.map).rejects.toThrow('budget refused');
+    // No timer advancement: a retry must never inherit the settled rejection.
+    const retry = service.acquire('/c/retry-now.nii.gz');
+    await expect(retry.map).resolves.not.toBeNull();
+    expect(backend.requestLayerGpuResources).toHaveBeenCalledTimes(2);
   });
 
   it('an acquire during a removal waits for it and loads a fresh map', async () => {

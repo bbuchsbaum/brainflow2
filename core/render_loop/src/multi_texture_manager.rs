@@ -2,7 +2,8 @@
 
 use crate::{
     binding::{BindingCacheStats, BindingPlan, BindingPlanner},
-    RenderLoopError,
+    facade::RendererResidencyConfig,
+    RenderLoopError, ResidencyMetrics,
 };
 use nalgebra::Matrix4;
 use serde::Serialize;
@@ -25,6 +26,9 @@ type TextureBindGroup = wgpu::BindGroup;
 /// also drop the cached bind group.
 pub struct MultiTextureManager {
     store: ResidentTextureStore,
+    /// Number of texture/mask pairs the current shader layout can bind in one
+    /// draw. Residency may exceed this under a byte budget.
+    draw_capacity: u32,
     /// Texture bind group
     bind_group: Option<Arc<TextureBindGroup>>,
     bind_group_revision: Option<(usize, u64)>,
@@ -55,12 +59,31 @@ impl DerefMut for MultiTextureManager {
 impl MultiTextureManager {
     /// Create a new multi-texture manager
     pub fn new(device: &Device, queue: &Queue, max_textures: u32) -> Self {
+        Self::new_with_residency(
+            device,
+            queue,
+            max_textures,
+            RendererResidencyConfig::FixedSlots,
+        )
+    }
+
+    pub(crate) fn new_with_residency(
+        device: &Device,
+        queue: &Queue,
+        draw_capacity: u32,
+        residency: RendererResidencyConfig,
+    ) -> Self {
+        let (resident_limit, budget_bytes) = match residency {
+            RendererResidencyConfig::FixedSlots => (Some(draw_capacity), None),
+            RendererResidencyConfig::ByteBudget { budget_bytes } => (None, Some(budget_bytes)),
+        };
         let mut manager = Self {
-            store: ResidentTextureStore::new(max_textures),
+            store: ResidentTextureStore::with_residency(resident_limit, budget_bytes),
+            draw_capacity,
             bind_group: None,
             bind_group_revision: None,
             identity_group: true,
-            binding_planner: BindingPlanner::new(max_textures),
+            binding_planner: BindingPlanner::new(draw_capacity),
             dummy_texture: None,
             dummy_view: None,
             default_mask_texture: None,
@@ -339,7 +362,7 @@ impl MultiTextureManager {
         plan: Option<&BindingPlan>,
     ) -> TextureBindGroup {
         self.binding_planner.record_group_created();
-        let capacity = self.store.max_textures();
+        let capacity = self.draw_capacity;
         let bindings = crate::shader_contract::texture::bindings(capacity);
         let dummy = self.dummy_view.as_ref().expect("dummy volume initialized");
         let white_mask = self
@@ -407,6 +430,14 @@ impl MultiTextureManager {
 
     pub fn binding_cache_stats(&self) -> BindingCacheStats {
         self.binding_planner.stats()
+    }
+
+    pub fn residency_metrics(&self) -> ResidencyMetrics {
+        self.store.residency_metrics()
+    }
+
+    pub fn has_free_resident_id(&self) -> bool {
+        self.store.has_free_resident_id()
     }
 
     pub fn upload_mask_texture(
@@ -797,6 +828,162 @@ mod tests {
                 .expect("upload 2");
             assert_eq!(idx2, idx0, "freed index should be reused before growing");
             assert_eq!(manager.resident_bytes(), voxels + voxels * 2);
+        });
+    }
+
+    #[test]
+    fn byte_budget_admits_beyond_draw_capacity_but_preserves_draw_cap() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let volume = create_test_pattern_volume();
+            let mut manager = MultiTextureManager::new_with_residency(
+                &device,
+                &queue,
+                MAX_TEXTURES as u32,
+                RendererResidencyConfig::ByteBudget {
+                    budget_bytes: 2 * 1024 * 1024,
+                },
+            );
+            let mut indices = Vec::new();
+            for _ in 0..=MAX_TEXTURES {
+                indices.push(
+                    manager
+                        .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                        .expect("byte-budget admission")
+                        .0,
+                );
+            }
+            assert_eq!(indices[MAX_TEXTURES], MAX_TEXTURES as u32);
+            assert_eq!(manager.residency_metrics().resident_limit, None);
+            assert!(manager
+                .binding_planner
+                .plan(&manager.store, &[MAX_TEXTURES as u32])
+                .is_ok());
+            assert!(manager
+                .binding_planner
+                .plan(&manager.store, &[MAX_TEXTURES as u32; MAX_TEXTURES + 1])
+                .is_ok());
+            assert!(matches!(
+                manager.binding_planner.plan(&manager.store, &indices),
+                Err(RenderLoopError::Internal { code: 6021, .. })
+            ));
+        });
+    }
+
+    #[test]
+    fn byte_budget_counts_masks_and_rejects_before_publication() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let volume = create_test_pattern_volume();
+            let voxels = 64 * 64 * 25;
+            let mut manager = MultiTextureManager::new_with_residency(
+                &device,
+                &queue,
+                MAX_TEXTURES as u32,
+                RendererResidencyConfig::ByteBudget {
+                    budget_bytes: (voxels * 2) as u64,
+                },
+            );
+            let (index, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            manager
+                .upload_mask_texture(&device, &queue, index, [64, 64, 25], &vec![255; voxels])
+                .unwrap();
+            assert_eq!(manager.residency_metrics().used_bytes, (voxels * 2) as u64);
+            let handle = manager.slot_handle(index).unwrap();
+            assert!(matches!(
+                manager.upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm),
+                Err(RenderLoopError::GpuBudgetExceeded { .. })
+            ));
+            assert_eq!(manager.slot_handle(index), Some(handle));
+            assert_eq!(manager.residency_metrics().resident_count, 1);
+            manager.release_volume(index).unwrap();
+            assert_eq!(manager.residency_metrics().used_bytes, 0);
+        });
+    }
+
+    #[test]
+    fn byte_budget_refuses_promotion_without_replacing_the_live_residency() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let volume = create_test_pattern_volume();
+            let voxels = 64 * 64 * 25;
+            let mut manager = MultiTextureManager::new_with_residency(
+                &device,
+                &queue,
+                MAX_TEXTURES as u32,
+                RendererResidencyConfig::ByteBudget {
+                    // R16 scalar plus R8 mask fit; promotion to R32 does not.
+                    budget_bytes: 400_000,
+                },
+            );
+            let scalar = DenseVolume3::from_data(volume.space.clone(), vec![1.0f32; voxels]);
+            let (index, _) = manager
+                .upload_volume_with_policy(
+                    &device,
+                    &queue,
+                    &scalar,
+                    UploadFormat::Automatic {
+                        preserve_labels: false,
+                    },
+                    false,
+                )
+                .unwrap();
+            assert_eq!(
+                manager.get_texture_info(index).unwrap().format,
+                wgpu::TextureFormat::R16Float
+            );
+            manager
+                .upload_mask_texture(&device, &queue, index, [64, 64, 25], &vec![255; voxels])
+                .unwrap();
+            let handle = manager.slot_handle(index).unwrap();
+            let token = manager.store.binding_token();
+            let used = manager.residency_metrics().used_bytes;
+            let promoted = DenseVolume3::from_data(volume.space, vec![1.0e20f32; voxels]);
+            assert!(matches!(
+                manager.update_volume(&device, &queue, index, &promoted),
+                Err(RenderLoopError::GpuBudgetExceeded { .. })
+            ));
+            assert_eq!(manager.slot_handle(index), Some(handle));
+            assert_eq!(manager.store.binding_token(), token);
+            assert_eq!(manager.residency_metrics().used_bytes, used);
+            assert_eq!(
+                manager.get_texture_info(index).unwrap().format,
+                wgpu::TextureFormat::R16Float
+            );
+        });
+    }
+
+    #[test]
+    fn byte_budget_refuses_larger_mask_replacement_without_dropping_old_mask() {
+        pollster::block_on(async {
+            use volmath::{NeuroSpace, NeuroSpaceExt};
+            let (device, queue) = create_test_device().await;
+            let space =
+                NeuroSpace::from_dims_spacing_origin(vec![2, 2, 2], vec![1.; 3], vec![0.; 3])
+                    .unwrap();
+            let volume = DenseVolume3::from_data(space, vec![1u8; 8]);
+            let mut manager = MultiTextureManager::new_with_residency(
+                &device,
+                &queue,
+                MAX_TEXTURES as u32,
+                RendererResidencyConfig::ByteBudget { budget_bytes: 16 },
+            );
+            let (index, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            manager
+                .upload_mask_texture(&device, &queue, index, [2, 2, 2], &[255; 8])
+                .unwrap();
+            let token = manager.store.binding_token();
+            assert!(matches!(
+                manager.upload_mask_texture(&device, &queue, index, [3, 3, 1], &[255; 9]),
+                Err(RenderLoopError::GpuBudgetExceeded { .. })
+            ));
+            assert_eq!(manager.mask_count(), 1);
+            assert_eq!(manager.residency_metrics().used_bytes, 16);
+            assert_eq!(manager.store.binding_token(), token);
         });
     }
 }

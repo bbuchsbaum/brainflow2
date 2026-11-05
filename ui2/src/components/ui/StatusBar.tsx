@@ -590,11 +590,17 @@ const DiagnosticsButton = () => {
   const gpu = useStatusBarStore((state) => state.values.gpu);
   const bindingGroupsPerFrame = useStatusBarStore((state) => state.values.bindingGroupsPerFrame);
   const bindingCacheHits = useStatusBarStore((state) => state.values.bindingCacheHits);
+  const residencyBytes = useStatusBarStore((state) => state.values.residencyBytes);
+  const residentTextures = useStatusBarStore((state) => state.values.residentTextures);
+  const drawTextureCapacity = useStatusBarStore((state) => state.values.drawTextureCapacity);
   const noBindingSamples = "No frame diagnostics";
   const rows: Array<[string, string]> = [
     ["Atlas", atlas == null ? EMPTY_VALUE : displayStatusText(String(atlas))],
     ["FPS", fps == null ? EMPTY_VALUE : displayStatusText(String(fps))],
     ["GPU", gpu == null ? EMPTY_VALUE : displayStatusText(String(gpu))],
+    ["Resident bytes", residencyBytes == null ? EMPTY_VALUE : displayStatusText(String(residencyBytes))],
+    ["Logical residents", residentTextures == null ? EMPTY_VALUE : displayStatusText(String(residentTextures))],
+    ["Draw texture capacity", drawTextureCapacity == null ? EMPTY_VALUE : displayStatusText(String(drawTextureCapacity))],
     [
       "Texture groups/frame",
       bindingGroupsPerFrame == null ? noBindingSamples : displayStatusText(String(bindingGroupsPerFrame)),

@@ -476,4 +476,74 @@ describe('LayerEvictionService', () => {
     derived.live = 2;
     await expect(layerEvictionService.makeRoomForUpload(undefined, { counted: true })).resolves.toBe(false);
   });
+
+  const budgetPressure = (requested = 10, used = 100, budget = 100) => ({
+    GpuBudgetExceeded: { code: 6008, requested_bytes: requested, used_bytes: used, budget_bytes: budget },
+  });
+
+  it('bypasses count admission and post-upload eviction in byte mode', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({
+      volumeTextureSlots: 13, residencyMode: 'bytes', residencyBudgetBytes: 100,
+      residentTextureBytes: 90, residentTextureSlots: 14, drawTextureCapacity: 13,
+    });
+    residentLayers(14, [0]);
+    await expect(layerEvictionService.makeRoomForUpload('incoming', { reserve: true })).resolves.toBe(true);
+    await layerEvictionService.checkAndEvict();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+    expect(layerEvictionService.slotsInUse()).toBe(14);
+  });
+
+  it('on typed byte pressure retries, reclaims cache, then evicts one eligible layer', async () => {
+    mockApiService.getAtlasStats.mockResolvedValue({
+      residencyMode: 'bytes', residencyBudgetBytes: 100, residentTextureBytes: 100,
+      cachedImageSlots: 1, residentTextureSlots: 3,
+    });
+    residentLayers(2, [0]);
+    const raw = vi.fn()
+      .mockRejectedValueOnce(budgetPressure()) // race retry
+      .mockRejectedValueOnce(budgetPressure()) // after cache reclaim
+      .mockResolvedValueOnce('uploaded'); // after eligible eviction
+    mockApiService.reclaimCachedImageSlots.mockResolvedValue({ reclaimed: 1, freeTextureSlots: 0 });
+
+    await expect(layerEvictionService.retryBudgetUpload(raw, 'incoming', budgetPressure())).resolves.toBe('uploaded');
+    expect(raw).toHaveBeenCalledTimes(3);
+    expect(mockApiService.reclaimCachedImageSlots).toHaveBeenCalledWith(1);
+    expect(mockApiService.releaseLayerGpuResources).toHaveBeenCalledWith('layer-0', { forUpload: true });
+  });
+
+  it('does not reclaim or evict for oversized requests or draw-limit-shaped failures', async () => {
+    residentLayers(2, [0]);
+    const oversized = budgetPressure(101, 0, 100);
+    const raw = vi.fn();
+    await expect(layerEvictionService.retryBudgetUpload(raw, 'incoming', oversized)).rejects.toEqual(oversized);
+    expect(raw).not.toHaveBeenCalled();
+    expect(mockApiService.reclaimCachedImageSlots).not.toHaveBeenCalled();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+
+    await expect(
+      layerEvictionService.retryBudgetUpload(vi.fn(), 'incoming', { Input: { code: 1885, details: 'Maximum layer count reached' } }),
+    ).rejects.toMatchObject({ Input: { code: 1885 } });
+    expect(mockApiService.reclaimCachedImageSlots).not.toHaveBeenCalled();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+  });
+
+  it('abandons a stale queued byte-pressure recovery before retrying or freeing anything', async () => {
+    let valid = true;
+    const raw = vi.fn();
+    const recovery = layerEvictionService.retryBudgetUpload(
+      raw,
+      'incoming',
+      budgetPressure(),
+      () => valid,
+    );
+    // retryBudgetUpload serializes on roomQueue, so cancellation can happen
+    // after the original transport rejection but before this recovery runs.
+    valid = false;
+
+    await expect(recovery).rejects.toMatchObject({ name: 'GpuUploadCancelledError' });
+    expect(raw).not.toHaveBeenCalled();
+    expect(mockApiService.getAtlasStats).not.toHaveBeenCalled();
+    expect(mockApiService.reclaimCachedImageSlots).not.toHaveBeenCalled();
+    expect(mockApiService.releaseLayerGpuResources).not.toHaveBeenCalled();
+  });
 });
