@@ -40,6 +40,8 @@ describe('resolveStatusLayer', () => {
 
 describe('StatusBar diagnostics', () => {
   beforeEach(() => {
+    useStatusBarStore.getState().removeValue('bindingGroupsPerFrame');
+    useStatusBarStore.getState().removeValue('bindingCacheHits');
     const { setValue } = useStatusBarStore.getState();
     setValue('coordSys', 'RAS');
     setValue('crosshair', '(0.0, 0.0, 0.0)');
@@ -76,6 +78,27 @@ describe('StatusBar diagnostics', () => {
     const trigger = screen.getByTestId('status-diagnostics-trigger');
     expect(trigger).toHaveAttribute('data-severity', 'warning');
     expect(trigger).toHaveAccessibleName('Diagnostics (atlas warning)');
+  });
+
+  it('shows the atlas-metrics binding summaries when available', async () => {
+    useStatusBarStore.getState().setBatch([
+      ['bindingGroupsPerFrame', '1.00 (2 frames)'],
+      ['bindingCacheHits', '50% (1/2)'],
+    ]);
+    render(<StatusBar />);
+    fireEvent.click(screen.getByTestId('status-diagnostics-trigger'));
+    const popover = await screen.findByTestId('status-diagnostics-popover');
+    expect(popover).toHaveTextContent('Texture groups/frame');
+    expect(popover).toHaveTextContent('1.00 (2 frames)');
+    expect(popover).toHaveTextContent('Texture cache hits');
+    expect(popover).toHaveTextContent('50% (1/2)');
+  });
+
+  it('makes absent atlas binding samples explicit', async () => {
+    render(<StatusBar />);
+    fireEvent.click(screen.getByTestId('status-diagnostics-trigger'));
+    const popover = await screen.findByTestId('status-diagnostics-popover');
+    expect(popover).toHaveTextContent('No frame diagnostics');
   });
 });
 

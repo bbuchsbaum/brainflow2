@@ -700,6 +700,8 @@ export class ApiService {
         layerCount: visibleLayerCount,
         ok: true,
         readbackMode: diagnostics.frame.readback_mode,
+        textureBindGroupsCreated: diagnostics.frame.texture_bind_groups_created,
+        textureBindingCacheHit: diagnostics.frame.texture_binding_cache_hit,
       });
       return diagnostics;
     } catch (error) {

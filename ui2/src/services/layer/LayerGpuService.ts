@@ -21,6 +21,9 @@ interface RawAtlasStats {
   free_texture_slots?: number;
   resident_texture_slots?: number;
   cached_image_slots?: number;
+  binding_frames?: number;
+  binding_groups_created?: number;
+  binding_cache_hits?: number;
 }
 
 export class LayerGpuService {
@@ -142,6 +145,9 @@ export class LayerGpuService {
       freeTextureSlots: raw.free_texture_slots,
       residentTextureSlots: raw.resident_texture_slots,
       cachedImageSlots: raw.cached_image_slots,
+      bindingFrames: raw.binding_frames,
+      bindingGroupsCreated: raw.binding_groups_created,
+      bindingCacheHits: raw.binding_cache_hits,
     };
   }
 }

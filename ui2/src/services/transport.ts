@@ -254,6 +254,8 @@ export class MockTransport implements BackendTransport {
             visible_layers: visibleLayerCount,
             updated_layer_slots: visibleLayerCount,
             reused_layer_state: false,
+            texture_bind_groups_created: 0,
+            texture_binding_cache_hit: false,
             readback_mode: 'skip',
           },
         };

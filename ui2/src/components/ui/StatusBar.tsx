@@ -588,10 +588,21 @@ const DiagnosticsButton = () => {
   const atlas = useStatusBarStore((state) => state.values.atlas);
   const fps = useStatusBarStore((state) => state.values.fps);
   const gpu = useStatusBarStore((state) => state.values.gpu);
+  const bindingGroupsPerFrame = useStatusBarStore((state) => state.values.bindingGroupsPerFrame);
+  const bindingCacheHits = useStatusBarStore((state) => state.values.bindingCacheHits);
+  const noBindingSamples = "No frame diagnostics";
   const rows: Array<[string, string]> = [
     ["Atlas", atlas == null ? EMPTY_VALUE : displayStatusText(String(atlas))],
     ["FPS", fps == null ? EMPTY_VALUE : displayStatusText(String(fps))],
     ["GPU", gpu == null ? EMPTY_VALUE : displayStatusText(String(gpu))],
+    [
+      "Texture groups/frame",
+      bindingGroupsPerFrame == null ? noBindingSamples : displayStatusText(String(bindingGroupsPerFrame)),
+    ],
+    [
+      "Texture cache hits",
+      bindingCacheHits == null ? noBindingSamples : displayStatusText(String(bindingCacheHits)),
+    ],
   ];
   const atlasText = atlas == null ? "" : String(atlas);
   const severity = /CRITICAL/.test(atlasText)

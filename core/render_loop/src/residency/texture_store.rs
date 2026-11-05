@@ -32,6 +32,8 @@ pub struct ResidentTextureStore {
     /// Last generation handed out. Every upload into a slot takes the next one,
     /// so a handle from an earlier residency of the same index never matches.
     next_generation: u64,
+    /// Changes when a bound texture view changes, including masks and promotion.
+    binding_revision: u64,
     identity: usize,
     /// Maximum number of textures supported
     max_textures: u32,
@@ -115,6 +117,7 @@ impl ResidentTextureStore {
             mask_textures: HashMap::new(),
             next_index: 0,
             next_generation: 0,
+            binding_revision: 0,
             identity: NEXT_TEXTURE_MANAGER
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
                 .expect("Texture manager identity exhausted"),
@@ -260,6 +263,7 @@ impl ResidentTextureStore {
             },
         );
 
+        self.bump_binding_revision();
         Ok((index, world_to_voxel))
     }
 
@@ -367,11 +371,14 @@ impl ResidentTextureStore {
 
         self.mask_textures
             .insert(index, MaskTextureEntry { texture, view });
+        self.bump_binding_revision();
         Ok(())
     }
 
     pub fn clear_mask_texture(&mut self, index: u32) {
-        self.mask_textures.remove(&index);
+        if self.mask_textures.remove(&index).is_some() {
+            self.bump_binding_revision();
+        }
     }
 
     pub(crate) fn claim_editable(
@@ -649,7 +656,11 @@ impl ResidentTextureStore {
         }
 
         entry.world_to_voxel = volume.space().world_to_voxel();
-        Ok((entry.world_to_voxel, replaced))
+        let world_to_voxel = entry.world_to_voxel;
+        if replaced {
+            self.bump_binding_revision();
+        }
+        Ok((world_to_voxel, replaced))
     }
 
     /// Get texture info by index
@@ -709,6 +720,7 @@ impl ResidentTextureStore {
 
             // Add index to free list for reuse
             self.free_indices.push(texture_index);
+            self.bump_binding_revision();
 
             Ok(())
         } else {
@@ -725,6 +737,19 @@ impl ResidentTextureStore {
         self.mask_textures.clear();
         self.next_index = 0;
         self.free_indices.clear();
+        self.bump_binding_revision();
+    }
+
+    /// Store identity and view revision; revisions alone can collide after replacement.
+    pub(crate) fn binding_token(&self) -> (usize, u64) {
+        (self.identity, self.binding_revision)
+    }
+
+    fn bump_binding_revision(&mut self) {
+        self.binding_revision = self
+            .binding_revision
+            .checked_add(1)
+            .expect("Texture binding revision exhausted");
     }
 
     /// The resident entry of `index`, for building bind groups.

@@ -38,4 +38,26 @@ describe('LayerGpuService slot events', () => {
     await expect(service.isLayerGpuResident('a')).resolves.toBe(true);
     expect(invoke).toHaveBeenCalledWith('wait_for_layer_ready', { layerId: 'a', timeoutMs: 0, pollIntervalMs: 5 });
   });
+
+  it('maps cumulative texture-binding diagnostics from atlas stats', async () => {
+    invoke.mockResolvedValueOnce({
+      total_layers: 13,
+      used_layers: 2,
+      free_layers: 11,
+      allocations: 2,
+      releases: 0,
+      high_watermark: 2,
+      full_events: 0,
+      is_3d: true,
+      binding_frames: 3,
+      binding_groups_created: 1,
+      binding_cache_hits: 2,
+    });
+
+    await expect(service.getAtlasStats()).resolves.toMatchObject({
+      bindingFrames: 3,
+      bindingGroupsCreated: 1,
+      bindingCacheHits: 2,
+    });
+  });
 });

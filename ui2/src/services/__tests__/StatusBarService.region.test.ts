@@ -13,6 +13,7 @@ import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { useStatusReadoutStore } from '@/stores/statusReadoutStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import { useStatusBarStore } from '@/stores/statusBarStore';
+import { getEventBus } from '@/events/EventBus';
 
 const viewLayer = (id: string, name: string) => ({ id, name, visible: true }) as never;
 
@@ -142,5 +143,61 @@ describe('StatusBarService region slot', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(pointerRegion()).toBe('L perirhinal');
     });
+  });
+});
+
+describe('StatusBarService binding diagnostics', () => {
+  const atlasStats = (binding: Partial<{ bindingFrames: number; bindingGroupsCreated: number; bindingCacheHits: number }> = {}) => ({
+    totalLayers: 13,
+    usedLayers: 2,
+    freeLayers: 11,
+    allocations: 2,
+    releases: 0,
+    highWatermark: 2,
+    fullEvents: 0,
+    is3D: true,
+    ...binding,
+  });
+
+  beforeEach(() => {
+    getStatusBarService().cleanup();
+    useStatusBarStore.getState().removeValue('bindingGroupsPerFrame');
+    useStatusBarStore.getState().removeValue('bindingCacheHits');
+  });
+
+  afterEach(() => getStatusBarService().cleanup());
+
+  it('derives groups per frame and cache-hit rate from atlas.metrics', () => {
+    getStatusBarService().initialize();
+    getEventBus().emit('atlas.metrics', {
+      stats: atlasStats({ bindingFrames: 3, bindingGroupsCreated: 1, bindingCacheHits: 2 }),
+      timestamp: 1,
+    });
+
+    expect(useStatusBarStore.getState().values.bindingGroupsPerFrame).toBe('0.33 (3 frames)');
+    expect(useStatusBarStore.getState().values.bindingCacheHits).toBe('67% (2/3)');
+  });
+
+  it('clears old binding metrics for zero-frame and older backend payloads', () => {
+    getStatusBarService().initialize();
+    const eventBus = getEventBus();
+    eventBus.emit('atlas.metrics', {
+      stats: atlasStats({ bindingFrames: 3, bindingGroupsCreated: 1, bindingCacheHits: 2 }),
+      timestamp: 1,
+    });
+    eventBus.emit('atlas.metrics', {
+      stats: atlasStats({ bindingFrames: 0, bindingGroupsCreated: 0, bindingCacheHits: 0 }),
+      timestamp: 2,
+    });
+    expect(useStatusBarStore.getState().values.bindingGroupsPerFrame).toBeUndefined();
+    expect(useStatusBarStore.getState().values.bindingCacheHits).toBeUndefined();
+
+    eventBus.emit('atlas.metrics', {
+      stats: atlasStats({ bindingFrames: 3, bindingGroupsCreated: 1, bindingCacheHits: 2 }),
+      timestamp: 3,
+    });
+    eventBus.emit('atlas.metrics', { stats: atlasStats(), timestamp: 4 });
+    expect(useStatusBarStore.getState().values.bindingGroupsPerFrame).toBeUndefined();
+    expect(useStatusBarStore.getState().values.bindingCacheHits).toBeUndefined();
   });
 });

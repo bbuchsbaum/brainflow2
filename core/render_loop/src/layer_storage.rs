@@ -63,6 +63,17 @@ pub struct LayerStorageManager {
     bind_group: Option<LayerBindGroup>,
     /// Current layer data
     layer_data: Vec<LayerUboStd140>,
+    /// Resident identity inputs, never overwritten by the per-draw binding map.
+    resident_indices: Vec<u32>,
+    /// Captured on renderer row upload, or the first draw for low-level callers.
+    resident_handles: Vec<Option<crate::residency::SlotHandle>>,
+    binding_plan: Option<crate::binding::BindingPlan>,
+    bindings_current: bool,
+    /// A declarative row patch updated CPU state but deliberately deferred its
+    /// buffer write until the draw binding plan is known.
+    pending_layer_upload: bool,
+    #[cfg(test)]
+    layer_upload_count: u64,
     /// Active layer count
     active_count: u32,
     /// Maximum capacity of the current buffer
@@ -98,6 +109,13 @@ impl LayerStorageManager {
             metadata_buffer,
             bind_group: None,
             layer_data: Vec::with_capacity(capacity),
+            resident_indices: Vec::with_capacity(capacity),
+            resident_handles: Vec::with_capacity(capacity),
+            binding_plan: None,
+            bindings_current: false,
+            pending_layer_upload: false,
+            #[cfg(test)]
+            layer_upload_count: 0,
             active_count: 0,
             capacity,
         }
@@ -242,6 +260,17 @@ impl LayerStorageManager {
         world_to_voxel_transforms: &[Matrix4<f32>],
         display_overrides: Option<&[(u32, bool, f32)]>,
     ) {
+        // A property-only refresh preserves each row's source ownership, even
+        // when two rows name different generations of the same recycled index.
+        // Explicit direct uploads reset these captures; removal shifts them first.
+        let captures: Vec<_> = self
+            .resident_indices
+            .iter()
+            .copied()
+            .zip(self.resident_handles.iter().copied())
+            .collect();
+        self.bindings_current = false;
+        self.pending_layer_upload = false;
         let layer_count = layers.len();
 
         // Ensure we have capacity
@@ -249,6 +278,8 @@ impl LayerStorageManager {
 
         self.active_count = layer_count as u32;
         self.layer_data.clear();
+        self.resident_indices.clear();
+        self.resident_handles.clear();
 
         let display_map: std::collections::HashMap<u32, (bool, f32)> = match display_overrides {
             Some(entries) => entries
@@ -349,7 +380,11 @@ impl LayerStorageManager {
                 pad_slices: 0,
                 colormap_id: layer.colormap_id,
                 blend_mode: layer.blend_mode as u32,
-                texture_index: layer.atlas_index,
+                texture_index: self
+                    .binding_plan
+                    .as_ref()
+                    .and_then(|plan| plan.position(layer.atlas_index))
+                    .unwrap_or(layer.atlas_index),
                 threshold_mode: layer.threshold_mode as u32,
                 opacity: layer.opacity,
                 intensity_min: layer.intensity_range.0,
@@ -370,6 +405,11 @@ impl LayerStorageManager {
             };
 
             self.layer_data.push(layer_data);
+            self.resident_indices.push(layer.atlas_index);
+            self.resident_handles
+                .push(captures.get(i).and_then(|(source, handle)| {
+                    (*source == layer.atlas_index).then_some(*handle).flatten()
+                }));
         }
 
         // Upload layer data to GPU
@@ -379,6 +419,10 @@ impl LayerStorageManager {
                 0,
                 bytemuck::cast_slice(&self.layer_data),
             );
+            #[cfg(test)]
+            {
+                self.layer_upload_count += 1;
+            }
         }
 
         // Update metadata
@@ -405,6 +449,50 @@ impl LayerStorageManager {
         world_to_voxel: &Matrix4<f32>,
         display_override: (bool, f32),
     ) -> Result<(), &'static str> {
+        self.update_layer_internal(
+            queue,
+            index,
+            layer,
+            volume_dims,
+            world_to_voxel,
+            display_override,
+            true,
+        )
+    }
+
+    /// Update a declarative row without an immediate GPU write. The next
+    /// binding-plan application uploads the complete set of rows once.
+    pub(crate) fn stage_layer_update(
+        &mut self,
+        queue: &Queue,
+        index: usize,
+        layer: &LayerInfo,
+        volume_dims: (u32, u32, u32),
+        world_to_voxel: &Matrix4<f32>,
+        display_override: (bool, f32),
+    ) -> Result<(), &'static str> {
+        self.update_layer_internal(
+            queue,
+            index,
+            layer,
+            volume_dims,
+            world_to_voxel,
+            display_override,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_layer_internal(
+        &mut self,
+        queue: &Queue,
+        index: usize,
+        layer: &LayerInfo,
+        volume_dims: (u32, u32, u32),
+        world_to_voxel: &Matrix4<f32>,
+        display_override: (bool, f32),
+        upload_now: bool,
+    ) -> Result<(), &'static str> {
         // Update active_count if we're adding a new layer at the end
         if index == self.active_count as usize && index < self.capacity {
             self.active_count = (index + 1) as u32;
@@ -413,6 +501,8 @@ impl LayerStorageManager {
         } else if index > self.active_count as usize {
             return Err("Layer index exceeds active count");
         }
+
+        self.bindings_current = false;
 
         // Use the is_mask field from LayerInfo
 
@@ -435,7 +525,11 @@ impl LayerStorageManager {
             pad_slices: 0,
             colormap_id: layer.colormap_id,
             blend_mode: layer.blend_mode as u32,
-            texture_index: layer.atlas_index,
+            texture_index: self
+                .binding_plan
+                .as_ref()
+                .and_then(|plan| plan.position(layer.atlas_index))
+                .unwrap_or(layer.atlas_index),
             threshold_mode: layer.threshold_mode as u32,
             opacity: layer.opacity,
             intensity_min: layer.intensity_range.0,
@@ -457,11 +551,30 @@ impl LayerStorageManager {
 
         if index < self.layer_data.len() {
             self.layer_data[index] = layer_data;
+            self.resident_indices[index] = layer.atlas_index;
+            self.resident_handles[index] = None;
+        } else {
+            self.layer_data.push(layer_data);
+            self.resident_indices.push(layer.atlas_index);
+            self.resident_handles.push(None);
+            let metadata = LayerMetadata {
+                active_count: self.active_count,
+                _padding: [0; 7],
+            };
+            queue.write_buffer(&self.metadata_buffer, 0, bytemuck::bytes_of(&metadata));
         }
 
-        // Upload just the updated layer
-        let offset = (index * std::mem::size_of::<LayerUboStd140>()) as u64;
-        queue.write_buffer(&self.layer_buffer, offset, bytemuck::bytes_of(&layer_data));
+        if upload_now {
+            // Upload just the updated layer for legacy/direct callers.
+            let offset = (index * std::mem::size_of::<LayerUboStd140>()) as u64;
+            queue.write_buffer(&self.layer_buffer, offset, bytemuck::bytes_of(&layer_data));
+            #[cfg(test)]
+            {
+                self.layer_upload_count += 1;
+            }
+        } else {
+            self.pending_layer_upload = true;
+        }
 
         Ok(())
     }
@@ -469,7 +582,11 @@ impl LayerStorageManager {
     /// Clear all layers
     pub fn clear(&mut self, queue: &Queue) {
         self.active_count = 0;
+        self.bindings_current = false;
+        self.pending_layer_upload = false;
         self.layer_data.clear();
+        self.resident_indices.clear();
+        self.resident_handles.clear();
 
         // Update metadata
         let metadata = LayerMetadata {
@@ -478,6 +595,88 @@ impl LayerStorageManager {
         };
 
         queue.write_buffer(&self.metadata_buffer, 0, bytemuck::bytes_of(&metadata));
+    }
+
+    /// Align source captures with a legacy layer removal before its bulk refresh.
+    pub(crate) fn remove_layer_source(&mut self, index: usize) {
+        if index < self.resident_indices.len() {
+            self.resident_indices.remove(index);
+            self.resident_handles.remove(index);
+            self.bindings_current = false;
+        }
+    }
+
+    pub(crate) fn bindings_current(&self) -> bool {
+        self.bindings_current
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layer_upload_count(&self) -> u64 {
+        self.layer_upload_count
+    }
+
+    pub(crate) fn resident_indices(&self) -> &[u32] {
+        &self.resident_indices
+    }
+
+    pub(crate) fn reset_residencies(&mut self) {
+        self.bindings_current = false;
+        self.resident_handles.fill(None);
+    }
+
+    pub(crate) fn capture_missing_residencies(
+        &mut self,
+        mut resolve: impl FnMut(u32) -> Option<crate::residency::SlotHandle>,
+    ) {
+        for (&index, handle) in self.resident_indices.iter().zip(&mut self.resident_handles) {
+            if handle.is_none() {
+                *handle = resolve(index);
+            }
+        }
+    }
+
+    pub(crate) fn captured_handles(&self) -> &[Option<crate::residency::SlotHandle>] {
+        &self.resident_handles
+    }
+
+    /// Map only the GPU texture field; transforms, borders and layer order keep
+    /// their original meaning. Compare actual rows because an upload may have
+    /// used a previous mapping or an identity position for a new source.
+    pub(crate) fn apply_binding_plan(&mut self, queue: &Queue, plan: &crate::binding::BindingPlan) {
+        if self.binding_plan.as_ref() != Some(plan) {
+            self.binding_plan = Some(plan.clone());
+        }
+        self.bindings_current = true;
+        let mut changed_mapping = false;
+        for ((row, &resident), captured) in self
+            .layer_data
+            .iter_mut()
+            .zip(&self.resident_indices)
+            .zip(&mut self.resident_handles)
+        {
+            *captured = plan.handles.iter().find(|h| h.index() == resident).copied();
+            let position = plan
+                .position(resident)
+                .expect("plan covers all active layer rows");
+            if row.texture_index != position {
+                row.texture_index = position;
+                changed_mapping = true;
+            }
+        }
+        if changed_mapping || self.pending_layer_upload {
+            if !self.layer_data.is_empty() {
+                queue.write_buffer(
+                    &self.layer_buffer,
+                    0,
+                    bytemuck::cast_slice(&self.layer_data),
+                );
+                #[cfg(test)]
+                {
+                    self.layer_upload_count += 1;
+                }
+            }
+            self.pending_layer_upload = false;
+        }
     }
 
     /// Get the bind group for rendering

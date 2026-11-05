@@ -1,10 +1,13 @@
 // Multi-texture management for world-space rendering
 
-use crate::RenderLoopError;
-use log::debug;
+use crate::{
+    binding::{BindingCacheStats, BindingPlan, BindingPlanner},
+    RenderLoopError,
+};
 use nalgebra::Matrix4;
 use serde::Serialize;
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 use volmath::{DataRange, DenseVolume3, VoxelData};
 use wgpu::{BindGroupLayout, Device, Queue, Texture, TextureView};
 
@@ -14,17 +17,7 @@ pub use crate::residency::{
     SlotHandle, TextureInfo, MAX_TEXTURES,
 };
 
-#[cfg(feature = "typed-shaders")]
-use crate::shaders::typed::slice_world_space_optimized;
-#[cfg(feature = "typed-shaders")]
-use std::convert::TryInto;
-#[cfg(not(feature = "typed-shaders"))]
-use wgpu::BindGroup;
-
-#[cfg(feature = "typed-shaders")]
 type TextureBindGroup = wgpu::BindGroup;
-#[cfg(not(feature = "typed-shaders"))]
-type TextureBindGroup = BindGroup;
 
 /// The resident textures ([`ResidentTextureStore`]) plus the bind group that
 /// exposes them to the slice shaders. Store methods are reached through
@@ -33,7 +26,10 @@ type TextureBindGroup = BindGroup;
 pub struct MultiTextureManager {
     store: ResidentTextureStore,
     /// Texture bind group
-    bind_group: Option<TextureBindGroup>,
+    bind_group: Option<Arc<TextureBindGroup>>,
+    bind_group_revision: Option<(usize, u64)>,
+    identity_group: bool,
+    pub(crate) binding_planner: BindingPlanner,
     /// Dummy texture for unused slots
     dummy_texture: Option<Texture>,
     /// Dummy texture view
@@ -62,6 +58,9 @@ impl MultiTextureManager {
         let mut manager = Self {
             store: ResidentTextureStore::new(max_textures),
             bind_group: None,
+            bind_group_revision: None,
+            identity_group: true,
+            binding_planner: BindingPlanner::new(max_textures),
             dummy_texture: None,
             dummy_view: None,
             default_mask_texture: None,
@@ -215,8 +214,7 @@ impl MultiTextureManager {
         })
     }
 
-    /// Create bind group with current textures
-    #[cfg(feature = "typed-shaders")]
+    /// Compatibility identity group. Draw submission selects a per-draw plan.
     pub fn create_bind_group(
         &mut self,
         device: &Device,
@@ -226,187 +224,217 @@ impl MultiTextureManager {
         colormap_texture: &TextureView,
         _colormap_sampler: &wgpu::Sampler,
     ) -> Result<(), RenderLoopError> {
-        // Reuse the manual path to ensure correct D2Array for colormap LUT
-        if self.dummy_view.is_none() {
-            self.create_dummy_texture(device);
-        }
-
-        let dummy_view = self.dummy_view.as_ref().unwrap();
-
-        // Debug: log which texture indices are populated before creating bind group
-        debug!(
-            "MultiTextureManager::create_bind_group - textures present at indices: {:?}",
-            self.store.resident_indices()
-        );
-
-        // Build bind group entries for individual texture bindings
-        let mut entries = Vec::new();
-
-        // Binding indices come from the shared shader contract (group 2).
-        let bindings = crate::shader_contract::texture::bindings(self.store.max_textures());
-
-        // Volume textures.
-        for i in 0..self.store.max_textures() {
-            let view = if let Some(entry) = self.store.texture_entry(i) {
-                debug!(
-                    "  Binding texture index {} with real texture (dims = {:?})",
-                    i, entry.dimensions
-                );
-                &entry.view
-            } else {
-                debug!("  Binding texture index {} with DUMMY texture", i);
-                dummy_view
-            };
-
-            entries.push(wgpu::BindGroupEntry {
-                binding: bindings.volume_base + i,
-                resource: wgpu::BindingResource::TextureView(view),
-            });
-        }
-
-        // Mask textures.
-        let default_mask_view = self
-            .default_mask_view
-            .as_ref()
-            .expect("default mask view not initialized");
-        for i in 0..self.store.max_textures() {
-            let view = self
-                .store
-                .mask_entry(i)
-                .map(|entry| &entry.view)
-                .unwrap_or(default_mask_view);
-
-            entries.push(wgpu::BindGroupEntry {
-                binding: bindings.mask_base + i,
-                resource: wgpu::BindingResource::TextureView(view),
-            });
-        }
-
-        // Linear sampler binding (samplerLinear in shader)
-        entries.push(wgpu::BindGroupEntry {
-            binding: bindings.sampler_linear,
-            resource: wgpu::BindingResource::Sampler(linear_sampler),
-        });
-
-        // Colormap texture (2D array view)
-        entries.push(wgpu::BindGroupEntry {
-            binding: bindings.colormap_lut,
-            resource: wgpu::BindingResource::TextureView(colormap_texture),
-        });
-
-        // Nearest sampler (samplerNearest in shader)
-        entries.push(wgpu::BindGroupEntry {
-            binding: bindings.sampler_nearest,
-            resource: wgpu::BindingResource::Sampler(nearest_sampler),
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Multi-Texture Bind Group (typed, manual)"),
+        // Includes LUT/layout replacement; these resources are outside the store.
+        self.invalidate_bind_groups();
+        let group = self.build_bind_group(
+            device,
             layout,
-            entries: &entries,
-        });
-
-        self.bind_group = Some(bind_group);
+            linear_sampler,
+            nearest_sampler,
+            colormap_texture,
+            None,
+        );
+        self.bind_group = Some(Arc::new(group));
+        self.identity_group = true;
+        self.bind_group_revision = Some(self.store.binding_token());
         Ok(())
     }
 
-    #[cfg(not(feature = "typed-shaders"))]
-    pub fn create_bind_group(
+    #[cfg(test)]
+    pub(crate) fn set_binding_capacity_for_test(&mut self, capacity: u32) {
+        self.invalidate_bind_groups();
+        self.binding_planner.set_capacity_for_test(capacity);
+    }
+
+    /// Unchanged storage rows and unchanged resource views keep the selected
+    /// plan valid. No key allocation, sorting or GPU write is needed.
+    pub(crate) fn reuse_current_draw_bindings(&mut self) -> bool {
+        #[cfg(test)]
+        if self.binding_planner.identity {
+            return false;
+        }
+        if !self.identity_group && self.bind_group().is_some() {
+            self.binding_planner.record_hit();
+            true
+        } else {
+            false
+        }
+    }
+
+    // Device/layout/samplers/LUT are a single renderer-owned binding context.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_draw(
+        &mut self,
+        indices: &[u32],
+        captured: &[Option<SlotHandle>],
+        device: &Device,
+        layout: &BindGroupLayout,
+        linear_sampler: &wgpu::Sampler,
+        nearest_sampler: &wgpu::Sampler,
+        colormap_texture: &TextureView,
+    ) -> Result<BindingPlan, RenderLoopError> {
+        if captured
+            .iter()
+            .flatten()
+            .any(|h| self.store.slot_handle(h.index()) != Some(*h))
+        {
+            self.invalidate_bind_groups();
+            return Err(RenderLoopError::Internal {
+                code: 6023,
+                details:
+                    "Draw references a released or replaced residency; upload fresh layer rows"
+                        .into(),
+            });
+        }
+        let plan = match self.binding_planner.plan(&self.store, indices) {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.invalidate_bind_groups();
+                return Err(error);
+            }
+        };
+        // Test oracle retains the old all-residents identity binding path. It
+        // does not use the compact map to construct the reference bind group.
+        #[cfg(test)]
+        if self.binding_planner.identity {
+            if !self.identity_group || self.bind_group().is_none() {
+                self.create_bind_group(
+                    device,
+                    layout,
+                    linear_sampler,
+                    nearest_sampler,
+                    colormap_texture,
+                    nearest_sampler,
+                )?;
+            }
+            return Ok(plan);
+        }
+        let group = if let Some(group) = self.binding_planner.lookup(&plan, &self.store) {
+            group
+        } else {
+            let group = Arc::new(self.build_bind_group(
+                device,
+                layout,
+                linear_sampler,
+                nearest_sampler,
+                colormap_texture,
+                Some(&plan),
+            ));
+            self.binding_planner.insert(plan.clone(), group.clone());
+            group
+        };
+        self.bind_group_revision = Some(self.store.binding_token());
+        self.bind_group = Some(group);
+        self.identity_group = false;
+        Ok(plan)
+    }
+
+    fn build_bind_group(
         &mut self,
         device: &Device,
         layout: &BindGroupLayout,
         linear_sampler: &wgpu::Sampler,
         nearest_sampler: &wgpu::Sampler,
         colormap_texture: &TextureView,
-        _colormap_sampler: &wgpu::Sampler,
-    ) -> Result<(), RenderLoopError> {
-        // Create dummy texture if not already created
-        if self.dummy_view.is_none() {
-            self.create_dummy_texture(device);
-        }
-
-        let dummy_view = self.dummy_view.as_ref().unwrap();
-
-        // Debug: log which texture indices are populated before creating bind group
-        debug!(
-            "MultiTextureManager::create_bind_group - textures present at indices: {:?}",
-            self.store.resident_indices()
-        );
-
-        // Build bind group entries for individual texture bindings
-        let mut entries = Vec::new();
-
-        // Binding indices come from the shared shader contract (group 2).
-        let bindings = crate::shader_contract::texture::bindings(self.store.max_textures());
-
-        // Volume textures.
-        for i in 0..self.store.max_textures() {
-            let view = if let Some(entry) = self.store.texture_entry(i) {
-                debug!(
-                    "  Binding texture index {} with real texture (dims = {:?})",
-                    i, entry.dimensions
-                );
-                &entry.view
-            } else {
-                debug!("  Binding texture index {} with DUMMY texture", i);
-                dummy_view
-            };
-
-            entries.push(wgpu::BindGroupEntry {
-                binding: bindings.volume_base + i,
-                resource: wgpu::BindingResource::TextureView(view),
-            });
-        }
-
-        // Mask textures.
-        let default_mask_view = self
+        plan: Option<&BindingPlan>,
+    ) -> TextureBindGroup {
+        self.binding_planner.record_group_created();
+        let capacity = self.store.max_textures();
+        let bindings = crate::shader_contract::texture::bindings(capacity);
+        let dummy = self.dummy_view.as_ref().expect("dummy volume initialized");
+        let white_mask = self
             .default_mask_view
             .as_ref()
-            .expect("default mask view not initialized");
-        for i in 0..self.store.max_textures() {
-            let view = self
-                .store
-                .mask_entry(i)
-                .map(|entry| &entry.view)
-                .unwrap_or(default_mask_view);
-
+            .expect("default mask initialized");
+        let resident_at = |position| match plan {
+            None => Some(position),
+            Some(plan) => plan
+                .handles
+                .iter()
+                .find(|h| plan.position(h.index()) == Some(position))
+                .map(|h| h.index()),
+        };
+        let mut entries = Vec::with_capacity((capacity * 2 + 3) as usize);
+        for position in 0..capacity {
+            let view = resident_at(position)
+                .and_then(|i| self.store.texture_entry(i))
+                .map(|e| &e.view)
+                .unwrap_or(dummy);
             entries.push(wgpu::BindGroupEntry {
-                binding: bindings.mask_base + i,
+                binding: bindings.volume_base + position,
                 resource: wgpu::BindingResource::TextureView(view),
             });
         }
-
-        // Linear sampler binding (samplerLinear in shader)
-        entries.push(wgpu::BindGroupEntry {
-            binding: bindings.sampler_linear,
-            resource: wgpu::BindingResource::Sampler(linear_sampler),
-        });
-
-        // Colormap texture binding
-        entries.push(wgpu::BindGroupEntry {
-            binding: bindings.colormap_lut,
-            resource: wgpu::BindingResource::TextureView(colormap_texture),
-        });
-
-        // Nearest sampler (samplerNearest in shader)
-        entries.push(wgpu::BindGroupEntry {
-            binding: bindings.sampler_nearest,
-            resource: wgpu::BindingResource::Sampler(nearest_sampler),
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Multi-Texture Bind Group"),
+        for position in 0..capacity {
+            let view = resident_at(position)
+                .and_then(|i| self.store.mask_entry(i))
+                .map(|e| &e.view)
+                .unwrap_or(white_mask);
+            entries.push(wgpu::BindGroupEntry {
+                binding: bindings.mask_base + position,
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+        entries.extend([
+            wgpu::BindGroupEntry {
+                binding: bindings.sampler_linear,
+                resource: wgpu::BindingResource::Sampler(linear_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: bindings.colormap_lut,
+                resource: wgpu::BindingResource::TextureView(colormap_texture),
+            },
+            wgpu::BindGroupEntry {
+                binding: bindings.sampler_nearest,
+                resource: wgpu::BindingResource::Sampler(nearest_sampler),
+            },
+        ]);
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Per-draw Volume Bind Group"),
             layout,
             entries: &entries,
-        });
+        })
+    }
 
-        self.bind_group = Some(bind_group);
+    fn invalidate_bind_groups(&mut self) {
+        self.bind_group = None;
+        self.binding_planner.clear();
+    }
+
+    pub(crate) fn record_frame_bindings(&mut self, groups_created: u32, cache_hit: bool) {
+        self.binding_planner.record_frame(groups_created, cache_hit);
+    }
+
+    pub fn binding_cache_stats(&self) -> BindingCacheStats {
+        self.binding_planner.stats()
+    }
+
+    pub fn upload_mask_texture(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        index: u32,
+        dimensions: [u32; 3],
+        mask_data: &[u8],
+    ) -> Result<(), RenderLoopError> {
+        self.store
+            .upload_mask_texture(device, queue, index, dimensions, mask_data)?;
+        self.invalidate_bind_groups();
         Ok(())
+    }
+
+    pub fn clear_mask_texture(&mut self, index: u32) {
+        self.store.clear_mask_texture(index);
+        self.invalidate_bind_groups();
     }
 
     /// Get bind group for rendering
     pub fn bind_group(&self) -> Option<&TextureBindGroup> {
-        self.bind_group.as_ref()
+        if self.bind_group_revision == Some(self.store.binding_token()) {
+            self.bind_group.as_deref()
+        } else {
+            None
+        }
     }
 
     /// [`ResidentTextureStore::update_volume`]; a replaced texture invalidates
@@ -430,7 +458,7 @@ impl MultiTextureManager {
     {
         let (world_to_voxel, replaced) = self.store.update_volume(device, queue, index, volume)?;
         if replaced {
-            self.bind_group = None;
+            self.invalidate_bind_groups();
         }
         Ok(world_to_voxel)
     }
@@ -440,7 +468,7 @@ impl MultiTextureManager {
     pub fn release_slot(&mut self, handle: SlotHandle) -> Result<bool, RenderLoopError> {
         let released = self.store.release_slot(handle)?;
         if released {
-            self.bind_group = None;
+            self.invalidate_bind_groups();
         }
         Ok(released)
     }
@@ -449,14 +477,14 @@ impl MultiTextureManager {
     /// since texture bindings have changed.
     pub fn release_volume(&mut self, texture_index: u32) -> Result<(), RenderLoopError> {
         self.store.release_volume(texture_index)?;
-        self.bind_group = None;
+        self.invalidate_bind_groups();
         Ok(())
     }
 
     /// Clear all textures
     pub fn clear(&mut self) {
         self.store.clear();
-        self.bind_group = None;
+        self.invalidate_bind_groups();
         // Keep dummy texture, no need to recreate
     }
 }

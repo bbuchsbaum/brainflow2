@@ -294,6 +294,15 @@ pub struct AtlasStats {
     /// Resident slots held by cached (not displayed) 4D ring members, which
     /// `reclaim_cached_image_slots` can free without evicting a layer.
     pub cached_image_slots: u32,
+    /// Cumulative successful declarative GPU submissions for this renderer.
+    #[serde(default)]
+    pub binding_frames: u64,
+    /// Texture groups created during those frames (not intervening uploads).
+    #[serde(default)]
+    pub binding_groups_created: u64,
+    /// Frames that reused a current or cached texture group.
+    #[serde(default)]
+    pub binding_cache_hits: u64,
 }
 
 // Helper alias for Result
@@ -3671,6 +3680,11 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
     let render_layer_capacity = service.render_layer_capacity();
     let free_texture_slots = service.free_volume_slot_count() as u32;
     let resident_texture_slots = service.resident_volume_slot_count() as u32;
+    let binding_stats = service
+        .multi_texture_manager
+        .as_ref()
+        .map(|manager| manager.binding_cache_stats())
+        .unwrap_or_default();
     let cached_image_slots = {
         let sets = state.resident_image_sets.lock().await;
         cached_image_member_count(&sets) as u32
@@ -3702,6 +3716,9 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
         free_texture_slots,
         resident_texture_slots,
         cached_image_slots,
+        binding_frames: binding_stats.frames,
+        binding_groups_created: binding_stats.frame_groups_created,
+        binding_cache_hits: binding_stats.frame_cache_hits,
     })
 }
 

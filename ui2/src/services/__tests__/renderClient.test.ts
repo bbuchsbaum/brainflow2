@@ -172,6 +172,8 @@ describe('RenderClient', () => {
         visible_layers: 1,
         updated_layer_slots: 1,
         reused_layer_state: false,
+        texture_bind_groups_created: 0,
+        texture_binding_cache_hit: false,
         readback_mode: 'skip',
       },
     };
