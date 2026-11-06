@@ -19,8 +19,8 @@ use serde::Serialize;
 use super::demand::{FrameDemand, Millis, Priority};
 use super::manager::{current_service, snapshot, BridgeTextureBackend};
 use super::policy::{
-    draw_set, eviction_candidates, plan, Plan, Refusal, Request, TextureBackend, Tier, Victim,
-    VictimKind,
+    draw_set, eviction_candidates, eviction_classes, plan, OrderClass, Plan, Refusal, Request,
+    TextureBackend, Tier, Victim, VictimKind,
 };
 use crate::*;
 
@@ -79,6 +79,8 @@ struct Episode {
     policy: Plan,
     /// Every victim the policy allowed when the episode opened.
     candidates: Vec<Victim>,
+    /// The ordering class of each allowed layer victim.
+    classes: HashMap<String, OrderClass>,
     /// Residency keys resident when it opened.
     residents: HashSet<String>,
     ui: Vec<ShadowVictim>,
@@ -185,6 +187,24 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
     if ui_cached == policy_cached && same(&policy_layers, &ui_layers) {
         return "agree".into();
     }
+    // Picks the policy cannot tell apart: the same ordering class (tier and
+    // the times it orders by). The policy breaks such ties by residency key,
+    // the UI by its own list order; neither is a different decision.
+    let class_list = |ids: &[&str]| -> Option<Vec<OrderClass>> {
+        let mut list: Vec<OrderClass> = ids
+            .iter()
+            .map(|id| episode.classes.get(*id).copied())
+            .collect::<Option<_>>()?;
+        list.sort();
+        Some(list)
+    };
+    if ui_cached == policy_cached {
+        if let (Some(policy), Some(ui)) = (class_list(&policy_layers), class_list(&ui_layers)) {
+            if policy == ui {
+                return "expected:tie".into();
+            }
+        }
+    }
     let mut ui_tiers: Vec<u8> = std::iter::repeat_n(Tier::CachedMember as u8, ui_cached)
         .chain(ui_layers.iter().map(|id| allowed[id] as u8))
         .collect();
@@ -242,7 +262,11 @@ impl ShadowLedger {
             verdict: verdict(&episode, outcome),
         };
         match serde_json::to_string(&record) {
-            Ok(line) if record.verdict == "agree" || record.verdict == "benign_lru" => {
+            Ok(line)
+                if record.verdict == "agree"
+                    || record.verdict == "benign_lru"
+                    || record.verdict.starts_with("expected:") =>
+            {
                 info!(target: TARGET, "{line}")
             }
             Ok(line) => warn!(target: TARGET, "{line}"),
@@ -355,6 +379,7 @@ pub(crate) async fn note_request(
     };
     let policy = plan(&facts, &residency.ledger, now, &request);
     let candidates = eviction_candidates(&facts, &residency.ledger, now);
+    let classes = eviction_classes(&facts, &residency.ledger, now);
     let shadow = &mut residency.shadow;
     shadow.next_ep += 1;
     let episode = Episode {
@@ -365,6 +390,7 @@ pub(crate) async fn note_request(
         opened: now,
         policy,
         candidates,
+        classes,
         residents: facts.residents.iter().map(|r| r.key.clone()).collect(),
         ui: Vec::new(),
     };
@@ -516,8 +542,18 @@ mod tests {
                 evict: policy_evict,
                 refuse: Vec::new(),
             },
+            classes: candidates
+                .iter()
+                .filter_map(|victim| match &victim.kind {
+                    VictimKind::Layer { key } => {
+                        let last_drawn = if key == "b" { 9 } else { 1 };
+                        Some((key.clone(), (victim.tier, false, 0, last_drawn)))
+                    }
+                    VictimKind::CachedMember { .. } => None,
+                })
+                .collect(),
             candidates,
-            residents: ["a", "b", "front"].iter().map(|s| s.to_string()).collect(),
+            residents: ["a", "b", "c", "front"].iter().map(|s| s.to_string()).collect(),
             ui: ui
                 .into_iter()
                 .map(|id| ShadowVictim::Layer {
@@ -535,8 +571,13 @@ mod tests {
         let candidates = vec![a.clone(), b.clone()];
         let agree = episode(vec![a.clone()], candidates.clone(), vec!["a"]);
         assert_eq!(verdict(&agree, Outcome::Admitted), "agree");
+        // `b` was drawn later than `a`: the same tier, a different choice.
         let lru = episode(vec![a.clone()], candidates.clone(), vec!["b"]);
         assert_eq!(verdict(&lru, Outcome::Admitted), "benign_lru");
+        // `c` orders exactly like `a`: the policy cannot tell them apart.
+        let c = layer_victim("c", Tier::Undemanded);
+        let tie = episode(vec![a.clone()], vec![a.clone(), b.clone(), c], vec!["c"]);
+        assert_eq!(verdict(&tie, Outcome::Admitted), "expected:tie");
         let unsafe_pick = episode(vec![a.clone()], candidates.clone(), vec!["front"]);
         assert_eq!(verdict(&unsafe_pick, Outcome::Admitted), "unsafe");
         let failed = episode(vec![a.clone()], candidates.clone(), vec!["a"]);

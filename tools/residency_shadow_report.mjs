@@ -56,7 +56,9 @@ function main() {
   const { counts, episodes, failures } = summarize(records);
   console.log(`episodes: ${episodes}`);
   for (const [verdict, n] of [...counts].sort()) console.log(`  ${verdict}: ${n}`);
-  const toTriage = records.filter((r) => !['agree', 'benign_lru'].includes(r.verdict));
+  const toTriage = records.filter(
+    (r) => !['agree', 'benign_lru'].includes(r.verdict) && !r.verdict.startsWith('expected:'),
+  );
   if (toTriage.length > 0) {
     console.log('\nto triage:');
     for (const record of toTriage) console.log(`  ${JSON.stringify(record)}`);

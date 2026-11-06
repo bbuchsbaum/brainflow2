@@ -17,7 +17,8 @@
 //! 1. cached (prefetched, not displayed) 4D ring members, least recently used;
 //! 2. undemanded residents, least recently drawn;
 //! 3. residents demanded only by Background frames, oldest `last_front_at`
-//!    first; a frame in front within [`RECENT_FRONT_MS`] ranks last.
+//!    first, then least recently drawn; a frame in front within
+//!    [`RECENT_FRONT_MS`] ranks last.
 //!
 //! Never evicted: textures a Front frame draws, pinned layers, a ring's
 //! displayed member (only cached members are tier 1), and uploads in flight.
@@ -380,11 +381,11 @@ impl Simulation<'_> {
         members.sort();
 
         let mut undemanded: Vec<(Millis, &ResidentFacts)> = Vec::new();
-        let mut background: Vec<((bool, Millis), &ResidentFacts)> = Vec::new();
+        let mut background: Vec<((bool, Millis, Millis), &ResidentFacts)> = Vec::new();
         for resident in self.live().filter(|resident| !self.protected(resident)) {
             if let Some(&at) = self.holders.background.get(&resident.key) {
                 let recent = self.now.saturating_sub(at) < RECENT_FRONT_MS;
-                background.push(((recent, at), resident));
+                background.push(((recent, at, resident.last_drawn), resident));
             } else if !self.holders.drawn.contains(&resident.key) {
                 undemanded.push((resident.last_drawn, resident));
             }
@@ -417,6 +418,25 @@ impl Simulation<'_> {
                 .map(|(_, r)| layer(r, Tier::BackgroundOnly)),
         );
         victims
+    }
+
+    /// The ordering class of each layer the policy may evict: candidates in
+    /// one class are interchangeable to the policy, which only breaks the tie
+    /// by residency key.
+    fn layer_classes(&self) -> HashMap<String, OrderClass> {
+        let mut classes = HashMap::new();
+        for resident in self.live().filter(|resident| !self.protected(resident)) {
+            let class = if let Some(&at) = self.holders.background.get(&resident.key) {
+                let recent = self.now.saturating_sub(at) < RECENT_FRONT_MS;
+                (Tier::BackgroundOnly, recent, at, resident.last_drawn)
+            } else if !self.holders.drawn.contains(&resident.key) {
+                (Tier::Undemanded, false, 0, resident.last_drawn)
+            } else {
+                continue;
+            };
+            classes.insert(resident.key.clone(), class);
+        }
+        classes
     }
 
     /// Victims, in order, that together free at least `needed`; None when every
@@ -604,6 +624,30 @@ pub(crate) fn eviction_candidates(
         now,
     }
     .ordered_victims()
+}
+
+/// A layer victim's place in the eviction order, without the residency key
+/// that breaks ties: tier, recently in front, `last_front_at`, `last_drawn`.
+pub(crate) type OrderClass = (Tier, bool, Millis, Millis);
+
+/// The ordering class of every layer the policy would allow evicting right
+/// now. The shadow comparison (R5b) treats a UI pick in the same class as the
+/// policy's as a tie, not a different choice.
+pub(crate) fn eviction_classes(
+    facts: &ResidencyFacts,
+    ledger: &DemandLedger,
+    now: Millis,
+) -> HashMap<String, OrderClass> {
+    Simulation {
+        facts,
+        holders: holders(ledger, facts),
+        used: facts.capacity.used(),
+        keep: HashSet::new(),
+        evicted: HashSet::new(),
+        taken_members: HashSet::new(),
+        now,
+    }
+    .layer_classes()
 }
 
 /// Admit one texture, evicting what it needs; on refusal nothing is evicted.
@@ -939,6 +983,28 @@ mod tests {
         // tab-a was in front longer ago, whatever the draw times say.
         assert_eq!(evicted_keys(&plan), ["a"]);
         assert_eq!(plan.evict[0].tier, Tier::BackgroundOnly);
+    }
+
+    #[test]
+    fn one_background_frames_layers_go_least_recently_drawn_first() {
+        let mut world = World::bytes(12 * KIB);
+        // Keys sort the other way round from the draw times.
+        world
+            .volume("a-drawn-late", 4 * KIB, Some(90))
+            .volume("z-drawn-early", 4 * KIB, Some(10))
+            .volume("m-drawn-mid", 4 * KIB, Some(50))
+            .volume("new", 4 * KIB, None);
+        world.background(
+            "tab-back",
+            1_000,
+            &["a-drawn-late", "z-drawn-early", "m-drawn-mid"],
+        );
+        world.front("tab-new", &["new"]);
+        assert_eq!(evicted_keys(&world.plan_frame("tab-new")), ["z-drawn-early"]);
+        let facts = world.backend.facts();
+        let classes = eviction_classes(&facts, &world.ledger, world.clock.now());
+        assert_ne!(classes["a-drawn-late"], classes["z-drawn-early"]);
+        assert_eq!(classes["a-drawn-late"].0, Tier::BackgroundOnly);
     }
 
     #[test]
