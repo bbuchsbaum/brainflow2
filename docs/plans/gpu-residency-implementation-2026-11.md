@@ -860,3 +860,34 @@ at 10/10 in all three views; 0 × 6021/6001/ERROR. Evidence:
 
 **Still open before R4 is qualified:** hosted lavapipe evidence. Editable
 labels remain an explicit gap.
+
+### Hosted lavapipe evidence; R4 qualified — 2026-11-06
+
+**Run:** Brainflow CI run 42240692324 on `main` at `266f0b9a`, job
+`build-and-test (ubuntu-24.04)` (127969880913), success. The job installs
+Mesa's software Vulkan driver; `vulkaninfo --summary` reports
+`llvmpipe (LLVM 20.1.2, 256 bits)`, `DRIVER_ID_MESA_LLVMPIPE`, the runner's only
+Vulkan device. Rust tests run serially (`--test-threads=1`).
+
+**Why a green run counts here:** the R4 GPU tests cannot skip silently. They
+open their device with `expect("real GPU required")`, `expect("GPU adapter
+required")` or `request_adapter(..).unwrap()` and would fail without an
+adapter. All passed on llvmpipe, among them:
+- `byte_budget_residents_beyond_draw_cap_render_like_low_id_reference`
+  (30 residents under a 1 MiB budget; draws past the 13-slot draw cap match the
+  low-ID reference);
+- `multi_texture_manager::tests::byte_budget_*` (admission beyond draw
+  capacity, masks counted, refused mask replacement and promotion keep the live
+  residency) and `resident_byte_accounting_tracks_admit_evict`;
+- `one_slot_device_bounds_residency_and_reuses_after_unload` (browser host);
+- `repeated_volume_cycles_return_to_zero_resident_bytes`.
+
+Some older tests (`live_render_diagnostics_test`, `renderer_facade_smoke`,
+`render_golden_test`) still return early without an adapter; on this runner an
+adapter exists, so they ran too, but they are not part of the R4 evidence.
+
+**R4 is qualified** on Metal (native forced-pressure and reopen runs, above)
+and lavapipe (this run). Editable labels remain an explicit gap: segmentation
+is not exposed in this build. The follow-ups listed above (progressive
+fill-in, release-only redraw, Mosaic/Comparison/Studio stale frames) carry
+into R5. R5b may start.
