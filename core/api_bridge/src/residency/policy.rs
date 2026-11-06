@@ -104,7 +104,9 @@ pub(crate) trait TextureBackend {
 /// What to plan for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Request {
-    /// Make a frame's drawable layers resident.
+    /// Make a frame's drawable layers resident. Planned by the backend owner
+    /// (R5c); R5b's shadow comparison plans only [`Request::Layer`].
+    #[cfg_attr(not(test), allow(dead_code))]
     Frame(FrameId),
     /// Make one layer resident (an upload the UI asked for).
     Layer { layer_id: String, volume_id: String },
@@ -581,6 +583,27 @@ pub(crate) fn plan(
         }
     }
     plan
+}
+
+/// Every victim the policy would allow right now, in eviction order, with its
+/// tier. A resident absent from this list is protected (drawn by a Front frame,
+/// pinned, or uploading). The shadow comparison (R5b) classifies the UI's
+/// evictions against it.
+pub(crate) fn eviction_candidates(
+    facts: &ResidencyFacts,
+    ledger: &DemandLedger,
+    now: Millis,
+) -> Vec<Victim> {
+    Simulation {
+        facts,
+        holders: holders(ledger, facts),
+        used: facts.capacity.used(),
+        keep: HashSet::new(),
+        evicted: HashSet::new(),
+        taken_members: HashSet::new(),
+        now,
+    }
+    .ordered_victims()
 }
 
 /// Admit one texture, evicting what it needs; on refusal nothing is evicted.

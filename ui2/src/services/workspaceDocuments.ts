@@ -29,6 +29,19 @@ type RetainedDocument = WorkspaceDocumentIdentity & RetainWorkspaceDocumentOptio
 const documents = new Map<string, RetainedDocument>();
 const volumeRemovals = new Map<string, symbol>();
 const closeRequests = new Map<string, Promise<boolean>>();
+/** Told when a document is retained, updated or discarded (R5b residency demand). */
+const documentListeners = new Set<() => void>();
+const documentsChanged = () => {
+  for (const listener of [...documentListeners]) listener();
+};
+
+/** Be told when the protected volumes of retained documents may have changed. */
+export function subscribeWorkspaceDocuments(listener: () => void): () => void {
+  documentListeners.add(listener);
+  return () => {
+    documentListeners.delete(listener);
+  };
+}
 
 const ownedWorkspace = (workspaceId: string) => {
   const state = useWorkspaceStore.getState();
@@ -58,6 +71,7 @@ export function retainWorkspaceDocument(
     // Module parking/reactivation recreates callbacks. The shell owns identity,
     // but the current activation owns the latest freeze callback and label.
     Object.assign(existing, options, { protectedVolumeIds: dependencies });
+    documentsChanged();
     return { workspaceId: existing.workspaceId, workspaceInstance: existing.workspaceInstance };
   }
   const retained: RetainedDocument = {
@@ -68,6 +82,7 @@ export function retainWorkspaceDocument(
     protectedVolumeIds: dependencies,
   };
   documents.set(workspaceId, retained);
+  documentsChanged();
   installWorkspaceCloseGuard(workspaceId);
   return { workspaceId: retained.workspaceId, workspaceInstance: retained.workspaceInstance };
 }
@@ -110,6 +125,7 @@ export async function discardWorkspaceDocument(identity: WorkspaceDocumentIdenti
       // after a timestamp replacement. Never remove a newer record's guard.
       if (recordIsCurrent(document)) {
         documents.delete(identity.workspaceId);
+        documentsChanged();
         removeWorkspaceCloseGuard(identity.workspaceId);
         try { document.onDiscarded?.(); } catch (error) { console.error('Workspace document cleanup failed:', error); }
       }

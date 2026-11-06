@@ -27,8 +27,12 @@ pub(crate) async fn release_layer_gpu_resources_with(
         .lock()
         .await
         .remove(&layer_id);
-    if matches!(&result, Ok(ReleaseResult { freed: true, .. })) && !for_upload {
+    let freed = matches!(&result, Ok(ReleaseResult { freed: true, .. }));
+    if freed && !for_upload {
         clear_allocation_failed_skips(bridge_state, None).await;
+    }
+    if freed && for_upload {
+        super::note_release_for_upload(bridge_state, &layer_id).await;
     }
     result
 }

@@ -101,6 +101,7 @@ pub(crate) async fn reclaim_cached_image_slots_internal(
     };
     let free_texture_slots = service.free_volume_slot_count() as u32;
     drop(service);
+    super::note_reclaim(bridge_state, reclaimed as u32).await;
     // The UI reclaims only to make room for an upload it requests next: the
     // starved layers' skip marks are cleared when that upload completes, so
     // a frame cannot hand the freed slot to one of them first.

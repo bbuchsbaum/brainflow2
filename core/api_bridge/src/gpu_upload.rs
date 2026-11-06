@@ -11,9 +11,16 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
     after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
     let uploads = !metadata_only.unwrap_or(false);
+    let LayerSpec::Volume(spec) = &layer_spec;
+    let ids = (spec.id.clone(), spec.source_resource_id.clone());
     let result =
         request_layer_gpu_resources_locked(layer_spec, metadata_only, bridge_state, after_upload)
             .await;
+    // Shadow comparison (R5b): a typed refusal opens an episode, the outcome
+    // of the layer's later request closes it.
+    if uploads {
+        note_request(bridge_state, &ids.0, &ids.1, &result).await;
+    }
     // The UI made room for this upload without letting frames retry starved
     // layers (`release_layer_gpu_resources_with(.., for_upload)`, reclaims):
     // now that the upload has its slot (or failed and left it free), they may.
