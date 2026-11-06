@@ -8,7 +8,9 @@ use api_bridge::{
 };
 use bridge_types::{BridgeError, TimeSeriesInfo, VolumeSendable, VolumeType};
 use render_loop::view_state::FrameReadbackMode;
-use render_loop::{RenderLoopError, RenderLoopService};
+use render_loop::{
+    RenderLoopError, RenderLoopService, RendererResidencyConfig, WgpuSliceRendererConfig,
+};
 use serde_json::json;
 use tokio::sync::Mutex;
 use volmath::{DenseNeuroVec, NeuroSpace};
@@ -95,7 +97,26 @@ async fn resident_snapshot(
 }
 
 async fn install_render_service_or_skip(bridge_state: &BridgeState) -> bool {
-    let render_service = match RenderLoopService::new().await {
+    install_render_service_with_config_or_skip(bridge_state, WgpuSliceRendererConfig::default())
+        .await
+}
+
+/// The app's admission mode: residency bounded by bytes, not by the binding capacity.
+async fn install_byte_budget_render_service_or_skip(bridge_state: &BridgeState) -> bool {
+    let config = WgpuSliceRendererConfig {
+        residency: RendererResidencyConfig::ByteBudget {
+            budget_bytes: render_loop::DEFAULT_RESIDENCY_BYTE_BUDGET,
+        },
+        ..WgpuSliceRendererConfig::default()
+    };
+    install_render_service_with_config_or_skip(bridge_state, config).await
+}
+
+async fn install_render_service_with_config_or_skip(
+    bridge_state: &BridgeState,
+    config: WgpuSliceRendererConfig,
+) -> bool {
+    let render_service = match RenderLoopService::new_with_config(config).await {
         Ok(service) => service,
         Err(RenderLoopError::AdapterRequestFailed | RenderLoopError::AdapterNotFound) => {
             eprintln!("Skipping render_view_smoke_test: no WGPU adapter available");
@@ -1688,5 +1709,138 @@ async fn render_view_skips_a_layer_when_the_texture_slots_are_full() {
             .await
             .contains(&format!("slots-layer-{capacity}")),
         "the layer that did not fit holds no slot"
+    );
+}
+
+/// QA 2026-11-06: under byte-budget residency (the app default) more volumes
+/// than one draw binds can be resident, so one view can ask for more distinct
+/// textures than the binding capacity. The frame must draw the first
+/// `capacity` of them and skip the rest; before the fix it failed whole with
+/// code 6021 ("Draw needs N textures; binding capacity is 13") and every view
+/// went black. Layers that share a texture must still draw up to the
+/// render-layer cap.
+#[tokio::test]
+async fn render_view_draws_at_most_the_binding_capacity_of_distinct_textures() {
+    let bridge_state = BridgeState::default().expect("bridge state");
+    if !install_byte_budget_render_service_or_skip(&bridge_state).await {
+        return;
+    }
+    let service = bridge_state
+        .render_loop_service
+        .lock()
+        .await
+        .as_ref()
+        .unwrap()
+        .clone();
+    let (capacity, cap) = {
+        let service = service.lock().await;
+        (
+            service.runtime_texture_capacity() as usize,
+            service.render_layer_capacity() as usize,
+        )
+    };
+    assert!(
+        cap > capacity,
+        "the render-layer cap ({cap}) must exceed the binding capacity ({capacity})"
+    );
+
+    let test_file = get_test_data_path().join("toy_t1w.nii.gz");
+    for i in 0..cap {
+        let (volume_sendable, _affine) =
+            nifti_loader::load_nifti_volume_auto(&test_file).expect("load nifti volume");
+        let volume_id = format!("budget-volume-{i}");
+        bridge_state.volume_registry.lock().await.insert(
+            volume_id.clone(),
+            volume_sendable,
+            VolumeMetadataInfo {
+                name: volume_id,
+                path: test_file.to_string_lossy().into_owned(),
+                dtype: "f32".into(),
+                volume_type: VolumeType::Volume3D,
+                time_series_info: None,
+            },
+        );
+    }
+
+    let layer = |id: String, volume: usize| {
+        json!({
+            "id": id,
+            "volumeId": format!("budget-volume-{volume}"),
+            "visible": true,
+            "opacity": 1.0,
+            "colormap": "gray",
+            "intensity": [0.0, 1000.0],
+            "threshold": [0.0, 0.0],
+            "blendMode": "alpha",
+            "interpolation": "linear"
+        })
+    };
+    let render = |layers: Vec<serde_json::Value>| {
+        let (origin_3d, u_3d, origin, u, v) = view_vectors("axial");
+        let (sagittal_3d, sagittal_u, _, _, _) = view_vectors("sagittal");
+        let (coronal_3d, coronal_u, _, _, _) = view_vectors("coronal");
+        json!({
+            "views": {
+                "axial": { "origin_mm": origin_3d, "u_mm": u_3d, "v_mm": [0.0, 10.0, 0.0] },
+                "sagittal": { "origin_mm": sagittal_3d, "u_mm": sagittal_u, "v_mm": [0.0, 0.0, 10.0] },
+                "coronal": { "origin_mm": coronal_3d, "u_mm": coronal_u, "v_mm": [0.0, 0.0, 10.0] }
+            },
+            "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
+            "layers": layers,
+            "requestedView": {
+                "type": "axial", "origin_mm": origin, "u_mm": u, "v_mm": v,
+                "width": 64, "height": 64
+            }
+        })
+        .to_string()
+    };
+
+    // A render-layer cap's worth of layers on distinct volumes. Layers keyed by
+    // their volume id, so the shared-texture case below can resolve to them.
+    let distinct: Vec<_> = (0..cap)
+        .map(|i| layer(format!("budget-volume-{i}"), i))
+        .collect();
+    for _ in 0..2 {
+        let frame = render_view_for_testing(render(distinct.clone()), &bridge_state, Some("rgba"))
+            .await
+            .expect("more distinct textures than a draw binds must not fail the frame");
+        let (w, h, rgba) = decode_raw_rgba_frame(&frame);
+        assert_has_visible_content(rgba, w, h);
+        assert_eq!(
+            service.lock().await.active_layer_count(),
+            capacity,
+            "the frame draws the binding capacity's worth of distinct textures"
+        );
+    }
+    // The skipped layers were refused before allocation: they hold no texture.
+    let slots = bridge_state.layer_slots.lock().await;
+    for i in capacity..cap {
+        assert!(
+            !slots.contains(&format!("budget-volume-{i}")),
+            "layer {i} could not draw and must not hold a texture"
+        );
+    }
+    drop(slots);
+
+    // The same number of layers, but those past the capacity reuse textures
+    // already bound in the frame: every one of them draws.
+    let shared: Vec<_> = (0..cap)
+        .map(|i| {
+            if i < capacity {
+                layer(format!("budget-volume-{i}"), i)
+            } else {
+                layer(format!("budget-shared-{i}"), i - capacity)
+            }
+        })
+        .collect();
+    let frame = render_view_for_testing(render(shared), &bridge_state, Some("rgba"))
+        .await
+        .expect("layers that share bound textures must not fail the frame");
+    let (w, h, rgba) = decode_raw_rgba_frame(&frame);
+    assert_has_visible_content(rgba, w, h);
+    assert_eq!(
+        service.lock().await.active_layer_count(),
+        cap,
+        "layers sharing bound textures all draw, up to the render-layer cap"
     );
 }

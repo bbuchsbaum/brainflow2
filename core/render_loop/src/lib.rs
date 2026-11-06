@@ -5694,9 +5694,10 @@ impl RenderLoopService {
         self.volume_atlas.metrics()
     }
 
-    /// Volume texture slots this device was configured with
-    /// (`RendererAtlasConfig::resolve_runtime_capacity`): the most layers that
-    /// can hold a GPU texture at once.
+    /// The per-draw texture binding capacity this device was configured with
+    /// (`RendererAtlasConfig::resolve_runtime_capacity`): the most distinct
+    /// volume textures one draw binds. Under fixed-slot residency it is also
+    /// the resident limit; under a byte budget, bytes bound residency instead.
     pub fn runtime_texture_capacity(&self) -> u32 {
         self.runtime_texture_capacity
     }

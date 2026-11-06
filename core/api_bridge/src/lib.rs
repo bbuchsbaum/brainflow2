@@ -6572,6 +6572,11 @@ fn texture_admitted(bound: &[u32], texture: u32, binding_capacity: usize) -> boo
     bound.contains(&texture) || bound.len() < binding_capacity
 }
 
+/// The skip note for a layer left out because the draw's texture bindings are full.
+fn over_binding_detail(binding_capacity: usize) -> String {
+    format!("the draw already uses its {binding_capacity} texture bindings")
+}
+
 async fn prepare_frontend_layers_for_render(
     frontend_state: &FrontendViewState,
     bridge_state: &BridgeState,
@@ -6580,6 +6585,7 @@ async fn prepare_frontend_layers_for_render(
     let mut drawn: Vec<DrawnLayer> = Vec::new();
     // Distinct GPU textures the frame binds so far, bounded by the binding capacity.
     let mut drawn_textures: Vec<u32> = Vec::new();
+    let binding_capacity = service.runtime_texture_capacity() as usize;
     {
         let layer_map = bridge_state.layer_slots.lock().await;
         debug!("Current layer_slots contents:");
@@ -6621,6 +6627,29 @@ async fn prepare_frontend_layers_for_render(
                     format!("the frame already holds the render state's {layer_cap} layers");
                 note_render_skip(bridge_state, &layer.id, RenderSkip::OverCap, &detail).await;
                 continue;
+            }
+            // A draw binds each distinct texture once and fails whole (code 6021)
+            // past the binding capacity (QA 2026-11-06). Once the frame binds that
+            // many, only a layer whose current residency is already bound may
+            // join. Anything else is skipped here, before it allocates, swaps or
+            // uploads, so a layer that cannot draw takes no texture or budget.
+            if drawn_textures.len() >= binding_capacity {
+                let bound_residency = {
+                    let layer_map = bridge_state.layer_slots.lock().await;
+                    layer_map
+                        .current(&layer.id, service)
+                        .or_else(|| {
+                            (layer.volume_id != layer.id)
+                                .then(|| layer_map.current(&layer.volume_id, service))
+                                .flatten()
+                        })
+                        .map(|slot| slot.index())
+                };
+                if !bound_residency.is_some_and(|index| drawn_textures.contains(&index)) {
+                    let detail = over_binding_detail(binding_capacity);
+                    note_render_skip(bridge_state, &layer.id, RenderSkip::OverCap, &detail).await;
+                    continue;
+                }
             }
             let _atlas_idx = {
                 let (requires_timepoint, requested_render_timepoint) =
@@ -6862,19 +6891,13 @@ async fn prepare_frontend_layers_for_render(
                 }
             };
 
-            // A draw fails whole when it binds more distinct textures than the
-            // binding capacity (QA 2026-11-06). A layer that would need one more
-            // texture is left out; layers sharing a texture still draw.
-            let binding_capacity = service.runtime_texture_capacity() as usize;
+            // Backstop: a 4D swap or re-upload above can land on a texture the
+            // pre-check did not see. A layer that would need one more texture is
+            // left out; layers sharing a texture still draw.
             if !texture_admitted(&drawn_textures, _atlas_idx, binding_capacity) {
-                let detail = format!(
-                    "the frame already binds the render state's {binding_capacity} textures"
-                );
+                let detail = over_binding_detail(binding_capacity);
                 note_render_skip(bridge_state, &layer.id, RenderSkip::OverCap, &detail).await;
                 continue;
-            }
-            if !drawn_textures.contains(&_atlas_idx) {
-                drawn_textures.push(_atlas_idx);
             }
 
             if colormap_by_name(&layer.colormap).is_none() {
@@ -6934,6 +6957,9 @@ async fn prepare_frontend_layers_for_render(
                 if skipped.get(&layer.id) == Some(&RenderSkip::OverCap) {
                     skipped.remove(&layer.id);
                 }
+            }
+            if !drawn_textures.contains(&_atlas_idx) {
+                drawn_textures.push(_atlas_idx);
             }
             drawn.push(DrawnLayer {
                 config: backend_layer,
@@ -15612,6 +15638,7 @@ fn get_render_capabilities() -> render_contracts::RenderCapabilities {
         ],
     }
 }
+
 #[cfg(test)]
 mod texture_admission_tests {
     use super::texture_admitted;
