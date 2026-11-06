@@ -774,3 +774,54 @@ regression binaries; their manifest is
 `/private/tmp/brainflow2-r4-cleared-test-binaries.json`. No native R4 success is
 claimed. R4 must remain a draft until the remaining gates pass; R5/R6 stay out
 of scope.
+
+### R4 merged; native acceptance found a binding-capacity bug — 2026-11-06
+
+R4 merged to `main` as PR #47 (`6adbf659`) before native qualification. Its
+tree is identical to `3540f415`. The status lines above predate that merge.
+
+**Native run, 2026-11-05 (computer use, Metal).** The bundle at
+`/private/tmp/brainflow2-r3/target/debug/bundle/macos/Brainflow R4 QA.app` was
+an R3 build (no byte-budget strings), so its 13-slot "slots full" refusal is not
+R4 evidence. An R4 bundle built from `3540f415` then reproduced a real R4 bug:
+a view whose visible layers resolve to 14–16 distinct textures failed the whole
+frame with code 6021 ("Draw needs 16 textures; binding capacity is 13"), and
+every view went black. The bridge guard capped layers at
+`render_layer_capacity` (16); the binding planner binds at most
+`runtime_texture_capacity` (13) distinct textures. Fixed-slot residency hid the
+bug, because a 14th texture failed at allocation; byte-budget residency, the
+app default, exposed it.
+
+**Fix** (`fix/draw-texture-admission`: `495de2e2`, review round `7a524d8e`).
+Once a frame binds the capacity's worth of distinct textures, a layer joins
+only if its current residency is already bound; any other layer is skipped
+with an OverCap note before it allocates, swaps or re-uploads. A post-slot
+check is kept as a backstop for 4D swaps. Independent review found no
+remaining 6021 path; its findings (allocation churn, an untested path) are
+fixed. The new byte-budget smoke test
+`render_view_draws_at_most_the_binding_capacity_of_distinct_textures` fails on
+`origin/main` with 6021 and on `495de2e2` with "layer 13 could not draw and
+must not hold a texture"; it passes on `7a524d8e`.
+
+**Gates on `7a524d8e`:** `cargo fmt --check`; clippy `-D warnings` on
+`render_loop` and `api-bridge`; `cargo test -p render_loop` and
+`-p api-bridge` on Metal: 888 passed, 0 failed, 0 adapter skips, 28 declared
+ignores. The UI gates were not run for this Rust-only change; the close-out
+worktree has no `pnpm install` yet.
+
+**Native results with the fix** (R4 bundle, default 512 MiB budget): 30
+volumes in three tabs with no slot-full error; Diagnostics 31 logical
+residents, 2.1 MiB of 512 MiB, draw capacity 13; all group tabs render after
+switches and slice changes; Comparison and Mosaic render; 4D steps 1 → 6 and
+back; log shows no code 6021 or 6001 and no render failures. Closing a tab
+leaves its layers resident: they stay in the app-wide layer store, "hidden in
+every workspace", and `LayerEvictionService` evicts them lazily under pressure,
+so the count does not fall at 2.1 MiB of 512 MiB. Records and evidence:
+`cruft/r4-native/` in the main checkout (ignored, persistent).
+
+**Still open before R4 is qualified:** a native forced-pressure run (a small
+`BRAINFLOW_GPU_RESIDENCY_BUDGET_BYTES`, two groups across tabs: background
+layers evicted and re-uploaded rather than refused, every tab rendering), a
+reopen-after-close check, the UI gates, and hosted lavapipe evidence. Editable
+labels remain an explicit gap: segmentation is not exposed in this build. R5
+starts only after these.
