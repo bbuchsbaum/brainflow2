@@ -6564,12 +6564,22 @@ struct DrawnLayer {
     frontend_index: usize,
 }
 
+/// Whether a layer that draws `texture` may join a frame that already binds
+/// `bound` textures. A draw binds each distinct texture once and fails whole
+/// (code 6021) when it needs more than `binding_capacity`, so layers sharing a
+/// texture always fit, and a new texture fits only below the capacity.
+fn texture_admitted(bound: &[u32], texture: u32, binding_capacity: usize) -> bool {
+    bound.contains(&texture) || bound.len() < binding_capacity
+}
+
 async fn prepare_frontend_layers_for_render(
     frontend_state: &FrontendViewState,
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
 ) -> BridgeResult<PreparedFrontendLayers> {
     let mut drawn: Vec<DrawnLayer> = Vec::new();
+    // Distinct GPU textures the frame binds so far, bounded by the binding capacity.
+    let mut drawn_textures: Vec<u32> = Vec::new();
     {
         let layer_map = bridge_state.layer_slots.lock().await;
         debug!("Current layer_slots contents:");
@@ -6851,6 +6861,21 @@ async fn prepare_frontend_layers_for_render(
                     allocated_idx
                 }
             };
+
+            // A draw fails whole when it binds more distinct textures than the
+            // binding capacity (QA 2026-11-06). A layer that would need one more
+            // texture is left out; layers sharing a texture still draw.
+            let binding_capacity = service.runtime_texture_capacity() as usize;
+            if !texture_admitted(&drawn_textures, _atlas_idx, binding_capacity) {
+                let detail = format!(
+                    "the frame already binds the render state's {binding_capacity} textures"
+                );
+                note_render_skip(bridge_state, &layer.id, RenderSkip::OverCap, &detail).await;
+                continue;
+            }
+            if !drawn_textures.contains(&_atlas_idx) {
+                drawn_textures.push(_atlas_idx);
+            }
 
             if colormap_by_name(&layer.colormap).is_none() {
                 warn!(
@@ -15585,5 +15610,24 @@ fn get_render_capabilities() -> render_contracts::RenderCapabilities {
             NativePlanes,
             ObliquePlanes,
         ],
+    }
+}
+#[cfg(test)]
+mod texture_admission_tests {
+    use super::texture_admitted;
+
+    #[test]
+    fn layers_sharing_a_texture_always_fit() {
+        // Thirteen textures bound, the next layer reuses texture 4: it fits.
+        let bound: Vec<u32> = (0..13).collect();
+        assert!(texture_admitted(&bound, 4, 13));
+    }
+
+    #[test]
+    fn a_new_texture_fits_only_below_the_binding_capacity() {
+        let bound: Vec<u32> = (0..12).collect();
+        assert!(texture_admitted(&bound, 99, 13));
+        let full: Vec<u32> = (0..13).collect();
+        assert!(!texture_admitted(&full, 99, 13));
     }
 }
