@@ -1,7 +1,8 @@
 //! Backend bookkeeping for GPU texture residency: layer leases, the stale-lease
 //! watchdog, render-skip marks, resident 4D ring accounting and the release
 //! path. Moved out of `lib.rs` (R1 of
-//! `docs/plans/gpu-residency-implementation-2026-11.md`); no policy lives here yet.
+//! `docs/plans/gpu-residency-implementation-2026-11.md`). `demand` and `policy`
+//! hold the R5 backend policy (pure; wired in from R5b).
 //!
 //! Lock order (outermost first); a path may skip levels but never go back up:
 //! 1. `BridgeState::volume_operations`
@@ -24,8 +25,13 @@
 //! `tests/bare_index_identity_check.rs` enforces this in CI.
 
 mod config;
+// R5a: the policy is pure and not wired in until R5b.
+#[cfg_attr(not(test), allow(dead_code))]
+mod demand;
 mod layer_slots;
 mod lease;
+#[cfg_attr(not(test), allow(dead_code))]
+mod policy;
 mod release;
 mod ring;
 mod skips;
