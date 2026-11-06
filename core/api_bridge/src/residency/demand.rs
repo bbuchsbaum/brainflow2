@@ -68,6 +68,9 @@ pub(crate) struct FrameDemand {
     pub epoch: Epoch,
     pub priority: Priority,
     pub layers: Vec<DemandedLayer>,
+    /// Hidden pinned layers the frame keeps resident without drawing, such as
+    /// an editable label while it is hidden. They take no row or binding.
+    pub held: Vec<DemandedLayer>,
     /// When the frame was last in front; for a Front frame, now.
     pub last_front_at: Millis,
 }
@@ -156,6 +159,7 @@ mod tests {
                 .iter()
                 .map(|id| DemandedLayer::new(*id, *id))
                 .collect(),
+            held: Vec::new(),
             last_front_at: 0,
         }
     }

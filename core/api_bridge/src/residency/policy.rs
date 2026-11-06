@@ -173,13 +173,19 @@ pub(crate) struct Plan {
     pub refuse: Vec<Refused>,
 }
 
-/// The layers of one frame the renderer would draw, and those it would skip.
+/// A frame's layers as drawn with what is resident now: the protective view
+/// used to decide who holds a texture.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct DrawSet {
     /// `(index into the frame's layers, residency key)`, bottom first.
     pub drawn: Vec<(usize, String)>,
-    /// Indices of layers past the binding or row capacity.
+    /// Resident layers past the binding or row capacity.
     pub over_cap: Vec<usize>,
+    /// Layers with nothing resident, with whether a new texture would still
+    /// fit the draw at their position. They take no row or binding here: the
+    /// renderer skips a layer whose upload fails, so counting them could only
+    /// leave a resident layer unprotected.
+    pub pending: Vec<(usize, bool)>,
 }
 
 impl DrawSet {
@@ -190,9 +196,16 @@ impl DrawSet {
 
 /// The residency a layer draws: its own, else (outside a time series) the one
 /// recorded under its volume id, else the one it would upload under its own id.
-/// The same lookup as `prepare_frontend_layers_for_render`.
-pub(crate) fn residency_key(layer: &DemandedLayer, facts: &ResidencyFacts) -> String {
-    let resident = |key: &str| facts.residents.iter().any(|r| r.key == key);
+/// The same lookup as `prepare_frontend_layers_for_render`. `planned` holds keys
+/// uploaded earlier in the same frame, which the renderer sees as resident.
+pub(crate) fn residency_key(
+    layer: &DemandedLayer,
+    facts: &ResidencyFacts,
+    planned: &[String],
+) -> String {
+    let resident = |key: &str| {
+        planned.iter().any(|k| k == key) || facts.residents.iter().any(|r| r.key == key)
+    };
     if !resident(&layer.layer_id)
         && layer.volume_id != layer.layer_id
         && !facts.time_series_volumes.contains(&layer.volume_id)
@@ -203,23 +216,29 @@ pub(crate) fn residency_key(layer: &DemandedLayer, facts: &ResidencyFacts) -> St
     layer.layer_id.clone()
 }
 
-/// Which of a frame's layers fit one draw: rows up to `row_capacity`, and a new
-/// texture only while fewer than `binding_capacity` are bound. Layers sharing a
-/// texture count once.
+fn is_resident(facts: &ResidencyFacts, key: &str) -> bool {
+    facts.residents.iter().any(|r| r.key == key)
+}
+
+/// Which of a frame's resident layers fit one draw: rows up to `row_capacity`,
+/// and a new texture only while fewer than `binding_capacity` are bound. Layers
+/// sharing a texture count once. Layers with nothing resident are `pending`.
 pub(crate) fn draw_set(demand: &FrameDemand, facts: &ResidencyFacts) -> DrawSet {
     let mut set = DrawSet::default();
     let mut bound: Vec<String> = Vec::new();
     for (index, layer) in demand.layers.iter().enumerate() {
-        if set.drawn.len() >= facts.row_capacity {
+        let key = residency_key(layer, facts, &[]);
+        let rows_full = set.drawn.len() >= facts.row_capacity;
+        let bindings_full = !bound.contains(&key) && bound.len() >= facts.binding_capacity;
+        if !is_resident(facts, &key) {
+            set.pending.push((index, !rows_full && !bindings_full));
+            continue;
+        }
+        if rows_full || bindings_full {
             set.over_cap.push(index);
             continue;
         }
-        let key = residency_key(layer, facts);
         if !bound.contains(&key) {
-            if bound.len() >= facts.binding_capacity {
-                set.over_cap.push(index);
-                continue;
-            }
             bound.push(key.clone());
         }
         set.drawn.push((index, key));
@@ -236,8 +255,10 @@ struct Holders {
     pinned: HashSet<String>,
     /// Drawn by a Background frame: the newest `last_front_at` among them.
     background: HashMap<String, Millis>,
-    /// Layer ids past their frame's draw capacity.
-    over_cap: HashSet<String>,
+    /// Layer ids that cannot draw in some frame that lists them.
+    blocked: HashSet<String>,
+    /// Layer ids that draw, or could, in some frame that lists them.
+    fits: HashSet<String>,
     /// Keys some frame draws.
     drawn: HashSet<String>,
 }
@@ -260,11 +281,23 @@ fn holders(ledger: &DemandLedger, facts: &ResidencyFacts) -> Holders {
         }
         for &index in &set.over_cap {
             holders
-                .over_cap
+                .blocked
                 .insert(demand.layers[index].layer_id.clone());
         }
-        for layer in demand.layers.iter().filter(|layer| layer.pin.is_some()) {
-            holders.pinned.insert(residency_key(layer, facts));
+        for &(index, fits) in &set.pending {
+            let id = demand.layers[index].layer_id.clone();
+            if fits {
+                holders.fits.insert(id);
+            } else {
+                holders.blocked.insert(id);
+            }
+        }
+        for &(index, _) in &set.drawn {
+            holders.fits.insert(demand.layers[index].layer_id.clone());
+        }
+        let pinned = demand.layers.iter().filter(|layer| layer.pin.is_some());
+        for layer in pinned.chain(&demand.held) {
+            holders.pinned.insert(residency_key(layer, facts, &[]));
         }
     }
     holders
@@ -466,16 +499,11 @@ impl Simulation<'_> {
     }
 }
 
-struct Target {
-    layer_id: String,
-    volume_id: String,
-    key: String,
-}
-
 /// Plan the admissions, evictions and refusals for `request`.
 ///
 /// Background demand never uploads: a Background frame's request plans
-/// nothing. A layer over its frame's draw capacity is refused with
+/// nothing. A [`Request::Layer`] is the UI's own upload request (shadow mode,
+/// and the fixed-slot fallback) and is planned whatever demands the layer. A layer over its frame's draw capacity is refused with
 /// [`Refusal::DrawCap`] and causes no eviction. A texture that cannot fit even
 /// after every allowed eviction causes none either; later (higher) layers are
 /// still tried, since a smaller one may fit.
@@ -486,8 +514,16 @@ pub(crate) fn plan(
     request: &Request,
 ) -> Plan {
     let mut plan = Plan::default();
-    let resident = |key: &str| facts.residents.iter().any(|r| r.key == key);
-    let mut targets: Vec<Target> = Vec::new();
+    let holders = holders(ledger, facts);
+    let mut sim = Simulation {
+        facts,
+        holders,
+        used: facts.capacity.used(),
+        keep: HashSet::new(),
+        evicted: HashSet::new(),
+        taken_members: HashSet::new(),
+        now,
+    };
     match request {
         Request::Frame(frame) => {
             let Some(demand) = ledger.get(frame) else {
@@ -496,23 +532,33 @@ pub(crate) fn plan(
             if demand.priority == Priority::Background {
                 return plan;
             }
-            let set = draw_set(demand, facts);
-            for (index, key) in &set.drawn {
-                if resident(key) || targets.iter().any(|t| &t.key == key) {
+            // Walk the frame as the renderer draws it, uploading as it goes: a
+            // texture uploaded for one layer serves later layers keyed by its
+            // volume, and a layer whose upload is refused takes no row or binding.
+            let mut bound: Vec<String> = Vec::new();
+            let mut planned: Vec<String> = Vec::new();
+            let mut rows = 0;
+            for layer in &demand.layers {
+                let key = residency_key(layer, facts, &planned);
+                if rows >= facts.row_capacity
+                    || (!bound.contains(&key) && bound.len() >= facts.binding_capacity)
+                {
+                    plan.refuse.push(Refused {
+                        layer_id: layer.layer_id.clone(),
+                        reason: Refusal::DrawCap,
+                    });
                     continue;
                 }
-                let layer = &demand.layers[*index];
-                targets.push(Target {
-                    layer_id: layer.layer_id.clone(),
-                    volume_id: layer.volume_id.clone(),
-                    key: key.clone(),
-                });
-            }
-            for &index in &set.over_cap {
-                plan.refuse.push(Refused {
-                    layer_id: demand.layers[index].layer_id.clone(),
-                    reason: Refusal::DrawCap,
-                });
+                if !is_resident(facts, &key) && !planned.contains(&key) {
+                    if !admit(&mut sim, &mut plan, layer, &key) {
+                        continue;
+                    }
+                    planned.push(key.clone());
+                }
+                if !bound.contains(&key) {
+                    bound.push(key);
+                }
+                rows += 1;
             }
         }
         Request::Layer {
@@ -520,82 +566,63 @@ pub(crate) fn plan(
             volume_id,
         } => {
             let layer = DemandedLayer::new(layer_id.clone(), volume_id.clone());
-            let key = residency_key(&layer, facts);
-            if resident(&key) {
+            let key = residency_key(&layer, facts, &[]);
+            if is_resident(facts, &key) {
                 return plan;
             }
-            let holders = holders(ledger, facts);
-            if holders.over_cap.contains(layer_id) && !holders.drawn.contains(&key) {
+            if sim.holders.blocked.contains(layer_id) && !sim.holders.fits.contains(layer_id) {
                 plan.refuse.push(Refused {
                     layer_id: layer_id.clone(),
                     reason: Refusal::DrawCap,
                 });
                 return plan;
             }
-            targets.push(Target {
-                layer_id: layer_id.clone(),
-                volume_id: volume_id.clone(),
-                key,
-            });
+            admit(&mut sim, &mut plan, &layer, &key);
         }
-    }
-
-    let mut sim = Simulation {
-        facts,
-        holders: holders(ledger, facts),
-        used: facts.capacity.used(),
-        keep: HashSet::new(),
-        evicted: HashSet::new(),
-        taken_members: HashSet::new(),
-        now,
-    };
-    for target in targets {
-        let refuse = |plan: &mut Plan, reason| {
-            plan.refuse.push(Refused {
-                layer_id: target.layer_id.clone(),
-                reason,
-            })
-        };
-        let Some(&bytes) = facts.volume_bytes.get(&target.volume_id) else {
-            refuse(&mut plan, Refusal::VolumeMissing);
-            continue;
-        };
-        let cost = sim.cost(bytes);
-        if cost > facts.capacity.limit() {
-            refuse(&mut plan, Refusal::OversizedRequest);
-            continue;
-        }
-        // The target stays out of the victim lists while it is planned.
-        sim.keep.insert(target.key.clone());
-        // What must go so the texture fits; more than its cost when the
-        // backend is already over a budget that shrank.
-        let needed = (sim.used + cost).saturating_sub(facts.capacity.limit());
-        if needed > 0 {
-            match sim.victims_for(needed) {
-                Some(victims) => {
-                    sim.commit(&victims);
-                    plan.evict.extend(victims);
-                }
-                None => {
-                    sim.keep.remove(&target.key);
-                    let reason = if sim.evictable() + sim.pinned_reserve() >= needed {
-                        Refusal::HeldByPinned
-                    } else {
-                        Refusal::FrontExceedsBudget
-                    };
-                    refuse(&mut plan, reason);
-                    continue;
-                }
-            }
-        }
-        sim.used += cost;
-        plan.admit.push(Admission {
-            layer_id: target.layer_id,
-            key: target.key,
-            cost,
-        });
     }
     plan
+}
+
+/// Admit one texture, evicting what it needs; on refusal nothing is evicted.
+fn admit(sim: &mut Simulation<'_>, plan: &mut Plan, layer: &DemandedLayer, key: &str) -> bool {
+    let mut refuse = |reason| {
+        plan.refuse.push(Refused {
+            layer_id: layer.layer_id.clone(),
+            reason,
+        });
+        false
+    };
+    let Some(&bytes) = sim.facts.volume_bytes.get(&layer.volume_id) else {
+        return refuse(Refusal::VolumeMissing);
+    };
+    let cost = sim.cost(bytes);
+    let limit = sim.facts.capacity.limit();
+    if cost > limit {
+        return refuse(Refusal::OversizedRequest);
+    }
+    // What must go so the texture fits; more than its cost when the backend is
+    // already over a budget that shrank.
+    let needed = (sim.used + cost).saturating_sub(limit);
+    if needed > 0 {
+        let Some(victims) = sim.victims_for(needed) else {
+            let reason = if sim.evictable() + sim.pinned_reserve() >= needed {
+                Refusal::HeldByPinned
+            } else {
+                Refusal::FrontExceedsBudget
+            };
+            return refuse(reason);
+        };
+        sim.commit(&victims);
+        plan.evict.extend(victims);
+    }
+    sim.used += cost;
+    sim.keep.insert(key.to_owned());
+    plan.admit.push(Admission {
+        layer_id: layer.layer_id.clone(),
+        key: key.to_owned(),
+        cost,
+    });
+    true
 }
 
 #[cfg(test)]
@@ -731,6 +758,7 @@ mod tests {
                     epoch: Epoch(self.epoch),
                     priority,
                     layers: layers.to_vec(),
+                    held: Vec::new(),
                     last_front_at,
                 },
             );
@@ -1051,11 +1079,104 @@ mod tests {
 
         // A time-series volume's layers draw only their own residency.
         world.facts().time_series_volumes.insert(volumes[0].clone());
-        let demand = world.ledger.get(&FrameId::new("tab")).unwrap().clone();
-        let set = draw_set(&demand, &world.backend.facts());
-        // copy0 now needs a 14th texture and is skipped; copy1 still shares v01.
-        assert_eq!(set.over_cap, [13]);
-        assert_eq!(set.drawn[13], (14, "v01".to_string()));
+        // copy0 now needs a 14th texture and is refused; copy1 still shares v01
+        // and draws, which leaves room for copy3's row.
+        world.volume("copy0", KIB, None);
+        let plan = world.plan_frame("tab");
+        assert_eq!(refused(&plan, Refusal::DrawCap), ["copy0"]);
+        assert!(plan.admit.is_empty());
+    }
+
+    #[test]
+    fn upload_for_a_volume_layer_serves_later_layers_of_that_volume() {
+        let mut world = World::bytes(1024 * KIB);
+        let volumes = names("v", 13);
+        for id in &volumes {
+            world.volume(id, KIB, None);
+        }
+        // Nothing resident: v00's upload is keyed v00, so `copy` draws it.
+        let mut layers = own(&refs(&volumes));
+        layers.push(DemandedLayer::new("copy", "v00"));
+        let now = world.clock.now();
+        world.frame("tab", Priority::Front, now, &layers);
+        let plan = world.plan_frame("tab");
+        assert_eq!(admitted(&plan), volumes);
+        assert!(plan.refuse.is_empty());
+
+        // One upload, not two, for a volume shown twice.
+        world.frame(
+            "tab",
+            Priority::Front,
+            now,
+            &[
+                DemandedLayer::new("v05", "v05"),
+                DemandedLayer::new("copy", "v05"),
+            ],
+        );
+        assert_eq!(admitted(&world.plan_frame("tab")), ["v05"]);
+    }
+
+    #[test]
+    fn layer_refused_for_bytes_takes_no_binding() {
+        let mut world = World::bytes(64 * KIB);
+        let layers = names("v", 14);
+        for id in &layers {
+            world.volume(id, KIB, None);
+        }
+        world.volume(&layers[3], 65 * KIB, None);
+        world.front("tab", &refs(&layers));
+        // v03 cannot upload, so it takes no binding and v13 draws in its place.
+        let plan = world.plan_frame("tab");
+        assert_eq!(refused(&plan, Refusal::OversizedRequest), ["v03"]);
+        assert!(refused(&plan, Refusal::DrawCap).is_empty());
+        assert_eq!(plan.admit.len(), 13);
+        assert_eq!(plan.admit[12].layer_id, "v13");
+    }
+
+    #[test]
+    fn hidden_pinned_layer_held_by_its_frame_is_never_evicted() {
+        let mut world = World::bytes(8 * KIB);
+        world
+            .volume("label", 4 * KIB, Some(1))
+            .volume("idle", 4 * KIB, Some(2))
+            .volume("new", 4 * KIB, None);
+        // The editable label is hidden: not drawn, but its session holds it.
+        world.epoch += 1;
+        world.ledger.set(
+            FrameId::new("segmentation:doc-1"),
+            FrameDemand {
+                epoch: Epoch(world.epoch),
+                priority: Priority::Background,
+                layers: Vec::new(),
+                held: vec![DemandedLayer::new("label", "label").pinned(PinReason::EditableDocument)],
+                last_front_at: 0,
+            },
+        );
+        world.front("tab", &["new"]);
+        let plan = world.plan_frame("tab");
+        assert_eq!(evicted_keys(&plan), ["idle"]);
+        assert_eq!(admitted(&plan), ["new"]);
+    }
+
+    #[test]
+    fn front_and_pin_each_protect_on_their_own() {
+        let mut world = World::bytes(8 * KIB);
+        world
+            .volume("studio-layer", 4 * KIB, Some(1))
+            .volume("seg-label", 4 * KIB, Some(1))
+            .volume("new", 4 * KIB, None);
+        // An unpinned Front pane, and a pinned layer of a Background session.
+        world.front("studio:pane-1", &["studio-layer"]);
+        world.frame(
+            "segmentation:doc-1",
+            Priority::Background,
+            0,
+            &[DemandedLayer::new("seg-label", "seg-label").pinned(PinReason::SegmentationSession)],
+        );
+        world.front("tab", &["new"]);
+        let plan = world.plan_frame("tab");
+        assert!(plan.evict.is_empty());
+        assert_eq!(refused(&plan, Refusal::HeldByPinned), ["new"]);
     }
 
     #[test]
@@ -1359,6 +1480,58 @@ mod tests {
         }
     }
 
+    /// The renderer's walk, written out apart from [`draw_set`] and [`plan`]:
+    /// the layer ids that draw and those skipped for capacity, with `resident`
+    /// the textures present. A layer with nothing resident is over capacity
+    /// when the bindings are full, else skipped as a failed upload. Returns `(drawn, over_cap, bound keys)`.
+    fn render(
+        demand: &FrameDemand,
+        facts: &ResidencyFacts,
+        resident: &HashSet<String>,
+    ) -> (Vec<String>, Vec<String>, HashSet<String>) {
+        let (mut drawn, mut over, mut bound) = (Vec::new(), Vec::new(), Vec::<String>::new());
+        for layer in &demand.layers {
+            if drawn.len() >= facts.row_capacity {
+                over.push(layer.layer_id.clone());
+                continue;
+            }
+            let Some(key) = render_key(layer, facts, resident) else {
+                // A full draw skips it before any upload; otherwise it would
+                // upload, and in this after-the-plan world that failed.
+                if bound.len() >= facts.binding_capacity {
+                    over.push(layer.layer_id.clone());
+                }
+                continue;
+            };
+            if !bound.contains(&key) {
+                if bound.len() >= facts.binding_capacity {
+                    over.push(layer.layer_id.clone());
+                    continue;
+                }
+                bound.push(key);
+            }
+            drawn.push(layer.layer_id.clone());
+        }
+        (drawn, over, bound.into_iter().collect())
+    }
+
+    fn render_key(
+        layer: &DemandedLayer,
+        facts: &ResidencyFacts,
+        resident: &HashSet<String>,
+    ) -> Option<String> {
+        if resident.contains(&layer.layer_id) {
+            Some(layer.layer_id.clone())
+        } else if layer.volume_id != layer.layer_id
+            && !facts.time_series_volumes.contains(&layer.volume_id)
+            && resident.contains(&layer.volume_id)
+        {
+            Some(layer.volume_id.clone())
+        } else {
+            None
+        }
+    }
+
     fn check_invariants(
         scenario: usize,
         facts: &ResidencyFacts,
@@ -1367,7 +1540,8 @@ mod tests {
         plan: &Plan,
     ) {
         let context = || format!("scenario {scenario}: {request:?} -> {plan:?}");
-        // Recompute protection from the ledger, independent of the tiers.
+        let before: HashSet<String> = facts.residents.iter().map(|r| r.key.clone()).collect();
+        // Protection, from the renderer's walk over what is resident now.
         let mut protected: HashSet<String> = facts
             .residents
             .iter()
@@ -1375,20 +1549,17 @@ mod tests {
             .map(|r| r.key.clone())
             .collect();
         for (_, demand) in ledger.frames() {
-            for layer in demand.layers.iter().filter(|l| l.pin.is_some()) {
-                protected.insert(residency_key(layer, facts));
+            let pinned = demand.layers.iter().filter(|l| l.pin.is_some());
+            for layer in pinned.chain(&demand.held) {
+                protected.extend(render_key(layer, facts, &before));
             }
             if demand.priority == Priority::Front {
-                protected.extend(
-                    draw_set(demand, facts)
-                        .drawn
-                        .into_iter()
-                        .map(|(_, key)| key),
-                );
+                protected.extend(render(demand, facts, &before).2);
             }
         }
         let mut seen = HashSet::new();
         let mut freed = 0;
+        let mut after = before.clone();
         for victim in &plan.evict {
             assert!(
                 seen.insert(victim.kind.clone()),
@@ -1403,7 +1574,11 @@ mod tests {
                         "evicted protected {key}; {}",
                         context()
                     );
-                    assert!(plan.admit.iter().all(|a| &a.key != key), "{}", context());
+                    assert!(
+                        after.remove(key),
+                        "evicted a missing texture; {}",
+                        context()
+                    );
                 }
                 VictimKind::CachedMember { key, member } => {
                     let resident = facts
@@ -1434,9 +1609,12 @@ mod tests {
                 context()
             );
         }
-        let mut keys = HashSet::new();
         for admission in &plan.admit {
-            assert!(keys.insert(&admission.key), "admitted twice; {}", context());
+            assert!(
+                after.insert(admission.key.clone()),
+                "admitted twice or resident; {}",
+                context()
+            );
             assert!(
                 plan.refuse.iter().all(|r| r.layer_id != admission.layer_id),
                 "admitted and refused; {}",
@@ -1445,16 +1623,41 @@ mod tests {
         }
         if let Request::Frame(frame) = request {
             let demand = ledger.get(frame).expect("frame");
-            let set = draw_set(demand, facts);
+            if demand.priority == Priority::Background {
+                assert_eq!(plan, &Plan::default(), "{}", context());
+                return;
+            }
+            // After the plan, the renderer draws every admitted texture, skips
+            // for capacity exactly the layers refused with DrawCap, and every
+            // layer either draws or is refused.
+            let (drawn, over, bound) = render(demand, facts, &after);
             for admission in &plan.admit {
                 assert!(
-                    set.keys().any(|key| key == admission.key),
-                    "admitted outside the draw set; {}",
+                    bound.contains(&admission.key),
+                    "uploaded but not drawn; {}",
                     context()
                 );
             }
-            if demand.priority == Priority::Background {
-                assert_eq!(plan, &Plan::default(), "{}", context());
+            let draw_cap: Vec<String> = plan
+                .refuse
+                .iter()
+                .filter(|r| r.reason == Refusal::DrawCap)
+                .map(|r| r.layer_id.clone())
+                .collect();
+            assert_eq!(
+                draw_cap,
+                over,
+                "draw-cap refusals differ from the render; {}",
+                context()
+            );
+            for layer in &demand.layers {
+                assert!(
+                    drawn.contains(&layer.layer_id)
+                        || plan.refuse.iter().any(|r| r.layer_id == layer.layer_id),
+                    "{} neither drawn nor refused; {}",
+                    layer.layer_id,
+                    context()
+                );
             }
         }
     }

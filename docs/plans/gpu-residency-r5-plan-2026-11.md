@@ -132,6 +132,13 @@ Over-cap Front layers are refused with `DrawCap` and never cause an eviction.
 
 **Shadow mode** runs whenever the flag is off (§4).
 
+**Carried from the R5a review (2026-11-06):**
+
+- **Hidden pins.** The publisher lists hidden pinned layers, such as a segmentation editable label, in `FrameDemand::held`. The UI never evicts `segmentation.editable-label` layers, visible or not (`LayerEvictionService.ts:51,476`), and `held` keeps that rule.
+- **Render pre-check.** The pre-check (`lib.rs:6642-6648`) falls back to the volume residency without the `!requires_timepoint` exclusion that the main lookup (`lib.rs:6683`) applies. At capacity, a 4D layer whose volume texture is bound allocates its own texture, and only the backstop skips it. Fix this before the draw-cap shadow comparison, or `drawcap_mismatch` reports it.
+- **Pending uploads.** `BridgeTextureBackend` either counts an upload in flight in `used` or lists it as a resident with `upload_in_flight`. `ResidencyFacts` has nowhere else to hold it.
+- **Ledger entries.** Cleared frames keep their epoch for life. That is fine at tab counts; prune them if frame ids ever churn.
+
 **Tests:**
 
 - Rust:
