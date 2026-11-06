@@ -825,3 +825,38 @@ layers evicted and re-uploaded rather than refused, every tab rendering), a
 reopen-after-close check, the UI gates, and hosted lavapipe evidence. Editable
 labels remain an explicit gap: segmentation is not exposed in this build. R5
 starts only after these.
+
+### Native forced-pressure run; the missing redraw fixed — 2026-11-06
+
+**Run** (computer use, Metal, `BRAINFLOW_GPU_RESIDENCY_BUDGET_BYTES=24576`,
+12 textures of the 8×8×8 R32Float fixtures; three tabs of ten layers each,
+30 demanded against 12). Background layers were evicted and re-uploaded, an
+on-screen tab that alone exceeded the budget got a typed 6008 refusal, and
+close/reopen rendered 10/10. But after a tab switch the on-screen tab's last
+frame drew 1–5 of its 10 layers and stayed that way: the UI's eviction
+service uploaded the skipped layers, and the upload changes no ViewState, so
+nothing redrew. Only 25 of 151 frames were complete.
+
+**Fix** (`fix/r4-redraw-after-eviction`). Every upload path already emits
+`layer.gpu.ready`; `ui2/src/services/render/redrawOnLayerReady.ts` redraws the
+orthogonal views (`forceRenderAll`) 32 ms after the last ready layer they
+draw, honouring the render-layer scope. Tests: `redrawOnLayerReady.test.ts`
+(debounce, predicate, the installed wiring against the real view-state store
+and scope). UI gates: vitest 4353 passed (Node 26 needs
+`NODE_OPTIONS=--no-experimental-webstorage`); eslint and `tsc -b` show only
+pre-existing errors (`useServicesInit.ts` any/require; stale generated
+`FrameDiagnostics` fields). **Native rerun:** 13 switches, every one ends
+at 10/10 in all three views; 0 × 6021/6001/ERROR. Evidence:
+`cruft/r4-native/forced-pressure-2026-11-06/` in the main checkout.
+
+**Known, not fixed here:**
+- Layers fill in over ~1–1.5 s after a switch (one eviction per refused
+  upload, one redraw per upload); R5's batched admission addresses it.
+- A release that clears `AllocationFailed` skip marks (`residency/release.rs`)
+  without a UI upload schedules no frame; a front tab that gave up with
+  "slots full" stays partial until the next interaction.
+- Mosaic, Comparison and Studio panes do not listen for `layer.gpu.ready`
+  and can keep a stale frame the same way.
+
+**Still open before R4 is qualified:** hosted lavapipe evidence. Editable
+labels remain an explicit gap.

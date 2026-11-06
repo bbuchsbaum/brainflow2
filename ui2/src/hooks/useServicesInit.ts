@@ -231,6 +231,12 @@ export function useServicesInit() {
             });
         });
 
+        // A layer the views draw became GPU-resident after the frame that
+        // left it out (the budget made room for it): draw them again, since
+        // the ViewState did not change (R4 native forced-pressure run).
+        const { installLayerReadyRedraw } = await import('@/services/render/redrawOnLayerReady');
+        installLayerReadyRedraw(optimizedRenderService);
+
         // The device-pixel ratio changed (an interaction ended, the window
         // moved to another display): redraw the orthogonal views at it.
         // (Pane resizes drop the ratio from FlexibleSlicePanel's observer.)
