@@ -1,6 +1,6 @@
 # R5 implementation plan: backend residency owner
 
-**Status:** draft, awaiting the user's approval (2026-11-06). Nothing below is implemented.
+**Status:** approved by the user with the §9 defaults (2026-11-06). R5a is pure code with no runtime wiring, so it proceeds while R4's open items (§0) close; R5b onward waits for them.
 
 **Parent plan:** `docs/plans/gpu-residency-implementation-2026-11.md`, R5 (§2) and gates (§3).
 **Design:** `docs/plans/gpu-residency-phase3-design-2026-11.md`, increments 1, 3, 4 and 5, applied to bytes.
