@@ -19,8 +19,8 @@ use serde::Serialize;
 use super::demand::{FrameDemand, Millis, Priority};
 use super::manager::{current_service, snapshot, BridgeTextureBackend};
 use super::policy::{
-    draw_set, eviction_candidates, eviction_classes, plan, OrderClass, Plan, Refusal, Request,
-    TextureBackend, Tier, Victim, VictimKind,
+    draw_capped_keys, draw_set, eviction_candidates, eviction_classes, plan, OrderClass, Plan,
+    Refusal, Request, TextureBackend, Tier, Victim, VictimKind,
 };
 use crate::*;
 
@@ -83,6 +83,8 @@ struct Episode {
     classes: HashMap<String, OrderClass>,
     /// Residency keys resident when it opened.
     residents: HashSet<String>,
+    /// Resident keys past a Front frame's draw cap and drawn nowhere (§5).
+    capped: HashSet<String>,
     ui: Vec<ShadowVictim>,
 }
 
@@ -157,8 +159,30 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
     if ui_layers.iter().any(|id| !allowed.contains_key(id)) {
         return "unsafe".into();
     }
+    let mut policy_layers: Vec<&str> = Vec::new();
+    let mut policy_tiers: Vec<u8> = Vec::new();
+    for victim in &episode.policy.evict {
+        policy_tiers.push(victim.tier as u8);
+        if let VictimKind::Layer { key } = &victim.kind {
+            policy_layers.push(key);
+        }
+    }
+    // Plan §5: the policy evicts resident layers a Front frame lists but
+    // cannot draw (past its draw cap); the UI protects every visible layer.
+    // Explained only when every layer the policy picks and the UI did not is
+    // such a layer.
+    let draw_capped = {
+        let extra: Vec<&&str> = policy_layers
+            .iter()
+            .filter(|id| !ui_layers.contains(id))
+            .collect();
+        !extra.is_empty() && extra.iter().all(|id| episode.capped.contains(**id))
+    };
     let policy_refused = !episode.policy.refuse.is_empty();
     if policy_refused == (outcome == Outcome::Admitted) {
+        if !policy_refused && draw_capped {
+            return "expected:draw_cap".into();
+        }
         return "capacity_mismatch".into();
     }
     if policy_refused {
@@ -169,14 +193,6 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
         .iter()
         .filter(|victim| matches!(victim, ShadowVictim::Cached { .. }))
         .count();
-    let mut policy_layers: Vec<&str> = Vec::new();
-    let mut policy_tiers: Vec<u8> = Vec::new();
-    for victim in &episode.policy.evict {
-        policy_tiers.push(victim.tier as u8);
-        if let VictimKind::Layer { key } = &victim.kind {
-            policy_layers.push(key);
-        }
-    }
     let policy_cached = policy_tiers
         .iter()
         .filter(|&&tier| tier == Tier::CachedMember as u8)
@@ -187,16 +203,15 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
     if ui_cached == policy_cached && same(&policy_layers, &ui_layers) {
         return "agree".into();
     }
-    // Picks the policy cannot tell apart: the same ordering class (tier and
+    // Picks the policy cannot tell apart: the same ordering classes (tier and
     // the times it orders by). The policy breaks such ties by residency key,
-    // the UI by its own list order; neither is a different decision.
-    let class_list = |ids: &[&str]| -> Option<Vec<OrderClass>> {
-        let mut list: Vec<OrderClass> = ids
-            .iter()
+    // the UI by its own list order; neither is a different decision. The
+    // counts may differ, since textures differ in size: a tie-break that lands
+    // on a small texture needs a second victim from the same class.
+    let class_list = |ids: &[&str]| -> Option<BTreeSet<OrderClass>> {
+        ids.iter()
             .map(|id| episode.classes.get(*id).copied())
-            .collect::<Option<_>>()?;
-        list.sort();
-        Some(list)
+            .collect::<Option<_>>()
     };
     if ui_cached == policy_cached {
         if let (Some(policy), Some(ui)) = (class_list(&policy_layers), class_list(&ui_layers)) {
@@ -205,13 +220,17 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
             }
         }
     }
-    let mut ui_tiers: Vec<u8> = std::iter::repeat_n(Tier::CachedMember as u8, ui_cached)
+    let ui_tiers: Vec<u8> = std::iter::repeat_n(Tier::CachedMember as u8, ui_cached)
         .chain(ui_layers.iter().map(|id| allowed[id] as u8))
         .collect();
-    ui_tiers.sort_unstable();
-    policy_tiers.sort_unstable();
-    if ui_tiers == policy_tiers {
+    // The same tier, a different pick: both sides went no deeper than the
+    // same tier. Counts can differ, since textures differ in size: one large
+    // victim can free what two small ones do.
+    if ui_tiers.iter().max() == policy_tiers.iter().max() {
         return "benign_lru".into();
+    }
+    if draw_capped {
+        return "expected:draw_cap".into();
     }
     "unexplained".into()
 }
@@ -380,6 +399,7 @@ pub(crate) async fn note_request(
     let policy = plan(&facts, &residency.ledger, now, &request);
     let candidates = eviction_candidates(&facts, &residency.ledger, now);
     let classes = eviction_classes(&facts, &residency.ledger, now);
+    let capped = draw_capped_keys(&facts, &residency.ledger);
     let shadow = &mut residency.shadow;
     shadow.next_ep += 1;
     let episode = Episode {
@@ -392,6 +412,7 @@ pub(crate) async fn note_request(
         candidates,
         classes,
         residents: facts.residents.iter().map(|r| r.key.clone()).collect(),
+        capped,
         ui: Vec::new(),
     };
     shadow.open.push(episode);
@@ -553,7 +574,11 @@ mod tests {
                 })
                 .collect(),
             candidates,
-            residents: ["a", "b", "c", "front"].iter().map(|s| s.to_string()).collect(),
+            residents: ["a", "b", "c", "front", "capped"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            capped: ["capped".to_string()].into_iter().collect(),
             ui: ui
                 .into_iter()
                 .map(|id| ShadowVictim::Layer {
@@ -576,8 +601,19 @@ mod tests {
         assert_eq!(verdict(&lru, Outcome::Admitted), "benign_lru");
         // `c` orders exactly like `a`: the policy cannot tell them apart.
         let c = layer_victim("c", Tier::Undemanded);
-        let tie = episode(vec![a.clone()], vec![a.clone(), b.clone(), c], vec!["c"]);
+        let tie = episode(
+            vec![a.clone()],
+            vec![a.clone(), b.clone(), c.clone()],
+            vec!["c"],
+        );
         assert_eq!(verdict(&tie, Outcome::Admitted), "expected:tie");
+        // Two victims of `a`'s class against one: sizes differ, the class not.
+        let sized = episode(
+            vec![a.clone(), c.clone()],
+            vec![a.clone(), b.clone(), c],
+            vec!["c"],
+        );
+        assert_eq!(verdict(&sized, Outcome::Admitted), "expected:tie");
         let unsafe_pick = episode(vec![a.clone()], candidates.clone(), vec!["front"]);
         assert_eq!(verdict(&unsafe_pick, Outcome::Admitted), "unsafe");
         let failed = episode(vec![a.clone()], candidates.clone(), vec!["a"]);
@@ -589,11 +625,45 @@ mod tests {
         });
         assert_eq!(verdict(&refused, Outcome::Failed), "agree");
         assert_eq!(verdict(&refused, Outcome::Admitted), "capacity_mismatch");
-        let more = episode(vec![a.clone()], candidates, vec!["a", "b"]);
-        assert_eq!(verdict(&more, Outcome::Admitted), "unexplained");
+        // Two victims against one in the same tier: sizes differ, so this is
+        // the same decision made with different picks.
+        let more = episode(vec![a.clone()], candidates.clone(), vec!["a", "b"]);
+        assert_eq!(verdict(&more, Outcome::Admitted), "benign_lru");
+        let fewer = episode(vec![a.clone(), b.clone()], candidates, vec!["b"]);
+        assert_eq!(verdict(&fewer, Outcome::Admitted), "benign_lru");
+        // Going a tier deeper than the other side is a different decision.
+        let bg = layer_victim("c", Tier::BackgroundOnly);
+        let deeper = episode(vec![a.clone()], vec![a.clone(), bg], vec!["c"]);
+        assert_eq!(verdict(&deeper, Outcome::Admitted), "unexplained");
         // A release of something not resident was a no-op.
-        let noop = episode(vec![a], vec![b], vec!["ghost"]);
+        let noop = episode(vec![a.clone()], vec![b.clone()], vec!["ghost"]);
         assert_eq!(verdict(&noop, Outcome::Admitted), "unexplained");
+    }
+
+    #[test]
+    fn policy_picks_past_a_front_draw_cap_are_expected() {
+        let capped = layer_victim("capped", Tier::Undemanded);
+        let a = layer_victim("a", Tier::Undemanded);
+        let bg = layer_victim("b", Tier::BackgroundOnly);
+        let candidates = vec![capped.clone(), a.clone(), bg.clone()];
+        // The policy takes the undrawn capped layer; the UI a background one.
+        let differ = episode(vec![capped.clone()], candidates.clone(), vec!["b"]);
+        assert_eq!(verdict(&differ, Outcome::Admitted), "expected:draw_cap");
+        // The UI found no room, the policy did, from the capped layer alone.
+        let refused = episode(vec![capped.clone()], candidates.clone(), Vec::new());
+        assert_eq!(verdict(&refused, Outcome::Timeout), "expected:draw_cap");
+        // Any other extra policy pick is still a different decision.
+        let mixed = episode(
+            vec![capped.clone(), a.clone()],
+            candidates.clone(),
+            vec!["b"],
+        );
+        assert_eq!(verdict(&mixed, Outcome::Admitted), "unexplained");
+        let other = episode(vec![a.clone()], candidates.clone(), Vec::new());
+        assert_eq!(verdict(&other, Outcome::Timeout), "capacity_mismatch");
+        // The UI evicting a protected layer is unsafe, capped or not.
+        let unsafe_pick = episode(vec![capped], candidates, vec!["front"]);
+        assert_eq!(verdict(&unsafe_pick, Outcome::Admitted), "unsafe");
     }
 
     #[test]
@@ -624,7 +694,11 @@ mod tests {
         shadow.close("a", Outcome::Admitted);
         assert_eq!(shadow.retrying, None);
         shadow.note_ui_victim(victim("y"));
-        assert_eq!(ui(&shadow, "b"), Some(0), "b has not been refused again yet");
+        assert_eq!(
+            ui(&shadow, "b"),
+            Some(0),
+            "b has not been refused again yet"
+        );
     }
 
     #[test]

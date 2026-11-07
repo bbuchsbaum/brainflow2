@@ -626,6 +626,27 @@ pub(crate) fn eviction_candidates(
     .ordered_victims()
 }
 
+/// Resident keys that some Front frame lists but cannot draw: past its binding
+/// or row capacity, and drawn by no frame and pinned by none (plan §5). The
+/// policy neither protects nor uploads them; the UI protects every visible
+/// layer. The shadow comparison (R5b) uses this to explain that difference.
+pub(crate) fn draw_capped_keys(facts: &ResidencyFacts, ledger: &DemandLedger) -> HashSet<String> {
+    let holders = holders(ledger, facts);
+    let mut capped = HashSet::new();
+    for (_, demand) in ledger.frames() {
+        if demand.priority != Priority::Front {
+            continue;
+        }
+        for &index in &draw_set(demand, facts).over_cap {
+            let key = residency_key(&demand.layers[index], facts, &[]);
+            if !holders.drawn.contains(&key) && !holders.pinned.contains(&key) {
+                capped.insert(key);
+            }
+        }
+    }
+    capped
+}
+
 /// A layer victim's place in the eviction order, without the residency key
 /// that breaks ties: tier, recently in front, `last_front_at`, `last_drawn`.
 pub(crate) type OrderClass = (Tier, bool, Millis, Millis);
@@ -1000,7 +1021,10 @@ mod tests {
             &["a-drawn-late", "z-drawn-early", "m-drawn-mid"],
         );
         world.front("tab-new", &["new"]);
-        assert_eq!(evicted_keys(&world.plan_frame("tab-new")), ["z-drawn-early"]);
+        assert_eq!(
+            evicted_keys(&world.plan_frame("tab-new")),
+            ["z-drawn-early"]
+        );
         let facts = world.backend.facts();
         let classes = eviction_classes(&facts, &world.ledger, world.clock.now());
         assert_ne!(classes["a-drawn-late"], classes["z-drawn-early"]);
@@ -1134,6 +1158,34 @@ mod tests {
         let plan = world.plan_layer(&layers[13]);
         assert!(plan.evict.is_empty());
         assert_eq!(refused(&plan, Refusal::DrawCap), [layers[13].clone()]);
+    }
+
+    #[test]
+    fn resident_layers_past_a_front_frames_draw_cap_are_undemanded_victims() {
+        let mut world = World::bytes(15 * KIB);
+        let layers = names("v", 15);
+        for id in &layers {
+            world.volume(id, KIB, Some(1));
+        }
+        world.front("tab", &refs(&layers));
+        let facts = world.backend.facts();
+        // Layers 14 and 15 are resident but past the binding capacity: not
+        // drawn, so neither protected nor background, but listed as capped.
+        let capped = draw_capped_keys(&facts, &world.ledger);
+        assert_eq!(capped, layers[13..].iter().cloned().collect::<HashSet<_>>());
+        let candidates = eviction_candidates(&facts, &world.ledger, world.clock.now());
+        let keys: HashSet<String> = candidates
+            .iter()
+            .filter_map(|victim| match &victim.kind {
+                VictimKind::Layer { key } if victim.tier == Tier::Undemanded => Some(key.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(keys, capped);
+        // A capped layer that another Front frame draws is not capped.
+        world.front("other", &refs(&layers[14..]));
+        let capped = draw_capped_keys(&world.backend.facts(), &world.ledger);
+        assert_eq!(capped, [layers[13].clone()].into_iter().collect());
     }
 
     #[test]
