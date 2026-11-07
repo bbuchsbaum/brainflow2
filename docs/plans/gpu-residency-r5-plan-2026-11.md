@@ -494,3 +494,42 @@ Commits: `b73c2921` (these notes) through `b24739d2`, on `feat/r5c-backend-resid
 - **Open:** a segmentation started on the 4D series stayed at "Preparing the loaded reference…" with no bridge activity. This is not yet checked against R5b, so it may predate R5c.
 
 **Next.** R5d (rings from the global pool), then R6. Before R6 deletes the UI path, the flag-on native check should be repeated once at the merged state.
+
+### R5d record — 2026-11-07
+
+Commits `b711b2e2`, `5bbfa56a` and `7e294ca7`, on `feat/r5d-ring-pool`, stacked on R5c.
+
+**What it does.** Under the owner with a byte budget (`residency/ring_pool.rs`):
+- **No fixed cap.** A 4D ring has no six-member cap and no per-ring budget.
+- **Growth.** A ring takes one more texture, for the requested member or a prefetch, only while both of these hold:
+  - the free bytes after it stay at or above the headroom: the larger of the largest demanded primary and 5% of the budget;
+  - its cached members stay within its share.
+- **Share.** The share is the Front rings' slack (free bytes plus what their cached members hold, less the headroom), divided equally among them.
+- **Rebalancing.** Each swap trims the other Front rings back to the share. The swapping ring is trimmed too, once its new member is shown.
+- **Shrink.** Rings that only unpinned Background frames demand are shrunk to their displayed member whenever demand changes.
+
+**Design changes.**
+- **What counts as front.** A pinned layer (a studio pane, drawn though its frame is Background) and a layer no frame lists yet count as front. "Front" therefore means "not behind" rather than "listed by a Front frame".
+- **Trim order.** Trimming frees the cached member farthest from the displayed one. LRU would take the member just shown, because prefetched neighbours are touched after it.
+- **Allocate before release.** No release happens on a member change. A miss either uploads the new member into a fresh texture, with the old one still resident, or, with no room to grow, overwrites the ring's own least recently used texture in place.
+- **Unchanged paths.** The legacy release-then-re-upload path stays only for the fallback cases: the ring disabled, a 3-D volume, or a repoint failure.
+- **Closing a tab.** It asks for an admission on the next tick.
+
+**Review (fresh context).** It found no lock-order problem, no flag-off change and no path that frees a displayed member. Its findings:
+- Fixed: rings did not really share the slack (a ring gave back its excess only on its own swap); pinned and unlisted layers were treated as behind; the trim freed the member just shown; closing a tab did not admit.
+- Not fixed, test-only: a ring keeps the mode it was created in if the owner flips at runtime. The flag is read once.
+
+**Gates.**
+- `cargo test -p api-bridge -p render_loop`: 966 passed, 0 failed.
+- Clippy `-D warnings` and fmt are clean.
+- The UI is unchanged.
+- New tests: `prefetch_stops_at_headroom`, `front_rings_share_slack` (static: `a` never swaps again), `background_ring_shrinks_to_displayed_member` (with a pinned studio pane that keeps its ring), `displayed_member_never_reclaimed`, `member_swap_allocates_before_release` (both branches), and `growth_keeps_headroom_and_the_share`.
+- Each R5d test except `displayed_member_never_reclaimed` was mutation-checked: removing the growth gate, the shrink, the cross-ring trim or the pin rule makes it fail.
+
+**Native check, flag on** (24 KiB budget, at `7e294ca7`):
+- Step 7: the 6-frame series loads and steps 1→6→1, ten timepoint changes in all.
+- Frame 1 reads the same value at the crosshair as at load.
+- The log has no warnings or errors and no "Re-uploading 4D" line. Its only extraction is the initial load, so every step was a ring swap.
+- **Not checked:** the switch away and back (opening a second tab needs full-screen control, which timed out); the Diagnostics byte count (a pop-up the background tools cannot open). Both should be part of the repeat native check before R6.
+
+**Next.** R6. First repeat the flag-on native check (§8) at the merged state, including the tab switch with a 4D tab and the R5c alert fix.
