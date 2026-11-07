@@ -183,6 +183,14 @@ pub trait RingExecutor {
         true
     }
 
+    /// Whether a ring holding `resident` members may take one more texture.
+    /// By default whenever a fresh slot is free; the global pool (R5d) also
+    /// keeps headroom and the ring's share of the slack.
+    fn may_grow(&self, resident: usize) -> bool {
+        let _ = resident;
+        self.can_admit_new()
+    }
+
     /// Upload `member` into a brand-new texture slot; return its texture index.
     fn admit_new(&mut self, member: usize) -> BridgeResult<u32>;
 
@@ -300,7 +308,7 @@ impl ResidentRing {
             });
         }
 
-        if self.slots.len() < self.capacity() && exec.can_admit_new() {
+        if self.slots.len() < self.capacity() && exec.may_grow(self.slots.len()) {
             match exec.admit_new(member) {
                 Ok(texture_index) => {
                     let pos = self.slots.len();
@@ -369,7 +377,7 @@ impl ResidentRing {
                 if cand >= member_count || self.member_pos.contains_key(&cand) {
                     continue;
                 }
-                if self.slots.len() >= self.capacity() || !exec.can_admit_new() {
+                if self.slots.len() >= self.capacity() || !exec.may_grow(self.slots.len()) {
                     return Ok(admitted); // no free capacity left; stop.
                 }
                 let texture_index = match exec.admit_new(cand) {
@@ -505,6 +513,9 @@ pub struct ResidentImageSet {
     /// and reclaim release through these, so a slot the ring no longer owns
     /// (released elsewhere, then refilled) is never freed from here.
     handles: HashMap<u32, SlotHandle>,
+    /// What the ring may take from the global pool for the next swap (R5d,
+    /// backend owner); `None` grows into any free slot, up to the fixed cap.
+    growth: Option<crate::residency::RingGrowth>,
 }
 
 impl ResidentImageSet {
@@ -530,7 +541,54 @@ impl ResidentImageSet {
             current_member: seed_member,
             preserve_labels,
             handles: HashMap::from([(seed_slot.index(), seed_slot)]),
+            growth: None,
         }
+    }
+
+    /// Set what the ring may take from the global pool (R5d).
+    pub(crate) fn set_growth(&mut self, growth: Option<crate::residency::RingGrowth>) {
+        self.growth = growth;
+    }
+
+    /// Texture bytes of the displayed member, when it is resident here.
+    pub fn displayed_bytes(&self, service: &render_loop::RenderLoopService) -> Option<u64> {
+        let index = self.ring.slot_of(self.current_member)?;
+        let handle = self.handle_of(index)?;
+        service
+            .is_slot_current(handle)
+            .then(|| texture_bytes(service, index))
+    }
+
+    /// Texture bytes the cached (not displayed) members hold.
+    pub fn cached_bytes(&self, service: &render_loop::RenderLoopService) -> u64 {
+        self.ring
+            .resident_members()
+            .into_iter()
+            .filter(|&member| member != self.current_member)
+            .filter_map(|member| self.ring.slot_of(member))
+            .filter(|index| {
+                self.handle_of(*index)
+                    .is_some_and(|handle| service.is_slot_current(handle))
+            })
+            .map(|index| texture_bytes(service, index))
+            .sum()
+    }
+
+    /// Free least recently used cached members until the cached ones hold at
+    /// most `bytes`; the displayed member stays. Returns how many it freed.
+    pub(crate) fn trim_cached_to(
+        &mut self,
+        bytes: u64,
+        service: &mut render_loop::RenderLoopService,
+    ) -> usize {
+        let mut freed = 0;
+        while self.cached_bytes(service) > bytes {
+            if self.release_cached_lru(service).is_none() {
+                break;
+            }
+            freed += 1;
+        }
+        freed
     }
 
     /// The residency the ring holds at `texture_index`, if any.
@@ -634,6 +692,7 @@ impl ResidentImageSet {
             set: &*self.set,
             preserve_labels: self.preserve_labels,
             handles: &mut self.handles,
+            growth: self.growth,
         };
         self.ring.ensure_resident(member, &mut exec)
     }
@@ -653,6 +712,7 @@ impl ResidentImageSet {
             set: &*self.set,
             preserve_labels: self.preserve_labels,
             handles: &mut self.handles,
+            growth: self.growth,
         };
         self.ring.prefetch(center, radius, member_count, &mut exec)
     }
@@ -695,11 +755,35 @@ pub struct RenderServiceExecutor<'a> {
     pub preserve_labels: bool,
     /// The ring's slot accounts; a fresh upload records its residency here.
     pub handles: &'a mut HashMap<u32, SlotHandle>,
+    /// The ring's take from the global pool (R5d); `None`: any free slot.
+    pub growth: Option<crate::residency::RingGrowth>,
+}
+
+/// Texture bytes the store charges for `index`.
+fn texture_bytes(service: &render_loop::RenderLoopService, index: u32) -> u64 {
+    service
+        .multi_texture_manager
+        .as_ref()
+        .map_or(0, |manager| manager.slot_bytes(index))
 }
 
 impl RingExecutor for RenderServiceExecutor<'_> {
     fn can_admit_new(&self) -> bool {
         self.service.has_free_volume_resident_id()
+    }
+
+    fn may_grow(&self, resident: usize) -> bool {
+        if !self.can_admit_new() {
+            return false;
+        }
+        let Some(growth) = self.growth else {
+            return true;
+        };
+        // Live: an upload earlier in this swap has already taken its bytes.
+        match self.service.residency_metrics().free_bytes {
+            Some(free) => growth.allows(resident, free),
+            None => true,
+        }
     }
 
     fn admit_new(&mut self, member: usize) -> BridgeResult<u32> {

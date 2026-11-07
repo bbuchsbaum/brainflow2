@@ -879,6 +879,17 @@ pub(crate) async fn try_resident_swap(
         return Ok(None);
     }
 
+    // Under the backend owner with a byte budget, the ring draws from the
+    // global pool (R5d): no fixed member cap, growth bounded by headroom and
+    // the ring's share of the slack. Demand is read before the ring lock.
+    let pool = if bridge_state.residency.backend_owner()
+        && service.residency_metrics().budget_bytes.is_some()
+    {
+        Some(pool_demand(bridge_state, service).await)
+    } else {
+        None
+    };
+
     let mut sets = bridge_state.resident_image_sets.lock().await;
 
     if !sets.contains_key(layer_id) {
@@ -909,23 +920,36 @@ pub(crate) async fn try_resident_swap(
             return Ok(None);
         }
         let seed_slot = current;
+        let (max_slots, budget_bytes) = if pool.is_some() {
+            (usize::MAX, u64::MAX)
+        } else {
+            (RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_BUDGET_BYTES)
+        };
         let resident = image_set::ResidentImageSet::new(
             Box::new(set),
             seed_member,
             seed_slot,
-            RESIDENT_RING_MAX_SLOTS,
-            RESIDENT_RING_BUDGET_BYTES,
+            max_slots,
+            budget_bytes,
             preserve_labels,
         );
         sets.insert(layer_id.to_string(), resident);
     }
 
+    let growth = pool
+        .as_ref()
+        .and_then(|demand| ring_growth(layer_id, demand, &sets, service));
+
     // Phase 1: make the requested member resident (may upload once on a miss).
+    // A miss uploads the new member into a fresh texture while the shown one
+    // stays resident, or, with no room to grow, overwrites the ring's least
+    // recently used member in place: never a release before the upload.
     let outcome = {
         let resident = sets.get_mut(layer_id).expect("resident set inserted above");
         if requested_member >= resident.member_count() {
             return Ok(None);
         }
+        resident.set_growth(growth);
         resident.ensure_member(requested_member, service)?
     };
     // The residency the layer will show; the ring recorded it with the upload
@@ -986,6 +1010,11 @@ pub(crate) async fn try_resident_swap(
     {
         let resident = sets.get_mut(layer_id).expect("resident set present");
         resident.current_member = requested_member;
+        // A ring past its share of the slack gives the rest back (R5d), so
+        // the first ring to prefetch does not keep the others' share.
+        if let Some(growth) = growth {
+            resident.trim_cached_to(growth.share, service);
+        }
         if let Err(e) =
             resident.prefetch_around(requested_member, RESIDENT_RING_PREFETCH_RADIUS, service)
         {

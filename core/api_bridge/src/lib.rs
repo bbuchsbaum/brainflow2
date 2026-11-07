@@ -15384,6 +15384,229 @@ mod tests {
         assert_eq!(report.seq, 0, "any real report supersedes it");
     }
 
+    // --- R5d: rings from the global pool ---
+
+    /// A 4×4×4 series of `members` timepoints; member `t` peaks at `t + 1.5`,
+    /// so a slot's data range names the member it holds. Each fits R16Float:
+    /// 128 B per member.
+    fn series_volume(members: usize) -> VolumeSendable {
+        let space = NeuroSpace::new(
+            vec![4, 4, 4, members],
+            Some(vec![1.0; 4]),
+            Some(vec![0.0; 4]),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut series = DenseNeuroVec::zeros(space).unwrap();
+        for t in 0..members {
+            series.data[[1, 2, 3, t]] = t as f32 + 1.5;
+        }
+        VolumeSendable::Vec4DF32(series)
+    }
+
+    /// A bridge owned by the backend with a byte budget of `members_fit`
+    /// 128-byte textures and 8-member series `ids`, all in one Front frame.
+    async fn owned_series_state(
+        members_fit: u64,
+        ids: &[&str],
+    ) -> (BridgeState, Arc<Mutex<render_loop::RenderLoopService>>) {
+        let (state, service) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::ByteBudget {
+                budget_bytes: members_fit * 128,
+            })
+            .await;
+        for id in ids {
+            state.volume_registry.lock().await.insert(
+                (*id).into(),
+                series_volume(8),
+                volume_metadata_for(id, "f32", bridge_types::VolumeType::TimeSeries4D),
+            );
+        }
+        state.residency.set_backend_owner(true);
+        let pairs: Vec<(&str, &str)> = ids.iter().map(|id| (*id, *id)).collect();
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(1, ResidencyPriority::Front, &pairs),
+        )
+        .await;
+        for id in ids {
+            assert!(mapped_handle(&state, id).await.is_some(), "{id} uploaded");
+        }
+        (state, service)
+    }
+
+    /// Show `member` of series layer `id` (layer and volume share the id).
+    async fn show_member(
+        state: &BridgeState,
+        service: &Arc<Mutex<RenderLoopService>>,
+        id: &str,
+        member: usize,
+    ) -> SlotHandle {
+        let shown = mapped_handle(state, id).await.expect("mapped");
+        let cached = state
+            .layer_to_timepoint_map
+            .lock()
+            .await
+            .get(id)
+            .copied()
+            .flatten();
+        let mut renderer = service.lock().await;
+        try_resident_swap(id, id, shown, cached, member, state, &mut renderer)
+            .await
+            .unwrap()
+            .expect("resident swap")
+    }
+
+    async fn ring_members(state: &BridgeState, id: &str) -> Vec<usize> {
+        let sets = state.resident_image_sets.lock().await;
+        let mut members = sets.get(id).expect("ring").ring.resident_members();
+        members.sort_unstable();
+        members
+    }
+
+    async fn free_bytes(service: &Arc<Mutex<RenderLoopService>>) -> u64 {
+        service.lock().await.residency_metrics().free_bytes.unwrap()
+    }
+
+    #[tokio::test]
+    async fn prefetch_stops_at_headroom() {
+        // Four textures fit; the headroom is one 128-byte primary (5% of 512
+        // is less). Member 0 shows; 1 is requested; prefetching 2 leaves 128
+        // free, and 3 would leave none.
+        let (state, service) = owned_series_state(4, &["s"]).await;
+        show_member(&state, &service, "s", 1).await;
+        assert_eq!(ring_members(&state, "s").await, [0, 1, 2]);
+        assert_eq!(free_bytes(&service).await, 128);
+    }
+
+    #[tokio::test]
+    async fn front_rings_share_slack() {
+        // Eight textures fit, headroom 128. `a` prefetches first and takes
+        // more than half the slack; once `b` has a ring, `a`'s next swap
+        // gives back what is past its share and both hold the same.
+        let (state, service) = owned_series_state(8, &["a", "b"]).await;
+        show_member(&state, &service, "a", 1).await;
+        assert_eq!(ring_members(&state, "a").await, [0, 1, 2, 3]);
+        show_member(&state, &service, "b", 1).await;
+        assert_eq!(ring_members(&state, "b").await, [0, 1, 2]);
+
+        show_member(&state, &service, "a", 2).await;
+        assert_eq!(ring_members(&state, "a").await, [1, 2, 3]);
+        assert_eq!(ring_members(&state, "b").await.len(), 3);
+        assert!(free_bytes(&service).await >= 128, "the headroom stays free");
+    }
+
+    #[tokio::test]
+    async fn background_ring_shrinks_to_displayed_member() {
+        let (state, service) = owned_series_state(8, &["s"]).await;
+        let shown = show_member(&state, &service, "s", 1).await;
+        assert!(ring_members(&state, "s").await.len() > 1);
+
+        // The tab goes behind another.
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(2, ResidencyPriority::Background, &[("s", "s")]),
+        )
+        .await;
+        assert_eq!(ring_members(&state, "s").await, [1]);
+        let renderer = service.lock().await;
+        assert!(
+            renderer.is_slot_current(shown),
+            "the displayed member stays"
+        );
+        assert_eq!(
+            renderer.get_volume_data_range(shown.index()),
+            Some((0.0, 2.5))
+        );
+        assert_eq!(renderer.residency_metrics().used_bytes, 128);
+    }
+
+    #[tokio::test]
+    async fn displayed_member_never_reclaimed() {
+        // Four textures fit and `s` caches two members; four more front
+        // layers come: one fits, two take the cached ones, and the last is refused
+        // rather than take the member `s` shows.
+        let (state, service) = owned_series_state(4, &["s"]).await;
+        let shown = show_member(&state, &service, "s", 1).await;
+        assert_eq!(ring_members(&state, "s").await, [0, 1, 2]);
+        for id in ["c", "d", "e", "f"] {
+            insert_small_volume(&state, id, [4, 4, 4]).await;
+        }
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(
+                2,
+                ResidencyPriority::Front,
+                &[
+                    ("s", "s"),
+                    ("c", "c"),
+                    ("d", "d"),
+                    ("e", "e"),
+                    ("f", "f"),
+                ],
+            ),
+        )
+        .await;
+        assert_eq!(ring_members(&state, "s").await, [1]);
+        let report = residency_state_report(&state).await.unwrap();
+        let resident = ["c", "d", "e", "f"]
+            .into_iter()
+            .filter(|id| state_of(&report, id) == Some(ResidencyLayerState::Resident))
+            .count();
+        assert_eq!(resident, 3, "{report:?}");
+        assert_eq!(state_of(&report, "s"), Some(ResidencyLayerState::Resident));
+        let renderer = service.lock().await;
+        assert!(renderer.is_slot_current(shown));
+        assert_eq!(
+            renderer.get_volume_data_range(shown.index()),
+            Some((0.0, 2.5))
+        );
+    }
+
+    #[tokio::test]
+    async fn member_swap_allocates_before_release() {
+        // With room, the new member gets its own texture and the old one is
+        // still resident when the layer moves to it.
+        let (state, service) = owned_series_state(8, &["s"]).await;
+        let before = mapped_handle(&state, "s").await.unwrap();
+        let shown = show_member(&state, &service, "s", 1).await;
+        assert_ne!(shown.index(), before.index());
+        {
+            let renderer = service.lock().await;
+            assert!(renderer.is_slot_current(before), "member 0 still resident");
+            assert_eq!(
+                renderer.get_volume_data_range(shown.index()),
+                Some((0.0, 2.5))
+            );
+        }
+
+        // With no room past the headroom, the swap writes the member into the
+        // ring's own texture in place: nothing is released, nothing allocated.
+        let (state, service) = owned_series_state(2, &["t"]).await;
+        let before = mapped_handle(&state, "t").await.unwrap();
+        let (count, used) = {
+            let renderer = service.lock().await;
+            (
+                renderer.resident_volume_slot_count(),
+                renderer.residency_metrics().used_bytes,
+            )
+        };
+        let shown = show_member(&state, &service, "t", 1).await;
+        assert_eq!(shown, before);
+        let renderer = service.lock().await;
+        assert!(renderer.is_slot_current(before));
+        assert_eq!(renderer.resident_volume_slot_count(), count);
+        assert_eq!(renderer.residency_metrics().used_bytes, used);
+        assert_eq!(
+            renderer.get_volume_data_range(shown.index()),
+            Some((0.0, 2.5))
+        );
+    }
+
     #[tokio::test]
     async fn render_pressure_defers_to_manager_and_clears_skip() {
         let (state, service) = owned_two_texture_state(&["x", "y", "a"]).await;

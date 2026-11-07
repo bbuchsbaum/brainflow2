@@ -27,6 +27,7 @@ use super::policy::{
     draw_set, residency_key, CachedMember, Capacity, Refusal, ResidencyFacts, ResidentFacts,
     TextureBackend,
 };
+use super::ring_pool::shrink_background_rings;
 use super::shadow::ShadowLedger;
 use crate::*;
 
@@ -235,6 +236,14 @@ impl Residency {
     pub(crate) fn set_backend_owner(&self, owner: bool) {
         self.backend_owner
             .store(owner, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Texture bytes earlier uploads took, by volume id (R5d's headroom).
+    pub(crate) fn known_texture_bytes(&self) -> HashMap<String, u64> {
+        self.texture_bytes
+            .lock()
+            .map(|known| known.clone())
+            .unwrap_or_default()
     }
 
     /// Who owns eviction, for the report.
@@ -626,8 +635,10 @@ pub(crate) async fn set_residency_demand_with(
             .set_demand(FrameId::new(frame_id), demand, now);
     let applied = outcome == LedgerOutcome::Applied;
     // The backend owner (R5c) admits for the new demand before answering, so
-    // a tab switch uploads the new front tab's layers without a UI pass.
+    // a tab switch uploads the new front tab's layers without a UI pass. A
+    // ring the switch moved behind gives back its cached members first (R5d).
     if applied && state.residency.backend_owner() {
+        shrink_background_rings(state).await;
         admit(state, AdmitTarget::Fronts).await;
     }
     ResidencyDemandResult { applied }
@@ -646,9 +657,12 @@ pub(crate) async fn clear_residency_demand_with(
         .lock()
         .await
         .clear_demand(&FrameId::new(frame_id), epoch);
-    ResidencyDemandResult {
-        applied: outcome == LedgerOutcome::Applied,
+    let applied = outcome == LedgerOutcome::Applied;
+    // The closed tab's rings keep only their displayed members (R5d).
+    if applied {
+        shrink_background_rings(state).await;
     }
+    ResidencyDemandResult { applied }
 }
 
 /// The current service, cloned out of its slot.
