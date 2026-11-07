@@ -548,12 +548,13 @@ pub(crate) async fn set_residency_demand_with(
     demand: ResidencyFrameDemand,
 ) -> ResidencyDemandResult {
     let now = state.residency.now();
-    let outcome = state
-        .residency
-        .state
-        .lock()
-        .await
-        .set_demand(FrameId::new(frame_id), demand, now);
+    let outcome =
+        state
+            .residency
+            .state
+            .lock()
+            .await
+            .set_demand(FrameId::new(frame_id), demand, now);
     ResidencyDemandResult {
         applied: outcome == LedgerOutcome::Applied,
     }
@@ -649,7 +650,11 @@ pub(crate) async fn residency_state_report(state: &BridgeState) -> BridgeResult<
 /// of time are closed.
 pub(crate) async fn residency_tick(state: &BridgeState) -> Option<ResidencyReport> {
     let now = state.residency.now();
-    state.residency.state.lock().await.shadow.expire(now);
+    {
+        let mut residency = state.residency.state.lock().await;
+        let residency = &mut *residency;
+        residency.shadow.expire(&residency.ledger, now);
+    }
     report(state, false, true).await
 }
 

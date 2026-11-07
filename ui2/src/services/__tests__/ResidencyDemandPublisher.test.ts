@@ -278,6 +278,27 @@ describe('ResidencyDemandPublisher', () => {
     expect(epochs[1]).toBe(epochs[0] + 1);
   });
 
+  it('publishes within the settle window of the first change, however often stores change', () => {
+    vi.useFakeTimers();
+    try {
+      scene(TAB_A, [{ id: 'a1' }]);
+      const publisher = new ResidencyDemandPublisher(getTransport, 16);
+      const tabA = () => sent('set_residency_demand').filter((args) => args.frameId === TAB_A);
+      // A store changing every 5 ms (an upload storm) must not hold demand back.
+      for (let elapsed = 0; elapsed < 15; elapsed += 5) {
+        publisher.schedule();
+        vi.advanceTimersByTime(5);
+      }
+      expect(tabA()).toHaveLength(0);
+      publisher.schedule();
+      vi.advanceTimersByTime(1);
+      expect(tabA()).toHaveLength(1);
+      publisher.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('starts epochs above any an earlier session sent, and clears its leftover frames', () => {
     scene(TAB_A, [{ id: 'a1' }]);
     const before = Date.now() * 1000;
@@ -295,11 +316,19 @@ describe('ResidencyDemandPublisher', () => {
       binding_capacity: 13,
       undemanded_bytes: 0,
       layers: [
-        { layer_id: 'a1', state: 'resident', bytes: 1, frames: [TAB_A, 'orthogonal-gone'], refusal: null },
+        {
+          layer_id: 'a1',
+          state: 'resident',
+          bytes: 1,
+          frames: [TAB_A, 'orthogonal-gone'],
+          refusal: null,
+        },
         { layer_id: 'old', state: 'resident', bytes: 1, frames: ['studio-panes'], refusal: null },
       ],
     });
-    const cleared = sent('clear_residency_demand').map((args) => args.frameId).sort();
+    const cleared = sent('clear_residency_demand')
+      .map((args) => args.frameId)
+      .sort();
     expect(cleared).toEqual(['orthogonal-gone', 'studio-panes']);
     for (const args of sent('clear_residency_demand')) {
       expect(args.epoch as number).toBeGreaterThan(before);

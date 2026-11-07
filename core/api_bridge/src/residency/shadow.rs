@@ -16,11 +16,12 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use serde::Serialize;
 
+use super::demand::DemandLedger;
 use super::demand::{FrameDemand, Millis, Priority};
 use super::manager::{current_service, snapshot, BridgeTextureBackend};
 use super::policy::{
-    draw_capped_keys, draw_set, eviction_candidates, eviction_classes, plan, OrderClass, Plan,
-    Refusal, Request, TextureBackend, Tier, Victim, VictimKind,
+    draw_capped_keys, draw_set, eviction_candidates, eviction_classes, plan, unlisted_keys,
+    OrderClass, Plan, Refusal, Request, ResidencyFacts, TextureBackend, Tier, Victim, VictimKind,
 };
 use crate::*;
 
@@ -83,8 +84,15 @@ struct Episode {
     classes: HashMap<String, OrderClass>,
     /// Residency keys resident when it opened.
     residents: HashSet<String>,
-    /// Resident keys past a Front frame's draw cap and drawn nowhere (§5).
+    /// Resident keys past a frame's draw cap and drawn nowhere (§5).
     capped: HashSet<String>,
+    /// Resident keys no frame lists, such as a closed tab's (§6).
+    unlisted: HashSet<String>,
+    /// The snapshot the policy planned from, to recheck the UI's picks
+    /// against newer demand when the episode closes.
+    facts: ResidencyFacts,
+    /// Layer victims allowed under the demand current at close.
+    late_allowed: HashSet<String>,
     ui: Vec<ShadowVictim>,
 }
 
@@ -156,7 +164,20 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
             _ => None,
         })
         .collect();
-    if ui_layers.iter().any(|id| !allowed.contains_key(id)) {
+    let protected: Vec<&&str> = ui_layers
+        .iter()
+        .filter(|id| !allowed.contains_key(**id))
+        .collect();
+    if !protected.is_empty() {
+        // The UI acts for a tab switch before its new demand reaches the
+        // backend. A pick the demand current at close allows was made for
+        // demand the policy had not seen yet; anything else is unsafe.
+        if protected
+            .iter()
+            .all(|id| episode.late_allowed.contains(**id))
+        {
+            return "expected:demand_lag".into();
+        }
         return "unsafe".into();
     }
     let mut policy_layers: Vec<&str> = Vec::new();
@@ -167,21 +188,45 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
             policy_layers.push(key);
         }
     }
-    // Plan §5: the policy evicts resident layers a Front frame lists but
-    // cannot draw (past its draw cap); the UI protects every visible layer.
-    // Explained only when every layer the policy picks and the UI did not is
-    // such a layer.
-    let draw_capped = {
+    // Layers the policy picks and the UI did not, when all of them are drawn
+    // by no frame: past a frame's draw cap (§5), which the policy neither
+    // protects nor uploads while the UI keeps every visible layer; or listed
+    // by no frame (§6), which the policy evicts first and the UI does not.
+    let undrawn = {
         let extra: Vec<&&str> = policy_layers
             .iter()
             .filter(|id| !ui_layers.contains(id))
             .collect();
-        !extra.is_empty() && extra.iter().all(|id| episode.capped.contains(**id))
+        if extra.is_empty() {
+            None
+        } else if extra.iter().all(|id| episode.capped.contains(**id)) {
+            Some("expected:draw_cap")
+        } else if extra
+            .iter()
+            .all(|id| episode.capped.contains(**id) || episode.unlisted.contains(**id))
+        {
+            Some("expected:undemanded")
+        } else {
+            None
+        }
     };
     let policy_refused = !episode.policy.refuse.is_empty();
     if policy_refused == (outcome == Outcome::Admitted) {
-        if !policy_refused && draw_capped {
+        // The UI uploaded a layer the policy refuses because no frame can
+        // draw it (§5).
+        let refused_draw_cap = policy_refused
+            && episode
+                .policy
+                .refuse
+                .iter()
+                .all(|refused| refused.reason == Refusal::DrawCap);
+        if refused_draw_cap {
             return "expected:draw_cap".into();
+        }
+        if !policy_refused {
+            if let Some(class) = undrawn {
+                return class.into();
+            }
         }
         return "capacity_mismatch".into();
     }
@@ -229,8 +274,8 @@ fn verdict(episode: &Episode, outcome: Outcome) -> String {
     if ui_tiers.iter().max() == policy_tiers.iter().max() {
         return "benign_lru".into();
     }
-    if draw_capped {
-        return "expected:draw_cap".into();
+    if let Some(class) = undrawn {
+        return class.into();
     }
     "unexplained".into()
 }
@@ -253,7 +298,7 @@ impl ShadowLedger {
         }
     }
 
-    fn close(&mut self, layer_id: &str, outcome: Outcome) {
+    fn close(&mut self, ledger: &DemandLedger, now: Millis, layer_id: &str, outcome: Outcome) {
         let Some(position) = self.open.iter().position(|e| e.requester == layer_id) else {
             return;
         };
@@ -261,10 +306,17 @@ impl ShadowLedger {
         if self.retrying.as_deref() == Some(layer_id) {
             self.retrying = None;
         }
-        self.finish(episode, outcome);
+        self.finish(ledger, now, episode, outcome);
     }
 
-    fn finish(&mut self, episode: Episode, outcome: Outcome) {
+    fn finish(
+        &mut self,
+        ledger: &DemandLedger,
+        now: Millis,
+        mut episode: Episode,
+        outcome: Outcome,
+    ) {
+        recheck_against(&mut episode, ledger, now);
         let record = EpisodeRecord {
             ep: episode.ep,
             requester: episode.requester.clone(),
@@ -298,15 +350,43 @@ impl ShadowLedger {
     }
 
     /// Close every episode open for [`EPISODE_TIMEOUT_MS`] or longer.
-    pub(crate) fn expire(&mut self, now: Millis) {
+    pub(crate) fn expire(&mut self, ledger: &DemandLedger, now: Millis) {
         let (stale, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.open)
             .into_iter()
             .partition(|e| now.saturating_sub(e.opened) >= EPISODE_TIMEOUT_MS);
         self.open = open;
         for episode in stale {
-            self.finish(episode, Outcome::Timeout);
+            self.finish(ledger, now, episode, Outcome::Timeout);
         }
     }
+}
+
+/// When the UI evicted a layer the policy protected at the episode's start,
+/// recheck it against the demand current now, on the same snapshot: only the
+/// demand may have moved.
+fn recheck_against(episode: &mut Episode, ledger: &DemandLedger, now: Millis) {
+    let allowed_then: HashSet<&str> = episode
+        .candidates
+        .iter()
+        .filter_map(|victim| match &victim.kind {
+            VictimKind::Layer { key } => Some(key.as_str()),
+            VictimKind::CachedMember { .. } => None,
+        })
+        .collect();
+    let needs_recheck = episode.ui.iter().any(|victim| {
+        matches!(victim, ShadowVictim::Layer { id, .. }
+            if episode.residents.contains(id) && !allowed_then.contains(id.as_str()))
+    });
+    if !needs_recheck {
+        return;
+    }
+    episode.late_allowed = eviction_candidates(&episode.facts, ledger, now)
+        .into_iter()
+        .filter_map(|victim| match victim.kind {
+            VictimKind::Layer { key } => Some(key),
+            VictimKind::CachedMember { .. } => None,
+        })
+        .collect();
 }
 
 /// After `request_layer_gpu_resources` for `layer_id`: a typed retryable
@@ -327,7 +407,10 @@ pub(crate) async fn note_request(
             if residency.shadow.refusals.remove(layer_id).is_some() {
                 residency.changed();
             }
-            residency.shadow.close(layer_id, Outcome::Admitted);
+            let residency = &mut *residency;
+            residency
+                .shadow
+                .close(&residency.ledger, now, layer_id, Outcome::Admitted);
             return;
         }
         Err(BridgeError::GpuBudgetExceeded {
@@ -337,13 +420,11 @@ pub(crate) async fn note_request(
             ..
         }) => (*requested_bytes, *used_bytes, *budget_bytes),
         Err(_) => {
-            state
-                .residency
-                .state
-                .lock()
-                .await
+            let mut residency = state.residency.state.lock().await;
+            let residency = &mut *residency;
+            residency
                 .shadow
-                .close(layer_id, Outcome::Failed);
+                .close(&residency.ledger, now, layer_id, Outcome::Failed);
             return;
         }
     };
@@ -365,7 +446,10 @@ pub(crate) async fn note_request(
         }
         if oversized {
             // Not retryable: the UI gives up at once.
-            residency.shadow.close(layer_id, Outcome::Failed);
+            let residency = &mut *residency;
+            residency
+                .shadow
+                .close(&residency.ledger, now, layer_id, Outcome::Failed);
             return;
         }
         if residency.shadow.is_open(layer_id) {
@@ -400,6 +484,7 @@ pub(crate) async fn note_request(
     let candidates = eviction_candidates(&facts, &residency.ledger, now);
     let classes = eviction_classes(&facts, &residency.ledger, now);
     let capped = draw_capped_keys(&facts, &residency.ledger);
+    let unlisted = unlisted_keys(&facts, &residency.ledger);
     let shadow = &mut residency.shadow;
     shadow.next_ep += 1;
     let episode = Episode {
@@ -413,6 +498,9 @@ pub(crate) async fn note_request(
         classes,
         residents: facts.residents.iter().map(|r| r.key.clone()).collect(),
         capped,
+        unlisted,
+        facts,
+        late_allowed: HashSet::new(),
         ui: Vec::new(),
     };
     shadow.open.push(episode);
@@ -541,13 +629,51 @@ pub(crate) async fn check_draw_cap(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::residency::policy::Refused;
+    use crate::residency::demand::{DemandedLayer, FrameDemand, FrameId};
+    use crate::residency::policy::{Capacity, Refused, ResidentFacts};
 
     fn layer_victim(key: &str, tier: Tier) -> Victim {
         Victim {
             kind: VictimKind::Layer { key: key.into() },
             tier,
             freed: 1,
+        }
+    }
+
+    /// A full budget of one-byte textures, each last drawn at 1.
+    fn facts(keys: &[&str]) -> ResidencyFacts {
+        ResidencyFacts {
+            capacity: Capacity::Bytes {
+                budget: keys.len() as u64,
+                used: keys.len() as u64,
+            },
+            binding_capacity: 13,
+            row_capacity: 16,
+            residents: keys
+                .iter()
+                .map(|key| ResidentFacts {
+                    key: (*key).into(),
+                    bytes: 1,
+                    last_drawn: 1,
+                    upload_in_flight: false,
+                    cached: Vec::new(),
+                })
+                .collect(),
+            volume_bytes: HashMap::new(),
+            time_series_volumes: HashSet::new(),
+        }
+    }
+
+    fn frame(priority: Priority, epoch: u64, layers: &[&str]) -> FrameDemand {
+        FrameDemand {
+            epoch: crate::residency::demand::Epoch(epoch),
+            priority,
+            layers: layers
+                .iter()
+                .map(|id| DemandedLayer::new(*id, *id))
+                .collect(),
+            held: Vec::new(),
+            last_front_at: 0,
         }
     }
 
@@ -579,6 +705,9 @@ mod tests {
                 .map(|s| s.to_string())
                 .collect(),
             capped: ["capped".to_string()].into_iter().collect(),
+            unlisted: ["closed".to_string()].into_iter().collect(),
+            facts: facts(&["a", "b", "c", "front", "capped", "closed"]),
+            late_allowed: HashSet::new(),
             ui: ui
                 .into_iter()
                 .map(|id| ShadowVictim::Layer {
@@ -667,6 +796,51 @@ mod tests {
     }
 
     #[test]
+    fn policy_picks_no_frame_lists_are_expected() {
+        let closed = layer_victim("closed", Tier::Undemanded);
+        let bg = layer_victim("b", Tier::BackgroundOnly);
+        let candidates = vec![closed.clone(), bg];
+        // A closed tab's layer: the policy evicts it first, the UI does not.
+        let differ = episode(vec![closed.clone()], candidates.clone(), vec!["b"]);
+        assert_eq!(verdict(&differ, Outcome::Admitted), "expected:undemanded");
+        let starved = episode(vec![closed], candidates, Vec::new());
+        assert_eq!(verdict(&starved, Outcome::Timeout), "expected:undemanded");
+    }
+
+    #[test]
+    fn upload_of_a_layer_past_the_draw_cap_is_expected() {
+        let mut refused = episode(Vec::new(), Vec::new(), Vec::new());
+        refused.policy.refuse.push(Refused {
+            layer_id: "req".into(),
+            reason: Refusal::DrawCap,
+        });
+        assert_eq!(verdict(&refused, Outcome::Admitted), "expected:draw_cap");
+        assert_eq!(verdict(&refused, Outcome::Failed), "agree");
+    }
+
+    #[test]
+    fn a_pick_newer_demand_allows_is_demand_lag_not_unsafe() {
+        let id = |s: &str| FrameId::new(s);
+        let mut ledger = DemandLedger::new();
+        ledger.set(id("one"), frame(Priority::Front, 1, &["front"]));
+        ledger.set(id("two"), frame(Priority::Background, 1, &["a"]));
+        let mut lagged = episode(Vec::new(), Vec::new(), vec!["front"]);
+        lagged.candidates = eviction_candidates(&lagged.facts, &ledger, 10);
+        assert!(!lagged.candidates.iter().any(|v| v.kind
+            == VictimKind::Layer {
+                key: "front".into()
+            }));
+        // No newer demand: the UI evicted what the front tab draws.
+        recheck_against(&mut lagged, &ledger, 10);
+        assert_eq!(verdict(&lagged, Outcome::Admitted), "unsafe");
+        // The tab switch arrives: "one" went to the background.
+        ledger.set(id("one"), frame(Priority::Background, 2, &["front"]));
+        ledger.set(id("two"), frame(Priority::Front, 2, &["a"]));
+        recheck_against(&mut lagged, &ledger, 10);
+        assert_eq!(verdict(&lagged, Outcome::Admitted), "expected:demand_lag");
+    }
+
+    #[test]
     fn ui_victims_go_only_to_the_episode_being_retried() {
         let mut shadow = ShadowLedger::default();
         for requester in ["a", "b"] {
@@ -691,7 +865,7 @@ mod tests {
         };
         assert_eq!(ui(&shadow, "a"), Some(2));
         assert_eq!(ui(&shadow, "b"), Some(0));
-        shadow.close("a", Outcome::Admitted);
+        shadow.close(&DemandLedger::new(), 0, "a", Outcome::Admitted);
         assert_eq!(shadow.retrying, None);
         shadow.note_ui_victim(victim("y"));
         assert_eq!(
@@ -709,7 +883,7 @@ mod tests {
             open.ep = n;
             open.opened = n;
             shadow.open.push(open);
-            shadow.expire(n + EPISODE_TIMEOUT_MS);
+            shadow.expire(&DemandLedger::new(), n + EPISODE_TIMEOUT_MS);
         }
         assert!(shadow.open.is_empty());
         assert_eq!(shadow.closed.len(), KEEP_CLOSED);

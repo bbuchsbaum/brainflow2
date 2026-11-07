@@ -155,9 +155,14 @@ export class ResidencyDemandPublisher {
     return epoch;
   }
 
-  /** Publish once the stores settle. */
+  /**
+   * Publish within `settleMs` of the first change. The timer is not restarted
+   * by later changes: during an upload storm the stores change continuously,
+   * and a restarted timer held the new demand back while the UI was already
+   * evicting for the new front tab (R5b native shadow run).
+   */
   schedule(): void {
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.flush();

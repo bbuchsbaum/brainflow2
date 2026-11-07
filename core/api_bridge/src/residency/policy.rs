@@ -626,17 +626,15 @@ pub(crate) fn eviction_candidates(
     .ordered_victims()
 }
 
-/// Resident keys that some Front frame lists but cannot draw: past its binding
-/// or row capacity, and drawn by no frame and pinned by none (plan §5). The
-/// policy neither protects nor uploads them; the UI protects every visible
-/// layer. The shadow comparison (R5b) uses this to explain that difference.
+/// Resident keys that some frame, Front or Background, lists but cannot draw:
+/// past its binding or row capacity, and drawn by no frame and pinned by none
+/// (plan §5). The policy neither protects nor uploads them; the UI keeps every
+/// visible layer by its tab. The shadow comparison (R5b) uses this to explain
+/// that difference.
 pub(crate) fn draw_capped_keys(facts: &ResidencyFacts, ledger: &DemandLedger) -> HashSet<String> {
     let holders = holders(ledger, facts);
     let mut capped = HashSet::new();
     for (_, demand) in ledger.frames() {
-        if demand.priority != Priority::Front {
-            continue;
-        }
         for &index in &draw_set(demand, facts).over_cap {
             let key = residency_key(&demand.layers[index], facts, &[]);
             if !holders.drawn.contains(&key) && !holders.pinned.contains(&key) {
@@ -645,6 +643,25 @@ pub(crate) fn draw_capped_keys(facts: &ResidencyFacts, ledger: &DemandLedger) ->
         }
     }
     capped
+}
+
+/// Resident keys no frame lists, held or not: a closed tab's layers, for one
+/// (plan §6). The policy evicts them first (tier 2); the shadow comparison
+/// (R5b) uses this to explain a UI that does not.
+pub(crate) fn unlisted_keys(facts: &ResidencyFacts, ledger: &DemandLedger) -> HashSet<String> {
+    let mut listed = HashSet::new();
+    for (_, demand) in ledger.frames() {
+        for layer in demand.layers.iter().chain(&demand.held) {
+            listed.insert(residency_key(layer, facts, &[]));
+            listed.insert(layer.layer_id.clone());
+        }
+    }
+    facts
+        .residents
+        .iter()
+        .map(|resident| resident.key.clone())
+        .filter(|key| !listed.contains(key))
+        .collect()
 }
 
 /// A layer victim's place in the eviction order, without the residency key
@@ -1186,6 +1203,33 @@ mod tests {
         world.front("other", &refs(&layers[14..]));
         let capped = draw_capped_keys(&world.backend.facts(), &world.ledger);
         assert_eq!(capped, [layers[13].clone()].into_iter().collect());
+    }
+
+    #[test]
+    fn background_draw_cap_and_unlisted_residents_are_reported() {
+        let mut world = World::bytes(17 * KIB);
+        let layers = names("v", 15);
+        for id in &layers {
+            world.volume(id, KIB, Some(1));
+        }
+        world.volume("closed", KIB, Some(0));
+        world.volume("idle-copy", KIB, Some(0));
+        let now = world.clock.now();
+        world.frame("tab", Priority::Background, now, &own(&refs(&layers)));
+        let facts = world.backend.facts();
+        // Past the cap of a Background frame counts as well.
+        assert_eq!(
+            draw_capped_keys(&facts, &world.ledger),
+            layers[13..].iter().cloned().collect::<HashSet<_>>()
+        );
+        // Residents no frame lists: neither the capped layers nor the drawn.
+        assert_eq!(
+            unlisted_keys(&facts, &world.ledger),
+            ["closed", "idle-copy"]
+                .map(String::from)
+                .into_iter()
+                .collect()
+        );
     }
 
     #[test]
