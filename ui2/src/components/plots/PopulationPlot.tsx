@@ -9,13 +9,35 @@ import { resolvePopulation } from '@/services/studio/populationContext';
 import { populationCategoryColor } from './encoder/cartesianMarks';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { populationPlotService } from '@/services/studio/PopulationPlotService';
-import { composePopulationPlot, type PopulationPlotRecipe } from '@/services/studio/populationPlot';
+import {
+  POPULATION_BAND_CHOICES,
+  bandForCentre,
+  composePopulationPlot,
+  type PopulationPlotRecipe,
+} from '@/services/studio/populationPlot';
+import {
+  computedInterval,
+  intervalFitsCentre,
+  intervalKey,
+  intervalLabel,
+  intervalMenuLabel,
+  intervalOptions,
+  parseIntervalKey,
+  sameInterval,
+  type IntervalChoice,
+} from '@/plotting/intervals';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { PlotEncoder } from './encoder/PlotEncoder';
 import type { PlotModeContext } from './plotHost.types';
 import { Button, Checkbox, Notice, Select, TextField, Toolbar, ToolbarField } from '@/components/ui/bf';
 
 /** "Open plot": a file input dressed as a secondary bf Button (a label, so the picker opens). */
+/** The menu's bands, plus the recipe's own if a saved recipe uses one the menu doesn't offer. */
+const bandMenu = (band: IntervalChoice): readonly IntervalChoice[] =>
+  POPULATION_BAND_CHOICES.some((c) => sameInterval(c, band))
+    ? POPULATION_BAND_CHOICES
+    : [...POPULATION_BAND_CHOICES, band];
+
 const FILE_BUTTON =
   'inline-flex h-6 cursor-pointer items-center rounded-sm border border-border bg-bf-bg-panel-raised px-2 text-bf-xs font-medium text-foreground transition-colors hover:bg-accent focus-within:outline focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-[var(--bf-border-focus)]';
 export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
@@ -54,7 +76,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
           ? new TextEncoder().encode(populationPlotService.serialize(p.id))
           : await populationPlotPng(
               graphic.current!,
-              `${p.label} · ${visibleFrame?.rows.length ?? 0}/${p.frame.rows.length} sample rows · ${p.selectionBinding === 'working' ? 'working selection' : 'pinned snapshot'}\nX: ${p.frame.columns.find((c) => c.name === p.recipe.x)?.label ?? p.recipe.x}${p.recipe.axisUnit ? ` (${p.recipe.axisUnit})` : ''} · Values: ${p.frame.columns.find((c) => c.name === 'value')?.unit ?? 'units unspecified'} · ${p.recipe.summary} · band: ${p.recipe.band}`,
+              `${p.label} · ${visibleFrame?.rows.length ?? 0}/${p.frame.rows.length} sample rows · ${p.selectionBinding === 'working' ? 'working selection' : 'pinned snapshot'}\nX: ${p.frame.columns.find((c) => c.name === p.recipe.x)?.label ?? p.recipe.x}${p.recipe.axisUnit ? ` (${p.recipe.axisUnit})` : ''} · Values: ${p.frame.columns.find((c) => c.name === 'value')?.unit ?? 'units unspecified'} · ${p.recipe.summary} · band: ${p.recipe.band.kind === 'none' ? 'none' : intervalLabel(p.recipe.band)}${p.recipe.band.source === 'columns' ? ' (stored)' : ''}`,
               p.recipe.color
                 ? [
                     ...new Set(
@@ -294,13 +316,16 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
                 className="w-auto max-w-[200px]"
                 aria-label="Plot summary"
                 value={p.recipe.summary}
+                // Stored bounds come with the centre their producer computed.
+                disabled={p.recipe.band.source === 'columns'}
                 onValueChange={(v) => {
                   const summary = v as PopulationPlotRecipe['summary'];
-                  // Keep the band valid for the centre (IQR with a median).
+                  // Keep a computed band valid for the centre (IQR with a median);
+                  // stored bounds are drawn as given.
                   const band =
-                    summary === 'median'
-                      ? p.recipe.band === 'none' ? 'none' : 'iqr'
-                      : p.recipe.band === 'iqr' ? 'ci95' : p.recipe.band;
+                    summary === 'none' || p.recipe.band.source === 'columns'
+                      ? p.recipe.band
+                      : computedInterval(bandForCentre(p.recipe.band, summary));
                   apply({ summary, band });
                 }}
               >
@@ -313,9 +338,9 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
               <Select
                 className="w-auto max-w-[200px]"
                 aria-label="Plot within participant"
-                value={p.recipe.within}
+                value={p.recipe.repeatRows}
                 onValueChange={(v) =>
-                  apply({ within: v as PopulationPlotRecipe['within'] })
+                  apply({ repeatRows: v as PopulationPlotRecipe['repeatRows'] })
                 }
               >
                 <option value="single">One row per position</option>
@@ -326,20 +351,32 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
               <Select
                 className="w-auto max-w-[200px]"
                 aria-label="Plot band"
-                value={p.recipe.band}
-                onValueChange={(v) => apply({ band: v as PopulationPlotRecipe['band'] })}
+                value={intervalKey(p.recipe.band)}
+                disabled={p.recipe.band.source === 'columns'}
+                onValueChange={(v) => {
+                  const choice = parseIntervalKey(v);
+                  if (choice) apply({ band: computedInterval(choice) });
+                }}
               >
-                <option value="none">None</option>
-                <option value="sd" disabled={p.recipe.summary === 'median'}>Participant SD</option>
-                <option value="sem95" disabled={p.recipe.summary === 'median'}>
-                  Mean ± 1.96 SE (normal approximation)
-                </option>
-                <option value="ci95" disabled={p.recipe.summary === 'median'}>
-                  95% CI of the mean (t, n − 1 df)
-                </option>
-                <option value="iqr" disabled={p.recipe.summary !== 'median'}>
-                  Interquartile range
-                </option>
+                {p.recipe.band.source === 'columns' ? (
+                  <option value={intervalKey(p.recipe.band)}>
+                    Stored: {intervalMenuLabel(p.recipe.band)}
+                  </option>
+                ) : (
+                  intervalOptions(bandMenu(p.recipe.band)).map((o, i) => {
+                    const kind = bandMenu(p.recipe.band)[i].kind;
+                    const centre = p.recipe.summary === 'median' ? 'median' : 'mean';
+                    return (
+                      <option
+                        key={o.value}
+                        value={o.value}
+                        disabled={kind !== 'none' && !intervalFitsCentre(kind, centre)}
+                      >
+                        {o.label}
+                      </option>
+                    );
+                  })
+                )}
               </Select>
             </ToolbarField>
           </Toolbar>
@@ -395,7 +432,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
               height={Math.max(220, ctx.height - 180)}
               context={
                 !composed.summary &&
-                p.recipe.within === 'single' &&
+                p.recipe.repeatRows === 'single' &&
                 populationPlotService.canLink(p)
                   ? {
                       datumLink: {

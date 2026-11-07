@@ -3,6 +3,7 @@
  * services where feasible; any direct store seeding is recorded via
  * `noteFallback` so reviewers can see where the harness departs from the app.
  */
+import { INTERVAL_COLUMNS, INTERVAL_PRESETS } from '@/plotting/intervals';
 import type { HarnessBackend } from './backend';
 import { BIDS_BROWSER_ROOT, REMOTE_MOUNT_DEMO } from './scenarioData';
 import {
@@ -713,7 +714,7 @@ async function noteSeriesValues(): Promise<void> {
   for (const row of out.rows) {
     const f = (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : String(v));
     noteStep(
-      `series ${row[binding.conditionColumn ?? ''] ?? ''} x=${row[SERIES_X]}: value ${f(row.value)} [${f(row.lower)}, ${f(row.upper)}] n=${row.count ?? 1}`,
+      `series ${row[binding.conditionColumn ?? ''] ?? ''} x=${row[SERIES_X]}: value ${f(row.value)} [${f(row.lower)}, ${f(row.upper)}] n=${row[INTERVAL_COLUMNS.n] ?? 1}`,
     );
   }
 }
@@ -1385,10 +1386,10 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     if (shown.replace(/,/g, '').trim().split(/\s+/)[0] !== String(best)) throw new Error(`status shows "${shown}", expected vertex ${best}`);
   },
   // Phase 4 E6: FIR series (3D lag maps), 6 mm sphere, mean ± 95% CI (t).
-  'series-fir-sphere': async () => firSeries('3d', { radiusMm: 6, band: 'ci95' }),
-  // v1 fidelity 7: the ± 1.96 SE band says it is a normal approximation at n = 6.
+  'series-fir-sphere': async () => firSeries('3d', { radiusMm: 6, band: INTERVAL_PRESETS.ciT95 }),
+  // v1 fidelity 7: the normal-approximation CI says so at n = 6.
   'series-fir-sem95': async () => {
-    await firSeries('3d', { radiusMm: 6, band: 'sem95' });
+    await firSeries('3d', { radiusMm: 6, band: INTERVAL_PRESETS.ciNormal95 });
     await until(() => /normal approx\., n = 6/.test(document.querySelector('[data-testid="series-caption"]')?.textContent ?? ''), 'sem95 caption');
   },
   // Phase 4 E6: the same study as 4D lag series, faces − houses (paired) with
@@ -1397,7 +1398,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     firSeries('4d', {
       radiusMm: 6,
       // v1 F7: the t-based 95% CI is the default everywhere, differences too.
-      band: 'ci95',
+      band: INTERVAL_PRESETS.ciT95,
       transforms: [
         { kind: 'baseline', from: 0, to: 0 },
         { kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' },
@@ -1406,7 +1407,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   // Phase 4 E6 (E2): the FIR series over the atlas region at the response
   // centre (L_sensorimotor of the harness atlas, hidden), mean ± 95% CI.
   'series-region': async () =>
-    firSeries('3d', { locus: 'region', band: 'ci95' }, async () => {
+    firSeries('3d', { locus: 'region', band: INTERVAL_PRESETS.ciT95 }, async () => {
       await loadVolume(ATLAS_PATH, 'add-layer');
       const atlasId = await layerIdForPath(ATLAS_PATH);
       const { useViewStateStore } = await import('@/stores/viewStateStore');
@@ -1419,7 +1420,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
   // Phase 4 E6 (E3): the FIR series over cluster 1 of the z map at |z| > 3.1
   // (26-connected, the cluster-id label volume), 4D members.
   'series-cluster': async () =>
-    firSeries('4d', { locus: 'cluster', band: 'ci95' }, async () => {
+    firSeries('4d', { locus: 'cluster', band: INTERVAL_PRESETS.ciT95 }, async () => {
       await loadZ();
       const zId = await layerIdForPath(ZMAP_PATH);
       const { getClusterService } = await import('@/services/ClusterService');
@@ -1437,7 +1438,7 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
       if (reason) throw new Error(`Series for cluster 1 unavailable: ${reason}`);
     }),
   // Phase 4 E6: the FIR series at the narrow window (1280 × 800 variant).
-  'series-1280': async () => firSeries('3d', { radiusMm: 6, band: 'ci95' }),
+  'series-1280': async () => firSeries('3d', { radiusMm: 6, band: INTERVAL_PRESETS.ciT95 }),
   // Phase 4 E6: a raw 4D layer (one subject's faces FIR series) at the
   // crosshair: the Series mode on the layer, frame 2 selected from the plot.
   'series-raw4d': async () => {

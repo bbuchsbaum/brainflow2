@@ -215,10 +215,10 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     render(<SetSeriesPlot ctx={ctx} />);
     await waitFor(() => expect(screen.getAllByTestId('plot-readout-point').length).toBe(16));
     const svg = screen.getByTestId('plot-mark-line');
-    expect(svg.getAttribute('aria-label')).toMatch(/by lag \(tr\), faces and houses, mean ± 95% CI$/);
+    expect(svg.getAttribute('aria-label')).toMatch(/by lag \(tr\), faces and houses, mean ± 95% CI \(t\)$/);
     const stops = screen.getAllByTestId('plot-readout-point').filter((p) => p.getAttribute('tabindex') === '0');
     expect(stops).toHaveLength(1);
-    expect(stops[0].getAttribute('aria-label')).toMatch(/^faces · lag 0 TR: mean −?\d+\.\d\d, 95% CI −?\d+\.\d\d to −?\d+\.\d\d, n = 6$/);
+    expect(stops[0].getAttribute('aria-label')).toMatch(/^faces · lag 0 TR: mean −?\d+\.\d\d, 95% CI \(t\) −?\d+\.\d\d to −?\d+\.\d\d, n = 6$/);
     const viewer = vi.fn();
     window.addEventListener('keydown', viewer);
     stops[0].focus();
@@ -240,7 +240,7 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     const csv = String((writeText.mock.calls[0] as unknown[])[0]).split('\n');
     // Round 2 X1 (deliberate change): one header row, no comment lines; SD, SE and the locus as columns.
     expect(csv[0]).toBe(
-      'condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,locus_kind,locus_label,n_voxels,transforms',
+      'condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,conf_level,df,locus_kind,locus_label,n_voxels,transforms',
     );
     expect(csv).toHaveLength(1 + 16 + 1);
     expect(csv[1].split(',').slice(0, 3)).toEqual(['faces', '0', '6']);

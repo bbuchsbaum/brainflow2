@@ -84,6 +84,7 @@ mod error_helpers;
 mod histogram;
 mod image_export;
 pub mod image_set;
+mod interval;
 mod materialization;
 pub mod modules;
 mod projection_geometry;
@@ -10874,42 +10875,43 @@ pub struct MemberTrace {
     pub error: Option<String>,
 }
 
-/// Compute a lower/upper spread band around `center` from ROI voxel `vals`.
-///
-/// `band` selects the interval kind (all clamped so `lower <= upper`):
-/// - `"sem95"` (default): `center ± 1.96 * SD / sqrt(n)` — 95% CI of the mean.
-/// - `"sd"`: `center ± SD` (one standard deviation).
-/// - `"ci95"`: the 2.5% / 97.5% sample quantiles.
-/// - `"iqr"`: the 25% / 75% sample quantiles.
-/// - `"none"`: a degenerate band (`lower == upper == center`).
+/// Compute a lower/upper spread band around `center` from ROI voxel `vals`
+/// (see [`interval::TraceInterval`]; the UI registry in
+/// `ui2/src/plotting/intervals` names and labels the same kinds):
+/// - `None`: a degenerate band (`lower == upper == center`);
+/// - `Sd`: `center ± SD` (n − 1);
+/// - `Se`: `center ± SD / sqrt(n)`;
+/// - `CiNormal { level }`: `center ± z((1 + level) / 2) * SD / sqrt(n)`;
+/// - `QuantileRange { level }`: the central `level` sample quantiles (type 7).
 ///
 /// With fewer than two finite values the band collapses to `center`.
-fn roi_spread_band(vals: &[f32], center: f32, band: &str) -> (f32, f32) {
+fn roi_spread_band(vals: &[f32], center: f32, band: &interval::TraceInterval) -> (f32, f32) {
+    use interval::TraceInterval;
     let n = vals.len();
     if n < 2 || !center.is_finite() {
         return (center, center);
     }
-    match band {
-        "none" => (center, center),
-        "ci95" => (quantile_type7(vals, 0.025), quantile_type7(vals, 0.975)),
-        "iqr" => (quantile_type7(vals, 0.25), quantile_type7(vals, 0.75)),
-        "sd" | "sem95" => {
-            let mean = vals.iter().map(|&value| value as f64).sum::<f64>() / n as f64;
-            let var = vals
-                .iter()
-                .map(|&value| (value as f64 - mean).powi(2))
-                .sum::<f64>()
-                / (n as f64 - 1.0);
-            let sd = var.max(0.0).sqrt();
-            let half = if band == "sd" {
-                sd
-            } else {
-                // sem95: 95% normal-approx CI half-width of the mean.
-                1.96 * sd / (n as f64).sqrt()
-            };
-            ((center as f64 - half) as f32, (center as f64 + half) as f32)
+    let around = |half: f64| ((center as f64 - half) as f32, (center as f64 + half) as f32);
+    let sd = || {
+        let mean = vals.iter().map(|&value| value as f64).sum::<f64>() / n as f64;
+        let var = vals
+            .iter()
+            .map(|&value| (value as f64 - mean).powi(2))
+            .sum::<f64>()
+            / (n as f64 - 1.0);
+        var.max(0.0).sqrt()
+    };
+    match *band {
+        TraceInterval::None => (center, center),
+        TraceInterval::Sd => around(sd()),
+        TraceInterval::Se => around(sd() / (n as f64).sqrt()),
+        TraceInterval::CiNormal { level } => {
+            around(interval::normal_quantile((1.0 + level) / 2.0) * sd() / (n as f64).sqrt())
         }
-        _ => roi_spread_band(vals, center, "sem95"),
+        TraceInterval::QuantileRange { level } => (
+            quantile_type7(vals, ((1.0 - level) / 2.0) as f32),
+            quantile_type7(vals, ((1.0 + level) / 2.0) as f32),
+        ),
     }
 }
 
@@ -11176,12 +11178,10 @@ async fn sample_set_trace_at_locus_impl(
         Some(_) => validate_set_sample_request(members, &[0.0; 3], 0.0, reduce)?,
         None => validate_set_sample_request(members, world_mm, radius_mm, reduce)?,
     }
-    if !matches!(band, "none" | "sd" | "sem95" | "ci95" | "iqr") {
-        return Err(BridgeError::Input {
-            code: 2016,
-            details: "Unknown spatial dispersion band.".into(),
-        });
-    }
+    let band = interval::parse_trace_band(band).map_err(|details| BridgeError::Input {
+        code: 2016,
+        details,
+    })?;
     // Resolve sources first so a single query cannot mix observable revisions
     // changed during its member-by-member reduction. Missing sources still have
     // per-member status; a changing source invalidates the complete result.
@@ -11300,7 +11300,7 @@ async fn sample_set_trace_at_locus_impl(
         } else {
             reduce_values(&vals, reduce)
         };
-        let (lower, upper) = roi_spread_band(&vals, value, band);
+        let (lower, upper) = roi_spread_band(&vals, value, &band);
         traces.push(MemberTrace {
             member_id: member.member_id.clone(),
             display_label: member.display_label.clone(),
@@ -14235,7 +14235,10 @@ mod tests {
         assert_eq!(reduce_values(&values, "mean"), 1e38);
         assert_eq!(reduce_values(&values, "median"), 1e38);
         assert_eq!(quantile_type7(&[-3e38, 3e38], 0.5), 0.0);
-        assert_eq!(roi_spread_band(&values, 1e38, "sd"), (1e38, 1e38));
+        assert_eq!(
+            roi_spread_band(&values, 1e38, &interval::TraceInterval::Sd),
+            (1e38, 1e38)
+        );
     }
 
     #[test]
@@ -14254,32 +14257,49 @@ mod tests {
 
     #[test]
     fn roi_spread_band_variants() {
+        use interval::{parse_trace_band, TraceInterval};
+        let band = |key: &str| parse_trace_band(key).expect("known band");
         let vals = [10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0];
         let center = 40.0f32; // mean
 
         // Degenerate band.
-        assert_eq!(roi_spread_band(&vals, center, "none"), (40.0, 40.0));
+        assert_eq!(roi_spread_band(&vals, center, &band("none")), (40.0, 40.0));
 
-        // Quantile bands.
-        let (lo, hi) = roi_spread_band(&vals, center, "ci95");
+        // Quantile bands (the legacy trace `ci95` is the 95% quantile range).
+        let (lo, hi) = roi_spread_band(&vals, center, &band("quantile_range@0.95"));
         assert!((lo - 11.5).abs() < 1e-3 && (hi - 68.5).abs() < 1e-3);
-        let (lo, hi) = roi_spread_band(&vals, center, "iqr");
+        assert_eq!(roi_spread_band(&vals, center, &band("ci95")), (lo, hi));
+        let (lo, hi) = roi_spread_band(&vals, center, &band("quantile_range@0.5"));
         assert!((lo - 25.0).abs() < 1e-3 && (hi - 55.0).abs() < 1e-3);
+        assert_eq!(roi_spread_band(&vals, center, &band("iqr")), (lo, hi));
 
-        // SD band: sd = sqrt(2800/6) ≈ 21.6025.
-        let (lo, hi) = roi_spread_band(&vals, center, "sd");
+        // SD band: sd = sqrt(2800/6) ≈ 21.6025; SE = sd / sqrt(7) ≈ 8.16497.
+        let (lo, hi) = roi_spread_band(&vals, center, &band("sd"));
         assert!((lo - (40.0 - 21.6025)).abs() < 1e-2, "sd lower {lo}");
         assert!((hi - (40.0 + 21.6025)).abs() < 1e-2, "sd upper {hi}");
+        let (lo, hi) = roi_spread_band(&vals, center, &band("se"));
+        assert!(
+            (hi - lo - 2.0 * 8.16497).abs() < 1e-3,
+            "se width {}",
+            hi - lo
+        );
 
-        // SEM95 (default): half = 1.96 * sd / sqrt(7) ≈ 16.003.
-        let (lo, hi) = roi_spread_band(&vals, center, "sem95");
-        assert!((lo - (40.0 - 16.003)).abs() < 1e-2, "sem lower {lo}");
-        assert!((hi - (40.0 + 16.003)).abs() < 1e-2, "sem upper {hi}");
-        // Unknown band string falls back to sem95.
-        assert_eq!(roi_spread_band(&vals, center, "whatever"), (lo, hi));
+        // Normal CI: half = z(0.975) * SE ≈ 16.0030 (exact z, not 1.96).
+        let (lo, hi) = roi_spread_band(&vals, center, &band("ci_normal@0.95"));
+        assert!((lo - (40.0 - 16.0030)).abs() < 1e-3, "normal lower {lo}");
+        assert!((hi - (40.0 + 16.0030)).abs() < 1e-3, "normal upper {hi}");
+        assert_eq!(roi_spread_band(&vals, center, &band("sem95")), (lo, hi));
+        let (lo90, hi90) = roi_spread_band(&vals, center, &TraceInterval::CiNormal { level: 0.9 });
+        assert!(hi90 - lo90 < hi - lo, "a 90% CI is narrower than a 95% CI");
+
+        // Unknown names are refused, not silently replaced.
+        assert!(parse_trace_band("whatever").is_err());
 
         // Fewer than two values collapses to the center.
-        assert_eq!(roi_spread_band(&[5.0], 5.0, "sem95"), (5.0, 5.0));
+        assert_eq!(
+            roi_spread_band(&[5.0], 5.0, &band("ci_normal@0.95")),
+            (5.0, 5.0)
+        );
     }
 
     /// Build a 3x3x3 f32 volume whose radius-1 sphere ROI around voxel (1,1,1)
@@ -14310,7 +14330,7 @@ mod tests {
             &[1.0, 1.0, 1.0],
             1.0,
             "mean",
-            "sem95",
+            "ci_normal@0.95",
             &state,
         )
         .await
@@ -14321,7 +14341,7 @@ mod tests {
         assert_eq!(t.member_id, "m1");
         assert_eq!(t.count, 7, "radius-1 sphere should gather 7 voxels");
         assert!((t.value - 40.0).abs() < 1e-4, "mean {}", t.value);
-        // sem95 half-width ≈ 16.003, symmetric about the mean.
+        // 95% normal CI half-width ≈ 16.003, symmetric about the mean.
         assert!(
             (t.lower - (40.0 - 16.003)).abs() < 1e-2,
             "lower {}",
@@ -14394,7 +14414,7 @@ mod tests {
             &[1.0, 1.0, 1.0],
             0.0,
             "mean",
-            "sem95",
+            "ci_normal@0.95",
             &state,
         )
         .await
@@ -14415,10 +14435,16 @@ mod tests {
     #[tokio::test]
     async fn sample_set_trace_rejects_bad_world_len() {
         let state = BridgeState::default().expect("bridge state");
-        let err =
-            sample_set_trace_at_world_for_testing(&[], &[1.0, 2.0], 0.0, "mean", "sem95", &state)
-                .await
-                .expect_err("two-element world_mm should be rejected");
+        let err = sample_set_trace_at_world_for_testing(
+            &[],
+            &[1.0, 2.0],
+            0.0,
+            "mean",
+            "ci_normal@0.95",
+            &state,
+        )
+        .await
+        .expect_err("two-element world_mm should be rejected");
         match err {
             BridgeError::Input { code, .. } => assert_eq!(code, 2016),
             other => panic!("expected Input(2016) for bad world_mm, got {other:?}"),

@@ -8,7 +8,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SampleFrame } from '@/plotting';
-import { composePopulationPlot } from '@/services/studio/populationPlot';
+import { bandForCentre, composePopulationPlot } from '@/services/studio/populationPlot';
+import { INTERVAL_COLUMNS, intervalKey, intervalOptions, parseIntervalKey } from '@/plotting/intervals';
 import { sampleSetSeries } from '@/services/series/sampleSetSeries';
 import { resolveSeriesRegion } from '@/services/series/seriesRegion';
 import { useClusterStore } from '@/stores/clusterStore';
@@ -17,7 +18,7 @@ import {
   SERIES_X,
   type SetSeriesBinding,
 } from '@/services/series/seriesBinding';
-import { seriesRecipe } from '@/services/series/seriesRecipe';
+import { SERIES_MEAN_BANDS, SERIES_MEDIAN_BANDS, seriesRecipe } from '@/services/series/seriesRecipe';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { seriesRadiusMm, useSeriesStore } from '@/stores/seriesStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -218,7 +219,10 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
           voxels: result && result.locusKind !== 'cluster' ? locusVoxels(result.frame) : null,
           transforms: composed?.ok ? transformSummary(composed.ok.frame) : '',
           bandN: composed?.ok
-            ? Math.max(0, ...composed.ok.frame.rows.map((r) => (typeof r.count === 'number' ? r.count : 0)))
+            ? Math.max(0, ...composed.ok.frame.rows.map((r) => {
+                const n = r[INTERVAL_COLUMNS.n];
+                return typeof n === 'number' ? n : 0;
+              }))
             : undefined,
         })
       : '';
@@ -276,17 +280,7 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
             disabled={settings.display !== 'summary'}
             onValueChange={(v) => {
               const summary = v as 'mean' | 'median';
-              settings.update({
-                summary,
-                band:
-                  summary === 'median'
-                    ? settings.band === 'none'
-                      ? 'none'
-                      : 'iqr'
-                    : settings.band === 'iqr'
-                      ? 'ci95'
-                      : settings.band,
-              });
+              settings.update({ summary, band: bandForCentre(settings.band, summary) });
             }}
             options={[
               { value: 'mean', label: 'Mean' },
@@ -298,22 +292,17 @@ export function SetSeriesPlot({ ctx }: { ctx: PlotModeContext }) {
           <Select
             aria-label="Series band"
             className="w-auto"
-            value={settings.band}
+            value={intervalKey(settings.band)}
             disabled={settings.display !== 'summary'}
-            onValueChange={(v) => settings.update({ band: v as typeof settings.band })}
+            onValueChange={(v) => {
+              const band = parseIntervalKey(v);
+              if (band) settings.update({ band });
+            }}
             options={
               settings.summary === 'median'
-                ? [
-                    { value: 'iqr', label: 'Interquartile range' },
-                    { value: 'none', label: 'None' },
-                  ]
-                : [
-                    // Short labels keep row 1 one row with a Region slot (round 3 C4); the caption gives the df.
-                    { value: 'ci95', label: '95% CI (t)' },
-                    { value: 'sem95', label: '± 1.96 SE' },
-                    { value: 'sd', label: '± SD' },
-                    { value: 'none', label: 'None' },
-                  ]
+                ? intervalOptions(SERIES_MEDIAN_BANDS, 'menu')
+                : // Short labels keep row 1 one row with a Region slot (round 3 C4); the caption gives the df.
+                  intervalOptions(SERIES_MEAN_BANDS, 'short')
             }
           />
         </ToolbarField>

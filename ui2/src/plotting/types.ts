@@ -1,4 +1,6 @@
 import type { PopulationMask } from '@/types/population';
+import type { IntervalChoice } from './intervals/types';
+
 import type { RegionLocus } from '@brainflow/api';
 /**
  * Grammar-of-graphics-lite plotting primitives.
@@ -149,16 +151,13 @@ export type Locus =
 export type ReduceOp = 'mean' | 'median' | 'min' | 'max' | 'sum' | 'none';
 
 /**
- * Dispersion band around a `set`-locus member's ROI-reduced value, for CI/error
- * ribbons in the cross-set trace. Mirrors the backend `sample_set_trace_at_world`
- * `band` argument:
- *   - `'sem95'` — 95% CI of the mean (`center ± 1.96·SD/√n`).
- *   - `'sd'`    — one standard deviation.
- *   - `'ci95'`  — the 2.5% / 97.5% sample quantiles.
- *   - `'iqr'`   — the 25% / 75% sample quantiles.
- *   - `'none'`  — a degenerate band collapsed to the center value.
+ * Dispersion band around a `set`-locus member's ROI-reduced value over its ROI
+ * voxels, for CI/error ribbons in the cross-set trace: an interval from the
+ * shared registry (`@/plotting/intervals`). The bridge computes `none`, `sd`,
+ * `se`, `ci_normal` and `quantile_range` at any level; the choice travels as
+ * its `intervalKey` (`kind` or `kind@level`).
  */
-export type TraceBand = 'sem95' | 'sd' | 'ci95' | 'iqr' | 'none';
+export type TraceBand = IntervalChoice;
 
 /** A request to sample a dataset at a locus into a {@link SampleFrame}. */
 export interface SampleRequest {

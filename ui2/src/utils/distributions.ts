@@ -148,6 +148,26 @@ export function tQuantile(p: number, df: number): number {
   return sign * ((lo + hi) / 2);
 }
 
+/**
+ * The standard normal quantile: z such that Φ(z) = p, for 0 < p < 1
+ * (bisection on Φ(z) = erfc(−z/√2)/2 to ~1e-12; z_{0.975} = 1.959963984…).
+ */
+export function normalQuantile(p: number): number {
+  if (!(p > 0 && p < 1)) return Number.NaN;
+  if (p === 0.5) return 0;
+  const cdf = (z: number) => 0.5 * erfc(-z / Math.SQRT2);
+  const target = Math.max(p, 1 - p);
+  let lo = 0;
+  let hi = 1;
+  while (cdf(hi) < target) hi *= 2;
+  for (let i = 0; i < 200 && hi - lo > 1e-13 * Math.max(1, hi); i += 1) {
+    const mid = (lo + hi) / 2;
+    if (cdf(mid) < target) lo = mid;
+    else hi = mid;
+  }
+  return (p > 0.5 ? 1 : -1) * ((lo + hi) / 2);
+}
+
 /** Type-7 sample quantile of finite values (R default; numpy 'linear'). */
 export function sampleQuantile(values: readonly number[], q: number): number {
   const sorted = [...values].sort((a, b) => a - b);

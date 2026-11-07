@@ -1,5 +1,21 @@
 import type { SampleFrame, FrameRow, ResolvedPlotSpec } from '@/plotting';
-import { sampleQuantile, tQuantile } from '@/utils/distributions';
+import {
+  INTERVAL_COLUMNS,
+  INTERVAL_PRESETS,
+  NO_INTERVAL,
+  computeInterval,
+  computedInterval,
+  fromRecipeBandV1,
+  intervalChoiceError,
+  intervalDefinition,
+  intervalDef,
+  intervalFitsCentre,
+  meanOf,
+  spreadOf,
+  type IntervalChoice,
+  type IntervalSpec,
+} from '@/plotting/intervals';
+import { sampleQuantile } from '@/utils/distributions';
 
 /**
  * Declared collapse transforms (phase 4 E4), applied per participant line
@@ -40,7 +56,7 @@ export interface PopulationTransformRecord {
 }
 
 export interface PopulationPlotRecipe {
-  version: 1;
+  version: 2;
   x: string;
   axis: 'category' | 'number' | 'time';
   axisUnit: string;
@@ -51,16 +67,20 @@ export interface PopulationPlotRecipe {
   /** Population stage centre: participant mean or median (E4). */
   summary: 'none' | 'mean' | 'median';
   /**
-   * Band around the centre: SD; mean ± 1.96 SE (normal approximation); the
-   * t-based 95% CI of the mean (t quantile, n − 1 df); or the IQR (median).
+   * Band around the centre, from the interval registry
+   * (docs/plans/interval-kinds.md). With `source: 'compute'` the population
+   * stage computes it per position; with `source: 'columns'` the frame already
+   * holds one summary row per position and its stored bounds are drawn as
+   * given, never recomputed.
    */
-  band: 'none' | 'sd' | 'sem95' | 'ci95' | 'iqr';
-  within: 'single' | 'mean';
+  band: IntervalSpec;
+  /** Repeated rows at one participant/position: reject (`single`) or average (`mean`). `within` in v1. */
+  repeatRows: 'single' | 'mean';
   /** Declared collapse transforms (E4); absent = none. */
   transforms?: PopulationTransform[];
 }
 export const defaultPopulationPlotRecipe: PopulationPlotRecipe = {
-  version: 1,
+  version: 2,
   x: 'member',
   axis: 'category',
   axisUnit: '',
@@ -69,9 +89,79 @@ export const defaultPopulationPlotRecipe: PopulationPlotRecipe = {
   detail: null,
   mark: 'point',
   summary: 'none',
-  band: 'none',
-  within: 'single',
+  band: NO_INTERVAL,
+  repeatRows: 'single',
 };
+
+/**
+ * A recipe from a study save or plot file, as the current version. v1 bands
+ * are translated through the recipe's own legacy table (`ci95` was the t
+ * interval here, unlike on a set trace) and `within` becomes `repeatRows`.
+ * Validation against a frame stays with {@link validatePlotRecipe}.
+ */
+export function upgradePlotRecipe(raw: unknown): PopulationPlotRecipe {
+  const r = raw as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || Array.isArray(r)) throw new Error('Unsupported population plot recipe.');
+  if (r.version === 2) return r as unknown as PopulationPlotRecipe;
+  if (r.version !== 1) throw new Error('Unsupported population plot recipe.');
+  const choice = fromRecipeBandV1(r.band);
+  if (!choice) throw new Error(`Unsupported population plot band: ${String(r.band)}`);
+  const { within, ...rest } = r;
+  return { ...rest, version: 2, band: computedInterval(choice), repeatRows: within } as unknown as PopulationPlotRecipe;
+}
+
+/** The bands the population plot offers, in menu order (disabled where they don't fit the centre). */
+export const POPULATION_BAND_CHOICES: readonly IntervalChoice[] = [
+  INTERVAL_PRESETS.none,
+  INTERVAL_PRESETS.sd,
+  INTERVAL_PRESETS.ciNormal95,
+  INTERVAL_PRESETS.ciT95,
+  INTERVAL_PRESETS.iqr,
+];
+
+/**
+ * Keep a band choice valid for the centre (three surfaces share this): a kind
+ * that fits is kept, `none` stays `none`, anything else becomes the centre's
+ * conventional band (t CI for a mean, IQR for a median).
+ */
+export function bandForCentre(choice: IntervalChoice, centre: 'mean' | 'median'): IntervalChoice {
+  if (choice.kind === 'none' || intervalFitsCentre(choice.kind, centre)) return choice;
+  return centre === 'median' ? INTERVAL_PRESETS.iqr : INTERVAL_PRESETS.ciT95;
+}
+
+/** The band against the registry, the summary and the frame's columns. */
+function validateBand(names: ReadonlySet<string>, r: PopulationPlotRecipe) {
+  const b = r.band as Partial<IntervalSpec> | undefined;
+  if (!b || typeof b !== 'object' || (b.source !== 'compute' && b.source !== 'columns'))
+    throw new Error('Unsupported population plot band.');
+  const error = intervalChoiceError(b);
+  if (error) throw new Error(error);
+  const kind = b.kind!;
+  if (b.source === 'columns') {
+    if (r.summary === 'none') throw new Error('Stored bounds go with a summary centre (mean or median).');
+    if (kind === 'none')
+      throw new Error('Stored bounds need an interval kind (custom when the definition is not a known kind).');
+    for (const c of [b.lower, b.upper])
+      if (!c || !names.has(c)) throw new Error(`Interval bound column is unavailable: ${c ?? '(unnamed)'}`);
+    if (r.transforms?.length)
+      throw new Error('Declared transforms apply to participant rows, not to stored summaries.');
+    // The stored centre is what the producer computed; the summary only names it.
+    if (!intervalFitsCentre(kind, r.summary))
+      throw new Error(`Stored ${kind} bounds describe a ${intervalDef(kind).centre}; the summary must say so.`);
+    return;
+  }
+  if (kind === 'custom') throw new Error('A custom interval is drawn from stored bounds only.');
+  if (kind === 'wsci_cm')
+    throw new Error('The within-subject CI needs a declared design; draw stored bounds instead.');
+  if (kind === 'heuristic_se')
+    throw new Error('The heuristic voxel-SE band needs voxel standard errors; draw stored bounds instead.');
+  if (r.summary !== 'none' && kind !== 'none' && !intervalFitsCentre(kind, r.summary))
+    throw new Error(
+      r.summary === 'median'
+        ? 'A median summary takes a quantile band (or none).'
+        : 'Quantile bands go with a median summary.',
+    );
+}
 export function validatePlotRecipe(frame: SampleFrame, r: PopulationPlotRecipe) {
   if (
     !Array.isArray(frame?.columns) ||
@@ -107,19 +197,16 @@ export function validatePlotRecipe(frame: SampleFrame, r: PopulationPlotRecipe) 
       'Use points or trajectories for summary means; distributions show individuals.',
     );
   if (
-    r.version !== 1 ||
+    r.version !== 2 ||
     !['category', 'number', 'time'].includes(r.axis) ||
     !['point', 'line', 'box'].includes(r.mark) ||
     !['none', 'mean', 'median'].includes(r.summary) ||
-    !['none', 'sd', 'sem95', 'ci95', 'iqr'].includes(r.band) ||
-    !['single', 'mean'].includes(r.within) ||
+    !['single', 'mean'].includes(r.repeatRows) ||
     (r.transforms !== undefined && !Array.isArray(r.transforms))
   )
     throw new Error('Unsupported population plot recipe.');
-  if (r.summary === 'median' && !['none', 'iqr'].includes(r.band))
-    throw new Error('A median summary takes the IQR band (or none).');
-  if (r.summary === 'mean' && r.band === 'iqr')
-    throw new Error('The IQR band goes with a median summary.');
+  validateBand(names, r);
+  const stored = r.band.source === 'columns';
   const transforms = r.transforms ?? [];
   if (transforms.length && !r.detail)
     throw new Error('Choose a participant identity before declaring collapse transforms.');
@@ -146,7 +233,7 @@ export function validatePlotRecipe(frame: SampleFrame, r: PopulationPlotRecipe) 
     throw new Error('A time axis requires declared measured times and units.');
   if (r.mark === 'line' && r.summary === 'none' && !r.detail)
     throw new Error('Choose a participant/line identity before drawing individual trajectories.');
-  if (r.summary !== 'none' && !r.detail)
+  if (r.summary !== 'none' && !r.detail && !stored)
     throw new Error('Choose a participant identity before calculating population summaries.');
 }
 /**
@@ -184,8 +271,7 @@ export function composePopulationPlot(
   r: PopulationPlotRecipe,
 ): { frame: SampleFrame; spec: ResolvedPlotSpec; summary: boolean } {
   validatePlotRecipe(frame, r);
-  const key = (row: FrameRow, fields: (string | null)[]) =>
-    JSON.stringify(fields.map((f) => (f ? (row[f] ?? null) : null)));
+  const key = cellKey;
   const rows = frame.rows.map((row) => {
     const value = row[r.x];
     if (r.axis === 'category' || value === null) return { ...row };
@@ -209,6 +295,7 @@ export function composePopulationPlot(
   );
   if (r.mark === 'line' && r.axis !== 'category')
     rows.sort((a, b) => Number(a[r.x]) - Number(b[r.x]));
+  if (r.band.source === 'columns') return storedSummary(frame, columns, rows, r);
   const transforms = orderedTransforms(r.transforms);
   const paired = pairedColumns(r);
   if (r.mark === 'line' || r.summary !== 'none' || transforms.length) {
@@ -219,7 +306,7 @@ export function composePopulationPlot(
       const k = key(row, [r.x, r.color, r.facet, r.detail, ...paired]);
       cells.set(k, [...(cells.get(k) ?? []), row]);
     }
-    if (r.within === 'single' && [...cells.values()].some((cell) => cell.length > 1))
+    if (r.repeatRows === 'single' && [...cells.values()].some((cell) => cell.length > 1))
       throw new Error(
         'Repeated rows at one participant/axis position require an explicit within-participant mean.',
       );
@@ -250,9 +337,9 @@ export function composePopulationPlot(
       });
       const summaries = [...groups.values()].map((cell) => {
         const values = finite(cell);
-        const { centre, lower, upper } = populationStage(values, r.summary as 'mean' | 'median', r.band);
+        const { centre, lower, upper, df } = populationStage(values, r.summary as 'mean' | 'median', r.band);
         // SD and SE travel with every summary row (effect sizes, meta-analysis).
-        const { sd, se } = spreadOf(values);
+        const spread = spreadOf(values);
         return {
           ...Object.fromEntries(
             outColumns.map((c) => [
@@ -264,9 +351,10 @@ export function composePopulationPlot(
           value: centre,
           lower,
           upper,
-          count: values.length,
-          sd,
-          se,
+          [INTERVAL_COLUMNS.n]: values.length,
+          sd: spread?.sd ?? null,
+          se: spread?.se ?? null,
+          ...intervalCells(r.band, df),
           __contributors: JSON.stringify(
             cell.flatMap((v) => JSON.parse(v.__contributors) as string[]),
           ),
@@ -275,10 +363,7 @@ export function composePopulationPlot(
       return {
         frame: {
           ...frame,
-          columns: [
-            ...outColumns.filter((c) => !SUMMARY_COLUMNS.includes(c.name)),
-            ...SUMMARY_COLUMNS.map((name) => ({ name, role: 'quantitative' as const })),
-          ],
+          columns: summaryColumns(outColumns),
           rows: summaries,
           meta: {
             ...frame.meta,
@@ -301,72 +386,113 @@ export function composePopulationPlot(
 
 type ReducedRow = FrameRow & { __contributors: string };
 
-/** Columns the population stage adds to each summary row. */
-const SUMMARY_COLUMNS = ['lower', 'upper', 'count', 'sd', 'se'];
+/** Columns the population stage adds to each summary row, with per-row interval metadata. */
+const SUMMARY_COLUMNS: readonly SampleFrame['columns'][number][] = [
+  { name: 'lower', role: 'quantitative' },
+  { name: 'upper', role: 'quantitative' },
+  { name: INTERVAL_COLUMNS.n, role: 'quantitative' },
+  { name: 'sd', role: 'quantitative' },
+  { name: 'se', role: 'quantitative' },
+  { name: INTERVAL_COLUMNS.kind, role: 'nominal' },
+  { name: INTERVAL_COLUMNS.level, role: 'quantitative' },
+  { name: INTERVAL_COLUMNS.df, role: 'quantitative' },
+];
+const SUMMARY_NAMES = new Set(SUMMARY_COLUMNS.map((c) => c.name));
 
-/** Sample SD (n − 1) and SE = SD / √n; null below two values. */
-function spreadOf(values: readonly number[]): { sd: number | null; se: number | null } {
-  const n = values.length;
-  if (n < 2) return { sd: null, se: null };
-  const mean = meanOf(values);
-  const sd = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1));
-  return { sd, se: sd / Math.sqrt(n) };
-}
+const summaryColumns = (columns: SampleFrame['columns']): SampleFrame['columns'] => [
+  ...columns.filter((c) => !SUMMARY_NAMES.has(c.name)),
+  ...SUMMARY_COLUMNS,
+];
+
+/** The per-row interval cells: what the band is, at which level, on how many df. */
+const intervalCells = (band: IntervalChoice, df: number | null | undefined) => ({
+  [INTERVAL_COLUMNS.kind]: band.kind,
+  [INTERVAL_COLUMNS.level]: band.level ?? null,
+  [INTERVAL_COLUMNS.df]: df ?? null,
+});
+
+const cellKey = (row: FrameRow, fields: (string | null)[]) =>
+  JSON.stringify(fields.map((f) => (f ? (row[f] ?? null) : null)));
 
 const finite = (cell: readonly FrameRow[]) =>
   cell.map((v) => v.value).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
 
-/** Running mean (stable; equal weight per value). */
-const meanOf = (values: readonly number[]) => values.reduce((m, v, i) => m + (v - m) / (i + 1), 0);
+const finiteOrNull = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /**
  * The population stage over one position's participant values: centre
- * (mean / median) and band. Bands need two or more participants.
+ * (mean / median) and band, through the interval registry. Bands need two or
+ * more participants and a kind that fits the centre.
  */
 export function populationStage(
   values: readonly number[],
   summary: 'mean' | 'median',
-  band: PopulationPlotRecipe['band'],
-): { centre: number | null; lower: number | null; upper: number | null } {
-  const n = values.length;
-  if (!n) return { centre: null, lower: null, upper: null };
-  if (summary === 'median') {
-    const centre = sampleQuantile(values, 0.5);
-    if (band !== 'iqr' || n < 2) return { centre, lower: null, upper: null };
-    return { centre, lower: sampleQuantile(values, 0.25), upper: sampleQuantile(values, 0.75) };
+  band: IntervalChoice,
+): { centre: number | null; lower: number | null; upper: number | null; df: number | null } {
+  if (!values.length) return { centre: null, lower: null, upper: null, df: null };
+  const centre = summary === 'median' ? sampleQuantile(values, 0.5) : meanOf(values);
+  const bounds = intervalFitsCentre(band.kind, summary) ? computeInterval(band, values, centre) : null;
+  return { centre, lower: bounds?.lower ?? null, upper: bounds?.upper ?? null, df: bounds?.df ?? null };
+}
+
+/**
+ * Summary rows supplied with their bounds (`band.source: 'columns'`): one row
+ * per plotted position, drawn as given. Each row's own interval metadata wins
+ * over the recipe's declaration.
+ */
+function storedSummary(
+  frame: SampleFrame,
+  columns: SampleFrame['columns'],
+  rows: FrameRow[],
+  r: PopulationPlotRecipe,
+): { frame: SampleFrame; spec: ResolvedPlotSpec; summary: boolean } {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const k = cellKey(row, [r.x, r.color, r.facet]);
+    if (seen.has(k))
+      throw new Error('Stored bounds need one summary row per plotted position; this frame repeats a position.');
+    seen.add(k);
   }
-  const mean = meanOf(values);
-  const sd = n > 1 ? Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : null;
-  const spread =
-    band === 'none' || sd === null
-      ? null
-      : band === 'sd'
-        ? sd
-        : band === 'sem95'
-          ? (1.96 * sd) / Math.sqrt(n)
-          : band === 'ci95'
-            ? (tQuantile(0.975, n - 1) * sd) / Math.sqrt(n)
-            : null;
-  return { centre: mean, lower: spread === null ? null : mean - spread, upper: spread === null ? null : mean + spread };
+  const { kind: kindCol, level: levelCol, df: dfCol, n: nCol } = INTERVAL_COLUMNS;
+  const summaries = rows.map((row) => {
+    const ownKind = typeof row[kindCol] === 'string' && row[kindCol] !== '' ? row[kindCol] : null;
+    // The declared level belongs to the declared kind only; a row of another
+    // kind without its own level keeps none (labelled from its own words).
+    const level = finiteOrNull(row[levelCol]) ?? (ownKind === null || ownKind === r.band.kind ? r.band.level : null);
+    return {
+    ...row,
+    lower: finiteOrNull(row[r.band.lower!]),
+    upper: finiteOrNull(row[r.band.upper!]),
+    [nCol]: finiteOrNull(row[nCol]),
+    sd: finiteOrNull(row.sd),
+    se: finiteOrNull(row.se),
+    [kindCol]: ownKind ?? r.band.kind,
+    [levelCol]: level ?? null,
+    [dfCol]: finiteOrNull(row[dfCol]),
+    __contributors: '[]',
+    };
+  });
+  return {
+    frame: {
+      ...frame,
+      columns: summaryColumns(columns),
+      rows: summaries,
+      meta: { ...frame.meta, populationReduction: reductionRecord(r) },
+    },
+    spec: plotSpec(r, true),
+    summary: true,
+  };
 }
 
 /** How the population stage reduced participants (frame provenance). */
 function reductionRecord(r: PopulationPlotRecipe) {
+  const stored = r.band.source === 'columns';
   return {
     centre: r.summary,
-    band: r.band,
-    weight: 'equal per participant',
-    within: r.within,
-    bandDefinition:
-      r.band === 'ci95'
-        ? 'mean ± t(0.975, n − 1) · SD / √n'
-        : r.band === 'sem95'
-          ? 'mean ± 1.96 · SD / √n (normal approximation)'
-          : r.band === 'sd'
-            ? 'mean ± SD (n − 1)'
-            : r.band === 'iqr'
-              ? '25th–75th percentile (type 7)'
-              : 'none',
+    interval: r.band,
+    weight: stored ? 'stored summaries' : 'equal per participant',
+    repeatRows: r.repeatRows,
+    bandDefinition: intervalDefinition(r.band, r.summary === 'none' ? undefined : r.summary),
   };
 }
 
@@ -497,7 +623,7 @@ function plotSpec(r: PopulationPlotRecipe, summary: boolean): ResolvedPlotSpec {
         r.x !== 'member' &&
         r.x !== '__populationObservation',
     },
-    ...(summary && r.band !== 'none' ? { band: { lower: 'lower', upper: 'upper' } } : {}),
+    ...(summary && r.band.kind !== 'none' ? { band: { lower: 'lower', upper: 'upper' } } : {}),
   };
 }
 
@@ -555,8 +681,8 @@ export function conditionAveragedPeakWindow(
         ...r,
         mark: 'line',
         summary: 'mean',
-        band: 'none',
-        within: 'mean',
+        band: NO_INTERVAL,
+        repeatRows: 'mean',
         transforms: orderedTransforms(r.transforms).filter((t) => t.kind !== 'windowMean'),
       }).frame.rows;
     } catch {

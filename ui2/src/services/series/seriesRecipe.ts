@@ -4,15 +4,31 @@
  * repeated rows at one position averaged within participant, then the
  * population stage (centre and band) and the declared transforms.
  */
-import type { PopulationPlotRecipe } from '@/services/studio/populationPlot';
+import {
+  INTERVAL_PRESETS,
+  NO_INTERVAL,
+  centreBandPhrase,
+  computedInterval,
+  type IntervalChoice,
+} from '@/plotting/intervals';
+import { bandForCentre, type PopulationPlotRecipe } from '@/services/studio/populationPlot';
 import type { SeriesSettings } from '@/stores/seriesStore';
 import { SERIES_X, type SetSeriesBinding } from './seriesBinding';
+
+/** The series toolbar's bands per centre, in menu order. */
+export const SERIES_MEAN_BANDS: readonly IntervalChoice[] = [
+  INTERVAL_PRESETS.ciT95,
+  INTERVAL_PRESETS.ciNormal95,
+  INTERVAL_PRESETS.sd,
+  INTERVAL_PRESETS.none,
+];
+export const SERIES_MEDIAN_BANDS: readonly IntervalChoice[] = [INTERVAL_PRESETS.iqr, INTERVAL_PRESETS.none];
 
 export function seriesRecipe(binding: SetSeriesBinding, settings: SeriesSettings): PopulationPlotRecipe {
   const collapsed = settings.transforms.some((t) => t.kind === 'windowMean');
   const summary = settings.display === 'summary';
   return {
-    version: 1,
+    version: 2,
     x: SERIES_X,
     axis: binding.kind === 'time' && binding.unit ? 'time' : 'number',
     axisUnit: binding.unit ?? '',
@@ -22,8 +38,8 @@ export function seriesRecipe(binding: SetSeriesBinding, settings: SeriesSettings
     detail: binding.subjectColumn,
     mark: collapsed ? 'point' : 'line',
     summary: summary ? settings.summary : 'none',
-    band: summary ? (settings.summary === 'median' ? (settings.band === 'none' ? 'none' : 'iqr') : settings.band === 'iqr' ? 'ci95' : settings.band) : 'none',
-    within: 'mean',
+    band: summary ? computedInterval(bandForCentre(settings.band, settings.summary)) : NO_INTERVAL,
+    repeatRows: 'mean',
     transforms: settings.transforms,
   };
 }
@@ -34,16 +50,8 @@ export function seriesAxisTitle(binding: SetSeriesBinding): string {
   return binding.unit ? `${name} (${binding.unit})` : name;
 }
 
-/** "mean ± 95% CI (t)" and the like. */
+/** "mean ± 95% CI (t)", "median, IQR" and the like. */
 export function bandDescription(recipe: PopulationPlotRecipe): string {
   if (recipe.summary === 'none') return 'participants';
-  const centre = recipe.summary === 'median' ? 'median' : 'mean';
-  const band = {
-    none: '',
-    sd: ' ± SD',
-    sem95: ' ± 1.96 SE',
-    ci95: ' ± 95% CI (t)',
-    iqr: ', IQR',
-  }[recipe.band];
-  return `${centre}${band}`;
+  return centreBandPhrase(recipe.summary, recipe.band);
 }

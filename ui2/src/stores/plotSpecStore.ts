@@ -23,6 +23,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 import type { Encoding, Mark, ReduceOp, TraceBand, Transform } from '@/plotting';
+import { fromTraceBandV1, sameInterval } from '@/plotting/intervals';
 
 /** A user's partial override of the inferred plot spec for a mode. */
 export interface PlotSpecOverride {
@@ -36,7 +37,7 @@ export interface PlotSpecStore {
   sphereRadiusMmByMode: Record<string, number>;
   /** Voxel reducer for multi-voxel loci, keyed by mode id. Defaults to 'mean'. */
   reduceByMode: Record<string, ReduceOp>;
-  /** Dispersion band kind for trace loci, keyed by mode id. Defaults to 'sem95'. */
+  /** Dispersion band for trace loci, keyed by mode id. Defaults to a 95% normal CI. */
   bandByMode: Record<string, TraceBand>;
   /** Partial visual-spec override keyed by mode id. */
   specByMode: Record<string, PlotSpecOverride>;
@@ -68,7 +69,18 @@ declare global {
   }
 }
 
-const PLOT_SPEC_PERSIST_VERSION = 3;
+const PLOT_SPEC_PERSIST_VERSION = 4;
+
+/** v3 stored trace bands as legacy tokens; translate them as set-trace bands, dropping unknown ones. */
+function migrateTraceBands(bands: unknown): Record<string, TraceBand> {
+  if (!bands || typeof bands !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(bands as Record<string, unknown>).flatMap(([mode, token]) => {
+      const choice = fromTraceBandV1(token);
+      return choice ? [[mode, choice]] : [];
+    }),
+  );
+}
 const PLOT_SPEC_PERSIST_NAME = 'brainflow2-plot-spec';
 
 const createPlotSpecStore = () =>
@@ -104,7 +116,8 @@ const createPlotSpecStore = () =>
 
         setBand: (modeId, band) => {
           set((state) => {
-            if (state.bandByMode[modeId] === band) return state;
+            const current = state.bandByMode[modeId];
+            if (current && sameInterval(current, band)) return state;
             return {
               bandByMode: { ...state.bandByMode, [modeId]: band },
             };
@@ -195,14 +208,20 @@ const createPlotSpecStore = () =>
           specByMode: state.specByMode,
         }),
         // v1 persisted only sphereRadiusMmByMode; v2 added reduce/spec; v3 added
-        // bandByMode. Backfill whichever maps a persisted snapshot lacks so a
-        // rehydrated state is never missing a keyed map (which the setters index).
+        // bandByMode as legacy tokens; v4 stores interval choices. Backfill
+        // whichever maps a persisted snapshot lacks so a rehydrated state is
+        // never missing a keyed map (which the setters index).
         migrate: (persisted, version) => {
           const prev = (persisted ?? {}) as Partial<PlotSpecStore>;
           return {
             sphereRadiusMmByMode: prev.sphereRadiusMmByMode ?? {},
             reduceByMode: version < 2 ? {} : (prev.reduceByMode ?? {}),
-            bandByMode: version < 3 ? {} : (prev.bandByMode ?? {}),
+            bandByMode:
+              version < 3
+                ? {}
+                : version === 3
+                  ? migrateTraceBands(prev.bandByMode)
+                  : (prev.bandByMode ?? {}),
             specByMode: version < 2 ? {} : (prev.specByMode ?? {}),
           } as PlotSpecStore;
         },

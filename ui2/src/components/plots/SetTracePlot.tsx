@@ -24,6 +24,7 @@ import { useActiveCohort } from './cohortPlot.helpers';
 import {
   buildTraceMembers,
   DEFAULT_TRACE_RADIUS_MM,
+  DEFAULT_TRACE_BAND,
   SET_TRACE_MODE_ID,
 } from './setTracePlot.helpers';
 import type { PlotModeContext } from './plotHost.types';
@@ -43,7 +44,7 @@ export function SetTracePlotBody({ ctx }: { ctx: PlotModeContext }) {
   const { crosshairMm, width, height } = ctx;
   const cohort = useActiveCohort();
   const reduce = usePlotSpecStore((s) => s.reduceByMode[SET_TRACE_MODE_ID] ?? 'mean');
-  const band: TraceBand = usePlotSpecStore((s) => s.bandByMode[SET_TRACE_MODE_ID] ?? 'sem95');
+  const band: TraceBand = usePlotSpecStore((s) => s.bandByMode[SET_TRACE_MODE_ID] ?? DEFAULT_TRACE_BAND);
   const radiusMm = usePlotSpecStore(
     (s) => s.sphereRadiusMmByMode[SET_TRACE_MODE_ID] ?? DEFAULT_TRACE_RADIUS_MM,
   );
