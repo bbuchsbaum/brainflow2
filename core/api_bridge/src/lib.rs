@@ -15270,6 +15270,121 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_upload_no_room_can_fix_evicts_nothing() {
+        // Budget 320 B: `a` (on screen) and `z` (behind) take 128 B each.
+        // `d` holds values f16 cannot represent, so it is stored R32Float at
+        // its full estimate, 256 B: evicting `z` would free only 192 B.
+        let (state, _service) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::ByteBudget {
+                budget_bytes: 320,
+            })
+            .await;
+        for id in ["a", "z"] {
+            insert_small_volume(&state, id, [4, 4, 4]).await;
+        }
+        state.volume_registry.lock().await.insert(
+            "d".into(),
+            sendable_f32_volume([4, 4, 4], |_| 1.0e6),
+            volume_metadata_for("d", "f32", bridge_types::VolumeType::Volume3D),
+        );
+        state.residency.set_backend_owner(true);
+        set_residency_demand_with(
+            &state,
+            "behind".into(),
+            demand_of(1, ResidencyPriority::Background, &[("z", "z")]),
+        )
+        .await;
+        request_layer_gpu_resources_for_testing(label_spec("z", "z"), None, &state)
+            .await
+            .unwrap();
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(1, ResidencyPriority::Front, &[("a", "a"), ("d", "d")]),
+        )
+        .await;
+        let report = residency_state_report(&state).await.unwrap();
+        assert_eq!(state_of(&report, "a"), Some(ResidencyLayerState::Resident));
+        assert_eq!(state_of(&report, "d"), Some(ResidencyLayerState::Refused));
+        assert_eq!(
+            state_of(&report, "z"),
+            Some(ResidencyLayerState::Resident),
+            "a background layer is not evicted for nothing"
+        );
+
+        // The same for a UI request no room can fix.
+        let refused = request_layer_gpu_resources_for_testing(label_spec("d", "d"), None, &state)
+            .await
+            .expect_err("it cannot fit");
+        assert!(matches!(refused, BridgeError::GpuBudgetExceeded { .. }));
+        let report = residency_state_report(&state).await.unwrap();
+        assert_eq!(state_of(&report, "z"), Some(ResidencyLayerState::Resident));
+    }
+
+    #[tokio::test]
+    async fn a_refusal_is_dropped_once_no_front_tab_lists_the_layer() {
+        let (state, _service) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::ByteBudget {
+                budget_bytes: render_loop::DEFAULT_RESIDENCY_BYTE_BUDGET,
+            })
+            .await;
+        let ids: Vec<String> = (0..14).map(|n| format!("v{n:02}")).collect();
+        for id in &ids {
+            insert_small_volume(&state, id, [2, 2, 2]).await;
+        }
+        state.residency.set_backend_owner(true);
+        let pairs: Vec<(&str, &str)> = ids.iter().map(|id| (id.as_str(), id.as_str())).collect();
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(1, ResidencyPriority::Front, &pairs),
+        )
+        .await;
+        assert!(state
+            .residency
+            .state
+            .lock()
+            .await
+            .shadow
+            .refusals
+            .contains_key("v13"));
+        // The tab goes behind and another comes to the front.
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(2, ResidencyPriority::Background, &pairs),
+        )
+        .await;
+        set_residency_demand_with(
+            &state,
+            "other".into(),
+            demand_of(1, ResidencyPriority::Front, &[("v00", "v00")]),
+        )
+        .await;
+        assert!(
+            state
+                .residency
+                .state
+                .lock()
+                .await
+                .shadow
+                .refusals
+                .is_empty(),
+            "no front tab lists v13 now"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_owner_is_reported_before_the_renderer_starts() {
+        let state = BridgeState::default().expect("bridge state");
+        state.residency.set_backend_owner(true);
+        let report = residency_state_report(&state).await.unwrap();
+        assert_eq!(report.owner, ResidencyOwner::Backend);
+        assert!(report.layers.is_empty());
+        assert_eq!(report.seq, 0, "any real report supersedes it");
+    }
+
+    #[tokio::test]
     async fn render_pressure_defers_to_manager_and_clears_skip() {
         let (state, service) = owned_two_texture_state(&["x", "y", "a"]).await;
         for id in ["x", "y"] {

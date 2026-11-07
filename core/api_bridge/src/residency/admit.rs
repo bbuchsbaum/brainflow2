@@ -15,7 +15,8 @@ use std::collections::{HashMap, VecDeque};
 use super::demand::Priority;
 use super::manager::{current_service, snapshot, BridgeTextureBackend};
 use super::policy::{
-    eviction_candidates, plan, Plan, Refusal, Request, TextureBackend, Victim, VictimKind,
+    eviction_candidates, plan, Plan, Refusal, Request, ResidencyFacts, TextureBackend, Victim,
+    VictimKind,
 };
 use crate::*;
 
@@ -24,10 +25,16 @@ use crate::*;
 pub(crate) enum AdmitTarget {
     /// Every Front frame's drawable layers: evict for them and upload them.
     Fronts,
-    /// Room for one layer the UI is requesting: evict the policy's next
-    /// victim for it, at most one. The caller's request uploads the layer
-    /// and asks again while it is still refused.
-    RoomFor { layer_id: String, volume_id: String },
+    /// Room for one layer the UI is requesting, refused short of
+    /// `needed_bytes`: evict the policy's next victim for it, at most one,
+    /// and none unless the allowed victims together could free that much.
+    /// The caller's request uploads the layer and asks again while it is
+    /// still refused.
+    RoomFor {
+        layer_id: String,
+        volume_id: String,
+        needed_bytes: u64,
+    },
 }
 
 /// What an admission did.
@@ -62,7 +69,24 @@ async fn requests_for(
     let mut volumes = HashMap::new();
     let requests = match target {
         AdmitTarget::Fronts => {
-            let residency = state.residency.state.lock().await;
+            let mut residency = state.residency.state.lock().await;
+            // A refusal belongs to a layer a front tab still lists; one whose
+            // tab went behind or closed would show an old reason later.
+            let listed: std::collections::HashSet<String> = residency
+                .ledger
+                .frames()
+                .into_iter()
+                .filter(|(_, demand)| demand.priority == Priority::Front)
+                .flat_map(|(_, demand)| demand.layers.iter().map(|layer| layer.layer_id.clone()))
+                .collect();
+            let before = residency.shadow.refusals.len();
+            residency
+                .shadow
+                .refusals
+                .retain(|layer_id, _| listed.contains(layer_id));
+            if residency.shadow.refusals.len() != before {
+                residency.changed();
+            }
             residency
                 .ledger
                 .frames()
@@ -79,6 +103,7 @@ async fn requests_for(
         AdmitTarget::RoomFor {
             layer_id,
             volume_id,
+            ..
         } => {
             volumes.insert(layer_id.clone(), volume_id.clone());
             vec![Request::Layer {
@@ -90,10 +115,16 @@ async fn requests_for(
     (requests, volumes)
 }
 
-/// Plan `request` from a fresh snapshot, with the victims to evict in order:
-/// the plan's, then every other victim the policy allows. None without a
-/// render service.
-async fn plan_now(state: &BridgeState, request: &Request) -> Option<(Plan, VecDeque<Victim>)> {
+/// One request's plan, with the victims to evict in order (the plan's, then
+/// every other victim the policy allows) and the snapshot they came from.
+struct Planned {
+    plan: Plan,
+    victims: VecDeque<Victim>,
+    facts: ResidencyFacts,
+}
+
+/// Plan `request` from a fresh snapshot. None without a render service.
+async fn plan_now(state: &BridgeState, request: &Request) -> Option<Planned> {
     let service_arc = current_service(state).await?;
     let snap = {
         let mut service = service_arc.lock().await;
@@ -109,7 +140,11 @@ async fn plan_now(state: &BridgeState, request: &Request) -> Option<(Plan, VecDe
             victims.push_back(victim);
         }
     }
-    Some((plan, victims))
+    Some(Planned {
+        plan,
+        victims,
+        facts,
+    })
 }
 
 /// Record refusals for the report, and clear them for admitted layers.
@@ -156,10 +191,31 @@ async fn evict(state: &BridgeState, victim: &VictimKind) -> bool {
     }
 }
 
-/// Evict victims from the front of `victims` until one frees something.
-/// False when none is left.
-async fn evict_next(state: &BridgeState, victims: &mut VecDeque<Victim>) -> bool {
-    while let Some(victim) = victims.pop_front() {
+/// Bytes an upload refused with `GpuBudgetExceeded` still needs freed.
+fn shortfall(requested: u64, used: u64, budget: u64) -> u64 {
+    requested.saturating_sub(budget.saturating_sub(used))
+}
+
+/// Evict the next victim toward freeing `needed`. Every victim is checked
+/// against the demand as it is now, since an upload can take long and demand
+/// moves under it (a tab switched back, a pin added): one the policy would
+/// protect now is dropped. Nothing is evicted unless the victims left could
+/// free `needed` together: a refusal that no room can fix must not empty the
+/// background first. False when nothing was evicted.
+async fn evict_next(state: &BridgeState, planned: &mut Planned, needed: u64) -> bool {
+    {
+        let now = state.residency.now();
+        let residency = state.residency.state.lock().await;
+        let allowed = eviction_candidates(&planned.facts, &residency.ledger, now);
+        planned
+            .victims
+            .retain(|victim| allowed.iter().any(|now| now.kind == victim.kind));
+    }
+    let available: u64 = planned.victims.iter().map(|victim| victim.freed).sum();
+    if available < needed {
+        return false;
+    }
+    while let Some(victim) = planned.victims.pop_front() {
         if evict(state, &victim.kind).await {
             return true;
         }
@@ -193,21 +249,24 @@ pub(crate) async fn admit_held(state: &BridgeState, target: &AdmitTarget) -> Adm
     let mut outcome = AdmitOutcome::default();
     let (requests, volumes) = requests_for(state, target).await;
     for request in &requests {
-        let Some((plan, mut victims)) = plan_now(state, request).await else {
+        let Some(mut planned) = plan_now(state, request).await else {
             return outcome;
         };
 
-        if matches!(target, AdmitTarget::RoomFor { .. }) {
-            // Refused for its size by an estimate only: room may still help.
-            let size_only = plan
+        if let AdmitTarget::RoomFor { needed_bytes, .. } = target {
+            // A refusal the policy is sure of (draw cap, a missing volume)
+            // gains nothing from room.
+            let size_only = planned
+                .plan
                 .refuse
                 .iter()
                 .all(|refused| sized_by_estimate(refused.reason));
-            if size_only && evict_next(state, &mut victims).await {
+            if size_only && evict_next(state, &mut planned, *needed_bytes).await {
                 outcome.evicted += 1;
             }
             continue;
         }
+        let plan = planned.plan.clone();
 
         // Refusals the plan is sure of. One for size alone was made with an
         // estimate: that layer is tried with the rest, keeping the plan's
@@ -237,8 +296,14 @@ pub(crate) async fn admit_held(state: &BridgeState, target: &AdmitTarget) -> Adm
                         admitted.push(layer_id);
                         break;
                     }
-                    Err(BridgeError::GpuBudgetExceeded { .. }) => {
-                        if evict_next(state, &mut victims).await {
+                    Err(BridgeError::GpuBudgetExceeded {
+                        requested_bytes,
+                        used_bytes,
+                        budget_bytes,
+                        ..
+                    }) => {
+                        let needed = shortfall(requested_bytes, used_bytes, budget_bytes);
+                        if evict_next(state, &mut planned, needed).await {
                             outcome.evicted += 1;
                             continue;
                         }

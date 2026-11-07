@@ -24,12 +24,20 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
         // Evict the policy's next victim and ask again, one at a time, until
         // the upload fits or nothing more may go. The skip marks stay until
         // the upload ends, so no frame takes the room first.
-        while matches!(result, Err(BridgeError::GpuBudgetExceeded { .. })) {
+        while let Err(BridgeError::GpuBudgetExceeded {
+            requested_bytes,
+            used_bytes,
+            budget_bytes,
+            ..
+        }) = result
+        {
             let room = admit(
                 bridge_state,
                 AdmitTarget::RoomFor {
                     layer_id: ids.0.clone(),
                     volume_id: ids.1.clone(),
+                    needed_bytes: requested_bytes
+                        .saturating_sub(budget_bytes.saturating_sub(used_bytes)),
                 },
             )
             .await;
@@ -43,6 +51,14 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
                 || Ok(()),
             )
             .await;
+        }
+    }
+    // Under a backend owner a request that succeeds clears the layer's
+    // recorded refusal (`note_request` does that otherwise).
+    if backend_owner && result.is_ok() {
+        let mut residency = bridge_state.residency.state.lock().await;
+        if residency.shadow.refusals.remove(&ids.0).is_some() {
+            residency.changed();
         }
     }
     // Shadow comparison (R5b): a typed refusal opens an episode, the outcome

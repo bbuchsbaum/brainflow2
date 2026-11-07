@@ -443,8 +443,13 @@ pub(crate) async fn snapshot(
         );
     }
 
-    // Sizes seen on earlier uploads beat the per-type estimate.
-    if let Ok(known) = residency.texture_bytes.lock() {
+    // Sizes seen on earlier uploads beat the per-type estimate (R5c only:
+    // with the flag off, planning is R5b's).
+    if let Some(known) = residency
+        .backend_owner()
+        .then(|| residency.texture_bytes.lock().ok())
+        .flatten()
+    {
         for (volume_id, &bytes) in known.iter() {
             if let Some(estimate) = volume_bytes.get_mut(volume_id) {
                 *estimate = bytes;
@@ -709,14 +714,23 @@ async fn report(state: &BridgeState, wait: bool, only_if_changed: bool) -> Optio
 }
 
 /// The report for `get_residency_state`.
+/// Before the renderer starts there is nothing resident, but the owner is
+/// known: the UI must learn it before it would evict (R5c), so it gets an
+/// empty report numbered with the last `seq` (any real report supersedes it).
 pub(crate) async fn residency_state_report(state: &BridgeState) -> BridgeResult<ResidencyReport> {
-    report(state, true, false)
-        .await
-        .ok_or_else(|| BridgeError::ServiceNotInitialized {
-            code: 5008,
-            details: "GPU rendering service is not initialized. Cannot report residency."
-                .to_string(),
-        })
+    if let Some(report) = report(state, true, false).await {
+        return Ok(report);
+    }
+    let seq = state.residency.state.lock().await.seq;
+    Ok(ResidencyReport {
+        seq,
+        owner: state.residency.owner(),
+        budget_bytes: None,
+        used_bytes: 0,
+        binding_capacity: 0,
+        undemanded_bytes: 0,
+        layers: Vec::new(),
+    })
 }
 
 /// One tick of the `residency-changed` emitter: a report when residency or
