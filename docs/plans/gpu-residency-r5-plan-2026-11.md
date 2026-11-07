@@ -417,3 +417,34 @@ No 6001/6021 and no error lines in the log. `benign_lru` comes mostly from the 1
 - **QA note.** With Stage Manager on, background clicks cannot reach the app once it is a side tile; the run used full-screen control. Under Node 26, vitest needs `NODE_OPTIONS=--no-experimental-webstorage`.
 
 **Gates at `182af4bb`:** `cargo test -p api-bridge -p render_loop` 947 passed, 0 failed (Metal); vitest 544 files, 4,364 passed; clippy on `api-bridge` shows only the existing ts-rs serde-attribute warnings.
+
+## 11. R5c design notes — 2026-11-07
+
+Branch `feat/r5c-backend-residency`, stacked on R5b (#48). Everything here is behind `BRAINFLOW_BACKEND_RESIDENCY`. With the flag off, behaviour is R5b's.
+
+**Flag.** `config::backend_residency_enabled()` reads `BRAINFLOW_BACKEND_RESIDENCY` once (`1`, `true` or `on`, any case). The report's `owner` is `backend` under it.
+
+**One executor: `manager::admit`.**
+- It holds `volume_operations` for the whole pass. The upload and release it calls are `_held` variants: `request_layer_gpu_resources_locked` is split into the lock plus `request_layer_gpu_resources_held`, as release already is.
+- For each Front frame, and then for the requesting layer (`Request::Layer`), it plans from a fresh snapshot. The residency lock is held only while planning, never across an await on the service.
+- It runs the evictions in order:
+  - a layer through `release_layer_gpu_resources_held`;
+  - a cached 4D member through a new `ResidentImageSet::release_cached_member`.
+- Then it runs the uploads in order through `ensure`. A live residency counts as success, not 1006.
+- If an upload is still refused (6008), because the estimate was off, it re-plans and retries, bounded by the number of residents.
+- Refusals are recorded with their reason, so the report shows them; admission clears them. The executor then marks residency changed.
+
+**Triggers.**
+- `set_residency_demand` (or `clear`) applied under the flag runs `admit` before returning. The publisher sends within 16 ms of a tab switch, so the new front tab's layers upload without a UI front-restore pass.
+- `request_layer_gpu_resources` refused with 6008 under the flag runs `admit` for that layer, then retries once. The UI no longer retries.
+- The render path's `AllocationFailed` skip under the flag sets `admission_wanted`. The residency tick runs `admit` when that is set and no admission is running. The render path never evicts.
+
+**Watchdog.** Under the flag it releases only layers that are stale and also undemanded and unpinned in the ledger.
+
+**UI, when the report's `owner` is `backend`.**
+- `LayerGpuService` does not call `retryBudgetUpload`; a 6008 is final, since the backend has already tried.
+- `makeRoomForUpload` returns true, `startFrontWorkspaceResidency` is skipped, and `AtlasPressureMonitor` does not evict.
+- `residencyStore` syncs each layer's `gpuResident` from the report: resident is true, evicted or refused is false. This closes the untracked-residents gap from §10, because the UI no longer decides evictions from its own metadata.
+- A refusal raises one alert per frame epoch and puts a badge on the layer row.
+
+**Tests:** §3's list, plus `closed_tab_layers_go_first_and_free_room_for_a_new_upload`, covering the §10 finding.
