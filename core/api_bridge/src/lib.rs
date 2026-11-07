@@ -114,8 +114,8 @@ mod gpu_upload;
 mod residency;
 use gpu_upload::{
     allocate_gpu_resources_for_layer, is_layer_ready_internal, layer_residency_is_live,
-    request_layer_gpu_resources_with_upload_hook, reupload_layer_locked, try_resident_swap,
-    upload_layer_volume,
+    request_layer_gpu_resources_held, request_layer_gpu_resources_with_upload_hook,
+    reupload_layer_locked, try_resident_swap, upload_layer_volume,
 };
 use modules::{dispose_module_workspace, list_modules, set_enabled_modules};
 pub use modules::{

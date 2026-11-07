@@ -28,6 +28,7 @@
 //! only as binding positions, taken from a current handle at the renderer call.
 //! `tests/bare_index_identity_check.rs` enforces this in CI.
 
+mod admit;
 mod config;
 mod demand;
 mod layer_slots;
@@ -40,6 +41,7 @@ mod shadow;
 mod skips;
 mod watchdog;
 
+pub(crate) use admit::{admit, AdmitTarget};
 pub(crate) use config::application_residency_config;
 pub(crate) use layer_slots::drawn_render_layer;
 pub use layer_slots::LayerSlotMap;

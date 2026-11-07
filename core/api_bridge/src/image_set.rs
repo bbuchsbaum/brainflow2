@@ -424,6 +424,25 @@ impl ResidentRing {
         Some(removed.texture_index)
     }
 
+    /// Remove cached `member` (never `current_member`, the one the layer
+    /// shows). Return its texture for the caller to free.
+    pub(crate) fn pop_cached_member(
+        &mut self,
+        member: usize,
+        current_member: usize,
+    ) -> Option<u32> {
+        if member == current_member || !self.member_pos.contains_key(&current_member) {
+            return None;
+        }
+        let index = *self.member_pos.get(&member)?;
+        let removed = self.slots.swap_remove(index);
+        self.member_pos.remove(&removed.member);
+        if let Some(moved) = self.slots.get(index) {
+            self.member_pos.insert(moved.member, index);
+        }
+        Some(removed.texture_index)
+    }
+
     /// Forget the slot at `texture_index`: it is no longer this ring's. Returns
     /// the member it held.
     pub(crate) fn forget_slot(&mut self, texture_index: u32) -> Option<usize> {
@@ -574,6 +593,24 @@ impl ResidentImageSet {
         if let Some(handle) = self.handles.remove(&index) {
             if let Err(error) = service.release_slot(handle) {
                 log::warn!("Could not reclaim cached image slot {index}: {error:?}");
+            }
+        }
+        Some(index)
+    }
+
+    /// Drop cached `member` (never the displayed one) and free its slot: the
+    /// residency executor's pick (R5c). Returns the index it held.
+    pub(crate) fn release_cached_member(
+        &mut self,
+        member: usize,
+        service: &mut render_loop::RenderLoopService,
+    ) -> Option<u32> {
+        let index = self.ring.pop_cached_member(member, self.current_member)?;
+        if let Some(handle) = self.handles.remove(&index) {
+            if let Err(error) = service.release_slot(handle) {
+                log::warn!(
+                    "Could not release cached image member {member} (slot {index}): {error:?}"
+                );
             }
         }
         Some(index)
@@ -926,6 +963,23 @@ mod tests {
             bytes_per_member: 1,
         };
         ResidentRing::seeded(config, 0, 0)
+    }
+
+    #[test]
+    fn a_chosen_cached_member_goes_but_never_the_displayed_one() {
+        let mut ring = new_ring(4);
+        let mut exec = FakeExecutor::default();
+        // Members 0 (displayed, slot 0), 1 and 2 cached.
+        assert_eq!(ring.prefetch(0, 2, 4, &mut exec).unwrap(), 2);
+        let slot_of_2 = ring.slot_of(2).unwrap();
+        assert_eq!(ring.pop_cached_member(0, 0), None);
+        assert_eq!(ring.pop_cached_member(7, 0), None);
+        assert_eq!(ring.pop_cached_member(2, 0), Some(slot_of_2));
+        assert!(!ring.is_resident(2));
+        assert!(ring.is_resident(0) && ring.is_resident(1));
+        // The positions of the remaining members stay consistent.
+        assert_eq!(ring.slot_of(1).map(|_| ()), Some(()));
+        assert_eq!(ring.resident_len(), 2);
     }
 
     #[test]

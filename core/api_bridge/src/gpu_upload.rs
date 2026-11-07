@@ -13,12 +13,34 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
     let uploads = !metadata_only.unwrap_or(false);
     let LayerSpec::Volume(spec) = &layer_spec;
     let ids = (spec.id.clone(), spec.source_resource_id.clone());
-    let result =
+    let backend_owner = uploads && bridge_state.residency.backend_owner();
+    // A backend owner (R5c) retries a budget refusal itself, so the request
+    // and its hook may run twice.
+    let retry_spec = backend_owner.then(|| layer_spec.clone());
+    let mut result =
         request_layer_gpu_resources_locked(layer_spec, metadata_only, bridge_state, after_upload)
             .await;
+    if let (Some(spec), Err(BridgeError::GpuBudgetExceeded { .. })) = (retry_spec, &result) {
+        // Make room as the policy picks it, then request once more. The skip
+        // marks stay until the upload ends, so no frame takes the room first.
+        let room = admit(
+            bridge_state,
+            AdmitTarget::RoomFor {
+                layer_id: ids.0.clone(),
+                volume_id: ids.1.clone(),
+            },
+        )
+        .await;
+        if room.evicted > 0 {
+            result =
+                request_layer_gpu_resources_locked(spec, metadata_only, bridge_state, || Ok(()))
+                    .await;
+        }
+    }
     // Shadow comparison (R5b): a typed refusal opens an episode, the outcome
-    // of the layer's later request closes it.
-    if uploads {
+    // of the layer's later request closes it. A backend owner has no UI
+    // evictions to compare.
+    if uploads && !backend_owner {
         note_request(bridge_state, &ids.0, &ids.1, &result).await;
     }
     // The UI made room for this upload without letting frames retry starved
@@ -37,6 +59,18 @@ pub(crate) async fn request_layer_gpu_resources_locked(
     after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
     let _operation = bridge_state.volume_operations.lock().await;
+    request_layer_gpu_resources_held(layer_spec, metadata_only, bridge_state, after_upload).await
+}
+
+/// [`request_layer_gpu_resources_locked`] for a caller that already holds
+/// `volume_operations`: the residency executor (R5c), which evicts and
+/// uploads in one pass under that lock.
+pub(crate) async fn request_layer_gpu_resources_held(
+    layer_spec: LayerSpec,
+    metadata_only: Option<bool>,
+    bridge_state: &BridgeState,
+    after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
+) -> BridgeResult<VolumeLayerGpuInfo> {
     let state = bridge_state;
     // Update return type
     info!(
