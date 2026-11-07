@@ -44,17 +44,16 @@ pub(crate) use config::application_residency_config;
 pub(crate) use layer_slots::drawn_render_layer;
 pub use layer_slots::LayerSlotMap;
 pub(crate) use lease::{release_superseded_lease, LayerLease};
+#[cfg(test)]
+pub(crate) use manager::residency_tick;
+pub(crate) use manager::{
+    clear_residency_demand_with, residency_state_report, set_residency_demand_with, Residency,
+};
 pub use manager::{
     ResidencyDemandResult, ResidencyDemandedLayer, ResidencyFrameDemand, ResidencyLayerReport,
     ResidencyLayerState, ResidencyOwner, ResidencyPin, ResidencyPriority, ResidencyRefusal,
     ResidencyReport,
 };
-pub(crate) use manager::{
-    clear_residency_demand_with, residency_state_report, set_residency_demand_with, Residency,
-};
-#[cfg(test)]
-pub(crate) use manager::residency_tick;
-pub(crate) use shadow::{check_draw_cap, note_reclaim, note_release_for_upload, note_request};
 pub(crate) use release::{
     release_layer_gpu_resources_held, release_layer_gpu_resources_internal,
     release_layer_gpu_resources_with,
@@ -65,6 +64,7 @@ pub(crate) use ring::{
     release_resident_image_set_allocations, resident_image_set_enabled, RESIDENT_RING_BUDGET_BYTES,
     RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_PREFETCH_RADIUS,
 };
+pub(crate) use shadow::{check_draw_cap, note_reclaim, note_release_for_upload, note_request};
 pub(crate) use skips::{clear_allocation_failed_skips, note_render_skip, RenderSkip};
 #[cfg(test)]
 pub(crate) use watchdog::layer_watchdog_sweep;

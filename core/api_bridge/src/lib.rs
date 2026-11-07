@@ -122,12 +122,12 @@ pub use modules::{
     module_descriptors, ModuleDescriptor, ModuleInfo, ModuleStage, WorkspaceIdentity,
 };
 pub use residency::LayerSlotMap;
+use residency::*;
 pub use residency::{
     ResidencyDemandResult, ResidencyDemandedLayer, ResidencyFrameDemand, ResidencyLayerReport,
     ResidencyLayerState, ResidencyOwner, ResidencyPin, ResidencyPriority, ResidencyRefusal,
     ResidencyReport,
 };
-use residency::*;
 // Phase 3 command modules (export, clusters, voxel queries), re-exported so
 // `command_list.rs` and the TS exporter see them at the crate root.
 use bids_commands::{
@@ -14876,8 +14876,14 @@ mod tests {
         );
     }
 
-    fn reported<'a>(report: &'a ResidencyReport, layer_id: &str) -> Option<&'a ResidencyLayerReport> {
-        report.layers.iter().find(|layer| layer.layer_id == layer_id)
+    fn reported<'a>(
+        report: &'a ResidencyReport,
+        layer_id: &str,
+    ) -> Option<&'a ResidencyLayerReport> {
+        report
+            .layers
+            .iter()
+            .find(|layer| layer.layer_id == layer_id)
     }
 
     #[tokio::test]
@@ -14888,7 +14894,9 @@ mod tests {
             })
             .await;
         insert_small_volume(&state, "a", [4, 4, 4]).await;
-        let first = residency_tick(&state).await.expect("the first tick reports");
+        let first = residency_tick(&state)
+            .await
+            .expect("the first tick reports");
         assert!(
             residency_tick(&state).await.is_none(),
             "nothing changed, nothing is sent"
@@ -14912,7 +14920,9 @@ mod tests {
         )
         .await;
         assert!(applied.applied);
-        let demanded = residency_tick(&state).await.expect("a demand change reports");
+        let demanded = residency_tick(&state)
+            .await
+            .expect("a demand change reports");
         let a = reported(&demanded, "a").unwrap();
         assert_eq!(a.state, ResidencyLayerState::Resident);
         assert_eq!(a.frames, ["tab"]);
@@ -14989,7 +14999,10 @@ mod tests {
             episode["policy"],
             serde_json::json!([{"kind": "layer", "id": "a", "tier": 2}])
         );
-        assert_eq!(episode["ui"], serde_json::json!([{"kind": "layer", "id": "a"}]));
+        assert_eq!(
+            episode["ui"],
+            serde_json::json!([{"kind": "layer", "id": "a"}])
+        );
         assert_eq!(episode["outcome"], "admitted");
         assert_eq!(episode["verdict"], "agree");
     }
@@ -15056,7 +15069,10 @@ mod tests {
         let frame = layers_frame(&pairs, None);
         let mut renderer = service.lock().await;
         let capacity = renderer.runtime_texture_capacity() as usize;
-        assert!(capacity < pairs.len(), "the frame must exceed the binding capacity");
+        assert!(
+            capacity < pairs.len(),
+            "the frame must exceed the binding capacity"
+        );
         for pass in 1..=2 {
             // First pass uploads on demand; the second draws what is resident.
             // Nothing changed between them, so the second is not compared again.
@@ -15088,7 +15104,13 @@ mod tests {
             .filter(|layer| layer.refusal == Some(ResidencyRefusal::DrawCap))
             .map(|layer| layer.layer_id.as_str())
             .collect();
-        assert_eq!(capped, ids[capacity..].iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(
+            capped,
+            ids[capacity..]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
 
         // A frame no Front demand matches is not compared.
         let other = layers_frame(&pairs[1..], None);
@@ -15096,7 +15118,10 @@ mod tests {
         prepare_frontend_layers_for_render(&other, &state, &mut renderer)
             .await
             .unwrap();
-        assert_eq!(state.residency.state.lock().await.shadow.drawcap.compared, 2);
+        assert_eq!(
+            state.residency.state.lock().await.shadow.drawcap.compared,
+            2
+        );
         // The pre-check reads the registry without failing: a layer it skips
         // whose volume is gone does not fail the frame.
         let mut missing = pairs.clone();
@@ -15123,9 +15148,14 @@ mod tests {
         for id in &ids {
             insert_small_volume(&state, id, [2, 2, 2]).await;
         }
-        let space =
-            NeuroSpace::new(vec![2, 2, 2, 3], Some(vec![1.; 4]), Some(vec![0.; 4]), None, None)
-                .unwrap();
+        let space = NeuroSpace::new(
+            vec![2, 2, 2, 3],
+            Some(vec![1.; 4]),
+            Some(vec![0.; 4]),
+            None,
+            None,
+        )
+        .unwrap();
         state.volume_registry.lock().await.insert(
             "series".into(),
             VolumeSendable::Vec4DF32(DenseNeuroVec::zeros(space).unwrap()),
@@ -15133,7 +15163,8 @@ mod tests {
         );
         // The series' own layer takes the last binding; a second layer of the
         // same series comes after it.
-        let mut pairs: Vec<(&str, &str)> = ids.iter().map(|id| (id.as_str(), id.as_str())).collect();
+        let mut pairs: Vec<(&str, &str)> =
+            ids.iter().map(|id| (id.as_str(), id.as_str())).collect();
         pairs.push(("series", "series"));
         pairs.push(("series-copy", "series"));
         set_residency_demand_with(
