@@ -577,3 +577,15 @@ Next steps:
 - Log entry and exit around those two commands.
 
 **Before R6:** settle the stall (A or B), and check ⌥-scroll by hand.
+
+**Stall resolved** (`fix/segmentation-preview-stall`). It was neither A nor B, and not residency.
+- **Cause.** The web inspector showed the preview's error in the DOM: "The comparison image is not attached to this workspace".
+  - The setup took the tab-shared layer selection as its reference. That was the 4D series, last selected in another tab and not held by this view.
+  - The preview drew the error at its bottom edge, under the bottom dock, so only "Preparing…" was visible.
+- **Fix.**
+  - The reference is the selection only when this view holds it; otherwise the view's visible image.
+  - Secondary choices are limited to this view's images.
+  - Errors show in place of the image.
+  - The preview also retries a request dropped by a view change, and reports a reference not shown within 15 s.
+  - The bridge warns about lock waits of 250 ms or more.
+- **Verification.** The same crowded flag-on scenario now picks this view's base image (r4-1-10) and renders, with a clean log. The segmentation tests pass: 211, including new mutation-checked regressions.
