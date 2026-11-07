@@ -1,4 +1,5 @@
 import type { Mark } from '@/plotting';
+import { intervalLabel } from '@/plotting/intervals';
 import type { PopulationPlotRecipe } from '@/services/studio/populationPlot';
 
 /** User-facing names of the plot marks (encoding caption and Mark select). */
@@ -17,9 +18,6 @@ export const MARK_LABELS: Record<Mark, string> = {
 export function bandLegendText(
   recipe: Pick<PopulationPlotRecipe, 'summary' | 'band'>,
 ): string | null {
-  if (recipe.summary === 'none') return null;
-  const name = { none: null, sd: '± SD', sem95: '± 1.96 SE', ci95: '95% CI', iqr: 'IQR' }[
-    recipe.band
-  ];
-  return name ? `band: ${name}` : null;
+  if (recipe.summary === 'none' || recipe.band.kind === 'none') return null;
+  return `band: ${intervalLabel(recipe.band)}`;
 }

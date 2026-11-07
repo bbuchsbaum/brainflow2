@@ -1,3 +1,4 @@
+import { INTERVAL_PRESETS } from '@/plotting/intervals';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { invokeMock, layerState, histogramMock } = vi.hoisted(() => ({
@@ -330,7 +331,7 @@ describe('SampleProvider — set locus', () => {
         ],
       },
       reduce: 'mean',
-      band: 'sem95',
+      band: INTERVAL_PRESETS.ciNormal95,
     });
 
     expect(invokeMock).toHaveBeenCalledWith('sample_set_trace_at_world', {
@@ -341,7 +342,7 @@ describe('SampleProvider — set locus', () => {
       worldMm: [1, 2, 3],
       radiusMm: 5,
       reduce: 'mean',
-      band: 'sem95',
+      band: 'ci_normal@0.95',
     });
     expect(frame.columns.map((c) => [c.name, c.role])).toEqual([
       ['member', 'nominal'],
@@ -354,7 +355,7 @@ describe('SampleProvider — set locus', () => {
       { member: 'sub01', value: 2.0, lower: 1.0, upper: 3.0, count: 12 },
       { member: 'sub02', value: 4.0, lower: 3.5, upper: 4.5, count: 9 },
     ]);
-    expect(frame.meta?.band).toBe('sem95');
+    expect(frame.meta?.interval).toEqual({ kind: 'ci_normal', level: 0.95, source: 'compute' });
     expect(frame.meta?.suggested).toEqual({
       mark: 'line',
       encoding: { x: 'member', y: 'value' },
@@ -418,7 +419,7 @@ describe('SampleProvider — set locus', () => {
         ],
       },
       reduce: 'mean',
-      band: 'sem95',
+      band: INTERVAL_PRESETS.ciNormal95,
     });
 
     expect(invokeMock).toHaveBeenCalledWith('sample_set_trace_at_world', {
@@ -445,7 +446,7 @@ describe('SampleProvider — set locus', () => {
       worldMm: [1, 2, 3],
       radiusMm: 5,
       reduce: 'mean',
-      band: 'sem95',
+      band: 'ci_normal@0.95',
     });
     expect(frame.columns.map((c) => [c.name, c.role])).toEqual([
       ['member', 'nominal'],

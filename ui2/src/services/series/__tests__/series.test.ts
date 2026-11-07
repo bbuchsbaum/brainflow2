@@ -1,3 +1,4 @@
+import { INTERVAL_PRESETS } from '@/plotting/intervals';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/apiService', () => ({ getApiService: () => ({}) }));
@@ -143,7 +144,7 @@ describe('FIR series known answers (E5/E6)', () => {
       [1, 2, 3].reduce((sum, lag) => sum + (expected('faces', lag)[s] - expected('houses', lag)[s]), 0) / 3,
     );
     expect(rows[0].value).toBeCloseTo(perSubject.reduce((a, b) => a + b) / 6, 10);
-    expect(rows[0].count).toBe(6);
+    expect(rows[0].n).toBe(6);
   });
 });
 
@@ -167,7 +168,7 @@ describe('generated fixture truth (p4_fixtures.json) agrees with the app path', 
       frame,
       seriesRecipe(binding, {
         ...DEFAULT_SERIES_SETTINGS,
-        band: 'sem95',
+        band: INTERVAL_PRESETS.ciNormal95,
         transforms: [
           { kind: 'baseline', from: 0, to: 0 },
           { kind: 'conditionDifference', column: 'condition', a: 'faces', b: 'houses' },

@@ -4,7 +4,8 @@
  * (GoldenLayout panels have separate React roots); not persisted.
  */
 import { create } from 'zustand';
-import type { PopulationPlotRecipe, PopulationTransform } from '@/services/studio/populationPlot';
+import { INTERVAL_PRESETS, type IntervalChoice } from '@/plotting/intervals';
+import type { PopulationTransform } from '@/services/studio/populationPlot';
 import type { SegmentLayout } from '@/services/series/seriesSegments';
 
 export type SeriesSourceChoice = 'auto' | 'layer' | 'set';
@@ -26,7 +27,8 @@ export interface SeriesSettings {
    */
   regionPick: { layerId: string; labelId: number } | null;
   summary: 'mean' | 'median';
-  band: PopulationPlotRecipe['band'];
+  /** Band around the summary centre (computed; kept valid for the centre by `bandForCentre`). */
+  band: IntervalChoice;
   /** Population summary lines, or one line per participant (click focuses). */
   display: 'summary' | 'participants';
   transforms: PopulationTransform[];
@@ -54,7 +56,7 @@ export const DEFAULT_SERIES_SETTINGS: SeriesSettings = {
   radiusMm: 6,
   regionPick: null,
   summary: 'mean',
-  band: 'ci95',
+  band: INTERVAL_PRESETS.ciT95,
   display: 'summary',
   transforms: [],
   segments: 'auto',

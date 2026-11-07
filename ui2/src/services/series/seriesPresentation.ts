@@ -3,9 +3,10 @@
  * parameters the plot is drawn with and the caption grammar
  *   <centre ± band> · n participants · <locus, voxels> · <transforms>
  * with the cluster definition for a cluster locus and the normal-approximation
- * note for ± 1.96 SE at small n.
+ * note for a normal-approximation CI at small n.
  */
 import type { ResolvedPlotSpec, SampleFrame } from '@/plotting';
+import { INTERVAL_COLUMNS, intervalLabel } from '@/plotting/intervals';
 import { populationTransformSummary, type PopulationPlotRecipe } from '@/services/studio/populationPlot';
 import { SERIES_X, type SetSeriesBinding } from './seriesBinding';
 import { bandDescription, seriesAxisTitle } from './seriesRecipe';
@@ -91,7 +92,7 @@ export interface SeriesCsvLocus {
  * lines (default R / pandas readers take a `#` line as the header):
  * - participants: participant, condition, <axis>, value;
  * - population: <axis>, condition, n, <centre>, sd, se, band_low, band_high,
- *   band_definition;
+ *   band_definition, interval_kind, interval_level, interval_df;
  * - a window mean replaces <axis> with numeric window_from_<unit>,
  *   window_to_<unit> and window_source (declared | condition-averaged peak).
  * Every row ends with locus_kind, locus_label, n_voxels and `transforms`
@@ -126,17 +127,34 @@ export function seriesCsv(
     header = ['participant', 'condition', ...axisHeader, 'value', ...tailHeader];
     rows = frame.rows.map((r) => [recipe.detail ? r[recipe.detail] : r.member, condition(r), ...axisCells(r), r.value, ...tail]);
   } else {
-    header = ['condition', ...axisHeader, 'n', recipe.summary, 'sd', 'se', 'band_low', 'band_high', 'band_definition', ...tailHeader];
+    header = [
+      'condition',
+      ...axisHeader,
+      'n',
+      recipe.summary,
+      'sd',
+      'se',
+      'band_low',
+      'band_high',
+      'band_definition',
+      INTERVAL_COLUMNS.kind,
+      INTERVAL_COLUMNS.level,
+      INTERVAL_COLUMNS.df,
+      ...tailHeader,
+    ];
     rows = frame.rows.map((r) => [
       condition(r),
       ...axisCells(r),
-      r.count ?? '',
+      r[INTERVAL_COLUMNS.n] ?? '',
       r.value,
       r.sd ?? '',
       r.se ?? '',
       r.lower ?? '',
       r.upper ?? '',
       reduction?.bandDefinition ?? '',
+      r[INTERVAL_COLUMNS.kind] ?? '',
+      r[INTERVAL_COLUMNS.level] ?? '',
+      r[INTERVAL_COLUMNS.df] ?? '',
       ...tail,
     ]);
   }
@@ -163,11 +181,14 @@ export interface SeriesCaptionInput {
 export function seriesCaption(input: SeriesCaptionInput): string {
   const { recipe, participants } = input;
   const n = input.bandN ?? participants;
+  // The caption qualifies the band with what the reader needs to judge it:
+  // the t interval's df, and the sample size behind a normal approximation.
+  const b = recipe.band;
   const band =
-    recipe.summary === 'mean' && recipe.band === 'ci95'
-      ? `mean ± 95% CI (t, df = ${Math.max(0, n - 1)})`
-      : recipe.band === 'sem95' && n < 30
-        ? `${bandDescription(recipe)} (normal approx., n = ${n})`
+    recipe.summary === 'mean' && b.kind === 'ci_t'
+      ? `mean ± ${intervalLabel(b).replace(/\(t\)$/, `(t, df = ${Math.max(0, n - 1)})`)}`
+      : recipe.summary === 'mean' && b.kind === 'ci_normal' && n < 30
+        ? `mean ± ${intervalLabel(b).replace(/\(normal\)$/, `(normal approx., n = ${n})`)}`
         : bandDescription(recipe);
   const who = `${participants} participant${participants === 1 ? '' : 's'}`;
   const one = (recipe.transforms ?? []).some((t) => t.kind === 'windowMean') ? 'point' : 'line';

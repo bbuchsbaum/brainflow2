@@ -67,3 +67,30 @@ describe("plotSpecStore", () => {
     expect(usePlotSpecStore.getState().specByMode[M].transforms).toEqual([]);
   });
 });
+
+describe("plotSpecStore trace bands (v4 interval choices)", () => {
+  beforeEach(() => {
+    usePlotSpecStore.getState().resetPlotSpecStore();
+  });
+
+  it("migrates v3 legacy tokens as set-trace bands and drops unknown ones", async () => {
+    const { INTERVAL_PRESETS } = await import("@/plotting/intervals");
+    const migrate = usePlotSpecStore.persist.getOptions().migrate!;
+    const out = (await migrate(
+      { sphereRadiusMmByMode: {}, reduceByMode: {}, specByMode: {}, bandByMode: { a: "ci95", b: "sem95", c: "iqr", d: "bogus" } },
+      3,
+    )) as { bandByMode: Record<string, unknown> };
+    expect(out.bandByMode).toEqual({
+      a: INTERVAL_PRESETS.quantile95,
+      b: INTERVAL_PRESETS.ciNormal95,
+      c: INTERVAL_PRESETS.iqr,
+    });
+  });
+
+  it("setBand is a no-op for an equal choice", () => {
+    usePlotSpecStore.getState().setBand(M, { kind: "ci_normal", level: 0.95 });
+    const before = usePlotSpecStore.getState();
+    usePlotSpecStore.getState().setBand(M, { kind: "ci_normal", level: 0.95 });
+    expect(usePlotSpecStore.getState()).toBe(before);
+  });
+});

@@ -20,6 +20,7 @@ import { populationProbeActions } from './PopulationProbeActions';
 import {
   composePopulationPlot,
   defaultPopulationPlotRecipe,
+  upgradePlotRecipe,
   type PopulationPlotRecipe,
 } from './populationPlot';
 export interface PinnedPopulationPlot {
@@ -415,10 +416,13 @@ class PopulationPlotService {
     const next = raw.plots.map((p) => {
       if (typeof p.label !== 'string' || !p.query?.probe || !p.recipe)
         throw new Error('Incomplete saved plot provenance.');
-      composePopulationPlot(p.frame, p.recipe);
+      // Study saves before recipe v2 carry v1 band names (plan: interval kinds).
+      const recipe = upgradePlotRecipe(p.recipe);
+      composePopulationPlot(p.frame, recipe);
       validateOrigins(p);
       return {
         ...structuredClone(p),
+        recipe,
         id: crypto.randomUUID(),
         sessionRevision: -1,
         ...(p.origins ? { origins: p.origins.map((o) => ({ ...o, sessionRevision: -1 })) } : {}),
@@ -452,9 +456,11 @@ class PopulationPlotService {
       !Array.isArray(raw.plot.frame?.columns)
     )
       throw new Error('Unsupported population plot file.');
-    const p = raw.plot as PinnedPopulationPlot;
-    if (typeof p.label !== 'string' || !p.query?.probe || !p.recipe)
+    const saved = raw.plot as PinnedPopulationPlot;
+    if (typeof saved.label !== 'string' || !saved.query?.probe || !saved.recipe)
       throw new Error('Incomplete plot provenance.');
+    // Plot files before recipe v2 carry v1 band names (plan: interval kinds).
+    const p: PinnedPopulationPlot = { ...saved, recipe: upgradePlotRecipe(saved.recipe) };
     composePopulationPlot(p.frame, p.recipe);
     validateOrigins(p);
     // Portable sample receipts reopen detached: matching strings do not prove live identity.

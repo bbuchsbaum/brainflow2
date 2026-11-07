@@ -4,7 +4,8 @@
  * modules; pure helpers/constants here).
  */
 
-import type { Locus } from '@/plotting';
+import type { Locus, TraceBand } from '@/plotting';
+import { INTERVAL_PRESETS } from '@/plotting/intervals';
 
 import type { ActiveCohort } from './cohortPlot.helpers';
 
@@ -18,6 +19,16 @@ export const SET_TRACE_MODE_ID = 'set-trace';
  * a single voxel collapses the band to the point value.
  */
 export const DEFAULT_TRACE_RADIUS_MM = 6;
+
+/** The trace's band menu, in order (bands over a member's ROI voxels). */
+export const TRACE_BAND_CHOICES: readonly TraceBand[] = [
+  INTERVAL_PRESETS.ciNormal95,
+  INTERVAL_PRESETS.sd,
+  INTERVAL_PRESETS.quantile95,
+  INTERVAL_PRESETS.iqr,
+  INTERVAL_PRESETS.none,
+];
+export const DEFAULT_TRACE_BAND: TraceBand = INTERVAL_PRESETS.ciNormal95;
 
 export type TraceMember = Extract<Locus, { kind: 'set' }>['members'][number];
 

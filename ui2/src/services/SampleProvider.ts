@@ -19,6 +19,7 @@ import { getTransport } from '@/services/transport';
 import { useLayerStore } from '@/stores/layerStore';
 
 import { column, frameFromScalar, frameFromSeries } from '@/plotting';
+import { intervalKey } from '@/plotting/intervals';
 import type { FrameColumn, FrameRow, Locus, SampleFrame, SampleRequest } from '@/plotting';
 
 interface LayerStackShape {
@@ -340,7 +341,7 @@ export class SampleProvider {
           worldMm,
           radiusMm: locus.radiusMm,
           reduce,
-          band,
+          band: intervalKey(band),
         },
         signal,
       );
@@ -387,7 +388,8 @@ export class SampleProvider {
           ...(locus.mask ? { mask: locus.mask } : {}),
           radiusMm: locus.radiusMm,
           reduce,
-          band,
+          // What the lower/upper columns are (label resolution, `@/plotting/intervals`).
+          interval: { ...band, source: 'compute' },
           sources: traces.map((trace) => ({
             memberId: trace.memberId,
             sourceRevision: trace.sourceRevision ?? null,

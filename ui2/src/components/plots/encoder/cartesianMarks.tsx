@@ -22,6 +22,14 @@ import { Group } from '@visx/group';
 
 import type { BoxStats, SampleFrame } from '@/plotting';
 import { boxStats, columnValues, getColumn, linearFit, numericColumn } from '@/plotting';
+import {
+  INTERVAL_COLUMNS,
+  centreBandPhrase,
+  frameInterval,
+  frameIntervalSummary,
+  intervalLabel,
+  rowInterval,
+} from '@/plotting/intervals';
 
 import type { EncoderContext, MarkRenderer, MarkRenderProps } from './types';
 
@@ -382,19 +390,13 @@ function integerTicks(xScale: LinearScale) {
 // Population summaries: what is plotted, value by value (round 2 A2)
 // ---------------------------------------------------------------------------
 
-/** The population stage's provenance on a summary frame. */
+/**
+ * The population stage's provenance on a summary frame. What the band is comes
+ * from the interval metadata (`@/plotting/intervals` rows), not from here.
+ */
 interface PopulationReduction {
   readonly centre: 'none' | 'mean' | 'median';
-  readonly band: 'none' | 'sd' | 'sem95' | 'ci95' | 'iqr';
 }
-
-const BAND_NAMES: Record<PopulationReduction['band'], string> = {
-  none: '',
-  sd: '± SD',
-  sem95: '± 1.96 SE',
-  ci95: '95% CI',
-  iqr: 'IQR',
-};
 
 const num3 = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number.NaN;
@@ -421,12 +423,14 @@ function summaryLabel(
   const band = spec.band;
   const lo = band ? row[band.lower] : null;
   const hi = band ? row[band.upper] : null;
+  const interval = rowInterval(row, frameInterval(frame));
+  const n = row[INTERVAL_COLUMNS.n];
   const value = [
     `${reduction.centre} ${num3(row[y ?? 'value'])}`,
-    band && reduction.band !== 'none' && typeof lo === 'number' && typeof hi === 'number'
-      ? `${BAND_NAMES[reduction.band]} ${num3(lo)} to ${num3(hi)}`
+    band && interval.kind !== 'none' && typeof lo === 'number' && typeof hi === 'number'
+      ? `${intervalLabel(interval)} ${num3(lo)} to ${num3(hi)}`
       : null,
-    typeof row.count === 'number' ? `n = ${row.count}` : null,
+    typeof n === 'number' ? `n = ${n}` : null,
   ]
     .filter(Boolean)
     .join(', ');
@@ -447,8 +451,14 @@ function plotLabel(
   const color = spec.encoding.color;
   const levels = color ? [...new Set(frame.rows.map((r) => String(r[color] ?? '(missing)')))] : [];
   const listed = levels.length > 1 ? `${levels.slice(0, -1).join(', ')} and ${levels[levels.length - 1]}` : levels[0];
-  const band = reduction.band === 'none' ? '' : reduction.band === 'iqr' ? ', IQR' : ` ${BAND_NAMES[reduction.band].startsWith('±') ? '' : '± '}${BAND_NAMES[reduction.band]}`;
-  return [`${y}${x ? ` by ${x}` : ''}`, listed, `${reduction.centre}${band}`].filter(Boolean).join(', ');
+  const interval = spec.band ? frameIntervalSummary(frame, spec.band) : null;
+  const centre =
+    interval === 'mixed'
+      ? `${reduction.centre}, intervals vary by row`
+      : interval
+        ? centreBandPhrase(reduction.centre, interval)
+        : reduction.centre;
+  return [`${y}${x ? ` by ${x}` : ''}`, listed, centre].filter(Boolean).join(', ');
 }
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { INTERVAL_PRESETS, NO_INTERVAL, computedInterval, normalizeInterval } from '@/plotting/intervals';
 import { describe, expect, it } from 'vitest';
 import type { SampleFrame } from '@/plotting';
 import { defaultPopulationPlotRecipe } from '@/services/studio/populationPlot';
@@ -13,7 +14,7 @@ const frame: SampleFrame = {
   rows: [0, 1, 2, 3].map((x) => ({ member: `m${x}`, value: x, [SERIES_X]: x })),
   meta: { sources: [{ memberId: 'm0', sourceRevision: null, stackIndex: null, validCount: 123, error: null }] },
 };
-const recipe = { ...defaultPopulationPlotRecipe, x: SERIES_X, summary: 'mean' as const, band: 'ci95' as const, detail: 'subject' };
+const recipe = { ...defaultPopulationPlotRecipe, x: SERIES_X, summary: 'mean' as const, band: computedInterval(INTERVAL_PRESETS.ciT95), detail: 'subject' };
 
 describe('series presentation (v1 F6/F7/F11)', () => {
   it('axis params: titles, integer lag ticks, half-step padding; a zero line only for differences', () => {
@@ -33,14 +34,14 @@ describe('series presentation (v1 F6/F7/F11)', () => {
   });
 
   it('participants mode names its unit once (v4 user)', () => {
-    const text = seriesCaption({ binding, recipe: { ...recipe, summary: 'none', band: 'none' }, participants: 6, locus: 'x', voxels: null, transforms: '' });
+    const text = seriesCaption({ binding, recipe: { ...recipe, summary: 'none', band: NO_INTERVAL }, participants: 6, locus: 'x', voxels: null, transforms: '' });
     expect(text).toBe('6 participants, one line each · x');
     expect(text).not.toContain('participants · 6');
   });
 
-  it('± 1.96 SE at small n says it is a normal approximation', () => {
-    expect(seriesCaption({ binding, recipe: { ...recipe, band: 'sem95' }, participants: 6, locus: 'x', voxels: null, transforms: '' })).toContain(
-      'mean ± 1.96 SE (normal approx., n = 6)',
+  it('a normal-approximation CI at small n says so', () => {
+    expect(seriesCaption({ binding, recipe: { ...recipe, band: computedInterval(INTERVAL_PRESETS.ciNormal95) }, participants: 6, locus: 'x', voxels: null, transforms: '' })).toContain(
+      'mean ± 95% CI (normal approx., n = 6)',
     );
   });
 
@@ -70,13 +71,13 @@ describe('series CSV (round 2 X1)', () => {
     ],
     rows,
   };
-  const r = { ...recipe, axis: 'number' as const, axisUnit: 'TR', color: 'condition', mark: 'line' as const, within: 'mean' as const };
+  const r = { ...recipe, axis: 'number' as const, axisUnit: 'TR', color: 'condition', mark: 'line' as const, repeatRows: 'mean' as const };
   const locus = { kind: 'sphere', label: '6 mm sphere at −39.5, −19.5, 50.5 mm', voxels: 123 };
 
   it('population: sd, se, n and the locus as columns; no comment lines; ASCII', () => {
     const out = composePopulationPlot(fir, r);
     const csv = seriesCsv(out.frame, r, binding, locus).trim().split('\n');
-    expect(csv[0]).toBe('condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,locus_kind,locus_label,n_voxels,transforms');
+    expect(csv[0]).toBe('condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,interval_level,interval_df,locus_kind,locus_label,n_voxels,transforms');
     const faces0 = csv.find((l) => l.startsWith('faces,0,'))!.split(',');
     expect(faces0.slice(0, 6)).toEqual(['faces', '0', '3', '2', '1', String(1 / Math.sqrt(3))]);
     expect(csv.at(-1)).toContain('sphere,"6 mm sphere at -39.5, -19.5, 50.5 mm",123,');
@@ -85,9 +86,26 @@ describe('series CSV (round 2 X1)', () => {
     expect(csv.every((l) => !l.startsWith('#') && /^[\x20-\x7e]*$/.test(l))).toBe(true);
   });
 
+  it('round trip: an exported population CSV reads back as the same interval and bounds', () => {
+    const out = composePopulationPlot(fir, r);
+    const lines = seriesCsv(out.frame, r, binding, locus).trim().split('\n');
+    const cells = (line: string) => line.match(/("[^"]*"|[^,]*)(?:,|$)/g)!.map((c) => c.replace(/,$/, '').replace(/^"|"$/g, ''));
+    const header = cells(lines[0]);
+    const rows = lines.slice(1).map((line) =>
+      Object.fromEntries(cells(line).map((c, i) => [header[i], c !== '' && Number.isFinite(Number(c)) ? Number(c) : c || null])),
+    );
+    const read = normalizeInterval({}, { columns: header.map((name) => ({ name, role: 'quantitative' as const })), rows });
+    if ('error' in read) throw new Error(read.error);
+    expect(read.ok.spec).toEqual({ ...r.band, source: 'columns', lower: 'band_low', upper: 'band_high' });
+    const bounds = (rs: readonly Record<string, unknown>[], lo: string, hi: string) =>
+      rs.map((x) => [x[lo], x[hi]]).sort((a, b) => Number(a[0]) - Number(b[0]));
+    expect(bounds(read.ok.frame.rows, 'band_low', 'band_high')).toEqual(bounds(out.frame.rows, 'lower', 'upper'));
+    expect(read.ok.frame.rows[0]).toMatchObject({ interval_kind: 'ci_t', interval_level: 0.95, interval_df: 2, n: 3 });
+  });
+
   it('participants: participant, condition, lag, value per row', () => {
-    const out = composePopulationPlot(fir, { ...r, summary: 'none', band: 'none' });
-    const csv = seriesCsv(out.frame, { ...r, summary: 'none', band: 'none' }, binding, locus).trim().split('\n');
+    const out = composePopulationPlot(fir, { ...r, summary: 'none', band: NO_INTERVAL });
+    const csv = seriesCsv(out.frame, { ...r, summary: 'none', band: NO_INTERVAL }, binding, locus).trim().split('\n');
     expect(csv[0]).toBe('participant,condition,lag_TR,value,locus_kind,locus_label,n_voxels,transforms');
     expect(csv).toContain('s2,houses,1,2,sphere,"6 mm sphere at -39.5, -19.5, 50.5 mm",123,');
     expect(csv).toHaveLength(1 + 18);
@@ -97,7 +115,7 @@ describe('series CSV (round 2 X1)', () => {
     const w = { ...r, mark: 'point' as const, transforms: [{ kind: 'windowMean' as const, from: 1, to: 2, source: 'condition-averaged-peak' as const }] };
     const out = composePopulationPlot(fir, w);
     const csv = seriesCsv(out.frame, w, binding, null).trim().split('\n');
-    expect(csv[0]).toBe('condition,window_from_TR,window_to_TR,window_source,n,mean,sd,se,band_low,band_high,band_definition,locus_kind,locus_label,n_voxels,transforms');
+    expect(csv[0]).toBe('condition,window_from_TR,window_to_TR,window_source,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,interval_level,interval_df,locus_kind,locus_label,n_voxels,transforms');
     expect(csv[1]).toMatch(/^faces,1,2,condition-averaged peak \(data-driven\),3,/);
     expect(csv[1]).toMatch(/window lags 1-2 TR from the condition-averaged peak \(data-driven\)$/);
   });
