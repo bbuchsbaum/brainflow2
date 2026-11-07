@@ -371,6 +371,12 @@ export class MockTransport implements BackendTransport {
       case 'cache_template':
         return false;
 
+      case 'set_residency_demand':
+      case 'clear_residency_demand':
+        return { applied: true };
+      case 'get_residency_state':
+        return null;
+
       case 'get_atlas_stats': {
         const now = Date.now();
         return {

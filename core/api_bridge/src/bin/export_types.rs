@@ -109,6 +109,10 @@ fn main() {
     println!("Exporting TypeScript types from api_bridge...");
 
     AtlasStats::export_all().expect("export residency diagnostics");
+    // R5b residency demand and report (their nested types come with them).
+    ResidencyReport::export_all().expect("export residency report");
+    ResidencyFrameDemand::export_all().expect("export residency demand");
+    ResidencyDemandResult::export_all().expect("export residency demand result");
     bf_segmentation::SessionSetup::export_all().expect("export segmentation setup");
     bf_segmentation::Stroke::export_all().expect("export segmentation stroke");
     bf_segmentation::SavedLabels::export_all().expect("export segmentation saved labels");

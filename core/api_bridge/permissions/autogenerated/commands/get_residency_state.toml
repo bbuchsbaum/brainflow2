@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-residency-state"
+description = "Enables the get_residency_state command without any pre-configured scope."
+commands.allow = ["get_residency_state"]
+
+[[permission]]
+identifier = "deny-get-residency-state"
+description = "Denies the get_residency_state command without any pre-configured scope."
+commands.deny = ["get_residency_state"]

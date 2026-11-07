@@ -444,6 +444,14 @@ impl ResidentRing {
         self.slots.iter().map(|s| s.texture_index).collect()
     }
 
+    /// When `member` was last shown, as the ring's logical tick (comparable
+    /// within one ring only); `None` when it is not resident.
+    pub(crate) fn last_used_of(&self, member: usize) -> Option<u64> {
+        self.member_pos
+            .get(&member)
+            .map(|&pos| self.slots[pos].last_used)
+    }
+
     /// Members currently resident (unordered).
     pub fn resident_members(&self) -> Vec<usize> {
         self.slots.iter().map(|s| s.member).collect()

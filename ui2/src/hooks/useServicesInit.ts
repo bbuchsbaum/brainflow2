@@ -123,6 +123,11 @@ export function useServicesInit() {
           // Layers evicted while their tab was behind come back when it is in front.
           const { startFrontWorkspaceResidency } = await import('@/services/frontWorkspaceResidency');
           startFrontWorkspaceResidency();
+          // R5b: declare each frame's demand and follow the backend's residency report.
+          const { startResidencyDemandPublisher } = await import('@/services/ResidencyDemandPublisher');
+          startResidencyDemandPublisher();
+          const { startResidencyStore } = await import('@/stores/residencyStore');
+          startResidencyStore();
 
           // Emit specific event for LayerService
           getEventBus().emit('services.initialized', { service: 'LayerService' });

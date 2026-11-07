@@ -730,6 +730,15 @@ impl ResidentTextureStore {
         self.textures.get(&index).map(entry_bytes).unwrap_or(0)
     }
 
+    /// Bytes of the alpha mask bound to slot `index`, if any. Released with
+    /// the slot, so it is part of what evicting the slot frees.
+    pub fn mask_bytes(&self, index: u32) -> u64 {
+        self.mask_textures
+            .get(&index)
+            .map(mask_entry_bytes)
+            .unwrap_or(0)
+    }
+
     /// Total logical GPU byte footprint of all resident volume textures.
     ///
     /// Excludes mask textures, the dummy slot, and the colormap LUT; this is the
@@ -838,6 +847,15 @@ impl ResidentTextureStore {
     /// Store identity and view revision; revisions alone can collide after replacement.
     pub(crate) fn binding_token(&self) -> (usize, u64) {
         (self.identity, self.binding_revision)
+    }
+
+    /// Changes whenever residency may have changed: every upload, release,
+    /// mask upload or clear, and texture replacement (and a few other binding
+    /// changes, harmlessly). Paired with the store's identity, since a
+    /// replaced store starts counting again. Hosts poll it to announce
+    /// residency changes (R5b `residency-changed`).
+    pub fn residency_revision(&self) -> (usize, u64) {
+        self.binding_token()
     }
 
     fn bump_binding_revision(&mut self) {

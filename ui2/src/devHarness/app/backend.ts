@@ -24,6 +24,13 @@ import {
   type ClusterQuery,
 } from './volumeQueries';
 
+/** The parts of a `set_residency_demand` payload the harness reads. */
+interface HarnessFrameDemand {
+  epoch: number;
+  layers: { layer_id: string }[];
+  held?: { layer_id: string }[];
+}
+
 interface QueryTarget {
   volumeId?: string | null;
   layerId?: string | null;
@@ -698,6 +705,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     };
   };
 
+  const residencyEpochs = new Map<string, number>();
+  const residencyFrames = new Map<string, HarnessFrameDemand>();
+  let residencySeq = 0;
   const handlers: Record<string, Handler> = {
     init_render_loop: () => null,
     fs_list_directory: ({ path }: { path: string }) => {
@@ -731,6 +741,47 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       cached_image_slots: 0,
     }),
     reclaim_cached_image_slots: () => ({ reclaimed: 0, free_texture_slots: Math.max(0, 16 - layers.size) }),
+    // R5b residency demand: recorded with the backend's stale-epoch rule and
+    // reported back; the harness has no budget, so nothing is ever refused.
+    set_residency_demand: ({ frameId, demand }: { frameId: string; demand: HarnessFrameDemand }) => {
+      const seen = residencyEpochs.get(frameId);
+      if (seen !== undefined && demand.epoch <= seen) return { applied: false };
+      residencyEpochs.set(frameId, demand.epoch);
+      residencyFrames.set(frameId, demand);
+      return { applied: true };
+    },
+    clear_residency_demand: ({ frameId, epoch }: { frameId: string; epoch: number }) => {
+      const seen = residencyEpochs.get(frameId);
+      if (seen !== undefined && epoch <= seen) return { applied: false };
+      residencyEpochs.set(frameId, epoch);
+      residencyFrames.delete(frameId);
+      return { applied: true };
+    },
+    get_residency_state: () => {
+      const demanded = new Map<string, string[]>();
+      for (const [frameId, demand] of [...residencyFrames].sort(([a], [b]) => a.localeCompare(b))) {
+        for (const layer of [...demand.layers, ...(demand.held ?? [])]) {
+          demanded.set(layer.layer_id, [...(demanded.get(layer.layer_id) ?? []), frameId]);
+        }
+      }
+      const ids = [...new Set([...demanded.keys(), ...layers.keys()])].sort();
+      residencySeq += 1;
+      return {
+        seq: residencySeq,
+        owner: 'ui',
+        budget_bytes: null,
+        used_bytes: 0,
+        binding_capacity: 13,
+        undemanded_bytes: 0,
+        layers: ids.map((layerId) => ({
+          layer_id: layerId,
+          state: !demanded.has(layerId) ? 'undemanded' : layers.has(layerId) ? 'resident' : 'evicted',
+          bytes: 0,
+          frames: demanded.get(layerId) ?? [],
+          refusal: null,
+        })),
+      };
+    },
 
     load_file: ({ path }: { path: string }) => {
       const fixture = fixtureForPath(path);

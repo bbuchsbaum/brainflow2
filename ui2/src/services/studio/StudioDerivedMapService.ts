@@ -50,6 +50,8 @@ interface Entry {
   disposeTimer: ReturnType<typeof setTimeout> | null;
   /** Set once the load resolved to a borrowed workspace layer. */
   borrowedLayerId?: string;
+  /** Set once the load resolved: what the panes draw (R5b demand). */
+  loaded?: StudioDerivedMap;
 }
 
 /** A resident workspace layer the underlay can borrow (see {@link StudioDerivedMapService}). */
@@ -122,6 +124,8 @@ export class StudioDerivedMapService {
   /** Disposals in progress: a new acquire of the path waits for them. */
   private readonly disposing = new Map<string, Promise<void>>();
   private nextId = 1;
+  /** Told when the held maps change (R5b residency demand). */
+  private readonly listeners = new Set<() => void>();
 
   private readonly backend: () => Backend;
   /**
@@ -148,6 +152,7 @@ export class StudioDerivedMapService {
     if (entry?.borrowedLayerId && !this.stillBorrowable(path, entry.borrowedLayerId)) {
       this.entries.delete(path);
       entry = undefined;
+      this.changed();
     }
     if (entry) {
       if (entry.disposeTimer) {
@@ -164,13 +169,20 @@ export class StudioDerivedMapService {
       map.then(
         (loaded) => {
           if (loaded?.borrowed) created.borrowedLayerId = loaded.layerId;
+          if (loaded && this.entries.get(path) === created) {
+            created.loaded = loaded;
+            this.changed();
+          }
         },
         () => undefined,
       );
       // A failed or empty load is not cached: the next acquire retries, and
       // its holders' releases no longer refer to it.
       const forget = () => {
-        if (this.entries.get(path) === created) this.entries.delete(path);
+        if (this.entries.get(path) === created) {
+          this.entries.delete(path);
+          this.changed();
+        }
         created.holders.clear();
       };
       map.then((loaded) => loaded ?? forget(), forget);
@@ -192,6 +204,7 @@ export class StudioDerivedMapService {
       entry.disposeTimer = null;
       if (entry.holders.size > 0 || this.entries.get(path) !== entry) return;
       this.entries.delete(path);
+      this.changed();
       const run = entry.map
         .then((map) => (map ? this.unload(map) : undefined))
         .catch((error) => {
@@ -202,6 +215,25 @@ export class StudioDerivedMapService {
         });
       this.disposing.set(path, run);
     }, 0);
+  }
+
+  /** The maps panes hold now, once loaded (borrowed underlays included). */
+  heldMaps(): StudioDerivedMap[] {
+    const maps: StudioDerivedMap[] = [];
+    for (const entry of this.entries.values()) if (entry.loaded) maps.push(entry.loaded);
+    return maps;
+  }
+
+  /** Be told when {@link heldMaps} or {@link pinnedLayerIds} may have changed. */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private changed(): void {
+    for (const listener of [...this.listeners]) listener();
   }
 
   /** Holds on `sourcePath` (tests, diagnostics). */
