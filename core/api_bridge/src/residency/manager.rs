@@ -182,6 +182,10 @@ pub(crate) struct Residency {
     /// Whether the backend owns admission and eviction (R5c): the
     /// `BRAINFLOW_BACKEND_RESIDENCY` flag, per bridge so tests can set it.
     backend_owner: std::sync::atomic::AtomicBool,
+    /// Texture bytes a volume's upload really took, kept after eviction. The
+    /// per-type estimate is an upper bound (an f32 volume often fits
+    /// R16Float); planning a re-upload with it refuses or evicts too much.
+    texture_bytes: std::sync::Mutex<HashMap<String, u64>>,
 }
 
 pub(crate) struct ResidencyState {
@@ -215,6 +219,7 @@ impl Residency {
             }),
             admission_wanted: std::sync::atomic::AtomicBool::new(false),
             backend_owner: std::sync::atomic::AtomicBool::new(backend_residency_enabled()),
+            texture_bytes: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -438,6 +443,15 @@ pub(crate) async fn snapshot(
         );
     }
 
+    // Sizes seen on earlier uploads beat the per-type estimate.
+    if let Ok(known) = residency.texture_bytes.lock() {
+        for (volume_id, &bytes) in known.iter() {
+            if let Some(estimate) = volume_bytes.get_mut(volume_id) {
+                *estimate = bytes;
+            }
+        }
+    }
+
     let mut residents = Vec::new();
     for (key, handle) in layer_map.iter() {
         if !service.is_slot_current(handle) {
@@ -449,10 +463,14 @@ pub(crate) async fn snapshot(
                 .multi_texture_manager
                 .as_ref()
                 .map_or(0, |manager| manager.mask_bytes(handle.index()));
-        // The real size beats the estimate for a volume that is resident.
+        // The real size beats the estimate for a volume that is resident, and
+        // is remembered for when it is not.
         if let Some(volume_id) = layer_volumes.get(key) {
             if !time_series_volumes.contains(volume_id) {
                 volume_bytes.insert(volume_id.clone(), bytes);
+                if let Ok(mut known) = residency.texture_bytes.lock() {
+                    known.insert(volume_id.clone(), bytes);
+                }
             }
         }
         residents.push(ResidentFacts {

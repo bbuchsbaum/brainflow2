@@ -14,27 +14,35 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
     let LayerSpec::Volume(spec) = &layer_spec;
     let ids = (spec.id.clone(), spec.source_resource_id.clone());
     let backend_owner = uploads && bridge_state.residency.backend_owner();
-    // A backend owner (R5c) retries a budget refusal itself, so the request
-    // and its hook may run twice.
+    // A backend owner (R5c) resolves a budget refusal itself, so the request
+    // may run again (its hook only with the first).
     let retry_spec = backend_owner.then(|| layer_spec.clone());
     let mut result =
         request_layer_gpu_resources_locked(layer_spec, metadata_only, bridge_state, after_upload)
             .await;
-    if let (Some(spec), Err(BridgeError::GpuBudgetExceeded { .. })) = (retry_spec, &result) {
-        // Make room as the policy picks it, then request once more. The skip
-        // marks stay until the upload ends, so no frame takes the room first.
-        let room = admit(
-            bridge_state,
-            AdmitTarget::RoomFor {
-                layer_id: ids.0.clone(),
-                volume_id: ids.1.clone(),
-            },
-        )
-        .await;
-        if room.evicted > 0 {
-            result =
-                request_layer_gpu_resources_locked(spec, metadata_only, bridge_state, || Ok(()))
-                    .await;
+    if let Some(spec) = retry_spec {
+        // Evict the policy's next victim and ask again, one at a time, until
+        // the upload fits or nothing more may go. The skip marks stay until
+        // the upload ends, so no frame takes the room first.
+        while matches!(result, Err(BridgeError::GpuBudgetExceeded { .. })) {
+            let room = admit(
+                bridge_state,
+                AdmitTarget::RoomFor {
+                    layer_id: ids.0.clone(),
+                    volume_id: ids.1.clone(),
+                },
+            )
+            .await;
+            if room.evicted == 0 {
+                break;
+            }
+            result = request_layer_gpu_resources_locked(
+                spec.clone(),
+                metadata_only,
+                bridge_state,
+                || Ok(()),
+            )
+            .await;
         }
     }
     // Shadow comparison (R5b): a typed refusal opens an episode, the outcome

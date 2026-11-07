@@ -1,26 +1,32 @@
 //! The residency executor (R5c; plan §11): under `BRAINFLOW_BACKEND_RESIDENCY`
 //! the backend owns admission and eviction. One pass holds `volume_operations`
-//! throughout, plans from a fresh snapshot, evicts what the plan picks and
-//! uploads what it admits. The residency lock is held only while planning.
+//! throughout and plans from a fresh snapshot; the residency lock is held only
+//! while planning.
+//!
+//! **Lazy eviction.** The plan sizes textures not yet uploaded by an upper
+//! bound (an f32 volume often fits R16Float), so its eviction list can be
+//! longer than needed. The executor follows the plan's order but evicts only
+//! when an upload is actually refused: it tries the upload, and on a budget
+//! refusal evicts the next victim (the plan's, then the other allowed
+//! candidates) and tries again. The renderer's budget check decides.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use super::demand::Priority;
 use super::manager::{current_service, snapshot, BridgeTextureBackend};
-use super::policy::{plan, Plan, Refusal, Request, TextureBackend, VictimKind};
+use super::policy::{
+    eviction_candidates, plan, Plan, Refusal, Request, TextureBackend, Victim, VictimKind,
+};
 use crate::*;
-
-/// Re-plans after an upload the plan expected to fit is still refused (its
-/// size was an estimate). Each pass evicts at least one more texture or ends.
-const MAX_PASSES: usize = 4;
 
 /// What one admission is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AdmitTarget {
     /// Every Front frame's drawable layers: evict for them and upload them.
     Fronts,
-    /// Room for one layer the UI is requesting. Only evicts: the caller's
-    /// own request uploads the layer.
+    /// Room for one layer the UI is requesting: evict the policy's next
+    /// victim for it, at most one. The caller's request uploads the layer
+    /// and asks again while it is still refused.
     RoomFor { layer_id: String, volume_id: String },
 }
 
@@ -84,8 +90,10 @@ async fn requests_for(
     (requests, volumes)
 }
 
-/// Plan `request` from a fresh snapshot. None without a render service.
-async fn plan_now(state: &BridgeState, request: &Request) -> Option<Plan> {
+/// Plan `request` from a fresh snapshot, with the victims to evict in order:
+/// the plan's, then every other victim the policy allows. None without a
+/// render service.
+async fn plan_now(state: &BridgeState, request: &Request) -> Option<(Plan, VecDeque<Victim>)> {
     let service_arc = current_service(state).await?;
     let snap = {
         let mut service = service_arc.lock().await;
@@ -94,7 +102,14 @@ async fn plan_now(state: &BridgeState, request: &Request) -> Option<Plan> {
     let facts = BridgeTextureBackend(snap.facts).facts();
     let now = state.residency.now();
     let residency = state.residency.state.lock().await;
-    Some(plan(&facts, &residency.ledger, now, request))
+    let plan = plan(&facts, &residency.ledger, now, request);
+    let mut victims: VecDeque<Victim> = plan.evict.iter().cloned().collect();
+    for victim in eviction_candidates(&facts, &residency.ledger, now) {
+        if !victims.iter().any(|planned| planned.kind == victim.kind) {
+            victims.push_back(victim);
+        }
+    }
+    Some((plan, victims))
 }
 
 /// Record refusals for the report, and clear them for admitted layers.
@@ -141,6 +156,17 @@ async fn evict(state: &BridgeState, victim: &VictimKind) -> bool {
     }
 }
 
+/// Evict victims from the front of `victims` until one frees something.
+/// False when none is left.
+async fn evict_next(state: &BridgeState, victims: &mut VecDeque<Victim>) -> bool {
+    while let Some(victim) = victims.pop_front() {
+        if evict(state, &victim.kind).await {
+            return true;
+        }
+    }
+    false
+}
+
 /// Upload a layer, or keep the live residency it has.
 async fn ensure(state: &BridgeState, layer_id: &str, volume_id: &str) -> BridgeResult<()> {
     let spec = LayerSpec::Volume(VolumeLayerSpec {
@@ -156,66 +182,80 @@ async fn ensure(state: &BridgeState, layer_id: &str, volume_id: &str) -> BridgeR
     }
 }
 
+/// Refusals the policy made from byte figures: a texture not yet uploaded is
+/// sized by an upper bound, so the upload itself may still fit.
+fn sized_by_estimate(reason: Refusal) -> bool {
+    matches!(reason, Refusal::FrontExceedsBudget | Refusal::HeldByPinned)
+}
+
 /// [`admit`] for a caller that holds `volume_operations`.
 pub(crate) async fn admit_held(state: &BridgeState, target: &AdmitTarget) -> AdmitOutcome {
     let mut outcome = AdmitOutcome::default();
     let (requests, volumes) = requests_for(state, target).await;
-    let uploads = matches!(target, AdmitTarget::Fronts);
     for request in &requests {
-        for _ in 0..MAX_PASSES {
-            let Some(plan) = plan_now(state, request).await else {
-                return outcome;
-            };
-            let refused: Vec<(String, Refusal)> = plan
+        let Some((plan, mut victims)) = plan_now(state, request).await else {
+            return outcome;
+        };
+
+        if matches!(target, AdmitTarget::RoomFor { .. }) {
+            // Refused for its size by an estimate only: room may still help.
+            let size_only = plan
                 .refuse
                 .iter()
-                .map(|refused| (refused.layer_id.clone(), refused.reason))
-                .collect();
-            record(state, &refused, &[]).await;
-            outcome.refused.extend(refused);
-
-            let mut freed = 0;
-            for victim in &plan.evict {
-                if evict(state, &victim.kind).await {
-                    freed += 1;
-                }
+                .all(|refused| sized_by_estimate(refused.reason));
+            if size_only && evict_next(state, &mut victims).await {
+                outcome.evicted += 1;
             }
-            outcome.evicted += freed;
-            if !uploads {
-                break;
-            }
+            continue;
+        }
 
-            let mut admitted = Vec::new();
-            let mut pressed = false;
-            for admission in &plan.admit {
-                let Some(volume_id) = volumes.get(&admission.layer_id) else {
-                    continue;
-                };
-                match ensure(state, &admission.layer_id, volume_id).await {
-                    Ok(()) => admitted.push(admission.layer_id.clone()),
+        // Refusals the plan is sure of. One for size alone was made with an
+        // estimate: that layer is tried with the rest, keeping the plan's
+        // reason should it still not fit.
+        let mut uploads: Vec<(String, Refusal)> = plan
+            .admit
+            .iter()
+            .map(|admission| (admission.layer_id.clone(), Refusal::FrontExceedsBudget))
+            .collect();
+        let mut refused = Vec::new();
+        for refusal in &plan.refuse {
+            if sized_by_estimate(refusal.reason) {
+                uploads.push((refusal.layer_id.clone(), refusal.reason));
+            } else {
+                refused.push((refusal.layer_id.clone(), refusal.reason));
+            }
+        }
+
+        let mut admitted = Vec::new();
+        for (layer_id, if_full) in uploads {
+            let Some(volume_id) = volumes.get(&layer_id) else {
+                continue;
+            };
+            loop {
+                match ensure(state, &layer_id, volume_id).await {
+                    Ok(()) => {
+                        admitted.push(layer_id);
+                        break;
+                    }
                     Err(BridgeError::GpuBudgetExceeded { .. }) => {
-                        // The estimate was off: plan again from what is resident now.
-                        pressed = true;
+                        if evict_next(state, &mut victims).await {
+                            outcome.evicted += 1;
+                            continue;
+                        }
+                        refused.push((layer_id, if_full));
                         break;
                     }
                     Err(error) => {
-                        warn!(
-                            "Residency: upload of '{}' failed: {error:?}",
-                            admission.layer_id
-                        );
-                        let failed = (admission.layer_id.clone(), Refusal::UploadFailed);
-                        record(state, std::slice::from_ref(&failed), &[]).await;
-                        outcome.refused.push(failed);
+                        warn!("Residency: upload of '{layer_id}' failed: {error:?}");
+                        refused.push((layer_id, Refusal::UploadFailed));
+                        break;
                     }
                 }
             }
-            outcome.uploaded += admitted.len();
-            record(state, &[], &admitted).await;
-            // Nothing more to do, or nothing freed that a new plan could use.
-            if !pressed || (freed == 0 && admitted.is_empty()) {
-                break;
-            }
         }
+        outcome.uploaded += admitted.len();
+        record(state, &refused, &admitted).await;
+        outcome.refused.extend(refused);
     }
     outcome
 }
