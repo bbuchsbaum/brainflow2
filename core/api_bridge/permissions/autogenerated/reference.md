@@ -67,6 +67,9 @@ Default permissions for api-bridge plugin
 - `allow-register-categorical-colormap`
 - `allow-get-atlas-stats`
 - `allow-reclaim-cached-image-slots`
+- `allow-set-residency-demand`
+- `allow-clear-residency-demand`
+- `allow-get-residency-state`
 - `allow-start-atlas-progress-monitoring`
 - `allow-get-atlas-subscription-count`
 - `allow-set-volume-timepoint`
@@ -456,6 +459,32 @@ Enables the clear_render_layers command without any pre-configured scope.
 <td>
 
 Denies the clear_render_layers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-clear-residency-demand`
+
+</td>
+<td>
+
+Enables the clear_residency_demand command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-clear-residency-demand`
+
+</td>
+<td>
+
+Denies the clear_residency_demand command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1340,6 +1369,32 @@ Enables the get_render_capabilities command without any pre-configured scope.
 <td>
 
 Denies the get_render_capabilities command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-residency-state`
+
+</td>
+<td>
+
+Enables the get_residency_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-residency-state`
+
+</td>
+<td>
+
+Denies the get_residency_state command without any pre-configured scope.
 
 </td>
 </tr>
@@ -3472,6 +3527,32 @@ Enables the set_layer_mask command without any pre-configured scope.
 <td>
 
 Denies the set_layer_mask command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-set-residency-demand`
+
+</td>
+<td>
+
+Enables the set_residency_demand command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-set-residency-demand`
+
+</td>
+<td>
+
+Denies the set_residency_demand command without any pre-configured scope.
 
 </td>
 </tr>

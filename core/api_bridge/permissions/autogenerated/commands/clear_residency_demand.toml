@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-clear-residency-demand"
+description = "Enables the clear_residency_demand command without any pre-configured scope."
+commands.allow = ["clear_residency_demand"]
+
+[[permission]]
+identifier = "deny-clear-residency-demand"
+description = "Denies the clear_residency_demand command without any pre-configured scope."
+commands.deny = ["clear_residency_demand"]

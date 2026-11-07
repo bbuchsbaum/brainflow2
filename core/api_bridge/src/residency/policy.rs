@@ -17,7 +17,8 @@
 //! 1. cached (prefetched, not displayed) 4D ring members, least recently used;
 //! 2. undemanded residents, least recently drawn;
 //! 3. residents demanded only by Background frames, oldest `last_front_at`
-//!    first; a frame in front within [`RECENT_FRONT_MS`] ranks last.
+//!    first, then least recently drawn; a frame in front within
+//!    [`RECENT_FRONT_MS`] ranks last.
 //!
 //! Never evicted: textures a Front frame draws, pinned layers, a ring's
 //! displayed member (only cached members are tier 1), and uploads in flight.
@@ -104,7 +105,9 @@ pub(crate) trait TextureBackend {
 /// What to plan for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Request {
-    /// Make a frame's drawable layers resident.
+    /// Make a frame's drawable layers resident. Planned by the backend owner
+    /// (R5c); R5b's shadow comparison plans only [`Request::Layer`].
+    #[cfg_attr(not(test), allow(dead_code))]
     Frame(FrameId),
     /// Make one layer resident (an upload the UI asked for).
     Layer { layer_id: String, volume_id: String },
@@ -378,11 +381,11 @@ impl Simulation<'_> {
         members.sort();
 
         let mut undemanded: Vec<(Millis, &ResidentFacts)> = Vec::new();
-        let mut background: Vec<((bool, Millis), &ResidentFacts)> = Vec::new();
+        let mut background: Vec<((bool, Millis, Millis), &ResidentFacts)> = Vec::new();
         for resident in self.live().filter(|resident| !self.protected(resident)) {
             if let Some(&at) = self.holders.background.get(&resident.key) {
                 let recent = self.now.saturating_sub(at) < RECENT_FRONT_MS;
-                background.push(((recent, at), resident));
+                background.push(((recent, at, resident.last_drawn), resident));
             } else if !self.holders.drawn.contains(&resident.key) {
                 undemanded.push((resident.last_drawn, resident));
             }
@@ -415,6 +418,25 @@ impl Simulation<'_> {
                 .map(|(_, r)| layer(r, Tier::BackgroundOnly)),
         );
         victims
+    }
+
+    /// The ordering class of each layer the policy may evict: candidates in
+    /// one class are interchangeable to the policy, which only breaks the tie
+    /// by residency key.
+    fn layer_classes(&self) -> HashMap<String, OrderClass> {
+        let mut classes = HashMap::new();
+        for resident in self.live().filter(|resident| !self.protected(resident)) {
+            let class = if let Some(&at) = self.holders.background.get(&resident.key) {
+                let recent = self.now.saturating_sub(at) < RECENT_FRONT_MS;
+                (Tier::BackgroundOnly, recent, at, resident.last_drawn)
+            } else if !self.holders.drawn.contains(&resident.key) {
+                (Tier::Undemanded, false, 0, resident.last_drawn)
+            } else {
+                continue;
+            };
+            classes.insert(resident.key.clone(), class);
+        }
+        classes
     }
 
     /// Victims, in order, that together free at least `needed`; None when every
@@ -581,6 +603,89 @@ pub(crate) fn plan(
         }
     }
     plan
+}
+
+/// Every victim the policy would allow right now, in eviction order, with its
+/// tier. A resident absent from this list is protected (drawn by a Front frame,
+/// pinned, or uploading). The shadow comparison (R5b) classifies the UI's
+/// evictions against it.
+pub(crate) fn eviction_candidates(
+    facts: &ResidencyFacts,
+    ledger: &DemandLedger,
+    now: Millis,
+) -> Vec<Victim> {
+    Simulation {
+        facts,
+        holders: holders(ledger, facts),
+        used: facts.capacity.used(),
+        keep: HashSet::new(),
+        evicted: HashSet::new(),
+        taken_members: HashSet::new(),
+        now,
+    }
+    .ordered_victims()
+}
+
+/// Resident keys that some frame, Front or Background, lists but cannot draw:
+/// past its binding or row capacity, and drawn by no frame and pinned by none
+/// (plan §5). The policy neither protects nor uploads them; the UI keeps every
+/// visible layer by its tab. The shadow comparison (R5b) uses this to explain
+/// that difference.
+pub(crate) fn draw_capped_keys(facts: &ResidencyFacts, ledger: &DemandLedger) -> HashSet<String> {
+    let holders = holders(ledger, facts);
+    let mut capped = HashSet::new();
+    for (_, demand) in ledger.frames() {
+        for &index in &draw_set(demand, facts).over_cap {
+            let key = residency_key(&demand.layers[index], facts, &[]);
+            if !holders.drawn.contains(&key) && !holders.pinned.contains(&key) {
+                capped.insert(key);
+            }
+        }
+    }
+    capped
+}
+
+/// Resident keys no frame lists, held or not: a closed tab's layers, for one
+/// (plan §6). The policy evicts them first (tier 2); the shadow comparison
+/// (R5b) uses this to explain a UI that does not.
+pub(crate) fn unlisted_keys(facts: &ResidencyFacts, ledger: &DemandLedger) -> HashSet<String> {
+    let mut listed = HashSet::new();
+    for (_, demand) in ledger.frames() {
+        for layer in demand.layers.iter().chain(&demand.held) {
+            listed.insert(residency_key(layer, facts, &[]));
+            listed.insert(layer.layer_id.clone());
+        }
+    }
+    facts
+        .residents
+        .iter()
+        .map(|resident| resident.key.clone())
+        .filter(|key| !listed.contains(key))
+        .collect()
+}
+
+/// A layer victim's place in the eviction order, without the residency key
+/// that breaks ties: tier, recently in front, `last_front_at`, `last_drawn`.
+pub(crate) type OrderClass = (Tier, bool, Millis, Millis);
+
+/// The ordering class of every layer the policy would allow evicting right
+/// now. The shadow comparison (R5b) treats a UI pick in the same class as the
+/// policy's as a tie, not a different choice.
+pub(crate) fn eviction_classes(
+    facts: &ResidencyFacts,
+    ledger: &DemandLedger,
+    now: Millis,
+) -> HashMap<String, OrderClass> {
+    Simulation {
+        facts,
+        holders: holders(ledger, facts),
+        used: facts.capacity.used(),
+        keep: HashSet::new(),
+        evicted: HashSet::new(),
+        taken_members: HashSet::new(),
+        now,
+    }
+    .layer_classes()
 }
 
 /// Admit one texture, evicting what it needs; on refusal nothing is evicted.
@@ -919,6 +1024,31 @@ mod tests {
     }
 
     #[test]
+    fn one_background_frames_layers_go_least_recently_drawn_first() {
+        let mut world = World::bytes(12 * KIB);
+        // Keys sort the other way round from the draw times.
+        world
+            .volume("a-drawn-late", 4 * KIB, Some(90))
+            .volume("z-drawn-early", 4 * KIB, Some(10))
+            .volume("m-drawn-mid", 4 * KIB, Some(50))
+            .volume("new", 4 * KIB, None);
+        world.background(
+            "tab-back",
+            1_000,
+            &["a-drawn-late", "z-drawn-early", "m-drawn-mid"],
+        );
+        world.front("tab-new", &["new"]);
+        assert_eq!(
+            evicted_keys(&world.plan_frame("tab-new")),
+            ["z-drawn-early"]
+        );
+        let facts = world.backend.facts();
+        let classes = eviction_classes(&facts, &world.ledger, world.clock.now());
+        assert_ne!(classes["a-drawn-late"], classes["z-drawn-early"]);
+        assert_eq!(classes["a-drawn-late"].0, Tier::BackgroundOnly);
+    }
+
+    #[test]
     fn recently_front_frame_ranks_last_among_background() {
         let mut world = World::bytes(8 * KIB);
         let now = world.clock.now();
@@ -1045,6 +1175,61 @@ mod tests {
         let plan = world.plan_layer(&layers[13]);
         assert!(plan.evict.is_empty());
         assert_eq!(refused(&plan, Refusal::DrawCap), [layers[13].clone()]);
+    }
+
+    #[test]
+    fn resident_layers_past_a_front_frames_draw_cap_are_undemanded_victims() {
+        let mut world = World::bytes(15 * KIB);
+        let layers = names("v", 15);
+        for id in &layers {
+            world.volume(id, KIB, Some(1));
+        }
+        world.front("tab", &refs(&layers));
+        let facts = world.backend.facts();
+        // Layers 14 and 15 are resident but past the binding capacity: not
+        // drawn, so neither protected nor background, but listed as capped.
+        let capped = draw_capped_keys(&facts, &world.ledger);
+        assert_eq!(capped, layers[13..].iter().cloned().collect::<HashSet<_>>());
+        let candidates = eviction_candidates(&facts, &world.ledger, world.clock.now());
+        let keys: HashSet<String> = candidates
+            .iter()
+            .filter_map(|victim| match &victim.kind {
+                VictimKind::Layer { key } if victim.tier == Tier::Undemanded => Some(key.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(keys, capped);
+        // A capped layer that another Front frame draws is not capped.
+        world.front("other", &refs(&layers[14..]));
+        let capped = draw_capped_keys(&world.backend.facts(), &world.ledger);
+        assert_eq!(capped, [layers[13].clone()].into_iter().collect());
+    }
+
+    #[test]
+    fn background_draw_cap_and_unlisted_residents_are_reported() {
+        let mut world = World::bytes(17 * KIB);
+        let layers = names("v", 15);
+        for id in &layers {
+            world.volume(id, KIB, Some(1));
+        }
+        world.volume("closed", KIB, Some(0));
+        world.volume("idle-copy", KIB, Some(0));
+        let now = world.clock.now();
+        world.frame("tab", Priority::Background, now, &own(&refs(&layers)));
+        let facts = world.backend.facts();
+        // Past the cap of a Background frame counts as well.
+        assert_eq!(
+            draw_capped_keys(&facts, &world.ledger),
+            layers[13..].iter().cloned().collect::<HashSet<_>>()
+        );
+        // Residents no frame lists: neither the capped layers nor the drawn.
+        assert_eq!(
+            unlisted_keys(&facts, &world.ledger),
+            ["closed", "idle-copy"]
+                .map(String::from)
+                .into_iter()
+                .collect()
+        );
     }
 
     #[test]

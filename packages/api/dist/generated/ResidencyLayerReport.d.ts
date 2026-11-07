@@ -1,0 +1,15 @@
+import type { ResidencyLayerState } from "./ResidencyLayerState";
+import type { ResidencyRefusal } from "./ResidencyRefusal";
+export type ResidencyLayerReport = {
+    layer_id: string;
+    state: ResidencyLayerState;
+    /**
+     * Logical payload bytes (with cached 4D members for an undemanded layer).
+     */
+    bytes: number;
+    /**
+     * Frames that demand the layer, in frame-id order.
+     */
+    frames: Array<string>;
+    refusal: ResidencyRefusal | null;
+};

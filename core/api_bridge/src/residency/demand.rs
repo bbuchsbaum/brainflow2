@@ -55,6 +55,7 @@ impl DemandedLayer {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn pinned(mut self, reason: PinReason) -> Self {
         self.pin = Some(reason);
         self

@@ -1,6 +1,6 @@
 # R5 implementation plan: backend residency owner
 
-**Status:** approved by the user with the §9 defaults (2026-11-06). R5a is pure code with no runtime wiring, so it proceeds while R4's open items (§0) close; R5b onward waits for them.
+**Status:** approved by the user with the §9 defaults (2026-11-06). R5a merged. R4 qualified 2026-11-06 (§0 closed). R5b implemented on `feat/r5b-residency-demand` (§10); its §4 native shadow run met the pass bar on 2026-11-07.
 
 **Parent plan:** `docs/plans/gpu-residency-implementation-2026-11.md`, R5 (§2) and gates (§3).
 **Design:** `docs/plans/gpu-residency-phase3-design-2026-11.md`, increments 1, 3, 4 and 5, applied to bytes.
@@ -320,3 +320,100 @@ Fixtures are in `~/code/brainflow2/cruft/r4-native/fixtures-v2/`: 8×8×8 float3
 6. **UI show-check counting 13 distinct textures instead of 16 rows:** *Default: a separate small PR after R5b.*
 7. **Shadow pass bar:** *Default: 30 minutes, 50 episodes, 0 unsafe.*
 8. **Flag deletion:** *Default: R6 merges within two weeks of R5c's native pass; the flag is removed in R6.*
+
+## 10. R5b record — 2026-11-06
+
+Branch `feat/r5b-residency-demand`, from `main` at `a772fa8f`.
+
+**Rust (`core/api_bridge`).**
+- `residency/manager.rs`:
+  - `Residency` holds the ledger, a revision, `seq` and the shadow ledger. It is held alone: nothing is acquired under it (lock-order doc in `residency/mod.rs`).
+  - `snapshot()` builds `ResidencyFacts` from the service, `resident_image_sets`, the registry and the leaf maps, never from a mirror. Per-resident bytes include the slot's mask.
+  - An upload in flight counts in `used` (its texture is in the store before `layer_slots` has it).
+  - The report and the wire types are `#[ts(export)]`, with no slot, index or generation fields. `owner` is `ui`.
+- **Commands** in `lib.rs`: `set_residency_demand`, `clear_residency_demand` and `get_residency_state`. They are registered, granted in `default.toml`, and exported to `@brainflow/api`.
+- **`residency-changed`:** a 50 ms task that `try_lock`s the service. It reports when the store's new `residency_revision()` or the bridge revision (demand or refusal changes) moved. It keeps rebuilding for 10 ticks after a change, because a layer mapping lands after its upload's store bump, and it sends only reports whose body changed. A report is numbered while the service is still held.
+- **`residency/shadow.rs`, episodes:**
+  - A typed retryable 6008 from `request_layer_gpu_resources` opens one, with the policy's `plan(Request::Layer)` and its allowed candidates.
+  - UI `release(forUpload)` and reclaims are credited to the episode of the layer refused last; the UI makes room for one upload at a time.
+  - The episode closes on admission (1006 "already owns" counts), on another failure, or after 5 s.
+  - Verdicts: `agree`, `benign_lru`, `unsafe` (the UI evicted what the policy protects), `capacity_mismatch` and `unexplained`. Each is one JSON line on target `residency.shadow`.
+- **`residency/shadow.rs`, draw cap:** after each frame, the render's OverCap skips are compared with `draw_set` for the Front demand that lists exactly the frame's drawable layers. The comparison is memoised on (store revision, bridge revision, layers, skips): one comparison per change, not per view or redraw.
+- **Render pre-check fix (R5a review):** the binding pre-check no longer lets a time-series layer fall back to its volume's residency. It reads the registry without failing, so a skipped layer whose volume is gone does not fail the frame.
+- **Tests:**
+  - `demand_epochs_monotonic_per_frame`, `report_serializes_without_binding_or_slot_fields`, report draw-cap marking, Background `last_front_at`, wire parsing, verdict rules, episode expiry and attribution.
+  - GPU: `residency_changed_emits_after_upload_and_release`, `shadow_episode_records_ui_victims_and_policy_plan`, `shadow_flags_a_ui_eviction_of_a_front_layer_unsafe`, `draw_cap_shadow_matches_render_over_cap_skips` (15 layers, memo, missing volume) and `time_series_layer_at_binding_capacity_neither_borrows_nor_allocates`. The last fails without the pre-check fix.
+
+**UI (`ui2`).**
+- **`services/ResidencyDemandPublisher.ts` frames:**
+  - every view tab, keyed by workspace id: Front when active, Background otherwise;
+  - the active tool tab only while a render-layer scope is set (the Studio's current member). A tool tab draws nothing otherwise (A12);
+  - `studio-panes`, the held Studio maps: Front while a tool tab is in front.
+- **Publisher layers and pins:** layers are drawable only (visible, opacity above 0), bottom first. Pins come from `segmentation.editable-label`, document-protected volumes and borrowed Studio underlays; hidden pinned layers go in `held`.
+- **Publisher sending:**
+  - A frame is sent only when its body changed, and closed tabs are cleared.
+  - Epochs start at `Date.now() × 1000`, so a reload never sends a stale epoch. On start, frames the backend holds that this session does not publish are cleared.
+  - The browser host is skipped.
+- **`stores/residencyStore.ts`:** applies reports in `seq` order and refetches once on a gap. A fetched report never refetches.
+- **Other changes:** change notices in `StudioDerivedMapService` (`subscribe`, `heldMaps`) and `workspaceDocuments` (`subscribeWorkspaceDocuments`). The three commands are added to the dev harness and the mock transport.
+- **Tests:** the eight in §3 plus epoch ordering, per-session epochs and leftover-frame clearing (`services/__tests__/ResidencyDemandPublisher.test.ts`).
+- **`tools/residency_shadow_report.mjs`:** tabulates the verdicts against the §4 pass bar. `unexplained` fails it.
+
+**Gates (before the review fixes):**
+- `cargo test -p api-bridge -p render_loop`: 939 passed, 0 failed (Metal).
+- vitest: 4,359 passed. Two files failed under load or setup and pass alone: a missing `packages/visualization/node_modules` link in this worktree, and the BIDS palette timing test.
+- Strict permission check OK. eslint shows only the 5 existing errors in `useServicesInit.ts`.
+- A typecheck against this worktree's `@brainflow/api` is clean; ui2's `node_modules` link resolves the main checkout's package, so a plain `tsc -b` here would not see the new types.
+
+**Gates after the review fixes:**
+- `cargo test -p api-bridge -p render_loop`: 940 passed, 0 failed.
+- vitest: 544 files, 4,363 passed.
+
+**Review (fresh context):** no blocking issues. Fixed:
+- stale reports;
+- the per-frame draw-cap cost;
+- episode cross-attribution;
+- epochs after a reload;
+- mask bytes;
+- the hoisted fallible timepoint lookup;
+- `seq` ordering;
+- 1006 counted as admitted;
+- `unexplained` failing the pass bar;
+- mock-transport defaults.
+
+Not fixed, for the shadow run to show or R5c to handle:
+- a 4D ring swap refused under pressure is still counted as bound by `draw_set` (rare: more than 13 layers under pressure);
+- only the UI side of `unsafe` is checked (a policy pick the UI protects is not flagged);
+- UI releases not made for an upload (pressure monitor, front restore) are not recorded;
+- `refusals` are not pruned when a layer is removed.
+
+### §4 shadow run — 2026-11-07 (exit met)
+
+**Setup.** Debug `.app` (`Brainflow R5 QA`) at `182af4bb`, flag off, `BRAINFLOW_GPU_RESIDENCY_BUDGET_BYTES=24576`, fixtures `fixtures-v2` (8×8×8; textures are 1 KiB or 2 KiB). One uninterrupted run, 15:47:13–16:17:13 UTC (30 min), §8 steps 3–7: 31 layers in three tabs (one file was added twice), rapid switches with slice changes, 16 visible in tab 1 (3 past the draw cap), tab 3 closed and a new view opened, the 4D load, then switching to the end.
+
+**Result: pass bar met.** 648 episodes:
+
+| verdict | n | share |
+|---|---|---|
+| `expected:undemanded` | 256 | 40% |
+| `expected:tie` | 145 | 22% |
+| `expected:draw_cap` | 91 | 14% |
+| `benign_lru` | 88 | 13.6% |
+| `agree` | 57 | 9% |
+| `expected:demand_lag` | 11 | 2% |
+| `unsafe`, `capacity_mismatch`, `unexplained`, `drawcap_mismatch` | 0 | |
+
+No 6001/6021 and no error lines in the log. `benign_lru` comes mostly from the 16-layer phase: layers past tab 1's cap are never drawn while it is in front, so the policy's real `last_drawn` puts them first, while the UI's `lastRenderTime` is touched for every visible layer (the clock difference §4 names).
+
+**Fixes the earlier runs forced** (`281080e5`, `0f06fc1d`, `182af4bb`):
+- Policy: one Background frame's layers go least recently drawn first.
+- Publisher: demand is sent at most 16 ms after the first change. The debounce restarted on every store change, so during an upload storm the UI evicted for the new front tab while the backend still held the old demand (7 `unsafe` in one run).
+- Verdicts: `expected:demand_lag` (a UI pick allowed by the demand current at close), `expected:draw_cap` (any frame's cap; a UI upload the policy refuses with DrawCap), `expected:undemanded` (residents no frame lists, §6). `benign_lru` compares the deepest tier reached and `expected:tie` the set of ordering classes: textures differ in size, so equal decisions can differ in count.
+- Unit tests for each rule, including the lag recheck and Background-frame caps.
+
+**Findings for R5c.**
+- **Untracked residents (UI, predates R5b).** The render path allocates textures on demand for drawable layers (`lib.rs` ~6892); the UI marks a layer resident only after its own upload (`LayerApiImpl.ts:147`). A texture the render path re-uploads after the UI evicted it stays resident unknown to the UI. Once its tab closes, nothing evicts it: in the run the closed tab's layers stayed resident (256 `expected:undemanded`), and opening `r4-time-series-6-frames.nii` failed with "GPU residency budget exceeded" while the UI found no victim (§8 step 7 could not be completed under this budget). Confirmed from the code and the logs, not reproduced on a `main` build. R5c's backend owner fixes this by construction; `cancelled_ticket_installs_as_undemanded` and an undemanded-first test should cover it.
+- **Size-aware tie-break.** Within one ordering class the policy breaks ties by key; preferring the larger texture would often need one eviction where it now needs two.
+- **QA note.** With Stage Manager on, background clicks cannot reach the app once it is a side tile; the run used full-screen control. Under Node 26, vitest needs `NODE_OPTIONS=--no-experimental-webstorage`.
+
+**Gates at `182af4bb`:** `cargo test -p api-bridge -p render_loop` 947 passed, 0 failed (Metal); vitest 544 files, 4,364 passed; clippy on `api-bridge` shows only the existing ts-rs serde-attribute warnings.

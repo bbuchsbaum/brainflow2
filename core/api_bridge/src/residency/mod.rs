@@ -2,7 +2,9 @@
 //! watchdog, render-skip marks, resident 4D ring accounting and the release
 //! path. Moved out of `lib.rs` (R1 of
 //! `docs/plans/gpu-residency-implementation-2026-11.md`). `demand` and `policy`
-//! hold the R5 backend policy (pure; wired in from R5b).
+//! hold the R5 backend policy (pure). `manager` records the UI's demand and
+//! reports residency; `shadow` compares the UI's evictions with the policy
+//! (R5b: the UI still owns eviction).
 //!
 //! Lock order (outermost first); a path may skip levels but never go back up:
 //! 1. `BridgeState::volume_operations`
@@ -15,8 +17,10 @@
 //! 6. leaf maps: `layer_leases`, `layer_slots`, `layer_to_volume_map`,
 //!    `layer_to_timepoint_map`, `render_skipped_layers`, `layer_last_drawn`
 //!
-//! The Phase 3 design inserts a `residency` lock between 3 and 4. Every change
-//! of slot ownership holds the `RenderLoopService` lock.
+//! `BridgeState::residency` (R5b) comes after 3 and is held alone: nothing is
+//! acquired while it is held, so it may be taken under the service or with no
+//! other lock. Every change of slot ownership holds the `RenderLoopService`
+//! lock.
 //!
 //! Identity (R2): outside this module and `gpu_upload`, nothing names a texture
 //! by its bare index. The layer map ([`LayerSlotMap`]), leases, rings and
@@ -25,15 +29,14 @@
 //! `tests/bare_index_identity_check.rs` enforces this in CI.
 
 mod config;
-// R5a: the policy is pure and not wired in until R5b.
-#[cfg_attr(not(test), allow(dead_code))]
 mod demand;
 mod layer_slots;
 mod lease;
-#[cfg_attr(not(test), allow(dead_code))]
+mod manager;
 mod policy;
 mod release;
 mod ring;
+mod shadow;
 mod skips;
 mod watchdog;
 
@@ -41,6 +44,17 @@ pub(crate) use config::application_residency_config;
 pub(crate) use layer_slots::drawn_render_layer;
 pub use layer_slots::LayerSlotMap;
 pub(crate) use lease::{release_superseded_lease, LayerLease};
+pub use manager::{
+    ResidencyDemandResult, ResidencyDemandedLayer, ResidencyFrameDemand, ResidencyLayerReport,
+    ResidencyLayerState, ResidencyOwner, ResidencyPin, ResidencyPriority, ResidencyRefusal,
+    ResidencyReport,
+};
+pub(crate) use manager::{
+    clear_residency_demand_with, residency_state_report, set_residency_demand_with, Residency,
+};
+#[cfg(test)]
+pub(crate) use manager::residency_tick;
+pub(crate) use shadow::{check_draw_cap, note_reclaim, note_release_for_upload, note_request};
 pub(crate) use release::{
     release_layer_gpu_resources_held, release_layer_gpu_resources_internal,
     release_layer_gpu_resources_with,
