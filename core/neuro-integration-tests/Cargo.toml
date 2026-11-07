@@ -1,6 +1,7 @@
 [package]
 name = "neuro-integration-tests"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Integration tests for CPU/GPU differential testing"
 
