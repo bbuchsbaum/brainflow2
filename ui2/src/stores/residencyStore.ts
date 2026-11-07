@@ -39,35 +39,46 @@ export function backendOwnsResidency(): boolean {
   return useResidencyStore.getState().report?.owner === 'backend';
 }
 
-/** Why a layer is not drawn, for its alert. */
+/** Why layers are not drawn, for their alert; `names` holds at least one. */
 export function refusalMessage(
-  name: string,
+  names: readonly string[],
   refusal: ResidencyRefusal,
   bindingCapacity: number,
 ): string {
+  const who =
+    names.length === 1 ? `${names[0]} is` : `${names[0]} and ${names.length - 1} more are`;
   switch (refusal) {
     case 'draw_cap':
-      return `${name} is not drawn: a view draws at most ${bindingCapacity} layers.`;
+      return `${who} not drawn: a view draws at most ${bindingCapacity} layers.`;
     case 'front_exceeds_budget':
-      return `${name} is not drawn: this tab's layers need more GPU memory than the budget allows.`;
+      return `${who} not drawn: this tab's layers need more GPU memory than the budget allows.`;
     case 'held_by_pinned':
-      return `${name} is not drawn: the GPU memory it needs is held by pinned layers (an open segmentation or Studio panes).`;
+      return `${who} not drawn: the GPU memory needed is held by pinned layers (an open segmentation or Studio panes).`;
     case 'oversized_request':
-      return `${name} is not drawn: it is larger than the whole GPU budget.`;
+      return `${who} not drawn: larger than the whole GPU budget.`;
     case 'volume_missing':
-      return `${name} is not drawn: its volume is no longer loaded.`;
+      return `${who} not drawn: the volume is no longer loaded.`;
     case 'upload_failed':
-      return `${name} is not drawn: its upload to the GPU failed.`;
+      return `${who} not drawn: the upload to the GPU failed.`;
   }
 }
 
-/** The refusal each layer was last alerted for. */
-const alerted = new Map<string, ResidencyRefusal>();
+/**
+ * Tab-and-reason pairs already alerted (`frame|refusal`). One alert per tab
+ * and reason: switching tabs, or adding another layer past the same cap, does
+ * not alert again; the row badge keeps showing which layers are not drawn.
+ * A pair is forgotten when its tab closes (no layer lists the frame).
+ */
+const alerted = new Set<string>();
 
 /** Keep the layer store in step with a backend-owned report. */
 function syncLayers(report: ResidencyReport): void {
   const layers = useLayerStore.getState();
+  // New alerts, by tab and reason, with the layers they name.
+  const fresh = new Map<string, { refusal: ResidencyRefusal; names: string[] }>();
+  const frames = new Set<string>();
   for (const entry of report.layers) {
+    for (const frame of entry.frames) frames.add(frame);
     const layer = layers.getLayer(entry.layer_id);
     if (!layer) continue;
     const metadata = layers.getLayerMetadata(entry.layer_id);
@@ -80,23 +91,36 @@ function syncLayers(report: ResidencyReport): void {
         evicted: gone,
       });
     }
-    if (entry.state === 'refused' && entry.refusal) {
-      if (alerted.get(entry.layer_id) === entry.refusal) continue;
-      alerted.set(entry.layer_id, entry.refusal);
-      getEventBus().emit('ui.notification', {
-        type: 'warning',
-        message: refusalMessage(
-          layer.name ?? entry.layer_id,
-          entry.refusal,
-          report.binding_capacity,
-        ),
-        subject: layer.name ?? entry.layer_id,
-        alert: true,
-        logSource: 'layer',
-      });
-    } else {
-      alerted.delete(entry.layer_id);
+    if (entry.state !== 'refused' || !entry.refusal) continue;
+    for (const frame of entry.frames) {
+      const key = `${frame}|${entry.refusal}`;
+      if (alerted.has(key)) continue;
+      const group = fresh.get(key) ?? { refusal: entry.refusal, names: [] };
+      group.names.push(layer.name ?? entry.layer_id);
+      fresh.set(key, group);
     }
+  }
+  // Forget the pairs of tabs that closed.
+  for (const key of [...alerted]) {
+    if (!frames.has(key.slice(0, key.lastIndexOf('|')))) alerted.delete(key);
+  }
+  // One notification per reason, even when several tabs got it at once.
+  const byRefusal = new Map<ResidencyRefusal, Set<string>>();
+  for (const [key, group] of fresh) {
+    alerted.add(key);
+    const names = byRefusal.get(group.refusal) ?? new Set<string>();
+    for (const name of group.names) names.add(name);
+    byRefusal.set(group.refusal, names);
+  }
+  for (const [refusal, names] of byRefusal) {
+    const list = [...names];
+    getEventBus().emit('ui.notification', {
+      type: 'warning',
+      message: refusalMessage(list, refusal, report.binding_capacity),
+      subject: list[0],
+      alert: true,
+      logSource: 'layer',
+    });
   }
 }
 

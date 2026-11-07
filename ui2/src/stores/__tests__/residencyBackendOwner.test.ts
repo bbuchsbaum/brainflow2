@@ -78,24 +78,44 @@ describe('backend residency owner', () => {
     expect(metadata('b').gpuResident).toBe(true);
   });
 
-  it('draw_cap_refusal_alerts_once_per_epoch', () => {
-    withLayers(['a'], false);
+  it('draw_cap_refusal_alerts_once_per_tab', () => {
+    withLayers(['a', 'b'], false);
     const alerts: string[] = [];
     const off = getEventBus().on('ui.notification', (event) => {
       if (event.alert) alerts.push(event.message);
     });
-    const refused = () =>
-      report('backend', [{ layer_id: 'a', state: 'refused', refusal: 'draw_cap' }]);
+    const capped = (ids: string[], frame = 'tab') =>
+      report(
+        'backend',
+        ids.map((id) => ({
+          layer_id: id,
+          state: 'refused' as const,
+          refusal: 'draw_cap' as const,
+          frames: [frame],
+        })),
+      );
     const store = useResidencyStore.getState();
-    store.apply(refused());
-    store.apply(refused());
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toContain('at most 13 layers');
+    store.apply(capped(['a']));
+    store.apply(capped(['a']));
+    expect(alerts).toEqual(['Layer a is not drawn: a view draws at most 13 layers.']);
 
-    // Drawn again, then refused again: a new alert.
-    store.apply(report('backend', [{ layer_id: 'a', state: 'resident' }]));
-    store.apply(refused());
+    // Another layer past the same tab's cap, and a switch away and back:
+    // the badge shows them, no new alert.
+    store.apply(capped(['a', 'b']));
+    store.apply(
+      report('backend', [
+        { layer_id: 'a', state: 'evicted', frames: ['tab'] },
+        { layer_id: 'b', state: 'evicted', frames: ['tab'] },
+      ]),
+    );
+    store.apply(capped(['a', 'b']));
+    expect(alerts).toHaveLength(1);
+
+    // The tab closes; another tab over its cap alerts once, naming both.
+    store.apply(report('backend', []));
+    store.apply(capped(['a', 'b'], 'other'));
     expect(alerts).toHaveLength(2);
+    expect(alerts[1]).toBe('Layer a and 1 more are not drawn: a view draws at most 13 layers.');
     off();
   });
 
