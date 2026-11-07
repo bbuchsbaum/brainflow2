@@ -76,13 +76,26 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
     result
 }
 
+/// A lock wait long enough to log: a command stuck behind other work leaves
+/// no trace until it gets the lock.
+pub(crate) const SLOW_LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
 pub(crate) async fn request_layer_gpu_resources_locked(
     layer_spec: LayerSpec,
     metadata_only: Option<bool>,
     bridge_state: &BridgeState,
     after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
+    let waiting = std::time::Instant::now();
     let _operation = bridge_state.volume_operations.lock().await;
+    // A request queued behind a long admission or upload leaves no other
+    // trace: its "called" line comes only once it holds the lock.
+    let waited = waiting.elapsed();
+    if waited >= SLOW_LOCK_WAIT {
+        warn!(
+            "Bridge: request_layer_gpu_resources waited {waited:?} for volume operations: {layer_spec:?}"
+        );
+    }
     request_layer_gpu_resources_held(layer_spec, metadata_only, bridge_state, after_upload).await
 }
 

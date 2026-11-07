@@ -7,6 +7,8 @@ const host = vi.hoisted(() => ({
   retain: vi.fn(),
   remove: vi.fn(),
   layers: [] as Array<Record<string, unknown>>,
+  // Volumes the view holds; null: every test layer.
+  viewVolumes: null as string[] | null,
 }));
 vi.mock('@/modules/api/host', () => ({
   bridgeClient: () => ({ invoke: host.invoke }),
@@ -41,10 +43,17 @@ vi.mock('@/modules/api/host', () => ({
   SliceViewport: () => <div data-testid="registration-image" />,
 }));
 vi.mock('@/modules/api/rendering', () => ({
+  useWorkspaceRenderState: () => ({
+    layers: (host.viewVolumes ?? host.layers.map((layer) => layer.volumeId as string)).map(
+      (volumeId) => ({ volumeId, visible: true }),
+    ),
+  }),
   ensureModuleVolumeResident: async () => undefined,
   renderModulePlane: (...args: unknown[]) => host.render(...args),
 }));
-vi.mock('@/modules/segmentation/components/SegmentViewport', () => ({ SegmentViewport: () => <div data-testid="segment-viewport" /> }));
+vi.mock('@/modules/segmentation/components/SegmentViewport', () => ({
+  SegmentViewport: () => <div data-testid="segment-viewport" />,
+}));
 import { SegmentationMode } from '@/modules/segmentation/components/SegmentationMode';
 import { SegmentationInspector } from '@/modules/segmentation/components/SegmentationInspector';
 import {
@@ -79,7 +88,36 @@ beforeEach(() => {
   host.render.mockReset().mockResolvedValue(undefined);
   host.retain.mockReset();
   host.layers = [series];
+  host.viewVolumes = null;
   forgetSegmentationSession({ workspaceId: 'synthetic-view', workspaceInstance: 'frames-owner' });
+});
+
+describe('the reference is an image this view holds', () => {
+  it('uses the view image when the shared selection names one another tab loaded', async () => {
+    const anatomy = {
+      ...series,
+      id: 'layer-anat',
+      volumeId: 'anat',
+      name: 'Anatomy',
+      volumeType: 'Volume3D',
+      timeSeriesInfo: null,
+    };
+    // The series is selected (in another tab); this view holds only the anatomy.
+    host.layers = [series, anatomy];
+    host.viewVolumes = ['anat'];
+    render(<SegmentationMode workspaceId="synthetic-view" />);
+    expect(screen.getByText(/Reference grid: Anatomy\./)).toBeInTheDocument();
+    await waitFor(() => expect(host.render).toHaveBeenCalled());
+    expect(host.render.mock.calls.at(-1)?.[0]).toMatchObject({ volumeIds: ['anat'] });
+    // Nor is the other tab's series offered as the secondary contrast.
+    expect(screen.queryByRole('option', { name: 'Synthetic series' })).not.toBeInTheDocument();
+  });
+
+  it('asks for a reference when the view holds no image', () => {
+    host.viewVolumes = [];
+    render(<SegmentationMode workspaceId="synthetic-view" />);
+    expect(screen.getByText('Select a reference image')).toBeInTheDocument();
+  });
 });
 
 describe('4D sources choose one explicit frame', () => {
@@ -122,11 +160,17 @@ describe('4D sources choose one explicit frame', () => {
     expect(getSegmentationSession('synthetic-view')?.snapshot.sliceIndex).toBe(1);
     expect(host.retain.mock.calls[0][1]).toMatchObject({ protectedVolumeIds: ['series'] });
     // The frozen frame the viewport will attach is protected like a source.
-    expect(host.retain.mock.calls.at(-1)?.[1]).toEqual({ moduleId: 'segmentation', protectedVolumeIds: ['segmentation_frame_x_reference'] });
+    expect(host.retain.mock.calls.at(-1)?.[1]).toEqual({
+      moduleId: 'segmentation',
+      protectedVolumeIds: ['segmentation_frame_x_reference'],
+    });
     // Discarding the document removes the frame's layer and the session's
     // label layer, which unloads them and releases their GPU slots (N37).
     forgetSegmentationSession({ workspaceId: 'synthetic-view', workspaceInstance: 'frames-owner' });
-    expect(host.remove).toHaveBeenCalledWith(['segmentation_frame_x_reference', 'synthetic-labels']);
+    expect(host.remove).toHaveBeenCalledWith([
+      'segmentation_frame_x_reference',
+      'synthetic-labels',
+    ]);
   });
 
   it('refuses an empty or out-of-range frame instead of using frame 0', async () => {
@@ -139,8 +183,12 @@ describe('4D sources choose one explicit frame', () => {
     for (const value of ['', '0', '7', '1.5']) {
       fireEvent.change(frame, { target: { value } });
       expect(frame.value).toBe(value);
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Create segmentation' })).not.toBeDisabled());
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create segmentation' })); });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Create segmentation' })).not.toBeDisabled(),
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Create segmentation' }));
+      });
       // Either the field's own constraint or setup validation stops the submit.
       expect(frame).toHaveAttribute('aria-invalid', 'true');
       const alert = screen.queryByRole('alert');
@@ -158,7 +206,13 @@ describe('4D sources choose one explicit frame', () => {
     );
     host.invoke.mockResolvedValueOnce({
       ...info(),
-      snapshot: { ...info().snapshot, ...owner, referenceVolumeId: 'series', referenceFrame: 2, secondaryFrame: 0 },
+      snapshot: {
+        ...info().snapshot,
+        ...owner,
+        referenceVolumeId: 'series',
+        referenceFrame: 2,
+        secondaryFrame: 0,
+      },
     });
     await createSegmentationSession(record, { ...setup, referenceFrame: 2 });
     render(<SegmentationInspector />);
