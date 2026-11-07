@@ -15541,13 +15541,7 @@ mod tests {
             demand_of(
                 2,
                 ResidencyPriority::Front,
-                &[
-                    ("s", "s"),
-                    ("c", "c"),
-                    ("d", "d"),
-                    ("e", "e"),
-                    ("f", "f"),
-                ],
+                &[("s", "s"), ("c", "c"), ("d", "d"), ("e", "e"), ("f", "f")],
             ),
         )
         .await;
