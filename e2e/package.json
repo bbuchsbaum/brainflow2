@@ -13,9 +13,9 @@
     "install:browsers": "playwright install"
   },
   "devDependencies": {
-    "@playwright/test": "1.48.0",
+    "@playwright/test": "1.55.1",
     "@tauri-apps/cli": "2.2.0",
-    "playwright": "1.48.0",
+    "playwright": "1.55.1",
     "pngjs": "7.0.0"
   }
 }

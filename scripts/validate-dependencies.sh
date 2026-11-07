@@ -90,23 +90,11 @@ if command_exists pnpm; then
         echo "   Run 'pnpm install' to generate it"
         exit 1
     fi
-    
-    # Check ui2 directory
-    if [ -d "ui2" ]; then
-        echo "📱 Checking ui2 dependencies..."
-        cd ui2
-        
-        if [ -f "package-lock.json" ]; then
-            echo "✅ package-lock.json found in ui2"
-            npm ci --only=prod 2>/dev/null || {
-                echo "❌ package-lock.json is inconsistent in ui2"
-                exit 1
-            }
-        fi
-        
-        cd ..
-    fi
-    
+
+    # ui2 and e2e are pnpm workspace members: the frozen install above already
+    # checked them against pnpm-lock.yaml. (ui2/package-lock.json is a stale
+    # npm lockfile from before the workspace and is not used.)
+
 else
     echo "⚠️  pnpm not found, checking for npm..."
     
@@ -130,23 +118,9 @@ fi
 echo "🎭 Checking E2E test dependencies..."
 
 if [ -d "e2e" ]; then
-    cd e2e
-    
-    if [ -f "package-lock.json" ]; then
-        echo "✅ E2E package-lock.json found"
-        npm ci 2>/dev/null || {
-            echo "❌ E2E package-lock.json is inconsistent"
-            cd ..
-            exit 1
-        }
-        echo "✅ E2E dependencies are consistent"
-    else
-        echo "❌ E2E package-lock.json not found"
-        cd ..
-        exit 1
-    fi
-    
-    cd ..
+    # A pnpm workspace member (see pnpm-workspace.yaml): covered by the frozen
+    # install of pnpm-lock.yaml above.
+    echo "✅ E2E dependencies are locked by pnpm-lock.yaml"
 else
     echo "⚠️  E2E directory not found"
 fi
@@ -207,7 +181,7 @@ echo ""
 echo "📋 Summary:"
 echo "  - Rust dependencies: $([ -f "Cargo.lock" ] && echo "✅ Valid" || echo "❌ Missing")"
 echo "  - Node.js dependencies: $([ -f "pnpm-lock.yaml" ] && echo "✅ Valid" || echo "❌ Missing")"
-echo "  - E2E dependencies: $([ -f "e2e/package-lock.json" ] && echo "✅ Valid" || echo "❌ Missing")"
+echo "  - E2E dependencies: $([ -f "pnpm-lock.yaml" ] && echo "✅ Valid (pnpm-lock.yaml)" || echo "❌ Missing")"
 echo "  - Security: $(command_exists cargo-audit && echo "✅ Checked" || echo "⚠️  Manual check needed")"
 echo ""
 echo "💡 Tip: Run this script in CI to ensure reproducible builds"
