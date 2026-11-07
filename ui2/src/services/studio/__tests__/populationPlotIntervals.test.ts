@@ -126,8 +126,8 @@ describe('computed summaries carry per-row interval metadata', () => {
     expect(out.frame.rows[0]).toMatchObject({
       n: 3,
       interval_kind: 'ci_t',
-      interval_level: 0.95,
-      interval_df: 2,
+      conf_level: 0.95,
+      df: 2,
     });
     expect(out.frame.columns.find((c) => c.name === 'interval_kind')?.role).toBe('nominal');
     expect(frameIntervalSummary(out.frame)).toEqual({ kind: 'ci_t', level: 0.95 });
@@ -192,7 +192,7 @@ describe('stored bounds (band.source = columns)', () => {
       [2, 1.5, 3.4, 12],
       [0.5, -0.1, 0.6, 11],
     ]);
-    expect(out.frame.rows[0]).toMatchObject({ interval_kind: 'wsci_cm', interval_level: 0.95 });
+    expect(out.frame.rows[0]).toMatchObject({ interval_kind: 'wsci_cm', conf_level: 0.95 });
     expect(out.frame.meta?.populationReduction).toMatchObject({ weight: 'stored summaries' });
     const summary = frameIntervalSummary(out.frame);
     expect(summary).toEqual({ kind: 'wsci_cm', level: 0.95 });
@@ -242,7 +242,7 @@ describe('stored bounds (band.source = columns)', () => {
     expect(labels[0]).toBe('90% CI (t)');
     expect(labels[1]).toBe('± SD');
     // A quantile row without its own level is not given the CI's 0.9.
-    expect(byPosition(out.frame)[2].interval_level).toBeNull();
+    expect(byPosition(out.frame)[2].conf_level).toBeNull();
   });
 
   it('the summary must name the centre the stored bounds describe', () => {

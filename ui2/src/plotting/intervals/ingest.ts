@@ -47,6 +47,7 @@ const KIND_ALIASES: Readonly<Record<string, IntervalChoice>> = {
   wsci: { kind: 'wsci_cm' },
   ws_ci: { kind: 'wsci_cm' },
   within_subject_ci: { kind: 'wsci_cm' },
+  heuristic: { kind: 'heuristic_se' },
   '': { kind: 'none' },
 };
 
@@ -78,8 +79,8 @@ const MARGIN_COLUMNS = ['margin', 'half_width', 'halfwidth', 'moe'];
 /** Per-row metadata columns: canonical name ← accepted spellings, in order. */
 const ROW_ALIASES: Readonly<Record<keyof typeof INTERVAL_COLUMNS, readonly string[]>> = {
   kind: [INTERVAL_COLUMNS.kind, 'interval_type', 'band_kind'],
-  level: [INTERVAL_COLUMNS.level, 'conf_level', 'conf.level'],
-  df: [INTERVAL_COLUMNS.df, 'df', 'dof'],
+  level: [INTERVAL_COLUMNS.level, 'conf.level', 'interval_level'],
+  df: [INTERVAL_COLUMNS.df, 'interval_df', 'dof'],
   n: [INTERVAL_COLUMNS.n, 'n_obs', 'nobs'],
 };
 

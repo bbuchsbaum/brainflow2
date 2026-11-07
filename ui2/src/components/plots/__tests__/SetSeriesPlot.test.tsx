@@ -240,7 +240,7 @@ describe('round-1 fixes: stale data, window mean, CSV, validation (v1 G1/G2/G3/H
     const csv = String((writeText.mock.calls[0] as unknown[])[0]).split('\n');
     // Round 2 X1 (deliberate change): one header row, no comment lines; SD, SE and the locus as columns.
     expect(csv[0]).toBe(
-      'condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,interval_level,interval_df,locus_kind,locus_label,n_voxels,transforms',
+      'condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,conf_level,df,locus_kind,locus_label,n_voxels,transforms',
     );
     expect(csv).toHaveLength(1 + 16 + 1);
     expect(csv[1].split(',').slice(0, 3)).toEqual(['faces', '0', '6']);

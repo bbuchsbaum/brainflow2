@@ -63,7 +63,7 @@ pub(crate) fn parse_trace_band(band: &str) -> Result<TraceInterval, String> {
         "quantile_range" => level
             .map(|level| TraceInterval::QuantileRange { level })
             .ok_or_else(|| needs_level(kind)),
-        "ci_t" | "wsci_cm" | "custom" => Err(format!(
+        "ci_t" | "wsci_cm" | "heuristic_se" | "custom" => Err(format!(
             "The {kind} interval is not computed for set traces (band {band:?})."
         )),
         _ => Err(format!("Unknown spatial dispersion band {band:?}.")),
@@ -167,6 +167,7 @@ mod tests {
             "ci_normal@x",
             "ci_t@0.95",
             "wsci_cm@0.95",
+            "heuristic_se@0.95",
             "ci_normal",
             "quantile_range",
             "",

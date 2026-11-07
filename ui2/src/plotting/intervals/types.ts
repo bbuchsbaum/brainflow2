@@ -4,8 +4,8 @@
  *
  * `kind` names the quantity; `level` is a separate field (never part of the
  * name); `source` says whether brainflow computes the bounds or reads them.
- * Canonical spellings here are provisional until the neurotabs schema fixes
- * them (plan Q1): change them in this file only.
+ * Kind names match neuromosaic's implemented vocabulary; neurotabs is to be
+ * the canonical home (plan Q1). Change spellings in this file only.
  */
 
 export const INTERVAL_KIND_IDS = [
@@ -16,6 +16,7 @@ export const INTERVAL_KIND_IDS = [
   'ci_t', // mean ± t(level, n − 1) · SE
   'quantile_range', // central `level` sample quantiles (type 7); IQR at 0.5
   'wsci_cm', // Cousineau–Morey within-subject CI (needs a design; not computed per cell)
+  'heuristic_se', // neuromosaic maps-only band: mean ± z · mean voxel SE; not a CI, not computed here
   'custom', // stored bounds whose definition is not a known kind
 ] as const;
 
@@ -46,10 +47,14 @@ export interface IntervalBounds {
   readonly df?: number;
 }
 
-/** Per-row interval metadata columns (summary frames, imported tables). */
+/**
+ * Per-row interval metadata columns (summary frames, imported tables). Names
+ * follow neuromosaic's `summaries.csv` (interval_kind, conf_level, df, n), the
+ * shared format until neurotabs defines one (plan Q1).
+ */
 export const INTERVAL_COLUMNS = {
   kind: 'interval_kind',
-  level: 'interval_level',
-  df: 'interval_df',
+  level: 'conf_level',
+  df: 'df',
   n: 'n',
 } as const;

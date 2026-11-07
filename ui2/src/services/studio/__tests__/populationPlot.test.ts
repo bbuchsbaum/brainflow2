@@ -38,7 +38,7 @@ it('computes local equal-participant means and explicitly defined bands', () => 
   // z(0.975) exactly, not the rounded 1.96 (cross-tool agreement).
   expect(result.frame.rows[0].lower).toBeCloseTo(3 - 1.959963984540054 * 2, 9);
   expect(result.frame.rows[0].upper).toBeCloseTo(3 + 1.959963984540054 * 2, 9);
-  expect(result.frame.rows[0]).toMatchObject({ interval_kind: 'ci_normal', interval_level: 0.95, interval_df: null });
+  expect(result.frame.rows[0]).toMatchObject({ interval_kind: 'ci_normal', conf_level: 0.95, df: null });
   expect(result.frame.rows[1]).toMatchObject({
     time: 1,
     value: 3,

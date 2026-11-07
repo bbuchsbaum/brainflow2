@@ -129,8 +129,8 @@ describe('normalizeInterval', () => {
     );
     expect(out.frame.rows[0]).toMatchObject({
       interval_kind: 'ci_t',
-      interval_level: 0.9,
-      interval_df: 9,
+      conf_level: 0.9,
+      df: 9,
       n: 10,
     });
     expect(out.spec).toMatchObject({ kind: 'ci_t', level: 0.9 });
@@ -141,22 +141,37 @@ describe('normalizeInterval', () => {
       normalizeInterval(
         {},
         frameOf([
-          { value: 2, lower: 1, upper: 3, interval_kind: 'ci_t', interval_level: 0.9 },
-          { value: 4, lower: 3, upper: 5, interval_kind: 'ci_t', interval_level: 0.95 },
+          { value: 2, lower: 1, upper: 3, interval_kind: 'ci_t', conf_level: 0.9 },
+          { value: 4, lower: 3, upper: 5, interval_kind: 'ci_t', conf_level: 0.95 },
         ]),
       ),
     );
     expect(out.spec.kind).toBe('custom');
-    expect(out.frame.rows.map((r) => r.interval_level)).toEqual([0.9, 0.95]);
+    expect(out.frame.rows.map((r) => r.conf_level)).toEqual([0.9, 0.95]);
     // A row kind that needs a level it doesn't have keeps its own words.
     const bare = ok(normalizeInterval({}, frameOf([{ value: 2, lower: 1, upper: 3, interval_kind: 'quantile' }])));
     expect(bare.frame.rows[0]).toMatchObject({ interval_kind: 'quantile' });
-    expect(bare.frame.rows[0].interval_level ?? null).toBeNull();
+    expect(bare.frame.rows[0].conf_level ?? null).toBeNull();
+  });
+
+  it('reads neuromosaic summaries.csv rows as they are written', () => {
+    const out = ok(
+      normalizeInterval(
+        {},
+        frameOf([
+          { estimate: 1.2, lower: 0.4, upper: 1.9, interval_kind: 'wsci_cm', conf_level: 0.95, df: 11, n: 12, level: 'cluster' },
+          { estimate: 0.3, lower: -0.2, upper: 0.7, interval_kind: 'wsci_cm', conf_level: 0.95, df: 11, n: 12, level: 'cluster' },
+        ]),
+      ),
+    );
+    expect(out.spec).toEqual({ kind: 'wsci_cm', level: 0.95, source: 'columns', lower: 'lower', upper: 'upper' });
+    expect(out.frame.rows[0]).toMatchObject({ interval_kind: 'wsci_cm', conf_level: 0.95, df: 11, n: 12, level: 'cluster' });
+    expect(ok(parseIntervalKind('heuristic_se', 0.95))).toEqual({ kind: 'heuristic_se', level: 0.95 });
   });
 
   it('does not read generic columns as interval metadata', () => {
     const out = ok(normalizeInterval({ kind: 'sd' }, frameOf([{ value: 2, lower: 1, upper: 3, level: 80, count: 900 }])));
-    expect(out.frame.rows[0].interval_level).toBeUndefined();
+    expect(out.frame.rows[0].conf_level).toBeUndefined();
     expect(out.frame.rows[0].n).toBeUndefined();
   });
 

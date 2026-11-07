@@ -3,6 +3,8 @@
  * options, validation and per-cell computation all derive from this table, so
  * no other module spells out what an interval is called or how it is computed.
  */
+import { normalQuantile } from '@/utils/distributions';
+
 import { normalInterval, quantileInterval, sdInterval, seInterval, tInterval } from './estimators';
 import type { IntervalBounds, IntervalChoice, IntervalKind, IntervalSpec } from './types';
 import { INTERVAL_KIND_IDS } from './types';
@@ -35,6 +37,7 @@ const ordinal = (p: number) => {
 };
 const tail = (level = 0.95) => Number(((1 + level) / 2).toFixed(6));
 const isIqr = (level?: number) => level === 0.5;
+const z = (level = 0.95) => normalQuantile((1 + level) / 2).toFixed(2);
 
 const DEFS: { readonly [K in IntervalKind]: IntervalKindDef } = {
   none: {
@@ -99,6 +102,15 @@ const DEFS: { readonly [K in IntervalKind]: IntervalKindDef } = {
     menuLabel: (l) => `${pct(l)}% within-subject CI (Cousineau–Morey)`,
     definition: (l) =>
       `mean ± t(${tail(l)}, n − 1) · SE of subject-normalised values · √(J / (J − 1)) (Cousineau–Morey)`,
+  },
+  heuristic_se: {
+    kind: 'heuristic_se',
+    centre: 'mean',
+    defaultLevel: 0.95,
+    shortLabel: (l) => `± ${z(l)} × mean voxel SE (heuristic)`,
+    menuLabel: (l) => `Heuristic band: ± ${z(l)} × mean voxel SE (not a CI)`,
+    definition: (l, centre = 'mean') =>
+      `regional ${centre} ± z(${tail(l)}) · mean voxel SE (heuristic; not a confidence interval)`,
   },
   custom: {
     kind: 'custom',

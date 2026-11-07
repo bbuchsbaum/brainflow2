@@ -1,6 +1,6 @@
 /**
  * Which interval a frame's bounds describe. Label resolution order:
- *   1. the row's own `interval_kind` / `interval_level`;
+ *   1. the row's own `interval_kind` / `conf_level`;
  *   2. the frame's declaration (a population summary's
  *      `meta.populationReduction.interval`, else `meta.interval`);
  *   3. nothing: the bounds are drawn but called "interval (definition not

@@ -92,7 +92,7 @@ export interface SeriesCsvLocus {
  * lines (default R / pandas readers take a `#` line as the header):
  * - participants: participant, condition, <axis>, value;
  * - population: <axis>, condition, n, <centre>, sd, se, band_low, band_high,
- *   band_definition, interval_kind, interval_level, interval_df;
+ *   band_definition, interval_kind, conf_level, df;
  * - a window mean replaces <axis> with numeric window_from_<unit>,
  *   window_to_<unit> and window_source (declared | condition-averaged peak).
  * Every row ends with locus_kind, locus_label, n_voxels and `transforms`

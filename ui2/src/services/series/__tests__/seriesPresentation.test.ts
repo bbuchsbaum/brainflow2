@@ -77,7 +77,7 @@ describe('series CSV (round 2 X1)', () => {
   it('population: sd, se, n and the locus as columns; no comment lines; ASCII', () => {
     const out = composePopulationPlot(fir, r);
     const csv = seriesCsv(out.frame, r, binding, locus).trim().split('\n');
-    expect(csv[0]).toBe('condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,interval_level,interval_df,locus_kind,locus_label,n_voxels,transforms');
+    expect(csv[0]).toBe('condition,lag_TR,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,conf_level,df,locus_kind,locus_label,n_voxels,transforms');
     const faces0 = csv.find((l) => l.startsWith('faces,0,'))!.split(',');
     expect(faces0.slice(0, 6)).toEqual(['faces', '0', '3', '2', '1', String(1 / Math.sqrt(3))]);
     expect(csv.at(-1)).toContain('sphere,"6 mm sphere at -39.5, -19.5, 50.5 mm",123,');
@@ -100,7 +100,7 @@ describe('series CSV (round 2 X1)', () => {
     const bounds = (rs: readonly Record<string, unknown>[], lo: string, hi: string) =>
       rs.map((x) => [x[lo], x[hi]]).sort((a, b) => Number(a[0]) - Number(b[0]));
     expect(bounds(read.ok.frame.rows, 'band_low', 'band_high')).toEqual(bounds(out.frame.rows, 'lower', 'upper'));
-    expect(read.ok.frame.rows[0]).toMatchObject({ interval_kind: 'ci_t', interval_level: 0.95, interval_df: 2, n: 3 });
+    expect(read.ok.frame.rows[0]).toMatchObject({ interval_kind: 'ci_t', conf_level: 0.95, df: 2, n: 3 });
   });
 
   it('participants: participant, condition, lag, value per row', () => {
@@ -115,7 +115,7 @@ describe('series CSV (round 2 X1)', () => {
     const w = { ...r, mark: 'point' as const, transforms: [{ kind: 'windowMean' as const, from: 1, to: 2, source: 'condition-averaged-peak' as const }] };
     const out = composePopulationPlot(fir, w);
     const csv = seriesCsv(out.frame, w, binding, null).trim().split('\n');
-    expect(csv[0]).toBe('condition,window_from_TR,window_to_TR,window_source,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,interval_level,interval_df,locus_kind,locus_label,n_voxels,transforms');
+    expect(csv[0]).toBe('condition,window_from_TR,window_to_TR,window_source,n,mean,sd,se,band_low,band_high,band_definition,interval_kind,conf_level,df,locus_kind,locus_label,n_voxels,transforms');
     expect(csv[1]).toMatch(/^faces,1,2,condition-averaged peak \(data-driven\),3,/);
     expect(csv[1]).toMatch(/window lags 1-2 TR from the condition-averaged peak \(data-driven\)$/);
   });

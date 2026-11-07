@@ -82,6 +82,9 @@ describe('interval registry', () => {
     );
     expect(intervalLabel({ kind: 'ci_t', level: 0.9 })).toBe('90% CI (t)');
     expect(intervalLabel({ kind: 'custom' })).toBe('interval (definition not supplied)');
+    expect(intervalLabel({ kind: 'heuristic_se', level: 0.95 })).toBe('± 1.96 × mean voxel SE (heuristic)');
+    expect(intervalMenuLabel({ kind: 'heuristic_se', level: 0.95 })).toMatch(/not a CI/);
+    expect(computeInterval({ kind: 'heuristic_se', level: 0.95 }, VALS, 40)).toBeNull();
     expect(intervalLabel({ kind: 'custom', definition: 'HDI 89%' })).toBe('HDI 89%');
     expect(intervalDefinition(INTERVAL_PRESETS.ciT95)).toBe('mean ± t(0.975, n − 1) · SD / √n');
     expect(intervalDefinition(INTERVAL_PRESETS.iqr)).toBe('25th–75th percentile (type 7)');

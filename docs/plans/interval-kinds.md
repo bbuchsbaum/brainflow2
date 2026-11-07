@@ -72,7 +72,7 @@ interface IntervalSpec {
 }
 
 const INTERVAL_COLUMNS = {
-  kind: 'interval_kind', level: 'interval_level', df: 'interval_df', n: 'n',
+  kind: 'interval_kind', level: 'conf_level', df: 'df', n: 'n',
 } as const;
 ```
 
@@ -296,3 +296,31 @@ Not done:
   reader (Q1). The plan's per-row alias `kind` was deliberately not adopted
   (too generic); `interval_type` and `band_kind` are accepted.
 - Phase 4 (design declaration, `wsci_cm` computation) hasn't started.
+
+### 2026-11-07 — aligned with neuromosaic (Q1 interim)
+
+The user's direction: the neurotabs schema is canonical unless it has flaws.
+neurotabs doesn't define intervals yet. neuromosaic's implementation notes
+(`design/region-effects-plan.md`, "Implementation notes") fix kind names
+without levels (`ci_t`, `ci_normal`, `wsci_cm`, `heuristic_se`, `none`) and
+write `interval_kind`, `conf_level`, `df` and `n` in `summaries.csv`. Brainflow
+now matches it:
+
+- Per-row columns are `conf_level` and `df`, replacing `interval_level` and
+  `interval_df`. Those remain accepted on ingest.
+- New kind `heuristic_se`: ± z · mean voxel SE. It's labelled as not a CI and
+  is display-only (stored bounds); it's refused for compute and for set
+  traces.
+- Brainflow additionally has `sd`, `se`, `quantile_range` and `custom`.
+
+Points to settle when the schema moves into neurotabs:
+
+1. neuromosaic's C5 plot-profile text still lists `ci95_t` and `wsci95_cm`;
+   only its implementation notes are current.
+2. `summaries.csv` also has a `level` column meaning region level
+   (cluster/subregion), next to `conf_level`. Ingest doesn't read `level` as a
+   confidence level.
+3. The centre column there is `estimate`; brainflow frames use `value`. The
+   neurotabs reader must map it.
+4. Kinds brainflow has that neuromosaic lacks (`sd`, `se`, `quantile_range`,
+   `custom`) need adding there, or confirming as brainflow-only.

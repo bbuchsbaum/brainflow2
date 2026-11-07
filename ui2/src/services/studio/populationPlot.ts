@@ -153,6 +153,8 @@ function validateBand(names: ReadonlySet<string>, r: PopulationPlotRecipe) {
   if (kind === 'custom') throw new Error('A custom interval is drawn from stored bounds only.');
   if (kind === 'wsci_cm')
     throw new Error('The within-subject CI needs a declared design; draw stored bounds instead.');
+  if (kind === 'heuristic_se')
+    throw new Error('The heuristic voxel-SE band needs voxel standard errors; draw stored bounds instead.');
   if (r.summary !== 'none' && kind !== 'none' && !intervalFitsCentre(kind, r.summary))
     throw new Error(
       r.summary === 'median'
