@@ -37,6 +37,7 @@ import { getEventBus } from '@/events/EventBus';
 import { getStudioDerivedMapService } from '@/services/studio/StudioDerivedMapService';
 import type { AtlasStats } from '@/types/atlas';
 import { gpuBudgetExceeded, type GpuBudgetExceededDetails } from '@/utils/formatTauriError';
+import { backendOwnsResidency } from '@/stores/residencyStore';
 
 /**
  * The budget used until the backend reports its real one (render loop not
@@ -244,6 +245,8 @@ class LayerEvictionService {
     uploadingLayerId: string | undefined,
     options: { reserve?: boolean; counted?: boolean },
   ): Promise<boolean> {
+    // A backend owner (R5c) makes room for every upload itself.
+    if (backendOwnsResidency()) return true;
     // In byte mode the backend owns admission under its allocation lock.  A
     // count of UI layers (or a transient reservation) has no bearing on bytes
     // used, so it must not evict before the real request says it is pressured.
@@ -328,6 +331,7 @@ class LayerEvictionService {
    * net; {@link makeRoomForUpload} keeps a slot free).
    */
   async checkAndEvict(): Promise<void> {
+    if (backendOwnsResidency()) return;
     const budget = await this.gpuTextureSlots();
     if (this.residencyMode === 'bytes') return;
     if (this.slotsInUse() > budget) await this.evictOne();
@@ -462,6 +466,8 @@ class LayerEvictionService {
    * within each tier. Pinned layers are never chosen.
    */
   private async evictOne(keepLayerId?: string, forUpload = false): Promise<boolean> {
+    // A backend owner (R5c) evicts; the UI never does.
+    if (backendOwnsResidency()) return false;
     // Read the stores after any await: layers change while the backend answers.
     const { layers, layerMetadata, setLayerMetadata } = useLayerStore.getState();
     const visibility = layerVisibility();

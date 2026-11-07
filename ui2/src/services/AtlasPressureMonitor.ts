@@ -8,6 +8,7 @@ import { getEventBus } from '@/events/EventBus';
 import type { AtlasStats } from '@/types/atlas';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { getLayerService } from './LayerService';
+import { backendOwnsResidency } from '@/stores/residencyStore';
 
 type PressureLevel = 'warning' | 'critical' | 'recovered';
 
@@ -179,7 +180,9 @@ export class AtlasPressureMonitor {
       });
 
       // Trigger eviction once we've exhausted capacity twice in a session
+      // A backend owner (R5c) decides evictions itself.
       const shouldEvict =
+        !backendOwnsResidency() &&
         stats.fullEvents >= 2 &&
         stats.freeLayers === 0 &&
         this.lastEvictedFullEventCount !== stats.fullEvents;

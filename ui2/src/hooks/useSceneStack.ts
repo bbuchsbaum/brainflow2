@@ -7,6 +7,8 @@ import type { SceneItem, SceneStackGroups } from '@/types/sceneItem';
 import { useImageSetStore } from '@/stores/imageSetStore';
 import type { ImageSelectionSet } from '@/types/imageSet';
 import { isAtlasLikeLayer } from '@/utils/sceneItemKind';
+import type { ResidencyRefusal } from '@brainflow/api';
+import { useResidencyStore } from '@/stores/residencyStore';
 
 /**
  * Unified, derived read view of all scene-stack items used by the right
@@ -28,11 +30,39 @@ export function useSceneStack(): SceneStackGroups {
   const viewStateLayers = useViewStateStore(
     (state) => state.viewState?.layers ?? null
   );
+  const residency = useResidencyStore((state) => state.report);
+  const notDrawn = useMemo(() => {
+    const refused = new Map<string, ResidencyRefusal>();
+    // Only a backend owner (R5c) reports refusals the UI acts on.
+    if (residency?.owner !== 'backend') return refused;
+    for (const layer of residency.layers) {
+      if (layer.state === 'refused' && layer.refusal) refused.set(layer.layer_id, layer.refusal);
+    }
+    return refused;
+  }, [residency]);
 
   return useMemo(
-    () => buildSceneStack(volumeLayers, surfaces, viewStateLayers, imageSets, layerKinds),
-    [volumeLayers, surfaces, viewStateLayers, imageSets, layerKinds]
+    () => buildSceneStack(volumeLayers, surfaces, viewStateLayers, imageSets, layerKinds, notDrawn),
+    [volumeLayers, surfaces, viewStateLayers, imageSets, layerKinds, notDrawn]
   );
+}
+
+/** The row badge for a layer the backend does not draw (R5c). */
+export function notDrawnLabel(refusal: ResidencyRefusal): string {
+  switch (refusal) {
+    case 'draw_cap':
+      return 'not drawn: too many layers';
+    case 'front_exceeds_budget':
+      return 'not drawn: GPU budget full';
+    case 'held_by_pinned':
+      return 'not drawn: GPU held by pinned layers';
+    case 'oversized_request':
+      return 'not drawn: larger than the GPU budget';
+    case 'volume_missing':
+      return 'not drawn: volume missing';
+    case 'upload_failed':
+      return 'not drawn: upload failed';
+  }
 }
 
 /**
@@ -44,6 +74,7 @@ export function buildSceneStack(
   viewStateLayers: ReadonlyArray<{ id: string; visible?: boolean; opacity?: number; render?: { opacity?: number } }> | null,
   imageSets: Record<string, ImageSelectionSet> = {},
   layerKinds: readonly RegisteredLayerKind[] = moduleRegistry.getLayerKinds(),
+  notDrawn: ReadonlyMap<string, ResidencyRefusal> = new Map(),
 ): SceneStackGroups {
   const opacityById = new Map<string, number>();
   const visibilityById = new Map<string, boolean>();
@@ -86,9 +117,14 @@ export function buildSceneStack(
       group: 'volume',
       layerKind: layer.layerKind,
       name: layer.name,
-      subtitle: imageSet ? `image set · ${imageSet.activeIndex + 1}/${imageSet.members.length} · ${imageSet.members[imageSet.activeIndex]?.name ?? ''}` : buildVolumeSubtitle(
-        layer,
-        kind as 'volume-base' | 'volume-overlay' | 'volume-overlay-atlas'
+      subtitle: withNotDrawn(
+        imageSet
+          ? `image set · ${imageSet.activeIndex + 1}/${imageSet.members.length} · ${imageSet.members[imageSet.activeIndex]?.name ?? ''}`
+          : buildVolumeSubtitle(
+              layer,
+              kind as 'volume-base' | 'volume-overlay' | 'volume-overlay-atlas'
+            ),
+        notDrawn.get(layer.id)
       ),
       visible: viewStateLayers ? (visibilityById.get(layer.id) ?? false) : layer.visible,
       opacity: opacityById.get(layer.id) ?? 1,
@@ -156,6 +192,10 @@ export function buildSceneStack(
     mappings: mappingItems,
     totalCount: volumes.length + surfaceItems.length + mappingItems.length,
   };
+}
+
+function withNotDrawn(subtitle: string, refusal: ResidencyRefusal | undefined): string {
+  return refusal ? `${subtitle} · ${notDrawnLabel(refusal)}` : subtitle;
 }
 
 function buildVolumeSubtitle(

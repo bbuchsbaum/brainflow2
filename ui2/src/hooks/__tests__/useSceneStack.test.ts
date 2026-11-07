@@ -45,10 +45,7 @@ describe('buildSceneStack', () => {
   });
 
   it('first non-atlas volume is the base; the rest are overlays', () => {
-    const volumes = [
-      makeVolume({ id: 'a', name: 'T1w' }),
-      makeVolume({ id: 'b', name: 'BOLD' }),
-    ];
+    const volumes = [makeVolume({ id: 'a', name: 'T1w' }), makeVolume({ id: 'b', name: 'BOLD' })];
     const result = buildSceneStack(volumes, new Map(), null);
     expect(result.volumes[0].kind).toBe('volume-base');
     expect(result.volumes[1].kind).toBe('volume-overlay');
@@ -81,7 +78,7 @@ describe('buildSceneStack', () => {
     const result = buildSceneStack(
       [makeVolume({ id: 'v-source', name: 'tmap' })],
       new Map([['s1', surface]]),
-      null
+      null,
     );
     expect(result.mappings).toHaveLength(1);
     const mapping = result.mappings[0];
@@ -98,7 +95,10 @@ describe('buildSceneStack', () => {
     const result = buildSceneStack(
       [makeVolume({ id: 'user', visible: true }), makeVolume({ id: 'run', visible: true })],
       new Map(),
-      [{ id: 'user', visible: false }, { id: 'run', visible: true }],
+      [
+        { id: 'user', visible: false },
+        { id: 'run', visible: true },
+      ],
     );
     expect(result.volumes.find((item) => item.id === 'user')?.visible).toBe(false);
     expect(result.volumes.find((item) => item.id === 'run')?.visible).toBe(true);
@@ -110,12 +110,23 @@ describe('buildSceneStack', () => {
     expect(buildSceneStack([layer], new Map(), null).volumes[0].visible).toBe(true);
   });
 
-  it('reports opacity from viewStateLayers when available', () => {
+  it('badges a layer the backend does not draw, with why (R5c)', () => {
     const result = buildSceneStack(
-      [makeVolume({ id: 'a', name: 'T1w' })],
+      [makeVolume({ id: 'a' }), makeVolume({ id: 'b' })],
       new Map(),
-      [{ id: 'a', render: { opacity: 0.42 } }]
+      null,
+      {},
+      [],
+      new Map([['b', 'draw_cap' as const]]),
     );
+    expect(result.volumes[0].subtitle).toBe('base volume');
+    expect(result.volumes[1].subtitle).toBe('volume overlay · not drawn: too many layers');
+  });
+
+  it('reports opacity from viewStateLayers when available', () => {
+    const result = buildSceneStack([makeVolume({ id: 'a', name: 'T1w' })], new Map(), [
+      { id: 'a', render: { opacity: 0.42 } },
+    ]);
     expect(result.volumes[0].opacity).toBeCloseTo(0.42);
   });
 });
@@ -124,7 +135,12 @@ describe('buildSceneStack label maps (P3 item 4)', () => {
   it('gives a user-loaded label map the atlas kind and keeps the anatomical base', () => {
     const result = buildSceneStack(
       [
-        makeVolume({ id: 'dseg', name: 'atlas-synth3_dseg.nii.gz', isLabelMap: true, source: 'file' }),
+        makeVolume({
+          id: 'dseg',
+          name: 'atlas-synth3_dseg.nii.gz',
+          isLabelMap: true,
+          source: 'file',
+        }),
         makeVolume({ id: 't1', name: 'T1', source: 'file' }),
       ],
       new Map(),
@@ -135,11 +151,21 @@ describe('buildSceneStack label maps (P3 item 4)', () => {
   });
 });
 
-
 describe('4D frame readout (phase 4 v1 F8)', () => {
   it('is 1-based of the count, like the status bar ("frame 3/8" for index 2)', () => {
     const stack = buildSceneStack(
-      [makeVolume({ volumeType: 'TimeSeries4D', currentTimepoint: 2, timeSeriesInfo: { num_timepoints: 8, tr: null, temporal_unit: null, acquisition_time: null } } as Partial<LayerInfo>)],
+      [
+        makeVolume({
+          volumeType: 'TimeSeries4D',
+          currentTimepoint: 2,
+          timeSeriesInfo: {
+            num_timepoints: 8,
+            tr: null,
+            temporal_unit: null,
+            acquisition_time: null,
+          },
+        } as Partial<LayerInfo>),
+      ],
       new Map(),
       null,
     );

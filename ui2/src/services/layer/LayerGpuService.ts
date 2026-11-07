@@ -78,6 +78,9 @@ export class LayerGpuService {
       if (metadataOnly) throw error;
       const { gpuBudgetExceeded } = await import('@/utils/formatTauriError');
       if (!gpuBudgetExceeded(error)) throw error;
+      // A backend owner (R5c) already made what room it could before refusing.
+      const { backendOwnsResidency } = await import('@/stores/residencyStore');
+      if (backendOwnsResidency()) throw error;
       const { layerEvictionService } = await import('@/services/LayerEvictionService');
       result = await layerEvictionService.retryBudgetUpload(rawRequest, layerId, error, options?.isOperationValid);
     }
