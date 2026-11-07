@@ -658,9 +658,12 @@ pub(crate) async fn clear_residency_demand_with(
         .await
         .clear_demand(&FrameId::new(frame_id), epoch);
     let applied = outcome == LedgerOutcome::Applied;
-    // The closed tab's rings keep only their displayed members (R5d).
-    if applied {
+    // Under the owner, rings only behind tabs now keep just their displayed
+    // members (R5d), and the next tick admits for the fronts: a layer skipped
+    // for want of room is drawn once the room is there.
+    if applied && state.residency.backend_owner() {
         shrink_background_rings(state).await;
+        state.residency.want_admission();
     }
     ResidencyDemandResult { applied }
 }

@@ -15483,35 +15483,46 @@ mod tests {
 
     #[tokio::test]
     async fn front_rings_share_slack() {
-        // Eight textures fit, headroom 128. `a` prefetches first and takes
-        // more than half the slack; once `b` has a ring, `a`'s next swap
-        // gives back what is past its share and both hold the same.
+        // Eight textures fit, headroom 128. `a` prefetches while it is the only
+        // ring and takes most of the slack. When `b` first swaps, the two
+        // split it: `a` gives back its farthest member without swapping again.
         let (state, service) = owned_series_state(8, &["a", "b"]).await;
         show_member(&state, &service, "a", 1).await;
         assert_eq!(ring_members(&state, "a").await, [0, 1, 2, 3]);
-        show_member(&state, &service, "b", 1).await;
-        assert_eq!(ring_members(&state, "b").await, [0, 1, 2]);
 
-        show_member(&state, &service, "a", 2).await;
-        assert_eq!(ring_members(&state, "a").await, [1, 2, 3]);
-        assert_eq!(ring_members(&state, "b").await.len(), 3);
+        show_member(&state, &service, "b", 1).await;
+        assert_eq!(ring_members(&state, "a").await, [0, 1, 2]);
+        assert_eq!(ring_members(&state, "b").await, [0, 1, 2]);
         assert!(free_bytes(&service).await >= 128, "the headroom stays free");
     }
 
     #[tokio::test]
     async fn background_ring_shrinks_to_displayed_member() {
-        let (state, service) = owned_series_state(8, &["s"]).await;
+        let (state, service) = owned_series_state(8, &["s", "p"]).await;
         let shown = show_member(&state, &service, "s", 1).await;
+        show_member(&state, &service, "p", 1).await;
         assert!(ring_members(&state, "s").await.len() > 1);
+        let pinned = ring_members(&state, "p").await;
+        assert!(pinned.len() > 1);
+        // `p` is also a studio pane: pinned, and drawn though its frame is
+        // Background.
+        let mut panes = demand_of(1, ResidencyPriority::Background, &[("p", "p")]);
+        panes.layers[0].pin = Some(ResidencyPin::StudioPane);
+        set_residency_demand_with(&state, "studio-panes".into(), panes).await;
 
         // The tab goes behind another.
         set_residency_demand_with(
             &state,
             "tab".into(),
-            demand_of(2, ResidencyPriority::Background, &[("s", "s")]),
+            demand_of(2, ResidencyPriority::Background, &[("s", "s"), ("p", "p")]),
         )
         .await;
         assert_eq!(ring_members(&state, "s").await, [1]);
+        assert_eq!(
+            ring_members(&state, "p").await,
+            pinned,
+            "the pane keeps its ring"
+        );
         let renderer = service.lock().await;
         assert!(
             renderer.is_slot_current(shown),
@@ -15521,7 +15532,6 @@ mod tests {
             renderer.get_volume_data_range(shown.index()),
             Some((0.0, 2.5))
         );
-        assert_eq!(renderer.residency_metrics().used_bytes, 128);
     }
 
     #[tokio::test]

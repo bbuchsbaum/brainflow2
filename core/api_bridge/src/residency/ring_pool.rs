@@ -46,35 +46,43 @@ impl RingGrowth {
 
 /// Demand as the pool sees it, read before the ring lock is taken.
 pub(crate) struct PoolDemand {
-    /// Layers a Front frame lists or holds. `None` when no frame demands
-    /// anything yet: then every ring counts as in front.
-    front: Option<HashSet<String>>,
+    /// Layers whose rings stay small: see [`behind_layers`].
+    behind: HashSet<String>,
     /// Texture bytes of the largest demanded primary.
     largest_primary: u64,
 }
 
 impl PoolDemand {
     fn in_front(&self, layer_id: &str) -> bool {
-        self.front
-            .as_ref()
-            .is_none_or(|front| front.contains(layer_id))
+        !self.behind.contains(layer_id)
     }
 }
 
-/// Layers some Front frame lists or holds; `None` with no frames at all.
-fn front_layers(ledger: &super::demand::DemandLedger) -> Option<HashSet<String>> {
+/// Layers only Background frames demand, none of them pinned: their rings
+/// keep the displayed member alone. A layer a Front frame lists, a pinned
+/// layer (a studio pane is drawn though its frame is Background) and a layer
+/// no frame lists yet (it was just added; demand follows) are not behind.
+fn behind_layers(ledger: &super::demand::DemandLedger) -> HashSet<String> {
     let frames = ledger.frames();
-    if frames.is_empty() {
-        return None;
-    }
-    Some(
-        frames
-            .into_iter()
-            .filter(|(_, demand)| demand.priority == Priority::Front)
-            .flat_map(|(_, demand)| demand.layers.iter().chain(&demand.held))
-            .map(|layer| layer.layer_id.clone())
-            .collect(),
-    )
+    let kept: HashSet<&str> = frames
+        .iter()
+        .flat_map(|(_, demand)| {
+            let front = demand.priority == Priority::Front;
+            demand
+                .layers
+                .iter()
+                .chain(&demand.held)
+                .filter(move |layer| front || layer.pin.is_some())
+        })
+        .map(|layer| layer.layer_id.as_str())
+        .collect();
+    frames
+        .iter()
+        .flat_map(|(_, demand)| demand.layers.iter().chain(&demand.held))
+        .map(|layer| layer.layer_id.as_str())
+        .filter(|layer_id| !kept.contains(layer_id))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Read the demand the pool needs. The caller holds the render service and
@@ -83,7 +91,7 @@ pub(crate) async fn pool_demand(
     state: &BridgeState,
     service: &mut RenderLoopService,
 ) -> PoolDemand {
-    let (front, demanded) = {
+    let (behind, demanded) = {
         let residency = state.residency.state.lock().await;
         let demanded: Vec<(String, String)> = residency
             .ledger
@@ -92,7 +100,7 @@ pub(crate) async fn pool_demand(
             .flat_map(|(_, demand)| demand.layers.iter().chain(&demand.held))
             .map(|layer| (layer.layer_id.clone(), layer.volume_id.clone()))
             .collect();
-        (front_layers(&residency.ledger), demanded)
+        (behind_layers(&residency.ledger), demanded)
     };
     let known = state.residency.known_texture_bytes();
     let layer_map = state.layer_slots.lock().await;
@@ -110,7 +118,7 @@ pub(crate) async fn pool_demand(
         .max()
         .unwrap_or(0);
     PoolDemand {
-        front,
+        behind,
         largest_primary,
     }
 }
@@ -160,16 +168,33 @@ pub(crate) fn ring_growth(
     })
 }
 
-/// Free the cached members of every ring no Front frame lists, keeping each
-/// displayed member. Backend owner only; nothing before any frame demands.
-/// Returns how many members it freed.
+/// Give back what the other front rings hold past `share`, the equal share
+/// the swapping ring was just given: the first ring to prefetch must not keep
+/// the slack while the others cannot grow. Each keeps its displayed member.
+pub(crate) fn trim_front_rings(
+    except: &str,
+    demand: &PoolDemand,
+    share: u64,
+    sets: &mut HashMap<String, image_set::ResidentImageSet>,
+    service: &mut RenderLoopService,
+) -> usize {
+    sets.iter_mut()
+        .filter(|(id, _)| id.as_str() != except && demand.in_front(id))
+        .map(|(_, ring)| ring.trim_cached_to(share, service))
+        .sum()
+}
+
+/// Free the cached members of every ring only Background frames demand
+/// (see [`behind_layers`]), keeping each displayed member. Backend owner
+/// only. Returns how many members it freed.
 pub(crate) async fn shrink_background_rings(state: &BridgeState) -> usize {
     if !state.residency.backend_owner() {
         return 0;
     }
-    let Some(front) = front_layers(&state.residency.state.lock().await.ledger) else {
+    let behind = behind_layers(&state.residency.state.lock().await.ledger);
+    if behind.is_empty() {
         return 0;
-    };
+    }
     let _operation = state.volume_operations.lock().await;
     let Some(service_arc) = current_service(state).await else {
         return 0;
@@ -179,11 +204,8 @@ pub(crate) async fn shrink_background_rings(state: &BridgeState) -> usize {
     let mut sets = state.resident_image_sets.lock().await;
     let mut freed = 0;
     for (layer_id, resident) in sets.iter_mut() {
-        if front.contains(layer_id) {
-            continue;
-        }
-        while resident.release_cached_lru(&mut service).is_some() {
-            freed += 1;
+        if behind.contains(layer_id) {
+            freed += resident.trim_cached_to(0, &mut service);
         }
     }
     if freed > 0 {

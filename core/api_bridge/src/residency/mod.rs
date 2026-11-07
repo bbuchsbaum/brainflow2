@@ -67,7 +67,7 @@ pub(crate) use ring::{
     release_resident_image_set_allocations, resident_image_set_enabled, RESIDENT_RING_BUDGET_BYTES,
     RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_PREFETCH_RADIUS,
 };
-pub(crate) use ring_pool::{pool_demand, ring_growth, RingGrowth};
+pub(crate) use ring_pool::{pool_demand, ring_growth, trim_front_rings, RingGrowth};
 pub(crate) use shadow::{check_draw_cap, note_reclaim, note_release_for_upload, note_request};
 pub(crate) use skips::{clear_allocation_failed_skips, note_render_skip, RenderSkip};
 #[cfg(test)]

@@ -939,6 +939,10 @@ pub(crate) async fn try_resident_swap(
     let growth = pool
         .as_ref()
         .and_then(|demand| ring_growth(layer_id, demand, &sets, service));
+    // The other front rings give back what is past the share (R5d).
+    if let (Some(demand), Some(growth)) = (pool.as_ref(), growth) {
+        trim_front_rings(layer_id, demand, growth.share, &mut sets, service);
+    }
 
     // Phase 1: make the requested member resident (may upload once on a miss).
     // A miss uploads the new member into a fresh texture while the shown one

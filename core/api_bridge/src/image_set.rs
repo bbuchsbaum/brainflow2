@@ -574,16 +574,28 @@ impl ResidentImageSet {
             .sum()
     }
 
-    /// Free least recently used cached members until the cached ones hold at
-    /// most `bytes`; the displayed member stays. Returns how many it freed.
+    /// Free cached members, farthest from the displayed one first, until the
+    /// cached ones hold at most `bytes`; the displayed member stays. (Least
+    /// recently used would take the member just shown, since prefetched
+    /// neighbours are touched after it.) Returns how many it freed.
     pub(crate) fn trim_cached_to(
         &mut self,
         bytes: u64,
         service: &mut render_loop::RenderLoopService,
     ) -> usize {
+        let current = self.current_member;
         let mut freed = 0;
         while self.cached_bytes(service) > bytes {
-            if self.release_cached_lru(service).is_none() {
+            let farthest = self
+                .ring
+                .resident_members()
+                .into_iter()
+                .filter(|&member| member != current)
+                .max_by_key(|&member| (member.abs_diff(current), member));
+            let Some(member) = farthest else {
+                break;
+            };
+            if self.release_cached_member(member, service).is_none() {
                 break;
             }
             freed += 1;
