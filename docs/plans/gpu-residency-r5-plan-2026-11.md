@@ -533,3 +533,47 @@ Commits `b711b2e2`, `5bbfa56a` and `7e294ca7`, on `feat/r5d-ring-pool`, stacked 
 - **Not checked:** the switch away and back (opening a second tab needs full-screen control, which timed out); the Diagnostics byte count (a pop-up the background tools cannot open). Both should be part of the repeat native check before R6.
 
 **Next.** R6. First repeat the flag-on native check (§8) at the merged state, including the tab switch with a 4D tab and the R5c alert fix.
+
+### Pre-R6 native recheck — 2026-11-07 (main at `e7e16d18`)
+
+QA app built from main. `BRAINFLOW_BACKEND_RESIDENCY=1`, 24 KiB budget, unless stated otherwise. Full-screen control was used. ChatGPT's invisible window was gone by the time it mattered.
+
+**Passed**
+- **Load and pressure (steps 3–4).**
+  - Five tabs, 31 layers (groups 1–3 and the 6-frame series), no errors.
+  - Ten rapid tab switches before the pressure and eight after it.
+  - 11 releases under pressure. No 6001, 6008, 6021, error lines or panics.
+  - The only warnings were the expected draw-cap skips.
+- **Alert fix from R5c (`b24739d2`).**
+  - Two tabs went past 13 layers. Each raised exactly one alert. The second named "r4-2-05.nii and 6 more".
+  - Neither alert came back across 18 switches that returned to both tabs.
+- **4D under pressure (step 7).**
+  - The series opened in its own tab and stepped to frame 3.
+  - Switching to the group-1 tab and back kept frame 3 and the same crosshair value.
+  - No "Re-uploading 4D" line: every member change went through the ring.
+- **Segmentation on r4-1-01 (step 8, simple setup).**
+  - Setup preview rendered.
+  - Paint gave 20 mm³. Undo gave 0, redo gave 20.
+  - The label was intact after switching away and back.
+  - Plain scroll steps slices.
+
+**Not checked**
+- **⌥-scroll.** The computer-use scroll action does not deliver modifiers to wheel events: ctrl-scroll also stepped a slice, and the code zooms on either key (`SegmentViewport.tsx:230`). This needs a manual check.
+- **Diagnostics byte count.** The pop-up shows MiB to one decimal, so a 24 KiB budget always reads 0.0. The pop-up has no owner row.
+- **Discard (step 9).** Not rechecked. It passed in R5c.
+
+**Open: segmentation setup stall on a 4D reference.** "Open segmentation" in the crowded session picked the 4D series (frame 3) as reference and stayed at "Preparing the loaded reference…".
+- The header read "slice 4 / 8", so `get_volume_info` had resolved.
+- The bridge logged nothing after it.
+- It did not reproduce in either simple setup (only the 4D loaded, flag on or off).
+
+A code trace of the UI found no wait that the R5c owner gates leave pending. Every gate returns at once under the owner. That leaves two candidates:
+- **(A) A silent exit when the view changes mid-request.** `RegistrationPreview.tsx` returns without setting state or an error when `lease.isCurrent()` turns false, and nothing re-runs the effect. This is not specific to the flag.
+- **(B) A backend call that never returns.** Neither `get_volume_native_plane` nor `request_layer_gpu_resources` logs before taking its lock, so a call stuck behind `volume_operations` or the service lock leaves no trace.
+
+Next steps:
+- Run the crowded setup with the flag off to tell A from B.
+- Make the preview retry or report a stale lease instead of returning silently.
+- Log entry and exit around those two commands.
+
+**Before R6:** settle the stall (A or B), and check ⌥-scroll by hand.
