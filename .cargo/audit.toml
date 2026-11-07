@@ -47,8 +47,9 @@ ignore = [
     # Clears when futures-util drops it.
     "RUSTSEC-2026-0441",
 
-    # zvariant / zbus_names / zvariant_derive (Linux only: tauri-plugin-dialog ->
-    # rfd -> ashpd -> zbus 5): merged into zbus 6; clears when ashpd moves to it.
+    # zvariant / zbus_names / zvariant_derive: in Cargo.lock only, never compiled
+    # (tauri-plugin-dialog builds rfd without its xdg-portal feature, which would
+    # pull in ashpd -> zbus 5). Merged into zbus 6; clears when ashpd moves to it.
     "RUSTSEC-2026-0370",
     "RUSTSEC-2026-0371",
     "RUSTSEC-2026-0372",

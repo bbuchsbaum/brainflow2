@@ -39,7 +39,7 @@ ignore = [
     "RUSTSEC-2026-0196", # cgmath: unmaintained (neurosurf-rs -> tri-mesh)
     "RUSTSEC-2026-0197", # cgmath: swap_columns unsound; nothing calls it
     "RUSTSEC-2026-0441", # pin-utils: unmaintained (futures-util, latest release)
-    "RUSTSEC-2026-0370", # zvariant: merged into zbus 6 (Linux file dialog)
+    "RUSTSEC-2026-0370", # zvariant: merged into zbus 6 (lockfile only, never built)
     "RUSTSEC-2026-0371", # zbus_names: merged into zbus 6
     "RUSTSEC-2026-0372", # zvariant_derive: merged into zbus 6
 ]
@@ -47,8 +47,8 @@ ignore = [
 [licenses]
 version = 2
 confidence-threshold = 0.8
-# Only these licenses are accepted; anything else (GPL, AGPL, LGPL, EUPL,
-# CeCILL and other copyleft licenses included) is an error.
+# Only these licenses are accepted; anything else (GPL, AGPL, LGPL, EUPL and
+# CeCILL included) is an error. MPL-2.0, a file-level copyleft, is allowed.
 allow = [
     "MIT",
     "Apache-2.0",
